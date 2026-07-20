@@ -1,0 +1,39 @@
+{
+  "name": "@qiongqi/cli",
+  "version": "0.1.0",
+  "description": "Qiongqi cli package",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "qiongqi": "./dist/serve-entry.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@qiongqi/http": "workspace:*",
+    "@qiongqi/contracts": "workspace:*",
+    "@qiongqi/adapter-tools": "workspace:*",
+    "@qiongqi/ports": "workspace:*",
+    "@qiongqi/loop": "workspace:*",
+    "@qiongqi/preset-coding": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2",
+    "@types/node": "^26.0.0"
+  },
+  "private": true,
+  "types": "./dist/index.d.ts"
+}

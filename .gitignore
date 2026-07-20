@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+out/
+.vite/
+*.tsbuildinfo
+
+# Electron
+release/
+*.dmg
+*.zip
+*.AppImage
+*.exe
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Engine build artifacts (keep source, ignore compiled)
+engine/packages/*/dist/
+engine/packages/*/*/dist/
+
+# Runtime data
+.kcoder/

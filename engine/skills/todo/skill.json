@@ -1,0 +1,46 @@
+{
+  "specVersion": "1.0",
+  "id": "todo",
+  "name": "Todo",
+  "description": "Track the active thread's step-by-step todo list and mark progress as work proceeds.",
+  "version": "1.0.0",
+  "category": "workflow",
+  "priority": 0,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/todo"
+    ],
+    "promptPatterns": [
+      "\\b(todo|待办|任务清单)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "todo",
+      "alias": [
+        "待办"
+      ],
+      "description": "Manage the thread todo list",
+      "injectPrompt": "Apply the todo skill: maintain a step-by-step todo list for this task using the todo tools, update statuses as you progress, and finish only when every item is complete."
+    }
+  ],
+  "tools": {
+    "allowed": [],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "none",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

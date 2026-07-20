@@ -1,0 +1,56 @@
+{
+  "specVersion": "1.0",
+  "id": "code-review",
+  "name": "Code Review (deep)",
+  "description": "Deep read-only review of a change against a checklist: correctness, security, readability, tests.",
+  "version": "1.0.0",
+  "category": "review",
+  "priority": 0,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/code-review"
+    ],
+    "promptPatterns": [
+      "\\b(code review|代码审查|deep review)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "code-review",
+      "alias": [
+        "deep-review"
+      ],
+      "description": "Deep review of a change against a checklist",
+      "injectPrompt": "Apply the code-review skill: read the change fully, then report findings against the checklist (correctness, security, readability, test coverage) with file:line references and suggested fixes."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "code-review",
+        "title": "Deep review",
+        "icon": "check"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "read",
+    "network": false,
+    "exec": "none",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

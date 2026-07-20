@@ -1,0 +1,57 @@
+{
+  "specVersion": "1.0",
+  "id": "refactoring",
+  "name": "Refactoring",
+  "description": "Improve code structure in small, behavior-preserving steps verified by tests.",
+  "version": "1.0.0",
+  "category": "development",
+  "priority": 0,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/refactor"
+    ],
+    "promptPatterns": [
+      "\\b(refactor|重构|clean up|cleanup)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "refactor",
+      "alias": [
+        "refactoring",
+        "重构"
+      ],
+      "description": "Refactor in small behavior-preserving steps",
+      "injectPrompt": "Apply the refactoring skill: improve structure in small steps, keeping behavior unchanged and verified by tests after each step; never mix refactoring with behavior changes."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "edit",
+      "grep"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "refactor",
+        "title": "Refactor",
+        "icon": "wand"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "none",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

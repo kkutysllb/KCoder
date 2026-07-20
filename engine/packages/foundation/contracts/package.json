@@ -1,0 +1,30 @@
+{
+  "name": "@qiongqi/contracts",
+  "version": "0.1.0",
+  "description": "Qiongqi contracts package",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2",
+    "@types/node": "^26.0.0"
+  },
+  "private": true,
+  "types": "./dist/index.d.ts"
+}

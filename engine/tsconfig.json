@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@qiongqi/contracts": ["packages/foundation/contracts/src"],
+      "@qiongqi/domain": ["packages/domain-layer/domain/src"],
+      "@qiongqi/ports": ["packages/ports-layer/ports/src"],
+      "@qiongqi/cache": ["packages/infrastructure/cache/src"],
+      "@qiongqi/attachments": ["packages/infrastructure/attachments/src"],
+      "@qiongqi/adapter-fs": ["packages/infrastructure/adapter-fs/src"],
+      "@qiongqi/tool-infra": ["packages/infrastructure/tool-infra/src"],
+      "@qiongqi/loop": ["packages/engine/loop/src"],
+      "@qiongqi/services": ["packages/engine/services/src"],
+      "@qiongqi/adapter-storage": ["packages/adapters/adapter-storage/src"],
+      "@qiongqi/adapter-model": ["packages/adapters/adapter-model/src"],
+      "@qiongqi/adapter-tools": ["packages/adapters/adapter-tools/src"],
+      "@qiongqi/skills": ["packages/capabilities/skills/src"],
+      "@qiongqi/memory": ["packages/capabilities/memory/src"],
+      "@qiongqi/delegation": ["packages/delegation-layer/delegation/src"],
+      "@qiongqi/http": ["packages/http-layer/http/src"],
+      "@qiongqi/cli": ["packages/cli-layer/cli/src"],
+      "@qiongqi/preset-coding": ["packages/presets/preset-coding/src"]
+    }
+  },
+  "include": ["tests"],
+  "exclude": ["node_modules", "dist", "packages"]
+}

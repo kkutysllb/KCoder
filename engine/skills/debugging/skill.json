@@ -1,0 +1,64 @@
+{
+  "specVersion": "1.0",
+  "id": "debugging",
+  "name": "Systematic Debugging",
+  "description": "Reproduce, isolate, hypothesize, and verify a fix for a bug — never guess.",
+  "version": "1.0.0",
+  "category": "development",
+  "priority": 0,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/debugging"
+    ],
+    "promptPatterns": [
+      "\\b(debug|调试|bug|crash|error|stack trace)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "debugging",
+      "alias": [
+        "debug",
+        "调试"
+      ],
+      "description": "Systematically debug an issue",
+      "injectPrompt": "Apply systematic debugging: reproduce the issue reliably, isolate the smallest failing case, form one hypothesis, verify it with evidence before changing code, then apply the minimal fix and confirm it resolves the reproduction."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "debugging",
+        "title": "Debug an issue",
+        "icon": "bug"
+      }
+    ],
+    "quickTask": [
+      {
+        "commandId": "debugging",
+        "title": "Reproduce a bug",
+        "icon": "bug"
+      }
+    ]
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

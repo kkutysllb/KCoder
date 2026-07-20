@@ -1,0 +1,10 @@
+{
+  "provider": "minimax",
+  "model": "MiniMax-M3",
+  "objective": "完成分析报告",
+  "frames": [
+    {"reasoning": "检查工作区状态", "tool": {"name": "todo_list", "arguments": {}}},
+    {"reasoning": "再次确认状态", "tool": {"name": "todo_list", "arguments": {}}},
+    {"reasoning": "继续确认状态", "tool": {"name": "todo_list", "arguments": {}}}
+  ]
+}

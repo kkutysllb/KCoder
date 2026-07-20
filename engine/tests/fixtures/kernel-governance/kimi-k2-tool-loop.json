@@ -1,0 +1,10 @@
+{
+  "provider": "kimi",
+  "model": "kimi-k2.7",
+  "objective": "完成分析报告",
+  "frames": [
+    {"reasoning": "Inspect current task state", "tool": {"name": "todo_list", "arguments": {}}},
+    {"reasoning": "Inspect current task state again", "tool": {"name": "todo_list", "arguments": {}}},
+    {"reasoning": "Inspect current task state once more", "tool": {"name": "todo_list", "arguments": {}}}
+  ]
+}

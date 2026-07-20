@@ -1,0 +1,46 @@
+{
+  "specVersion": "1.0",
+  "id": "goal",
+  "name": "Goal",
+  "description": "Set and steer a long-running objective that persists across turns; pause, resume, or clear it.",
+  "version": "1.0.0",
+  "category": "workflow",
+  "priority": 0,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/goal"
+    ],
+    "promptPatterns": [
+      "\\b(goal|目标|objective)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "goal",
+      "alias": [
+        "目标"
+      ],
+      "description": "Set or steer a long-term goal",
+      "injectPrompt": "Apply the goal skill: treat the stated objective as the persistent goal for this thread; keep work aligned with it and report progress toward it."
+    }
+  ],
+  "tools": {
+    "allowed": [],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "none",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

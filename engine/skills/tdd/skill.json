@@ -1,0 +1,80 @@
+{
+  "specVersion": "1.0",
+  "id": "tdd",
+  "name": "Test-Driven Development",
+  "description": "Write a failing test first, then implement until it passes, then refactor.",
+  "version": "1.0.0",
+  "category": "development",
+  "priority": 5,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/tdd"
+    ],
+    "promptPatterns": [
+      "\\b(tdd|red-green|test-driven)\\b"
+    ],
+    "fileTypes": [
+      ".test.ts",
+      ".test.js",
+      ".spec.ts"
+    ],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "tdd",
+      "alias": [
+        "test"
+      ],
+      "description": "Start a TDD cycle",
+      "injectPrompt": "Apply TDD: write one failing test that captures the desired behavior, run it to confirm RED, implement the minimal code to reach GREEN, then refactor."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "edit",
+      "write",
+      "bash",
+      "grep"
+    ],
+    "declarations": [
+      {
+        "name": "run_tests",
+        "template": "bash",
+        "args": {
+          "command": "npm test"
+        },
+        "description": "Run the project test suite (RED/GREEN check)",
+        "policy": "auto"
+      }
+    ],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "tdd",
+        "title": "Start TDD",
+        "icon": "flask"
+      }
+    ],
+    "quickTask": [
+      {
+        "commandId": "tdd",
+        "title": "Add a failing test",
+        "icon": "flask"
+      }
+    ]
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": [
+    "tdd-cycle.md"
+  ]
+}

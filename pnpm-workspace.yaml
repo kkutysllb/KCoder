@@ -1,0 +1,9 @@
+packages:
+  - 'app'
+  - 'engine'
+  - 'engine/packages/*/*'
+onlyBuiltDependencies:
+  - better-sqlite3
+  - esbuild
+  - sharp
+  - electron

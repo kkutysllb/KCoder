@@ -1,0 +1,113 @@
+{
+  "serve": {
+    "host": "127.0.0.1",
+    "port": 8899,
+    "dataDir": "~/.qiongqi/data",
+    "runtimeToken": "",
+    "apiKey": "your-provider-api-key",
+    "baseUrl": "https://api.example.com/v1",
+    "model": "provider-model-name",
+    "approvalPolicy": "auto",
+    "sandboxMode": "workspace-write",
+    "tokenEconomyMode": false,
+    "tokenEconomy": {
+      "enabled": false,
+      "compressToolDescriptions": true,
+      "compressToolResults": true,
+      "conciseResponses": true,
+      "historyHygiene": {
+        "maxToolResultLines": 320,
+        "maxToolResultBytes": 32768,
+        "maxToolResultTokens": 8000,
+        "maxToolArgumentStringBytes": 8192,
+        "maxToolArgumentStringTokens": 2000,
+        "maxArrayItems": 80
+      }
+    },
+    "insecure": false,
+    "storage": {
+      "backend": "hybrid"
+    },
+    "observability": {
+      "openTelemetry": {
+        "enabled": false,
+        "serviceName": "qiongqi",
+        "exporter": "otlp-http",
+        "endpoint": "http://127.0.0.1:4318/v1/traces",
+        "headers": {}
+      }
+    }
+  },
+  "contextCompaction": {
+    "defaultSoftThreshold": 16000,
+    "defaultHardThreshold": 24000,
+    "summaryMode": "heuristic",
+    "summaryTimeoutMs": 15000,
+    "summaryMaxTokens": 1200,
+    "summaryInputMaxBytes": 98304
+  },
+  "models": {
+    "profiles": {
+      "provider-model-name": {
+        "contextWindowTokens": 128000,
+        "contextCompaction": {
+          "softThreshold": 96000,
+          "hardThreshold": 112000
+        },
+        "inputModalities": ["text"],
+        "outputModalities": ["text"],
+        "supportsToolCalling": true,
+        "messageParts": ["text"]
+      }
+    }
+  },
+  "capabilities": {
+    "mcp": {
+      "enabled": false,
+      "search": {
+        "enabled": false,
+        "mode": "auto",
+        "autoThresholdToolCount": 24,
+        "topKDefault": 5,
+        "topKMax": 10,
+        "minScore": 0.15,
+        "bm25": {
+          "k1": 1.2,
+          "b": 0.75
+        }
+      },
+      "servers": {}
+    },
+    "web": {
+      "enabled": false,
+      "fetchEnabled": false,
+      "searchEnabled": false,
+      "allowDomains": [],
+      "denyDomains": []
+    },
+    "skills": {
+      "enabled": false,
+      "roots": [],
+      "legacySkillMd": true
+    },
+    "subagents": {
+      "enabled": false,
+      "maxParallel": 0,
+      "maxChildRuns": 0
+    },
+    "attachments": {
+      "enabled": false,
+      "maxImageBytes": 5242880,
+      "maxImageDimension": 4096,
+      "allowedMimeTypes": ["image/png", "image/jpeg", "image/webp"],
+      "textFallbackMaxBase64Bytes": 524288,
+      "textFallbackMaxImageDimension": 1280,
+      "textFallbackPreferredMimeType": "image/webp"
+    },
+    "memory": {
+      "enabled": false,
+      "scopes": ["user", "workspace", "project"],
+      "maxInjectedRecords": 8
+    }
+  }
+}

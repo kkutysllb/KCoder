@@ -1,0 +1,10 @@
+{
+  "provider": "openrouter",
+  "model": "hy3-free",
+  "objective": "完成分析报告",
+  "frames": [
+    {"reasoning": "", "tool": {"name": "read_file", "arguments": {"path": "report.md"}}},
+    {"reasoning": "", "tool": {"name": "read_file", "arguments": {"path": "report.md"}}},
+    {"reasoning": "", "tool": {"name": "read_file", "arguments": {"path": "report.md"}}}
+  ]
+}

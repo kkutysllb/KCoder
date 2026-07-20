@@ -1,0 +1,24 @@
+{
+  "name": "kcoder",
+  "private": true,
+  "version": "0.1.0",
+  "description": "KCoder — Agent-driven coding desktop app powered by QiongQi engine",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @kcoder/app dev",
+    "build": "pnpm --filter @kcoder/app build",
+    "build:engine": "cd engine && pnpm -r run build",
+    "test:engine": "cd engine && pnpm test",
+    "typecheck": "pnpm -r run typecheck",
+    "package": "pnpm --filter @kcoder/app package",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "postinstall": "electron-rebuild -f -w better-sqlite3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.32.1",
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0"
+  }
+}

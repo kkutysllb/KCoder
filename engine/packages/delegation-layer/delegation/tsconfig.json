@@ -1,0 +1,76 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": [
+      "ES2022"
+    ],
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "noEmit": true,
+    "types": [
+      "node"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@qiongqi/contracts": [
+        "../../foundation/contracts/src"
+      ],
+      "@qiongqi/domain": [
+        "../../domain-layer/domain/src"
+      ],
+      "@qiongqi/ports": [
+        "../../ports-layer/ports/src"
+      ],
+      "@qiongqi/cache": [
+        "../../infrastructure/cache/src"
+      ],
+      "@qiongqi/loop": [
+        "../../engine/loop/src"
+      ],
+      "@qiongqi/services": [
+        "../../engine/services/src"
+      ],
+      "@qiongqi/adapter-model": [
+        "../../adapters/adapter-model/src"
+      ],
+      "@qiongqi/adapter-storage": [
+        "../../adapters/adapter-storage/src"
+      ],
+      "@qiongqi/adapter-tools": [
+        "../../adapters/adapter-tools/src"
+      ],
+      "@qiongqi/skills": [
+        "../../capabilities/skills/src"
+      ],
+      "@qiongqi/memory": [
+        "../../capabilities/memory/src"
+      ],
+      "@qiongqi/attachments": [
+        "../../infrastructure/attachments/src"
+      ],
+      "@qiongqi/delegation": [
+        "../../delegation-layer/delegation/src"
+      ],
+      "@qiongqi/http": [
+        "../../http-layer/http/src"
+      ],
+      "@qiongqi/cli": [
+        "../../cli-layer/cli/src"
+      ]
+    }
+  },
+  "include": [
+    "src"
+  ]
+}

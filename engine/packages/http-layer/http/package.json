@@ -1,0 +1,51 @@
+{
+  "name": "@qiongqi/http",
+  "version": "0.1.0",
+  "description": "Qiongqi http package",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/core": "^2.8.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
+    "@opentelemetry/resources": "^2.8.0",
+    "@opentelemetry/sdk-trace-base": "^2.8.0",
+    "@opentelemetry/semantic-conventions": "^1.41.1",
+    "@qiongqi/adapter-model": "workspace:*",
+    "@qiongqi/adapter-storage": "workspace:*",
+    "@qiongqi/adapter-tools": "workspace:*",
+    "@qiongqi/attachments": "workspace:*",
+    "@qiongqi/cache": "workspace:*",
+    "@qiongqi/contracts": "workspace:*",
+    "@qiongqi/delegation": "workspace:*",
+    "@qiongqi/domain": "workspace:*",
+    "@qiongqi/loop": "workspace:*",
+    "@qiongqi/memory": "workspace:*",
+    "@qiongqi/ports": "workspace:*",
+    "@qiongqi/services": "workspace:*",
+    "@qiongqi/skills": "workspace:*",
+    "better-sqlite3": "^12.10.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^26.0.0",
+    "typescript": "^5.8.2"
+  },
+  "private": true,
+  "types": "./dist/index.d.ts"
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@qiongqi/preset-coding",
+  "version": "0.1.0",
+  "description": "Qiongqi coding preset — a software-engineering agent assembled from the domain-neutral Qiongqi runtime",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@qiongqi/http": "workspace:*",
+    "@qiongqi/contracts": "workspace:*",
+    "@qiongqi/ports": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  },
+  "private": true,
+  "types": "./dist/index.d.ts"
+}

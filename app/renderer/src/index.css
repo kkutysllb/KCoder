@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Core colors matching the reference UI */
+  --color-bg-primary: #0d0d0d;
+  --color-bg-sidebar: #1e1e20;
+  --color-bg-input: #2a2a2c;
+  --color-bg-hover: #2a2a2c;
+  --color-bg-active: #333336;
+  
+  --color-text-primary: #e4e4e7;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #71717a;
+  
+  --color-accent: #ff9f00;
+  --color-accent-blue: #0ea5e9;
+  --color-border: #333336;
+  
+  --color-success: #22c55e;
+  --color-warning: #eab308;
+  --color-error: #ef4444;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+
+/* Draggable region for frameless window */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Sidebar styles */
+.sidebar-item {
+  @apply flex items-center gap-2 px-3 py-1.5 rounded-md text-sm text-[#a1a1aa] cursor-pointer transition-colors;
+}
+
+.sidebar-item:hover {
+  @apply bg-[#2a2a2c] text-[#e4e4e7];
+}
+
+.sidebar-item.active {
+  @apply bg-[#333336] text-[#e4e4e7];
+}
+
+/* Project task item */
+.task-item {
+  @apply flex items-center justify-between px-3 py-1.5 rounded-md text-[13px] text-[#a1a1aa] cursor-pointer transition-colors truncate;
+}
+
+.task-item:hover {
+  @apply bg-[#2a2a2c] text-[#e4e4e7];
+}
+
+/* Input styles */
+.command-input {
+  @apply w-full bg-transparent text-[#e4e4e7] placeholder-[#71717a] outline-none text-sm;
+}
+
+/* Dropdown button */
+.dropdown-btn {
+  @apply flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-[#a1a1aa] bg-[#333336] hover:bg-[#3f3f46] cursor-pointer transition-colors;
+}
