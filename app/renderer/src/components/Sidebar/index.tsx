@@ -64,57 +64,11 @@ interface Project {
   tasks: Task[]
 }
 
-const mockProjects: Project[] = [
-  {
-    id: 'kstock',
-    name: 'KStock',
-    tasks: [
-      { id: '1', title: '可转债全景分析 Tushare集...', time: '1天' },
-      { id: '2', title: '股指期货ETF专题历史结果...', time: '1天' },
-      { id: '3', title: '可转债全景分析 Tushare数...', time: '1天' },
-      { id: '4', title: '股指期货ETF专题数据获取...', time: '1天' },
-      { id: '5', title: '可转债全景分析 Tushare数...', time: '1天' },
-      { id: '6', title: '股指期货ETF专题数据获取...', time: '1天' },
-      { id: '7', title: '市场分析模块与技能对应分...', time: '1天', hasUpdate: true },
-      { id: '8', title: '可转债全景分析 Tushare集...', time: '1天' },
-      { id: '9', title: '可转债全景分析 Tushare集...', time: '1天' },
-      { id: '10', title: '可转债全景分析 Tushare集...', time: '1天' },
-      { id: '11', title: '可转债全景分析 Tushare集...', time: '1天' },
-      { id: '12', title: '可转债全景分析 Tushare集...', time: '1天' }
-    ]
-  },
-  {
-    id: 'kworks',
-    name: 'KWorks',
-    tasks: [
-      { id: '1', title: '资金联动分析万元转元修复', time: '2天' },
-      { id: '2', title: '核心引擎验证：仅DeepSee...', time: '2天' },
-      { id: '3', title: 'A股分析系统微信推送功能...', time: '2天' },
-      { id: '4', title: 'A股分析系统微信推送功能...', time: '2天' },
-      { id: '5', title: 'A股分析系统微信推送功能...', time: '2天' },
-      { id: '6', title: 'A股分析系统微信推送功能...', time: '2天' },
-      { id: '7', title: 'A股分析系统微信推送功能...', time: '2天' },
-      { id: '8', title: 'A股分析系统微信推送功能...', time: '2天' },
-      { id: '9', title: 'A股分析系统微信推送功能...', time: '2天' },
-      { id: '10', title: 'A股分析系统微信推送功能...', time: '2天' },
-      { id: '11', title: 'A股分析系统微信推送功能...', time: '2天' }
-    ]
-  },
-  {
-    id: 'oclaw',
-    name: 'OClaw',
-    tasks: []
-  },
-  {
-    id: 'kcoder',
-    name: 'KCoder',
-    tasks: []
-  }
-]
+const mockProjects: Project[] = []
 
 export function Sidebar({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const [activeTab, setActiveTab] = useState<'group' | 'project'>('project')
-  const [expandedProjects, setExpandedProjects] = useState<string[]>(['kstock', 'kworks'])
+  const [expandedProjects, setExpandedProjects] = useState<string[]>([])
   const { setWorkspacePath } = useAppStore()
 
   const toggleProject = (projectId: string) => {
@@ -240,10 +194,9 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings?: () => void }) {
       <div className="px-3 py-3 border-t border-[#2a2a2c]">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-medium">
-            k
+            U
           </div>
-          <span className="text-sm text-[#e4e4e7]">kkutys</span>
-          <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#333336] text-[#a1a1aa]">Max</span>
+          <span className="text-sm text-[#e4e4e7]">用户</span>
           <div className="ml-auto flex items-center gap-2 text-[#71717a]">
             <button className="hover:text-[#a1a1aa] transition-colors">
               <Icons.Device />

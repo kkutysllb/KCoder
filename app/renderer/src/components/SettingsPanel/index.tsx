@@ -132,13 +132,22 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     <div className="fixed inset-0 z-50 flex bg-[#0d0d0d]">
       {/* Left Navigation */}
       <div className="w-[200px] border-r border-[#2a2a2c] bg-[#141414] flex flex-col">
-        {/* macOS traffic lights space */}
-        <div className="h-12 flex items-center px-4">
+        {/* macOS traffic lights + back button */}
+        <div className="h-12 flex items-center px-4 gap-3">
           <div className="flex gap-2">
-            <button onClick={onClose} className="w-3 h-3 rounded-full bg-[#ff5f57] hover:brightness-110 transition-all" />
+            <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
             <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
             <div className="w-3 h-3 rounded-full bg-[#28c840]" />
           </div>
+          <button
+            onClick={onClose}
+            className="flex items-center gap-1.5 ml-2 px-2 py-1 rounded-md text-xs text-[#a1a1aa] hover:text-[#e4e4e7] hover:bg-[#2a2a2c] transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+            返回工作区
+          </button>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1">
