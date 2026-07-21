@@ -145,6 +145,33 @@ export interface TurnResponse {
   status: string
 }
 
+// ============ Auth types (aligned with engine AuthService) ============
+
+export interface AuthUser {
+  id: string
+  email: string
+  username: string
+  display_name: string
+  system_role: 'admin' | 'user'
+  is_admin: boolean
+  auth_provider: 'local'
+}
+
+export interface AuthSessionResponse {
+  access_token: string
+  token_type: 'bearer'
+  expires_in: number
+  user: AuthUser
+}
+
+export interface AuthSetupStatus {
+  initialized: boolean
+  has_admin: boolean
+  needs_setup: boolean
+  local_auth_enabled: boolean
+  registration_enabled: boolean
+}
+
 export interface SSEEvent {
   type: string
   data: unknown
@@ -153,18 +180,37 @@ export interface SSEEvent {
 export class EngineAPI {
   private baseUrl: string
   private token: string
+  private authToken: string | null = null
 
   constructor(port: number, token: string = '') {
     this.baseUrl = `http://127.0.0.1:${port}`
     this.token = token
   }
 
+  // User session token takes precedence over runtime token when set
+  setAuthToken(token: string | null): void {
+    this.authToken = token
+  }
+
+  getAuthToken(): string | null {
+    return this.authToken
+  }
+
+  setRuntimeToken(token: string): void {
+    this.token = token
+  }
+
+  get port(): number {
+    return parseInt(this.baseUrl.split(':').pop() || '18899', 10)
+  }
+
   private get headers(): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     }
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`
+    const bearer = this.authToken || this.token
+    if (bearer) {
+      headers['Authorization'] = `Bearer ${bearer}`
     }
     return headers
   }
@@ -179,6 +225,91 @@ export class EngineAPI {
     } catch {
       return false
     }
+  }
+
+  // ============ Auth API (engine /api/v1/auth/*) ============
+
+  async getSetupStatus(): Promise<AuthSetupStatus> {
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/setup-status`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to get setup status: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  async authInitialize(email: string, password: string): Promise<AuthSessionResponse> {
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/initialize`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ email, password })
+    })
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}))
+      throw new Error((detail as { detail?: string }).detail || `Initialize failed: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  async authLogin(email: string, password: string): Promise<AuthSessionResponse> {
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/login/local`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ email, password })
+    })
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}))
+      throw new Error((detail as { detail?: string }).detail || `Login failed: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  async authRegister(email: string, password: string): Promise<AuthSessionResponse> {
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/register`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ email, password })
+    })
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}))
+      throw new Error((detail as { detail?: string }).detail || `Registration failed: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  async authMe(): Promise<AuthUser> {
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/me`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Not authenticated: ${response.statusText}`)
+    }
+    const data = await response.json() as { user?: AuthUser } & AuthUser
+    return data.user ?? data
+  }
+
+  async authLogout(): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/logout`, {
+      method: 'POST',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Logout failed: ${response.statusText}`)
+    }
+  }
+
+  async authChangePassword(currentPassword: string, newPassword: string): Promise<AuthSessionResponse> {
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/change-password`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+    })
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}))
+      throw new Error((detail as { detail?: string }).detail || `Change password failed: ${response.statusText}`)
+    }
+    return response.json()
   }
 
   // Create a new thread
@@ -634,8 +765,10 @@ export class EngineAPI {
 let apiInstance: EngineAPI | null = null
 
 export function getEngineAPI(port: number, token?: string): EngineAPI {
-  if (!apiInstance) {
+  if (!apiInstance || apiInstance.port !== port) {
     apiInstance = new EngineAPI(port, token)
+  } else if (token) {
+    apiInstance.setRuntimeToken(token)
   }
   return apiInstance
 }

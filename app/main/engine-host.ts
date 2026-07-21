@@ -1,5 +1,5 @@
-import { app } from 'electron'
 import { join } from 'path'
+import { homedir } from 'os'
 import { randomBytes } from 'crypto'
 
 // Engine configuration
@@ -14,10 +14,11 @@ export interface EngineConfig {
 }
 
 // Default configuration
+// All user data lives under ~/.kcoder (never in the project root)
 function getDefaultConfig(): EngineConfig {
   return {
     port: 18899 + Math.floor(Math.random() * 1000), // Random port to avoid conflicts
-    dataDir: join(app.getPath('userData'), 'engine-data'),
+    dataDir: join(homedir(), '.kcoder', 'engine-data'),
     runtimeToken: randomBytes(32).toString('hex'),
     apiKey: process.env.KCODER_API_KEY || process.env.DEEPSEEK_API_KEY || '',
     baseUrl: process.env.KCODER_BASE_URL || 'https://api.deepseek.com',

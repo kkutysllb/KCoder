@@ -3,11 +3,12 @@ import { join } from 'path'
 
 export interface WindowOptions {
   enginePort: number
+  engineToken: string
   preloadPath: string
 }
 
 export function createWindow(options: WindowOptions): BrowserWindow {
-  const { enginePort, preloadPath } = options
+  const { enginePort, engineToken, preloadPath } = options
 
   const mainWindow = new BrowserWindow({
     width: 1400,
@@ -41,15 +42,15 @@ export function createWindow(options: WindowOptions): BrowserWindow {
   const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {
-    // Development: load from Vite dev server with engine port as query param
-    const devUrl = `${process.env['ELECTRON_RENDERER_URL']}?enginePort=${enginePort}`
+    // Development: load from Vite dev server with engine port/token as query params
+    const devUrl = `${process.env['ELECTRON_RENDERER_URL']}?enginePort=${enginePort}&engineToken=${engineToken}`
     mainWindow.loadURL(devUrl)
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
     // Production: load built files
     const indexPath = join(__dirname, '../renderer/index.html')
     mainWindow.loadFile(indexPath, {
-      query: { enginePort: String(enginePort) }
+      query: { enginePort: String(enginePort), engineToken }
     })
   }
 

@@ -1,5 +1,5 @@
-import { app } from 'electron'
 import { join } from 'path'
+import { homedir } from 'os'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 
 export interface AppSettings {
@@ -36,8 +36,8 @@ let cachedSettings: AppSettings | null = null
 
 function getSettingsPath(): string {
   if (!settingsPath) {
-    const userDataPath = app.getPath('userData')
-    settingsPath = join(userDataPath, 'settings.json')
+    // User settings live under ~/.kcoder (not in project root)
+    settingsPath = join(homedir(), '.kcoder', 'settings.json')
   }
   return settingsPath
 }

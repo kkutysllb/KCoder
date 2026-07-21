@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
+import type { AuthUser } from '../../services/engine-api'
 
 // Icons as components
 const Icons = {
@@ -49,6 +50,11 @@ const Icons = {
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 18h.01M8 21h8a1 1 0 001-1V4a1 1 0 00-1-1H8a1 1 0 00-1 1v16a1 1 0 001 1z" />
     </svg>
+  ),
+  Logout: () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+    </svg>
   )
 }
 
@@ -67,7 +73,15 @@ interface Project {
 
 const mockProjects: Project[] = []
 
-export function Sidebar({ onOpenSettings, onToggleCollapse }: { onOpenSettings?: () => void; onToggleCollapse?: () => void }) {
+interface SidebarProps {
+  onOpenSettings?: () => void
+  onToggleCollapse?: () => void
+  user?: AuthUser | null
+  onOpenAuth?: () => void
+  onLogout?: () => void
+}
+
+export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, onLogout }: SidebarProps) {
   const [activeTab, setActiveTab] = useState<'group' | 'project'>('project')
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
   const { setWorkspacePath } = useAppStore()
@@ -201,18 +215,52 @@ export function Sidebar({ onOpenSettings, onToggleCollapse }: { onOpenSettings?:
       {/* User profile */}
       <div className="px-3 py-3 border-t border-border-custom">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-medium">
-            U
-          </div>
-          <span className="text-sm text-text-primary">{t('sidebar.user')}</span>
-          <div className="ml-auto flex items-center gap-2 text-text-muted">
-            <button className="hover:text-text-secondary transition-colors">
-              <Icons.Device />
-            </button>
-            <button className="hover:text-text-secondary transition-colors" onClick={onOpenSettings}>
-              <Icons.Settings />
-            </button>
-          </div>
+          {user ? (
+            <>
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-medium">
+                {user.email.charAt(0).toUpperCase()}
+              </div>
+              <span className="text-sm text-text-primary truncate max-w-[100px]" title={user.email}>
+                {user.email.split('@')[0]}
+              </span>
+              {user.is_admin && (
+                <span className="text-[10px] px-1 py-0.5 rounded bg-[#3b82f6]/15 text-[#3b82f6]">{t('auth.badge.admin')}</span>
+              )}
+              <div className="ml-auto flex items-center gap-2 text-text-muted">
+                <button
+                  className="hover:text-text-secondary transition-colors"
+                  title={t('auth.logout')}
+                  onClick={onLogout}
+                >
+                  <Icons.Logout />
+                </button>
+                <button className="hover:text-text-secondary transition-colors" onClick={onOpenSettings}>
+                  <Icons.Settings />
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <button
+                className="flex items-center gap-2 flex-1 min-w-0 hover:opacity-80 transition-opacity"
+                onClick={onOpenAuth}
+                title={t('auth.loginHint')}
+              >
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-medium">
+                  U
+                </div>
+                <span className="text-sm text-text-primary">{t('sidebar.user')}</span>
+              </button>
+              <div className="ml-auto flex items-center gap-2 text-text-muted">
+                <button className="hover:text-text-secondary transition-colors">
+                  <Icons.Device />
+                </button>
+                <button className="hover:text-text-secondary transition-colors" onClick={onOpenSettings}>
+                  <Icons.Settings />
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

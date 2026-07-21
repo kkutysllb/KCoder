@@ -4,14 +4,18 @@ import { Sidebar } from './components/Sidebar'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { ChatPanel } from './components/ChatPanel'
 import { SettingsPanel } from './components/SettingsPanel'
+import { AuthModal } from './components/AuthModal'
 import { useChat } from './hooks/useChat'
+import { useAuth } from './hooks/useAuth'
 import { getEngineAPI } from './services/engine-api'
 import { I18nProvider } from './i18n'
 
 export default function App() {
-  const { initializeEngine, setEngineStatus, messages } = useAppStore()
+  const { initializeEngine, setEngineStatus, messages, enginePort } = useAppStore()
   const { sendMessage, isGenerating } = useChat()
+  const auth = useAuth(enginePort)
   const [showSettings, setShowSettings] = useState(false)
+  const [showAuth, setShowAuth] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   useEffect(() => {
@@ -24,13 +28,14 @@ export default function App() {
       document.documentElement.classList.toggle('theme-light', isLight)
     } catch { /* ignore */ }
 
-    // Get engine port from URL query params
+    // Get engine port/token from URL query params
     const params = new URLSearchParams(window.location.search)
     const port = parseInt(params.get('enginePort') || '18899', 10)
+    const token = params.get('engineToken') || ''
     initializeEngine(port)
 
     // Verify engine connectivity (main process guarantees engine is up before window loads)
-    const api = getEngineAPI(port)
+    const api = getEngineAPI(port, token)
     let attempts = 0
     const checkHealth = async () => {
       const ok = await api.health()
@@ -58,6 +63,9 @@ export default function App() {
         <Sidebar
           onOpenSettings={() => setShowSettings(true)}
           onToggleCollapse={() => setSidebarCollapsed(true)}
+          user={auth.user}
+          onOpenAuth={() => setShowAuth(true)}
+          onLogout={() => auth.logout()}
         />
       )}
 
@@ -90,6 +98,14 @@ export default function App() {
 
       {/* Settings panel */}
       <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
+
+      {/* Auth modal */}
+      <AuthModal
+        isOpen={showAuth}
+        onClose={() => setShowAuth(false)}
+        auth={auth}
+        enginePort={enginePort}
+      />
     </div>
     </I18nProvider>
   )

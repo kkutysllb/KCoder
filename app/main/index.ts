@@ -1,6 +1,6 @@
 import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
-import { startEngine, stopEngine, getEnginePort } from './engine-host'
+import { startEngine, stopEngine, getEnginePort, getEngineToken } from './engine-host'
 import { createWindow } from './window'
 import { setupMenu } from './menu'
 
@@ -15,6 +15,7 @@ async function bootstrap(): Promise<void> {
   // Create main window
   mainWindow = createWindow({
     enginePort: getEnginePort(),
+    engineToken: getEngineToken(),
     preloadPath: join(__dirname, '../preload/index.js')
   })
 
@@ -35,6 +36,7 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createWindow({
         enginePort: getEnginePort(),
+        engineToken: getEngineToken(),
         preloadPath: join(__dirname, '../preload/index.js')
       })
     }
