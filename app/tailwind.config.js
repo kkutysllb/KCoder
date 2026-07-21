@@ -4,24 +4,27 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Core backgrounds
-        'bg-primary': '#0d0d0d',
-        'bg-sidebar': '#1e1e20',
-        'bg-input': '#2a2a2c',
-        'bg-hover': '#2a2a2c',
-        'bg-active': '#333336',
+        // Core backgrounds (theme-aware via CSS variables)
+        'bg-primary': 'var(--color-bg-primary)',
+        'bg-sidebar': 'var(--color-bg-sidebar)',
+        'bg-surface': 'var(--color-bg-surface)',
+        'bg-input': 'var(--color-bg-input)',
+        'bg-hover': 'var(--color-bg-hover)',
+        'bg-active': 'var(--color-bg-active)',
         
         // Text colors
-        'text-primary': '#e4e4e7',
-        'text-secondary': '#a1a1aa',
-        'text-muted': '#71717a',
+        'text-primary': 'var(--color-text-primary)',
+        'text-secondary': 'var(--color-text-secondary)',
+        'text-muted': 'var(--color-text-muted)',
         
         // Accent colors
-        'accent': '#ff9f00',
-        'accent-blue': '#0ea5e9',
+        'accent': 'var(--color-accent)',
+        'accent-blue': 'var(--color-accent-blue)',
         
-        // Border
-        'border-custom': '#333336',
+        // Borders
+        'border-custom': 'var(--color-border)',
+        'border-subtle': 'var(--color-border-subtle)',
+        'border-strong': 'var(--color-border-strong)',
       }
     }
   },

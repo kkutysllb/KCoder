@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { useAppStore } from '../../stores/app-store'
+import { useI18n } from '../../i18n'
 
 interface SettingsPanelProps {
   isOpen: boolean
@@ -8,13 +9,13 @@ interface SettingsPanelProps {
 
 // Navigation items
 const NAV_ITEMS = [
-  { id: 'general', label: '常规', icon: GearIcon },
-  { id: 'preview', label: '代码预览', icon: CodeIcon },
-  { id: 'model', label: '模型设置', icon: ModelIcon },
-  { id: 'skills', label: '技能', icon: SkillIcon },
-  { id: 'remote', label: '远程控制', icon: RemoteIcon },
-  { id: 'advanced', label: '高级', icon: AdvancedIcon },
-  { id: 'about', label: '关于', icon: AboutIcon },
+  { id: 'general', labelKey: 'settings.nav.general', icon: GearIcon },
+  { id: 'preview', labelKey: 'settings.nav.preview', icon: CodeIcon },
+  { id: 'model', labelKey: 'settings.nav.model', icon: ModelIcon },
+  { id: 'skills', labelKey: 'settings.nav.skills', icon: SkillIcon },
+  { id: 'remote', labelKey: 'settings.nav.remote', icon: RemoteIcon },
+  { id: 'advanced', labelKey: 'settings.nav.advanced', icon: AdvancedIcon },
+  { id: 'about', labelKey: 'settings.nav.about', icon: AboutIcon },
 ]
 
 // Provider data
@@ -99,7 +100,8 @@ const DEFAULT_PROVIDERS: Provider[] = [
 
 export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const { engineStatus, enginePort } = useAppStore()
-  const [activeNav, setActiveNav] = useState('model')
+  const [activeNav, setActiveNav] = useState('general')
+  const { t } = useI18n()
   const [providers, setProviders] = useState<Provider[]>(DEFAULT_PROVIDERS)
   const [selectedProviderId, setSelectedProviderId] = useState<string>('bigmodel')
   const [connectionType, setConnectionType] = useState('个人套餐')
@@ -129,19 +131,19 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex bg-[#0d0d0d]">
+    <div className="fixed inset-0 z-50 flex bg-bg-primary">
       {/* Left Navigation */}
-      <div className="w-[200px] border-r border-[#2a2a2c] bg-[#141414] flex flex-col">
+      <div className="w-[200px] border-r border-border-custom bg-bg-surface flex flex-col">
         {/* Back button - leave space for real macOS traffic lights (hiddenInset) */}
         <div className="h-12 flex items-center px-4">
           <button
             onClick={onClose}
-            className="flex items-center gap-1.5 ml-14 px-2 py-1 rounded-md text-xs text-[#a1a1aa] hover:text-[#e4e4e7] hover:bg-[#2a2a2c] transition-colors"
+            className="flex items-center gap-1.5 ml-14 px-2 py-1 rounded-md text-xs text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
-            返回工作区
+            {t('settings.backToWorkspace')}
           </button>
         </div>
 
@@ -152,21 +154,21 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               onClick={() => setActiveNav(item.id)}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
                 activeNav === item.id
-                  ? 'bg-[#2a2a2c] text-[#e4e4e7] font-medium'
-                  : 'text-[#71717a] hover:text-[#a1a1aa] hover:bg-[#1e1e20]'
+                  ? 'bg-bg-input text-text-primary font-medium'
+                  : 'text-text-muted hover:text-text-secondary hover:bg-bg-sidebar'
               }`}
             >
               <item.icon active={activeNav === item.id} />
-              {item.label}
+              {t(item.labelKey)}
             </button>
           ))}
         </nav>
 
         {/* Engine status */}
-        <div className="px-4 py-3 border-t border-[#2a2a2c]">
-          <div className="flex items-center gap-2 text-xs text-[#71717a]">
+        <div className="px-4 py-3 border-t border-border-custom">
+          <div className="flex items-center gap-2 text-xs text-text-muted">
             <span className={`w-2 h-2 rounded-full ${engineStatus === 'connected' ? 'bg-[#22c55e]' : 'bg-[#ef4444]'}`} />
-            引擎 {engineStatus === 'connected' ? '已连接' : '未连接'} · :{enginePort}
+            {t('settings.engine')}{engineStatus === 'connected' ? t('settings.engineConnected') : t('settings.engineDisconnected')} · :{enginePort}
           </div>
         </div>
       </div>
@@ -186,6 +188,8 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             onSave={handleSave}
             onClose={onClose}
           />
+        ) : activeNav === 'general' ? (
+          <GeneralSettings />
         ) : (
           <PlaceholderSettings navId={activeNav} onClose={onClose} />
         )}
@@ -218,6 +222,7 @@ function ModelSettings({
   onSave: () => void
   onClose: () => void
 }) {
+  const { t } = useI18n()
   // Group providers by category
   const categories = providers.reduce<Record<string, Provider[]>>((acc, p) => {
     if (!acc[p.category]) acc[p.category] = []
@@ -231,17 +236,17 @@ function ModelSettings({
       <div className="px-8 pt-8 pb-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-[#e4e4e7]">模型设置</h1>
-            <p className="mt-1 text-sm text-[#71717a]">管理自定义模型供应商，配置后可在聊天时选择使用。</p>
+            <h1 className="text-xl font-semibold text-text-primary">模型设置</h1>
+            <p className="mt-1 text-sm text-text-muted">管理自定义模型供应商，配置后可在聊天时选择使用。</p>
           </div>
           <div className="flex items-center gap-3">
-            <button className="p-2 rounded-lg text-[#71717a] hover:text-[#a1a1aa] hover:bg-[#2a2a2c] transition-colors">
+            <button className="p-2 rounded-lg text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors">
               <RefreshIcon />
             </button>
             <select
               value={connectionType}
               onChange={(e) => onConnectionTypeChange(e.target.value)}
-              className="px-3 py-1.5 rounded-lg text-sm bg-[#2a2a2c] border border-[#333336] text-[#e4e4e7] outline-none cursor-pointer"
+              className="px-3 py-1.5 rounded-lg text-sm bg-bg-input border border-border-custom text-text-primary outline-none cursor-pointer"
             >
               <option value="个人套餐">个人套餐</option>
               <option value="团队套餐">团队套餐</option>
@@ -254,11 +259,11 @@ function ModelSettings({
       {/* Two-column content */}
       <div className="flex-1 flex overflow-hidden px-8 pb-8 gap-6">
         {/* Left: Provider List */}
-        <div className="w-[240px] flex flex-col border-r border-[#2a2a2c] pr-6">
+        <div className="w-[240px] flex flex-col border-r border-border-custom pr-6">
           <div className="flex-1 overflow-y-auto space-y-4">
             {Object.entries(categories).map(([category, items]) => (
               <div key={category}>
-                <h3 className="text-xs font-medium text-[#71717a] uppercase tracking-wider mb-2">{category}</h3>
+                <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">{category}</h3>
                 <div className="space-y-1">
                   {items.map((provider) => (
                     <button
@@ -266,8 +271,8 @@ function ModelSettings({
                       onClick={() => onSelectProvider(provider.id)}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
                         selectedProviderId === provider.id
-                          ? 'bg-[#2a2a2c] text-[#e4e4e7]'
-                          : 'text-[#a1a1aa] hover:bg-[#1e1e20] hover:text-[#e4e4e7]'
+                          ? 'bg-bg-input text-text-primary'
+                          : 'text-text-secondary hover:bg-bg-sidebar hover:text-text-primary'
                       }`}
                     >
                       <ProviderIcon name={provider.name} />
@@ -281,9 +286,9 @@ function ModelSettings({
           </div>
 
           {/* Add provider button */}
-          <button className="mt-4 w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-dashed border-[#333336] text-sm text-[#71717a] hover:text-[#a1a1aa] hover:border-[#52525b] transition-colors">
+          <button className="mt-4 w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-dashed border-border-custom text-sm text-text-muted hover:text-text-secondary hover:border-[#52525b] transition-colors">
             <PlusIcon />
-            添加供应商
+                        {t('settings.model.addProvider')}
           </button>
         </div>
 
@@ -298,7 +303,7 @@ function ModelSettings({
               onClose={onClose}
             />
           ) : (
-            <div className="flex items-center justify-center h-full text-[#71717a]">
+            <div className="flex items-center justify-center h-full text-text-muted">
               选择一个供应商查看详情
             </div>
           )}
@@ -322,28 +327,29 @@ function ProviderDetail({
   onSave: () => void
   onClose: () => void
 }) {
+  const { t } = useI18n()
   return (
     <div className="space-y-6">
       {/* Provider header */}
       <div className="flex items-center gap-3">
         <ProviderIcon name={provider.name} size="lg" />
-        <h2 className="text-lg font-semibold text-[#e4e4e7]">{provider.name}</h2>
+        <h2 className="text-lg font-semibold text-text-primary">{provider.name}</h2>
         <span
           className={`px-2 py-0.5 rounded text-xs font-medium ${
             provider.enabled
               ? 'bg-[#22c55e]/10 text-[#22c55e] border border-[#22c55e]/20'
-              : 'bg-[#3f3f46]/30 text-[#71717a] border border-[#3f3f46]'
+              : 'bg-[#3f3f46]/30 text-text-muted border border-border-strong'
           }`}
         >
-          {provider.enabled ? '已启用' : '未启用'}
+          {provider.enabled ? t('settings.model.enabled') : t('settings.model.disabled')}
         </span>
       </div>
 
       {/* Enable toggle */}
-      <div className="flex items-center justify-between p-4 rounded-xl bg-[#1a1a1c] border border-[#2a2a2c]">
+      <div className="flex items-center justify-between p-4 rounded-xl bg-bg-surface border border-border-custom">
         <div>
-          <p className="text-sm font-medium text-[#e4e4e7]">启用此供应商</p>
-          <p className="text-xs text-[#71717a] mt-0.5">启用后可在聊天时选择该供应商的模型</p>
+          <p className="text-sm font-medium text-text-primary">{t('settings.model.enable')}</p>
+          <p className="text-xs text-text-muted mt-0.5">{t('settings.model.enable.desc')}</p>
         </div>
         <button
           onClick={() => onToggle(provider.id)}
@@ -360,46 +366,46 @@ function ProviderDetail({
       </div>
 
       {/* API Configuration */}
-      <div className="p-4 rounded-xl bg-[#1a1a1c] border border-[#2a2a2c] space-y-4">
-        <h3 className="text-sm font-medium text-[#e4e4e7]">API 配置</h3>
+      <div className="p-4 rounded-xl bg-bg-surface border border-border-custom space-y-4">
+        <h3 className="text-sm font-medium text-text-primary">{t('settings.model.apiConfig')}</h3>
         <div>
-          <label className="block text-xs text-[#71717a] mb-1.5">API 地址</label>
+          <label className="block text-xs text-text-muted mb-1.5">{t('settings.model.apiUrl')}</label>
           <input
             type="text"
             value={provider.baseUrl}
             readOnly
-            className="w-full px-3 py-2 rounded-lg bg-[#2a2a2c] border border-[#333336] text-sm text-[#a1a1aa] outline-none"
+            className="w-full px-3 py-2 rounded-lg bg-bg-input border border-border-custom text-sm text-text-secondary outline-none"
           />
         </div>
         <div>
-          <label className="block text-xs text-[#71717a] mb-1.5">API Key</label>
+          <label className="block text-xs text-text-muted mb-1.5">API Key</label>
           <input
             type="password"
             value={provider.apiKey}
             onChange={(e) => onUpdateApiKey(provider.id, e.target.value)}
-            placeholder="输入 API Key..."
-            className="w-full px-3 py-2 rounded-lg bg-[#2a2a2c] border border-[#333336] text-sm text-[#e4e4e7] placeholder-[#52525b] outline-none focus:border-[#52525b] transition-colors"
+            placeholder={t('settings.model.apiKey.placeholder')}
+            className="w-full px-3 py-2 rounded-lg bg-bg-input border border-border-custom text-sm text-text-primary placeholder-text-muted outline-none focus:border-border-strong transition-colors"
           />
         </div>
       </div>
 
       {/* Model List */}
-      <div className="p-4 rounded-xl bg-[#1a1a1c] border border-[#2a2a2c]">
-        <h3 className="text-sm font-medium text-[#e4e4e7] mb-3">模型列表</h3>
+      <div className="p-4 rounded-xl bg-bg-surface border border-border-custom">
+        <h3 className="text-sm font-medium text-text-primary mb-3">{t('settings.model.modelList')}</h3>
         {provider.models.length > 0 ? (
           <div className="space-y-2">
             {provider.models.map((model) => (
               <div
                 key={model.name}
-                className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-[#222224] border border-[#2a2a2c]"
+                className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-bg-hover border border-border-custom"
               >
-                <span className="text-sm text-[#e4e4e7]">{model.name}</span>
-                <span className="text-xs text-[#71717a]">{model.context}</span>
+                <span className="text-sm text-text-primary">{model.name}</span>
+                <span className="text-xs text-text-muted">{model.context}</span>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-sm text-[#52525b]">暂无可用模型，请配置 API Key 后刷新。</p>
+          <p className="text-sm text-text-muted">{t('settings.model.noModels')}</p>
         )}
       </div>
 
@@ -407,40 +413,332 @@ function ProviderDetail({
       <div className="flex items-center justify-end gap-3 pt-2">
         <button
           onClick={onClose}
-          className="px-4 py-2 rounded-lg text-sm text-[#a1a1aa] hover:bg-[#2a2a2c] transition-colors"
+          className="px-4 py-2 rounded-lg text-sm text-text-secondary hover:bg-bg-hover transition-colors"
         >
-          取消
+          {t('settings.model.cancel')}
         </button>
         <button
           onClick={onSave}
           className="px-5 py-2 rounded-lg text-sm font-medium bg-white text-black hover:bg-gray-200 transition-colors"
         >
-          保存配置
+          {t('settings.model.saveConfig')}
         </button>
       </div>
     </div>
   )
 }
 
+// ============ General Settings Page ============
+
+// Persisted general settings (localStorage)
+interface GeneralPrefs {
+  theme: 'dark' | 'light' | 'system'
+  language: 'zh-CN' | 'en'
+  taskNotification: boolean
+  notificationSound: boolean
+  showThinking: boolean
+  showTodo: boolean
+  interactionMode: 'queue' | 'guide'
+  autoArchive: boolean
+  archiveRetention: '7d' | '14d' | '30d' | '90d'
+  httpProxy: string
+  noProxy: string
+  certPath: string
+  dataPath: string
+}
+
+const DEFAULT_PREFS: GeneralPrefs = {
+  theme: 'dark',
+  language: 'zh-CN',
+  taskNotification: true,
+  notificationSound: true,
+  showThinking: true,
+  showTodo: true,
+  interactionMode: 'queue',
+  autoArchive: true,
+  archiveRetention: '7d',
+  httpProxy: '',
+  noProxy: '',
+  certPath: '',
+  dataPath: '',
+}
+
+function loadPrefs(): GeneralPrefs {
+  try {
+    const raw = localStorage.getItem('kcoder-general-prefs')
+    return raw ? { ...DEFAULT_PREFS, ...JSON.parse(raw) } : DEFAULT_PREFS
+  } catch {
+    return DEFAULT_PREFS
+  }
+}
+
+function savePrefs(prefs: GeneralPrefs) {
+  localStorage.setItem('kcoder-general-prefs', JSON.stringify(prefs))
+  // Reserved: sync to main process for backend integration
+  window.kcoder?.send('save-settings', { general: prefs })
+}
+
+function GeneralSettings() {
+  const [prefs, setPrefs] = useState<GeneralPrefs>(loadPrefs)
+  const { t, setLocale } = useI18n()
+
+  // Apply theme to document root
+  useEffect(() => {
+    const root = document.documentElement
+    const mq = window.matchMedia('(prefers-color-scheme: light)')
+
+    const apply = () => {
+      const isLight = prefs.theme === 'light' || (prefs.theme === 'system' && mq.matches)
+      root.classList.toggle('theme-light', isLight)
+    }
+
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [prefs.theme])
+
+  const update = <K extends keyof GeneralPrefs>(key: K, value: GeneralPrefs[K]) => {
+    setPrefs((prev) => {
+      const next = { ...prev, [key]: value }
+      savePrefs(next)
+      return next
+    })
+  }
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="px-8 pt-8 pb-6">
+        <h1 className="max-w-[680px] mx-auto text-lg font-semibold text-text-primary">{t('settings.general.title')}</h1>
+      </div>
+
+      {/* Settings list */}
+      <div className="flex-1 overflow-y-auto px-8 pb-8">
+        <div className="max-w-[680px] mx-auto bg-bg-surface border border-border-subtle rounded-xl px-6 divide-y divide-border-subtle">
+          {/* 界面主题 */}
+          <SettingRow title={t('settings.general.theme')} desc={t('settings.general.theme.desc')}>
+            <SelectControl
+              value={prefs.theme}
+              onChange={(v) => update('theme', v as GeneralPrefs['theme'])}
+              options={[
+                { value: 'dark', label: t('settings.general.theme.dark') },
+                { value: 'light', label: t('settings.general.theme.light') },
+                { value: 'system', label: t('settings.general.theme.system') },
+              ]}
+            />
+          </SettingRow>
+
+          {/* 界面语言 */}
+          <SettingRow title={t('settings.general.language')} desc={t('settings.general.language.desc')}>
+            <SelectControl
+              value={prefs.language}
+              onChange={(v) => {
+                update('language', v as GeneralPrefs['language'])
+                setLocale(v as 'zh-CN' | 'en')
+              }}
+              options={[
+                { value: 'zh-CN', label: '简体中文' },
+                { value: 'en', label: 'English' },
+              ]}
+            />
+          </SettingRow>
+
+          {/* 任务通知 */}
+          <SettingRow title={t('settings.general.notification')} desc={t('settings.general.notification.desc')}>
+            <ToggleControl checked={prefs.taskNotification} onChange={(v) => update('taskNotification', v)} />
+          </SettingRow>
+
+          {/* 通知声音 */}
+          <SettingRow title={t('settings.general.sound')} desc={t('settings.general.sound.desc')}>
+            <ToggleControl checked={prefs.notificationSound} onChange={(v) => update('notificationSound', v)} />
+          </SettingRow>
+
+          {/* 显示思考过程 */}
+          <SettingRow title={t('settings.general.thinking')} desc={t('settings.general.thinking.desc')}>
+            <ToggleControl checked={prefs.showThinking} onChange={(v) => update('showThinking', v)} />
+          </SettingRow>
+
+          {/* 显示待办 */}
+          <SettingRow title={t('settings.general.todo')} desc={t('settings.general.todo.desc')}>
+            <ToggleControl checked={prefs.showTodo} onChange={(v) => update('showTodo', v)} />
+          </SettingRow>
+
+          {/* 交互行为 */}
+          <SettingRow title={t('settings.general.interaction')} desc={t('settings.general.interaction.desc')}>
+            <SelectControl
+              value={prefs.interactionMode}
+              onChange={(v) => update('interactionMode', v as GeneralPrefs['interactionMode'])}
+              options={[
+                { value: 'queue', label: t('settings.general.interaction.queue') },
+                { value: 'guide', label: t('settings.general.interaction.guide') },
+              ]}
+            />
+          </SettingRow>
+
+          {/* 自动归档旧任务 */}
+          <SettingRow title={t('settings.general.archive')} desc={t('settings.general.archive.desc')}>
+            <ToggleControl checked={prefs.autoArchive} onChange={(v) => update('autoArchive', v)} />
+          </SettingRow>
+
+          {/* 归档保留时长 */}
+          <SettingRow title={t('settings.general.retention')} desc={t('settings.general.retention.desc')}>
+            <SelectControl
+              value={prefs.archiveRetention}
+              onChange={(v) => update('archiveRetention', v as GeneralPrefs['archiveRetention'])}
+              options={[
+                { value: '7d', label: t('settings.general.retention.7d') },
+                { value: '14d', label: t('settings.general.retention.14d') },
+                { value: '30d', label: t('settings.general.retention.30d') },
+                { value: '90d', label: t('settings.general.retention.90d') },
+              ]}
+            />
+          </SettingRow>
+
+          {/* HTTP 代理 */}
+          <SettingInputRow
+            title={t('settings.general.proxy')}
+            desc={t('settings.general.proxy.desc')}
+            value={prefs.httpProxy}
+            onChange={(v) => update('httpProxy', v)}
+            placeholder={t('settings.general.proxy.placeholder')}
+          />
+
+          {/* No Proxy */}
+          <SettingInputRow
+            title={t('settings.general.noProxy')}
+            desc={t('settings.general.noProxy.desc')}
+            value={prefs.noProxy}
+            onChange={(v) => update('noProxy', v)}
+            placeholder={t('settings.general.noProxy.placeholder')}
+          />
+
+          {/* 自定义证书 */}
+          <SettingInputRow
+            title={t('settings.general.cert')}
+            desc={t('settings.general.cert.desc')}
+            value={prefs.certPath}
+            onChange={(v) => update('certPath', v)}
+            placeholder={t('settings.general.cert.placeholder')}
+          />
+
+          {/* 数据存储路径 */}
+          <SettingInputRow
+            title={t('settings.general.dataPath')}
+            desc={t('settings.general.dataPath.desc')}
+            value={prefs.dataPath}
+            onChange={(v) => update('dataPath', v)}
+            placeholder={t('settings.general.dataPath.placeholder')}
+            extraButton={
+              <button
+                className="shrink-0 px-3 py-1.5 rounded-lg text-xs bg-bg-input text-text-secondary hover:bg-bg-active hover:text-text-primary transition-colors"
+                onClick={() => {
+                  // Reserved: invoke Electron dialog.showOpenDialog via IPC
+                  console.log('[KCoder] TODO: open folder picker via IPC')
+                }}
+              >
+                {t('settings.general.browse')}
+              </button>
+            }
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Setting row: flat layout with title+desc left, control right (matching reference design)
+function SettingRow({ title, desc, children }: { title: string; desc: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-6 py-5">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-text-primary">{title}</p>
+        <p className="text-xs text-text-muted mt-1 leading-relaxed">{desc}</p>
+      </div>
+      <div className="shrink-0 flex items-center">{children}</div>
+    </div>
+  )
+}
+
+// Setting row with input field below description (for text-type settings)
+function SettingInputRow({ title, desc, value, onChange, placeholder, extraButton }: {
+  title: string
+  desc: string
+  value: string
+  onChange: (v: string) => void
+  placeholder: string
+  extraButton?: ReactNode
+}) {
+  const { t } = useI18n()
+  return (
+    <div className="py-5">
+      <p className="text-sm font-medium text-text-primary">{title}</p>
+      <p className="text-xs text-text-muted mt-1 leading-relaxed">{desc}</p>
+      <div className="flex items-center gap-2 mt-3">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="flex-1 px-3 py-2 rounded-lg text-sm bg-bg-hover border border-border-custom text-text-primary placeholder-text-muted outline-none focus:border-border-strong transition-colors"
+        />
+        {extraButton}
+        <button className="shrink-0 px-4 py-2 rounded-lg text-xs bg-bg-input text-text-primary hover:bg-bg-active transition-colors">
+          {t('settings.general.save')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Toggle switch: gray track + white knob (matches reference design)
+function ToggleControl({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="relative inline-flex items-center cursor-pointer">
+      <input
+        type="checkbox"
+        className="sr-only peer"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <div
+        className="rounded-full bg-[#3a3a42] peer-checked:bg-[#4d4d57] transition-colors duration-200"
+        style={{ width: 48, height: 28 }}
+      />
+      <div
+        className="absolute top-[3px] left-[3px] rounded-full bg-white shadow-sm transition-transform duration-200"
+        style={{ width: 22, height: 22, transform: checked ? 'translateX(20px)' : 'translateX(0)' }}
+      />
+    </label>
+  )
+}
+
+// Dropdown select
+function SelectControl({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="px-3 py-1.5 rounded-lg text-[13px] bg-bg-hover border border-border-custom text-text-primary outline-none cursor-pointer hover:border-[#52525b] transition-colors"
+    >
+      {options.map((opt) => (
+        <option key={opt.value} value={opt.value}>{opt.label}</option>
+      ))}
+    </select>
+  )
+}
+
 // ============ Placeholder for other settings pages ============
 function PlaceholderSettings({ navId, onClose }: { navId: string; onClose: () => void }) {
-  const labels: Record<string, string> = {
-    general: '常规',
-    preview: '代码预览',
-    skills: '技能',
-    remote: '远程控制',
-    advanced: '高级',
-    about: '关于',
-  }
+  const { t } = useI18n()
   return (
     <div className="flex-1 flex flex-col items-center justify-center">
-      <p className="text-lg text-[#71717a]">{labels[navId] || navId}</p>
-      <p className="text-sm text-[#52525b] mt-2">即将推出</p>
+      <p className="text-lg text-text-muted">{t(`settings.nav.${navId}`)}</p>
+      <p className="text-sm text-text-muted mt-2">{t('settings.comingSoon')}</p>
       <button
         onClick={onClose}
-        className="mt-6 px-4 py-2 rounded-lg text-sm text-[#a1a1aa] border border-[#333336] hover:bg-[#2a2a2c] transition-colors"
+        className="mt-6 px-4 py-2 rounded-lg text-sm text-text-secondary border border-border-custom hover:bg-bg-hover transition-colors"
       >
-        返回
+        {t('settings.back')}
       </button>
     </div>
   )
@@ -449,7 +747,7 @@ function PlaceholderSettings({ navId, onClose }: { navId: string; onClose: () =>
 // ============ Icons ============
 function GearIcon({ active }: { active?: boolean }) {
   return (
-    <svg className={`w-4 h-4 ${active ? 'text-[#e4e4e7]' : 'text-[#71717a]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
@@ -458,7 +756,7 @@ function GearIcon({ active }: { active?: boolean }) {
 
 function CodeIcon({ active }: { active?: boolean }) {
   return (
-    <svg className={`w-4 h-4 ${active ? 'text-[#e4e4e7]' : 'text-[#71717a]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
     </svg>
   )
@@ -466,7 +764,7 @@ function CodeIcon({ active }: { active?: boolean }) {
 
 function ModelIcon({ active }: { active?: boolean }) {
   return (
-    <svg className={`w-4 h-4 ${active ? 'text-[#e4e4e7]' : 'text-[#71717a]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
     </svg>
   )
@@ -474,7 +772,7 @@ function ModelIcon({ active }: { active?: boolean }) {
 
 function SkillIcon({ active }: { active?: boolean }) {
   return (
-    <svg className={`w-4 h-4 ${active ? 'text-[#e4e4e7]' : 'text-[#71717a]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
     </svg>
   )
@@ -482,7 +780,7 @@ function SkillIcon({ active }: { active?: boolean }) {
 
 function RemoteIcon({ active }: { active?: boolean }) {
   return (
-    <svg className={`w-4 h-4 ${active ? 'text-[#e4e4e7]' : 'text-[#71717a]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z" />
     </svg>
   )
@@ -490,7 +788,7 @@ function RemoteIcon({ active }: { active?: boolean }) {
 
 function AdvancedIcon({ active }: { active?: boolean }) {
   return (
-    <svg className={`w-4 h-4 ${active ? 'text-[#e4e4e7]' : 'text-[#71717a]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
     </svg>
   )
@@ -498,7 +796,7 @@ function AdvancedIcon({ active }: { active?: boolean }) {
 
 function AboutIcon({ active }: { active?: boolean }) {
   return (
-    <svg className={`w-4 h-4 ${active ? 'text-[#e4e4e7]' : 'text-[#71717a]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
     </svg>
   )

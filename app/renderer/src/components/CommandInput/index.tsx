@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useI18n } from '../../i18n'
 
 // Agent permission modes - maps to engine approvalPolicy/sandboxMode, backend integration reserved
 const PERMISSION_MODES = [
-  { id: 'confirm-before-change', label: '变更前确认', description: '改文件前先问我。' },
-  { id: 'auto-edit', label: '自动编辑', description: '自动编辑文件。' },
-  { id: 'plan-mode', label: '计划模式', description: '编辑前先出计划。' },
-  { id: 'full-access', label: '完全访问', description: '减少确认次数。' },
+  { id: 'confirm-before-change', labelKey: 'perm.confirmBeforeChange', descKey: 'perm.confirmBeforeChange.desc' },
+  { id: 'auto-edit', labelKey: 'perm.autoEdit', descKey: 'perm.autoEdit.desc' },
+  { id: 'plan-mode', labelKey: 'perm.planMode', descKey: 'perm.planMode.desc' },
+  { id: 'full-access', labelKey: 'perm.fullAccess', descKey: 'perm.fullAccess.desc' },
 ] as const
 
 type PermissionMode = typeof PERMISSION_MODES[number]['id']
@@ -61,6 +62,7 @@ export function CommandInput({
   const [showPermMenu, setShowPermMenu] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const permMenuRef = useRef<HTMLDivElement>(null)
+  const { t } = useI18n()
 
   // Close permission menu on outside click
   useEffect(() => {
@@ -110,7 +112,7 @@ export function CommandInput({
 
   return (
     <div className="w-full max-w-3xl mx-auto">
-      <div className="bg-bg-input rounded-xl border border-[#3f3f46] shadow-lg">
+      <div className="bg-bg-input rounded-xl border border-border-strong shadow-lg">
         {/* Top row: project and branch selectors */}
         <div className="flex items-center gap-2 px-4 pt-3 pb-2">
           {projectName && (
@@ -142,7 +144,7 @@ export function CommandInput({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="向 KCoder 提问, @ 提及文件、文件夹或画板, / 使用命令或子智能体, $ 使用技能, # 关联对话"
+            placeholder={t('input.placeholder')}
             disabled={disabled}
             rows={1}
             className="command-input resize-none min-h-[24px]"
@@ -152,7 +154,7 @@ export function CommandInput({
         {/* Bottom row: actions and model selector */}
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
-            <button className="w-7 h-7 rounded-md bg-[#333336] hover:bg-[#3f3f46] flex items-center justify-center text-[#a1a1aa] transition-colors">
+            <button className="w-7 h-7 rounded-md bg-bg-active hover:bg-[#3f3f46] flex items-center justify-center text-text-secondary transition-colors">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
               </svg>
@@ -162,7 +164,7 @@ export function CommandInput({
                 className="dropdown-btn !bg-transparent !px-2"
                 onClick={() => setShowPermMenu(!showPermMenu)}
               >
-                <span className="text-[#a1a1aa]">{currentPerm.label}</span>
+                <span className="text-text-secondary">{t(currentPerm.labelKey)}</span>
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
@@ -181,13 +183,13 @@ export function CommandInput({
                           : 'hover:bg-[#303034]'
                       }`}
                     >
-                      <PermIcon id={mode.id} className="w-5 h-5 shrink-0 text-[#e4e4e7]" />
+                      <PermIcon id={mode.id} className="w-5 h-5 shrink-0 text-text-primary" />
                       <span className="flex-1 min-w-0">
-                        <span className="block text-[13px] font-medium text-[#e4e4e7] leading-tight">{mode.label}</span>
-                        <span className="block text-xs text-[#8b8b90] mt-0.5 leading-tight">{mode.description}</span>
+                        <span className="block text-[13px] font-medium text-text-primary leading-tight">{t(mode.labelKey)}</span>
+                        <span className="block text-xs text-[#8b8b90] mt-0.5 leading-tight">{t(mode.descKey)}</span>
                       </span>
                       {permission === mode.id && (
-                        <svg className="w-4 h-4 shrink-0 text-[#e4e4e7]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className="w-4 h-4 shrink-0 text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                       )}
@@ -201,7 +203,7 @@ export function CommandInput({
           <div className="flex items-center gap-2">
             {/* Model selector */}
             <button className="dropdown-btn">
-              <span>未配置模型</span>
+              <span>{t('input.noModel')}</span>
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
@@ -211,7 +213,7 @@ export function CommandInput({
             <button
               onClick={handleSubmit}
               disabled={disabled || !input.trim()}
-              className="w-8 h-8 rounded-full bg-white hover:bg-gray-200 disabled:bg-[#3f3f46] disabled:cursor-not-allowed flex items-center justify-center text-black disabled:text-[#71717a] transition-colors"
+              className="w-8 h-8 rounded-full bg-white hover:bg-gray-200 disabled:bg-[#3f3f46] disabled:cursor-not-allowed flex items-center justify-center text-black disabled:text-text-muted transition-colors"
             >
               {disabled ? (
                 <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">

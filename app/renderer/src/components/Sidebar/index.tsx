@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAppStore } from '../../stores/app-store'
+import { useI18n } from '../../i18n'
 
 // Icons as components
 const Icons = {
@@ -70,6 +71,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse }: { onOpenSettings?:
   const [activeTab, setActiveTab] = useState<'group' | 'project'>('project')
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
   const { setWorkspacePath } = useAppStore()
+  const { t } = useI18n()
 
   const toggleProject = (projectId: string) => {
     setExpandedProjects(prev =>
@@ -80,15 +82,15 @@ export function Sidebar({ onOpenSettings, onToggleCollapse }: { onOpenSettings?:
   }
 
   return (
-    <div className="w-[260px] h-full bg-bg-sidebar flex flex-col border-r border-[#2a2a2c]">
+    <div className="w-[260px] h-full bg-bg-sidebar flex flex-col border-r border-border-custom">
       {/* Top bar - leave space for real macOS traffic lights (hiddenInset at x:16,y:16) */}
       <div className="drag-region h-12 flex items-center px-3">
-        <div className="no-drag flex items-center gap-1 ml-20 text-[#71717a]">
+        <div className="no-drag flex items-center gap-1 ml-20 text-text-muted">
           {/* Sidebar collapse toggle - grid panel style */}
           <button
-            className="p-1 rounded-md hover:text-[#e4e4e7] hover:bg-[#2a2a2c] transition-colors"
+            className="p-1 rounded-md hover:text-text-primary hover:bg-bg-hover transition-colors"
             onClick={onToggleCollapse}
-            title="折叠侧边栏"
+            title={t('sidebar.collapse')}
           >
             <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
               <rect x="1" y="2" width="14" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
@@ -98,10 +100,10 @@ export function Sidebar({ onOpenSettings, onToggleCollapse }: { onOpenSettings?:
               <rect x="2.5" y="10" width="2" height="1.5" rx="0.5" />
             </svg>
           </button>
-          <button className="p-1 hover:text-[#a1a1aa] transition-colors">
+          <button className="p-1 hover:text-text-secondary transition-colors">
             <Icons.Back />
           </button>
-          <button className="p-1 hover:text-[#a1a1aa] transition-colors">
+          <button className="p-1 hover:text-text-secondary transition-colors">
             <Icons.Forward />
           </button>
         </div>
@@ -111,17 +113,17 @@ export function Sidebar({ onOpenSettings, onToggleCollapse }: { onOpenSettings?:
       <div className="px-3 py-2 space-y-0.5">
         <button className="sidebar-item w-full">
           <Icons.NewTask />
-          <span>新建任务</span>
-          <span className="ml-auto text-xs text-[#52525b]">⌘N</span>
+          <span>{t('sidebar.newTask')}</span>
+          <span className="ml-auto text-xs text-text-muted">⌘N</span>
         </button>
         <button className="sidebar-item w-full">
           <Icons.Search />
-          <span>搜索</span>
-          <span className="ml-auto text-xs text-[#52525b]">⌘K</span>
+          <span>{t('sidebar.search')}</span>
+          <span className="ml-auto text-xs text-text-muted">⌘K</span>
         </button>
         <button className="sidebar-item w-full">
           <Icons.Skills />
-          <span>技能</span>
+          <span>{t('sidebar.skills')}</span>
         </button>
       </div>
 
@@ -133,20 +135,20 @@ export function Sidebar({ onOpenSettings, onToggleCollapse }: { onOpenSettings?:
             className={`px-3 py-1 rounded-md transition-colors ${
               activeTab === 'group'
                 ? 'bg-white text-black'
-                : 'text-[#a1a1aa] hover:text-[#e4e4e7]'
+                : 'text-text-secondary hover:text-text-primary'
             }`}
           >
-            # 分组
+            {t('sidebar.group')}
           </button>
           <button
             onClick={() => setActiveTab('project')}
             className={`px-3 py-1 rounded-md transition-colors ${
               activeTab === 'project'
                 ? 'bg-white text-black'
-                : 'text-[#a1a1aa] hover:text-[#e4e4e7]'
+                : 'text-text-secondary hover:text-text-primary'
             }`}
           >
-            📁 项目
+            {t('sidebar.project')}
           </button>
         </div>
       </div>
@@ -158,7 +160,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse }: { onOpenSettings?:
             {/* Project header */}
             <button
               onClick={() => toggleProject(project.id)}
-              className="sidebar-item w-full font-medium text-[#e4e4e7]"
+              className="sidebar-item w-full font-medium text-text-primary"
             >
               <span className={`transform transition-transform ${expandedProjects.includes(project.id) ? 'rotate-0' : '-rotate-90'}`}>
                 <Icons.ChevronDown />
@@ -181,13 +183,13 @@ export function Sidebar({ onOpenSettings, onToggleCollapse }: { onOpenSettings?:
                       {task.hasUpdate && (
                         <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444]" />
                       )}
-                      <span className="text-xs text-[#52525b]">{task.time}</span>
+                      <span className="text-xs text-text-muted">{task.time}</span>
                     </span>
                   </button>
                 ))}
                 {project.tasks.length > 10 && (
-                  <button className="task-item w-full text-[#71717a] hover:text-[#a1a1aa]">
-                    显示更多
+                  <button className="task-item w-full text-text-muted hover:text-text-secondary">
+                    {t('sidebar.showMore')}
                   </button>
                 )}
               </div>
@@ -197,17 +199,17 @@ export function Sidebar({ onOpenSettings, onToggleCollapse }: { onOpenSettings?:
       </div>
 
       {/* User profile */}
-      <div className="px-3 py-3 border-t border-[#2a2a2c]">
+      <div className="px-3 py-3 border-t border-border-custom">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-medium">
             U
           </div>
-          <span className="text-sm text-[#e4e4e7]">用户</span>
-          <div className="ml-auto flex items-center gap-2 text-[#71717a]">
-            <button className="hover:text-[#a1a1aa] transition-colors">
+          <span className="text-sm text-text-primary">{t('sidebar.user')}</span>
+          <div className="ml-auto flex items-center gap-2 text-text-muted">
+            <button className="hover:text-text-secondary transition-colors">
               <Icons.Device />
             </button>
-            <button className="hover:text-[#a1a1aa] transition-colors" onClick={onOpenSettings}>
+            <button className="hover:text-text-secondary transition-colors" onClick={onOpenSettings}>
               <Icons.Settings />
             </button>
           </div>

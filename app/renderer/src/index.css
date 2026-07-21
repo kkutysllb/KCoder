@@ -6,6 +6,7 @@
   /* Core colors matching the reference UI */
   --color-bg-primary: #0d0d0d;
   --color-bg-sidebar: #1e1e20;
+  --color-bg-surface: #161618;
   --color-bg-input: #2a2a2c;
   --color-bg-hover: #2a2a2c;
   --color-bg-active: #333336;
@@ -17,10 +18,36 @@
   --color-accent: #ff9f00;
   --color-accent-blue: #0ea5e9;
   --color-border: #333336;
+  --color-border-subtle: #232326;
+  --color-border-strong: #3f3f46;
   
   --color-success: #22c55e;
   --color-warning: #eab308;
   --color-error: #ef4444;
+}
+
+/* Light theme overrides */
+.theme-light {
+  --color-bg-primary: #f5f5f4;
+  --color-bg-sidebar: #eaeae8;
+  --color-bg-surface: #ffffff;
+  --color-bg-input: #ffffff;
+  --color-bg-hover: #e4e4e2;
+  --color-bg-active: #d9d9d6;
+  
+  --color-text-primary: #1c1c1e;
+  --color-text-secondary: #52525b;
+  --color-text-muted: #8e8e96;
+  
+  --color-accent: #e08800;
+  --color-accent-blue: #0284c7;
+  --color-border: #d4d4d1;
+  --color-border-subtle: #e4e4e2;
+  --color-border-strong: #c4c4c0;
+  
+  --color-success: #16a34a;
+  --color-warning: #ca8a04;
+  --color-error: #dc2626;
 }
 
 * {

@@ -15,8 +15,8 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       <div
         className={`max-w-[85%] rounded-xl px-4 py-3 ${
           isUser
-            ? 'bg-[#2a2a2c] text-[#e4e4e7]'
-            : 'bg-transparent text-[#e4e4e7]'
+            ? 'bg-bg-hover text-text-primary'
+            : 'bg-transparent text-text-primary'
         }`}
       >
         {isUser ? (
@@ -37,7 +37,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                   }
 
                   return (
-                    <code className="px-1.5 py-0.5 rounded bg-[#2a2a2c] text-[#e4e4e7] text-[13px]" {...props}>
+                    <code className="px-1.5 py-0.5 rounded bg-bg-hover text-text-primary text-[13px]" {...props}>
                       {children}
                     </code>
                   )
