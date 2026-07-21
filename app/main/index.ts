@@ -3,6 +3,7 @@ import { join } from 'path'
 import { startEngine, stopEngine, getEnginePort, getEngineToken } from './engine-host'
 import { createWindow } from './window'
 import { setupMenu } from './menu'
+import { setupTerminalIPC, killAllTerminals } from './terminal'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -16,11 +17,14 @@ async function bootstrap(): Promise<void> {
   mainWindow = createWindow({
     enginePort: getEnginePort(),
     engineToken: getEngineToken(),
-    preloadPath: join(__dirname, '../preload/index.js')
+    preloadPath: join(__dirname, '../preload/index.mjs')
   })
 
   // Setup application menu
   setupMenu(mainWindow)
+
+  // Setup PTY terminal IPC handlers
+  setupTerminalIPC(() => mainWindow)
 
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -37,7 +41,7 @@ app.whenReady().then(async () => {
       mainWindow = createWindow({
         enginePort: getEnginePort(),
         engineToken: getEngineToken(),
-        preloadPath: join(__dirname, '../preload/index.js')
+        preloadPath: join(__dirname, '../preload/index.mjs')
       })
     }
   })
@@ -53,5 +57,6 @@ app.on('window-all-closed', () => {
 // Graceful shutdown
 app.on('before-quit', async () => {
   console.log('[KCoder] Shutting down engine...')
+  killAllTerminals()
   await stopEngine()
 })

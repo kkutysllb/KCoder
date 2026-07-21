@@ -5,18 +5,46 @@ import { WelcomeScreen } from './components/WelcomeScreen'
 import { ChatPanel } from './components/ChatPanel'
 import { SettingsPanel } from './components/SettingsPanel'
 import { AuthModal } from './components/AuthModal'
+import { TerminalPanel } from './components/TerminalPanel'
 import { useChat } from './hooks/useChat'
 import { useAuth } from './hooks/useAuth'
 import { getEngineAPI } from './services/engine-api'
-import { I18nProvider } from './i18n'
+import { I18nProvider, useI18n } from './i18n'
+
+/** Floating terminal open/close button (top-right, reference design) */
+function TerminalToggleButton({ active, onToggle }: { active: boolean; onToggle: () => void }) {
+  const { t } = useI18n()
+  return (
+    <div className="absolute top-3 right-4 z-30 no-drag">
+      <button
+        onClick={onToggle}
+        title={t('terminal.toggle')}
+        className={`p-1.5 rounded-md transition-colors ${
+          active ? 'text-white bg-bg-hover' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
+        }`}
+      >
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.5}
+            d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"
+          />
+        </svg>
+      </button>
+    </div>
+  )
+}
 
 export default function App() {
-  const { initializeEngine, setEngineStatus, messages, enginePort } = useAppStore()
+  const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath } = useAppStore()
   const { sendMessage, isGenerating } = useChat()
   const auth = useAuth(enginePort)
   const [showSettings, setShowSettings] = useState(false)
   const [showAuth, setShowAuth] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [showTerminal, setShowTerminal] = useState(false)
+  const [terminalMounted, setTerminalMounted] = useState(false)
 
   useEffect(() => {
     // Apply saved theme on startup
@@ -55,6 +83,12 @@ export default function App() {
 
   const hasMessages = messages.length > 0
 
+  const toggleTerminal = () => {
+    const next = !showTerminal
+    setShowTerminal(next)
+    if (next) setTerminalMounted(true)
+  }
+
   return (
     <I18nProvider>
     <div className="flex h-full bg-bg-primary">
@@ -70,7 +104,10 @@ export default function App() {
       )}
 
       {/* Main content area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden relative">
+        {/* Terminal toggle button — top right (reference design) */}
+        <TerminalToggleButton active={showTerminal} onToggle={toggleTerminal} />
+
         {/* Sidebar expand button when collapsed — simple right chevron (reference design) */}
         {sidebarCollapsed && (
           <div className="drag-region h-12 flex items-center px-3 shrink-0">
@@ -89,6 +126,18 @@ export default function App() {
           <ChatPanel />
         ) : (
           <WelcomeScreen onSend={sendMessage} disabled={isGenerating} />
+        )}
+
+        {/* Terminal panel — kept mounted to preserve PTY sessions */}
+        {terminalMounted && (
+          <TerminalPanel
+            workspacePath={workspacePath}
+            visible={showTerminal}
+            onEmpty={() => {
+              setShowTerminal(false)
+              setTerminalMounted(false)
+            }}
+          />
         )}
       </div>
 

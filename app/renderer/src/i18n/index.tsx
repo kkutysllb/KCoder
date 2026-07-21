@@ -29,6 +29,14 @@ const zhCN: Dict = {
   'sidebar.showMore': '显示更多',
   'sidebar.user': '用户',
 
+  // Terminal
+  'terminal.title': '终端',
+  'terminal.new': '新建终端',
+  'terminal.close': '关闭终端',
+  'terminal.closeTab': '关闭此终端',
+  'terminal.empty': '无活动终端',
+  'terminal.toggle': '打开/关闭终端',
+
   // Auth
   'auth.title.login': '登录 KCoder',
   'auth.title.register': '注册账户',
@@ -433,6 +441,14 @@ const en: Dict = {
   'sidebar.sortByCreated': 'Created Time',
   'sidebar.showMore': 'Show more',
   'sidebar.user': 'User',
+
+  // Terminal
+  'terminal.title': 'Terminal',
+  'terminal.new': 'New Terminal',
+  'terminal.close': 'Close Terminal',
+  'terminal.closeTab': 'Close this terminal',
+  'terminal.empty': 'No active terminal',
+  'terminal.toggle': 'Toggle terminal',
 
   // Auth
   'auth.title.login': 'Sign in to KCoder',

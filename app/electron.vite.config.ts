@@ -19,6 +19,12 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'preload/index.ts')
+        },
+        output: {
+          // Deterministic ESM preload filename (project is "type": "module").
+          // Must match the path referenced in main/index.ts.
+          format: 'es',
+          entryFileNames: '[name].mjs'
         }
       }
     }

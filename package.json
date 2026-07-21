@@ -11,8 +11,8 @@
     "test:engine": "cd engine && pnpm test",
     "typecheck": "pnpm -r run typecheck",
     "package": "pnpm --filter @kcoder/app package",
-    "rebuild": "electron-rebuild -f -w better-sqlite3",
-    "postinstall": "electron-rebuild -f -w better-sqlite3"
+    "rebuild": "electron-rebuild -f -w better-sqlite3 -w node-pty",
+    "postinstall": "electron-rebuild -f -w better-sqlite3 -w node-pty"
   },
   "engines": {
     "node": ">=20"
