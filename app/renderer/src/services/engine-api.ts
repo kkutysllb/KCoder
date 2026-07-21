@@ -45,6 +45,19 @@ export interface MarketplaceIndex {
   skills: MarketplaceSkill[]
 }
 
+export interface SubAgentEntry {
+  id: string
+  name: string
+  type: 'builtin' | 'user'
+  description: string
+  tools: string[]
+  source: string
+  content: string
+  inheritMode: 'default' | 'custom'
+  createdAt?: string
+  updatedAt?: string
+}
+
 export interface TurnResponse {
   id: string
   threadId: string
@@ -265,6 +278,69 @@ export class EngineAPI {
     })
     if (!response.ok) {
       throw new Error(`Failed to fetch marketplace: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // ============ Sub-Agents API (reserved, pending backend) ============
+
+  // List all sub-agents
+  async listSubAgents(): Promise<SubAgentEntry[]> {
+    const response = await fetch(`${this.baseUrl}/api/subagents`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to list sub-agents: ${response.statusText}`)
+    }
+    const data = await response.json()
+    return data.agents ?? []
+  }
+
+  // Create a user sub-agent
+  async createSubAgent(payload: Omit<SubAgentEntry, 'type' | 'source'>): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/api/subagents`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to create sub-agent: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // Update a user sub-agent
+  async updateSubAgent(id: string, payload: Partial<SubAgentEntry>): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/api/subagents/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: this.headers,
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to update sub-agent: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // Delete a user sub-agent
+  async deleteSubAgent(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/subagents/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to delete sub-agent: ${response.statusText}`)
+    }
+  }
+
+  // Clone a builtin sub-agent as user agent
+  async cloneSubAgent(id: string): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/api/subagents/${encodeURIComponent(id)}/clone`, {
+      method: 'POST',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to clone sub-agent: ${response.statusText}`)
     }
     return response.json()
   }
