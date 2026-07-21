@@ -1,21 +1,52 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 
-// Agent permission levels - maps to engine sandboxMode
-const PERMISSION_LEVELS = [
-  { id: 'read-only', label: '只读', description: '仅读取文件，不做任何修改' },
-  { id: 'workspace-write', label: '工作区写入', description: '可修改当前工作区文件' },
-  { id: 'danger-full-access', label: '完全访问', description: '可执行任意命令和文件操作' },
+// Agent permission modes - maps to engine approvalPolicy/sandboxMode, backend integration reserved
+const PERMISSION_MODES = [
+  { id: 'confirm-before-change', label: '变更前确认', description: '改文件前先问我。' },
+  { id: 'auto-edit', label: '自动编辑', description: '自动编辑文件。' },
+  { id: 'plan-mode', label: '计划模式', description: '编辑前先出计划。' },
+  { id: 'full-access', label: '完全访问', description: '减少确认次数。' },
 ] as const
 
-type PermissionLevel = typeof PERMISSION_LEVELS[number]['id']
+type PermissionMode = typeof PERMISSION_MODES[number]['id']
+
+// Icon for each permission mode
+function PermIcon({ id, className }: { id: PermissionMode; className?: string }) {
+  switch (id) {
+    case 'confirm-before-change':
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M7.5 3a1.5 1.5 0 00-1.5 1.5v.75c0 .28.06.55.17.8L4.5 8.25a1.5 1.5 0 00-.44 1.06v1.44c0 .6.36 1.14.9 1.38l.54.24v2.88c0 .9.54 1.71 1.38 2.06l.12.05v1.89a.75.75 0 001.5 0v-2.25h1.5v2.25a.75.75 0 001.5 0v-2.25h.75c.41 0 .75-.34.75-.75v-6.19l1.28-1.28a.75.75 0 00-1.06-1.06l-1.72 1.72-.5-.22V4.5A1.5 1.5 0 009 3h-1.5z" />
+        </svg>
+      )
+    case 'auto-edit':
+      return (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 3l1.9 5.7a2 2 0 001.3 1.3L21 12l-5.8 1.9a2 2 0 00-1.3 1.3L12 21l-1.9-5.8a2 2 0 00-1.3-1.3L3 12l5.8-1.9a2 2 0 001.3-1.3L12 3z" />
+        </svg>
+      )
+    case 'plan-mode':
+      return (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+        </svg>
+      )
+    case 'full-access':
+      return (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+        </svg>
+      )
+  }
+}
 
 interface CommandInputProps {
   onSend: (message: string) => void
   disabled?: boolean
   projectName?: string
   branchName?: string
-  permission?: PermissionLevel
-  onPermissionChange?: (level: PermissionLevel) => void
+  permission?: PermissionMode
+  onPermissionChange?: (mode: PermissionMode) => void
 }
 
 export function CommandInput({
@@ -23,7 +54,7 @@ export function CommandInput({
   disabled,
   projectName,
   branchName = 'main',
-  permission = 'workspace-write',
+  permission = 'full-access',
   onPermissionChange
 }: CommandInputProps) {
   const [input, setInput] = useState('')
@@ -42,9 +73,9 @@ export function CommandInput({
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const currentPerm = PERMISSION_LEVELS.find((p) => p.id === permission) ?? PERMISSION_LEVELS[1]
+  const currentPerm = PERMISSION_MODES.find((p) => p.id === permission) ?? PERMISSION_MODES[3]
 
-  const handlePermSelect = useCallback((id: PermissionLevel) => {
+  const handlePermSelect = useCallback((id: PermissionMode) => {
     onPermissionChange?.(id)
     setShowPermMenu(false)
   }, [onPermissionChange])
@@ -79,7 +110,7 @@ export function CommandInput({
 
   return (
     <div className="w-full max-w-3xl mx-auto">
-      <div className="bg-bg-input rounded-xl border border-[#3f3f46] shadow-lg overflow-hidden">
+      <div className="bg-bg-input rounded-xl border border-[#3f3f46] shadow-lg">
         {/* Top row: project and branch selectors */}
         <div className="flex items-center gap-2 px-4 pt-3 pb-2">
           {projectName && (
@@ -131,35 +162,35 @@ export function CommandInput({
                 className="dropdown-btn !bg-transparent !px-2"
                 onClick={() => setShowPermMenu(!showPermMenu)}
               >
-                <svg className={`w-3.5 h-3.5 ${permission === 'danger-full-access' ? 'text-accent' : 'text-[#a1a1aa]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                <span className={permission === 'danger-full-access' ? 'text-accent' : 'text-[#a1a1aa]'}>{currentPerm.label}</span>
+                <span className="text-[#a1a1aa]">{currentPerm.label}</span>
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
 
-              {/* Permission dropdown menu */}
+              {/* Permission mode dropdown menu */}
               {showPermMenu && (
-                <div className="absolute bottom-full left-0 mb-2 w-56 rounded-lg bg-[#1e1e20] border border-[#333336] shadow-xl py-1 z-50">
-                  <p className="px-3 py-1.5 text-[11px] text-[#52525b] uppercase tracking-wider">Agent 权限</p>
-                  {PERMISSION_LEVELS.map((level) => (
+                <div className="absolute bottom-full left-0 mb-2 w-[240px] rounded-xl bg-[#2a2a2e] border border-[#3a3a3e] shadow-2xl py-1.5 z-50">
+                  {PERMISSION_MODES.map((mode) => (
                     <button
-                      key={level.id}
-                      onClick={() => handlePermSelect(level.id)}
-                      className={`w-full flex items-start gap-2.5 px-3 py-2 text-left transition-colors ${
-                        permission === level.id ? 'bg-[#2a2a2c]' : 'hover:bg-[#2a2a2c]'
+                      key={mode.id}
+                      onClick={() => handlePermSelect(mode.id)}
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                        permission === mode.id
+                          ? 'bg-[#333338]'
+                          : 'hover:bg-[#303034]'
                       }`}
                     >
-                      <span className={`mt-1 w-2 h-2 rounded-full shrink-0 ${
-                        permission === level.id ? 'bg-[#22c55e]' : 'bg-[#3f3f46]'
-                      }`} />
-                      <div>
-                        <p className={`text-sm ${permission === level.id ? 'text-[#e4e4e7]' : 'text-[#a1a1aa]'}`}>{level.label}</p>
-                        <p className="text-[11px] text-[#52525b] mt-0.5">{level.description}</p>
-                      </div>
+                      <PermIcon id={mode.id} className="w-5 h-5 shrink-0 text-[#e4e4e7]" />
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-[13px] font-medium text-[#e4e4e7] leading-tight">{mode.label}</span>
+                        <span className="block text-xs text-[#8b8b90] mt-0.5 leading-tight">{mode.description}</span>
+                      </span>
+                      {permission === mode.id && (
+                        <svg className="w-4 h-4 shrink-0 text-[#e4e4e7]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
                     </button>
                   ))}
                 </div>

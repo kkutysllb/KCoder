@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: ""
+title: KCoder 多 Agent 桌面 IDE Monorepo
+scope:
+    - package.json
+    - pnpm-workspace.yaml
+    - pnpm-lock.yaml
+    - tsconfig.json
+    - .gitignore
+    - README.md
+source_files: []
+depends_on: []
+related_to: []

@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: engine/skills_catalog
+title: 内置技能目录 (Skills Catalog)
+scope:
+    - engine/skills/
+source_files: []
+depends_on: []
+related_to: []

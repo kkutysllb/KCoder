@@ -1,0 +1,259 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: main
+nodes_managed: true
+exported_at: "2026-07-20T16:27:15Z"
+modules:
+    "":
+        dir_name: KCoder 多 Agent 桌面 IDE Monorepo
+        title: KCoder 多 Agent 桌面 IDE Monorepo
+        scope:
+            - package.json
+            - pnpm-workspace.yaml
+            - pnpm-lock.yaml
+            - tsconfig.json
+            - .gitignore
+            - README.md
+        source_files: []
+        children:
+            - electron_app
+            - engine
+        depends_on: []
+        related_to: []
+    electron_app:
+        dir_name: KCoder Electron 桌面应用
+        title: KCoder Electron 桌面应用
+        scope:
+            - app/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine:
+        dir_name: Qiongqi 多 Agent 引擎 Monorepo
+        title: Qiongqi 多 Agent 引擎 Monorepo
+        scope:
+            - engine/
+        source_files: []
+        children:
+            - engine/adapters
+            - engine/cli_layer
+            - engine/core_runtime
+            - engine/delegation_layer
+            - engine/domain_and_capabilities
+            - engine/http_layer
+            - engine/infrastructure_layer
+            - engine/ports_and_presets
+            - engine/skills_catalog
+            - engine/tests_and_scripts
+        depends_on: []
+        related_to: []
+    engine/adapters:
+        dir_name: 适配器模型、存储与工具实现包
+        title: 适配器模型、存储与工具实现包
+        scope:
+            - engine/packages/adapters/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/cli_layer:
+        dir_name: Qiongqi CLI 与本地运行时入口层
+        title: Qiongqi CLI 与本地运行时入口层
+        scope:
+            - engine/packages/cli-layer/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/core_runtime:
+        dir_name: Qiongqi 引擎运行时核心（engine + foundation_contracts）
+        title: Qiongqi 引擎运行时核心（engine + foundation/contracts）
+        scope:
+            - engine/packages/engine/
+            - engine/packages/foundation/
+        source_files: []
+        children:
+            - engine/core_runtime/budget_continuation
+            - engine/core_runtime/compaction_recovery
+            - engine/core_runtime/contracts
+            - engine/core_runtime/history_integrity
+            - engine/core_runtime/kernel_governor
+            - engine/core_runtime/middleware
+            - engine/core_runtime/proposal_review
+            - engine/core_runtime/services
+            - engine/core_runtime/tool_runtime
+            - engine/core_runtime/turn_orchestrator
+        depends_on: []
+        related_to: []
+    engine/core_runtime/budget_continuation:
+        dir_name: 模型请求预算与 Token 经济策略
+        title: 模型请求预算与 Token 经济策略
+        scope:
+            - engine/packages/engine/loop/src/model-request-budget.ts
+            - engine/packages/engine/loop/src/token-economy.ts
+            - engine/packages/engine/loop/src/continuation-policy.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/core_runtime/compaction_recovery:
+        dir_name: 上下文压缩与恢复守卫
+        title: 上下文压缩与恢复守卫
+        scope:
+            - engine/packages/engine/loop/src/context-compactor.ts
+            - engine/packages/engine/loop/src/context-recovery-guard.ts
+            - engine/packages/engine/loop/src/context-recovery.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/core_runtime/contracts:
+        dir_name: Qiongqi 运行时契约与能力配置 (contracts)
+        title: Qiongqi 运行时契约与能力配置 (contracts)
+        scope:
+            - engine/packages/foundation/contracts/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/core_runtime/history_integrity:
+        dir_name: 会话历史完整性与请求级缓存卫生
+        title: 会话历史完整性与请求级缓存卫生
+        scope:
+            - engine/packages/engine/loop/src/history-healing.ts
+            - engine/packages/engine/loop/src/request-history-hygiene.ts
+            - engine/packages/engine/loop/src/append-only-session-log.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/core_runtime/kernel_governor:
+        dir_name: Kernel v3 运行时内核与生产图
+        title: Kernel v3 运行时内核与生产图
+        scope:
+            - engine/packages/engine/loop/src/runtime-kernel.ts
+            - engine/packages/engine/loop/src/kernel-v3-graph.ts
+            - engine/packages/engine/loop/src/kernel-v3-node-handlers.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/core_runtime/middleware:
+        dir_name: 运行时中间件集合（预算_安全_可观测性_循环治理）
+        title: 运行时中间件集合（预算/安全/可观测性/循环治理）
+        scope:
+            - engine/packages/engine/loop/src/middleware/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/core_runtime/proposal_review:
+        dir_name: 提案分类与审查提示工程
+        title: 提案分类与审查提示工程
+        scope:
+            - engine/packages/engine/loop/src/proposal-classifier.ts
+            - engine/packages/engine/loop/src/proposal-materializer.ts
+            - engine/packages/engine/loop/src/review-prompt.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/core_runtime/services:
+        dir_name: 引擎运行时服务层（线程_回合_用量_事件）
+        title: 引擎运行时服务层（线程/回合/用量/事件）
+        scope:
+            - engine/packages/engine/services/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/core_runtime/tool_runtime:
+        dir_name: 工具调用编排与 V3 幂等运行时
+        title: 工具调用编排与 V3 幂等运行时
+        scope:
+            - engine/packages/engine/loop/src/tool-runtime-v3.ts
+            - engine/packages/engine/loop/src/tool-call-coordinator.ts
+            - engine/packages/engine/loop/src/tool-dispatch-errors.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/core_runtime/turn_orchestrator:
+        dir_name: Turn 编排器与转向队列
+        title: Turn 编排器与转向队列
+        scope:
+            - engine/packages/engine/loop/src/turn-orchestrator.ts
+            - engine/packages/engine/loop/src/evented-turn-orchestrator.ts
+            - engine/packages/engine/loop/src/steering-queue.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/delegation_layer:
+        dir_name: 子代理委派运行时与对等体注册中心
+        title: 子代理委派运行时与对等体注册中心
+        scope:
+            - engine/packages/delegation-layer/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/domain_and_capabilities:
+        dir_name: 领域模型与能力实现（Domain Layer & Capabilities）
+        title: 领域模型与能力实现（Domain Layer & Capabilities）
+        scope:
+            - engine/packages/domain-layer/
+            - engine/packages/capabilities/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/http_layer:
+        dir_name: HTTP 请求层与路由适配（@qiongqi_http）
+        title: HTTP 请求层与路由适配（@qiongqi/http）
+        scope:
+            - engine/packages/http-layer/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/infrastructure_layer:
+        dir_name: 基础设施层（缓存、附件存储、工具运行支撑与文件适配）
+        title: 基础设施层（缓存、附件存储、工具运行支撑与文件适配）
+        scope:
+            - engine/packages/infrastructure/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/ports_and_presets:
+        dir_name: 运行时端口定义与 Coding 预设
+        title: 运行时端口定义与 Coding 预设
+        scope:
+            - engine/packages/ports-layer/
+            - engine/packages/presets/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/skills_catalog:
+        dir_name: 内置技能目录 (Skills Catalog)
+        title: 内置技能目录 (Skills Catalog)
+        scope:
+            - engine/skills/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    engine/tests_and_scripts:
+        dir_name: 引擎测试套件与验证脚本
+        title: 引擎测试套件与验证脚本
+        scope:
+            - engine/tests/
+            - engine/scripts/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

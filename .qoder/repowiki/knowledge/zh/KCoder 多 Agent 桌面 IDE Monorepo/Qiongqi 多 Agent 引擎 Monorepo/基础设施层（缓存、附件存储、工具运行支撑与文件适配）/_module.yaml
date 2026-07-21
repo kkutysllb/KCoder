@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: engine/infrastructure_layer
+title: 基础设施层（缓存、附件存储、工具运行支撑与文件适配）
+scope:
+    - engine/packages/infrastructure/
+source_files: []
+depends_on: []
+related_to: []

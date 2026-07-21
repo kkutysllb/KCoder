@@ -66,7 +66,7 @@ interface Project {
 
 const mockProjects: Project[] = []
 
-export function Sidebar({ onOpenSettings }: { onOpenSettings?: () => void }) {
+export function Sidebar({ onOpenSettings, onToggleCollapse }: { onOpenSettings?: () => void; onToggleCollapse?: () => void }) {
   const [activeTab, setActiveTab] = useState<'group' | 'project'>('project')
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
   const { setWorkspacePath } = useAppStore()
@@ -81,17 +81,23 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings?: () => void }) {
 
   return (
     <div className="w-[260px] h-full bg-bg-sidebar flex flex-col border-r border-[#2a2a2c]">
-      {/* Top bar with window controls */}
-      <div className="drag-region h-12 flex items-center px-3 gap-2">
-        {/* macOS window buttons placeholder */}
-        <div className="no-drag flex items-center gap-2 ml-1">
-          <div className="flex gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-[#ff5f57]" />
-            <span className="w-3 h-3 rounded-full bg-[#febc2e]" />
-            <span className="w-3 h-3 rounded-full bg-[#28c840]" />
-          </div>
-        </div>
-        <div className="no-drag flex items-center gap-1 ml-2 text-[#71717a]">
+      {/* Top bar - leave space for real macOS traffic lights (hiddenInset at x:16,y:16) */}
+      <div className="drag-region h-12 flex items-center px-3">
+        <div className="no-drag flex items-center gap-1 ml-20 text-[#71717a]">
+          {/* Sidebar collapse toggle - grid panel style */}
+          <button
+            className="p-1 rounded-md hover:text-[#e4e4e7] hover:bg-[#2a2a2c] transition-colors"
+            onClick={onToggleCollapse}
+            title="折叠侧边栏"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+              <rect x="1" y="2" width="14" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+              <line x1="6" y1="2" x2="6" y2="14" stroke="currentColor" strokeWidth="1.3" />
+              <rect x="2.5" y="4.5" width="2" height="1.5" rx="0.5" />
+              <rect x="2.5" y="7.25" width="2" height="1.5" rx="0.5" />
+              <rect x="2.5" y="10" width="2" height="1.5" rx="0.5" />
+            </svg>
+          </button>
           <button className="p-1 hover:text-[#a1a1aa] transition-colors">
             <Icons.Back />
           </button>

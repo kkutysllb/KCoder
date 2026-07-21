@@ -23,17 +23,26 @@ export function WelcomeScreen({ onSend, disabled }: WelcomeScreenProps) {
   const greeting = getGreeting()
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-8">
+    <div className="flex-1 relative flex flex-col items-center justify-center px-8 overflow-hidden">
+      {/* Large background "K" letter - disappears when task starts */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
+        <span className="text-[420px] font-bold leading-none text-white/[0.03] tracking-tighter">
+          K
+        </span>
+      </div>
+
       {/* Greeting text */}
-      <h1 className="text-2xl font-medium text-[#e4e4e7] mb-12 tracking-wide">
+      <h1 className="relative z-10 text-2xl font-medium text-[#e4e4e7] mb-12 tracking-wide">
         {greeting}
       </h1>
 
       {/* Command input */}
-      <CommandInput onSend={onSend} disabled={disabled} />
+      <div className="relative z-10 w-full flex justify-center">
+        <CommandInput onSend={onSend} disabled={disabled} />
+      </div>
 
       {/* Quick hints */}
-      <div className="mt-8 flex items-center gap-6 text-xs text-[#52525b]">
+      <div className="relative z-10 mt-8 flex items-center gap-6 text-xs text-[#52525b]">
         <span className="flex items-center gap-1.5">
           <kbd className="px-1.5 py-0.5 rounded bg-[#2a2a2c] text-[#71717a]">@</kbd>
           提及文件

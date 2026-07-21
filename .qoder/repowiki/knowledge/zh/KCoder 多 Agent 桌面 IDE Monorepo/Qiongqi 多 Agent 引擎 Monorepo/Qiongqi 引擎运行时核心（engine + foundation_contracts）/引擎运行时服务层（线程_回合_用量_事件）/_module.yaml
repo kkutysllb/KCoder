@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: engine/core_runtime/services
+title: 引擎运行时服务层（线程/回合/用量/事件）
+scope:
+    - engine/packages/engine/services/
+source_files: []
+depends_on: []
+related_to: []

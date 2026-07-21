@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: engine/core_runtime/middleware
+title: 运行时中间件集合（预算/安全/可观测性/循环治理）
+scope:
+    - engine/packages/engine/loop/src/middleware/
+source_files: []
+depends_on: []
+related_to: []

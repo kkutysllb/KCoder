@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: engine/core_runtime/budget_continuation
+title: 模型请求预算与 Token 经济策略
+scope:
+    - engine/packages/engine/loop/src/model-request-budget.ts
+    - engine/packages/engine/loop/src/token-economy.ts
+    - engine/packages/engine/loop/src/continuation-policy.ts
+source_files: []
+depends_on: []
+related_to: []

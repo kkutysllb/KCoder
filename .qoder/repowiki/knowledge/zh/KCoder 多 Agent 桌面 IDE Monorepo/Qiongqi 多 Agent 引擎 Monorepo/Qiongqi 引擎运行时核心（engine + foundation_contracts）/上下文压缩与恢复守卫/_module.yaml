@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: engine/core_runtime/compaction_recovery
+title: 上下文压缩与恢复守卫
+scope:
+    - engine/packages/engine/loop/src/context-compactor.ts
+    - engine/packages/engine/loop/src/context-recovery-guard.ts
+    - engine/packages/engine/loop/src/context-recovery.ts
+source_files: []
+depends_on: []
+related_to: []
