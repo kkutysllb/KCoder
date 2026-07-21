@@ -40,3 +40,4 @@ engine/packages/*/*/dist/
 
 # Runtime data
 .kcoder/
+.qoder/

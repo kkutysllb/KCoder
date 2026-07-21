@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-21T13:41:51Z"
+exported_at: "2026-07-21T14:14:36Z"
 modules:
     "":
-        dir_name: KCoder — 基于 QiongQi 的 Electron AI Coding 桌面应用
-        title: KCoder — 基于 QiongQi 的 Electron AI Coding 桌面应用
+        dir_name: KCoder Electron 桌面端（主进程 + React 渲染进程）
+        title: KCoder Electron 桌面端（主进程 + React 渲染进程）
         scope: []
         source_files: []
         children: []
