@@ -109,6 +109,36 @@ export interface PluginEntry {
   updatedAt?: string
 }
 
+export interface CommandEntry {
+  id: string
+  description: string
+  content: string
+  source: 'skill' | 'user'
+  skillId?: string
+  aliases: string[]
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface RemoteConfig {
+  remoteEnabled: boolean
+  remoteUrl: string
+  remoteToken: string
+  exposeEnabled: boolean
+  exposeToken: string
+  requireAuth: boolean
+  permissionLevel: 'readonly' | 'full'
+  sessionTimeout: number
+}
+
+export interface RemoteSessionInfo {
+  id: string
+  device: string
+  ip: string
+  connectedAt: string
+  permission: 'readonly' | 'full'
+}
+
 export interface TurnResponse {
   id: string
   threadId: string
@@ -484,6 +514,119 @@ export class EngineAPI {
       throw new Error(`Failed to check plugin updates: ${response.statusText}`)
     }
     return response.json()
+  }
+
+  // ============ Commands API (reserved, pending backend) ============
+
+  // List all commands (skill-registered + user .md commands)
+  async listCommands(): Promise<CommandEntry[]> {
+    const response = await fetch(`${this.baseUrl}/api/commands`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to list commands: ${response.statusText}`)
+    }
+    const data = await response.json()
+    return data.commands ?? []
+  }
+
+  // Create a user command (.md file)
+  async createCommand(payload: Omit<CommandEntry, 'source'>): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/api/commands`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to create command: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // Update a user command
+  async updateCommand(id: string, payload: Partial<CommandEntry>): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/api/commands/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: this.headers,
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to update command: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // Delete a user command
+  async deleteCommand(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/commands/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to delete command: ${response.statusText}`)
+    }
+  }
+
+  // ============ Remote Control API (reserved, pending backend) ============
+
+  // Get remote control configuration
+  async getRemoteConfig(): Promise<RemoteConfig> {
+    const response = await fetch(`${this.baseUrl}/api/remote/config`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to get remote config: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // Update remote control configuration
+  async saveRemoteConfig(config: Partial<RemoteConfig>): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/api/remote/config`, {
+      method: 'PUT',
+      headers: this.headers,
+      body: JSON.stringify(config)
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to save remote config: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // Test connectivity to a remote engine
+  async testRemoteConnection(url: string, token: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
+    const response = await fetch(`${this.baseUrl}/api/remote/test`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ url, token })
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to test remote connection: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // List connected remote sessions
+  async listRemoteSessions(): Promise<RemoteSessionInfo[]> {
+    const response = await fetch(`${this.baseUrl}/api/remote/sessions`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to list remote sessions: ${response.statusText}`)
+    }
+    const data = await response.json()
+    return data.sessions ?? []
+  }
+
+  // Revoke a remote session
+  async revokeRemoteSession(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/remote/sessions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to revoke remote session: ${response.statusText}`)
+    }
   }
 }
 

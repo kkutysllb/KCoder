@@ -5,6 +5,9 @@ import { SkillsSettings } from './SkillsSettings'
 import { SubAgentsSettings } from './SubAgentsSettings'
 import { MCPSettings } from './MCPSettings'
 import { PluginsSettings } from './PluginsSettings'
+import { CommandsSettings } from './CommandsSettings'
+import { RemoteSettings } from './RemoteSettings'
+import { AboutSettings } from './AboutSettings'
 
 interface SettingsPanelProps {
   isOpen: boolean
@@ -20,8 +23,8 @@ const NAV_ITEMS = [
   { id: 'agents', labelKey: 'settings.nav.agents', icon: AgentIcon },
   { id: 'mcp', labelKey: 'settings.nav.mcp', icon: McpIcon },
   { id: 'plugins', labelKey: 'settings.nav.plugins', icon: PluginIcon },
+  { id: 'commands', labelKey: 'settings.nav.commands', icon: CommandIcon },
   { id: 'remote', labelKey: 'settings.nav.remote', icon: RemoteIcon },
-  { id: 'advanced', labelKey: 'settings.nav.advanced', icon: AdvancedIcon },
   { id: 'about', labelKey: 'settings.nav.about', icon: AboutIcon },
 ]
 
@@ -207,6 +210,12 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           <MCPSettings />
         ) : activeNav === 'plugins' ? (
           <PluginsSettings />
+        ) : activeNav === 'commands' ? (
+          <CommandsSettings />
+        ) : activeNav === 'remote' ? (
+          <RemoteSettings />
+        ) : activeNav === 'about' ? (
+          <AboutSettings />
         ) : (
           <PlaceholderSettings navId={activeNav} onClose={onClose} />
         )}
@@ -1021,6 +1030,14 @@ function PluginIcon({ active }: { active?: boolean }) {
   return (
     <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085" />
+    </svg>
+  )
+}
+
+function CommandIcon({ active }: { active?: boolean }) {
+  return (
+    <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z" />
     </svg>
   )
 }
