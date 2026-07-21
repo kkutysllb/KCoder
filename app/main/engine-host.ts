@@ -41,6 +41,13 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
   enginePort = fullConfig.port
   engineToken = fullConfig.runtimeToken
 
+  // Enable CORS for the local engine — the renderer (Vite dev server or
+  // file://) is cross-origin relative to http://127.0.0.1:<port>.
+  // Safe because the engine only binds loopback and requires token auth.
+  if (!process.env.CORS_ORIGINS) {
+    process.env.CORS_ORIGINS = '*'
+  }
+
   // Log configuration status
   if (!fullConfig.apiKey) {
     console.log('[KCoder] No API key configured - engine will start in standby mode. Configure models in Settings.')
