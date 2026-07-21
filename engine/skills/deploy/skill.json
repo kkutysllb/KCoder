@@ -53,7 +53,7 @@
     "workspace": "write",
     "network": true,
     "exec": "workspace",
-    "requiresApproval": "always"
+    "requiresApproval": "on-request"
   },
   "assets": []
 }

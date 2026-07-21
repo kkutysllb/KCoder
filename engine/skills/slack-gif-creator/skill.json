@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "slack-gif-creator",
+  "name": "Slack GIF Creator",
+  "description": "Knowledge and utilities for creating animated GIFs optimized for Slack: size constraints, validation tools, and animation concepts. Use for \"make me a GIF of X doing Y for Slack\".",
+  "version": "1.0.0",
+  "category": "design",
+  "priority": 3,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/slack-gif"
+    ],
+    "promptPatterns": [
+      "\\b(slack gif|animated gif.*slack|make.*gif|gif.*emoji|表情gif)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "slack-gif",
+      "alias": [
+        "gif"
+      ],
+      "description": "Create Slack-optimized animated GIFs",
+      "injectPrompt": "Apply the slack-gif-creator skill: create an animated GIF within Slack constraints (≤2MB custom emoji / reasonable size for messages, small dimensions, limited frames), validate the output, and deliver the file."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "slack-gif",
+        "title": "Slack GIF Creator",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

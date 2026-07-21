@@ -1,0 +1,57 @@
+{
+  "specVersion": "1.0",
+  "id": "internal-comms",
+  "name": "Internal Communications",
+  "description": "Write internal communications in company-preferred formats: status reports, leadership updates, newsletters, FAQs, incident reports, and project updates.",
+  "version": "1.0.0",
+  "category": "document",
+  "priority": 4,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/internal-comms"
+    ],
+    "promptPatterns": [
+      "\\b(internal comms?|status report|leadership update|newsletter|incident report|project update|内部沟通|周报|汇报)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "internal-comms",
+      "alias": [
+        "comms"
+      ],
+      "description": "Write internal communications",
+      "injectPrompt": "Apply the internal-comms skill: write the internal communication (status report, leadership update, newsletter, FAQ, incident report, or project update) in the appropriate format with a clear ask and scannable structure."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "internal-comms",
+        "title": "Internal Communications",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "none",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

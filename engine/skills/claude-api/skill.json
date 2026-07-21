@@ -1,0 +1,59 @@
+{
+  "specVersion": "1.0",
+  "id": "claude-api",
+  "name": "Claude API",
+  "description": "Build, debug, and optimize Claude API / Anthropic SDK apps, including prompt caching and model version migrations. Trigger when code imports anthropic/@anthropic-ai/sdk or the user asks for Claude API features.",
+  "version": "1.0.0",
+  "category": "development",
+  "priority": 6,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/claude-api"
+    ],
+    "promptPatterns": [
+      "\\b(claude api|anthropic sdk|@anthropic-ai/sdk|prompt caching|claude (opus|sonnet|haiku))\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "claude-api",
+      "alias": [
+        "anthropic"
+      ],
+      "description": "Build and optimize Claude API apps",
+      "injectPrompt": "Apply the claude-api skill: build or debug the Anthropic SDK integration with prompt caching enabled by default; handle tool use, thinking, batching, and model migrations correctly per current API docs."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find",
+      "web_fetch"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "claude-api",
+        "title": "Claude API",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": true,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

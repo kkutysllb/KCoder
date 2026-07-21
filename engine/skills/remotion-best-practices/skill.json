@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "remotion-best-practices",
+  "name": "Remotion Best Practices",
+  "description": "Best practices for Remotion — video creation in React: compositions, timing, interpolation, audio, and rendering pipelines.",
+  "version": "1.0.0",
+  "category": "development",
+  "priority": 4,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/remotion"
+    ],
+    "promptPatterns": [
+      "\\b(remotion|react video|programmatic video|视频合成|render.*video.*react)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "remotion",
+      "alias": [
+        "video-react"
+      ],
+      "description": "Create videos with Remotion (React)",
+      "injectPrompt": "Apply the remotion-best-practices skill: build the video as React compositions with frame-based timing, interpolate/interpolateColors for motion, and render via the Remotion CLI with correct codec settings."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "remotion",
+        "title": "Remotion Best Practices",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

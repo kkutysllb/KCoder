@@ -43,7 +43,7 @@ export const SkillSummarySchema = z
     description: z.string().optional(),
     /** Category bucket — matches `SkillManifestV1.category`. */
     category: z
-      .enum(['development', 'review', 'planning', 'workflow', 'integration'])
+      .enum(['development', 'review', 'planning', 'workflow', 'integration', 'document', 'design', 'meta'])
       .default('workflow')
   })
   .strict()

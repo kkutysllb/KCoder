@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "vercel-composition-patterns",
+  "name": "React Composition Patterns",
+  "description": "React composition patterns that scale: compound components, render props, context providers, reusable APIs. Use when refactoring components with boolean prop proliferation. Includes React 19 API changes.",
+  "version": "1.0.0",
+  "category": "development",
+  "priority": 6,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/composition-patterns"
+    ],
+    "promptPatterns": [
+      "\\b(composition pattern|compound component|boolean prop|prop proliferation|render prop|组件组合|React 19)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "composition-patterns",
+      "alias": [
+        "compound-components"
+      ],
+      "description": "Apply scalable React composition patterns",
+      "injectPrompt": "Apply the vercel-composition-patterns skill: refactor toward composition — replace boolean prop proliferation with compound components, children/slot patterns, and context where state truly crosses levels; apply React 19 APIs where relevant."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "composition-patterns",
+        "title": "React Composition Patterns",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

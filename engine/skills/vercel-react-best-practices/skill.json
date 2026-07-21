@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "vercel-react-best-practices",
+  "name": "React & Next.js Best Practices",
+  "description": "React and Next.js performance optimization guidelines from Vercel Engineering. Use when writing, reviewing, or refactoring React/Next.js code for optimal performance patterns.",
+  "version": "1.0.0",
+  "category": "development",
+  "priority": 9,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/react-best-practices"
+    ],
+    "promptPatterns": [
+      "\\b(react (performance|best practices)|next\\.?js (performance|optimization)|性能优化.*react|bundle size|re-?render)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "react-best-practices",
+      "alias": [
+        "nextjs-perf"
+      ],
+      "description": "Apply React/Next.js performance best practices",
+      "injectPrompt": "Apply the vercel-react-best-practices skill: enforce performance patterns — proper data fetching (server-first), memoization only where measured, bundle hygiene, and correct cache/revalidate strategy for Next.js."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "react-best-practices",
+        "title": "React & Next.js Best Practices",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

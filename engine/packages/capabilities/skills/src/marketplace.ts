@@ -11,7 +11,7 @@ const MarketplaceEntryRaw = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   version: z.string().default('0.0.0'),
-  category: z.enum(['development', 'review', 'planning', 'workflow', 'integration']).default('workflow'),
+  category: z.enum(['development', 'review', 'planning', 'workflow', 'integration', 'document', 'design', 'meta']).default('workflow'),
   source: z.enum(['git', 'file']),
   repoUrl: z.string().min(1).optional(),
   homepage: z.string().min(1).optional()

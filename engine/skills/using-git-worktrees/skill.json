@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "using-git-worktrees",
+  "name": "Using Git Worktrees",
+  "description": "Use when starting feature work that needs isolation from the current workspace or before executing implementation plans — ensures an isolated workspace via git worktree.",
+  "version": "1.0.0",
+  "category": "workflow",
+  "priority": 7,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/use-worktrees"
+    ],
+    "promptPatterns": [
+      "\\b(git worktree|worktree|工作树|isolated workspace|feature isolation)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "use-worktrees",
+      "alias": [
+        "worktrees"
+      ],
+      "description": "Isolate feature work with git worktrees",
+      "injectPrompt": "Apply the using-git-worktrees skill: create a git worktree for the feature branch so work is isolated from the main workspace; run setup in the worktree and clean up when done."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "use-worktrees",
+        "title": "Using Git Worktrees",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

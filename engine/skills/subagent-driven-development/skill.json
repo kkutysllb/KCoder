@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "subagent-driven-development",
+  "name": "Sub-agent Driven Development",
+  "description": "Use when executing implementation plans with independent tasks in the current session — dispatch independent tasks to sub-agents and integrate their results.",
+  "version": "1.0.0",
+  "category": "workflow",
+  "priority": 8,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/subagent-driven-development"
+    ],
+    "promptPatterns": [
+      "\\b(sub-?agent (driven|development)|dispatch.*tasks?|子代理.*执行|parallel implementation)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "subagent-driven-development",
+      "alias": [
+        "subagent-dev"
+      ],
+      "description": "Execute plans via dispatched sub-agents",
+      "injectPrompt": "Apply the subagent-driven-development skill: decompose the implementation plan into independent tasks, dispatch each to a sub-agent with full context and explicit deliverables, then verify and integrate results."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "subagent-driven-development",
+        "title": "Sub-agent Driven Development",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

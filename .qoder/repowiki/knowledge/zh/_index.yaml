@@ -3,7 +3,7 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-21T03:59:23Z"
+exported_at: "2026-07-21T13:41:51Z"
 modules:
     "":
         dir_name: KCoder — 基于 QiongQi 的 Electron AI Coding 桌面应用

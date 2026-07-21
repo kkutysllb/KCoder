@@ -1,0 +1,57 @@
+{
+  "specVersion": "1.0",
+  "id": "doc-coauthoring",
+  "name": "Doc Co-authoring",
+  "description": "Guide users through a structured workflow for co-authoring documentation, proposals, technical specs, and decision docs — transfer context, refine through iteration, verify with readers.",
+  "version": "1.0.0",
+  "category": "document",
+  "priority": 6,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/doc-coauthoring"
+    ],
+    "promptPatterns": [
+      "\\b(co-?author|合著|一起写.*文档|write (a )?(doc|proposal|spec|rfc) with me|draft.*together)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "doc-coauthoring",
+      "alias": [
+        "coauthor"
+      ],
+      "description": "Co-author documentation structurally",
+      "injectPrompt": "Apply the doc-coauthoring skill: run a structured co-authoring workflow — gather the user's context and intent, draft in sections, iterate with focused feedback passes, and verify the doc works for its readers."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "doc-coauthoring",
+        "title": "Doc Co-authoring",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "none",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

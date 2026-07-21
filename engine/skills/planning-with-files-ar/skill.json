@@ -1,0 +1,56 @@
+{
+  "specVersion": "1.0",
+  "id": "planning-with-files-ar",
+  "name": "تخطيط المهام بالملفات",
+  "description": "نظام تخطيط الملفات بنمط Manus لتنظيم وتتبع تقدم المهام المعقدة. ينشئ ملفات task_plan.md و findings.md و progress.md. يدعم الاستعادة التلقائية للجلسة بعد /clear.",
+  "version": "1.0.0",
+  "category": "planning",
+  "priority": 8,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/planning-with-files-ar"
+    ],
+    "promptPatterns": [
+      "\\b(planning[- ]with[- ]files[- ]ar|تخطيط المهام)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "planning-with-files-ar",
+      "alias": [],
+      "description": "نظام تخطيط الملفات بنمط Manus لتنظيم وتتبع تقدم المهام المعقدة",
+      "injectPrompt": "Apply the planning-with-files-ar skill: create and maintain task_plan.md, findings.md, and progress.md to plan and track this complex task; recover context from these files on session start."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "planning-with-files-ar",
+        "title": "تخطيط المهام بالملفات",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

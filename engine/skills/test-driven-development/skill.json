@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "test-driven-development",
+  "name": "Test-Driven Development",
+  "description": "Use when implementing any feature or bugfix, before writing implementation code — red/green/refactor with tests written first.",
+  "version": "1.0.0",
+  "category": "development",
+  "priority": 11,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/test-driven-development"
+    ],
+    "promptPatterns": [
+      "\\b(test[- ]driven|测试驱动|red.?green.?refactor|write tests? first)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "test-driven-development",
+      "alias": [
+        "test-first"
+      ],
+      "description": "Test-driven development (red/green/refactor)",
+      "injectPrompt": "Apply the test-driven-development skill: write a failing test that captures the requirement first (red), implement the minimal code to pass it (green), then refactor with the test as safety net."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "test-driven-development",
+        "title": "Test-Driven Development",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

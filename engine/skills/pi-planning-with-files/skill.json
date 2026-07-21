@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "pi-planning-with-files",
+  "name": "PI Planning with Files",
+  "description": "Implements Manus-style file-based planning to organize and track complex tasks: task_plan.md, findings.md, progress.md. Supports automatic session recovery after /clear.",
+  "version": "1.0.0",
+  "category": "planning",
+  "priority": 9,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/pi-planning"
+    ],
+    "promptPatterns": [
+      "\\b(pi[- ]planning|plan(out)? (this|the) project|break (this )?down|organize.*multi-?step|track progress.*files)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "pi-planning",
+      "alias": [
+        "pi-plan"
+      ],
+      "description": "File-based planning (task_plan/findings/progress)",
+      "injectPrompt": "Apply the pi-planning-with-files skill: create and maintain task_plan.md (phases & checklist), findings.md (research results), and progress.md (current state) to organize the complex task and enable session recovery."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "pi-planning",
+        "title": "PI Planning with Files",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

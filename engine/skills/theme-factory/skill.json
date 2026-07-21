@@ -1,0 +1,57 @@
+{
+  "specVersion": "1.0",
+  "id": "theme-factory",
+  "name": "Theme Factory",
+  "description": "Toolkit for styling artifacts (slides, docs, reports, landing pages) with themes: 10 pre-set color/font themes, or generate a new theme on-the-fly.",
+  "version": "1.0.0",
+  "category": "design",
+  "priority": 4,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/theme-factory"
+    ],
+    "promptPatterns": [
+      "\\b(theme factory|apply.*theme|主题工厂|generate.*theme|配色方案|theme.*slides?|theme.*doc)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "theme-factory",
+      "alias": [
+        "theme"
+      ],
+      "description": "Apply or generate visual themes",
+      "injectPrompt": "Apply the theme-factory skill: select a preset theme (or generate a coherent new one: palette, font pairing, spacing) and apply it consistently to the artifact being created."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "theme-factory",
+        "title": "Theme Factory",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "none",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

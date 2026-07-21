@@ -1,0 +1,61 @@
+{
+  "specVersion": "1.0",
+  "id": "pptx",
+  "name": "PowerPoint",
+  "description": "Use whenever a .pptx file is involved — creating slide decks and presentations, reading/parsing/extracting text, editing, merging, splitting, templates, layouts, speaker notes, or comments.",
+  "version": "1.0.0",
+  "category": "document",
+  "priority": 5,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/pptx"
+    ],
+    "promptPatterns": [
+      "\\b(pptx|powerpoint|slide deck|pitch deck|presentation|幻灯片|演示文稿|\\.pptx)\\b"
+    ],
+    "fileTypes": [
+      ".pptx"
+    ],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "pptx",
+      "alias": [
+        "powerpoint",
+        "slides-doc"
+      ],
+      "description": "Create, read, or edit PowerPoint files",
+      "injectPrompt": "Apply the pptx skill: create, read, or edit .pptx files (python-pptx for structure; templates, layouts, speaker notes as needed). Validate the output file opens correctly and content is complete."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "pptx",
+        "title": "PowerPoint",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

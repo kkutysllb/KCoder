@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "bug-hunt",
+  "name": "Bug Hunt",
+  "description": "复现并定位问题，给出最小修复和验证路径。Use when a reported bug needs reproduction, root-cause localization, a minimal fix, and a verification path.",
+  "version": "1.0.0",
+  "category": "development",
+  "priority": 12,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/bug-hunt"
+    ],
+    "promptPatterns": [
+      "\\b(bug ?hunt|复现.*问题|定位.*bug|reproduce.*bug|hunt.*bug)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "bug-hunt",
+      "alias": [
+        "hunt"
+      ],
+      "description": "Reproduce, localize, and minimally fix a bug",
+      "injectPrompt": "Apply the bug-hunt skill: first reproduce the bug with a minimal case, then localize the root cause via bisection and evidence gathering, propose the smallest correct fix, and define a verification path that proves the fix."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "bug-hunt",
+        "title": "Bug Hunt",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

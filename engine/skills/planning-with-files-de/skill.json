@@ -1,0 +1,56 @@
+{
+  "specVersion": "1.0",
+  "id": "planning-with-files-de",
+  "name": "Dateibasierte Planung",
+  "description": "Manus-artiges Dateiplanungssystem zur Organisation und Verfolgung des Fortschritts komplexer Aufgaben. Erstellt task_plan.md, findings.md und progress.md. Unterstützt automatische Sitzungswiederherstellung nach /clear.",
+  "version": "1.0.0",
+  "category": "planning",
+  "priority": 8,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/planning-with-files-de"
+    ],
+    "promptPatterns": [
+      "\\b(planning[- ]with[- ]files[- ]de|Aufgabenplanung, Projektplanung, Arbeitsplan erstellen, Aufgaben analysieren, Projekt organisieren, Fortschritt verfolgen, Mehrstufige Planung, Hilf mir bei der Planung, Projekt zerlegen)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "planning-with-files-de",
+      "alias": [],
+      "description": "Manus-artiges Dateiplanungssystem zur Organisation und Verfolgung des Fortschritts komplexer Aufgaben",
+      "injectPrompt": "Apply the planning-with-files-de skill: create and maintain task_plan.md, findings.md, and progress.md to plan and track this complex task; recover context from these files on session start."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "planning-with-files-de",
+        "title": "Dateibasierte Planung",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

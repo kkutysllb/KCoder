@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "frontend-polish",
+  "name": "Frontend Polish",
+  "description": "优化界面细节、响应式状态和视觉一致性。Use for refining spacing, hover/focus/loading/empty states, transitions, and cross-breakpoint consistency.",
+  "version": "1.0.0",
+  "category": "design",
+  "priority": 7,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/frontend-polish"
+    ],
+    "promptPatterns": [
+      "\\b(frontend polish|界面打磨|ui polish|优化.*细节|visual consistency|响应式状态)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "frontend-polish",
+      "alias": [
+        "polish"
+      ],
+      "description": "Polish UI details and consistency",
+      "injectPrompt": "Apply the frontend-polish skill: audit and refine interface details — spacing rhythm, interactive states (hover/focus/active/disabled/loading/empty/error), motion, and visual consistency across breakpoints."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "frontend-polish",
+        "title": "Frontend Polish",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

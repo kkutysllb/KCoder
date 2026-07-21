@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "verification-before-completion",
+  "name": "Verification Before Completion",
+  "description": "Use when about to claim work is complete, fixed, or passing, before committing or creating PRs — run verification commands and confirm output; evidence before assertions, always.",
+  "version": "1.0.0",
+  "category": "workflow",
+  "priority": 13,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/verify-completion"
+    ],
+    "promptPatterns": [
+      "\\b(verif(y|ication) before completion|完成前验证|verify.*before.*(commit|done|complete)|evidence before assertion)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "verify-completion",
+      "alias": [
+        "verify-done"
+      ],
+      "description": "Verify work before claiming completion",
+      "injectPrompt": "Apply the verification-before-completion skill: before claiming completion, run the actual verification commands (tests, build, lint, repro steps), read the full output, and report honestly — evidence before assertions."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "verify-completion",
+        "title": "Verification Before Completion",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

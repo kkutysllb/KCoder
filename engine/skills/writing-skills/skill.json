@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "writing-skills",
+  "name": "Writing Skills",
+  "description": "Use when creating new skills, editing existing skills, or verifying skills work before deployment — the craft of skill authoring itself.",
+  "version": "1.0.0",
+  "category": "meta",
+  "priority": 10,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/writing-skills"
+    ],
+    "promptPatterns": [
+      "\\b(writing skills?|author.*skill|edit.*skill|创建技能|编写技能|skill.*verify)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "writing-skills",
+      "alias": [
+        "author-skill"
+      ],
+      "description": "Author and verify skills",
+      "injectPrompt": "Apply the writing-skills skill: author or edit the skill following the authoring craft — precise trigger description, imperative instructions, checklists over prose, anti-patterns, and real-prompt verification before shipping."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "writing-skills",
+        "title": "Writing Skills",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "vercel-cli-with-tokens",
+  "name": "Vercel CLI with Tokens",
+  "description": "Deploy and manage projects on Vercel using token-based authentication instead of interactive login — for CI, automation, and headless environments.",
+  "version": "1.0.0",
+  "category": "integration",
+  "priority": 4,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/vercel-tokens"
+    ],
+    "promptPatterns": [
+      "\\b(vercel.*token|vercel.*ci|vercel.*non-?interactive|VERCEL_TOKEN|vercel.*automation)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "vercel-tokens",
+      "alias": [
+        "vercel-ci"
+      ],
+      "description": "Vercel CLI with token authentication",
+      "injectPrompt": "Apply the vercel-cli-with-tokens skill: authenticate the Vercel CLI with an access token (VERCEL_TOKEN env), link the project non-interactively, configure env vars, and deploy with --yes flags for automation."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "vercel-tokens",
+        "title": "Vercel CLI with Tokens",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": true,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "planning-with-files",
+  "name": "Planning with Files",
+  "description": "Implements Manus-style file-based planning to organize and track progress on complex tasks. Creates task_plan.md, findings.md, and progress.md. Supports automatic session recovery after /clear.",
+  "version": "1.0.0",
+  "category": "planning",
+  "priority": 9,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/plan-with-files"
+    ],
+    "promptPatterns": [
+      "\\b(planning with files|文件规划|plan (out|with files)|multi-?step planning|project planning)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "plan-with-files",
+      "alias": [
+        "file-plan"
+      ],
+      "description": "File-based planning (task_plan/findings/progress)",
+      "injectPrompt": "Apply the planning-with-files skill: create and maintain task_plan.md, findings.md, and progress.md to plan, break down, and track the complex task; recover context from these files on session start."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "plan-with-files",
+        "title": "Planning with Files",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

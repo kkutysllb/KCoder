@@ -1,0 +1,57 @@
+{
+  "specVersion": "1.0",
+  "id": "brand-guidelines",
+  "name": "Brand Guidelines",
+  "description": "Applies official brand colors and typography to artifacts that benefit from a consistent look-and-feel. Use when brand colors, style guidelines, or visual formatting standards apply.",
+  "version": "1.0.0",
+  "category": "design",
+  "priority": 4,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/brand-guidelines"
+    ],
+    "promptPatterns": [
+      "\\b(brand (guide|guidelines|colors?|style)|视觉规范|品牌规范|VI 规范)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "brand-guidelines",
+      "alias": [
+        "brand"
+      ],
+      "description": "Apply brand colors and typography",
+      "injectPrompt": "Apply the brand-guidelines skill: before styling any artifact, load the brand palette and type scale, then apply brand colors, fonts, and spacing rules consistently across the deliverable."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "brand-guidelines",
+        "title": "Brand Guidelines",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "none",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

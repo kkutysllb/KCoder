@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "deploy-to-vercel",
+  "name": "Deploy to Vercel",
+  "description": "Deploy applications and websites to Vercel. Use when the user requests \"deploy my app\", \"deploy and give me the link\", \"push this live\", or \"create a preview deployment\".",
+  "version": "1.0.0",
+  "category": "integration",
+  "priority": 6,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/deploy-to-vercel"
+    ],
+    "promptPatterns": [
+      "\\b(deploy (my|the|this) (app|site)|push this live|preview deployment|部署到 ?vercel|deploy.*link)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "deploy-to-vercel",
+      "alias": [
+        "vercel-deploy"
+      ],
+      "description": "Deploy the app to Vercel",
+      "injectPrompt": "Apply the deploy-to-vercel skill: deploy the current project to Vercel (ensure CLI auth, correct framework preset, env vars), then return the deployment URL to the user."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "deploy-to-vercel",
+        "title": "Deploy to Vercel",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": true,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

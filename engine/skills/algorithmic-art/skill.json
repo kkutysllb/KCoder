@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "algorithmic-art",
+  "name": "Algorithmic Art",
+  "description": "Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration. Use for generative art, flow fields, or particle systems — always create original work.",
+  "version": "1.0.0",
+  "category": "design",
+  "priority": 5,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/algorithmic-art"
+    ],
+    "promptPatterns": [
+      "\\b(algorithmic art|generative art|gen(era)?tive art|flow ?field|particle system|p5\\.js)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "algorithmic-art",
+      "alias": [
+        "gen-art"
+      ],
+      "description": "Create generative algorithmic art with p5.js",
+      "injectPrompt": "Apply the algorithmic-art skill: build original generative art with p5.js using seeded randomness (e.g. a seeded PRNG), layered composition, and interactive parameter controls. Never copy existing artists' work."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "algorithmic-art",
+        "title": "Algorithmic Art",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

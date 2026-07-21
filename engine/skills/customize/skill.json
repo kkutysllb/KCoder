@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "customize",
+  "name": "Customize Deployment",
+  "description": "Interactive guided deployment flow for Azure OpenAI models with full customization: model version, SKU (GlobalStandard/Standard/ProvisionedManaged), capacity, RAI policy, and advanced options.",
+  "version": "1.0.0",
+  "category": "integration",
+  "priority": 3,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/customize"
+    ],
+    "promptPatterns": [
+      "\\b(custom(ize|ized)? deploy|choose (version|sku)|set capacity|configure content filter|RAI policy|PTU deployment|provisioned throughput)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "customize",
+      "alias": [
+        "custom-deploy"
+      ],
+      "description": "Customized Azure OpenAI deployment flow",
+      "injectPrompt": "Apply the customize skill: run an interactive guided deployment — step-by-step selection of model version, SKU, capacity, content filter (RAI policy), and advanced options (dynamic quota, priority processing, spillover)."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "bash",
+      "grep",
+      "find",
+      "web_fetch"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "customize",
+        "title": "Customize Deployment",
+        "icon": "sparkles"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "read",
+    "network": true,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}
