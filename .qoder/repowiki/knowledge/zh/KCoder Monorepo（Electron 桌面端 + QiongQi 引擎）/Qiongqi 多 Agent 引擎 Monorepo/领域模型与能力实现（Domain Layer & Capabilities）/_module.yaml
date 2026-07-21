@@ -1,9 +1,0 @@
-schema_version: 1
-module_path: engine/domain_and_capabilities
-title: 领域模型与能力实现（Domain Layer & Capabilities）
-scope:
-    - engine/packages/domain-layer/
-    - engine/packages/capabilities/
-source_files: []
-depends_on: []
-related_to: []

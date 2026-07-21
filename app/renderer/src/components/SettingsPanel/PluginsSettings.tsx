@@ -456,14 +456,16 @@ function PluginCard({
           </svg>
         </button>
 
-        {/* Toggle: ON = blue #3b82f6 + dot right; OFF = gray #3f3f46 + dot left */}
+        {/* Toggle: gray track + white knob (matches General page reference) */}
         <button
           onClick={onToggle}
-          className={`relative shrink-0 w-9 h-5 rounded-full transition-colors ${plugin.enabled ? 'bg-[#3b82f6]' : 'bg-[#3f3f46]'}`}
+          className={`relative shrink-0 rounded-full transition-colors duration-200 ${plugin.enabled ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'}`}
+          style={{ width: 48, height: 28 }}
           title={plugin.enabled ? t('settings.plugins.disable') : t('settings.plugins.enable')}
         >
           <span
-            className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${plugin.enabled ? 'left-[19px]' : 'left-[3px]'}`}
+            className="absolute top-[3px] left-[3px] rounded-full bg-white shadow-sm transition-transform duration-200"
+            style={{ width: 22, height: 22, transform: plugin.enabled ? 'translateX(20px)' : 'translateX(0)' }}
           />
         </button>
       </div>

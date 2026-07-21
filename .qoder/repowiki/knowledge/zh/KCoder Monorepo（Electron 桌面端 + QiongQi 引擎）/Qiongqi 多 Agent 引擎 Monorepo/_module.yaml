@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: engine
-title: Qiongqi 多 Agent 引擎 Monorepo
-scope:
-    - engine/
-source_files: []
-depends_on: []
-related_to: []

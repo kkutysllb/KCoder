@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: engine/delegation_layer
-title: 子代理委派运行时与对等体注册中心
-scope:
-    - engine/packages/delegation-layer/
-source_files: []
-depends_on: []
-related_to: []

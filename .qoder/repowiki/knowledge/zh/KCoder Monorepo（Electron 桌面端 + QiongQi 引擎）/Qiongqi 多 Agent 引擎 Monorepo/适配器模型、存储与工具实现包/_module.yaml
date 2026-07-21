@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: engine/adapters
-title: 适配器模型、存储与工具实现包
-scope:
-    - engine/packages/adapters/
-source_files: []
-depends_on: []
-related_to: []

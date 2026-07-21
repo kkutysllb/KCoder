@@ -353,14 +353,14 @@ function SkillCard({
         <button
           onClick={onToggle}
           disabled={toggling}
-          className={`relative shrink-0 w-10 h-[22px] rounded-full transition-colors ${
+          className={`relative shrink-0 rounded-full transition-colors duration-200 ${
             toggling ? 'opacity-50' : ''
-          } ${skill.enabled ? 'bg-[#22c55e]' : 'bg-[#3a3a42]'}`}
+          } ${skill.enabled ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'}`}
+          style={{ width: 48, height: 28 }}
         >
           <span
-            className={`absolute top-[3px] w-4 h-4 rounded-full bg-white shadow transition-transform ${
-              skill.enabled ? 'translate-x-[21px]' : 'translate-x-[3px]'
-            }`}
+            className="absolute top-[3px] left-[3px] rounded-full bg-white shadow-sm transition-transform duration-200"
+            style={{ width: 22, height: 22, transform: skill.enabled ? 'translateX(20px)' : 'translateX(0)' }}
           />
         </button>
       </div>

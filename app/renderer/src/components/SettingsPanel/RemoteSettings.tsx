@@ -347,10 +347,12 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
   return (
     <button
       onClick={() => onChange(!checked)}
-      className={`relative shrink-0 w-9 h-5 rounded-full transition-colors ${checked ? 'bg-[#3b82f6]' : 'bg-[#3f3f46]'}`}
+      className={`relative shrink-0 rounded-full transition-colors duration-200 ${checked ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'}`}
+      style={{ width: 48, height: 28 }}
     >
       <span
-        className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${checked ? 'left-[19px]' : 'left-[3px]'}`}
+        className="absolute top-[3px] left-[3px] rounded-full bg-white shadow-sm transition-transform duration-200"
+        style={{ width: 22, height: 22, transform: checked ? 'translateX(20px)' : 'translateX(0)' }}
       />
     </button>
   )

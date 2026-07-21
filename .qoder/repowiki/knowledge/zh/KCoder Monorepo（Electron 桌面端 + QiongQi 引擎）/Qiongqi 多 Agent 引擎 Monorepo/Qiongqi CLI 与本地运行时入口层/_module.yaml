@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: engine/cli_layer
-title: Qiongqi CLI 与本地运行时入口层
-scope:
-    - engine/packages/cli-layer/
-source_files: []
-depends_on: []
-related_to: []

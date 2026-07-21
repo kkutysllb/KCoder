@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: engine/http_layer
-title: HTTP 请求层与路由适配（@qiongqi/http）
-scope:
-    - engine/packages/http-layer/
-source_files: []
-depends_on: []
-related_to: []

@@ -1,9 +1,0 @@
-schema_version: 1
-module_path: engine/tests_and_scripts
-title: 引擎测试套件与验证脚本
-scope:
-    - engine/tests/
-    - engine/scripts/
-source_files: []
-depends_on: []
-related_to: []

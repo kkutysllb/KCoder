@@ -59,6 +59,14 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
     // Dynamic import to avoid bundling issues
     const { createCodingAgent } = await import('@qiongqi/preset-coding')
     const { createHttpServer } = await import('@qiongqi/http')
+    const { QiongqiCapabilitiesConfig } = await import('@qiongqi/contracts')
+
+    // Skills default to disabled when capabilities is omitted — explicitly
+    // enable them so the builtin skill bundle (engine/skills/) is mounted.
+    const capabilities = QiongqiCapabilitiesConfig.parse({
+      skills: { enabled: true },
+      subagents: { enabled: true }
+    })
 
     console.log('[KCoder] Creating coding agent...')
     const agent = await createCodingAgent({
@@ -73,7 +81,8 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
       approvalPolicy: fullConfig.approvalPolicy,
       sandboxMode: 'workspace-write',
       tokenEconomyMode: true,
-      insecure: false
+      insecure: false,
+      capabilities
     })
 
     console.log('[KCoder] Agent runtime created, starting HTTP server...')

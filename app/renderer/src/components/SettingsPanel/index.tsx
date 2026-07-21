@@ -379,14 +379,14 @@ function ProviderDetail({
         </div>
         <button
           onClick={() => onToggle(provider.id)}
-          className={`relative w-11 h-6 rounded-full transition-colors ${
-            provider.enabled ? 'bg-[#22c55e]' : 'bg-[#3f3f46]'
+          className={`relative rounded-full transition-colors duration-200 ${
+            provider.enabled ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'
           }`}
+          style={{ width: 48, height: 28 }}
         >
           <span
-            className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-              provider.enabled ? 'translate-x-[22px]' : 'translate-x-0.5'
-            }`}
+            className="absolute top-[3px] left-[3px] rounded-full bg-white shadow-sm transition-transform duration-200"
+            style={{ width: 22, height: 22, transform: provider.enabled ? 'translateX(20px)' : 'translateX(0)' }}
           />
         </button>
       </div>

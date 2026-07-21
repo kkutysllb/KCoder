@@ -1,9 +1,0 @@
-schema_version: 1
-module_path: engine/ports_and_presets
-title: 运行时端口定义与 Coding 预设
-scope:
-    - engine/packages/ports-layer/
-    - engine/packages/presets/
-source_files: []
-depends_on: []
-related_to: []

@@ -388,11 +388,13 @@ function ServerCard({
               {/* Enable/disable toggle */}
               <button
                 onClick={onToggle}
-                className={`relative w-8 h-[18px] rounded-full transition-colors ${server.enabled ? 'bg-[#3b82f6]' : 'bg-[#3f3f46]'}`}
+                className={`relative rounded-full transition-colors duration-200 ${server.enabled ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'}`}
+                style={{ width: 48, height: 28 }}
                 title={server.enabled ? t('settings.mcp.disable') : t('settings.mcp.enable')}
               >
                 <span
-                  className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-all ${server.enabled ? 'left-[16px]' : 'left-[2px]'}`}
+                  className="absolute top-[3px] left-[3px] rounded-full bg-white shadow-sm transition-transform duration-200"
+                  style={{ width: 22, height: 22, transform: server.enabled ? 'translateX(20px)' : 'translateX(0)' }}
                 />
               </button>
               <button
