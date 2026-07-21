@@ -1,0 +1,59 @@
+{
+  "specVersion": "1.0",
+  "id": "parallel-agents",
+  "name": "Dispatching Parallel Agents",
+  "description": "Dispatch multiple independent tasks to parallel sub-agents when facing 2+ tasks without shared state or sequential dependencies.",
+  "version": "1.0.0",
+  "category": "workflow",
+  "priority": 8,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/parallel"
+    ],
+    "promptPatterns": [
+      "\\b(parallel|并行.*任务|同时.*处理|dispatch.*agent)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "parallel",
+      "alias": [
+        "并行"
+      ],
+      "description": "Dispatch independent tasks in parallel",
+      "injectPrompt": "Apply the parallel-agents skill: decompose the work into independent units, verify no shared-state conflicts exist, dispatch them as parallel sub-agent tasks, and merge results with a consistency check."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "edit",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "parallel",
+        "title": "Parallel dispatch",
+        "icon": "layers"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

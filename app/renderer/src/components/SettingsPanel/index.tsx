@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
+import { SkillsSettings } from './SkillsSettings'
 
 interface SettingsPanelProps {
   isOpen: boolean
@@ -192,6 +193,8 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           <GeneralSettings />
         ) : activeNav === 'preview' ? (
           <CodePreviewSettings />
+        ) : activeNav === 'skills' ? (
+          <SkillsSettings />
         ) : (
           <PlaceholderSettings navId={activeNav} onClose={onClose} />
         )}

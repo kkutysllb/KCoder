@@ -1,0 +1,57 @@
+{
+  "specVersion": "1.0",
+  "id": "find-skills",
+  "name": "Find Skills",
+  "description": "Help users discover and install skills when they ask how to do something that might have an available skill.",
+  "version": "1.0.0",
+  "category": "meta",
+  "priority": 5,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/find-skill"
+    ],
+    "promptPatterns": [
+      "\\b(find.*skill|找.*技能|有没有.*技能|is there a skill)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "find-skill",
+      "alias": [
+        "找技能"
+      ],
+      "description": "Discover available skills for a task",
+      "injectPrompt": "Apply the find-skills skill: search the installed skill registry and the skill marketplace index for skills matching the user's need, present matches with descriptions, and offer to install/enable them."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "grep",
+      "find",
+      "web_fetch"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "find-skill",
+        "title": "Find skills",
+        "icon": "search"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "read",
+    "network": true,
+    "exec": "none",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

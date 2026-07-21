@@ -1,0 +1,57 @@
+{
+  "specVersion": "1.0",
+  "id": "release-notes",
+  "name": "Release Notes",
+  "description": "Compile user-facing release notes and upgrade notes from git history, PRs, and changelogs.",
+  "version": "1.0.0",
+  "category": "document",
+  "priority": 3,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/release-notes"
+    ],
+    "promptPatterns": [
+      "\\b(release notes|发布说明|changelog|版本说明|upgrade notes)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "release-notes",
+      "alias": [
+        "发布说明"
+      ],
+      "description": "Generate release notes from git history",
+      "injectPrompt": "Apply the release-notes skill: analyze git log between versions, categorize changes (features/fixes/breaking), and produce polished user-facing release notes with upgrade guidance."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "release-notes",
+        "title": "Release notes",
+        "icon": "tag"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "read",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

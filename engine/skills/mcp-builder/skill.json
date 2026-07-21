@@ -1,0 +1,59 @@
+{
+  "specVersion": "1.0",
+  "id": "mcp-builder",
+  "name": "MCP Builder",
+  "description": "Guide for creating high-quality MCP (Model Context Protocol) servers that enable LLMs to interact with external services.",
+  "version": "1.0.0",
+  "category": "development",
+  "priority": 3,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/mcp-builder"
+    ],
+    "promptPatterns": [
+      "\\b(mcp.*server|mcp.*构建|build.*mcp|model context protocol)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "mcp-builder",
+      "alias": [
+        "构建MCP"
+      ],
+      "description": "Build an MCP server",
+      "injectPrompt": "Apply the mcp-builder skill: scaffold a well-structured MCP server (TypeScript SDK or Python FastMCP) with properly typed tools, clear descriptions, error handling, and transport configuration."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "edit",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "mcp-builder",
+        "title": "Build MCP server",
+        "icon": "plug"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": true,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

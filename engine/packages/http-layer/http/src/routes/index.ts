@@ -1,6 +1,9 @@
 import { Router } from '../router.js'
 import { jsonResponse } from '../response.js'
 import { readJsonBody } from '../read-json-body.js'
+import { readFile } from 'node:fs/promises'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { healthJsonResponse, readinessJsonResponse } from './health.js'
 import { buildWorkspaceStatusResponse } from './workspace.js'
 import {
@@ -384,6 +387,16 @@ export function buildRouter(runtime: ServerRuntime): Router {
     const actor = await authenticateOrInternal(request, runtime)
     if (!actor) return ERRORS.unauthorized()
     return kworksInstallSkill(runtime, actor, request)
+  })
+  router.add('GET', '/api/skills-marketplace', async () => {
+    try {
+      const here = dirname(fileURLToPath(import.meta.url))
+      const indexPath = join(here, '../../../../../skills-marketplace/index.json')
+      const raw = await readFile(indexPath, 'utf8')
+      return jsonResponse(JSON.parse(raw))
+    } catch {
+      return jsonResponse({ version: 1, updatedAt: null, skills: [] })
+    }
   })
   router.add('GET', '/api/memory', () => kworksMemory())
   router.add('POST', '/api/memory', () => kworksMemory())

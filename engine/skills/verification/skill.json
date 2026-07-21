@@ -1,0 +1,57 @@
+{
+  "specVersion": "1.0",
+  "id": "verification",
+  "name": "Verification Before Completion",
+  "description": "Require running verification commands and confirming output before claiming work is complete, fixed, or passing.",
+  "version": "1.0.0",
+  "category": "workflow",
+  "priority": 20,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/verify"
+    ],
+    "promptPatterns": [
+      "\\b(verify|验证|check.*pass|确认完成)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "verify",
+      "alias": [
+        "验证"
+      ],
+      "description": "Verify work before claiming completion",
+      "injectPrompt": "Apply the verification skill: before claiming any work is complete, fixed, or passing, run the relevant verification commands (tests, builds, lints) and confirm their actual output. Evidence before assertions — never claim success without proof."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "verify",
+        "title": "Verify completion",
+        "icon": "shield-check"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "read",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

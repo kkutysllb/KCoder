@@ -1,0 +1,63 @@
+{
+  "specVersion": "1.0",
+  "id": "xlsx",
+  "name": "Spreadsheet",
+  "description": "Open, read, edit, create, and convert spreadsheet files (.xlsx, .xlsm, .csv, .tsv) with formulas, formatting, and charts.",
+  "version": "1.0.0",
+  "category": "document",
+  "priority": 5,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/xlsx"
+    ],
+    "promptPatterns": [
+      "\\b(xlsx|excel|电子表格|spreadsheet|\\.csv)\\b"
+    ],
+    "fileTypes": [
+      ".xlsx",
+      ".xlsm",
+      ".csv",
+      ".tsv"
+    ],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "xlsx",
+      "alias": [
+        "excel"
+      ],
+      "description": "Manipulate spreadsheet files",
+      "injectPrompt": "Apply the xlsx skill: use openpyxl or pandas to read, create, edit, format, or convert spreadsheet files. Preserve formulas where possible and verify output integrity."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "xlsx",
+        "title": "Spreadsheet",
+        "icon": "table"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

@@ -1,0 +1,64 @@
+{
+  "specVersion": "1.0",
+  "id": "frontend-design",
+  "name": "Frontend Design",
+  "description": "Create distinctive, production-grade frontend interfaces with high design quality, avoiding generic AI aesthetics.",
+  "version": "1.0.0",
+  "category": "development",
+  "priority": 8,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/frontend-design"
+    ],
+    "promptPatterns": [
+      "\\b(frontend|前端.*设计|ui.*design|页面.*设计|landing page|dashboard)\\b"
+    ],
+    "fileTypes": [
+      ".tsx",
+      ".vue",
+      ".css",
+      ".html"
+    ],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "frontend-design",
+      "alias": [
+        "前端设计"
+      ],
+      "description": "Design and build production-grade UI",
+      "injectPrompt": "Apply the frontend-design skill: create polished, distinctive UI following the project's existing design system. Prioritize visual hierarchy, spacing rhythm, micro-interactions, and responsive behavior. Avoid generic template aesthetics."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "edit",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "frontend-design",
+        "title": "Frontend design",
+        "icon": "palette"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

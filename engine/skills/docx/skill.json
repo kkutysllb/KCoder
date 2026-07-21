@@ -1,0 +1,60 @@
+{
+  "specVersion": "1.0",
+  "id": "docx",
+  "name": "Word Document",
+  "description": "Create, read, edit, and manipulate Word documents (.docx) including formatting, tables, images, and tracked changes.",
+  "version": "1.0.0",
+  "category": "document",
+  "priority": 5,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/docx"
+    ],
+    "promptPatterns": [
+      "\\b(docx|word.*文档|word doc|\\.docx)\\b"
+    ],
+    "fileTypes": [
+      ".docx"
+    ],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "docx",
+      "alias": [
+        "word"
+      ],
+      "description": "Create or edit Word documents",
+      "injectPrompt": "Apply the docx skill: use python-docx to create, read, or edit Word documents with proper headings, styles, tables, page numbers, and formatting. Verify the output file structure is valid."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "write",
+      "bash",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "docx",
+        "title": "Word document",
+        "icon": "file-text"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

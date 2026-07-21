@@ -5,6 +5,46 @@ export interface ThreadResponse {
   createdAt: string
 }
 
+export interface SkillEntry {
+  id: string
+  name: string
+  description: string
+  version: string
+  root: string
+  category: string
+  family: string
+  license: string
+  enabled: boolean
+  registered: boolean
+  status: 'registered' | 'disabled' | 'invalid'
+  builtin: boolean
+  editable: boolean
+  deletable: boolean
+  legacy: boolean
+  commands: Array<{ id?: string; alias?: string[]; description?: string }>
+  contributions: Record<string, unknown>
+  permissions: Record<string, unknown>
+  validationError?: string
+}
+
+export interface MarketplaceSkill {
+  id: string
+  name: string
+  description: string
+  version: string
+  author: string
+  category: string
+  tags: string[]
+  source: string
+  downloads: number
+}
+
+export interface MarketplaceIndex {
+  version: number
+  updatedAt: string | null
+  skills: MarketplaceSkill[]
+}
+
 export interface TurnResponse {
   id: string
   threadId: string
@@ -142,6 +182,90 @@ export class EngineAPI {
       throw new Error(`Failed to get thread: ${response.statusText}`)
     }
 
+    return response.json()
+  }
+
+  // ============ Skills API ============
+
+  // List all skills
+  async listSkills(): Promise<SkillEntry[]> {
+    const response = await fetch(`${this.baseUrl}/api/skills`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to list skills: ${response.statusText}`)
+    }
+    const data = await response.json()
+    return data.skills ?? []
+  }
+
+  // Enable a skill
+  async enableSkill(name: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/skills/${encodeURIComponent(name)}/register`, {
+      method: 'POST',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to enable skill: ${response.statusText}`)
+    }
+  }
+
+  // Disable a skill
+  async disableSkill(name: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/skills/${encodeURIComponent(name)}/unregister`, {
+      method: 'POST',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to disable skill: ${response.statusText}`)
+    }
+  }
+
+  // Delete a user skill
+  async deleteSkill(name: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/skills/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to delete skill: ${response.statusText}`)
+    }
+  }
+
+  // Create a new skill
+  async createSkill(payload: { name: string; description: string; content?: string }): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/api/skills/create`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to create skill: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // Install a skill from source
+  async installSkill(payload: { source: string; skillId?: string }): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/api/skills/install`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to install skill: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // Get marketplace index
+  async getMarketplace(): Promise<MarketplaceIndex> {
+    const response = await fetch(`${this.baseUrl}/api/skills-marketplace`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to fetch marketplace: ${response.statusText}`)
+    }
     return response.json()
   }
 }

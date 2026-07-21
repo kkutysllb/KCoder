@@ -1,0 +1,56 @@
+{
+  "specVersion": "1.0",
+  "id": "writing-plans",
+  "name": "Writing Plans",
+  "description": "Write a concrete implementation plan from specs or requirements before touching code for multi-step tasks.",
+  "version": "1.0.0",
+  "category": "planning",
+  "priority": 12,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/write-plan"
+    ],
+    "promptPatterns": [
+      "\\b(write.*plan|写.*计划|出个方案|design.*approach)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "write-plan",
+      "alias": [
+        "写计划"
+      ],
+      "description": "Write an implementation plan before coding",
+      "injectPrompt": "Apply the writing-plans skill: analyze the requirements, explore the codebase, and produce a concrete step-by-step implementation plan (files, approach per file, verification) before writing any implementation code."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "write-plan",
+        "title": "Write plan",
+        "icon": "document"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "read",
+    "network": false,
+    "exec": "none",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}
