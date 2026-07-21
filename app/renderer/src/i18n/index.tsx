@@ -115,6 +115,23 @@ const zhCN: Dict = {
   'settings.model.category.zhipu': '智谱',
   'settings.model.category.custom': '自定义供应商',
 
+  // SettingsPanel - code preview
+  'settings.preview.title': '代码预览',
+  'settings.preview.lightTheme': '浅色代码主题',
+  'settings.preview.lightTheme.desc': '浅色模式下代码块使用的高亮主题。',
+  'settings.preview.darkTheme': '深色代码主题',
+  'settings.preview.darkTheme.desc': '深色模式下代码块使用的高亮主题。',
+  'settings.preview.lineNumbers': '显示行号',
+  'settings.preview.lineNumbers.desc': '在代码预览中显示每一行的行号。',
+  'settings.preview.wordWrap': '长行自动换行',
+  'settings.preview.wordWrap.desc': '内容过长时在预览区域内自动换行。',
+  'settings.preview.fontSize': '代码字号',
+  'settings.preview.fontSize.desc': '调整代码预览的默认字号。',
+  'settings.preview.lightPreview': '浅色预览',
+  'settings.preview.darkPreview': '深色预览',
+  'settings.preview.lightTag': '浅色',
+  'settings.preview.activeTag': '当前生效',
+
   // SettingsPanel - placeholder page
   'settings.comingSoon': '即将推出',
   'settings.back': '返回',
@@ -232,6 +249,23 @@ const en: Dict = {
   'settings.model.cancel': 'Cancel',
   'settings.model.category.zhipu': 'Zhipu',
   'settings.model.category.custom': 'Custom Provider',
+
+  // SettingsPanel - code preview
+  'settings.preview.title': 'Code Preview',
+  'settings.preview.lightTheme': 'Light Code Theme',
+  'settings.preview.lightTheme.desc': 'Syntax highlighting theme for code blocks in light mode.',
+  'settings.preview.darkTheme': 'Dark Code Theme',
+  'settings.preview.darkTheme.desc': 'Syntax highlighting theme for code blocks in dark mode.',
+  'settings.preview.lineNumbers': 'Show Line Numbers',
+  'settings.preview.lineNumbers.desc': 'Display line numbers in the code preview.',
+  'settings.preview.wordWrap': 'Word Wrap',
+  'settings.preview.wordWrap.desc': 'Automatically wrap long lines in the preview area.',
+  'settings.preview.fontSize': 'Code Font Size',
+  'settings.preview.fontSize.desc': 'Adjust the default font size for code preview.',
+  'settings.preview.lightPreview': 'Light Preview',
+  'settings.preview.darkPreview': 'Dark Preview',
+  'settings.preview.lightTag': 'Light',
+  'settings.preview.activeTag': 'Active',
 
   // SettingsPanel - placeholder page
   'settings.comingSoon': 'Coming soon',

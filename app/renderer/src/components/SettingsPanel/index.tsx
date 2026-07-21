@@ -190,6 +190,8 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           />
         ) : activeNav === 'general' ? (
           <GeneralSettings />
+        ) : activeNav === 'preview' ? (
+          <CodePreviewSettings />
         ) : (
           <PlaceholderSettings navId={activeNav} onClose={onClose} />
         )}
@@ -724,6 +726,211 @@ function SelectControl({ value, onChange, options }: { value: string; onChange: 
         <option key={opt.value} value={opt.value}>{opt.label}</option>
       ))}
     </select>
+  )
+}
+
+// ============ Code Preview Settings Page ============
+
+interface CodePreviewPrefs {
+  lightTheme: string
+  darkTheme: string
+  showLineNumbers: boolean
+  wordWrap: boolean
+  fontSize: number
+}
+
+const DEFAULT_CODE_PREFS: CodePreviewPrefs = {
+  lightTheme: 'github-light',
+  darkTheme: 'github-dark',
+  showLineNumbers: true,
+  wordWrap: true,
+  fontSize: 14,
+}
+
+function loadCodePrefs(): CodePreviewPrefs {
+  try {
+    const raw = localStorage.getItem('kcoder-code-preview-prefs')
+    return raw ? { ...DEFAULT_CODE_PREFS, ...JSON.parse(raw) } : DEFAULT_CODE_PREFS
+  } catch {
+    return DEFAULT_CODE_PREFS
+  }
+}
+
+const CODE_THEME_OPTIONS = [
+  { value: 'github-light', label: 'GitHub Light' },
+  { value: 'github-dark', label: 'GitHub Dark' },
+  { value: 'monokai', label: 'Monokai' },
+  { value: 'dracula', label: 'Dracula' },
+  { value: 'solarized', label: 'Solarized' },
+]
+
+// Demo code for preview
+const PREVIEW_CODE = `const theme = {
+  surface: "sidebar",
+  accent: "#339CFF",
+  contrast: 45
+}`
+
+// Simple syntax highlighter: returns spans
+function highlightLine(line: string, dark: boolean): ReactNode[] {
+  const tokens: ReactNode[] = []
+  // keyword | string | number | property | punctuation
+  const regex = /(\b(?:const|let|var|function|return|type|interface)\b)|("[^"]*")|(\b\d+\b)|([a-zA-Z_]\w*(?=\s*:))|(.)/g
+  let match: RegExpExecArray | null
+  let key = 0
+  const colors = dark
+    ? { keyword: '#7dd3fc', string: '#a5d6a7', number: '#f9a8d4', prop: '#e4e4e7', other: '#9ca3af' }
+    : { keyword: '#7c3aed', string: '#16a34a', number: '#0550ae', prop: '#1f2937', other: '#6b7280' }
+  while ((match = regex.exec(line)) !== null) {
+    const [, kw, str, num, prop, other] = match
+    if (kw) tokens.push(<span key={key++} style={{ color: colors.keyword }}>{kw}</span>)
+    else if (str) tokens.push(<span key={key++} style={{ color: colors.string }}>{str}</span>)
+    else if (num) tokens.push(<span key={key++} style={{ color: colors.number }}>{num}</span>)
+    else if (prop) tokens.push(<span key={key++} style={{ color: colors.prop }}>{prop}</span>)
+    else tokens.push(<span key={key++} style={{ color: colors.other }}>{other}</span>)
+  }
+  return tokens
+}
+
+function CodePreviewCard({ label, themeName, tag, dark, prefs }: {
+  label: string
+  themeName: string
+  tag: string
+  dark: boolean
+  prefs: CodePreviewPrefs
+}) {
+  const lines = PREVIEW_CODE.split('\n')
+  return (
+    <div className="flex-1 min-w-0">
+      {/* Card header */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-text-primary">{label}</span>
+          <span className="text-xs text-text-muted">{themeName}</span>
+        </div>
+        <span className="px-2 py-0.5 rounded text-[11px] bg-bg-hover text-text-muted border border-border-custom">{tag}</span>
+      </div>
+      {/* Code area */}
+      <div
+        className="rounded-xl border overflow-hidden"
+        style={{
+          backgroundColor: dark ? '#1e1e1e' : '#f8f9fa',
+          borderColor: dark ? '#303030' : '#e0e0e0',
+        }}
+      >
+        <pre className="p-4 overflow-x-auto" style={{ fontSize: prefs.fontSize, lineHeight: 1.6 }}>
+          {lines.map((line, i) => (
+            <div key={i} className="flex" style={{ whiteSpace: prefs.wordWrap ? 'pre-wrap' : 'pre' }}>
+              {prefs.showLineNumbers && (
+                <span
+                  className="select-none text-right shrink-0 pr-4"
+                  style={{ color: dark ? '#6b7280' : '#9ca3af', minWidth: '2em' }}
+                >
+                  {i + 1}
+                </span>
+              )}
+              <code>{highlightLine(line, dark)}</code>
+            </div>
+          ))}
+        </pre>
+      </div>
+    </div>
+  )
+}
+
+function CodePreviewSettings() {
+  const { t } = useI18n()
+  const [prefs, setPrefs] = useState<CodePreviewPrefs>(loadCodePrefs)
+
+  const update = <K extends keyof CodePreviewPrefs>(key: K, value: CodePreviewPrefs[K]) => {
+    setPrefs((prev) => {
+      const next = { ...prev, [key]: value }
+      localStorage.setItem('kcoder-code-preview-prefs', JSON.stringify(next))
+      window.kcoder?.send('save-settings', { codePreview: next })
+      return next
+    })
+  }
+
+  const lightLabel = CODE_THEME_OPTIONS.find((o) => o.value === prefs.lightTheme)?.label ?? prefs.lightTheme
+  const darkLabel = CODE_THEME_OPTIONS.find((o) => o.value === prefs.darkTheme)?.label ?? prefs.darkTheme
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="px-8 pt-8 pb-6">
+        <h1 className="max-w-[680px] mx-auto text-lg font-semibold text-text-primary">{t('settings.preview.title')}</h1>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-8 pb-8">
+        <div className="max-w-[680px] mx-auto space-y-6">
+          {/* Settings card */}
+          <div className="bg-bg-surface border border-border-subtle rounded-xl px-6 divide-y divide-border-subtle">
+            <SettingRow title={t('settings.preview.lightTheme')} desc={t('settings.preview.lightTheme.desc')}>
+              <SelectControl
+                value={prefs.lightTheme}
+                onChange={(v) => update('lightTheme', v)}
+                options={CODE_THEME_OPTIONS}
+              />
+            </SettingRow>
+
+            <SettingRow title={t('settings.preview.darkTheme')} desc={t('settings.preview.darkTheme.desc')}>
+              <SelectControl
+                value={prefs.darkTheme}
+                onChange={(v) => update('darkTheme', v)}
+                options={CODE_THEME_OPTIONS}
+              />
+            </SettingRow>
+
+            <SettingRow title={t('settings.preview.lineNumbers')} desc={t('settings.preview.lineNumbers.desc')}>
+              <ToggleControl checked={prefs.showLineNumbers} onChange={(v) => update('showLineNumbers', v)} />
+            </SettingRow>
+
+            <SettingRow title={t('settings.preview.wordWrap')} desc={t('settings.preview.wordWrap.desc')}>
+              <ToggleControl checked={prefs.wordWrap} onChange={(v) => update('wordWrap', v)} />
+            </SettingRow>
+
+            {/* Font size slider */}
+            <div className="py-5">
+              <div className="flex items-center justify-between gap-6">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-text-primary">{t('settings.preview.fontSize')}</p>
+                  <p className="text-xs text-text-muted mt-1 leading-relaxed">{t('settings.preview.fontSize.desc')}</p>
+                </div>
+                <div className="shrink-0 flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={10}
+                    max={24}
+                    value={prefs.fontSize}
+                    onChange={(e) => update('fontSize', parseInt(e.target.value, 10))}
+                    className="w-32 accent-[#3b82f6]"
+                  />
+                  <span className="text-sm text-text-primary w-6 text-right">{prefs.fontSize}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Live preview area */}
+          <div className="flex gap-4">
+            <CodePreviewCard
+              label={t('settings.preview.lightPreview')}
+              themeName={lightLabel}
+              tag={t('settings.preview.lightTag')}
+              dark={false}
+              prefs={prefs}
+            />
+            <CodePreviewCard
+              label={t('settings.preview.darkPreview')}
+              themeName={darkLabel}
+              tag={t('settings.preview.activeTag')}
+              dark={true}
+              prefs={prefs}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
