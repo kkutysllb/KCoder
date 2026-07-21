@@ -15,6 +15,11 @@ const Icons = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
     </svg>
   ),
+  Clock: () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  ),
   Skills: () => (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -23,6 +28,11 @@ const Icons = {
   Folder: () => (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+    </svg>
+  ),
+  Hash: () => (
+    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18" />
     </svg>
   ),
   ChevronDown: () => (
@@ -38,6 +48,31 @@ const Icons = {
   Forward: () => (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
+    </svg>
+  ),
+  SortUpDown: () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" />
+    </svg>
+  ),
+  ArchiveBox: () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+    </svg>
+  ),
+  Check: () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+    </svg>
+  ),
+  ChatBubble: () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+    </svg>
+  ),
+  Plus: () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
     </svg>
   ),
   Settings: () => (
@@ -81,9 +116,64 @@ interface SidebarProps {
   onLogout?: () => void
 }
 
+/** View / sort dropdown menu (reference design) */
+function SortMenu({
+  viewMode,
+  sortBy,
+  onViewMode,
+  onSortBy,
+  onClose
+}: {
+  viewMode: 'project' | 'timeline'
+  sortBy: 'updated' | 'created'
+  onViewMode: (v: 'project' | 'timeline') => void
+  onSortBy: (s: 'updated' | 'created') => void
+  onClose: () => void
+}) {
+  const { t } = useI18n()
+
+  const itemCls = 'flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-[#e5e5e8] hover:bg-[#3a3a3f] transition-colors'
+
+  return (
+    <>
+      {/* Click-outside backdrop */}
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="absolute right-0 top-full mt-1 z-50 w-52 rounded-lg border border-[#3a3a3f] bg-[#2b2b30] p-1.5 shadow-2xl">
+        <div className="px-2 pt-1.5 pb-1 text-xs text-[#8a8a8f]">{t('sidebar.view')}</div>
+        <button className={itemCls} onClick={() => onViewMode('project')}>
+          <span className="text-[#8a8a8f]"><Icons.Folder /></span>
+          <span>{t('sidebar.viewByProject')}</span>
+          {viewMode === 'project' && <span className="ml-auto text-[#10b981]"><Icons.Check /></span>}
+        </button>
+        <button className={itemCls} onClick={() => onViewMode('timeline')}>
+          <span className="text-[#8a8a8f]"><Icons.Clock /></span>
+          <span>{t('sidebar.timeline')}</span>
+          {viewMode === 'timeline' && <span className="ml-auto text-[#10b981]"><Icons.Check /></span>}
+        </button>
+        <div className="my-1.5 border-t border-[#3a3a3f]" />
+        <div className="px-2 pb-1 text-xs text-[#8a8a8f]">{t('sidebar.sortBy')}</div>
+        <button className={itemCls} onClick={() => onSortBy('updated')}>
+          <span className="text-[#8a8a8f]"><Icons.ChatBubble /></span>
+          <span>{t('sidebar.sortByUpdated')}</span>
+          {sortBy === 'updated' && <span className="ml-auto text-[#10b981]"><Icons.Check /></span>}
+        </button>
+        <button className={itemCls} onClick={() => onSortBy('created')}>
+          <span className="text-[#8a8a8f]"><Icons.Plus /></span>
+          <span>{t('sidebar.sortByCreated')}</span>
+          {sortBy === 'created' && <span className="ml-auto text-[#10b981]"><Icons.Check /></span>}
+        </button>
+      </div>
+    </>
+  )
+}
+
 export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, onLogout }: SidebarProps) {
   const [activeTab, setActiveTab] = useState<'group' | 'project'>('project')
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
+  const [showSortMenu, setShowSortMenu] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
+  const [viewMode, setViewMode] = useState<'project' | 'timeline'>('project')
+  const [sortBy, setSortBy] = useState<'updated' | 'created'>('updated')
   const { setWorkspacePath } = useAppStore()
   const { t } = useI18n()
 
@@ -99,25 +189,16 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
     <div className="w-[260px] h-full bg-bg-sidebar flex flex-col border-r border-border-custom">
       {/* Top bar - leave space for real macOS traffic lights (hiddenInset at x:16,y:16) */}
       <div className="drag-region h-12 flex items-center px-3">
-        <div className="no-drag flex items-center gap-1 ml-20 text-text-muted">
-          {/* Sidebar collapse toggle - grid panel style */}
+        <div className="no-drag flex items-center gap-0.5 ml-20 text-[#8a8a8f]">
+          {/* Collapse sidebar — simple left chevron (reference design) */}
           <button
             className="p-1 rounded-md hover:text-text-primary hover:bg-bg-hover transition-colors"
             onClick={onToggleCollapse}
             title={t('sidebar.collapse')}
           >
-            <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
-              <rect x="1" y="2" width="14" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
-              <line x1="6" y1="2" x2="6" y2="14" stroke="currentColor" strokeWidth="1.3" />
-              <rect x="2.5" y="4.5" width="2" height="1.5" rx="0.5" />
-              <rect x="2.5" y="7.25" width="2" height="1.5" rx="0.5" />
-              <rect x="2.5" y="10" width="2" height="1.5" rx="0.5" />
-            </svg>
-          </button>
-          <button className="p-1 hover:text-text-secondary transition-colors">
             <Icons.Back />
           </button>
-          <button className="p-1 hover:text-text-secondary transition-colors">
+          <button className="p-1 rounded-md hover:text-text-primary hover:bg-bg-hover transition-colors">
             <Icons.Forward />
           </button>
         </div>
@@ -128,12 +209,14 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
         <button className="sidebar-item w-full">
           <Icons.NewTask />
           <span>{t('sidebar.newTask')}</span>
-          <span className="ml-auto text-xs text-text-muted">⌘N</span>
         </button>
         <button className="sidebar-item w-full">
           <Icons.Search />
           <span>{t('sidebar.search')}</span>
-          <span className="ml-auto text-xs text-text-muted">⌘K</span>
+        </button>
+        <button className="sidebar-item w-full">
+          <Icons.Clock />
+          <span>{t('sidebar.scheduledTasks')}</span>
         </button>
         <button className="sidebar-item w-full">
           <Icons.Skills />
@@ -141,30 +224,70 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
         </button>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs + sort/archive controls (reference design) */}
       <div className="px-3 py-2">
-        <div className="flex items-center gap-1 text-sm">
+        <div className="flex items-center gap-1.5 text-[13px]">
           <button
             onClick={() => setActiveTab('group')}
-            className={`px-3 py-1 rounded-md transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors ${
               activeTab === 'group'
-                ? 'bg-white text-black'
-                : 'text-text-secondary hover:text-text-primary'
+                ? 'bg-[#1e1e22] text-white'
+                : 'bg-[#2d2d32] text-[#b0b0b5] hover:text-white'
             }`}
           >
-            {t('sidebar.group')}
+            <Icons.Hash />
+            <span>{t('sidebar.group')}</span>
           </button>
           <button
             onClick={() => setActiveTab('project')}
-            className={`px-3 py-1 rounded-md transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors ${
               activeTab === 'project'
-                ? 'bg-white text-black'
-                : 'text-text-secondary hover:text-text-primary'
+                ? 'bg-[#1e1e22] text-white'
+                : 'bg-[#2d2d32] text-[#b0b0b5] hover:text-white'
             }`}
           >
-            {t('sidebar.project')}
+            <Icons.Folder />
+            <span>{t('sidebar.project')}</span>
           </button>
+
+          {/* Sort / filter + archive */}
+          <div className="ml-auto flex items-center gap-0.5">
+            <div className="relative">
+              <button
+                onClick={() => setShowSortMenu(v => !v)}
+                className={`p-1.5 rounded-md transition-colors ${
+                  showSortMenu ? 'text-white bg-bg-hover' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
+                }`}
+                title={t('sidebar.sort')}
+              >
+                <Icons.SortUpDown />
+              </button>
+              {showSortMenu && (
+                <SortMenu
+                  viewMode={viewMode}
+                  sortBy={sortBy}
+                  onViewMode={(v) => { setViewMode(v); setShowSortMenu(false) }}
+                  onSortBy={(s) => { setSortBy(s); setShowSortMenu(false) }}
+                  onClose={() => setShowSortMenu(false)}
+                />
+              )}
+            </div>
+            <button
+              onClick={() => setShowArchived(v => !v)}
+              className={`p-1.5 rounded-md transition-colors ${
+                showArchived ? 'text-white bg-bg-hover' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
+              }`}
+              title={t('sidebar.archive')}
+            >
+              <Icons.ArchiveBox />
+            </button>
+          </div>
         </div>
+      </div>
+
+      {/* Section title */}
+      <div className="px-4 pt-2 pb-1 text-[13px] font-medium text-text-primary">
+        {activeTab === 'project' ? t('sidebar.projects') : t('sidebar.groups')}
       </div>
 
       {/* Project list */}

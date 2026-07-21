@@ -71,20 +71,16 @@ export default function App() {
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Sidebar expand button when collapsed */}
+        {/* Sidebar expand button when collapsed — simple right chevron (reference design) */}
         {sidebarCollapsed && (
           <div className="drag-region h-12 flex items-center px-3 shrink-0">
             <button
-              className="no-drag ml-20 p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+              className="no-drag ml-20 p-1 rounded-md text-[#8a8a8f] hover:text-text-primary hover:bg-bg-hover transition-colors"
               onClick={() => setSidebarCollapsed(false)}
               title="展开侧边栏"
             >
-              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
-                <rect x="1" y="2" width="14" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
-                <line x1="6" y1="2" x2="6" y2="14" stroke="currentColor" strokeWidth="1.3" />
-                <rect x="2.5" y="4.5" width="2" height="1.5" rx="0.5" />
-                <rect x="2.5" y="7.25" width="2" height="1.5" rx="0.5" />
-                <rect x="2.5" y="10" width="2" height="1.5" rx="0.5" />
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
               </svg>
             </button>
           </div>
