@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: electron_app
-title: KCoder Electron 桌面应用
+title: KCoder Electron 桌面应用（主进程 + 预加载 + React 渲染层）
 scope:
     - app/
 source_files: []

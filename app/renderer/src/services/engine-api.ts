@@ -58,6 +58,57 @@ export interface SubAgentEntry {
   updatedAt?: string
 }
 
+export interface McpServerConfigEntry {
+  enabled: boolean
+  transport: 'stdio' | 'streamable-http' | 'sse'
+  command?: string
+  args?: string[]
+  url?: string
+  headers?: Record<string, string>
+  env?: Record<string, string>
+  trustScope?: 'user' | 'workspace'
+  trustedWorkspaceRoots?: string[]
+  timeoutMs?: number
+  description?: string
+}
+
+export interface McpConfigResponse {
+  mcp_servers: Record<string, McpServerConfigEntry>
+  mcpServers: Record<string, McpServerConfigEntry>
+  skills: Record<string, { enabled: boolean }>
+}
+
+export interface McpServerDiagnostic {
+  id: string
+  enabled: boolean
+  transport: string
+  trustScope: string
+  available: boolean
+  status: 'disabled' | 'connected' | 'error'
+  toolCount: number
+  lastConnectedAt?: string
+  lastError?: string
+}
+
+export interface PluginEntry {
+  id: string
+  name: string
+  version: string
+  description: string
+  builtin: boolean
+  enabled: boolean
+  source: 'official' | 'community' | 'unknown'
+  category: string
+  provides: {
+    skills: number
+    commands: number
+    hooks: number
+    mcpServers: number
+  }
+  author?: string
+  updatedAt?: string
+}
+
 export interface TurnResponse {
   id: string
   threadId: string
@@ -341,6 +392,96 @@ export class EngineAPI {
     })
     if (!response.ok) {
       throw new Error(`Failed to clone sub-agent: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // ============ MCP Servers API (engine routes exist: GET/PUT /api/mcp/config) ============
+
+  // Get full MCP configuration
+  async getMcpConfig(): Promise<McpConfigResponse> {
+    const response = await fetch(`${this.baseUrl}/api/mcp/config`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to get MCP config: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // Save full MCP configuration
+  async saveMcpConfig(config: { mcp_servers: Record<string, McpServerConfigEntry> }): Promise<McpConfigResponse> {
+    const response = await fetch(`${this.baseUrl}/api/mcp/config`, {
+      method: 'PUT',
+      headers: this.headers,
+      body: JSON.stringify(config)
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to save MCP config: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // Get MCP server runtime diagnostics (from /api/runtime/diagnostics)
+  async getMcpDiagnostics(): Promise<McpServerDiagnostic[]> {
+    const response = await fetch(`${this.baseUrl}/api/runtime/diagnostics`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to get MCP diagnostics: ${response.statusText}`)
+    }
+    const data = await response.json()
+    return data.tools?.mcpServers ?? []
+  }
+
+  // ============ Plugins API (reserved, pending backend) ============
+
+  // List installed plugins
+  async listPlugins(): Promise<PluginEntry[]> {
+    const response = await fetch(`${this.baseUrl}/api/plugins`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to list plugins: ${response.statusText}`)
+    }
+    const data = await response.json()
+    return data.plugins ?? []
+  }
+
+  // Toggle plugin enabled state
+  async togglePlugin(id: string, enabled: boolean): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/api/plugins/${encodeURIComponent(id)}/toggle`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ enabled })
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to toggle plugin: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // Install a plugin from marketplace
+  async installPlugin(id: string): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/api/plugins/install`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ id })
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to install plugin: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // Check for plugin updates
+  async checkPluginUpdates(): Promise<{ updates: Array<{ id: string; latest: string }> }> {
+    const response = await fetch(`${this.baseUrl}/api/plugins/check-update`, {
+      method: 'POST',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to check plugin updates: ${response.statusText}`)
     }
     return response.json()
   }

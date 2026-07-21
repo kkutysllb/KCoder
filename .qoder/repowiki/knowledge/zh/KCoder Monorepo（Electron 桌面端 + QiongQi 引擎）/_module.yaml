@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: ""
-title: KCoder 多 Agent 桌面 IDE Monorepo
+title: KCoder Monorepo（Electron 桌面端 + QiongQi 引擎）
 scope:
     - package.json
     - pnpm-workspace.yaml

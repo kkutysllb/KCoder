@@ -3,6 +3,8 @@ import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
 import { SkillsSettings } from './SkillsSettings'
 import { SubAgentsSettings } from './SubAgentsSettings'
+import { MCPSettings } from './MCPSettings'
+import { PluginsSettings } from './PluginsSettings'
 
 interface SettingsPanelProps {
   isOpen: boolean
@@ -16,6 +18,8 @@ const NAV_ITEMS = [
   { id: 'model', labelKey: 'settings.nav.model', icon: ModelIcon },
   { id: 'skills', labelKey: 'settings.nav.skills', icon: SkillIcon },
   { id: 'agents', labelKey: 'settings.nav.agents', icon: AgentIcon },
+  { id: 'mcp', labelKey: 'settings.nav.mcp', icon: McpIcon },
+  { id: 'plugins', labelKey: 'settings.nav.plugins', icon: PluginIcon },
   { id: 'remote', labelKey: 'settings.nav.remote', icon: RemoteIcon },
   { id: 'advanced', labelKey: 'settings.nav.advanced', icon: AdvancedIcon },
   { id: 'about', labelKey: 'settings.nav.about', icon: AboutIcon },
@@ -199,6 +203,10 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           <SkillsSettings />
         ) : activeNav === 'agents' ? (
           <SubAgentsSettings />
+        ) : activeNav === 'mcp' ? (
+          <MCPSettings />
+        ) : activeNav === 'plugins' ? (
+          <PluginsSettings />
         ) : (
           <PlaceholderSettings navId={activeNav} onClose={onClose} />
         )}
@@ -996,6 +1004,23 @@ function AgentIcon({ active }: { active?: boolean }) {
   return (
     <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+    </svg>
+  )
+}
+
+function McpIcon({ active }: { active?: boolean }) {
+  return (
+    <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75a4.5 4.5 0 01-4.884 4.484c-1.076-.091-2.264.071-2.95.904l-7.152 8.684a2.548 2.548 0 11-3.586-3.586l8.684-7.152c.833-.686.995-1.874.904-2.95a4.5 4.5 0 016.336-4.486l-3.276 3.276a3.004 3.004 0 002.25 2.25l3.276-3.276c.256.565.398 1.192.398 1.852z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.867 19.125h.008v.008h-.008v-.008z" />
+    </svg>
+  )
+}
+
+function PluginIcon({ active }: { active?: boolean }) {
+  return (
+    <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085" />
     </svg>
   )
 }

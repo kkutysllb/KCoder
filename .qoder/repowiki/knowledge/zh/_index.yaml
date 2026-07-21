@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-21T01:18:46Z"
+exported_at: "2026-07-21T01:28:51Z"
 modules:
     "":
-        dir_name: KCoder 多 Agent 桌面 IDE Monorepo
-        title: KCoder 多 Agent 桌面 IDE Monorepo
+        dir_name: KCoder Monorepo（Electron 桌面端 + QiongQi 引擎）
+        title: KCoder Monorepo（Electron 桌面端 + QiongQi 引擎）
         scope:
             - package.json
             - pnpm-workspace.yaml
@@ -22,8 +22,8 @@ modules:
         depends_on: []
         related_to: []
     electron_app:
-        dir_name: KCoder Electron 桌面应用
-        title: KCoder Electron 桌面应用
+        dir_name: KCoder Electron 桌面应用（主进程 + 预加载 + React 渲染层）
+        title: KCoder Electron 桌面应用（主进程 + 预加载 + React 渲染层）
         scope:
             - app/
         source_files: []
