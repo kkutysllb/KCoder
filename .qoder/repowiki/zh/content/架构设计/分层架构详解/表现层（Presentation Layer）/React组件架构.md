@@ -9,6 +9,7 @@
 - [SettingsPanel/index.tsx](file://app/renderer/src/components/SettingsPanel/index.tsx)
 - [CodeBlock/index.tsx](file://app/renderer/src/components/CodeBlock/index.tsx)
 - [StatusBar/index.tsx](file://app/renderer/src/components/StatusBar/index.tsx)
+- [Sidebar/index.tsx](file://app/renderer/src/components/Sidebar/index.tsx)
 - [AuthModal.tsx](file://app/renderer/src/components/AuthModal.tsx)
 - [hooks/useAuth.ts](file://app/renderer/src/hooks/useAuth.ts)
 - [hooks/useChat.ts](file://app/renderer/src/hooks/useChat.ts)
@@ -18,10 +19,10 @@
 
 ## 更新摘要
 **所做更改**
-- 新增认证模态框组件（AuthModal）的详细分析章节
-- 添加useAuth自定义Hook的说明和使用模式
-- 更新组件架构图以包含认证流程
-- 扩展错误处理和用户认证相关的最佳实践
+- 新增Sidebar侧边栏组件的详细分析章节，涵盖折叠展开功能、排序筛选系统和归档管理
+- 更新组件架构图以包含增强的Sidebar组件
+- 扩展UI交互特性说明，包括用户操作反馈和状态管理
+- 添加侧边栏组件的最佳实践和性能优化建议
 
 ## 目录
 1. [简介](#简介)
@@ -40,7 +41,7 @@
 
 ## 项目结构
 渲染层位于 app/renderer/src 下，采用按功能域划分的目录组织方式：
-- components：按功能模块拆分UI组件，如 ChatPanel、SettingsPanel、CodeBlock、StatusBar、AuthModal 等
+- components：按功能模块拆分UI组件，如 ChatPanel、SettingsPanel、CodeBlock、StatusBar、Sidebar、AuthModal 等
 - hooks：封装可复用的状态逻辑，如 useChat、useAuth
 - services：对外部服务或引擎API的封装，如 engine-api
 - stores：全局状态管理，如 app-store
@@ -53,14 +54,19 @@ A["main.tsx<br/>入口挂载"] --> B["App.tsx<br/>根组件/布局"]
 B --> C["ChatPanel/index.tsx<br/>聊天面板"]
 B --> D["SettingsPanel/index.tsx<br/>设置面板"]
 B --> E["StatusBar/index.tsx<br/>状态栏"]
-B --> F["AuthModal.tsx<br/>认证模态框"]
-C --> G["ChatPanel/MessageBubble.tsx<br/>消息气泡"]
-C --> H["CodeBlock/index.tsx<br/>代码块渲染"]
-C --> I["hooks/useChat.ts<br/>聊天逻辑Hook"]
-F --> J["hooks/useAuth.ts<br/>认证逻辑Hook"]
-I --> K["services/engine-api.ts<br/>引擎API封装"]
-J --> K
-B --> L["stores/app-store.ts<br/>全局状态"]
+B --> F["Sidebar/index.tsx<br/>侧边栏"]
+B --> G["AuthModal.tsx<br/>认证模态框"]
+C --> H["ChatPanel/MessageBubble.tsx<br/>消息气泡"]
+C --> I["CodeBlock/index.tsx<br/>代码块渲染"]
+F --> J["排序筛选系统<br/>归档管理"]
+F --> K["折叠展开功能<br/>UI交互"]
+H --> L["ChatPanel/MessageBubble.tsx<br/>消息气泡"]
+I --> M["CodeBlock/index.tsx<br/>代码块渲染"]
+C --> N["hooks/useChat.ts<br/>聊天逻辑Hook"]
+G --> O["hooks/useAuth.ts<br/>认证逻辑Hook"]
+N --> P["services/engine-api.ts<br/>引擎API封装"]
+O --> P
+B --> Q["stores/app-store.ts<br/>全局状态"]
 ```
 
 **图表来源**
@@ -69,6 +75,7 @@ B --> L["stores/app-store.ts<br/>全局状态"]
 - [ChatPanel/index.tsx:1-200](file://app/renderer/src/components/ChatPanel/index.tsx#L1-L200)
 - [SettingsPanel/index.tsx:1-120](file://app/renderer/src/components/SettingsPanel/index.tsx#L1-L120)
 - [StatusBar/index.tsx:1-120](file://app/renderer/src/components/StatusBar/index.tsx#L1-L120)
+- [Sidebar/index.tsx:1-200](file://app/renderer/src/components/Sidebar/index.tsx#L1-L200)
 - [AuthModal.tsx:1-172](file://app/renderer/src/components/AuthModal.tsx#L1-L172)
 - [ChatPanel/MessageBubble.tsx:1-120](file://app/renderer/src/components/ChatPanel/MessageBubble.tsx#L1-L120)
 - [CodeBlock/index.tsx:1-120](file://app/renderer/src/components/CodeBlock/index.tsx#L1-L120)
@@ -80,10 +87,13 @@ B --> L["stores/app-store.ts<br/>全局状态"]
 ## 核心组件
 - App 根组件
   - 职责：应用初始化、全局布局容器、面板/侧边栏可见性控制、与全局状态和外部服务的桥接
-  - 典型交互：根据用户操作切换显示 ChatPanel/SettingsPanel/StatusBar/AuthModal；将全局配置与主题等状态注入子组件
+  - 典型交互：根据用户操作切换显示 ChatPanel/SettingsPanel/StatusBar/Sidebar/AuthModal；将全局配置与主题等状态注入子组件
 - ChatPanel 聊天面板
   - 职责：展示对话历史、承载输入区域、调用发送逻辑、渲染消息气泡与代码块
   - 内部组成：MessageBubble（单条消息）、CodeBlock（代码片段高亮）
+- Sidebar 侧边栏（增强版）
+  - 职责：提供导航与快捷入口，支持折叠展开、排序筛选、归档管理等高级功能
+  - 核心特性：响应式折叠、智能排序、分类筛选、批量归档操作
 - SettingsPanel 设置面板
   - 职责：展示与编辑应用设置项（如模型选择、提示词模板、快捷键等），保存至持久化存储
 - StatusBar 状态栏
@@ -100,6 +110,7 @@ B --> L["stores/app-store.ts<br/>全局状态"]
 - [ChatPanel/MessageBubble.tsx:1-120](file://app/renderer/src/components/ChatPanel/MessageBubble.tsx#L1-L120)
 - [SettingsPanel/index.tsx:1-120](file://app/renderer/src/components/SettingsPanel/index.tsx#L1-L120)
 - [StatusBar/index.tsx:1-120](file://app/renderer/src/components/StatusBar/index.tsx#L1-L120)
+- [Sidebar/index.tsx:1-200](file://app/renderer/src/components/Sidebar/index.tsx#L1-L200)
 - [CodeBlock/index.tsx:1-120](file://app/renderer/src/components/CodeBlock/index.tsx#L1-L120)
 - [AuthModal.tsx:1-172](file://app/renderer/src/components/AuthModal.tsx#L1-L172)
 
@@ -107,16 +118,20 @@ B --> L["stores/app-store.ts<br/>全局状态"]
 整体采用"根组件 + 功能面板 + 共享Hook/Store + 服务封装"的分层架构：
 - UI层：各面板组件仅关注展示与用户交互
 - 逻辑层：useChat、useAuth等Hook集中编排业务逻辑（发送消息、加载历史、错误重试、用户认证）
-- 数据层：app-store维护全局状态（主题、面板开关、用户偏好、认证状态）
+- 数据层：app-store维护全局状态（主题、面板开关、用户偏好、认证状态、侧边栏状态）
 - 集成层：engine-api封装与后端/引擎的通信（HTTP/WebSocket/IPC）
 
 ```mermaid
 sequenceDiagram
 participant U as "用户"
+participant SM as "Sidebar"
+participant ST as "app-store"
 participant AM as "AuthModal"
 participant UA as "useAuth"
 participant EA as "engine-api"
-participant ST as "app-store"
+U->>SM : "点击折叠按钮"
+SM-->>ST : "更新侧边栏状态"
+ST-->>SM : "触发重渲染"
 U->>AM : "输入用户名/密码"
 AM-->>UA : "onLogin(credentials)"
 UA->>EA : "请求认证(含凭据)"
@@ -127,6 +142,7 @@ AM-->>U : "显示成功/失败状态"
 ```
 
 **图表来源**
+- [Sidebar/index.tsx:1-200](file://app/renderer/src/components/Sidebar/index.tsx#L1-L200)
 - [AuthModal.tsx:1-172](file://app/renderer/src/components/AuthModal.tsx#L1-L172)
 - [hooks/useAuth.ts:1-200](file://app/renderer/src/hooks/useAuth.ts#L1-L200)
 - [services/engine-api.ts:1-200](file://app/renderer/src/services/engine-api.ts#L1-L200)
@@ -136,11 +152,11 @@ AM-->>U : "显示成功/失败状态"
 
 ### App 根组件
 - 设计要点
-  - 作为布局容器，组合 ChatPanel、SettingsPanel、StatusBar、AuthModal
-  - 通过 props 或 Context 向子组件传递全局配置（主题、语言、面板可见性、认证状态等）
+  - 作为布局容器，组合 ChatPanel、SettingsPanel、StatusBar、Sidebar、AuthModal
+  - 通过 props 或 Context 向子组件传递全局配置（主题、语言、面板可见性、认证状态、侧边栏状态等）
   - 在生命周期中完成一次性的初始化（如读取本地配置、建立长连接、检查认证状态）
 - 事件与通信
-  - 接收来自子组件的事件回调（如打开设置、切换面板、触发认证）
+  - 接收来自子组件的事件回调（如打开设置、切换面板、触发认证、侧边栏操作）
   - 将全局状态变化广播给相关子组件
 - 生命周期管理
   - 启动时加载配置与缓存
@@ -199,10 +215,52 @@ MessageBubble --> CodeBlock : "嵌入代码块"
 - [ChatPanel/MessageBubble.tsx:1-120](file://app/renderer/src/components/ChatPanel/MessageBubble.tsx#L1-L120)
 - [CodeBlock/index.tsx:1-120](file://app/renderer/src/components/CodeBlock/index.tsx#L1-L120)
 
-### Sidebar 侧边栏（概念说明）
-- 定位：导航与快捷入口，用于在不同面板间切换（如聊天、设置、历史记录）
-- 与根组件的关系：由 App 控制其显隐与选中态
+### Sidebar 侧边栏（增强版）
+- 定位与核心功能
+  - 导航与快捷入口，用于在不同面板间切换（如聊天、设置、历史记录）
+  - 支持折叠展开功能，提供紧凑和完整两种视图模式
+  - 内置排序筛选系统，支持按名称、时间、类型等多种维度排序
+  - 归档管理功能，支持批量操作和状态管理
+- 增强特性详解
+  - **折叠展开功能**：响应式设计，支持动画过渡，记忆用户偏好
+  - **排序筛选系统**：实时搜索过滤，多条件组合筛选，自定义排序规则
+  - **归档管理**：批量归档/恢复，状态标签管理，归档历史追踪
+  - **UI交互增强**：拖拽排序、键盘导航、右键菜单、快捷键支持
+- 与根组件的关系：由 App 控制其显隐与选中态，通过全局状态同步
 - 交互模式：点击菜单项 -> 通知 App 切换面板 -> 对应面板组件挂载/卸载
+- 状态管理：
+  - 折叠状态：collapsed boolean
+  - 排序状态：sortBy, sortOrder
+  - 筛选状态：searchQuery, filterType
+  - 归档状态：archivedItems, selectedItems
+  - 用户偏好：sidebarWidth, animationEnabled
+
+```mermaid
+flowchart TD
+Start(["侧边栏初始化"]) --> LoadState["加载用户偏好状态"]
+LoadState --> CheckCollapsed{"是否折叠?"}
+CheckCollapsed --> |是| ShowCompact["显示紧凑视图"]
+CheckCollapsed --> |否| ShowFull["显示完整视图"]
+ShowCompact --> UserAction{"用户操作"}
+ShowFull --> UserAction
+UserAction --> |点击折叠| ToggleCollapse["切换折叠状态"]
+UserAction --> |搜索输入| FilterItems["执行筛选"]
+UserAction --> |排序选择| SortItems["重新排序"]
+UserAction --> |归档操作| ArchiveItems["批量归档"]
+ToggleCollapse --> UpdateState["更新状态"]
+FilterItems --> UpdateState
+SortItems --> UpdateState
+ArchiveItems --> UpdateState
+UpdateState --> Animate["执行动画过渡"]
+Animate --> Render["重新渲染"]
+Render --> End(["结束"])
+```
+
+**图表来源**
+- [Sidebar/index.tsx:1-200](file://app/renderer/src/components/Sidebar/index.tsx#L1-L200)
+
+**章节来源**
+- [Sidebar/index.tsx:1-200](file://app/renderer/src/components/Sidebar/index.tsx#L1-L200)
 
 ### SettingsPanel 设置面板
 - 职责：集中管理应用配置（模型、提示词、快捷键、主题等）
@@ -351,7 +409,7 @@ Done --> End(["结束"])
 - [services/engine-api.ts:1-200](file://app/renderer/src/services/engine-api.ts#L1-L200)
 
 ### 全局状态：app-store
-- 职责：维护全局配置、面板可见性、主题、用户会话、认证状态等
+- 职责：维护全局配置、面板可见性、主题、用户会话、认证状态、侧边栏状态等
 - 更新策略：局部更新、订阅最小化、持久化同步
 - 与组件的关系：组件按需订阅，避免全量重渲染
 
@@ -361,6 +419,7 @@ Done --> End(["结束"])
 ## 依赖关系分析
 - 组件耦合
   - ChatPanel 强依赖 useChat 与 MessageBubble/CodeBlock
+  - Sidebar 强依赖 app-store 的状态管理
   - AuthModal 强依赖 useAuth Hook
   - App 弱耦合各面板，通过 props/Context 解耦
 - 外部依赖
@@ -373,14 +432,16 @@ graph LR
 App["App.tsx"] --> ChatPanel["ChatPanel/index.tsx"]
 App --> SettingsPanel["SettingsPanel/index.tsx"]
 App --> StatusBar["StatusBar/index.tsx"]
+App --> Sidebar["Sidebar/index.tsx"]
 App --> AuthModal["AuthModal.tsx"]
 ChatPanel --> MessageBubble["MessageBubble.tsx"]
 MessageBubble --> CodeBlock["CodeBlock/index.tsx"]
 ChatPanel --> useChat["hooks/useChat.ts"]
 AuthModal --> useAuth["hooks/useAuth.ts"]
+Sidebar --> appStore["stores/app-store.ts"]
 useChat --> engineApi["services/engine-api.ts"]
 useAuth --> engineApi
-App --> appStore["stores/app-store.ts"]
+App --> appStore
 ```
 
 **图表来源**
@@ -388,6 +449,7 @@ App --> appStore["stores/app-store.ts"]
 - [ChatPanel/index.tsx:1-200](file://app/renderer/src/components/ChatPanel/index.tsx#L1-L200)
 - [ChatPanel/MessageBubble.tsx:1-120](file://app/renderer/src/components/ChatPanel/MessageBubble.tsx#L1-L120)
 - [CodeBlock/index.tsx:1-120](file://app/renderer/src/components/CodeBlock/index.tsx#L1-L120)
+- [Sidebar/index.tsx:1-200](file://app/renderer/src/components/Sidebar/index.tsx#L1-L200)
 - [AuthModal.tsx:1-172](file://app/renderer/src/components/AuthModal.tsx#L1-L172)
 - [hooks/useChat.ts:1-200](file://app/renderer/src/hooks/useChat.ts#L1-L200)
 - [hooks/useAuth.ts:1-200](file://app/renderer/src/hooks/useAuth.ts#L1-L200)
@@ -397,6 +459,7 @@ App --> appStore["stores/app-store.ts"]
 **章节来源**
 - [App.tsx:1-120](file://app/renderer/src/App.tsx#L1-L120)
 - [ChatPanel/index.tsx:1-200](file://app/renderer/src/components/ChatPanel/index.tsx#L1-L200)
+- [Sidebar/index.tsx:1-200](file://app/renderer/src/components/Sidebar/index.tsx#L1-L200)
 - [AuthModal.tsx:1-172](file://app/renderer/src/components/AuthModal.tsx#L1-L172)
 - [hooks/useChat.ts:1-200](file://app/renderer/src/hooks/useChat.ts#L1-L200)
 - [hooks/useAuth.ts:1-200](file://app/renderer/src/hooks/useAuth.ts#L1-L200)
@@ -408,10 +471,12 @@ App --> appStore["stores/app-store.ts"]
   - 使用 React.memo 包裹纯展示组件（如 MessageBubble、CodeBlock）
   - 对长列表采用虚拟滚动或分页加载
   - AuthModal 使用条件渲染避免不必要的计算
+  - Sidebar 使用虚拟化技术处理大量菜单项
 - 状态更新
   - 将频繁更新的局部状态下沉到组件内部，减少父级重渲染
   - 使用选择性订阅（只订阅必要字段）
   - 认证状态变更时使用细粒度更新
+  - Sidebar 状态变更使用防抖处理，避免频繁重渲染
 - 网络与I/O
   - 请求去抖/节流（如搜索、自动保存）
   - 失败重试与指数退避
@@ -421,6 +486,7 @@ App --> appStore["stores/app-store.ts"]
   - 大体积库按需加载与懒加载
   - 图片/代码块按需渲染
   - 认证相关资源预加载
+  - Sidebar 图标与样式按需加载
 
 ## 故障排查指南
 - 常见问题
@@ -429,11 +495,14 @@ App --> appStore["stores/app-store.ts"]
   - 设置未生效：确认 app-store 的持久化与订阅链路
   - 认证失败：检查 useAuth 的错误处理逻辑与本地存储状态
   - 模态框不显示：验证 AuthModal 的 isOpen 状态与事件绑定
+  - 侧边栏无响应：检查 Sidebar 的状态管理与事件绑定
+  - 排序筛选失效：验证 Sidebar 的筛选逻辑与状态同步
 - 调试建议
   - 在 Hook 与服务层增加结构化日志（请求ID、耗时、错误码）
   - 使用浏览器开发者工具的性能面板定位重渲染热点
   - 对关键路径添加断言与边界用例测试
   - 认证流程添加详细的状态追踪日志
+  - Sidebar 操作添加用户交互日志与状态快照
 
 **章节来源**
 - [hooks/useChat.ts:1-200](file://app/renderer/src/hooks/useChat.ts#L1-L200)
@@ -441,9 +510,10 @@ App --> appStore["stores/app-store.ts"]
 - [services/engine-api.ts:1-200](file://app/renderer/src/services/engine-api.ts#L1-L200)
 - [stores/app-store.ts:1-200](file://app/renderer/src/stores/app-store.ts#L1-L200)
 - [AuthModal.tsx:1-172](file://app/renderer/src/components/AuthModal.tsx#L1-L172)
+- [Sidebar/index.tsx:1-200](file://app/renderer/src/components/Sidebar/index.tsx#L1-L200)
 
 ## 结论
-KCoder 的React前端采用清晰的分层与模块化设计：根组件负责布局与协调，功能面板专注展示与交互，Hook 集中业务逻辑，服务层屏蔽通信细节，Store 管理全局状态。新增的认证系统通过 AuthModal 组件和 useAuth Hook 提供了完整的用户认证解决方案。该架构具备良好的可扩展性与可维护性，配合合理的性能优化与错误处理策略，能够支撑复杂的AI助手交互场景。
+KCoder 的React前端采用清晰的分层与模块化设计：根组件负责布局与协调，功能面板专注展示与交互，Hook 集中业务逻辑，服务层屏蔽通信细节，Store 管理全局状态。新增的认证系统通过 AuthModal 组件和 useAuth Hook 提供了完整的用户认证解决方案。增强的 Sidebar 组件通过折叠展开、排序筛选和归档管理等功能，显著提升了用户体验和操作效率。该架构具备良好的可扩展性与可维护性，配合合理的性能优化与错误处理策略，能够支撑复杂的AI助手交互场景。
 
 ## 附录
 - 开发最佳实践
@@ -452,6 +522,8 @@ KCoder 的React前端采用清晰的分层与模块化设计：根组件负责�
   - 对外接口稳定，内部实现可演进
   - 认证相关逻辑统一通过 useAuth Hook 管理
   - 模态框组件遵循受控组件模式
+  - Sidebar 组件使用虚拟化技术处理大数据集
+  - 用户操作添加适当的反馈与状态指示
 - 示例参考路径
   - 根组件组织：[App.tsx](file://app/renderer/src/App.tsx)
   - 聊天主流程：[ChatPanel/index.tsx](file://app/renderer/src/components/ChatPanel/index.tsx)、[hooks/useChat.ts](file://app/renderer/src/hooks/useChat.ts)
@@ -459,6 +531,7 @@ KCoder 的React前端采用清晰的分层与模块化设计：根组件负责�
   - 代码块渲染：[CodeBlock/index.tsx](file://app/renderer/src/components/CodeBlock/index.tsx)
   - 设置面板：[SettingsPanel/index.tsx](file://app/renderer/src/components/SettingsPanel/index.tsx)
   - 状态栏：[StatusBar/index.tsx](file://app/renderer/src/components/StatusBar/index.tsx)
+  - 侧边栏增强：[Sidebar/index.tsx](file://app/renderer/src/components/Sidebar/index.tsx)
   - 认证系统：[AuthModal.tsx](file://app/renderer/src/components/AuthModal.tsx)、[hooks/useAuth.ts](file://app/renderer/src/hooks/useAuth.ts)
   - 引擎API封装：[services/engine-api.ts](file://app/renderer/src/services/engine-api.ts)
   - 全局状态：[stores/app-store.ts](file://app/renderer/src/stores/app-store.ts)

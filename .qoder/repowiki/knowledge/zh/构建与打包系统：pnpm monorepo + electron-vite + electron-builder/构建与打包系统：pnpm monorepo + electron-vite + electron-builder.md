@@ -17,29 +17,50 @@ source_files:
 ---
 
 ## 1. 使用的系统与工具链
-- 包管理器：pnpm 10（根 `package.json` 通过 `packageManager` 字段锁定版本）
-- Monorepo：`pnpm-workspace.yaml` 声明 `app`、`engine` 以及 `engine/packages/*/*` 三个层级
-- Node 引擎要求：>=20（根与 engine 的 `engines` 字段统一约束）
-- Electron 应用构建：electron-vite（开发/编译）+ electron-builder（跨平台打包）
-- QiongQi 引擎构建：自研拓扑排序脚本 `engine/scripts/build.mjs`，逐层调用各子包的 `pnpm run build`
-- 容器化：`engine/Dockerfile` + `docker-compose.yml`，以多阶段镜像构建并暴露 HTTP 服务
-- 原生依赖重建：`@electron/rebuild` 在 `postinstall` 中针对 `better-sqlite3` 执行 rebuild；`pnpm-workspace.yaml` 通过 `onlyBuiltDependencies` 白名单限制仅重建必要包
+
+- 包管理器：pnpm workspace（根 pnpm-workspace.yaml 声明 app、engine 以及 engine/packages/*/* 三个层级）
+- Node 版本约束：根与 engine 均要求 node >= 20，通过 engines 字段锁定
+- Electron 应用层：electron-vite 负责 main/preload/renderer 三端分别编译；electron-builder 负责跨平台打包（macOS dmg/zip、Windows nsis、Linux AppImage）
+- 引擎层（QiongQi）：自研拓扑排序脚本 engine/scripts/build.mjs 按 8 个 build layer 顺序调用各子包的 pnpm run build，以解决内部循环依赖的 SCC 问题
+- 容器化：engine 提供独立 Dockerfile 与 docker-compose.yml，可单独作为 HTTP 服务运行
 
 ## 2. 关键文件与入口
-- 根级编排：`package.json`（顶层 scripts）、`pnpm-workspace.yaml`（workspace 与 onlyBuiltDependencies）
-- App 侧：`app/package.json`（electron-vite/electron-builder 脚本）、`app/electron.vite.config.ts`（main/preload/renderer 三入口）、`app/electron-builder.yml`（产物名、extraResources、mac/win/linux 目标）
-- Engine 侧：`engine/package.json`（scripts 指向 `scripts/build.mjs`）、`engine/scripts/build.mjs`（18 个包的固定拓扑顺序）、`engine/Dockerfile`、`engine/docker-compose.yml`、`engine/vitest.config.ts`（测试）
+
+- 根工作区：package.json、pnpm-workspace.yaml
+- Electron 应用：app/package.json、app/electron.vite.config.ts、app/electron-builder.yml
+- QiongQi 引擎：engine/package.json、engine/scripts/build.mjs、engine/Dockerfile、engine/docker-compose.yml
+- 原生模块重建：根 postinstall 调用 electron-rebuild -f -w better-sqlite3 -w node-pty，并通过 onlyBuiltDependencies 白名单限定
 
 ## 3. 架构与约定
-- 两层 workspace：根 workspace 管理 app 与 engine 两个顶级包；engine 内部再按领域拆分为 18 个子包（foundation/infrastructure/domain-layer/...），并通过自定义脚本解决 SCC 循环依赖导致的 pnpm -r 无法保证顺序的问题。
-- 构建分层（L1→L8）由 `build.mjs` 硬编码顺序驱动，每层只依赖已构建的前序层，SCC 内以 type-only 导入容忍非致命类型错误。
-- App 通过 `extraResources` 将完整 `engine/` 目录（排除 node_modules/tests/*.map）复制到打包产物中的 `engine/` 子目录，运行时由 main 进程启动本地 HTTP 服务，渲染进程通过 `@qiongqi/http` 等 workspace 包访问。
-- Docker 镜像采用两阶段：deps 阶段安装依赖、prepare sqlite、全量 build、`flatten-dist.mjs` 扁平化输出；runtime 阶段仅拷贝构建产物并以 `@qiongqi/cli` 的 serve 命令启动。
-- 原生模块重建策略：`pnpm install` 后触发 `electron-rebuild -f -w better-sqlite3`，同时 `electron-builder` 配置 `nodeGypRebuild: false`，避免二次重复构建。
+
+### 3.1 顶层脚本约定
+- pnpm dev → 启动 @kcoder/app 的 electron-vite dev
+- pnpm build → 仅构建 app 产物
+- pnpm build:engine → 进入 engine 目录执行 pnpm -r run build（即走自定义拓扑构建）
+- pnpm package → 先 electron-vite build 再 electron-builder 产出安装包
+- pnpm rebuild / postinstall → 针对 better-sqlite3、node-pty 等 native addon 执行 electron-rebuild
+
+### 3.2 Electron 应用构建流
+- main 与 preload 使用 externalizeDepsPlugin() 将依赖外置，避免重复打包
+- preload 输出强制 ESM 格式且文件名固定为 [name].mjs，与 main 进程引用路径严格对齐
+- renderer 基于 Vite + React，别名 @ 指向 renderer/src
+- electron-builder.yml 将 ../engine 整个目录（排除 node_modules/tests/*.map）作为 extraResources 注入到安装包中，运行时由主进程启动本地 HTTP 服务
+
+### 3.3 QiongQi 引擎构建流
+- scripts/build.mjs 显式定义 18 个包的构建顺序，划分为 L1~L8 共 8 层，其中 L6 是包含 services/delegation/adapter-tools/loop 的强连通分量（SCC），依靠 tsc 的 noEmitOnError: false 容忍类型-only 反向边
+- 每个包构建前会删除自身 dist/，并扫描 src 下误发的 .js/.d.ts/.map 清理，确保增量构建稳定
+- 构建完成后校验 dist/index.js 是否存在，否则视为失败
+- 支持 --clean 参数一次性清理所有 dist 及 stray emit
+
+### 3.4 容器化部署
+- 多阶段镜像：deps 阶段安装依赖、prepare sqlite、全量构建并执行 flatten-dist.mjs；runtime 阶段仅拷贝产物
+- 暴露 8899 端口，通过环境变量 QIONGQI_HOST、QIONGQI_PORT、QIONGQI_DATA_DIR 控制行为
+- docker-compose 提供健康检查，拉取 /ready 判定就绪
 
 ## 4. 开发者应遵循的规则
-- 新增 engine 子包时，必须将其加入 `engine/scripts/build.mjs` 的 `sequence` 数组，确保其出现在所有依赖它的包之后。
-- 新增 native addon 需同步写入 `pnpm-workspace.yaml` 的 `onlyBuiltDependencies`，否则 CI 或 clean install 会失败。
-- 修改 Electron 入口（main/preload/renderer）需对应更新 `app/electron.vite.config.ts` 的 Rollup input，否则打包会找不到入口。
-- 需要把新资源随应用分发时，在 `app/electron-builder.yml` 的 `files` / `extraResources` 中添加过滤规则，注意排除 `.map`、`tests` 等体积大且运行不需要的内容。
-- 发布流程：先 `pnpm build:engine` 构建引擎，再 `pnpm package` 触发 electron-vite build + electron-builder；Docker 场景直接 `docker compose up --build`。
+
+1. 新增子包必须加入拓扑序列：在 engine/scripts/build.mjs 的 sequence 数组中插入新包名及其 packages/... 相对路径，并确保其依赖已在前面层构建完成。
+2. 保持 ESM 一致性：工程全局 type: module，preload 输出强制 .mjs，任何修改需同步更新 main 进程的 import 路径。
+3. native 依赖白名单：新增需要 node-gyp 编译的原生模块时，需在根 pnpm-workspace.yaml 的 onlyBuiltDependencies 中添加名称，并在根 package.json 的 rebuild 脚本 -w 参数中注册。
+4. 打包产物范围：electron-builder.yml 的 files 与 extraResources.filter 已明确排除测试与 map 文件，新增资源应按相同模式配置 filter。
+5. 引擎独立运行：若要在容器中单独运行 engine，需先执行 pnpm run prepare:sqlite 初始化数据库，再通过 @qiongqi/cli 的 serve 命令启动。
