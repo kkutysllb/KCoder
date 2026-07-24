@@ -15,8 +15,12 @@ import {
   TurnExecutionViewSchema,
   KernelV3TurnExecutionViewSchema,
   EventedV2TurnExecutionViewSchema,
-  UnavailableTurnExecutionViewSchema
+  UnavailableTurnExecutionViewSchema,
+  AgentTranscriptSchema,
+  ChildRunRecordSchema,
+  DelegationScopeSchema
 } from '@qiongqi/contracts'
+import type { AgentTranscriptStore, DelegationRunStore } from '@qiongqi/ports'
 
 describe('capabilities: agent graph + runtime snapshot', () => {
   it('AgentGraphCapabilityConfig parses a valid enabled config', () => {
@@ -354,4 +358,71 @@ describe('turn-execution: TurnExecutionView variants', () => {
     expect(unavailable.available).toBe(false)
   })
 })
+
+describe('delegation + agent-transcript contracts', () => {
+  it('DelegationScopeSchema accepts root_turn and graph_node', () => {
+    expect(DelegationScopeSchema.parse({ kind: 'root_turn' }).kind).toBe('root_turn')
+    const graph = DelegationScopeSchema.parse({
+      kind: 'graph_node',
+      graphPublicKey: 'graph_1',
+      ownerAgentPublicKey: 'pub_1',
+      depth: 1
+    })
+    expect(graph.kind).toBe('graph_node')
+  })
+
+  it('ChildRunRecordSchema parses a minimal record', () => {
+    const parsed = ChildRunRecordSchema.parse({
+      id: 'child_1',
+      parentThreadId: 'th_1',
+      parentTurnId: 'turn_1',
+      prompt: '实现子任务',
+      status: 'completed',
+      createdAt: '2026-07-24T00:00:00Z',
+      updatedAt: '2026-07-24T00:00:00Z'
+    })
+    expect(parsed.scope.kind).toBe('root_turn') // default
+    expect(parsed.usage.totalTokens).toBe(0) // default
+  })
+
+  it('AgentTranscriptSchema parses with messages/reasoning/toolRuns', () => {
+    const parsed = AgentTranscriptSchema.parse({
+      version: 1,
+      transcriptRef: 'transcript_1',
+      threadId: 'th_1',
+      turnId: 'turn_1',
+      ownerPublicKey: 'pub_1',
+      revision: 0,
+      updatedAt: '2026-07-24T00:00:00Z'
+    })
+    expect(parsed.messages).toEqual([]) // default
+    expect(parsed.toolRuns).toEqual([]) // default
+  })
+})
+
+describe('ports: AgentTranscriptStore + DelegationRunStore', () => {
+  it('AgentTranscriptStore interface has required methods', () => {
+    // 类型级测试：构造一个最小实现，编译通过即说明接口正确
+    const store: AgentTranscriptStore = {
+      load: async () => undefined,
+      save: async () => {},
+      update: async () => ({}) as never // mutate 签名匹配即可
+    }
+    expect(store.load).toBeDefined()
+    expect(store.save).toBeDefined()
+    expect(store.update).toBeDefined()
+  })
+
+  it('DelegationRunStore interface has required methods', () => {
+    const store: DelegationRunStore = {
+      upsert: async () => {},
+      list: async () => [],
+      deleteByThread: async () => {}
+    }
+    expect(store.upsert).toBeDefined()
+    expect(store.list).toBeDefined()
+    expect(store.deleteByThread).toBeDefined()
+  })
+})
+
 
