@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
-import type { AuthUser } from '../../services/engine-api'
+import { getEngineAPI, type AuthUser, type ThreadSummary } from '../../services/engine-api'
 
 // Icons as components
 const Icons = {
@@ -93,27 +93,29 @@ const Icons = {
   )
 }
 
-interface Task {
-  id: string
-  title: string
-  time: string
-  hasUpdate?: boolean
-}
-
-interface Project {
-  id: string
-  name: string
-  tasks: Task[]
-}
-
-const mockProjects: Project[] = []
-
 interface SidebarProps {
   onOpenSettings?: () => void
   onToggleCollapse?: () => void
   user?: AuthUser | null
   onOpenAuth?: () => void
   onLogout?: () => void
+  onSelectThread?: (threadId: string) => void
+}
+
+/** 相对时间格式化（"刚刚"/"5分钟前"/"2小时前"/"3天前"） */
+function formatRelativeTime(iso: string): string {
+  if (!iso) return ''
+  const ts = Date.parse(iso)
+  if (!Number.isFinite(ts)) return ''
+  const diff = Date.now() - ts
+  const min = Math.floor(diff / 60000)
+  if (min < 1) return '刚刚'
+  if (min < 60) return `${min}分钟前`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr}小时前`
+  const day = Math.floor(hr / 24)
+  if (day < 30) return `${day}天前`
+  return new Date(ts).toLocaleDateString('zh-CN')
 }
 
 /** View / sort dropdown menu (reference design) */
@@ -167,23 +169,52 @@ function SortMenu({
   )
 }
 
-export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, onLogout }: SidebarProps) {
+export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, onLogout, onSelectThread }: SidebarProps) {
   const [activeTab, setActiveTab] = useState<'group' | 'project'>('project')
-  const [expandedProjects, setExpandedProjects] = useState<string[]>([])
   const [showSortMenu, setShowSortMenu] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
-  const [viewMode, setViewMode] = useState<'project' | 'timeline'>('project')
+  const [viewMode, setViewMode] = useState<'project' | 'timeline'>('timeline')
   const [sortBy, setSortBy] = useState<'updated' | 'created'>('updated')
-  const { setWorkspacePath } = useAppStore()
+  const [threads, setThreads] = useState<ThreadSummary[]>([])
+  const [loadingThreads, setLoadingThreads] = useState(false)
+  const { enginePort, engineStatus, threadId, setThreadId, setWorkspacePath, clearMessages } = useAppStore()
   const { t } = useI18n()
 
-  const toggleProject = (projectId: string) => {
-    setExpandedProjects(prev =>
-      prev.includes(projectId)
-        ? prev.filter(id => id !== projectId)
-        : [...prev, projectId]
-    )
-  }
+  // 加载会话列表
+  const loadThreads = useCallback(async () => {
+    if (engineStatus !== 'connected') return
+    setLoadingThreads(true)
+    try {
+      const api = getEngineAPI(enginePort)
+      const result = await api.listThreads()
+      // 按更新时间降序
+      const sorted = [...result.threads].sort((a, b) =>
+        (b.updatedAt || '').localeCompare(a.updatedAt || '')
+      )
+      setThreads(sorted)
+    } catch (error) {
+      console.error('[KCoder] Failed to load threads:', error)
+    } finally {
+      setLoadingThreads(false)
+    }
+  }, [enginePort, engineStatus])
+
+  useEffect(() => {
+    loadThreads()
+  }, [loadThreads])
+
+  // 切换到某个会话
+  const selectThread = useCallback((id: string, workspace?: string) => {
+    setThreadId(id)
+    if (workspace) setWorkspacePath(workspace)
+    onSelectThread?.(id)
+  }, [setThreadId, setWorkspacePath, onSelectThread])
+
+  // 新建会话
+  const handleNewChat = useCallback(() => {
+    clearMessages()
+    setThreadId(null)
+  }, [clearMessages, setThreadId])
 
   return (
     <div className="w-[260px] h-full bg-bg-sidebar flex flex-col border-r border-border-custom">
@@ -206,7 +237,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
 
       {/* Navigation items */}
       <div className="px-3 py-2 space-y-0.5">
-        <button className="sidebar-item w-full">
+        <button className="sidebar-item w-full" onClick={handleNewChat}>
           <Icons.NewTask />
           <span>{t('sidebar.newTask')}</span>
         </button>
@@ -287,52 +318,36 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
 
       {/* Section title */}
       <div className="px-4 pt-2 pb-1 text-[13px] font-medium text-text-primary">
-        {activeTab === 'project' ? t('sidebar.projects') : t('sidebar.groups')}
+        {t('sidebar.conversations')}
       </div>
 
-      {/* Project list */}
+      {/* 会话列表（对接 GET /v1/threads） */}
       <div className="flex-1 overflow-y-auto px-3 pb-4">
-        {mockProjects.map(project => (
-          <div key={project.id} className="mb-2">
-            {/* Project header */}
-            <button
-              onClick={() => toggleProject(project.id)}
-              className="sidebar-item w-full font-medium text-text-primary"
-            >
-              <span className={`transform transition-transform ${expandedProjects.includes(project.id) ? 'rotate-0' : '-rotate-90'}`}>
-                <Icons.ChevronDown />
-              </span>
-              <Icons.Folder />
-              <span>{project.name}</span>
-            </button>
-
-            {/* Tasks */}
-            {expandedProjects.includes(project.id) && project.tasks.length > 0 && (
-              <div className="ml-4 mt-1 space-y-0.5">
-                {project.tasks.slice(0, 10).map(task => (
-                  <button
-                    key={task.id}
-                    className="task-item w-full"
-                    onClick={() => setWorkspacePath(`/projects/${project.name}`)}
-                  >
-                    <span className="truncate flex-1 text-left">{task.title}</span>
-                    <span className="flex items-center gap-1.5 ml-2 shrink-0">
-                      {task.hasUpdate && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444]" />
-                      )}
-                      <span className="text-xs text-text-muted">{task.time}</span>
-                    </span>
-                  </button>
-                ))}
-                {project.tasks.length > 10 && (
-                  <button className="task-item w-full text-text-muted hover:text-text-secondary">
-                    {t('sidebar.showMore')}
-                  </button>
-                )}
-              </div>
-            )}
+        {loadingThreads && threads.length === 0 && (
+          <div className="px-2 py-4 text-xs text-text-muted text-center">加载中…</div>
+        )}
+        {!loadingThreads && threads.length === 0 && (
+          <div className="px-2 py-4 text-xs text-text-muted text-center">
+            {engineStatus === 'connected' ? '暂无会话，点击「新建任务」开始' : '引擎未连接'}
           </div>
-        ))}
+        )}
+        {threads.map(thread => {
+          const isActive = thread.id === threadId
+          const time = formatRelativeTime(thread.updatedAt)
+          return (
+            <button
+              key={thread.id}
+              className={`task-item w-full ${isActive ? 'bg-bg-hover text-text-primary' : ''}`}
+              onClick={() => selectThread(thread.id, thread.workspace)}
+              title={thread.title || thread.id}
+            >
+              <span className="truncate flex-1 text-left">
+                {thread.title || '未命名会话'}
+              </span>
+              <span className="text-xs text-text-muted shrink-0 ml-2">{time}</span>
+            </button>
+          )
+        })}
       </div>
 
       {/* User profile */}

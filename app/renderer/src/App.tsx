@@ -38,7 +38,7 @@ function TerminalToggleButton({ active, onToggle }: { active: boolean; onToggle:
 
 export default function App() {
   const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath } = useAppStore()
-  const { sendMessage, isGenerating } = useChat()
+  const { sendMessage, isGenerating, loadThread } = useChat()
   const auth = useAuth(enginePort)
   const [showSettings, setShowSettings] = useState(false)
   const [showAuth, setShowAuth] = useState(false)
@@ -100,6 +100,7 @@ export default function App() {
           user={auth.user}
           onOpenAuth={() => setShowAuth(true)}
           onLogout={() => auth.logout()}
+          onSelectThread={(id) => loadThread(id)}
         />
       )}
 
