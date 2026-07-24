@@ -469,6 +469,35 @@ export const SubagentsCapabilityConfig = CapabilityToggleConfig.extend({
   .transform(({ defaultStepLimit: _legacyDefaultStepLimit, ...config }) => config)
 export type SubagentsCapabilityConfig = z.output<typeof SubagentsCapabilityConfig>
 
+/**
+ * 多 agent 图能力配置。team 模式（evented_v2）编排的预算与上限。
+ * 来源：KWorks capabilities.ts（AgentGraphCapabilityConfig）。
+ */
+export const AgentGraphCapabilityConfig = CapabilityToggleConfig.extend({
+  /** 并行执行的 agent 节点上限。 */
+  maxParallelNodes: z.number().int().positive().default(4),
+  /** 单次路由可激活的 specialist 数量上限。 */
+  maxActivatedSpecialists: z.number().int().nonnegative().default(10),
+  /** 每个节点的最大重试次数。 */
+  maxRetriesPerNode: z.number().int().nonnegative().default(2),
+  /** 单次运行的最大时长（毫秒）。 */
+  maxDurationMs: z.number().int().positive().default(600000)
+})
+  .strict()
+export type AgentGraphCapabilityConfig = z.output<typeof AgentGraphCapabilityConfig>
+
+/**
+ * 运行时能力快照 — 决策服务在决定编排模式时读取，并持久化到 Turn 上。
+ * revision 是内容哈希前缀（cap_<sha256_16hex>），用于幂等校验。
+ * 来源：KWorks capabilities.ts（RuntimeCapabilitySnapshotSchema）。
+ */
+export const RuntimeCapabilitySnapshotSchema = z.object({
+  revision: z.string().min(1),
+  subagents: SubagentsCapabilityConfig,
+  agentGraph: AgentGraphCapabilityConfig
+}).strict()
+export type RuntimeCapabilitySnapshot = z.infer<typeof RuntimeCapabilitySnapshotSchema>
+
 export const DEFAULT_ATTACHMENT_TEXT_FALLBACK_MAX_BASE64_BYTES = 512 * 1024
 export const DEFAULT_ATTACHMENT_TEXT_FALLBACK_MAX_IMAGE_DIMENSION = 1280
 export const DEFAULT_ATTACHMENT_TEXT_FALLBACK_PREFERRED_MIME_TYPE = 'image/webp'
