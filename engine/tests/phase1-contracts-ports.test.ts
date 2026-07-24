@@ -6,7 +6,12 @@ import {
   ManagerRouteDecisionSchema,
   AgentGraphSnapshotSchema,
   AgentRunSchema,
-  MultiAgentRunSchema
+  MultiAgentRunSchema,
+  OrchestrationPreferenceSchema,
+  CollaborationPolicySchema,
+  RuntimeDecisionSchema,
+  TurnSchema,
+  StartTurnRequest
 } from '@qiongqi/contracts'
 
 describe('capabilities: agent graph + runtime snapshot', () => {
@@ -168,5 +173,99 @@ describe('multi-agent-runtime: extended AgentRun + MultiAgentRun', () => {
     expect(parsed.graphSnapshot?.templateId).toBe('manager-specialists-v1')
     expect(parsed.routeDecision?.specialists).toHaveLength(0)
     expect(parsed.activeNodeIds).toEqual(['manager_planning'])
+  })
+})
+
+describe('turns: orchestration types + extended Turn/StartTurnRequest', () => {
+  it('OrchestrationPreference accepts standard and team', () => {
+    expect(OrchestrationPreferenceSchema.parse('standard')).toBe('standard')
+    expect(OrchestrationPreferenceSchema.parse('team')).toBe('team')
+  })
+
+  it('CollaborationPolicy accepts single and auto', () => {
+    expect(CollaborationPolicySchema.parse('single')).toBe('single')
+    expect(CollaborationPolicySchema.parse('auto')).toBe('auto')
+  })
+
+  it('RuntimeDecisionSchema parses a kernel_v3 decision', () => {
+    const parsed = RuntimeDecisionSchema.parse({
+      preferredMode: 'kernel_v3',
+      effectiveMode: 'kernel_v3',
+      preference: 'standard',
+      source: 'default',
+      reasonCode: 'standard_execution',
+      reason: '默认单 agent 模式',
+      rolloutStage: 'default',
+      decidedAt: '2026-07-24T00:00:00Z'
+    })
+    expect(parsed.effectiveMode).toBe('kernel_v3')
+  })
+
+  it('RuntimeDecisionSchema parses an evented_v2 decision with fallback', () => {
+    const parsed = RuntimeDecisionSchema.parse({
+      preferredMode: 'evented_v2',
+      effectiveMode: 'evented_v2',
+      preference: 'team',
+      source: 'turn',
+      reasonCode: 'explicit_team',
+      reason: '用户显式选择团队模式',
+      rolloutStage: 'default',
+      decidedAt: '2026-07-24T00:00:00Z'
+    })
+    expect(parsed.effectiveMode).toBe('evented_v2')
+  })
+
+  it('TurnSchema accepts turn with orchestration fields', () => {
+    const parsed = TurnSchema.parse({
+      id: 'turn_1',
+      threadId: 'th_1',
+      status: 'running',
+      prompt: '实现一个登录接口',
+      orchestrationPreference: 'team',
+      runtimeDecision: {
+        preferredMode: 'evented_v2',
+        effectiveMode: 'evented_v2',
+        preference: 'team',
+        source: 'turn',
+        reasonCode: 'explicit_team',
+        reason: '用户选择团队',
+        rolloutStage: 'default',
+        decidedAt: '2026-07-24T00:00:00Z'
+      },
+      nextExecutionSequence: 3,
+      eventedV2RunId: 'mar_1',
+      createdAt: '2026-07-24T00:00:00Z'
+    })
+    expect(parsed.orchestrationPreference).toBe('team')
+    expect(parsed.eventedV2RunId).toBe('mar_1')
+  })
+
+  it('TurnSchema still accepts minimal turn (backward compat)', () => {
+    const parsed = TurnSchema.parse({
+      id: 'turn_2',
+      threadId: 'th_1',
+      status: 'queued',
+      prompt: '你好',
+      createdAt: '2026-07-24T00:00:00Z'
+    })
+    expect(parsed.orchestrationPreference).toBeUndefined()
+    expect(parsed.runtimeDecision).toBeUndefined()
+  })
+
+  it('StartTurnRequest accepts orchestrationPreference team', () => {
+    const parsed = StartTurnRequest.parse({
+      prompt: '实现全栈功能',
+      orchestrationPreference: 'team'
+    })
+    expect(parsed.orchestrationPreference).toBe('team')
+  })
+
+  it('StartTurnRequest rejects conflicting orchestrationPreference + collaborationPolicy', () => {
+    const result = StartTurnRequest.safeParse({
+      prompt: 'test',
+      orchestrationPreference: 'standard',
+      collaborationPolicy: 'auto' // auto → team, conflicts with standard
+    })
+    expect(result.success).toBe(false)
   })
 })
