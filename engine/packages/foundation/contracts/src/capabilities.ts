@@ -415,6 +415,7 @@ export const QiongqiCapabilitiesConfig = z
     web: WebCapabilityConfig.default(() => WebCapabilityConfig.parse({})),
     skills: SkillsCapabilityConfig.default(() => SkillsCapabilityConfig.parse({})),
     subagents: SubagentsCapabilityConfig.default(() => SubagentsCapabilityConfig.parse({})),
+    agentGraph: AgentGraphCapabilityConfig.default(() => AgentGraphCapabilityConfig.parse({})),
     attachments: AttachmentsCapabilityConfig.default(() => AttachmentsCapabilityConfig.parse({})),
     memory: MemoryCapabilityConfig.default(() => MemoryCapabilityConfig.parse({}))
   })

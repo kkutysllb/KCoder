@@ -9,6 +9,7 @@ import type { UserInputGate } from '@qiongqi/ports'
 import type { WorkspaceInspector } from '@qiongqi/ports'
 import type { ToolHost, ToolProviderPolicy } from '@qiongqi/ports'
 import type { RuntimeEventRecorder } from '@qiongqi/services'
+import type { TurnExecutionProjectionServiceContract } from '@qiongqi/services'
 import type { RuntimeInfoResponse, AgentCard } from '@qiongqi/contracts'
 import type { A2ATaskRecord } from '../a2a-task-model.js'
 import type { FileA2ATaskStore } from '../a2a-task-store.js'
@@ -85,6 +86,7 @@ export type ServerRuntime = {
   multiAgentRemoteWorker?: EventedV2RemoteAgentWorker
   multiAgentRemoteScheduler?: EventedV2RemoteAgentScheduler
   eventedV2Rollout?: EventedV2RolloutController
+  turnExecutionProjection?: TurnExecutionProjectionServiceContract
   runTurn(threadId: string, turnId: string): Promise<'completed' | 'failed' | 'aborted'> | void
   cancelA2ATaskTurn?(input: { threadId: string; turnId: string }): Promise<void> | void
   runReview?(input: {
