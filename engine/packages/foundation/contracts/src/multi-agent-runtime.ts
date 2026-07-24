@@ -83,6 +83,44 @@ export const AgentGraphSchema = z.object({
 }).strict()
 export type AgentGraph = z.infer<typeof AgentGraphSchema>
 
+/**
+ * Manager 路由决策 — manager_planning 节点调用 route_specialists 工具的输出。
+ * specialists 为空数组时表示简单任务，由 manager 直接处理（空路由路径）。
+ * 来源：KWorks multi-agent-runtime.ts（ManagerRouteDecisionSchema）。
+ */
+export const ManagerRouteDecisionSchema = z.object({
+  summary: z.string(),
+  specialists: z.array(z.object({
+    specialistId: NonEmptyString,
+    task: NonEmptyString,
+    dependsOn: z.array(NonEmptyString).default([]),
+    required: z.boolean()
+  }).strict()).default([])
+}).strict()
+export type ManagerRouteDecision = z.infer<typeof ManagerRouteDecisionSchema>
+
+/**
+ * Agent 图快照 — 不可变，按 publicKey 寻址。team 模式下 materializeTeamGraph 产出此结构。
+ * 与 AgentGraph 的区别：snapshot 携带 budgets 和 registryRevision，是不可变执行蓝图。
+ * 来源：KWorks multi-agent-runtime.ts（AgentGraphSnapshotSchema）。
+ */
+export const AgentGraphSnapshotSchema = z.object({
+  version: z.literal(1),
+  publicKey: NonEmptyString,
+  templateId: NonEmptyString,
+  registryRevision: NonEmptyString,
+  startNodeId: NonEmptyString,
+  nodes: z.array(AgentGraphNodeSchema).min(1),
+  edges: z.array(AgentGraphEdgeSchema).default([]),
+  budgets: z.object({
+    maxParallelNodes: z.number().int().positive(),
+    maxActivatedSpecialists: z.number().int().nonnegative(),
+    maxRetriesPerNode: z.number().int().nonnegative(),
+    maxDurationMs: z.number().int().positive()
+  }).strict()
+}).strict()
+export type AgentGraphSnapshot = z.infer<typeof AgentGraphSnapshotSchema>
+
 export const TaskEnvelopeSchema = z.object({
   envelopeId: NonEmptyString,
   kind: z.enum(['handoff', 'delegation']),
