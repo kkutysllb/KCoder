@@ -27,6 +27,7 @@ import {
   startTurn,
   steerTurn
 } from './turns.js'
+import { getTurnExecution } from './turn-execution.js'
 import { startReview } from './review.js'
 import { buildEventStreamResponse } from './events.js'
 import { decideApproval } from './approvals.js'
@@ -886,6 +887,15 @@ export function buildRouter(runtime: ServerRuntime): Router {
   router.add('GET', '/v1/threads/:id/turns/:turnId', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     return getTurn(runtime.turnService, ctx.params.id, ctx.params.turnId)
+  })
+  router.add('GET', '/v1/threads/:id/turns/:turnId/execution', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return getTurnExecution(
+      runtime.turnExecutionProjection,
+      ctx.params.id,
+      ctx.params.turnId,
+      request
+    )
   })
   router.add('POST', '/v1/threads/:id/turns/:turnId/steer', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
