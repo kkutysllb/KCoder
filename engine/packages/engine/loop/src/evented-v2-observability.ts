@@ -6,7 +6,21 @@ export type EventedV2TimelineEvent = MultiAgentEvent & {
 
 export type EventedV2TimelineAgentRun = Pick<
   AgentRun,
-  'agentRunId' | 'agentId' | 'nodeId' | 'status' | 'startedAt' | 'updatedAt'
+  | 'agentRunId'
+  | 'agentId'
+  | 'nodeId'
+  | 'publicKey'
+  | 'sequence'
+  | 'role'
+  | 'phase'
+  | 'transcriptRef'
+  | 'attempt'
+  | 'task'
+  | 'required'
+  | 'usage'
+  | 'status'
+  | 'startedAt'
+  | 'updatedAt'
 > & {
   completedAt?: string
   summary?: string
@@ -35,9 +49,13 @@ export type EventedV2RunTimeline = Pick<
   | 'graphId'
   | 'status'
   | 'activeNodeId'
+  | 'activeNodeIds'
+  | 'runnableNodeIds'
   | 'activeAgentStack'
   | 'branchStatus'
   | 'retryCounters'
+  | 'nextPublicSequence'
+  | 'warnings'
   | 'budgets'
   | 'createdAt'
   | 'updatedAt'
@@ -72,9 +90,13 @@ export function buildEventedV2RunTimeline(run: MultiAgentRun): EventedV2RunTimel
     graphId: run.graphId,
     status: run.status,
     activeNodeId: run.activeNodeId,
+    activeNodeIds: [...run.activeNodeIds],
+    runnableNodeIds: [...run.runnableNodeIds],
     activeAgentStack: [...run.activeAgentStack],
     branchStatus: { ...run.branchStatus },
     retryCounters: { ...run.retryCounters },
+    nextPublicSequence: run.nextPublicSequence,
+    warnings: [...run.warnings],
     budgets: { ...run.budgets },
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
@@ -83,6 +105,15 @@ export function buildEventedV2RunTimeline(run: MultiAgentRun): EventedV2RunTimel
       agentRunId: agentRun.agentRunId,
       agentId: agentRun.agentId,
       nodeId: agentRun.nodeId,
+      publicKey: agentRun.publicKey,
+      sequence: agentRun.sequence,
+      role: agentRun.role,
+      phase: agentRun.phase,
+      transcriptRef: agentRun.transcriptRef,
+      attempt: agentRun.attempt,
+      task: agentRun.task,
+      required: agentRun.required,
+      usage: agentRun.usage,
       status: agentRun.status,
       startedAt: agentRun.startedAt,
       updatedAt: agentRun.updatedAt,
