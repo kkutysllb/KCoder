@@ -11,7 +11,11 @@ import {
   CollaborationPolicySchema,
   RuntimeDecisionSchema,
   TurnSchema,
-  StartTurnRequest
+  StartTurnRequest,
+  TurnExecutionViewSchema,
+  KernelV3TurnExecutionViewSchema,
+  EventedV2TurnExecutionViewSchema,
+  UnavailableTurnExecutionViewSchema
 } from '@qiongqi/contracts'
 
 describe('capabilities: agent graph + runtime snapshot', () => {
@@ -269,3 +273,85 @@ describe('turns: orchestration types + extended Turn/StartTurnRequest', () => {
     expect(result.success).toBe(false)
   })
 })
+
+const baseDecision = {
+  preferredMode: 'kernel_v3' as const,
+  effectiveMode: 'kernel_v3' as const,
+  preference: 'standard' as const,
+  source: 'default' as const,
+  reasonCode: 'standard_execution',
+  reason: '默认模式',
+  rolloutStage: 'default' as const,
+  decidedAt: '2026-07-24T00:00:00Z'
+}
+
+describe('turn-execution: TurnExecutionView variants', () => {
+  it('KernelV3TurnExecutionView parses', () => {
+    const parsed = KernelV3TurnExecutionViewSchema.parse({
+      version: 1,
+      available: true,
+      revision: 'sha256:abc',
+      status: 'completed',
+      decision: baseDecision,
+      agents: [],
+      mode: 'kernel_v3',
+      delegation: { roots: ['root'], edges: [] }
+    })
+    expect(parsed.mode).toBe('kernel_v3')
+  })
+
+  it('EventedV2TurnExecutionView parses with graph', () => {
+    const parsed = EventedV2TurnExecutionViewSchema.parse({
+      version: 1,
+      available: true,
+      revision: 'sha256:def',
+      status: 'running',
+      decision: { ...baseDecision, effectiveMode: 'evented_v2', preference: 'team' },
+      agents: [],
+      mode: 'evented_v2',
+      graph: {
+        key: 'graph_1',
+        templateId: 'manager-specialists-v1',
+        nodes: [],
+        edges: [],
+        handoffs: [],
+        activeAgentKeys: [],
+        warnings: []
+      }
+    })
+    expect(parsed.mode).toBe('evented_v2')
+    expect(parsed.graph.templateId).toBe('manager-specialists-v1')
+  })
+
+  it('UnavailableTurnExecutionView parses with reason', () => {
+    const parsed = UnavailableTurnExecutionViewSchema.parse({
+      version: 1,
+      available: false,
+      revision: 'legacy:0',
+      reason: 'legacy_turn'
+    })
+    expect(parsed.available).toBe(false)
+  })
+
+  it('TurnExecutionViewSchema union accepts all variants', () => {
+    const kernel = TurnExecutionViewSchema.parse({
+      version: 1,
+      available: true,
+      revision: 'sha256:1',
+      status: 'completed',
+      decision: baseDecision,
+      agents: [],
+      mode: 'kernel_v3',
+      delegation: { roots: [], edges: [] }
+    })
+    const unavailable = TurnExecutionViewSchema.parse({
+      version: 1,
+      available: false,
+      revision: 'legacy:0',
+      reason: 'not_recorded'
+    })
+    expect(kernel.available).toBe(true)
+    expect(unavailable.available).toBe(false)
+  })
+})
+
