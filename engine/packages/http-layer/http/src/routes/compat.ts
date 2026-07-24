@@ -2400,27 +2400,22 @@ function normalizeLegacyTaskWorkMode(config: QiongqiConfig): QiongqiConfig {
   const skills = config.capabilities?.skills
   const workModes = skills?.workModes
   const modes = workModes?.modes as Record<string, WorkModeConfigValue> | undefined
-  if (!modes || !('task' in modes)) return config
+  if (!modes || (!('task' in modes) && !('office' in modes))) return config
 
-  const { task: _task, ...rest } = modes
-  // If `office` already exists, drop the stale `task` entry; otherwise rename it.
-  const nextModes: Record<string, WorkModeConfigValue> = 'office' in rest
-    ? rest
-    : { ...rest, office: { ..._task, id: 'office' } }
-  const nextDefault = workModes!.defaultModeId === 'task' ? 'office' : workModes!.defaultModeId
-  // Also fix up modeSkillOverrides: move any `task` overrides to `office`.
+  // KCoder 现为纯 coding 应用，遗留的 task/office 模式已移除；丢弃它们，
+  // coding 为唯一内置模式。
+  const { task: _task, office: _office, ...rest } = modes
+  const legacyDefault = workModes!.defaultModeId
+  const nextDefault = legacyDefault === 'task' || legacyDefault === 'office' ? 'coding' : legacyDefault
   const overrides = (skills?.modeSkillOverrides ?? {}) as SkillsConfig['modeSkillOverrides']
-  const nextOverrides = 'task' in overrides
-    ? { ...overrides, office: { ...(overrides.office ?? { addedSkillIds: [], removedSkillIds: [] }), ...overrides.task } }
-    : overrides
-  const { task: _dropOverride, ...cleanOverrides } = nextOverrides
+  const { task: _dropTask, office: _dropOffice, ...cleanOverrides } = overrides
   return {
     ...config,
     capabilities: {
       ...(config.capabilities ?? {}),
       skills: {
         ...skills!,
-        workModes: { ...workModes!, defaultModeId: nextDefault, modes: nextModes },
+        workModes: { ...workModes!, defaultModeId: nextDefault, modes: rest },
         modeSkillOverrides: cleanOverrides
       }
     }
@@ -3491,8 +3486,8 @@ function normalizeWorkModeId(id: string | undefined): string | undefined {
   const fromId = id?.trim()
   if (!fromId) return undefined
   const lower = fromId.toLowerCase()
-  // Legacy alias: "task" was renamed to "office".
-  return lower === 'task' ? 'office' : lower
+  // Legacy alias: "task"/"office" 已移除，归一到 coding。
+  return lower === 'task' || lower === 'office' ? 'coding' : lower
 }
 
 function isValidCustomWorkModeId(id: string): boolean {

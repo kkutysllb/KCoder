@@ -2134,6 +2134,7 @@ describe('HTTP server', () => {
         headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
         body: JSON.stringify({
           input: { messages: [{ role: 'user', content: '当前默认工作区是什么' }] },
+          // 非 coding 模式（含遗留 office）路由到用户工作区
           context: { model_name: 'deepseek-chat', workModeId: 'office' }
         })
       })
@@ -2936,7 +2937,7 @@ describe('HTTP server', () => {
         trigger: '用户需要搜索研报或整理证券研究资料',
         output: 'Markdown 摘要，包含来源、要点和后续问题',
         procedure: '1. 明确主题和范围\n2. 检索资料\n3. 输出结构化摘要',
-        workModeId: 'office'
+        workModeId: 'coding'
       })
     }))
 
@@ -2945,7 +2946,7 @@ describe('HTTP server', () => {
     expect(body).toMatchObject({
       success: true,
       skill_id: 'report-search',
-      workModeId: 'office'
+      workModeId: 'coding'
     })
     expect(body.root.endsWith('/skills/custom/shared/report-search')).toBe(true)
     const skillMd = await readFile(join(body.root, 'SKILL.md'), 'utf8')
@@ -2961,7 +2962,7 @@ describe('HTTP server', () => {
     expect(config?.capabilities?.skills?.enabledSkills).toMatchObject({
       'report-search': true
     })
-    expect(config?.capabilities?.skills?.modeSkillOverrides?.office?.addedSkillIds).toContain('report-search')
+    expect(config?.capabilities?.skills?.modeSkillOverrides?.coding?.addedSkillIds).toContain('report-search')
     const saved = await h.runtime.userDataStore?.getUserSetting(session!.user.id, 'capabilities.skills')
     expect(saved).toMatchObject({
       enabled: true,
@@ -3039,7 +3040,7 @@ describe('HTTP server', () => {
     await rm(join('/tmp/kun', 'skills', 'custom', 'shared', 'convert'), { recursive: true, force: true })
     const form = new FormData()
     form.append('mode', 'scripts')
-    form.append('workModeId', 'office')
+    form.append('workModeId', 'coding')
     form.append('files', new File([
       [
         "import argparse",
@@ -3076,7 +3077,7 @@ describe('HTTP server', () => {
       method: 'POST',
       headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
       body: JSON.stringify({
-        workModeId: 'office',
+        workModeId: 'coding',
         metadata: generated.draft.metadata,
         skillMarkdown: generated.draft.skillMarkdown,
         manifestPatch: generated.draft.manifestPatch,
@@ -3086,7 +3087,7 @@ describe('HTTP server', () => {
     expect(install.status).toBe(201)
     const installed = await readJson(install) as { root: string; skill_id: string; workModeId: string }
     expect(installed.skill_id).toBe('convert')
-    expect(installed.workModeId).toBe('office')
+    expect(installed.workModeId).toBe('coding')
     await expect(readFile(join(installed.root, 'SKILL.md'), 'utf8')).resolves.toContain('python scripts/convert.py')
     await expect(readFile(join(installed.root, 'scripts', 'convert.py'), 'utf8')).resolves.toContain('argparse')
   })
@@ -3096,7 +3097,7 @@ describe('HTTP server', () => {
     await rm(join('/tmp/kun', 'skills', 'custom', 'shared', 'kk-common'), { recursive: true, force: true })
     const form = new FormData()
     form.append('mode', 'scripts')
-    form.append('workModeId', 'office')
+    form.append('workModeId', 'coding')
     form.append('files', new File([
       storedZip([
         {
@@ -3172,7 +3173,7 @@ describe('HTTP server', () => {
       method: 'POST',
       headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
       body: JSON.stringify({
-        workModeId: 'office',
+        workModeId: 'coding',
         metadata: generated.draft.metadata,
         skillMarkdown: generated.draft.skillMarkdown,
         manifestPatch: generated.draft.manifestPatch,
@@ -3182,7 +3183,7 @@ describe('HTTP server', () => {
     expect(install.status).toBe(201)
     const installed = await readJson(install) as { root: string; skill_id: string; workModeId: string }
     expect(installed.skill_id).toBe('kk-common')
-    expect(installed.workModeId).toBe('office')
+    expect(installed.workModeId).toBe('coding')
     await expect(readFile(join(installed.root, 'SKILL.md'), 'utf8')).resolves.toContain('# KK Common')
     await expect(readFile(join(installed.root, 'scripts', 'script.py'), 'utf8')).resolves.toContain('kk common')
     await expect(readFile(join(installed.root, 'scripts', 'kk-common.zip'), 'utf8')).rejects.toThrow()
@@ -3193,7 +3194,7 @@ describe('HTTP server', () => {
     await rm(join('/tmp/kun', 'skills', 'custom', 'shared', 'abs-doc'), { recursive: true, force: true })
     const form = new FormData()
     form.append('mode', 'package')
-    form.append('workModeId', 'office')
+    form.append('workModeId', 'coding')
     form.append('files', new File([
       storedZip([
         {
@@ -3249,7 +3250,7 @@ describe('HTTP server', () => {
       method: 'POST',
       headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
       body: JSON.stringify({
-        workModeId: 'office',
+        workModeId: 'coding',
         metadata: generated.draft.metadata,
         skillMarkdown: generated.draft.skillMarkdown,
         manifestPatch: generated.draft.manifestPatch,
@@ -3315,7 +3316,7 @@ describe('HTTP server', () => {
     await rm(join('/tmp/kun', 'skills', 'custom', 'shared', 'market-brief'), { recursive: true, force: true })
     const form = new FormData()
     form.append('mode', 'package')
-    form.append('workModeId', 'office')
+    form.append('workModeId', 'coding')
     form.append('files', new File([
       [
         '---',
@@ -3368,7 +3369,7 @@ describe('HTTP server', () => {
       method: 'POST',
       headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
       body: JSON.stringify({
-        workModeId: 'office',
+        workModeId: 'coding',
         metadata: generated.draft.metadata,
         skillMarkdown: generated.draft.skillMarkdown,
         manifestPatch: generated.draft.manifestPatch,
@@ -3398,7 +3399,7 @@ describe('HTTP server', () => {
       method: 'POST',
       headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
       body: JSON.stringify({
-        workModeId: 'office',
+        workModeId: 'coding',
         metadata: { id: 'convert', name: 'Convert', description: 'Convert files' },
         skillMarkdown: 'Run python /Users/libing/private/convert.py',
         manifestPatch: {
@@ -3565,6 +3566,7 @@ describe('HTTP server', () => {
       new Request('http://localhost/v1/threads', {
         method: 'POST',
         headers: { authorization: 'Bearer tok-1', 'content-type': 'application/json' },
+        // 非 coding 模式（含遗留 office）路由到用户工作区
         body: JSON.stringify({ model: 'deepseek-chat', workModeId: 'office' })
       })
     )
@@ -4731,22 +4733,22 @@ describe('HTTP server', () => {
     expect(configBody.config?.capabilities?.skills?.enabled).toBe(true)
   })
 
-  it('normalizes a legacy "task" work mode to "office" in per-user config (no duplicate)', async () => {
+  it('normalizes a legacy "task" work mode to "coding" in per-user config (office removed)', async () => {
     const h = buildHarness()
     const session = await h.runtime.authService?.initialize({
       email: 'task-alias@example.com',
       password: 'password123'
     })
     // Seed per-user skills config with a stale "task" mode (as persisted before
-    // the task→office rename). The effective config must collapse it to a
-    // single "office" entry — not render two "日常办公".
+    // KCoder moved to coding-only). The effective config must drop task/office
+    // and fall back to "coding" as the only built-in mode.
     await h.runtime.userDataStore?.setUserSetting(
       session!.user.id,
       'capabilities.skills',
       {
         enabled: true,
         roots: [],
-        lockedSkillIds: ['bootstrap', 'find-skills', 'goal', 'skill-creator', 'skill-manage', 'todo', 'web'],
+        lockedSkillIds: ['find-skills', 'goal', 'skill-creator', 'todo', 'web'],
         workModes: {
           defaultModeId: 'task',
           modes: {
@@ -4776,12 +4778,9 @@ describe('HTTP server', () => {
     const workModes = body.config?.capabilities?.skills?.workModes
     const modeIds = Object.keys(workModes?.modes ?? {})
     expect(modeIds).not.toContain('task')
-    expect(modeIds).toContain('office')
+    expect(modeIds).not.toContain('office')
     expect(modeIds).toContain('coding')
-    expect(workModes?.defaultModeId).toBe('office')
-    // Only one "日常办公" entry.
-    const officeNames = modeIds.filter((id) => workModes?.modes?.[id]?.name === '日常办公')
-    expect(officeNames).toEqual(['office'])
+    expect(workModes?.defaultModeId).toBe('coding')
   })
 })
 

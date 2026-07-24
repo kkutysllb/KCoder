@@ -71,14 +71,6 @@ import { isAuthorized, bearerToken } from '../auth.js'
 import { ERRORS } from './runtime-error.js'
 import type { ServerRuntime } from './server-runtime.js'
 import {
-  FINANCE_CREDENTIALS_SECRET_KEY,
-  FINANCE_DATA_SOURCE_CONFIG_KEY,
-  loadFinanceDataSource,
-  saveFinanceDataSource,
-  type FinanceCredentialSecrets,
-  type FinanceDataSourceConfig
-} from '../finance-credentials.js'
-import {
   kworksCancelRun,
   kworksAcceptProjectStageSuggestion,
   kworksApplyCodingReviewFix,
@@ -960,61 +952,9 @@ export function buildRouter(runtime: ServerRuntime): Router {
     if (!actor) return ERRORS.unauthorized()
     return usageJsonResponse(request, runtime, actorOwner(actor) ? actor : undefined, { defaultWindow: 'month' })
   })
-  // Finance credential status — checks whether the two data-source API keys
-  // required by the finance work mode's KSkills packages are present. Read-only,
-  // no secrets are returned.
-  router.add('GET', '/api/finance/credentials/status', async (request) => {
-    const actor = await authenticateOrInternal(request, runtime)
-    if (!actor) return ERRORS.unauthorized()
-    const resolved = await loadFinanceDataSource(runtime.userDataStore, actorOwner(actor))
-    return jsonResponse(resolved.status)
-  })
-  router.add('GET', '/api/finance/credentials', async (request) => {
-    const actor = await authenticateOrInternal(request, runtime)
-    if (!actor) return ERRORS.unauthorized()
-    const resolved = await loadFinanceDataSource(runtime.userDataStore, actorOwner(actor))
-    return jsonResponse(resolved.status)
-  })
-  router.add('PUT', '/api/finance/credentials', async (request) => {
-    const actor = await authenticateOrInternal(request, runtime)
-    if (!actor) return ERRORS.unauthorized()
-    const owner = actorOwner(actor)
-    if (!owner || !runtime.userDataStore) return ERRORS.unavailable('finance credential storage is unavailable')
-    const body = await readJsonBody(request)
-    if (!body.ok) return body.response
-    if (!isObject(body.value)) return ERRORS.validation('finance credentials body must be an object')
-
-    const current = await loadFinanceDataSource(runtime.userDataStore, owner)
-    const rawSecrets = await runtime.userDataStore.getUserSetting(owner, FINANCE_CREDENTIALS_SECRET_KEY)
-    const secrets: FinanceCredentialSecrets = isObject(rawSecrets) ? {
-      ...(typeof rawSecrets.tushareToken === 'string' ? { tushareToken: rawSecrets.tushareToken } : {}),
-      ...(typeof rawSecrets.iwencaiApiKey === 'string' ? { iwencaiApiKey: rawSecrets.iwencaiApiKey } : {})
-    } : {}
-    for (const [field, key] of [['tushareToken', 'tushareToken'], ['iwencaiApiKey', 'iwencaiApiKey']] as const) {
-      if (!(field in body.value)) continue
-      const value = body.value[field]
-      if (value === null || value === '') delete secrets[key]
-      else if (typeof value === 'string') secrets[key] = value.trim()
-      else return ERRORS.validation(`${field} must be a string or null`)
-    }
-    const rawConfig = await runtime.userDataStore.getUserSetting(owner, FINANCE_DATA_SOURCE_CONFIG_KEY)
-    const storedConfig = isObject(rawConfig) ? rawConfig : {}
-    const config: FinanceDataSourceConfig = {
-      apiBaseUrl: stringValue(body.value.apiBaseUrl) ?? stringValue(storedConfig.apiBaseUrl) ?? current.config.apiBaseUrl,
-      queryEndpoint: stringValue(body.value.queryEndpoint) ?? stringValue(storedConfig.queryEndpoint) ?? current.config.queryEndpoint,
-      comprehensiveEndpoint: stringValue(body.value.comprehensiveEndpoint) ?? stringValue(storedConfig.comprehensiveEndpoint) ?? current.config.comprehensiveEndpoint,
-      webUrl: stringValue(body.value.webUrl) ?? stringValue(storedConfig.webUrl) ?? current.config.webUrl
-    }
-    await saveFinanceDataSource(runtime.userDataStore, owner, { secrets, config })
-    const resolved = await loadFinanceDataSource(runtime.userDataStore, owner)
-    return jsonResponse(resolved.status)
-  })
   return router
 }
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

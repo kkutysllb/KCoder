@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { BudgetStateSchema } from './runtime-kernel.js'
 import { PeerArtifactSchema } from './agent-identity.js'
+import { UsageSnapshotSchema } from './usage.js'
 
 const NonEmptyString = z.string().trim().min(1)
 
@@ -83,6 +84,44 @@ export const AgentGraphSchema = z.object({
 }).strict()
 export type AgentGraph = z.infer<typeof AgentGraphSchema>
 
+/**
+ * Manager 路由决策 — manager_planning 节点调用 route_specialists 工具的输出。
+ * specialists 为空数组时表示简单任务，由 manager 直接处理（空路由路径）。
+ * 来源：KWorks multi-agent-runtime.ts（ManagerRouteDecisionSchema）。
+ */
+export const ManagerRouteDecisionSchema = z.object({
+  summary: z.string(),
+  specialists: z.array(z.object({
+    specialistId: NonEmptyString,
+    task: NonEmptyString,
+    dependsOn: z.array(NonEmptyString).default([]),
+    required: z.boolean()
+  }).strict()).default([])
+}).strict()
+export type ManagerRouteDecision = z.infer<typeof ManagerRouteDecisionSchema>
+
+/**
+ * Agent 图快照 — 不可变，按 publicKey 寻址。team 模式下 materializeTeamGraph 产出此结构。
+ * 与 AgentGraph 的区别：snapshot 携带 budgets 和 registryRevision，是不可变执行蓝图。
+ * 来源：KWorks multi-agent-runtime.ts（AgentGraphSnapshotSchema）。
+ */
+export const AgentGraphSnapshotSchema = z.object({
+  version: z.literal(1),
+  publicKey: NonEmptyString,
+  templateId: NonEmptyString,
+  registryRevision: NonEmptyString,
+  startNodeId: NonEmptyString,
+  nodes: z.array(AgentGraphNodeSchema).min(1),
+  edges: z.array(AgentGraphEdgeSchema).default([]),
+  budgets: z.object({
+    maxParallelNodes: z.number().int().positive(),
+    maxActivatedSpecialists: z.number().int().nonnegative(),
+    maxRetriesPerNode: z.number().int().nonnegative(),
+    maxDurationMs: z.number().int().positive()
+  }).strict()
+}).strict()
+export type AgentGraphSnapshot = z.infer<typeof AgentGraphSnapshotSchema>
+
 export const TaskEnvelopeSchema = z.object({
   envelopeId: NonEmptyString,
   kind: z.enum(['handoff', 'delegation']),
@@ -100,6 +139,21 @@ export const AgentRunSchema = z.object({
   agentRunId: NonEmptyString,
   agentId: NonEmptyString,
   nodeId: NonEmptyString,
+  /** 公钥寻址键（graph 节点的稳定标识，区别于会变的 agentRunId）。 */
+  publicKey: NonEmptyString.optional(),
+  /** 执行序号，用于投影排序。 */
+  sequence: z.number().int().positive().optional(),
+  /** 角色：manager（路由/综合）或 specialist（执行）。 */
+  role: z.enum(['manager', 'specialist']).optional(),
+  /** 阶段：planning（规划）/ execution（执行）/ synthesis（综合）。 */
+  phase: z.enum(['planning', 'execution', 'synthesis']).optional(),
+  /** 对话记录引用（AgentTranscriptStore.load 的 key）。 */
+  transcriptRef: NonEmptyString.optional(),
+  usage: UsageSnapshotSchema.optional(),
+  /** 尝试次数（重试计数，从 1 开始）。 */
+  attempt: z.number().int().positive().default(1),
+  task: z.string().optional(),
+  required: z.boolean().optional(),
   status: z.enum(['queued', 'running', 'completed', 'failed', 'aborted', 'suspended']),
   startedAt: NonEmptyString,
   updatedAt: NonEmptyString,
@@ -205,7 +259,15 @@ export const MultiAgentRunSchema = z.object({
   workspaceKey: NonEmptyString,
   status: z.enum(['created', 'running', 'suspended', 'completed', 'failed', 'aborted']),
   graphId: NonEmptyString,
+  /** 不可变图快照（materializeTeamGraph 产出后挂载）。 */
+  graphSnapshot: AgentGraphSnapshotSchema.optional(),
+  /** manager 路由决策（manager_planning 完成后挂载）。 */
+  routeDecision: ManagerRouteDecisionSchema.optional(),
   activeNodeId: NonEmptyString,
+  /** 当前可激活的节点 id 列表。 */
+  activeNodeIds: z.array(NonEmptyString).default([]),
+  /** 当前可运行的节点 id 列表。 */
+  runnableNodeIds: z.array(NonEmptyString).default([]),
   activeAgentStack: z.array(NonEmptyString).default([]),
   branchStatus: z.record(
     NonEmptyString,
@@ -215,6 +277,10 @@ export const MultiAgentRunSchema = z.object({
   events: z.array(MultiAgentEventSchema).default([]),
   outbox: z.array(MultiAgentOutboxIntentSchema).default([]),
   retryCounters: z.record(NonEmptyString, z.number().int().nonnegative()).default({}),
+  /** 下一个 agent 的公开序号（递增分配）。 */
+  nextPublicSequence: z.number().int().positive().default(1),
+  /** 运行级警告（如 budget 不足、节点超时）。 */
+  warnings: z.array(z.string()).default([]),
   budgets: BudgetStateSchema,
   createdAt: NonEmptyString,
   updatedAt: NonEmptyString

@@ -1135,23 +1135,18 @@ function uniqueStrings(values: readonly string[]): string[] {
 function normalizeLegacyTaskSkills(skills: QiongqiCapabilitiesConfig['skills'] | undefined): QiongqiCapabilitiesConfig['skills'] | undefined {
   if (!skills?.workModes?.modes) return skills
   const modes = skills.workModes.modes as Record<string, RuntimeWorkModeConfig>
-  if (!('task' in modes)) return skills
-  const { task, ...rest } = modes
-  const nextModes: Record<string, RuntimeWorkModeConfig> = 'office' in rest
-    ? rest
-    : { ...rest, office: { ...task, id: 'office' } }
-  const nextDefault = skills.workModes.defaultModeId === 'task' ? 'office' : skills.workModes.defaultModeId
+  // KCoder 现为纯 coding 应用，遗留的 task/office 模式已移除；旧的 per-user
+  // 配置快照可能仍带 task/office，这里丢弃它们（coding 为唯一内置模式）。
+  const { task: _task, office: _office, ...rest } = modes
+  if (!('task' in modes) && !('office' in modes)) return skills
+  const legacyDefault = skills.workModes.defaultModeId
+  const nextDefault = legacyDefault === 'task' || legacyDefault === 'office' ? 'coding' : legacyDefault
   const overrides = { ...((skills.modeSkillOverrides ?? {}) as Record<string, RuntimeModeSkillOverride>) }
-  if (overrides.task) {
-    overrides.office = {
-      ...(overrides.office ?? { addedSkillIds: [], removedSkillIds: [] }),
-      ...overrides.task
-    }
-    delete overrides.task
-  }
+  delete overrides.task
+  delete overrides.office
   return {
     ...skills,
-    workModes: { ...skills.workModes, defaultModeId: nextDefault, modes: nextModes },
+    workModes: { ...skills.workModes, defaultModeId: nextDefault, modes: rest },
     modeSkillOverrides: overrides
   }
 }
