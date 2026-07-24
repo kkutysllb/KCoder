@@ -4,7 +4,9 @@ import {
   RuntimeCapabilitySnapshotSchema,
   SubagentsCapabilityConfig,
   ManagerRouteDecisionSchema,
-  AgentGraphSnapshotSchema
+  AgentGraphSnapshotSchema,
+  AgentRunSchema,
+  MultiAgentRunSchema
 } from '@qiongqi/contracts'
 
 describe('capabilities: agent graph + runtime snapshot', () => {
@@ -89,5 +91,82 @@ describe('multi-agent-runtime: route decision + graph snapshot', () => {
     })
     expect(parsed.templateId).toBe('manager-specialists-v1')
     expect(parsed.nodes).toHaveLength(3)
+  })
+})
+
+describe('multi-agent-runtime: extended AgentRun + MultiAgentRun', () => {
+  it('AgentRunSchema accepts manager planning run with new fields', () => {
+    const parsed = AgentRunSchema.parse({
+      agentRunId: 'run_1',
+      agentId: 'manager',
+      nodeId: 'manager_planning',
+      publicKey: 'pub_1',
+      sequence: 1,
+      role: 'manager',
+      phase: 'planning',
+      transcriptRef: 'transcript_1',
+      attempt: 1,
+      required: true,
+      status: 'running',
+      startedAt: '2026-07-24T00:00:00Z',
+      updatedAt: '2026-07-24T00:00:00Z'
+    })
+    expect(parsed.role).toBe('manager')
+    expect(parsed.phase).toBe('planning')
+    expect(parsed.attempt).toBe(1)
+  })
+
+  it('AgentRunSchema still accepts minimal run (backward compat)', () => {
+    const parsed = AgentRunSchema.parse({
+      agentRunId: 'run_2',
+      agentId: 'specialist_backend',
+      nodeId: 'specialist:backend',
+      status: 'queued',
+      startedAt: '2026-07-24T00:00:00Z',
+      updatedAt: '2026-07-24T00:00:00Z'
+    })
+    expect(parsed.attempt).toBe(1) // default
+    expect(parsed.role).toBeUndefined()
+  })
+
+  it('MultiAgentRunSchema accepts run with graphSnapshot and routeDecision', () => {
+    const parsed = MultiAgentRunSchema.parse({
+      version: 1,
+      runId: 'mar_1',
+      threadId: 'th_1',
+      turnId: 'turn_1',
+      workspaceKey: 'ws_1',
+      status: 'running',
+      graphId: 'graph_1',
+      activeNodeId: 'manager_planning',
+      activeNodeIds: ['manager_planning'],
+      runnableNodeIds: ['manager_planning'],
+      graphSnapshot: {
+        version: 1,
+        publicKey: 'graph_1',
+        templateId: 'manager-specialists-v1',
+        registryRevision: 'reg_v1',
+        startNodeId: 'manager_planning',
+        nodes: [
+          { id: 'manager_planning', kind: 'agent', agentId: 'manager', capabilities: ['routing'] }
+        ],
+        edges: [],
+        budgets: {
+          maxParallelNodes: 4,
+          maxActivatedSpecialists: 10,
+          maxRetriesPerNode: 2,
+          maxDurationMs: 600000
+        }
+      },
+      routeDecision: { summary: '测试', specialists: [] },
+      nextPublicSequence: 2,
+      warnings: [],
+      budgets: {},
+      createdAt: '2026-07-24T00:00:00Z',
+      updatedAt: '2026-07-24T00:00:00Z'
+    })
+    expect(parsed.graphSnapshot?.templateId).toBe('manager-specialists-v1')
+    expect(parsed.routeDecision?.specialists).toHaveLength(0)
+    expect(parsed.activeNodeIds).toEqual(['manager_planning'])
   })
 })
