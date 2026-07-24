@@ -951,8 +951,8 @@ function normalizeWorkModeId(id: string | undefined): string | undefined {
   const fromId = id?.trim()
   if (!fromId) return undefined
   const lower = fromId.toLowerCase()
-  // Legacy alias: "task" was renamed to "office".
-  return lower === 'task' ? 'office' : lower
+  // Legacy alias: "task"/"office" 已移除，归一到 coding。
+  return lower === 'task' || lower === 'office' ? 'coding' : lower
 }
 
 function isValidCustomSkillId(id: string): boolean {

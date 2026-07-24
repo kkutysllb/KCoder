@@ -18,7 +18,9 @@ import {
   UnavailableTurnExecutionViewSchema,
   AgentTranscriptSchema,
   ChildRunRecordSchema,
-  DelegationScopeSchema
+  DelegationScopeSchema,
+  DEFAULT_WORK_MODES,
+  DEFAULT_LOCKED_SKILL_IDS
 } from '@qiongqi/contracts'
 import type { AgentTranscriptStore, DelegationRunStore } from '@qiongqi/ports'
 
@@ -424,5 +426,31 @@ describe('ports: AgentTranscriptStore + DelegationRunStore', () => {
     expect(store.deleteByThread).toBeDefined()
   })
 })
+
+describe('capabilities: office/finance 残留清理', () => {
+  it('DEFAULT_WORK_MODES 只含 coding 模式', () => {
+    const modeIds = Object.keys(DEFAULT_WORK_MODES)
+    expect(modeIds).toEqual(['coding'])
+  })
+
+  it('coding 模式定义完整', () => {
+    expect(DEFAULT_WORK_MODES.coding.id).toBe('coding')
+    expect(DEFAULT_WORK_MODES.coding.builtin).toBe(true)
+    expect(DEFAULT_WORK_MODES.coding.defaultSkillIds.length).toBeGreaterThan(0)
+  })
+
+  it('DEFAULT_LOCKED_SKILL_IDS 不含 bootstrap/skill-manage（不存在的技能）', () => {
+    expect(DEFAULT_LOCKED_SKILL_IDS).not.toContain('bootstrap')
+    expect(DEFAULT_LOCKED_SKILL_IDS).not.toContain('skill-manage')
+  })
+
+  it('DEFAULT_LOCKED_SKILL_IDS 保留存在的技能', () => {
+    expect(DEFAULT_LOCKED_SKILL_IDS).toContain('find-skills')
+    expect(DEFAULT_LOCKED_SKILL_IDS).toContain('goal')
+    expect(DEFAULT_LOCKED_SKILL_IDS).toContain('todo')
+    expect(DEFAULT_LOCKED_SKILL_IDS).toContain('web')
+  })
+})
+
 
 

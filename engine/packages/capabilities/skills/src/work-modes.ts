@@ -7,13 +7,13 @@ import {
 export const DEFAULT_LOCKED_SKILL_IDS = [...CONTRACT_LOCKED_SKILL_IDS]
 
 /**
- * Legacy alias: the built-in "日常办公" mode was originally named `task`. It
- * was renamed to `office` to avoid confusion with agent/A2A task execution.
- * Old threads, URLs, and persisted data may still carry `task`; normalize it
- * here so they map to `office` seamlessly.
+ * Legacy alias: the built-in "日常办公" mode was originally named `task`, later
+ * renamed to `office`. KCoder 现为纯 coding 应用，office 模式已移除；旧的 `task`
+ * 和 `office` 标识统一归一到 `coding`，保证历史线程/URL/持久化数据平滑迁移。
  */
 const WORK_MODE_ALIASES: Record<string, string> = {
-  task: 'office'
+  task: 'coding',
+  office: 'coding'
 }
 
 function normalizeWorkModeId(id: string): string {
@@ -29,7 +29,7 @@ export function resolveWorkModeId(
   if (normalized && modes[normalized]) return normalized
   const defaultId = normalizeWorkModeId(config.workModes.defaultModeId)
   if (modes[defaultId]) return defaultId
-  return 'office'
+  return 'coding'
 }
 
 export function resolveEffectiveSkillIds(
