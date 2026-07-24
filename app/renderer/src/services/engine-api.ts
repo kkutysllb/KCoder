@@ -140,9 +140,9 @@ export interface RemoteSessionInfo {
 }
 
 export interface TurnResponse {
-  id: string
   threadId: string
-  status: string
+  turnId: string
+  userMessageItemId: string
 }
 
 // ============ Auth types (aligned with engine AuthService) ============
@@ -173,8 +173,36 @@ export interface AuthSetupStatus {
 }
 
 export interface SSEEvent {
-  type: string
-  data: unknown
+  kind: string
+  data: Record<string, unknown>
+}
+
+/** ThreadSummary — GET /v1/threads 返回的会话摘要。 */
+export interface ThreadSummary {
+  id: string
+  title: string
+  workspace: string
+  model?: string
+  mode?: 'agent' | 'plan'
+  workModeId?: string
+  status?: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** ModelEntry — GET /api/models 返回的模型条目。 */
+export interface ModelEntry {
+  id: string
+  name: string
+  display_name: string
+  model: string
+  base_url: string | null
+  active: boolean
+  context_window_tokens: number | null
+  supports_tool_calling: boolean
+  supports_vision: boolean
+  supports_reasoning_effort: boolean
+  reasoning_effort_values?: string[]
 }
 
 export class EngineAPI {
@@ -333,68 +361,137 @@ export class EngineAPI {
     content: string,
     onEvent: (event: SSEEvent) => void
   ): Promise<void> {
-    // First, create a turn
+    // 创建 turn — 后端 StartTurnRequest 要求 { prompt: string }
     const turnResponse = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns`, {
       method: 'POST',
       headers: this.headers,
-      body: JSON.stringify({
-        items: [
-          {
-            type: 'message',
-            role: 'user',
-            content: [{ type: 'text', text: content }]
-          }
-        ]
-      })
+      body: JSON.stringify({ prompt: content })
     })
 
     if (!turnResponse.ok) {
-      throw new Error(`Failed to send message: ${turnResponse.statusText}`)
+      const text = await turnResponse.text().catch(() => turnResponse.statusText)
+      throw new Error(`Failed to send message: ${text}`)
     }
 
     const turn: TurnResponse = await turnResponse.json()
 
-    // Subscribe to SSE events for this turn
-    await this.subscribeToTurn(threadId, turn.id, onEvent)
+    // 订阅线程级 SSE 事件流（后端路径是 /v1/threads/:id/events，不是 /turns/:turnId/events）
+    await this.subscribeToThread(threadId, turn.turnId, onEvent)
   }
 
-  // Subscribe to turn events via SSE
-  private async subscribeToTurn(
+  // 订阅线程事件流 — 后端发具名事件（event: <kind>），必须用 addEventListener 按 kind 监听
+  private subscribeToThread(
     threadId: string,
     turnId: string,
     onEvent: (event: SSEEvent) => void
   ): Promise<void> {
-    const url = `${this.baseUrl}/v1/threads/${threadId}/turns/${turnId}/events`
+    const url = `${this.baseUrl}/v1/threads/${threadId}/events`
 
     return new Promise((resolve, reject) => {
       const eventSource = new EventSource(url)
+      let resolved = false
 
-      eventSource.onmessage = (event) => {
+      const finish = () => {
+        if (resolved) return
+        resolved = true
+        eventSource.close()
+        resolve()
+      }
+
+      // 后端用 event: <kind> 发送具名事件；onmessage 只收到无 event: 字段的消息。
+      // 用一个通用监听器捕获所有事件类型：浏览器 EventSource 不支持通配符，
+      // 但 SSE 帧 data 行含完整 JSON（含 kind 字段），所以监听常见 kind + message 兜底。
+      const handlePayload = (raw: string) => {
         try {
-          const data = JSON.parse(event.data)
-          onEvent({ type: 'message', data })
+          const data = JSON.parse(raw) as Record<string, unknown>
+          const kind = (data.kind as string) || 'message'
+          onEvent({ kind, data })
 
-          // Check if turn is complete
-          if (data.type === 'turn.completed' || data.status === 'completed') {
-            eventSource.close()
-            resolve()
+          // turn 终止事件
+          if (
+            kind === 'turn_completed' ||
+            kind === 'turn_failed' ||
+            kind === 'turn_aborted'
+          ) {
+            // 确认是当前 turn（turnId 在事件 payload 的 turnId 字段）
+            const eventTurnId = data.turnId as string | undefined
+            if (!eventTurnId || eventTurnId === turnId) {
+              finish()
+            }
           }
         } catch (e) {
-          console.error('Failed to parse SSE event:', e)
+          console.error('[KCoder] Failed to parse SSE event:', e)
         }
       }
 
-      eventSource.onerror = (error) => {
+      // 注册后端所有可能的事件 kind（EventSource 需要显式 addEventListener 每种具名事件）
+      const RUNTIME_EVENT_KINDS = [
+        'thread_created', 'thread_updated',
+        'turn_started', 'turn_completed', 'turn_failed', 'turn_aborted', 'turn_steered',
+        'item_created', 'item_updated', 'item_completed',
+        'assistant_text_delta', 'assistant_reasoning_delta',
+        'tool_call_ready', 'tool_result_upload_wait', 'tool_storm_suppressed',
+        'tool_catalog_changed', 'tool_call_started', 'tool_call_finished',
+        'approval_requested', 'approval_resolved',
+        'user_input_requested', 'user_input_resolved',
+        'compaction_started', 'compaction_completed',
+        'goal_updated', 'goal_cleared',
+        'todos_updated', 'todos_cleared',
+        'pipeline_stage',
+        'agent_message_delta', 'agent_message_completed',
+        'usage', 'error', 'heartbeat'
+      ]
+
+      for (const kind of RUNTIME_EVENT_KINDS) {
+        eventSource.addEventListener(kind, (ev: MessageEvent) => handlePayload(ev.data))
+      }
+      // 兜底：无 event: 字段的消息
+      eventSource.onmessage = (ev) => handlePayload(ev.data)
+
+      eventSource.onerror = () => {
+        if (resolved) return
+        resolved = true
         eventSource.close()
-        reject(error)
+        // EventSource 在连接正常关闭时也会触发 onerror；用 resolve 而非 reject 避免误报
+        resolve()
       }
 
-      // Timeout after 5 minutes
-      setTimeout(() => {
-        eventSource.close()
-        resolve()
-      }, 5 * 60 * 1000)
+      // 超时保底（10 分钟）
+      setTimeout(finish, 10 * 60 * 1000)
     })
+  }
+
+  // 列出会话 — GET /v1/threads
+  async listThreads(): Promise<{ threads: ThreadSummary[] }> {
+    const response = await fetch(`${this.baseUrl}/v1/threads?limit=200`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to list threads: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // 列出模型 — GET /api/models
+  async getModels(): Promise<{ models: ModelEntry[] }> {
+    const response = await fetch(`${this.baseUrl}/api/models`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to get models: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // 激活模型 — POST /api/models/:name/activate
+  async activateModel(name: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/models/${encodeURIComponent(name)}/activate`, {
+      method: 'POST',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to activate model: ${response.statusText}`)
+    }
   }
 
   // Get thread history
