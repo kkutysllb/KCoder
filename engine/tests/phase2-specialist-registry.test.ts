@@ -4,6 +4,7 @@ import {
   type SpecialistDefinition,
   type SpecialistRegistryContract
 } from '@qiongqi/loop'
+import { ManagerRouteDecisionSchema, type ManagerRouteDecision } from '@qiongqi/contracts'
 
 describe('specialist-registry: 基本行为', () => {
   it('createDefaultSpecialistRegistry 启用全部 10 个 specialist', () => {
@@ -81,5 +82,103 @@ describe('specialist-registry: 基本行为', () => {
     expect(Array.isArray(backend.capabilities)).toBe(true)
     expect(Array.isArray(backend.allowedTools)).toBe(true)
     expect(backend.allowedTools).toContain('delegate_task')
+  })
+})
+
+const fullRegistry = createDefaultSpecialistRegistry({
+  revision: 'reg_v1',
+  enabledIds: ['planning', 'backend', 'frontend', 'testing', 'review', 'security', 'devops', 'docs', 'frontend-native', 'tooling']
+})
+
+function route(specialists: Array<{ specialistId: string; task: string; dependsOn?: string[]; required?: boolean }>): ManagerRouteDecision {
+  return ManagerRouteDecisionSchema.parse({
+    summary: '测试路由',
+    specialists: specialists.map((s) => ({
+      specialistId: s.specialistId,
+      task: s.task,
+      dependsOn: s.dependsOn ?? [],
+      required: s.required ?? false
+    }))
+  })
+}
+
+describe('specialist-registry: validateRoute 路由校验', () => {
+  it('接受空路由（manager 自答）', () => {
+    const decision = route([])
+    const validated = fullRegistry.validateRoute(decision, { maxActivatedSpecialists: 10 })
+    expect(validated.specialists).toHaveLength(0)
+  })
+
+  it('接受单 specialist 路由', () => {
+    const decision = route([{ specialistId: 'backend', task: '实现 API', required: true }])
+    const validated = fullRegistry.validateRoute(decision, { maxActivatedSpecialists: 10 })
+    expect(validated.specialists).toHaveLength(1)
+  })
+
+  it('接受带依赖的多 specialist 路由', () => {
+    const decision = route([
+      { specialistId: 'backend', task: '实现 API', required: true },
+      { specialistId: 'frontend', task: '实现 UI', dependsOn: ['backend'], required: true }
+    ])
+    const validated = fullRegistry.validateRoute(decision, { maxActivatedSpecialists: 10 })
+    expect(validated.specialists).toHaveLength(2)
+    expect(validated.specialists[1].dependsOn).toEqual(['backend'])
+  })
+
+  it('拒绝超过数量上限的路由', () => {
+    const decision = route([
+      { specialistId: 'backend', task: 't1' },
+      { specialistId: 'frontend', task: 't2' }
+    ])
+    expect(() => fullRegistry.validateRoute(decision, { maxActivatedSpecialists: 1 })).toThrow(
+      /specialist activation limit exceeded: 1/
+    )
+  })
+
+  it('拒绝未知的 specialist id', () => {
+    const decision = route([{ specialistId: 'ghost', task: 't1' }])
+    expect(() => fullRegistry.validateRoute(decision, { maxActivatedSpecialists: 10 })).toThrow(
+      /unknown specialist: ghost/
+    )
+  })
+
+  it('拒绝重复的 specialist', () => {
+    const decision = route([
+      { specialistId: 'backend', task: 't1' },
+      { specialistId: 'backend', task: 't2' }
+    ])
+    expect(() => fullRegistry.validateRoute(decision, { maxActivatedSpecialists: 10 })).toThrow(
+      /duplicate specialist: backend/
+    )
+  })
+
+  it('拒绝指向未选 specialist 的依赖', () => {
+    const decision = route([
+      { specialistId: 'frontend', task: 't1', dependsOn: ['backend'] } // backend 未被选中
+    ])
+    expect(() => fullRegistry.validateRoute(decision, { maxActivatedSpecialists: 10 })).toThrow(
+      /unknown dependency for frontend: backend/
+    )
+  })
+
+  it('拒绝成环的依赖', () => {
+    const decision = route([
+      { specialistId: 'backend', task: 't1', dependsOn: ['frontend'] },
+      { specialistId: 'frontend', task: 't2', dependsOn: ['backend'] }
+    ])
+    expect(() => fullRegistry.validateRoute(decision, { maxActivatedSpecialists: 10 })).toThrow(
+      /specialist dependency cycle detected/
+    )
+  })
+
+  it('拒绝未启用的 specialist（即使定义存在）', () => {
+    const partialRegistry = createDefaultSpecialistRegistry({
+      revision: 'reg_v1',
+      enabledIds: ['backend'] // 只启用 backend
+    })
+    const decision = route([{ specialistId: 'frontend', task: 't1' }])
+    expect(() => partialRegistry.validateRoute(decision, { maxActivatedSpecialists: 10 })).toThrow(
+      /unknown specialist: frontend/
+    )
   })
 })
