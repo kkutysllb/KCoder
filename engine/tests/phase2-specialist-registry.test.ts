@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   createDefaultSpecialistRegistry,
+  materializeTeamGraph,
+  TEAM_GRAPH_TEMPLATE_ID,
   type SpecialistDefinition,
   type SpecialistRegistryContract
 } from '@qiongqi/loop'
@@ -182,3 +184,124 @@ describe('specialist-registry: validateRoute 路由校验', () => {
     )
   })
 })
+
+const defaultBudgets = {
+  maxParallelNodes: 4,
+  maxActivatedSpecialists: 10,
+  maxRetriesPerNode: 2,
+  maxDurationMs: 600000
+}
+
+describe('evented-v2-graph-template: materializeTeamGraph', () => {
+  it('TEAM_GRAPH_TEMPLATE_ID 为 manager-specialists-v1', () => {
+    expect(TEAM_GRAPH_TEMPLATE_ID).toBe('manager-specialists-v1')
+  })
+
+  it('空路由生成 manager 自答图（planning → join → synthesis）', () => {
+    const snapshot = materializeTeamGraph({
+      decision: { summary: '简单任务', specialists: [] },
+      registry: fullRegistry,
+      graphPublicKey: 'graph_empty',
+      budgets: defaultBudgets
+    })
+    expect(snapshot.publicKey).toBe('graph_empty')
+    expect(snapshot.templateId).toBe('manager-specialists-v1')
+    expect(snapshot.startNodeId).toBe('manager_planning')
+    const nodeIds = snapshot.nodes.map((n) => n.id)
+    expect(nodeIds).toEqual(['manager_planning', 'join', 'manager_synthesis'])
+    expect(snapshot.edges).toContainEqual({ from: 'manager_planning', to: 'join', condition: 'planned' })
+    expect(snapshot.edges).toContainEqual({ from: 'join', to: 'manager_synthesis', condition: 'joined' })
+    expect(snapshot.registryRevision).toBe('reg_v1')
+  })
+
+  it('单 specialist 路由生成完整 DAG', () => {
+    const snapshot = materializeTeamGraph({
+      decision: {
+        summary: '后端任务',
+        specialists: [{ specialistId: 'backend', task: '实现 API', dependsOn: [], required: true }]
+      },
+      registry: fullRegistry,
+      graphPublicKey: 'graph_one',
+      budgets: defaultBudgets
+    })
+    const nodeIds = snapshot.nodes.map((n) => n.id)
+    expect(nodeIds).toEqual(['manager_planning', 'specialist:backend', 'join', 'manager_synthesis'])
+    const backendNode = snapshot.nodes.find((n) => n.id === 'specialist:backend')!
+    expect(backendNode.label).toBe('后端逻辑工程师')
+    const joinNode = snapshot.nodes.find((n) => n.id === 'join')!
+    expect(joinNode.kind).toBe('join')
+    if (joinNode.kind === 'join') {
+      expect(joinNode.requiredBranchIds).toEqual(['specialist:backend'])
+    }
+    expect(snapshot.edges).toContainEqual({ from: 'manager_planning', to: 'specialist:backend', condition: 'activated:backend' })
+    expect(snapshot.edges).toContainEqual({ from: 'specialist:backend', to: 'join', condition: 'completed' })
+  })
+
+  it('带依赖的多 specialist 生成依赖边', () => {
+    const snapshot = materializeTeamGraph({
+      decision: {
+        summary: '全栈任务',
+        specialists: [
+          { specialistId: 'backend', task: '实现 API', dependsOn: [], required: true },
+          { specialistId: 'frontend', task: '实现 UI', dependsOn: ['backend'], required: true }
+        ]
+      },
+      registry: fullRegistry,
+      graphPublicKey: 'graph_dep',
+      budgets: defaultBudgets
+    })
+    expect(snapshot.edges).toContainEqual({ from: 'specialist:backend', to: 'specialist:frontend', condition: 'dependency:frontend' })
+    expect(snapshot.edges).toContainEqual({ from: 'manager_planning', to: 'specialist:backend', condition: 'activated:backend' })
+    expect(snapshot.edges).toContainEqual({ from: 'specialist:backend', to: 'join', condition: 'completed' })
+    expect(snapshot.edges).toContainEqual({ from: 'specialist:frontend', to: 'join', condition: 'completed' })
+    const joinNode = snapshot.nodes.find((n) => n.id === 'join')!
+    if (joinNode.kind === 'join') {
+      expect(joinNode.requiredBranchIds.sort()).toEqual(['specialist:backend', 'specialist:frontend'])
+    }
+  })
+
+  it('non-required specialist 不进入 join 的 requiredBranchIds', () => {
+    const snapshot = materializeTeamGraph({
+      decision: {
+        summary: '可选测试',
+        specialists: [
+          { specialistId: 'backend', task: 't1', dependsOn: [], required: true },
+          { specialistId: 'testing', task: 't2', dependsOn: ['backend'], required: false }
+        ]
+      },
+      registry: fullRegistry,
+      graphPublicKey: 'graph_opt',
+      budgets: defaultBudgets
+    })
+    const joinNode = snapshot.nodes.find((n) => n.id === 'join')!
+    if (joinNode.kind === 'join') {
+      expect(joinNode.requiredBranchIds).toEqual(['specialist:backend'])
+      expect(joinNode.requiredBranchIds).not.toContain('specialist:testing')
+    }
+  })
+
+  it('materializeTeamGraph 对非法路由抛错（复用 validateRoute）', () => {
+    expect(() =>
+      materializeTeamGraph({
+        decision: {
+          summary: '坏路由',
+          specialists: [{ specialistId: 'ghost', task: 't1', dependsOn: [], required: true }]
+        },
+        registry: fullRegistry,
+        graphPublicKey: 'graph_bad',
+        budgets: defaultBudgets
+      })
+    ).toThrow(/unknown specialist: ghost/)
+  })
+
+  it('snapshot 携带 budgets', () => {
+    const snapshot = materializeTeamGraph({
+      decision: { summary: 't', specialists: [] },
+      registry: fullRegistry,
+      graphPublicKey: 'graph_budget',
+      budgets: defaultBudgets
+    })
+    expect(snapshot.budgets).toEqual(defaultBudgets)
+  })
+})
+
