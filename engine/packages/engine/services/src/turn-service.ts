@@ -261,6 +261,42 @@ export class TurnService {
     return thread?.turns.find((turn) => turn.id === turnId) ?? null
   }
 
+  /**
+   * 分配下一个 agent 执行序号（evented_v2 投影排序用）。
+   * 来源：KWorks turn-service.ts（allocateExecutionSequence）。
+   */
+  async allocateExecutionSequence(threadId: string, turnId: string): Promise<number> {
+    let allocated: number | undefined
+    await this.upsertThread(threadId, (current) => ({
+      ...current,
+      turns: current.turns.map((turn) => {
+        if (turn.id !== turnId) return turn
+        allocated = turn.nextExecutionSequence ?? 2
+        return { ...turn, nextExecutionSequence: allocated + 1 }
+      })
+    }))
+    if (allocated === undefined) throw new Error(`turn not found: ${threadId}/${turnId}`)
+    return allocated
+  }
+
+  /**
+   * 把 evented_v2 运行 id 持久化链接到 turn（幂等：已链接则返回既有 id）。
+   * 来源：KWorks turn-service.ts（linkEventedV2Run）。
+   */
+  async linkEventedV2Run(threadId: string, turnId: string, runId: string): Promise<string> {
+    let linkedRunId: string | undefined
+    await this.upsertThread(threadId, (current) => ({
+      ...current,
+      turns: current.turns.map((turn) => {
+        if (turn.id !== turnId) return turn
+        linkedRunId = turn.eventedV2RunId ?? runId
+        return turn.eventedV2RunId ? turn : { ...turn, eventedV2RunId: runId }
+      })
+    }))
+    if (!linkedRunId) throw new Error(`turn not found: ${threadId}/${turnId}`)
+    return linkedRunId
+  }
+
   async updateTurnMetadata(
     threadId: string,
     turnId: string,

@@ -38,6 +38,8 @@ export const RuntimeEventKind = z.enum([
   'todos_updated',
   'todos_cleared',
   'pipeline_stage',
+  'agent_message_delta',
+  'agent_message_completed',
   'usage',
   'error',
   'heartbeat'
@@ -216,6 +218,38 @@ export const PipelineStageEvent = RuntimeEventBase.extend({
 })
 export type PipelineStageEvent = z.infer<typeof PipelineStageEvent>
 
+/**
+ * Agent 消息事件基类 — evented_v2 多 agent 流式/完成事件共享的字段。
+ * 来源：KWorks events.ts（AgentMessageBaseEvent）。
+ */
+const AgentMessageBaseEvent = RuntimeEventBase.extend({
+  agentKey: z.string().min(1),
+  messageKey: z.string().min(1),
+  sourceRef: z.string().min(1),
+  role: z.enum(['assistant']),
+  content: z.string()
+})
+
+/**
+ * Agent 消息增量事件 — 流式输出时每个 token 块触发。
+ * 来源：KWorks events.ts（AgentMessageDeltaEvent）。
+ */
+export const AgentMessageDeltaEvent = AgentMessageBaseEvent.extend({
+  kind: z.literal('agent_message_delta'),
+  delta: z.string()
+})
+export type AgentMessageDeltaEvent = z.infer<typeof AgentMessageDeltaEvent>
+
+/**
+ * Agent 消息完成事件 — 一条消息流式结束后触发，携带 artifact 引用。
+ * 来源：KWorks events.ts（AgentMessageCompletedEvent）。
+ */
+export const AgentMessageCompletedEvent = AgentMessageBaseEvent.extend({
+  kind: z.literal('agent_message_completed'),
+  artifactKeys: z.array(z.string().min(1)).default([])
+})
+export type AgentMessageCompletedEvent = z.infer<typeof AgentMessageCompletedEvent>
+
 export const ErrorEvent = RuntimeEventBase.extend({
   kind: z.literal('error'),
   message: z.string(),
@@ -244,6 +278,8 @@ export const RuntimeEvent = z.discriminatedUnion('kind', [
   GoalEvent,
   TodoEvent,
   PipelineStageEvent,
+  AgentMessageDeltaEvent,
+  AgentMessageCompletedEvent,
   UsageEvent,
   ErrorEvent,
   HeartbeatEvent
