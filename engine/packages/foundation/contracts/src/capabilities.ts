@@ -307,6 +307,23 @@ export type SubagentsCapabilityConfig = z.output<typeof SubagentsCapabilityConfi
  * 多 agent 图能力配置。team 模式（evented_v2）编排的预算与上限。
  * 来源：KWorks capabilities.ts（AgentGraphCapabilityConfig）。
  */
+/**
+ * 默认启用的 specialist id 集合（KCoder 原生 10 个编码 specialist）。
+ * 来源：KWorks DEFAULT_AGENT_GRAPH_SPECIALIST_IDS（KCoder 替换为原生 specialist）。
+ */
+export const DEFAULT_AGENT_GRAPH_SPECIALIST_IDS = [
+  'planning',
+  'backend',
+  'frontend',
+  'testing',
+  'review',
+  'security',
+  'devops',
+  'docs',
+  'frontend-native',
+  'tooling'
+] as const
+
 export const AgentGraphCapabilityConfig = CapabilityToggleConfig.extend({
   /** 并行执行的 agent 节点上限。 */
   maxParallelNodes: z.number().int().positive().default(4),
@@ -315,9 +332,18 @@ export const AgentGraphCapabilityConfig = CapabilityToggleConfig.extend({
   /** 每个节点的最大重试次数。 */
   maxRetriesPerNode: z.number().int().nonnegative().default(2),
   /** 单次运行的最大时长（毫秒）。 */
-  maxDurationMs: z.number().int().positive().default(600000)
+  maxDurationMs: z.number().int().positive().default(600000),
+  /** 启用的 specialist id 集合（决策服务 preflight 检查非空）。 */
+  specialistRegistry: z.array(z.string().min(1)).default(() => [...DEFAULT_AGENT_GRAPH_SPECIALIST_IDS])
 })
   .strict()
+  .transform((config) => ({
+    ...config,
+    specialistRegistry:
+      config.enabled && config.specialistRegistry.length === 0
+        ? [...DEFAULT_AGENT_GRAPH_SPECIALIST_IDS]
+        : config.specialistRegistry
+  }))
 export type AgentGraphCapabilityConfig = z.output<typeof AgentGraphCapabilityConfig>
 
 /**
