@@ -201,7 +201,7 @@ export class AuthService {
 
   private createSession(userId: string): { session: SessionRecord; accessToken: string } {
     const now = this.now()
-    const accessToken = `kworks_${randomBytes(32).toString('base64url')}`
+    const accessToken = `qiongqi_${randomBytes(32).toString('base64url')}`
     const session: SessionRecord = {
       id: randomUUID(),
       tokenHash: hashToken(accessToken),

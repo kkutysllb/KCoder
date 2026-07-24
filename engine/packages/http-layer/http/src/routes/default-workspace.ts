@@ -4,7 +4,7 @@ import type { ServerRuntime } from './server-runtime.js'
 export function defaultThreadWorkspace(runtime: ServerRuntime, workModeId?: string): string {
   const root = workspaceRootFromRuntimeDataDir(runtime.info().dataDir)
   if (workModeId?.trim().toLowerCase() === 'coding') {
-    return process.env.KWorks_CODING_HOME?.trim() || process.env.KWORKS_CODING_HOME?.trim() || join(root, 'coding-workspace')
+    return process.env.QIONGQI_CODING_HOME?.trim() || join(root, 'coding-workspace')
   }
   return join(root, 'users', workspaceUserIdFromRuntimeDataDir(runtime.info().dataDir), 'workspace')
 }

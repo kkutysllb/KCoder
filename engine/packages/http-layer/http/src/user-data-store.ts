@@ -4,11 +4,11 @@ import { atomicWriteFile } from '@qiongqi/adapter-storage'
 import type { ModelConfig } from '@qiongqi/contracts'
 import type { UsageSnapshot } from '@qiongqi/contracts'
 import type { AuthSnapshot, AuthStore } from './auth-store.js'
-import { ensureKWorksUserWorkspace, kworksUserWorkspacePaths } from './kworks-workspace-paths.js'
+import { ensureUserWorkspace, userWorkspacePaths } from './user-workspace-paths.js'
 
-export type KWorksModelProfileRecord = NonNullable<NonNullable<ModelConfig['profiles']>[string]>
+export type UserModelProfileRecord = NonNullable<NonNullable<ModelConfig['profiles']>[string]>
 
-export type KWorksUsageEventRecord = {
+export type UserUsageEventRecord = {
   userId?: string
   threadId: string
   turnId?: string
@@ -18,39 +18,39 @@ export type KWorksUsageEventRecord = {
   usage: UsageSnapshot
 }
 
-export type KWorksUserDataSnapshot = {
+export type UserDataSnapshot = {
   version: 1
   auth: AuthSnapshot
-  users: Record<string, KWorksUserRecord>
-  usageEvents: KWorksUsageEventRecord[]
+  users: Record<string, UserDataRecord>
+  usageEvents: UserUsageEventRecord[]
 }
 
-export type KWorksUserRecord = {
+export type UserDataRecord = {
   activeModel?: string
-  modelProfiles: Record<string, KWorksModelProfileRecord>
+  modelProfiles: Record<string, UserModelProfileRecord>
   modelSecrets: Record<string, { apiKey?: string }>
   settings: Record<string, unknown>
 }
 
-export interface KWorksUserDataStore {
+export interface UserDataStore {
   loadAuth(): Promise<AuthSnapshot>
   saveAuth(snapshot: AuthSnapshot): Promise<void>
   getUserSetting(userId: string, key: string): Promise<unknown | undefined>
   getUserSettingSync?(userId: string, key: string): unknown | undefined
   setUserSetting(userId: string, key: string, value: unknown): Promise<void>
-  listModelProfiles(userId: string): Promise<{ activeModel?: string; profiles: Record<string, KWorksModelProfileRecord> }>
-  saveModelProfile(userId: string, name: string, profile: KWorksModelProfileRecord, secret?: { apiKey?: string }): Promise<void>
+  listModelProfiles(userId: string): Promise<{ activeModel?: string; profiles: Record<string, UserModelProfileRecord> }>
+  saveModelProfile(userId: string, name: string, profile: UserModelProfileRecord, secret?: { apiKey?: string }): Promise<void>
   deleteModelProfile(userId: string, name: string): Promise<void>
   activateModelProfile(userId: string, name: string): Promise<void>
   resolveModelSecret(userId: string, name: string): Promise<{ apiKey?: string }>
-  appendUsageEvent?(record: KWorksUsageEventRecord): Promise<void>
-  listUsageEvents?(userId?: string): Promise<KWorksUsageEventRecord[]>
+  appendUsageEvent?(record: UserUsageEventRecord): Promise<void>
+  listUsageEvents?(userId?: string): Promise<UserUsageEventRecord[]>
 }
 
-export class FileKWorksUserDataStore implements KWorksUserDataStore {
+export class FileUserDataStore implements UserDataStore {
   private readonly path: string
   private queue: Promise<void> = Promise.resolve()
-  private current: KWorksUserDataSnapshot = emptySnapshot()
+  private current: UserDataSnapshot = emptySnapshot()
 
   constructor(options: { workspaceRoot: string }) {
     this.path = join(options.workspaceRoot, 'system', 'data', 'user-data.json')
@@ -89,10 +89,10 @@ export class FileKWorksUserDataStore implements KWorksUserDataStore {
         }
       }
     })
-    await ensureKWorksUserWorkspace(kworksUserWorkspacePaths(dirname(dirname(this.path)), userId))
+    await ensureUserWorkspace(userWorkspacePaths(dirname(dirname(this.path)), userId))
   }
 
-  async listModelProfiles(userId: string): Promise<{ activeModel?: string; profiles: Record<string, KWorksModelProfileRecord> }> {
+  async listModelProfiles(userId: string): Promise<{ activeModel?: string; profiles: Record<string, UserModelProfileRecord> }> {
     const user = (await this.read()).users[userId]
     return {
       activeModel: user?.activeModel,
@@ -100,7 +100,7 @@ export class FileKWorksUserDataStore implements KWorksUserDataStore {
     }
   }
 
-  async saveModelProfile(userId: string, name: string, profile: KWorksModelProfileRecord, secret: { apiKey?: string } = {}): Promise<void> {
+  async saveModelProfile(userId: string, name: string, profile: UserModelProfileRecord, secret: { apiKey?: string } = {}): Promise<void> {
     await this.update((snapshot) => {
       const user = snapshot.users[userId] ?? emptyUserRecord()
       const nextSecrets = { ...user.modelSecrets }
@@ -120,7 +120,7 @@ export class FileKWorksUserDataStore implements KWorksUserDataStore {
         }
       }
     })
-    await ensureKWorksUserWorkspace(kworksUserWorkspacePaths(dirname(dirname(this.path)), userId))
+    await ensureUserWorkspace(userWorkspacePaths(dirname(dirname(this.path)), userId))
   }
 
   async deleteModelProfile(userId: string, name: string): Promise<void> {
@@ -163,7 +163,7 @@ export class FileKWorksUserDataStore implements KWorksUserDataStore {
     return (await this.read()).users[userId]?.modelSecrets[name] ?? {}
   }
 
-  async appendUsageEvent(record: KWorksUsageEventRecord): Promise<void> {
+  async appendUsageEvent(record: UserUsageEventRecord): Promise<void> {
     await this.update((snapshot) => {
       if (snapshot.usageEvents.some((event) => event.threadId === record.threadId && event.seq === record.seq)) {
         return snapshot
@@ -177,20 +177,20 @@ export class FileKWorksUserDataStore implements KWorksUserDataStore {
       }
     })
     if (record.userId) {
-      await ensureKWorksUserWorkspace(kworksUserWorkspacePaths(dirname(dirname(this.path)), record.userId))
+      await ensureUserWorkspace(userWorkspacePaths(dirname(dirname(this.path)), record.userId))
     }
   }
 
-  async listUsageEvents(userId?: string): Promise<KWorksUsageEventRecord[]> {
+  async listUsageEvents(userId?: string): Promise<UserUsageEventRecord[]> {
     const events = (await this.read()).usageEvents
     return events
       .filter((event) => userId === undefined || event.userId === userId)
       .sort(compareUsageEvents)
   }
 
-  private async read(): Promise<KWorksUserDataSnapshot> {
+  private async read(): Promise<UserDataSnapshot> {
     try {
-      const parsed = JSON.parse(await readFile(this.path, 'utf8')) as Partial<KWorksUserDataSnapshot>
+      const parsed = JSON.parse(await readFile(this.path, 'utf8')) as Partial<UserDataSnapshot>
       this.current = normalizeSnapshot(parsed)
       return this.current
     } catch {
@@ -199,7 +199,7 @@ export class FileKWorksUserDataStore implements KWorksUserDataStore {
     }
   }
 
-  private async update(mutator: (snapshot: KWorksUserDataSnapshot) => KWorksUserDataSnapshot): Promise<void> {
+  private async update(mutator: (snapshot: UserDataSnapshot) => UserDataSnapshot): Promise<void> {
     const run = this.queue.catch(() => undefined).then(async () => {
       const next = normalizeSnapshot(mutator(await this.read()))
       await mkdir(dirname(this.path), { recursive: true })
@@ -211,8 +211,8 @@ export class FileKWorksUserDataStore implements KWorksUserDataStore {
   }
 }
 
-export class KWorksUserDataAuthStore implements AuthStore {
-  constructor(private readonly store: KWorksUserDataStore) {}
+export class UserDataAuthStore implements AuthStore {
+  constructor(private readonly store: UserDataStore) {}
 
   load(): Promise<AuthSnapshot> {
     return this.store.loadAuth()
@@ -223,7 +223,7 @@ export class KWorksUserDataAuthStore implements AuthStore {
   }
 }
 
-function normalizeSnapshot(value: Partial<KWorksUserDataSnapshot>): KWorksUserDataSnapshot {
+function normalizeSnapshot(value: Partial<UserDataSnapshot>): UserDataSnapshot {
   return {
     version: 1,
     auth: {
@@ -237,13 +237,13 @@ function normalizeSnapshot(value: Partial<KWorksUserDataSnapshot>): KWorksUserDa
   }
 }
 
-function normalizeUsers(value: Record<string, unknown>): Record<string, KWorksUserRecord> {
-  const out: Record<string, KWorksUserRecord> = {}
+function normalizeUsers(value: Record<string, unknown>): Record<string, UserDataRecord> {
+  const out: Record<string, UserDataRecord> = {}
   for (const [userId, raw] of Object.entries(value)) {
     if (!isRecord(raw)) continue
     out[userId] = {
       activeModel: typeof raw.activeModel === 'string' ? raw.activeModel : undefined,
-      modelProfiles: isRecord(raw.modelProfiles) ? raw.modelProfiles as Record<string, KWorksModelProfileRecord> : {},
+      modelProfiles: isRecord(raw.modelProfiles) ? raw.modelProfiles as Record<string, UserModelProfileRecord> : {},
       modelSecrets: isRecord(raw.modelSecrets) ? raw.modelSecrets as Record<string, { apiKey?: string }> : {},
       settings: isRecord(raw.settings) ? raw.settings : {}
     }
@@ -251,26 +251,26 @@ function normalizeUsers(value: Record<string, unknown>): Record<string, KWorksUs
   return out
 }
 
-function emptySnapshot(): KWorksUserDataSnapshot {
+function emptySnapshot(): UserDataSnapshot {
   return { version: 1, auth: { users: [], sessions: [] }, users: {}, usageEvents: [] }
 }
 
-function emptyUserRecord(): KWorksUserRecord {
+function emptyUserRecord(): UserDataRecord {
   return { modelProfiles: {}, modelSecrets: {}, settings: {} }
 }
 
 function withSecrets(
-  profiles: Record<string, KWorksModelProfileRecord>,
+  profiles: Record<string, UserModelProfileRecord>,
   secrets: Record<string, { apiKey?: string }>
-): Record<string, KWorksModelProfileRecord> {
-  const out: Record<string, KWorksModelProfileRecord> = {}
+): Record<string, UserModelProfileRecord> {
+  const out: Record<string, UserModelProfileRecord> = {}
   for (const [name, profile] of Object.entries(profiles)) {
     out[name] = { ...profile, ...(secrets[name]?.apiKey !== undefined ? { apiKey: secrets[name]!.apiKey } : {}) }
   }
   return out
 }
 
-function withoutSecret(profile: KWorksModelProfileRecord): KWorksModelProfileRecord {
+function withoutSecret(profile: UserModelProfileRecord): UserModelProfileRecord {
   const { apiKey: _apiKey, ...rest } = profile
   return rest
 }
@@ -279,13 +279,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function isUsageEventRecord(value: unknown): value is KWorksUsageEventRecord {
+function isUsageEventRecord(value: unknown): value is UserUsageEventRecord {
   if (!isRecord(value)) return false
   if (typeof value.threadId !== 'string' || typeof value.seq !== 'number') return false
   if (typeof value.timestamp !== 'string' || !isRecord(value.usage)) return false
   return true
 }
 
-function compareUsageEvents(a: KWorksUsageEventRecord, b: KWorksUsageEventRecord): number {
+function compareUsageEvents(a: UserUsageEventRecord, b: UserUsageEventRecord): number {
   return a.threadId.localeCompare(b.threadId) || a.seq - b.seq
 }

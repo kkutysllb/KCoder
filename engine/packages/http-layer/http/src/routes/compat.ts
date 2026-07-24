@@ -262,8 +262,8 @@ export async function kworksUpdateModel(runtime: ServerRuntime, name: string, re
 
 export async function kworksDeleteModel(runtime: ServerRuntime, name: string, actor?: AuthActor): Promise<JsonResponse> {
   const owner = ownerUserId(actor)
-  if (actor && owner && runtime.kworksUserDataStore) {
-    await runtime.kworksUserDataStore.deleteModelProfile(owner, name)
+  if (actor && owner && runtime.userDataStore) {
+    await runtime.userDataStore.deleteModelProfile(owner, name)
     return jsonResponse({ success: true })
   }
   const config = await readRuntimeConfig(runtime)
@@ -278,10 +278,10 @@ export async function kworksDeleteModel(runtime: ServerRuntime, name: string, ac
 
 export async function kworksActivateModel(runtime: ServerRuntime, name: string, actor?: AuthActor): Promise<JsonResponse | Response> {
   const owner = ownerUserId(actor)
-  if (actor && owner && runtime.kworksUserDataStore) {
+  if (actor && owner && runtime.userDataStore) {
     const config = await ensureUserModelProfile(runtime, actor, name)
     if (!config.models?.profiles?.[name]) return jsonResponse({ detail: `model profile ${name} not found` }, 404)
-    await runtime.kworksUserDataStore.activateModelProfile(owner, name)
+    await runtime.userDataStore.activateModelProfile(owner, name)
     const saved = await readEffectiveRuntimeConfig(runtime, actor)
     return jsonResponse({
       model: name,
@@ -526,18 +526,18 @@ export async function kworksMcpConfig(runtime: ServerRuntime, actor: AuthActor, 
     const synced = await syncMcpCompatToRuntimeConfig(runtime, compat)
     if (!synced.ok) return synced.response
     await refreshRuntimeTools(runtime)
-    if (owner && runtime.kworksUserDataStore) {
-      await runtime.kworksUserDataStore.setUserSetting(owner, USER_SETTING_MCP_COMPAT, compat)
-      await runtime.kworksUserDataStore.setUserSetting(owner, USER_SETTING_MCP, synced.config.capabilities?.mcp)
-      await runtime.kworksUserDataStore.setUserSetting(owner, USER_SETTING_SKILLS_COMPAT, compat.skills)
-      await runtime.kworksUserDataStore.setUserSetting(owner, USER_SETTING_SKILLS, synced.config.capabilities?.skills)
+    if (owner && runtime.userDataStore) {
+      await runtime.userDataStore.setUserSetting(owner, USER_SETTING_MCP_COMPAT, compat)
+      await runtime.userDataStore.setUserSetting(owner, USER_SETTING_MCP, synced.config.capabilities?.mcp)
+      await runtime.userDataStore.setUserSetting(owner, USER_SETTING_SKILLS_COMPAT, compat.skills)
+      await runtime.userDataStore.setUserSetting(owner, USER_SETTING_SKILLS, synced.config.capabilities?.skills)
       return jsonResponse(mcpCompatResponse(compat))
     }
     return jsonResponse(mcpCompatResponse(mcpCompatFromConfig(synced.config)))
   }
-  if (owner && runtime.kworksUserDataStore) {
-    const savedMcp = normalizeMcpConfig(await runtime.kworksUserDataStore.getUserSetting(owner, USER_SETTING_MCP_COMPAT))
-    const savedSkills = normalizeSkillCompat(await runtime.kworksUserDataStore.getUserSetting(owner, USER_SETTING_SKILLS_COMPAT))
+  if (owner && runtime.userDataStore) {
+    const savedMcp = normalizeMcpConfig(await runtime.userDataStore.getUserSetting(owner, USER_SETTING_MCP_COMPAT))
+    const savedSkills = normalizeSkillCompat(await runtime.userDataStore.getUserSetting(owner, USER_SETTING_SKILLS_COMPAT))
     return jsonResponse(mcpCompatResponse({ ...savedMcp, skills: savedSkills }))
   }
   return jsonResponse(mcpCompatResponse(mcpCompatFromConfig(await readRuntimeConfig(runtime))))
@@ -570,8 +570,8 @@ async function syncMcpCompatToRuntimeConfig(
 
 export async function kworksSkills(runtime: ServerRuntime, actor?: AuthActor, request?: Request, name?: string): Promise<JsonResponse | Response> {
   const owner = ownerUserId(actor)
-  const skillState = owner && runtime.kworksUserDataStore
-    ? normalizeSkillCompat(await runtime.kworksUserDataStore.getUserSetting(owner, USER_SETTING_SKILLS_COMPAT))
+  const skillState = owner && runtime.userDataStore
+    ? normalizeSkillCompat(await runtime.userDataStore.getUserSetting(owner, USER_SETTING_SKILLS_COMPAT))
     : {}
   if (request?.method === 'GET' && name) {
     const skills = await kworksSkillEntries(runtime, skillState)
@@ -1565,8 +1565,8 @@ export async function kworksToggleCron(
 
 async function projectsForActor(runtime: ServerRuntime, actor: AuthActor): Promise<KWorksProject[]> {
   const owner = ownerUserId(actor)
-  if (owner && runtime.kworksUserDataStore) {
-    return normalizeProjects(await runtime.kworksUserDataStore.getUserSetting(owner, USER_SETTING_PROJECTS))
+  if (owner && runtime.userDataStore) {
+    return normalizeProjects(await runtime.userDataStore.getUserSetting(owner, USER_SETTING_PROJECTS))
   }
   const snapshot = await loadProjectSnapshot(runtime)
   return [...(snapshot.users[projectOwnerKey(actor)] ?? [])]
@@ -1578,8 +1578,8 @@ async function saveProjectsForActor(
   projects: KWorksProject[]
 ): Promise<void> {
   const owner = ownerUserId(actor)
-  if (owner && runtime.kworksUserDataStore) {
-    await runtime.kworksUserDataStore.setUserSetting(owner, USER_SETTING_PROJECTS, projects)
+  if (owner && runtime.userDataStore) {
+    await runtime.userDataStore.setUserSetting(owner, USER_SETTING_PROJECTS, projects)
     return
   }
   const snapshot = await loadProjectSnapshot(runtime)
@@ -2312,9 +2312,9 @@ function cronStorePath(runtime: ServerRuntime): string {
 
 async function cronJobsForActor(runtime: ServerRuntime, actor: AuthActor): Promise<Record<string, KWorksCronJobConfig>> {
   const owner = ownerUserId(actor)
-  if (owner && runtime.kworksUserDataStore) {
-    const saved = runtime.kworksUserDataStore
-      ? await runtime.kworksUserDataStore.getUserSetting(owner, USER_SETTING_CRONS)
+  if (owner && runtime.userDataStore) {
+    const saved = runtime.userDataStore
+      ? await runtime.userDataStore.getUserSetting(owner, USER_SETTING_CRONS)
       : undefined
     const normalized = normalizeCronJobs(saved)
     if (Object.keys(normalized).length > 0) return normalized
@@ -2325,8 +2325,8 @@ async function cronJobsForActor(runtime: ServerRuntime, actor: AuthActor): Promi
 
 async function saveCronJobsForActor(runtime: ServerRuntime, actor: AuthActor, jobs: Record<string, KWorksCronJobConfig>): Promise<void> {
   const owner = ownerUserId(actor)
-  if (owner && runtime.kworksUserDataStore) {
-    await runtime.kworksUserDataStore.setUserSetting(owner, USER_SETTING_CRONS, jobs)
+  if (owner && runtime.userDataStore) {
+    await runtime.userDataStore.setUserSetting(owner, USER_SETTING_CRONS, jobs)
     return
   }
   throw new Error('cron persistence requires an authenticated KWorks user')
@@ -2491,8 +2491,8 @@ async function readEffectiveRuntimeConfig(runtime: ServerRuntime, actor?: AuthAc
   // without this, the mode and its skills are invisible at runtime.
   config = ensureBuiltinWorkModes(config)
   const owner = ownerUserId(actor)
-  if (!owner || !runtime.kworksUserDataStore) return config
-  const userModels = await runtime.kworksUserDataStore.listModelProfiles(owner)
+  if (!owner || !runtime.userDataStore) return config
+  const userModels = await runtime.userDataStore.listModelProfiles(owner)
   if (Object.keys(userModels.profiles).length === 0) {
     const { model: _model, ...serveWithoutModel } = config.serve ?? {}
     return {
@@ -2545,12 +2545,12 @@ async function readUserScopedCapabilityConfig(
   actor?: AuthActor
 ): Promise<QiongqiConfig> {
   const owner = ownerUserId(actor)
-  if (!owner || !runtime.kworksUserDataStore) return config
-  const savedMcp = await runtime.kworksUserDataStore.getUserSetting(owner, USER_SETTING_MCP)
-  const savedMcpCompat = await runtime.kworksUserDataStore.getUserSetting(owner, USER_SETTING_MCP_COMPAT)
-  const savedSkills = await runtime.kworksUserDataStore.getUserSetting(owner, USER_SETTING_SKILLS)
-  const savedSkillsCompat = await runtime.kworksUserDataStore.getUserSetting(owner, USER_SETTING_SKILLS_COMPAT)
-  const savedWeb = await runtime.kworksUserDataStore.getUserSetting(owner, USER_SETTING_WEB)
+  if (!owner || !runtime.userDataStore) return config
+  const savedMcp = await runtime.userDataStore.getUserSetting(owner, USER_SETTING_MCP)
+  const savedMcpCompat = await runtime.userDataStore.getUserSetting(owner, USER_SETTING_MCP_COMPAT)
+  const savedSkills = await runtime.userDataStore.getUserSetting(owner, USER_SETTING_SKILLS)
+  const savedSkillsCompat = await runtime.userDataStore.getUserSetting(owner, USER_SETTING_SKILLS_COMPAT)
+  const savedWeb = await runtime.userDataStore.getUserSetting(owner, USER_SETTING_WEB)
   return userCapabilityConfigFromSettings(config, {
     mcp: savedMcp,
     mcpCompat: savedMcpCompat,
@@ -2618,7 +2618,7 @@ async function writeUserScopedCapabilityConfig(
   section?: string
 ): Promise<{ ok: true; saved: boolean } | { ok: false; response: JsonResponse }> {
   const owner = ownerUserId(actor)
-  if (!owner || !runtime.kworksUserDataStore) return { ok: true, saved: false }
+  if (!owner || !runtime.userDataStore) return { ok: true, saved: false }
   const saves: Array<Promise<void>> = []
   const saveMcp = section === undefined || section === 'mcp' || section === 'mcp_servers' || section === 'capabilities'
   const saveWeb = section === undefined || section === 'web' || section === 'capabilities'
@@ -2627,20 +2627,20 @@ async function writeUserScopedCapabilityConfig(
   if (saveMcp && config.capabilities?.mcp) {
     const parsed = parseCapabilitySection(config, 'mcp', config.capabilities.mcp)
     if (!parsed.ok) return { ok: false, response: parsed.response }
-    saves.push(runtime.kworksUserDataStore.setUserSetting(owner, USER_SETTING_MCP, config.capabilities.mcp))
+    saves.push(runtime.userDataStore.setUserSetting(owner, USER_SETTING_MCP, config.capabilities.mcp))
     const compat = mcpCompatFromConfig(config)
-    saves.push(runtime.kworksUserDataStore.setUserSetting(owner, USER_SETTING_MCP_COMPAT, compat))
+    saves.push(runtime.userDataStore.setUserSetting(owner, USER_SETTING_MCP_COMPAT, compat))
   }
   if (saveWeb && config.capabilities?.web) {
     const parsed = parseCapabilitySection(config, 'web', config.capabilities.web)
     if (!parsed.ok) return { ok: false, response: parsed.response }
-    saves.push(runtime.kworksUserDataStore.setUserSetting(owner, USER_SETTING_WEB, config.capabilities.web))
+    saves.push(runtime.userDataStore.setUserSetting(owner, USER_SETTING_WEB, config.capabilities.web))
   }
   if (saveSkills && config.capabilities?.skills) {
     const parsed = parseCapabilitySection(config, 'skills', config.capabilities.skills)
     if (!parsed.ok) return { ok: false, response: parsed.response }
-    saves.push(runtime.kworksUserDataStore.setUserSetting(owner, USER_SETTING_SKILLS, config.capabilities.skills))
-    saves.push(runtime.kworksUserDataStore.setUserSetting(
+    saves.push(runtime.userDataStore.setUserSetting(owner, USER_SETTING_SKILLS, config.capabilities.skills))
+    saves.push(runtime.userDataStore.setUserSetting(
       owner,
       USER_SETTING_SKILLS_COMPAT,
       skillCompatFromCapability(config.capabilities.skills)
@@ -2674,7 +2674,7 @@ async function ensureUserModelProfile(runtime: ServerRuntime, actor: AuthActor, 
   if (config.models?.profiles?.[name]) return config
 
   const owner = ownerUserId(actor)
-  if (!owner || !runtime.kworksUserDataStore) return config
+  if (!owner || !runtime.userDataStore) return config
 
   const globalConfig = await readRuntimeConfig(runtime)
   const globalProfile = globalConfig.models?.profiles?.[name]
@@ -2683,7 +2683,7 @@ async function ensureUserModelProfile(runtime: ServerRuntime, actor: AuthActor, 
   const secret = typeof globalProfile.apiKey === 'string' && !isRedactedSecret(globalProfile.apiKey)
     ? { apiKey: globalProfile.apiKey }
     : {}
-  await runtime.kworksUserDataStore.saveModelProfile(owner, name, globalProfile, secret)
+  await runtime.userDataStore.saveModelProfile(owner, name, globalProfile, secret)
   return readEffectiveRuntimeConfig(runtime, actor)
 }
 
@@ -2712,13 +2712,13 @@ async function writeUserScopedModelConfig(
   section?: string
 ): Promise<boolean> {
   const owner = ownerUserId(actor)
-  if (!owner || !runtime.kworksUserDataStore) return false
+  if (!owner || !runtime.userDataStore) return false
   if (section !== undefined && section !== 'models' && section !== 'serve') return false
 
   const profiles = config.models?.profiles ?? {}
-  const current = await runtime.kworksUserDataStore.listModelProfiles(owner)
+  const current = await runtime.userDataStore.listModelProfiles(owner)
   for (const name of Object.keys(current.profiles)) {
-    if (!profiles[name]) await runtime.kworksUserDataStore.deleteModelProfile(owner, name)
+    if (!profiles[name]) await runtime.userDataStore.deleteModelProfile(owner, name)
   }
   for (const [name, profile] of Object.entries(profiles)) {
     const existing = current.profiles[name] ?? {}
@@ -2727,11 +2727,11 @@ async function writeUserScopedModelConfig(
       : typeof existing.apiKey === 'string' && isRedactedSecret(String(profile.apiKey ?? ''))
         ? { apiKey: existing.apiKey }
         : {}
-    await runtime.kworksUserDataStore.saveModelProfile(owner, name, profile, secret)
+    await runtime.userDataStore.saveModelProfile(owner, name, profile, secret)
   }
   const activeModel = config.serve?.model
   if (activeModel && profiles[activeModel]) {
-    await runtime.kworksUserDataStore.activateModelProfile(owner, activeModel)
+    await runtime.userDataStore.activateModelProfile(owner, activeModel)
   }
   return true
 }
@@ -2901,9 +2901,9 @@ async function upsertModelProfile(
   })
   if (!parsed.ok) return parsed
   const owner = ownerUserId(actor)
-  if (owner && runtime.kworksUserDataStore) {
+  if (owner && runtime.userDataStore) {
     const secret = secretUpdate(value.apiKey, value.api_key, existing.apiKey)
-    await runtime.kworksUserDataStore.saveModelProfile(owner, name, parsed.config.models?.profiles?.[name] ?? {}, secret.apiKey !== undefined ? { apiKey: secret.apiKey } : {})
+    await runtime.userDataStore.saveModelProfile(owner, name, parsed.config.models?.profiles?.[name] ?? {}, secret.apiKey !== undefined ? { apiKey: secret.apiKey } : {})
     const saved = await readEffectiveRuntimeConfig(runtime, actor)
     return { ok: true, model: modelFromProfile(name, saved.models?.profiles?.[name] ?? {}, saved) }
   }
@@ -3216,9 +3216,9 @@ async function syncSkillsCapabilityToRuntimeConfig(
   })
   if (!parsed.ok) return parsed
   const saved = await writeRuntimeConfig(runtime, parsed.config)
-  if (owner && runtime.kworksUserDataStore) {
-    await runtime.kworksUserDataStore.setUserSetting(owner, USER_SETTING_SKILLS, saved.capabilities?.skills)
-    await runtime.kworksUserDataStore.setUserSetting(
+  if (owner && runtime.userDataStore) {
+    await runtime.userDataStore.setUserSetting(owner, USER_SETTING_SKILLS, saved.capabilities?.skills)
+    await runtime.userDataStore.setUserSetting(
       owner,
       USER_SETTING_SKILLS_COMPAT,
       skillCompatFromCapability(saved.capabilities?.skills ?? skills)
@@ -3881,9 +3881,9 @@ async function setSkillEnabledForActor(
   const next = { ...current, [name]: { ...(current[name] ?? {}), enabled } }
   const synced = await syncSkillsCompatToRuntimeConfig(runtime, next)
   if (!synced.ok) return synced.response
-  if (owner && runtime.kworksUserDataStore) {
-    await runtime.kworksUserDataStore.setUserSetting(owner, USER_SETTING_SKILLS_COMPAT, next)
-    await runtime.kworksUserDataStore.setUserSetting(owner, USER_SETTING_SKILLS, synced.config.capabilities?.skills)
+  if (owner && runtime.userDataStore) {
+    await runtime.userDataStore.setUserSetting(owner, USER_SETTING_SKILLS_COMPAT, next)
+    await runtime.userDataStore.setUserSetting(owner, USER_SETTING_SKILLS, synced.config.capabilities?.skills)
   }
   const skills = await kworksSkillEntries(runtime, next)
   const skill = skills.find((item) => item.id === name) ?? skillEntryFromCompatOnly(name, next[name])

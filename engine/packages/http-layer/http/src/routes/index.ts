@@ -150,7 +150,7 @@ import {
   kworksUpdateModel,
   kworksUpdateThreadState,
   kworksWorkModes
-} from './kworks-compat.js'
+} from './compat.js'
 import type { AuthActor } from '../auth-service.js'
 
 /**
@@ -966,26 +966,26 @@ export function buildRouter(runtime: ServerRuntime): Router {
   router.add('GET', '/api/finance/credentials/status', async (request) => {
     const actor = await authenticateOrInternal(request, runtime)
     if (!actor) return ERRORS.unauthorized()
-    const resolved = await loadFinanceDataSource(runtime.kworksUserDataStore, actorOwner(actor))
+    const resolved = await loadFinanceDataSource(runtime.userDataStore, actorOwner(actor))
     return jsonResponse(resolved.status)
   })
   router.add('GET', '/api/finance/credentials', async (request) => {
     const actor = await authenticateOrInternal(request, runtime)
     if (!actor) return ERRORS.unauthorized()
-    const resolved = await loadFinanceDataSource(runtime.kworksUserDataStore, actorOwner(actor))
+    const resolved = await loadFinanceDataSource(runtime.userDataStore, actorOwner(actor))
     return jsonResponse(resolved.status)
   })
   router.add('PUT', '/api/finance/credentials', async (request) => {
     const actor = await authenticateOrInternal(request, runtime)
     if (!actor) return ERRORS.unauthorized()
     const owner = actorOwner(actor)
-    if (!owner || !runtime.kworksUserDataStore) return ERRORS.unavailable('finance credential storage is unavailable')
+    if (!owner || !runtime.userDataStore) return ERRORS.unavailable('finance credential storage is unavailable')
     const body = await readJsonBody(request)
     if (!body.ok) return body.response
     if (!isObject(body.value)) return ERRORS.validation('finance credentials body must be an object')
 
-    const current = await loadFinanceDataSource(runtime.kworksUserDataStore, owner)
-    const rawSecrets = await runtime.kworksUserDataStore.getUserSetting(owner, FINANCE_CREDENTIALS_SECRET_KEY)
+    const current = await loadFinanceDataSource(runtime.userDataStore, owner)
+    const rawSecrets = await runtime.userDataStore.getUserSetting(owner, FINANCE_CREDENTIALS_SECRET_KEY)
     const secrets: FinanceCredentialSecrets = isObject(rawSecrets) ? {
       ...(typeof rawSecrets.tushareToken === 'string' ? { tushareToken: rawSecrets.tushareToken } : {}),
       ...(typeof rawSecrets.iwencaiApiKey === 'string' ? { iwencaiApiKey: rawSecrets.iwencaiApiKey } : {})
@@ -997,7 +997,7 @@ export function buildRouter(runtime: ServerRuntime): Router {
       else if (typeof value === 'string') secrets[key] = value.trim()
       else return ERRORS.validation(`${field} must be a string or null`)
     }
-    const rawConfig = await runtime.kworksUserDataStore.getUserSetting(owner, FINANCE_DATA_SOURCE_CONFIG_KEY)
+    const rawConfig = await runtime.userDataStore.getUserSetting(owner, FINANCE_DATA_SOURCE_CONFIG_KEY)
     const storedConfig = isObject(rawConfig) ? rawConfig : {}
     const config: FinanceDataSourceConfig = {
       apiBaseUrl: stringValue(body.value.apiBaseUrl) ?? stringValue(storedConfig.apiBaseUrl) ?? current.config.apiBaseUrl,
@@ -1005,8 +1005,8 @@ export function buildRouter(runtime: ServerRuntime): Router {
       comprehensiveEndpoint: stringValue(body.value.comprehensiveEndpoint) ?? stringValue(storedConfig.comprehensiveEndpoint) ?? current.config.comprehensiveEndpoint,
       webUrl: stringValue(body.value.webUrl) ?? stringValue(storedConfig.webUrl) ?? current.config.webUrl
     }
-    await saveFinanceDataSource(runtime.kworksUserDataStore, owner, { secrets, config })
-    const resolved = await loadFinanceDataSource(runtime.kworksUserDataStore, owner)
+    await saveFinanceDataSource(runtime.userDataStore, owner, { secrets, config })
+    const resolved = await loadFinanceDataSource(runtime.userDataStore, owner)
     return jsonResponse(resolved.status)
   })
   return router
@@ -1076,8 +1076,8 @@ function actorOwner(actor: AuthActor): string | undefined {
 
 async function defaultModelForActor(runtime: ServerRuntime, actor: AuthActor): Promise<string> {
   const owner = actorOwner(actor)
-  if (owner && runtime.kworksUserDataStore) {
-    const userModels = await runtime.kworksUserDataStore.listModelProfiles(owner)
+  if (owner && runtime.userDataStore) {
+    const userModels = await runtime.userDataStore.listModelProfiles(owner)
     if (userModels.activeModel && userModels.profiles[userModels.activeModel]) {
       return userModels.activeModel
     }

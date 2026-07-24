@@ -1,10 +1,8 @@
 import { z } from 'zod'
-import { basename, join } from 'node:path'
-import { existsSync, readdirSync } from 'node:fs'
 import {
   DEFAULT_SERVE_PORT,
   DEFAULT_SERVE_OPTIONS,
-  defaultKWorksRuntimeDataDir,
+  defaultQiongqiRuntimeDataDir,
   ServeOptionsSchema,
   type ServeOptions
 } from './cli-options.js'
@@ -72,7 +70,7 @@ export function parseServeOptions(
           ? raw.dataDir
           : env.QIONGQI_DATA_DIR ??
             configServe.dataDir ??
-            defaultKWorksRuntimeDataDir(env),
+            defaultQiongqiRuntimeDataDir(env),
     runtimeToken:
       typeof raw['runtime-token'] === 'string'
         ? raw['runtime-token']
@@ -263,7 +261,7 @@ function capabilitiesFromConfigOrEnv(
   env: Record<string, string | undefined>
 ): ServeOptions['capabilities'] {
   const base = config ?? DEFAULT_SERVE_OPTIONS.capabilities
-  const skillRoots = kworksSkillRootsFromEnv(env)
+  const skillRoots = skillRootsFromEnv(env)
   if (skillRoots.length === 0) return base
   return {
     ...base,
@@ -279,61 +277,17 @@ function capabilitiesFromConfigOrEnv(
   }
 }
 
-function kworksSkillRootsFromEnv(env: Record<string, string | undefined>): string[] {
-  const raw = env.KWorks_SKILLS_PATH ?? env.KWORKS_SKILLS_PATH ?? env.QIONGQI_SKILLS_PATH
+function skillRootsFromEnv(env: Record<string, string | undefined>): string[] {
+  const raw = env.QIONGQI_SKILLS_PATH
   if (!raw?.trim()) return []
-  const roots = raw
+  return uniqueStrings(raw
     .split(process.platform === 'win32' ? ';' : ':')
     .map((item) => item.trim())
-    .filter(Boolean)
-  return roots.flatMap(skillRootsFromKWorksRoot)
-}
-
-function skillRootsFromKWorksRoot(root: string): string[] {
-  const unified = [
-    join(root, 'builtin', 'core'),
-    join(root, 'builtin', 'task'),
-    join(root, 'builtin', 'coding'),
-    join(root, 'builtin', 'finance'),
-    join(root, 'custom', 'shared')
-  ]
-  const legacy = [join(root, 'public'), join(root, 'custom')]
-  const existingLegacy = legacy.filter((candidate) => existsSync(candidate))
-  const hasUnifiedRoots = unified.some((candidate) => existsSync(candidate))
-  if (existingLegacy.length > 0 && !hasUnifiedRoots) return existingLegacy
-  const unifiedSkillIds = skillPackageIds(unified)
-  const missingLegacyPackages = existingLegacy.flatMap((legacyRoot) =>
-    skillPackageRoots(legacyRoot).filter((candidate) => !unifiedSkillIds.has(basename(candidate)))
-  )
-  return uniqueStrings([...unified, ...missingLegacyPackages])
+    .filter(Boolean))
 }
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)]
-}
-
-function skillPackageIds(roots: readonly string[]): Set<string> {
-  return new Set(roots.flatMap(skillPackageRoots).map((candidate) => basename(candidate)))
-}
-
-function skillPackageRoots(root: string): string[] {
-  if (!existsSync(root)) return []
-  const packages: string[] = []
-  if (isSkillPackage(root)) packages.push(root)
-  try {
-    for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue
-      const candidate = join(root, entry.name)
-      if (isSkillPackage(candidate)) packages.push(candidate)
-    }
-  } catch {
-    return packages
-  }
-  return packages
-}
-
-function isSkillPackage(root: string): boolean {
-  return existsSync(join(root, 'skill.json')) || existsSync(join(root, 'SKILL.md'))
 }
 
 /**
@@ -400,7 +354,7 @@ function dataDirFromRawOrEnv(
   return stringFlag(raw, 'data-dir') ??
     stringFlag(raw, 'dataDir') ??
     env.QIONGQI_DATA_DIR ??
-    defaultKWorksRuntimeDataDir(env)
+    defaultQiongqiRuntimeDataDir(env)
 }
 
 function storageBackendFromRawOrEnv(

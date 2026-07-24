@@ -120,25 +120,25 @@ export const DEFAULT_SERVE_OPTIONS: Omit<ServeOptions, 'baseUrl' | 'apiKey'> = {
   preset: 'coding'
 }
 
-export type KWorksRuntimeTarget = 'desktop' | 'web'
+export type QiongqiRuntimeTarget = 'desktop' | 'web'
 
-export function defaultKWorksWorkspaceRoot(
+export function defaultUserWorkspaceRoot(
   env: Record<string, string | undefined> = process.env,
-  target: KWorksRuntimeTarget = env.KWORKS_RUNTIME_TARGET === 'desktop' ? 'desktop' : 'web'
+  _target: QiongqiRuntimeTarget = env.QIONGQI_RUNTIME_TARGET === 'desktop' ? 'desktop' : 'web'
 ): string {
-  if (env.KWORKS_WORKSPACE_DIR?.trim()) return env.KWORKS_WORKSPACE_DIR.trim()
-  return join(env.HOME || env.USERPROFILE || homedir(), target === 'desktop' ? '.kworks-workspace' : '.kworks-workspace-web')
+  if (env.QIONGQI_WORKSPACE_DIR?.trim()) return env.QIONGQI_WORKSPACE_DIR.trim()
+  return join(env.HOME || env.USERPROFILE || homedir(), '.qiongqi')
 }
 
-export function defaultKWorksRuntimeDataDir(
+export function defaultQiongqiRuntimeDataDir(
   env: Record<string, string | undefined> = process.env,
-  target: KWorksRuntimeTarget = env.KWORKS_RUNTIME_TARGET === 'desktop' ? 'desktop' : 'web',
+  target: QiongqiRuntimeTarget = env.QIONGQI_RUNTIME_TARGET === 'desktop' ? 'desktop' : 'web',
   userId = 'runtime'
 ): string {
-  return join(defaultKWorksWorkspaceRoot(env, target), 'users', sanitizeKWorksUserId(userId))
+  return join(defaultUserWorkspaceRoot(env, target), 'users', sanitizeUserId(userId))
 }
 
-function sanitizeKWorksUserId(userId: string): string {
+function sanitizeUserId(userId: string): string {
   const cleaned = userId.trim().replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+$/, '_')
   return cleaned || 'default'
 }

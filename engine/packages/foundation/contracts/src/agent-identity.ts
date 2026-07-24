@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { RuntimeCapabilityManifest } from './capabilities.js'
 import { MODEL_ENDPOINT_FORMATS } from './model-endpoint-format.js'
+import { ArtifactSchema } from './a2a-artifact.js'
 
 /**
  * # Agent Identity & AgentCard (Stage 2)
@@ -178,7 +179,9 @@ export const PeerArtifactSchema = z
     /** Human-readable summary of what the peer did. */
     summary: z.string().optional(),
     /** Error message when `status` is `failed` or `aborted`. */
-    error: z.string().optional()
+    error: z.string().optional(),
+    /** Structured A2A artifacts returned by the peer, when available. */
+    artifacts: z.array(ArtifactSchema).optional()
   })
   .strict()
 export type PeerArtifact = z.infer<typeof PeerArtifactSchema>

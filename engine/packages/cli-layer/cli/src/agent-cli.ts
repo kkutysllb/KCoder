@@ -1,5 +1,6 @@
 import { createInterface } from 'node:readline/promises'
 import { stdin as processStdin, stdout as processStdout } from 'node:process'
+import { spawn as spawnChildProcess } from 'node:child_process'
 import { LocalToolHost, buildDefaultLocalTools } from '@qiongqi/adapter-tools'
 import type { TurnItem } from '@qiongqi/contracts'
 import {
@@ -20,6 +21,11 @@ type WritableLike = {
   write(chunk: string): unknown
 }
 
+type WorkerChildProcess = {
+  kill(signal?: NodeJS.Signals | number): unknown
+  once?(event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void): unknown
+}
+
 export type CliIo = {
   stdin?: NodeJS.ReadableStream
   stdout: WritableLike
@@ -27,12 +33,16 @@ export type CliIo = {
   env?: Record<string, string | undefined>
   cwd?: () => string
   createRuntime?: (options: ServeOptions) => Promise<ServerRuntime>
+  spawnWorker?: (args: string[], shard: WorkerShard) => WorkerChildProcess
+  waitForWorkerShutdown?: () => Promise<void>
+  sleep?: (ms: number) => Promise<void>
 }
 
 export const QIONGQI_CLI_USAGE = `qiongqi <command> [options]
 
 Commands:
   serve [options]            Start the local HTTP/SSE runtime
+  worker [options]           Run evented_v2 remote-agent workers without HTTP
   run [options] <prompt>     Run one agent turn without the GUI
   chat [options]             Start a line-oriented terminal chat
   exec [options] <tool>      List or invoke tools directly
@@ -48,6 +58,16 @@ Common options:
 Exec options:
   --list-tools               Print available tools
   --args <json>              JSON object passed to the selected tool
+
+Worker options:
+  --once                     Flush outbox and remote-agent mailboxes once, then exit
+  --plan                     Print worker pool shard topology without starting workers
+  --deployment-plan          Print production worker deployment commands and probes
+  --pool-size <n>            Number of worker shards to start or plan
+  --restart-backoff-ms <n>   Worker pool child restart backoff in milliseconds
+  --max-restarts <n>         Max child restarts per shard before pool exits
+  --shard-index <n>          Process only this 0-based worker shard
+  --shard-count <n>          Total number of worker shards
 `
 
 const VALUE_FLAGS = new Set([
@@ -70,10 +90,20 @@ const VALUE_FLAGS = new Set([
   'prompt',
   'p',
   'args',
-  'title'
+  'title',
+  'shard-index',
+  'shard-count',
+  'worker-shard-index',
+  'worker-shard-count',
+  'pool-size',
+  'worker-pool-size',
+  'restart-backoff-ms',
+  'worker-restart-backoff-ms',
+  'max-restarts',
+  'worker-max-restarts'
 ])
 
-export type QiongqiCliCommand = 'serve' | 'run' | 'chat' | 'exec' | 'help'
+export type QiongqiCliCommand = 'serve' | 'worker' | 'run' | 'chat' | 'exec' | 'help'
 
 export function splitQiongqiCliCommand(argv: readonly string[]): {
   command: QiongqiCliCommand
@@ -84,7 +114,7 @@ export function splitQiongqiCliCommand(argv: readonly string[]): {
   if (!first || first === '--help' || first === '-h' || first === 'help') {
     return { command: 'help', args: [] }
   }
-  if (first === 'serve' || first === 'run' || first === 'chat' || first === 'exec') {
+  if (first === 'serve' || first === 'worker' || first === 'run' || first === 'chat' || first === 'exec') {
     return { command: first, args: [...argv.slice(1)] }
   }
   if (first.startsWith('--')) {
@@ -99,12 +129,172 @@ export async function runAgentCommand(
   io: CliIo
 ): Promise<number> {
   switch (command) {
+    case 'worker':
+      return runWorker(argv, io)
     case 'run':
       return runOneShot(argv, io)
     case 'chat':
       return runChat(argv, io)
     case 'exec':
       return runExec(argv, io)
+  }
+}
+
+async function runWorker(argv: readonly string[], io: CliIo): Promise<number> {
+  const parsed = parseSharedOptions(argv, io)
+  if (!parsed.ok) return writeParseError(parsed, io, 'qiongqi worker')
+  if (hasFlag(argv, 'deployment-plan')) {
+    const plan = buildWorkerPoolPlan(parsed.options, argv)
+    if (!plan.ok) {
+      io.stderr.write(`qiongqi worker: ${plan.message}\n`)
+      return ServeExitCode.config
+    }
+    const deploymentPlan = buildWorkerDeploymentPlan(argv, plan.value)
+    if (parsed.json) {
+      io.stdout.write(JSON.stringify(deploymentPlan) + '\n')
+    } else {
+      io.stdout.write(formatWorkerDeploymentPlan(deploymentPlan))
+    }
+    return ServeExitCode.ok
+  }
+  if (hasFlag(argv, 'plan')) {
+    const plan = buildWorkerPoolPlan(parsed.options, argv)
+    if (!plan.ok) {
+      io.stderr.write(`qiongqi worker: ${plan.message}\n`)
+      return ServeExitCode.config
+    }
+    if (parsed.json) {
+      io.stdout.write(JSON.stringify(plan.value) + '\n')
+    } else {
+      io.stdout.write(formatWorkerPoolPlan(plan.value))
+    }
+    return ServeExitCode.ok
+  }
+  if (stringFlag(argv, ['pool-size', 'worker-pool-size']) !== undefined) {
+    const pool = buildWorkerPoolPlan(parsed.options, argv)
+    if (!pool.ok) {
+      io.stderr.write(`qiongqi worker: ${pool.message}\n`)
+      return ServeExitCode.config
+    }
+    return runWorkerPool(argv, parsed, pool.value, io)
+  }
+  const shard = parseWorkerShard(argv)
+  if (!shard.ok) {
+    io.stderr.write(`qiongqi worker: ${shard.message}\n`)
+    return ServeExitCode.config
+  }
+  const runtimeOptions = shard.value ? applyWorkerShard(parsed.options, shard.value) : parsed.options
+  let runtime: ServerRuntime | undefined
+  try {
+    runtime = await createRuntime(runtimeOptions, io)
+    const scheduler = runtime.multiAgentRemoteScheduler
+    if (!scheduler) {
+      io.stderr.write('qiongqi worker: evented_v2 remote agent scheduler is not configured\n')
+      return ServeExitCode.config
+    }
+    if (hasFlag(argv, 'once')) {
+      const outbox = await runtime.multiAgentOutboxReconciler?.flushOnce()
+      const remote = await scheduler.flushOnce()
+      if (parsed.json) {
+        io.stdout.write(JSON.stringify({
+          mode: 'worker',
+          ...(shard.value ? { shard: shard.value } : {}),
+          outbox,
+          remote
+        }) + '\n')
+      } else {
+        io.stdout.write(`qiongqi worker: processed ${remote.messagesProcessed} message(s)${shard.value ? ` on shard ${shard.value.index}/${shard.value.count}` : ''}\n`)
+      }
+      return ServeExitCode.ok
+    }
+    runtime.multiAgentOutboxReconciler?.start()
+    scheduler.start()
+    const snapshot = scheduler.snapshot()
+    if (parsed.json) {
+      io.stdout.write(JSON.stringify({
+        mode: 'worker',
+        ...(shard.value ? { shard: shard.value } : {}),
+        snapshot
+      }) + '\n')
+    } else {
+      io.stdout.write(`qiongqi worker running: ${snapshot.workerId}${shard.value ? ` shard ${shard.value.index}/${shard.value.count}` : ''}\n`)
+    }
+    await waitForWorkerShutdownSignal()
+    return ServeExitCode.ok
+  } catch (error) {
+    io.stderr.write(`qiongqi worker: ${errorMessage(error)}\n`)
+    return ServeExitCode.runtime
+  } finally {
+    await shutdownRuntime(runtime, io, 'qiongqi worker')
+  }
+}
+
+async function runWorkerPool(
+  argv: readonly string[],
+  parsed: Extract<SharedOptionsResult, { ok: true }>,
+  plan: WorkerPoolPlan,
+  io: CliIo
+): Promise<number> {
+  const restartBackoff = parseWorkerPoolRestartBackoff(argv)
+  if (!restartBackoff.ok) {
+    io.stderr.write(`qiongqi worker: ${restartBackoff.message}\n`)
+    return ServeExitCode.config
+  }
+  const maxRestarts = parseWorkerPoolMaxRestarts(argv)
+  if (!maxRestarts.ok) {
+    io.stderr.write(`qiongqi worker: ${maxRestarts.message}\n`)
+    return ServeExitCode.config
+  }
+  const children: WorkerChildProcess[] = []
+  const restartCounts = new Map<string, number>()
+  let stopping = false
+  let rejectSupervisorFailure: ((error: unknown) => void) | undefined
+  const supervisorFailure = new Promise<never>((_resolve, reject) => {
+    rejectSupervisorFailure = reject
+  })
+  const spawnShard = (shard: WorkerShard): void => {
+    const args = workerChildArgs(argv, shard)
+    const child = spawnWorkerProcess(io, args, shard)
+    children.push(child)
+    child.once?.('exit', (code, signal) => {
+      if (stopping) return
+      void (async () => {
+        const shardKey = `${shard.index}/${shard.count}`
+        const restartCount = (restartCounts.get(shardKey) ?? 0) + 1
+        if (maxRestarts.value !== undefined && restartCount > maxRestarts.value) {
+          throw new Error(`worker shard ${shardKey} exceeded max restarts (${maxRestarts.value})`)
+        }
+        restartCounts.set(shardKey, restartCount)
+        io.stderr.write(`qiongqi worker: worker shard ${shard.index}/${shard.count} exited (code=${code ?? 'null'}, signal=${signal ?? 'null'}); restarting in ${restartBackoff.value}ms\n`)
+        await sleepForWorkerSupervisor(io, restartBackoff.value)
+        if (!stopping) spawnShard(shard)
+      })().catch((error) => rejectSupervisorFailure?.(error))
+    })
+  }
+  try {
+    for (const shard of plan.shards) {
+      spawnShard(shard)
+    }
+    if (parsed.json) {
+      io.stdout.write(JSON.stringify({
+        mode: 'worker_pool',
+        poolSize: plan.poolSize,
+        shards: plan.shards
+      }) + '\n')
+    } else {
+      io.stdout.write(formatWorkerPoolRunning(plan))
+    }
+    await Promise.race([
+      (io.waitForWorkerShutdown ?? waitForWorkerShutdownSignal)(),
+      supervisorFailure
+    ])
+    return ServeExitCode.ok
+  } catch (error) {
+    io.stderr.write(`qiongqi worker: ${errorMessage(error)}\n`)
+    return ServeExitCode.runtime
+  } finally {
+    stopping = true
+    for (const child of children) child.kill('SIGTERM')
   }
 }
 
@@ -298,6 +488,21 @@ type SharedOptionsResult =
   | { ok: true; options: ServeOptions; workspace: string; json: boolean }
   | { ok: false; exitCode: number; message: string; issues?: unknown }
 
+type WorkerShard = { index: number; count: number; agentIds: string[] }
+type WorkerPoolPlan = { mode: 'worker_pool_plan'; poolSize: number; shards: WorkerShard[] }
+type WorkerDeploymentPlan = {
+  mode: 'worker_deployment_plan'
+  supervisor: { command: string[] }
+  workers: Array<{ shard: WorkerShard; command: string[] }>
+  probes: {
+    livenessPath: string
+    readinessPath: string
+    metricsPath: string
+    prometheusMetricsPath: string
+    eventedV2MetricsPath: string
+  }
+}
+
 function parseSharedOptions(argv: readonly string[], io: CliIo): SharedOptionsResult {
   const parsed = parseServeOptionsSafe(argv, io.env ?? {})
   if (!parsed.ok) return parsed
@@ -328,6 +533,187 @@ function createRuntime(options: ServeOptions, io: CliIo): Promise<ServerRuntime>
   if (io.createRuntime) return io.createRuntime(options)
   const factory = resolveRuntimeFactory(options.preset)
   return factory(options)
+}
+
+function parseWorkerShard(argv: readonly string[]): { ok: true; value?: WorkerShard } | { ok: false; message: string } {
+  const rawIndex = stringFlag(argv, ['shard-index', 'worker-shard-index'])
+  const rawCount = stringFlag(argv, ['shard-count', 'worker-shard-count'])
+  if (rawIndex === undefined && rawCount === undefined) return { ok: true }
+  if (rawIndex === undefined || rawCount === undefined) {
+    return { ok: false, message: '--shard-index and --shard-count must be provided together' }
+  }
+  const index = Number(rawIndex)
+  const count = Number(rawCount)
+  if (!Number.isInteger(index) || !Number.isInteger(count) || count <= 0 || index < 0 || index >= count) {
+    return { ok: false, message: '--shard-index must be an integer in [0, shard-count) and --shard-count must be positive' }
+  }
+  return { ok: true, value: { index, count, agentIds: [] } }
+}
+
+function applyWorkerShard(options: ServeOptions, shard: WorkerShard): ServeOptions {
+  const peers = options.runtime?.eventedV2AgentPeers
+  if (!peers || Object.keys(peers).length === 0) return options
+  const agentIds = Object.keys(peers).sort()
+    .filter((_agentId, position) => position % shard.count === shard.index)
+  const eventedV2AgentPeers = Object.fromEntries(agentIds.map((agentId) => [agentId, peers[agentId]]))
+  shard.agentIds = agentIds
+  return {
+    ...options,
+    runtime: {
+      ...options.runtime,
+      eventedV2AgentPeers
+    }
+  }
+}
+
+function buildWorkerPoolPlan(options: ServeOptions, argv: readonly string[]): { ok: true; value: WorkerPoolPlan } | { ok: false; message: string } {
+  const rawPoolSize = stringFlag(argv, ['pool-size', 'worker-pool-size'])
+  if (rawPoolSize === undefined) return { ok: false, message: '--plan requires --pool-size <n>' }
+  const peers = options.runtime?.eventedV2AgentPeers ?? {}
+  const agentIds = Object.keys(peers).sort()
+  const poolSize = rawPoolSize === 'auto' ? Math.max(1, agentIds.length) : Number(rawPoolSize)
+  if (!Number.isInteger(poolSize) || poolSize <= 0) {
+    return { ok: false, message: '--pool-size must be a positive integer or auto' }
+  }
+  return {
+    ok: true,
+    value: {
+      mode: 'worker_pool_plan',
+      poolSize,
+      shards: Array.from({ length: poolSize }, (_unused, index) => ({
+        index,
+        count: poolSize,
+        agentIds: agentIds.filter((_agentId, position) => position % poolSize === index)
+      }))
+    }
+  }
+}
+
+function parseWorkerPoolRestartBackoff(argv: readonly string[]): { ok: true; value: number } | { ok: false; message: string } {
+  const rawBackoff = stringFlag(argv, ['restart-backoff-ms', 'worker-restart-backoff-ms'])
+  if (rawBackoff === undefined) return { ok: true, value: 1000 }
+  const backoff = Number(rawBackoff)
+  if (!Number.isInteger(backoff) || backoff < 0) {
+    return { ok: false, message: '--restart-backoff-ms must be a non-negative integer' }
+  }
+  return { ok: true, value: backoff }
+}
+
+function parseWorkerPoolMaxRestarts(argv: readonly string[]): { ok: true; value?: number } | { ok: false; message: string } {
+  const rawMaxRestarts = stringFlag(argv, ['max-restarts', 'worker-max-restarts'])
+  if (rawMaxRestarts === undefined) return { ok: true }
+  const maxRestarts = Number(rawMaxRestarts)
+  if (!Number.isInteger(maxRestarts) || maxRestarts < 0) {
+    return { ok: false, message: '--max-restarts must be a non-negative integer' }
+  }
+  return { ok: true, value: maxRestarts }
+}
+
+function formatWorkerPoolPlan(plan: WorkerPoolPlan): string {
+  const lines = [`qiongqi worker pool plan: ${plan.poolSize} shard(s)`]
+  for (const shard of plan.shards) {
+    lines.push(`  shard ${shard.index}/${shard.count}: ${shard.agentIds.join(', ') || '(no agents)'}`)
+  }
+  return `${lines.join('\n')}\n`
+}
+
+function formatWorkerPoolRunning(plan: WorkerPoolPlan): string {
+  const lines = [`qiongqi worker pool running: ${plan.poolSize} shard(s)`]
+  for (const shard of plan.shards) {
+    lines.push(`  shard ${shard.index}/${shard.count}: ${shard.agentIds.join(', ') || '(no agents)'}`)
+  }
+  return `${lines.join('\n')}\n`
+}
+
+function buildWorkerDeploymentPlan(argv: readonly string[], plan: WorkerPoolPlan): WorkerDeploymentPlan {
+  return {
+    mode: 'worker_deployment_plan',
+    supervisor: {
+      command: ['qiongqi', 'worker', ...stripWorkerDeploymentPlanFlags(argv)]
+    },
+    workers: plan.shards.map((shard) => ({
+      shard,
+      command: ['qiongqi', 'worker', ...stripWorkerSupervisorFlags(argv), '--shard-index', String(shard.index), '--shard-count', String(shard.count)]
+    })),
+    probes: {
+      livenessPath: '/health',
+      readinessPath: '/ready',
+      metricsPath: '/v1/runtime/metrics',
+      prometheusMetricsPath: '/v1/runtime/metrics?format=prometheus',
+      eventedV2MetricsPath: '/v1/runtime/evented-v2/metrics'
+    }
+  }
+}
+
+function formatWorkerDeploymentPlan(plan: WorkerDeploymentPlan): string {
+  const lines = [
+    'qiongqi worker deployment plan:',
+    `  supervisor: ${plan.supervisor.command.join(' ')}`
+  ]
+  for (const worker of plan.workers) {
+    lines.push(`  worker shard ${worker.shard.index}/${worker.shard.count}: ${worker.command.join(' ')}`)
+  }
+  lines.push(`  probes: ${plan.probes.livenessPath}, ${plan.probes.readinessPath}, ${plan.probes.prometheusMetricsPath}`)
+  return `${lines.join('\n')}\n`
+}
+
+function workerChildArgs(argv: readonly string[], shard: WorkerShard): string[] {
+  return [
+    process.argv[1] ?? 'qiongqi',
+    'worker',
+    ...stripWorkerSupervisorFlags(argv),
+    '--shard-index',
+    String(shard.index),
+    '--shard-count',
+    String(shard.count)
+  ]
+}
+
+function spawnWorkerProcess(io: CliIo, args: string[], shard: WorkerShard): WorkerChildProcess {
+  if (io.spawnWorker) return io.spawnWorker(args, shard)
+  return spawnChildProcess(process.execPath, args, {
+    stdio: 'inherit',
+    env: process.env
+  })
+}
+
+function stripWorkerSupervisorFlags(argv: readonly string[]): string[] {
+  const removeValueFlags = new Set(['pool-size', 'worker-pool-size', 'restart-backoff-ms', 'worker-restart-backoff-ms', 'max-restarts', 'worker-max-restarts', 'shard-index', 'worker-shard-index', 'shard-count', 'worker-shard-count'])
+  const removeBooleanFlags = new Set(['plan', 'deployment-plan', 'json'])
+  return stripFlags(argv, removeValueFlags, removeBooleanFlags)
+}
+
+function stripWorkerDeploymentPlanFlags(argv: readonly string[]): string[] {
+  return stripFlags(argv, new Set(), new Set(['deployment-plan', 'json']))
+}
+
+function stripFlags(
+  argv: readonly string[],
+  removeValueFlags: ReadonlySet<string>,
+  removeBooleanFlags: ReadonlySet<string>
+): string[] {
+  const stripped: string[] = []
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index]
+    if (!token.startsWith('--')) {
+      stripped.push(token)
+      continue
+    }
+    const eq = token.indexOf('=')
+    const key = eq >= 0 ? token.slice(2, eq) : token.slice(2)
+    if (removeBooleanFlags.has(key)) continue
+    if (removeValueFlags.has(key)) {
+      if (eq < 0) index += 1
+      continue
+    }
+    stripped.push(token)
+  }
+  return stripped
+}
+
+function sleepForWorkerSupervisor(io: CliIo, ms: number): Promise<void> {
+  if (io.sleep) return io.sleep(ms)
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 async function shutdownRuntime(
@@ -435,6 +821,18 @@ function stringFlag(argv: readonly string[], names: readonly string[]): string |
 
 function hasFlag(argv: readonly string[], name: string): boolean {
   return argv.some((token) => token === `--${name}` || token === `--${name}=true`)
+}
+
+function waitForWorkerShutdownSignal(): Promise<void> {
+  return new Promise((resolve) => {
+    const stop = () => {
+      process.off('SIGTERM', stop)
+      process.off('SIGINT', stop)
+      resolve()
+    }
+    process.once('SIGTERM', stop)
+    process.once('SIGINT', stop)
+  })
 }
 
 function formatToolOutput(output: unknown): string {

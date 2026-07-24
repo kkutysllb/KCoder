@@ -1,4 +1,4 @@
-import type { KWorksUserDataStore } from './kworks-user-data-store.js'
+import type { UserDataStore } from './user-data-store.js'
 
 export const FINANCE_CREDENTIALS_SECRET_KEY = 'finance.credentials.secrets'
 export const FINANCE_DATA_SOURCE_CONFIG_KEY = 'finance.credentials.config'
@@ -72,7 +72,7 @@ export function resolveFinanceDataSource(
 }
 
 export async function loadFinanceDataSource(
-  store: KWorksUserDataStore | undefined,
+  store: UserDataStore | undefined,
   userId: string | undefined,
   environment: NodeJS.ProcessEnv = process.env
 ): Promise<ResolvedFinanceDataSource> {
@@ -85,7 +85,7 @@ export async function loadFinanceDataSource(
 }
 
 export async function saveFinanceDataSource(
-  store: KWorksUserDataStore,
+  store: UserDataStore,
   userId: string,
   input: { secrets: FinanceCredentialSecrets; config: Partial<FinanceDataSourceConfig> }
 ): Promise<void> {

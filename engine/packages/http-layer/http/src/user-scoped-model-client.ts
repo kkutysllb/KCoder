@@ -2,7 +2,7 @@ import type { ModelClient, ModelRequest, ModelStreamChunk } from '@qiongqi/ports
 import { ModelCompatClient } from '@qiongqi/adapter-model'
 import type { ThreadService } from '@qiongqi/services'
 import type { ModelConfig } from '@qiongqi/contracts'
-import type { KWorksUserDataStore } from './kworks-user-data-store.js'
+import type { UserDataStore } from './user-data-store.js'
 
 export class UserScopedModelClient implements ModelClient {
   readonly provider = 'user-scoped-model'
@@ -11,7 +11,7 @@ export class UserScopedModelClient implements ModelClient {
   constructor(private readonly input: {
     fallback: ModelClient
     threadService: ThreadService
-    userDataStore: KWorksUserDataStore
+    userDataStore: UserDataStore
     fetchImpl?: typeof fetch
     streamIdleTimeoutMs?: number
   }) {

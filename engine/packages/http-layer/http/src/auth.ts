@@ -12,10 +12,10 @@ export function bearerToken(headers: Headers): string | null {
 /**
  * Extract a named token value from the Cookie header.
  *
- * The Web frontend relies on an HttpOnly ``access_token`` cookie set by
- * the gateway at login (see ``kworks-compat.ts``). SSR fetches forward
- * cookies via the ``Cookie`` header, and browser requests carry the
- * cookie automatically with ``credentials: "include"``.
+ * Browser frontends can rely on an HttpOnly ``access_token`` cookie set by
+ * their gateway at login. SSR fetches forward cookies via the ``Cookie``
+ * header, and browser requests carry the cookie automatically with
+ * ``credentials: "include"``.
  */
 export function tokenFromCookie(headers: Headers, name: string): string | null {
   const cookieHeader = headers.get('cookie')

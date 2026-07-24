@@ -741,9 +741,8 @@ async function enableDraftSkillForActor(
   })
   await writeConfig(runtime, next)
   const owner = ownerUserId(actor)
-  if (owner && runtime.kworksUserDataStore) {
-    await runtime.kworksUserDataStore.setUserSetting(owner, 'capabilities.skills', skills)
-    await runtime.kworksUserDataStore.setUserSetting(owner, 'capabilities.skills.compat', skillCompatFromCapability(skills))
+  if (owner && runtime.userDataStore) {
+    await runtime.userDataStore.setUserSetting(owner, 'capabilities.skills', skills)
   }
   await (runtime.refreshRuntimeTools?.() ?? runtime.refreshMcpTools?.())
   return { ok: true, workModeId }
@@ -752,8 +751,8 @@ async function enableDraftSkillForActor(
 async function readEffectiveConfig(runtime: ServerRuntime, actor?: AuthActor): Promise<QiongqiConfig> {
   const config = await readConfig(runtime)
   const owner = ownerUserId(actor)
-  if (!owner || !runtime.kworksUserDataStore) return config
-  const savedSkills = await runtime.kworksUserDataStore.getUserSetting(owner, 'capabilities.skills')
+  if (!owner || !runtime.userDataStore) return config
+  const savedSkills = await runtime.userDataStore.getUserSetting(owner, 'capabilities.skills')
   if (!isObject(savedSkills)) return config
   return QiongqiConfigSchema.parse({
     ...config,
@@ -983,12 +982,6 @@ function frontmatterLine(value: string): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function skillCompatFromCapability(value: NonNullable<NonNullable<QiongqiConfig['capabilities']>['skills']>): Record<string, { enabled: boolean }> {
-  const out: Record<string, { enabled: boolean }> = {}
-  for (const [name, enabled] of Object.entries(value.enabledSkills ?? {})) out[name] = { enabled }
-  return out
 }
 
 function ownerUserId(actor?: AuthActor): string | undefined {

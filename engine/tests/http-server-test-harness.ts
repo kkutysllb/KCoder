@@ -1,7 +1,7 @@
 import { buildRouter } from '@qiongqi/http'
 import { dispatchRequest } from '@qiongqi/http'
 import { AuthService, InMemoryAuthStore } from '@qiongqi/http'
-import type { KWorksUserDataStore } from '@qiongqi/http'
+import type { UserDataStore } from '@qiongqi/http'
 import { InMemoryQiongqiConfigStore } from '@qiongqi/http'
 import { InMemoryEventBus } from '@qiongqi/adapter-storage'
 import { InMemoryApprovalGate } from '@qiongqi/adapter-storage'
@@ -25,7 +25,7 @@ import type { ModelClient, ModelRequest, ModelStreamChunk } from '@qiongqi/ports
 import { createApprovalRequest } from '@qiongqi/domain'
 import { encodeSseEvent } from '@qiongqi/http'
 import type { UsageSnapshot } from '@qiongqi/contracts'
-import type { KWorksUsageEventRecord } from '@qiongqi/http'
+import type { UserUsageEventRecord } from '@qiongqi/http'
 import { buildRuntimeCapabilityManifest } from '@qiongqi/contracts'
 import { modelCapabilitiesForModel } from '@qiongqi/loop'
 
@@ -39,14 +39,14 @@ function makeModel(chunks: ModelStreamChunk[]): ModelClient {
   }
 }
 
-function makeInMemoryUserDataStore(authStore: InMemoryAuthStore): KWorksUserDataStore {
+function makeInMemoryUserDataStore(authStore: InMemoryAuthStore): UserDataStore {
   const users = new Map<string, {
     activeModel?: string
     profiles: Record<string, Record<string, unknown>>
     secrets: Record<string, { apiKey?: string }>
     settings: Record<string, unknown>
   }>()
-  const usageEvents: KWorksUsageEventRecord[] = []
+  const usageEvents: UserUsageEventRecord[] = []
   return {
     loadAuth: () => authStore.load(),
     saveAuth: (snapshot) => authStore.save(snapshot),
@@ -161,7 +161,7 @@ export function buildHarness(): Harness {
   const usage = new UsageService()
   const authStore = new InMemoryAuthStore()
   const authService = new AuthService({ store: authStore, now: () => new Date() })
-  const kworksUserDataStore = makeInMemoryUserDataStore(authStore)
+  const userDataStore = makeInMemoryUserDataStore(authStore)
   const prefix = createImmutablePrefix({ systemPrompt: 'be brief' })
   const nowIso = () => new Date().toISOString()
   const allocateSeq = (threadId: string) => bus.allocateSeq(threadId)
@@ -172,7 +172,7 @@ export function buildHarness(): Harness {
     nowIso,
     usageSink: async (event) => {
       const thread = await threadStore.get(event.threadId)
-      await kworksUserDataStore.appendUsageEvent?.({
+      await userDataStore.appendUsageEvent?.({
         ...(thread?.ownerUserId ? { userId: thread.ownerUserId } : {}),
         threadId: event.threadId,
         seq: event.seq,
@@ -259,7 +259,7 @@ export function buildHarness(): Harness {
     turnService,
     usageService: usage,
     authService,
-    kworksUserDataStore,
+    userDataStore,
     eventBus: bus,
     sessionStore,
     events,

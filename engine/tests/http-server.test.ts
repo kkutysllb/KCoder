@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deflateRawSync } from 'node:zlib'
 import { Router, dispatchRequest, startNodeHttpServer } from '@qiongqi/http'
-import { kworksUserWorkspacePaths } from '@qiongqi/http'
+import { userWorkspacePaths } from '@qiongqi/http'
 import { createApprovalRequest } from '@qiongqi/domain'
 import { makeAssistantReasoningItem, makeAssistantTextItem, makeErrorItem } from '@qiongqi/domain'
 import { encodeSseEvent } from '@qiongqi/http'
@@ -22,7 +22,7 @@ describe('HTTP server', () => {
   })
 
   it('defines per-user KWorks workspace directories for data, threads, skills, MCP, and tools', () => {
-    expect(kworksUserWorkspacePaths('/Users/tester/.kworks-workspace', 'user:123')).toEqual({
+    expect(userWorkspacePaths('/Users/tester/.kworks-workspace', 'user:123')).toEqual({
       root: '/Users/tester/.kworks-workspace',
       userRoot: '/Users/tester/.kworks-workspace/users/user_123',
       data: '/Users/tester/.kworks-workspace/users/user_123/data',
@@ -220,7 +220,7 @@ describe('HTTP server', () => {
       email: 'manual-models@example.com',
       password: 'password123'
     })
-    await h.runtime.kworksUserDataStore?.saveModelProfile(session!.user.id, 'deepseek-pro', {
+    await h.runtime.userDataStore?.saveModelProfile(session!.user.id, 'deepseek-pro', {
       providerModel: 'deepseek-chat',
       baseUrl: 'https://api.deepseek.example/v1'
     })
@@ -468,7 +468,7 @@ describe('HTTP server', () => {
       }
     })
 
-    const saved = await h.runtime.kworksUserDataStore?.listModelProfiles(session!.user.id)
+    const saved = await h.runtime.userDataStore?.listModelProfiles(session!.user.id)
     expect(saved?.activeModel).toBe('legacy-profile')
     expect(saved?.profiles['legacy-profile']).toMatchObject({
       providerModel: 'legacy-provider-model',
@@ -689,7 +689,7 @@ describe('HTTP server', () => {
     )
     expect(save.status).toBe(200)
 
-    const savedUserModels = await h.runtime.kworksUserDataStore?.listModelProfiles(session!.user.id)
+    const savedUserModels = await h.runtime.userDataStore?.listModelProfiles(session!.user.id)
     expect(savedUserModels?.activeModel).toBe('settings-zhipu')
     expect(savedUserModels?.profiles['settings-zhipu']).toMatchObject({
       providerModel: 'glm-5.2',
@@ -1438,7 +1438,7 @@ describe('HTTP server', () => {
     )
     expect(response.status).toBe(200)
 
-    const savedSetting = await h.runtime.kworksUserDataStore?.getUserSetting(session!.user.id, 'capabilities.web')
+    const savedSetting = await h.runtime.userDataStore?.getUserSetting(session!.user.id, 'capabilities.web')
     expect(savedSetting).toMatchObject({
       enabled: true,
       fetchEnabled: true,
@@ -1559,7 +1559,7 @@ describe('HTTP server', () => {
     )
     expect(response.status).toBe(200)
 
-    const savedCompat = await h.runtime.kworksUserDataStore?.getUserSetting(session!.user.id, 'capabilities.mcp.compat')
+    const savedCompat = await h.runtime.userDataStore?.getUserSetting(session!.user.id, 'capabilities.mcp.compat')
     expect(savedCompat).toMatchObject({
       mcp_servers: {
         browser: {
@@ -2817,7 +2817,7 @@ describe('HTTP server', () => {
       }
     })
 
-    const saved = await h.runtime.kworksUserDataStore?.getUserSetting(session!.user.id, 'capabilities.skills.compat')
+    const saved = await h.runtime.userDataStore?.getUserSetting(session!.user.id, 'capabilities.skills.compat')
     expect(saved).toMatchObject({
       'xlsx-creator': { enabled: false }
     })
@@ -2962,7 +2962,7 @@ describe('HTTP server', () => {
       'report-search': true
     })
     expect(config?.capabilities?.skills?.modeSkillOverrides?.office?.addedSkillIds).toContain('report-search')
-    const saved = await h.runtime.kworksUserDataStore?.getUserSetting(session!.user.id, 'capabilities.skills')
+    const saved = await h.runtime.userDataStore?.getUserSetting(session!.user.id, 'capabilities.skills')
     expect(saved).toMatchObject({
       enabled: true,
       enabledSkills: {
@@ -4740,7 +4740,7 @@ describe('HTTP server', () => {
     // Seed per-user skills config with a stale "task" mode (as persisted before
     // the task→office rename). The effective config must collapse it to a
     // single "office" entry — not render two "日常办公".
-    await h.runtime.kworksUserDataStore?.setUserSetting(
+    await h.runtime.userDataStore?.setUserSetting(
       session!.user.id,
       'capabilities.skills',
       {

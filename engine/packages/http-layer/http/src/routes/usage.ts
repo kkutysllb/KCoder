@@ -16,7 +16,7 @@ import type { UsageEvent } from '@qiongqi/contracts'
 import type { ServerRuntime } from './server-runtime.js'
 import { jsonResponse, type JsonResponse } from '../response.js'
 import type { AuthActor } from '../auth-service.js'
-import type { KWorksUsageEventRecord } from '../kworks-user-data-store.js'
+import type { UserUsageEventRecord } from '../user-data-store.js'
 
 /**
  * Usage endpoint response shape. The `total` field mirrors the
@@ -145,13 +145,13 @@ async function usageRecords(runtime: ServerRuntime, actor?: AuthActor): Promise<
 }
 
 async function usageRecordsFromLedger(runtime: ServerRuntime, userId?: string): Promise<ThreadUsageRecord[]> {
-  const store = runtime.kworksUserDataStore
+  const store = runtime.userDataStore
   if (!store?.listUsageEvents) return []
   const events = await store.listUsageEvents(userId)
   return usageLedgerEventsToRecords(events)
 }
 
-function usageLedgerEventsToRecords(events: KWorksUsageEventRecord[]): ThreadUsageRecord[] {
+function usageLedgerEventsToRecords(events: UserUsageEventRecord[]): ThreadUsageRecord[] {
   const records: ThreadUsageRecord[] = []
   let currentThreadId = ''
   let latestPersisted = emptyUsageSnapshot()
@@ -173,7 +173,7 @@ function usageLedgerEventsToRecords(events: KWorksUsageEventRecord[]): ThreadUsa
   return records
 }
 
-function compareUsageLedgerEvents(a: KWorksUsageEventRecord, b: KWorksUsageEventRecord): number {
+function compareUsageLedgerEvents(a: UserUsageEventRecord, b: UserUsageEventRecord): number {
   return a.threadId.localeCompare(b.threadId) || a.seq - b.seq
 }
 

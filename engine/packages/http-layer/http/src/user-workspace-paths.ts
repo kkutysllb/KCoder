@@ -2,9 +2,9 @@ import { mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-export type KWorksWorkspaceTarget = 'desktop' | 'web'
+export type UserWorkspaceTarget = 'desktop' | 'web'
 
-export type KWorksUserWorkspacePaths = {
+export type UserWorkspacePaths = {
   root: string
   userRoot: string
   data: string
@@ -23,16 +23,16 @@ export type KWorksUserWorkspacePaths = {
   logs: string
 }
 
-export function defaultKWorksWorkspaceRoot(
+export function defaultUserWorkspaceRoot(
   env: Record<string, string | undefined> = process.env,
-  target: KWorksWorkspaceTarget = env.KWORKS_RUNTIME_TARGET === 'desktop' ? 'desktop' : 'web'
+  _target: UserWorkspaceTarget = env.QIONGQI_RUNTIME_TARGET === 'desktop' ? 'desktop' : 'web'
 ): string {
-  if (env.KWORKS_WORKSPACE_DIR?.trim()) return env.KWORKS_WORKSPACE_DIR.trim()
-  return join(env.HOME || env.USERPROFILE || homedir(), target === 'desktop' ? '.kworks-workspace' : '.kworks-workspace-web')
+  if (env.QIONGQI_WORKSPACE_DIR?.trim()) return env.QIONGQI_WORKSPACE_DIR.trim()
+  return join(env.HOME || env.USERPROFILE || homedir(), '.qiongqi')
 }
 
-export function kworksUserWorkspacePaths(root: string, userId: string): KWorksUserWorkspacePaths {
-  const userRoot = join(root, 'users', sanitizeKWorksUserId(userId))
+export function userWorkspacePaths(root: string, userId: string): UserWorkspacePaths {
+  const userRoot = join(root, 'users', sanitizeUserId(userId))
   return {
     root,
     userRoot,
@@ -53,7 +53,7 @@ export function kworksUserWorkspacePaths(root: string, userId: string): KWorksUs
   }
 }
 
-export async function ensureKWorksUserWorkspace(paths: KWorksUserWorkspacePaths): Promise<void> {
+export async function ensureUserWorkspace(paths: UserWorkspacePaths): Promise<void> {
   await Promise.all([
     mkdir(paths.threads, { recursive: true }),
     mkdir(paths.workspace, { recursive: true }),
@@ -64,7 +64,7 @@ export async function ensureKWorksUserWorkspace(paths: KWorksUserWorkspacePaths)
   ])
 }
 
-function sanitizeKWorksUserId(userId: string): string {
+function sanitizeUserId(userId: string): string {
   const cleaned = userId.trim().replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+$/, '_')
   return cleaned || 'default'
 }

@@ -2,18 +2,18 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { AuthSnapshot, SessionRecord, UserRecord } from './auth-store.js'
 import type {
-  KWorksModelProfileRecord,
-  KWorksUsageEventRecord,
-  KWorksUserDataStore
-} from './kworks-user-data-store.js'
-import { ensureKWorksUserWorkspace, kworksUserWorkspacePaths } from './kworks-workspace-paths.js'
+  UserModelProfileRecord,
+  UserUsageEventRecord,
+  UserDataStore
+} from './user-data-store.js'
+import { ensureUserWorkspace, userWorkspacePaths } from './user-workspace-paths.js'
 
-export class SqliteKWorksUserDataStore implements KWorksUserDataStore {
+export class SqliteUserDataStore implements UserDataStore {
   private db: SqliteDatabase | null = null
   private readonly dbPath: string
 
   constructor(private readonly options: { workspaceRoot: string; sqlitePath?: string }) {
-    this.dbPath = options.sqlitePath ?? join(options.workspaceRoot, 'system', 'data', 'kworks.sqlite')
+    this.dbPath = options.sqlitePath ?? join(options.workspaceRoot, 'system', 'data', 'user-data.sqlite')
   }
 
   async ready(): Promise<void> {
@@ -99,7 +99,7 @@ export class SqliteKWorksUserDataStore implements KWorksUserDataStore {
   async saveAuth(snapshot: AuthSnapshot): Promise<void> {
     const db = this.requireDb()
     await Promise.all(snapshot.users.map((user) =>
-      ensureKWorksUserWorkspace(kworksUserWorkspacePaths(this.options.workspaceRoot, user.id))
+      ensureUserWorkspace(userWorkspacePaths(this.options.workspaceRoot, user.id))
     ))
     const tx = db.transaction(() => {
       db.prepare('DELETE FROM auth_sessions').run()
@@ -142,7 +142,7 @@ export class SqliteKWorksUserDataStore implements KWorksUserDataStore {
   }
 
   async setUserSetting(userId: string, key: string, value: unknown): Promise<void> {
-    await ensureKWorksUserWorkspace(kworksUserWorkspacePaths(this.options.workspaceRoot, userId))
+    await ensureUserWorkspace(userWorkspacePaths(this.options.workspaceRoot, userId))
     this.requireDb().prepare(`
       INSERT INTO user_settings (user_id, key, value_json, updated_at)
       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
@@ -152,7 +152,7 @@ export class SqliteKWorksUserDataStore implements KWorksUserDataStore {
     `).run(userId, key, JSON.stringify(value))
   }
 
-  async listModelProfiles(userId: string): Promise<{ activeModel?: string; profiles: Record<string, KWorksModelProfileRecord> }> {
+  async listModelProfiles(userId: string): Promise<{ activeModel?: string; profiles: Record<string, UserModelProfileRecord> }> {
     const db = this.requireDb()
     const state = db.prepare('SELECT active_model AS activeModel FROM user_state WHERE user_id = ?').get(userId) as { activeModel?: string } | undefined
     const rows = db.prepare(`
@@ -162,18 +162,18 @@ export class SqliteKWorksUserDataStore implements KWorksUserDataStore {
       WHERE p.user_id = ?
       ORDER BY p.updated_at DESC
     `).all(userId) as Array<{ name: string; profileJson: string; apiKey?: string | null }>
-    const profiles: Record<string, KWorksModelProfileRecord> = {}
+    const profiles: Record<string, UserModelProfileRecord> = {}
     for (const row of rows) {
-      const parsed = JSON.parse(row.profileJson) as KWorksModelProfileRecord
+      const parsed = JSON.parse(row.profileJson) as UserModelProfileRecord
       profiles[row.name] = { ...parsed, ...(row.apiKey ? { apiKey: row.apiKey } : {}) }
     }
     return { activeModel: state?.activeModel, profiles }
   }
 
-  async saveModelProfile(userId: string, name: string, profile: KWorksModelProfileRecord, secret: { apiKey?: string } = {}): Promise<void> {
+  async saveModelProfile(userId: string, name: string, profile: UserModelProfileRecord, secret: { apiKey?: string } = {}): Promise<void> {
     const db = this.requireDb()
-    const paths = kworksUserWorkspacePaths(this.options.workspaceRoot, userId)
-    await ensureKWorksUserWorkspace(paths)
+    const paths = userWorkspacePaths(this.options.workspaceRoot, userId)
+    await ensureUserWorkspace(paths)
     const profileJson = JSON.stringify(withoutSecret(profile))
     db.prepare(`
       INSERT INTO model_profiles (user_id, name, profile_json, updated_at)
@@ -219,9 +219,9 @@ export class SqliteKWorksUserDataStore implements KWorksUserDataStore {
     return row?.apiKey ? { apiKey: row.apiKey } : {}
   }
 
-  async appendUsageEvent(record: KWorksUsageEventRecord): Promise<void> {
+  async appendUsageEvent(record: UserUsageEventRecord): Promise<void> {
     if (record.userId) {
-      await ensureKWorksUserWorkspace(kworksUserWorkspacePaths(this.options.workspaceRoot, record.userId))
+      await ensureUserWorkspace(userWorkspacePaths(this.options.workspaceRoot, record.userId))
     }
     this.requireDb().prepare(`
       INSERT OR IGNORE INTO usage_events (
@@ -245,7 +245,7 @@ export class SqliteKWorksUserDataStore implements KWorksUserDataStore {
     )
   }
 
-  async listUsageEvents(userId?: string): Promise<KWorksUsageEventRecord[]> {
+  async listUsageEvents(userId?: string): Promise<UserUsageEventRecord[]> {
     const db = this.requireDb()
     const rows = userId
       ? db.prepare(`
@@ -277,7 +277,7 @@ export class SqliteKWorksUserDataStore implements KWorksUserDataStore {
   }
 
   private requireDb(): SqliteDatabase {
-    if (!this.db) throw new Error('KWorks SQLite user data store is not initialized')
+    if (!this.db) throw new Error('SQLite user data store is not initialized')
     return this.db
   }
 }
@@ -321,7 +321,7 @@ function rowToSession(row: unknown): SessionRecord {
   }
 }
 
-function rowToUsageEvent(row: unknown): KWorksUsageEventRecord {
+function rowToUsageEvent(row: unknown): UserUsageEventRecord {
   const item = row as Record<string, string | number | null>
   return {
     ...(typeof item.userId === 'string' && item.userId ? { userId: item.userId } : {}),
@@ -334,7 +334,7 @@ function rowToUsageEvent(row: unknown): KWorksUsageEventRecord {
   }
 }
 
-function withoutSecret(profile: KWorksModelProfileRecord): KWorksModelProfileRecord {
+function withoutSecret(profile: UserModelProfileRecord): UserModelProfileRecord {
   const { apiKey: _apiKey, ...rest } = profile
   return rest
 }

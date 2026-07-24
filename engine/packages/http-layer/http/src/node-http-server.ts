@@ -61,7 +61,7 @@ async function handleNodeRequest(
     outgoing.writeHead(204, {
       'access-control-allow-origin': allowedOrigin,
       'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-      'access-control-allow-headers': 'Content-Type, Authorization, X-Request-ID, X-KWorks-Desktop, X-CSRF-Token, Traceparent, Last-Event-ID',
+      'access-control-allow-headers': 'Content-Type, Authorization, X-Request-ID, X-Qiongqi-Client, X-CSRF-Token, Traceparent, Last-Event-ID',
       'access-control-allow-credentials': 'true',
       'access-control-max-age': '86400'
     })

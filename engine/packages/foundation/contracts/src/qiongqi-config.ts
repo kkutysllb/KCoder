@@ -19,12 +19,15 @@ import {
   MODEL_ENDPOINT_FORMATS,
   normalizeModelEndpointFormat
 } from './model-endpoint-format.js'
+import { AgentGraphSchema } from './multi-agent-runtime.js'
 
 export const QIONGQI_CONFIG_FILENAME = 'config.json'
 export const DEFAULT_QIONGQI_MODEL = 'deepseek-v4-pro'
 
 const PositiveInt = z.number().int().positive()
 const PositiveRatio = z.number().positive().max(1)
+const NonNegativeRatio = z.number().min(0).max(1)
+const NonEmptyString = z.string().trim().min(1)
 
 export const ModelContextCompactionProfileConfigSchema = z
   .object({
@@ -128,6 +131,43 @@ export const RuntimeTuningConfigSchema = z
       enabled: z.boolean().optional(),
       defaultMode: z.enum(['classic', 'kernel_v3']).optional(),
       fallbackBeforeEffect: z.boolean().optional()
+    }).strict().optional(),
+    eventedV2Rollout: z.object({
+      stage: z.enum(['off', 'shadow', 'canary', 'default']).optional(),
+      canaryPercent: z.number().int().min(0).max(100).optional(),
+      shadowSamplePercent: z.number().int().min(0).max(100).optional(),
+      fallbackMode: z.enum(['classic', 'kernel_v3']).optional(),
+      autoFallback: z.object({
+        enabled: z.boolean().optional(),
+        windowSize: PositiveInt.optional(),
+        minRuns: PositiveInt.optional(),
+        failureRateThreshold: NonNegativeRatio.optional(),
+        consecutiveFailures: PositiveInt.optional(),
+        cooldownMs: PositiveInt.optional()
+      }).strict().optional()
+    }).strict().optional(),
+    eventedV2OutboxReconciler: z.object({
+      enabled: z.boolean().optional(),
+      intervalMs: PositiveInt.optional()
+    }).strict().optional(),
+    eventedV2AgentGraph: AgentGraphSchema.optional(),
+    eventedV2AgentPeers: z.record(z.string().min(1), z.string().min(1)).optional(),
+    eventedV2RemoteAgent: z.object({
+      timeoutMs: PositiveInt.optional(),
+      leaseTtlMs: PositiveInt.optional(),
+      workerId: z.string().min(1).optional(),
+      heartbeatTtlMs: PositiveInt.optional(),
+      scheduler: z.object({
+        enabled: z.boolean().optional(),
+        intervalMs: PositiveInt.optional()
+      }).strict().optional(),
+      compensation: z.object({
+        statusConditions: z.object({
+          completed: NonEmptyString.optional(),
+          failed: NonEmptyString.optional(),
+          aborted: NonEmptyString.optional()
+        }).strict().optional()
+      }).strict().optional()
     }).strict().optional(),
     modelStreamIdleTimeoutMs: PositiveInt.optional(),
     toolStorm: z
