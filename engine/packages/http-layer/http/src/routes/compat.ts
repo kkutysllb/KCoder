@@ -1131,6 +1131,47 @@ export async function kworksDeliveryStages(): Promise<JsonResponse> {
   return jsonResponse({ stages: CODING_DELIVERY_STAGES })
 }
 
+/**
+ * GET /v1/workspace/branches?path=<dir> — 列出指定目录（任意路径，非注册项目）的本地分支。
+ * 非工作区或非 git 仓库时返回空列表，供新建任务 UI 填充分支选择器。
+ */
+export async function kworksListBranches(request: Request): Promise<JsonResponse> {
+  const path = new URL(request.url).searchParams.get('path')
+  if (!path) return jsonResponse({ detail: 'path is required' }, 400)
+  if (!(await isGitRepository(path))) {
+    return jsonResponse({ path, branches: [], current: null })
+  }
+  const [branchList, current] = await Promise.all([
+    runGit(path, ['branch', '--list', '--format=%(refname:short)']),
+    runGit(path, ['branch', '--show-current'])
+  ])
+  const branches = branchList
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+  return jsonResponse({ path, branches, current: current.trim() || null })
+}
+
+/**
+ * POST /v1/workspace/branch — 在指定目录新建分支（不切换检出，避免影响其他进程）。
+ * body: { path: string, name: string, base?: string }
+ */
+export async function kworksCreateBranch(request: Request): Promise<JsonResponse> {
+  const body = await readJsonBody(request)
+  if (!body.ok) return body.response
+  if (!isObject(body.value)) return jsonResponse({ detail: 'branch request body must be an object' }, 400)
+  const path = stringValue(body.value.path)
+  if (!path) return jsonResponse({ detail: 'path is required' }, 400)
+  const name = stringValue(body.value.name)?.trim()
+  if (!name) return jsonResponse({ detail: 'name is required' }, 400)
+  if (/\s/.test(name)) return jsonResponse({ detail: 'branch name must not contain whitespace' }, 400)
+  if (!(await isGitRepository(path))) return jsonResponse({ detail: 'path is not a git repository' }, 400)
+  const base = stringValue(body.value.base)?.trim() || undefined
+  const created = await runGitStrict(path, base ? ['branch', name, base] : ['branch', name])
+  if (!created.ok) return jsonResponse({ detail: created.detail }, 400)
+  return jsonResponse({ path, branch: name }, 201)
+}
+
 export async function kworksGetProjectStage(
   runtime: ServerRuntime,
   actor: AuthActor,

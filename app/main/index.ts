@@ -4,6 +4,7 @@ import { startEngine, stopEngine, getEnginePort, getEngineToken } from './engine
 import { createWindow } from './window'
 import { setupMenu } from './menu'
 import { setupTerminalIPC, killAllTerminals } from './terminal'
+import { setupDialogIPC } from './dialog'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -25,6 +26,9 @@ async function bootstrap(): Promise<void> {
 
   // Setup PTY terminal IPC handlers
   setupTerminalIPC(() => mainWindow)
+
+  // Setup folder picker dialog IPC handlers
+  setupDialogIPC(() => mainWindow)
 
   mainWindow.on('closed', () => {
     mainWindow = null

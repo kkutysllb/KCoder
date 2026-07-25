@@ -5,6 +5,7 @@ import { WelcomeScreen } from './components/WelcomeScreen'
 import { ChatPanel } from './components/ChatPanel'
 import { SettingsPanel } from './components/SettingsPanel'
 import { AuthModal } from './components/AuthModal'
+import { NewTaskDialog } from './components/NewTaskDialog'
 import { TerminalPanel } from './components/TerminalPanel'
 import { useChat } from './hooks/useChat'
 import { useAuth } from './hooks/useAuth'
@@ -42,6 +43,7 @@ export default function App() {
   const auth = useAuth(enginePort)
   const [showSettings, setShowSettings] = useState(false)
   const [showAuth, setShowAuth] = useState(false)
+  const [showNewTask, setShowNewTask] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showTerminal, setShowTerminal] = useState(false)
   const [terminalMounted, setTerminalMounted] = useState(false)
@@ -101,6 +103,7 @@ export default function App() {
           onOpenAuth={() => setShowAuth(true)}
           onLogout={() => auth.logout()}
           onSelectThread={(id) => loadThread(id)}
+          onNewTask={() => setShowNewTask(true)}
         />
       )}
 
@@ -151,6 +154,12 @@ export default function App() {
         onClose={() => setShowAuth(false)}
         auth={auth}
         enginePort={enginePort}
+      />
+
+      {/* New task dialog */}
+      <NewTaskDialog
+        isOpen={showNewTask}
+        onClose={() => setShowNewTask(false)}
       />
     </div>
     </I18nProvider>
