@@ -1,162 +1,131 @@
-# 新建任务 UI + 分支选择路由 — 实施计划
+# 4 个无后端面板 CRUD 路由对接实施计划
 
-## 目标
-设计并实现「新建任务」对话框：选择项目目录（Electron 文件夹选择器）+ 选择/新建仓库分支 + 选模型/工作模式 + 填任务标题 → 调 `POST /v1/threads` 创建带完整参数的线程。补 2 个后端路由支持分支列表与新建切换。
+## 现状
+前端 API 客户端方法**已全部写好**（`engine-api.ts` L687-951，类型也齐全），但后端路由不存在（返回 404）。4 个面板用 localStorage mock + 硬编码常量。本次：后端补路由 → 前端从 localStorage 切到真实 API。
 
----
-
-## Phase 1：后端补分支路由（workspace.ts + compat.ts + routes/index.ts）
-
-### 1.1 新增分支相关处理器（compat.ts，与 kworksGitCommitProject 同模式）
-在 compat.ts 末尾新增两个导出函数，复用已有的 `runGit` / `runGitStrict` / `isGitRepository` / `readJsonBody` / `jsonResponse` / `isObject` / `stringValue`：
-
-- `kworksListBranches(workspacePath)` → `GET /v1/workspace/branches?path=`
-  - 校验 `path` 参数；`isGitRepository` 为 false 则返回 `{ branches: [], current: null }`
-  - `git branch --list --format=%(refname:short)` → 解析为 `string[]`
-  - `git branch --show-current` → `current`
-  - 返回 `{ path, branches, current }`
-
-- `kworksCreateBranch(workspacePath, request)` → `POST /v1/workspace/branch`
-  - body: `{ path: string, name: string, base?: string }`
-  - 校验 name 合法性（非空、无空白）；`isGitRepository` 校验
-  - `git branch <name> [<base>]`（不切换，避免影响其他进程）+ 返回 `{ path, branch: name }`
-  - 失败用 `runGitStrict` 返回 detail（例如分支已存在）
-
-### 1.2 注册路由（routes/index.ts）
-在现有 `GET /v1/workspace/status`（约 L806）附近注册：
-```ts
-router.add('GET', '/v1/workspace/branches', async (request) => { … kworksListBranches(request) })
-router.add('POST', '/v1/workspace/branch', async (request) => { … kworksCreateBranch(request) })
-```
-注意：`/v1/workspace/*` 路由用 `authenticateOrInternal`（与 `/api/projects/*` 一致）。
-
-### 1.3 验证
-- `cd engine && pnpm typecheck && pnpm build`
+## 存储方案决策
+**统一用 `userDataStore` JSON 存储**（与 MCP/projects 同模式），而非 `.md` 文件。
+- 理由：4 个面板的数据形状都是结构化 JSON（非纯 markdown 提示词），JSON 存储实现统一、可测试、与现有 `capabilities.mcp`/`coding.projects` 完全一致
+- `.md` 文件方案（镜像 skills）可作为后续增强，本次不做
+- 存储键：`subagents.items`、`plugins.states`、`commands.items`、`remote.config`（加在 compat.ts 现有 `USER_SETTING_*` 常量旁）
 
 ---
 
-## Phase 2：Electron 文件夹选择器 IPC（main + preload）
+## Phase 1：后端 SubAgents CRUD（compat.ts + index.ts）
 
-### 2.1 新增 `setupDialogIPC`（app/main/dialog.ts，镜像 terminal.ts 结构）
-```ts
-export function setupDialogIPC(getWindow: () => BrowserWindow | null): void {
-  ipcMain.handle('dialog:openFolder', async (event, options?) => {
-    const win = BrowserWindow.fromWebContents(event.webContents) ?? getWindow()
-    if (!win) return null
-    const r = await dialog.showOpenDialog(win, {
-      properties: ['openDirectory'],
-      ...options
-    })
-    return r.canceled ? null : r.filePaths[0]
-  })
-}
-```
+### 1.1 compat.ts 新增 handler（5 个）
+复用 `readJsonBody`/`isObject`/`stringValue`/`stringList`/`ownerUserId`，存储用 `userDataStore.getUserSetting/setUserSetting('subagents.items')`：
+- `kworksListSubAgents(runtime, actor)` → 返回 `{ agents: [...BUILTIN_AGENTS, ...userAgents] }`（builtin 硬编码，同前端 mock）
+- `kworksCreateSubAgent(runtime, actor, request)` → body `{name, description, tools, content, inheritMode}`，生成 id，写回数组，201
+- `kworksUpdateSubAgent(runtime, actor, id, request)` → 同上但 map 更新
+- `kworksDeleteSubAgent(runtime, actor, id)` → filter 删除
+- `kworksCloneSubAgent(runtime, actor, id, request)` → 复制 builtin 为 user agent
 
-### 2.2 注册（app/main/index.ts）
-```ts
-import { setupDialogIPC } from './dialog'
-// 在 setupTerminalIPC(() => mainWindow) 之后
-setupDialogIPC(() => mainWindow)
-```
+builtin agents 列表在后端定义（与前端 `BUILTIN_AGENTS` 一致，含 general-purpose 等 10 个 KCoder 专家）。
 
-### 2.3 preload 暴露（app/preload/index.ts）
-在 `kcoder` bridge 加 `dialog` 命名空间（镜像 terminal）：
-```ts
-dialog: {
-  openFolder: (options?) => ipcRenderer.invoke('dialog:openFolder', options) as Promise<string | null>
-}
+### 1.2 index.ts 注册路由（替换 L405 的 stub）
 ```
-并扩展 `Window.kcoder` 类型声明。
+GET    /api/subagents            → list
+POST   /api/subagents            → create
+PUT    /api/subagents/:id        → update
+DELETE /api/subagents/:id        → delete
+POST   /api/subagents/:id/clone  → clone
+```
+全用 `authenticateOrInternal` 守卫。
 
 ---
 
-## Phase 3：前端 API 客户端扩展（engine-api.ts）
+## Phase 2：后端 Commands CRUD
 
-### 3.1 扩展 createThread（已有，改为接受 payload）
-```ts
-async createThread(payload?: {
-  title?: string; workspace?: string; model?: string;
-  workModeId?: string; mode?: 'agent' | 'plan'
-}): Promise<ThreadResponse> {
-  // body: JSON.stringify(payload ?? {})
-}
+### 2.1 compat.ts 新增 handler（4 个）
+存储键 `commands.items`：
+- `kworksListCommands(runtime, actor)` → 返回 `{ commands: [...SKILL_COMMANDS, ...userCommands] }`
+- `kworksCreateCommand` / `kworksUpdateCommand` / `kworksDeleteCommand`
+- skill commands 在后端硬编码（与前端 `SKILL_COMMANDS` 一致）
+
+### 2.2 index.ts 注册路由
 ```
-返回类型改为后端实际返回（ThreadSchema 含 id/createdAt/workspace/model）—— 扩展 ThreadResponse 加 workspace/model/createdAt。
-
-### 3.2 新增方法
-- `listBranches(path): Promise<{ path, branches: string[], current: string | null }>` → `GET /v1/workspace/branches?path=`
-- `createBranch(path, name, base?): Promise<{ path, branch }>` → `POST /v1/workspace/branch`
-- `getWorkspaceStatus(path): Promise<{ path, exists, isGitRepository, branch, headSha, isDirty, fileChangeCount }>` → `GET /v1/workspace/status?path=`（已有路由，前端未对接）
-
-### 3.3 新增 ProjectEntry 类型 + listProjects 方法
-```ts
-interface ProjectEntry { id, name, path, is_git_repo, created_at, updated_at }
-async listProjects(): Promise<{ projects: ProjectEntry[] }> → GET /api/projects
+GET    /api/commands       → list
+POST   /api/commands       → create
+PUT    /api/commands/:id   → update
+DELETE /api/commands/:id   → delete
 ```
 
 ---
 
-## Phase 4：NewTaskDialog 组件（app/renderer/src/components/NewTaskDialog/）
+## Phase 3：后端 Plugins（toggle + discover）
 
-新建 `NewTaskDialog/index.tsx`，采用现有模态模式（`fixed inset-0 z-50` + `bg-black/60` backdrop，参考 AuthModal）。
+### 3.1 compat.ts 新增 handler（3 个）
+存储键 `plugins.states`（`Record<string, boolean>`，仅存 enabled 覆盖）：
+- `kworksListPlugins(runtime, actor)` → 返回 `{ plugins: [...] }`（INSTALLED_PLUGINS 硬编码 + 合并 states）
+- `kworksTogglePlugin(runtime, actor, id, request)` → body `{ enabled }`，更新 states map
+- `kworksDiscoverPlugins()` → 返回 `{ plugins: DISCOVER_PLUGINS }`（marketplace mock，硬编码）
+- `kworksInstallPlugin`/`kworksCheckPluginUpdates` → 简单 stub（返回成功），marketplace 集成后续做
 
-**字段与交互：**
-1. **项目目录**：显示当前路径 + `[选择文件夹]` 按钮（调 `window.kcoder.dialog.openFolder()`）。
-   - 选择后自动调 `getWorkspaceStatus(path)` 显示 git 徽章（分支名 + 干净/脏）。
-   - 若是 git 仓库，调 `listBranches(path)` 填充分支列表。
-2. **仓库分支**：单选列表（radio）+ `[+ 新建]` 切换输入框。
-   - 选已有分支 → 仅记录，不切换（后端当前分支即工作分支）。
-   - 输入新分支名 → 创建任务时先 `createBranch(path, name)`。
-3. **任务标题**：文本输入（可选，留空后端默认 'New chat'）。
-4. **模型**：下拉（数据来自 `getModels()`，标记 active）。
-5. **工作模式**：下拉（coding，KCoder 唯一模式，暂固定；预留扩展）。
-6. **创建/取消**：创建按钮 loading 态，错误内联显示。
-
-**提交流程（createTask）：**
+### 3.2 index.ts 注册路由
 ```
-1. 若新分支名非空 → createBranch(path, name, base)
-2. createThread({ workspace: path, model, workModeId: 'coding', title })
-3. setThreadId + setWorkspacePath(path)
-4. onSuccess → 关闭对话框
+GET  /api/plugins              → list
+POST /api/plugins/:id/toggle   → toggle
+GET  /api/plugins/discover     → marketplace
+POST /api/plugins/install      → stub
+POST /api/plugins/check-update → stub
 ```
-
-### i18n（i18n/index.tsx）
-新增 ~15 个 key（newtask.*），中英双语。
 
 ---
 
-## Phase 5：接入 App 与 Sidebar
+## Phase 4：后端 Remote Control
 
-### 5.1 Sidebar「新建任务」按钮（Sidebar/index.tsx）
-`handleNewChat` 改为：`clearMessages()` + 触发 NewTaskDialog 打开。
-- 新增 `onNewTask?: () => void` prop，按钮 onClick 调用之。
-- 保留 clearMessages/setThreadId(null) 逻辑。
+### 4.1 compat.ts 新增 handler（4 个）
+存储键 `remote.config`（单 JSON 对象，默认值同前端 `DEFAULT_PREFS`）：
+- `kworksGetRemoteConfig(runtime, actor)` → 返回 config（合并默认值）
+- `kworksSaveRemoteConfig(runtime, actor, request)` → 合并写入
+- `kworksListRemoteSessions()` → 返回 `{ sessions: [] }`（无真实会话管理，空列表）
+- `kworksTestRemoteConnection(request)` → body `{url, token}`，fetch 探测，返回 `{ok, latencyMs?, error?}`
+- `kworksRevokeRemoteSession(id)` → stub（无真实会话）
 
-### 5.2 App.tsx 状态管理
-- `const [showNewTask, setShowNewTask] = useState(false)`
-- `<Sidebar onNewTask={() => setShowNewTask(true)} />`
-- `<NewTaskDialog isOpen={showNewTask} onClose={...} onCreated={(thread) => { ... }} />`
-- onCreated：`setThreadId` + `setWorkspacePath` + 关闭对话框（不立即发消息，进入空对话等用户输入）
+### 4.2 index.ts 注册路由
+```
+GET    /api/remote/config         → config
+PUT    /api/remote/config         → save
+POST   /api/remote/test           → test
+GET    /api/remote/sessions       → list (empty)
+DELETE /api/remote/sessions/:id   → revoke (stub)
+```
 
-### 5.3 useChat.ts sendMessage
-- 当 threadId 已存在（由 NewTaskDialog 创建）时，跳过 createThread，直接用现有 threadId 发消息。
-- 已有逻辑覆盖（`if (!currentThreadId)` 守卫）—— 无需改动。
+---
+
+## Phase 5：前端面板切真实 API（4 个文件）
+
+每个面板统一改造模式：
+1. 删除 `loadMock()`/`saveMock()` localStorage 函数
+2. `useEffect` 在挂载时调 `api.listXxx()` 加载，存入 state
+3. create/update/delete/clone 改调 `api.createXxx()` 等，成功后刷新列表
+4. 保留硬编码 builtin/skill 常量在前端（用于即时渲染，API 返回的也含这些）—— 或直接用 API 返回的合并列表（更简洁，**推荐**）
+5. 保留 loading/error 态
+
+**文件：**
+- `SubAgentsSettings.tsx` → `api.listSubAgents/createSubAgent/updateSubAgent/deleteSubAgent/cloneSubAgent`
+- `CommandsSettings.tsx` → `api.listCommands/createCommand/updateCommand/deleteCommand`
+- `PluginsSettings.tsx` → `api.listPlugins/togglePlugin`（discover/install/check-update 保留 UI）
+- `RemoteSettings.tsx` → `api.getRemoteConfig/saveRemoteConfig/testRemoteConnection/listRemoteSessions`
+
+**engine-api.ts**：已有的方法签名基本匹配，可能微调返回类型（如 list 返回 `{agents}` vs 数组）。
 
 ---
 
 ## 验证
-
 每个 Phase 后：
-- `cd app && npx tsc --noEmit`（前端类型检查）
-- Phase 1 后：`cd engine && pnpm typecheck && pnpm build`
-- 手动 `pnpm dev`：点「新建任务」→ 选目录 → 看到分支列表 → 输入新分支 → 创建 → 验证 thread 创建 + workspace 切换 + 分支被创建
+- `cd engine && pnpm typecheck && pnpm build`
+- `cd app && npx tsc --noEmit`
+- Phase 1-4 后：`cd engine && pnpm vitest run tests/`（确认不破坏现有测试）
+- 手动验证：打开设置面板，增删改查操作持久化生效
 
 ## 文件清单
-**后端（3 文件）：** compat.ts（+2 函数）、routes/index.ts（+2 路由）
-**Electron（3 文件）：** app/main/dialog.ts（新）、app/main/index.ts（+1 行）、app/preload/index.ts（+dialog 命名空间）
-**前端（5 文件）：** engine-api.ts（扩展）、NewTaskDialog/index.tsx（新）、Sidebar/index.tsx（改 handleNewChat）、App.tsx（+状态）、i18n/index.tsx（+key）
+**后端（2 文件）：** compat.ts（+~16 handler）、routes/index.ts（+~20 路由）
+**前端（5 文件）：** engine-api.ts（微调）、4 个 Settings 面板（localStorage → API）
 
 ## 不在本次范围
-- 4 个无后端面板的 CRUD（subagents/plugins/commands/remote）—— 用户明确为下一步
-- 分支切换 UI（当前仅创建，不切换检出）—— 后续可加 checkout 路由
-- worktree 隔离模式 —— 已明确排除
+- `.md` 文件存储方案（本次用 JSON，后续可增强）
+- 真实的插件 marketplace 集成（install/check-update 用 stub）
+- 真实的远程会话管理（sessions 返回空列表，revoke stub）
+- 「打开文件夹」IPC（各面板的 openFolder 按钮仍为 stub）
