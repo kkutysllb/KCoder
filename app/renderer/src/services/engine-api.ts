@@ -241,6 +241,33 @@ export type TurnExecutionView =
   | { version: 1; available: true; revision: string; status: ExecutionStatus; decision: RuntimeDecisionView; agents: AgentExecutionView[]; mode: 'classic'; compatibility: { reason: string } }
   | { version: 1; available: false; revision: string; reason: string }
 
+// ============ Thread Goal / Todos types ============
+
+export interface ThreadGoal {
+  threadId: string
+  objective: string
+  status: 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete'
+  tokenBudget?: number | null
+  tokensUsed: number
+  timeUsedSeconds: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ThreadTodoItem {
+  id: string
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ThreadTodoList {
+  threadId: string
+  items: ThreadTodoItem[]
+  updatedAt: string
+}
+
 /** ApprovalRequest — 审批请求（来自 approval_requested SSE 事件）。 */
 export interface ApprovalRequest {
   approvalId: string
@@ -634,6 +661,28 @@ export class EngineAPI {
       throw new Error(`Failed to get turn execution: ${response.statusText}`)
     }
     return response.json()
+  }
+
+  // ============ Thread Goal / Todos API ============
+
+  async getThreadGoal(threadId: string): Promise<ThreadGoal | null> {
+    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}/goal`, {
+      headers: this.headers
+    })
+    if (response.status === 404) return null
+    if (!response.ok) throw new Error(`Failed to get goal: ${response.statusText}`)
+    const data = await response.json()
+    return data.goal ?? null
+  }
+
+  async getThreadTodos(threadId: string): Promise<ThreadTodoList | null> {
+    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}/todos`, {
+      headers: this.headers
+    })
+    if (response.status === 404) return null
+    if (!response.ok) throw new Error(`Failed to get todos: ${response.statusText}`)
+    const data = await response.json()
+    return data.todos ?? null
   }
 
   // Resolve an approval — POST /v1/approvals/:id

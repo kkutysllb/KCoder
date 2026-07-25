@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ApprovalRequest, UserInputRequest, TurnExecutionView } from '../services/engine-api'
+import type { ApprovalRequest, UserInputRequest, TurnExecutionView, ThreadGoal, ThreadTodoList } from '../services/engine-api'
 
 // 富内容消息部件 — assistant 消息由多个 part 组成（文本/推理/工具调用/工具结果/usage/审批）
 export type MessagePart =
@@ -26,6 +26,12 @@ export type EngineStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
 /** 编排偏好：standard（标准/单 agent，kernel_v3）或 team（团队/多 agent，evented_v2） */
 export type OrchestrationPreference = 'standard' | 'team'
+
+/** 浮动面板展开策略 */
+export type PanelStrategy = 'manual' | 'auto'
+
+/** 浮动面板激活的 tab */
+export type PanelTab = 'execution' | 'plan' | 'env'
 
 // App state
 interface AppState {
@@ -57,6 +63,15 @@ interface AppState {
   activeTurnId: string | null
   turnExecution: TurnExecutionView | null
 
+  // 浮动信息面板
+  panelOpen: boolean
+  panelStrategy: PanelStrategy
+  panelTab: PanelTab
+
+  // 线程目标 + 待办（GET /v1/threads/:id/goal + /todos）
+  threadGoal: ThreadGoal | null
+  threadTodos: ThreadTodoList | null
+
   // Actions
   initializeEngine: (port: number) => void
   setEngineStatus: (status: EngineStatus) => void
@@ -76,6 +91,11 @@ interface AppState {
   setOrchestrationPreference: (pref: OrchestrationPreference) => void
   setActiveTurnId: (id: string | null) => void
   setTurnExecution: (view: TurnExecutionView | null) => void
+  setPanelOpen: (open: boolean) => void
+  setPanelStrategy: (strategy: PanelStrategy) => void
+  setPanelTab: (tab: PanelTab) => void
+  setThreadGoal: (goal: ThreadGoal | null) => void
+  setThreadTodos: (todos: ThreadTodoList | null) => void
   clearMessages: () => void
 }
 
@@ -96,6 +116,11 @@ export const useAppStore = create<AppState>((set) => ({
   orchestrationPreference: 'standard',
   activeTurnId: null,
   turnExecution: null,
+  panelOpen: false,
+  panelStrategy: 'manual',
+  panelTab: 'execution',
+  threadGoal: null,
+  threadTodos: null,
 
   // Actions
   initializeEngine: (port) =>
@@ -176,6 +201,11 @@ export const useAppStore = create<AppState>((set) => ({
   setOrchestrationPreference: (pref) => set({ orchestrationPreference: pref }),
   setActiveTurnId: (id) => set({ activeTurnId: id }),
   setTurnExecution: (view) => set({ turnExecution: view }),
+  setPanelOpen: (open) => set({ panelOpen: open }),
+  setPanelStrategy: (strategy) => set({ panelStrategy: strategy }),
+  setPanelTab: (tab) => set({ panelTab: tab }),
+  setThreadGoal: (goal) => set({ threadGoal: goal }),
+  setThreadTodos: (todos) => set({ threadTodos: todos }),
 
   clearMessages: () => set({ messages: [], threadId: null, pendingNewBranch: null })
 }))
