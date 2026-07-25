@@ -170,10 +170,8 @@ function SortMenu({
 }
 
 export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, onLogout, onSelectThread }: SidebarProps) {
-  const [activeTab, setActiveTab] = useState<'group' | 'project'>('project')
   const [showSortMenu, setShowSortMenu] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
-  const [viewMode, setViewMode] = useState<'project' | 'timeline'>('timeline')
   const [sortBy, setSortBy] = useState<'updated' | 'created'>('updated')
   const [threads, setThreads] = useState<ThreadSummary[]>([])
   const [loadingThreads, setLoadingThreads] = useState(false)
@@ -255,32 +253,9 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
         </button>
       </div>
 
-      {/* Tabs + sort/archive controls (reference design) */}
+      {/* Sort/archive controls */}
       <div className="px-3 py-2">
         <div className="flex items-center gap-1.5 text-[13px]">
-          <button
-            onClick={() => setActiveTab('group')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors ${
-              activeTab === 'group'
-                ? 'bg-[#1e1e22] text-white'
-                : 'bg-[#2d2d32] text-[#b0b0b5] hover:text-white'
-            }`}
-          >
-            <Icons.Hash />
-            <span>{t('sidebar.group')}</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('project')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors ${
-              activeTab === 'project'
-                ? 'bg-[#1e1e22] text-white'
-                : 'bg-[#2d2d32] text-[#b0b0b5] hover:text-white'
-            }`}
-          >
-            <Icons.Folder />
-            <span>{t('sidebar.project')}</span>
-          </button>
-
           {/* Sort / filter + archive */}
           <div className="ml-auto flex items-center gap-0.5">
             <div className="relative">
@@ -295,9 +270,9 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
               </button>
               {showSortMenu && (
                 <SortMenu
-                  viewMode={viewMode}
+                  viewMode="project"
                   sortBy={sortBy}
-                  onViewMode={(v) => { setViewMode(v); setShowSortMenu(false) }}
+                  onViewMode={() => setShowSortMenu(false)}
                   onSortBy={(s) => { setSortBy(s); setShowSortMenu(false) }}
                   onClose={() => setShowSortMenu(false)}
                 />
@@ -321,7 +296,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
         {t('sidebar.conversations')}
       </div>
 
-      {/* 会话列表（对接 GET /v1/threads） */}
+      {/* 会话列表（按项目目录分组，对接 GET /v1/threads） */}
       <div className="flex-1 overflow-y-auto px-3 pb-4">
         {loadingThreads && threads.length === 0 && (
           <div className="px-2 py-4 text-xs text-text-muted text-center">加载中…</div>
@@ -331,23 +306,49 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
             {engineStatus === 'connected' ? '暂无会话，点击「新建任务」开始' : '引擎未连接'}
           </div>
         )}
-        {threads.map(thread => {
-          const isActive = thread.id === threadId
-          const time = formatRelativeTime(thread.updatedAt)
-          return (
-            <button
-              key={thread.id}
-              className={`task-item w-full ${isActive ? 'bg-bg-hover text-text-primary' : ''}`}
-              onClick={() => selectThread(thread.id, thread.workspace)}
-              title={thread.title || thread.id}
-            >
-              <span className="truncate flex-1 text-left">
-                {thread.title || '未命名会话'}
-              </span>
-              <span className="text-xs text-text-muted shrink-0 ml-2">{time}</span>
-            </button>
-          )
-        })}
+        {(() => {
+          // 按 workspace 分组
+          const groups = new Map<string, ThreadSummary[]>()
+          for (const thread of threads) {
+            const key = thread.workspace || ''
+            const list = groups.get(key) ?? []
+            list.push(thread)
+            groups.set(key, list)
+          }
+          return Array.from(groups.entries()).map(([workspace, groupThreads]) => {
+            const projectName = workspace ? workspace.split('/').pop() : t('sidebar.ungrouped')
+            return (
+              <div key={workspace || '__ungrouped'} className="mb-4">
+                {/* 项目分组标题 */}
+                <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-medium text-text-muted">
+                  <Icons.Folder />
+                  <span className="truncate flex-1" title={workspace || undefined}>{projectName}</span>
+                  <span className="text-[10px] opacity-60">{groupThreads.length}</span>
+                </div>
+                {/* 该项目下的任务 */}
+                <div className="space-y-0.5">
+                  {groupThreads.map(thread => {
+                    const isActive = thread.id === threadId
+                    const time = formatRelativeTime(thread.updatedAt)
+                    return (
+                      <button
+                        key={thread.id}
+                        className={`task-item w-full ${isActive ? 'bg-bg-hover text-text-primary' : ''}`}
+                        onClick={() => selectThread(thread.id, thread.workspace)}
+                        title={thread.title || thread.id}
+                      >
+                        <span className="truncate flex-1 text-left">
+                          {thread.title || '未命名会话'}
+                        </span>
+                        <span className="text-xs text-text-muted shrink-0 ml-2">{time}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })
+        })()}
       </div>
 
       {/* User profile */}
