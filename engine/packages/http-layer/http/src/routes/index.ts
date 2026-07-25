@@ -1059,7 +1059,8 @@ export function buildRouter(runtime: ServerRuntime): Router {
     })()
   })
   router.add('POST', '/v1/approvals/:id', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
     return decideApproval({
       approvalId: ctx.params.id,
       request,
@@ -1068,7 +1069,8 @@ export function buildRouter(runtime: ServerRuntime): Router {
     })
   })
   router.add('POST', '/v1/user-inputs/:id', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
     return resolveUserInput({
       inputId: ctx.params.id,
       request,
@@ -1076,7 +1078,8 @@ export function buildRouter(runtime: ServerRuntime): Router {
     })
   })
   router.add('POST', '/v1/user-input/:id', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
     return resolveUserInput({
       inputId: ctx.params.id,
       request,

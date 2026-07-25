@@ -162,6 +162,30 @@ export interface TurnResponse {
   userMessageItemId: string
 }
 
+/** ApprovalRequest — 审批请求（来自 approval_requested SSE 事件）。 */
+export interface ApprovalRequest {
+  approvalId: string
+  toolName: string
+  summary?: string
+  status: 'pending' | 'allowed' | 'denied' | 'expired'
+}
+
+/** UserInputQuestion — 结构化输入的单个问题。 */
+export interface UserInputQuestion {
+  header: string
+  id: string
+  question: string
+  options: Array<{ label: string; description: string }>
+}
+
+/** UserInputRequest — 结构化输入请求（来自 user_input_requested SSE 事件）。 */
+export interface UserInputRequest {
+  inputId: string
+  prompt?: string
+  status: 'pending' | 'submitted' | 'cancelled'
+  questions?: UserInputQuestion[]
+}
+
 // ============ Auth types (aligned with engine AuthService) ============
 
 export interface AuthUser {
@@ -513,6 +537,49 @@ export class EngineAPI {
       // 超时保底（10 分钟）
       setTimeout(finish, 10 * 60 * 1000)
     })
+  }
+
+  // ============ Approval / User Input API ============
+
+  // Resolve an approval — POST /v1/approvals/:id
+  async decideApproval(approvalId: string, decision: 'allow' | 'deny', reason?: string): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/v1/approvals/${encodeURIComponent(approvalId)}`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ decision, ...(reason ? { reason } : {}) })
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to resolve approval: ${text}`)
+    }
+    return response.json()
+  }
+
+  // Resolve a user-input request — POST /v1/user-inputs/:id
+  async resolveUserInput(inputId: string, answers: Array<{ id: string; label: string; value: string }>): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/v1/user-inputs/${encodeURIComponent(inputId)}`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ answers })
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to resolve user input: ${text}`)
+    }
+    return response.json()
+  }
+
+  // Cancel a user-input request — POST /v1/user-inputs/:id { cancelled: true }
+  async cancelUserInput(inputId: string): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/v1/user-inputs/${encodeURIComponent(inputId)}`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ cancelled: true })
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to cancel user input: ${response.statusText}`)
+    }
+    return response.json()
   }
 
   // 列出会话 — GET /v1/threads

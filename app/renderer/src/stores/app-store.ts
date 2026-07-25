@@ -1,12 +1,14 @@
 import { create } from 'zustand'
+import type { ApprovalRequest, UserInputRequest } from '../services/engine-api'
 
-// 富内容消息部件 — assistant 消息由多个 part 组成（文本/推理/工具调用/工具结果/usage）
+// 富内容消息部件 — assistant 消息由多个 part 组成（文本/推理/工具调用/工具结果/usage/审批）
 export type MessagePart =
   | { type: 'text'; text: string }
   | { type: 'reasoning'; text: string }
   | { type: 'tool_call'; toolName: string; status: 'running' | 'completed' | 'failed'; callId?: string; summary?: string }
   | { type: 'tool_result'; toolName: string; output?: string; isError?: boolean }
   | { type: 'usage'; promptTokens: number; completionTokens: number; totalTokens: number }
+  | { type: 'approval'; approvalId: string; toolName: string; summary?: string; status: 'pending' | 'allowed' | 'denied' | 'expired' }
 
 // Message types
 export interface Message {
@@ -41,6 +43,10 @@ interface AppState {
   /** 新建任务时使用的分支名（非空表示要在创建线程前新建该分支） */
   pendingNewBranch: string | null
 
+  // 交互请求（审批 + 结构化输入）— 后端发 SSE 事件，前端需用户响应
+  pendingApproval: ApprovalRequest | null
+  pendingUserInput: UserInputRequest | null
+
   // Actions
   initializeEngine: (port: number) => void
   setEngineStatus: (status: EngineStatus) => void
@@ -49,11 +55,14 @@ interface AppState {
   updateMessage: (id: string, content: string) => void
   appendMessagePart: (id: string, part: MessagePart) => void
   updateLastToolCall: (id: string, callId: string, patch: Partial<Extract<MessagePart, { type: 'tool_call' }>>) => void
+  updateApprovalPart: (messageId: string, approvalId: string, status: 'pending' | 'allowed' | 'denied' | 'expired') => void
   setGenerating: (generating: boolean) => void
   setWorkspacePath: (path: string | null) => void
   setSelectedBranch: (branch: string | null) => void
   setSelectedModel: (model: string | null) => void
   setPendingNewBranch: (branch: string | null) => void
+  setPendingApproval: (approval: ApprovalRequest | null) => void
+  setPendingUserInput: (input: UserInputRequest | null) => void
   clearMessages: () => void
 }
 
@@ -69,6 +78,8 @@ export const useAppStore = create<AppState>((set) => ({
   selectedBranch: null,
   selectedModel: null,
   pendingNewBranch: null,
+  pendingApproval: null,
+  pendingUserInput: null,
 
   // Actions
   initializeEngine: (port) =>
@@ -125,12 +136,27 @@ export const useAppStore = create<AppState>((set) => ({
       })
     })),
 
+  updateApprovalPart: (messageId, approvalId, status) =>
+    set((state) => ({
+      messages: state.messages.map((msg) => {
+        if (msg.id !== messageId || !msg.parts) return msg
+        return {
+          ...msg,
+          parts: msg.parts.map((p) =>
+            p.type === 'approval' && p.approvalId === approvalId ? { ...p, status } : p
+          )
+        }
+      })
+    })),
+
   setGenerating: (generating) => set({ isGenerating: generating }),
 
   setWorkspacePath: (path) => set({ workspacePath: path }),
   setSelectedBranch: (branch) => set({ selectedBranch: branch }),
   setSelectedModel: (model) => set({ selectedModel: model }),
   setPendingNewBranch: (branch) => set({ pendingNewBranch: branch }),
+  setPendingApproval: (approval) => set({ pendingApproval: approval }),
+  setPendingUserInput: (input) => set({ pendingUserInput: input }),
 
   clearMessages: () => set({ messages: [], threadId: null, pendingNewBranch: null })
 }))

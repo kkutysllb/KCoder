@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react'
 import { useAppStore, type Message, type MessagePart } from '../stores/app-store'
-import { getEngineAPI, type SSEEvent } from '../services/engine-api'
+import { getEngineAPI, type SSEEvent, type ApprovalRequest, type UserInputRequest } from '../services/engine-api'
 
 export function useChat() {
   const {
@@ -13,6 +13,9 @@ export function useChat() {
     updateMessage,
     appendMessagePart,
     updateLastToolCall,
+    updateApprovalPart,
+    setPendingApproval,
+    setPendingUserInput,
     setGenerating,
     setEngineStatus,
     clearMessages
@@ -102,6 +105,55 @@ export function useChat() {
           break
         }
 
+        // —— 审批请求 ——
+        case 'approval_requested': {
+          const approvalId = (data.approvalId as string) ?? ''
+          const toolName = (data.toolName as string) ?? 'tool'
+          const summary = (data.summary as string) ?? undefined
+          const status = (data.status as ApprovalRequest['status']) ?? 'pending'
+          if (approvalId) {
+            // 在当前 assistant 消息内追加审批卡片 part
+            appendMessagePart(assistantMessageId, { type: 'approval', approvalId, toolName, summary, status })
+            // 记录待处理审批（UI 渲染审批按钮）
+            if (status === 'pending') {
+              setPendingApproval({ approvalId, toolName, summary, status })
+            }
+          }
+          break
+        }
+        case 'approval_resolved': {
+          const approvalId = (data.approvalId as string) ?? ''
+          const status = (data.status as ApprovalRequest['status']) ?? 'allowed'
+          if (approvalId) {
+            updateApprovalPart(assistantMessageId, approvalId, status)
+            // 清除待处理（若是当前 pending 的那个）
+            const pending = useAppStore.getState().pendingApproval
+            if (pending?.approvalId === approvalId) setPendingApproval(null)
+          }
+          break
+        }
+
+        // —— 结构化输入请求 ——
+        case 'user_input_requested': {
+          const inputId = (data.inputId as string) ?? ''
+          if (inputId) {
+            const req: UserInputRequest = {
+              inputId,
+              prompt: (data.prompt as string) ?? undefined,
+              status: 'pending',
+              questions: (data.questions as UserInputRequest['questions']) ?? undefined
+            }
+            setPendingUserInput(req)
+          }
+          break
+        }
+        case 'user_input_resolved': {
+          const inputId = (data.inputId as string) ?? ''
+          const pending = useAppStore.getState().pendingUserInput
+          if (pending?.inputId === inputId) setPendingUserInput(null)
+          break
+        }
+
         // turn 终止事件由 subscribeToThread 处理（resolve promise）
         case 'turn_completed':
         case 'turn_failed':
@@ -122,17 +174,13 @@ export function useChat() {
         case 'goal_cleared':
         case 'todos_updated':
         case 'todos_cleared':
-        case 'approval_requested':
-        case 'approval_resolved':
-        case 'user_input_requested':
-        case 'user_input_resolved':
         case 'agent_message_delta':
         case 'agent_message_completed':
           // 这些事件暂不渲染（后续迭代），静默忽略
           break
       }
     },
-    [appendMessagePart, updateLastToolCall]
+    [appendMessagePart, updateLastToolCall, updateApprovalPart, setPendingApproval, setPendingUserInput]
   )
 
   // Send a message
@@ -260,6 +308,39 @@ export function useChat() {
     clearMessages()
   }, [clearMessages])
 
+  // 解决审批请求（允许/拒绝）
+  const resolveApproval = useCallback(async (approvalId: string, decision: 'allow' | 'deny', reason?: string) => {
+    const api = getEngineAPI(enginePort)
+    try {
+      await api.decideApproval(approvalId, decision, reason)
+      setPendingApproval(null)
+    } catch (e) {
+      console.error('[useChat] Failed to resolve approval:', e)
+    }
+  }, [enginePort, setPendingApproval])
+
+  // 提交结构化输入
+  const submitUserInput = useCallback(async (inputId: string, answers: Array<{ id: string; label: string; value: string }>) => {
+    const api = getEngineAPI(enginePort)
+    try {
+      await api.resolveUserInput(inputId, answers)
+      setPendingUserInput(null)
+    } catch (e) {
+      console.error('[useChat] Failed to submit user input:', e)
+    }
+  }, [enginePort, setPendingUserInput])
+
+  // 取消结构化输入
+  const cancelUserInput = useCallback(async (inputId: string) => {
+    const api = getEngineAPI(enginePort)
+    try {
+      await api.cancelUserInput(inputId)
+      setPendingUserInput(null)
+    } catch (e) {
+      console.error('[useChat] Failed to cancel user input:', e)
+    }
+  }, [enginePort, setPendingUserInput])
+
   return {
     messages,
     isGenerating,
@@ -267,7 +348,10 @@ export function useChat() {
     sendMessage,
     newChat,
     loadThread,
-    checkConnection
+    checkConnection,
+    resolveApproval,
+    submitUserInput,
+    cancelUserInput
   }
 }
 

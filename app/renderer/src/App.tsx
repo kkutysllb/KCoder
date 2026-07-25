@@ -6,6 +6,7 @@ import { ChatPanel } from './components/ChatPanel'
 import { SettingsPanel } from './components/SettingsPanel'
 import { AuthModal } from './components/AuthModal'
 import { TerminalPanel } from './components/TerminalPanel'
+import { UserInputModal } from './components/ChatPanel/UserInputModal'
 import { useChat } from './hooks/useChat'
 import { useAuth } from './hooks/useAuth'
 import { getEngineAPI } from './services/engine-api'
@@ -152,6 +153,9 @@ export default function App() {
         auth={auth}
         enginePort={enginePort}
       />
+
+      {/* 结构化输入弹窗（后端 user_input_requested 事件触发） */}
+      <UserInputModal />
     </div>
     </I18nProvider>
   )
