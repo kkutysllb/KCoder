@@ -7,6 +7,7 @@ import { SettingsPanel } from './components/SettingsPanel'
 import { AuthModal } from './components/AuthModal'
 import { TerminalPanel } from './components/TerminalPanel'
 import { UserInputModal } from './components/ChatPanel/UserInputModal'
+import { InfoPanel } from './components/InfoPanel'
 import { useChat } from './hooks/useChat'
 import { useAuth } from './hooks/useAuth'
 import { getEngineAPI } from './services/engine-api'
@@ -127,6 +128,58 @@ function OrchestrationToggle() {
   )
 }
 
+/** 浮动信息面板开关按钮 */
+function PanelToggleButton() {
+  const { t } = useI18n()
+  const { panelOpen, setPanelOpen } = useAppStore()
+  return (
+    <button
+      onClick={() => setPanelOpen(!panelOpen)}
+      title={t('panel.toggle')}
+      className={`p-1.5 rounded-md transition-colors ${
+        panelOpen ? 'text-white bg-bg-hover' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
+      }`}
+    >
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25A2.25 2.25 0 0113.5 8.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+      </svg>
+    </button>
+  )
+}
+
+/** 展开策略按钮（手动/自动） */
+function PanelStrategyButton() {
+  const { t } = useI18n()
+  const { panelStrategy, setPanelStrategy, panelOpen, setPanelOpen } = useAppStore()
+  const isAuto = panelStrategy === 'auto'
+  return (
+    <button
+      onClick={() => {
+        const next = isAuto ? 'manual' : 'auto'
+        setPanelStrategy(next)
+        // 切到 auto 时若面板已关则不强制开（等数据触发）；切到 manual 时保持当前状态
+        if (next === 'manual' && !panelOpen) setPanelOpen(false)
+      }}
+      title={isAuto ? t('panel.strategyAuto') : t('panel.strategyManual')}
+      className={`p-1.5 rounded-md transition-colors ${
+        isAuto ? 'text-[#3b82f6] bg-[#3b82f6]/10' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
+      }`}
+    >
+      {isAuto ? (
+        /* 自动：闪电图标 */
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+        </svg>
+      ) : (
+        /* 手动：手形图标 */
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M10.05 4.575a1.575 1.575 0 10-3.15 0v3m3.15-3v-1.5a1.575 1.575 0 013.15 0v1.5m-3.15 0l.075 5.975m.075-5.975a1.575 1.575 0 013.15 0v3m-9.45-.75V7.5a1.575 1.575 0 013.15 0v4.312m0-1.687a1.575 1.575 0 013.15 0v3m0 0V12m0 0a1.575 1.575 0 013.15 0v4.312c0 .433-.09.85-.252 1.233l-.424.994a3.375 3.375 0 01-2.51 2.024l-.426.085a7.59 7.59 0 01-3.057-.067c-.51-.114-1.02-.275-1.49-.488a6.15 6.15 0 01-1.005-.564l-.275-.19a3.375 3.375 0 01-1.292-2.992l.425-3.397" />
+        </svg>
+      )}
+    </button>
+  )
+}
+
 export default function App() {
   const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath } = useAppStore()
   const { sendMessage, isGenerating, loadThread } = useChat()
@@ -197,9 +250,13 @@ export default function App() {
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
-        {/* Top-right controls: orchestration switcher + terminal toggle */}
+        {/* Top-right controls: orchestration + panel strategy + panel toggle + terminal */}
         <div className="absolute top-3 right-4 z-30 no-drag flex items-center gap-1">
           <OrchestrationToggle />
+          <div className="w-px h-4 bg-border-custom mx-0.5" />
+          <PanelStrategyButton />
+          <PanelToggleButton />
+          <div className="w-px h-4 bg-border-custom mx-0.5" />
           <TerminalToggleButton active={showTerminal} onToggle={toggleTerminal} />
         </div>
 
@@ -249,6 +306,9 @@ export default function App() {
 
       {/* 结构化输入弹窗（后端 user_input_requested 事件触发） */}
       <UserInputModal />
+
+      {/* 浮动信息面板（执行/计划/环境） */}
+      <InfoPanel />
     </div>
     </I18nProvider>
   )

@@ -63,6 +63,24 @@ const zhCN: Dict = {
   'execution.status.failed': '失败',
   'execution.status.aborted': '已中止',
 
+  // Floating info panel
+  'panel.toggle': '信息面板',
+  'panel.collapse': '折叠面板',
+  'panel.strategyManual': '手动展开',
+  'panel.strategyAuto': '自动展开（有执行数据时）',
+  'panel.execution': '执行',
+  'panel.plan': '计划',
+  'panel.env': '环境',
+  'panel.objective': '目标',
+  'panel.todos': '待办',
+  'panel.tokens': 'tokens',
+  'panel.time': '用时',
+  'panel.planEmpty': '暂无目标和待办',
+  'panel.envDir': '项目目录',
+  'panel.envBranch': '当前分支',
+  'panel.envModel': '模型',
+  'panel.envOrch': '编排模式',
+
   // Auth
   'auth.title.login': '登录 KCoder',
   'auth.title.register': '注册账户',
@@ -512,6 +530,24 @@ const en: Dict = {
   'execution.status.completed': 'Completed',
   'execution.status.failed': 'Failed',
   'execution.status.aborted': 'Aborted',
+
+  // Floating info panel
+  'panel.toggle': 'Info Panel',
+  'panel.collapse': 'Collapse panel',
+  'panel.strategyManual': 'Manual expand',
+  'panel.strategyAuto': 'Auto expand (when execution data available)',
+  'panel.execution': 'Execution',
+  'panel.plan': 'Plan',
+  'panel.env': 'Environment',
+  'panel.objective': 'Objective',
+  'panel.todos': 'Todos',
+  'panel.tokens': 'tokens',
+  'panel.time': 'time',
+  'panel.planEmpty': 'No objective and todos yet',
+  'panel.envDir': 'Project Directory',
+  'panel.envBranch': 'Current Branch',
+  'panel.envModel': 'Model',
+  'panel.envOrch': 'Orchestration',
 
   // Auth
   'auth.title.login': 'Sign in to KCoder',

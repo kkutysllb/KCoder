@@ -972,27 +972,33 @@ export function buildRouter(runtime: ServerRuntime): Router {
     return forkThread(runtime.threadService, ctx.params.id, request)
   })
   router.add('GET', '/v1/threads/:id/goal', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
     return getThreadGoal(runtime.threadService, ctx.params.id)
   })
   router.add('POST', '/v1/threads/:id/goal', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
     return setThreadGoal(runtime.threadService, ctx.params.id, request)
   })
   router.add('DELETE', '/v1/threads/:id/goal', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
     return clearThreadGoal(runtime.threadService, ctx.params.id)
   })
   router.add('GET', '/v1/threads/:id/todos', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
     return getThreadTodos(runtime.threadService, ctx.params.id)
   })
   router.add('POST', '/v1/threads/:id/todos', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
     return setThreadTodos(runtime.threadService, ctx.params.id, request)
   })
   router.add('DELETE', '/v1/threads/:id/todos', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
     return clearThreadTodos(runtime.threadService, ctx.params.id)
   })
   router.add('POST', '/v1/threads/:id/turns', async (request, ctx) => {
