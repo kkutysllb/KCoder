@@ -1,263 +1,109 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useI18n } from '../../i18n'
+import { useAppStore } from '../../stores/app-store'
+import { getEngineAPI, type PluginEntry, type DiscoverPlugin } from '../../services/engine-api'
 
 // ============ Plugins Settings Page ============
-// Data model aligned with engine plugin-host:
-//   LoadedSkillPlugin (packages/capabilities/skills/src/plugin-host.ts)
-//   SkillPluginDiagnostics
+// 数据来自后端 GET /api/plugins（已合并 enabled 状态）+ GET /api/plugins/discover。
 
-export interface PluginEntry {
-  id: string
-  name: string
-  version: string
-  description: string
-  /** Built-in plugins ship with the app and cannot be uninstalled */
-  builtin: boolean
-  enabled: boolean
-  source: 'official' | 'community' | 'unknown'
-  category: string
-  /** What this plugin bundles */
-  provides: {
-    skills: number
-    commands: number
-    hooks: number
-    mcpServers: number
-  }
-  author?: string
-  updatedAt?: string
-}
-
-export interface DiscoverPlugin {
-  id: string
-  name: string
-  version: string
-  description: string
-  author: string
-  category: string
-  downloads: number
-  installed: boolean
-}
+export type { PluginEntry, DiscoverPlugin }
 
 type PluginTab = 'installed' | 'discover'
 type CategoryFilter = 'all' | 'development' | 'documents' | 'workflow' | 'guide'
-
-// ---- Mock data (will be replaced by engine API: GET /api/plugins) ----
-// TODO(backend): 后端无 /api/plugins 路由（会 404），暂保留 mock 数据。
-// 待后端补齐 plugins 路由后，替换为 api.listPlugins() 等调用。
-
-const INSTALLED_PLUGINS: PluginEntry[] = [
-  {
-    id: 'android-emulator',
-    name: 'android-emulator',
-    version: '0.1.0',
-    description: 'Provides Android development workflows and emulator automation for KCoder.',
-    builtin: true,
-    enabled: false,
-    source: 'official',
-    category: 'development',
-    provides: { skills: 3, commands: 2, hooks: 0, mcpServers: 1 },
-    author: 'KCoder Team',
-  },
-  {
-    id: 'document-skills',
-    name: 'document-skills',
-    version: '0.1.0',
-    description: 'Built-in DOCX and PDF document production skills for KCoder.',
-    builtin: true,
-    enabled: true,
-    source: 'official',
-    category: 'documents',
-    provides: { skills: 4, commands: 0, hooks: 0, mcpServers: 0 },
-    author: 'KCoder Team',
-  },
-  {
-    id: 'ios-simulator',
-    name: 'ios-simulator',
-    version: '0.1.0',
-    description: 'Provides iOS development workflows and simulator automation for KCoder.',
-    builtin: true,
-    enabled: false,
-    source: 'official',
-    category: 'development',
-    provides: { skills: 3, commands: 2, hooks: 0, mcpServers: 1 },
-    author: 'KCoder Team',
-  },
-  {
-    id: 'restore-legacy-sessions',
-    name: 'restore-legacy-sessions',
-    version: '0.1.0',
-    description: 'Select and restore legacy sessions into the new KCoder task and session store.',
-    builtin: true,
-    enabled: false,
-    source: 'official',
-    category: 'workflow',
-    provides: { skills: 1, commands: 1, hooks: 1, mcpServers: 0 },
-    author: 'KCoder Team',
-  },
-  {
-    id: 'skill-creator',
-    name: 'skill-creator',
-    version: '0.1.0',
-    description: 'Create, edit, and iterate local KCoder skills.',
-    builtin: true,
-    enabled: true,
-    source: 'official',
-    category: 'development',
-    provides: { skills: 2, commands: 1, hooks: 0, mcpServers: 0 },
-    author: 'KCoder Team',
-  },
-  {
-    id: 'superpowers',
-    name: 'superpowers',
-    version: '5.1.0',
-    description: 'Planning, TDD, debugging, and delivery workflows for coding agents.',
-    builtin: true,
-    enabled: true,
-    source: 'official',
-    category: 'workflow',
-    provides: { skills: 8, commands: 4, hooks: 2, mcpServers: 0 },
-    author: 'KCoder Team',
-  },
-  {
-    id: 'kcoder-guide',
-    name: 'kcoder-guide',
-    version: '0.1.0',
-    description: 'KCoder usage and self-diagnosis guide: teaches agents and users how to configure MCP servers, skills and more.',
-    builtin: true,
-    enabled: true,
-    source: 'official',
-    category: 'guide',
-    provides: { skills: 2, commands: 1, hooks: 0, mcpServers: 0 },
-    author: 'KCoder Team',
-  },
-]
-
-const DISCOVER_PLUGINS: DiscoverPlugin[] = [
-  {
-    id: 'docker-helper',
-    name: 'docker-helper',
-    version: '1.2.0',
-    description: 'Container management workflows: compose, build, debug and deploy.',
-    author: 'community',
-    category: 'development',
-    downloads: 3420,
-    installed: false,
-  },
-  {
-    id: 'git-workflows',
-    name: 'git-workflows',
-    version: '2.0.1',
-    description: 'Advanced git automation: rebase assist, conflict resolution, changelog generation.',
-    author: 'community',
-    category: 'workflow',
-    downloads: 5810,
-    installed: false,
-  },
-  {
-    id: 'i18n-toolkit',
-    name: 'i18n-toolkit',
-    version: '0.9.3',
-    description: 'Internationalization toolkit: extract keys, sync locales, detect missing translations.',
-    author: 'community',
-    category: 'development',
-    downloads: 1260,
-    installed: false,
-  },
-  {
-    id: 'markdown-plus',
-    name: 'markdown-plus',
-    version: '1.0.0',
-    description: 'Enhanced Markdown authoring with diagrams, footnotes and export to PDF/DOCX.',
-    author: 'community',
-    category: 'documents',
-    downloads: 2140,
-    installed: false,
-  },
-]
-
-// ---- Persistence layer (localStorage mock, to be replaced by engine API) ----
-
-const STORAGE_KEY = 'kcoder-plugin-states'
-
-function loadPluginStates(): Record<string, boolean> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
-}
-
-function savePluginStates(states: Record<string, boolean>) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(states))
-  // Reserved: sync to engine via PUT /api/plugins/:id/toggle
-}
-
-// Future API endpoints:
-//   GET  /api/plugins              → list installed plugins
-//   POST /api/plugins/:id/toggle   → enable/disable
-//   GET  /api/plugins/discover     → discover marketplace
-//   POST /api/plugins/install      → install from marketplace
-//   POST /api/plugins/check-update → check for updates
 
 // ============ Component ============
 
 export function PluginsSettings() {
   const { t } = useI18n()
+  const { enginePort, engineStatus } = useAppStore()
   const [tab, setTab] = useState<PluginTab>('installed')
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState<CategoryFilter>('all')
-  const [pluginStates, setPluginStates] = useState<Record<string, boolean>>(loadPluginStates)
+  const [plugins, setPlugins] = useState<PluginEntry[]>([])
+  const [discoverPlugins, setDiscoverPlugins] = useState<DiscoverPlugin[]>([])
+  const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
-  const [installedIds, setInstalledIds] = useState<string[]>([])
 
-  // Merge persisted states onto defaults
-  const plugins = useMemo(
-    () =>
-      INSTALLED_PLUGINS.map((p) => ({
-        ...p,
-        enabled: pluginStates[p.id] ?? p.enabled,
-      })),
-    [pluginStates]
-  )
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const api = getEngineAPI(enginePort)
+      const [installed, discover] = await Promise.all([
+        api.listPlugins(),
+        api.getPluginDiscover().catch(() => ({ plugins: [] as DiscoverPlugin[] }))
+      ])
+      setPlugins(installed)
+      // 标记已安装
+      const installedIds = new Set(installed.map((p) => p.id))
+      setDiscoverPlugins(discover.plugins.map((p) => ({ ...p, installed: installedIds.has(p.id) })))
+    } catch (e) {
+      console.error('[Plugins] Failed to load:', e)
+    } finally {
+      setLoading(false)
+    }
+  }, [enginePort])
 
-  const filteredInstalled = plugins.filter((p) => {
+  useEffect(() => {
+    if (engineStatus === 'connected') refresh()
+    else setLoading(false)
+  }, [engineStatus, refresh])
+
+  const filteredInstalled = useMemo(() => plugins.filter((p) => {
     if (category !== 'all' && p.category !== category) return false
     if (search) {
       const q = search.toLowerCase()
       return p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)
     }
     return true
-  })
+  }), [plugins, category, search])
 
-  const filteredDiscover = DISCOVER_PLUGINS.filter((p) => {
+  const filteredDiscover = useMemo(() => discoverPlugins.filter((p) => {
     if (category !== 'all' && p.category !== category) return false
     if (search) {
       const q = search.toLowerCase()
       return p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)
     }
     return true
-  })
+  }), [discoverPlugins, category, search])
 
-  const handleToggle = (id: string) => {
+  const handleToggle = useCallback(async (id: string) => {
     const current = plugins.find((p) => p.id === id)
     if (!current) return
-    const next = { ...pluginStates, [id]: !current.enabled }
-    setPluginStates(next)
-    savePluginStates(next)
-  }
+    const nextEnabled = !current.enabled
+    // 乐观更新
+    setPlugins((prev) => prev.map((p) => (p.id === id ? { ...p, enabled: nextEnabled } : p)))
+    try {
+      const api = getEngineAPI(enginePort)
+      await api.togglePlugin(id, nextEnabled)
+    } catch (e) {
+      console.error('[Plugins] Failed to toggle:', e)
+      // 回滚
+      setPlugins((prev) => prev.map((p) => (p.id === id ? { ...p, enabled: current.enabled } : p)))
+    }
+  }, [plugins, enginePort])
 
-  const handleCheckUpdate = () => {
+  const handleCheckUpdate = useCallback(async () => {
     setCheckingUpdate(true)
-    // Reserved: call POST /api/plugins/check-update
-    setTimeout(() => setCheckingUpdate(false), 1500)
-  }
+    try {
+      const api = getEngineAPI(enginePort)
+      await api.checkPluginUpdates()
+    } catch (e) {
+      console.error('[Plugins] Failed to check updates:', e)
+    } finally {
+      setCheckingUpdate(false)
+    }
+  }, [enginePort])
 
-  const handleInstall = (id: string) => {
-    // Reserved: call POST /api/plugins/install
-    setInstalledIds((prev) => [...prev, id])
-  }
+  const handleInstall = useCallback(async (id: string) => {
+    try {
+      const api = getEngineAPI(enginePort)
+      await api.installPlugin(id)
+      await refresh()
+    } catch (e) {
+      console.error('[Plugins] Failed to install:', e)
+    }
+  }, [enginePort, refresh])
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -278,7 +124,7 @@ export function PluginsSettings() {
             <button
               className="w-8 h-8 flex items-center justify-center rounded-lg border border-border-custom text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
               title={t('settings.plugins.refresh')}
-              onClick={() => setPluginStates(loadPluginStates())}
+              onClick={refresh}
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
@@ -390,7 +236,7 @@ export function PluginsSettings() {
                   <DiscoverCard
                     key={plugin.id}
                     plugin={plugin}
-                    installed={installedIds.includes(plugin.id)}
+                    installed={plugin.installed}
                     onInstall={() => handleInstall(plugin.id)}
                   />
                 ))}
