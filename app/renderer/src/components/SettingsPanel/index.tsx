@@ -38,6 +38,10 @@ interface Provider {
   baseUrl: string
   apiKey: string
   models: { name: string; context: string }[]
+  /** 本地部署的供应商允许用户编辑 baseUrl（vLLM/Ollama） */
+  baseUrlEditable?: boolean
+  /** API Key 是否必填（本地部署可不填） */
+  apiKeyRequired?: boolean
   // 能力信息（从 ModelEntry 映射，用于详情展示）
   supportsToolCalling?: boolean
   supportsVision?: boolean
@@ -50,68 +54,74 @@ const DEFAULT_PROVIDERS: Provider[] = [
   {
     id: 'bigmodel',
     name: 'BigModel',
-    category: '智谱',
+    category: '云端供应商',
     enabled: false,
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     apiKey: '',
-    models: [
-      { name: 'GLM-5.2', context: '100万' },
-      { name: 'GLM-5-Turbo', context: '20万' },
-    ],
+    models: [],
+    apiKeyRequired: true,
   },
   {
     id: 'deepseek',
     name: 'DeepSeek',
-    category: '自定义供应商',
+    category: '云端供应商',
     enabled: false,
     baseUrl: 'https://api.deepseek.com',
     apiKey: '',
-    models: [
-      { name: 'deepseek-chat', context: '64K' },
-      { name: 'deepseek-coder', context: '128K' },
-    ],
+    models: [],
+    apiKeyRequired: true,
   },
   {
     id: 'minimax',
     name: 'MiniMax',
-    category: '自定义供应商',
+    category: '云端供应商',
     enabled: false,
     baseUrl: 'https://api.minimax.chat/v1',
     apiKey: '',
-    models: [{ name: 'MiniMax-Text-01', context: '100万' }],
-  },
-  {
-    id: 'vllm',
-    name: 'vLLM',
-    category: '自定义供应商',
-    enabled: false,
-    baseUrl: 'http://localhost:8000/v1',
-    apiKey: '',
     models: [],
+    apiKeyRequired: true,
   },
   {
     id: 'gpt',
     name: 'GPT',
-    category: '自定义供应商',
+    category: '云端供应商',
     enabled: false,
     baseUrl: 'https://api.openai.com/v1',
     apiKey: '',
-    models: [
-      { name: 'gpt-4o', context: '128K' },
-      { name: 'gpt-4o-mini', context: '128K' },
-    ],
+    models: [],
+    apiKeyRequired: true,
   },
   {
     id: 'claude',
     name: 'Claude',
-    category: '自定义供应商',
+    category: '云端供应商',
     enabled: false,
     baseUrl: 'https://api.anthropic.com',
     apiKey: '',
-    models: [
-      { name: 'claude-sonnet-4-20250514', context: '200K' },
-      { name: 'claude-haiku-4-20250514', context: '200K' },
-    ],
+    models: [],
+    apiKeyRequired: true,
+  },
+  {
+    id: 'vllm',
+    name: 'vLLM',
+    category: '本地部署',
+    enabled: false,
+    baseUrl: 'http://localhost:8000/v1',
+    apiKey: '',
+    models: [],
+    baseUrlEditable: true,
+    apiKeyRequired: false,
+  },
+  {
+    id: 'ollama',
+    name: 'Ollama',
+    category: '本地部署',
+    enabled: false,
+    baseUrl: 'http://localhost:11434/v1',
+    apiKey: '',
+    models: [],
+    baseUrlEditable: true,
+    apiKeyRequired: false,
   },
 ]
 
@@ -171,6 +181,12 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const handleUpdateApiKey = (id: string, apiKey: string) => {
     setProviders((prev) =>
       prev.map((p) => (p.id === id ? { ...p, apiKey } : p))
+    )
+  }
+
+  const handleUpdateBaseUrl = (id: string, baseUrl: string) => {
+    setProviders((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, baseUrl } : p))
     )
   }
 
@@ -236,6 +252,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             onSelectProvider={setSelectedProviderId}
             onToggleProvider={handleToggleProvider}
             onUpdateApiKey={handleUpdateApiKey}
+            onUpdateBaseUrl={handleUpdateBaseUrl}
             onConnectionTypeChange={setConnectionType}
             onSave={handleSave}
             onClose={onClose}
@@ -275,6 +292,7 @@ function ModelSettings({
   onSelectProvider,
   onToggleProvider,
   onUpdateApiKey,
+  onUpdateBaseUrl,
   onConnectionTypeChange,
   onSave,
   onClose,
@@ -286,6 +304,7 @@ function ModelSettings({
   onSelectProvider: (id: string) => void
   onToggleProvider: (id: string) => void
   onUpdateApiKey: (id: string, key: string) => void
+  onUpdateBaseUrl: (id: string, url: string) => void
   onConnectionTypeChange: (v: string) => void
   onSave: () => void
   onClose: () => void
@@ -367,6 +386,7 @@ function ModelSettings({
               provider={selectedProvider}
               onToggle={onToggleProvider}
               onUpdateApiKey={onUpdateApiKey}
+              onUpdateBaseUrl={onUpdateBaseUrl}
               onSave={onSave}
               onClose={onClose}
             />
@@ -386,12 +406,14 @@ function ProviderDetail({
   provider,
   onToggle,
   onUpdateApiKey,
+  onUpdateBaseUrl,
   onSave,
   onClose,
 }: {
   provider: Provider
   onToggle: (id: string) => void
   onUpdateApiKey: (id: string, key: string) => void
+  onUpdateBaseUrl: (id: string, url: string) => void
   onSave: () => void
   onClose: () => void
 }) {
@@ -408,7 +430,8 @@ function ProviderDetail({
   }, [provider.id])
 
   const handleDiscover = async () => {
-    if (!provider.apiKey.trim()) {
+    // 云端供应商需要 API Key；本地部署（vLLM/Ollama）可不填
+    if (provider.apiKeyRequired !== false && !provider.apiKey.trim()) {
       setDiscoverError(t('settings.model.discover.needKey'))
       return
     }
@@ -471,12 +494,21 @@ function ProviderDetail({
           <input
             type="text"
             value={provider.baseUrl}
-            readOnly
-            className="w-full px-3 py-2 rounded-lg bg-bg-input border border-border-custom text-sm text-text-secondary outline-none"
+            onChange={provider.baseUrlEditable ? (e) => onUpdateBaseUrl(provider.id, e.target.value) : undefined}
+            readOnly={!provider.baseUrlEditable}
+            placeholder={provider.baseUrlEditable ? 'http://localhost:8000/v1' : undefined}
+            className={`w-full px-3 py-2 rounded-lg bg-bg-input border text-sm outline-none transition-colors ${
+              provider.baseUrlEditable
+                ? 'border-border-custom text-text-primary focus:border-border-strong'
+                : 'border-border-custom text-text-secondary'
+            }`}
           />
+          {provider.baseUrlEditable && (
+            <p className="text-[11px] text-text-muted mt-1 opacity-70">{t('settings.model.baseUrl.hint')}</p>
+          )}
         </div>
         <div>
-          <label className="block text-xs text-text-muted mb-1.5">API Key</label>
+          <label className="block text-xs text-text-muted mb-1.5">API Key{provider.apiKeyRequired === false && `（可选）`}</label>
           <input
             type="password"
             value={provider.apiKey}
