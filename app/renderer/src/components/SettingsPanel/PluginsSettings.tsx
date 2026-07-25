@@ -42,6 +42,8 @@ type PluginTab = 'installed' | 'discover'
 type CategoryFilter = 'all' | 'development' | 'documents' | 'workflow' | 'guide'
 
 // ---- Mock data (will be replaced by engine API: GET /api/plugins) ----
+// TODO(backend): 后端无 /api/plugins 路由（会 404），暂保留 mock 数据。
+// 待后端补齐 plugins 路由后，替换为 api.listPlugins() 等调用。
 
 const INSTALLED_PLUGINS: PluginEntry[] = [
   {

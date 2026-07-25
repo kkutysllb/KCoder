@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
+import { getEngineAPI } from '../../services/engine-api'
 import { SkillsSettings } from './SkillsSettings'
 import { SubAgentsSettings } from './SubAgentsSettings'
 import { MCPSettings } from './MCPSettings'
@@ -113,17 +114,46 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [activeNav, setActiveNav] = useState('general')
   const { t } = useI18n()
   const [providers, setProviders] = useState<Provider[]>(DEFAULT_PROVIDERS)
-  const [selectedProviderId, setSelectedProviderId] = useState<string>('bigmodel')
-  const [connectionType, setConnectionType] = useState('个人套餐')
+  const [selectedProviderId, setSelectedProviderId] = useState<string>('')
+  const [connectionType, setConnectionType] = useState('API 直连')
+
+  // 从后端加载真实模型列表（GET /api/models）
+  useEffect(() => {
+    if (engineStatus !== 'connected' || !isOpen) return
+    getEngineAPI(enginePort)
+      .getModels()
+      .then((result) => {
+        const mapped: Provider[] = result.models.map((m) => ({
+          id: m.id,
+          name: m.display_name || m.name,
+          category: m.active ? '当前模型' : '可用模型',
+          enabled: m.active,
+          baseUrl: m.base_url ?? '',
+          apiKey: '',
+          models: m.context_window_tokens
+            ? [{ name: m.model, context: `${Math.round(m.context_window_tokens / 1000)}K` }]
+            : [{ name: m.model, context: '-' }]
+        }))
+        if (mapped.length > 0) {
+          setProviders(mapped)
+          // 选中当前激活的模型
+          const active = mapped.find((p) => p.enabled)
+          setSelectedProviderId(active?.id ?? mapped[0]!.id)
+        }
+      })
+      .catch((err) => console.error('[KCoder] Failed to load models:', err))
+  }, [engineStatus, enginePort, isOpen])
 
   if (!isOpen) return null
 
   const selectedProvider = providers.find((p) => p.id === selectedProviderId)
 
   const handleToggleProvider = (id: string) => {
-    setProviders((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, enabled: !p.enabled } : p))
-    )
+    // 激活模型（后端只支持单选激活）
+    setProviders((prev) => prev.map((p) => ({ ...p, enabled: p.id === id })))
+    getEngineAPI(enginePort)
+      .activateModel(id)
+      .catch((err) => console.error('[KCoder] Failed to activate model:', err))
   }
 
   const handleUpdateApiKey = (id: string, apiKey: string) => {
