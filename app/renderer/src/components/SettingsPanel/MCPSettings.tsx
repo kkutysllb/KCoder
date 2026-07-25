@@ -1,5 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useI18n } from '../../i18n'
+import { useAppStore } from '../../stores/app-store'
+import { getEngineAPI } from '../../services/engine-api'
 
 // ============ MCP Servers Settings Page ============
 // Data model aligned with engine contracts:
@@ -85,7 +87,7 @@ const DEFAULT_USER_SERVERS: McpServerEntry[] = [
   },
 ]
 
-// ---- Persistence layer (localStorage mock, to be replaced by engine API) ----
+// ---- Persistence: 通过 engine API GET/PUT /api/mcp/config（localStorage 仅作离线缓存）----
 
 const STORAGE_KEY = 'kcoder-mcp-servers'
 
@@ -98,10 +100,23 @@ function loadUserServers(): McpServerEntry[] {
   }
 }
 
-function saveUserServers(servers: McpServerEntry[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(servers))
-  // Reserved: sync to engine via PUT /api/mcp/config
-  // window.kcoder?.send('save-mcp-config', { mcp_servers: ... })
+/** 把 McpServerEntry[] 转为后端 mcp_servers 配置对象 */
+function serversToConfig(servers: McpServerEntry[]): Record<string, unknown> {
+  const config: Record<string, unknown> = {}
+  for (const s of servers) {
+    config[s.name] = {
+      enabled: s.enabled,
+      transport: s.transport,
+      ...(s.command ? { command: s.command } : {}),
+      ...(s.args.length ? { args: s.args } : {}),
+      ...(s.url ? { url: s.url } : {}),
+      ...(Object.keys(s.headers).length ? { headers: s.headers } : {}),
+      ...(Object.keys(s.env).length ? { env: s.env } : {}),
+      trustScope: s.trustScope,
+      timeoutMs: s.timeoutMs,
+    }
+  }
+  return config
 }
 
 // Future API endpoints (engine already has GET/PUT /api/mcp/config):
@@ -113,10 +128,51 @@ function saveUserServers(servers: McpServerEntry[]) {
 
 export function MCPSettings() {
   const { t } = useI18n()
+  const { enginePort, engineStatus } = useAppStore()
   const [userServers, setUserServers] = useState<McpServerEntry[]>(loadUserServers)
   const [search, setSearch] = useState('')
   const [editingServer, setEditingServer] = useState<McpServerEntry | null>(null)
   const [showCreate, setShowCreate] = useState(false)
+
+  // 从后端加载真实 MCP 配置（GET /api/mcp/config）
+  useEffect(() => {
+    if (engineStatus !== 'connected') return
+    getEngineAPI(enginePort)
+      .getMcpConfig()
+      .then((result) => {
+        const servers = result.mcp_servers || result.mcpServers || {}
+        const entries: McpServerEntry[] = Object.entries(servers).map(([name, cfg]) => ({
+          name,
+          enabled: cfg.enabled ?? false,
+          transport: cfg.transport ?? 'stdio',
+          command: cfg.command,
+          args: cfg.args ?? [],
+          url: cfg.url,
+          headers: cfg.headers ?? {},
+          env: cfg.env ?? {},
+          trustScope: cfg.trustScope ?? 'workspace',
+          timeoutMs: cfg.timeoutMs ?? 30000,
+          description: cfg.description ?? '',
+          source: 'user' as const,
+          status: cfg.enabled ? 'connected' : 'disabled',
+          toolCount: 0,
+        }))
+        if (entries.length > 0) {
+          setUserServers(entries)
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
+        }
+      })
+      .catch((err) => console.error('[KCoder] Failed to load MCP config:', err))
+  }, [enginePort, engineStatus])
+
+  /** 保存到后端 + 本地缓存 */
+  const persistServers = (servers: McpServerEntry[]) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(servers))
+    const config = serversToConfig(servers) as Record<string, import('../../services/engine-api').McpServerConfigEntry>
+    getEngineAPI(enginePort)
+      .saveMcpConfig({ mcp_servers: config })
+      .catch((err) => console.error('[KCoder] Failed to save MCP config:', err))
+  }
 
   const filteredPlugin = PLUGIN_SERVERS.filter((s) => matchSearch(s, search))
   const filteredUser = userServers.filter((s) => matchSearch(s, search))
@@ -128,13 +184,13 @@ export function MCPSettings() {
         : s
     )
     setUserServers(next)
-    saveUserServers(next)
+    persistServers(next)
   }
 
   const handleDelete = (name: string) => {
     const next = userServers.filter((s) => s.name !== name)
     setUserServers(next)
-    saveUserServers(next)
+    persistServers(next)
   }
 
   const handleSave = (server: McpServerEntry) => {
@@ -143,7 +199,7 @@ export function MCPSettings() {
       ? userServers.map((s) => (s.name === server.name ? server : s))
       : [...userServers, server]
     setUserServers(next)
-    saveUserServers(next)
+    persistServers(next)
     setEditingServer(null)
     setShowCreate(false)
   }

@@ -28,12 +28,6 @@ import {
   steerTurn
 } from './turns.js'
 import { getTurnExecution } from './turn-execution.js'
-import {
-  CODING_DELIVERY_STAGES,
-  projectStageForActor,
-  saveProjectStageForActor,
-  type ProjectStageState
-} from './coding-stages.js'
 import { startReview } from './review.js'
 import { buildEventStreamResponse } from './events.js'
 import { decideApproval } from './approvals.js'
@@ -902,96 +896,6 @@ export function buildRouter(runtime: ServerRuntime): Router {
       ctx.params.turnId,
       request
     )
-  })
-  // Coding delivery stages — 5 阶段交付工作流（需求→规划→实现→审查→交付）
-  router.add('GET', '/api/coding/delivery-stages', async (request) => {
-    const actor = await authenticateOrInternal(request, runtime)
-    if (!actor) return ERRORS.unauthorized()
-    return jsonResponse({ stages: CODING_DELIVERY_STAGES })
-  })
-  router.add('GET', '/api/coding/stage', async (request) => {
-    const actor = await authenticateOrInternal(request, runtime)
-    if (!actor) return ERRORS.unauthorized()
-    const projectRoot = new URL(request.url).searchParams.get('project_root')
-    if (!projectRoot) return jsonResponse({ detail: 'project_root is required' }, 400)
-    return jsonResponse(await projectStageForActor(runtime, actorOwner(actor), projectRoot))
-  })
-  router.add('POST', '/api/coding/stage', async (request) => {
-    const actor = await authenticateOrInternal(request, runtime)
-    if (!actor) return ERRORS.unauthorized()
-    const projectRoot = new URL(request.url).searchParams.get('project_root')
-    if (!projectRoot) return jsonResponse({ detail: 'project_root is required' }, 400)
-    const body = await readJsonBody(request)
-    if (!body.ok) return body.response
-    if (!isObject(body.value)) return jsonResponse({ detail: 'stage request body must be an object' }, 400)
-    const stageId = stringValue(body.value.stage_id)
-    if (!stageId) return jsonResponse({ detail: 'stage_id is required' }, 400)
-    if (!CODING_DELIVERY_STAGES.some((stage) => stage.id === stageId)) {
-      return jsonResponse({ detail: `Unknown delivery stage ${stageId}` }, 400)
-    }
-    const current = await projectStageForActor(runtime, actorOwner(actor), projectRoot)
-    const now = new Date().toISOString()
-    const next: ProjectStageState = {
-      ...current,
-      current_stage: stageId,
-      pending_suggestion: null,
-      updated_at: now,
-      stage_history: [
-        ...current.stage_history,
-        {
-          from_stage_id: current.current_stage,
-          to_stage_id: stageId,
-          reason: stringValue(body.value.reason) ?? '',
-          source: 'user',
-          timestamp: now
-        }
-      ]
-    }
-    await saveProjectStageForActor(runtime, actorOwner(actor), next)
-    return jsonResponse(next)
-  })
-  router.add('POST', '/api/coding/stage/suggestion/accept', async (request) => {
-    const actor = await authenticateOrInternal(request, runtime)
-    if (!actor) return ERRORS.unauthorized()
-    const projectRoot = new URL(request.url).searchParams.get('project_root')
-    if (!projectRoot) return jsonResponse({ detail: 'project_root is required' }, 400)
-    const current = await projectStageForActor(runtime, actorOwner(actor), projectRoot)
-    if (!current.pending_suggestion) return jsonResponse(current)
-    const now = new Date().toISOString()
-    const next: ProjectStageState = {
-      ...current,
-      current_stage: current.pending_suggestion.stage_id,
-      pending_suggestion: null,
-      updated_at: now,
-      stage_history: [
-        ...current.stage_history,
-        {
-          from_stage_id: current.current_stage,
-          to_stage_id: current.pending_suggestion.stage_id,
-          reason: current.pending_suggestion.reason,
-          source: 'agent_accepted',
-          timestamp: now,
-          thread_id: current.pending_suggestion.suggested_by_thread_id
-        }
-      ]
-    }
-    await saveProjectStageForActor(runtime, actorOwner(actor), next)
-    return jsonResponse(next)
-  })
-  router.add('POST', '/api/coding/stage/suggestion/dismiss', async (request) => {
-    const actor = await authenticateOrInternal(request, runtime)
-    if (!actor) return ERRORS.unauthorized()
-    const projectRoot = new URL(request.url).searchParams.get('project_root')
-    if (!projectRoot) return jsonResponse({ detail: 'project_root is required' }, 400)
-    const current = await projectStageForActor(runtime, actorOwner(actor), projectRoot)
-    if (!current.pending_suggestion) return jsonResponse(current)
-    const next: ProjectStageState = {
-      ...current,
-      pending_suggestion: null,
-      updated_at: new Date().toISOString()
-    }
-    await saveProjectStageForActor(runtime, actorOwner(actor), next)
-    return jsonResponse(next)
   })
   router.add('POST', '/v1/threads/:id/turns/:turnId/steer', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
