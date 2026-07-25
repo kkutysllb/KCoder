@@ -191,11 +191,13 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
   const selectedProvider = providers.find((p) => p.id === selectedProviderId)
 
-  // 激活模型：先保存 profile 到后端，再激活
+  // 激活模型：必须有具体模型名才能启用
   const handleToggleProvider = async (id: string) => {
     const provider = providers.find((p) => p.id === id)
     if (!provider) return
-    const modelId = provider.rawModel || provider.models[0]?.name || provider.id
+    // 没有选具体模型时不能启用
+    const modelId = provider.rawModel || provider.models[0]?.name
+    if (!modelId) return
     try {
       const api = getEngineAPI(enginePort)
       await api.createModel({
@@ -231,13 +233,15 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     )
   }
 
-  // 保存：把已配置的供应商同步到后端 + 激活选中的
+  // 保存：只保存有具体模型的供应商 + 激活选中的
   const handleSave = async () => {
     const api = getEngineAPI(enginePort)
     for (const p of providers) {
-      // 本地部署或有 apiKey 的才保存
+      // 必须有具体模型名才保存
+      const modelId = p.rawModel || p.models[0]?.name
+      if (!modelId) continue
+      // 云端供应商需要 apiKey；本地部署可不填
       if (!p.apiKey && p.apiKeyRequired !== false) continue
-      const modelId = p.rawModel || p.models[0]?.name || p.id
       try {
         await api.createModel({
           name: p.id,
@@ -251,7 +255,10 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     }
     const enabled = providers.find((p) => p.enabled)
     if (enabled) {
-      try { await api.activateModel(enabled.id) } catch (err) { console.error('[KCoder] Failed to activate:', err) }
+      const modelId = enabled.rawModel || enabled.models[0]?.name
+      if (modelId) {
+        try { await api.activateModel(enabled.id) } catch (err) { console.error('[KCoder] Failed to activate:', err) }
+      }
     }
     window.kcoder?.send('save-settings', { providers })
     onClose()
@@ -531,25 +538,33 @@ function ProviderDetail({
         </span>
       </div>
 
-      {/* Enable toggle */}
-      <div className="flex items-center justify-between p-4 rounded-xl bg-bg-surface border border-border-custom">
-        <div>
-          <p className="text-sm font-medium text-text-primary">{t('settings.model.enable')}</p>
-          <p className="text-xs text-text-muted mt-0.5">{t('settings.model.enable.desc')}</p>
-        </div>
-        <button
-          onClick={() => onToggle(provider.id)}
-          className={`relative rounded-full transition-colors duration-200 ${
-            provider.enabled ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'
-          }`}
-          style={{ width: 48, height: 28 }}
-        >
-          <span
-            className="absolute top-[3px] left-[3px] rounded-full bg-white shadow-sm transition-transform duration-200"
-            style={{ width: 22, height: 22, transform: provider.enabled ? 'translateX(20px)' : 'translateX(0)' }}
-          />
-        </button>
-      </div>
+      {/* Enable toggle — 必须先选具体模型才能启用 */}
+      {(() => {
+        const hasModel = Boolean(provider.rawModel || provider.models[0]?.name)
+        return (
+          <div className={`flex items-center justify-between p-4 rounded-xl border ${hasModel ? 'bg-bg-surface border-border-custom' : 'bg-bg-surface/50 border-border-custom opacity-60'}`}>
+            <div>
+              <p className="text-sm font-medium text-text-primary">{t('settings.model.enable')}</p>
+              <p className="text-xs text-text-muted mt-0.5">
+                {hasModel ? t('settings.model.enable.desc') : t('settings.model.enable.needModel')}
+              </p>
+            </div>
+            <button
+              onClick={() => hasModel && onToggle(provider.id)}
+              disabled={!hasModel}
+              className={`relative rounded-full transition-colors duration-200 ${
+                provider.enabled ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'
+              } ${!hasModel ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+              style={{ width: 48, height: 28 }}
+            >
+              <span
+                className="absolute top-[3px] left-[3px] rounded-full bg-white shadow-sm transition-transform duration-200"
+                style={{ width: 22, height: 22, transform: provider.enabled ? 'translateX(20px)' : 'translateX(0)' }}
+              />
+            </button>
+          </div>
+        )
+      })()}
 
       {/* API Configuration */}
       <div className="p-4 rounded-xl bg-bg-surface border border-border-custom space-y-4">
