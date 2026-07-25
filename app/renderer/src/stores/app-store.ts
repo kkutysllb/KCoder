@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ApprovalRequest, UserInputRequest } from '../services/engine-api'
+import type { ApprovalRequest, UserInputRequest, TurnExecutionView } from '../services/engine-api'
 
 // 富内容消息部件 — assistant 消息由多个 part 组成（文本/推理/工具调用/工具结果/usage/审批）
 export type MessagePart =
@@ -53,6 +53,10 @@ interface AppState {
   // 全局编排偏好（每回合发消息时随 StartTurnRequest 传给后端）
   orchestrationPreference: OrchestrationPreference
 
+  // 执行投影视图（GET /turns/:turnId/execution 轮询结果）
+  activeTurnId: string | null
+  turnExecution: TurnExecutionView | null
+
   // Actions
   initializeEngine: (port: number) => void
   setEngineStatus: (status: EngineStatus) => void
@@ -70,6 +74,8 @@ interface AppState {
   setPendingApproval: (approval: ApprovalRequest | null) => void
   setPendingUserInput: (input: UserInputRequest | null) => void
   setOrchestrationPreference: (pref: OrchestrationPreference) => void
+  setActiveTurnId: (id: string | null) => void
+  setTurnExecution: (view: TurnExecutionView | null) => void
   clearMessages: () => void
 }
 
@@ -88,6 +94,8 @@ export const useAppStore = create<AppState>((set) => ({
   pendingApproval: null,
   pendingUserInput: null,
   orchestrationPreference: 'standard',
+  activeTurnId: null,
+  turnExecution: null,
 
   // Actions
   initializeEngine: (port) =>
@@ -166,6 +174,8 @@ export const useAppStore = create<AppState>((set) => ({
   setPendingApproval: (approval) => set({ pendingApproval: approval }),
   setPendingUserInput: (input) => set({ pendingUserInput: input }),
   setOrchestrationPreference: (pref) => set({ orchestrationPreference: pref }),
+  setActiveTurnId: (id) => set({ activeTurnId: id }),
+  setTurnExecution: (view) => set({ turnExecution: view }),
 
   clearMessages: () => set({ messages: [], threadId: null, pendingNewBranch: null })
 }))

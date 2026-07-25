@@ -1024,7 +1024,8 @@ export function buildRouter(runtime: ServerRuntime): Router {
     return getTurn(runtime.turnService, ctx.params.id, ctx.params.turnId)
   })
   router.add('GET', '/v1/threads/:id/turns/:turnId/execution', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
     return getTurnExecution(
       runtime.turnExecutionProjection,
       ctx.params.id,
