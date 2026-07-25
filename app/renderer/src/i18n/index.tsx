@@ -7,6 +7,9 @@ export type Locale = 'zh-CN' | 'en'
 type Dict = Record<string, string>
 
 const zhCN: Dict = {
+  // Common
+  'common.confirm': '确定',
+
   // Sidebar
   'sidebar.collapse': '折叠侧边栏',
   'sidebar.expand': '展开侧边栏',
@@ -86,36 +89,16 @@ const zhCN: Dict = {
   'perm.fullAccess': '完全访问',
   'perm.fullAccess.desc': '减少确认次数。',
 
-  // NewTaskDialog
-  'newtask.title': '新建任务',
+  // NewTask — 输入框上方窄条（目录/分支/模型选择）
   'newtask.directory': '项目目录',
   'newtask.directory.placeholder': '选择要工作的文件夹',
-  'newtask.browse': '选择文件夹',
-  'newtask.branch': '仓库分支',
-  'newtask.branch.existing': '已有分支',
   'newtask.branch.new': '新建分支',
   'newtask.branch.placeholder': '输入新分支名',
-  'newtask.branch.hint': '留空使用选中的已有分支；输入名称则在创建任务时新建',
-  'newtask.branch.none': '该目录不是 git 仓库，无法选择分支',
-  'newtask.branch.dirty': '有未提交改动',
-  'newtask.branch.clean': '干净',
+  'newtask.branch.none': '该目录不是 git 仓库',
   'newtask.branch.loading': '加载分支中…',
   'newtask.branch.createExisting': '尚无分支',
-  'newtask.taskTitle': '任务标题',
-  'newtask.taskTitle.placeholder': '简要描述本次任务（可选）',
-  'newtask.model': '模型',
   'newtask.model.none': '请先在设置中配置模型',
-  'newtask.workMode': '工作模式',
-  'newtask.workMode.coding': '编码',
-  'newtask.create': '创建任务',
-  'newtask.creating': '创建中…',
   'newtask.cancel': '取消',
-  'newtask.error.noModel': '未选择模型，请先在设置中启用一个模型',
-  'newtask.error.branchCreate': '创建分支失败：{detail}',
-  'newtask.error.threadCreate': '创建任务失败：{detail}',
-  'newtask.error.directoryRequired': '请先选择项目目录',
-  'newtask.mode.agent': '执行',
-  'newtask.mode.plan': '计划',
 
   // SettingsPanel - navigation
   'settings.backToWorkspace': '返回工作区',
@@ -452,6 +435,9 @@ const zhCN: Dict = {
 }
 
 const en: Dict = {
+  // Common
+  'common.confirm': 'Confirm',
+
   // Sidebar
   'sidebar.collapse': 'Collapse Sidebar',
   'sidebar.expand': 'Expand Sidebar',
@@ -531,36 +517,16 @@ const en: Dict = {
   'perm.fullAccess': 'Full access',
   'perm.fullAccess.desc': 'Fewer confirmations.',
 
-  // NewTaskDialog
-  'newtask.title': 'New Task',
+  // NewTask — inline bar above input (directory/branch/model selection)
   'newtask.directory': 'Project Directory',
   'newtask.directory.placeholder': 'Select a folder to work in',
-  'newtask.browse': 'Choose Folder',
-  'newtask.branch': 'Repository Branch',
-  'newtask.branch.existing': 'Existing Branch',
   'newtask.branch.new': 'New Branch',
   'newtask.branch.placeholder': 'Enter new branch name',
-  'newtask.branch.hint': 'Leave empty to use the selected branch; enter a name to create a new one',
   'newtask.branch.none': 'This directory is not a git repository',
-  'newtask.branch.dirty': 'uncommitted changes',
-  'newtask.branch.clean': 'clean',
   'newtask.branch.loading': 'Loading branches…',
   'newtask.branch.createExisting': 'No branches yet',
-  'newtask.taskTitle': 'Task Title',
-  'newtask.taskTitle.placeholder': 'Briefly describe this task (optional)',
-  'newtask.model': 'Model',
   'newtask.model.none': 'Configure a model in Settings first',
-  'newtask.workMode': 'Work Mode',
-  'newtask.workMode.coding': 'Coding',
-  'newtask.create': 'Create Task',
-  'newtask.creating': 'Creating…',
   'newtask.cancel': 'Cancel',
-  'newtask.error.noModel': 'No model selected. Enable one in Settings first',
-  'newtask.error.branchCreate': 'Failed to create branch: {detail}',
-  'newtask.error.threadCreate': 'Failed to create task: {detail}',
-  'newtask.error.directoryRequired': 'Please select a project directory first',
-  'newtask.mode.agent': 'Execute',
-  'newtask.mode.plan': 'Plan',
 
   // SettingsPanel - navigation
   'settings.backToWorkspace': 'Back to Workspace',

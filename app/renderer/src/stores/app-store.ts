@@ -34,8 +34,12 @@ interface AppState {
   messages: Message[]
   isGenerating: boolean
 
-  // Workspace
+  // Workspace / task context（输入框上方窄条的选择状态）
   workspacePath: string | null
+  selectedBranch: string | null
+  selectedModel: string | null
+  /** 新建任务时使用的分支名（非空表示要在创建线程前新建该分支） */
+  pendingNewBranch: string | null
 
   // Actions
   initializeEngine: (port: number) => void
@@ -47,6 +51,9 @@ interface AppState {
   updateLastToolCall: (id: string, callId: string, patch: Partial<Extract<MessagePart, { type: 'tool_call' }>>) => void
   setGenerating: (generating: boolean) => void
   setWorkspacePath: (path: string | null) => void
+  setSelectedBranch: (branch: string | null) => void
+  setSelectedModel: (model: string | null) => void
+  setPendingNewBranch: (branch: string | null) => void
   clearMessages: () => void
 }
 
@@ -59,6 +66,9 @@ export const useAppStore = create<AppState>((set) => ({
   messages: [],
   isGenerating: false,
   workspacePath: null,
+  selectedBranch: null,
+  selectedModel: null,
+  pendingNewBranch: null,
 
   // Actions
   initializeEngine: (port) =>
@@ -118,6 +128,9 @@ export const useAppStore = create<AppState>((set) => ({
   setGenerating: (generating) => set({ isGenerating: generating }),
 
   setWorkspacePath: (path) => set({ workspacePath: path }),
+  setSelectedBranch: (branch) => set({ selectedBranch: branch }),
+  setSelectedModel: (model) => set({ selectedModel: model }),
+  setPendingNewBranch: (branch) => set({ pendingNewBranch: branch }),
 
-  clearMessages: () => set({ messages: [], threadId: null })
+  clearMessages: () => set({ messages: [], threadId: null, pendingNewBranch: null })
 }))

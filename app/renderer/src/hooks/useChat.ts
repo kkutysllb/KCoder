@@ -155,7 +155,24 @@ export function useChat() {
       let currentThreadId = threadId
       if (!currentThreadId) {
         try {
-          const thread = await api.createThread()
+          // 读取窄条选择状态（调用时取最新值，避免依赖数组膨胀）
+          const { workspacePath, selectedModel, pendingNewBranch } = useAppStore.getState()
+
+          // 若用户在窄条里输入了新分支名，先创建（不切换检出）
+          if (workspacePath && pendingNewBranch) {
+            try {
+              await api.createBranch(workspacePath, pendingNewBranch)
+            } catch (e) {
+              console.error('Failed to create branch:', e)
+              // 分支创建失败不阻塞任务，继续用当前分支
+            }
+          }
+
+          const thread = await api.createThread({
+            workspace: workspacePath ?? undefined,
+            model: selectedModel ?? undefined,
+            workModeId: 'coding'
+          })
           currentThreadId = thread.id
           setThreadId(currentThreadId)
         } catch (error) {
