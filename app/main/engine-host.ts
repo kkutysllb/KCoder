@@ -1,6 +1,7 @@
 import { join } from 'path'
 import { homedir } from 'os'
 import { randomBytes } from 'crypto'
+import { readFileSync, writeFileSync } from 'fs'
 
 // Engine configuration
 export interface EngineConfig {
@@ -55,6 +56,23 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
   }
 
   console.log(`[KCoder] Engine config: port=${fullConfig.port}, model=${fullConfig.model}, baseUrl=${fullConfig.baseUrl}`)
+
+  // 清理磁盘上残留的旧 serve 配置（之前硬编码 deepseek-chat 写入的）
+  // 当 model 为空（待配置状态）时，移除 config.json 里 serve.model/apiKey/baseUrl
+  if (!fullConfig.model) {
+    try {
+      const configPath = join(fullConfig.dataDir, 'config.json')
+      const raw = readFileSync(configPath, 'utf-8')
+      const parsed = JSON.parse(raw)
+      if (parsed?.serve?.model || parsed?.serve?.apiKey || parsed?.serve?.baseUrl) {
+        delete parsed.serve.model
+        delete parsed.serve.apiKey
+        delete parsed.serve.baseUrl
+        writeFileSync(configPath, JSON.stringify(parsed, null, 2), 'utf-8')
+        console.log('[KCoder] Cleared stale serve.model/apiKey/baseUrl from disk config')
+      }
+    } catch { /* 配置文件不存在或解析失败 — 忽略 */ }
+  }
 
   try {
     // Dynamic import to avoid bundling issues
