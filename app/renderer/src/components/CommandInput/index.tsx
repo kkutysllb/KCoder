@@ -88,20 +88,25 @@ function DirectoryBranchBar() {
     const api = getEngineAPI(enginePort)
     setLoadingDir(true)
     try {
-      const branchList = await api.listBranches(path).catch(() => null)
+      // 后端对非 git 目录返回 { branches: [], current: null }（HTTP 200）；
+      // 仅当请求本身失败（401/网络错误）时才进 catch。
+      const branchList = await api.listBranches(path)
       setBranches(branchList)
-      setIsGitRepo(branchList ? branchList.branches.length > 0 || branchList.current !== null : false)
-      if (branchList?.current) {
+      const hasBranches = branchList.branches.length > 0 || branchList.current !== null
+      setIsGitRepo(hasBranches)
+      if (branchList.current) {
         setSelectedBranch(branchList.current)
         setPendingNewBranch(null)
-      } else if (branchList && branchList.branches.length > 0) {
+      } else if (branchList.branches.length > 0) {
         setSelectedBranch(branchList.branches[0])
         setPendingNewBranch(null)
       } else {
         setSelectedBranch(null)
       }
     } catch (e) {
+      // 请求失败（认证/网络）—— 不要误判为"非 git 仓库"，记录错误并保留目录
       console.error('[CommandInput] Failed to load directory info:', e)
+      setBranches(null)
       setIsGitRepo(false)
     } finally {
       setLoadingDir(false)

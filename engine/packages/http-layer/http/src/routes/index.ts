@@ -812,11 +812,13 @@ export function buildRouter(runtime: ServerRuntime): Router {
     return buildWorkspaceStatusResponse({ inspector: runtime.workspaceInspector, path })
   })
   router.add('GET', '/v1/workspace/branches', async (request) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
     return kworksListBranches(request)
   })
   router.add('POST', '/v1/workspace/branch', async (request) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
     return kworksCreateBranch(request)
   })
   router.add('GET', '/v1/threads', async (request) => {
