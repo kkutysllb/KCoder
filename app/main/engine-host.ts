@@ -70,12 +70,13 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
     })
 
     console.log('[KCoder] Creating coding agent...')
+    // 引擎以待配置状态启动 — 空的 model/apiKey/baseUrl 会被
+    // qiongqiConfigFromRuntimeOptions 过滤掉，不写入 serve 配置
     const agent = await createCodingAgent({
       host: '127.0.0.1',
       port: fullConfig.port,
       dataDir: fullConfig.dataDir,
       runtimeToken: fullConfig.runtimeToken,
-      // 引擎以待配置状态启动 — 用户在设置页配置模型后才能使用
       apiKey: fullConfig.apiKey,
       baseUrl: fullConfig.baseUrl,
       model: fullConfig.model,
