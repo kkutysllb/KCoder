@@ -257,6 +257,71 @@ export async function kworksCreateModel(runtime: ServerRuntime, request: Request
   return jsonResponse(redactModelForResponse(result.model), 201)
 }
 
+/**
+ * POST /api/models/discover — 从供应商 API 动态拉取可用模型列表。
+ * body: { base_url: string, api_key?: string, endpoint_format?: string }
+ * 代理 GET {baseUrl}/v1/models（绕过浏览器 CORS），返回归一化的模型列表。
+ */
+export async function kworksDiscoverModels(request: Request): Promise<JsonResponse | Response> {
+  const body = await readJsonBody(request)
+  if (!body.ok) return body.response
+  if (!isObject(body.value)) return jsonResponse({ detail: 'discover body must be an object' }, 400)
+  const baseUrl = stringValue(body.value.base_url) ?? stringValue(body.value.baseUrl)
+  if (!baseUrl) return jsonResponse({ detail: 'base_url is required' }, 400)
+  const apiKey = stringValue(body.value.api_key) ?? stringValue(body.value.apiKey) ?? ''
+  const endpointFormat = (stringValue(body.value.endpoint_format) ?? stringValue(body.value.endpointFormat) ?? 'chat_completions') as string
+
+  // 构造 {baseUrl}/v1/models URL（去掉末尾 /beta /vN 段后追加 /v1/models）
+  const modelsUrl = buildProviderModelsUrl(baseUrl)
+
+  // 构造 auth header（Anthropic 用 x-api-key，OpenAI 兼容用 Bearer）
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  if (apiKey) {
+    if (endpointFormat === 'messages') {
+      headers['x-api-key'] = apiKey
+      headers['anthropic-version'] = '2023-06-01'
+    } else {
+      headers.Authorization = `Bearer ${apiKey}`
+    }
+  }
+
+  try {
+    const res = await fetch(modelsUrl, { method: 'GET', headers, signal: AbortSignal.timeout(15000) })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      return jsonResponse({ detail: `Provider returned ${res.status}: ${text.slice(0, 200)}` }, res.status < 500 ? res.status : 502)
+    }
+    const data = await res.json() as { data?: Array<{ id: string; owned_by?: string }>; models?: Array<{ id: string }>; id?: string }
+    // OpenAI 格式: { data: [{id}] }；部分供应商返回 { models: [{id}] } 或单 { id }
+    const rawModels = data.data ?? data.models ?? (data.id ? [data] : [])
+    const models = rawModels
+      .map((m) => (typeof m === 'string' ? m : m.id))
+      .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      .sort()
+    return jsonResponse({ models: models.map((id) => ({ id, name: id })), count: models.length, source: modelsUrl })
+  } catch (error) {
+    return jsonResponse({ detail: `Failed to fetch models: ${error instanceof Error ? error.message : String(error)}` }, 502)
+  }
+}
+
+/** 构造供应商的 /v1/models URL（镜像 model-error-probe.ts:probeUrl 逻辑） */
+function buildProviderModelsUrl(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, '')
+  if (!trimmed) return ''
+  try {
+    const url = new URL(trimmed)
+    const parts = url.pathname.split('/').filter(Boolean)
+    if (parts.at(-1)?.toLowerCase() === 'beta' || /^v\d+$/i.test(parts.at(-1) ?? '')) {
+      parts.pop()
+    }
+    url.pathname = `/${[...parts, 'v1', 'models'].join('/')}`
+    url.search = ''
+    return url.toString()
+  } catch {
+    return `${trimmed}/v1/models`
+  }
+}
+
 export async function kworksUpdateModel(runtime: ServerRuntime, name: string, request: Request, actor?: AuthActor): Promise<JsonResponse | Response> {
   const body = await readJsonBody(request)
   if (!body.ok) return body.response
