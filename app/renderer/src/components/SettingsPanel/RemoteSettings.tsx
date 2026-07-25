@@ -19,6 +19,8 @@ type ConnectionStatus = 'idle' | 'testing' | 'connected' | 'error'
 type PermissionLevel = 'readonly' | 'full'
 
 // ---- Persistence layer (localStorage mock, to be replaced by engine API) ----
+// TODO(backend): 后端无 /api/remote 路由（会 404），暂保留 mock 数据。
+// 待后端补齐 remote 路由后，替换为 api.getRemoteConfig() 等调用。
 
 const STORAGE_KEY = 'kcoder-remote-settings'
 

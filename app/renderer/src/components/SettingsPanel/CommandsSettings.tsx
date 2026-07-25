@@ -23,6 +23,8 @@ export interface CommandEntry {
 }
 
 // ---- Mock: builtin commands derived from installed skills ----
+// TODO(backend): 后端无 /api/commands 路由（会 404），暂保留 mock 数据。
+// 待后端补齐 commands 路由后，替换为 api.listCommands() 等调用。
 
 const SKILL_COMMANDS: CommandEntry[] = [
   { id: 'deploy', description: 'Deploy the application', content: '', source: 'skill', skillId: 'deploy', aliases: ['部署'] },

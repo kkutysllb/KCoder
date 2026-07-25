@@ -24,6 +24,8 @@ export interface SubAgentEntry {
 type AgentFilter = 'all' | 'builtin' | 'user'
 
 // ---- Mock data (will be replaced by engine API) ----
+// TODO(backend): 后端无 /api/subagents 路由（会 404），暂保留 mock 数据。
+// 待后端补齐 subagents CRUD 路由后，替换为 api.listSubAgents() 等调用。
 
 const BUILTIN_AGENTS: SubAgentEntry[] = [
   {
