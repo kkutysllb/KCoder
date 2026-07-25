@@ -57,6 +57,12 @@ const USER_SETTING_SKILLS = 'capabilities.skills'
 const USER_SETTING_SKILLS_COMPAT = 'capabilities.skills.compat'
 const USER_SETTING_WEB = 'capabilities.web'
 const USER_SETTING_PROJECTS = 'coding.projects'
+const USER_SETTING_SUBAGENTS = 'subagents.items'
+const USER_SETTING_COMMANDS = 'commands.items'
+const USER_SETTING_PLUGINS = 'plugins.states'
+const USER_SETTING_REMOTE = 'remote.config'
+/** 单用户桌面端：未登录（runtime-token）时用 'local' 作为 userDataStore 的 owner */
+const LOCAL_OWNER = 'local'
 const READ_ONLY_WORK_MODE_SKILLS_DETAIL = 'Work mode skills are read-only'
 const codingReviewsByThread = new Map<string, CodingReview>()
 
@@ -1170,6 +1176,403 @@ export async function kworksCreateBranch(request: Request): Promise<JsonResponse
   const created = await runGitStrict(path, base ? ['branch', name, base] : ['branch', name])
   if (!created.ok) return jsonResponse({ detail: created.detail }, 400)
   return jsonResponse({ path, branch: name }, 201)
+}
+
+// ============ Sub-Agents / Commands / Plugins / Remote CRUD ============
+// 4 个设置面板的 CRUD，统一用 userDataStore JSON 存储（与 MCP/projects 同模式）。
+// 单用户桌面端：未登录时用 'local' 作为 owner。
+
+/** 解析 actor 为存储 owner（runtime-token 时用 'local'） */
+function storeOwner(actor?: AuthActor): string {
+  return ownerUserId(actor) ?? LOCAL_OWNER
+}
+
+/** 通用：读取用户数组设置（返回 [] 兜底） */
+async function readUserArray<T>(runtime: ServerRuntime, actor: AuthActor, key: string): Promise<T[]> {
+  const owner = storeOwner(actor)
+  const value = runtime.userDataStore ? await runtime.userDataStore.getUserSetting(owner, key) : undefined
+  return Array.isArray(value) ? (value as T[]) : []
+}
+
+// ---- Sub-Agents 内置列表（与前端 BUILTIN_AGENTS 一致）----
+type SubAgentEntry = {
+  id: string
+  name: string
+  type: 'builtin' | 'user'
+  description: string
+  tools: string[]
+  source: string
+  content: string
+  inheritMode: 'default' | 'custom'
+  createdAt?: string
+  updatedAt?: string
+}
+
+const BUILTIN_SUBAGENTS: SubAgentEntry[] = [
+  {
+    id: 'general-purpose',
+    name: 'general-purpose',
+    type: 'builtin',
+    description: 'General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks.',
+    tools: [],
+    source: 'built-in:general-purpose',
+    content: '',
+    inheritMode: 'default'
+  },
+  {
+    id: 'explore',
+    name: 'Explore',
+    type: 'builtin',
+    description: 'Read-only search agent for broad fan-out searches.',
+    tools: ['read', 'grep', 'find', 'glob', 'lsp', 'web_search', 'web_fetch'],
+    source: 'built-in:Explore',
+    content: '',
+    inheritMode: 'default'
+  }
+]
+
+export async function kworksListSubAgents(runtime: ServerRuntime, actor: AuthActor): Promise<JsonResponse> {
+  const userAgents = await readUserArray<SubAgentEntry>(runtime, actor, USER_SETTING_SUBAGENTS)
+  return jsonResponse({ agents: [...BUILTIN_SUBAGENTS, ...userAgents] })
+}
+
+export async function kworksCreateSubAgent(
+  runtime: ServerRuntime, actor: AuthActor, request: Request
+): Promise<JsonResponse | Response> {
+  const body = await readJsonBody(request)
+  if (!body.ok) return body.response
+  if (!isObject(body.value)) return jsonResponse({ detail: 'subagent body must be an object' }, 400)
+  const name = stringValue(body.value.name)
+  if (!name) return jsonResponse({ detail: 'name is required' }, 400)
+  const now = new Date().toISOString()
+  const id = name.trim().toLowerCase().replace(/[^\w-]+/g, '-')
+  const agents = await readUserArray<SubAgentEntry>(runtime, actor, USER_SETTING_SUBAGENTS)
+  if (agents.some((a) => a.id === id)) return jsonResponse({ detail: `subagent ${id} already exists` }, 409)
+  const agent: SubAgentEntry = {
+    id,
+    name: name.trim(),
+    type: 'user',
+    description: stringValue(body.value.description) ?? '',
+    tools: stringList(body.value.tools) ?? [],
+    source: `user:${id}`,
+    content: stringValue(body.value.content) ?? '',
+    inheritMode: 'custom',
+    createdAt: now,
+    updatedAt: now
+  }
+  await runtime.userDataStore?.setUserSetting(storeOwner(actor), USER_SETTING_SUBAGENTS, [...agents, agent])
+  return jsonResponse(agent, 201)
+}
+
+export async function kworksUpdateSubAgent(
+  runtime: ServerRuntime, actor: AuthActor, id: string, request: Request
+): Promise<JsonResponse | Response> {
+  const body = await readJsonBody(request)
+  if (!body.ok) return body.response
+  if (!isObject(body.value)) return jsonResponse({ detail: 'subagent body must be an object' }, 400)
+  const agents = await readUserArray<SubAgentEntry>(runtime, actor, USER_SETTING_SUBAGENTS)
+  const idx = agents.findIndex((a) => a.id === id)
+  if (idx < 0) return jsonResponse({ detail: `subagent ${id} not found` }, 404)
+  const existing = agents[idx]
+  const updated: SubAgentEntry = {
+    ...existing,
+    name: stringValue(body.value.name) ?? existing.name,
+    description: stringValue(body.value.description) ?? existing.description,
+    tools: stringList(body.value.tools) ?? existing.tools,
+    content: stringValue(body.value.content) ?? existing.content,
+    updatedAt: new Date().toISOString()
+  }
+  agents[idx] = updated
+  await runtime.userDataStore?.setUserSetting(storeOwner(actor), USER_SETTING_SUBAGENTS, agents)
+  return jsonResponse(updated)
+}
+
+export async function kworksDeleteSubAgent(
+  runtime: ServerRuntime, actor: AuthActor, id: string
+): Promise<JsonResponse | Response> {
+  const agents = await readUserArray<SubAgentEntry>(runtime, actor, USER_SETTING_SUBAGENTS)
+  const next = agents.filter((a) => a.id !== id)
+  if (next.length === agents.length) return jsonResponse({ detail: `subagent ${id} not found` }, 404)
+  await runtime.userDataStore?.setUserSetting(storeOwner(actor), USER_SETTING_SUBAGENTS, next)
+  return jsonResponse({ id, deleted: true })
+}
+
+export async function kworksCloneSubAgent(
+  runtime: ServerRuntime, actor: AuthActor, id: string
+): Promise<JsonResponse | Response> {
+  const builtin = BUILTIN_SUBAGENTS.find((a) => a.id === id)
+  if (!builtin) return jsonResponse({ detail: `builtin subagent ${id} not found` }, 404)
+  const now = new Date().toISOString()
+  const cloneId = `${builtin.id}-custom`
+  const agents = await readUserArray<SubAgentEntry>(runtime, actor, USER_SETTING_SUBAGENTS)
+  if (agents.some((a) => a.id === cloneId)) return jsonResponse({ detail: `subagent ${cloneId} already exists` }, 409)
+  const clone: SubAgentEntry = {
+    ...builtin,
+    id: cloneId,
+    type: 'user',
+    source: `user:${cloneId}`,
+    inheritMode: 'custom',
+    content: `# ${builtin.name} (custom)\n\n<!-- 基于内置 ${builtin.id} 克隆，可自由修改 -->`,
+    createdAt: now,
+    updatedAt: now
+  }
+  await runtime.userDataStore?.setUserSetting(storeOwner(actor), USER_SETTING_SUBAGENTS, [...agents, clone])
+  return jsonResponse(clone, 201)
+}
+
+// ---- Commands 内置列表（与前端 SKILL_COMMANDS 一致）----
+type CommandEntry = {
+  id: string
+  description: string
+  content: string
+  source: 'skill' | 'user'
+  skillId?: string
+  aliases: string[]
+  createdAt?: string
+  updatedAt?: string
+}
+
+const SKILL_COMMANDS: CommandEntry[] = [
+  { id: 'deploy', description: 'Deploy the application', content: '', source: 'skill', skillId: 'deploy', aliases: ['部署'] },
+  { id: 'write-plan', description: 'Write an implementation plan before coding', content: '', source: 'skill', skillId: 'writing-plans', aliases: ['写计划'] },
+  { id: 'execute-plan', description: 'Execute an implementation plan with review checkpoints', content: '', source: 'skill', skillId: 'executing-plans', aliases: ['执行计划'] },
+  { id: 'verify', description: 'Run verification before claiming completion', content: '', source: 'skill', skillId: 'verification', aliases: ['验证'] },
+  { id: 'create-skill', description: 'Create or improve a skill package', content: '', source: 'skill', skillId: 'skill-creator', aliases: ['创建技能'] },
+  { id: 'find-skill', description: 'Discover available skills for a task', content: '', source: 'skill', skillId: 'find-skills', aliases: ['找技能'] },
+  { id: 'frontend-design', description: 'Design and build production-grade UI', content: '', source: 'skill', skillId: 'frontend-design', aliases: ['前端设计'] },
+  { id: 'pdf', description: 'Manipulate PDF files', content: '', source: 'skill', skillId: 'pdf', aliases: [] },
+  { id: 'docx', description: 'Create or edit Word documents', content: '', source: 'skill', skillId: 'docx', aliases: ['word'] },
+  { id: 'xlsx', description: 'Manipulate spreadsheet files', content: '', source: 'skill', skillId: 'xlsx', aliases: ['excel'] },
+  { id: 'release-notes', description: 'Generate release notes from git history', content: '', source: 'skill', skillId: 'release-notes', aliases: ['发布说明'] },
+  { id: 'webapp-test', description: 'Test a running web app with Playwright', content: '', source: 'skill', skillId: 'webapp-testing', aliases: ['测试应用'] },
+  { id: 'mcp-builder', description: 'Build an MCP server', content: '', source: 'skill', skillId: 'mcp-builder', aliases: ['构建MCP'] },
+  { id: 'parallel', description: 'Dispatch independent tasks in parallel', content: '', source: 'skill', skillId: 'parallel-agents', aliases: ['并行'] }
+]
+
+export async function kworksListCommands(runtime: ServerRuntime, actor: AuthActor): Promise<JsonResponse> {
+  const userCommands = await readUserArray<CommandEntry>(runtime, actor, USER_SETTING_COMMANDS)
+  return jsonResponse({ commands: [...SKILL_COMMANDS, ...userCommands] })
+}
+
+export async function kworksCreateCommand(
+  runtime: ServerRuntime, actor: AuthActor, request: Request
+): Promise<JsonResponse | Response> {
+  const body = await readJsonBody(request)
+  if (!body.ok) return body.response
+  if (!isObject(body.value)) return jsonResponse({ detail: 'command body must be an object' }, 400)
+  const name = stringValue(body.value.id)
+  if (!name) return jsonResponse({ detail: 'command id is required' }, 400)
+  const id = name.trim().toLowerCase().replace(/[^\w-]+/g, '-').replace(/^-+/, '')
+  const allIds = new Set([...SKILL_COMMANDS.map((c) => c.id)])
+  const userCommands = await readUserArray<CommandEntry>(runtime, actor, USER_SETTING_COMMANDS)
+  userCommands.forEach((c) => allIds.add(c.id))
+  if (allIds.has(id)) return jsonResponse({ detail: `command ${id} already exists` }, 409)
+  const now = new Date().toISOString()
+  const command: CommandEntry = {
+    id,
+    description: stringValue(body.value.description) ?? '',
+    content: stringValue(body.value.content) ?? '',
+    source: 'user',
+    aliases: stringList(body.value.aliases) ?? [],
+    createdAt: now,
+    updatedAt: now
+  }
+  await runtime.userDataStore?.setUserSetting(storeOwner(actor), USER_SETTING_COMMANDS, [...userCommands, command])
+  return jsonResponse(command, 201)
+}
+
+export async function kworksUpdateCommand(
+  runtime: ServerRuntime, actor: AuthActor, id: string, request: Request
+): Promise<JsonResponse | Response> {
+  const body = await readJsonBody(request)
+  if (!body.ok) return body.response
+  if (!isObject(body.value)) return jsonResponse({ detail: 'command body must be an object' }, 400)
+  const commands = await readUserArray<CommandEntry>(runtime, actor, USER_SETTING_COMMANDS)
+  const idx = commands.findIndex((c) => c.id === id)
+  if (idx < 0) return jsonResponse({ detail: `command ${id} not found` }, 404)
+  const existing = commands[idx]
+  const updated: CommandEntry = {
+    ...existing,
+    description: stringValue(body.value.description) ?? existing.description,
+    content: stringValue(body.value.content) ?? existing.content,
+    aliases: stringList(body.value.aliases) ?? existing.aliases,
+    updatedAt: new Date().toISOString()
+  }
+  commands[idx] = updated
+  await runtime.userDataStore?.setUserSetting(storeOwner(actor), USER_SETTING_COMMANDS, commands)
+  return jsonResponse(updated)
+}
+
+export async function kworksDeleteCommand(
+  runtime: ServerRuntime, actor: AuthActor, id: string
+): Promise<JsonResponse | Response> {
+  const commands = await readUserArray<CommandEntry>(runtime, actor, USER_SETTING_COMMANDS)
+  const next = commands.filter((c) => c.id !== id)
+  if (next.length === commands.length) return jsonResponse({ detail: `command ${id} not found` }, 404)
+  await runtime.userDataStore?.setUserSetting(storeOwner(actor), USER_SETTING_COMMANDS, next)
+  return jsonResponse({ id, deleted: true })
+}
+
+// ---- Plugins（内置列表 + enabled 状态存储）----
+type PluginEntry = {
+  id: string
+  name: string
+  version: string
+  description: string
+  builtin: boolean
+  enabled: boolean
+  source: 'official' | 'community' | 'unknown'
+  category: string
+  provides: { skills: number; commands: number; hooks: number; mcpServers: number }
+  author?: string
+  updatedAt?: string
+}
+
+const INSTALLED_PLUGINS: PluginEntry[] = [
+  { id: 'android-emulator', name: 'android-emulator', version: '0.1.0', description: 'Provides Android development workflows and emulator automation for KCoder.', builtin: true, enabled: false, source: 'official', category: 'development', provides: { skills: 3, commands: 2, hooks: 0, mcpServers: 1 }, author: 'KCoder Team' },
+  { id: 'document-skills', name: 'document-skills', version: '0.1.0', description: 'Built-in DOCX and PDF document production skills for KCoder.', builtin: true, enabled: true, source: 'official', category: 'documents', provides: { skills: 4, commands: 0, hooks: 0, mcpServers: 0 }, author: 'KCoder Team' },
+  { id: 'ios-simulator', name: 'ios-simulator', version: '0.1.0', description: 'Provides iOS development workflows and simulator automation for KCoder.', builtin: true, enabled: false, source: 'official', category: 'development', provides: { skills: 3, commands: 2, hooks: 0, mcpServers: 1 }, author: 'KCoder Team' },
+  { id: 'restore-legacy-sessions', name: 'restore-legacy-sessions', version: '0.1.0', description: 'Select and restore legacy sessions into the new KCoder task and session store.', builtin: true, enabled: false, source: 'official', category: 'workflow', provides: { skills: 1, commands: 1, hooks: 1, mcpServers: 0 }, author: 'KCoder Team' },
+  { id: 'skill-creator', name: 'skill-creator', version: '0.1.0', description: 'Create, edit, and iterate local KCoder skills.', builtin: true, enabled: true, source: 'official', category: 'development', provides: { skills: 2, commands: 1, hooks: 0, mcpServers: 0 }, author: 'KCoder Team' },
+  { id: 'superpowers', name: 'superpowers', version: '5.1.0', description: 'Planning, TDD, debugging, and delivery workflows for coding agents.', builtin: true, enabled: true, source: 'official', category: 'workflow', provides: { skills: 8, commands: 4, hooks: 2, mcpServers: 0 }, author: 'KCoder Team' },
+  { id: 'kcoder-guide', name: 'kcoder-guide', version: '0.1.0', description: 'KCoder usage and self-diagnosis guide: teaches agents and users how to configure MCP servers, skills and more.', builtin: true, enabled: true, source: 'official', category: 'guide', provides: { skills: 2, commands: 1, hooks: 0, mcpServers: 0 }, author: 'KCoder Team' }
+]
+
+export async function kworksListPlugins(runtime: ServerRuntime, actor: AuthActor): Promise<JsonResponse> {
+  const states = runtime.userDataStore
+    ? (await runtime.userDataStore.getUserSetting(storeOwner(actor), USER_SETTING_PLUGINS) ?? {})
+    : {}
+  const stateMap = isObject(states) ? states as Record<string, boolean> : {}
+  const plugins = INSTALLED_PLUGINS.map((p) => ({
+    ...p,
+    enabled: stateMap[p.id] ?? p.enabled
+  }))
+  return jsonResponse({ plugins })
+}
+
+export async function kworksTogglePlugin(
+  runtime: ServerRuntime, actor: AuthActor, id: string, request: Request
+): Promise<JsonResponse | Response> {
+  if (!INSTALLED_PLUGINS.some((p) => p.id === id)) {
+    return jsonResponse({ detail: `plugin ${id} not found` }, 404)
+  }
+  const body = await readJsonBody(request)
+  if (!body.ok) return body.response
+  if (!isObject(body.value)) return jsonResponse({ detail: 'toggle body must be an object' }, 400)
+  const enabled = booleanValue(body.value.enabled)
+  if (enabled === undefined) return jsonResponse({ detail: 'enabled is required' }, 400)
+  const raw = runtime.userDataStore
+    ? (await runtime.userDataStore.getUserSetting(storeOwner(actor), USER_SETTING_PLUGINS) ?? {})
+    : {}
+  const stateMap = isObject(raw) ? { ...(raw as Record<string, boolean>) } : {}
+  stateMap[id] = enabled
+  await runtime.userDataStore?.setUserSetting(storeOwner(actor), USER_SETTING_PLUGINS, stateMap)
+  return jsonResponse({ id, enabled })
+}
+
+/** marketplace 发现页（硬编码 mock，后续接真实 marketplace） */
+export async function kworksDiscoverPlugins(): Promise<JsonResponse> {
+  return jsonResponse({
+    plugins: [
+      { id: 'docker-helper', name: 'docker-helper', version: '1.2.0', description: 'Container management workflows: compose, build, debug and deploy.', author: 'community', category: 'development', downloads: 3420, installed: false },
+      { id: 'git-workflows', name: 'git-workflows', version: '2.0.1', description: 'Advanced git automation: rebase assist, conflict resolution, changelog generation.', author: 'community', category: 'workflow', downloads: 5810, installed: false },
+      { id: 'i18n-toolkit', name: 'i18n-toolkit', version: '0.9.3', description: 'Internationalization toolkit: extract keys, sync locales, detect missing translations.', author: 'community', category: 'development', downloads: 1260, installed: false },
+      { id: 'markdown-plus', name: 'markdown-plus', version: '1.0.0', description: 'Enhanced Markdown authoring with diagrams, footnotes and export to PDF/DOCX.', author: 'community', category: 'documents', downloads: 2140, installed: false }
+    ]
+  })
+}
+
+/** install/check-update 暂为 stub（marketplace 集成后续做） */
+export async function kworksInstallPlugin(request: Request): Promise<JsonResponse | Response> {
+  const body = await readJsonBody(request)
+  if (!body.ok) return body.response
+  return jsonResponse({ success: false, detail: 'Plugin marketplace install is not yet available' })
+}
+
+export async function kworksCheckPluginUpdates(): Promise<JsonResponse> {
+  return jsonResponse({ updates: [] })
+}
+
+// ---- Remote Control（单 JSON 配置 + 空会话列表）----
+type RemoteConfig = {
+  remoteEnabled: boolean
+  remoteUrl: string
+  remoteToken: string
+  exposeEnabled: boolean
+  exposeToken: string
+  requireAuth: boolean
+  permissionLevel: 'readonly' | 'full'
+  sessionTimeout: number
+}
+
+const DEFAULT_REMOTE_CONFIG: RemoteConfig = {
+  remoteEnabled: false,
+  remoteUrl: '',
+  remoteToken: '',
+  exposeEnabled: false,
+  exposeToken: '',
+  requireAuth: true,
+  permissionLevel: 'readonly',
+  sessionTimeout: 30
+}
+
+export async function kworksGetRemoteConfig(runtime: ServerRuntime, actor: AuthActor): Promise<JsonResponse> {
+  const raw = runtime.userDataStore
+    ? await runtime.userDataStore.getUserSetting(storeOwner(actor), USER_SETTING_REMOTE)
+    : undefined
+  const saved = isObject(raw) ? raw as Partial<RemoteConfig> : {}
+  return jsonResponse({ ...DEFAULT_REMOTE_CONFIG, ...saved })
+}
+
+export async function kworksSaveRemoteConfig(
+  runtime: ServerRuntime, actor: AuthActor, request: Request
+): Promise<JsonResponse | Response> {
+  const body = await readJsonBody(request)
+  if (!body.ok) return body.response
+  if (!isObject(body.value)) return jsonResponse({ detail: 'remote config body must be an object' }, 400)
+  const raw = runtime.userDataStore
+    ? await runtime.userDataStore.getUserSetting(storeOwner(actor), USER_SETTING_REMOTE)
+    : undefined
+  const saved = isObject(raw) ? raw as Partial<RemoteConfig> : {}
+  const merged: RemoteConfig = {
+    ...DEFAULT_REMOTE_CONFIG,
+    ...saved,
+    ...Object.fromEntries(
+      Object.entries(body.value).filter(([, v]) => v !== undefined)
+    )
+  } as RemoteConfig
+  await runtime.userDataStore?.setUserSetting(storeOwner(actor), USER_SETTING_REMOTE, merged)
+  return jsonResponse(merged)
+}
+
+/** 测试到远程引擎的连通性 — 实际 fetch 探测 */
+export async function kworksTestRemoteConnection(request: Request): Promise<JsonResponse | Response> {
+  const body = await readJsonBody(request)
+  if (!body.ok) return body.response
+  if (!isObject(body.value)) return jsonResponse({ detail: 'test body must be an object' }, 400)
+  const url = stringValue(body.value.url)
+  if (!url) return jsonResponse({ detail: 'url is required' }, 400)
+  const token = stringValue(body.value.token) ?? ''
+  const start = Date.now()
+  try {
+    const headers: Record<string, string> = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const res = await fetch(`${url.replace(/\/$/, '')}/health`, { headers, signal: AbortSignal.timeout(8000) })
+    const latencyMs = Date.now() - start
+    if (res.ok) return jsonResponse({ ok: true, latencyMs })
+    return jsonResponse({ ok: false, latencyMs, error: `HTTP ${res.status}` })
+  } catch (e) {
+    return jsonResponse({ ok: false, error: (e as Error).message || 'connection failed' })
+  }
+}
+
+/** 远程会话列表（暂无真实会话管理，返回空） */
+export async function kworksListRemoteSessions(): Promise<JsonResponse> {
+  return jsonResponse({ sessions: [] })
+}
+
+export async function kworksRevokeRemoteSession(id: string): Promise<JsonResponse> {
+  return jsonResponse({ id, revoked: true })
 }
 
 export async function kworksGetProjectStage(
