@@ -88,6 +88,7 @@ import {
   kworksCodingSkills,
   kworksCreateModel,
   kworksCreateCron,
+  kworksCreateBranch,
   kworksCreateProject,
   kworksCreateThread,
   kworksDeleteCron,
@@ -120,6 +121,7 @@ import {
   kworksListCodingSessionEvents,
   kworksListProjectFiles,
   kworksListProjectWorktrees,
+  kworksListBranches,
   kworksListProjects,
   kworksListCrons,
   kworksListRuns,
@@ -808,6 +810,14 @@ export function buildRouter(runtime: ServerRuntime): Router {
     const url = new URL(request.url)
     const path = url.searchParams.get('path')
     return buildWorkspaceStatusResponse({ inspector: runtime.workspaceInspector, path })
+  })
+  router.add('GET', '/v1/workspace/branches', async (request) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return kworksListBranches(request)
+  })
+  router.add('POST', '/v1/workspace/branch', async (request) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    return kworksCreateBranch(request)
   })
   router.add('GET', '/v1/threads', async (request) => {
     const actor = await authenticateOrInternal(request, runtime)
