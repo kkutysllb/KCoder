@@ -49,6 +49,20 @@ const zhCN: Dict = {
   'orchestration.team.desc': '多 agent 协作（evented_v2），manager 调度专家',
   'orchestration.menuHint': '选择编排模式（下次发消息生效）',
 
+  // Execution view
+  'execution.waiting': '等待执行开始…',
+  'execution.unavailable': '该回合无执行投影（旧版或未记录）',
+  'execution.graph': '执行图',
+  'execution.delegation': '委派树',
+  'execution.agents': 'Agent',
+  'execution.handoffs': '交接',
+  'execution.noNodes': '暂无节点',
+  'execution.status.queued': '排队中',
+  'execution.status.running': '执行中',
+  'execution.status.completed': '已完成',
+  'execution.status.failed': '失败',
+  'execution.status.aborted': '已中止',
+
   // Auth
   'auth.title.login': '登录 KCoder',
   'auth.title.register': '注册账户',
@@ -484,6 +498,20 @@ const en: Dict = {
   'orchestration.team': 'Team',
   'orchestration.team.desc': 'Multi-agent (evented_v2), manager dispatches specialists',
   'orchestration.menuHint': 'Choose mode (applies on next message)',
+
+  // Execution view
+  'execution.waiting': 'Waiting for execution to start…',
+  'execution.unavailable': 'No execution projection for this turn (legacy or unrecorded)',
+  'execution.graph': 'Execution Graph',
+  'execution.delegation': 'Delegation Tree',
+  'execution.agents': 'Agents',
+  'execution.handoffs': 'Handoffs',
+  'execution.noNodes': 'No nodes',
+  'execution.status.queued': 'Queued',
+  'execution.status.running': 'Running',
+  'execution.status.completed': 'Completed',
+  'execution.status.failed': 'Failed',
+  'execution.status.aborted': 'Aborted',
 
   // Auth
   'auth.title.login': 'Sign in to KCoder',

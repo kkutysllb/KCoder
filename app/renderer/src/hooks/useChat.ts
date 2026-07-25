@@ -183,6 +183,25 @@ export function useChat() {
     [appendMessagePart, updateLastToolCall, updateApprovalPart, setPendingApproval, setPendingUserInput]
   )
 
+  // 轮询执行投影视图（SSE 流期间每 1.5s 拉一次 DAG 进度）
+  const pollExecution = useCallback(async (threadId: string, turnId: string) => {
+    const api = getEngineAPI(enginePort)
+    const poll = async () => {
+      try {
+        const view = await api.getTurnExecution(threadId, turnId)
+        useAppStore.getState().setTurnExecution(view)
+        // running/queued 状态继续轮询；completed/failed/aborted 停止
+        if (view.available && (view.status === 'running' || view.status === 'queued')) {
+          setTimeout(poll, 1500)
+        }
+      } catch {
+        // 投影暂不可用（legacy turn / not recorded）— 静默停止
+      }
+    }
+    // 首次延迟 500ms（让后端投影初始化）
+    setTimeout(poll, 500)
+  }, [enginePort])
+
   // Send a message
   const sendMessage = useCallback(
     async (content: string) => {
@@ -246,9 +265,13 @@ export function useChat() {
       try {
         // 读取全局编排偏好（调用时取最新值，每回合可自由切换 standard/team）
         const { orchestrationPreference } = useAppStore.getState()
-        await api.sendMessage(currentThreadId, content.trim(), (event: SSEEvent) => {
+        const turnId = await api.sendMessage(currentThreadId, content.trim(), (event: SSEEvent) => {
           handleSseEvent(assistantMessageId, event)
         }, orchestrationPreference)
+
+        // 记录当前 turnId 并轮询执行投影视图（DAG/agent 执行进度）
+        useAppStore.getState().setActiveTurnId(turnId)
+        await pollExecution(currentThreadId, turnId)
       } catch (error) {
         console.error('Failed to send message:', error)
         appendMessagePart(assistantMessageId, {
@@ -258,9 +281,17 @@ export function useChat() {
       } finally {
         updateMessage(assistantMessageId, useAppStore.getState().messages.find((m) => m.id === assistantMessageId)?.content ?? '')
         setGenerating(false)
+        // 最终再拉一次执行投影（确保 completed 状态）
+        const state = useAppStore.getState()
+        if (state.activeTurnId && state.threadId) {
+          try {
+            const view = await getEngineAPI(enginePort).getTurnExecution(state.threadId, state.activeTurnId)
+            state.setTurnExecution(view)
+          } catch { /* 投影不可用时静默 */ }
+        }
       }
     },
-    [enginePort, threadId, isGenerating, addMessage, updateMessage, appendMessagePart, setThreadId, setGenerating, setEngineStatus, handleSseEvent]
+    [enginePort, threadId, isGenerating, addMessage, updateMessage, appendMessagePart, setThreadId, setGenerating, setEngineStatus, handleSseEvent, pollExecution]
   )
 
   // 加载历史会话

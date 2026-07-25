@@ -162,6 +162,85 @@ export interface TurnResponse {
   userMessageItemId: string
 }
 
+// ============ Turn Execution Projection types ============
+// 对齐 engine/packages/foundation/contracts/src/turn-execution.ts
+
+export type ExecutionStatus = 'queued' | 'running' | 'completed' | 'failed' | 'aborted'
+
+export interface AgentExecutionView {
+  key: string
+  parentKey?: string
+  sequence: number
+  role: 'root' | 'child' | 'manager' | 'specialist'
+  phase?: 'planning' | 'execution' | 'synthesis'
+  name: string
+  task?: string
+  status: ExecutionStatus
+  startedAt?: string
+  completedAt?: string
+  durationMs?: number
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number }
+  messages: Array<{ key: string; sourceRef: string; role: string; content: string; createdAt: string }>
+  reasoning: Array<{ key: string; text: string; createdAt: string }>
+  toolRuns: Array<{ key: string; toolName: string; status: ExecutionStatus }>
+  summary?: string
+}
+
+export interface RuntimeDecisionView {
+  preferredMode: 'kernel_v3' | 'evented_v2'
+  effectiveMode: 'classic' | 'kernel_v3' | 'evented_v2'
+  preference: 'standard' | 'team'
+  source: string
+  reason: string
+  fallbackReason?: string
+}
+
+export interface AgentGraphNodeView {
+  key: string
+  agentKey: string
+  role: 'manager' | 'specialist'
+  phase?: 'planning' | 'execution' | 'synthesis'
+  name: string
+  status: ExecutionStatus
+  required: boolean
+  childAgentKeys: string[]
+  parallelGroup?: string
+}
+
+export interface AgentGraphEdgeView {
+  from: string
+  to: string
+  condition?: string
+}
+
+export interface AgentGraphHandoffView {
+  from: string
+  to: string
+  status: ExecutionStatus
+}
+
+export interface AgentGraphExecutionView {
+  key: string
+  templateId: string
+  nodes: AgentGraphNodeView[]
+  edges: AgentGraphEdgeView[]
+  handoffs: AgentGraphHandoffView[]
+  activeAgentKeys: string[]
+  warnings: string[]
+}
+
+export interface DelegationTreeView {
+  roots: string[]
+  edges: Array<{ from: string; to: string }>
+}
+
+/** TurnExecutionView — GET /v1/threads/:id/turns/:turnId/execution 返回。 */
+export type TurnExecutionView =
+  | { version: 1; available: true; revision: string; status: ExecutionStatus; decision: RuntimeDecisionView; agents: AgentExecutionView[]; mode: 'kernel_v3'; delegation: DelegationTreeView }
+  | { version: 1; available: true; revision: string; status: ExecutionStatus; decision: RuntimeDecisionView; agents: AgentExecutionView[]; mode: 'evented_v2'; graph: AgentGraphExecutionView }
+  | { version: 1; available: true; revision: string; status: ExecutionStatus; decision: RuntimeDecisionView; agents: AgentExecutionView[]; mode: 'classic'; compatibility: { reason: string } }
+  | { version: 1; available: false; revision: string; reason: string }
+
 /** ApprovalRequest — 审批请求（来自 approval_requested SSE 事件）。 */
 export interface ApprovalRequest {
   approvalId: string
@@ -433,13 +512,13 @@ export class EngineAPI {
     return response.json()
   }
 
-  // Send a message and get streaming response
+  // Send a message and get streaming response. Returns the turnId for execution polling.
   async sendMessage(
     threadId: string,
     content: string,
     onEvent: (event: SSEEvent) => void,
     orchestrationPreference?: 'standard' | 'team'
-  ): Promise<void> {
+  ): Promise<string> {
     // 创建 turn — 后端 StartTurnRequest 要求 { prompt: string, orchestrationPreference? }
     const turnResponse = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns`, {
       method: 'POST',
@@ -459,6 +538,7 @@ export class EngineAPI {
 
     // 订阅线程级 SSE 事件流（后端路径是 /v1/threads/:id/events，不是 /turns/:turnId/events）
     await this.subscribeToThread(threadId, turn.turnId, onEvent)
+    return turn.turnId
   }
 
   // 订阅线程事件流 — 后端发具名事件（event: <kind>），必须用 addEventListener 按 kind 监听
@@ -544,6 +624,17 @@ export class EngineAPI {
   }
 
   // ============ Approval / User Input API ============
+
+  // Get turn execution projection — GET /v1/threads/:id/turns/:turnId/execution
+  async getTurnExecution(threadId: string, turnId: string): Promise<TurnExecutionView> {
+    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns/${turnId}/execution`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to get turn execution: ${response.statusText}`)
+    }
+    return response.json()
+  }
 
   // Resolve an approval — POST /v1/approvals/:id
   async decideApproval(approvalId: string, decision: 'allow' | 'deny', reason?: string): Promise<unknown> {
