@@ -133,28 +133,20 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [selectedProviderId, setSelectedProviderId] = useState<string>('')
   const [connectionType, setConnectionType] = useState('API 直连')
 
-  // 从后端加载已保存的模型（GET /api/models）— 合并到预设列表，不覆盖
+  // 从后端加载已保存的模型（GET /api/models）— 只更新 enabled 状态，不覆盖用户输入
   const refreshModels = useCallback(async () => {
     if (engineStatus !== 'connected') return
     try {
       const result = await getEngineAPI(enginePort).getModels()
       const activeModel = result.models.find((m) => m.active)
       setProviders((prev) => prev.map((p) => {
-        // 匹配后端已保存的 profile（按 baseUrl）
-        const matched = result.models.find((m) => m.base_url === p.baseUrl)
-        return {
-          ...p,
-          enabled: activeModel?.base_url === p.baseUrl,
-          // 不覆盖用户输入的 apiKey（后端返回的是 redacted '********'）
-          supportsToolCalling: matched?.supports_tool_calling,
-          supportsVision: matched?.supports_vision,
-          supportsReasoningEffort: matched?.supports_reasoning_effort,
-          reasoningEffortValues: matched?.reasoning_effort_values,
-          rawModel: matched?.model,
-          models: matched?.context_window_tokens
-            ? [{ name: matched.model, context: `${Math.round(matched.context_window_tokens / 1000)}K` }]
-            : matched ? [{ name: matched.model, context: '-' }] : []
-        }
+        // 只标记 enabled：后端 active 的模型 profile name 匹配供应商 id
+        const isActive = activeModel && (
+          activeModel.name === p.id ||
+          activeModel.id === p.id ||
+          activeModel.base_url === p.baseUrl
+        )
+        return { ...p, enabled: Boolean(isActive) }
       }))
     } catch (err) {
       console.error('[KCoder] Failed to load models:', err)
@@ -200,6 +192,13 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const handleUpdateBaseUrl = (id: string, baseUrl: string) => {
     setProviders((prev) =>
       prev.map((p) => (p.id === id ? { ...p, baseUrl } : p))
+    )
+  }
+
+  // 从发现列表选择一个具体模型（记录到 provider 状态）
+  const handleSelectModel = (id: string, modelId: string) => {
+    setProviders((prev) =>
+      prev.map((p) => p.id === id ? { ...p, rawModel: modelId, models: [{ name: modelId, context: '-' }] } : p)
     )
   }
 
@@ -284,6 +283,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             onToggleProvider={handleToggleProvider}
             onUpdateApiKey={handleUpdateApiKey}
             onUpdateBaseUrl={handleUpdateBaseUrl}
+            onSelectModel={handleSelectModel}
             onConnectionTypeChange={setConnectionType}
             onSave={handleSave}
             onClose={onClose}
@@ -324,6 +324,7 @@ function ModelSettings({
   onToggleProvider,
   onUpdateApiKey,
   onUpdateBaseUrl,
+  onSelectModel,
   onConnectionTypeChange,
   onSave,
   onClose,
@@ -336,6 +337,7 @@ function ModelSettings({
   onToggleProvider: (id: string) => void
   onUpdateApiKey: (id: string, key: string) => void
   onUpdateBaseUrl: (id: string, url: string) => void
+  onSelectModel: (id: string, modelId: string) => void
   onConnectionTypeChange: (v: string) => void
   onSave: () => void
   onClose: () => void
@@ -418,6 +420,7 @@ function ModelSettings({
               onToggle={onToggleProvider}
               onUpdateApiKey={onUpdateApiKey}
               onUpdateBaseUrl={onUpdateBaseUrl}
+              onSelectModel={onSelectModel}
               onSave={onSave}
               onClose={onClose}
             />
@@ -438,6 +441,7 @@ function ProviderDetail({
   onToggle,
   onUpdateApiKey,
   onUpdateBaseUrl,
+  onSelectModel,
   onSave,
   onClose,
 }: {
@@ -445,6 +449,7 @@ function ProviderDetail({
   onToggle: (id: string) => void
   onUpdateApiKey: (id: string, key: string) => void
   onUpdateBaseUrl: (id: string, url: string) => void
+  onSelectModel: (id: string, modelId: string) => void
   onSave: () => void
   onClose: () => void
 }) {
@@ -594,8 +599,8 @@ function ProviderDetail({
                         base_url: provider.baseUrl,
                         api_key: provider.apiKey || undefined,
                       })
-                      // 更新本地 provider 状态（记录选中的模型）
-                      onUpdateApiKey(provider.id, provider.apiKey) // 触发 state 更新
+                      // 记录选中的模型到 provider 状态
+                      onSelectModel(provider.id, m.id)
                       setDiscoverError(null)
                     } catch (e) {
                       setDiscoverError(e instanceof Error ? e.message : String(e))
