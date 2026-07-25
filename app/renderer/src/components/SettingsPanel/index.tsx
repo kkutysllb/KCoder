@@ -133,21 +133,60 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [selectedProviderId, setSelectedProviderId] = useState<string>('')
   const [connectionType, setConnectionType] = useState('API 直连')
 
-  // 从后端加载已保存的模型（GET /api/models）— 只更新 enabled 状态，不覆盖用户输入
+  // 从后端加载已保存的模型（GET /api/models）— 合并到预设列表：
+  // 匹配预设的填充详情；不匹配预设的追加为新条目。apiKey 不从后端回显。
   const refreshModels = useCallback(async () => {
     if (engineStatus !== 'connected') return
     try {
       const result = await getEngineAPI(enginePort).getModels()
       const activeModel = result.models.find((m) => m.active)
-      setProviders((prev) => prev.map((p) => {
-        // 只标记 enabled：后端 active 的模型 profile name 匹配供应商 id
-        const isActive = activeModel && (
-          activeModel.name === p.id ||
-          activeModel.id === p.id ||
-          activeModel.base_url === p.baseUrl
-        )
-        return { ...p, enabled: Boolean(isActive) }
-      }))
+
+      // 把后端 ModelEntry 转成 provider 补充信息
+      const backendToProviderInfo = (m: typeof result.models[0]) => ({
+        enabled: Boolean(m.active),
+        baseUrl: m.base_url ?? '',
+        rawModel: m.model,
+        models: m.context_window_tokens
+          ? [{ name: m.model, context: `${Math.round(m.context_window_tokens / 1000)}K` }]
+          : [{ name: m.model, context: '-' }],
+        supportsToolCalling: m.supports_tool_calling,
+        supportsVision: m.supports_vision,
+        supportsReasoningEffort: m.supports_reasoning_effort,
+        reasoningEffortValues: m.reasoning_effort_values,
+      })
+
+      setProviders((prev) => {
+        // 第一轮：预设列表里匹配后端 profile 的，填充详情
+        const matchedUrls = new Set<string>()
+        const matchedNames = new Set<string>()
+        const updated = prev.map((p) => {
+          // 按 profile name（id）或 baseUrl 匹配
+          const matched = result.models.find((m) =>
+            m.id === p.id || m.name === p.id || m.base_url === p.baseUrl
+          )
+          if (matched) {
+            matchedUrls.add(matched.base_url ?? '')
+            matchedNames.add(matched.id)
+            // 不覆盖 apiKey（后端返回 redacted）；其余字段用后端数据填充
+            return { ...p, ...backendToProviderInfo(matched), apiKey: p.apiKey }
+          }
+          // 未匹配的预设：enabled 根据 activeModel 判断
+          return { ...p, enabled: Boolean(activeModel && activeModel.id === p.id) }
+        })
+
+        // 第二轮：后端有但预设里没有的 profile，追加为新条目
+        const extras: Provider[] = result.models
+          .filter((m) => !matchedNames.has(m.id) && !matchedUrls.has(m.base_url ?? ''))
+          .map((m) => ({
+            id: m.id,
+            name: m.display_name || m.name,
+            category: '已配置模型',
+            ...backendToProviderInfo(m),
+            apiKey: '', // 不回显
+          }))
+
+        return [...updated, ...extras]
+      })
     } catch (err) {
       console.error('[KCoder] Failed to load models:', err)
     }
