@@ -100,6 +100,7 @@ interface SidebarProps {
   onOpenAuth?: () => void
   onLogout?: () => void
   onSelectThread?: (threadId: string) => void
+  onNewTask?: () => void
 }
 
 /** 相对时间格式化（"刚刚"/"5分钟前"/"2小时前"/"3天前"） */
@@ -169,7 +170,7 @@ function SortMenu({
   )
 }
 
-export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, onLogout, onSelectThread }: SidebarProps) {
+export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, onLogout, onSelectThread, onNewTask }: SidebarProps) {
   const [activeTab, setActiveTab] = useState<'group' | 'project'>('project')
   const [showSortMenu, setShowSortMenu] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
@@ -210,11 +211,12 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
     onSelectThread?.(id)
   }, [setThreadId, setWorkspacePath, onSelectThread])
 
-  // 新建会话
+  // 新建会话 — 清空当前消息并打开新建任务对话框
   const handleNewChat = useCallback(() => {
     clearMessages()
     setThreadId(null)
-  }, [clearMessages, setThreadId])
+    onNewTask?.()
+  }, [clearMessages, setThreadId, onNewTask])
 
   return (
     <div className="w-[260px] h-full bg-bg-sidebar flex flex-col border-r border-border-custom">
