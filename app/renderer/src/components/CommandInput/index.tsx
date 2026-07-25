@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useI18n } from '../../i18n'
+import { useAppStore } from '../../stores/app-store'
+import { getEngineAPI, type ModelEntry, type BranchListResponse } from '../../services/engine-api'
 
 // Agent permission modes - maps to engine approvalPolicy/sandboxMode, backend integration reserved
 const PERMISSION_MODES = [
@@ -41,11 +43,234 @@ function PermIcon({ id, className }: { id: PermissionMode; className?: string })
   }
 }
 
+/** 目录/分支选择器（输入框上方窄条） */
+function DirectoryBranchBar() {
+  const { t } = useI18n()
+  const {
+    enginePort, engineStatus,
+    workspacePath, setWorkspacePath,
+    selectedBranch, setSelectedBranch,
+    selectedModel, setSelectedModel,
+    pendingNewBranch, setPendingNewBranch
+  } = useAppStore()
+
+  const [models, setModels] = useState<ModelEntry[]>([])
+  const [branches, setBranches] = useState<BranchListResponse | null>(null)
+  const [isGitRepo, setIsGitRepo] = useState(false)
+  const [loadingDir, setLoadingDir] = useState(false)
+
+  const [showBranchMenu, setShowBranchMenu] = useState(false)
+  const [showModelMenu, setShowModelMenu] = useState(false)
+  const [showNewBranchInput, setShowNewBranchInput] = useState(false)
+  const [newBranchValue, setNewBranchValue] = useState('')
+  const branchMenuRef = useRef<HTMLDivElement>(null)
+  const modelMenuRef = useRef<HTMLDivElement>(null)
+  const newBranchRef = useRef<HTMLInputElement>(null)
+
+  // 加载模型列表（连接后）
+  useEffect(() => {
+    if (engineStatus !== 'connected') return
+    const api = getEngineAPI(enginePort)
+    api.getModels()
+      .then((res) => {
+        setModels(res.models)
+        // 首次：若 store 未选模型，默认选 active 或第一个
+        if (!useAppStore.getState().selectedModel) {
+          const active = res.models.find((m) => m.active)
+          setSelectedModel(active ? active.name : (res.models[0]?.name ?? null))
+        }
+      })
+      .catch((e) => console.error('[CommandInput] Failed to load models:', e))
+  }, [enginePort, engineStatus, setSelectedModel])
+
+  // 选择目录后加载分支
+  const loadDirectoryInfo = useCallback(async (path: string) => {
+    const api = getEngineAPI(enginePort)
+    setLoadingDir(true)
+    try {
+      const branchList = await api.listBranches(path).catch(() => null)
+      setBranches(branchList)
+      setIsGitRepo(branchList ? branchList.branches.length > 0 || branchList.current !== null : false)
+      if (branchList?.current) {
+        setSelectedBranch(branchList.current)
+        setPendingNewBranch(null)
+      } else if (branchList && branchList.branches.length > 0) {
+        setSelectedBranch(branchList.branches[0])
+        setPendingNewBranch(null)
+      } else {
+        setSelectedBranch(null)
+      }
+    } catch (e) {
+      console.error('[CommandInput] Failed to load directory info:', e)
+      setIsGitRepo(false)
+    } finally {
+      setLoadingDir(false)
+    }
+  }, [enginePort, setSelectedBranch, setPendingNewBranch])
+
+  // 打开文件夹选择器
+  const handleBrowse = useCallback(async () => {
+    const picked = await window.kcoder?.dialog?.openFolder()
+    if (!picked) return
+    setWorkspacePath(picked)
+    setShowNewBranchInput(false)
+    setNewBranchValue('')
+    await loadDirectoryInfo(picked)
+  }, [setWorkspacePath, loadDirectoryInfo])
+
+  // 关闭菜单（点击外部）
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (branchMenuRef.current && !branchMenuRef.current.contains(e.target as Node)) {
+        setShowBranchMenu(false)
+      }
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setShowModelMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // 新建分支输入框聚焦
+  useEffect(() => {
+    if (showNewBranchInput) newBranchRef.current?.focus()
+  }, [showNewBranchInput])
+
+  const confirmNewBranch = useCallback(() => {
+    const name = newBranchValue.trim()
+    if (!name) {
+      setShowNewBranchInput(false)
+      return
+    }
+    setPendingNewBranch(name)
+    setSelectedBranch(name)
+    setShowNewBranchInput(false)
+    setShowBranchMenu(false)
+  }, [newBranchValue, setPendingNewBranch, setSelectedBranch])
+
+  const branchLabel = pendingNewBranch
+    ? `${pendingNewBranch}+`
+    : (selectedBranch || (isGitRepo ? t('newtask.branch.createExisting') : '—'))
+
+  return (
+    <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+      {/* 项目目录选择器 */}
+      <button
+        className="dropdown-btn"
+        onClick={handleBrowse}
+        title={workspacePath || t('newtask.directory.placeholder')}
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+        </svg>
+        <span className="max-w-[180px] truncate">
+          {workspacePath ? workspacePath.split('/').pop() : t('newtask.directory')}
+        </span>
+        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* 仓库分支选择器 */}
+      {workspacePath && (
+        <div className="relative" ref={branchMenuRef}>
+          <button
+            className="dropdown-btn"
+            onClick={() => setShowBranchMenu((v) => !v)}
+            disabled={loadingDir}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 3v12m0 0l-3-3m3 3l3-3m6-9a9 9 0 110 18 9 9 0 010-18z" transform="matrix(-1 0 0 1 24 0)" />
+            </svg>
+            <span className="max-w-[140px] truncate">{loadingDir ? t('newtask.branch.loading') : branchLabel}</span>
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {showBranchMenu && (
+            <div className="absolute bottom-full left-0 mb-2 w-56 rounded-xl bg-[#2a2a2e] border border-[#3a3a3e] shadow-2xl py-1.5 z-50 max-h-64 overflow-y-auto">
+              {!isGitRepo && branches === null && (
+                <div className="px-4 py-2 text-xs text-text-muted">{t('newtask.branch.none')}</div>
+              )}
+              {branches?.branches.map((b) => (
+                <button
+                  key={b}
+                  onClick={() => {
+                    setSelectedBranch(b)
+                    setPendingNewBranch(null)
+                    setShowBranchMenu(false)
+                  }}
+                  className={`w-full flex items-center gap-2 px-4 py-2 text-left text-[13px] transition-colors ${
+                    selectedBranch === b && !pendingNewBranch ? 'bg-[#333338] text-text-primary' : 'text-[#c0c0c5] hover:bg-[#303034]'
+                  }`}
+                >
+                  <svg className="w-3.5 h-3.5 shrink-0 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 3v12m0 0l-3-3m3 3l3-3" />
+                  </svg>
+                  <span className="truncate flex-1">{b}</span>
+                  {b === branches.current && <span className="text-[10px] text-[#8a8a8f]">HEAD</span>}
+                  {selectedBranch === b && !pendingNewBranch && (
+                    <svg className="w-4 h-4 shrink-0 text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </button>
+              ))}
+              {/* 新建分支 */}
+              <div className="my-1 border-t border-[#3a3a3e]" />
+              {showNewBranchInput ? (
+                <div className="px-3 py-2 space-y-2">
+                  <input
+                    ref={newBranchRef}
+                    type="text"
+                    value={newBranchValue}
+                    onChange={(e) => setNewBranchValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); confirmNewBranch() }
+                      if (e.key === 'Escape') { setShowNewBranchInput(false); setNewBranchValue('') }
+                    }}
+                    placeholder={t('newtask.branch.placeholder')}
+                    className="w-full bg-bg-input text-text-primary placeholder-text-muted rounded-md px-2 py-1.5 text-xs outline-none"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={confirmNewBranch}
+                      className="flex-1 px-2 py-1 rounded-md bg-white text-black text-xs font-medium hover:bg-gray-200"
+                    >
+                      {t('common.confirm')}
+                    </button>
+                    <button
+                      onClick={() => { setShowNewBranchInput(false); setNewBranchValue('') }}
+                      className="px-2 py-1 rounded-md text-text-secondary hover:bg-[#303034] text-xs"
+                    >
+                      {t('newtask.cancel')}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowNewBranchInput(true)}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-left text-[13px] text-[#c0c0c5] hover:bg-[#303034] transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+                  </svg>
+                  <span>{t('newtask.branch.new')}</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface CommandInputProps {
   onSend: (message: string) => void
   disabled?: boolean
-  projectName?: string
-  branchName?: string
   permission?: PermissionMode
   onPermissionChange?: (mode: PermissionMode) => void
 }
@@ -53,8 +278,6 @@ interface CommandInputProps {
 export function CommandInput({
   onSend,
   disabled,
-  projectName,
-  branchName = 'main',
   permission = 'full-access',
   onPermissionChange
 }: CommandInputProps) {
@@ -110,32 +333,43 @@ export function CommandInput({
     }
   }
 
+  // 模型选择器（底栏右侧）— 从 store 读取，复用 DirectoryBranchBar 加载的模型
+  const { enginePort, engineStatus, selectedModel, setSelectedModel } = useAppStore()
+  const [models, setModels] = useState<ModelEntry[]>([])
+  const [showModelMenu, setShowModelMenu] = useState(false)
+  const modelMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (engineStatus !== 'connected') return
+    const api = getEngineAPI(enginePort)
+    api.getModels()
+      .then((res) => {
+        setModels(res.models)
+        if (!useAppStore.getState().selectedModel) {
+          const active = res.models.find((m) => m.active)
+          setSelectedModel(active ? active.name : (res.models[0]?.name ?? null))
+        }
+      })
+      .catch(() => { /* 忽略 */ })
+  }, [enginePort, engineStatus, setSelectedModel])
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setShowModelMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const activeModel = models.find((m) => m.name === selectedModel)
+
   return (
     <div className="w-full max-w-3xl mx-auto">
       <div className="bg-bg-input rounded-xl border border-border-strong shadow-lg">
-        {/* Top row: project and branch selectors */}
-        <div className="flex items-center gap-2 px-4 pt-3 pb-2">
-          {projectName && (
-            <button className="dropdown-btn">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-              </svg>
-              <span>{projectName}</span>
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-          )}
-          <button className="dropdown-btn">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            </svg>
-            <span>{branchName}</span>
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-        </div>
+        {/* Top row: project directory + branch selectors（窄条） */}
+        <DirectoryBranchBar />
 
         {/* Input area */}
         <div className="px-4 py-2">
@@ -202,12 +436,42 @@ export function CommandInput({
 
           <div className="flex items-center gap-2">
             {/* Model selector */}
-            <button className="dropdown-btn">
-              <span>{t('input.noModel')}</span>
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
+            <div className="relative" ref={modelMenuRef}>
+              <button
+                className="dropdown-btn"
+                onClick={() => setShowModelMenu((v) => !v)}
+              >
+                <span className="max-w-[120px] truncate">{activeModel ? (activeModel.display_name || activeModel.name) : t('input.noModel')}</span>
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {showModelMenu && (
+                <div className="absolute bottom-full right-0 mb-2 w-56 rounded-xl bg-[#2a2a2e] border border-[#3a3a3e] shadow-2xl py-1.5 z-50 max-h-64 overflow-y-auto">
+                  {models.length === 0 && (
+                    <div className="px-4 py-2 text-xs text-text-muted">{t('newtask.model.none')}</div>
+                  )}
+                  {models.map((m) => (
+                    <button
+                      key={m.name}
+                      onClick={() => { setSelectedModel(m.name); setShowModelMenu(false) }}
+                      className={`w-full flex items-center gap-2 px-4 py-2 text-left text-[13px] transition-colors ${
+                        selectedModel === m.name ? 'bg-[#333338] text-text-primary' : 'text-[#c0c0c5] hover:bg-[#303034]'
+                      }`}
+                    >
+                      <span className="truncate flex-1">{m.display_name || m.name}</span>
+                      {m.active && <span className="text-[#10b981] text-xs">★</span>}
+                      {selectedModel === m.name && (
+                        <svg className="w-4 h-4 shrink-0 text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* Send button */}
             <button
