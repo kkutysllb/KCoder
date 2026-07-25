@@ -24,6 +24,9 @@ export interface Message {
 // Engine connection status
 export type EngineStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
+/** 编排偏好：standard（标准/单 agent，kernel_v3）或 team（团队/多 agent，evented_v2） */
+export type OrchestrationPreference = 'standard' | 'team'
+
 // App state
 interface AppState {
   // Engine
@@ -47,6 +50,9 @@ interface AppState {
   pendingApproval: ApprovalRequest | null
   pendingUserInput: UserInputRequest | null
 
+  // 全局编排偏好（每回合发消息时随 StartTurnRequest 传给后端）
+  orchestrationPreference: OrchestrationPreference
+
   // Actions
   initializeEngine: (port: number) => void
   setEngineStatus: (status: EngineStatus) => void
@@ -63,6 +69,7 @@ interface AppState {
   setPendingNewBranch: (branch: string | null) => void
   setPendingApproval: (approval: ApprovalRequest | null) => void
   setPendingUserInput: (input: UserInputRequest | null) => void
+  setOrchestrationPreference: (pref: OrchestrationPreference) => void
   clearMessages: () => void
 }
 
@@ -80,6 +87,7 @@ export const useAppStore = create<AppState>((set) => ({
   pendingNewBranch: null,
   pendingApproval: null,
   pendingUserInput: null,
+  orchestrationPreference: 'standard',
 
   // Actions
   initializeEngine: (port) =>
@@ -157,6 +165,7 @@ export const useAppStore = create<AppState>((set) => ({
   setPendingNewBranch: (branch) => set({ pendingNewBranch: branch }),
   setPendingApproval: (approval) => set({ pendingApproval: approval }),
   setPendingUserInput: (input) => set({ pendingUserInput: input }),
+  setOrchestrationPreference: (pref) => set({ orchestrationPreference: pref }),
 
   clearMessages: () => set({ messages: [], threadId: null, pendingNewBranch: null })
 }))
