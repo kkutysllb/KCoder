@@ -1,102 +1,71 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useI18n } from '../../i18n'
+import { useAppStore } from '../../stores/app-store'
+import { getEngineAPI, type CommandEntry } from '../../services/engine-api'
 
 // ============ Commands Settings Page ============
-// Commands in KCoder:
-//   1. Skill commands — registered via skill.json "commands" field (read-only here)
-//   2. User commands — standalone .md files, invoked via /command-name in chat
-// Engine alignment: SkillManifestV1.commands[{ id, alias, description, injectPrompt }]
+// 数据来自后端 GET /api/commands（skill + user 合并列表）。
 
-export interface CommandEntry {
-  /** Command name (invoked as /name) */
-  id: string
-  description: string
-  /** Markdown prompt content injected when invoked */
-  content: string
-  /** Where this command comes from */
-  source: 'skill' | 'user'
-  /** Parent skill id (for skill-sourced commands) */
-  skillId?: string
-  aliases: string[]
-  createdAt?: string
-  updatedAt?: string
-}
-
-// ---- Mock: builtin commands derived from installed skills ----
-// TODO(backend): 后端无 /api/commands 路由（会 404），暂保留 mock 数据。
-// 待后端补齐 commands 路由后，替换为 api.listCommands() 等调用。
-
-const SKILL_COMMANDS: CommandEntry[] = [
-  { id: 'deploy', description: 'Deploy the application', content: '', source: 'skill', skillId: 'deploy', aliases: ['部署'] },
-  { id: 'write-plan', description: 'Write an implementation plan before coding', content: '', source: 'skill', skillId: 'writing-plans', aliases: ['写计划'] },
-  { id: 'execute-plan', description: 'Execute an implementation plan with review checkpoints', content: '', source: 'skill', skillId: 'executing-plans', aliases: ['执行计划'] },
-  { id: 'verify', description: 'Run verification before claiming completion', content: '', source: 'skill', skillId: 'verification', aliases: ['验证'] },
-  { id: 'create-skill', description: 'Create or improve a skill package', content: '', source: 'skill', skillId: 'skill-creator', aliases: ['创建技能'] },
-  { id: 'find-skill', description: 'Discover available skills for a task', content: '', source: 'skill', skillId: 'find-skills', aliases: ['找技能'] },
-  { id: 'frontend-design', description: 'Design and build production-grade UI', content: '', source: 'skill', skillId: 'frontend-design', aliases: ['前端设计'] },
-  { id: 'pdf', description: 'Manipulate PDF files', content: '', source: 'skill', skillId: 'pdf', aliases: [] },
-  { id: 'docx', description: 'Create or edit Word documents', content: '', source: 'skill', skillId: 'docx', aliases: ['word'] },
-  { id: 'xlsx', description: 'Manipulate spreadsheet files', content: '', source: 'skill', skillId: 'xlsx', aliases: ['excel'] },
-  { id: 'release-notes', description: 'Generate release notes from git history', content: '', source: 'skill', skillId: 'release-notes', aliases: ['发布说明'] },
-  { id: 'webapp-test', description: 'Test a running web app with Playwright', content: '', source: 'skill', skillId: 'webapp-testing', aliases: ['测试应用'] },
-  { id: 'mcp-builder', description: 'Build an MCP server', content: '', source: 'skill', skillId: 'mcp-builder', aliases: ['构建MCP'] },
-  { id: 'parallel', description: 'Dispatch independent tasks in parallel', content: '', source: 'skill', skillId: 'parallel-agents', aliases: ['并行'] },
-]
-
-// ---- Persistence layer (localStorage mock, to be replaced by engine API) ----
-
-const STORAGE_KEY = 'kcoder-user-commands'
-
-function loadUserCommands(): CommandEntry[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function saveUserCommands(commands: CommandEntry[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(commands))
-  // Reserved: sync to engine — user commands stored as .md files
-  // window.kcoder?.send('save-commands', { commands })
-}
-
-// Future API endpoints:
-//   GET    /api/commands          → list all (skill + user)
-//   POST   /api/commands          → create user command (.md file)
-//   PUT    /api/commands/:id      → update user command
-//   DELETE /api/commands/:id      → delete user command
-//   POST   /api/commands/import   → import .md command files
+export type { CommandEntry }
 
 // ============ Component ============
 
 export function CommandsSettings() {
   const { t } = useI18n()
-  const [userCommands, setUserCommands] = useState<CommandEntry[]>(loadUserCommands)
+  const { enginePort, engineStatus } = useAppStore()
+  const [allCommands, setAllCommands] = useState<CommandEntry[]>([])
+  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [editingCommand, setEditingCommand] = useState<CommandEntry | null>(null)
   const [showCreate, setShowCreate] = useState(false)
 
-  const filteredSkill = SKILL_COMMANDS.filter((c) => matchSearch(c, search))
-  const filteredUser = userCommands.filter((c) => matchSearch(c, search))
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const api = getEngineAPI(enginePort)
+      const commands = await api.listCommands()
+      setAllCommands(commands)
+    } catch (e) {
+      console.error('[Commands] Failed to load:', e)
+    } finally {
+      setLoading(false)
+    }
+  }, [enginePort])
 
-  const handleDelete = (id: string) => {
-    const next = userCommands.filter((c) => c.id !== id)
-    setUserCommands(next)
-    saveUserCommands(next)
-  }
+  useEffect(() => {
+    if (engineStatus === 'connected') refresh()
+    else setLoading(false)
+  }, [engineStatus, refresh])
 
-  const handleSave = (command: CommandEntry) => {
-    const exists = userCommands.some((c) => c.id === command.id)
-    const next = exists
-      ? userCommands.map((c) => (c.id === command.id ? { ...command, updatedAt: new Date().toISOString() } : c))
-      : [...userCommands, command]
-    setUserCommands(next)
-    saveUserCommands(next)
-    setEditingCommand(null)
-    setShowCreate(false)
-  }
+  const filteredSkill = useMemo(() => allCommands.filter((c) => c.source === 'skill' && matchSearch(c, search)), [allCommands, search])
+  const filteredUser = useMemo(() => allCommands.filter((c) => c.source === 'user' && matchSearch(c, search)), [allCommands, search])
+
+  const handleDelete = useCallback(async (id: string) => {
+    try {
+      const api = getEngineAPI(enginePort)
+      await api.deleteCommand(id)
+      await refresh()
+    } catch (e) {
+      console.error('[Commands] Failed to delete:', e)
+    }
+  }, [enginePort, refresh])
+
+  const handleSave = useCallback(async (command: CommandEntry) => {
+    try {
+      const api = getEngineAPI(enginePort)
+      const isEdit = allCommands.some((c) => c.id === command.id)
+      if (isEdit) {
+        await api.updateCommand(command.id, { description: command.description, content: command.content, aliases: command.aliases })
+      } else {
+        await api.createCommand({ id: command.id, description: command.description, content: command.content, aliases: command.aliases })
+      }
+      setEditingCommand(null)
+      setShowCreate(false)
+      await refresh()
+    } catch (e) {
+      console.error('[Commands] Failed to save:', e)
+    }
+  }, [enginePort, allCommands, refresh])
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -140,7 +109,7 @@ export function CommandsSettings() {
               <button
                 className="w-8 h-8 flex items-center justify-center rounded-lg border border-border-custom text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
                 title={t('settings.commands.refresh')}
-                onClick={() => setUserCommands(loadUserCommands())}
+                onClick={refresh}
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
@@ -228,7 +197,7 @@ export function CommandsSettings() {
       {(showCreate || editingCommand) && (
         <CommandEditorModal
           command={editingCommand}
-          existingIds={[...SKILL_COMMANDS.map((c) => c.id), ...userCommands.map((c) => c.id)]}
+          existingIds={allCommands.map((c) => c.id)}
           onSave={handleSave}
           onClose={() => { setEditingCommand(null); setShowCreate(false) }}
         />

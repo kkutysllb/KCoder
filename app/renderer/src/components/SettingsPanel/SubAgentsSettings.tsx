@@ -1,153 +1,95 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useI18n } from '../../i18n'
+import { useAppStore } from '../../stores/app-store'
+import { getEngineAPI, type SubAgentEntry } from '../../services/engine-api'
 
 // ============ Sub-Agents Settings Page ============
-// Data model (aligned with future backend API contract)
+// 数据来自后端 GET /api/subagents（builtin + user 合并列表）。
 
-export interface SubAgentEntry {
-  id: string
-  name: string
-  type: 'builtin' | 'user'
-  description: string
-  /** Tool list; empty array means "all tools" */
-  tools: string[]
-  /** Source identifier, e.g. built-in:general-purpose */
-  source: string
-  /** Markdown system prompt content */
-  content: string
-  /** Inheritance mode for builtin agents */
-  inheritMode: 'default' | 'custom'
-  createdAt?: string
-  updatedAt?: string
-}
+export type { SubAgentEntry }
 
 type AgentFilter = 'all' | 'builtin' | 'user'
-
-// ---- Mock data (will be replaced by engine API) ----
-// TODO(backend): 后端无 /api/subagents 路由（会 404），暂保留 mock 数据。
-// 待后端补齐 subagents CRUD 路由后，替换为 api.listSubAgents() 等调用。
-
-const BUILTIN_AGENTS: SubAgentEntry[] = [
-  {
-    id: 'general-purpose',
-    name: 'general-purpose',
-    type: 'builtin',
-    description: 'General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks.',
-    tools: [],
-    source: 'built-in:general-purpose',
-    content: '',
-    inheritMode: 'default',
-  },
-  {
-    id: 'explore',
-    name: 'Explore',
-    type: 'builtin',
-    description: 'Read-only search agent for broad fan-out searches.',
-    tools: ['read', 'grep', 'find', 'glob', 'lsp', 'web_search', 'web_fetch'],
-    source: 'built-in:Explore',
-    content: '',
-    inheritMode: 'default',
-  },
-]
-
-const DEFAULT_USER_AGENTS: SubAgentEntry[] = [
-  {
-    id: 'code-reviewer',
-    name: 'code-reviewer',
-    type: 'user',
-    description: '专注代码审查的子智能体，检查代码质量、安全漏洞和最佳实践。',
-    tools: ['read', 'grep', 'find'],
-    source: 'user:code-reviewer',
-    content: '# Code Reviewer\n\n你是一个专业的代码审查专家...',
-    inheritMode: 'custom',
-    createdAt: '2026-07-01T10:00:00Z',
-    updatedAt: '2026-07-15T14:30:00Z',
-  },
-]
-
-// ---- Reserved API layer (mock implementation, to be replaced) ----
-
-const STORAGE_KEY = 'kcoder-user-agents'
-
-function loadUserAgents(): SubAgentEntry[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : DEFAULT_USER_AGENTS
-  } catch {
-    return DEFAULT_USER_AGENTS
-  }
-}
-
-function saveUserAgents(agents: SubAgentEntry[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(agents))
-  // Reserved: sync to engine via IPC / REST API
-  // window.kcoder?.send('save-subagents', { agents })
-}
-
-// Future API endpoints (see engine-api.ts):
-//   GET    /api/subagents          → list all
-//   POST   /api/subagents          → create user agent
-//   PUT    /api/subagents/:id      → update user agent
-//   DELETE /api/subagents/:id      → delete user agent
-//   POST   /api/subagents/:id/clone → clone builtin as user agent
 
 // ============ Component ============
 
 export function SubAgentsSettings() {
   const { t } = useI18n()
-  const [userAgents, setUserAgents] = useState<SubAgentEntry[]>(loadUserAgents)
+  const { enginePort, engineStatus } = useAppStore()
+  const [allAgents, setAllAgents] = useState<SubAgentEntry[]>([])
+  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<AgentFilter>('all')
   const [editingAgent, setEditingAgent] = useState<SubAgentEntry | null>(null)
   const [showCreate, setShowCreate] = useState(false)
 
-  const allAgents = useMemo(() => [...BUILTIN_AGENTS, ...userAgents], [userAgents])
+  // 从后端加载（builtin + user 合并）
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const api = getEngineAPI(enginePort)
+      const agents = await api.listSubAgents()
+      setAllAgents(agents)
+    } catch (e) {
+      console.error('[SubAgents] Failed to load:', e)
+    } finally {
+      setLoading(false)
+    }
+  }, [enginePort])
 
-  const filtered = allAgents.filter((a) => {
+  useEffect(() => {
+    if (engineStatus === 'connected') refresh()
+    else setLoading(false)
+  }, [engineStatus, refresh])
+
+  const filtered = useMemo(() => allAgents.filter((a) => {
     if (filter !== 'all' && a.type !== filter) return false
     if (search) {
       const q = search.toLowerCase()
       return a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q)
     }
     return true
-  })
+  }), [allAgents, filter, search])
 
   const builtinFiltered = filtered.filter((a) => a.type === 'builtin')
   const userFiltered = filtered.filter((a) => a.type === 'user')
 
-  const handleCloneBuiltin = (agent: SubAgentEntry) => {
-    const clone: SubAgentEntry = {
-      ...agent,
-      id: `${agent.id}-custom`,
-      type: 'user',
-      source: `user:${agent.id}-custom`,
-      inheritMode: 'custom',
-      content: `# ${agent.name} (custom)\n\n<!-- 基于内置 ${agent.id} 克隆，可自由修改 -->`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+  const handleCloneBuiltin = useCallback(async (agent: SubAgentEntry) => {
+    try {
+      const api = getEngineAPI(enginePort)
+      await api.cloneSubAgent(agent.id)
+      await refresh()
+    } catch (e) {
+      console.error('[SubAgents] Failed to clone:', e)
     }
-    const next = [...userAgents, clone]
-    setUserAgents(next)
-    saveUserAgents(next)
-    setEditingAgent(clone)
-  }
+  }, [enginePort, refresh])
 
-  const handleDelete = (id: string) => {
-    const next = userAgents.filter((a) => a.id !== id)
-    setUserAgents(next)
-    saveUserAgents(next)
-  }
+  const handleDelete = useCallback(async (id: string) => {
+    try {
+      const api = getEngineAPI(enginePort)
+      await api.deleteSubAgent(id)
+      await refresh()
+    } catch (e) {
+      console.error('[SubAgents] Failed to delete:', e)
+    }
+  }, [enginePort, refresh])
 
-  const handleSave = (agent: SubAgentEntry) => {
-    const exists = userAgents.some((a) => a.id === agent.id)
-    const next = exists
-      ? userAgents.map((a) => (a.id === agent.id ? { ...agent, updatedAt: new Date().toISOString() } : a))
-      : [...userAgents, agent]
-    setUserAgents(next)
-    saveUserAgents(next)
-    setEditingAgent(null)
-    setShowCreate(false)
-  }
+  const handleSave = useCallback(async (agent: SubAgentEntry) => {
+    try {
+      const api = getEngineAPI(enginePort)
+      const { id, name, description, tools, content, inheritMode } = agent
+      const isEdit = allAgents.some((a) => a.id === id)
+      if (isEdit) {
+        await api.updateSubAgent(id, { name, description, tools, content })
+      } else {
+        await api.createSubAgent({ id, name, description, tools, content, inheritMode })
+      }
+      setEditingAgent(null)
+      setShowCreate(false)
+      await refresh()
+    } catch (e) {
+      console.error('[SubAgents] Failed to save:', e)
+    }
+  }, [enginePort, allAgents, refresh])
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -182,7 +124,7 @@ export function SubAgentsSettings() {
               <button
                 className="w-8 h-8 flex items-center justify-center rounded-lg border border-border-custom text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
                 title={t('settings.agents.refresh')}
-                onClick={() => setUserAgents(loadUserAgents())}
+                onClick={refresh}
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />

@@ -1,41 +1,18 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useI18n } from '../../i18n'
+import { useAppStore } from '../../stores/app-store'
+import { getEngineAPI, type RemoteConfig, type RemoteSessionInfo } from '../../services/engine-api'
 
 // ============ Remote Control Settings Page ============
-// Design: bidirectional remote control for KCoder
-//   1. Connect to a remote KCoder/QiongQi engine (this frontend → remote engine)
-//   2. Expose local engine to LAN devices (phone/tablet → this machine's agent)
-//   3. Security controls (auth, permissions, timeout)
+// 数据来自后端 GET /api/remote/config + GET /api/remote/sessions。
+// 配置变更即时 PUT /api/remote/config；测试连接 POST /api/remote/test。
 
-export interface RemoteSession {
-  id: string
-  device: string
-  ip: string
-  connectedAt: string
-  permission: 'readonly' | 'full'
-}
+export type { RemoteConfig, RemoteSessionInfo as RemoteSession }
 
 type ConnectionStatus = 'idle' | 'testing' | 'connected' | 'error'
 type PermissionLevel = 'readonly' | 'full'
 
-// ---- Persistence layer (localStorage mock, to be replaced by engine API) ----
-// TODO(backend): 后端无 /api/remote 路由（会 404），暂保留 mock 数据。
-// 待后端补齐 remote 路由后，替换为 api.getRemoteConfig() 等调用。
-
-const STORAGE_KEY = 'kcoder-remote-settings'
-
-interface RemotePrefs {
-  remoteEnabled: boolean
-  remoteUrl: string
-  remoteToken: string
-  exposeEnabled: boolean
-  exposeToken: string
-  requireAuth: boolean
-  permissionLevel: PermissionLevel
-  sessionTimeout: number
-}
-
-const DEFAULT_PREFS: RemotePrefs = {
+const DEFAULT_CONFIG: RemoteConfig = {
   remoteEnabled: false,
   remoteUrl: '',
   remoteToken: '',
@@ -46,54 +23,58 @@ const DEFAULT_PREFS: RemotePrefs = {
   sessionTimeout: 30,
 }
 
-function loadPrefs(): RemotePrefs {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? { ...DEFAULT_PREFS, ...JSON.parse(raw) } : DEFAULT_PREFS
-  } catch {
-    return DEFAULT_PREFS
-  }
-}
-
-function savePrefs(prefs: RemotePrefs) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
-  // Reserved: sync to engine via PUT /api/remote/config
-}
-
-// Future API endpoints:
-//   GET  /api/remote/config         → current remote settings
-//   PUT  /api/remote/config         → update settings
-//   POST /api/remote/test           → test remote engine connectivity
-//   POST /api/remote/token          → generate access token
-//   GET  /api/remote/sessions       → list connected sessions
-//   DELETE /api/remote/sessions/:id → revoke a session
-
 // ============ Component ============
 
 export function RemoteSettings() {
   const { t } = useI18n()
-  const [prefs, setPrefs] = useState<RemotePrefs>(loadPrefs)
+  const { enginePort, engineStatus } = useAppStore()
+  const [prefs, setPrefs] = useState<RemoteConfig>(DEFAULT_CONFIG)
   const [connStatus, setConnStatus] = useState<ConnectionStatus>('idle')
-  const [sessions] = useState<RemoteSession[]>(MOCK_SESSIONS)
+  const [sessions, setSessions] = useState<RemoteSessionInfo[]>([])
 
-  const update = (patch: Partial<RemotePrefs>) => {
-    const next = { ...prefs, ...patch }
-    setPrefs(next)
-    savePrefs(next)
-  }
+  // 加载配置 + 会话
+  useEffect(() => {
+    if (engineStatus !== 'connected') return
+    const api = getEngineAPI(enginePort)
+    api.getRemoteConfig()
+      .then((cfg) => setPrefs({ ...DEFAULT_CONFIG, ...cfg }))
+      .catch((e) => console.error('[Remote] Failed to load config:', e))
+    api.listRemoteSessions()
+      .then((s) => setSessions(s))
+      .catch(() => { /* sessions 非关键 */ })
+  }, [enginePort, engineStatus])
 
-  const handleTestConnection = () => {
+  const update = useCallback((patch: Partial<RemoteConfig>) => {
+    setPrefs((prev) => {
+      const next = { ...prev, ...patch }
+      // 即时保存到后端（fire-and-forget）
+      getEngineAPI(enginePort).saveRemoteConfig(patch).catch((e) =>
+        console.error('[Remote] Failed to save config:', e)
+      )
+      return next
+    })
+  }, [enginePort])
+
+  const handleTestConnection = useCallback(async () => {
+    if (!prefs.remoteUrl.trim()) {
+      setConnStatus('error')
+      return
+    }
     setConnStatus('testing')
-    // Reserved: POST /api/remote/test { url, token }
-    setTimeout(() => {
-      setConnStatus(prefs.remoteUrl.trim() ? 'connected' : 'error')
-    }, 1200)
-  }
+    try {
+      const api = getEngineAPI(enginePort)
+      const result = await api.testRemoteConnection(prefs.remoteUrl, prefs.remoteToken)
+      setConnStatus(result.ok ? 'connected' : 'error')
+    } catch (e) {
+      console.error('[Remote] Connection test failed:', e)
+      setConnStatus('error')
+    }
+  }, [enginePort, prefs.remoteUrl, prefs.remoteToken])
 
-  const handleGenerateToken = () => {
+  const handleGenerateToken = useCallback(() => {
     const token = `kcr_${Array.from({ length: 24 }, () => 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]).join('')}`
     update({ exposeToken: token })
-  }
+  }, [update])
 
   const lanUrl = `http://192.168.1.${Math.floor(Math.random() * 200) + 10}:19426`
 
@@ -326,12 +307,6 @@ export function RemoteSettings() {
     </div>
   )
 }
-
-// ---- Mock sessions ----
-
-const MOCK_SESSIONS: RemoteSession[] = [
-  { id: 's1', device: 'iPhone 15 Pro', ip: '192.168.1.42', connectedAt: '10:24', permission: 'readonly' },
-]
 
 // ============ Shared sub-components ============
 

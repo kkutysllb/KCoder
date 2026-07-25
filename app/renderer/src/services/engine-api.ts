@@ -114,6 +114,18 @@ export interface PluginEntry {
   updatedAt?: string
 }
 
+/** DiscoverPlugin — GET /api/plugins/discover 返回的市场插件。 */
+export interface DiscoverPlugin {
+  id: string
+  name: string
+  version: string
+  description: string
+  author: string
+  category: string
+  downloads: number
+  installed: boolean
+}
+
 export interface CommandEntry {
   id: string
   description: string
@@ -808,6 +820,17 @@ export class EngineAPI {
     })
     if (!response.ok) {
       throw new Error(`Failed to toggle plugin: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // Discover marketplace plugins
+  async getPluginDiscover(): Promise<{ plugins: DiscoverPlugin[] }> {
+    const response = await fetch(`${this.baseUrl}/api/plugins/discover`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to discover plugins: ${response.statusText}`)
     }
     return response.json()
   }

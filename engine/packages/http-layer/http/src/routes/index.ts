@@ -90,10 +90,14 @@ import {
   kworksCreateCron,
   kworksCreateBranch,
   kworksCreateProject,
+  kworksCreateSubAgent,
+  kworksCreateCommand,
   kworksCreateThread,
   kworksDeleteCron,
   kworksDeleteModel,
   kworksDeleteProject,
+  kworksDeleteSubAgent,
+  kworksDeleteCommand,
   kworksDeleteThread,
   kworksDeliveryStages,
   kworksCreateSkill,
@@ -123,6 +127,12 @@ import {
   kworksListProjectWorktrees,
   kworksListBranches,
   kworksListProjects,
+  kworksListSubAgents,
+  kworksListCommands,
+  kworksListPlugins,
+  kworksDiscoverPlugins,
+  kworksInstallPlugin,
+  kworksCheckPluginUpdates,
   kworksListCrons,
   kworksListRuns,
   kworksMcpConfig,
@@ -141,9 +151,18 @@ import {
   kworksModeSkills,
   syncRuntimeToolsForActor,
   kworksToggleCron,
+  kworksTogglePlugin,
   kworksUpdateCron,
   kworksUpdateModel,
+  kworksUpdateSubAgent,
+  kworksUpdateCommand,
+  kworksCloneSubAgent,
   kworksUpdateThreadState,
+  kworksGetRemoteConfig,
+  kworksSaveRemoteConfig,
+  kworksTestRemoteConnection,
+  kworksListRemoteSessions,
+  kworksRevokeRemoteSession,
   kworksWorkModes
 } from './compat.js'
 import type { AuthActor } from '../auth-service.js'
@@ -403,6 +422,110 @@ export function buildRouter(runtime: ServerRuntime): Router {
   router.add('PATCH', '/api/memory/facts/:factId', () => kworksMemory())
   router.add('DELETE', '/api/memory/facts/:factId', () => kworksMemory())
   router.add('GET', '/api/agents', () => kworksEmptyList('agents'))
+
+  // ---- Sub-Agents CRUD ----
+  router.add('GET', '/api/subagents', async (request) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksListSubAgents(runtime, actor)
+  })
+  router.add('POST', '/api/subagents', async (request) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksCreateSubAgent(runtime, actor, request)
+  })
+  router.add('PUT', '/api/subagents/:id', async (request, ctx) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksUpdateSubAgent(runtime, actor, ctx.params.id, request)
+  })
+  router.add('DELETE', '/api/subagents/:id', async (request, ctx) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksDeleteSubAgent(runtime, actor, ctx.params.id)
+  })
+  router.add('POST', '/api/subagents/:id/clone', async (request, ctx) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksCloneSubAgent(runtime, actor, ctx.params.id)
+  })
+
+  // ---- Commands CRUD ----
+  router.add('GET', '/api/commands', async (request) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksListCommands(runtime, actor)
+  })
+  router.add('POST', '/api/commands', async (request) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksCreateCommand(runtime, actor, request)
+  })
+  router.add('PUT', '/api/commands/:id', async (request, ctx) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksUpdateCommand(runtime, actor, ctx.params.id, request)
+  })
+  router.add('DELETE', '/api/commands/:id', async (request, ctx) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksDeleteCommand(runtime, actor, ctx.params.id)
+  })
+
+  // ---- Plugins (toggle + discover + install stubs) ----
+  router.add('GET', '/api/plugins', async (request) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksListPlugins(runtime, actor)
+  })
+  router.add('POST', '/api/plugins/:id/toggle', async (request, ctx) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksTogglePlugin(runtime, actor, ctx.params.id, request)
+  })
+  router.add('GET', '/api/plugins/discover', async (request) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksDiscoverPlugins()
+  })
+  router.add('POST', '/api/plugins/install', async (request) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksInstallPlugin(request)
+  })
+  router.add('POST', '/api/plugins/check-update', async (request) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksCheckPluginUpdates()
+  })
+
+  // ---- Remote Control (config + test + sessions) ----
+  router.add('GET', '/api/remote/config', async (request) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksGetRemoteConfig(runtime, actor)
+  })
+  router.add('PUT', '/api/remote/config', async (request) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksSaveRemoteConfig(runtime, actor, request)
+  })
+  router.add('POST', '/api/remote/test', async (request) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksTestRemoteConnection(request)
+  })
+  router.add('GET', '/api/remote/sessions', async (request) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksListRemoteSessions()
+  })
+  router.add('DELETE', '/api/remote/sessions/:id', async (request, ctx) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksRevokeRemoteSession(ctx.params.id)
+  })
+
   router.add('GET', '/api/crons', async (request) => {
     const actor = await authenticateOrInternal(request, runtime)
     if (!actor) return ERRORS.unauthorized()
