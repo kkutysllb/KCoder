@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
 import { getEngineAPI, type ModelEntry } from '../../services/engine-api'
@@ -133,49 +133,62 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [selectedProviderId, setSelectedProviderId] = useState<string>('')
   const [connectionType, setConnectionType] = useState('API 直连')
 
-  // 从后端加载真实模型列表（GET /api/models）
-  useEffect(() => {
-    if (engineStatus !== 'connected' || !isOpen) return
-    getEngineAPI(enginePort)
-      .getModels()
-      .then((result) => {
-        const mapped: Provider[] = result.models.map((m) => ({
-          id: m.id,
-          name: m.display_name || m.name,
-          category: m.active ? '当前模型' : '可用模型',
-          enabled: m.active,
-          baseUrl: m.base_url ?? '',
-          apiKey: '',
-          models: m.context_window_tokens
-            ? [{ name: m.model, context: `${Math.round(m.context_window_tokens / 1000)}K` }]
-            : [{ name: m.model, context: '-' }],
-          // 保留能力信息用于详情展示
-          supportsToolCalling: m.supports_tool_calling,
-          supportsVision: m.supports_vision,
-          supportsReasoningEffort: m.supports_reasoning_effort,
-          reasoningEffortValues: m.reasoning_effort_values,
-          rawModel: m.model
-        }))
-        if (mapped.length > 0) {
-          setProviders(mapped)
-          // 选中当前激活的模型
-          const active = mapped.find((p) => p.enabled)
-          setSelectedProviderId(active?.id ?? mapped[0]!.id)
+  // 从后端加载已保存的模型（GET /api/models）— 合并到预设列表，不覆盖
+  const refreshModels = useCallback(async () => {
+    if (engineStatus !== 'connected') return
+    try {
+      const result = await getEngineAPI(enginePort).getModels()
+      const activeModel = result.models.find((m) => m.active)
+      setProviders((prev) => prev.map((p) => {
+        // 匹配后端已保存的 profile（按 baseUrl）
+        const matched = result.models.find((m) => m.base_url === p.baseUrl)
+        return {
+          ...p,
+          enabled: activeModel?.base_url === p.baseUrl,
+          // 不覆盖用户输入的 apiKey（后端返回的是 redacted '********'）
+          supportsToolCalling: matched?.supports_tool_calling,
+          supportsVision: matched?.supports_vision,
+          supportsReasoningEffort: matched?.supports_reasoning_effort,
+          reasoningEffortValues: matched?.reasoning_effort_values,
+          rawModel: matched?.model,
+          models: matched?.context_window_tokens
+            ? [{ name: matched.model, context: `${Math.round(matched.context_window_tokens / 1000)}K` }]
+            : matched ? [{ name: matched.model, context: '-' }] : []
         }
-      })
-      .catch((err) => console.error('[KCoder] Failed to load models:', err))
-  }, [engineStatus, enginePort, isOpen])
+      }))
+    } catch (err) {
+      console.error('[KCoder] Failed to load models:', err)
+    }
+  }, [engineStatus, enginePort])
+
+  useEffect(() => {
+    if (isOpen && activeNav === 'model') refreshModels()
+    if (isOpen && !selectedProviderId) setSelectedProviderId(providers[0]?.id ?? '')
+  }, [isOpen, activeNav, refreshModels]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isOpen) return null
 
   const selectedProvider = providers.find((p) => p.id === selectedProviderId)
 
-  const handleToggleProvider = (id: string) => {
-    // 激活模型（后端只支持单选激活）
-    setProviders((prev) => prev.map((p) => ({ ...p, enabled: p.id === id })))
-    getEngineAPI(enginePort)
-      .activateModel(id)
-      .catch((err) => console.error('[KCoder] Failed to activate model:', err))
+  // 激活模型：先保存 profile 到后端，再激活
+  const handleToggleProvider = async (id: string) => {
+    const provider = providers.find((p) => p.id === id)
+    if (!provider) return
+    const modelId = provider.rawModel || provider.models[0]?.name || provider.id
+    try {
+      const api = getEngineAPI(enginePort)
+      await api.createModel({
+        name: id,
+        model: modelId,
+        base_url: provider.baseUrl,
+        api_key: provider.apiKey || undefined,
+      })
+      await api.activateModel(id)
+      setProviders((prev) => prev.map((p) => ({ ...p, enabled: p.id === id })))
+      await refreshModels()
+    } catch (err) {
+      console.error('[KCoder] Failed to activate model:', err)
+    }
   }
 
   const handleUpdateApiKey = (id: string, apiKey: string) => {
@@ -190,11 +203,29 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     )
   }
 
-  const handleSave = () => {
-    // Save to electron store via IPC
-    const enabledProviders = providers.filter((p) => p.enabled && p.apiKey)
-    console.log('[KCoder] Saving provider config:', enabledProviders.map(p => p.name))
-    window.kcoder?.send('save-settings', { providers: enabledProviders })
+  // 保存：把已配置的供应商同步到后端 + 激活选中的
+  const handleSave = async () => {
+    const api = getEngineAPI(enginePort)
+    for (const p of providers) {
+      // 本地部署或有 apiKey 的才保存
+      if (!p.apiKey && p.apiKeyRequired !== false) continue
+      const modelId = p.rawModel || p.models[0]?.name || p.id
+      try {
+        await api.createModel({
+          name: p.id,
+          model: modelId,
+          base_url: p.baseUrl,
+          api_key: p.apiKey || undefined,
+        })
+      } catch (err) {
+        console.error(`[KCoder] Failed to save model ${p.id}:`, err)
+      }
+    }
+    const enabled = providers.find((p) => p.enabled)
+    if (enabled) {
+      try { await api.activateModel(enabled.id) } catch (err) { console.error('[KCoder] Failed to activate:', err) }
+    }
+    window.kcoder?.send('save-settings', { providers })
     onClose()
   }
 
@@ -554,12 +585,21 @@ function ProviderDetail({
               >
                 <span className="text-sm text-text-primary font-mono truncate">{m.id}</span>
                 <button
-                  onClick={() => {
-                    // 一键添加该模型到配置（调用后端 createModel）
-                    getEngineAPI(enginePort)
-                      .createModel({ id: m.id, name: m.id, base_url: provider.baseUrl, api_key: provider.apiKey, providerModel: m.id })
-                      .then(() => onSave())
-                      .catch((e) => setDiscoverError(e instanceof Error ? e.message : String(e)))
+                  onClick={async () => {
+                    // 保存该模型为后端 profile（name=供应商id，model=模型id）
+                    try {
+                      await getEngineAPI(enginePort).createModel({
+                        name: provider.id,
+                        model: m.id,
+                        base_url: provider.baseUrl,
+                        api_key: provider.apiKey || undefined,
+                      })
+                      // 更新本地 provider 状态（记录选中的模型）
+                      onUpdateApiKey(provider.id, provider.apiKey) // 触发 state 更新
+                      setDiscoverError(null)
+                    } catch (e) {
+                      setDiscoverError(e instanceof Error ? e.message : String(e))
+                    }
                   }}
                   className="shrink-0 ml-2 px-2 py-0.5 rounded text-[11px] font-medium bg-[#3b82f6]/10 text-[#3b82f6] border border-[#3b82f6]/30 hover:bg-[#3b82f6]/20 transition-colors"
                 >
