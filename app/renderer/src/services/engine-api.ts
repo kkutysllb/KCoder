@@ -3,6 +3,11 @@
 export interface ThreadResponse {
   id: string
   createdAt: string
+  workspace?: string
+  model?: string
+  mode?: 'agent' | 'plan'
+  workModeId?: string
+  title?: string
 }
 
 export interface SkillEntry {
@@ -205,6 +210,36 @@ export interface ModelEntry {
   reasoning_effort_values?: string[]
 }
 
+/** WorkspaceStatus — GET /v1/workspace/status?path= 返回的工作区状态。 */
+export interface WorkspaceStatus {
+  path: string
+  exists: boolean
+  isGitRepository: boolean
+  branch: string | null
+  headSha: string | null
+  isDirty: boolean | null
+  fileChangeCount: number | null
+  checkedAt: string
+}
+
+/** BranchListResponse — GET /v1/workspace/branches?path= 返回的分支列表。 */
+export interface BranchListResponse {
+  path: string
+  branches: string[]
+  current: string | null
+}
+
+/** ProjectEntry — GET /api/projects 返回的已注册项目。 */
+export interface ProjectEntry {
+  id: string
+  name: string
+  path: string
+  description?: string
+  is_git_repo: boolean
+  created_at: string
+  updated_at: string
+}
+
 export class EngineAPI {
   private baseUrl: string
   private token: string
@@ -341,15 +376,22 @@ export class EngineAPI {
   }
 
   // Create a new thread
-  async createThread(): Promise<ThreadResponse> {
+  async createThread(payload?: {
+    title?: string
+    workspace?: string
+    model?: string
+    workModeId?: string
+    mode?: 'agent' | 'plan'
+  }): Promise<ThreadResponse> {
     const response = await fetch(`${this.baseUrl}/v1/threads`, {
       method: 'POST',
       headers: this.headers,
-      body: JSON.stringify({})
+      body: JSON.stringify(payload ?? {})
     })
 
     if (!response.ok) {
-      throw new Error(`Failed to create thread: ${response.statusText}`)
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to create thread: ${text}`)
     }
 
     return response.json()
@@ -468,6 +510,57 @@ export class EngineAPI {
     })
     if (!response.ok) {
       throw new Error(`Failed to list threads: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // ============ Workspace / Git API ============
+
+  // 查询工作区状态（git 分支/脏标记） — GET /v1/workspace/status?path=
+  async getWorkspaceStatus(path: string): Promise<WorkspaceStatus> {
+    const response = await fetch(
+      `${this.baseUrl}/v1/workspace/status?path=${encodeURIComponent(path)}`,
+      { headers: this.headers }
+    )
+    if (!response.ok) {
+      throw new Error(`Failed to get workspace status: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // 列出指定目录的本地分支 — GET /v1/workspace/branches?path=
+  async listBranches(path: string): Promise<BranchListResponse> {
+    const response = await fetch(
+      `${this.baseUrl}/v1/workspace/branches?path=${encodeURIComponent(path)}`,
+      { headers: this.headers }
+    )
+    if (!response.ok) {
+      throw new Error(`Failed to list branches: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // 在指定目录新建分支（不切换检出） — POST /v1/workspace/branch
+  async createBranch(path: string, name: string, base?: string): Promise<{ path: string; branch: string }> {
+    const response = await fetch(`${this.baseUrl}/v1/workspace/branch`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ path, name, ...(base ? { base } : {}) })
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to create branch: ${text}`)
+    }
+    return response.json()
+  }
+
+  // 列出已注册项目 — GET /api/projects
+  async listProjects(): Promise<{ projects: ProjectEntry[] }> {
+    const response = await fetch(`${this.baseUrl}/api/projects`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to list projects: ${response.statusText}`)
     }
     return response.json()
   }

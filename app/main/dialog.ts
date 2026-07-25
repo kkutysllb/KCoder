@@ -6,8 +6,8 @@ import { ipcMain, BrowserWindow, dialog, type OpenDialogOptions } from 'electron
  */
 export function setupDialogIPC(getWindow: () => BrowserWindow | null): void {
   // 选择文件夹 — 返回选中路径，取消返回 null
-  ipcMain.handle('dialog:openFolder', async (event, options?: OpenDialogOptions) => {
-    const win = BrowserWindow.fromWebContents(event.webContents) ?? getWindow()
+  ipcMain.handle('dialog:openFolder', async (_event, options?: OpenDialogOptions) => {
+    const win = getWindow()
     if (!win) return null
     const result = await dialog.showOpenDialog(win, {
       properties: ['openDirectory'],
