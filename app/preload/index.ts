@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, type OpenDialogOptions } from 'electron'
 
 // Expose protected methods on the window object
 contextBridge.exposeInMainWorld('kcoder', {
@@ -59,6 +59,12 @@ contextBridge.exposeInMainWorld('kcoder', {
         ipcRenderer.removeListener('terminal:exit', handler)
       }
     }
+  },
+
+  // Folder picker dialog API
+  dialog: {
+    openFolder: (options?: OpenDialogOptions) =>
+      ipcRenderer.invoke('dialog:openFolder', options) as Promise<string | null>
   }
 })
 
@@ -87,6 +93,9 @@ declare global {
         kill: (id: string) => Promise<void>
         onData: (callback: (id: string, data: string) => void) => () => void
         onExit: (callback: (id: string, exitCode: number) => void) => () => void
+      }
+      dialog: {
+        openFolder: (options?: OpenDialogOptions) => Promise<string | null>
       }
     }
   }
