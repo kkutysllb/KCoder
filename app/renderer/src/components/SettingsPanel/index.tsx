@@ -396,6 +396,36 @@ function ProviderDetail({
   onClose: () => void
 }) {
   const { t } = useI18n()
+  const { enginePort } = useAppStore()
+  const [discovered, setDiscovered] = useState<Array<{ id: string; name: string }>>([])
+  const [discovering, setDiscovering] = useState(false)
+  const [discoverError, setDiscoverError] = useState<string | null>(null)
+
+  // 切换 provider 时重置发现结果
+  useEffect(() => {
+    setDiscovered([])
+    setDiscoverError(null)
+  }, [provider.id])
+
+  const handleDiscover = async () => {
+    if (!provider.apiKey.trim()) {
+      setDiscoverError(t('settings.model.discover.needKey'))
+      return
+    }
+    setDiscovering(true)
+    setDiscoverError(null)
+    try {
+      const api = getEngineAPI(enginePort)
+      const result = await api.discoverModels(provider.baseUrl, provider.apiKey)
+      setDiscovered(result.models)
+      if (result.models.length === 0) setDiscoverError(t('settings.model.discover.empty'))
+    } catch (e) {
+      setDiscoverError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Provider header */}
@@ -455,7 +485,59 @@ function ProviderDetail({
             className="w-full px-3 py-2 rounded-lg bg-bg-input border border-border-custom text-sm text-text-primary placeholder-text-muted outline-none focus:border-border-strong transition-colors"
           />
         </div>
+        {/* 获取模型按钮 — 从供应商 API 动态拉取 */}
+        <button
+          onClick={handleDiscover}
+          disabled={discovering}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[#3b82f6] text-white hover:bg-[#2563eb] disabled:opacity-50 transition-colors"
+        >
+          {discovering ? (
+            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
+            </svg>
+          )}
+          {discovering ? t('settings.model.discover.loading') : t('settings.model.discover.button')}
+        </button>
+        {discoverError && (
+          <p className="text-xs text-[#ef4444]">{discoverError}</p>
+        )}
       </div>
+
+      {/* 从供应商拉取的模型列表（动态） */}
+      {discovered.length > 0 && (
+        <div className="p-4 rounded-xl bg-bg-surface border border-border-custom">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-text-primary">{t('settings.model.discover.found')}（{discovered.length}）</h3>
+          </div>
+          <div className="space-y-1 max-h-[300px] overflow-y-auto">
+            {discovered.map((m) => (
+              <div
+                key={m.id}
+                className="flex items-center justify-between px-3 py-2 rounded-lg bg-bg-hover border border-border-custom"
+              >
+                <span className="text-sm text-text-primary font-mono truncate">{m.id}</span>
+                <button
+                  onClick={() => {
+                    // 一键添加该模型到配置（调用后端 createModel）
+                    getEngineAPI(enginePort)
+                      .createModel({ id: m.id, name: m.id, base_url: provider.baseUrl, api_key: provider.apiKey, providerModel: m.id })
+                      .then(() => onSave())
+                      .catch((e) => setDiscoverError(e instanceof Error ? e.message : String(e)))
+                  }}
+                  className="shrink-0 ml-2 px-2 py-0.5 rounded text-[11px] font-medium bg-[#3b82f6]/10 text-[#3b82f6] border border-[#3b82f6]/30 hover:bg-[#3b82f6]/20 transition-colors"
+                >
+                  {t('settings.model.discover.add')}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Model List */}
       <div className="p-4 rounded-xl bg-bg-surface border border-border-custom">

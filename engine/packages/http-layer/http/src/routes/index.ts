@@ -87,6 +87,7 @@ import {
   kworksConfigSection,
   kworksCodingSkills,
   kworksCreateModel,
+  kworksDiscoverModels,
   kworksCreateCron,
   kworksCreateBranch,
   kworksCreateProject,
@@ -233,6 +234,11 @@ export function buildRouter(runtime: ServerRuntime): Router {
     const actor = await authenticateOrInternal(request, runtime)
     if (!actor) return ERRORS.unauthorized()
     return kworksCreateModel(runtime, request, actor)
+  })
+  router.add('POST', '/api/models/discover', async (request) => {
+    const actor = await authenticateOrInternal(request, runtime)
+    if (!actor) return ERRORS.unauthorized()
+    return kworksDiscoverModels(request)
   })
   router.add('PUT', '/api/models/:name', async (request, ctx) => {
     const actor = await authenticateOrInternal(request, runtime)

@@ -810,6 +810,34 @@ export class EngineAPI {
     }
   }
 
+  // 从供应商 API 动态拉取可用模型列表 — POST /api/models/discover
+  async discoverModels(baseUrl: string, apiKey: string, endpointFormat?: string): Promise<{ models: Array<{ id: string; name: string }>; count: number }> {
+    const response = await fetch(`${this.baseUrl}/api/models/discover`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ base_url: baseUrl, api_key: apiKey, ...(endpointFormat ? { endpoint_format: endpointFormat } : {}) })
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to discover models: ${text}`)
+    }
+    return response.json()
+  }
+
+  // 创建/更新模型配置 — POST /api/models
+  async createModel(payload: Record<string, unknown>): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/api/models`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to create model: ${text}`)
+    }
+    return response.json()
+  }
+
   // Get thread history
   async getThread(threadId: string): Promise<unknown> {
     const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}`, {
