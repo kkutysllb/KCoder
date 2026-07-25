@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Message, MessagePart } from '../../stores/app-store'
 import { CodeBlock } from '../CodeBlock'
+import { useChat } from '../../hooks/useChat'
 
 interface MessageBubbleProps {
   message: Message
@@ -123,9 +124,85 @@ function PartRenderer({ part }: { part: MessagePart }) {
         </div>
       )
 
+    case 'approval':
+      return <ApprovalPartCard approvalId={part.approvalId} toolName={part.toolName} summary={part.summary} status={part.status} />
+
     default:
       return null
   }
+}
+
+/** 审批卡片 — pending 时显示允许/拒绝按钮，resolved 时显示结果 */
+function ApprovalPartCard({ approvalId, toolName, summary, status }: {
+  approvalId: string
+  toolName: string
+  summary?: string
+  status: 'pending' | 'allowed' | 'denied' | 'expired'
+}) {
+  const { resolveApproval } = useChat()
+  const [submitting, setSubmitting] = useState(false)
+
+  const handleDecision = async (decision: 'allow' | 'deny') => {
+    setSubmitting(true)
+    try {
+      await resolveApproval(approvalId, decision)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const statusBadge = status === 'allowed'
+    ? { text: '已允许', cls: 'text-[#22c55e] bg-[#22c55e]/10 border-[#22c55e]/30' }
+    : status === 'denied'
+    ? { text: '已拒绝', cls: 'text-[#ef4444] bg-[#ef4444]/10 border-[#ef4444]/30' }
+    : status === 'expired'
+    ? { text: '已过期', cls: 'text-text-muted bg-bg-hover border-border-custom' }
+    : null
+
+  return (
+    <div className="rounded-lg border border-[#f59e0b]/30 bg-[#f59e0b]/5 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        {/* 审批图标 */}
+        <svg className="w-4 h-4 shrink-0 text-[#f59e0b]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+        </svg>
+        <span className="text-xs font-medium text-text-primary">{toolName}</span>
+        <span className="text-[10px] text-text-muted">请求审批</span>
+        {statusBadge && (
+          <span className={`ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium border ${statusBadge.cls}`}>
+            {statusBadge.text}
+          </span>
+        )}
+      </div>
+      {summary && (
+        <p className="text-xs text-text-secondary mt-1.5 leading-relaxed">{summary}</p>
+      )}
+      {status === 'pending' && (
+        <div className="flex items-center gap-2 mt-2.5">
+          <button
+            onClick={() => handleDecision('allow')}
+            disabled={submitting}
+            className="px-3 py-1.5 rounded-md text-xs font-medium bg-[#22c55e] text-white hover:bg-[#16a34a] transition-colors disabled:opacity-50"
+          >
+            允许
+          </button>
+          <button
+            onClick={() => handleDecision('deny')}
+            disabled={submitting}
+            className="px-3 py-1.5 rounded-md text-xs font-medium bg-[#ef4444] text-white hover:bg-[#dc2626] transition-colors disabled:opacity-50"
+          >
+            拒绝
+          </button>
+          {submitting && (
+            <svg className="w-3.5 h-3.5 animate-spin text-text-muted" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 /** 推理块 — 可折叠 */
