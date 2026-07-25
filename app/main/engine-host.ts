@@ -20,9 +20,10 @@ function getDefaultConfig(): EngineConfig {
     port: 18899 + Math.floor(Math.random() * 1000), // Random port to avoid conflicts
     dataDir: join(homedir(), '.kcoder', 'engine-data'),
     runtimeToken: randomBytes(32).toString('hex'),
-    apiKey: process.env.KCODER_API_KEY || process.env.DEEPSEEK_API_KEY || '',
-    baseUrl: process.env.KCODER_BASE_URL || 'https://api.deepseek.com',
-    model: process.env.KCODER_MODEL || 'deepseek-chat',
+    // 不预设任何模型 — 完全由用户在设置页配置
+    apiKey: process.env.KCODER_API_KEY || '',
+    baseUrl: process.env.KCODER_BASE_URL || '',
+    model: process.env.KCODER_MODEL || '',
     approvalPolicy: 'auto'
   }
 }
@@ -74,8 +75,8 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
       port: fullConfig.port,
       dataDir: fullConfig.dataDir,
       runtimeToken: fullConfig.runtimeToken,
-      // Use placeholder if no key - engine starts but model calls will fail until configured
-      apiKey: fullConfig.apiKey || 'pending-configuration',
+      // 引擎以待配置状态启动 — 用户在设置页配置模型后才能使用
+      apiKey: fullConfig.apiKey,
       baseUrl: fullConfig.baseUrl,
       model: fullConfig.model,
       approvalPolicy: fullConfig.approvalPolicy,
