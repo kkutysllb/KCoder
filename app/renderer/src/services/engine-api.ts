@@ -437,13 +437,17 @@ export class EngineAPI {
   async sendMessage(
     threadId: string,
     content: string,
-    onEvent: (event: SSEEvent) => void
+    onEvent: (event: SSEEvent) => void,
+    orchestrationPreference?: 'standard' | 'team'
   ): Promise<void> {
-    // 创建 turn — 后端 StartTurnRequest 要求 { prompt: string }
+    // 创建 turn — 后端 StartTurnRequest 要求 { prompt: string, orchestrationPreference? }
     const turnResponse = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns`, {
       method: 'POST',
       headers: this.headers,
-      body: JSON.stringify({ prompt: content })
+      body: JSON.stringify({
+        prompt: content,
+        ...(orchestrationPreference ? { orchestrationPreference } : {})
+      })
     })
 
     if (!turnResponse.ok) {

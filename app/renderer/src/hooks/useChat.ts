@@ -244,9 +244,11 @@ export function useChat() {
       setGenerating(true)
 
       try {
+        // 读取全局编排偏好（调用时取最新值，每回合可自由切换 standard/team）
+        const { orchestrationPreference } = useAppStore.getState()
         await api.sendMessage(currentThreadId, content.trim(), (event: SSEEvent) => {
           handleSseEvent(assistantMessageId, event)
-        })
+        }, orchestrationPreference)
       } catch (error) {
         console.error('Failed to send message:', error)
         appendMessagePart(assistantMessageId, {
