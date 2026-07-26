@@ -634,21 +634,10 @@ function ProviderDetail({
               >
                 <span className="text-sm text-text-primary font-mono truncate">{m.id}</span>
                 <button
-                  onClick={async () => {
-                    // 保存该模型为后端 profile（name=供应商id，model=模型id）
-                    try {
-                      await getEngineAPI(enginePort).createModel({
-                        name: provider.id,
-                        model: m.id,
-                        base_url: provider.baseUrl,
-                        api_key: provider.apiKey || undefined,
-                      })
-                      // 记录选中的模型到 provider 状态
-                      onSelectModel(provider.id, m.id)
-                      setDiscoverError(null)
-                    } catch (e) {
-                      setDiscoverError(e instanceof Error ? e.message : String(e))
-                    }
+                  onClick={() => {
+                    // 只记录选中的模型到 provider 状态（不调后端）
+                    // 实际保存到后端由启用开关统一处理
+                    onSelectModel(provider.id, m.id)
                   }}
                   className="shrink-0 ml-2 px-2 py-0.5 rounded text-[11px] font-medium bg-[#3b82f6]/10 text-[#3b82f6] border border-[#3b82f6]/30 hover:bg-[#3b82f6]/20 transition-colors"
                 >
