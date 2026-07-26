@@ -801,7 +801,6 @@ export class EngineAPI {
 
   // 激活模型 — POST /api/models/:name/activate
   async activateModel(name: string): Promise<void> {
-    console.log('[KCoder] DEBUG activateModel:', name)
     const response = await fetch(`${this.baseUrl}/api/models/${encodeURIComponent(name)}/activate`, {
       method: 'POST',
       headers: this.headers
@@ -827,7 +826,6 @@ export class EngineAPI {
 
   // 创建/更新模型配置 — POST /api/models
   async createModel(payload: Record<string, unknown>): Promise<unknown> {
-    console.log('[KCoder] DEBUG createModel payload:', JSON.stringify(payload))
     const response = await fetch(`${this.baseUrl}/api/models`, {
       method: 'POST',
       headers: this.headers,

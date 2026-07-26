@@ -51,6 +51,8 @@ interface AppState {
   selectedModel: string | null
   /** 新建任务时使用的分支名（非空表示要在创建线程前新建该分支） */
   pendingNewBranch: string | null
+  /** 模型配置变更计数器（设置页保存后递增，触发聊天框刷新模型列表） */
+  modelVersion: number
 
   // 交互请求（审批 + 结构化输入）— 后端发 SSE 事件，前端需用户响应
   pendingApproval: ApprovalRequest | null
@@ -85,6 +87,7 @@ interface AppState {
   setWorkspacePath: (path: string | null) => void
   setSelectedBranch: (branch: string | null) => void
   setSelectedModel: (model: string | null) => void
+  bumpModelVersion: () => void
   setPendingNewBranch: (branch: string | null) => void
   setPendingApproval: (approval: ApprovalRequest | null) => void
   setPendingUserInput: (input: UserInputRequest | null) => void
@@ -110,6 +113,7 @@ export const useAppStore = create<AppState>((set) => ({
   workspacePath: null,
   selectedBranch: null,
   selectedModel: null,
+  modelVersion: 0,
   pendingNewBranch: null,
   pendingApproval: null,
   pendingUserInput: null,
@@ -195,6 +199,7 @@ export const useAppStore = create<AppState>((set) => ({
   setWorkspacePath: (path) => set({ workspacePath: path }),
   setSelectedBranch: (branch) => set({ selectedBranch: branch }),
   setSelectedModel: (model) => set({ selectedModel: model }),
+  bumpModelVersion: () => set((state) => ({ modelVersion: state.modelVersion + 1 })),
   setPendingNewBranch: (branch) => set({ pendingNewBranch: branch }),
   setPendingApproval: (approval) => set({ pendingApproval: approval }),
   setPendingUserInput: (input) => set({ pendingUserInput: input }),

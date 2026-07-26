@@ -339,7 +339,7 @@ export function CommandInput({
   }
 
   // 模型选择器（底栏右侧）— 从 store 读取，复用 DirectoryBranchBar 加载的模型
-  const { enginePort, engineStatus, selectedModel, setSelectedModel } = useAppStore()
+  const { enginePort, engineStatus, selectedModel, setSelectedModel, modelVersion } = useAppStore()
   const [models, setModels] = useState<ModelEntry[]>([])
   const [showModelMenu, setShowModelMenu] = useState(false)
   const modelMenuRef = useRef<HTMLDivElement>(null)
@@ -350,13 +350,16 @@ export function CommandInput({
     api.getModels()
       .then((res) => {
         setModels(res.models)
-        if (!useAppStore.getState().selectedModel) {
-          const active = res.models.find((m) => m.active)
-          setSelectedModel(active ? active.name : (res.models[0]?.name ?? null))
+        // 每次刷新都重新选择 active 模型（设置页配置变更后立即生效）
+        const active = res.models.find((m) => m.active)
+        if (active) {
+          setSelectedModel(active.name)
+        } else if (!useAppStore.getState().selectedModel && res.models.length > 0) {
+          setSelectedModel(res.models[0].name)
         }
       })
       .catch(() => { /* 忽略 */ })
-  }, [enginePort, engineStatus, setSelectedModel])
+  }, [enginePort, engineStatus, setSelectedModel, modelVersion])
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {

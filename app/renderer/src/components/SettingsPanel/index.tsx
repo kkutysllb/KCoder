@@ -126,7 +126,7 @@ const DEFAULT_PROVIDERS: Provider[] = [
 ]
 
 export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
-  const { engineStatus, enginePort } = useAppStore()
+  const { engineStatus, enginePort, bumpModelVersion } = useAppStore()
   const [activeNav, setActiveNav] = useState('general')
   const { t } = useI18n()
   const [providers, setProviders] = useState<Provider[]>(DEFAULT_PROVIDERS)
@@ -208,6 +208,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       })
       await api.activateModel(id)
       setProviders((prev) => prev.map((p) => ({ ...p, enabled: p.id === id })))
+      bumpModelVersion()
       await refreshModels()
     } catch (err) {
       console.error('[KCoder] Failed to activate model:', err)
@@ -261,6 +262,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       }
     }
     window.kcoder?.send('save-settings', { providers })
+    bumpModelVersion()
     onClose()
   }
 
