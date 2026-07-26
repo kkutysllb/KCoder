@@ -115,6 +115,10 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
     engineRuntime = serverHandle
     console.log(`[KCoder] HTTP server listening on port ${serverHandle.port}`)
 
+    // DEBUG: 查看引擎启动后的 model 配置
+    console.log('[KCoder] DEBUG agent.info().model:', agent.info?.().model)
+    console.log('[KCoder] DEBUG options.model:', fullConfig.model)
+
     // Wait for engine to be ready
     await waitForHealthy(serverHandle.port)
   } catch (error) {
