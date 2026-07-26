@@ -121,6 +121,17 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
 
     // Wait for engine to be ready
     await waitForHealthy(serverHandle.port)
+
+    // DEBUG: 查看引擎启动后 getModels() 返回什么
+    try {
+      const res = await fetch(`http://127.0.0.1:${serverHandle.port}/api/models`, {
+        headers: { Authorization: `Bearer ${fullConfig.runtimeToken}` }
+      })
+      const data = await res.json()
+      console.log('[KCoder] DEBUG getModels():', JSON.stringify(data.models?.map((m: any) => ({ name: m.name, model: m.model, base_url: m.base_url, active: m.active })) ?? 'none'))
+    } catch (e) {
+      console.log('[KCoder] DEBUG getModels() failed:', (e as Error).message)
+    }
   } catch (error) {
     console.error('[KCoder] Failed to start engine:', error)
     throw error
