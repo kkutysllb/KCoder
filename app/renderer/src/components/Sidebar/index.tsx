@@ -253,9 +253,17 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
         </button>
       </div>
 
-      {/* Sort/archive controls */}
+      {/* 项目 tab + sort/archive controls */}
       <div className="px-3 py-2">
         <div className="flex items-center gap-1.5 text-[13px]">
+          {/* 项目 tab（保留，删除了「分组」tab） */}
+          <button
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#1e1e22] text-white"
+          >
+            <Icons.Folder />
+            <span>{t('sidebar.project')}</span>
+          </button>
+
           {/* Sort / filter + archive */}
           <div className="ml-auto flex items-center gap-0.5">
             <div className="relative">
