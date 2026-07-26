@@ -368,7 +368,9 @@ export async function kworksActivateModel(runtime: ServerRuntime, name: string, 
     ...config,
     serve: {
       ...(config.serve ?? {}),
-      model: name,
+      // serve.model 必须是真实模型 id（providerModel），不是 profile name
+      // 否则模型客户端会用 profile name（如 'minimax'）作为 model 参数发请求
+      model: profile.providerModel ?? name,
       ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}),
       ...(profileApiKey !== undefined ? { apiKey: profileApiKey } : {}),
       ...(profile.endpointFormat ? { endpointFormat: profile.endpointFormat } : {})
@@ -3023,7 +3025,7 @@ async function readEffectiveRuntimeConfig(runtime: ServerRuntime, actor?: AuthAc
     ...config,
     serve: {
       ...(activeModel ? (config.serve ?? {}) : serveWithoutModelRoute),
-      ...(activeModel ? { model: activeModel } : {}),
+      ...(activeModel ? { model: activeProfile?.providerModel ?? activeModel } : {}),
       ...(activeProfile?.baseUrl ? { baseUrl: activeProfile.baseUrl } : {}),
       ...(activeProfile?.apiKey !== undefined ? { apiKey: activeProfile.apiKey } : {}),
       ...(activeProfile?.endpointFormat ? { endpointFormat: activeProfile.endpointFormat } : {})
