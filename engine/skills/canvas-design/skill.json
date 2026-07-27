@@ -4,7 +4,7 @@
   "name": "Canvas Design",
   "description": "Create beautiful visual art in .png and .pdf documents using design philosophy. Use when the user asks to create a poster, piece of art, design, or other static piece.",
   "version": "1.0.0",
-  "category": "design",
+  "category": "workflow",
   "priority": 5,
   "entry": "SKILL.md",
   "activation": {

@@ -4,7 +4,7 @@
   "name": "Slidev",
   "description": "Create and present web-based slide decks for developers using Slidev: Markdown, Vue components, code highlighting, animations, and interactive features. For technical presentations and talks.",
   "version": "1.0.0",
-  "category": "document",
+  "category": "workflow",
   "priority": 5,
   "entry": "SKILL.md",
   "activation": {

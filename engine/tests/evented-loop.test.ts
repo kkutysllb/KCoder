@@ -10,8 +10,12 @@ import {
   defaultLoopEvaluator
 } from '@qiongqi/loop'
 import { makeHarness, makeSilentModel, bootstrapThread } from './loop-test-harness.js'
-import type { ModelStreamChunk } from '@qiongqi/ports'
-import { buildDefaultLocalTools, CREATE_PLAN_TOOL_NAME } from '@qiongqi/adapter-tools'
+import type { ModelRequest, ModelStreamChunk } from '@qiongqi/ports'
+import {
+  buildDefaultLocalTools,
+  CREATE_PLAN_TOOL_NAME,
+  shellRuntimeInstruction
+} from '@qiongqi/adapter-tools'
 
 function tempDir(): string {
   const r = Math.random().toString(36).slice(2)
@@ -40,7 +44,8 @@ function makeEventedHarness(model = makeSilentModel()) {
       prefix: base.prefix,
       ids: base.ids,
       nowIso: base.nowIso,
-      nowMs: base.nowMs
+      nowMs: base.nowMs,
+      shellRuntimeInstruction
     },
     serializer,
     bus,
@@ -51,6 +56,25 @@ function makeEventedHarness(model = makeSilentModel()) {
 }
 
 describe('EventedTurnOrchestrator (declarative loop)', () => {
+  it('propagates the injected shell runtime instruction into model context', async () => {
+    const requests: ModelRequest[] = []
+    const h = makeEventedHarness({
+      provider: 'capture',
+      model: 'capture',
+      async *stream(request): AsyncIterable<ModelStreamChunk> {
+        requests.push(request)
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    })
+    try {
+      await bootstrapThread(h.base)
+      await h.loop.runTurn(h.base.threadId, h.base.turnId)
+      expect(requests[0]?.contextInstructions?.join('\n')).toContain('Shell runtime:')
+    } finally {
+      await h.cleanup()
+    }
+  })
+
   it('completes a simple turn via the LoopRunner', async () => {
     const h = makeEventedHarness()
     try {

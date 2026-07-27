@@ -93,6 +93,7 @@ export class EventedTurnOrchestrator {
       prefix: opts.prefix,
       ids: opts.ids,
       nowIso: opts.nowIso,
+      ...(opts.shellRuntimeInstruction ? { shellRuntimeInstruction: opts.shellRuntimeInstruction } : {}),
       ...(opts.modelCapabilities ? { modelCapabilities: opts.modelCapabilities } : {}),
       ...(opts.skillRuntime ? { skillRuntime: opts.skillRuntime } : {}),
       ...(opts.skillPluginHost ? { skillPluginHost: opts.skillPluginHost } : {}),

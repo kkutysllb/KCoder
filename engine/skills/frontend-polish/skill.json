@@ -4,7 +4,7 @@
   "name": "Frontend Polish",
   "description": "优化界面细节、响应式状态和视觉一致性。Use for refining spacing, hover/focus/loading/empty states, transitions, and cross-breakpoint consistency.",
   "version": "1.0.0",
-  "category": "design",
+  "category": "workflow",
   "priority": 7,
   "entry": "SKILL.md",
   "activation": {

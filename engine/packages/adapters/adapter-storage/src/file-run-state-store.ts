@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
 import { RunStateV3Schema, type RunIdentity, type RunStateV3 } from '@qiongqi/contracts'
-import type { LeaseFence, RunLeaseStore, RunSnapshotStore } from '@qiongqi/ports'
+import { EngineStoreCorruptError, type LeaseFence, type RunLeaseStore, type RunSnapshotStore } from '@qiongqi/ports'
 import { atomicWriteFile } from './atomic-write.js'
 import { withFileLock } from './file-lock.js'
 import { runtimeScopeDigest } from './runtime-store-utils.js'
@@ -29,11 +29,13 @@ export class FileRunStateStore implements RunSnapshotStore, RunLeaseStore {
   }
 
   async load(identity: RunIdentity): Promise<RunStateV3 | undefined> {
+    const path = this.snapshotPath(identity)
     try {
-      const raw = await readFile(this.snapshotPath(identity), 'utf8')
+      const raw = await readFile(path, 'utf8')
       return RunStateV3Schema.parse(JSON.parse(raw))
-    } catch {
-      return undefined
+    } catch (error) {
+      if (isNotFound(error)) return undefined
+      throw new EngineStoreCorruptError(`corrupt runtime snapshot: ${path}`, { cause: error })
     }
   }
 
@@ -110,3 +112,7 @@ export class FileRunStateStore implements RunSnapshotStore, RunLeaseStore {
 }
 
 function sameFence(lease: Lease, fence: LeaseFence): boolean { return lease.epoch === fence.epoch && lease.token === fence.token && lease.holderId === fence.holderId }
+
+function isNotFound(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
+}

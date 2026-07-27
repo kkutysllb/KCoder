@@ -57,11 +57,11 @@ describe.each([
 })
 
 describe('FileRunStateStore recovery behavior', () => {
-  it('ignores a malformed snapshot instead of throwing', async () => {
+  it('fails loudly for a malformed snapshot', async () => {
     const rootDir = await mkdtemp(join(tmpdir(), 'qiongqi-run-state-invalid-'))
     const store = new FileRunStateStore(rootDir)
     await store.writeRawSnapshot(identity, '{broken')
-    await expect(store.load(identity)).resolves.toBeUndefined()
+    await expect(store.load(identity)).rejects.toMatchObject({ code: 'ENGINE_STORE_CORRUPT' })
     await rm(rootDir, { recursive: true, force: true })
   })
 

@@ -4,7 +4,7 @@
   "name": "Internal Communications",
   "description": "Write internal communications in company-preferred formats: status reports, leadership updates, newsletters, FAQs, incident reports, and project updates.",
   "version": "1.0.0",
-  "category": "document",
+  "category": "workflow",
   "priority": 4,
   "entry": "SKILL.md",
   "activation": {

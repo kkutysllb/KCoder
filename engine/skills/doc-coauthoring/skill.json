@@ -4,7 +4,7 @@
   "name": "Doc Co-authoring",
   "description": "Guide users through a structured workflow for co-authoring documentation, proposals, technical specs, and decision docs — transfer context, refine through iteration, verify with readers.",
   "version": "1.0.0",
-  "category": "document",
+  "category": "workflow",
   "priority": 6,
   "entry": "SKILL.md",
   "activation": {

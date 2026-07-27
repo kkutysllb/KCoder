@@ -9,7 +9,6 @@ import type { UserInputGate } from '@qiongqi/ports'
 import type { WorkspaceInspector } from '@qiongqi/ports'
 import type { ToolHost, ToolProviderPolicy } from '@qiongqi/ports'
 import type { RuntimeEventRecorder } from '@qiongqi/services'
-import type { TurnExecutionProjectionServiceContract } from '@qiongqi/services'
 import type { RuntimeInfoResponse, AgentCard } from '@qiongqi/contracts'
 import type { A2ATaskRecord } from '../a2a-task-model.js'
 import type { FileA2ATaskStore } from '../a2a-task-store.js'
@@ -27,8 +26,9 @@ import type { AuthService } from '../auth-service.js'
 import type { QiongqiConfig } from '@qiongqi/contracts'
 import type { UserDataStore } from '../user-data-store.js'
 import type { PeerRegistry } from '@qiongqi/delegation'
-import type { EventedV2MultiAgentRuntime, EventedV2OutboxReconciler, EventedV2RemoteAgentScheduler, EventedV2RemoteAgentWorker, EventedV2RolloutController } from '@qiongqi/loop'
+import type { EventedV2MultiAgentRuntime, EventedV2OutboxReconciler, EventedV2RemoteAgentScheduler, EventedV2RemoteAgentWorker, EventedV2RolloutController, GraphReadinessReport } from '@qiongqi/loop'
 import type { EventedV2WorkerRegistryStore } from '@qiongqi/ports'
+import type { DurableEngineStore } from '@qiongqi/ports'
 
 export type RuntimeToolDiagnostics = {
   providers: ToolProviderPolicy[]
@@ -86,8 +86,8 @@ export type ServerRuntime = {
   multiAgentRemoteWorker?: EventedV2RemoteAgentWorker
   multiAgentRemoteScheduler?: EventedV2RemoteAgentScheduler
   eventedV2Rollout?: EventedV2RolloutController
-  turnExecutionProjection?: TurnExecutionProjectionServiceContract
-  runTurn(threadId: string, turnId: string): Promise<'completed' | 'failed' | 'aborted'> | void
+  durableEngineStore?: DurableEngineStore
+  runTurn(threadId: string, turnId: string): Promise<'completed' | 'degraded' | 'suspended' | 'failed' | 'aborted'> | void
   cancelA2ATaskTurn?(input: { threadId: string; turnId: string }): Promise<void> | void
   runReview?(input: {
     threadId: string
@@ -112,6 +112,7 @@ export type ServerRuntime = {
   refreshRuntimeTools?(): Promise<void>
   refreshMcpTools?(): Promise<void>
   storageDiagnostics?(): StorageDiagnostics | Promise<StorageDiagnostics>
+  graphReadiness?(): GraphReadinessReport[] | Promise<GraphReadinessReport[]>
   configStore?: QiongqiConfigStore
   models?(): Array<Record<string, unknown>>
   skills?(): SkillRuntimeDiagnostics | Promise<SkillRuntimeDiagnostics>

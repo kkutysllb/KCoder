@@ -3602,7 +3602,7 @@ describe('DeepseekCompatModelClient', () => {
 
   it('converts official MiniMax inline JSON tool-call text into a real tool call', async () => {
     const frames = [
-      'data: {"choices":[{"delta":{"content":"(tool call bash: {\\"action\\":\\"run\\",\\"command\\":\\"cat /Users/libing/.kworks-workspace/skills/builtin/finance/chart-visualization/references/generate_radar_chart.md && echo === && cat /Users/libing/.kworks-workspace/skills/builtin/finance/chart-visualization/references/generate_bar_chart.md\\"}) name=\\"bash\\">"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"(tool call bash: {\\"action\\":\\"run\\",\\"command\\":\\"cat /Users/libing/.qiongqi/skills/builtin/finance/chart-visualization/references/generate_radar_chart.md && echo === && cat /Users/libing/.qiongqi/skills/builtin/finance/chart-visualization/references/generate_bar_chart.md\\"}) name=\\"bash\\">"}}]}\n\n',
       'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
       'data: [DONE]\n\n'
     ]
@@ -3648,7 +3648,7 @@ describe('DeepseekCompatModelClient', () => {
 
   it('converts official MiniMax inline action-tag tool-call text into a real tool call', async () => {
     const frames = [
-      'data: {"choices":[{"delta":{"content":"(tool call ] <action>run][</action>]ls /Users/libing/.kworks-workspace/skills/builtin/finance/chart-visualization/references/ | sort]"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"(tool call ] <action>run][</action>]ls /Users/libing/.qiongqi/skills/builtin/finance/chart-visualization/references/ | sort]"}}]}\n\n',
       'data: [DONE]\n\n'
     ]
     const encoder = new TextEncoder()
@@ -3681,7 +3681,7 @@ describe('DeepseekCompatModelClient', () => {
       toolName: 'bash',
       arguments: {
         action: 'run',
-        command: 'ls /Users/libing/.kworks-workspace/skills/builtin/finance/chart-visualization/references/ | sort'
+        command: 'ls /Users/libing/.qiongqi/skills/builtin/finance/chart-visualization/references/ | sort'
       }
     })
     expect(chunks.find((c) => c.kind === 'completed')).toMatchObject({ stopReason: 'tool_calls' })
@@ -3689,7 +3689,7 @@ describe('DeepseekCompatModelClient', () => {
 
   it('converts official MiniMax inline invoke-command text into a real tool call', async () => {
     const frames = [
-      'data: {"choices":[{"delta":{"content":"(tool call)[<invoke name=\\"bash\\">][<command>ls /Users/libing/.kworks-workspace/skills/builtin/finance/chart-visualization/references/ | sort</command>][</invoke>]"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"(tool call)[<invoke name=\\"bash\\">][<command>ls /Users/libing/.qiongqi/skills/builtin/finance/chart-visualization/references/ | sort</command>][</invoke>]"}}]}\n\n',
       'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
       'data: [DONE]\n\n'
     ]
@@ -3723,7 +3723,7 @@ describe('DeepseekCompatModelClient', () => {
       toolName: 'bash',
       arguments: {
         action: 'run',
-        command: 'ls /Users/libing/.kworks-workspace/skills/builtin/finance/chart-visualization/references/ | sort'
+        command: 'ls /Users/libing/.qiongqi/skills/builtin/finance/chart-visualization/references/ | sort'
       }
     })
     expect(chunks.find((c) => c.kind === 'completed')).toMatchObject({ stopReason: 'tool_calls' })

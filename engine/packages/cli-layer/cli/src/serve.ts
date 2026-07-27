@@ -192,8 +192,8 @@ Options:
   --port <port>            HTTP port (default ${DEFAULT_SERVE_PORT})
   --data-dir <path>        Root directory for threads, events, and usage
   --runtime-token <token>  Bearer token for /v1/* requests
-  --api-key <key>          Provider API key (required, or set QIONGQI_API_KEY)
-  --base-url <url>         Provider base URL (required, or set QIONGQI_BASE_URL)
+  --api-key <key>          Provider API key (optional until model calls)
+  --base-url <url>         Provider base URL (optional until model calls)
   --endpoint-format <f>    chat_completions | responses | messages
   --model <model>          Default model id
   --preset <name>          Agent preset: coding (default) | generic
@@ -231,19 +231,6 @@ export function parseServeOptionsSafe(
     return { ok: true, options: parsed }
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const requiredFields = error.issues.filter(
-        (issue) =>
-          issue.code === 'invalid_type' &&
-          issue.path[0] === 'baseUrl'
-      )
-      if (requiredFields.length > 0) {
-        const labels = requiredFields.map(() => '--base-url')
-        return {
-          ok: false,
-          exitCode: ServeExitCode.config,
-          message: `serve requires ${labels.join(' and ')} <value> (pass the flag, set QIONGQI_API_KEY / QIONGQI_BASE_URL, or use a config file)`
-        }
-      }
       return {
         ok: false,
         exitCode: ServeExitCode.config,
@@ -294,20 +281,21 @@ function uniqueStrings(values: string[]): string[] {
  * Resolve the API key from CLI flags, env vars, or config.
  *
  * Priority: `--api-key` flag > `QIONGQI_API_KEY` env > legacy
- * `DEEPSEEK_API_KEY` env (kept for backward compat) > config file.
- * Returns `undefined` when nothing is set so the schema reports a
- * required-field error.
+ * `DEEPSEEK_API_KEY` env (kept for backward compat). Disk config is
+ * intentionally ignored because API keys live in the host vault and are
+ * injected into the runtime process through environment variables.
+ * Returns `undefined` when nothing is set so the schema can apply its empty
+ * fallback.
  */
 function resolveApiKey(
   raw: Record<string, string | boolean>,
   env: Record<string, string | undefined>,
-  configServe: NonNullable<LoadedQiongqiConfig['config']['serve']>
+  _configServe: NonNullable<LoadedQiongqiConfig['config']['serve']>
 ): string | undefined {
   const flagValue = stringFlag(raw, 'api-key') ?? stringFlag(raw, 'apiKey')
   if (flagValue) return flagValue
   const envValue = env.QIONGQI_API_KEY ?? env.DEEPSEEK_API_KEY
   if (envValue) return envValue
-  if (configServe.apiKey) return configServe.apiKey
   return undefined
 }
 
@@ -316,8 +304,8 @@ function resolveApiKey(
  *
  * Priority: `--base-url` flag > `QIONGQI_BASE_URL` env > legacy
  * `DEEPSEEK_BASE_URL` env (kept for backward compat) > config file.
- * Returns `undefined` when nothing is set so the schema reports a
- * required-field error.
+ * Returns `undefined` when nothing is set so the schema can apply its empty
+ * fallback.
  */
 function resolveBaseUrl(
   raw: Record<string, string | boolean>,

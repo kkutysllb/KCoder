@@ -28,3 +28,24 @@ it('runs the production graph without accepting a classic delegate', async () =>
   await expect(runner.runTurn('thread-1', 'turn-1')).resolves.toBe('completed')
   expect(finished).toEqual(['completed'])
 })
+
+it('preserves degraded instead of mapping it to failed', async () => {
+  const store = new InMemoryRunStateStore()
+  const finished: string[] = []
+  const runner = new KernelV3TurnRunner({
+    snapshots: store,
+    events: new InMemoryRunEventStore(),
+    leases: store,
+    holderId: 'test-degraded',
+    identityForTurn: (threadId, turnId) => ({
+      ownerUserId: 'owner-1', workspaceKey: '/workspace-1', threadId, turnId, runId: `run-${turnId}`
+    }),
+    nodes: {
+      'prepare-turn': () => ({ outcome: { status: 'degraded', reason: 'no_progress', retryable: false } })
+    },
+    finishTurn: async (_threadId, _turnId, status) => { finished.push(status) }
+  })
+
+  await expect(runner.runTurn('thread-1', 'turn-degraded')).resolves.toBe('degraded')
+  expect(finished).toEqual(['degraded'])
+})

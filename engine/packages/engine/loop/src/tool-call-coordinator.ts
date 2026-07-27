@@ -21,7 +21,7 @@ import type { UserInputGate, UserInputResolution } from '@qiongqi/ports'
 import type { RuntimeEventRecorder } from '@qiongqi/services'
 import type { TurnService } from '@qiongqi/services'
 import type { IdGenerator } from '@qiongqi/ports'
-import type { ModelCapabilityMetadata, RunIdentity, RunStateV3, ToolEffectPolicy, TurnItem } from '@qiongqi/contracts'
+import { CREATE_PLAN_TOOL_NAME, type ModelCapabilityMetadata, type RunIdentity, type RunStateV3, type ToolEffectPolicy, type TurnItem } from '@qiongqi/contracts'
 import { join } from 'node:path'
 import {
   makeToolResultItem,
@@ -30,7 +30,6 @@ import {
 import { ToolStormBreaker, type ToolStormBreakerOptions } from './tool-storm-breaker.js'
 import { InflightTracker } from './inflight-tracker.js'
 import { repairDispatchToolArguments } from './tool-call-repair.js'
-import { CREATE_PLAN_TOOL_NAME } from '@qiongqi/adapter-tools'
 import {
   PARALLEL_READ_ONLY_TOOL_NAMES,
   MAX_PARALLEL_TOOL_CALLS

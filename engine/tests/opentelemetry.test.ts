@@ -66,4 +66,41 @@ describe('OpenTelemetry exporter', () => {
     })
     await otel.shutdown()
   })
+
+  it('records policy-safe graph correlation and numeric metrics', async () => {
+    const exporter = createInMemoryTraceExporter()
+    const otel = createOpenTelemetryRuntime({
+      enabled: true,
+      serviceName: 'qiongqi-test',
+      exporter: 'memory',
+      memoryExporter: exporter
+    })
+    const span = otel.startGraphSpan({
+      name: 'graph node',
+      attribution: {
+        graphId: 'graph-1', graphRevision: 2, runId: 'run-1',
+        nodeId: 'agent-a', edgeId: 'edge-a-b', attemptId: 'attempt-1'
+      },
+      metrics: { cost: 1.25, retries: 1, fanOut: 2, criticalPathLatencyMs: 1_500 }
+    })
+
+    otel.finishGraphSpan(span)
+    await otel.forceFlush()
+
+    const attributes = exporter.getFinishedSpans()[0]?.attributes
+    expect(attributes).toMatchObject({
+      'qiongqi.graph.id': 'graph-1',
+      'qiongqi.graph.revision': 2,
+      'qiongqi.graph.run_id': 'run-1',
+      'qiongqi.graph.node_id': 'agent-a',
+      'qiongqi.graph.edge_id': 'edge-a-b',
+      'qiongqi.graph.attempt_id': 'attempt-1',
+      'qiongqi.graph.cost': 1.25,
+      'qiongqi.graph.retries': 1,
+      'qiongqi.graph.fan_out': 2,
+      'qiongqi.graph.critical_path_latency_ms': 1_500
+    })
+    expect(Object.keys(attributes ?? {})).not.toContain('qiongqi.graph.prompt')
+    await otel.shutdown()
+  })
 })

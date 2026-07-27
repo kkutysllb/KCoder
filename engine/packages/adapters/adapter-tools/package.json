@@ -1,6 +1,6 @@
 {
   "name": "@qiongqi/adapter-tools",
-  "version": "0.1.0",
+  "version": "1.1.1",
   "description": "Qiongqi adapter-tools package",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,20 +19,20 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@qiongqi/adapter-fs": "workspace:*",
-    "@qiongqi/tool-infra": "workspace:*",
     "@qiongqi/contracts": "workspace:*",
+    "@qiongqi/delegation": "workspace:*",
     "@qiongqi/domain": "workspace:*",
+    "@qiongqi/memory": "workspace:*",
     "@qiongqi/ports": "workspace:*",
     "@qiongqi/services": "workspace:*",
-    "@qiongqi/memory": "workspace:*",
-    "@qiongqi/delegation": "workspace:*",
-    "diff": "^8.0.4",
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@qiongqi/tool-infra": "workspace:*",
+    "diff": "^8.0.4"
   },
   "devDependencies": {
-    "typescript": "^5.8.2",
-    "@types/node": "^26.0.0"
+    "@types/node": "^26.0.0",
+    "typescript": "^5.8.2"
   },
   "private": true,
   "types": "./dist/index.d.ts"

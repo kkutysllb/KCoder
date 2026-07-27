@@ -14,10 +14,21 @@ contextBridge.exposeInMainWorld('kcoder', {
 
   // Send messages to main process
   send: (channel: string, ...args: unknown[]) => {
-    const validChannels = ['save-settings', 'update-engine-config']
+    const validChannels = ['save-settings']
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, ...args)
     }
+  },
+
+  // Product-side model management (drives the engine's UserDataStore).
+  // The new engine exposes no HTTP model CRUD; the product owns this.
+  models: {
+    list: () => ipcRenderer.invoke('model:list') as Promise<unknown>,
+    save: (name: string, profile: unknown) =>
+      ipcRenderer.invoke('model:save', name, profile) as Promise<void>,
+    delete: (name: string) => ipcRenderer.invoke('model:delete', name) as Promise<void>,
+    activate: (name: string) => ipcRenderer.invoke('model:activate', name) as Promise<void>,
+    discover: (input: unknown) => ipcRenderer.invoke('model:discover', input) as Promise<unknown>
   },
 
   // IPC event listeners
@@ -81,6 +92,13 @@ declare global {
       send: (channel: string, ...args: unknown[]) => void
       on: (channel: string, callback: (...args: unknown[]) => void) => void
       off: (channel: string, callback: (...args: unknown[]) => void) => void
+      models: {
+        list: () => Promise<unknown>
+        save: (name: string, profile: unknown) => Promise<void>
+        delete: (name: string) => Promise<void>
+        activate: (name: string) => Promise<void>
+        discover: (input: unknown) => Promise<unknown>
+      }
       terminal: {
         create: (options?: { cwd?: string; cols?: number; rows?: number }) => Promise<{
           id: string

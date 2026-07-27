@@ -21,6 +21,7 @@ packages/**/src/**/*.d.ts.map
 *.swo
 *~
 .qoder/
+.worktrees/
 docs/superpowers/
 findings.md
 task_plan.md

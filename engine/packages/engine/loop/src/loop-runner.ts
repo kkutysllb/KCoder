@@ -19,7 +19,7 @@ import type { RuntimeEventRecorder } from '@qiongqi/services'
 import type { TurnService } from '@qiongqi/services'
 import type { IdGenerator } from '@qiongqi/ports'
 import { makeErrorItem } from '@qiongqi/domain'
-import { CREATE_PLAN_TOOL_NAME } from '@qiongqi/adapter-tools'
+import { CREATE_PLAN_TOOL_NAME } from '@qiongqi/contracts'
 
 export interface LoopRunnerDeps {
   promptBuilder: PromptBuilder

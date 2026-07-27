@@ -4,7 +4,7 @@
   "name": "Using Superpowers",
   "description": "Use when starting any conversation — establishes how to find and use skills, requiring skill discovery before responding to tasks.",
   "version": "1.0.0",
-  "category": "meta",
+  "category": "workflow",
   "priority": 14,
   "entry": "SKILL.md",
   "activation": {

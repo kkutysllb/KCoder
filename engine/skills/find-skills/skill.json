@@ -4,7 +4,7 @@
   "name": "Find Skills",
   "description": "Help users discover and install skills when they ask how to do something that might have an available skill.",
   "version": "1.0.0",
-  "category": "meta",
+  "category": "workflow",
   "priority": 5,
   "entry": "SKILL.md",
   "activation": {

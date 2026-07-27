@@ -4,7 +4,7 @@
   "name": "Skill Creator",
   "description": "Create new skills, modify and improve existing skills, and validate skill structure against the manifest spec.",
   "version": "1.0.0",
-  "category": "meta",
+  "category": "workflow",
   "priority": 5,
   "entry": "SKILL.md",
   "activation": {

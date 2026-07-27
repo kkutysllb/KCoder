@@ -38,6 +38,7 @@ export type ChildAgentExecutorOptions = {
   tokenEconomy?: TokenEconomyConfig
   runtime?: RuntimeTuningConfig
   nowIso?: () => string
+  shellRuntimeInstruction?: () => string
   modelCapabilities?: (model: string) => ModelCapabilityMetadata
   skillRuntime?: SkillRuntime
   skillPluginHost?: SkillPluginHost
@@ -97,6 +98,7 @@ export function createChildAgentExecutor(options: ChildAgentExecutorOptions): Ch
       prefix: options.prefix,
       ids,
       nowIso,
+      ...(options.shellRuntimeInstruction ? { shellRuntimeInstruction: options.shellRuntimeInstruction } : {}),
       ...(options.modelCapabilities ? { modelCapabilities: options.modelCapabilities } : {}),
       ...(options.skillRuntime ? { skillRuntime: options.skillRuntime } : {}),
       ...(options.skillPluginHost ? { skillPluginHost: options.skillPluginHost } : {}),

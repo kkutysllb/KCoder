@@ -1,12 +1,17 @@
-import type { MemoryRecord } from '@qiongqi/contracts'
+import { MemoryQuerySchema, type MemoryQuery, type MemoryRecord } from '@qiongqi/contracts'
 
-export type RankMemoryRecordsInput = {
+export type LegacyRankMemoryRecordsInput = {
   query: string
   records: MemoryRecord[]
   workspace?: string
   threadId?: string
   ownerUserId?: string
   limit: number
+}
+
+export type RankMemoryRecordsInput = LegacyRankMemoryRecordsInput | {
+  memoryQuery: MemoryQuery
+  records: MemoryRecord[]
 }
 
 const STOPWORDS = new Set([
@@ -34,17 +39,18 @@ export function tokenizeMemoryText(text: string): string[] {
 }
 
 export function rankMemoryRecords(input: RankMemoryRecordsInput): MemoryRecord[] {
-  const queryTokens = new Set(tokenizeMemoryText(input.query))
+  const query = normalizeQuery(input)
+  const queryTokens = new Set(tokenizeMemoryText(query.query))
   if (queryTokens.size === 0) return []
-  const allowCurrentTaskCarryover = isContinuationQuery(input.query)
+  const allowCurrentTaskCarryover = query.namespace === 'legacy' && isContinuationQuery(query.query)
   return input.records
     .filter((record) => !record.deletedAt && !record.disabledAt)
-    .filter((record) => inActiveScope(record, input.workspace, input.threadId, input.ownerUserId))
+    .filter((record) => inActiveScope(record, query))
     .map((record) => {
       const lexicalScore = scoreRecord(record, queryTokens)
       const currentTaskCarryover =
         allowCurrentTaskCarryover &&
-        isCurrentThreadProjectMemory(record, input.workspace, input.threadId)
+        isCurrentThreadProjectMemory(record, query.namespace === 'legacy' ? query.workspace : undefined, query.namespace === 'legacy' ? query.threadId : undefined)
       return {
         record,
         score: lexicalScore > 0 ? lexicalScore : currentTaskCarryover ? 0.1 : 0
@@ -57,7 +63,7 @@ export function rankMemoryRecords(input: RankMemoryRecordsInput): MemoryRecord[]
       b.record.updatedAt.localeCompare(a.record.updatedAt) ||
       a.record.id.localeCompare(b.record.id)
     )
-    .slice(0, Math.max(0, input.limit))
+    .slice(0, Math.max(0, query.limit))
     .map((entry) => entry.record)
 }
 
@@ -95,18 +101,50 @@ function scoreRecord(record: MemoryRecord, queryTokens: Set<string>): number {
   return (overlap + technicalExact * 2) * Math.max(record.confidence, 0)
 }
 
-function inActiveScope(record: MemoryRecord, workspace: string | undefined, threadId: string | undefined, ownerUserId?: string): boolean {
-  if (ownerUserId && record.ownerUserId !== ownerUserId) return false
+function inActiveScope(record: MemoryRecord, query: MemoryQuery): boolean {
+  if (query.namespace === 'task_shared') {
+    return record.scope === 'task_shared' && sameTaskScope(record.taskScope, query.taskScope)
+  }
+  if (query.namespace === 'agent_private') {
+    return record.scope === 'agent_private'
+      && sameTaskScope(record.taskScope, query.taskScope)
+      && record.agentId === query.agentId
+      && record.agentRunId === query.agentRunId
+  }
+  if (record.scope === 'task_shared' || record.scope === 'agent_private') return false
+  if (query.ownerUserId && record.ownerUserId !== query.ownerUserId) return false
   if (record.scope === 'user') return true
-  if (record.scope === 'workspace') return Boolean(workspace && record.workspace === workspace)
+  if (record.scope === 'workspace') return Boolean(query.workspace && record.workspace === query.workspace)
   if (record.scope === 'project') {
     return Boolean(
-      workspace &&
-      record.workspace === workspace &&
-      (!threadId || record.sourceThreadId === threadId)
+      query.workspace &&
+      record.workspace === query.workspace &&
+      (!query.threadId || record.sourceThreadId === query.threadId)
     )
   }
   return false
+}
+
+function normalizeQuery(input: RankMemoryRecordsInput): MemoryQuery {
+  return MemoryQuerySchema.parse('memoryQuery' in input
+    ? input.memoryQuery
+    : {
+        namespace: 'legacy',
+        query: input.query,
+        limit: input.limit,
+        ...(input.workspace ? { workspace: input.workspace } : {}),
+        ...(input.threadId ? { threadId: input.threadId } : {}),
+        ...(input.ownerUserId ? { ownerUserId: input.ownerUserId } : {})
+      })
+}
+
+function sameTaskScope(
+  left: { ownerId: string; workspaceId: string; taskId: string },
+  right: { ownerId: string; workspaceId: string; taskId: string }
+): boolean {
+  return left.ownerId === right.ownerId
+    && left.workspaceId === right.workspaceId
+    && left.taskId === right.taskId
 }
 
 function addToken(tokens: Set<string>, token: string): void {

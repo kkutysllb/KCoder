@@ -31,7 +31,7 @@ import type { UsageService } from '@qiongqi/services'
 import type { TurnService } from '@qiongqi/services'
 import type { RuntimeEventRecorder } from '@qiongqi/services'
 import type { IdGenerator } from '@qiongqi/ports'
-import type { ApprovalPolicy } from '@qiongqi/contracts'
+import { CREATE_PLAN_TOOL_NAME, type ApprovalPolicy } from '@qiongqi/contracts'
 import type { ModelCapabilityMetadata } from '@qiongqi/contracts'
 import type { TurnItem } from '@qiongqi/contracts'
 import type { ImmutablePrefix } from '@qiongqi/cache'
@@ -68,8 +68,6 @@ import {
   resolveAutoModelRoute,
   type AutoModelRouteSelection
 } from './auto-model-router.js'
-import { CREATE_PLAN_TOOL_NAME } from '@qiongqi/adapter-tools'
-import { shellRuntimeInstruction } from '@qiongqi/adapter-tools'
 import {
   PLAN_MODE_INSTRUCTION,
   goalContinuationInstruction,
@@ -208,6 +206,7 @@ export type PromptBuilderDeps = {
   prefix: ImmutablePrefix
   ids: IdGenerator
   nowIso: () => string
+  shellRuntimeInstruction?: () => string
   modelCapabilities?: (model: string) => ModelCapabilityMetadata
   skillRuntime?: SkillRuntime
   /**
@@ -493,7 +492,9 @@ export class PromptBuilder {
       ...memoryInstructions(memories),
       ...skillResolution.instructions,
       ...(workModeInstruction ? [workModeInstruction] : []),
-      ...(toolSpecs.some((tool) => tool.name === 'bash') ? [shellRuntimeInstruction()] : []),
+      ...(toolSpecs.some((tool) => tool.name === 'bash') && this.deps.shellRuntimeInstruction
+        ? [this.deps.shellRuntimeInstruction()]
+        : []),
       ...(toolCatalogDriftMessage ? [toolCatalogDriftMessage] : [])
     ]
     await recordPipelineStage(this.deps.events, {

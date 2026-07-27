@@ -32,7 +32,12 @@ describe('loop governor middleware persistence adapter', () => {
         state = { ...state, middleware: { ...state.middleware, [stateCommand.id]: stateCommand.state } }
       }
       if (commands.some((command) => command.type === 'terminate')) {
-        expect(commands).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'terminate' })]))
+        expect(commands).toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            type: 'terminate',
+            outcome: expect.objectContaining({ reason: 'no_progress', retryable: false })
+          })
+        ]))
         return
       }
     }

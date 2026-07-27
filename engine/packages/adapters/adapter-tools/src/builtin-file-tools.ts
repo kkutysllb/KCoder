@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import { readFile as fsReadFile, stat as fsStat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { LocalToolHost, type LocalTool } from './local-tool-host.js'
 import {
@@ -33,6 +35,34 @@ export function createWriteLocalTool(_options: WriteLocalToolOptions = {}): Loca
     policy: 'on-request',
     toolKind: 'file_change',
     capabilityClass: 'file.write',
+    replay: {
+      effectPolicy: 'verify-before-replay',
+      describe: async (call, context) => {
+        const rawPath = typeof call.arguments.path === 'string' ? call.arguments.path : ''
+        const content = typeof call.arguments.content === 'string' ? call.arguments.content : null
+        if (!rawPath.trim() || content === null) throw new Error('path and content are required for write replay metadata')
+        const { absolutePath } = resolveWorkspacePath(rawPath, context)
+        return {
+          semanticKey: `file.write:${absolutePath}:${contentDigest(content)}`,
+          preconditionVersions: { [absolutePath]: await fileVersion(absolutePath) }
+        }
+      },
+      verifyReplay: async ({ call, context }) => {
+        const rawPath = typeof call.arguments.path === 'string' ? call.arguments.path : ''
+        const content = typeof call.arguments.content === 'string' ? call.arguments.content : null
+        if (!rawPath.trim() || content === null) return { valid: false, observedPostconditions: {} }
+        const { absolutePath } = resolveWorkspacePath(rawPath, context)
+        try {
+          const current = await fsReadFile(absolutePath, 'utf8')
+          return {
+            valid: current === content,
+            observedPostconditions: { [absolutePath]: contentDigest(current) }
+          }
+        } catch {
+          return { valid: false, observedPostconditions: {} }
+        }
+      }
+    },
     semantic: (args, context, result, call) => {
       const rawPath = typeof args.path === 'string' ? args.path : ''
       if (!rawPath.trim()) return { capabilityClass: 'file.write', resourceKeys: [] }
@@ -101,6 +131,35 @@ export function createEditLocalTool(_options: EditLocalToolOptions = {}): LocalT
     policy: 'on-request',
     toolKind: 'file_change',
     capabilityClass: 'file.write',
+    replay: {
+      effectPolicy: 'verify-before-replay',
+      describe: async (call, context) => {
+        const rawPath = typeof call.arguments.path === 'string' ? call.arguments.path : ''
+        const edits = parseEditInstructions(call.arguments)
+        if (!rawPath.trim() || edits.length === 0) throw new Error('path and edits are required for edit replay metadata')
+        const { absolutePath } = resolveWorkspacePath(rawPath, context)
+        return {
+          semanticKey: `file.edit:${absolutePath}:${contentDigest(JSON.stringify(edits))}`,
+          preconditionVersions: { [absolutePath]: await fileVersion(absolutePath) }
+        }
+      },
+      verifyReplay: async ({ call, context }) => {
+        const rawPath = typeof call.arguments.path === 'string' ? call.arguments.path : ''
+        const edits = parseEditInstructions(call.arguments)
+        if (!rawPath.trim() || edits.length === 0) return { valid: false, observedPostconditions: {} }
+        const { absolutePath } = resolveWorkspacePath(rawPath, context)
+        try {
+          const current = await fsReadFile(absolutePath, 'utf8')
+          const valid = edits.every((edit) => current.includes(edit.newText) && !current.includes(edit.oldText))
+          return {
+            valid,
+            observedPostconditions: { [absolutePath]: contentDigest(current) }
+          }
+        } catch {
+          return { valid: false, observedPostconditions: {} }
+        }
+      }
+    },
     semantic: (args, context, result, call) => {
       const rawPath = typeof args.path === 'string' ? args.path : ''
       if (!rawPath.trim()) return { capabilityClass: 'file.write', resourceKeys: [] }
@@ -148,3 +207,17 @@ export function createEditLocalTool(_options: EditLocalToolOptions = {}): LocalT
 
 export const createEditTool = createEditLocalTool
 export const createEditToolDefinition = createEditLocalTool
+
+async function fileVersion(path: string): Promise<string> {
+  try {
+    const stats = await fsStat(path)
+    return `${stats.size}:${stats.mtimeMs}:${stats.ctimeMs}:${String(stats.ino)}`
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing'
+    throw error
+  }
+}
+
+function contentDigest(content: string): string {
+  return createHash('sha256').update(content).digest('hex')
+}

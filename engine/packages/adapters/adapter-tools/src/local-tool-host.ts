@@ -1,11 +1,16 @@
+import { createHash } from 'node:crypto'
 import type {
   ToolHost,
   ToolHostContext,
   ToolHostResult,
   ToolHostPreparation,
   ToolCallLike,
-  ToolExecutionUpdate
+  ToolReplayDescriptor,
+  ToolReplayVerification,
+  LocalTool,
+  LocalToolReplayMetadata
 } from '@qiongqi/ports'
+export type { LocalTool, LocalToolReplayMetadata } from '@qiongqi/ports'
 import type { ApprovalRequest } from '@qiongqi/domain'
 import { createApprovalRequest } from '@qiongqi/domain'
 import type { TurnItem } from '@qiongqi/contracts'
@@ -27,43 +32,6 @@ import {
   ReadTracker,
   type ReadTrackerOptions
 } from './read-tracker.js'
-
-/**
- * A single registered tool. Tools are pure functions that observe the
- * abort signal and may be guarded by an approval policy.
- */
-export type LocalTool = {
-  name: string
-  description: string
-  inputSchema: Record<string, unknown>
-  toolKind: 'tool_call' | 'command_execution' | 'file_change'
-  /**
-   * Tool policy. `auto` runs the tool without asking. `on-request` and
-   * `suggest` always ask the user. `never` blocks the tool. `untrusted`
-   * prompts unless the call is in an allow-list.
-   */
-  policy: 'auto' | 'on-request' | 'suggest' | 'never' | 'untrusted'
-  /**
-   * Optional gating predicate. When present, the tool is only listed
-   * and only executed when `shouldAdvertise` returns true for the
-   * active turn context. Use this for mode/plan-only tools such as
-   * `create_plan`.
-   */
-  shouldAdvertise?: (context: ToolHostContext) => boolean
-  /** Provider-neutral capability used when the executor does not supply richer semantics. */
-  capabilityClass?: string
-  semantic?: (
-    args: Record<string, unknown>,
-    context: ToolHostContext,
-    result: { output: unknown; isError?: boolean },
-    call: ToolCallLike
-  ) => ToolHostResult['semantic'] | undefined
-  execute: (
-    args: Record<string, unknown>,
-    context: ToolHostContext,
-    onUpdate?: (update: ToolExecutionUpdate) => Promise<void> | void
-  ) => Promise<{ output: unknown; isError?: boolean; semantic?: ToolHostResult['semantic'] }>
-}
 
 export type LocalToolHostOptions = {
   tools?: LocalTool[]
@@ -152,6 +120,41 @@ export class LocalToolHost implements ToolHost {
     return { call: decision.call, state: { tool } }
   }
 
+  async describeReplay(call: ToolCallLike, context: ToolHostContext): Promise<ToolReplayDescriptor> {
+    const { tool } = this.registry.resolveTool(call.toolName, context, call.providerId)
+    const described = tool.replay.describe
+      ? await tool.replay.describe(call, context)
+      : { semanticKey: '', preconditionVersions: {} }
+    const exactFingerprint = replayDigest({
+      kind: 'tool-exact-v1',
+      scope: replayScope(context),
+      toolName: call.toolName,
+      arguments: call.arguments,
+      resourceVersions: described.preconditionVersions
+    })
+    return {
+      effectPolicy: tool.replay.effectPolicy,
+      exactFingerprint,
+      semanticKey: described.semanticKey || exactFingerprint,
+      preconditionVersions: { ...described.preconditionVersions }
+    }
+  }
+
+  async verifyReplay(input: {
+    call: ToolCallLike
+    previous: import('@qiongqi/contracts').ToolExecutionLedgerEntry
+    context: ToolHostContext
+  }): Promise<ToolReplayVerification> {
+    const { tool } = this.registry.resolveTool(input.call.toolName, input.context, input.call.providerId)
+    if (tool.replay.verifyReplay) return tool.replay.verifyReplay(input)
+    if (tool.replay.effectPolicy !== 'safe') return { valid: false, observedPostconditions: {} }
+    const current = await this.describeReplay(input.call, input.context)
+    return {
+      valid: recordsEqual(current.preconditionVersions, input.previous.preconditionVersions),
+      observedPostconditions: current.preconditionVersions
+    }
+  }
+
   async execute(
     call: ToolCallLike,
     context: ToolHostContext,
@@ -209,7 +212,12 @@ export class LocalToolHost implements ToolHost {
     if (context.abortSignal.aborted) {
       throw new Error('tool call aborted while waiting for approval')
     }
+    await publishToolEvent(context, 'tool.started', activeCall, {
+      toolName: activeCall.toolName,
+      arguments: activeCall.arguments
+    })
     const result = await tool.execute(activeCall.arguments, context, async (update) => {
+      await publishToolEvent(context, 'tool.progress', activeCall, update)
       if (!onUpdate) return
       const partialItem = makeToolResultItem({
         id: `item_${activeCall.callId}`,
@@ -272,9 +280,13 @@ export class LocalToolHost implements ToolHost {
         }
       }
       semantic ??= { capabilityClass: tool.capabilityClass ?? tool.name, resourceKeys: [] }
+      await publishToolEvent(context, 'tool.result', activeCall, {
+        output,
+        isError: Boolean(isError)
+      })
       return { item, approved: !needsApproval, semantic }
     } catch {
-      return this.resultWithSemantic(
+      const failed = this.resultWithSemantic(
         this.postprocessErrorToolResult(
           context,
           activeCall,
@@ -286,6 +298,11 @@ export class LocalToolHost implements ToolHost {
         activeCall,
         context
       )
+      await publishToolEvent(context, 'tool.result', activeCall, {
+        output: failed.item.kind === 'tool_result' ? failed.item.output : undefined,
+        isError: true
+      })
+      return failed
     }
   }
 
@@ -420,9 +437,10 @@ export class LocalToolHost implements ToolHost {
 
   /** Tool builder helper for tests and feature scripts. */
   static defineTool(
-    tool: Omit<LocalTool, 'policy' | 'toolKind'> & {
+    tool: Omit<LocalTool, 'policy' | 'toolKind' | 'replay'> & {
       policy?: LocalTool['policy']
       toolKind?: LocalTool['toolKind']
+      replay?: LocalToolReplayMetadata
     }
   ): LocalTool {
     return {
@@ -431,12 +449,53 @@ export class LocalToolHost implements ToolHost {
       description: tool.description,
       inputSchema: tool.inputSchema,
       toolKind: tool.toolKind ?? 'tool_call',
+      replay: tool.replay ?? { effectPolicy: 'never-replay' },
       execute: tool.execute,
       ...(tool.capabilityClass ? { capabilityClass: tool.capabilityClass } : {}),
       ...(tool.semantic ? { semantic: tool.semantic } : {}),
       ...(tool.shouldAdvertise ? { shouldAdvertise: tool.shouldAdvertise } : {})
     }
   }
+}
+
+async function publishToolEvent(
+  context: ToolHostContext,
+  kind: string,
+  call: ToolCallLike,
+  payload: unknown
+): Promise<void> {
+  if (!context.stream) return
+  await context.stream.publish({
+    channel: 'public',
+    kind,
+    payload: { callId: call.callId, toolName: call.toolName, data: payload }
+  })
+}
+
+function replayScope(context: ToolHostContext) {
+  return context.taskScope ?? {
+    ownerId: context.ownerUserId ?? 'legacy-owner',
+    workspaceId: context.workspace,
+    taskId: context.threadId
+  }
+}
+
+function replayDigest(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(canonicalReplayValue(value))).digest('hex')
+}
+
+function canonicalReplayValue(value: unknown): unknown {
+  if (value === undefined) throw new TypeError('undefined is not allowed in replay metadata')
+  if (Array.isArray(value)) return value.map(canonicalReplayValue)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.keys(value as Record<string, unknown>).sort().map((key) => [
+    key,
+    canonicalReplayValue((value as Record<string, unknown>)[key])
+  ]))
+}
+
+function recordsEqual(left: Record<string, string>, right: Record<string, string>): boolean {
+  return replayDigest(left) === replayDigest(right)
 }
 
 function hookContext(

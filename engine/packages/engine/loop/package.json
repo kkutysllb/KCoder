@@ -1,6 +1,6 @@
 {
   "name": "@qiongqi/loop",
-  "version": "0.1.0",
+  "version": "1.1.1",
   "description": "Qiongqi loop package",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,21 +19,20 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@qiongqi/contracts": "workspace:*",
-    "@qiongqi/domain": "workspace:*",
-    "@qiongqi/ports": "workspace:*",
-    "@qiongqi/cache": "workspace:*",
-    "@qiongqi/services": "workspace:*",
-    "@qiongqi/adapter-tools": "workspace:*",
     "@qiongqi/adapter-model": "workspace:*",
     "@qiongqi/attachments": "workspace:*",
-    "@qiongqi/skills": "workspace:*",
+    "@qiongqi/cache": "workspace:*",
+    "@qiongqi/contracts": "workspace:*",
+    "@qiongqi/domain": "workspace:*",
     "@qiongqi/memory": "workspace:*",
+    "@qiongqi/ports": "workspace:*",
+    "@qiongqi/services": "workspace:*",
+    "@qiongqi/skills": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "typescript": "^5.8.2",
-    "@types/node": "^26.0.0"
+    "@types/node": "^26.0.0",
+    "typescript": "^5.8.2"
   },
   "private": true,
   "types": "./dist/index.d.ts"

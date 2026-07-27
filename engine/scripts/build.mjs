@@ -2,33 +2,25 @@
 /**
  * Topological build orchestrator for the Qiongqi monorepo.
  *
- * Why this exists: the package graph contains a circular strongly-connected
- * component (SCC) — {services, loop, adapter-tools, delegation} — where the
- * cross-imports inside the SCC are mostly `import type` (erased at emit).
- * `pnpm -r run build` cannot guarantee the intra-SCC ordering required so
- * that each package's `dist/` exists before its runtime dependents build.
- * This script builds in a fixed, dependency-aware sequence.
+ * The workspace packages form a directed acyclic graph. This script builds
+ * them in a fixed dependency-aware sequence and treats every non-zero package
+ * compiler exit as a release-blocking failure.
  *
- * Build layers (each layer may only depend on already-built packages,
- * except for the SCC packages whose type-only back-edges are tolerated
- * thanks to tsc's default `noEmitOnError: false`):
+ * Build layers (each layer may only depend on already-built packages):
  *
  *   L1 leaves        : contracts, adapter-fs
  *   L2               : domain, attachments, tool-infra
  *   L3               : ports, cache
  *   L4               : adapter-model, adapter-storage
  *   L5               : memory, skills
- *   L6 SCC (ordered) : services → delegation → adapter-tools → loop
+ *   L6               : services → loop → delegation → adapter-tools
  *   L7               : http
  *   L8               : preset-coding, cli
- *
- * Skills is placed in L5 because its only edge into the SCC (adapter-tools)
- * is `import type`; it emits fine before the SCC completes.
  *
  * Usage: node scripts/build.mjs [--clean]
  */
 import { execSync } from 'node:child_process'
-import { rmSync, existsSync, readdirSync, statSync } from 'node:fs'
+import { rmSync, existsSync, readdirSync } from 'node:fs'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -67,9 +59,9 @@ const sequence = [
   ['memory', 'packages/capabilities/memory'],
   ['skills', 'packages/capabilities/skills'],
   ['services', 'packages/engine/services'],
+  ['loop', 'packages/engine/loop'],
   ['delegation', 'packages/delegation-layer/delegation'],
   ['adapter-tools', 'packages/adapters/adapter-tools'],
-  ['loop', 'packages/engine/loop'],
   ['http', 'packages/http-layer/http'],
   ['preset-coding', 'packages/presets/preset-coding'],
   ['cli', 'packages/cli-layer/cli']
@@ -88,7 +80,7 @@ if (clean) {
   }
 }
 
-let failed = []
+const failed = []
 for (const [name, pkgPath] of sequence) {
   // Clean this package's stale dist to avoid TS5055 "would overwrite input".
   const dist = resolve(root, pkgPath, 'dist')
@@ -103,17 +95,10 @@ for (const [name, pkgPath] of sequence) {
     }
     process.stdout.write('OK\n')
   } catch (err) {
-    // The SCC type-only back-edges can produce non-zero exit even though
-    // emit succeeded. Distinguish real failure (no dist) from tolerated
-    // type errors (dist present).
-    if (existsSync(resolve(root, pkgPath, 'dist/index.js'))) {
-      process.stdout.write('OK (with non-fatal type warnings)\n')
-    } else {
-      process.stdout.write('FAILED\n')
-      if (err.stdout) process.stdout.write(err.stdout.toString())
-      if (err.stderr) process.stderr.write(err.stderr.toString())
-      failed.push(name)
-    }
+    process.stdout.write('FAILED\n')
+    if (err.stdout) process.stdout.write(err.stdout.toString())
+    if (err.stderr) process.stderr.write(err.stderr.toString())
+    failed.push(name)
   }
 }
 

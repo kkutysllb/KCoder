@@ -6,7 +6,10 @@ const NonEmptyString = z.string().trim().min(1)
 export const RunStatusSchema = z.enum([
   'created',
   'running',
-  'suspended',
+  'waiting_approval',
+  'waiting_input',
+  'waiting_effect_verification',
+  'waiting_model_resolution',
   'completed',
   'degraded',
   'failed',
@@ -27,6 +30,7 @@ export const RunOutcomeReasonSchema = z.enum([
   'provider_safety_stop',
   'provider_protocol_error',
   'required_action_missing',
+  'no_progress',
   'tool_failed',
   'user_aborted',
   'runtime_error'
@@ -113,6 +117,19 @@ export const RunOutcomeSchema = z.object({
 }).strict()
 export type RunOutcome = z.infer<typeof RunOutcomeSchema>
 
+export const RunSuspensionSchema = z.object({
+  status: z.enum([
+    'waiting_approval',
+    'waiting_input',
+    'waiting_effect_verification',
+    'waiting_model_resolution'
+  ]),
+  tokenDigest: NonEmptyString,
+  revision: z.number().int().nonnegative(),
+  requestedAt: NonEmptyString
+}).strict()
+export type RunSuspension = z.infer<typeof RunSuspensionSchema>
+
 export const RunStateV3Schema = z.object({
   version: z.literal(3),
   graphVersion: NonEmptyString,
@@ -138,6 +155,7 @@ export const RunStateV3Schema = z.object({
   pendingEffects: z.array(EffectIntentSchema),
   committedEffects: z.array(CommittedEffectRefSchema),
   outcome: RunOutcomeSchema.optional(),
+  suspension: RunSuspensionSchema.optional(),
   createdAt: NonEmptyString,
   updatedAt: NonEmptyString
 }).strict()

@@ -1,0 +1,205 @@
+import { describe, expect, it } from 'vitest'
+import { InMemoryDurableEngineStore } from '@qiongqi/adapter-storage'
+import {
+  compileAgentGraph,
+  createDurableEventedV2Stores,
+  DurableAgentDispatchWorker,
+  EventedV2MultiAgentRuntime,
+  KernelAgentExecutor,
+  RootRunAggregateCoordinator
+} from '@qiongqi/loop'
+import { KernelDispatchPayloadSchema, type AgentGraph } from '@qiongqi/contracts'
+import { EngineRunRecordSchema, EngineStoreConflictError } from '@qiongqi/ports'
+
+const timestamp = '2026-07-26T00:00:00.000Z'
+const scope = { ownerId: 'owner', workspaceId: 'workspace', taskId: 'dispatch-worker' }
+const graph: AgentGraph = {
+  version: 1,
+  graphId: 'dispatch-worker-graph',
+  startNodeId: 'agent',
+  nodes: [{ id: 'agent', kind: 'agent', agentId: 'writer' }],
+  edges: []
+}
+
+describe('DurableAgentDispatchWorker', () => {
+  it('claims a prepared dispatch, resolves its input reference, and completes with the current fence', async () => {
+    const { store } = await preparedFixture()
+
+    const observed: string[] = []
+    const worker = new DurableAgentDispatchWorker({
+      store,
+      workerId: 'worker-a',
+      leaseTtlMs: 30_000,
+      executor: {
+        async execute(input) {
+          observed.push(input.prompt)
+          await expect(store.loadOutboxIntent(`agent_execution_requested:${input.executionRef.kernelRunId}`))
+            .resolves.toMatchObject({ status: 'claimed', claim: { holderId: 'worker-a' } })
+          await expect(store.loadBudgetReservations(input.multiAgentRunId)).resolves.toMatchObject([{
+            reservationId: input.reservationId,
+            status: 'reserved'
+          }])
+          return { executionRef: input.executionRef }
+        },
+        async resume() {},
+        async cancel() {}
+      }
+    })
+
+    await expect(worker.flushOnce()).resolves.toMatchObject({
+      processed: true,
+      workId: 'agent_execution_requested:kernel_run-worker'
+    })
+    expect(observed).toEqual(['write the report'])
+    await expect(store.loadOutboxIntent('agent_execution_requested:kernel_run-worker')).resolves.toMatchObject({
+      status: 'completed'
+    })
+  })
+
+  it('recovers a terminal child with the original identity after claim expiry and rejects the stale fence', async () => {
+    const { store, workId, runId } = await preparedFixture()
+    let kernelStarts = 0
+    const executor = new KernelAgentExecutor({
+      store,
+      ids: () => 'unused',
+      nowIso: () => timestamp,
+      startKernel: async () => {
+        kernelStarts += 1
+        return {
+          outcome: { status: 'completed', reason: 'normal_stop', retryable: false },
+          usage: { stepsUsed: 1, toolCallsUsed: 0, inputTokens: 10, outputTokens: 2, costUsd: 0.1 },
+          usageRefs: ['usage:worker'],
+          artifactRefs: []
+        }
+      }
+    })
+    const crashing = new DurableAgentDispatchWorker({
+      store,
+      workerId: 'worker-stale',
+      leaseTtlMs: 1,
+      executor: {
+        async execute(input) {
+          await executor.execute(input)
+          throw new Error('crash after Kernel terminal commit')
+        },
+        resume: (executionRef, resolution) => executor.resume(executionRef, resolution),
+        cancel: (executionRef) => executor.cancel(executionRef)
+      }
+    })
+
+    await expect(crashing.flushOnce()).rejects.toThrow(/crash after Kernel terminal/)
+    const stale = await store.loadOutboxIntent(workId)
+    expect(stale).toMatchObject({ status: 'claimed', claim: { holderId: 'worker-stale', fence: 1 } })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    const recovered = new DurableAgentDispatchWorker({
+      store,
+      workerId: 'worker-current',
+      leaseTtlMs: 30_000,
+      executor
+    })
+    await expect(recovered.flushOnce()).resolves.toMatchObject({ processed: true, workId })
+    expect(kernelStarts).toBe(1)
+    await expect(store.loadRun('kernel_run-worker')).resolves.toMatchObject({ status: 'completed' })
+    await expect(store.loadBudgetReservations(runId)).resolves.toMatchObject([{
+      reservationId: 'reservation:kernel_run-worker', status: 'settled'
+    }])
+    await expect(store.commit({
+      scope,
+      runId: workId,
+      expectedRunVersion: 0,
+      expectedTaskRevision: 0,
+      outboxIntents: [{
+        type: 'complete',
+        recordId: workId,
+        claim: stale!.claim!,
+        payload: stale!.payload
+      }]
+    })).rejects.toBeInstanceOf(EngineStoreConflictError)
+  })
+
+  it('resumes the prepared identity when the child exists before Kernel start', async () => {
+    const { store, workId } = await preparedFixture()
+    const intent = await store.loadOutboxIntent(workId)
+    const payload = KernelDispatchPayloadSchema.parse(intent?.payload)
+    const identity = payload.identity
+    await store.commit({
+      scope,
+      runId: identity.executionRef.kernelRunId,
+      expectedRunVersion: 0,
+      expectedTaskRevision: 0,
+      runMutation: {
+        type: 'put',
+        record: EngineRunRecordSchema.parse({
+          runId: identity.executionRef.kernelRunId,
+          scope,
+          multiAgentRunId: identity.multiAgentRunId,
+          agentRunId: identity.agentRunId,
+          kernelRunId: identity.executionRef.kernelRunId,
+          version: 1,
+          status: 'created',
+          desiredState: 'running',
+          cursor: { nodeId: identity.nodeId, stepIndex: 0, checkpointSeq: 0 },
+          parentRef: { kind: 'agent', runId: identity.agentRunId },
+          budgets: { stepsUsed: 0, toolCallsUsed: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+          budgetLimits: payload.requestedBudget,
+          createdAt: timestamp,
+          updatedAt: timestamp
+        })
+      }
+    })
+    let starts = 0
+    const executor = new KernelAgentExecutor({
+      store,
+      ids: () => 'unused',
+      nowIso: () => timestamp,
+      startKernel: async (input) => {
+        starts += 1
+        expect(input.executionRef.kernelRunId).toBe(identity.executionRef.kernelRunId)
+        return {
+          outcome: { status: 'completed', reason: 'normal_stop', retryable: false },
+          usage: { stepsUsed: 1, toolCallsUsed: 0, inputTokens: 10, outputTokens: 2, costUsd: 0.1 },
+          usageRefs: [],
+          artifactRefs: []
+        }
+      }
+    })
+
+    await new DurableAgentDispatchWorker({ store, executor, workerId: 'worker-recover-created' }).flushOnce()
+
+    expect(starts).toBe(1)
+    await expect(store.loadRun(identity.executionRef.kernelRunId)).resolves.toMatchObject({ status: 'completed' })
+  })
+})
+
+async function preparedFixture() {
+  const store = new InMemoryDurableEngineStore()
+  const revision = compileAgentGraph(graph, { revision: 1, publishedAt: timestamp })
+  const durable = createDurableEventedV2Stores({
+    store,
+    scope,
+    graphRevision: revision,
+    rootAggregate: {
+      coordinator: new RootRunAggregateCoordinator({ store, nowIso: () => timestamp }),
+      budgetLimits: { stepsUsed: 10, toolCallsUsed: 10, inputTokens: 1_000, outputTokens: 1_000, costUsd: 10 },
+      policyRevision: 1
+    }
+  })
+  const runtime = new EventedV2MultiAgentRuntime({
+    ...durable,
+    graph,
+    ids: (prefix) => `${prefix}-worker`,
+    nowIso: () => timestamp,
+    dispatchPreparer: durable.runs
+  })
+  const run = await runtime.start({
+    threadId: 'thread-worker', turnId: 'turn-worker', workspaceKey: 'workspace', prompt: 'write the report'
+  })
+  await runtime.dispatchActiveAgent({
+    runId: run.runId,
+    scope,
+    prompt: 'write the report',
+    requestedBudget: { stepsUsed: 2, toolCallsUsed: 2, inputTokens: 100, outputTokens: 50, costUsd: 1 }
+  })
+  return { store, runId: run.runId, workId: 'agent_execution_requested:kernel_run-worker' }
+}

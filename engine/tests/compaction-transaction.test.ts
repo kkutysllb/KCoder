@@ -85,7 +85,7 @@ describe('CompactionTransaction', () => {
     await expect(sessions.loadItems(identity.threadId)).resolves.toHaveLength(history.length + 1)
   })
 
-  it('leaves task and history unchanged when summary generation fails', async () => {
+  it('commits structured state with a heuristic fallback when summary generation fails', async () => {
     const taskStates = new InMemoryTaskStateStore()
     const sessions = new InMemorySessionStore()
     const current = task(1)
@@ -99,7 +99,7 @@ describe('CompactionTransaction', () => {
       nowIso: () => '2026-07-15T00:00:01.000Z'
     })
 
-    await expect(transaction.compact({
+    const result = await transaction.compact({
       identity,
       taskState: current,
       history,
@@ -108,10 +108,12 @@ describe('CompactionTransaction', () => {
       summarize: async () => {
         throw new Error('provider unavailable')
       }
-    })).rejects.toThrow('provider unavailable')
+    })
 
-    await expect(taskStates.load(identity)).resolves.toMatchObject({ revision: 1 })
-    await expect(sessions.loadItems(identity.threadId)).resolves.toEqual(history)
+    expect(result.summaryItem.summary).toContain(current.objective)
+    expect(result.summaryItem.summary).not.toContain('provider unavailable')
+    await expect(taskStates.load(identity)).resolves.toMatchObject({ revision: 2 })
+    await expect(sessions.loadItems(identity.threadId)).resolves.toHaveLength(history.length + 1)
   })
 })
 

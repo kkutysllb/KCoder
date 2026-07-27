@@ -4,7 +4,7 @@
   "name": "Brand Guidelines",
   "description": "Applies official brand colors and typography to artifacts that benefit from a consistent look-and-feel. Use when brand colors, style guidelines, or visual formatting standards apply.",
   "version": "1.0.0",
-  "category": "design",
+  "category": "workflow",
   "priority": 4,
   "entry": "SKILL.md",
   "activation": {

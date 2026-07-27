@@ -20,17 +20,19 @@ export type KernelV3TurnRunnerOptions = {
   finishTurn: (
     threadId: string,
     turnId: string,
-    status: 'completed' | 'failed' | 'aborted',
+    status: KernelV3TurnStatus,
     outcome: RunOutcome
   ) => Promise<void> | void
   nowIso?: () => string
   middleware?: MiddlewareChain
 }
 
+export type KernelV3TurnStatus = 'completed' | 'degraded' | 'suspended' | 'failed' | 'aborted'
+
 export class KernelV3TurnRunner {
   constructor(private readonly options: KernelV3TurnRunnerOptions) {}
 
-  async runTurn(threadId: string, turnId: string): Promise<'completed' | 'failed' | 'aborted'> {
+  async runTurn(threadId: string, turnId: string): Promise<KernelV3TurnStatus> {
     const identity = await this.options.identityForTurn(threadId, turnId)
     const kernel = new RuntimeKernel({
       graph: productionKernelV3Graph(),
@@ -59,8 +61,10 @@ export function defaultKernelV3Middleware(): MiddlewareChain {
   ])
 }
 
-function legacyStatus(outcome: RunOutcome): 'completed' | 'failed' | 'aborted' {
+function legacyStatus(outcome: RunOutcome): KernelV3TurnStatus {
   if (outcome.status === 'completed') return 'completed'
   if (outcome.status === 'aborted') return 'aborted'
+  if (outcome.status === 'degraded') return 'degraded'
+  if (outcome.status === 'suspended') return 'suspended'
   return 'failed'
 }

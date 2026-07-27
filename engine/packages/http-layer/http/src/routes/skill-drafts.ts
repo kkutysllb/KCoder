@@ -663,7 +663,7 @@ function skillManifestForDraft(draft: GeneratedSkillDraft): Record<string, unkno
     id: draft.metadata.id,
     name: draft.metadata.name,
     description: draft.metadata.description,
-    version: stringValue(draft.manifestPatch.version) ?? '0.1.0',
+    version: stringValue(draft.manifestPatch.version) ?? '1.0.0',
     entry: stringValue(draft.manifestPatch.entry) ?? 'SKILL.md',
     category: stringValue(draft.manifestPatch.category) ?? 'workflow',
     ...(isObject(draft.manifestPatch.author) ? { author: draft.manifestPatch.author } : {}),
@@ -951,8 +951,8 @@ function normalizeWorkModeId(id: string | undefined): string | undefined {
   const fromId = id?.trim()
   if (!fromId) return undefined
   const lower = fromId.toLowerCase()
-  // Legacy alias: "task"/"office" 已移除，归一到 coding。
-  return lower === 'task' || lower === 'office' ? 'coding' : lower
+  // Legacy alias: "task" was renamed to "office".
+  return lower === 'task' ? 'office' : lower
 }
 
 function isValidCustomSkillId(id: string): boolean {

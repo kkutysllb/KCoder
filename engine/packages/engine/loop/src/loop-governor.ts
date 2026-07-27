@@ -8,6 +8,7 @@ export type LoopGovernorState = {
   observationCount: number
   noProgressToolCalls: number
   noProgressModelSteps: number
+  replayedNoProgressCycles: number
   checkpointRequested: boolean
   checkpointCompleted: boolean
   terminated?: string
@@ -32,9 +33,11 @@ export class LoopGovernor {
       ? { ...previous, recentCalls: [...previous.recentCalls], recentResults: [...previous.recentResults], recentResources: [...previous.recentResources] }
       : {
           version: 1, recentCalls: [], recentResults: [], recentResources: [], observationCount: 0,
-          noProgressToolCalls: 0, noProgressModelSteps: 0, checkpointRequested: false, checkpointCompleted: false
+          noProgressToolCalls: 0, noProgressModelSteps: 0, replayedNoProgressCycles: 0,
+          checkpointRequested: false, checkpointCompleted: false
         }
     const fresh = input.observations.filter((observation) => !observation.replayed)
+    const hasReplay = input.observations.some((observation) => observation.replayed)
     for (const observation of fresh) {
       state.observationCount += 1
       state.recentCalls.push(observation.canonicalArgumentsDigest)
@@ -48,15 +51,18 @@ export class LoopGovernor {
     if (hasProgress) {
       state.noProgressToolCalls = 0
       state.noProgressModelSteps = 0
+      state.replayedNoProgressCycles = 0
     } else {
       state.noProgressToolCalls += fresh.length
       if (input.stage === 'model') state.noProgressModelSteps += 1
+      state.replayedNoProgressCycles = hasReplay ? state.replayedNoProgressCycles + 1 : 0
     }
 
     const repeatedCall = repeatedTail(state.recentCalls)
     if (repeatedCall >= 3) return this.terminate(state, 'exact_call_repetition')
     const latestResult = state.recentResults.at(-1)
     if (latestResult && occurrencesInWindow(state.recentResults, latestResult) >= 4) return this.terminate(state, 'repeated_result_digest')
+    if (state.replayedNoProgressCycles >= 4) return this.terminate(state, 'post_replay_no_progress')
     if (!state.checkpointRequested && state.recentResources.length >= 6 && distinctCount(state.recentResults.slice(-6)) === 6) {
       state.checkpointRequested = true
       return { action: 'checkpoint', reason: 'read_resource_churn', state }

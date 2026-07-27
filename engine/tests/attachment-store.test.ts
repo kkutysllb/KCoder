@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -198,75 +198,6 @@ describe('Attachment store and multimodal input', () => {
       })
     )
     expect(await readJson(diagnostics)).toMatchObject({ enabled: true, count: 1 })
-  })
-
-  it('serves legacy KWorks thread uploads as workspace files', async () => {
-    const h = buildHarness()
-    const originalInfo = h.runtime.info()
-    h.runtime.info = () => ({
-      host: '127.0.0.1',
-      port: 0,
-      dataDir: dir,
-      model: 'deepseek-chat',
-      approvalPolicy: 'on-request',
-      sandboxMode: 'workspace-write',
-      insecure: false,
-      startedAt: new Date().toISOString(),
-      capabilities: originalInfo.capabilities
-    })
-    await h.threadService.create(
-      { title: 'Upload thread', workspace: process.cwd(), model: 'deepseek-chat', mode: 'agent' },
-      { id: 'thr_upload' }
-    )
-    const form = new FormData()
-    form.append('files', new File(['hello skill'], 'notes.md', { type: 'text/markdown' }))
-
-    const upload = await dispatchRequest(
-      h.router,
-      new Request('http://localhost/api/threads/thr_upload/uploads', {
-        method: 'POST',
-        headers: { authorization: 'Bearer tok-1' },
-        body: form
-      })
-    )
-
-    expect(upload.status).toBe(200)
-    const body = await readJson(upload) as {
-      success: boolean
-      files: Array<{
-        filename: string
-        size: number
-        path: string
-        virtual_path: string
-        artifact_url: string
-        extension?: string
-      }>
-    }
-    expect(body).toMatchObject({
-      success: true,
-      files: [
-        {
-          filename: 'notes.md',
-          size: 'hello skill'.length,
-          virtual_path: '/mnt/qiongqi/uploads/notes.md',
-          artifact_url: '/api/threads/thr_upload/artifacts/mnt/qiongqi/uploads/notes.md',
-          extension: 'md'
-        }
-      ]
-    })
-    await expect(readFile(join(dir, 'threads', 'thr_upload', 'uploads', 'notes.md'), 'utf8')).resolves.toBe('hello skill')
-
-    const list = await dispatchRequest(
-      h.router,
-      new Request('http://localhost/api/threads/thr_upload/uploads/list', {
-        headers: { authorization: 'Bearer tok-1' }
-      })
-    )
-    expect(list.status).toBe(200)
-    await expect(readJson(list)).resolves.toMatchObject({
-      count: 1,
-      files: [expect.objectContaining({ filename: 'notes.md', virtual_path: '/mnt/qiongqi/uploads/notes.md' })]
-    })
   })
 
   it('resolves image attachments for vision models and text fallbacks for text-only models', async () => {

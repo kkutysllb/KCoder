@@ -1,6 +1,6 @@
 {
   "name": "@qiongqi/adapter-fs",
-  "version": "0.1.0",
+  "version": "1.1.1",
   "description": "Qiongqi file-system adapter — pure I/O, no Agent concepts",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,8 +22,8 @@
     "diff": "^8.0.4"
   },
   "devDependencies": {
-    "typescript": "^5.8.2",
-    "@types/node": "^26.0.0"
+    "@types/node": "^26.0.0",
+    "typescript": "^5.8.2"
   },
   "private": true,
   "types": "./dist/index.d.ts"

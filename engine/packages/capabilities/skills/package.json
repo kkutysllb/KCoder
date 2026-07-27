@@ -1,6 +1,6 @@
 {
   "name": "@qiongqi/skills",
-  "version": "0.1.0",
+  "version": "1.1.1",
   "description": "Qiongqi skills package",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,12 +21,11 @@
   "dependencies": {
     "@qiongqi/contracts": "workspace:*",
     "@qiongqi/ports": "workspace:*",
-    "@qiongqi/adapter-tools": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "typescript": "^5.8.2",
-    "@types/node": "^26.0.0"
+    "@types/node": "^26.0.0",
+    "typescript": "^5.8.2"
   },
   "private": true,
   "types": "./dist/index.d.ts"

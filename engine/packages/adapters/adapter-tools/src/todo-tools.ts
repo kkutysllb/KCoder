@@ -1,10 +1,13 @@
-import type { SetThreadTodosRequest, ThreadTodoList } from '@qiongqi/contracts'
+import {
+  TODO_LIST_TOOL_NAME,
+  TODO_TOOL_NAMES,
+  TODO_WRITE_TOOL_NAME,
+  type SetThreadTodosRequest,
+  type ThreadTodoList
+} from '@qiongqi/contracts'
 import type { ThreadService } from '@qiongqi/services'
 import { LocalToolHost, type LocalTool } from './local-tool-host.js'
-
-export const TODO_LIST_TOOL_NAME = 'todo_list'
-export const TODO_WRITE_TOOL_NAME = 'todo_write'
-export const TODO_TOOL_NAMES = [TODO_LIST_TOOL_NAME, TODO_WRITE_TOOL_NAME] as const
+export { TODO_LIST_TOOL_NAME, TODO_TOOL_NAMES, TODO_WRITE_TOOL_NAME } from '@qiongqi/contracts'
 
 export function buildTodoLocalTools(threadService: ThreadService): LocalTool[] {
   return [

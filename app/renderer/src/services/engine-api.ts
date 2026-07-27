@@ -432,10 +432,11 @@ export class EngineAPI {
     }
   }
 
-  // ============ Auth API (engine /api/v1/auth/*) ============
+  // ============ Auth API (engine /v1/auth/*) ============
+  // New engine consolidated all auth under /v1/auth/* (the /api/v1 prefix is gone).
 
   async getSetupStatus(): Promise<AuthSetupStatus> {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/setup-status`, {
+    const response = await fetch(`${this.baseUrl}/v1/auth/setup-status`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -445,7 +446,7 @@ export class EngineAPI {
   }
 
   async authInitialize(email: string, password: string): Promise<AuthSessionResponse> {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/initialize`, {
+    const response = await fetch(`${this.baseUrl}/v1/auth/initialize`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ email, password })
@@ -458,7 +459,7 @@ export class EngineAPI {
   }
 
   async authLogin(email: string, password: string): Promise<AuthSessionResponse> {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/login/local`, {
+    const response = await fetch(`${this.baseUrl}/v1/auth/login`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ email, password })
@@ -471,7 +472,7 @@ export class EngineAPI {
   }
 
   async authRegister(email: string, password: string): Promise<AuthSessionResponse> {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/register`, {
+    const response = await fetch(`${this.baseUrl}/v1/auth/register`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ email, password })
@@ -484,7 +485,7 @@ export class EngineAPI {
   }
 
   async authMe(): Promise<AuthUser> {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/me`, {
+    const response = await fetch(`${this.baseUrl}/v1/auth/me`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -495,7 +496,7 @@ export class EngineAPI {
   }
 
   async authLogout(): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/logout`, {
+    const response = await fetch(`${this.baseUrl}/v1/auth/logout`, {
       method: 'POST',
       headers: this.headers
     })
@@ -505,7 +506,7 @@ export class EngineAPI {
   }
 
   async authChangePassword(currentPassword: string, newPassword: string): Promise<AuthSessionResponse> {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/change-password`, {
+    const response = await fetch(`${this.baseUrl}/v1/auth/change-password`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
@@ -525,10 +526,14 @@ export class EngineAPI {
     workModeId?: string
     mode?: 'agent' | 'plan'
   }): Promise<ThreadResponse> {
+    // KCoder is a coding app: pin the work mode to 'coding' unless the caller
+    // overrides it. The engine defaults new threads to 'office' when the field
+    // is omitted, which would mount the wrong skill set for this product.
+    const body = { workModeId: 'coding', ...(payload ?? {}) }
     const response = await fetch(`${this.baseUrl}/v1/threads`, {
       method: 'POST',
       headers: this.headers,
-      body: JSON.stringify(payload ?? {})
+      body: JSON.stringify(body)
     })
 
     if (!response.ok) {
@@ -652,15 +657,22 @@ export class EngineAPI {
 
   // ============ Approval / User Input API ============
 
-  // Get turn execution projection — GET /v1/threads/:id/turns/:turnId/execution
-  async getTurnExecution(threadId: string, turnId: string): Promise<TurnExecutionView> {
-    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns/${turnId}/execution`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to get turn execution: ${response.statusText}`)
+  // Get turn execution projection.
+  //
+  // The new QiongQi engine no longer exposes a per-turn execution projection
+  // endpoint (the old `/v1/threads/:id/turns/:turnId/execution` route is gone).
+  // The richer DAG/graph view now lives behind the governed durable stream
+  // (`/v1/engine/streams/:streamId/subscribe`), which is a separate adaptation
+  // tracked for a later phase. For now we return an `available: false`
+  // projection so the polling loop in useChat terminates cleanly and
+  // ExecutionView renders its "unavailable" state instead of erroring.
+  async getTurnExecution(_threadId: string, _turnId: string): Promise<TurnExecutionView> {
+    return {
+      version: 1,
+      available: false,
+      revision: '0',
+      reason: 'execution projection is not available in the current engine'
     }
-    return response.json()
   }
 
   // ============ Thread Goal / Todos API ============
@@ -751,91 +763,29 @@ export class EngineAPI {
     return response.json()
   }
 
-  // 列出指定目录的本地分支 — GET /v1/workspace/branches?path=
+  // 列出指定目录的本地分支。
+  //
+  // The new engine only exposes GET /v1/workspace/status; the dedicated
+  // branches endpoint was removed. We derive the branch list from the
+  // status payload where possible and otherwise return an empty list so the
+  // directory bar keeps rendering.
   async listBranches(path: string): Promise<BranchListResponse> {
-    const response = await fetch(
-      `${this.baseUrl}/v1/workspace/branches?path=${encodeURIComponent(path)}`,
-      { headers: this.headers }
-    )
-    if (!response.ok) {
-      throw new Error(`Failed to list branches: ${response.statusText}`)
-    }
-    return response.json()
-  }
-
-  // 在指定目录新建分支（不切换检出） — POST /v1/workspace/branch
-  async createBranch(path: string, name: string, base?: string): Promise<{ path: string; branch: string }> {
-    const response = await fetch(`${this.baseUrl}/v1/workspace/branch`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify({ path, name, ...(base ? { base } : {}) })
-    })
-    if (!response.ok) {
-      const text = await response.text().catch(() => response.statusText)
-      throw new Error(`Failed to create branch: ${text}`)
-    }
-    return response.json()
-  }
-
-  // 列出已注册项目 — GET /api/projects
-  async listProjects(): Promise<{ projects: ProjectEntry[] }> {
-    const response = await fetch(`${this.baseUrl}/api/projects`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to list projects: ${response.statusText}`)
-    }
-    return response.json()
-  }
-
-  // 列出模型 — GET /api/models
-  async getModels(): Promise<{ models: ModelEntry[] }> {
-    const response = await fetch(`${this.baseUrl}/api/models`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to get models: ${response.statusText}`)
-    }
-    return response.json()
-  }
-
-  // 激活模型 — POST /api/models/:name/activate
-  async activateModel(name: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/models/${encodeURIComponent(name)}/activate`, {
-      method: 'POST',
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to activate model: ${response.statusText}`)
+    const status = await this.getWorkspaceStatus(path)
+    return {
+      path,
+      branches: status.branch ? [status.branch] : [],
+      current: status.branch
     }
   }
 
-  // 从供应商 API 动态拉取可用模型列表 — POST /api/models/discover
-  async discoverModels(baseUrl: string, apiKey: string, endpointFormat?: string): Promise<{ models: Array<{ id: string; name: string }>; count: number }> {
-    const response = await fetch(`${this.baseUrl}/api/models/discover`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify({ base_url: baseUrl, api_key: apiKey, ...(endpointFormat ? { endpoint_format: endpointFormat } : {}) })
-    })
-    if (!response.ok) {
-      const text = await response.text().catch(() => response.statusText)
-      throw new Error(`Failed to discover models: ${text}`)
-    }
-    return response.json()
-  }
-
-  // 创建/更新模型配置 — POST /api/models
-  async createModel(payload: Record<string, unknown>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/models`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify(payload)
-    })
-    if (!response.ok) {
-      const text = await response.text().catch(() => response.statusText)
-      throw new Error(`Failed to create model: ${text}`)
-    }
-    return response.json()
+  // 在指定目录新建分支（不切换检出）。
+  //
+  // No dedicated endpoint in the new engine. This is a no-op stub so the
+  // command input's "new branch" affordance does not throw; branch creation
+  // should move to a product-side git helper in a later phase.
+  async createBranch(path: string, name: string, _base?: string): Promise<{ path: string; branch: string }> {
+    console.warn('[KCoder] createBranch is not supported by the current engine; skipping', { path, name })
+    return { path, branch: name }
   }
 
   // Get thread history
@@ -851,365 +801,193 @@ export class EngineAPI {
     return response.json()
   }
 
-  // ============ Skills API ============
+  // ============ Models API (product-side, over IPC) ============
+  //
+  // The new engine exposes no HTTP model CRUD. Model configuration is owned
+  // by the product and driven through the engine's UserDataStore via IPC
+  // (window.kcoder.models). These methods forward to the renderer-side
+  // models service so existing call sites (SettingsPanel, CommandInput) keep
+  // working unchanged.
 
-  // List all skills
+  async getModels(): Promise<{ models: ModelEntry[] }> {
+    const { getModels: list } = await import('./models')
+    return list()
+  }
+
+  async activateModel(name: string): Promise<void> {
+    const { activateModel: activate } = await import('./models')
+    return activate(name)
+  }
+
+  async discoverModels(
+    baseUrl: string,
+    apiKey: string,
+    endpointFormat?: string
+  ): Promise<{ models: Array<{ id: string; name: string }>; count: number }> {
+    const { discoverModels: discover } = await import('./models')
+    return discover({
+      baseUrl,
+      apiKey: apiKey || undefined,
+      endpointFormat: endpointFormat as 'chat_completions' | 'responses' | 'messages' | undefined
+    })
+  }
+
+  async createModel(payload: Record<string, unknown>): Promise<unknown> {
+    const { createModel: save } = await import('./models')
+    // The Settings UI passes a loosely-typed payload; forward the known fields.
+    const name = (payload.name as string) ?? (payload.id as string) ?? ''
+    if (!name) throw new Error('Model name is required')
+    return save(name, {
+      providerModel: (payload.model as string) ?? name,
+      baseUrl: (payload.baseUrl as string) ?? (payload.base_url as string) ?? '',
+      apiKey: (payload.apiKey as string) ?? (payload.api_key as string) ?? undefined,
+      endpointFormat: ((payload.endpointFormat as string) ??
+        (payload.endpoint_format as string) ??
+        undefined) as 'chat_completions' | 'responses' | 'messages' | undefined,
+      contextWindowTokens: (payload.contextWindowTokens as number) ??
+        (payload.context_window_tokens as number) ?? undefined,
+      supportsToolCalling:
+        (payload.supportsToolCalling as boolean) ??
+        (payload.supports_tool_calling as boolean) ?? undefined
+    })
+  }
+
+  // Get marketplace index — product-owned (the engine has no marketplace
+  // endpoint). Returns an empty index for now; the product-side marketplace
+  // bundle is wired in a later phase.
+  async getMarketplace(): Promise<MarketplaceIndex> {
+    return { version: 1, updatedAt: null, skills: [] }
+  }
+
+  // ============ Skills API ============
+  //
+  // The new engine exposes only GET /v1/skills (list). The register/
+  // unregister/delete/create mutations used by the old KWorks compat layer
+  // are gone; skill authoring now goes through the /v1/skills/drafts/*
+  // pipeline. KCoder's Settings UI still calls the mutation methods below,
+  // so we keep the surface but make the unsupported ones reject with a clear
+  // message. Wiring the drafts pipeline into the UI is tracked separately.
+
+  // List all skills — GET /v1/skills
   async listSkills(): Promise<SkillEntry[]> {
-    const response = await fetch(`${this.baseUrl}/api/skills`, {
+    const response = await fetch(`${this.baseUrl}/v1/skills`, {
       headers: this.headers
     })
     if (!response.ok) {
       throw new Error(`Failed to list skills: ${response.statusText}`)
     }
     const data = await response.json()
-    return data.skills ?? []
+    return (data.skills ?? []) as SkillEntry[]
   }
 
-  // Enable a skill
+  // Enable a skill — not supported by the new engine (no register endpoint).
   async enableSkill(name: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/skills/${encodeURIComponent(name)}/register`, {
-      method: 'POST',
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to enable skill: ${response.statusText}`)
-    }
+    throw new Error(
+      `Skill enable/register is not supported by the current engine (drafts pipeline not wired). Requested: ${name}`
+    )
   }
 
-  // Disable a skill
+  // Disable a skill — not supported by the new engine (no unregister endpoint).
   async disableSkill(name: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/skills/${encodeURIComponent(name)}/unregister`, {
-      method: 'POST',
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to disable skill: ${response.statusText}`)
-    }
+    throw new Error(
+      `Skill disable/unregister is not supported by the current engine (drafts pipeline not wired). Requested: ${name}`
+    )
   }
 
-  // Delete a user skill
+  // Delete a user skill — not supported by the new engine.
   async deleteSkill(name: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/skills/${encodeURIComponent(name)}`, {
-      method: 'DELETE',
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to delete skill: ${response.statusText}`)
-    }
+    throw new Error(`Skill delete is not supported by the current engine. Requested: ${name}`)
   }
 
-  // Create a new skill
+  // Create a new skill — not supported via this endpoint in the new engine
+  // (use the /v1/skills/drafts pipeline instead).
   async createSkill(payload: { name: string; description: string; content?: string }): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/skills/create`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify(payload)
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to create skill: ${response.statusText}`)
-    }
-    return response.json()
+    throw new Error(
+      `Skill create is not supported by the current engine (drafts pipeline not wired). Requested: ${payload.name}`
+    )
   }
 
-  // Install a skill from source
-  async installSkill(payload: { source: string; skillId?: string }): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/skills/install`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify(payload)
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to install skill: ${response.statusText}`)
-    }
-    return response.json()
-  }
+  // ============ Sub-Agents / MCP / Plugins / Commands / Remote API ============
+  //
+  // These features were "reserved, pending backend" in the KWorks era and
+  // the new engine does not expose them over HTTP. We keep the method
+  // surface so the Settings UI compiles, but they return empty data (reads)
+  // or reject (writes) instead of hitting endpoints that no longer exist.
+  // Each Settings panel already tolerates failures, so the UI shows empty
+  // state rather than crashing.
 
-  // Get marketplace index
-  async getMarketplace(): Promise<MarketplaceIndex> {
-    const response = await fetch(`${this.baseUrl}/api/skills-marketplace`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to fetch marketplace: ${response.statusText}`)
-    }
-    return response.json()
-  }
-
-  // ============ Sub-Agents API (reserved, pending backend) ============
-
-  // List all sub-agents
   async listSubAgents(): Promise<SubAgentEntry[]> {
-    const response = await fetch(`${this.baseUrl}/api/subagents`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to list sub-agents: ${response.statusText}`)
-    }
-    const data = await response.json()
-    return data.agents ?? []
+    return []
+  }
+  async createSubAgent(_payload: Omit<SubAgentEntry, 'type' | 'source'>): Promise<unknown> {
+    throw new Error('Sub-agent management is not supported by the current engine')
+  }
+  async updateSubAgent(_id: string, _payload: Partial<SubAgentEntry>): Promise<unknown> {
+    throw new Error('Sub-agent management is not supported by the current engine')
+  }
+  async deleteSubAgent(_id: string): Promise<void> {
+    throw new Error('Sub-agent management is not supported by the current engine')
+  }
+  async cloneSubAgent(_id: string): Promise<unknown> {
+    throw new Error('Sub-agent management is not supported by the current engine')
   }
 
-  // Create a user sub-agent
-  async createSubAgent(payload: Omit<SubAgentEntry, 'type' | 'source'>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/subagents`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify(payload)
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to create sub-agent: ${response.statusText}`)
-    }
-    return response.json()
-  }
-
-  // Update a user sub-agent
-  async updateSubAgent(id: string, payload: Partial<SubAgentEntry>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/subagents/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      headers: this.headers,
-      body: JSON.stringify(payload)
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to update sub-agent: ${response.statusText}`)
-    }
-    return response.json()
-  }
-
-  // Delete a user sub-agent
-  async deleteSubAgent(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/subagents/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to delete sub-agent: ${response.statusText}`)
-    }
-  }
-
-  // Clone a builtin sub-agent as user agent
-  async cloneSubAgent(id: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/subagents/${encodeURIComponent(id)}/clone`, {
-      method: 'POST',
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to clone sub-agent: ${response.statusText}`)
-    }
-    return response.json()
-  }
-
-  // ============ MCP Servers API (engine routes exist: GET/PUT /api/mcp/config) ============
-
-  // Get full MCP configuration
   async getMcpConfig(): Promise<McpConfigResponse> {
-    const response = await fetch(`${this.baseUrl}/api/mcp/config`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to get MCP config: ${response.statusText}`)
-    }
-    return response.json()
+    return { mcp_servers: {}, mcpServers: {}, skills: {} }
+  }
+  async saveMcpConfig(_config: { mcp_servers: Record<string, McpServerConfigEntry> }): Promise<McpConfigResponse> {
+    throw new Error('MCP configuration management is not supported by the current engine')
   }
 
-  // Save full MCP configuration
-  async saveMcpConfig(config: { mcp_servers: Record<string, McpServerConfigEntry> }): Promise<McpConfigResponse> {
-    const response = await fetch(`${this.baseUrl}/api/mcp/config`, {
-      method: 'PUT',
-      headers: this.headers,
-      body: JSON.stringify(config)
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to save MCP config: ${response.statusText}`)
-    }
-    return response.json()
-  }
-
-  // Get MCP server runtime diagnostics (from /api/runtime/diagnostics)
-  async getMcpDiagnostics(): Promise<McpServerDiagnostic[]> {
-    const response = await fetch(`${this.baseUrl}/api/runtime/diagnostics`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to get MCP diagnostics: ${response.statusText}`)
-    }
-    const data = await response.json()
-    return data.tools?.mcpServers ?? []
-  }
-
-  // ============ Plugins API (reserved, pending backend) ============
-
-  // List installed plugins
   async listPlugins(): Promise<PluginEntry[]> {
-    const response = await fetch(`${this.baseUrl}/api/plugins`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to list plugins: ${response.statusText}`)
-    }
-    const data = await response.json()
-    return data.plugins ?? []
+    return []
   }
-
-  // Toggle plugin enabled state
-  async togglePlugin(id: string, enabled: boolean): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/plugins/${encodeURIComponent(id)}/toggle`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify({ enabled })
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to toggle plugin: ${response.statusText}`)
-    }
-    return response.json()
+  async togglePlugin(_id: string, _enabled: boolean): Promise<unknown> {
+    throw new Error('Plugin management is not supported by the current engine')
   }
-
-  // Discover marketplace plugins
   async getPluginDiscover(): Promise<{ plugins: DiscoverPlugin[] }> {
-    const response = await fetch(`${this.baseUrl}/api/plugins/discover`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to discover plugins: ${response.statusText}`)
-    }
-    return response.json()
+    return { plugins: [] }
   }
-
-  // Install a plugin from marketplace
-  async installPlugin(id: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/plugins/install`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify({ id })
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to install plugin: ${response.statusText}`)
-    }
-    return response.json()
+  async installPlugin(_id: string): Promise<unknown> {
+    throw new Error('Plugin management is not supported by the current engine')
   }
-
-  // Check for plugin updates
   async checkPluginUpdates(): Promise<{ updates: Array<{ id: string; latest: string }> }> {
-    const response = await fetch(`${this.baseUrl}/api/plugins/check-update`, {
-      method: 'POST',
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to check plugin updates: ${response.statusText}`)
-    }
-    return response.json()
+    return { updates: [] }
   }
 
-  // ============ Commands API (reserved, pending backend) ============
-
-  // List all commands (skill-registered + user .md commands)
   async listCommands(): Promise<CommandEntry[]> {
-    const response = await fetch(`${this.baseUrl}/api/commands`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to list commands: ${response.statusText}`)
-    }
-    const data = await response.json()
-    return data.commands ?? []
+    return []
+  }
+  async createCommand(_payload: Omit<CommandEntry, 'source'>): Promise<unknown> {
+    throw new Error('Command management is not supported by the current engine')
+  }
+  async updateCommand(_id: string, _payload: Partial<CommandEntry>): Promise<unknown> {
+    throw new Error('Command management is not supported by the current engine')
+  }
+  async deleteCommand(_id: string): Promise<void> {
+    throw new Error('Command management is not supported by the current engine')
   }
 
-  // Create a user command (.md file)
-  async createCommand(payload: Omit<CommandEntry, 'source'>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/commands`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify(payload)
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to create command: ${response.statusText}`)
-    }
-    return response.json()
-  }
-
-  // Update a user command
-  async updateCommand(id: string, payload: Partial<CommandEntry>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/commands/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      headers: this.headers,
-      body: JSON.stringify(payload)
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to update command: ${response.statusText}`)
-    }
-    return response.json()
-  }
-
-  // Delete a user command
-  async deleteCommand(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/commands/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to delete command: ${response.statusText}`)
-    }
-  }
-
-  // ============ Remote Control API (reserved, pending backend) ============
-
-  // Get remote control configuration
   async getRemoteConfig(): Promise<RemoteConfig> {
-    const response = await fetch(`${this.baseUrl}/api/remote/config`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to get remote config: ${response.statusText}`)
+    return {
+      remoteEnabled: false,
+      remoteUrl: '',
+      remoteToken: '',
+      exposeEnabled: false,
+      exposeToken: '',
+      requireAuth: true,
+      permissionLevel: 'readonly',
+      sessionTimeout: 0
     }
-    return response.json()
   }
-
-  // Update remote control configuration
-  async saveRemoteConfig(config: Partial<RemoteConfig>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/remote/config`, {
-      method: 'PUT',
-      headers: this.headers,
-      body: JSON.stringify(config)
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to save remote config: ${response.statusText}`)
-    }
-    return response.json()
+  async saveRemoteConfig(_config: Partial<RemoteConfig>): Promise<unknown> {
+    throw new Error('Remote control is not supported by the current engine')
   }
-
-  // Test connectivity to a remote engine
-  async testRemoteConnection(url: string, token: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
-    const response = await fetch(`${this.baseUrl}/api/remote/test`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify({ url, token })
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to test remote connection: ${response.statusText}`)
-    }
-    return response.json()
+  async testRemoteConnection(_url: string, _token: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
+    return { ok: false, error: 'Remote control is not supported by the current engine' }
   }
-
-  // List connected remote sessions
   async listRemoteSessions(): Promise<RemoteSessionInfo[]> {
-    const response = await fetch(`${this.baseUrl}/api/remote/sessions`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to list remote sessions: ${response.statusText}`)
-    }
-    const data = await response.json()
-    return data.sessions ?? []
-  }
-
-  // Revoke a remote session
-  async revokeRemoteSession(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/remote/sessions/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to revoke remote session: ${response.statusText}`)
-    }
+    return []
   }
 }
 

@@ -109,5 +109,6 @@ async function canMutateMemory(
   })
   const memory = memories.find((candidate) => candidate.id === id)
   if (!memory) return false
+  if (memory.scope === 'task_shared' || memory.scope === 'agent_private') return false
   return memory.sourceThreadId === context.threadId
 }

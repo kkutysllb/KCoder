@@ -2,9 +2,12 @@ import type {
   ApprovalPolicy,
   RunIdentity,
   RunStateV3,
+  TaskScope,
   TaskArtifactRef,
-  ToolEffectPolicy
+  ToolEffectPolicy,
+  ToolExecutionLedgerEntry
 } from '@qiongqi/contracts'
+import type { EngineStreamChannel, EngineStreamEvent } from '@qiongqi/contracts'
 import type { ApprovalRequest } from '@qiongqi/domain'
 import type { TurnItem } from '@qiongqi/contracts'
 import type { ModelCapabilityMetadata } from '@qiongqi/contracts'
@@ -62,6 +65,8 @@ export type ToolHostContext = {
   workModeId?: string
   /** Owner of the thread, used by providers that persist user-scoped state. */
   ownerUserId?: string
+  /** Durable owner/workspace/task boundary used by replay and memory isolation. */
+  taskScope?: TaskScope
   /**
    * Thread mode advertised by the GUI. Qiongqi restricts plan tools
    * to `plan` threads plus `planDraft`/`planRefine` turn kinds. The
@@ -109,6 +114,16 @@ export type ToolHostContext = {
   runtimeIdentity?: RunIdentity
   runtimeState?: RunStateV3
   runtimeStateSink?: (state: RunStateV3) => void
+  /** Optional durable engine event sink for real-time tool lifecycle output. */
+  stream?: EngineStreamSink
+}
+
+export interface EngineStreamSink {
+  publish(input: {
+    channel: EngineStreamChannel
+    kind: string
+    payload: unknown
+  }): Promise<EngineStreamEvent | undefined>
 }
 
 export type ToolCallLike = {
@@ -143,6 +158,18 @@ export type ToolHostPreparation = {
   state?: unknown
 }
 
+export type ToolReplayDescriptor = {
+  effectPolicy: 'safe' | 'idempotent-with-key' | 'verify-before-replay' | 'never-replay'
+  exactFingerprint: string
+  semanticKey: string
+  preconditionVersions: Record<string, string>
+}
+
+export type ToolReplayVerification = {
+  valid: boolean
+  observedPostconditions: Record<string, string>
+}
+
 /**
  * Port for executing tool calls. The local tool host uses approval
  * boundaries and abort-signal cancellation; a remote host can fan out
@@ -167,6 +194,12 @@ export interface ToolHost {
   }[]>
   /** Resolve provider-neutral rewrites/denials before an effect is prepared. */
   prepare?(call: ToolCallLike, context: ToolHostContext): Promise<ToolHostPreparation>
+  describeReplay(call: ToolCallLike, context: ToolHostContext): Promise<ToolReplayDescriptor>
+  verifyReplay(input: {
+    call: ToolCallLike
+    previous: ToolExecutionLedgerEntry
+    context: ToolHostContext
+  }): Promise<ToolReplayVerification>
   execute(
     call: ToolCallLike,
     context: ToolHostContext,

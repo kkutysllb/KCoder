@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto'
-import type { TaskArtifactRef, TaskStateV1, ToolObservation } from '@qiongqi/contracts'
+import type { DurableReference, TaskArtifactRef, TaskCheckpointV1, TaskStateV1, ToolObservation } from '@qiongqi/contracts'
 import { TaskStateV1Schema } from '@qiongqi/contracts'
 import type { TaskStateStore } from '@qiongqi/ports'
 import type { RunIdentity } from '@qiongqi/contracts'
+import { canonicalDigest } from './execution-fingerprint.js'
+import { projectTaskCheckpoint } from './task-checkpoint-projector-v1.js'
 
 export type TaskTodoProjection = {
   id: string
@@ -19,6 +21,68 @@ export type TaskProgressDigest = {
 export type TaskProgressProjection = {
   state: TaskStateV1
   digest: TaskProgressDigest
+}
+
+export type TaskCheckpointProgressInput = {
+  todos?: readonly TaskTodoProjection[]
+  observations?: readonly ToolObservation[]
+  kernelRunId: string
+  nowIso: () => string
+}
+
+export function projectTaskCheckpointProgress(
+  current: TaskCheckpointV1,
+  input: TaskCheckpointProgressInput
+): TaskCheckpointV1 {
+  const now = input.nowIso()
+  const existingEvidence = new Set(current.evidenceRefs.map((reference) => `${reference.ref}:${reference.digest}`))
+  const existingArtifacts = new Set(current.artifactRefs.map((reference) => `${reference.ref}:${reference.digest}`))
+  const observations = (input.observations ?? []).filter(
+    (observation) => !observation.failed && !observation.replayed
+  )
+  const evidenceUpdates: DurableReference[] = []
+  const artifactUpdates: DurableReference[] = []
+  for (const observation of observations) {
+    const evidence = {
+      ref: `result://${observation.resultDigest}`,
+      digest: observation.resultDigest,
+      mediaType: 'application/vnd.qiongqi.tool-observation+json',
+      provenance: {
+        source: `kernel:${input.kernelRunId}:tool:${observation.callId}`,
+        digest: observation.canonicalArgumentsDigest,
+        recordedAt: now
+      }
+    }
+    if (!existingEvidence.has(`${evidence.ref}:${evidence.digest}`)) evidenceUpdates.push(evidence)
+    for (const artifact of observation.artifactRefs) {
+      const reference = {
+        ref: artifact.path,
+        digest: canonicalDigest(artifact),
+        mediaType: artifactMediaType(artifact.path),
+        provenance: {
+          source: `kernel:${input.kernelRunId}:tool:${observation.callId}`,
+          digest: observation.resultDigest,
+          recordedAt: now
+        }
+      }
+      if (!existingArtifacts.has(`${reference.ref}:${reference.digest}`)) artifactUpdates.push(reference)
+    }
+  }
+
+  return projectTaskCheckpoint(current, {
+    ...(input.todos
+      ? {
+          actionUpdates: input.todos.map((todo) => ({
+            actionId: todo.id,
+            description: todo.content,
+            status: todo.status === 'in_progress' ? 'running' as const : todo.status
+          }))
+        }
+      : {}),
+    evidenceUpdates,
+    artifactUpdates,
+    nowIso: () => now
+  })
 }
 
 export class TaskProgressProjector {
@@ -136,4 +200,11 @@ function artifactKey(artifact: TaskArtifactRef): string {
 
 function digest(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
+}
+
+function artifactMediaType(path: string): string {
+  if (path.endsWith('.json')) return 'application/json'
+  if (path.endsWith('.md')) return 'text/markdown'
+  if (path.endsWith('.txt')) return 'text/plain'
+  return 'application/octet-stream'
 }

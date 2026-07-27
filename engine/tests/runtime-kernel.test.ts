@@ -63,6 +63,41 @@ describe('RuntimeKernel', () => {
     await expect(events.listAfter(identity, 0)).resolves.toHaveLength(12)
   })
 
+  it('projects suspended outcomes into a saved waiting state and resumes explicitly', async () => {
+    const snapshots = new InMemoryRunStateStore()
+    let attempts = 0
+    const kernel = new RuntimeKernel({
+      graph: {
+        version: 'waiting-v1', startNodeId: 'wait', predicates: ['next'],
+        nodes: [{ id: 'wait', kind: 'wait', effect: 'state', terminal: true, checkpoint: 'after' }], edges: []
+      },
+      snapshots,
+      events: new InMemoryRunEventStore(),
+      leases: snapshots,
+      holderId: 'waiting-holder',
+      nodes: {
+        wait: () => attempts++ === 0
+          ? { outcome: { status: 'suspended', reason: 'awaiting_user_input', retryable: true } }
+          : { outcome: { status: 'completed', reason: 'normal_stop', retryable: false } }
+      }
+    })
+
+    const waitingIdentity = { ...identity, runId: 'waiting-run' }
+    const suspended = await kernel.run(waitingIdentity)
+    expect(suspended).toMatchObject({ status: 'suspended' })
+    await expect(snapshots.load(waitingIdentity)).resolves.toMatchObject({
+      status: 'waiting_input', outcome: { status: 'suspended', reason: 'awaiting_user_input' }
+    })
+    await expect(kernel.run(waitingIdentity)).resolves.toEqual(suspended)
+    const details = suspended.details as { suspensionToken: string; suspensionRevision: number }
+    await expect(kernel.resume(waitingIdentity, {
+      token: details.suspensionToken,
+      revision: details.suspensionRevision,
+      resolution: { input: 'continue' }
+    })).resolves.toMatchObject({ status: 'completed' })
+    await expect(snapshots.load(waitingIdentity)).resolves.toMatchObject({ status: 'completed' })
+  })
+
   it('keeps a terminal outcome monotonic when afterNode middleware tries to replace it', async () => {
     const snapshots = new InMemoryRunStateStore()
     const kernel = new RuntimeKernel({

@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 import type {
   RunIdentity,
   TaskAction,
+  TaskCheckpointV1,
+  TaskScope,
   TaskStateV1,
   TaskToolLedgerEntry,
   ThreadRecord,
@@ -9,6 +11,8 @@ import type {
   TurnItem
 } from '@qiongqi/contracts'
 import { makeTaskState } from '@qiongqi/contracts'
+import { canonicalDigest } from './execution-fingerprint.js'
+import { createTaskCheckpoint } from './task-checkpoint-projector-v1.js'
 
 export type BuildTaskStateInput = {
   identity: RunIdentity
@@ -74,6 +78,119 @@ export function buildTaskState(input: BuildTaskStateInput): TaskStateV1 {
     toolLedger,
     createdAt: now,
     updatedAt: now
+  })
+}
+
+export function createTaskCheckpointFromLegacyState(
+  scope: TaskScope,
+  task: TaskStateV1,
+  nowIso: () => string
+): TaskCheckpointV1 {
+  const now = nowIso()
+  return createTaskCheckpoint({
+    scope,
+    objective: task.objective,
+    constraints: task.constraints,
+    actionUpdates: [...task.completedActions, ...task.pendingActions].map((action) => ({
+      actionId: action.id,
+      description: action.text,
+      status: action.status === 'in_progress' ? 'running' : action.status
+    })),
+    ...(task.activePlan
+      ? {
+          activePlan: {
+            planId: task.activePlan.planId,
+            digest: canonicalDigest(task.activePlan),
+            actionIds: [...task.completedActions, ...task.pendingActions].map((action) => action.id)
+          }
+        }
+      : {}),
+    artifactUpdates: task.artifacts.map((artifact) => ({
+      ref: artifact.path,
+      digest: canonicalDigest(artifact),
+      mediaType: 'application/vnd.qiongqi.artifact-ref+json',
+      provenance: {
+        source: artifact.producedByCallId ? `tool:${artifact.producedByCallId}` : 'legacy-task-state',
+        digest: canonicalDigest(artifact),
+        recordedAt: now
+      }
+    })),
+    provenance: [{
+      source: 'legacy-task-state',
+      digest: task.source.sourceDigest,
+      recordedAt: now
+    }],
+    nowIso: () => now
+  })
+}
+
+export function projectLegacyTaskStateFromCheckpoint(
+  checkpoint: TaskCheckpointV1,
+  identity: RunIdentity,
+  current?: TaskStateV1
+): TaskStateV1 {
+  const completedActions: TaskAction[] = []
+  const pendingActions: TaskAction[] = []
+  for (const action of checkpoint.actions) {
+    const projected: TaskAction = {
+      id: action.actionId,
+      text: action.description,
+      status: action.status === 'running' ? 'in_progress' : action.status,
+      evidenceItemIds: currentAction(current, action.actionId)?.evidenceItemIds ?? []
+    }
+    if (projected.status === 'completed') completedActions.push(projected)
+    else pendingActions.push(projected)
+  }
+  if (checkpoint.nextAction && ![...completedActions, ...pendingActions].some(
+    (action) => action.id === checkpoint.nextAction!.actionId
+  )) {
+    pendingActions.push({
+      id: checkpoint.nextAction.actionId,
+      text: checkpoint.nextAction.description,
+      status: checkpoint.nextAction.status === 'running' ? 'in_progress' : checkpoint.nextAction.status,
+      evidenceItemIds: []
+    })
+  }
+  const sourceDigest = canonicalDigest({
+    kind: 'task_checkpoint_legacy_projection_v1',
+    scope: checkpoint.scope,
+    revision: checkpoint.revision,
+    objective: checkpoint.objective,
+    constraints: checkpoint.constraints,
+    actions: checkpoint.actions,
+    nextAction: checkpoint.nextAction ?? null,
+    artifacts: checkpoint.artifactRefs
+  })
+  if (current?.source.sourceDigest === sourceDigest) return current
+
+  return makeTaskState({
+    identity,
+    revision: (current?.revision ?? 0) + 1,
+    source: {
+      objectiveItemId: `task:${checkpoint.scope.taskId}:objective`,
+      sourceItemIds: [
+        `task:${checkpoint.scope.taskId}:revision:${checkpoint.revision}`,
+        ...checkpoint.evidenceRefs.map((reference) => reference.ref),
+        ...checkpoint.artifactRefs.map((reference) => reference.ref)
+      ],
+      sourceDigest
+    },
+    objective: checkpoint.objective,
+    constraints: checkpoint.constraints,
+    completedActions,
+    pendingActions,
+    ...(checkpoint.activePlan ? { activePlan: { planId: checkpoint.activePlan.planId } } : {}),
+    activeSkillIds: current?.activeSkillIds ?? [],
+    artifacts: checkpoint.artifactRefs.map((reference) => ({ path: reference.ref, kind: 'artifact' as const })),
+    toolLedger: current?.toolLedger ?? [],
+    progress: {
+      strongDigest: sourceDigest,
+      evidenceCount: checkpoint.evidenceRefs.length,
+      artifactCount: checkpoint.artifactRefs.length,
+      lastObservationDigests: checkpoint.evidenceRefs.map((reference) => reference.digest).slice(-64)
+    },
+    createdAt: current?.createdAt ?? checkpoint.createdAt,
+    updatedAt: checkpoint.updatedAt
   })
 }
 
@@ -189,4 +306,10 @@ function canonicalize(value: unknown): unknown {
 
 function unique(values: readonly string[]): string[] {
   return [...new Set(values.filter((value) => value.trim()))]
+}
+
+function currentAction(task: TaskStateV1 | undefined, actionId: string): TaskAction | undefined {
+  return task
+    ? [...task.completedActions, ...task.pendingActions].find((action) => action.id === actionId)
+    : undefined
 }

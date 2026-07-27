@@ -49,7 +49,7 @@ describe('HttpPeerTransport', () => {
     })
   })
 
-  it('extracts the artifact from Stage 4 task responses', async () => {
+  it('extracts the artifact and structured artifacts from Stage 4 task responses', async () => {
     const transport = new HttpPeerTransport({
       fetchImpl: async () => new Response(JSON.stringify({
         task: {
@@ -65,7 +65,12 @@ describe('HttpPeerTransport', () => {
           status: 'completed',
           summary: 'stage 4 done'
         },
-        artifacts: []
+        artifacts: [{
+          id: 'artifact-1',
+          mimeType: 'text/markdown',
+          text: '# Done',
+          tags: ['assistant_text']
+        }]
       }), { status: 200 })
     })
 
@@ -76,7 +81,14 @@ describe('HttpPeerTransport', () => {
     )).resolves.toMatchObject({
       peerCardId: 'peer-b',
       status: 'completed',
-      summary: 'stage 4 done'
+      summary: 'stage 4 done',
+      artifacts: [{
+        id: 'artifact-1',
+        mimeType: 'text/markdown',
+        text: '# Done',
+        tags: ['assistant_text'],
+        isError: false
+      }]
     })
   })
 })

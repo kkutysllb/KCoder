@@ -1,4 +1,22 @@
 import { z } from 'zod'
+import { CanonicalRecordKeySchema } from './engine-identity.js'
+
+export const GraphAttributionSchema = z.object({
+  graphId: CanonicalRecordKeySchema,
+  graphRevision: z.number().int().positive(),
+  runId: CanonicalRecordKeySchema,
+  nodeId: CanonicalRecordKeySchema.optional(),
+  edgeId: CanonicalRecordKeySchema.optional(),
+  attemptId: CanonicalRecordKeySchema.optional()
+}).strict()
+export type GraphAttribution = z.infer<typeof GraphAttributionSchema>
+
+export const GraphAttributionQuerySchema = z.object({
+  graphId: CanonicalRecordKeySchema,
+  graphRevision: z.number().int().positive(),
+  runId: CanonicalRecordKeySchema.optional()
+}).strict()
+export type GraphAttributionQuery = z.infer<typeof GraphAttributionQuerySchema>
 
 /**
  * Token, cache, and cost counters emitted with every model response.
@@ -24,6 +42,7 @@ export const UsageSnapshotSchema = z.object({
   tokenEconomySavingsTokens: z.number().int().nonnegative().optional(),
   tokenEconomySavingsUsd: z.number().nonnegative().optional(),
   tokenEconomySavingsCny: z.number().nonnegative().optional(),
+  graph: GraphAttributionSchema.optional(),
   /** Provider reported an unrecoverable error mid-stream. */
   hasError: z.boolean().optional()
 })

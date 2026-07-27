@@ -18,6 +18,8 @@ import {
   QiongqiErrorBody,
   QiongqiCapabilitiesConfig,
   RuntimeCapabilityManifest,
+  RuntimeTuningConfigSchema,
+  PeerArtifactSchema,
   TurnSchema,
   buildRuntimeCapabilityManifest,
   emptyUsageSnapshot,
@@ -32,10 +34,206 @@ import {
   parseServeOptions,
   validateServeOptions,
   SERVE_USAGE,
-  defaultKWorksRuntimeDataDir
+  defaultQiongqiRuntimeDataDir
 } from '@qiongqi/cli'
+import { EngineCommitSchema } from '@qiongqi/ports'
 
 describe('contracts', () => {
+  it('requires same-operation graph and engine mutations for a governed root commit', () => {
+    const scope = { ownerId: 'owner-root', workspaceId: 'workspace-root', taskId: 'task-root' }
+    const timestamp = '2026-07-27T00:00:00.000Z'
+    const digest = 'a'.repeat(64)
+    const graphRun = {
+      schemaVersion: 1 as const,
+      scope,
+      runId: 'root-1',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      workspaceKey: 'workspace-root',
+      graphId: 'graph-1',
+      graphRevision: 1,
+      graphDigest: digest,
+      version: 1,
+      status: 'running' as const,
+      circuitState: 'running' as const,
+      activeNodeIds: ['agent'],
+      budgets: { stepsUsed: 0, toolCallsUsed: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+      createdAt: timestamp,
+      updatedAt: timestamp
+    }
+    const engineRun = {
+      runId: 'root-1',
+      scope,
+      multiAgentRunId: 'root-1',
+      graph: {
+        graphId: 'graph-1',
+        graphRevision: 1,
+        graphDigest: digest,
+        nodeId: 'agent',
+        attemptId: 'root-1',
+        callerId: 'owner-root',
+        policyRevision: 1
+      },
+      version: 1,
+      status: 'running' as const,
+      desiredState: 'running' as const,
+      cursor: { nodeId: 'agent', stepIndex: 0, checkpointSeq: 0 },
+      budgets: { stepsUsed: 0, toolCallsUsed: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+      budgetLimits: { stepsUsed: 10, toolCallsUsed: 10, inputTokens: 1000, outputTokens: 1000, costUsd: 10 },
+      createdAt: timestamp,
+      updatedAt: timestamp
+    }
+    const base = {
+      scope,
+      runId: 'root-1',
+      expectedRunVersion: 0,
+      expectedTaskRevision: 0,
+      aggregateKind: 'governed_root' as const
+    }
+
+    expect(EngineCommitSchema.parse({
+      ...base,
+      graphRunMutation: { type: 'put', record: graphRun },
+      runMutation: { type: 'put', record: engineRun }
+    })).toMatchObject({ aggregateKind: 'governed_root' })
+    expect(() => EngineCommitSchema.parse({
+      ...base,
+      graphRunMutation: { type: 'put', record: graphRun }
+    })).toThrow(/both graph and engine projections/)
+    expect(() => EngineCommitSchema.parse({
+      ...base,
+      graphRunMutation: { type: 'delete', recordId: 'root-1' },
+      runMutation: { type: 'put', record: engineRun }
+    })).toThrow(/same operation/)
+  })
+
+  it('parses evented v2 outbox reconciler runtime tuning', () => {
+    const runtime = RuntimeTuningConfigSchema.parse({
+      eventedV2OutboxReconciler: { enabled: true, intervalMs: 10_000 },
+      eventedV2RemoteAgent: {
+        timeoutMs: 30_000,
+        leaseTtlMs: 60_000,
+        workerId: 'worker_a',
+        heartbeatTtlMs: 120_000,
+        scheduler: { enabled: true, intervalMs: 5_000 },
+        compensation: {
+          statusConditions: {
+            failed: 'remote_failed',
+            aborted: 'remote_aborted'
+          }
+        }
+      }
+    })
+
+    expect(runtime.eventedV2OutboxReconciler).toEqual({ enabled: true, intervalMs: 10_000 })
+    expect(runtime.eventedV2RemoteAgent).toEqual({
+      timeoutMs: 30_000,
+      leaseTtlMs: 60_000,
+      workerId: 'worker_a',
+      heartbeatTtlMs: 120_000,
+      scheduler: { enabled: true, intervalMs: 5_000 },
+      compensation: {
+        statusConditions: {
+          failed: 'remote_failed',
+          aborted: 'remote_aborted'
+        }
+      }
+    })
+  })
+
+  it('parses evented v2 rollout runtime tuning', () => {
+    const runtime = RuntimeTuningConfigSchema.parse({
+      eventedV2Rollout: {
+        stage: 'canary',
+        canaryPercent: 25,
+        fallbackMode: 'kernel_v3',
+        shadowSamplePercent: 10,
+        autoFallback: {
+          enabled: true,
+          windowSize: 20,
+          minRuns: 5,
+          failureRateThreshold: 0.4,
+          consecutiveFailures: 3,
+          cooldownMs: 60_000
+        }
+      }
+    })
+
+    expect(runtime.eventedV2Rollout).toEqual({
+      stage: 'canary',
+      canaryPercent: 25,
+      fallbackMode: 'kernel_v3',
+      shadowSamplePercent: 10,
+      autoFallback: {
+        enabled: true,
+        windowSize: 20,
+        minRuns: 5,
+        failureRateThreshold: 0.4,
+        consecutiveFailures: 3,
+        cooldownMs: 60_000
+      }
+    })
+  })
+
+  it('parses a declarative evented v2 agent graph runtime tuning', () => {
+    const runtime = RuntimeTuningConfigSchema.parse({
+      eventedV2AgentPeers: { researcher: 'peer_researcher' },
+      eventedV2AgentGraph: {
+        version: 1,
+        graphId: 'planner_wait_graph',
+        startNodeId: 'planner',
+        nodes: [
+          { id: 'planner', kind: 'agent', agentId: 'planner' },
+          { id: 'wait_approval', kind: 'wait', waitFor: 'approval' }
+        ],
+        edges: [
+          { from: 'planner', to: 'wait_approval', condition: 'completed' }
+        ]
+      }
+    })
+
+    expect(runtime.eventedV2AgentGraph?.graphId).toBe('planner_wait_graph')
+    expect(runtime.eventedV2AgentGraph?.startNodeId).toBe('planner')
+    expect(runtime.eventedV2AgentPeers).toEqual({ researcher: 'peer_researcher' })
+  })
+
+  it('rejects malformed declarative evented v2 agent graph runtime tuning', () => {
+    expect(() => RuntimeTuningConfigSchema.parse({
+      eventedV2AgentGraph: {
+        version: 1,
+        graphId: 'bad_graph',
+        startNodeId: 'planner',
+        nodes: [
+          { id: 'planner', kind: 'agent' }
+        ]
+      }
+    })).toThrow()
+  })
+
+  it('parses peer artifacts with structured A2A artifacts', () => {
+    const artifact = PeerArtifactSchema.parse({
+      peerCardId: 'peer_researcher',
+      status: 'completed',
+      summary: 'done',
+      artifacts: [{
+        id: 'artifact_1',
+        mimeType: 'text/markdown',
+        label: 'Report',
+        text: '# Report',
+        tags: ['assistant_text']
+      }]
+    })
+
+    expect(artifact.artifacts).toEqual([{
+      id: 'artifact_1',
+      mimeType: 'text/markdown',
+      label: 'Report',
+      text: '# Report',
+      tags: ['assistant_text'],
+      isError: false
+    }])
+  })
+
   it('defaults explicit skill activations for legacy turn records', () => {
     const turn = TurnSchema.parse({
       id: 'turn_legacy',
@@ -51,12 +249,12 @@ describe('contracts', () => {
 
   it('round-trips a thread creation payload through zod', () => {
     const parsed = CreateThreadRequest.parse({
-      id: 'kworks-thread-1',
+      id: 'thread-1',
       title: 'demo',
       workspace: '/tmp/ws',
       model: 'deepseek-chat'
     })
-    expect(parsed.id).toBe('kworks-thread-1')
+    expect(parsed.id).toBe('thread-1')
     expect(parsed.title).toBe('demo')
     expect(parsed.mode).toBe('agent')
   })
@@ -346,79 +544,22 @@ describe('cli', () => {
     expect(parsed.storage.backend).toBe('file')
   })
 
-  it('enables KWorks skill roots from KWorks_SKILLS_PATH without migrating data', () => {
+  it('enables skill roots from QIONGQI_SKILLS_PATH', () => {
     const parsed = parseServeOptions([
       '--api-key=test-key',
       '--base-url=https://example.invalid/v1'
     ], {
-      KWorks_SKILLS_PATH: '/Users/tester/.kworks-workspace/skills'
+      QIONGQI_SKILLS_PATH: '/Users/tester/.qiongqi/skills/core:/Users/tester/.qiongqi/skills/custom'
     })
 
     expect(parsed.capabilities.skills).toMatchObject({
       enabled: true,
       legacySkillMd: true,
       roots: [
-        '/Users/tester/.kworks-workspace/skills/builtin/core',
-        '/Users/tester/.kworks-workspace/skills/builtin/task',
-        '/Users/tester/.kworks-workspace/skills/builtin/coding',
-        '/Users/tester/.kworks-workspace/skills/builtin/finance',
-        '/Users/tester/.kworks-workspace/skills/custom/shared'
+        '/Users/tester/.qiongqi/skills/core',
+        '/Users/tester/.qiongqi/skills/custom'
       ]
     })
-  })
-
-  it('retains KWorks public skills when unified skill roots also exist', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'kworks-skills-'))
-    try {
-      await mkdir(join(dir, 'builtin', 'core'), { recursive: true })
-      await mkdir(join(dir, 'public', 'deep-research'), { recursive: true })
-      await writeFile(join(dir, 'public', 'deep-research', 'SKILL.md'), '---\nname: deep-research\n---\n')
-
-      const parsed = parseServeOptions([
-        '--api-key=test-key',
-        '--base-url=https://example.invalid/v1'
-      ], {
-        KWorks_SKILLS_PATH: dir
-      })
-
-      expect(parsed.capabilities.skills.roots).toEqual([
-        join(dir, 'builtin', 'core'),
-        join(dir, 'builtin', 'task'),
-        join(dir, 'builtin', 'coding'),
-        join(dir, 'builtin', 'finance'),
-        join(dir, 'custom', 'shared'),
-        join(dir, 'public', 'deep-research')
-      ])
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('does not duplicate KWorks public skills already migrated into unified roots', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'kworks-skills-'))
-    try {
-      await mkdir(join(dir, 'builtin', 'task', 'deep-research'), { recursive: true })
-      await writeFile(join(dir, 'builtin', 'task', 'deep-research', 'SKILL.md'), '---\nname: deep-research\n---\n')
-      await mkdir(join(dir, 'public', 'deep-research'), { recursive: true })
-      await writeFile(join(dir, 'public', 'deep-research', 'SKILL.md'), '---\nname: deep-research\n---\n')
-
-      const parsed = parseServeOptions([
-        '--api-key=test-key',
-        '--base-url=https://example.invalid/v1'
-      ], {
-        KWorks_SKILLS_PATH: dir
-      })
-
-      expect(parsed.capabilities.skills.roots).toEqual([
-        join(dir, 'builtin', 'core'),
-        join(dir, 'builtin', 'task'),
-        join(dir, 'builtin', 'coding'),
-        join(dir, 'builtin', 'finance'),
-        join(dir, 'custom', 'shared')
-      ])
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
   })
 
   it('loads serve and context compaction settings from an explicit config file', async () => {
@@ -526,6 +667,7 @@ describe('cli', () => {
       expect(parsed.configPath).toBe(configPath)
       expect(parsed.host).toBe('0.0.0.0')
       expect(parsed.port).toBe(9091)
+      expect(parsed.apiKey).toBe('')
       expect(parsed.model).toBe('deepseek-v4-pro')
       expect(parsed.approvalPolicy).toBe('auto')
       expect(parsed.tokenEconomyMode).toBe(true)
@@ -569,6 +711,30 @@ describe('cli', () => {
       expect(parsed.capabilities.web.enabled).toBe(true)
       expect(parsed.capabilities.web.fetchEnabled).toBe(true)
       expect(parsed.capabilities.skills.roots).toEqual(['/tmp/skills'])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('ignores api keys from disk config and accepts process environment injection', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'qiongqi-config-secret-'))
+    try {
+      const configPath = join(dir, 'config.json')
+      await writeFile(configPath, JSON.stringify({
+        serve: {
+          dataDir: join(dir, 'data'),
+          apiKey: 'disk-secret',
+          baseUrl: 'https://config.invalid/v1'
+        }
+      }), 'utf8')
+
+      const fromDisk = parseServeOptions(['--config', configPath])
+      expect(fromDisk.apiKey).toBe('')
+
+      const fromEnv = parseServeOptions(['--config', configPath], {
+        QIONGQI_API_KEY: 'env-secret'
+      })
+      expect(fromEnv.apiKey).toBe('env-secret')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -834,7 +1000,7 @@ describe('cli', () => {
     }
   })
 
-  it('defaults serve data-dir to the KWorks per-user web workspace', () => {
+  it('defaults serve data-dir to the Qiongqi per-user workspace', () => {
     const result = parseServeOptionsSafe([
       '--host',
       '127.0.0.1',
@@ -844,8 +1010,23 @@ describe('cli', () => {
     ], { HOME: '/Users/tester' })
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.options.dataDir).toBe('/Users/tester/.kworks-workspace-web/users/runtime')
-      expect(result.options.dataDir).toBe(defaultKWorksRuntimeDataDir({ HOME: '/Users/tester' }))
+      expect(result.options.dataDir).toBe('/Users/tester/.qiongqi/users/runtime')
+      expect(result.options.dataDir).toBe(defaultQiongqiRuntimeDataDir({ HOME: '/Users/tester' }))
+    }
+  })
+
+  it('allows serve to boot before a model endpoint is configured', () => {
+    const result = parseServeOptionsSafe([
+      '--host',
+      '127.0.0.1',
+      '--port=8899'
+    ], { HOME: '/Users/tester' })
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.options.baseUrl).toBe('')
+      expect(result.options.apiKey).toBe('')
+      expect(result.options.dataDir).toBe('/Users/tester/.qiongqi/users/runtime')
     }
   })
 

@@ -25,7 +25,7 @@ import type { UsageService } from '@qiongqi/services'
 import type { TurnService } from '@qiongqi/services'
 import type { RuntimeEventRecorder } from '@qiongqi/services'
 import type { IdGenerator } from '@qiongqi/ports'
-import type { ModelCapabilityMetadata } from '@qiongqi/contracts'
+import { CREATE_PLAN_TOOL_NAME, type ModelCapabilityMetadata } from '@qiongqi/contracts'
 import type { TurnItem } from '@qiongqi/contracts'
 import type { ThreadGoal } from '@qiongqi/contracts'
 import type { ImmutablePrefix } from '@qiongqi/cache'
@@ -40,7 +40,6 @@ import type { MemoryStore } from '@qiongqi/memory'
 import type { TokenEconomyConfig } from './token-economy.js'
 import type { ToolStormBreakerOptions } from './tool-storm-breaker.js'
 import { makeAssistantTextItem, makeErrorItem, touchThread } from '@qiongqi/domain'
-import { CREATE_PLAN_TOOL_NAME } from '@qiongqi/adapter-tools'
 import { createImmutablePrefix } from '@qiongqi/cache'
 import { recordPipelineStage } from './loop-events.js'
 import { type GoalElapsedTimer } from './loop-helpers.js'
@@ -67,6 +66,7 @@ export type TurnOrchestratorOptions = {
   prefix: ImmutablePrefix
   ids: IdGenerator
   nowIso: () => string
+  shellRuntimeInstruction?: () => string
   nowMs?: () => number
   modelCapabilities?: (model: string) => ModelCapabilityMetadata
   skillRuntime?: SkillRuntime
@@ -176,6 +176,7 @@ export class TurnOrchestrator {
       prefix: opts.prefix,
       ids: opts.ids,
       nowIso: opts.nowIso,
+      ...(opts.shellRuntimeInstruction ? { shellRuntimeInstruction: opts.shellRuntimeInstruction } : {}),
       ...(opts.modelCapabilities ? { modelCapabilities: opts.modelCapabilities } : {}),
       ...(opts.skillRuntime ? { skillRuntime: opts.skillRuntime } : {}),
       ...(opts.skillPluginHost ? { skillPluginHost: opts.skillPluginHost } : {}),

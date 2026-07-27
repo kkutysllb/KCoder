@@ -19,13 +19,13 @@ export class FileQiongqiConfigStore implements QiongqiConfigStore {
     initial: QiongqiConfig
   }) {
     this.path = expandHomePath(options.path ?? join(options.initial.serve?.dataDir ?? process.cwd(), QIONGQI_CONFIG_FILENAME))
-    this.current = QiongqiConfigSchema.parse(options.initial)
+    this.current = stripRuntimeSecrets(QiongqiConfigSchema.parse(options.initial))
   }
 
   async read(): Promise<QiongqiConfig> {
     try {
       const raw = JSON.parse(await readFile(this.path, 'utf8')) as unknown
-      const parsed = QiongqiConfigSchema.parse(raw)
+      const parsed = stripRuntimeSecrets(QiongqiConfigSchema.parse(raw))
       this.current = parsed
       const normalized = normalizeBuiltInCapabilitiesForDisk(raw, parsed)
       if (!sameJson(raw, normalized)) {
@@ -39,7 +39,7 @@ export class FileQiongqiConfigStore implements QiongqiConfigStore {
   }
 
   async write(config: QiongqiConfig): Promise<QiongqiConfig> {
-    const parsed = QiongqiConfigSchema.parse(config)
+    const parsed = stripRuntimeSecrets(QiongqiConfigSchema.parse(config))
     await atomicWriteFile(this.path, `${JSON.stringify(parsed, null, 2)}\n`)
     this.current = parsed
     return parsed
@@ -54,7 +54,7 @@ export class InMemoryQiongqiConfigStore implements QiongqiConfigStore {
   private current: QiongqiConfig
 
   constructor(initial: QiongqiConfig) {
-    this.current = QiongqiConfigSchema.parse(initial)
+    this.current = stripRuntimeSecrets(QiongqiConfigSchema.parse(initial))
   }
 
   read(): QiongqiConfig {
@@ -62,7 +62,7 @@ export class InMemoryQiongqiConfigStore implements QiongqiConfigStore {
   }
 
   write(config: QiongqiConfig): QiongqiConfig {
-    this.current = QiongqiConfigSchema.parse(config)
+    this.current = stripRuntimeSecrets(QiongqiConfigSchema.parse(config))
     return cloneConfig(this.current)
   }
 
@@ -78,11 +78,9 @@ export function qiongqiConfigFromRuntimeOptions(options: QiongqiServeRuntimeOpti
       port: options.port,
       dataDir: options.dataDir,
       runtimeToken: options.runtimeToken,
-      // 空值字段不写入（Zod 要求 model 至少 1 字符）— 待配置状态
-      ...(options.apiKey ? { apiKey: options.apiKey } : {}),
-      ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
-      ...(options.endpointFormat ? { endpointFormat: options.endpointFormat } : {}),
-      ...(options.model ? { model: options.model } : {}),
+      baseUrl: options.baseUrl,
+      endpointFormat: options.endpointFormat,
+      model: options.model,
       approvalPolicy: options.approvalPolicy,
       sandboxMode: options.sandboxMode,
       tokenEconomyMode: options.tokenEconomyMode,
@@ -99,7 +97,16 @@ export function qiongqiConfigFromRuntimeOptions(options: QiongqiServeRuntimeOpti
 }
 
 function cloneConfig(config: QiongqiConfig): QiongqiConfig {
-  return QiongqiConfigSchema.parse(JSON.parse(JSON.stringify(config)))
+  return stripRuntimeSecrets(QiongqiConfigSchema.parse(JSON.parse(JSON.stringify(config))))
+}
+
+function stripRuntimeSecrets(config: QiongqiConfig): QiongqiConfig {
+  if (!config.serve || config.serve.apiKey === undefined) return config
+  const { apiKey: _apiKey, ...serve } = config.serve
+  return QiongqiConfigSchema.parse({
+    ...config,
+    serve
+  })
 }
 
 function isNotFound(error: unknown): boolean {
@@ -112,16 +119,25 @@ function sameJson(left: unknown, right: unknown): boolean {
 
 function normalizeBuiltInCapabilitiesForDisk(raw: unknown, parsed: QiongqiConfig): unknown {
   if (!isRecord(raw)) return raw
-  const rawCapabilities = raw.capabilities
+  let normalized: Record<string, unknown> = raw
+  const rawServe = raw.serve
+  if (isRecord(rawServe) && Object.prototype.hasOwnProperty.call(rawServe, 'apiKey')) {
+    const { apiKey: _apiKey, ...serve } = rawServe
+    normalized = {
+      ...normalized,
+      serve
+    }
+  }
+  const rawCapabilities = normalized.capabilities
   if (!isRecord(rawCapabilities) || !Object.prototype.hasOwnProperty.call(rawCapabilities, 'attachments')) {
-    return raw
+    return normalized
   }
   const nextCapabilities = {
     ...rawCapabilities,
     attachments: parsed.capabilities.attachments
   }
   return {
-    ...raw,
+    ...normalized,
     capabilities: nextCapabilities
   }
 }

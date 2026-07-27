@@ -39,12 +39,12 @@ export const SkillSummarySchema = z
     /** Human-readable name (e.g. `Code Review`). */
     name: z.string().min(1),
     /** Semantic version of the skill. */
-    version: z.string().default('0.0.0'),
+    version: z.string().default('1.0.0'),
     /** One-line description shown in discovery UIs. */
     description: z.string().optional(),
     /** Category bucket — matches `SkillManifestV1.category`. */
     category: z
-      .enum(['development', 'review', 'planning', 'workflow', 'integration', 'document', 'design', 'meta'])
+      .enum(['development', 'review', 'planning', 'workflow', 'integration'])
       .default('workflow')
   })
   .strict()
@@ -108,7 +108,7 @@ export const AgentCardSchema = z
     /** One-line description of what this agent does. */
     description: z.string().optional(),
     /** Agent software version (semver). */
-    version: z.string().default('0.1.0'),
+    version: z.string().default('1.0.0'),
     /** Skills advertised by this agent. */
     skills: z.array(SkillSummarySchema).default([]),
     /** Runtime capability manifest (model, mcp, web, skills, ...). */

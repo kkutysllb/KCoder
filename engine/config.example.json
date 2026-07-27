@@ -4,14 +4,11 @@
     "port": 8899,
     "dataDir": "~/.qiongqi/data",
     "runtimeToken": "",
-    "apiKey": "your-provider-api-key",
-    "baseUrl": "https://api.example.com/v1",
-    "model": "provider-model-name",
     "approvalPolicy": "auto",
     "sandboxMode": "workspace-write",
-    "tokenEconomyMode": false,
+    "tokenEconomyMode": true,
     "tokenEconomy": {
-      "enabled": false,
+      "enabled": true,
       "compressToolDescriptions": true,
       "compressToolResults": true,
       "conciseResponses": true,
@@ -31,24 +28,19 @@
     "observability": {
       "openTelemetry": {
         "enabled": false,
-        "serviceName": "qiongqi",
+        "serviceName": "qiongqi-engine",
         "exporter": "otlp-http",
         "endpoint": "http://127.0.0.1:4318/v1/traces",
         "headers": {}
       }
     }
   },
-  "contextCompaction": {
-    "defaultSoftThreshold": 16000,
-    "defaultHardThreshold": 24000,
-    "summaryMode": "heuristic",
-    "summaryTimeoutMs": 15000,
-    "summaryMaxTokens": 1200,
-    "summaryInputMaxBytes": 98304
-  },
   "models": {
     "profiles": {
-      "provider-model-name": {
+      "primary": {
+        "providerModel": "provider-model-primary",
+        "baseUrl": "https://provider.example/v1",
+        "endpointFormat": "responses",
         "contextWindowTokens": 128000,
         "contextCompaction": {
           "softThreshold": 96000,
@@ -58,6 +50,63 @@
         "outputModalities": ["text"],
         "supportsToolCalling": true,
         "messageParts": ["text"]
+      },
+      "fast": {
+        "providerModel": "provider-model-fast",
+        "baseUrl": "https://another-provider.example/v1",
+        "endpointFormat": "messages",
+        "contextWindowTokens": 64000,
+        "contextCompaction": {
+          "softThreshold": 48000,
+          "hardThreshold": 56000
+        },
+        "inputModalities": ["text"],
+        "outputModalities": ["text"],
+        "supportsToolCalling": true,
+        "messageParts": ["text"]
+      }
+    }
+  },
+  "contextCompaction": {
+    "defaultSoftThreshold": 64000,
+    "defaultHardThreshold": 96000,
+    "summaryMode": "model",
+    "summaryTimeoutMs": 15000,
+    "summaryMaxTokens": 1200,
+    "summaryInputMaxBytes": 98304
+  },
+  "runtime": {
+    "orchestrationMode": "evented_v2",
+    "eventedV2OutboxReconciler": {
+      "enabled": true,
+      "intervalMs": 1000
+    },
+    "eventedV2AgentGraph": {
+      "version": 1,
+      "graphId": "durable_agent_graph",
+      "startNodeId": "planner",
+      "nodes": [
+        { "id": "planner", "kind": "agent", "agentId": "planner", "label": "Planner" },
+        { "id": "wait_approval", "kind": "wait", "waitFor": "approval" }
+      ],
+      "edges": [
+        { "from": "planner", "to": "wait_approval", "condition": "completed" }
+      ]
+    },
+    "eventedV2AgentPeers": {},
+    "eventedV2RemoteAgent": {
+      "timeoutMs": 30000,
+      "leaseTtlMs": 60000,
+      "heartbeatTtlMs": 180000,
+      "scheduler": {
+        "enabled": true,
+        "intervalMs": 1000
+      },
+      "compensation": {
+        "statusConditions": {
+          "failed": "failed",
+          "aborted": "aborted"
+        }
       }
     }
   },
@@ -71,10 +120,7 @@
         "topKDefault": 5,
         "topKMax": 10,
         "minScore": 0.15,
-        "bm25": {
-          "k1": 1.2,
-          "b": 0.75
-        }
+        "bm25": { "k1": 1.2, "b": 0.75 }
       },
       "servers": {}
     },
@@ -88,7 +134,7 @@
     "skills": {
       "enabled": false,
       "roots": [],
-      "legacySkillMd": true
+      "legacySkillMd": false
     },
     "subagents": {
       "enabled": false,

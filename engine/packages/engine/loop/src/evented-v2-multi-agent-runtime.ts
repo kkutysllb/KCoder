@@ -1,18 +1,19 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
   MailboxMessageSchema,
+  KernelCompletionPayloadSchema,
+  KernelRunIdentitySchema,
   MultiAgentRunSchema,
   TaskEnvelopeSchema,
-  type AgentGraphSnapshot,
   type AgentGraph,
-  type AgentRun,
+  type AgentGraphNode,
   type MailboxMessage,
-  type ManagerRouteDecision,
+  type KernelRunIdentity,
+  type RunOutcome,
   type MultiAgentOutboxIntent,
   type MultiAgentRun,
   type PeerArtifact,
-  type PeerTask,
-  type UsageSnapshot
+  type PeerTask
 } from '@qiongqi/contracts'
 import type {
   EventedV2WorkerRegistryStore,
@@ -21,6 +22,12 @@ import type {
   MultiAgentRunStore,
   MultiAgentRunUpdateOptions
 } from '@qiongqi/ports'
+import type {
+  AgentDispatchPreparationInput,
+  AgentExecutionInput,
+  AgentExecutor
+} from './kernel-agent-executor.js'
+import type { ApprovalResolutionInput, GraphGovernor } from './graph-governor.js'
 import { nextNodeForCondition, requireGraphNode, validateAgentGraph } from './multi-agent-graph.js'
 import {
   buildEventedV2RunMetrics,
@@ -29,32 +36,22 @@ import {
   type EventedV2RunTimeline
 } from './evented-v2-observability.js'
 
-export type AgentLifecycleEvent = {
-  threadId: string
-  turnId: string
-  runId: string
-  stage: 'agent_spawn' | 'agent_complete' | 'agent_handoff'
-  agentId: string
-  nodeId?: string
-  prompt?: string
-  status?: string
-  summary?: string
-  targetAgentId?: string
-}
-
 export type EventedV2MultiAgentRuntimeOptions = {
   runs: MultiAgentRunStore
   mailbox: MailboxStore
-  graph?: AgentGraph
-  graphSnapshot?: AgentGraphSnapshot
+  graph: AgentGraph
   ids: (prefix: string) => string
   nowIso: () => string
   leaseHolderId?: string
   leaseTtlMs?: number
-  /** Optional callback invoked when an agent lifecycle event occurs.
-   * Used by the HTTP layer to emit pipeline_stage SSE events so the
-   * frontend can visualise multi-agent activity. */
-  onAgentLifecycle?: (event: AgentLifecycleEvent) => void
+  agentExecutor?: AgentExecutor
+  dispatchPreparer?: {
+    prepareAgentDispatch(
+      input: AgentDispatchPreparationInput,
+      options?: MultiAgentRunUpdateOptions
+    ): Promise<MultiAgentRun>
+  }
+  approvalGovernor?: Pick<GraphGovernor, 'resolveApproval'>
 }
 
 export type EventedV2OutboxReconcilerFlushResult = {
@@ -436,25 +433,11 @@ export class EventedV2OutboxReconciler {
 
 export class EventedV2MultiAgentRuntime {
   private readonly graph: AgentGraph
-  private readonly graphSnapshot: AgentGraphSnapshot | undefined
   private readonly runLocks = new Map<string, Promise<void>>()
   private readonly leaseHolderId: string
 
   constructor(private readonly options: EventedV2MultiAgentRuntimeOptions) {
-    if (options.graphSnapshot) {
-      this.graphSnapshot = options.graphSnapshot
-      this.graph = validateAgentGraph({
-        version: 1,
-        graphId: options.graphSnapshot.publicKey,
-        startNodeId: options.graphSnapshot.startNodeId,
-        nodes: options.graphSnapshot.nodes,
-        edges: options.graphSnapshot.edges
-      })
-    } else if (options.graph) {
-      this.graph = validateAgentGraph(options.graph)
-    } else {
-      throw new Error('EventedV2MultiAgentRuntime requires graph or graphSnapshot')
-    }
+    this.graph = validateAgentGraph(options.graph)
     this.leaseHolderId = options.leaseHolderId ?? `evented_v2:${randomUUID()}`
   }
 
@@ -463,9 +446,7 @@ export class EventedV2MultiAgentRuntime {
     turnId: string
     workspaceKey: string
     prompt: string
-    routeDecision?: ManagerRouteDecision
   }): Promise<MultiAgentRun> {
-    if (this.graphSnapshot) return this.startTeamRun(input)
     const now = this.options.nowIso()
     const startNode = requireGraphNode(this.graph, this.graph.startNodeId)
     if (startNode.kind !== 'agent') throw new Error(`AgentGraph start node must be agent: ${startNode.id}`)
@@ -502,113 +483,79 @@ export class EventedV2MultiAgentRuntime {
       updatedAt: now
     })
     await this.options.runs.save(run)
-    this.options.onAgentLifecycle?.({
-      threadId: input.threadId,
-      turnId: input.turnId,
-      runId: run.runId,
-      stage: 'agent_spawn',
-      agentId: startNode.agentId,
-      nodeId: startNode.id,
-      prompt: input.prompt
-    })
     return run
   }
 
-  async startRun(input: {
-    threadId: string
-    turnId: string
-    workspaceKey: string
-    prompt: string
-    routeDecision?: ManagerRouteDecision
-  }): Promise<MultiAgentRun> {
-    return this.start(input)
+  async load(runId: string): Promise<MultiAgentRun | undefined> {
+    const run = await this.options.runs.load(runId)
+    return run ? MultiAgentRunSchema.parse(run) : undefined
   }
 
-  private async startTeamRun(input: {
-    threadId: string
-    turnId: string
-    workspaceKey: string
-    prompt: string
-    routeDecision?: ManagerRouteDecision
-  }): Promise<MultiAgentRun> {
-    const graphSnapshot = this.requireTeamGraphSnapshot()
-    const now = this.options.nowIso()
-    const startNode = requireGraphNode(this.graph, graphSnapshot.startNodeId)
-    if (startNode.kind !== 'agent' || startNode.id !== 'manager_planning') {
-      throw new Error(`team graph start node must be manager_planning: ${startNode.id}`)
-    }
-    const specialistNodeIds = (input.routeDecision?.specialists ?? [])
-      .map((specialist) => `specialist:${specialist.specialistId}`)
-    const run = MultiAgentRunSchema.parse({
-      version: 1,
-      runId: this.options.ids('mar'),
-      threadId: input.threadId,
-      turnId: input.turnId,
-      workspaceKey: input.workspaceKey,
-      status: 'running',
-      graphId: graphSnapshot.publicKey,
-      graphSnapshot,
-      ...(input.routeDecision ? { routeDecision: input.routeDecision } : {}),
-      activeNodeId: startNode.id,
-      activeNodeIds: [startNode.id],
-      runnableNodeIds: [],
-      activeAgentStack: [startNode.agentId],
-      branchStatus: Object.fromEntries(specialistNodeIds.map((nodeId) => [nodeId, 'queued'])),
-      agentRuns: [this.createTeamAgentRun({
-        nodeId: startNode.id,
-        agentId: startNode.agentId,
-        sequence: 1,
-        now
-      })],
-      events: [{
-        eventId: this.options.ids('mae'),
-        type: 'run_started',
-        nodeId: startNode.id,
-        agentId: startNode.agentId,
-        payload: { prompt: input.prompt },
-        timestamp: now
-      }],
-      retryCounters: {},
-      nextPublicSequence: 2,
-      warnings: [],
-      budgets: { stepsUsed: 0, toolCallsUsed: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
-      createdAt: now,
-      updatedAt: now
-    })
-    await this.options.runs.save(run)
-    this.emitAgentSpawn(run, startNode.agentId, startNode.id, input.prompt)
-    return run
-  }
-
-  async applyRouteDecision(input: {
+  async dispatchActiveAgent(input: {
     runId: string
-    graphSnapshot: AgentGraphSnapshot
-    routeDecision: ManagerRouteDecision
+    scope: AgentExecutionInput['scope']
+    prompt: string
+    requestedBudget: AgentExecutionInput['requestedBudget']
+    sharedEvidenceRefs?: string[]
+    graph?: AgentExecutionInput['graph']
   }): Promise<MultiAgentRun> {
-    return this.withRunLock(input.runId, () => this.withRunMutationLease(input.runId, async (fence) =>
-      this.options.runs.update(input.runId, (current) => {
-        if (current.routeDecision) {
-          if (JSON.stringify(current.routeDecision) !== JSON.stringify(input.routeDecision)) {
-            throw new Error(`MultiAgentRun route decision is immutable: ${input.runId}`)
-          }
-          return current
-        }
-        if (current.graphSnapshot?.publicKey !== input.graphSnapshot.publicKey) {
-          throw new Error(`MultiAgentRun graph public key cannot change: ${input.runId}`)
-        }
-        const branchStatus = Object.fromEntries(input.routeDecision.specialists.map((specialist) => [
-          `specialist:${specialist.specialistId}`,
-          'queued'
-        ]))
-        return MultiAgentRunSchema.parse({
-          ...current,
-          graphId: input.graphSnapshot.publicKey,
-          graphSnapshot: input.graphSnapshot,
-          routeDecision: input.routeDecision,
-          branchStatus,
-          updatedAt: this.options.nowIso()
-        })
-      }, updateOptions(fence))))
+    return this.withRunLock(input.runId, () => this.withRunMutationLease(input.runId, async (fence) => {
+      const current = await this.options.runs.load(input.runId)
+      if (!current) throw new Error(`MultiAgentRun not found: ${input.runId}`)
+      const node = requireGraphNode(this.graph, current.activeNodeId)
+      if (node.kind !== 'agent' && node.kind !== 'judge') {
+        throw new Error(`active graph node is not model-driven: ${node.id}`)
+      }
+      const agentId = executionAgentId(node)
+      const agentRun = [...current.agentRuns].reverse().find((candidate) =>
+        candidate.nodeId === node.id && candidate.agentId === agentId)
+      if (!agentRun) throw new Error(`AgentRun not found for node: ${node.id}`)
+      if (agentRun.executionRef) return current
+      if (node.kind === 'judge' && (input.sharedEvidenceRefs?.length ?? 0) === 0) {
+        return this.options.runs.update(input.runId, (run) => this.rejectJudgeWithoutEvidence(run, node.id, agentId), updateOptions(fence))
+      }
+      const executionRef = KernelRunIdentitySchema.parse({
+        scope: input.scope,
+        parentKind: 'agent',
+        multiAgentRunId: current.runId,
+        agentRunId: agentRun.agentRunId,
+        parentRunId: agentRun.agentRunId,
+        kernelRunId: this.options.ids('kernel_run'),
+        ...(input.graph ? { graph: input.graph } : {})
+      })
+      const prepared: AgentDispatchPreparationInput = {
+        scope: input.scope,
+        multiAgentRunId: current.runId,
+        agentRunId: agentRun.agentRunId,
+        agentId,
+        nodeId: agentRun.nodeId,
+        parentRunId: current.runId,
+        requestedBudget: input.requestedBudget,
+        prompt: input.prompt,
+        executionRef,
+        reservationId: `reservation:${executionRef.kernelRunId}`,
+        inputRef: promptInputRef(current),
+        role: node.kind,
+        ...(input.graph ? { graph: input.graph } : {}),
+        ...(node.kind === 'judge' ? {
+          sharedEvidenceRefs: [...input.sharedEvidenceRefs!],
+          ...(node.modelPolicyRef ? { modelPolicyRef: node.modelPolicyRef } : {})
+        } : {})
+      }
+      if (this.options.dispatchPreparer) {
+        return this.options.dispatchPreparer.prepareAgentDispatch(prepared, updateOptions(fence))
+      }
+      const executor = this.options.agentExecutor
+      if (!executor) throw new Error('evented_v2 agent executor is not configured')
+      const execution = await executor.execute(prepared)
+      return this.options.runs.update(input.runId, (run) => MultiAgentRunSchema.parse({
+        ...run,
+        agentRuns: run.agentRuns.map((candidate) => candidate.agentRunId === agentRun.agentRunId
+          ? { ...candidate, status: 'running', executionRef: execution.executionRef, updatedAt: this.options.nowIso() }
+          : candidate),
+        updatedAt: this.options.nowIso()
+      }), updateOptions(fence))
+    }))
   }
 
   async handoff(input: {
@@ -632,15 +579,6 @@ export class EventedV2MultiAgentRuntime {
       (current) => this.applyHandoff(current, input),
       updateOptions(fence)
     )
-    this.options.onAgentLifecycle?.({
-      threadId: next.threadId,
-      turnId: next.turnId,
-      runId: input.runId,
-      stage: 'agent_handoff',
-      agentId: input.sourceAgentId,
-      targetAgentId: input.targetAgentId,
-      prompt: input.prompt
-    })
     return this.flushPendingOutboxUnlocked(next.runId, fence)
   }
 
@@ -814,32 +752,55 @@ export class EventedV2MultiAgentRuntime {
     runId: string
     agentId: string
     condition?: string
-    status?: 'completed' | 'failed' | 'aborted'
+    status?: 'completed' | 'degraded' | 'failed' | 'aborted' | 'suspended'
     summary?: string
-    usage?: UsageSnapshot
     error?: string
     peerArtifact?: PeerArtifact
+    executionRef?: KernelRunIdentity
+    outcome?: RunOutcome
     mailboxCompletion?: {
       messageId: string
       status: 'completed' | 'failed' | 'aborted'
       fence?: MailboxMessage['claimLease']
     }
   }): Promise<MultiAgentRun> {
-    if (this.graphSnapshot) return this.completeTeamAgentTask(input)
+    if (input.executionRef?.parentKind !== undefined && input.executionRef.parentKind !== 'agent') {
+      throw new Error('Kernel completion must reference an agent child run')
+    }
+    const completionAgentRunId = input.executionRef?.parentKind === 'agent'
+      ? input.executionRef.agentRunId
+      : undefined
+    const completionKernelRunId = input.executionRef?.kernelRunId
     return this.withRunLock(input.runId, () =>
       this.withRunMutationLease(input.runId, async (fence) => {
         const next = await this.options.runs.update(input.runId, (current) => {
+          if (completionAgentRunId) {
+            const delivered = current.agentRuns.find((agentRun) => agentRun.agentRunId === completionAgentRunId)
+            if (!delivered) throw new Error(`AgentRun not found for Kernel completion: ${completionAgentRunId}`)
+            if (delivered.outcome) {
+              if (delivered.executionRef?.kernelRunId !== completionKernelRunId
+                || JSON.stringify(delivered.outcome) !== JSON.stringify(input.outcome)) {
+                throw new Error(`Conflicting Kernel completion: ${completionKernelRunId ?? '<missing>'}`)
+              }
+              return current
+            }
+          }
           const activeNode = requireGraphNode(this.graph, current.activeNodeId)
-          if (activeNode.kind !== 'agent') throw new Error(`Active node must be agent to complete task: ${activeNode.id}`)
-          if (activeNode.agentId !== input.agentId) {
-            throw new Error(`Agent task completion mismatch: ${activeNode.agentId} !== ${input.agentId}`)
+          if (activeNode.kind !== 'agent' && activeNode.kind !== 'judge') {
+            throw new Error(`Active node must be model-driven to complete task: ${activeNode.id}`)
+          }
+          const expectedAgentId = executionAgentId(activeNode)
+          if (expectedAgentId !== input.agentId) {
+            throw new Error(`Agent task completion mismatch: ${expectedAgentId} !== ${input.agentId}`)
           }
           const now = this.options.nowIso()
           const condition = input.condition ?? 'completed'
           const status = input.status ?? agentRunStatusFromCondition(condition)
           const nextNodeId = nextNodeForCondition(this.graph, activeNode.id, condition)
           if (!nextNodeId) throw new Error(`No ${condition} edge from node: ${activeNode.id}`)
-          const agentRunIndex = latestAgentRunIndex(current, input.agentId, activeNode.id)
+          const agentRunIndex = input.executionRef
+            ? current.agentRuns.findIndex((agentRun) => agentRun.agentRunId === completionAgentRunId)
+            : latestAgentRunIndex(current, input.agentId, activeNode.id)
           const withCompletedAgent = MultiAgentRunSchema.parse({
             ...current,
             agentRuns: current.agentRuns.map((agentRun, index) =>
@@ -848,9 +809,10 @@ export class EventedV2MultiAgentRuntime {
                     ...agentRun,
                     status,
                     summary: input.summary ?? agentRun.summary,
-                    ...(input.usage !== undefined ? { usage: input.usage } : {}),
                     ...(input.error !== undefined ? { error: input.error } : {}),
                     ...(input.peerArtifact !== undefined ? { peerArtifact: input.peerArtifact } : {}),
+                    ...(input.executionRef !== undefined ? { executionRef: input.executionRef } : {}),
+                    ...(input.outcome !== undefined ? { outcome: input.outcome } : {}),
                     completedAt: agentRun.completedAt ?? now,
                     updatedAt: now
                   }
@@ -866,6 +828,8 @@ export class EventedV2MultiAgentRuntime {
                 summary: input.summary,
                 ...(input.error !== undefined ? { error: input.error } : {}),
                 ...(input.peerArtifact !== undefined ? { peerArtifact: input.peerArtifact } : {}),
+                ...(input.executionRef !== undefined ? { executionRef: input.executionRef } : {}),
+                ...(input.outcome !== undefined ? { outcome: input.outcome } : {}),
                 ...(input.mailboxCompletion !== undefined ? { messageId: input.mailboxCompletion.messageId } : {})
               },
               timestamp: now
@@ -877,101 +841,28 @@ export class EventedV2MultiAgentRuntime {
             ? this.ensureMailboxCompleteOutboxIntent(advanced, input.mailboxCompletion)
             : advanced
         }, updateOptions(fence))
-        const condition = input.condition ?? 'completed'
-        const status = input.status ?? agentRunStatusFromCondition(condition)
-        this.options.onAgentLifecycle?.({
-          threadId: next.threadId,
-          turnId: next.turnId,
-          runId: input.runId,
-          stage: 'agent_complete',
-          agentId: input.agentId,
-          status,
-          summary: input.summary
-        })
         return input.mailboxCompletion ? this.flushPendingOutboxUnlocked(next.runId, fence) : next
       }))
   }
 
-  private async completeTeamAgentTask(input: {
-    runId: string
-    agentId: string
-    condition?: string
-    status?: 'completed' | 'failed' | 'aborted'
-    summary?: string
-    usage?: UsageSnapshot
-    error?: string
-    peerArtifact?: PeerArtifact
-    mailboxCompletion?: {
-      messageId: string
-      status: 'completed' | 'failed' | 'aborted'
-      fence?: MailboxMessage['claimLease']
+  async consumeKernelCompletion(input: { runId: string; completion: unknown }): Promise<MultiAgentRun> {
+    const completion = KernelCompletionPayloadSchema.parse(input.completion)
+    const executionRef = completion.executionRef
+    if (executionRef.parentKind !== 'agent') {
+      throw new Error('Kernel completion must reference an agent child run')
     }
-  }): Promise<MultiAgentRun> {
-    return this.withRunLock(input.runId, () =>
-      this.withRunMutationLease(input.runId, async (fence) => {
-        const next = await this.options.runs.update(input.runId, (current) => {
-          const advanced = this.applyTeamAgentCompletion(current, input)
-          return input.mailboxCompletion
-            ? this.ensureMailboxCompleteOutboxIntent(advanced, input.mailboxCompletion)
-            : advanced
-        }, updateOptions(fence))
-        const status = input.status ?? agentRunStatusFromCondition(input.condition ?? 'completed')
-        this.options.onAgentLifecycle?.({
-          threadId: next.threadId,
-          turnId: next.turnId,
-          runId: input.runId,
-          stage: 'agent_complete',
-          agentId: input.agentId,
-          status,
-          summary: input.summary
-        })
-        return input.mailboxCompletion ? this.flushPendingOutboxUnlocked(next.runId, fence) : next
-      }))
-  }
-
-  async allocatePublicSequence(runId: string): Promise<number> {
-    let allocated: number | undefined
-    await this.withRunLock(runId, () => this.withRunMutationLease(runId, async (fence) => {
-      await this.options.runs.update(runId, (current) => {
-        allocated = current.nextPublicSequence
-        return MultiAgentRunSchema.parse({
-          ...current,
-          nextPublicSequence: current.nextPublicSequence + 1,
-          updatedAt: this.options.nowIso()
-        })
-      }, updateOptions(fence))
-    }))
-    if (allocated === undefined) throw new Error(`MultiAgentRun sequence allocation failed: ${runId}`)
-    return allocated
-  }
-
-  async abortRun(runId: string, reason?: string): Promise<MultiAgentRun> {
-    return this.withRunLock(runId, () => this.withRunMutationLease(runId, async (fence) =>
-      this.options.runs.update(runId, (current) => {
-        if (isRunTerminal(current.status)) return current
-        const now = this.options.nowIso()
-        const activeNodeIds = new Set(current.activeNodeIds)
-        return MultiAgentRunSchema.parse({
-          ...current,
-          status: 'aborted',
-          activeNodeIds: [],
-          runnableNodeIds: [],
-          branchStatus: Object.fromEntries(Object.entries(current.branchStatus).map(([nodeId, status]) => [
-            nodeId,
-            status === 'running' || status === 'queued' ? 'aborted' : status
-          ])),
-          agentRuns: current.agentRuns.map((agentRun) => activeNodeIds.has(agentRun.nodeId)
-            ? { ...agentRun, status: 'aborted', error: reason, completedAt: now, updatedAt: now }
-            : agentRun),
-          events: [...current.events, {
-            eventId: this.options.ids('mae'),
-            type: 'run_failed',
-            payload: { status: 'aborted', reason },
-            timestamp: now
-          }],
-          updatedAt: now
-        })
-      }, updateOptions(fence))))
+    const run = await this.options.runs.load(input.runId)
+    if (!run) throw new Error(`MultiAgentRun not found: ${input.runId}`)
+    const agentRun = run.agentRuns.find((candidate) => candidate.agentRunId === executionRef.agentRunId)
+    if (!agentRun) throw new Error(`AgentRun not found for Kernel completion: ${executionRef.agentRunId}`)
+    return this.completeAgentTask({
+      runId: input.runId,
+      agentId: agentRun.agentId,
+      condition: completionCondition(completion.outcome),
+      status: completion.outcome.status,
+      executionRef,
+      outcome: completion.outcome
+    })
   }
 
   async completeExternalNode(input: {
@@ -989,6 +880,9 @@ export class EventedV2MultiAgentRuntime {
       if (!['wait', 'tool', 'judge'].includes(activeNode.kind)) {
         throw new Error(`Active node is not externally completable: ${activeNode.id}`)
       }
+      if (activeNode.kind === 'wait' && activeNode.waitFor === 'approval' && this.options.approvalGovernor) {
+        throw new Error(`approval gate ${activeNode.id} must be resolved through its durable checkpoint`)
+      }
       const nextNodeId = nextNodeForCondition(this.graph, activeNode.id, input.condition)
       if (!nextNodeId) throw new Error(`No ${input.condition} edge from node: ${activeNode.id}`)
       const now = this.options.nowIso()
@@ -1005,6 +899,14 @@ export class EventedV2MultiAgentRuntime {
       })
       return this.enterGraphNode(withCompletedNode, nextNodeId)
     }, updateOptions(fence))))
+  }
+
+  async resolveApproval(input: ApprovalResolutionInput): Promise<MultiAgentRun> {
+    const governor = this.options.approvalGovernor
+    if (!governor) throw new Error('durable approval governor is not configured')
+    const run = await governor.resolveApproval(input)
+    if (!run.eventedV2Run) throw new Error(`graph run ${run.runId} has no evented_v2 state`)
+    return MultiAgentRunSchema.parse(run.eventedV2Run)
   }
 
   async flushAllPendingOutbox(): Promise<MultiAgentRun[]> {
@@ -1068,325 +970,6 @@ export class EventedV2MultiAgentRuntime {
     })
   }
 
-  private applyTeamAgentCompletion(current: MultiAgentRun, input: {
-    agentId: string
-    condition?: string
-    status?: 'completed' | 'failed' | 'aborted'
-    summary?: string
-    usage?: UsageSnapshot
-    error?: string
-    peerArtifact?: PeerArtifact
-  }): MultiAgentRun {
-    const graphSnapshot = this.requireTeamGraphSnapshot()
-    if (current.graphSnapshot?.publicKey !== graphSnapshot.publicKey) {
-      throw new Error(`MultiAgentRun graph snapshot mismatch: ${current.graphId}`)
-    }
-    if (isRunTerminal(current.status)) return current
-    const nodeId = current.activeNodeIds.find((candidate) => {
-      const node = requireGraphNode(this.graph, candidate)
-      return node.kind === 'agent' && node.agentId === input.agentId
-    })
-    if (!nodeId) throw new Error(`Active AgentRun not found for completion: ${input.agentId}`)
-    const agentRunIndex = latestAgentRunIndex(current, input.agentId, nodeId)
-    const agentRun = current.agentRuns[agentRunIndex]
-    if (!agentRun) throw new Error(`AgentRun not found for completion: ${input.agentId}/${nodeId}`)
-    const now = this.options.nowIso()
-    const status = input.status ?? agentRunStatusFromCondition(input.condition ?? 'completed')
-    const completed = MultiAgentRunSchema.parse({
-      ...current,
-      activeNodeIds: current.activeNodeIds.filter((candidate) => candidate !== nodeId),
-      agentRuns: current.agentRuns.map((candidate, index) => index === agentRunIndex
-        ? {
-            ...candidate,
-            status,
-            summary: input.summary ?? candidate.summary,
-            ...(input.usage !== undefined ? { usage: input.usage } : {}),
-            ...(input.error !== undefined ? { error: input.error } : {}),
-            ...(input.peerArtifact !== undefined ? { peerArtifact: input.peerArtifact } : {}),
-            completedAt: now,
-            updatedAt: now
-          }
-        : candidate),
-      events: [...current.events, {
-        eventId: this.options.ids('mae'),
-        type: 'node_completed',
-        nodeId,
-        agentId: input.agentId,
-        payload: { status, summary: input.summary, error: input.error },
-        timestamp: now
-      }],
-      updatedAt: now
-    })
-
-    if (nodeId === 'manager_planning') {
-      return status === 'completed'
-        ? this.advanceTeamRun(completed)
-        : this.finishTeamRun(completed, status === 'aborted' ? 'aborted' : 'failed', input.error)
-    }
-    if (nodeId === 'manager_synthesis') {
-      return status === 'completed'
-        ? this.finishTeamRun(completed, 'completed')
-        : this.finishTeamRun(completed, status === 'aborted' ? 'aborted' : 'failed', input.error)
-    }
-
-    const specialist = current.routeDecision?.specialists.find((candidate) =>
-      `specialist:${candidate.specialistId}` === nodeId)
-    if (!specialist) throw new Error(`Route decision missing specialist node: ${nodeId}`)
-    if (status !== 'completed' && agentRun.attempt <= graphSnapshot.budgets.maxRetriesPerNode) {
-      const retriedAgentRuns = completed.agentRuns.map((candidate, index) => {
-        if (index !== agentRunIndex) return candidate
-        const { completedAt: _completedAt, ...retryable } = candidate
-        return {
-          ...retryable,
-          status: 'running' as const,
-          attempt: candidate.attempt + 1,
-          updatedAt: now
-        }
-      })
-      return MultiAgentRunSchema.parse({
-        ...completed,
-        activeNodeId: nodeId,
-        activeNodeIds: [...completed.activeNodeIds, nodeId],
-        branchStatus: { ...completed.branchStatus, [nodeId]: 'running' },
-        agentRuns: retriedAgentRuns,
-        retryCounters: { ...completed.retryCounters, [nodeId]: agentRun.attempt },
-        events: [...completed.events, {
-          eventId: this.options.ids('mae'),
-          type: 'node_started',
-          nodeId,
-          agentId: input.agentId,
-          payload: { retry: true, attempt: agentRun.attempt + 1 },
-          timestamp: now
-        }],
-        updatedAt: now
-      })
-    }
-
-    const terminalBranch = MultiAgentRunSchema.parse({
-      ...completed,
-      branchStatus: { ...completed.branchStatus, [nodeId]: status },
-      warnings: status !== 'completed' && !specialist.required
-        ? appendUnique(completed.warnings, `Optional specialist ${specialist.specialistId} did not complete`)
-        : completed.warnings
-    })
-    if (status !== 'completed' && specialist.required) {
-      return this.finishTeamRun(terminalBranch, 'failed', input.error)
-    }
-    return this.advanceTeamRun(terminalBranch)
-  }
-
-  private advanceTeamRun(run: MultiAgentRun): MultiAgentRun {
-    const snapshot = this.requireTeamGraphSnapshot()
-    const decision = run.routeDecision
-    if (!decision) throw new Error(`MultiAgentRun route decision missing: ${run.runId}`)
-    let next = MultiAgentRunSchema.parse(run)
-
-    // A specialist whose dependency terminated unsuccessfully cannot run.
-    let changed = true
-    while (changed) {
-      changed = false
-      for (const specialist of decision.specialists) {
-        const nodeId = `specialist:${specialist.specialistId}`
-        if (next.branchStatus[nodeId] !== 'queued') continue
-        const blocked = specialist.dependsOn.some((dependency) => {
-          const status = next.branchStatus[`specialist:${dependency}`]
-          return status === 'failed' || status === 'aborted'
-        })
-        if (!blocked) continue
-        changed = true
-        next = MultiAgentRunSchema.parse({
-          ...next,
-          branchStatus: { ...next.branchStatus, [nodeId]: 'failed' },
-          warnings: specialist.required
-            ? next.warnings
-            : appendUnique(next.warnings, `Optional specialist ${specialist.specialistId} did not complete`)
-        })
-        if (specialist.required) {
-          return this.finishTeamRun(next, 'failed', `Required specialist ${specialist.specialistId} was blocked`)
-        }
-      }
-    }
-
-    const activeSpecialists = next.activeNodeIds.filter((nodeId) => nodeId.startsWith('specialist:'))
-    const ready = decision.specialists
-      .map((specialist) => ({ specialist, nodeId: `specialist:${specialist.specialistId}` }))
-      .filter(({ specialist, nodeId }) =>
-        next.branchStatus[nodeId] === 'queued' &&
-        specialist.dependsOn.every((dependency) => next.branchStatus[`specialist:${dependency}`] === 'completed'))
-      .map(({ nodeId }) => nodeId)
-    const available = Math.max(0, snapshot.budgets.maxParallelNodes - activeSpecialists.length)
-    const toStart = ready.slice(0, available)
-    const runnableNodeIds = ready.slice(available)
-    next = MultiAgentRunSchema.parse({ ...next, runnableNodeIds })
-    for (const nodeId of toStart) next = this.startTeamAgentNode(next, nodeId)
-
-    const specialistsTerminal = decision.specialists.every((specialist) => {
-      const status = next.branchStatus[`specialist:${specialist.specialistId}`]
-      return status === 'completed' || status === 'failed' || status === 'aborted'
-    })
-    const activeAfterStart = next.activeNodeIds.some((nodeId) => nodeId.startsWith('specialist:'))
-    if (specialistsTerminal && !activeAfterStart && next.runnableNodeIds.length === 0) {
-      return this.startTeamAgentNode(this.completeTeamJoin(next), 'manager_synthesis')
-    }
-    const firstActive = next.activeNodeIds[0]
-    return MultiAgentRunSchema.parse({
-      ...next,
-      status: 'running',
-      activeNodeId: firstActive ?? next.activeNodeId
-    })
-  }
-
-  private startTeamAgentNode(run: MultiAgentRun, nodeId: string): MultiAgentRun {
-    if (run.activeNodeIds.includes(nodeId)) return run
-    const existing = run.agentRuns.find((agentRun) => agentRun.nodeId === nodeId)
-    if (existing) return run
-    const node = requireGraphNode(this.graph, nodeId)
-    if (node.kind !== 'agent') throw new Error(`team runnable node must be agent: ${nodeId}`)
-    const now = this.options.nowIso()
-    const sequence = run.nextPublicSequence
-    const agentRun = this.createTeamAgentRun({ nodeId, agentId: node.agentId, sequence, now, run })
-    const activeNodeIds = [...run.activeNodeIds, nodeId]
-    return MultiAgentRunSchema.parse({
-      ...run,
-      status: 'running',
-      activeNodeId: activeNodeIds[0] ?? nodeId,
-      activeNodeIds,
-      runnableNodeIds: run.runnableNodeIds.filter((candidate) => candidate !== nodeId),
-      activeAgentStack: [...run.activeAgentStack, node.agentId],
-      branchStatus: nodeId.startsWith('specialist:')
-        ? { ...run.branchStatus, [nodeId]: 'running' }
-        : run.branchStatus,
-      agentRuns: [...run.agentRuns, agentRun],
-      nextPublicSequence: sequence + 1,
-      events: [...run.events, {
-        eventId: this.options.ids('mae'),
-        type: 'node_started',
-        nodeId,
-        agentId: node.agentId,
-        timestamp: now
-      }],
-      updatedAt: now
-    })
-  }
-
-  private completeTeamJoin(run: MultiAgentRun): MultiAgentRun {
-    const alreadyCompleted = run.events.some((event) =>
-      event.type === 'node_completed' && event.nodeId === 'join')
-    if (alreadyCompleted) return run
-    const now = this.options.nowIso()
-    return MultiAgentRunSchema.parse({
-      ...run,
-      activeNodeId: 'join',
-      events: [
-        ...run.events,
-        {
-          eventId: this.options.ids('mae'),
-          type: 'node_started',
-          nodeId: 'join',
-          timestamp: now
-        },
-        {
-          eventId: this.options.ids('mae'),
-          type: 'node_completed',
-          nodeId: 'join',
-          payload: { warnings: run.warnings },
-          timestamp: now
-        }
-      ],
-      updatedAt: now
-    })
-  }
-
-  private createTeamAgentRun(input: {
-    nodeId: string
-    agentId: string
-    sequence: number
-    now: string
-    run?: MultiAgentRun
-  }): AgentRun {
-    const specialist = input.run?.routeDecision?.specialists.find((candidate) =>
-      `specialist:${candidate.specialistId}` === input.nodeId)
-    const role = input.nodeId.startsWith('manager_') ? 'manager' : 'specialist'
-    const phase = input.nodeId === 'manager_planning'
-      ? 'planning'
-      : input.nodeId === 'manager_synthesis'
-        ? 'synthesis'
-        : 'execution'
-    return {
-      agentRunId: this.options.ids('agent_run'),
-      agentId: input.agentId,
-      nodeId: input.nodeId,
-      publicKey: this.options.ids('agent'),
-      sequence: input.sequence,
-      role,
-      phase,
-      transcriptRef: this.options.ids('transcript'),
-      attempt: 1,
-      ...(specialist ? { task: specialist.task, required: specialist.required } : {}),
-      status: 'running',
-      startedAt: input.now,
-      updatedAt: input.now
-    }
-  }
-
-  private finishTeamRun(
-    run: MultiAgentRun,
-    status: 'completed' | 'failed' | 'aborted',
-    error?: string
-  ): MultiAgentRun {
-    if (run.status === status && isRunTerminal(run.status)) return run
-    const now = this.options.nowIso()
-    const activeNodeIds = new Set(run.activeNodeIds)
-    const abortRemaining = status !== 'completed'
-    return MultiAgentRunSchema.parse({
-      ...run,
-      status,
-      activeNodeIds: [],
-      runnableNodeIds: [],
-      branchStatus: abortRemaining
-        ? Object.fromEntries(Object.entries(run.branchStatus).map(([nodeId, branchStatus]) => [
-            nodeId,
-            branchStatus === 'queued' || branchStatus === 'running' ? 'aborted' : branchStatus
-          ]))
-        : run.branchStatus,
-      agentRuns: abortRemaining
-        ? run.agentRuns.map((agentRun) => activeNodeIds.has(agentRun.nodeId)
-          ? {
-              ...agentRun,
-              status: 'aborted',
-              ...(error !== undefined ? { error } : {}),
-              completedAt: now,
-              updatedAt: now
-            }
-          : agentRun)
-        : run.agentRuns,
-      events: [...run.events, {
-        eventId: this.options.ids('mae'),
-        type: status === 'completed' ? 'run_completed' : 'run_failed',
-        payload: status === 'completed' ? undefined : { status, error },
-        timestamp: now
-      }],
-      updatedAt: now
-    })
-  }
-
-  private requireTeamGraphSnapshot(): AgentGraphSnapshot {
-    if (!this.graphSnapshot) throw new Error('team graph snapshot is not configured')
-    return this.graphSnapshot
-  }
-
-  private emitAgentSpawn(run: MultiAgentRun, agentId: string, nodeId: string, prompt?: string): void {
-    this.options.onAgentLifecycle?.({
-      threadId: run.threadId,
-      turnId: run.turnId,
-      runId: run.runId,
-      stage: 'agent_spawn',
-      agentId,
-      nodeId,
-      prompt
-    })
-  }
-
   private enterGraphNode(run: MultiAgentRun, nodeId: string): MultiAgentRun {
     const node = requireGraphNode(this.graph, nodeId)
     const now = this.options.nowIso()
@@ -1426,6 +1009,32 @@ export class EventedV2MultiAgentRuntime {
           status: 'queued',
           startedAt: now,
           updatedAt: now
+        }],
+        updatedAt: now
+      })
+    }
+    if (node.kind === 'judge') {
+      const agentId = executionAgentId(node)
+      const hasJudgeRun = run.agentRuns.some((agentRun) =>
+        agentRun.agentId === agentId && agentRun.nodeId === node.id && ['queued', 'running'].includes(agentRun.status))
+      return MultiAgentRunSchema.parse({
+        ...run,
+        status: 'suspended',
+        activeNodeId: node.id,
+        agentRuns: hasJudgeRun ? run.agentRuns : [...run.agentRuns, {
+          agentRunId: this.options.ids('agent_run'),
+          agentId,
+          nodeId: node.id,
+          status: 'queued',
+          startedAt: now,
+          updatedAt: now
+        }],
+        events: [...run.events, {
+          eventId: this.options.ids('mae'),
+          type: 'node_started',
+          nodeId: node.id,
+          agentId,
+          timestamp: now
         }],
         updatedAt: now
       })
@@ -1502,6 +1111,28 @@ export class EventedV2MultiAgentRuntime {
     })
   }
 
+  private rejectJudgeWithoutEvidence(run: MultiAgentRun, nodeId: string, agentId: string): MultiAgentRun {
+    const nextNodeId = nextNodeForCondition(this.graph, nodeId, 'rejected')
+    if (!nextNodeId) throw new Error(`Judge node has no rejected edge: ${nodeId}`)
+    const now = this.options.nowIso()
+    const completed = MultiAgentRunSchema.parse({
+      ...run,
+      agentRuns: run.agentRuns.map((agentRun) => agentRun.nodeId === nodeId && agentRun.agentId === agentId
+        ? { ...agentRun, status: 'completed', completedAt: now, updatedAt: now, summary: 'rejected: missing shared evidence' }
+        : agentRun),
+      events: [...run.events, {
+        eventId: this.options.ids('mae'),
+        type: 'node_completed',
+        nodeId,
+        agentId,
+        payload: { condition: 'rejected', reason: 'missing_shared_evidence' },
+        timestamp: now
+      }],
+      updatedAt: now
+    })
+    return this.enterGraphNode(completed, nextNodeId)
+  }
+
   private async withRunLock<T>(runId: string, operation: () => Promise<T>): Promise<T> {
     const previous = this.runLocks.get(runId) ?? Promise.resolve()
     let release: () => void = () => undefined
@@ -1566,8 +1197,24 @@ export class EventedV2MultiAgentRuntime {
   }
 }
 
+function promptInputRef(run: MultiAgentRun): string {
+  const event = [...run.events].reverse().find((candidate) => {
+    const payload = candidate.payload
+    return payload !== null
+      && typeof payload === 'object'
+      && 'prompt' in payload
+      && typeof payload.prompt === 'string'
+  })
+  if (!event) throw new Error(`no durable prompt event is available for run: ${run.runId}`)
+  return `graph-run://${run.runId}/events/${encodeURIComponent(event.eventId)}/prompt`
+}
+
 function updateOptions(fence: LeaseFence | undefined): MultiAgentRunUpdateOptions | undefined {
   return fence ? { fence } : undefined
+}
+
+function executionAgentId(node: Extract<AgentGraphNode, { kind: 'agent' | 'judge' }>): string {
+  return node.kind === 'agent' ? node.agentId : `judge:${node.id}`
 }
 
 function promptFromMailboxMessage(message: MailboxMessage): string {
@@ -1586,6 +1233,10 @@ function conditionFromPeerArtifact(
     failed: 'failed',
     aborted: 'aborted'
   }[artifact.status]
+}
+
+function completionCondition(outcome: RunOutcome): string {
+  return outcome.status
 }
 
 function abortedPeerArtifact(peerCardId: string, error: unknown, signal: AbortSignal): PeerArtifact {
@@ -1649,14 +1300,6 @@ function agentRunStatusFromCondition(condition: string): 'completed' | 'failed' 
   if (condition === 'failed') return 'failed'
   if (condition === 'aborted') return 'aborted'
   return 'completed'
-}
-
-function appendUnique(values: readonly string[], value: string): string[] {
-  return values.includes(value) ? [...values] : [...values, value]
-}
-
-function isRunTerminal(status: MultiAgentRun['status']): boolean {
-  return status === 'completed' || status === 'failed' || status === 'aborted'
 }
 
 function latestAgentRunIndex(run: MultiAgentRun, agentId: string, nodeId: string): number {

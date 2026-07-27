@@ -4,7 +4,7 @@
   "name": "Theme Factory",
   "description": "Toolkit for styling artifacts (slides, docs, reports, landing pages) with themes: 10 pre-set color/font themes, or generate a new theme on-the-fly.",
   "version": "1.0.0",
-  "category": "design",
+  "category": "workflow",
   "priority": 4,
   "entry": "SKILL.md",
   "activation": {

@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: qiongqi-secrets
+type: Opaque
+stringData:
+  QIONGQI_BASE_URL: "https://api.example.com/v1"
+  QIONGQI_API_KEY: "replace-me"
+  QIONGQI_RUNTIME_TOKEN: "replace-me"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qiongqi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qiongqi
+  template:
+    metadata:
+      labels:
+        app: qiongqi
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/v1/runtime/metrics?format=prometheus"
+        prometheus.io/port: "8899"
+    spec:
+      containers:
+        - name: qiongqi
+          image: qiongqi:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8899
+          envFrom:
+            - secretRef:
+                name: qiongqi-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8899
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8899
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: qiongqi-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qiongqi-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: qiongqi
+spec:
+  selector:
+    app: qiongqi
+  ports:
+    - name: http
+      port: 8899
+      targetPort: 8899

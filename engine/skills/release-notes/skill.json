@@ -4,7 +4,7 @@
   "name": "Release Notes",
   "description": "Compile user-facing release notes and upgrade notes from git history, PRs, and changelogs.",
   "version": "1.0.0",
-  "category": "document",
+  "category": "workflow",
   "priority": 3,
   "entry": "SKILL.md",
   "activation": {

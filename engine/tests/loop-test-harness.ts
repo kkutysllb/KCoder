@@ -4,7 +4,12 @@ import { InMemoryApprovalGate } from '@qiongqi/adapter-storage'
 import { InMemoryUserInputGate } from '@qiongqi/adapter-storage'
 import { InMemoryThreadStore } from '@qiongqi/adapter-storage'
 import { InMemorySessionStore } from '@qiongqi/adapter-storage'
-import { LocalToolHost, getDefaultLocalTools, type LocalTool } from '@qiongqi/adapter-tools'
+import {
+  LocalToolHost,
+  getDefaultLocalTools,
+  shellRuntimeInstruction,
+  type LocalTool
+} from '@qiongqi/adapter-tools'
 import { TurnService } from '@qiongqi/services'
 import { ThreadService } from '@qiongqi/services'
 import { UsageService } from '@qiongqi/services'
@@ -135,6 +140,7 @@ export function makeHarness(
     ids,
     nowIso,
     nowMs,
+    shellRuntimeInstruction,
     ...(options.skillRuntime ? { skillRuntime: options.skillRuntime } : {}),
     ...(options.skillPluginHost ? { skillPluginHost: options.skillPluginHost } : {}),
     ...(options.attachmentStore ? { attachmentStore: options.attachmentStore } : {}),

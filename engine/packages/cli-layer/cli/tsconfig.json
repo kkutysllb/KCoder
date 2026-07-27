@@ -67,6 +67,9 @@
       ],
       "@qiongqi/cli": [
         "../../cli-layer/cli/src"
+      ],
+      "@qiongqi/preset-coding": [
+        "../../presets/preset-coding/src"
       ]
     }
   },

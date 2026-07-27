@@ -33,6 +33,21 @@ export function createReadLocalTool(options: ReadLocalToolOptions = {}): LocalTo
     },
     policy: 'auto',
     capabilityClass: 'file.read',
+    replay: {
+      effectPolicy: 'safe',
+      describe: async (call, context) => {
+        const rawPath = typeof call.arguments.path === 'string' ? call.arguments.path : ''
+        if (!rawPath.trim()) throw new Error('path is required for read replay metadata')
+        const { absolutePath } = resolveWorkspacePath(rawPath, context)
+        const stats = await statOp(absolutePath)
+        const offset = normalizePositiveInteger(call.arguments.offset, 1)
+        const limit = normalizePositiveInteger(call.arguments.limit, options.maxLines ?? DEFAULT_MAX_LINES)
+        return {
+          semanticKey: `file.read:${absolutePath}:${offset}:${limit}`,
+          preconditionVersions: { [absolutePath]: statVersion(stats) }
+        }
+      }
+    },
     semantic: (args, context) => {
       const rawPath = typeof args.path === 'string' ? args.path : ''
       if (!rawPath.trim()) return { capabilityClass: 'file.read', resourceKeys: [] }
@@ -156,6 +171,15 @@ export function createReadLocalTool(options: ReadLocalToolOptions = {}): LocalTo
       }
     })
   })
+}
+
+function statVersion(stats: {
+  size: number | bigint
+  mtimeMs: number | bigint
+  ctimeMs: number | bigint
+  ino: number | bigint
+}): string {
+  return `${String(stats.size)}:${String(stats.mtimeMs)}:${String(stats.ctimeMs)}:${String(stats.ino)}`
 }
 
 export const createReadTool = createReadLocalTool

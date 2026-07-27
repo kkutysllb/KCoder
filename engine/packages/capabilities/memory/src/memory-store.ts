@@ -4,18 +4,27 @@ import type { MemoryCapabilityConfig } from '@qiongqi/contracts'
 import { atomicWriteFile } from '@qiongqi/adapter-storage'
 import {
   MemoryDiagnostics,
+  MemoryCreateRequest as MemoryCreateRequestSchema,
+  TaskSharedMemoryCreateRequestSchema,
+  MemoryListQuerySchema,
+  MemoryQuerySchema,
   MemoryRecord,
-  type MemoryCreateRequest,
+  type AgentPrivateMemoryCreateRequest,
+  type LegacyMemoryCreateRequest,
+  type MemoryListQuery,
+  type MemoryQuery,
+  type TaskSharedMemoryCreateRequest,
   type MemoryUpdateRequest
 } from '@qiongqi/contracts'
 import { rankMemoryRecords } from './retrieval.js'
 
 export interface MemoryStore {
-  create(input: MemoryCreateRequest): Promise<MemoryRecord>
+  create(input: LegacyMemoryCreateRequest | AgentPrivateMemoryCreateRequest): Promise<MemoryRecord>
+  publishTaskShared(input: TaskSharedMemoryCreateRequest): Promise<MemoryRecord>
   update(id: string, patch: MemoryUpdateRequest): Promise<MemoryRecord>
   delete(id: string): Promise<MemoryRecord>
-  list(filter?: { workspace?: string; includeDeleted?: boolean; ownerUserId?: string }): Promise<MemoryRecord[]>
-  retrieve(input: { query: string; workspace?: string; threadId?: string; limit: number; ownerUserId?: string }): Promise<MemoryRecord[]>
+  list(filter?: MemoryListInput): Promise<MemoryRecord[]>
+  retrieve(input: MemoryQueryInput): Promise<MemoryRecord[]>
   diagnostics(): Promise<MemoryDiagnostics>
   setLastInjected(ids: string[]): void
 }
@@ -32,20 +41,25 @@ export class FileMemoryStore implements MemoryStore {
     }
   ) {}
 
-  async create(input: MemoryCreateRequest): Promise<MemoryRecord> {
+  async create(input: LegacyMemoryCreateRequest | AgentPrivateMemoryCreateRequest): Promise<MemoryRecord> {
+    const request = MemoryCreateRequestSchema.parse(input)
+    if (request.scope === 'task_shared') {
+      throw new Error('task_shared records must be created through publishTaskMemory')
+    }
+    return this.createRecord(request)
+  }
+
+  async publishTaskShared(input: TaskSharedMemoryCreateRequest): Promise<MemoryRecord> {
+    return this.createRecord(TaskSharedMemoryCreateRequestSchema.parse(input))
+  }
+
+  private async createRecord(input: unknown): Promise<MemoryRecord> {
     await mkdir(this.options.rootDir, { recursive: true })
     const now = this.now()
+    const request = MemoryCreateRequestSchema.parse(input)
     const parsed = MemoryRecord.parse({
       id: this.options.idGenerator?.() ?? `mem_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-      ownerUserId: input.ownerUserId,
-      content: input.content,
-      scope: input.scope ?? 'workspace',
-      workspace: input.workspace,
-      project: input.project,
-      sourceThreadId: input.sourceThreadId,
-      sourceTurnId: input.sourceTurnId,
-      tags: input.tags ?? [],
-      confidence: input.confidence ?? 1,
+      ...request,
       createdAt: now,
       updatedAt: now
     })
@@ -81,24 +95,21 @@ export class FileMemoryStore implements MemoryStore {
     return next
   }
 
-  async list(filter: { workspace?: string; includeDeleted?: boolean; ownerUserId?: string } = {}): Promise<MemoryRecord[]> {
+  async list(filter: MemoryListInput = {}): Promise<MemoryRecord[]> {
+    const query = normalizeListQuery(filter)
     const records = await this.readAll()
     return records
-      .filter((record) => !filter.ownerUserId || record.ownerUserId === filter.ownerUserId)
-      .filter((record) => filter.includeDeleted || !record.deletedAt)
-      .filter((record) => inScope(record, filter.workspace))
+      .filter((record) => query.includeDeleted || !record.deletedAt)
+      .filter((record) => inListScope(record, query))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
 
-  async retrieve(input: { query: string; workspace?: string; threadId?: string; limit: number; ownerUserId?: string }): Promise<MemoryRecord[]> {
+  async retrieve(input: MemoryQueryInput): Promise<MemoryRecord[]> {
     if (!this.options.config.enabled) return []
+    const query = normalizeMemoryQuery(input)
     return rankMemoryRecords({
-      query: input.query,
-      records: (await this.readAll()).filter((record) => !input.ownerUserId || record.ownerUserId === input.ownerUserId),
-      workspace: input.workspace,
-      threadId: input.threadId,
-      ownerUserId: input.ownerUserId,
-      limit: input.limit
+      memoryQuery: query,
+      records: await this.readAll()
     })
   }
 
@@ -146,9 +157,52 @@ export class FileMemoryStore implements MemoryStore {
   }
 }
 
-function inScope(record: MemoryRecord, workspace: string | undefined): boolean {
+export type LegacyMemoryQueryInput = {
+  query: string
+  workspace?: string
+  threadId?: string
+  limit: number
+  ownerUserId?: string
+}
+
+export type LegacyMemoryListInput = {
+  workspace?: string
+  includeDeleted?: boolean
+  ownerUserId?: string
+}
+
+export type MemoryQueryInput = MemoryQuery | LegacyMemoryQueryInput
+export type MemoryListInput = MemoryListQuery | LegacyMemoryListInput
+
+function normalizeMemoryQuery(input: MemoryQueryInput): MemoryQuery {
+  return MemoryQuerySchema.parse('namespace' in input ? input : { namespace: 'legacy', ...input })
+}
+
+function normalizeListQuery(input: MemoryListInput): MemoryListQuery {
+  return MemoryListQuerySchema.parse('namespace' in input ? input : { namespace: 'legacy', ...input })
+}
+
+function inListScope(record: MemoryRecord, query: MemoryListQuery): boolean {
+  if (query.namespace === 'task_shared') {
+    return record.scope === 'task_shared' && sameTaskScope(record.taskScope, query.taskScope)
+  }
+  if (query.namespace === 'agent_private') {
+    return record.scope === 'agent_private'
+      && sameTaskScope(record.taskScope, query.taskScope)
+      && record.agentId === query.agentId
+      && record.agentRunId === query.agentRunId
+  }
+  if (record.scope === 'task_shared' || record.scope === 'agent_private') return false
+  if (query.ownerUserId && record.ownerUserId !== query.ownerUserId) return false
   if (record.scope === 'user') return true
-  if (record.scope === 'workspace') return Boolean(workspace && record.workspace === workspace)
-  if (record.scope === 'project') return Boolean(workspace && record.workspace === workspace)
-  return false
+  return Boolean(query.workspace && record.workspace === query.workspace)
+}
+
+function sameTaskScope(
+  left: { ownerId: string; workspaceId: string; taskId: string },
+  right: { ownerId: string; workspaceId: string; taskId: string }
+): boolean {
+  return left.ownerId === right.ownerId
+    && left.workspaceId === right.workspaceId
+    && left.taskId === right.taskId
 }

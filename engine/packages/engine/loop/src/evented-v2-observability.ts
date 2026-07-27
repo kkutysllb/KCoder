@@ -6,21 +6,7 @@ export type EventedV2TimelineEvent = MultiAgentEvent & {
 
 export type EventedV2TimelineAgentRun = Pick<
   AgentRun,
-  | 'agentRunId'
-  | 'agentId'
-  | 'nodeId'
-  | 'publicKey'
-  | 'sequence'
-  | 'role'
-  | 'phase'
-  | 'transcriptRef'
-  | 'attempt'
-  | 'task'
-  | 'required'
-  | 'usage'
-  | 'status'
-  | 'startedAt'
-  | 'updatedAt'
+  'agentRunId' | 'agentId' | 'nodeId' | 'status' | 'startedAt' | 'updatedAt'
 > & {
   completedAt?: string
   summary?: string
@@ -49,13 +35,9 @@ export type EventedV2RunTimeline = Pick<
   | 'graphId'
   | 'status'
   | 'activeNodeId'
-  | 'activeNodeIds'
-  | 'runnableNodeIds'
   | 'activeAgentStack'
   | 'branchStatus'
   | 'retryCounters'
-  | 'nextPublicSequence'
-  | 'warnings'
   | 'budgets'
   | 'createdAt'
   | 'updatedAt'
@@ -63,6 +45,15 @@ export type EventedV2RunTimeline = Pick<
   events: EventedV2TimelineEvent[]
   agentRuns: EventedV2TimelineAgentRun[]
   outbox: EventedV2TimelineOutboxIntent[]
+  graphMetrics: EventedV2GraphMetrics
+}
+
+export type EventedV2GraphMetrics = {
+  fanOut: number
+  physicalAttempts: number
+  retryCount: number
+  retryAmplification: number
+  criticalPathLatencyMs: number
 }
 
 export type EventedV2RunMetrics = {
@@ -90,30 +81,18 @@ export function buildEventedV2RunTimeline(run: MultiAgentRun): EventedV2RunTimel
     graphId: run.graphId,
     status: run.status,
     activeNodeId: run.activeNodeId,
-    activeNodeIds: [...run.activeNodeIds],
-    runnableNodeIds: [...run.runnableNodeIds],
     activeAgentStack: [...run.activeAgentStack],
     branchStatus: { ...run.branchStatus },
     retryCounters: { ...run.retryCounters },
-    nextPublicSequence: run.nextPublicSequence,
-    warnings: [...run.warnings],
     budgets: { ...run.budgets },
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
+    graphMetrics: buildEventedV2GraphMetrics(run),
     events: run.events.map((event, seq) => ({ seq, ...event })),
     agentRuns: run.agentRuns.map((agentRun) => ({
       agentRunId: agentRun.agentRunId,
       agentId: agentRun.agentId,
       nodeId: agentRun.nodeId,
-      publicKey: agentRun.publicKey,
-      sequence: agentRun.sequence,
-      role: agentRun.role,
-      phase: agentRun.phase,
-      transcriptRef: agentRun.transcriptRef,
-      attempt: agentRun.attempt,
-      task: agentRun.task,
-      required: agentRun.required,
-      usage: agentRun.usage,
       status: agentRun.status,
       startedAt: agentRun.startedAt,
       updatedAt: agentRun.updatedAt,
@@ -145,6 +124,19 @@ export function buildEventedV2RunTimeline(run: MultiAgentRun): EventedV2RunTimel
           updatedAt: intent.updatedAt,
           ...(intent.publishedAt !== undefined ? { publishedAt: intent.publishedAt } : {})
         })
+  }
+}
+
+export function buildEventedV2GraphMetrics(run: MultiAgentRun): EventedV2GraphMetrics {
+  const physicalAttempts = run.agentRuns.length
+  const retryCount = Object.values(run.retryCounters).reduce((sum, count) => sum + count, 0)
+  const logicalAttempts = Math.max(physicalAttempts - retryCount, physicalAttempts > 0 ? 1 : 0)
+  return {
+    fanOut: Object.keys(run.branchStatus).length,
+    physicalAttempts,
+    retryCount,
+    retryAmplification: logicalAttempts > 0 ? physicalAttempts / logicalAttempts : 0,
+    criticalPathLatencyMs: Math.max(0, Date.parse(run.updatedAt) - Date.parse(run.createdAt))
   }
 }
 

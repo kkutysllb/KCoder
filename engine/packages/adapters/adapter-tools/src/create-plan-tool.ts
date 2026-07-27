@@ -6,6 +6,7 @@ import { withFileMutationQueue } from '@qiongqi/tool-infra'
 import type { ToolHostContext } from '@qiongqi/ports'
 import {
   GUI_PLAN_RELATIVE_DIR,
+  CREATE_PLAN_TOOL_NAME,
   buildGuiPlanId,
   guiPlanWorkspaceMatches,
   isGuiPlanCurrentRelativePath,
@@ -15,12 +16,7 @@ import {
   type CreatePlanToolOutput,
   type GuiPlanOperation
 } from '@qiongqi/contracts'
-
-/**
- * Shared tool name. Kept in sync with the renderer contract so the
- * model, the tool host, and the GUI agree on the public surface.
- */
-export const CREATE_PLAN_TOOL_NAME = 'create_plan'
+export { CREATE_PLAN_TOOL_NAME } from '@qiongqi/contracts'
 
 const TOOL_DESCRIPTION = [
   'Create or replace a GUI-owned implementation plan.',

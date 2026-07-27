@@ -4,7 +4,7 @@
   "name": "Slack GIF Creator",
   "description": "Knowledge and utilities for creating animated GIFs optimized for Slack: size constraints, validation tools, and animation concepts. Use for \"make me a GIF of X doing Y for Slack\".",
   "version": "1.0.0",
-  "category": "design",
+  "category": "workflow",
   "priority": 3,
   "entry": "SKILL.md",
   "activation": {

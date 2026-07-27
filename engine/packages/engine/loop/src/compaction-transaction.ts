@@ -65,9 +65,14 @@ export class CompactionTransaction {
       }
     }
 
-    const modelSummary = input.summarize
-      ? await input.summarize(base.summaryItem.summary)
-      : base.summaryItem.summary
+    let modelSummary: string | undefined
+    try {
+      modelSummary = input.summarize
+        ? await input.summarize(base.summaryItem.summary)
+        : base.summaryItem.summary
+    } catch {
+      modelSummary = undefined
+    }
     const projectedTask: TaskStateV1 = {
       ...input.taskState,
       revision: input.taskState.revision + 1,

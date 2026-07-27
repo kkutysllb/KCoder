@@ -1,7 +1,7 @@
 {
   "name": "qiongqi-monorepo",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.1.1",
   "description": "Qiongqi — 独立多 Agent 框架，骨架不变，血肉万变",
   "type": "module",
   "scripts": {
@@ -13,6 +13,7 @@
     "typecheck": "pnpm -r run typecheck",
     "prepare:sqlite": "node scripts/prepare-sqlite.mjs",
     "verify:sqlite": "pnpm --filter @qiongqi/adapter-storage exec node ../../../scripts/verify-sqlite.mjs",
+    "verify:postgres-engine": "node scripts/verify-postgres-engine.mjs",
     "verify:evented-a2a": "node scripts/verify-evented-a2a.mjs --port-a 0 --port-b 0"
   },
   "devDependencies": {

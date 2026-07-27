@@ -4,7 +4,7 @@
   "name": "Writing Skills",
   "description": "Use when creating new skills, editing existing skills, or verifying skills work before deployment — the craft of skill authoring itself.",
   "version": "1.0.0",
-  "category": "meta",
+  "category": "workflow",
   "priority": 10,
   "entry": "SKILL.md",
   "activation": {

@@ -6,13 +6,17 @@
  * Behaviour is preserved verbatim from the original module.
  */
 
-import { DEFAULT_APPROVAL_POLICY } from '@qiongqi/contracts'
+import {
+  CREATE_PLAN_TOOL_NAME,
+  DEFAULT_APPROVAL_POLICY,
+  GET_GOAL_TOOL_NAME,
+  TODO_LIST_TOOL_NAME,
+  TODO_WRITE_TOOL_NAME,
+  UPDATE_GOAL_TOOL_NAME
+} from '@qiongqi/contracts'
 import type { ModelCapabilityMetadata } from '@qiongqi/contracts'
 import type { TurnItem } from '@qiongqi/contracts'
 import type { ThreadGoal, ThreadTodoList } from '@qiongqi/contracts'
-import { CREATE_PLAN_TOOL_NAME } from '@qiongqi/adapter-tools'
-import { GET_GOAL_TOOL_NAME, UPDATE_GOAL_TOOL_NAME } from '@qiongqi/adapter-tools'
-import { TODO_LIST_TOOL_NAME, TODO_WRITE_TOOL_NAME } from '@qiongqi/adapter-tools'
 import { isImageMimeType } from '@qiongqi/attachments'
 import type { AttachmentContent } from '@qiongqi/attachments'
 import type {

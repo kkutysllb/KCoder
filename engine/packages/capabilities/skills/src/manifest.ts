@@ -39,7 +39,7 @@ export const SkillManifestV1 = z.object({
   license: z.string().optional(),
   icon: z.string().min(1).optional(),
   entry: z.string().min(1).default('SKILL.md'),
-  category: z.enum(['development', 'review', 'planning', 'workflow', 'integration', 'document', 'design', 'meta']).default('workflow'),
+  category: z.enum(['development', 'review', 'planning', 'workflow', 'integration']).default('workflow'),
   priority: z.number().int().default(0),
   activation: z.object({
     commands: z.array(z.string().min(1)).default([]),

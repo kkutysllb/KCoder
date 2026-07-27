@@ -4,7 +4,7 @@
   "name": "Word Document",
   "description": "Create, read, edit, and manipulate Word documents (.docx) including formatting, tables, images, and tracked changes.",
   "version": "1.0.0",
-  "category": "document",
+  "category": "workflow",
   "priority": 5,
   "entry": "SKILL.md",
   "activation": {

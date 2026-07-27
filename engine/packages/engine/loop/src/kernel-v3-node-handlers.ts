@@ -1,6 +1,8 @@
 import type {
   ModelProposal,
   RunOutcome,
+  TaskCheckpointV1,
+  TaskScope,
   TaskStateV1,
   TaskToolLedgerEntry,
   ToolObservation,
@@ -11,6 +13,8 @@ import { ModelProposalSchema } from '@qiongqi/contracts'
 import { makeAssistantReasoningItem, makeAssistantTextItem, makeToolCallItem, makeToolResultItem } from '@qiongqi/domain'
 import type {
   IdGenerator,
+  DurableEngineStore,
+  ModelRequest,
   SessionStore,
   TaskStateStore,
   ThreadStore,
@@ -18,7 +22,7 @@ import type {
   ToolHostContext
 } from '@qiongqi/ports'
 import type { TurnService } from '@qiongqi/services'
-import type { ModelProposalRunner } from './model-proposal-runner.js'
+import { ModelResolutionRequiredError, type ModelProposalRunner } from './model-proposal-runner.js'
 import type { PromptBuilder } from './prompt-builder.js'
 import type { RuntimeNodeHandler } from './runtime-kernel-context.js'
 import type { ToolRuntimeV3 } from './tool-runtime-v3.js'
@@ -26,8 +30,14 @@ import { classifyProposal, type ProposalClass } from './proposal-classifier.js'
 import { materializableProposalContent } from './proposal-materializer.js'
 import { renderRecoveryContinuationEntry, transitionContextRecovery } from './context-recovery.js'
 import { migrateLegacyTaskState } from './legacy-task-state-migrator.js'
+import {
+  createTaskCheckpointFromLegacyState,
+  projectLegacyTaskStateFromCheckpoint
+} from './task-state-builder.js'
 import { digestValue } from './effect-commit.js'
-import { projectTaskState } from './task-progress-projector.js'
+import { canonicalDigest } from './execution-fingerprint.js'
+import { projectTaskCheckpointProgress, projectTaskState } from './task-progress-projector.js'
+import { detectProgress, renderTaskCheckpointData } from './task-checkpoint-projector-v1.js'
 import { isRecoverableToolDispatchError } from './tool-dispatch-errors.js'
 import { observeTool } from './tool-observation.js'
 
@@ -54,9 +64,13 @@ export type KernelV3NodeDependencies = {
   ids: Pick<IdGenerator, 'next'>
   nowIso: () => string
   emitRuntimeProgress?: boolean
+  taskCheckpoints?: {
+    store: DurableEngineStore
+    resolveScope: (identity: Parameters<RuntimeNodeHandler>[0]['identity']) => TaskScope
+  }
 }
 
-type StoredRequest = Omit<Parameters<ModelProposalRunner['run']>[0], 'abortSignal'>
+type StoredRequest = Omit<ModelRequest, 'abortSignal'>
 
 export function createKernelV3NodeHandlers(
   deps: KernelV3NodeDependencies
@@ -122,6 +136,25 @@ export function createKernelV3NodeHandlers(
     },
 
     'restore-task': async ({ identity }) => {
+      const durableScope = deps.taskCheckpoints?.resolveScope(identity)
+      if (durableScope) assertTaskScopeMatchesRun(durableScope, identity)
+      const checkpoint = durableScope
+        ? await deps.taskCheckpoints!.store.loadTask(durableScope)
+        : undefined
+      if (checkpoint) {
+        const current = await deps.taskStates.load(identity)
+        const task = projectLegacyTaskStateFromCheckpoint(checkpoint, identity, current)
+        if (task !== current) await persistLegacyTaskProjection(deps.taskStates, task, current?.revision ?? 0)
+        return {
+          condition: 'next',
+          value: task,
+          commands: [
+            { type: 'set-task-revision', revision: checkpoint.revision },
+            { type: 'set-node-data', nodeId: 'task-checkpoint', value: checkpoint }
+          ]
+        }
+      }
+
       let task = await deps.taskStates.load(identity)
       if (!task) {
         const [thread, items] = await Promise.all([
@@ -148,10 +181,23 @@ export function createKernelV3NodeHandlers(
         }
         task = migrated.state
       }
+      const createdCheckpoint = durableScope
+        ? await persistInitialTaskCheckpoint(
+            deps.taskCheckpoints!.store,
+            durableScope,
+            identity.runId,
+            createTaskCheckpointFromLegacyState(durableScope, task, deps.nowIso)
+          )
+        : undefined
       return {
         condition: 'next',
         value: task,
-        commands: [{ type: 'set-task-revision', revision: task.revision }]
+        commands: [
+          { type: 'set-task-revision', revision: createdCheckpoint?.revision ?? task.revision },
+          ...(createdCheckpoint
+            ? [{ type: 'set-node-data' as const, nodeId: 'task-checkpoint', value: createdCheckpoint }]
+            : [])
+        ]
       }
     },
 
@@ -174,14 +220,15 @@ export function createKernelV3NodeHandlers(
       if (built.kind !== 'built') return { outcome: failedOutcome('prompt build stopped') }
       const { abortSignal: _abortSignal, ...request } = built.ctx.request
       const recovery = nodeValue<{ entry?: string }>(state, 'recover-context')
-      const storedRequest: StoredRequest = recovery?.entry
-        ? {
-            ...request,
-            contextInstructions: [
-              ...(request.contextInstructions ?? []),
-              recovery.entry
-            ]
-          }
+      const checkpoint = nodeValue<TaskCheckpointV1>(state, 'task-checkpoint')
+      const runtimeTaskData = checkpoint ? renderTaskCheckpointData(checkpoint) : undefined
+      const contextInstructions = [
+        ...(runtimeTaskData ? [runtimeTaskData] : []),
+        ...(request.contextInstructions ?? []),
+        ...(recovery?.entry ? [recovery.entry] : [])
+      ]
+      const storedRequest: StoredRequest = contextInstructions.length > 0
+        ? { ...request, contextInstructions }
         : request
       const toolPolicies = Object.fromEntries(
         (built.ctx.request.tools as Array<Record<string, unknown>>).map((tool) => [
@@ -227,10 +274,35 @@ export function createKernelV3NodeHandlers(
       }
       let proposal: ModelProposal
       try {
-        proposal = await deps.proposalRunner.run({ ...built.request, abortSignal: signal })
+        const request = { ...built.request, abortSignal: signal }
+        const checkpoint = nodeValue<TaskCheckpointV1>(state, 'task-checkpoint')
+        const strategy = checkpoint?.attemptedStrategies.at(-1)
+        proposal = await deps.proposalRunner.run(checkpoint && deps.taskCheckpoints
+          ? {
+              request,
+              attempt: {
+                identity,
+                scope: checkpoint.scope,
+                kernelRunId: identity.runId,
+                taskRevision: checkpoint.revision,
+                contextRevision: 0,
+                strategyRevision: strategy?.revision ?? 0,
+                strategyDigest: strategy?.digest ?? canonicalDigest({
+                  kind: 'kernel_default_strategy_v1',
+                  taskRevision: checkpoint.revision,
+                  recoveryReason: state.recovery.lastReason ?? null
+                }),
+                profileRef: { profileId: request.model, revision: 0 },
+                operationId: `${identity.runId}:model:${state.cursor.stepIndex}:${state.cursor.attempt}`
+              }
+            }
+          : request)
       } catch (error) {
         if (signal.aborted) {
           return { outcome: { status: 'aborted', reason: 'user_aborted', retryable: false } }
+        }
+        if (error instanceof ModelResolutionRequiredError) {
+          return { outcome: error.outcome }
         }
         if (state.recovery.attempts < state.recovery.maxAttempts) {
           return {
@@ -497,9 +569,12 @@ export function createKernelV3NodeHandlers(
       const ledger: TaskToolLedgerEntry[] = []
       const observations: ToolObservation[] = []
       const toolContext = await deps.createToolContext(identity, state)
+      const checkpoint = nodeValue<TaskCheckpointV1>(state, 'task-checkpoint')
       for (const call of prepared.calls) {
+        const policy = built.toolPolicies?.[call.toolName]
         let execution: Awaited<ReturnType<ToolRuntimeV3['execute']>>
         try {
+          if (!policy) throw new Error(`tool_replay_policy_missing: ${call.toolName}`)
           execution = await deps.toolRuntime.execute({
             identity,
             state: runtimeState,
@@ -510,13 +585,22 @@ export function createKernelV3NodeHandlers(
               runtimeState,
               runtimeStateSink: (next) => { runtimeState = next }
             },
-            policy: built.toolPolicies?.[call.toolName] ?? defaultEffectPolicy(call),
+            policy,
+            ...(checkpoint && deps.taskCheckpoints
+              ? {
+                  durable: {
+                    scope: checkpoint.scope,
+                    kernelRunId: identity.runId,
+                    taskRevision: checkpoint.revision,
+                    noProgressCount: loopNoProgressCount(state)
+                  }
+                }
+              : {}),
             leaseFence
           })
         } catch (error) {
           if (!isRecoverableToolDispatchError(error)) throw error
           const message = error instanceof Error ? error.message : String(error)
-          const policy = built.toolPolicies?.[call.toolName] ?? defaultEffectPolicy(call)
           const item = makeToolResultItem({
             id: `item_${call.callId}`,
             turnId: identity.turnId,
@@ -542,7 +626,7 @@ export function createKernelV3NodeHandlers(
             call,
             result: { item, approved: false },
             context: toolContext,
-            policy,
+            policy: policy ?? { effect: 'non-idempotent-write', replay: 'never' },
             replayed: false
           }))
           ledger.push({
@@ -586,7 +670,9 @@ export function createKernelV3NodeHandlers(
         condition: 'tools_committed',
         value: { callIds: ledger.map((entry) => entry.callId), taskRevision: nextTask.revision, observations },
         commands: [
-          { type: 'set-task-revision', revision: nextTask.revision },
+          ...(deps.taskCheckpoints
+            ? []
+            : [{ type: 'set-task-revision' as const, revision: nextTask.revision }]),
           { type: 'set-node-data', nodeId: 'restore-task', value: nextTask },
           {
             type: 'set-effects',
@@ -623,22 +709,49 @@ export function createKernelV3NodeHandlers(
           throw error
         }
       }
+      const checkpoint = nodeValue<TaskCheckpointV1>(state, 'task-checkpoint')
+      const durableProjection = checkpoint && deps.taskCheckpoints
+        ? projectTaskCheckpointProgress(checkpoint, {
+            todos: thread?.todos?.items?.map((todo) => ({ id: todo.id, content: todo.content, status: todo.status })),
+            observations: commit.observations ?? [],
+            kernelRunId: identity.runId,
+            nowIso: deps.nowIso
+          })
+        : undefined
+      if (checkpoint && durableProjection && durableProjection.revision !== checkpoint.revision) {
+        await persistTaskCheckpointProjection(
+          deps.taskCheckpoints!.store,
+          identity.runId,
+          checkpoint,
+          durableProjection
+        )
+      }
+      const durableProgress = checkpoint && durableProjection
+        ? detectProgress(checkpoint, durableProjection)
+        : undefined
       return {
         condition: 'next',
         value: projection.state,
         facts: {
           observations: commit.observations ?? [],
-          progressLevel: projection.digest.level,
-          progressDigest: projection.digest.value,
+          progressLevel: durableProgress?.level ?? projection.digest.level,
+          progressDigest: durableProgress?.digest ?? projection.digest.value,
           evidenceCount: projection.state.progress?.evidenceCount ?? 0,
           artifactCount: projection.state.artifacts.length
         },
-        commands: projection.digest.level === 'none'
-          ? []
-          : [
-              { type: 'set-task-revision' as const, revision: projection.state.revision },
-              { type: 'set-node-data' as const, nodeId: 'restore-task', value: projection.state }
-            ]
+        commands: [
+          ...(projection.digest.level === 'none'
+            ? []
+            : [{ type: 'set-node-data' as const, nodeId: 'restore-task', value: projection.state }]),
+          ...(durableProjection
+            ? [
+                { type: 'set-task-revision' as const, revision: durableProjection.revision },
+                { type: 'set-node-data' as const, nodeId: 'task-checkpoint', value: durableProjection }
+              ]
+            : projection.digest.level === 'none'
+              ? []
+              : [{ type: 'set-task-revision' as const, revision: projection.state.revision }])
+        ]
       }
     },
 
@@ -744,13 +857,6 @@ function isToolEffectPolicy(value: unknown): value is ToolEffectPolicy {
     && ['safe', 'verify-first', 'never'].includes(String(record.replay))
 }
 
-function defaultEffectPolicy(call: ToolCallLike): ToolEffectPolicy {
-  if (call.toolKind === 'file_change') {
-    return { effect: 'non-idempotent-write', replay: 'never' }
-  }
-  return { effect: 'read', replay: 'safe' }
-}
-
 function updateTaskLedger(
   current: TaskStateV1,
   entries: readonly TaskToolLedgerEntry[],
@@ -764,6 +870,76 @@ function updateTaskLedger(
     toolLedger: [...byCall.values()],
     updatedAt
   }
+}
+
+async function persistLegacyTaskProjection(
+  store: TaskStateStore,
+  task: TaskStateV1,
+  expectedRevision: number
+): Promise<void> {
+  const prepared = await store.prepare(task, expectedRevision)
+  try {
+    await store.commit(prepared)
+  } catch (error) {
+    await store.abort(prepared).catch(() => undefined)
+    throw error
+  }
+}
+
+async function persistInitialTaskCheckpoint(
+  store: DurableEngineStore,
+  scope: TaskScope,
+  runId: string,
+  checkpoint: TaskCheckpointV1
+): Promise<TaskCheckpointV1> {
+  const run = await store.loadRun(runId)
+  await store.commit({
+    scope,
+    runId,
+    expectedRunVersion: run?.version ?? 0,
+    expectedTaskRevision: 0,
+    taskCheckpointMutation: { type: 'put', record: checkpoint }
+  })
+  return checkpoint
+}
+
+async function persistTaskCheckpointProjection(
+  store: DurableEngineStore,
+  runId: string,
+  current: TaskCheckpointV1,
+  projected: TaskCheckpointV1
+): Promise<void> {
+  if (projected.scope.ownerId !== current.scope.ownerId
+    || projected.scope.workspaceId !== current.scope.workspaceId
+    || projected.scope.taskId !== current.scope.taskId) {
+    throw new Error('task checkpoint projection changed scope')
+  }
+  const run = await store.loadRun(runId)
+  await store.commit({
+    scope: current.scope,
+    runId,
+    expectedRunVersion: run?.version ?? 0,
+    expectedTaskRevision: current.revision,
+    taskCheckpointMutation: { type: 'put', record: projected }
+  })
+}
+
+function assertTaskScopeMatchesRun(scope: TaskScope, identity: Parameters<RuntimeNodeHandler>[0]['identity']): void {
+  if (scope.ownerId !== identity.ownerUserId || scope.workspaceId !== identity.workspaceKey) {
+    throw new Error('task checkpoint scope does not match Kernel run owner/workspace')
+  }
+}
+
+function loopNoProgressCount(state: Parameters<RuntimeNodeHandler>[0]['state']): number {
+  const data = state.middleware['loop-governor']?.data
+  if (!data || typeof data !== 'object') return 0
+  const record = data as Record<string, unknown>
+  const toolCalls = Number(record.noProgressToolCalls)
+  const modelSteps = Number(record.noProgressModelSteps)
+  return Math.max(
+    Number.isFinite(toolCalls) && toolCalls > 0 ? Math.floor(toolCalls) : 0,
+    Number.isFinite(modelSteps) && modelSteps > 0 ? Math.floor(modelSteps) : 0
+  )
 }
 
 async function emitProgress(

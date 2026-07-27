@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { InMemoryRunEventStore, InMemoryRunStateStore, InMemoryTaskStateStore } from '@qiongqi/adapter-storage'
-import type { ModelProposal, RunIdentity, TaskStateV1 } from '@qiongqi/contracts'
+import { InMemoryDurableEngineStore, InMemoryRunEventStore, InMemoryRunStateStore, InMemoryTaskStateStore } from '@qiongqi/adapter-storage'
+import type { ModelProposal, RunIdentity, TaskScope, TaskStateV1 } from '@qiongqi/contracts'
 import { makeToolResultItem, makeUserItem } from '@qiongqi/domain'
 import {
+  ModelResolutionRequiredError,
   RuntimeKernel,
   createKernelV3NodeHandlers,
   digestValue,
@@ -19,6 +20,56 @@ const identity: RunIdentity = {
 }
 
 describe('Kernel v3 production node handlers', () => {
+  it('projects tool progress into the authoritative checkpoint and reuses it in model context', async () => {
+    const durableScope: TaskScope = {
+      ownerId: identity.ownerUserId,
+      workspaceId: identity.workspaceKey,
+      taskId: 'durable-task-1'
+    }
+    const harness = await createHarness([
+      proposal({
+        proposalId: 'proposal-tool-progress',
+        stopClass: 'tool_calls',
+        text: '',
+        toolIntents: [{ callId: 'checkpoint-call', toolName: 'read_data', arguments: { path: 'data.json' } }]
+      }),
+      proposal({ proposalId: 'proposal-final', text: 'done' })
+    ], { durableTaskScope: durableScope })
+
+    await expect(harness.kernel.run(identity)).resolves.toMatchObject({ status: 'completed' })
+    await expect(harness.durableStore.loadTask(durableScope)).resolves.toMatchObject({
+      scope: durableScope,
+      revision: 2,
+      evidenceRefs: [{ ref: 'result://checkpoint-result-digest' }]
+    })
+    expect(harness.requests[1]?.contextInstructions).toContainEqual(
+      expect.stringContaining('Authoritative TaskCheckpointV1 data')
+    )
+    expect(harness.durableModelAttempts[0]).toMatchObject({
+      scope: durableScope,
+      kernelRunId: identity.runId,
+      taskRevision: 1
+    })
+    expect(harness.durableToolInputs[0]).toMatchObject({
+      scope: durableScope,
+      kernelRunId: identity.runId,
+      taskRevision: 1
+    })
+  })
+
+  it('persists unresolved model attempts as waiting_model_resolution without retrying', async () => {
+    const harness = await createHarness([], { modelResolutionRequired: true })
+
+    await expect(harness.kernel.run(identity)).resolves.toMatchObject({
+      status: 'suspended',
+      retryable: true
+    })
+    await expect(harness.snapshots.load(identity)).resolves.toMatchObject({
+      status: 'waiting_model_resolution'
+    })
+    expect(harness.requests).toHaveLength(1)
+  })
+
   it('commits a normal final proposal through the production graph', async () => {
     const harness = await createHarness([
       proposal({ text: '报告已完成。' })
@@ -170,6 +221,19 @@ describe('Kernel v3 production node handlers', () => {
     ])
   })
 
+  it('fails closed before physical execution when tool replay policy is missing', async () => {
+    const harness = await createHarness([
+      proposal({
+        stopClass: 'tool_calls',
+        toolIntents: [{ callId: 'call-no-policy', toolName: 'read_data', arguments: { path: 'data.json' } }],
+        text: ''
+      })
+    ], { omitToolPolicy: true })
+
+    await expect(harness.kernel.run(identity)).resolves.toMatchObject({ status: 'failed', reason: 'runtime_error' })
+    expect(harness.toolExecutions).toBe(0)
+  })
+
   it('executes valid native tools when the provider leaked protocol markers in text', async () => {
     const harness = await createHarness([
       proposal({
@@ -212,7 +276,7 @@ describe('Kernel v3 production node handlers', () => {
       retryable: false
     })
 
-    expect(harness.toolExecutions).toBe(2)
+    expect(harness.toolExecutions).toBe(1)
     expect(harness.applied).toContainEqual(expect.objectContaining({
       kind: 'tool_result',
       callId: 'call-invalid',
@@ -513,16 +577,22 @@ async function createHarness(
     throwForTool?: string
     throwMessage?: string
     throwForProposal?: boolean
+    modelResolutionRequired?: boolean
+    durableTaskScope?: TaskScope
+    omitToolPolicy?: boolean
   } = {}
 ) {
   const snapshots = new InMemoryRunStateStore()
   const events = new InMemoryRunEventStore()
   const taskStates = new InMemoryTaskStateStore()
+  const durableStore = new InMemoryDurableEngineStore()
   const prepared = await taskStates.prepare(task(), 0)
   await taskStates.commit(prepared)
   const applied: Array<Record<string, unknown>> = []
   const persistedItems = new Map<string, Record<string, unknown>>()
   const requests: Array<Record<string, unknown>> = []
+  const durableModelAttempts: Array<Record<string, unknown>> = []
+  const durableToolInputs: Array<Record<string, unknown>> = []
   const forceCompactions: boolean[] = []
   let toolExecutions = 0
   const queue = [...proposals]
@@ -559,6 +629,9 @@ async function createHarness(
       })]
     } as never,
     taskStates,
+    ...(options.durableTaskScope
+      ? { taskCheckpoints: { store: durableStore, resolveScope: () => options.durableTaskScope! } }
+      : {}),
     turns: {
       getTurn: async () => thread.turns[0],
       getAbortController: () => signal,
@@ -595,7 +668,7 @@ async function createHarness(
               name: 'read_data',
               description: 'read',
               inputSchema: {},
-              effectPolicy: { effect: 'read', replay: 'safe' }
+              ...(options.omitToolPolicy ? {} : { effectPolicy: { effect: 'read', replay: 'safe' } })
             }],
             abortSignal: signal
           },
@@ -605,8 +678,17 @@ async function createHarness(
       }
     } as never,
     proposalRunner: {
-      run: async (request: Record<string, unknown>) => {
+      run: async (input: Record<string, unknown>) => {
+        const request = input.request && typeof input.request === 'object'
+          ? input.request as Record<string, unknown>
+          : input
+        if (input.attempt && typeof input.attempt === 'object') {
+          durableModelAttempts.push(input.attempt as Record<string, unknown>)
+        }
         requests.push(request)
+        if (options.modelResolutionRequired) {
+          throw new ModelResolutionRequiredError('provider operation state is uncertain')
+        }
         if (options.throwForProposal && requests.length === 1) {
           throw new Error('upstream connection reset')
         }
@@ -618,12 +700,32 @@ async function createHarness(
     toolRuntime: {
       execute: async (input: { state: unknown; call: { callId: string; toolName: string } }) => {
         toolExecutions += 1
+        if ('durable' in input && input.durable && typeof input.durable === 'object') {
+          durableToolInputs.push(input.durable as Record<string, unknown>)
+        }
         if (options.throwForTool === input.call.toolName) {
           throw new Error(options.throwMessage ?? `unknown tool: ${input.call.toolName}`)
         }
         return {
           state: input.state,
           replayed: false,
+          ...(options.durableTaskScope
+            ? {
+                observation: {
+                  callId: input.call.callId,
+                  toolName: input.call.toolName,
+                  effect: 'read',
+                  capabilityClass: 'filesystem.read',
+                  resourceKeys: ['data.json'],
+                  canonicalArgumentsDigest: 'checkpoint-arguments-digest',
+                  resultDigest: 'checkpoint-result-digest',
+                  resultItemId: `result-${input.call.callId}`,
+                  artifactRefs: [],
+                  failed: false,
+                  replayed: false
+                }
+              }
+            : {}),
           result: {
             approved: true,
             item: makeToolResultItem({
@@ -665,9 +767,12 @@ async function createHarness(
     snapshots,
     handlers,
     taskStates,
+    durableStore,
     applied,
     persistedItems,
     requests,
+    durableModelAttempts,
+    durableToolInputs,
     forceCompactions,
     get toolExecutions() { return toolExecutions }
   }

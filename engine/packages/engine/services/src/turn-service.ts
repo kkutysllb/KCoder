@@ -5,9 +5,11 @@ import type { TurnItem } from '@qiongqi/contracts'
 import type { SessionStore } from '@qiongqi/ports'
 import type { ThreadStore } from '@qiongqi/ports'
 import type { IdGenerator } from '@qiongqi/ports'
-import type { InflightTracker } from '@qiongqi/loop'
-import type { SteeringQueue } from '@qiongqi/loop'
-import type { ContextCompactor } from '@qiongqi/loop'
+import type {
+  TurnContextCompactor,
+  TurnInflightTracker,
+  TurnSteeringQueue
+} from '@qiongqi/ports'
 import { makeUserItem, makeErrorItem } from '@qiongqi/domain'
 import { appendTurnItem, createTurnRecord, finishTurn, replaceTurnItem, startTurn as startTurnRecord } from '@qiongqi/domain'
 import { touchThread } from '@qiongqi/domain'
@@ -18,9 +20,9 @@ export type TurnServiceDeps = {
   threadStore: ThreadStore
   sessionStore: SessionStore
   events: RuntimeEventRecorder
-  inflight: InflightTracker
-  steering: SteeringQueue
-  compactor: ContextCompactor
+  inflight: TurnInflightTracker
+  steering: TurnSteeringQueue
+  compactor: TurnContextCompactor
   ids: IdGenerator
   nowIso: () => string
 }
@@ -259,42 +261,6 @@ export class TurnService {
   async getTurn(threadId: string, turnId: string): Promise<Turn | null> {
     const thread = await this.deps.threadStore.get(threadId)
     return thread?.turns.find((turn) => turn.id === turnId) ?? null
-  }
-
-  /**
-   * 分配下一个 agent 执行序号（evented_v2 投影排序用）。
-   * 来源：KWorks turn-service.ts（allocateExecutionSequence）。
-   */
-  async allocateExecutionSequence(threadId: string, turnId: string): Promise<number> {
-    let allocated: number | undefined
-    await this.upsertThread(threadId, (current) => ({
-      ...current,
-      turns: current.turns.map((turn) => {
-        if (turn.id !== turnId) return turn
-        allocated = turn.nextExecutionSequence ?? 2
-        return { ...turn, nextExecutionSequence: allocated + 1 }
-      })
-    }))
-    if (allocated === undefined) throw new Error(`turn not found: ${threadId}/${turnId}`)
-    return allocated
-  }
-
-  /**
-   * 把 evented_v2 运行 id 持久化链接到 turn（幂等：已链接则返回既有 id）。
-   * 来源：KWorks turn-service.ts（linkEventedV2Run）。
-   */
-  async linkEventedV2Run(threadId: string, turnId: string, runId: string): Promise<string> {
-    let linkedRunId: string | undefined
-    await this.upsertThread(threadId, (current) => ({
-      ...current,
-      turns: current.turns.map((turn) => {
-        if (turn.id !== turnId) return turn
-        linkedRunId = turn.eventedV2RunId ?? runId
-        return turn.eventedV2RunId ? turn : { ...turn, eventedV2RunId: runId }
-      })
-    }))
-    if (!linkedRunId) throw new Error(`turn not found: ${threadId}/${turnId}`)
-    return linkedRunId
   }
 
   async updateTurnMetadata(

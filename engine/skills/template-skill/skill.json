@@ -4,7 +4,7 @@
   "name": "Template Skill",
   "description": "Starter template for authoring new skills — copy this skeleton and replace the description, triggers, and instructions with your own skill content.",
   "version": "1.0.0",
-  "category": "meta",
+  "category": "workflow",
   "priority": 1,
   "entry": "SKILL.md",
   "activation": {

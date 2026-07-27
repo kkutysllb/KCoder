@@ -166,34 +166,34 @@ describe('SkillPluginHost.resolveTurn', () => {
   it('reloads work mode definitions on the same host instance', async () => {
     const host = await SkillPluginHost.create(cfg({ roots: [root] }), {})
 
-    expect(host.workModeInfo('coding')?.id).toBe('coding')
+    expect(host.workModeInfo('finance-market')?.id).toBe('office')
 
     await host.reload(cfg({
       roots: [root],
       workModes: {
-        defaultModeId: 'coding',
+        defaultModeId: 'office',
         modes: {
-          coding: {
-            id: 'coding',
-            name: 'Coding',
+          task: {
+            id: 'office',
+            name: 'Task',
             defaultSkillIds: []
           },
-          'custom-research': {
-            id: 'custom-research',
-            name: '自定义研究',
-            description: '用户自定义工作模式示例',
+          'finance-market': {
+            id: 'finance-market',
+            name: '金融市场',
+            description: '分析市场数据、公告和交易机会',
             defaultSkillIds: ['tdd']
           }
         }
       }
     }))
 
-    expect(host.workModeInfo('custom-research')).toMatchObject({
-      id: 'custom-research',
-      name: '自定义研究',
-      description: '用户自定义工作模式示例'
+    expect(host.workModeInfo('finance-market')).toMatchObject({
+      id: 'finance-market',
+      name: '金融市场',
+      description: '分析市场数据、公告和交易机会'
     })
-    expect(host.effectiveSkillIds('custom-research')).toContain('tdd')
+    expect(host.effectiveSkillIds('finance-market')).toContain('tdd')
   })
 
   it('respects activeLimit', async () => {

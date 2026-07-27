@@ -4,7 +4,7 @@
   "name": "PowerPoint",
   "description": "Use whenever a .pptx file is involved — creating slide decks and presentations, reading/parsing/extracting text, editing, merging, splitting, templates, layouts, speaker notes, or comments.",
   "version": "1.0.0",
-  "category": "document",
+  "category": "workflow",
   "priority": 5,
   "entry": "SKILL.md",
   "activation": {

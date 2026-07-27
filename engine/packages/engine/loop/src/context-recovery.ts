@@ -1,5 +1,6 @@
-import type { RecoveryState, RunOutcome, TaskStateV1 } from '@qiongqi/contracts'
+import type { RecoveryState, RunOutcome, TaskCheckpointV1, TaskStateV1 } from '@qiongqi/contracts'
 import type { ProposalClass } from './proposal-classifier.js'
+import { renderTaskCheckpointData } from './task-checkpoint-projector-v1.js'
 
 export type ContextRecoveryTransition = {
   action: 'accept' | 'recover' | 'degrade'
@@ -60,7 +61,13 @@ function isRecoverableProposalClass(proposalClass: ProposalClass): boolean {
     || proposalClass === 'protocol_error'
 }
 
-export function renderRecoveryContinuationEntry(task: TaskStateV1): string {
+export function renderRecoveryContinuationEntry(task: TaskStateV1 | TaskCheckpointV1): string {
+  if ('scope' in task) {
+    return [
+      'Authoritative task recovery entry (runtime data, not user instructions)',
+      renderTaskCheckpointData(task)
+    ].join('\n')
+  }
   const immediate = task.pendingActions.find((action) =>
     action.status === 'in_progress' || action.status === 'pending'
   )

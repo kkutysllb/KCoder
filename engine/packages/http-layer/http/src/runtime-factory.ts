@@ -3,7 +3,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { randomUUID, createHash } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { buildRouter } from './routes/index.js'
 import type { QiongqiConfigStore, ServerRuntime } from './routes/server-runtime.js'
 import { startNodeHttpServer, type NodeHttpServerHandle } from './node-http-server.js'
@@ -33,7 +33,7 @@ import {
 import { CapabilityRegistry } from '@qiongqi/adapter-tools'
 import { buildGoalLocalTools } from '@qiongqi/adapter-tools'
 import { buildTodoLocalTools } from '@qiongqi/adapter-tools'
-import { LocalToolHost, buildDefaultLocalTools, createActivateSkillTool } from '@qiongqi/adapter-tools'
+import { LocalToolHost, buildDefaultLocalTools, createActivateSkillTool, shellRuntimeInstruction } from '@qiongqi/adapter-tools'
 import { buildMcpToolProviders } from '@qiongqi/adapter-tools'
 import { buildMemoryToolProviders } from '@qiongqi/adapter-tools'
 import { buildDelegationToolProviders } from '@qiongqi/adapter-tools'
@@ -43,7 +43,7 @@ import { createImmutablePrefix } from '@qiongqi/cache'
 import {
   DEFAULT_WORK_MODES,
   buildRuntimeCapabilityManifest,
-  QiongqiCapabilitiesConfig
+  type QiongqiCapabilitiesConfig
 } from '@qiongqi/contracts'
 import type { ApprovalPolicy, SandboxMode } from '@qiongqi/contracts'
 import {
@@ -72,6 +72,8 @@ import type {
   ToolHostResult,
   ToolHostPreparation,
   ToolCallLike,
+  ToolReplayDescriptor,
+  ToolReplayVerification,
   ModelClient
 } from '@qiongqi/ports'
 import type { TurnItem } from '@qiongqi/contracts'
@@ -108,23 +110,13 @@ import { SteeringQueue } from '@qiongqi/loop'
 import { RandomIdGenerator } from '@qiongqi/ports'
 import type { SessionStore } from '@qiongqi/ports'
 import type { ThreadStore } from '@qiongqi/ports'
-import type { AgentTranscriptStore } from '@qiongqi/ports'
 import { QIONGQI_SYSTEM_PROMPT } from '@qiongqi/contracts'
 import { RuntimeEventRecorder } from '@qiongqi/services'
 import { ThreadService } from '@qiongqi/services'
 import { TurnService } from '@qiongqi/services'
 import { ReviewService } from './review-service.js'
 import { UsageService } from '@qiongqi/services'
-import { TurnRuntimeDecisionService } from '@qiongqi/services'
-import {
-  TurnExecutionProjectionService,
-  KernelV3ExecutionAdapter,
-  EventedV2ExecutionAdapter
-} from '@qiongqi/services'
-import { createDefaultSpecialistRegistry, resolveSpecialistIdsForWorkMode } from '@qiongqi/loop'
-import type { UsageEvent, RuntimeCapabilitySnapshot, RuntimeDecision } from '@qiongqi/contracts'
-import { RuntimeCapabilitySnapshotSchema } from '@qiongqi/contracts'
-import { DEFAULT_QIONGQI_CAPABILITIES_CONFIG } from '@qiongqi/contracts'
+import type { UsageEvent } from '@qiongqi/contracts'
 import {
   DEFAULT_MODEL_ENDPOINT_FORMAT,
   normalizeModelEndpointFormat,
@@ -298,7 +290,7 @@ export function eventedV2AgentGraphForRuntimeOptions(
 }
 
 type RuntimeTurnRunner = {
-  runTurn(threadId: string, turnId: string): Promise<'completed' | 'failed' | 'aborted'>
+  runTurn(threadId: string, turnId: string): Promise<'completed' | 'degraded' | 'suspended' | 'failed' | 'aborted'>
 }
 
 function loopForOrchestrationMode(
@@ -319,88 +311,6 @@ function loopForOrchestrationMode(
   }
   if (!loops.classic) throw new Error('evented_v2 rollout selected classic fallback but classic runner is not configured')
   return loops.classic
-}
-
-/**
- * 持久化决策 turn 路由器 — 读 turn → 决策服务决定编排模式 → 派发到对应 runner。
- * 来源：KWorks runtime-factory.ts（createPersistedDecisionTurnRouter）。
- */
-export function createPersistedDecisionTurnRouter(input: {
-  turns: Pick<TurnService, 'getTurn'>
-  decisions: Pick<TurnRuntimeDecisionService, 'decide'>
-  loops: {
-    classic?: RuntimeTurnRunner
-    eventedV2?: RuntimeTurnRunner
-    kernelV3?: RuntimeTurnRunner
-  }
-  onResolved?: (input: {
-    threadId: string
-    turnId: string
-    mode: OrchestrationMode
-  }) => Promise<void> | void
-}): RuntimeTurnRunner {
-  return {
-    runTurn: async (threadId, turnId) => {
-      const turn = await input.turns.getTurn(threadId, turnId)
-      if (!turn) throw new Error(`turn not found: ${threadId}/${turnId}`)
-      const decision = await input.decisions.decide({
-        threadId,
-        turnId,
-        request: {
-          ...(turn.orchestrationPreference
-            ? { orchestrationPreference: turn.orchestrationPreference }
-            : {}),
-          ...(turn.collaborationPolicy ? { collaborationPolicy: turn.collaborationPolicy } : {})
-        }
-      })
-      await input.onResolved?.({
-        threadId,
-        turnId,
-        mode: decision.effectiveMode
-      })
-      return loopForOrchestrationMode(decision.effectiveMode, input.loops)
-        .runTurn(threadId, turnId)
-    }
-  }
-}
-
-/**
- * 服务端编排模式 override（来自 orchestrationMode/runtime.orchestrationMode 配置）。
- * 来源：KWorks runtime-factory.ts（runtimeServerOverride）。
- */
-function runtimeServerOverride(
-  options: Pick<QiongqiServeRuntimeOptions, 'orchestrationMode' | 'runtime'>
-): RuntimeDecision['effectiveMode'] | undefined {
-  const configured = options.orchestrationMode ?? options.runtime?.orchestrationMode
-  if (!configured) return undefined
-  // 标准化：evented → evented_v2，其余原样
-  const normalized: RuntimeDecision['effectiveMode'] = configured === 'evented' ? 'evented_v2' : configured
-  return normalized
-}
-
-/**
- * 构造运行时能力快照（cap_<sha256_16hex> 修订）。
- * 只哈希 subagents + agentGraph（durable 子集），保证跨 MCP 重连稳定。
- * 来源：KWorks runtime-factory.ts（runtimeCapabilitySnapshot）。
- */
-function runtimeCapabilitySnapshot(
-  configStore: { snapshot?: () => { capabilities?: unknown } | undefined },
-  options: Pick<QiongqiServeRuntimeOptions, 'capabilities'>
-): RuntimeCapabilitySnapshot {
-  const capabilities = QiongqiCapabilitiesConfig.parse(
-    configStore.snapshot?.()?.capabilities
-      ?? options.capabilities
-      ?? DEFAULT_QIONGQI_CAPABILITIES_CONFIG
-  )
-  const durable = {
-    subagents: capabilities.subagents,
-    agentGraph: capabilities.agentGraph
-  }
-  const revision = `cap_${createHash('sha256')
-    .update(JSON.stringify(durable))
-    .digest('hex')
-    .slice(0, 16)}`
-  return RuntimeCapabilitySnapshotSchema.parse({ revision, ...durable })
 }
 
 function nowMsFromIso(nowIso: () => string): number {
@@ -791,6 +701,14 @@ class RefreshableToolHost implements ToolHost {
     return this.withContext(context, (resolved) => this.delegate.prepare(call, resolved))
   }
 
+  describeReplay(call: ToolCallLike, context: ToolHostContext): Promise<ToolReplayDescriptor> {
+    return this.withContext(context, (resolved) => this.delegate.describeReplay(call, resolved))
+  }
+
+  verifyReplay(input: Parameters<ToolHost['verifyReplay']>[0]): Promise<ToolReplayVerification> {
+    return this.withContext(input.context, (resolved) => this.delegate.verifyReplay({ ...input, context: resolved }))
+  }
+
   execute(
     call: ToolCallLike,
     context: ToolHostContext,
@@ -929,11 +847,12 @@ export async function createToolMatrix(
           model: model.client,
           toolHost: childToolHost,
           prefix: createImmutablePrefix({ systemPrompt: QIONGQI_SYSTEM_PROMPT }),
-          defaultModel: options.model || 'unconfigured',
+          defaultModel: options.model,
           models: options.models,
           contextCompaction: options.contextCompaction,
           approvalPolicy: options.approvalPolicy,
           sandboxMode: options.sandboxMode,
+          shellRuntimeInstruction,
           modelCapabilities: model.modelCapabilities,
           skillRuntime,
           skillPluginHost,
@@ -1227,18 +1146,23 @@ function uniqueStrings(values: readonly string[]): string[] {
 function normalizeLegacyTaskSkills(skills: QiongqiCapabilitiesConfig['skills'] | undefined): QiongqiCapabilitiesConfig['skills'] | undefined {
   if (!skills?.workModes?.modes) return skills
   const modes = skills.workModes.modes as Record<string, RuntimeWorkModeConfig>
-  // KCoder 现为纯 coding 应用，遗留的 task/office 模式已移除；旧的 per-user
-  // 配置快照可能仍带 task/office，这里丢弃它们（coding 为唯一内置模式）。
-  const { task: _task, office: _office, ...rest } = modes
-  if (!('task' in modes) && !('office' in modes)) return skills
-  const legacyDefault = skills.workModes.defaultModeId
-  const nextDefault = legacyDefault === 'task' || legacyDefault === 'office' ? 'coding' : legacyDefault
+  if (!('task' in modes)) return skills
+  const { task, ...rest } = modes
+  const nextModes: Record<string, RuntimeWorkModeConfig> = 'office' in rest
+    ? rest
+    : { ...rest, office: { ...task, id: 'office' } }
+  const nextDefault = skills.workModes.defaultModeId === 'task' ? 'office' : skills.workModes.defaultModeId
   const overrides = { ...((skills.modeSkillOverrides ?? {}) as Record<string, RuntimeModeSkillOverride>) }
-  delete overrides.task
-  delete overrides.office
+  if (overrides.task) {
+    overrides.office = {
+      ...(overrides.office ?? { addedSkillIds: [], removedSkillIds: [] }),
+      ...overrides.task
+    }
+    delete overrides.task
+  }
   return {
     ...skills,
-    workModes: { ...skills.workModes, defaultModeId: nextDefault, modes: rest },
+    workModes: { ...skills.workModes, defaultModeId: nextDefault, modes: nextModes },
     modeSkillOverrides: overrides
   }
 }
@@ -1409,6 +1333,7 @@ export function createKernelV3TurnRunner(input: {
     prefix: input.prefix,
     ids: core.ids,
     nowIso: core.nowIso,
+    shellRuntimeInstruction,
     modelCapabilities: model.modelCapabilities,
     skillRuntime: tools.skillRuntime,
     skillPluginHost: tools.skillPluginHost,
@@ -1572,11 +1497,13 @@ export function createKernelV3TurnRunner(input: {
         summary: outcome.status === 'completed' ? 'Task completed.' : `Task stopped: ${outcome.reason}.`,
         reason: outcome.reason
       } as never)
+      if (status === 'suspended') return
+      const turnStatus = status === 'degraded' ? 'completed' : status
       await core.turnService.finishTurn({
         threadId,
         turnId,
-        status,
-        ...(status === 'failed'
+        status: turnStatus,
+        ...(turnStatus === 'failed'
           ? { error: `${outcome.reason}${outcome.retryable ? ' (retryable)' : ''}` }
           : {})
       })
@@ -1638,7 +1565,7 @@ async function assembleRuntime(input: {
     threadStore: core.threadStore,
     turns: core.turnService,
     model: scopedModelClient,
-    defaultModel: options.model || 'unconfigured',
+    defaultModel: options.model,
     nowIso: core.nowIso,
     modelCapabilities: model.modelCapabilities,
     ...(options.models ? { models: options.models } : {}),
@@ -1684,6 +1611,7 @@ async function assembleRuntime(input: {
     prefix,
     ids: core.ids,
     nowIso: core.nowIso,
+    shellRuntimeInstruction,
     modelCapabilities: model.modelCapabilities,
     skillRuntime: tools.skillRuntime,
     skillPluginHost: tools.skillPluginHost,
@@ -1704,13 +1632,6 @@ async function assembleRuntime(input: {
     },
     ...(toolRuntime ? { toolRuntime } : {})
   }
-  const multiAgentRoot = join(options.dataDir, 'threads')
-  const multiAgentRuns = needsEventedV2Loop
-    ? new FileMultiAgentRunStore(multiAgentRoot)
-    : undefined
-  const multiAgentMailbox = needsEventedV2Loop
-    ? new FileMailboxStore(multiAgentRoot)
-    : undefined
   const eventedV2Loop = needsEventedV2Loop
     ? new EventedTurnOrchestrator(
         orchOpts,
@@ -1742,85 +1663,41 @@ async function assembleRuntime(input: {
       })
     : undefined
   const classicLoop = needsClassicLoop ? new TurnOrchestrator(orchOpts) : undefined
-
-  // Phase 4b: 编排决策服务（持久化决策 + preflight fallback）+ 执行投影。
-  // 来源：KWorks runtime-factory.ts（runtimeDecisionService + turnExecutionProjection）。
-  const runtimeDecisionService = new TurnRuntimeDecisionService({
-    threadStore: core.threadStore,
-    defaultPreference: 'standard',
-    ...(runtimeServerOverride(options) ? { serverOverride: runtimeServerOverride(options) } : {}),
-    rolloutStage: options.runtime?.eventedV2Rollout?.stage ?? 'off',
-    capabilities: async () => runtimeCapabilitySnapshot(configStore, options),
-    preflight: async ({ threadId, turnId, snapshot }) => {
-      // preflight：校验 turn 的工作模式能解析出非空 specialist 注册表。
-      try {
-        const thread = await core.threadStore.get(threadId)
-        const turn = thread?.turns.find((candidate) => candidate.id === turnId)
-        const specialistIds = resolveSpecialistIdsForWorkMode(
-          snapshot.agentGraph.specialistRegistry,
-          turn?.workModeId ?? thread?.workModeId,
-          thread?.workModeModuleId
-        )
-        createDefaultSpecialistRegistry({
-          revision: snapshot.revision,
-          enabledIds: specialistIds
-        })
-        return { available: true }
-      } catch (error) {
-        return {
-          available: false,
-          reasonCode: 'specialists_unavailable',
-          reason: error instanceof Error ? error.message : String(error)
+  const loop = eventedV2RolloutController
+    ? {
+        runTurn: async (threadId: string, turnId: string): Promise<'completed' | 'degraded' | 'suspended' | 'failed' | 'aborted'> => {
+          const decision = eventedV2RolloutController.decide({ threadId })
+          eventedV2RolloutController.recordDecision(decision)
+          const selected = loopForOrchestrationMode(decision.primaryMode, {
+            classic: classicLoop,
+            eventedV2: eventedV2Loop,
+            kernelV3: kernelV3Loop
+          })
+          try {
+            const status = await selected.runTurn(threadId, turnId)
+            if (decision.primaryMode === 'evented_v2'
+              && (status === 'completed' || status === 'failed' || status === 'aborted')) {
+              eventedV2RolloutController.recordOutcome(status)
+            }
+            return status
+          } catch (error) {
+            if (decision.primaryMode === 'evented_v2') eventedV2RolloutController.recordOutcome('failed')
+            throw error
+          }
         }
       }
-    },
-    nowIso: core.nowIso
-  })
-
-  // 投影适配器需要 transcript store（加载 agent 对话记录）。
-  // KCoder 暂无持久化 transcript store 适配器；用 no-op（load 返回 undefined），
-  // 适配器会把 agent 标记为 execution_data_pending，待后续补 transcript store。
-  const projectionTranscripts = { load: async () => undefined } as Pick<AgentTranscriptStore, 'load'>
-  const sanitizerOptions = { maxInlineToolResultBytes: 64 * 1024, redactPatterns: [] }
-  const kernelExecutionAdapter = new KernelV3ExecutionAdapter({
-    transcripts: projectionTranscripts,
-    sanitizerOptions
-  })
-  const eventedV2ExecutionAdapter = new EventedV2ExecutionAdapter({
-    transcripts: projectionTranscripts,
-    sanitizerOptions
-  })
-  const turnExecutionProjection = multiAgentRuns
-    ? new TurnExecutionProjectionService({
-        threads: core.threadStore,
-        runs: multiAgentRuns,
-        delegation: { list: async () => [] },
-        kernel: kernelExecutionAdapter,
-        eventedV2: eventedV2ExecutionAdapter
+    : loopForOrchestrationMode(orchestrationMode, {
+        classic: classicLoop,
+        eventedV2: eventedV2Loop,
+        kernelV3: kernelV3Loop
       })
+  const multiAgentRoot = join(options.dataDir, 'threads')
+  const multiAgentRuns = needsEventedV2Loop
+    ? new FileMultiAgentRunStore(multiAgentRoot)
     : undefined
-
-  // 持久化决策路由器：决策服务决定编排模式并持久化，按模式派发到对应 runner。
-  // 决策幂等持久化到 turn；evented_v2 preflight 失败时 fallback kernel_v3（由决策服务处理）。
-  const loop = createPersistedDecisionTurnRouter({
-    turns: core.turnService,
-    decisions: runtimeDecisionService,
-    loops: {
-      ...(classicLoop ? { classic: classicLoop } : {}),
-      ...(eventedV2Loop ? { eventedV2: eventedV2Loop } : {}),
-      ...(kernelV3Loop ? { kernelV3: kernelV3Loop } : {})
-    },
-    onResolved: async ({ threadId, turnId, mode }) => {
-      await core.events.record({
-        kind: 'pipeline_stage',
-        threadId,
-        turnId,
-        stage: 'response_received',
-        label: `编排模式: ${mode}`,
-        details: { orchestrationMode: mode }
-      })
-    }
-  })
+  const multiAgentMailbox = needsEventedV2Loop
+    ? new FileMailboxStore(multiAgentRoot)
+    : undefined
   const multiAgentWorkerRegistry = needsEventedV2Loop
     ? new FileEventedV2WorkerRegistryStore(multiAgentRoot)
     : undefined
@@ -1940,7 +1817,7 @@ async function assembleRuntime(input: {
   const skillSummaries: SkillSummary[] = tools.skillRuntime.diagnostics().skills.map((s) => ({
     id: s.id,
     name: s.name,
-    version: s.version ?? '0.0.0',
+    version: s.version ?? '1.0.0',
     ...(s.description ? { description: s.description } : {}),
     category: 'workflow' as const
   }))
@@ -1951,7 +1828,7 @@ async function assembleRuntime(input: {
     host: options.host,
     port: options.port,
     agentName: options.agentName ?? 'Qiongqi',
-    model: options.model || 'unconfigured',
+    model: options.model,
     endpointFormats: [endpointFormat],
     capabilities: initialCapabilities,
     skills: skillSummaries
@@ -1971,7 +1848,6 @@ async function assembleRuntime(input: {
     ...(multiAgentRemoteWorker ? { multiAgentRemoteWorker } : {}),
     ...(multiAgentRemoteScheduler ? { multiAgentRemoteScheduler } : {}),
     ...(eventedV2RolloutController ? { eventedV2Rollout: eventedV2RolloutController } : {}),
-    ...(turnExecutionProjection ? { turnExecutionProjection } : {}),
     eventBus: core.eventBus,
     sessionStore: core.sessionStore,
     events: core.events,
@@ -2363,7 +2239,7 @@ async function buildAgentCard(input: {
     id,
     url: baseUrl,
     name: input.agentName,
-    version: '0.1.0',
+    version: '1.0.0',
     skills: input.skills,
     capabilities: input.capabilities,
     model: {

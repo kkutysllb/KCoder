@@ -4,7 +4,7 @@
   "name": "PDF",
   "description": "Read, merge, split, watermark, create, and OCR PDF files whenever a .pdf file is involved as input or output.",
   "version": "1.0.0",
-  "category": "document",
+  "category": "workflow",
   "priority": 5,
   "entry": "SKILL.md",
   "activation": {

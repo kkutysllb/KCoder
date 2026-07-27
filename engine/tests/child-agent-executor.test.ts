@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { CapabilityRegistry } from '@qiongqi/adapter-tools'
+import { buildDefaultLocalTools, CapabilityRegistry } from '@qiongqi/adapter-tools'
 import { LocalToolHost } from '@qiongqi/adapter-tools'
 import { createImmutablePrefix } from '@qiongqi/cache'
 import { createChildAgentExecutor } from '@qiongqi/delegation'
@@ -18,6 +18,29 @@ function model(chunks: ModelStreamChunk[], seen: ModelRequest[] = []): ModelClie
 }
 
 describe('child agent executor', () => {
+  it('propagates an injected shell runtime instruction to child model requests', async () => {
+    const seen: ModelRequest[] = []
+    const executor = createChildAgentExecutor({
+      model: model([{ kind: 'assistant_text_delta', text: 'done' }, { kind: 'completed', stopReason: 'stop' }], seen),
+      toolHost: new LocalToolHost({ tools: buildDefaultLocalTools() }),
+      prefix: createImmutablePrefix({ systemPrompt: 'child system' }),
+      defaultModel: 'child-test',
+      shellRuntimeInstruction: () => 'Shell runtime: child-test-shell',
+      nowIso: () => '2026-06-03T00:00:00.000Z'
+    })
+
+    await executor({
+      childId: 'child_shell',
+      parentThreadId: 'thr_parent',
+      parentTurnId: 'turn_parent',
+      prompt: 'Inspect the workspace',
+      workspace: '/tmp/project',
+      signal: new AbortController().signal
+    })
+
+    expect(seen[0]?.contextInstructions?.join('\n')).toContain('Shell runtime: child-test-shell')
+  })
+
   it('runs a real child TurnOrchestrator and returns assistant summary plus usage', async () => {
     const seen: ModelRequest[] = []
     const executor = createChildAgentExecutor({

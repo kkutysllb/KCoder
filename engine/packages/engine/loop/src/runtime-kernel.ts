@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   ModelProposalSchema,
   TaskStateV1Schema,
@@ -36,6 +36,12 @@ export type RuntimeKernelCrashPoint =
   | 'after_node_completed'
   | 'after_node_middleware'
   | 'after_node_after_middleware_event'
+
+export type RuntimeResumeInput = {
+  token: string
+  revision: number
+  resolution: unknown
+}
 
 type CompletedNodePayload = {
   nodeId: string
@@ -197,6 +203,7 @@ export class RuntimeKernel {
       if (!state) state = this.initialState(identity)
       this.assertStateIdentity(identity, state)
       await this.assertLeaseHealthy(leaseGuard, state)
+      if (isWaiting(state)) return outcomeFromStoppedState(state)
       if (isTerminal(state)) {
         const checkpointSeq = state.cursor.checkpointSeq
         state = await this.replayAfterCheckpoint(identity, state, leaseGuard)
@@ -321,15 +328,15 @@ export class RuntimeKernel {
           node,
           completed: committedPayload
         }, leaseGuard)
-        if (checkpointsAfter(node) || isTerminal(state)) await snapshots.save(state, fence)
-        if (isTerminal(state)) {
+        if (checkpointsAfter(node) || isStopped(state)) await snapshots.save(state, fence)
+        if (isStopped(state)) {
           // Terminal outcomes are monotonic. Middleware may record diagnostics,
           // but cannot reopen or replace an already committed terminal result.
           await this.options.middleware.run(
             'afterRun',
             this.middlewareContext(identity, state, 'afterRun')
           )
-          return outcomeFromTerminalState(state)
+          return outcomeFromStoppedState(state)
         }
 
       }
@@ -364,6 +371,37 @@ export class RuntimeKernel {
       await leaseGuard.stop()
       try { await leases.release(identity, holderId, fence) } catch { /* best effort cleanup */ }
     }
+  }
+
+  async resume(identity: RunIdentity, input: RuntimeResumeInput): Promise<RunOutcome> {
+    const { leases, snapshots, holderId } = this.options
+    const lease = await leases.acquire(identity, holderId, this.options.leaseTtlMs)
+    if (!lease.acquired) throw new Error('resume lease unavailable')
+    try {
+      const state = await snapshots.load(identity)
+      if (!state || !isWaiting(state) || !state.suspension) throw new Error('run is not waiting or suspension token was consumed')
+      this.assertStateIdentity(identity, state)
+      if (state.suspension.revision !== input.revision) throw new Error('suspension revision mismatch')
+      if (state.suspension.tokenDigest !== suspensionTokenDigest(input.token)) throw new Error('suspension token mismatch')
+      const { outcome: _outcome, suspension: _suspension, ...rest } = state
+      await snapshots.save({
+        ...rest,
+        status: 'running',
+        nodeData: {
+          ...state.nodeData,
+          'suspension-resolution': {
+            revision: input.revision,
+            waitingStatus: state.suspension.status,
+            resolution: input.resolution,
+            resolvedAt: this.options.nowIso()
+          }
+        },
+        updatedAt: this.options.nowIso()
+      }, lease.fence)
+    } finally {
+      await leases.release(identity, holderId, lease.fence)
+    }
+    return this.run(identity)
   }
 
   private initialState(identity: RunIdentity): RunStateV3 {
@@ -667,12 +705,12 @@ export class RuntimeKernel {
     checkpointSeq: number
   ): RunStateV3 {
     let next = state
-    if (!isTerminal(next)) {
+    if (!isStopped(next)) {
       next = this.applyCommands(next, payload.commands)
       const outcome = payload.outcome ?? this.commandOutcome(payload.commands)
       if (outcome) next = this.withOutcome(next, outcome)
     }
-    if (!isTerminal(next)) {
+    if (!isStopped(next)) {
       const control = this.middlewareControlTarget(payload.commands, next.cursor.nodeId)
       if (control) {
         this.nodeFor(control.nodeId)
@@ -828,9 +866,34 @@ export class RuntimeKernel {
 
   private withOutcome(state: RunStateV3, outcome: RunOutcome): RunStateV3 {
     if (isTerminal(state)) return state
+    const status = projectPersistentStatus(outcome)
+    if (outcome.status === 'suspended') {
+      const token = randomUUID()
+      const revision = state.cursor.checkpointSeq
+      return {
+        ...state,
+        status,
+        outcome: {
+          ...outcome,
+          details: {
+            ...(outcome.details ?? {}),
+            suspensionToken: token,
+            suspensionRevision: revision,
+            waitingStatus: status
+          }
+        },
+        suspension: {
+          status: status as NonNullable<RunStateV3['suspension']>['status'],
+          tokenDigest: suspensionTokenDigest(token),
+          revision,
+          requestedAt: this.options.nowIso()
+        },
+        updatedAt: this.options.nowIso()
+      }
+    }
     return {
       ...state,
-      status: outcome.status,
+      status,
       outcome,
       updatedAt: this.options.nowIso()
     }
@@ -911,7 +974,32 @@ function isTerminal(state: RunStateV3): boolean {
     || state.status === 'degraded'
     || state.status === 'failed'
     || state.status === 'aborted'
-    || state.status === 'suspended'
+}
+
+function isStopped(state: RunStateV3): boolean {
+  return isTerminal(state) || isWaiting(state)
+}
+
+function isWaiting(state: RunStateV3): boolean {
+  return state.status === 'waiting_approval'
+    || state.status === 'waiting_input'
+    || state.status === 'waiting_effect_verification'
+    || state.status === 'waiting_model_resolution'
+}
+
+function projectPersistentStatus(outcome: RunOutcome): RunStateV3['status'] {
+  if (outcome.status !== 'suspended') return outcome.status
+  if (outcome.reason === 'awaiting_user_input') return 'waiting_input'
+  const code = String(outcome.details?.code ?? '')
+  if (code === 'approval_required') return 'waiting_approval'
+  if (code === 'model_resolution_required') return 'waiting_model_resolution'
+  if (outcome.reason === 'required_action_missing') return 'waiting_effect_verification'
+  return 'waiting_model_resolution'
+}
+
+function outcomeFromStoppedState(state: RunStateV3): RunOutcome {
+  if (state.outcome) return state.outcome
+  return outcomeFromTerminalState(state)
 }
 
 function outcomeFromTerminalState(state: RunStateV3): RunOutcome {
@@ -933,6 +1021,10 @@ function leaseUnavailableOutcome(): RunOutcome {
 
 function isFenceError(error: unknown): boolean {
   return error instanceof Error && /lease fence|active lease fence|stale lease/i.test(error.message)
+}
+
+function suspensionTokenDigest(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
 }
 
 function preparedCallIds(value: unknown): string[] {

@@ -1,6 +1,6 @@
 {
   "name": "@qiongqi/tool-infra",
-  "version": "0.1.0",
+  "version": "1.1.1",
   "description": "Qiongqi tool infrastructure — hooks, rate-limit, mutation-queue, output accumulator",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,8 +22,8 @@
     "@qiongqi/adapter-fs": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.8.2",
-    "@types/node": "^26.0.0"
+    "@types/node": "^26.0.0",
+    "typescript": "^5.8.2"
   },
   "private": true,
   "types": "./dist/index.d.ts"

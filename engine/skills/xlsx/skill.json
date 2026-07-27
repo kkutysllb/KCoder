@@ -4,7 +4,7 @@
   "name": "Spreadsheet",
   "description": "Open, read, edit, create, and convert spreadsheet files (.xlsx, .xlsm, .csv, .tsv) with formulas, formatting, and charts.",
   "version": "1.0.0",
-  "category": "document",
+  "category": "workflow",
   "priority": 5,
   "entry": "SKILL.md",
   "activation": {

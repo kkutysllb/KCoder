@@ -8,9 +8,8 @@
 
 import type { ToolCallLike } from '@qiongqi/ports'
 import type { IdGenerator } from '@qiongqi/ports'
-import type { TurnItem } from '@qiongqi/contracts'
+import { CREATE_PLAN_TOOL_NAME, type TurnItem } from '@qiongqi/contracts'
 import { makeToolCallItem } from '@qiongqi/domain'
-import { CREATE_PLAN_TOOL_NAME } from '@qiongqi/adapter-tools'
 import { latestUserMessageText } from './loop-helpers.js'
 import type { BuildContext } from './prompt-builder.js'
 import type { StepResult } from './model-step-runner.js'

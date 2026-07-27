@@ -1,17 +1,16 @@
 import type {
+  CapabilityToolProvider,
+  LocalTool,
   ToolHostContext,
   ToolProviderKind,
   ToolProviderPolicy
 } from '@qiongqi/ports'
-import type { LocalTool } from './local-tool-host.js'
+import type { ToolEffectPolicy } from '@qiongqi/contracts'
+export type { CapabilityToolProvider } from '@qiongqi/ports'
 
 export type CapabilityToolRecord = {
   provider: ToolProviderPolicy
   tool: LocalTool
-}
-
-export type CapabilityToolProvider = ToolProviderPolicy & {
-  tools: readonly LocalTool[]
 }
 
 export type CapabilityToolSpec = {
@@ -21,6 +20,7 @@ export type CapabilityToolSpec = {
   toolKind?: 'tool_call' | 'command_execution' | 'file_change'
   providerId: string
   providerKind: ToolProviderKind
+  effectPolicy: ToolEffectPolicy
 }
 
 export class CapabilityRegistry {
@@ -51,6 +51,9 @@ export class CapabilityRegistry {
     }
     this.providers.set(provider.id, provider)
     for (const tool of provider.tools) {
+      if (!tool.replay?.effectPolicy) {
+        throw new Error(`tool_replay_policy_missing: ${provider.id}/${tool.name}`)
+      }
       if (this.tools.has(tool.name)) {
         throw new Error(`duplicate tool name: ${tool.name}`)
       }
@@ -72,7 +75,8 @@ export class CapabilityRegistry {
         inputSchema: record.tool.inputSchema,
         toolKind: record.tool.toolKind,
         providerId: record.provider.id,
-        providerKind: record.provider.kind
+        providerKind: record.provider.kind,
+        effectPolicy: legacyEffectPolicy(record.tool.replay.effectPolicy)
       })
     }
     return specs
@@ -133,6 +137,13 @@ export class CapabilityRegistry {
     const allowed = context?.allowedToolNames
     return !allowed || allowed.includes(toolName)
   }
+}
+
+function legacyEffectPolicy(policy: LocalTool['replay']['effectPolicy']): ToolEffectPolicy {
+  if (policy === 'safe') return { effect: 'read', replay: 'safe' }
+  if (policy === 'idempotent-with-key') return { effect: 'idempotent-write', replay: 'verify-first' }
+  if (policy === 'verify-before-replay') return { effect: 'non-idempotent-write', replay: 'verify-first' }
+  return { effect: 'non-idempotent-write', replay: 'never' }
 }
 
 function providerPolicy(provider: ToolProviderPolicy): ToolProviderPolicy {

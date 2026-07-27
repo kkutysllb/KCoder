@@ -1,0 +1,19 @@
+groups:
+  - name: qiongqi
+    rules:
+      - alert: QiongqiStorageDegraded
+        expr: qiongqi_storage_degraded == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Qiongqi storage is degraded
+          description: Hybrid storage is running without the SQLite index path.
+      - alert: QiongqiA2ATasksFailing
+        expr: increase(qiongqi_a2a_tasks_total{status="failed"}[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Qiongqi A2A tasks are failing
+          description: At least one A2A task failed in the last 10 minutes.

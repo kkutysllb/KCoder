@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto'
-import type { TaskStateV1 } from '@qiongqi/contracts'
+import type { TaskCheckpointV1, TaskStateV1 } from '@qiongqi/contracts'
+import { renderTaskCheckpointData } from './task-checkpoint-projector-v1.js'
 
-export function renderTaskStateProjection(task: TaskStateV1): string {
+export function renderTaskStateProjection(task: TaskStateV1 | TaskCheckpointV1): string {
+  if ('scope' in task) return renderTaskCheckpointData(task)
   const immediate = task.pendingActions.find((action) =>
     action.status === 'in_progress' || action.status === 'pending'
   )

@@ -1,5 +1,4 @@
-import type { CapabilityToolProvider, LocalTool } from '@qiongqi/adapter-tools'
-import type { ToolHostContext } from '@qiongqi/ports'
+import type { CapabilityToolProvider, LocalTool, ToolHostContext } from '@qiongqi/ports'
 import type { LoadedSkillPlugin } from './plugin-host.js'
 
 export type ActiveSkillsLookup = (skillId: string, context: ToolHostContext) => readonly string[]
@@ -47,6 +46,7 @@ function buildDeclarativeTool(
     description: decl.description,
     toolKind: 'tool_call',
     policy: decl.policy,
+    replay: { effectPolicy: 'never-replay' },
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     shouldAdvertise: (context: ToolHostContext) => {
       const active = lookup(skillId, context)

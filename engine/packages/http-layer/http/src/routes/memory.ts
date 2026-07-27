@@ -1,4 +1,4 @@
-import { MemoryCreateRequest, MemoryUpdateRequest } from '@qiongqi/contracts'
+import { LegacyMemoryCreateRequestSchema, MemoryUpdateRequest } from '@qiongqi/contracts'
 import type { MemoryStore } from '@qiongqi/memory'
 import { jsonResponse, type JsonResponse } from '../response.js'
 import { readJsonBody } from '../read-json-body.js'
@@ -20,7 +20,7 @@ export async function createMemory(store: MemoryStore | undefined, request: Requ
   if (!store) return ERRORS.unavailable('memory store is unavailable')
   const body = await readJsonBody(request)
   if (!body.ok) return body.response
-  const parsed = MemoryCreateRequest.safeParse(body.value)
+  const parsed = LegacyMemoryCreateRequestSchema.safeParse(body.value)
   if (!parsed.success) return ERRORS.validation('invalid memory create body', parsed.error.issues)
   return jsonResponse({ memory: await store.create({ ...parsed.data, ownerUserId }) }, 201)
 }

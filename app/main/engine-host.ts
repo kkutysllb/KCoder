@@ -1,13 +1,18 @@
 import { join } from 'path'
 import { homedir } from 'os'
 import { randomBytes } from 'crypto'
-import { readFileSync, writeFileSync } from 'fs'
+import { existsSync } from 'fs'
 
 // Engine configuration
 export interface EngineConfig {
   port: number
   dataDir: string
   runtimeToken: string
+  // Fallback model used before the user configures anything in Settings.
+  // The new engine is model-neutral: it ships no default provider. We pass
+  // these top-level fields so the HTTP serve runtime can boot and so threads
+  // have a default model to use until the user activates a profile via the
+  // Settings page (which writes per-user profiles through UserDataStore).
   apiKey: string
   baseUrl: string
   model: string
@@ -21,7 +26,9 @@ function getDefaultConfig(): EngineConfig {
     port: 18899 + Math.floor(Math.random() * 1000), // Random port to avoid conflicts
     dataDir: join(homedir(), '.kcoder', 'engine-data'),
     runtimeToken: randomBytes(32).toString('hex'),
-    // 不预设任何模型 — 完全由用户在设置页配置
+    // The engine is model-neutral — no implicit provider. These remain empty
+    // until the user configures a model in Settings. The runtime still boots
+    // (standby mode); model CRUD happens through the product-side model store.
     apiKey: process.env.KCODER_API_KEY || '',
     baseUrl: process.env.KCODER_BASE_URL || '',
     model: process.env.KCODER_MODEL || '',
@@ -35,8 +42,39 @@ let enginePort: number = 0
 let engineToken: string = ''
 
 /**
- * Start the QiongQi coding agent engine
- * Engine starts without requiring API key - users can configure models later via settings.
+ * Resolve the bundled skill root. Skills live under <repo>/engine/skills.
+ * The new engine no longer relies on `process.cwd()` for skill discovery, so
+ * we pass this explicitly via `skillRoots`.
+ *
+ * The bundle's location differs between dev (electron-vite serves from
+ * app/out/main) and a packaged app, so we try a set of candidate paths and
+ * return the first that exists on disk.
+ */
+function resolveBuiltinSkillRoots(): string[] {
+  const candidates: string[] = []
+  // `__dirname` is resolved by esbuild at bundle time. In dev it points at
+  // app/out/main, so three levels up reaches the repo root.
+  candidates.push(join(__dirname, '..', '..', '..', 'engine', 'skills'))
+  candidates.push(join(__dirname, '..', '..', 'engine', 'skills'))
+  // cwd based (electron-vite dev sets cwd to the app or repo dir)
+  candidates.push(join(process.cwd(), 'engine', 'skills'))
+  candidates.push(join(process.cwd(), '..', 'engine', 'skills'))
+
+  const root = candidates.find((candidate) => existsSync(candidate))
+  if (root) {
+    console.log(`[KCoder] Resolved builtin skill root: ${root}`)
+  } else {
+    console.warn(`[KCoder] Could not resolve builtin skill root; tried: ${candidates.join(', ')}`)
+  }
+  return root ? [root] : []
+}
+
+/**
+ * Start the QiongQi coding agent engine.
+ *
+ * The engine is model-neutral and starts in standby mode when no model is
+ * configured. Users configure models in Settings, which the product manages
+ * through the engine's UserDataStore (per-user model profiles).
  */
 export async function startEngine(config?: Partial<EngineConfig>): Promise<void> {
   const fullConfig = { ...getDefaultConfig(), ...config }
@@ -57,52 +95,60 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
 
   console.log(`[KCoder] Engine config: port=${fullConfig.port}, model=${fullConfig.model}, baseUrl=${fullConfig.baseUrl}`)
 
-  // 清理磁盘上残留的旧 serve 配置（之前硬编码 deepseek-chat 写入的）
-  // 当 model 为空（待配置状态）时，移除 config.json 里 serve.model/apiKey/baseUrl
-  if (!fullConfig.model) {
-    try {
-      const configPath = join(fullConfig.dataDir, 'config.json')
-      const raw = readFileSync(configPath, 'utf-8')
-      const parsed = JSON.parse(raw)
-      if (parsed?.serve?.model || parsed?.serve?.apiKey || parsed?.serve?.baseUrl) {
-        delete parsed.serve.model
-        delete parsed.serve.apiKey
-        delete parsed.serve.baseUrl
-        writeFileSync(configPath, JSON.stringify(parsed, null, 2), 'utf-8')
-        console.log('[KCoder] Cleared stale serve.model/apiKey/baseUrl from disk config')
-      }
-    } catch { /* 配置文件不存在或解析失败 — 忽略 */ }
-  }
-
   try {
     // Dynamic import to avoid bundling issues
     const { createCodingAgent } = await import('@qiongqi/preset-coding')
     const { createHttpServer } = await import('@qiongqi/http')
     const { QiongqiCapabilitiesConfig } = await import('@qiongqi/contracts')
 
-    // Skills default to disabled when capabilities is omitted — explicitly
-    // enable them so the builtin skill bundle (engine/skills/) is mounted.
+    // Skills + subagents are enabled. CRITICAL: the new engine defaults its
+    // work mode to 'office'; KCoder is a coding app, so we must explicitly
+    // pin `defaultModeId: 'coding'` to mount the coding skill set.
+    //
+    // The bundled skill bundle is passed both via `skillRoots` (the engine's
+    // explicit builtin-root parameter) AND via `capabilities.skills.roots`.
+    // The latter is the authoritative source the SkillPluginHost scans via
+    // `discoverPlugins`, and is robust to any builtin-root filtering inside
+    // the engine; passing both keeps us aligned with the engine's own
+    // preset-coding example.
+    const skillRoots = resolveBuiltinSkillRoots()
+    console.log('[KCoder] Passing skillRoots to engine:', skillRoots)
     const capabilities = QiongqiCapabilitiesConfig.parse({
-      skills: { enabled: true },
+      skills: {
+        enabled: true,
+        roots: skillRoots,
+        workModes: { defaultModeId: 'coding' }
+      },
       subagents: { enabled: true }
     })
 
     console.log('[KCoder] Creating coding agent...')
-    // 引擎以待配置状态启动 — 空的 model/apiKey/baseUrl 会被
-    // qiongqiConfigFromRuntimeOptions 过滤掉，不写入 serve 配置
+    // The engine's serve config schema rejects empty model/apiKey/baseUrl
+    // (min length 1) but treats them as optional. KCoder boots in standby
+    // before the user configures a model, so we substitute a non-empty
+    // placeholder when the field is unset. The placeholder is never used for
+    // a real request: once the user activates a profile in Settings, the
+    // per-user profile (UserDataStore) takes precedence at request time via
+    // UserScopedModelClient. A turn sent before any model is configured will
+    // fail at the provider call with a clear "model not configured" error,
+    // which is the correct behaviour.
+    const placeholder = 'pending-configuration'
     const agent = await createCodingAgent({
       host: '127.0.0.1',
       port: fullConfig.port,
       dataDir: fullConfig.dataDir,
       runtimeToken: fullConfig.runtimeToken,
-      apiKey: fullConfig.apiKey,
-      baseUrl: fullConfig.baseUrl,
-      model: fullConfig.model,
+      apiKey: fullConfig.apiKey || placeholder,
+      baseUrl: fullConfig.baseUrl || placeholder,
+      model: fullConfig.model || placeholder,
       approvalPolicy: fullConfig.approvalPolicy,
       sandboxMode: 'workspace-write',
       tokenEconomyMode: true,
       insecure: false,
-      capabilities
+      capabilities,
+      // Explicitly mount the bundled skill bundle. The new engine no longer
+      // derives skill roots from cwd, so this is required.
+      skillRoots
     })
 
     console.log('[KCoder] Agent runtime created, starting HTTP server...')
@@ -129,10 +175,11 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
 export async function stopEngine(): Promise<void> {
   if (engineRuntime) {
     try {
-      if (engineRuntime.stop) {
-        await engineRuntime.stop()
-      } else if (engineRuntime.close) {
+      // The serve handle exposes `close()` (which also shuts down the agent).
+      if (engineRuntime.close) {
         await engineRuntime.close()
+      } else if (engineRuntime.stop) {
+        await engineRuntime.stop()
       }
     } catch (error) {
       console.error('[KCoder] Error stopping engine:', error)
@@ -154,6 +201,14 @@ export function getEnginePort(): number {
  */
 export function getEngineToken(): string {
   return engineToken
+}
+
+/**
+ * Get the engine data directory (the product-side model store reads/writes
+ * per-user profiles under `<dataDir>/system/data/user-data.json`).
+ */
+export function getEngineDataDir(): string {
+  return getDefaultConfig().dataDir
 }
 
 /**
@@ -183,5 +238,5 @@ async function waitForHealthy(port: number, timeout = 30000): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 500))
   }
 
-  throw new Error(`Engine failed to start within ${timeout}ms. Check if API key is configured.`)
+  throw new Error(`Engine failed to start within ${timeout}ms. Check engine logs.`)
 }

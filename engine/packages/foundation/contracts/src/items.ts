@@ -53,9 +53,7 @@ export type UserTurnItem = z.infer<typeof UserTurnItem>
 
 export const AssistantTextTurnItem = TurnItemBase.extend({
   kind: z.literal('assistant_text'),
-  text: z.string(),
-  /** 来源引用（如 evented_v2:<runId>:final），用于幂等去重。来源 KWorks items.ts。 */
-  sourceRef: z.string().min(1).optional()
+  text: z.string()
 })
 export type AssistantTextTurnItem = z.infer<typeof AssistantTextTurnItem>
 

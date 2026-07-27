@@ -1,15 +1,18 @@
-import type { ThreadGoal } from '@qiongqi/contracts'
+import {
+  CREATE_GOAL_TOOL_NAME,
+  GET_GOAL_TOOL_NAME,
+  GOAL_TOOL_NAMES,
+  UPDATE_GOAL_TOOL_NAME,
+  type ThreadGoal
+} from '@qiongqi/contracts'
 import type { ThreadService } from '@qiongqi/services'
 import { LocalToolHost, type LocalTool } from './local-tool-host.js'
-
-export const GET_GOAL_TOOL_NAME = 'get_goal'
-export const CREATE_GOAL_TOOL_NAME = 'create_goal'
-export const UPDATE_GOAL_TOOL_NAME = 'update_goal'
-export const GOAL_TOOL_NAMES = [
-  GET_GOAL_TOOL_NAME,
+export {
   CREATE_GOAL_TOOL_NAME,
+  GET_GOAL_TOOL_NAME,
+  GOAL_TOOL_NAMES,
   UPDATE_GOAL_TOOL_NAME
-] as const
+} from '@qiongqi/contracts'
 
 export function buildGoalLocalTools(threadService: ThreadService): LocalTool[] {
   return [
