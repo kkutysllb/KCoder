@@ -234,6 +234,22 @@ export type QiongqiServeRuntimeOptions = {
    * suite.
    */
   orchestrationMode?: OrchestrationMode
+  /**
+   * Overlay hook: per-branch workspace resolver for parallel agent isolation.
+   *
+   * When provided, the tool-context enricher consults this resolver for every
+   * tool batch. If it returns a non-null path, that path overrides
+   * `ToolHostContext.workspace` — the single field that bash cwd and all file
+   * tools resolve against — so a child agent running inside a registered git
+   * worktree targets the worktree automatically, without per-tool redirection.
+   *
+   * This is the integration point for KCoder's worktree overlay package
+   * (@kcoder/worktree-overlay). When omitted (or when it returns null), the
+   * engine keeps the thread's default workspace unchanged — fully backward
+   * compatible. This is a non-persisted runtime option (NOT a contracts field),
+   * so it adds zero wire-format or schema surface.
+   */
+  branchWorkspaceResolver?: (threadId: string, workspace: string) => string | null
 }
 
 export type QiongqiServeHandle = NodeHttpServerHandle & {
@@ -755,7 +771,7 @@ class RefreshableToolHost implements ToolHost {
 export async function createToolMatrix(
   options: Pick<
     QiongqiServeRuntimeOptions,
-    'dataDir' | 'capabilities' | 'approvalPolicy' | 'sandboxMode' | 'model' | 'models' | 'contextCompaction' | 'runtime' | 'skillRoots' | 'tokenEconomyMode' | 'tokenEconomy'
+    'dataDir' | 'capabilities' | 'approvalPolicy' | 'sandboxMode' | 'model' | 'models' | 'contextCompaction' | 'runtime' | 'skillRoots' | 'tokenEconomyMode' | 'tokenEconomy' | 'branchWorkspaceResolver'
   >,
   core: CoreRuntime,
   model: ModelAdapter,
@@ -823,10 +839,25 @@ export async function createToolMatrix(
     ...buildMemoryToolProviders(memoryStore)
   ]
   const pythonPathEnv = computePythonPathForSkillRoots([...builtinSkillRoots, ...runtimeMountedSkillRoots])
-  const enrichToolContext = async (context: ToolHostContext): Promise<ToolHostContext> =>
-    pythonPathEnv
-      ? { ...context, environment: { ...(context.environment ?? {}), PYTHONPATH: pythonPathEnv } }
-      : context
+  const branchWorkspaceResolver = options.branchWorkspaceResolver
+  const enrichToolContext = async (context: ToolHostContext): Promise<ToolHostContext> => {
+    let next = context
+    // PYTHONPATH injection (existing behaviour) — only when skill roots are set.
+    if (pythonPathEnv) {
+      next = { ...next, environment: { ...(next.environment ?? {}), PYTHONPATH: pythonPathEnv } }
+    }
+    // Overlay: per-branch worktree isolation. When a resolver is configured and
+    // the current thread is bound to a registered branch worktree, override the
+    // workspace so every bash/file tool call targets the worktree. Returning null
+    // (no resolver, or thread not a branch child) leaves the default workspace.
+    if (branchWorkspaceResolver) {
+      const branchWorkspace = branchWorkspaceResolver(next.threadId, next.workspace)
+      if (branchWorkspace) {
+        next = { ...next, workspace: branchWorkspace }
+      }
+    }
+    return next
+  }
   const childRegistry = new CapabilityRegistry(baseToolProviders())
   const childToolHost: ToolHost = new RefreshableToolHost(
     new LocalToolHost({ registry: childRegistry, readTracker: true }),

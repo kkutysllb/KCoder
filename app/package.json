@@ -15,6 +15,7 @@
     "@qiongqi/preset-coding": "workspace:*",
     "@qiongqi/http": "workspace:*",
     "@qiongqi/contracts": "workspace:*",
+    "@kcoder/worktree-overlay": "workspace:*",
     "electron-store": "^10.0.0",
     "node-pty": "^1.0.0"
   },

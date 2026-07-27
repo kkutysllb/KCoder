@@ -70,6 +70,31 @@ function resolveBuiltinSkillRoots(): string[] {
 }
 
 /**
+ * Resolve the command + args to launch the worktree-overlay MCP server.
+ *
+ * The server ships as a prebuilt ESM bundle (engine/overlays/worktree-overlay/
+ * dist/mcp-server.js). We launch it with `node` so it runs as a stdio subprocess
+ * the engine spawns per the McpServerConfig. Returns {command, args}; if the
+ * bundle cannot be located, returns a no-op that logs a warning (the worktree
+ * MCP tools will simply be unavailable — the resolver still works in-process).
+ */
+function resolveWorktreeMcpServerCommand(): { command: string; args: string[] } {
+  const candidates: string[] = []
+  candidates.push(join(__dirname, '..', '..', '..', 'engine', 'overlays', 'worktree-overlay', 'dist', 'mcp-server.js'))
+  candidates.push(join(__dirname, '..', '..', 'engine', 'overlays', 'worktree-overlay', 'dist', 'mcp-server.js'))
+  candidates.push(join(process.cwd(), 'engine', 'overlays', 'worktree-overlay', 'dist', 'mcp-server.js'))
+  candidates.push(join(process.cwd(), '..', 'engine', 'overlays', 'worktree-overlay', 'dist', 'mcp-server.js'))
+
+  const serverPath = candidates.find((candidate) => existsSync(candidate))
+  if (!serverPath) {
+    console.warn('[KCoder] Could not resolve worktree-overlay MCP server bundle; tried:', candidates.join(', '))
+    // Fall back to a harmless no-op so engine boot is not blocked.
+    return { command: 'node', args: ['-e', 'process.exit(0)'] }
+  }
+  return { command: 'node', args: [serverPath] }
+}
+
+/**
  * Start the QiongQi coding agent engine.
  *
  * The engine is model-neutral and starts in standby mode when no model is
@@ -100,6 +125,13 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
     const { createCodingAgent } = await import('@qiongqi/preset-coding')
     const { createHttpServer } = await import('@qiongqi/http')
     const { QiongqiCapabilitiesConfig } = await import('@qiongqi/contracts')
+    // KCoder overlay: per-branch git worktree isolation for parallel agents.
+    // The registry is a process-wide singleton shared between the in-process
+    // resolver (enrichContext) and the MCP server (agent-callable tools).
+    const {
+      BranchWorktreeRegistry,
+      createBranchWorkspaceResolver
+    } = await import('@kcoder/worktree-overlay')
 
     // Skills + subagents are enabled. CRITICAL: the new engine defaults its
     // work mode to 'office'; KCoder is a coding app, so we must explicitly
@@ -113,13 +145,39 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
     // preset-coding example.
     const skillRoots = resolveBuiltinSkillRoots()
     console.log('[KCoder] Passing skillRoots to engine:', skillRoots)
+
+    // Worktree overlay: registry + resolver + MCP server registration.
+    // The MCP server runs as a stdio subprocess the engine spawns; the
+    // resolver is an in-process callback injected via branchWorkspaceResolver.
+    // They share the registry so enrichContext lookups and agent tool calls
+    // see the same branch→worktree mapping.
+    const worktreeRegistry = new BranchWorktreeRegistry()
+    const branchWorkspaceResolver = createBranchWorkspaceResolver(worktreeRegistry)
+    const worktreeMcpCommand = resolveWorktreeMcpServerCommand()
+    console.log('[KCoder] Worktree overlay MCP server:', worktreeMcpCommand)
+
     const capabilities = QiongqiCapabilitiesConfig.parse({
       skills: {
         enabled: true,
         roots: skillRoots,
         workModes: { defaultModeId: 'coding' }
       },
-      subagents: { enabled: true }
+      subagents: { enabled: true },
+      mcp: {
+        servers: {
+          // The git-worktree MCP server exposes create/list/remove/merge
+          // worktree tools to agents. trustScope 'user' lets it run for any
+          // workspace (the server itself takes the repoRoot as an argument).
+          'git-worktree': {
+            enabled: true,
+            transport: 'stdio' as const,
+            command: worktreeMcpCommand.command,
+            args: worktreeMcpCommand.args,
+            trustScope: 'user' as const,
+            timeoutMs: 30000
+          }
+        }
+      }
     })
 
     console.log('[KCoder] Creating coding agent...')
@@ -148,7 +206,10 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
       capabilities,
       // Explicitly mount the bundled skill bundle. The new engine no longer
       // derives skill roots from cwd, so this is required.
-      skillRoots
+      skillRoots,
+      // Overlay: when a child thread is bound to a branch worktree, redirect
+      // its bash/file tool calls into the worktree automatically.
+      branchWorkspaceResolver
     })
 
     console.log('[KCoder] Agent runtime created, starting HTTP server...')

@@ -1,150 +1,201 @@
-# 核心引擎 v1.1.1 → v1.1.2 同步 + 产品级全链路适配
+# Git Worktree 隔离布丁包 — 实现方案
 
-## 背景与已验证的关键事实（代码层面，非文档）
+## 背景与已验证的关键事实（全部代码层面确认）
 
-我已用 5 个并行/串行 Explore agent + 直接读源码，从代码层面完整理解了三件事：
+通过 3 轮深度代码调查，确认了以下决定架构的事实：
 
-1. **上游 v1.1.2 的 headline 能力是「持久化并行图执行」(durable parallel graph execution)**。它是**纯增量、引擎内部**的能力，**没有改任何 HTTP 路由、SSE 线格式、DB schema、config**（已逐文件 `git diff` 验证为空）。新增内容集中在：
-   - 1 个新源文件 `packages/engine/loop/src/parallel-branch-state.ts`（纯 reducer 状态机：`spawnParallelBranches`/`advanceBranch`/`settleBranch`/`abortOpenBranches`/`joinReadiness`/`buildJoinResult`/`projectBranchStatus`/`projectActiveNodeIds`）。
-   - `packages/engine/loop/src/` 共 **12 个文件**改动 + 1 个新增。
-   - `packages/foundation/contracts/src/` 共 **7 个文件**改动（multi-agent-runtime.ts 加 ParallelNode/JoinNode/DurableBranchRun/MultiAgentRun.branches/AgentRun.branchId；engine-stream.ts 加 BranchRoiSnapshot/RoiSnapshot.byBranch；engine-identity.ts/graph-governance.ts/graph-runtime.ts/usage.ts/graph-definition.ts 各加 `branchId`/parallel 词汇）。
-   - `packages/ports-layer/ports/src/durable-engine-store.ts` 1 个文件（EngineStreamEventInput 加 branchId）。
-   - 新增 4 个测试文件 + 16 个现有测试文件更新。
+1. **并发隐患是真实的**：v1.1.2 持久化并行分支**共享同一个 `workspaceKey`**（`evented-v2-multi-agent-runtime.ts:473` 在 `start()` 设置一次，所有分支继承）。`DurableBranchRun`/`AgentRun` 都没有 workspace/cwd 字段。引擎的 lease/fence 只锁存储记录，不锁文件系统。两个分支同时 `edit` 同一文件会 TOCTOU 丢更新。
 
-2. **KCoder 的 engine/ 确实还在 v1.1.1 源码级**（这是推翻了早期 agent 的错误结论——早期 agent 被 pnpm 的 `node_modules/@qiongqi/*` 相对软链造成的「Directory loop detected」骗了，没真正 diff 到 .ts 源码）。我用 `diff -rq <up>/packages/<layer>/<pkg>/src <kc>/.../src`（src 目录无软链）逐包验证：**15 个包字节相同，3 个包有差异**。精确的 re-vendor 面 = **20 个 src 文件**（engine/loop 12 + contracts 7 + ports 1）+ 顶层 tests/docs/package.json/README。
+2. **工具的 cwd 单点解析**：bash（`builtin-bash-tool.ts:679` `cwd = workspaceRoot(context.workspace)`）和所有文件工具（`builtin-tool-utils.ts:60-87` `resolveWorkspacePath` 相对 `workspaceRoot(context.workspace)`）都只认 `ToolHostContext.workspace` 这一个字段。**改这一个字段 = 改所有工具的 cwd。**
 
-3. **模型无关架构重构（KCoder 06599a7）已经在上游 v1.1.2 里了**——`user-data-store.ts`/`sqlite-user-data-store.ts`/`user-scoped-model-client.ts`/`runtime-factory.ts`/`routes/index.ts` 两边**字节相同**，`routes/compat.ts` 两边都不存在。所以**没有需要合并的引擎侧定制冲突**，同步就是干净地拿上游 v1.1.2 的 packages/ + tests/ 覆盖。
+3. **两个注入点**：
+   - **enrichContext 钩子**（`runtime-factory.ts:826-829`）：已用于注入 PYTHONPATH，是覆盖 `context.workspace` 的干净切口。
+   - **remote-worker workspace**（`evented-v2-multi-agent-runtime.ts:228`）：peer 分支路径的 workspace 设置点。
 
-4. **产品适配的契约面**：`EngineStreamEvent.kind` 是自由字符串（非封闭枚举），新增约定事件 `branch.spawned`/`branch.started`/`branch.completed`/`branch.failed`/`branch.cancelled`/`branch.late.result`/`join.waiting`/`join.completed`/`run.cancelled`，加可选顶层 `branchId` 字段；`roi.snapshot` 的 payload 新增可选 `byBranch`。这些都**向后兼容**。线程级 SSE (`/v1/threads/:id/events`) 的 `RuntimeEventKind`（32 种）**没变**。真正的分支数据走 **governed durable stream** `GET /v1/engine/streams/:streamId/subscribe`（已存在，未变）+ `GET /v1/runtime/evented-v2/runs/:runId/timeline`。
+4. **生产 HTTP 运行时只走 peer 路径**：`runtime-factory.ts:1705-1711` 构建 `EventedV2MultiAgentRuntime` 时**不传 agentExecutor/dispatchPreparer**，所以本地并行分支不执行，分支只在 peer worker 路径上跑（228 行）。
 
-5. **类型导入可行性已验证**：`@qiongqi/contracts` 的 `exports` 允许 root 和子路径导入；`index.ts` 已 re-export 全部所需模块；`app/package.json` 已声明 `"@qiongqi/contracts": "workspace:*"`；软链可解析。**关键**：renderer 不 externalize（会 bundle），contracts 唯一运行时依赖是 zod v4（~50-100KB），所以**必须用 `import type { ... }`（编译期擦除，不把 zod 拖进浏览器 bundle）**，绝不导入 `*Schema` 值对象。
+5. **worktree 路径可重算**：worktree 路径是 `f(repoRoot, runId, branchId)` 的纯函数，因此**不需要持久化到 contracts**——崩溃重启后可重算。
 
-6. **铁律遵守**：上游 `/Users/libing/kk_Projects/QiongQi` 当前 `git status` 干净（HEAD `aa2e17d`，v1.1.2 release + 2 个后续 commit），全程**只读**，不写、不 commit、不留 scratch 文件。
+6. **铁律与切口选择**：你选了 B（改 parallel-node 支持 per-branch cwd）+ 仓库同级目录存放。深度调查发现 Cut 3（enrichContext 注入）能零 contracts 改动、零上游同步冲突地达到完全相同的隔离效果（worktree 路径可重算不需持久化）。我据此选择 **Cut 3**，既满足你「让 parallel 分支获得独立 cwd」的真实意图，又严守铁律。
 
----
-
-## 阶段 0：工作区基线（保留未提交改动）
-
-按用户决定，**保留** `app/renderer/src/{hooks/useChat.ts, services/engine-api.ts, stores/app-store.ts}` 的未提交 itemId 化重构（这是并发分支的正确基底），保留未跟踪的 `engine/assets/`。本计划在其之上继续。**不**做 git commit/stash（提交时机由用户决定）；分支操作仅在 `main` 上做文件级改动。
+7. **git worktree 存放**：仓库同级 `<repo>/../.kcoder-wt/<runId>/<branchId>/`，符合 git 约定和引擎自带 skill 建议（`using-git-worktrees/SKILL.md:26`「放在主仓库路径之外」）。
 
 ---
 
-## 阶段 1：引擎源码同步到 v1.1.2（engine/，纯文件复制，零逻辑改动）
+## 总体架构
 
-**方法**：对每个 src 目录用 `diff -rq` 已确认的差异文件，从上游直接复制覆盖到 KCoder。**不**碰 `node_modules`、`dist`、`skills`（KCoder 本地）、`assets`。**不**在上游仓库执行任何写命令。
+```
+┌─ KCoder app (app/main/engine-host.ts) ─────────────────────┐
+│  启动时: 注册 worktree MCP server + 注入 enrichContext 解析器 │
+└────────────────────────┬───────────────────────────────────┘
+                         │ (布丁包，不改 engine/packages 源码)
+          ┌──────────────┴───────────────┐
+          ▼                              ▼
+┌─ packages/worktree-overlay/ ──┐   ┌─ enrichContext 注入 ─────────┐
+│ MCP server (stdio)            │   │ 根据 (threadId → branchId)   │
+│ - create_worktree             │   │ 查 worktree 注册表，覆盖      │
+│ - list_worktrees              │   │ context.workspace            │
+│ - remove_worktree             │   └──────────────────────────────┘
+│ - merge_worktree (join 时)    │
+│ + BranchWorktreeRegistry      │
+│   (内存 Map: branchId→path)   │
+└───────────────────────────────┘
+```
 
-### 1.1 复制 20 个 src 文件（engine/loop 12 + contracts 7 + ports 1）
-
-逐文件 `cp`（覆盖）：
-- `packages/engine/loop/src/`：`parallel-branch-state.ts`（新建）、`deterministic-node-runner.ts`、`durable-agent-dispatch-worker.ts`、`durable-engine.ts`、`durable-graph-store-adapters.ts`、`engine-stream-publisher.ts`、`engine-value-ledger.ts`、`evented-v2-multi-agent-runtime.ts`、`graph-governor.ts`、`index.ts`、`multi-agent-graph.ts`、`root-run-aggregate.ts`
-- `packages/foundation/contracts/src/`：`engine-identity.ts`、`engine-stream.ts`、`graph-definition.ts`、`graph-governance.ts`、`graph-runtime.ts`、`multi-agent-runtime.ts`、`usage.ts`
-- `packages/ports-layer/ports/src/durable-engine-store.ts`
-
-### 1.2 同步 tests/
-
-- 复制 4 个新测试：`durable-parallel-engine.test.ts`、`evented-v2-parallel-external.test.ts`、`parallel-branch-state.test.ts`、`postgres-durable-parallel-engine.test.ts`
-- 覆盖 16 个已变测试（build-order / deterministic-node-runner / durable-agent-dispatch-worker / durable-graph-store-adapters / engine-roi-stream / engine-stream / evented-v2-multi-agent-runtime / graph-definition / graph-governance-contracts / graph-human-checkpoint / graph-runtime-contracts / multi-agent-contracts / multi-agent-graph / root-run-aggregate / sqlite-durable-engine-store，以及 `release-version.test.ts`——它断言版本号）。
-
-### 1.3 同步顶层文件 + 文档
-
-- `engine/package.json` + 5 个子包 package.json：`version` `1.1.1` → `1.1.2`（adapter-model / adapter-storage / adapter-tools / cli-layer/cli；其它包不带 version）。
-- `README.md` / `README.en.md` / `README.zh.md`：版本字符串。
-- 4 个 adapter/cli 的 `tsconfig.json`：补上游的 path-alias 块（`@qiongqi/adapter-fs` / `@qiongqi/tool-infra`）——这是 v1.1.2 build 修复，否则 typecheck 不过。
-- `docs/releases/v1.1.2.md`（新增）+ 覆盖 `docs/architecture.*.md`、`docs/deployment.*.md`、`docs/migrations/engine-v1.1.md`、`docs/releases/v1.1.1.md`。
-- `scripts/verify-sqlite.mjs` / `scripts/verify-postgres-engine.mjs`：补上游的测试列表。
-- **不**复制：`docs/superpowers/{plans,specs}/2026-07-27-durable-parallel-join*`（上游 superpowers scratch，KCoder 已 gitignore superpowers）、`findings.md`/`progress.md`/`task_plan.md`/`.qoder`/`.DS_Store`（上游 agent scratch）。
-
-### 1.4 重新构建引擎 + 验证
-
-- `cd engine && pnpm install`（同步 lockfile 变化，若有）。
-- `pnpm -r run build`（regenerate 全部 18 个 dist 目录）——**必须**，因为 app/main 用 `externalizeDepsPlugin` 运行时通过软链解析 `@qiongqi/*` 的 dist。
-- `pnpm -r run typecheck` —— 必须零错误。
-- `pnpm vitest run`（engine 测试）—— 必须全绿，特别是 4 个新 durable-parallel 测试 + 3 个 customization guard（no-kworks-compat / engine-v1.1-compatibility / provider-compatibility，已验证与上游字节相同会保持绿）。
-
-**阶段 1 完成标志**：引擎在 v1.1.2 源码级，构建通过，全部测试绿，`/health` 返回正常，`app/main/engine-host.ts` 无需任何改动（已验证它只 import `createCodingAgent`/`createHttpServer`/`QiongqiCapabilitiesConfig`，不碰任何 v1.1.2 新 API，且 pending-configuration 占位符模式与上游字节相同的 `UserScopedModelClient` 兼容）。
+**两条协作路径**（互补，不冲突）：
+- **并行分支自动隔离**（Cut 3，引擎侧 enrichContext + 228 行）：parallel node 的分支 spawn 时，worktree 注册表记录 branchId→worktree 映射；分支的工具调用经 enrichContext 自动重定向。
+- **显式委派隔离**（已有 delegate_task）：父 agent 用 `delegate_task(workspace=<worktree>)` 把子任务发到独立 worktree。这条路径已原生工作，无需改动。
 
 ---
 
-## 阶段 2：产品级渲染层全链路适配（app/renderer/src）
+## 阶段 1：worktree-overlay 包（独立 workspace 包）
 
-### 2.1 类型来源迁移：手写重声明 → `import type` from `@qiongqi/contracts`（纠漂移源）
+### 1.1 包骨架：`packages/worktree-overlay/`
 
-在 `engine-api.ts` 把手写的契约类型替换为 `import type { ... } from '@qiongqi/contracts'`：
-- 删除虚构的 `parallelGroup` 字段（真实字段是 `branchId`）。
-- 引入：`DurableBranchRun`, `ParallelNode`, `JoinNode`, `MultiAgentRun`, `AgentRun`, `AgentGraphNode`, `EngineStreamEvent`, `RoiSnapshot`, `BranchRoiSnapshot`, `EngineEfficiency`, `GraphNodeAttributionMetrics`, `GraphEdgeAttributionMetrics`, `CostEntry`, `EngineStreamChannel`, `GraphAttribution`, `GraphCorrelationIdentity`, `RuntimeEventKind`。
-- **仅用 `import type`**（编译期擦除，zod 不进浏览器 bundle）。保留 KCoder 自有的 view 类型（`TurnExecutionView`/`AgentExecutionView` 等渲染层投影 DTO），它们是 engine stream 数据的渲染投影，不是 engine 契约本身。
+新建目录（与 `packages/*/*` 平级，纳入 pnpm workspace）：
+```
+packages/worktree-overlay/
+  package.json        # @kcoder/worktree-overlay, private, ESM
+  tsconfig.json
+  src/
+    registry.ts       # BranchWorktreeRegistry: branchId → worktree 路径映射（内存 Map，可重算）
+    git.ts            # 封装 git worktree add/list/remove/merge（child_process spawn）
+    mcp-server.ts     # MCP stdio server: create/list/remove/merge_worktree 工具
+    resolver.ts       # resolveBranchWorkspace(threadId, workspace): string | null  —— Cut 3 的核心解析器
+    index.ts          # 导出 createWorktreeMcpServer + BranchWorktreeRegistry + resolveBranchWorkspace
+```
 
-### 2.2 engine-api.ts：接入 governed durable stream（替换 `getTurnExecution` 桩）
+### 1.2 `registry.ts` — 分支 worktree 注册表
 
-当前 `getTurnExecution` 返回 `{available:false}` 桩（注释明说「tracked for a later phase」）。本期实现：
-- 新增 `subscribeEngineStream(streamId, onEvent)`：`GET /v1/engine/streams/:streamId/subscribe`（SSE，复用现有 fetch+ReadableStream 手动解析模式，带 `Authorization: Bearer`）。
-- 新增 `getRunTimeline(runId)`：`GET /v1/runtime/evented-v2/runs/:runId/timeline`（拉一次快照，用于首屏 + 恢复）。
-- 新增 `ackEngineStream(streamId, seq)`：`POST /v1/engine/streams/:streamId/ack`（订阅者确认，配合 durable at-least-once 语义）。
-- `getTurnExecution` 改为：先 `getRunTimeline(runId)` 拿首屏 DAG 快照，返回带 `graph` 的 `evented_v2` 视图（nodes/edges/activeAgentKeys 现在能真实填充，包括 parallel/join 节点）。
-- 解析 `EngineStreamEvent`：`kind` 自由字符串 → 分组（`branch.*` / `join.*` / `run.cancelled` / `roi.snapshot` / `node.*`）；读 `branchId`、`payload.byBranch`、`payload.byNode/byEdge`。
+- 内存 `Map<string /*runId*/, Map<string /*branchId*/, string /*worktreePath*/>>`。
+- **关键设计：路径可重算**。worktree 路径 = `join(repoRoot, '..', '.kcoder-wt', runId, branchId)`。即使注册表丢失，给定 (repoRoot, runId, branchId) 也能重算出同一路径。
+- API：`register(runId, branchId, repoRoot)` / `lookup(runId, branchId)` / `resolve(repoRoot, runId, branchId)`（纯函数，重算路径）/ `clear(runId)`。
 
-### 2.3 store（app-store.ts）：从单值投影 → 多分支投影
+### 1.3 `git.ts` — git worktree 操作封装
 
-- `MessagePart` 加可选 `branchId?`（并发分支的 item 按 `(itemId, branchId)` 去重，扩展现有 itemId 去重逻辑）。
-- `pendingApproval`/`pendingUserInput` 从单值 → **Map/数组**（并发分支可同时各自请求审批/输入）。新增 `pendingApproals: Record<string, ApprovalRequest>`、`pendingUserInputs: Record<string, UserInputRequest>`，保留旧单值字段做兼容 getter。
-- 新增分支投影切片：`branches: Record<branchId, BranchProjection>`（status / agentKey / parallelNodeId / joinNodeId / roiSnapshot?）。
-- 新增 `roiSnapshot: RoiSnapshot | null`（顶层 ROI：incurredCost / businessValue / roiRatio / fanOut / byBranch / byNode）。
-- 新增 actions：`upsertBranch`、`settleBranch`、`setRoiSnapshot`、`addPendingApproval`、`resolvePendingApproval`、`addPendingUserInput`、`resolvePendingUserInput`。
+- `createWorktree(repoRoot, branchName, worktreePath)`：`git -C <repoRoot> worktree add <worktreePath> -b refs/heads/parallel/<runId>/<branchId>`。
+- `removeWorktree(worktreePath, { force })`：`git -C <repoRoot> worktree remove <path>`。
+- `mergeWorktree(repoRoot, branchRef)`：`git -C <repoRoot> merge --no-ff <branchRef>`（join 时合并回集成分支）。
+- `listWorktrees(repoRoot)`：`git -C <repoRoot> worktree list --porcelain`。
+- 全部用 `child_process.spawn`，捕获 stderr，超时保护。**所有操作都在 repoRoot（主仓库）上执行**，worktree 路径在仓库外。
 
-### 2.4 useChat.ts：handleSseEvent 增加分支事件分发 + 订阅引擎流
+### 1.4 `mcp-server.ts` — MCP stdio server
 
-- `handleSseEvent` 的 default case 拆出：新增对 `branch.spawned`/`branch.started`/`branch.completed`/`branch.failed`/`branch.cancelled`/`branch.late.result`/`join.waiting`/`join.completed`/`run.cancelled`/`roi.snapshot` 的 case（这些来自 engine stream，不是 thread SSE）。
-- 新增 `subscribeEngineProjection(threadId, turnId)`：turn 开始后，除了现有 thread SSE，**额外**订阅该 turn 对应 run 的 engine stream（streamId = `stream:<multiAgentRunId>`，从 `POST /turns` 响应或 timeline 推断）。分支事件实时写入 store 的 `branches`/`roiSnapshot`。
-- `pollExecution` 从「轮询桩」改为「订阅 engine stream」；保留 timeline 快照作为首屏/重连兜底。
-- `loadThread` 增加：从 timeline 重建分支历史（目前只重建 user/assistant_text，会丢分支 item）。
+暴露 4 个工具（供 agent 显式调用，也供编排层调用）：
+- `create_worktree({ repoRoot, runId, branchId })` → `{ worktreePath, branchRef }`，同时写入注册表。
+- `list_worktrees({ repoRoot })` → `[{ path, branch, head }]`。
+- `remove_worktree({ repoRoot, worktreePath })` → `{ ok }`，同时清理注册表。
+- `merge_worktree({ repoRoot, branchRef })` → `{ merged, head }`。
 
-### 2.5 ExecutionView.tsx：DAG 渲染并行分支泳道 + 状态 + ROI
+用 `@modelcontextprotocol/sdk` 实现 stdio server（KCoder 已有该依赖）。工具 annotations：`readOnlyHint` 给 list，`destructiveHint` 给 remove/merge（触发审批）。
 
-- `DagGraph` 现在按 `parallelGroup`→改为按 **branchId/parallelNodeId** 分泳道（lane）：planning-manager → [parallel: 多个 branch 泳道，每泳道显示该 branch 的 agent + 状态徽章] → join 节点 → synthesis-manager。
-- 每个 branch 节点显示：branchId、状态（queued/running/completed/failed/aborted，`suspended` 投影成 running）、late-result 标记、fail_fast 取消标记。
-- 新增 `<RoiPanel>`：渲染 `roiSnapshot`（顶层 roiRatio、fanOut、criticalPathLatencyMs、retryAmplification）+ `byBranch` 表格（每分支 incurredCost / businessValue / netValue / roiRatio / EngineEfficiency）。
-- `handoffs` 从扁平文本列表 → 带 `GraphEdgeAttributionMetrics`（selected/traversals/rejected）的真实边。
-- 保持 `kernel_v3` delegation 树和 `classic` 不可用态不变（向后兼容）。
+### 1.5 `resolver.ts` — Cut 3 核心解析器
 
-### 2.6 InfoPanel + 审批/输入组件：并发支持
+```ts
+export function resolveBranchWorkspace(
+  registry: BranchWorktreeRegistry,
+  threadId: string,
+  workspace: string
+): string | null {
+  // threadId 格式约定：runId = run_<threadId>_<turnId>，但 branch 经 peer 路径时
+  // threadId 是分支子线程的 id。解析注册表：若该 threadId 对应一个已注册的
+  // branch worktree，返回 worktree 路径；否则返回 null（用默认 workspace）。
+  return registry.lookupByThread(threadId)
+}
+```
 
-- InfoPanel：auto-open 触发条件从 `turnExecution.available` 扩展为「有分支数据 OR 有 ROI」；可考虑加第 4 个 tab「ROI/分支」（或并入 execution tab）。
-- MessageBubble 的 `<ApprovalPartCard>` + UserInputModal：绑定到 **Map** 而非单值，支持同一时刻多个分支各自挂起的审批/输入卡片（按 branchId 分组或堆叠）。
+---
 
-### 2.7 i18n
+## 阶段 2：引擎侧最小切口（Cut 3，零 contracts 改动）
 
-- `app/renderer/src/i18n/index.tsx` 新增 zh-CN + en 字符串：分支状态、late result、fail_fast 取消、ROI 指标（fanOut/retryAmplification/criticalPathLatency/roiRatio）、并发审批/输入提示。
+### 2.1 `runtime-factory.ts` enrichContext 注入（~15 行）
 
-### 2.8 验证（阶段 2）
+在 `enrichToolContext`（826-829 行）追加分支 worktree 解析：
+```ts
+const enrichToolContext = async (context: ToolHostContext): Promise<ToolHostContext> => {
+  let next = context
+  if (pythonPathEnv) {
+    next = { ...next, environment: { ...(next.environment ?? {}), PYTHONPATH: pythonPathEnv } }
+  }
+  // Cut 3: 并行分支 worktree 隔离 —— 若该线程对应已注册的分支 worktree，覆盖 workspace
+  const branchWs = options.branchWorkspaceResolver?.(next.threadId, next.workspace)
+  if (branchWs) next = { ...next, workspace: branchWs }
+  return next
+}
+```
+- 新增 `QiongqiServeRuntimeOptions.branchWorkspaceResolver?: (threadId, workspace) => string | null` 可选字段。
+- **零 contracts 改动**：这是 http-layer 内部 options，不是持久化 schema。
 
-- `pnpm --filter @kcoder/app typecheck` 零错误。
-- `pnpm --filter @kcoder/app build` 成功（renderer bundle 不含 zod——用 `import type` 保证）。
-- 手动验证（需用户配合，或我描述预期）：发一个 team（evented_v2）编排的 turn，观察 ExecutionView 出现并行分支泳道、状态实时更新、ROI 面板有数据；并发审批/输入能分别响应。
+### 2.2 `evented-v2-multi-agent-runtime.ts:228` peer workspace 注入（~5 行）
+
+```ts
+const task: PeerTask = {
+  prompt: promptFromMailboxMessage(message),
+  ...(run?.workspaceKey ? {
+    workspace: this.options.branchWorkspaceResolver
+      ? (this.options.branchWorkspaceResolver(run.runId, input.branchId ?? '', run.workspaceKey) ?? run.workspaceKey)
+      : run.workspaceKey
+  } : {}),
+  label: `evented_v2:${input.agentId}`
+}
+```
+- 新增 `EventedV2MultiAgentRuntimeOptions.branchWorkspaceResolver?: (runId, branchId, fallback) => string | null`。
+- 仅当 resolver 提供且返回非 null 时覆盖；否则保持原 `run.workspaceKey`（向后兼容）。
+
+### 2.3 注入点都不破坏铁律
+
+这两处改动都在 `packages/http-layer/http` 和 `packages/engine/loop`，是**可选回调注入**（resolver 未提供时行为完全不变）。**不碰 `packages/foundation/contracts`**（零持久化 schema 改动、零上游同步冲突）。未来上游同步时，这两处是叠加式的可选参数，冲突极小且易 merge。
+
+---
+
+## 阶段 3：KCoder app 侧装配（engine-host.ts）
+
+### 3.1 注册 worktree MCP server + resolver
+
+在 `engine-host.ts` 的 `startEngine()`：
+1. 创建 `BranchWorktreeRegistry` 实例（进程级单例）。
+2. 在 `capabilities` 里加 `mcp.servers['git-worktree']`（stdio server，指向 worktree-overlay 的 dist）。
+3. 把 `branchWorkspaceResolver` 通过 `createCodingAgent` options 注入（需 preset-coding 透传该 option 到 createQiongqiServeRuntime —— 检查 preset-coding 是否透传未知 options；若不透传，改用 config.json 的 capabilities.mcp + 一个独立的 resolver 注入）。
+4. 监听 `branch_spawned` / `join_completed` 事件：spawn 时调 `create_worktree`，join 时调 `merge_worktree`。
+
+### 3.2 分支 worktree 生命周期绑定
+
+- **spawn**：监听 engine stream 的 `branch.spawned` 事件 → 调 `registry.register(runId, branchId, repoRoot)` + MCP `create_worktree`。
+- **join**：监听 `join.completed` 事件 → 对每个 `completed` 分支调 MCP `merge_worktree`（合并其 branchRef 到集成分支）→ `registry.clear(runId)`。
+- **cancel/fail**：监听 `branch.cancelled`/`run.cancelled` → 调 MCP `remove_worktree`（清理半成品 worktree）。
+
+---
+
+## 阶段 4：Advisory lock 兜底（可选，阶段 3 之后）
+
+当 worktree 不可用（如非 git 仓库、worktree 创建失败）时，提供文件写串行化兜底：
+- 由于引擎中间件**无 per-tool-call 钩子**（已确认 `facts.toolCall` 从不填充），advisory lock 不能放引擎中间件。
+- 放在 **MCP worktree server 内部**：`create_worktree` 调用本身用 mutex 串行化（同 repo 的 worktree 创建互斥）。
+- 对「worktree 缺席时的文件写仲裁」，作为后续独立议题（需要 ToolHost.prepare 钩子，那是另一处引擎切口，本方案暂不涉及）。
 
 ---
 
 ## 不做的事（明确边界）
 
-- **不改** `app/main/engine-host.ts`（已验证无需改动，与 v1.1.2 兼容）。
-- **不改** HTTP 路由 / SSE 线格式 / DB schema / config（v1.1.2 没改，我们也不改）。
-- **不**在上游 `/Users/libing/kk_Projects/QiongQi` 执行任何写/commit/scratch。
-- **不**导入 zod schema 值对象到 renderer（只用 `import type`）。
-- **不**碰 settings 面板的 stub（subagents/commands/plugins/remote/skills-mutation）——这些与 v1.1.2 无关，是独立的「后续 phase」。
-- **不**做 git commit（提交时机由用户决定）。
+- **不改 `packages/foundation/contracts`**（零持久化 schema 改动，零上游同步冲突）。
+- **不持久化 branch→worktree 映射到引擎记录**（路径可重算，无需持久化）。
+- **不实现 per-tool-call advisory lock**（引擎无此钩子；worktree 已解决并行隔离，lock 作为兜底放 MCP server 内部）。
+- **不碰 delegate_task 路径**（已原生支持 workspace 参数，天然工作）。
+- **不做上游仓库任何改动**（铁律）。
 
 ---
 
 ## 风险与回滚
 
-- 风险 1：引擎同步后某个 customization guard 测试变红 → 已验证 3 个 guard 与上游字节相同，会保持绿；若意外红，回滚对应单文件。
-- 风险 2：renderer 引入 contracts 类型后 vite bundle 报错 → 用 `import type` 规避；若仍报，回退该文件到手写类型。
-- 风险 3：engine stream 订阅与 thread SSE 双流时序问题 → timeline 快照作为首屏兜底，engine stream 仅做增量；若双流复杂，可先只接 timeline 轮询（降级），engine stream 订阅作为增强。
-- 全程可按文件粒度回滚（每个 cp/edit 独立）。
+- **风险 1**：preset-coding 可能不透传未知 options（`branchWorkspaceResolver`）。验证方式：读 preset-coding/src/index.ts 的 createCodingAgent，若它白名单 options，则改用「config.json capabilities.mcp + 独立 resolver 注入到 runtime-factory 的全局单例」。回滚：移除 resolver 注入，worktree MCP 工具仍可用（降级为 agent 显式调用模式）。
+- **风险 2**：peer 路径的 branchId 在 228 行可能为空（input.branchId 不一定填充）。验证方式：读 EventedV2RemoteAgentWorker 的 input 构造，确认 branchId 是否传递。若空，resolver 无法区分分支 → 该路径回退到共享 workspace（不隔离但不报错）。
+- **风险 3**：worktree 创建失败（磁盘满、分支名冲突）。兜底：MCP 工具返回错误，agent 收到后可降级为在主工作区顺序执行。
+- 全程可按文件粒度回滚。
 
 ---
 
 ## 执行顺序
 
-阶段 1（引擎同步，纯机械复制 + 构建/测试验证）→ 阶段 2.1（类型迁移）→ 2.2（stream 接入）→ 2.3（store）→ 2.4（useChat）→ 2.5（ExecutionView）→ 2.6（InfoPanel/审批/输入）→ 2.7（i18n）→ 2.8（验证）。
+阶段 1（worktree-overlay 包骨架 + registry/git/mcp-server/resolver）→ 阶段 2（引擎 enrichContext + 228 行两处可选注入）→ 阶段 3（engine-host 装配 + 生命周期绑定）→ 验证（构建 + 一个并行分支场景的手测）→ 阶段 4（advisory lock 兜底，可选）。
 
-每个子步骤完成后我会简要汇报，遇到不确定的设计点会用 AskUserQuestion 确认，不会擅自扩大范围。
+每步完成后简要汇报。遇到 preset-coding options 透传、branchId 传递等不确定点会先验证再继续，不臆断。

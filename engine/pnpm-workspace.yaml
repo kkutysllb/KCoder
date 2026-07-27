@@ -1,2 +1,7 @@
 packages:
   - 'packages/*/*'
+  # KCoder overlay packages — product-level extensions that strengthen the engine
+  # without modifying its source. Kept OUT of packages/*/* so the engine's release-
+  # integrity tests (which count the 18 upstream @qiongqi/* packages) are unaffected,
+  # and so upstream syncs never touch them.
+  - 'overlays/*'
