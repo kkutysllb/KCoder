@@ -46,20 +46,12 @@ export function SkillsSettings() {
   }, [engineStatus, loadSkills])
 
   const handleToggle = async (skill: SkillEntry) => {
+    // The new engine has no per-skill enable/disable endpoint. Skills are
+    // active when their package exists on disk. Toggle is a no-op here;
+    // skill lifecycle (create via drafts, delete) is the real control surface.
     setToggling((prev) => new Set(prev).add(skill.id))
     try {
-      if (skill.enabled) {
-        await api.disableSkill(skill.id)
-      } else {
-        await api.enableSkill(skill.id)
-      }
-      setSkills((prev) =>
-        prev.map((s) =>
-          s.id === skill.id ? { ...s, enabled: !s.enabled, status: s.enabled ? 'disabled' : 'registered' } : s
-        )
-      )
-    } catch {
-      // revert silently
+      // No-op: the engine manages skill availability by directory presence.
     } finally {
       setToggling((prev) => {
         const next = new Set(prev)
@@ -349,29 +341,46 @@ function PluginRow({ skill }: { skill: SkillEntry }) {
   )
 }
 
-// Create skill modal
+// Create skill modal — uses the /v1/skills/drafts pipeline:
+// upload files → analyze → generate → install.
 function CreateSkillModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const { t } = useI18n()
   const { enginePort } = useAppStore()
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [content, setContent] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [files, setFiles] = useState<File[]>([])
+  const [phase, setPhase] = useState<'upload' | 'analyzing' | 'generating' | 'installing' | 'done'>('upload')
   const [err, setErr] = useState<string | null>(null)
+  const [generatedPreview, setGeneratedPreview] = useState<string>('')
 
   const api = getEngineAPI(enginePort)
 
   const handleSubmit = async () => {
-    if (!name.trim()) return
-    setSaving(true)
+    if (files.length === 0) return
     setErr(null)
     try {
-      await api.createSkill({ name: name.trim(), description: description.trim(), content: content || undefined })
+      // Step 1: create draft from uploaded files
+      setPhase('analyzing')
+      const created = await api.createSkillDraft(files)
+      const draftId = created.draftId
+
+      // Step 2: analyze uploaded files
+      await api.analyzeSkillDraft(draftId)
+
+      // Step 3: generate SKILL.md
+      setPhase('generating')
+      const genResponse = await api.generateSkillDraft(draftId) as { draft?: { skillMarkdown: string } }
+      if (genResponse.draft?.skillMarkdown) {
+        setGeneratedPreview(genResponse.draft.skillMarkdown)
+      }
+
+      // Step 4: install as a real skill
+      setPhase('installing')
+      await api.installSkillDraft(draftId, genResponse)
+
+      setPhase('done')
       onCreated()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
-    } finally {
-      setSaving(false)
+      setPhase('upload')
     }
   }
 
@@ -384,36 +393,47 @@ function CreateSkillModal({ onClose, onCreated }: { onClose: () => void; onCreat
         <h2 className="text-base font-semibold text-text-primary">{t('settings.skills.create')}</h2>
 
         <div className="mt-4 space-y-4">
-          <div>
-            <label className="block text-xs text-text-muted mb-1.5">{t('settings.skills.create.name')}</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t('settings.skills.create.name.placeholder')}
-              className="w-full px-3 py-2 rounded-lg text-sm bg-bg-input border border-border-custom text-text-primary placeholder-text-muted outline-none focus:border-border-strong transition-colors"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-text-muted mb-1.5">{t('settings.skills.create.desc')}</label>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t('settings.skills.create.desc.placeholder')}
-              className="w-full px-3 py-2 rounded-lg text-sm bg-bg-input border border-border-custom text-text-primary placeholder-text-muted outline-none focus:border-border-strong transition-colors"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-text-muted mb-1.5">{t('settings.skills.create.content')}</label>
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder={t('settings.skills.create.content.placeholder')}
-              rows={6}
-              className="w-full px-3 py-2 rounded-lg text-sm bg-bg-input border border-border-custom text-text-primary placeholder-text-muted outline-none focus:border-border-strong transition-colors resize-none font-mono"
-            />
-          </div>
+          {phase === 'upload' && (
+            <div>
+              <label className="block text-xs text-text-muted mb-1.5">{t('settings.skills.create.upload')}</label>
+              <input
+                type="file"
+                multiple
+                onChange={(e) => setFiles(e.target.files ? Array.from(e.target.files) : [])}
+                className="w-full text-sm text-text-secondary file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-bg-hover file:text-text-primary file:cursor-pointer"
+              />
+              {files.length > 0 && (
+                <p className="mt-2 text-xs text-text-muted">
+                  {files.length} file(s): {files.map((f) => f.name).join(', ')}
+                </p>
+              )}
+              <p className="mt-2 text-[11px] text-text-muted leading-relaxed">
+                {t('settings.skills.create.pipeline.desc')}
+              </p>
+            </div>
+          )}
+
+          {phase !== 'upload' && phase !== 'done' && (
+            <div className="flex items-center gap-2 text-sm text-text-secondary">
+              <span className="w-4 h-4 border-2 border-[#3b82f6] border-t-transparent rounded-full animate-spin" />
+              <span>
+                {phase === 'analyzing' && t('settings.skills.create.phase.analyzing')}
+                {phase === 'generating' && t('settings.skills.create.phase.generating')}
+                {phase === 'installing' && t('settings.skills.create.phase.installing')}
+              </span>
+            </div>
+          )}
+
+          {phase === 'done' && (
+            <div className="text-sm text-[#22c55e]">✓ {t('settings.skills.create.phase.done')}</div>
+          )}
+
+          {generatedPreview && phase !== 'upload' && (
+            <details className="mt-2">
+              <summary className="text-xs text-text-muted cursor-pointer">{t('settings.skills.create.preview')}</summary>
+              <pre className="mt-2 p-3 rounded-lg bg-bg-input text-[11px] text-text-secondary overflow-x-auto max-h-40 font-mono whitespace-pre-wrap">{generatedPreview}</pre>
+            </details>
+          )}
         </div>
 
         {err && <p className="mt-3 text-xs text-[#ef4444]">{err}</p>}
@@ -425,13 +445,15 @@ function CreateSkillModal({ onClose, onCreated }: { onClose: () => void; onCreat
           >
             {t('settings.skills.create.cancel')}
           </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!name.trim() || saving}
-            className="px-5 py-2 rounded-lg text-sm font-medium bg-white text-black hover:bg-gray-200 disabled:opacity-40 transition-colors"
-          >
-            {saving ? t('settings.skills.creating') : t('settings.skills.create.confirm')}
-          </button>
+          {phase === 'upload' && (
+            <button
+              onClick={handleSubmit}
+              disabled={files.length === 0}
+              className="px-5 py-2 rounded-lg text-sm font-medium bg-white text-black hover:bg-gray-200 disabled:opacity-40 transition-colors"
+            >
+              {t('settings.skills.create.confirm')}
+            </button>
+          )}
         </div>
       </div>
     </div>

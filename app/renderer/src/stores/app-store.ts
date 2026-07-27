@@ -6,7 +6,9 @@ import type {
   ThreadGoal,
   ThreadTodoList,
   BranchProjection,
-  BranchStatus
+  BranchStatus,
+  GraphRunInspection,
+  CircuitState
 } from '../services/engine-api'
 import type { RoiSnapshot } from '@qiongqi/contracts'
 
@@ -89,6 +91,9 @@ interface AppState {
   threadGoal: ThreadGoal | null
   threadTodos: ThreadTodoList | null
 
+  // governed graph 治理（GET /v1/engine/runs/:runId/inspect）
+  graphRunInspection: GraphRunInspection | null
+
   // Actions
   initializeEngine: (port: number) => void
   setEngineStatus: (status: EngineStatus) => void
@@ -129,6 +134,8 @@ interface AppState {
   setPanelTab: (tab: PanelTab) => void
   setThreadGoal: (goal: ThreadGoal | null) => void
   setThreadTodos: (todos: ThreadTodoList | null) => void
+  /** Set the governed graph run inspection (from inspect endpoint). */
+  setGraphRunInspection: (inspection: GraphRunInspection | null) => void
   clearMessages: () => void
 }
 
@@ -158,6 +165,7 @@ export const useAppStore = create<AppState>((set) => ({
   panelTab: 'execution',
   threadGoal: null,
   threadTodos: null,
+  graphRunInspection: null,
 
   // Actions
   initializeEngine: (port) =>
@@ -349,6 +357,7 @@ export const useAppStore = create<AppState>((set) => ({
   setPanelTab: (tab) => set({ panelTab: tab }),
   setThreadGoal: (goal) => set({ threadGoal: goal }),
   setThreadTodos: (todos) => set({ threadTodos: todos }),
+  setGraphRunInspection: (inspection) => set({ graphRunInspection: inspection }),
 
   clearMessages: () =>
     set({
@@ -356,6 +365,7 @@ export const useAppStore = create<AppState>((set) => ({
       threadId: null,
       pendingNewBranch: null,
       branches: {},
+      graphRunInspection: null,
       roiSnapshot: null
     })
 }))

@@ -76,6 +76,19 @@ const zhCN: Dict = {
   'execution.physical': '物理尝试',
   'execution.suppressed': '已抑制',
   'execution.byBranch': '按分支',
+  'execution.efficiency': '引擎效率',
+
+  // Governed graph governance
+  'governance.title': '治理',
+  'governance.runStatus': '运行状态',
+  'governance.activeNodes': '活跃节点',
+  'governance.steps': '步骤',
+  'governance.tools': '工具调用',
+  'governance.reportOnly': '仅报告',
+  'governance.pause': '暂停',
+  'governance.resume': '恢复',
+  'governance.retire': '退役',
+  'governance.cancel': '取消',
 
   // Floating info panel
   'panel.toggle': '信息面板',
@@ -286,6 +299,13 @@ const zhCN: Dict = {
   'settings.skills.create.cancel': '取消',
   'settings.skills.create.confirm': '创建',
   'settings.skills.creating': '创建中...',
+  'settings.skills.create.upload': '上传技能文件',
+  'settings.skills.create.pipeline.desc': '上传文件后，引擎将自动分析 → 生成 SKILL.md → 安装技能。支持 .md 文件或 .zip 技能包。',
+  'settings.skills.create.phase.analyzing': '分析文件中...',
+  'settings.skills.create.phase.generating': '生成 SKILL.md...',
+  'settings.skills.create.phase.installing': '安装技能...',
+  'settings.skills.create.phase.done': '技能创建成功',
+  'settings.skills.create.preview': '预览生成的 SKILL.md',
 
   // SettingsPanel - sub-agents
   'settings.nav.agents': '子智能体',
@@ -567,6 +587,19 @@ const en: Dict = {
   'execution.physical': 'Physical',
   'execution.suppressed': 'Suppressed',
   'execution.byBranch': 'By branch',
+  'execution.efficiency': 'Engine efficiency',
+
+  // Governed graph governance
+  'governance.title': 'Governance',
+  'governance.runStatus': 'Status',
+  'governance.activeNodes': 'Active',
+  'governance.steps': 'Steps',
+  'governance.tools': 'Tools',
+  'governance.reportOnly': 'Report only',
+  'governance.pause': 'Pause',
+  'governance.resume': 'Resume',
+  'governance.retire': 'Retire',
+  'governance.cancel': 'Cancel',
 
   // Floating info panel
   'panel.toggle': 'Info Panel',
@@ -777,6 +810,13 @@ const en: Dict = {
   'settings.skills.create.cancel': 'Cancel',
   'settings.skills.create.confirm': 'Create',
   'settings.skills.creating': 'Creating...',
+  'settings.skills.create.upload': 'Upload skill files',
+  'settings.skills.create.pipeline.desc': 'After uploading, the engine will analyze → generate SKILL.md → install the skill. Supports .md files or .zip skill packages.',
+  'settings.skills.create.phase.analyzing': 'Analyzing files...',
+  'settings.skills.create.phase.generating': 'Generating SKILL.md...',
+  'settings.skills.create.phase.installing': 'Installing skill...',
+  'settings.skills.create.phase.done': 'Skill created successfully',
+  'settings.skills.create.preview': 'Preview generated SKILL.md',
 
   // SettingsPanel - sub-agents
   'settings.nav.agents': 'Sub-agents',

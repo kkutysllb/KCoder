@@ -1,13 +1,16 @@
 import { useState } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
+import { getEngineAPI } from '../../services/engine-api'
 import type {
   TurnExecutionView,
   AgentGraphNodeView,
   AgentExecutionView,
   ExecutionStatus,
   BranchProjection,
-  BranchStatus
+  BranchStatus,
+  GraphRunInspection,
+  CircuitState
 } from '../../services/engine-api'
 import type { RoiSnapshot, BranchRoiSnapshot } from '@qiongqi/contracts'
 
@@ -21,6 +24,7 @@ export function ExecutionView() {
   const turnExecution = useAppStore((s) => s.turnExecution)
   const branches = useAppStore((s) => s.branches)
   const roiSnapshot = useAppStore((s) => s.roiSnapshot)
+  const graphRunInspection = useAppStore((s) => s.graphRunInspection)
 
   if (!turnExecution) {
     return (
@@ -82,6 +86,9 @@ export function ExecutionView() {
 
         {/* v1.1.2 ROI 面板（仅有 ROI 快照时渲染） */}
         {roiSnapshot && <RoiPanel roi={roiSnapshot} />}
+
+        {/* governed graph 治理面板（仅有 inspection 数据时渲染） */}
+        {graphRunInspection && <GovernancePanel inspection={graphRunInspection} />}
 
         {/* Agent 执行详情 */}
         <div className="space-y-2">
@@ -237,6 +244,139 @@ function DelegationTree({
   )
 }
 
+// ============ governed graph 治理面板 ============
+
+/**
+ * governed graph 运行治理面板 — 显示 circuit 状态、graph 运行状态、budgets，
+ * 并提供手工 circuit 操作（pause/retire/resume）和取消按钮。
+ */
+function GovernancePanel({ inspection }: { inspection: GraphRunInspection }) {
+  const { t } = useI18n()
+  const enginePort = useAppStore((s) => s.enginePort)
+  const setGraphRunInspection = useAppStore((s) => s.setGraphRunInspection)
+  const [busy, setBusy] = useState(false)
+
+  const handleCircuit = async (state: CircuitState) => {
+    setBusy(true)
+    try {
+      const api = getEngineAPI(enginePort)
+      await api.setGraphCircuit(inspection.runId, state)
+      const updated = await api.inspectGraphRun(inspection.runId)
+      setGraphRunInspection(updated)
+    } catch (e) {
+      console.error('[GovernancePanel] circuit action failed:', e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleCancel = async () => {
+    setBusy(true)
+    try {
+      const api = getEngineAPI(enginePort)
+      await api.cancelGraphRun(inspection.runId)
+      const updated = await api.inspectGraphRun(inspection.runId)
+      setGraphRunInspection(updated)
+    } catch (e) {
+      console.error('[GovernancePanel] cancel failed:', e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const circuit = inspection.circuitState
+  const isTerminal = inspection.status === 'completed' || inspection.status === 'failed' || inspection.status === 'aborted'
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-[11px] font-medium text-text-muted uppercase tracking-wide">
+        {t('governance.title')}
+      </h3>
+      <div className="rounded-xl border border-border-subtle bg-bg-surface p-3 space-y-2">
+        {/* Graph run status + circuit state */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <CircuitBadge state={circuit} />
+          <span className="text-[10px] text-text-muted">{t('governance.runStatus')}: {inspection.status}</span>
+          <span className="text-[10px] text-text-muted font-mono">rev {inspection.graphRevision}</span>
+        </div>
+
+        {/* Active nodes */}
+        {inspection.activeNodeIds.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            <span className="text-[9px] text-text-muted">{t('governance.activeNodes')}:</span>
+            {inspection.activeNodeIds.map((nodeId) => (
+              <span key={nodeId} className="text-[9px] px-1 py-0.5 rounded bg-bg-hover text-text-secondary font-mono">{nodeId}</span>
+            ))}
+          </div>
+        )}
+
+        {/* Budgets */}
+        <div className="flex gap-3 text-[9px] text-text-muted">
+          <span>{t('governance.steps')}: {inspection.budgets.stepsUsed}</span>
+          <span>{t('governance.tools')}: {inspection.budgets.toolCallsUsed}</span>
+          <span>tokens: ↓{inspection.budgets.inputTokens} ↑{inspection.budgets.outputTokens}</span>
+          {inspection.budgets.costUsd > 0 && <span>${inspection.budgets.costUsd.toFixed(2)}</span>}
+        </div>
+
+        {/* Circuit actions (only when running and not terminal) */}
+        {!isTerminal && (
+          <div className="flex gap-1.5 pt-1 border-t border-border-subtle">
+            {circuit === 'running' && (
+              <button
+                onClick={() => handleCircuit('report_only')}
+                disabled={busy}
+                className="text-[10px] px-2 py-1 rounded bg-[#f59e0b]/10 text-[#f59e0b] hover:bg-[#f59e0b]/20 disabled:opacity-50 transition-colors"
+              >
+                {t('governance.reportOnly')}
+              </button>
+            )}
+            {circuit === 'running' && (
+              <button
+                onClick={() => handleCircuit('paused')}
+                disabled={busy}
+                className="text-[10px] px-2 py-1 rounded bg-bg-hover text-text-secondary hover:bg-bg-active disabled:opacity-50 transition-colors"
+              >
+                {t('governance.pause')}
+              </button>
+            )}
+            {(circuit === 'report_only' || circuit === 'paused') && (
+              <button
+                onClick={() => handleCircuit('running')}
+                disabled={busy}
+                className="text-[10px] px-2 py-1 rounded bg-[#22c55e]/10 text-[#22c55e] hover:bg-[#22c55e]/20 disabled:opacity-50 transition-colors"
+              >
+                {t('governance.resume')}
+              </button>
+            )}
+            <button
+              onClick={() => handleCircuit('retired')}
+              disabled={busy}
+              className="text-[10px] px-2 py-1 rounded bg-[#ef4444]/10 text-[#ef4444] hover:bg-[#ef4444]/20 disabled:opacity-50 transition-colors ml-auto"
+            >
+              {t('governance.retire')}
+            </button>
+            <button
+              onClick={handleCancel}
+              disabled={busy}
+              className="text-[10px] px-2 py-1 rounded bg-[#ef4444]/10 text-[#ef4444] hover:bg-[#ef4444]/20 disabled:opacity-50 transition-colors"
+            >
+              {t('governance.cancel')}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CircuitBadge({ state }: { state: CircuitState }) {
+  const cls = state === 'running' ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/30'
+    : state === 'report_only' ? 'bg-[#f59e0b]/10 text-[#f59e0b] border-[#f59e0b]/30'
+    : state === 'paused' ? 'bg-[#8b8b90]/10 text-[#8b8b90] border-[#8b8b90]/30'
+    : 'bg-[#ef4444]/10 text-[#ef4444] border-[#ef4444]/30'
+  return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${cls}`}>{state}</span>
+}
+
 // ============ v1.1.2 并行分支泳道 ============
 
 /**
@@ -334,76 +474,160 @@ function BranchStatusBadge({ status }: { status: BranchStatus }) {
   return <span className={`text-[10px] font-medium ${cls}`}>{map[status]}</span>
 }
 
-// ============ v1.1.2 ROI 面板 ============
+// ============ v1.1.2 ROI 面板（hover 展开） ============
 
 /**
  * 渲染顶层 ROI 快照（来自 roi.snapshot engine stream 事件）。
- * 展示 fan-out / retry 放大 / 关键路径延迟 / ROI 比，以及 byBranch 明细。
+ *
+ * 收起态：一个窄条（h-7），左侧标题 + ROI 关键数字横排 + 微型 ROI 趋势条，
+ *         鼠标移上去展开。
+ * 展开态：完整统计面板 — cost/value/net/ROI/fanOut/retry/criticalPath grid +
+ *         引擎效率（logical vs physical）+ byBranch 明细条形图。
+ *
+ * 用纯 CSS group-hover 实现展开/收起（无 JS 状态，性能好）。
  */
 function RoiPanel({ roi }: { roi: RoiSnapshot }) {
   const { t } = useI18n()
   const byBranch = roi.byBranch ?? {}
   const branchEntries = Object.entries(byBranch) as Array<[string, BranchRoiSnapshot]>
+  const roiRatio = roi.roiRatio ?? 0
 
   return (
-    <div className="space-y-2">
-      <h3 className="text-[11px] font-medium text-text-muted uppercase tracking-wide">{t('execution.roi')}</h3>
-      <div className="rounded-xl border border-border-subtle bg-bg-surface p-3 space-y-2">
-        {/* 顶层 ROI 指标 */}
-        <div className="grid grid-cols-2 gap-2">
+    <div className="group relative">
+      {/* —— 收起态窄条（始终可见）—— */}
+      <div className="flex items-center gap-3 rounded-lg border border-border-subtle bg-bg-surface px-3 h-7 cursor-default transition-colors group-hover:border-[#3b82f6]/30">
+        <span className="text-[10px] font-medium text-text-muted uppercase tracking-wide shrink-0">{t('execution.roi')}</span>
+        {/* 关键数字横排 */}
+        <div className="flex items-center gap-3 text-[10px] font-mono">
+          <span className="text-text-muted">{t('execution.cost')} <span className="text-text-primary">{fmtNum(roi.incurredCost)}</span></span>
+          <span className="text-text-muted">{t('execution.value')} <span className="text-text-primary">{fmtNum(roi.businessValue)}</span></span>
+          {roi.roiRatio != null && (
+            <span className={roiRatio >= 1 ? 'text-[#22c55e]' : 'text-[#ef4444]'}>
+              ROI {roiRatio.toFixed(2)}
+            </span>
+          )}
+          {roi.fanOut != null && <span className="text-text-muted">fan {roi.fanOut}</span>}
+        </div>
+        {/* 微型 ROI 趋势条（cost→value 比例可视化） */}
+        <div className="flex-1 flex items-center gap-0.5 min-w-0">
+          <RoiMiniBar ratio={roiRatio} />
+        </div>
+        {/* hover 提示 */}
+        <svg className="w-3 h-3 text-text-muted transition-transform group-hover:rotate-180 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+
+      {/* —— 展开态详细面板（hover 时展开，absolute 浮层不挤压下方内容）—— */}
+      <div className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-all duration-150 absolute left-0 right-0 top-full mt-1 z-40 rounded-xl border border-border-subtle bg-bg-sidebar shadow-2xl p-3 space-y-2 max-h-[60vh] overflow-y-auto">
+        {/* 顶层 ROI 指标 grid */}
+        <div className="grid grid-cols-3 gap-2">
           <RoiMetric label={t('execution.cost')} value={fmtNum(roi.incurredCost)} />
           <RoiMetric label={t('execution.value')} value={fmtNum(roi.businessValue)} />
           {roi.netValue != null && <RoiMetric label={t('execution.netValue')} value={fmtNum(roi.netValue)} />}
           {roi.roiRatio != null && (
-            <RoiMetric
-              label="ROI"
-              value={roi.roiRatio.toFixed(2)}
-              highlight={roi.roiRatio >= 1 ? 'positive' : 'negative'}
-            />
+            <RoiMetric label="ROI" value={roi.roiRatio.toFixed(2)} highlight={roi.roiRatio >= 1 ? 'positive' : 'negative'} />
           )}
           {roi.fanOut != null && <RoiMetric label={t('execution.fanOut')} value={String(roi.fanOut)} />}
           {roi.retryAmplification != null && (
             <RoiMetric label={t('execution.retryAmplification')} value={roi.retryAmplification.toFixed(2)} />
           )}
           {roi.criticalPathLatencyMs != null && (
-            <RoiMetric
-              label={t('execution.criticalPath')}
-              value={`${(roi.criticalPathLatencyMs / 1000).toFixed(1)}s`}
-            />
+            <RoiMetric label={t('execution.criticalPath')} value={`${(roi.criticalPathLatencyMs / 1000).toFixed(1)}s`} />
           )}
         </div>
 
-        {/* 引擎效率（logical vs physical attempts） */}
+        {/* 引擎效率（logical vs physical attempts）— 条形图 */}
         {roi.engineEfficiency && (
-          <div className="flex gap-3 text-[10px] text-text-muted pt-1 border-t border-border-subtle">
-            <span>{t('execution.logical')}: {roi.engineEfficiency.logicalAttempts}</span>
-            <span>{t('execution.physical')}: {roi.engineEfficiency.physicalAttempts}</span>
-            {roi.engineEfficiency.suppressedAttempts > 0 && (
-              <span>{t('execution.suppressed')}: {roi.engineEfficiency.suppressedAttempts}</span>
-            )}
+          <div className="pt-1.5 border-t border-border-subtle space-y-1">
+            <p className="text-[10px] text-text-muted">{t('execution.efficiency')}</p>
+            <EfficiencyBar
+              logical={roi.engineEfficiency.logicalAttempts}
+              physical={roi.engineEfficiency.physicalAttempts}
+              suppressed={roi.engineEfficiency.suppressedAttempts}
+            />
           </div>
         )}
 
-        {/* byBranch 明细表 */}
+        {/* byBranch 明细 — 条形图 */}
         {branchEntries.length > 0 && (
-          <div className="pt-1 border-t border-border-subtle">
+          <div className="pt-1.5 border-t border-border-subtle space-y-1">
             <p className="text-[10px] text-text-muted mb-1">{t('execution.byBranch')}</p>
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {branchEntries.map(([bid, snap]) => (
-                <div key={bid} className="flex items-center gap-2 text-[10px]">
-                  <span className="font-mono text-text-secondary truncate flex-1">{bid}</span>
-                  <span className="text-text-muted">{t('execution.cost')}: {fmtNum(snap.incurredCost)}</span>
-                  <span className="text-text-muted">{t('execution.value')}: {fmtNum(snap.businessValue)}</span>
-                  {snap.roiRatio != null && (
-                    <span className={snap.roiRatio >= 1 ? 'text-[#22c55e]' : 'text-[#ef4444]'}>
-                      {snap.roiRatio.toFixed(2)}
-                    </span>
-                  )}
-                </div>
+                <BranchRoiRow key={bid} branchId={bid} snap={snap} maxCost={Math.max(...branchEntries.map(([, s]) => s.incurredCost), 1)} />
               ))}
             </div>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 微型 ROI 趋势条 — 收起态显示。用一个水平条可视化 ROI ratio：
+ * ratio >= 1 时绿色条占满，ratio < 1 时红色条按比例缩短。
+ */
+function RoiMiniBar({ ratio }: { ratio: number }) {
+  const pct = Math.min(100, Math.max(0, ratio * 50)) // ratio=2.0 → 100%, ratio=1.0 → 50%, ratio=0 → 0%
+  const color = ratio >= 1 ? 'bg-[#22c55e]' : 'bg-[#ef4444]'
+  return (
+    <div className="flex-1 h-1 rounded-full bg-bg-hover overflow-hidden">
+      <div className={`h-full ${color} transition-all`} style={{ width: `${pct}%` }} />
+    </div>
+  )
+}
+
+/**
+ * 引擎效率条形图 — logical（绿）vs physical（灰）vs suppressed（橙）。
+ * 直观展示引擎避免了多少无效物理尝试。
+ */
+function EfficiencyBar({ logical, physical, suppressed }: { logical: number; physical: number; suppressed: number }) {
+  const total = Math.max(physical, 1)
+  const logicalPct = (logical / total) * 100
+  const suppressedPct = (suppressed / total) * 100
+  const wastePct = Math.max(0, 100 - logicalPct - suppressedPct)
+  return (
+    <div>
+      <div className="flex h-2 rounded-full overflow-hidden bg-bg-hover">
+        <div className="bg-[#22c55e]" style={{ width: `${logicalPct}%` }} title={`Logical: ${logical}`} />
+        {suppressedPct > 0 && <div className="bg-[#f59e0b]" style={{ width: `${suppressedPct}%` }} title={`Suppressed: ${suppressed}`} />}
+        {wastePct > 0 && <div className="bg-[#ef4444]/40" style={{ width: `${wastePct}%` }} title={`Waste: ${physical - logical - suppressed}`} />}
+      </div>
+      <div className="flex gap-3 mt-1 text-[9px] text-text-muted">
+        <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#22c55e]" />{logical}</span>
+        <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-bg-hover border border-border-custom" />{physical}</span>
+        {suppressed > 0 && <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b]" />{suppressed}</span>}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 单个分支的 ROI 条形行 — 分支名 + cost→value 双向条形 + ROI 数字。
+ */
+function BranchRoiRow({ branchId, snap, maxCost }: { branchId: string; snap: BranchRoiSnapshot; maxCost: number }) {
+  const { t } = useI18n()
+  const costPct = Math.min(100, (snap.incurredCost / maxCost) * 100)
+  const valuePct = Math.min(100, (snap.businessValue / Math.max(maxCost, snap.businessValue, 1)) * 100)
+  const ratio = snap.roiRatio
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center gap-2 text-[10px]">
+        <span className="font-mono text-text-secondary truncate w-24 shrink-0">{branchId}</span>
+        {/* cost bar (red, left→right) + value bar (green, right→left, overlaid) */}
+        <div className="flex-1 h-1.5 rounded-full bg-bg-hover overflow-hidden relative">
+          <div className="absolute inset-y-0 left-0 bg-[#ef4444]/40" style={{ width: `${costPct}%` }} />
+          <div className="absolute inset-y-0 left-0 bg-[#22c55e]/60" style={{ width: `${Math.min(costPct, valuePct)}%` }} />
+        </div>
+        {ratio != null && (
+          <span className={`font-mono shrink-0 ${ratio >= 1 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>{ratio.toFixed(2)}</span>
+        )}
+      </div>
+      <div className="flex gap-3 text-[9px] text-text-muted pl-[6.5rem]">
+        <span>{t('execution.cost')}: {fmtNum(snap.incurredCost)}</span>
+        <span>{t('execution.value')}: {fmtNum(snap.businessValue)}</span>
       </div>
     </div>
   )

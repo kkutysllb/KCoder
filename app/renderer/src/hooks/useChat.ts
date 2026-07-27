@@ -30,7 +30,9 @@ export function useChat() {
     upsertBranch,
     settleBranch,
     setBranches,
-    setRoiSnapshot
+    setRoiSnapshot,
+    setThreadGoal,
+    setThreadTodos
   } = useAppStore()
 
   const abortRef = useRef<AbortController | null>(null)
@@ -322,6 +324,28 @@ export function useChat() {
         case 'turn_failed':
         case 'turn_aborted':
         case 'heartbeat':
+        // —— 线程目标 / 待办实时更新 ——
+        // 引擎在 agent 使用 create_goal/update_goal/todo_write 工具时发出这些
+        // 事件，实时同步到 Plan 面板（不再只在切线程时拉一次）。
+        case 'goal_updated': {
+          const goal = data.goal as import('../services/engine-api').ThreadGoal | undefined
+          if (goal) setThreadGoal(goal)
+          break
+        }
+        case 'goal_cleared': {
+          setThreadGoal(null)
+          break
+        }
+        case 'todos_updated': {
+          const todos = data.todos as import('../services/engine-api').ThreadTodoList | undefined
+          if (todos) setThreadTodos(todos)
+          break
+        }
+        case 'todos_cleared': {
+          setThreadTodos(null)
+          break
+        }
+
         case 'pipeline_stage':
         case 'tool_call_ready':
         case 'tool_result_upload_wait':
@@ -333,26 +357,27 @@ export function useChat() {
         case 'turn_steered':
         case 'compaction_started':
         case 'compaction_completed':
-        case 'goal_updated':
-        case 'goal_cleared':
-        case 'todos_updated':
-        case 'todos_cleared':
         case 'agent_message_delta':
         case 'agent_message_completed':
           // 这些事件暂不渲染（后续迭代），静默忽略
           break
       }
     },
-    [appendMessagePart, updateLastToolCall, updateApprovalPart, addPendingApproval, resolvePendingApproval, addPendingUserInput, resolvePendingUserInput]
+    [appendMessagePart, updateLastToolCall, updateApprovalPart, addPendingApproval, resolvePendingApproval, addPendingUserInput, resolvePendingUserInput, setThreadGoal, setThreadTodos]
   )
 
-  // 轮询执行投影视图（SSE 流期间每 1.5s 拉一次 DAG 进度）
+  // 轮询执行投影视图（SSE 流期间每 1.5s 拉一次 DAG 进度）+ governed graph 治理状态
   const pollExecution = useCallback(async (threadId: string, turnId: string) => {
     const api = getEngineAPI(enginePort)
     const poll = async () => {
       try {
         const view = await api.getTurnExecution(threadId, turnId)
         useAppStore.getState().setTurnExecution(view)
+        // 同时拉 governed graph 运行检查（circuit 状态、active nodes、budgets）
+        const runId = api.runIdForTurn(threadId, turnId)
+        api.inspectGraphRun(runId).then((inspection) => {
+          useAppStore.getState().setGraphRunInspection(inspection)
+        }).catch(() => { /* governed engine 未配置时静默 */ })
         // running/queued 状态继续轮询；completed/failed/aborted 停止
         if (view.available && (view.status === 'running' || view.status === 'queued')) {
           setTimeout(poll, 1500)

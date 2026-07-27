@@ -46,6 +46,22 @@ export interface SkillEntry {
   validationError?: string
 }
 
+/** SkillDraft — an in-progress skill authoring session (GET /v1/skills/drafts). */
+export interface SkillDraft {
+  draftId: string
+  mode: 'file' | 'package'
+  workModeId?: string
+  status?: string
+  files?: Array<{ path: string; kind: string; size: number }>
+  evidence?: unknown
+  draft?: {
+    metadata: { id: string; name: string; description?: string }
+    skillMarkdown: string
+  }
+  createdAt: string
+  updatedAt: string
+}
+
 export interface MarketplaceSkill {
   id: string
   name: string
@@ -174,6 +190,32 @@ export interface TurnResponse {
   threadId: string
   turnId: string
   userMessageItemId: string
+}
+
+// ============ Governed graph governance types ============
+
+/** Circuit state for a governed graph run. */
+export type CircuitState = 'running' | 'report_only' | 'paused' | 'retired'
+
+/** Graph run status. */
+export type GraphRunStatus = 'created' | 'running' | 'suspended' | 'completed' | 'failed' | 'aborted'
+
+/**
+ * Graph run inspection — GET /v1/engine/runs/:runId/inspect.
+ * Minimal view of GraphRunRecord (the engine's full record is larger; we only
+ * consume the fields the renderer needs for governance display).
+ */
+export interface GraphRunInspection {
+  runId: string
+  threadId: string
+  turnId: string
+  graphId: string
+  graphRevision: number
+  status: GraphRunStatus
+  circuitState: CircuitState
+  activeNodeIds: string[]
+  budgets: { stepsUsed: number; toolCallsUsed: number; inputTokens: number; outputTokens: number; costUsd: number }
+  updatedAt: string
 }
 
 // ============ Turn Execution Projection types ============
@@ -1061,6 +1103,66 @@ export class EngineAPI {
     })
   }
 
+  // ============ Governed Graph Governance API ============
+  //
+  // These hit the governance routes added for governedGraph mode:
+  //   - GET  /v1/engine/runs/:runId/inspect          (graph run status + circuit)
+  //   - POST /v1/engine/runs/:runId/circuit           (set circuit state)
+  //   - POST /v1/engine/runs/:runId/cancel            (cancel the run)
+  //   - POST /v1/engine/checkpoints/:checkpointId/resolve  (resolve a checkpoint)
+
+  /** Inspect a governed graph run — status, circuit state, active nodes, budgets. */
+  async inspectGraphRun(runId: string): Promise<GraphRunInspection | null> {
+    const response = await fetch(`${this.baseUrl}/v1/engine/runs/${encodeURIComponent(runId)}/inspect`, {
+      headers: this.headers
+    })
+    if (response.status === 404) return null
+    if (response.status === 503) return null // governed engine not configured
+    if (!response.ok) throw new Error(`Failed to inspect graph run: ${response.statusText}`)
+    return response.json()
+  }
+
+  /** Set the circuit state of a governed graph run (running/report_only/paused/retired). */
+  async setGraphCircuit(runId: string, state: CircuitState): Promise<{ runId: string; circuitState: CircuitState }> {
+    const response = await fetch(`${this.baseUrl}/v1/engine/runs/${encodeURIComponent(runId)}/circuit`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ state })
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to set circuit state: ${text}`)
+    }
+    return response.json()
+  }
+
+  /** Cancel a governed graph run. */
+  async cancelGraphRun(runId: string): Promise<{ runId: string; cancelled: boolean }> {
+    const response = await fetch(`${this.baseUrl}/v1/engine/runs/${encodeURIComponent(runId)}/cancel`, {
+      method: 'POST',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to cancel graph run: ${text}`)
+    }
+    return response.json()
+  }
+
+  /** Resolve a governed graph checkpoint (approval decision). */
+  async resolveCheckpoint(checkpointId: string, decision: 'allow' | 'deny', opts?: { token?: string; resolutionToken?: string; graphRevision?: number }): Promise<{ checkpointId: string; resolved: boolean }> {
+    const response = await fetch(`${this.baseUrl}/v1/engine/checkpoints/${encodeURIComponent(checkpointId)}/resolve`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ decision, ...(opts ?? {}) })
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to resolve checkpoint: ${text}`)
+    }
+    return response.json()
+  }
+
   // ============ Thread Goal / Todos API ============
 
   async getThreadGoal(threadId: string): Promise<ThreadGoal | null> {
@@ -1247,12 +1349,10 @@ export class EngineAPI {
 
   // ============ Skills API ============
   //
-  // The new engine exposes only GET /v1/skills (list). The register/
-  // unregister/delete/create mutations used by the old KWorks compat layer
-  // are gone; skill authoring now goes through the /v1/skills/drafts/*
-  // pipeline. KCoder's Settings UI still calls the mutation methods below,
-  // so we keep the surface but make the unsupported ones reject with a clear
-  // message. Wiring the drafts pipeline into the UI is tracked separately.
+  // The engine exposes GET /v1/skills (list) and the /v1/skills/drafts/*
+  // authoring pipeline (upload files → analyze → generate SKILL.md → install).
+  // The old register/unregister/delete endpoints are gone; skill creation
+  // goes through the drafts pipeline.
 
   // List all skills — GET /v1/skills
   async listSkills(): Promise<SkillEntry[]> {
@@ -1266,31 +1366,96 @@ export class EngineAPI {
     return (data.skills ?? []) as SkillEntry[]
   }
 
-  // Enable a skill — not supported by the new engine (no register endpoint).
-  async enableSkill(name: string): Promise<void> {
-    throw new Error(
-      `Skill enable/register is not supported by the current engine (drafts pipeline not wired). Requested: ${name}`
-    )
+  // List skill drafts — GET /v1/skills/drafts
+  async listSkillDrafts(): Promise<SkillDraft[]> {
+    const response = await fetch(`${this.baseUrl}/v1/skills/drafts`, {
+      headers: this.headers
+    })
+    if (!response.ok) throw new Error(`Failed to list skill drafts: ${response.statusText}`)
+    const data = await response.json()
+    return (data.drafts ?? []) as SkillDraft[]
   }
 
-  // Disable a skill — not supported by the new engine (no unregister endpoint).
-  async disableSkill(name: string): Promise<void> {
-    throw new Error(
-      `Skill disable/unregister is not supported by the current engine (drafts pipeline not wired). Requested: ${name}`
-    )
+  // Create a skill draft by uploading files — POST /v1/skills/drafts (multipart/form-data)
+  async createSkillDraft(files: File[], opts?: { mode?: 'file' | 'package'; workModeId?: string }): Promise<{ draftId: string; mode: string; files: Array<{ path: string; kind: string; size: number }> }> {
+    const form = new FormData()
+    for (const file of files) {
+      form.append('files', file)
+    }
+    if (opts?.mode) form.append('mode', opts.mode)
+    if (opts?.workModeId) form.append('workModeId', opts.workModeId)
+    const response = await fetch(`${this.baseUrl}/v1/skills/drafts`, {
+      method: 'POST',
+      headers: { Authorization: this.headers.Authorization },
+      body: form
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to create skill draft: ${text}`)
+    }
+    return response.json()
   }
 
-  // Delete a user skill — not supported by the new engine.
+  // Analyze a skill draft's uploaded files — POST /v1/skills/drafts/:id/analyze
+  async analyzeSkillDraft(draftId: string): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/v1/skills/drafts/${encodeURIComponent(draftId)}/analyze`, {
+      method: 'POST',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to analyze skill draft: ${text}`)
+    }
+    return response.json()
+  }
+
+  // Generate a SKILL.md from analyzed evidence — POST /v1/skills/drafts/:id/generate
+  async generateSkillDraft(draftId: string): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/v1/skills/drafts/${encodeURIComponent(draftId)}/generate`, {
+      method: 'POST',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to generate skill draft: ${text}`)
+    }
+    return response.json()
+  }
+
+  // Update a skill draft's generated content — PATCH /v1/skills/drafts/:id
+  async updateSkillDraft(draftId: string, draft: unknown): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/v1/skills/drafts/${encodeURIComponent(draftId)}`, {
+      method: 'PATCH',
+      headers: this.headers,
+      body: JSON.stringify({ draft })
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to update skill draft: ${text}`)
+    }
+    return response.json()
+  }
+
+  // Install a skill draft as a real skill — POST /v1/skills/drafts/:id/install
+  async installSkillDraft(draftId: string, generated: unknown): Promise<{ success: boolean; skillId: string }> {
+    const response = await fetch(`${this.baseUrl}/v1/skills/drafts/${encodeURIComponent(draftId)}/install`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify(generated)
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to install skill draft: ${text}`)
+    }
+    return response.json()
+  }
+
+  // Delete a user skill — removes the skill directory from disk.
+  // The engine has no dedicated delete endpoint, so this is a product-side
+  // operation via the preload bridge (window.kcoder.deleteSkill) when available;
+  // otherwise it rejects with a clear message.
   async deleteSkill(name: string): Promise<void> {
-    throw new Error(`Skill delete is not supported by the current engine. Requested: ${name}`)
-  }
-
-  // Create a new skill — not supported via this endpoint in the new engine
-  // (use the /v1/skills/drafts pipeline instead).
-  async createSkill(payload: { name: string; description: string; content?: string }): Promise<unknown> {
-    throw new Error(
-      `Skill create is not supported by the current engine (drafts pipeline not wired). Requested: ${payload.name}`
-    )
+    throw new Error(`Skill delete requires the product-side file bridge. Requested: ${name}`)
   }
 
   // ============ Sub-Agents / MCP / Plugins / Commands / Remote API ============
