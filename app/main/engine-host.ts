@@ -209,7 +209,13 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
       skillRoots,
       // Overlay: when a child thread is bound to a branch worktree, redirect
       // its bash/file tool calls into the worktree automatically.
-      branchWorkspaceResolver
+      branchWorkspaceResolver,
+      // Governed graph: route every turn through the durable governed-graph
+      // execution plane (DurableEngine + evented_v2 orchestration + Kernel
+      // isolated AgentRun execution). This activates the full architecture:
+      // immutable GraphRevision, parallel/join, circuit/approval/resource
+      // governance, durable recovery. Each turn becomes a governed graph run.
+      governedGraph: true
     })
 
     console.log('[KCoder] Agent runtime created, starting HTTP server...')

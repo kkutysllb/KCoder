@@ -26,7 +26,7 @@ import type { AuthService } from '../auth-service.js'
 import type { QiongqiConfig } from '@qiongqi/contracts'
 import type { UserDataStore } from '../user-data-store.js'
 import type { PeerRegistry } from '@qiongqi/delegation'
-import type { EventedV2MultiAgentRuntime, EventedV2OutboxReconciler, EventedV2RemoteAgentScheduler, EventedV2RemoteAgentWorker, EventedV2RolloutController, GraphReadinessReport } from '@qiongqi/loop'
+import type { EventedV2MultiAgentRuntime, EventedV2OutboxReconciler, EventedV2RemoteAgentScheduler, EventedV2RemoteAgentWorker, EventedV2RolloutController, GraphReadinessReport, DurableEngine } from '@qiongqi/loop'
 import type { EventedV2WorkerRegistryStore } from '@qiongqi/ports'
 import type { DurableEngineStore } from '@qiongqi/ports'
 
@@ -87,6 +87,8 @@ export type ServerRuntime = {
   multiAgentRemoteScheduler?: EventedV2RemoteAgentScheduler
   eventedV2Rollout?: EventedV2RolloutController
   durableEngineStore?: DurableEngineStore
+  /** The governed-graph engine — present when governedGraph mode is enabled. Exposes inspect/circuit/cancel for governance routes. */
+  governedEngine?: DurableEngine
   runTurn(threadId: string, turnId: string): Promise<'completed' | 'degraded' | 'suspended' | 'failed' | 'aborted'> | void
   cancelA2ATaskTurn?(input: { threadId: string; turnId: string }): Promise<void> | void
   runReview?(input: {

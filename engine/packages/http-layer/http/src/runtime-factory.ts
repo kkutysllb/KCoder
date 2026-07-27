@@ -12,6 +12,7 @@ import { FileAttachmentStore } from '@qiongqi/attachments'
 import { InMemoryApprovalGate } from '@qiongqi/adapter-storage'
 import { InMemoryUserInputGate } from '@qiongqi/adapter-storage'
 import { InMemoryEventBus } from '@qiongqi/adapter-storage'
+import { SqliteDurableEngineStore } from '@qiongqi/adapter-storage'
 import {
   FileEffectResultStore,
   FileEventedV2WorkerRegistryStore,
@@ -57,13 +58,17 @@ import {
   KernelV3TurnRunner,
   ModelProposalRunner,
   PromptBuilder,
+  RuntimeKernel,
+  productionKernelV3Graph,
   defaultManagerSpecialistGraph,
   validateAgentGraph,
   resolveEventedV2RolloutMode,
   resolveRuntimeRolloutMode,
   ToolRuntimeV3,
+  defaultKernelV3Middleware,
   type EventedV2FallbackReason,
   type EventedV2RolloutDecision,
+  type KernelExecutionResult,
   type OrchestrationMode
 } from '@qiongqi/loop'
 import type {
@@ -152,6 +157,7 @@ import {
   type UserDataStore
 } from './user-data-store.js'
 import { SqliteUserDataStore } from './sqlite-user-data-store.js'
+import { createGovernedTurnDriver, type GovernedTurnDriver } from './governed-turn-driver.js'
 import { UserScopedModelClient } from './user-scoped-model-client.js'
 
 // ---------------------------------------------------------------------------
@@ -250,6 +256,20 @@ export type QiongqiServeRuntimeOptions = {
    * so it adds zero wire-format or schema surface.
    */
   branchWorkspaceResolver?: (threadId: string, workspace: string) => string | null
+  /**
+   * Enable the governed-graph turn driver. When true, turns are driven through
+   * the durable governed-graph execution plane (DurableEngine + parallel/join +
+   * circuit/approval governance) instead of the plain single-AgentRun loop.
+   *
+   * This activates the full evented_v2 + Kernel two-plane architecture: each
+   * turn becomes a governed graph run with immutable GraphRevision, isolated
+   * AgentRuns on Kernel execution plane, and governance (circuit/approval/
+   * resource). The single-AgentRun kernel_v3 execution is reused as the
+   * Kernel plane for each agent node.
+   *
+   * Default: false (plain single-AgentRun loop, backward compatible).
+   */
+  governedGraph?: boolean
 }
 
 export type QiongqiServeHandle = NodeHttpServerHandle & {
@@ -1722,6 +1742,49 @@ async function assembleRuntime(input: {
         eventedV2: eventedV2Loop,
         kernelV3: kernelV3Loop
       })
+  // Governed-graph turn driver: when enabled, route turns through the durable
+  // governed-graph execution plane (DurableEngine) instead of the plain loop.
+  // Reuses the kernel_v3 internals (node handlers, stores, middleware) as the
+  // Kernel execution plane for each governed agent node.
+  const governedGraphEnabled = options.governedGraph === true && kernelV3Loop
+  let governedDriver: GovernedTurnDriver | undefined
+  if (governedGraphEnabled) {
+    const governedStore = new SqliteDurableEngineStore(join(options.dataDir, 'governed-engine.sqlite'))
+    const kernelInternals = kernelV3Loop.internals
+    governedDriver = await createGovernedTurnDriver({
+      store: governedStore,
+      agentId: options.agentName ?? 'Qiongqi',
+      runKernel: async ({ prepared, threadId, turnId }) => {
+        // Bridge a governed-graph agent node to a single-AgentRun Kernel execution.
+        // Build a RunIdentity from the turn context (threadId/turnId) + the agent's
+        // execution identity (kernelRunId as runId, scope for owner/workspace).
+        const identity = {
+          ownerUserId: prepared.scope.ownerId,
+          threadId,
+          turnId,
+          runId: prepared.executionRef.kernelRunId,
+          workspaceKey: prepared.scope.workspaceId
+        }
+        const kernel = new RuntimeKernel({
+          graph: productionKernelV3Graph(),
+          snapshots: kernelInternals.snapshots,
+          events: kernelInternals.events,
+          leases: kernelInternals.leases,
+          holderId: kernelInternals.holderId,
+          nodes: kernelInternals.nodes,
+          middleware: kernelInternals.middleware,
+          nowIso: kernelInternals.nowIso ?? core.nowIso
+        })
+        const outcome = await kernel.run(identity)
+        return {
+          outcome,
+          usage: { stepsUsed: 0, toolCallsUsed: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+          usageRefs: [],
+          artifactRefs: []
+        }
+      }
+    })
+  }
   const multiAgentRoot = join(options.dataDir, 'threads')
   const multiAgentRuns = needsEventedV2Loop
     ? new FileMultiAgentRunStore(multiAgentRoot)
@@ -1893,8 +1956,14 @@ async function assembleRuntime(input: {
     /** Stage 4: A2A task persistence. */
     a2aTaskStore: new FileA2ATaskStore(join(options.dataDir, 'a2a-tasks')),
     runTurn(threadId, turnId) {
+      // Governed-graph mode: drive the turn through the durable governed-graph
+      // execution plane. Falls back to the plain loop when the driver is absent.
+      if (governedDriver) {
+        return governedDriver.runTurn(threadId, turnId)
+      }
       return loop.runTurn(threadId, turnId)
     },
+    ...(governedDriver ? { governedEngine: governedDriver.engine } : {}),
     async cancelA2ATaskTurn(input) {
       await core.turnService.interruptTurn({ ...input, discard: false })
     },

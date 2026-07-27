@@ -228,6 +228,57 @@ function registerRuntimeRoutes(router: Router, runtime: ServerRuntime): void {
     if (!runtime.multiAgentRuntime) return ERRORS.unavailable('evented_v2 runtime is not configured')
     return jsonResponse(await runtime.multiAgentRuntime.metrics())
   })
+  // ============ Governed graph governance routes ============
+  // These expose the DurableEngine's governance surface when governedGraph
+  // mode is enabled: inspect a run's graph/circuit/workEvents, set the circuit
+  // state (report_only/paused/retired/running), and cancel a run.
+  router.add('GET', '/v1/engine/runs/:runId/inspect', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    if (!runtime.governedEngine) return ERRORS.unavailable('governed graph engine is not configured')
+    try {
+      return jsonResponse(await runtime.governedEngine.inspect(ctx.params.runId))
+    } catch (error) {
+      if (String((error as { message?: unknown })?.message ?? error).includes('not found')) {
+        return ERRORS.notFound(`governed run not found: ${ctx.params.runId}`)
+      }
+      throw error
+    }
+  })
+  router.add('POST', '/v1/engine/runs/:runId/circuit', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    if (!runtime.governedEngine) return ERRORS.unavailable('governed graph engine is not configured')
+    const body = await readJsonBody(request)
+    if (!body.ok) return body.response
+    const state = (body.value as { state?: string })?.state
+    if (state !== 'running' && state !== 'report_only' && state !== 'paused' && state !== 'retired') {
+      return ERRORS.validation('circuit state must be one of: running, report_only, paused, retired')
+    }
+    await runtime.governedEngine.setGraphCircuit(ctx.params.runId, state)
+    return jsonResponse({ runId: ctx.params.runId, circuitState: state })
+  })
+  router.add('POST', '/v1/engine/runs/:runId/cancel', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    if (!runtime.governedEngine) return ERRORS.unavailable('governed graph engine is not configured')
+    await runtime.governedEngine.cancel(ctx.params.runId)
+    return jsonResponse({ runId: ctx.params.runId, cancelled: true })
+  })
+  router.add('POST', '/v1/engine/checkpoints/:checkpointId/resolve', async (request, ctx) => {
+    if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    if (!runtime.governedEngine) return ERRORS.unavailable('governed graph engine is not configured')
+    const body = await readJsonBody(request)
+    if (!body.ok) return body.response
+    const value = body.value as { decision?: string; token?: string; resolutionToken?: string; graphRevision?: number }
+    if (value.decision !== 'allow' && value.decision !== 'deny') {
+      return ERRORS.validation('checkpoint decision must be allow or deny')
+    }
+    await runtime.governedEngine.resolveCheckpoint(ctx.params.checkpointId, {
+      decision: value.decision,
+      ...(value.token ? { token: value.token } : {}),
+      ...(value.resolutionToken ? { resolutionToken: value.resolutionToken } : {}),
+      ...(value.graphRevision ? { graphRevision: value.graphRevision } : {})
+    })
+    return jsonResponse({ checkpointId: ctx.params.checkpointId, resolved: true })
+  })
   router.add('GET', '/v1/workspace/status', async (request) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     const url = new URL(request.url)
