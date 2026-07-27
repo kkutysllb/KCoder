@@ -204,6 +204,25 @@ export interface AttachmentMetadata {
   createdAt: string
 }
 
+// ============ Memory types ============
+
+/** MemoryRecord — a persistent knowledge entry (legacy scope: user/workspace/project). */
+export interface MemoryRecord {
+  id: string
+  content: string
+  scope: 'user' | 'workspace' | 'project'
+  tags: string[]
+  confidence: number
+  workspace?: string
+  project?: string
+  sourceThreadId?: string
+  ownerUserId?: string
+  createdAt: string
+  updatedAt: string
+  disabledAt?: string
+  deletedAt?: string
+}
+
 // ============ Governed graph governance types ============
 
 /** Circuit state for a governed graph run. */
@@ -544,6 +563,10 @@ export class EngineAPI {
   private baseUrl: string
   private token: string
   private authToken: string | null = null
+  // The promise that resolves when the current turn's SSE stream ends
+  // (turn_completed/turn_failed/turn_aborted). Set by sendMessage, awaited
+  // by waitForTurnCompletion.
+  private turnCompletion: Promise<void> = Promise.resolve()
   // Authenticated user id — required for product-side model management.
   // The engine stores model profiles per user and resolves them at request
   // time via thread.ownerUserId, so the id here MUST match the logged-in
@@ -756,8 +779,21 @@ export class EngineAPI {
     const turn: TurnResponse = await turnResponse.json()
 
     // 订阅线程级 SSE 事件流（后端路径是 /v1/threads/:id/events，不是 /turns/:turnId/events）
-    await this.subscribeToThread(threadId, turn.turnId, onEvent)
+    // 不 await — SSE 订阅是 fire-and-forget，让调用方立即拿到 turnId（用于设置 activeTurnId、
+    // 停止按钮等）。如果 await，turnId 直到 turn 完成才返回，activeTurnId 在运行期间永远为 null。
+    // 存储 promise 供 waitForTurnCompletion 使用。
+    this.turnCompletion = this.subscribeToThread(threadId, turn.turnId, onEvent)
     return turn.turnId
+  }
+
+  /**
+   * Wait for the current turn's SSE stream to end (turn_completed/failed/aborted).
+   * Used by useChat.sendMessage to keep isGenerating=true until the turn actually
+   * finishes, without blocking the turnId return (which must be immediate so the
+   * stop button works).
+   */
+  async waitForTurnCompletion(): Promise<void> {
+    await this.turnCompletion
   }
 
   // 订阅线程事件流。
@@ -1361,6 +1397,25 @@ export class EngineAPI {
     return response.json()
   }
 
+  /**
+   * Delete a thread and ALL its data. The engine's HybridThreadStore.delete
+   * recursively removes the entire thread directory (dataDir/threads/<id>/),
+   * including tool-output, uploads, turn state, session items, etc.
+   * DELETE /v1/threads/:id
+   */
+  async deleteThread(threadId: string): Promise<boolean> {
+    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}`, {
+      method: 'DELETE',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to delete thread: ${text}`)
+    }
+    const data = await response.json()
+    return Boolean(data.deleted)
+  }
+
   // ============ Attachments API ============
   //
   // Upload files to the engine so the agent can read them during a turn.
@@ -1402,6 +1457,74 @@ export class EngineAPI {
     if (!response.ok) throw new Error(`Failed to get attachment: ${response.statusText}`)
     const data = await response.json()
     return data.attachment as AttachmentMetadata
+  }
+
+  // ============ Memory API ============
+  //
+  // Persistent memory CRUD — the agent stores and retrieves project knowledge
+  // (decisions, constraints, evidence) via these endpoints. Memories are scoped
+  // to user/workspace and injected into context at turn time.
+
+  /** List memories. GET /v1/memory?workspace=&include_deleted= */
+  async listMemories(opts?: { workspace?: string; includeDeleted?: boolean }): Promise<MemoryRecord[]> {
+    const params = new URLSearchParams()
+    if (opts?.workspace) params.set('workspace', opts.workspace)
+    if (opts?.includeDeleted) params.set('include_deleted', 'true')
+    const qs = params.toString()
+    const response = await fetch(`${this.baseUrl}/v1/memory${qs ? `?${qs}` : ''}`, {
+      headers: this.headers
+    })
+    if (!response.ok) throw new Error(`Failed to list memories: ${response.statusText}`)
+    const data = await response.json()
+    return (data.memories ?? []) as MemoryRecord[]
+  }
+
+  /** Create a memory. POST /v1/memory { content, scope?, tags?, confidence?, workspace? } */
+  async createMemory(payload: { content: string; scope?: 'user' | 'workspace' | 'project'; tags?: string[]; confidence?: number; workspace?: string }): Promise<MemoryRecord> {
+    const response = await fetch(`${this.baseUrl}/v1/memory`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to create memory: ${detail}`)
+    }
+    const data = await response.json()
+    return data.memory as MemoryRecord
+  }
+
+  /** Update a memory. PATCH /v1/memory/:id { content?, tags?, confidence?, disabled? } */
+  async updateMemory(id: string, patch: { content?: string; tags?: string[]; confidence?: number; disabled?: boolean }): Promise<MemoryRecord> {
+    const response = await fetch(`${this.baseUrl}/v1/memory/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: this.headers,
+      body: JSON.stringify(patch)
+    })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to update memory: ${detail}`)
+    }
+    const data = await response.json()
+    return data.memory as MemoryRecord
+  }
+
+  /** Delete a memory (soft delete — tombstone). DELETE /v1/memory/:id */
+  async deleteMemory(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/v1/memory/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: this.headers
+    })
+    if (!response.ok) throw new Error(`Failed to delete memory: ${response.statusText}`)
+  }
+
+  /** Memory diagnostics. GET /v1/memory/diagnostics */
+  async memoryDiagnostics(): Promise<{ enabled: boolean; activeCount: number; tombstoneCount: number }> {
+    const response = await fetch(`${this.baseUrl}/v1/memory/diagnostics`, {
+      headers: this.headers
+    })
+    if (!response.ok) throw new Error(`Failed to get memory diagnostics: ${response.statusText}`)
+    return response.json()
   }
 
   // ============ Models API (product-side, over IPC) ============

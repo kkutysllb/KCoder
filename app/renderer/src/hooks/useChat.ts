@@ -392,7 +392,7 @@ export function useChat() {
 
   // Send a message
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, attachmentIds?: string[]) => {
       if (!content.trim() || isGenerating) return
 
       const api = getEngineAPI(enginePort)
@@ -452,18 +452,22 @@ export function useChat() {
 
       try {
         // Governed graph: every turn is driven through the durable governed-graph
-        // execution plane (DurableEngine + evented_v2 orchestration + Kernel
-        // isolated AgentRun). There is no per-turn orchestration mode selection.
+        // execution plane. sendMessage now returns turnId immediately (SSE
+        // subscription is fire-and-forget), so activeTurnId is set BEFORE the
+        // turn completes — this makes the stop button functional.
         const turnId = await api.sendMessage(currentThreadId, content.trim(), (event: SSEEvent) => {
           handleSseEvent(assistantMessageId, event)
-        })
+        }, attachmentIds)
 
-        // 记录当前 turnId 并轮询执行投影视图（DAG/agent 执行进度）
+        // 立即设置 activeTurnId — 停止按钮和 steer 依赖它
         useAppStore.getState().setActiveTurnId(turnId)
-        // v1.1.2: 同时订阅该 turn 的 governed engine stream，接收并行分支 +
-        // ROI 增量。不 await（实时流，与 thread SSE 并行运行）。
+        // v1.1.2: 订阅 governed engine stream（并行分支 + ROI 增量）
         void subscribeEngineProjection(currentThreadId, turnId)
-        await pollExecution(currentThreadId, turnId)
+        // 轮询执行投影（非阻塞 — turn 完成由 SSE 终端事件驱动）
+        void pollExecution(currentThreadId, turnId)
+
+        // 等待 turn 完成 — subscribeToThread 的 promise 在收到终端事件时 resolve
+        await api.waitForTurnCompletion()
       } catch (error) {
         console.error('Failed to send message:', error)
         appendMessagePart(assistantMessageId, {

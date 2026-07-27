@@ -455,6 +455,14 @@ function registerThreadRoutes(router: Router, runtime: ServerRuntime): void {
   })
   router.add('POST', '/v1/threads/:id/turns/:turnId/interrupt', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
+    // Governed graph: also cancel the durable engine run so Kernel execution stops.
+    // The engine's runId convention is run_<threadId>_<turnId>.
+    if (runtime.governedEngine) {
+      const runId = `run_${ctx.params.id}_${ctx.params.turnId}`
+      runtime.governedEngine.cancel(runId).catch(() => {
+        // The run may not exist (non-governed turn, already completed, etc.) — ignore.
+      })
+    }
     return interruptTurn(runtime.turnService, ctx.params.id, ctx.params.turnId, request)
   })
   router.add('POST', '/v1/threads/:id/compact', async (request, ctx) => {

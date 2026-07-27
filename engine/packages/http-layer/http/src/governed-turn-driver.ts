@@ -90,6 +90,24 @@ export type GovernedTurnDriverOptions = {
   managerAgentId?: string
   specialistAgentId?: string
   nowIso?: () => string
+  /**
+   * The model profile id authorized for governed graph runs. Must be non-empty
+   * (the engine's ModelSelectionPolicy requires >=1 authorizedProfileId).
+   * Typically the configured model name.
+   */
+  modelProfileId: string
+  /**
+   * The TurnService — used to register the AbortController (so interrupt works)
+   * and to call finishTurn (so SSE terminal events are broadcast and the turn
+   * record is finalized). Without this, the governed driver would run the graph
+   * but the frontend SSE stream would never receive turn_completed/turn_failed.
+   */
+  turnService?: {
+    registerInflight(turnId: string, controller: AbortController): void
+    finishTurn(input: { threadId: string; turnId: string; status: 'completed' | 'failed' | 'aborted'; error?: string }): Promise<void>
+    inflightBegin(input: { id: string; kind: string; threadId: string; turnId: string }): void
+    inflightEnd(turnId: string): void
+  }
 }
 
 export type GovernedTurnDriver = {
@@ -150,6 +168,15 @@ export async function createGovernedTurnDriver(
     engine,
     async runTurn(threadId, turnId) {
       currentTurn = { threadId, turnId }
+      // Register an AbortController so TurnService.getAbortController(turnId)
+      // returns a live signal — the kernel node handlers use this to detect
+      // interrupts, and the interrupt route can abort it.
+      const controller = new AbortController()
+      if (options.turnService) {
+        options.turnService.registerInflight(turnId, controller)
+        options.turnService.inflightBegin({ id: turnId, kind: 'model', threadId, turnId })
+      }
+      let turnStatus: 'completed' | 'degraded' | 'suspended' | 'failed' | 'aborted' = 'failed'
       try {
         const scope = {
           ownerId: 'local-default-owner',
@@ -162,7 +189,7 @@ export async function createGovernedTurnDriver(
           turnId,
           workspaceKey: scope.workspaceId,
           prompt: '',
-          modelPolicy: { authorizedProfileIds: [] },
+          modelPolicy: { authorizedProfileIds: [options.modelProfileId] },
           graphRef,
           budgetLimits
         })
@@ -173,16 +200,43 @@ export async function createGovernedTurnDriver(
         let safety = 0
         while (!isGraphTerminal(run.status) && safety < 10_000) {
           safety++
+          if (controller.signal.aborted) break
           await engine.flushAgentDispatches(100)
           run = await engine.inspect(multiAgentRunId)
           if (isGraphTerminal(run.status)) break
           await new Promise((resolve) => setTimeout(resolve, 5))
         }
 
-        return graphStatusToTurnStatus(run.status)
+        turnStatus = controller.signal.aborted
+          ? 'aborted'
+          : graphStatusToTurnStatus(run.status)
+      } catch (err) {
+        // If the governed graph throws (model resolution, kernel execution,
+        // store errors, etc.), we MUST still finalize the turn so the frontend
+        // SSE stream resolves and the UI stops loading.
+        console.error('[governed-turn-driver] runTurn error:', err)
+        turnStatus = 'failed'
       } finally {
         currentTurn = null
+        // Finalize the turn through TurnService — broadcasts the terminal SSE
+        // event so the frontend's SSE subscription resolves + UI stops loading.
+        if (options.turnService) {
+          const finishStatus: 'completed' | 'failed' | 'aborted' =
+            turnStatus === 'failed' ? 'failed' :
+            turnStatus === 'aborted' ? 'aborted' : 'completed'
+          try {
+            await options.turnService.finishTurn({
+              threadId,
+              turnId,
+              status: finishStatus,
+              ...(finishStatus === 'failed' ? { error: 'governed graph run failed' } : {})
+            })
+          } catch (e) {
+            console.error('[governed-turn-driver] finishTurn error:', e)
+          }
+        }
       }
+      return turnStatus
     }
   }
 }

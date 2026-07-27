@@ -9,6 +9,12 @@ type Dict = Record<string, string>
 const zhCN: Dict = {
   // Common
   'common.confirm': '确定',
+  'common.loading': '加载中...',
+  'common.cancel': '取消',
+  'common.save': '保存',
+  'common.delete': '删除',
+  'common.edit': '编辑',
+  'common.create': '创建',
 
   // Sidebar
   'sidebar.collapse': '折叠侧边栏',
@@ -25,6 +31,9 @@ const zhCN: Dict = {
   'sidebar.conversations': '会话',
   'sidebar.sort': '视图与排序',
   'sidebar.archive': '归档',
+  'sidebar.delete': '删除',
+  'sidebar.deleteConfirm': '确定删除此会话？所有相关数据（消息、上传文件、输出）将被永久删除。',
+  'sidebar.deleteFailed': '删除失败，请重试',
   'sidebar.view': '视图',
   'sidebar.viewByProject': '按项目',
   'sidebar.timeline': '时间线',
@@ -149,6 +158,7 @@ const zhCN: Dict = {
   'chat.stop': '停止',
   'chat.steer': '追加',
   'chat.steer.placeholder': '追加指令到正在执行的任务...',
+  'chat.attach': '上传文件',
   'perm.confirmBeforeChange': '变更前确认',
   'perm.confirmBeforeChange.desc': '改文件前先问我。',
   'perm.autoEdit': '自动编辑',
@@ -428,6 +438,22 @@ const zhCN: Dict = {
 
   // SettingsPanel - commands
   'settings.nav.commands': '命令',
+
+  // SettingsPanel - memory
+  'settings.nav.memory': '记忆',
+  'settings.memory.title': '记忆管理',
+  'settings.memory.desc': 'Agent 持久化的项目知识（决策、约束、证据）。记忆在每回合自动注入上下文。',
+  'settings.memory.create': '新建记忆',
+  'settings.memory.create.placeholder': '输入记忆内容...',
+  'settings.memory.create.tags': '标签（逗号分隔）',
+  'settings.memory.empty': '暂无记忆记录',
+  'settings.memory.total': '总计',
+  'settings.memory.active': '活跃',
+  'settings.memory.disabled': '已禁用',
+  'settings.memory.disabledBadge': '已禁用',
+  'settings.memory.deletedBadge': '已删除',
+  'settings.memory.enable': '启用',
+  'settings.memory.disable': '禁用',
   'settings.commands.title': '命令',
   'settings.commands.subtitle': '管理 KCoder Agent 的 .md 命令文件。命令可通过 /command-name 在聊天中调用。',
   'settings.commands.search': '搜索命令...',
@@ -523,6 +549,12 @@ const zhCN: Dict = {
 const en: Dict = {
   // Common
   'common.confirm': 'Confirm',
+  'common.loading': 'Loading...',
+  'common.cancel': 'Cancel',
+  'common.save': 'Save',
+  'common.delete': 'Delete',
+  'common.edit': 'Edit',
+  'common.create': 'Create',
 
   // Sidebar
   'sidebar.collapse': 'Collapse Sidebar',
@@ -539,6 +571,9 @@ const en: Dict = {
   'sidebar.conversations': 'Conversations',
   'sidebar.sort': 'View & Sort',
   'sidebar.archive': 'Archive',
+  'sidebar.delete': 'Delete',
+  'sidebar.deleteConfirm': 'Delete this conversation? All related data (messages, uploads, outputs) will be permanently removed.',
+  'sidebar.deleteFailed': 'Delete failed, please try again',
   'sidebar.view': 'View',
   'sidebar.viewByProject': 'By Project',
   'sidebar.timeline': 'Timeline',
@@ -663,6 +698,7 @@ const en: Dict = {
   'chat.stop': 'Stop',
   'chat.steer': 'Steer',
   'chat.steer.placeholder': 'Append instructions to the running task...',
+  'chat.attach': 'Attach files',
   'perm.confirmBeforeChange': 'Confirm before change',
   'perm.confirmBeforeChange.desc': 'Ask me before modifying files.',
   'perm.autoEdit': 'Auto edit',
@@ -942,6 +978,22 @@ const en: Dict = {
 
   // SettingsPanel - commands
   'settings.nav.commands': 'Commands',
+
+  // SettingsPanel - memory
+  'settings.nav.memory': 'Memory',
+  'settings.memory.title': 'Memory Management',
+  'settings.memory.desc': 'Agent-persisted project knowledge (decisions, constraints, evidence). Memories are injected into context at turn time.',
+  'settings.memory.create': 'New Memory',
+  'settings.memory.create.placeholder': 'Enter memory content...',
+  'settings.memory.create.tags': 'Tags (comma-separated)',
+  'settings.memory.empty': 'No memories yet',
+  'settings.memory.total': 'Total',
+  'settings.memory.active': 'Active',
+  'settings.memory.disabled': 'Disabled',
+  'settings.memory.disabledBadge': 'Disabled',
+  'settings.memory.deletedBadge': 'Deleted',
+  'settings.memory.enable': 'Enable',
+  'settings.memory.disable': 'Disable',
   'settings.commands.title': 'Commands',
   'settings.commands.subtitle': 'Manage KCoder Agent .md command files. Commands are invoked via /command-name in chat.',
   'settings.commands.search': 'Search commands...',

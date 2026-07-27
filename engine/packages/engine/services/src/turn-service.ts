@@ -258,6 +258,26 @@ export class TurnService {
     return this.inflightTurns.get(turnId)?.signal
   }
 
+  /**
+   * Register an AbortController for a turn that was started outside of
+   * startTurn (e.g. the governed-graph turn driver). This makes
+   * getAbortController return a live signal so the kernel node handlers
+   * can detect interrupts, and the interrupt route can abort the turn.
+   */
+  registerInflight(turnId: string, controller: AbortController): void {
+    this.inflightTurns.set(turnId, controller)
+  }
+
+  /** Inflight tracker begin — for turns started outside startTurn. */
+  inflightBegin(input: { id: string; kind: 'model' | 'tool'; threadId: string; turnId: string }): void {
+    this.deps.inflight.begin(input)
+  }
+
+  /** Inflight tracker end — cleanup. */
+  inflightEnd(turnId: string): void {
+    this.deps.inflight.end(turnId)
+  }
+
   async getTurn(threadId: string, turnId: string): Promise<Turn | null> {
     const thread = await this.deps.threadStore.get(threadId)
     return thread?.turns.find((turn) => turn.id === turnId) ?? null

@@ -1754,6 +1754,7 @@ async function assembleRuntime(input: {
     governedDriver = await createGovernedTurnDriver({
       store: governedStore,
       agentId: options.agentName ?? 'Qiongqi',
+      modelProfileId: options.model,
       runKernel: async ({ prepared, threadId, turnId }) => {
         // Bridge a governed-graph agent node to a single-AgentRun Kernel execution.
         // Build a RunIdentity from the turn context (threadId/turnId) + the agent's
@@ -1782,7 +1783,10 @@ async function assembleRuntime(input: {
           usageRefs: [],
           artifactRefs: []
         }
-      }
+      },
+      // Pass the TurnService so the governed driver can register AbortControllers
+      // and call finishTurn — this makes the SSE stream receive terminal events.
+      turnService: core.turnService
     })
   }
   const multiAgentRoot = join(options.dataDir, 'threads')

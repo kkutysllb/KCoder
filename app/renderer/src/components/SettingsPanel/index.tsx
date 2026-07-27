@@ -8,6 +8,7 @@ import { MCPSettings } from './MCPSettings'
 import { PluginsSettings } from './PluginsSettings'
 import { CommandsSettings } from './CommandsSettings'
 import { RemoteSettings } from './RemoteSettings'
+import { MemorySettings } from './MemorySettings'
 import { AboutSettings } from './AboutSettings'
 
 interface SettingsPanelProps {
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { id: 'mcp', labelKey: 'settings.nav.mcp', icon: McpIcon },
   { id: 'plugins', labelKey: 'settings.nav.plugins', icon: PluginIcon },
   { id: 'commands', labelKey: 'settings.nav.commands', icon: CommandIcon },
+  { id: 'memory', labelKey: 'settings.nav.memory', icon: MemoryIcon },
   { id: 'remote', labelKey: 'settings.nav.remote', icon: RemoteIcon },
   { id: 'about', labelKey: 'settings.nav.about', icon: AboutIcon },
 ]
@@ -340,6 +342,8 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           <PluginsSettings />
         ) : activeNav === 'commands' ? (
           <CommandsSettings />
+        ) : activeNav === 'memory' ? (
+          <MemorySettings />
         ) : activeNav === 'remote' ? (
           <RemoteSettings />
         ) : activeNav === 'about' ? (
@@ -1342,6 +1346,14 @@ function RemoteIcon({ active }: { active?: boolean }) {
   return (
     <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z" />
+    </svg>
+  )
+}
+
+function MemoryIcon({ active }: { active?: boolean }) {
+  return (
+    <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
     </svg>
   )
 }

@@ -274,7 +274,7 @@ function DirectoryBranchBar() {
 }
 
 interface CommandInputProps {
-  onSend: (message: string) => void
+  onSend: (message: string, attachmentIds?: string[]) => void
   disabled?: boolean
   /** True when the agent is currently generating — shows stop button + steer. */
   isGenerating?: boolean
@@ -298,7 +298,11 @@ export function CommandInput({
   const [input, setInput] = useState('')
   const [steerInput, setSteerInput] = useState('')
   const [showPermMenu, setShowPermMenu] = useState(false)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [uploadingFiles, setUploadingFiles] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const permMenuRef = useRef<HTMLDivElement>(null)
   const { t } = useI18n()
 
@@ -334,11 +338,33 @@ export function CommandInput({
     }
   }, [input])
 
-  const handleSubmit = () => {
-    if (input.trim() && !disabled) {
-      onSend(input)
-      setInput('')
+  const handleSubmit = async () => {
+    if ((!input.trim() && pendingFiles.length === 0) || disabled) return
+    let attachmentIds: string[] | undefined
+    // Upload pending files as attachments before sending.
+    if (pendingFiles.length > 0) {
+      setUploadingFiles(true)
+      try {
+        const api = getEngineAPI(enginePort)
+        const uploaded = await Promise.all(
+          pendingFiles.map((f) =>
+            api.uploadAttachment(f, {
+              ...(threadId ? { threadId } : {}),
+              ...(workspacePath ? { workspace: workspacePath } : {})
+            })
+          )
+        )
+        attachmentIds = uploaded.map((a) => a.id)
+      } catch (e) {
+        console.error('[CommandInput] attachment upload failed:', e)
+      } finally {
+        setUploadingFiles(false)
+      }
     }
+    const messageText = input.trim() || (pendingFiles.length > 0 ? `(${pendingFiles.length} file(s))` : '')
+    onSend(messageText, attachmentIds)
+    setInput('')
+    setPendingFiles([])
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -349,7 +375,7 @@ export function CommandInput({
   }
 
   // 模型选择器（底栏右侧）— 从 store 读取，复用 DirectoryBranchBar 加载的模型
-  const { enginePort, engineStatus, selectedModel, setSelectedModel, modelVersion } = useAppStore()
+  const { enginePort, engineStatus, selectedModel, setSelectedModel, modelVersion, threadId, workspacePath } = useAppStore()
   const [models, setModels] = useState<ModelEntry[]>([])
   const [showModelMenu, setShowModelMenu] = useState(false)
   const modelMenuRef = useRef<HTMLDivElement>(null)
@@ -389,8 +415,40 @@ export function CommandInput({
         {/* Top row: project directory + branch selectors（窄条） */}
         <DirectoryBranchBar />
 
+        {/* Pending attachments preview */}
+        {pendingFiles.length > 0 && (
+          <div className="px-4 pt-2 flex flex-wrap gap-1.5">
+            {pendingFiles.map((f, i) => (
+              <span key={i} className="flex items-center gap-1 px-2 py-1 rounded-md bg-bg-hover text-[11px] text-text-secondary border border-border-custom">
+                <svg className="w-3 h-3 text-text-muted shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 10-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
+                <span className="truncate max-w-32">{f.name}</span>
+                <button
+                  onClick={() => setPendingFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                  className="text-text-muted hover:text-[#ef4444] transition-colors shrink-0"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Input area */}
-        <div className="px-4 py-2">
+        <div
+          className="px-4 py-2"
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragOver(false)
+            const dropped = Array.from(e.dataTransfer.files)
+            if (dropped.length > 0) setPendingFiles((prev) => [...prev, ...dropped])
+          }}
+        >
           <textarea
             ref={textareaRef}
             value={input}
@@ -438,10 +496,36 @@ export function CommandInput({
         {/* Bottom row: actions and model selector */}
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
-            <button className="w-7 h-7 rounded-md bg-bg-active hover:bg-[#3f3f46] flex items-center justify-center text-text-secondary transition-colors">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
-              </svg>
+            {/* Attachment button (paperclip) — opens file picker */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const files = e.target.files
+                if (files && files.length > 0) {
+                  setPendingFiles((prev) => [...prev, ...Array.from(files)])
+                  e.target.value = ''
+                }
+              }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              title={t('chat.attach')}
+              disabled={uploadingFiles}
+              className="w-7 h-7 rounded-md bg-bg-active hover:bg-[#3f3f46] flex items-center justify-center text-text-secondary transition-colors disabled:opacity-50"
+            >
+              {uploadingFiles ? (
+                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 10-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
+              )}
             </button>
             <div className="relative" ref={permMenuRef}>
               <button
