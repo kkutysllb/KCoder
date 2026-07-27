@@ -35,9 +35,6 @@ export interface Message {
 // Engine connection status
 export type EngineStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
-/** 编排偏好：standard（标准/单 agent，kernel_v3）或 team（团队/多 agent，evented_v2） */
-export type OrchestrationPreference = 'standard' | 'team'
-
 /** 浮动面板展开策略 */
 export type PanelStrategy = 'manual' | 'auto'
 
@@ -74,9 +71,6 @@ interface AppState {
   pendingUserInput: UserInputRequest | null
   pendingApprovals: Record<string, ApprovalRequest>
   pendingUserInputs: Record<string, UserInputRequest>
-
-  // 全局编排偏好（每回合发消息时随 StartTurnRequest 传给后端）
-  orchestrationPreference: OrchestrationPreference
 
   // 执行投影视图（run timeline 投影 + engine stream 增量）
   activeTurnId: string | null
@@ -120,7 +114,6 @@ interface AppState {
   addPendingUserInput: (input: UserInputRequest) => void
   /** Mark a concurrent user-input resolved and drop it from the pending map. */
   resolvePendingUserInput: (inputId: string) => void
-  setOrchestrationPreference: (pref: OrchestrationPreference) => void
   setActiveTurnId: (id: string | null) => void
   setTurnExecution: (view: TurnExecutionView | null) => void
   /** Upsert a durable parallel branch projection (from branch.* stream events). */
@@ -156,7 +149,6 @@ export const useAppStore = create<AppState>((set) => ({
   pendingUserInput: null,
   pendingApprovals: {},
   pendingUserInputs: {},
-  orchestrationPreference: 'standard',
   activeTurnId: null,
   turnExecution: null,
   branches: {},
@@ -324,7 +316,6 @@ export const useAppStore = create<AppState>((set) => ({
       return { pendingUserInputs: next, pendingUserInput: fallback }
     }),
 
-  setOrchestrationPreference: (pref) => set({ orchestrationPreference: pref }),
   setActiveTurnId: (id) => set({ activeTurnId: id }),
   setTurnExecution: (view) => set({ turnExecution: view }),
 

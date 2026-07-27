@@ -674,20 +674,20 @@ export class EngineAPI {
   }
 
   // Send a message and get streaming response. Returns the turnId for execution polling.
+  //
+  // Governed graph: the backend drives every turn through the durable
+  // governed-graph execution plane. There is no per-turn orchestration field
+  // in StartTurnRequest (the engine's OrchestrationMode is a boot-time config,
+  // not a per-turn choice), so we send only { prompt }.
   async sendMessage(
     threadId: string,
     content: string,
-    onEvent: (event: SSEEvent) => void,
-    orchestrationPreference?: 'standard' | 'team'
+    onEvent: (event: SSEEvent) => void
   ): Promise<string> {
-    // 创建 turn — 后端 StartTurnRequest 要求 { prompt: string, orchestrationPreference? }
     const turnResponse = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns`, {
       method: 'POST',
       headers: this.headers,
-      body: JSON.stringify({
-        prompt: content,
-        ...(orchestrationPreference ? { orchestrationPreference } : {})
-      })
+      body: JSON.stringify({ prompt: content })
     })
 
     if (!turnResponse.ok) {

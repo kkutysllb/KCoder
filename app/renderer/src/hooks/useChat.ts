@@ -426,11 +426,12 @@ export function useChat() {
       setGenerating(true)
 
       try {
-        // 读取全局编排偏好（调用时取最新值，每回合可自由切换 standard/team）
-        const { orchestrationPreference } = useAppStore.getState()
+        // Governed graph: every turn is driven through the durable governed-graph
+        // execution plane (DurableEngine + evented_v2 orchestration + Kernel
+        // isolated AgentRun). There is no per-turn orchestration mode selection.
         const turnId = await api.sendMessage(currentThreadId, content.trim(), (event: SSEEvent) => {
           handleSseEvent(assistantMessageId, event)
-        }, orchestrationPreference)
+        })
 
         // 记录当前 turnId 并轮询执行投影视图（DAG/agent 执行进度）
         useAppStore.getState().setActiveTurnId(turnId)

@@ -204,13 +204,12 @@ function TodoCheckbox({ status }: { status: 'pending' | 'in_progress' | 'complet
 
 function EnvTab() {
   const { t } = useI18n()
-  const { workspacePath, selectedBranch, selectedModel, orchestrationPreference } = useAppStore()
+  const { workspacePath, selectedBranch, selectedModel } = useAppStore()
 
   const rows = [
     { label: t('panel.envDir'), value: workspacePath },
     { label: t('panel.envBranch'), value: selectedBranch },
-    { label: t('panel.envModel'), value: selectedModel },
-    { label: t('panel.envOrch'), value: orchestrationPreference === 'team' ? t('orchestration.team') : t('orchestration.standard') }
+    { label: t('panel.envModel'), value: selectedModel }
   ]
 
   return (

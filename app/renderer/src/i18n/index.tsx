@@ -42,14 +42,6 @@ const zhCN: Dict = {
   'terminal.empty': '无活动终端',
   'terminal.toggle': '打开/关闭终端',
 
-  // Orchestration
-  'orchestration.title': '编排模式',
-  'orchestration.standard': '标准',
-  'orchestration.standard.desc': '单 agent 执行（kernel_v3），适合多数任务',
-  'orchestration.team': '团队',
-  'orchestration.team.desc': '多 agent 协作（evented_v2），manager 调度专家',
-  'orchestration.menuHint': '选择编排模式（下次发消息生效）',
-
   // Execution view
   'execution.waiting': '等待执行开始…',
   'execution.unavailable': '该回合无执行投影（旧版或未记录）',
@@ -101,7 +93,6 @@ const zhCN: Dict = {
   'panel.envDir': '项目目录',
   'panel.envBranch': '当前分支',
   'panel.envModel': '模型',
-  'panel.envOrch': '编排模式',
 
   // Auth
   'auth.title.login': '登录 KCoder',
@@ -542,14 +533,6 @@ const en: Dict = {
   'terminal.empty': 'No active terminal',
   'terminal.toggle': 'Toggle terminal',
 
-  // Orchestration
-  'orchestration.title': 'Orchestration',
-  'orchestration.standard': 'Standard',
-  'orchestration.standard.desc': 'Single agent (kernel_v3), for most tasks',
-  'orchestration.team': 'Team',
-  'orchestration.team.desc': 'Multi-agent (evented_v2), manager dispatches specialists',
-  'orchestration.menuHint': 'Choose mode (applies on next message)',
-
   // Execution view
   'execution.waiting': 'Waiting for execution to start…',
   'execution.unavailable': 'No execution projection for this turn (legacy or unrecorded)',
@@ -601,7 +584,6 @@ const en: Dict = {
   'panel.envDir': 'Project Directory',
   'panel.envBranch': 'Current Branch',
   'panel.envModel': 'Model',
-  'panel.envOrch': 'Orchestration',
 
   // Auth
   'auth.title.login': 'Sign in to KCoder',
