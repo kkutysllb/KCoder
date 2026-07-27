@@ -6,6 +6,11 @@
  * drives the engine's UserDataStore over IPC. This module is the renderer's
  * bridge to that IPC surface.
  *
+ * The userId passed to every call MUST be the authenticated user's id — the
+ * same one the engine uses as thread.ownerUserId. Model profiles are stored
+ * per user and resolved at request time via that owner id, so a mismatch
+ * would cause the runtime to never find the configured profiles.
+ *
  * The shape returned by `listModels` is adapted to the `ModelEntry` form the
  * existing Settings UI expects, so call sites do not need to change.
  */
@@ -47,10 +52,10 @@ interface DiscoverResult {
 }
 
 interface KcoderModelsBridge {
-  list: () => Promise<ModelListResult>
-  save: (name: string, profile: ModelProfileInput) => Promise<void>
-  delete: (name: string) => Promise<void>
-  activate: (name: string) => Promise<void>
+  list: (userId: string) => Promise<ModelListResult>
+  save: (userId: string, name: string, profile: ModelProfileInput) => Promise<void>
+  delete: (userId: string, name: string) => Promise<void>
+  activate: (userId: string, name: string) => Promise<void>
   discover: (input: {
     baseUrl: string
     apiKey?: string
@@ -66,9 +71,9 @@ function bridge(): KcoderModelsBridge {
   return models
 }
 
-/** List configured models, shaped as the Settings UI expects. */
-export async function getModels(): Promise<{ models: ModelEntry[] }> {
-  const { activeModel, profiles } = await bridge().list()
+/** List configured models for a user, shaped as the Settings UI expects. */
+export async function getModels(userId: string): Promise<{ models: ModelEntry[] }> {
+  const { activeModel, profiles } = await bridge().list(userId)
   const models: ModelEntry[] = Object.entries(profiles).map(([name, profile]) => ({
     id: name,
     name,
@@ -84,17 +89,18 @@ export async function getModels(): Promise<{ models: ModelEntry[] }> {
   return { models }
 }
 
-/** Create or update a named model profile. */
+/** Create or update a named model profile for a user. */
 export async function createModel(
+  userId: string,
   name: string,
   profile: ModelProfileInput
 ): Promise<void> {
-  await bridge().save(name, profile)
+  await bridge().save(userId, name, profile)
 }
 
-/** Activate a named model profile. */
-export async function activateModel(name: string): Promise<void> {
-  await bridge().activate(name)
+/** Activate a named model profile for a user. */
+export async function activateModel(userId: string, name: string): Promise<void> {
+  await bridge().activate(userId, name)
 }
 
 /** Discover available models from a provider's /v1/models endpoint. */

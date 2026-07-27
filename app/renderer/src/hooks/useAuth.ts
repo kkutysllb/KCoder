@@ -40,7 +40,7 @@ function persistAuth(auth: StoredAuth | null): void {
 }
 
 /**
- * Manages user authentication state against the engine's /api/v1/auth endpoints.
+ * Manages user authentication state against the engine's /v1/auth endpoints.
  * Token is persisted in localStorage and verified on startup.
  */
 export function useAuth(enginePort: number): AuthState {
@@ -67,11 +67,15 @@ export function useAuth(enginePort: number): AuthState {
     api.authMe()
       .then((me) => {
         setUser(me)
+        // The user id drives per-user model profile storage, so keep it in
+        // sync with the API instance whenever the authenticated user changes.
+        api.setUserId(me.id)
         persistAuth({ token: stored.token, user: me })
       })
       .catch(() => {
         // Token expired or revoked — fall back to runtime token
         api.setAuthToken(null)
+        api.setUserId(null)
         persistAuth(null)
         setUser(null)
       })
@@ -81,6 +85,7 @@ export function useAuth(enginePort: number): AuthState {
   const applySession = useCallback((token: string, sessionUser: AuthUser) => {
     const api = getEngineAPI(enginePort)
     api.setAuthToken(token)
+    api.setUserId(sessionUser.id)
     persistAuth({ token, user: sessionUser })
     setUser(sessionUser)
   }, [enginePort])
@@ -111,6 +116,7 @@ export function useAuth(enginePort: number): AuthState {
       // Best-effort server-side revocation
     }
     api.setAuthToken(null)
+    api.setUserId(null)
     persistAuth(null)
     setUser(null)
   }, [enginePort])

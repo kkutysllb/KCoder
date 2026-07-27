@@ -4,19 +4,19 @@
  * The new QiongQi engine is model-neutral and exposes no HTTP CRUD for
  * models. It does, however, ship a per-user `UserDataStore` that the runtime
  * consults at request time (`UserScopedModelClient` resolves each thread's
- * model from the owner's profiles). KCoder — a single-user desktop app —
- * drives that store directly from the main process and exposes it to the
- * renderer over IPC.
+ * model from the owner's profiles). KCoder drives that store directly from
+ * the main process and exposes it to the renderer over IPC.
+ *
+ * CRITICAL: the userId MUST match the authenticated user's id, because the
+ * engine keys model profiles per user and resolves them at request time via
+ * `thread.ownerUserId`. A fixed local-user id would never match threads
+ * created by a logged-in user, so the runtime would fall back to the startup
+ * model and never see the configured profiles.
  *
  * This is the product adapting to the engine, not the reverse: we use the
  * engine's own storage contract rather than inventing a parallel one.
  */
 import { FileUserDataStore, type UserModelProfileRecord } from '@qiongqi/http'
-
-// KCoder is a single-user desktop app. We reuse the same fixed local-user
-// id the engine uses in insecure/single-user mode so model profiles resolve
-// consistently at request time.
-export const LOCAL_USER_ID = 'insecure-local-user'
 
 let store: FileUserDataStore | null = null
 
@@ -49,14 +49,15 @@ export interface ModelListResult {
   profiles: Record<string, UserModelProfileRecord>
 }
 
-/** List the local user's model profiles. */
-export async function listModels(dataDir: string): Promise<ModelListResult> {
-  return getStore(dataDir).listModelProfiles(LOCAL_USER_ID)
+/** List a user's model profiles. */
+export async function listModels(dataDir: string, userId: string): Promise<ModelListResult> {
+  return getStore(dataDir).listModelProfiles(userId)
 }
 
-/** Create or update a named model profile. */
+/** Create or update a named model profile for a user. */
 export async function saveModel(
   dataDir: string,
+  userId: string,
   name: string,
   input: ModelProfileInput
 ): Promise<void> {
@@ -68,19 +69,19 @@ export async function saveModel(
     supportsToolCalling: input.supportsToolCalling,
     aliases: input.aliases
   }
-  await getStore(dataDir).saveModelProfile(LOCAL_USER_ID, name, profile, {
+  await getStore(dataDir).saveModelProfile(userId, name, profile, {
     apiKey: input.apiKey
   })
 }
 
-/** Delete a named model profile. */
-export async function deleteModel(dataDir: string, name: string): Promise<void> {
-  await getStore(dataDir).deleteModelProfile(LOCAL_USER_ID, name)
+/** Delete a named model profile for a user. */
+export async function deleteModel(dataDir: string, userId: string, name: string): Promise<void> {
+  await getStore(dataDir).deleteModelProfile(userId, name)
 }
 
-/** Activate a named model profile (sets the user's activeModel). */
-export async function activateModel(dataDir: string, name: string): Promise<void> {
-  await getStore(dataDir).activateModelProfile(LOCAL_USER_ID, name)
+/** Activate a named model profile for a user (sets their activeModel). */
+export async function activateModel(dataDir: string, userId: string, name: string): Promise<void> {
+  await getStore(dataDir).activateModelProfile(userId, name)
 }
 
 export interface DiscoveredModel {

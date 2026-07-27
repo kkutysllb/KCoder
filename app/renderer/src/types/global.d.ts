@@ -25,10 +25,10 @@ interface TerminalApi {
 }
 
 interface ModelsBridge {
-  list: () => Promise<unknown>
-  save: (name: string, profile: unknown) => Promise<void>
-  delete: (name: string) => Promise<void>
-  activate: (name: string) => Promise<void>
+  list: (userId: string) => Promise<unknown>
+  save: (userId: string, name: string, profile: unknown) => Promise<void>
+  delete: (userId: string, name: string) => Promise<void>
+  activate: (userId: string, name: string) => Promise<void>
   discover: (input: unknown) => Promise<unknown>
 }
 

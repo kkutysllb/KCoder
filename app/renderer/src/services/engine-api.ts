@@ -386,6 +386,11 @@ export class EngineAPI {
   private baseUrl: string
   private token: string
   private authToken: string | null = null
+  // Authenticated user id — required for product-side model management.
+  // The engine stores model profiles per user and resolves them at request
+  // time via thread.ownerUserId, so the id here MUST match the logged-in
+  // user. Set by the auth flow once login succeeds.
+  private userId: string | null = null
 
   constructor(port: number, token: string = '') {
     this.baseUrl = `http://127.0.0.1:${port}`
@@ -399,6 +404,26 @@ export class EngineAPI {
 
   getAuthToken(): string | null {
     return this.authToken
+  }
+
+  /** Set the authenticated user id (drives per-user model profile storage). */
+  setUserId(userId: string | null): void {
+    this.userId = userId
+  }
+
+  getUserId(): string | null {
+    return this.userId
+  }
+
+  /**
+   * The authenticated user id, or a clear error. Model management is per-user
+   * and there is no useful default — callers must ensure login completed.
+   */
+  private requireUserId(): string {
+    if (!this.userId) {
+      throw new Error('Not signed in — model configuration requires an authenticated user')
+    }
+    return this.userId
   }
 
   setRuntimeToken(token: string): void {
@@ -811,12 +836,12 @@ export class EngineAPI {
 
   async getModels(): Promise<{ models: ModelEntry[] }> {
     const { getModels: list } = await import('./models')
-    return list()
+    return list(this.requireUserId())
   }
 
   async activateModel(name: string): Promise<void> {
     const { activateModel: activate } = await import('./models')
-    return activate(name)
+    return activate(this.requireUserId(), name)
   }
 
   async discoverModels(
@@ -837,7 +862,7 @@ export class EngineAPI {
     // The Settings UI passes a loosely-typed payload; forward the known fields.
     const name = (payload.name as string) ?? (payload.id as string) ?? ''
     if (!name) throw new Error('Model name is required')
-    return save(name, {
+    return save(this.requireUserId(), name, {
       providerModel: (payload.model as string) ?? name,
       baseUrl: (payload.baseUrl as string) ?? (payload.base_url as string) ?? '',
       apiKey: (payload.apiKey as string) ?? (payload.api_key as string) ?? undefined,

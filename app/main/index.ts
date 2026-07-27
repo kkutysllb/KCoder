@@ -24,12 +24,19 @@ let mainWindow: BrowserWindow | null = null
  */
 function setupModelIPC(): void {
   const dataDir = getEngineDataDir()
-  ipcMain.handle('model:list', () => listModels(dataDir))
-  ipcMain.handle('model:save', (_event, name: string, profile: unknown) =>
-    saveModel(dataDir, name, profile as ModelProfileInput)
+  // userId is passed from the renderer (the authenticated user's id). It MUST
+  // match the thread ownerUserId the engine uses, otherwise model profiles
+  // would never resolve at request time.
+  ipcMain.handle('model:list', (_event, userId: string) => listModels(dataDir, userId))
+  ipcMain.handle('model:save', (_event, userId: string, name: string, profile: unknown) =>
+    saveModel(dataDir, userId, name, profile as ModelProfileInput)
   )
-  ipcMain.handle('model:delete', (_event, name: string) => deleteModel(dataDir, name))
-  ipcMain.handle('model:activate', (_event, name: string) => activateModel(dataDir, name))
+  ipcMain.handle('model:delete', (_event, userId: string, name: string) =>
+    deleteModel(dataDir, userId, name)
+  )
+  ipcMain.handle('model:activate', (_event, userId: string, name: string) =>
+    activateModel(dataDir, userId, name)
+  )
   ipcMain.handle('model:discover', (_event, input: unknown) =>
     discoverModels(input as Parameters<typeof discoverModels>[0])
   )

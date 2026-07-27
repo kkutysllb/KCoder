@@ -22,12 +22,16 @@ contextBridge.exposeInMainWorld('kcoder', {
 
   // Product-side model management (drives the engine's UserDataStore).
   // The new engine exposes no HTTP model CRUD; the product owns this.
+  // userId is the authenticated user's id — required so profiles resolve
+  // against the same user that owns the threads.
   models: {
-    list: () => ipcRenderer.invoke('model:list') as Promise<unknown>,
-    save: (name: string, profile: unknown) =>
-      ipcRenderer.invoke('model:save', name, profile) as Promise<void>,
-    delete: (name: string) => ipcRenderer.invoke('model:delete', name) as Promise<void>,
-    activate: (name: string) => ipcRenderer.invoke('model:activate', name) as Promise<void>,
+    list: (userId: string) => ipcRenderer.invoke('model:list', userId) as Promise<unknown>,
+    save: (userId: string, name: string, profile: unknown) =>
+      ipcRenderer.invoke('model:save', userId, name, profile) as Promise<void>,
+    delete: (userId: string, name: string) =>
+      ipcRenderer.invoke('model:delete', userId, name) as Promise<void>,
+    activate: (userId: string, name: string) =>
+      ipcRenderer.invoke('model:activate', userId, name) as Promise<void>,
     discover: (input: unknown) => ipcRenderer.invoke('model:discover', input) as Promise<unknown>
   },
 
@@ -93,10 +97,10 @@ declare global {
       on: (channel: string, callback: (...args: unknown[]) => void) => void
       off: (channel: string, callback: (...args: unknown[]) => void) => void
       models: {
-        list: () => Promise<unknown>
-        save: (name: string, profile: unknown) => Promise<void>
-        delete: (name: string) => Promise<void>
-        activate: (name: string) => Promise<void>
+        list: (userId: string) => Promise<unknown>
+        save: (userId: string, name: string, profile: unknown) => Promise<void>
+        delete: (userId: string, name: string) => Promise<void>
+        activate: (userId: string, name: string) => Promise<void>
         discover: (input: unknown) => Promise<unknown>
       }
       terminal: {
