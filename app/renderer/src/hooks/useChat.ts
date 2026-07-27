@@ -1,6 +1,12 @@
 import { useCallback, useRef } from 'react'
 import { useAppStore, type Message, type MessagePart } from '../stores/app-store'
-import { getEngineAPI, type SSEEvent, type ApprovalRequest, type UserInputRequest } from '../services/engine-api'
+import {
+  getEngineAPI,
+  type SSEEvent,
+  type ApprovalRequest,
+  type UserInputRequest
+} from '../services/engine-api'
+import type { EngineStreamEvent, RoiSnapshot } from '@qiongqi/contracts'
 
 export function useChat() {
   const {
@@ -14,14 +20,23 @@ export function useChat() {
     appendMessagePart,
     updateLastToolCall,
     updateApprovalPart,
-    setPendingApproval,
-    setPendingUserInput,
+    addPendingApproval,
+    resolvePendingApproval,
+    addPendingUserInput,
+    resolvePendingUserInput,
     setGenerating,
     setEngineStatus,
-    clearMessages
+    clearMessages,
+    upsertBranch,
+    settleBranch,
+    setBranches,
+    setRoiSnapshot
   } = useAppStore()
 
   const abortRef = useRef<AbortController | null>(null)
+  // Abort controller for the engine-stream subscription (separate from the
+  // thread SSE so cancelling one does not tear down the other).
+  const engineStreamAbortRef = useRef<AbortController | null>(null)
 
   // Initialize connection and check health
   const checkConnection = useCallback(async () => {
@@ -30,6 +45,154 @@ export function useChat() {
     setEngineStatus(healthy ? 'connected' : 'error')
     return healthy
   }, [enginePort, setEngineStatus])
+
+  /**
+   * 处理 governed durable engine stream 事件（v1.1.2 并行分支 + ROI）。
+   *
+   * These events come from GET /v1/engine/streams/:streamId/subscribe (NOT the
+   * thread SSE). The kind is a free-form string with conventional values:
+   * branch.spawned / branch.started / branch.completed / branch.failed /
+   * branch.cancelled / branch.late.result / join.waiting / join.completed /
+   * run.cancelled / roi.snapshot. Each carries an optional top-level branchId
+   * and a payload; roi.snapshot's payload is a RoiSnapshot (with byBranch).
+   */
+  const handleEngineStreamEvent = useCallback(
+    (event: EngineStreamEvent) => {
+      const { kind, branchId, payload } = event
+      const p = (payload ?? {}) as Record<string, unknown>
+
+      // —— 分支生命周期 ——
+      if (kind === 'branch.spawned' && branchId) {
+        upsertBranch(branchId, {
+          status: 'queued',
+          parallelNodeId: p.parallelNodeId as string | undefined,
+          joinNodeId: p.joinNodeId as string | undefined
+        })
+        return
+      }
+      if (kind === 'branch.started' && branchId) {
+        upsertBranch(branchId, { status: 'running' })
+        return
+      }
+      if (kind === 'branch.completed' && branchId) {
+        settleBranch(branchId, 'completed')
+        return
+      }
+      if (kind === 'branch.failed' && branchId) {
+        settleBranch(branchId, 'failed')
+        return
+      }
+      if (kind === 'branch.cancelled' && branchId) {
+        // fail_fast cancellation: the branch was aborted because a sibling failed.
+        settleBranch(branchId, 'aborted')
+        upsertBranch(branchId, { failFastCancelled: true })
+        return
+      }
+      if (kind === 'branch.late.result' && branchId) {
+        // A result arrived after the branch was already terminal — audit only.
+        upsertBranch(branchId, { lateResult: true })
+        return
+      }
+
+      // —— Join ——
+      if (kind === 'join.waiting') {
+        // All branches must settle before the join proceeds; nothing to store
+        // here beyond what branch.* events already track.
+        return
+      }
+      if (kind === 'join.completed') {
+        // Join resolved; the run continues past the join node. Branches remain
+        // in the projection for historical visibility.
+        return
+      }
+
+      // —— Run 级 ——
+      if (kind === 'run.cancelled') {
+        // The whole run was cancelled (e.g. user interrupt). Mark all open
+        // branches aborted.
+        const branches = useAppStore.getState().branches
+        for (const bid of Object.keys(branches)) {
+          const st = branches[bid].status
+          if (st === 'queued' || st === 'running' || st === 'suspended') {
+            settleBranch(bid, 'aborted')
+          }
+        }
+        return
+      }
+
+      // —— ROI 快照 ——
+      if (kind === 'roi.snapshot' && p && typeof p === 'object') {
+        // payload is a RoiSnapshot; store it at the top level. Per-branch ROI
+        // (byBranch) is also projected into the branch records.
+        setRoiSnapshot(p as unknown as RoiSnapshot)
+        const byBranch = (p as { byBranch?: Record<string, unknown> }).byBranch
+        if (byBranch && typeof byBranch === 'object') {
+          for (const [bid, snap] of Object.entries(byBranch)) {
+            if (snap && typeof snap === 'object') {
+              upsertBranch(bid, { roiSnapshot: snap as never })
+            }
+          }
+        }
+        return
+      }
+      // Unknown kinds are ignored (forward-compatible — the engine may emit
+      // new diagnostic kinds we do not yet render).
+    },
+    [upsertBranch, settleBranch, setRoiSnapshot]
+  )
+
+  /**
+   * 订阅当前 turn 对应 run 的 governed engine stream，接收并行分支 + ROI 增量。
+   * streamId = `stream:${runId}`，runId = `run_${threadId}_${turnId}`（引擎约定）。
+   *
+   * Seeds the branch projection from a one-shot timeline snapshot first (so the
+   * UI shows the current state immediately), then subscribes for live updates.
+   */
+  const subscribeEngineProjection = useCallback(
+    async (threadId: string, turnId: string) => {
+      const api = getEngineAPI(enginePort)
+      const runId = api.runIdForTurn(threadId, turnId)
+      const streamId = api.streamIdForRun(runId)
+
+      // Tear down any previous subscription.
+      engineStreamAbortRef.current?.abort()
+      const controller = new AbortController()
+      engineStreamAbortRef.current = controller
+
+      // Seed from timeline snapshot (best-effort — the run may not be recorded
+      // yet on the very first poll; the stream will deliver the initial state).
+      try {
+        const timeline = await api.getRunTimeline(runId)
+        if (timeline) {
+          const branches: Record<string, import('../services/engine-api').BranchProjection> = {}
+          for (const [bid, status] of Object.entries(timeline.branchStatus)) {
+            branches[bid] = {
+              branchId: bid,
+              status,
+              agentKeys: timeline.agentRuns
+                .filter((ar) => ar.branchId === bid)
+                .map((ar) => ar.agentId)
+            }
+          }
+          setBranches(branches)
+          if (timeline.roiSnapshot) setRoiSnapshot(timeline.roiSnapshot)
+        }
+      } catch {
+        // Timeline not available yet — the stream will carry the initial state.
+      }
+
+      // Subscribe for live branch/ROI updates until the run terminates.
+      void api.subscribeEngineStream(
+        streamId,
+        (evt) => handleEngineStreamEvent(evt),
+        {
+          signal: controller.signal,
+          shouldStop: (evt) => evt.kind === 'run.cancelled'
+        }
+      )
+    },
+    [enginePort, handleEngineStreamEvent, setBranches, setRoiSnapshot]
+  )
 
   /**
    * 处理后端 SSE 事件（按 RuntimeEventKind 分发）。
@@ -106,17 +269,18 @@ export function useChat() {
         }
 
         // —— 审批请求 ——
+        // v1.1.2: 并行分支可同时各自请求审批，因此用并发 Map（addPendingApproval）
+        // 记录每个 pending 审批；旧的单值 pendingApproval 由 store 自动同步指向最新的。
         case 'approval_requested': {
           const approvalId = (data.approvalId as string) ?? ''
           const toolName = (data.toolName as string) ?? 'tool'
           const summary = (data.summary as string) ?? undefined
           const status = (data.status as ApprovalRequest['status']) ?? 'pending'
+          const branchId = (data.branchId as string) ?? undefined
           if (approvalId) {
-            // 在当前 assistant 消息内追加审批卡片 part
-            appendMessagePart(assistantMessageId, { type: 'approval', approvalId, toolName, summary, status })
-            // 记录待处理审批（UI 渲染审批按钮）
+            appendMessagePart(assistantMessageId, { type: 'approval', approvalId, toolName, summary, status, branchId })
             if (status === 'pending') {
-              setPendingApproval({ approvalId, toolName, summary, status })
+              addPendingApproval({ approvalId, toolName, summary, status })
             }
           }
           break
@@ -126,14 +290,14 @@ export function useChat() {
           const status = (data.status as ApprovalRequest['status']) ?? 'allowed'
           if (approvalId) {
             updateApprovalPart(assistantMessageId, approvalId, status)
-            // 清除待处理（若是当前 pending 的那个）
-            const pending = useAppStore.getState().pendingApproval
-            if (pending?.approvalId === approvalId) setPendingApproval(null)
+            // 从并发 Map 移除（store 会把旧的单值指针重指到其它仍 pending 的项）
+            resolvePendingApproval(approvalId)
           }
           break
         }
 
         // —— 结构化输入请求 ——
+        // 同审批：并发 Map 容纳多个分支同时挂起的输入请求。
         case 'user_input_requested': {
           const inputId = (data.inputId as string) ?? ''
           if (inputId) {
@@ -143,14 +307,13 @@ export function useChat() {
               status: 'pending',
               questions: (data.questions as UserInputRequest['questions']) ?? undefined
             }
-            setPendingUserInput(req)
+            addPendingUserInput(req)
           }
           break
         }
         case 'user_input_resolved': {
           const inputId = (data.inputId as string) ?? ''
-          const pending = useAppStore.getState().pendingUserInput
-          if (pending?.inputId === inputId) setPendingUserInput(null)
+          if (inputId) resolvePendingUserInput(inputId)
           break
         }
 
@@ -180,7 +343,7 @@ export function useChat() {
           break
       }
     },
-    [appendMessagePart, updateLastToolCall, updateApprovalPart, setPendingApproval, setPendingUserInput]
+    [appendMessagePart, updateLastToolCall, updateApprovalPart, addPendingApproval, resolvePendingApproval, addPendingUserInput, resolvePendingUserInput]
   )
 
   // 轮询执行投影视图（SSE 流期间每 1.5s 拉一次 DAG 进度）
@@ -271,6 +434,9 @@ export function useChat() {
 
         // 记录当前 turnId 并轮询执行投影视图（DAG/agent 执行进度）
         useAppStore.getState().setActiveTurnId(turnId)
+        // v1.1.2: 同时订阅该 turn 的 governed engine stream，接收并行分支 +
+        // ROI 增量。不 await（实时流，与 thread SSE 并行运行）。
+        void subscribeEngineProjection(currentThreadId, turnId)
         await pollExecution(currentThreadId, turnId)
       } catch (error) {
         console.error('Failed to send message:', error)
@@ -291,7 +457,7 @@ export function useChat() {
         }
       }
     },
-    [enginePort, threadId, isGenerating, addMessage, updateMessage, appendMessagePart, setThreadId, setGenerating, setEngineStatus, handleSseEvent, pollExecution]
+    [enginePort, threadId, isGenerating, addMessage, updateMessage, appendMessagePart, setThreadId, setGenerating, setEngineStatus, handleSseEvent, pollExecution, subscribeEngineProjection]
   )
 
   // 加载历史会话
@@ -346,33 +512,34 @@ export function useChat() {
     const api = getEngineAPI(enginePort)
     try {
       await api.decideApproval(approvalId, decision, reason)
-      setPendingApproval(null)
+      // v1.1.2: 从并发 Map 移除该审批（旧的单值指针由 store 自动重指）。
+      resolvePendingApproval(approvalId)
     } catch (e) {
       console.error('[useChat] Failed to resolve approval:', e)
     }
-  }, [enginePort, setPendingApproval])
+  }, [enginePort, resolvePendingApproval])
 
   // 提交结构化输入
   const submitUserInput = useCallback(async (inputId: string, answers: Array<{ id: string; label: string; value: string }>) => {
     const api = getEngineAPI(enginePort)
     try {
       await api.resolveUserInput(inputId, answers)
-      setPendingUserInput(null)
+      resolvePendingUserInput(inputId)
     } catch (e) {
       console.error('[useChat] Failed to submit user input:', e)
     }
-  }, [enginePort, setPendingUserInput])
+  }, [enginePort, resolvePendingUserInput])
 
   // 取消结构化输入
   const cancelUserInput = useCallback(async (inputId: string) => {
     const api = getEngineAPI(enginePort)
     try {
       await api.cancelUserInput(inputId)
-      setPendingUserInput(null)
+      resolvePendingUserInput(inputId)
     } catch (e) {
       console.error('[useChat] Failed to cancel user input:', e)
     }
-  }, [enginePort, setPendingUserInput])
+  }, [enginePort, resolvePendingUserInput])
 
   return {
     messages,
@@ -400,20 +567,23 @@ function handleItemEvent(
   updateToolCall: (id: string, callId: string, patch: Partial<Extract<MessagePart, { type: 'tool_call' }>>) => void
 ) {
   const itemKind = (item.kind as string) ?? ''
+  const itemId = (item.id as string) ?? ''
   const isCompleted = kind === 'item_completed'
 
   switch (itemKind) {
     case 'assistant_text': {
-      // item_completed 时追加完整文本（delta 已增量追加的不重复）
-      if (isCompleted) {
-        const text = (item.text as string) ?? ''
-        // 仅当 parts 中没有该文本时追加（避免重复）
-        appendPart(assistantMessageId, { type: 'text', text: '' }) // no-op 占位，实际靠 delta
-      }
+      // The engine emits assistant_text as a single item event (item_created
+      // with status 'completed') carrying the full text — there is no
+      // assistant_text_delta stream. Ship the text bound to itemId so the
+      // store dedupes/updates across item_created/item_updated/item_completed.
+      const text = (item.text as string) ?? ''
+      appendPart(assistantMessageId, { type: 'text', text, itemId })
       break
     }
     case 'assistant_reasoning': {
-      // 推理块在 item_completed 时完整加入（若 delta 未覆盖）
+      // Same pattern as assistant_text: full payload per item event, no delta.
+      const text = (item.text as string) ?? ''
+      appendPart(assistantMessageId, { type: 'reasoning', text, itemId })
       break
     }
     case 'tool_call': {

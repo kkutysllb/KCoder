@@ -1,4 +1,4 @@
-# Qiongqi Durable Engine v1.1.1 Architecture
+# Qiongqi Durable Engine v1.1.2 Architecture
 
 This document describes the current implementation, not a roadmap. Qiongqi is engine-only; downstream code owns identity, business value, model credentials, Agent bindings, and product interaction.
 
@@ -21,7 +21,7 @@ GraphRevision(graphId, revision, digest)
 
 `compileAgentGraph()` normalizes a compatibility `AgentGraph`, assigns stable edge IDs, rejects duplicate identities, and computes a canonical SHA-256 digest. A published `GraphRevision` is immutable; one `(graphId, revision)` cannot map to different content.
 
-Graph nodes include `agent`, `handoff`, `tool`, `judge`, `join`, `wait`, `retry`, and `terminate`. Nodes and edges may reference independently versioned policies. Legacy `node.model` produces a migration diagnostic instead of an implicit model binding.
+Graph nodes include `agent`, `handoff`, `tool`, `judge`, `parallel`, `join`, `wait`, `retry`, and `terminate`. A `parallel` node declares at least two stable branch IDs, their start nodes, one join, and a `wait_all` or `fail_fast` policy. Nodes and edges may reference independently versioned policies. Legacy `node.model` produces a migration diagnostic instead of an implicit model binding.
 
 Each graph run stores `graphId`, `graphRevision`, and `graphDigest`. Recovery, approval, circuit, and resource operations verify that pinned identity before changing state.
 
@@ -30,6 +30,8 @@ Each graph run stores `graphId`, `graphRevision`, and `graphDigest`. Recovery, a
 The static graph records intent; `WorkGraphEvent` records execution. Events carry complete task scope, run/revision, node/edge, attempt, and monotonic sequence identity across traversal, child lifecycle, model routing, approval, resources, budgets, and circuits.
 
 Graph run state, evented_v2 state, mailbox/outbox, and work events commit through one store transaction with CAS and fencing. Recovery projects durable facts and never infers a new run from a missing snapshot or log line.
+
+A parallel run keeps one root coordinator cursor plus durable per-branch cursors, states, AgentRun IDs, outputs, usage/artifact references, and ROI snapshots. Fan-out creates all branch dispatch identities, reservations, and intents in one root aggregate commit. Completion advances by `(runId, branchId, AgentRun, KernelRun)` identity without comparing sibling or root cursors. Join consumes terminal branch records only and sorts by branch ID, so completion order and process restarts cannot change the non-empty `JoinResult`.
 
 ## 4. Governed root aggregate and dispatch
 
@@ -59,11 +61,17 @@ Released reservations consume no budget, and root `budgets` project settled actu
 | `resolveCheckpoint(id, resolution)` | Atomically consume one approval token against the pinned revision |
 | `setGraphCircuit(runId, state)` | Apply a manual degradation or recovery and append a work event |
 | `resume` / `cancel` | Resume Kernel waits or persist cancellation; fencing rejects late completion |
+| `flushAgentDispatches(limit)` | Explicitly drain currently claimable durable Agent dispatches for worker/test integration |
+| `dispatchActiveAgent(input)` | Prepare a recovered non-parallel Agent with a caller-authorized budget |
+| `dispatchParallelAgents(input)` | Atomically prepare runnable branches from `requestedBudgets[branchId]` |
+| `consumeKernelCompletion(input)` | Consume a Kernel completion by durable execution identity across reconstructed instances |
 | `subscribe` / `ack` | Replay a durable stream from sequence and track subscriber cursors |
 | `recordCost` / `recordValue` | Persist measurements and return/publish a live ROI snapshot |
 | `setTaskModelPolicy` | Advance revisioned task model authorization |
 
 The facade does not own volatile governance state. A reconstructed instance can inspect and govern runs from the shared store.
+
+`wait_all` waits for every branch to become terminal before resolving the join. `fail_fast` atomically aborts open siblings and persists Kernel cancellation work after a failure or abort. Root cancellation likewise commits branch/root cancellation work and stream facts before retryable external cancellation. A late completion may settle genuine usage not yet recorded and append `branch_late_result`, but it cannot overwrite terminal state, output, cursor, or trigger another join.
 
 Loaders and `inspect()` never synthesize a missing projection. Only caller-authorized `migrateGraphOnlyRun({ runId, budgetLimits })` repairs a graph-only v1.1.0 run. A terminal run may be repaired for audit consistency but is never dispatched again.
 
@@ -88,9 +96,9 @@ Automatic circuits only increase severity: `running -> report_only -> paused -> 
 
 ## 9. Streaming, ROI, and observability
 
-Model deltas, tool lifecycle, checkpoints, work-graph events, usage, ROI, and outcomes enter the durable stream before SSE transport. `streamId + seq` defines order and replay; acknowledgements are per subscriber, and disconnect does not cancel work. Private reasoning collection, persistence, subscription, and retention are off by default.
+Model deltas, tool lifecycle, branch lifecycle, checkpoints, work-graph events, usage, ROI, and outcomes enter the durable stream before SSE transport. `streamId + seq` defines order and replay, and branch events carry `branchId`; acknowledgements are per subscriber, and disconnect does not cancel work. Private reasoning collection, persistence, subscription, and retention are off by default.
 
-Cost, value, and usage records may carry graph/node/edge/attempt attribution. Live `RoiSnapshot` provides `byNode`, `byEdge`, fan-out, retry amplification, suppressed physical attempts, avoided cost, and executed critical-path latency. External waiting time is excluded from execution critical path. Business value requires downstream evidence; engine efficiency never fabricates ROI.
+Cost, value, and usage records may carry graph/node/edge/branch/attempt attribution. Live `RoiSnapshot` provides `byNode`, `byEdge`, `byBranch`, fan-out, retry amplification, suppressed physical attempts, avoided cost, and executed critical-path latency. External waiting time is excluded from execution critical path. Business value requires downstream evidence; engine efficiency never fabricates ROI.
 
 OpenTelemetry spans contain policy-safe identifiers and numeric metrics, not prompts, tool arguments, credentials, or private reasoning.
 

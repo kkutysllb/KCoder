@@ -1153,12 +1153,12 @@ describe('EventedV2MultiAgentRuntime', () => {
     expect(done).toMatchObject({ status: 'completed', activeNodeId: 'done' })
   })
 
-  it('continues through a satisfied join node to terminate the run', async () => {
+  it('runs three durable Agent branches out of order and commits a non-empty join', async () => {
     const runs = new InMemoryMultiAgentRunStore()
     const runtime = new EventedV2MultiAgentRuntime({
       runs,
       mailbox: new InMemoryMailboxStore(),
-      graph: joinAfterManagerGraph(),
+      graph: parallelAgentsGraph(),
       ids: nextId(),
       nowIso: fixedClock()
     })
@@ -1169,10 +1169,153 @@ describe('EventedV2MultiAgentRuntime', () => {
       prompt: 'Join branches.'
     })
 
-    const next = await runtime.completeAgentTask({ runId: run.runId, agentId: 'manager', condition: 'completed' })
+    let next = await runtime.completeAgentTask({ runId: run.runId, agentId: 'manager', condition: 'completed' })
+
+    expect(next).toMatchObject({
+      status: 'running',
+      activeNodeId: 'join_all',
+      branchStatus: { draft: 'running', research: 'running', review: 'running' }
+    })
+    const byBranch = Object.fromEntries(next.agentRuns
+      .filter((agentRun) => agentRun.branchId)
+      .map((agentRun) => [agentRun.branchId!, agentRun]))
+    expect(Object.keys(byBranch).sort()).toEqual(['draft', 'research', 'review'])
+
+    await expect(runtime.completeAgentTask({
+      runId: run.runId,
+      branchId: 'review',
+      agentRunId: byBranch.research!.agentRunId,
+      agentId: 'reviewer',
+      condition: 'completed',
+      output: { text: 'approved' },
+      usageRefs: ['usage:review'],
+      artifactRefs: ['artifact:review']
+    })).rejects.toThrow('AgentRun does not belong to durable branch: review')
+
+    for (const branchId of ['review', 'research', 'draft'] as const) {
+      const agentRun = byBranch[branchId]!
+      next = await runtime.completeAgentTask({
+        runId: run.runId,
+        branchId,
+        agentRunId: agentRun.agentRunId,
+        agentId: agentRun.agentId,
+        condition: 'completed',
+        output: { text: `${branchId} output` },
+        usageRefs: [`usage:${branchId}`],
+        artifactRefs: [`artifact:${branchId}`]
+      })
+    }
 
     expect(next).toMatchObject({ status: 'completed', activeNodeId: 'done' })
-    expect(next.events.map((event) => event.type)).toContain('run_completed')
+    const joined = next.events.find((event) => event.type === 'join_completed')
+    expect(joined?.payload).toMatchObject({
+      condition: 'completed',
+      result: {
+        parallelNodeId: 'fan_out',
+        joinNodeId: 'join_all',
+        branches: {
+          draft: { output: { text: 'draft output' } },
+          research: { output: { text: 'research output' } },
+          review: { output: { text: 'review output' } }
+        }
+      }
+    })
+    expect(Object.keys((joined?.payload as { result: { branches: object } }).result.branches)).toEqual([
+      'draft', 'research', 'review'
+    ])
+
+    const duplicate = await runtime.completeAgentTask({
+      runId: run.runId,
+      branchId: 'draft',
+      agentRunId: byBranch.draft!.agentRunId,
+      agentId: 'writer',
+      condition: 'completed',
+      output: { text: 'draft output' },
+      usageRefs: ['usage:draft'],
+      artifactRefs: ['artifact:draft']
+    })
+    expect(duplicate).toEqual(next)
+  })
+
+  it('waits for all branches before taking the failed join edge', async () => {
+    const runs = new InMemoryMultiAgentRunStore()
+    const runtime = new EventedV2MultiAgentRuntime({
+      runs,
+      mailbox: new InMemoryMailboxStore(),
+      graph: parallelAgentsGraph('wait_all'),
+      ids: nextId(),
+      nowIso: fixedClock()
+    })
+    const run = await runtime.start({
+      threadId: 'thread_wait_all', turnId: 'turn_wait_all', workspaceKey: 'workspace_1', prompt: 'Parallel.'
+    })
+    let next = await runtime.completeAgentTask({ runId: run.runId, agentId: 'manager', condition: 'completed' })
+    const byBranch = Object.fromEntries(next.agentRuns
+      .filter((agentRun) => agentRun.branchId)
+      .map((agentRun) => [agentRun.branchId!, agentRun]))
+
+    next = await runtime.completeAgentTask({
+      runId: run.runId, branchId: 'review', agentRunId: byBranch.review!.agentRunId,
+      agentId: 'reviewer', condition: 'failed', status: 'failed', error: 'review failed',
+      usageRefs: ['usage:review'], artifactRefs: []
+    })
+    expect(next).toMatchObject({
+      status: 'running', activeNodeId: 'join_all',
+      branchStatus: { draft: 'running', research: 'running', review: 'failed' }
+    })
+
+    for (const branchId of ['research', 'draft'] as const) {
+      const agentRun = byBranch[branchId]!
+      next = await runtime.completeAgentTask({
+        runId: run.runId, branchId, agentRunId: agentRun.agentRunId,
+        agentId: agentRun.agentId, condition: 'completed', output: branchId,
+        usageRefs: [`usage:${branchId}`], artifactRefs: []
+      })
+    }
+
+    expect(next).toMatchObject({ status: 'completed', activeNodeId: 'failed_done' })
+    expect(next.events.find((event) => event.type === 'join_completed')?.payload).toMatchObject({
+      condition: 'failed',
+      result: { branches: { draft: { status: 'completed' }, research: { status: 'completed' }, review: { status: 'failed' } } }
+    })
+  })
+
+  it('fails fast, aborts open siblings, and audits their late completion', async () => {
+    const runs = new InMemoryMultiAgentRunStore()
+    const runtime = new EventedV2MultiAgentRuntime({
+      runs,
+      mailbox: new InMemoryMailboxStore(),
+      graph: parallelAgentsGraph('fail_fast'),
+      ids: nextId(),
+      nowIso: fixedClock()
+    })
+    const run = await runtime.start({
+      threadId: 'thread_fail_fast', turnId: 'turn_fail_fast', workspaceKey: 'workspace_1', prompt: 'Parallel.'
+    })
+    let next = await runtime.completeAgentTask({ runId: run.runId, agentId: 'manager', condition: 'completed' })
+    const byBranch = Object.fromEntries(next.agentRuns
+      .filter((agentRun) => agentRun.branchId)
+      .map((agentRun) => [agentRun.branchId!, agentRun]))
+
+    next = await runtime.completeAgentTask({
+      runId: run.runId, branchId: 'review', agentRunId: byBranch.review!.agentRunId,
+      agentId: 'reviewer', condition: 'failed', status: 'failed', error: 'review failed',
+      usageRefs: ['usage:review'], artifactRefs: []
+    })
+    expect(next).toMatchObject({
+      status: 'completed', activeNodeId: 'failed_done',
+      branchStatus: { draft: 'aborted', research: 'aborted', review: 'failed' }
+    })
+
+    const late = await runtime.completeAgentTask({
+      runId: run.runId, branchId: 'draft', agentRunId: byBranch.draft!.agentRunId,
+      agentId: 'writer', condition: 'completed', output: 'late draft',
+      usageRefs: ['usage:draft'], artifactRefs: []
+    })
+    expect(late.branches.draft?.status).toBe('aborted')
+    expect(late.events.at(-1)).toMatchObject({
+      type: 'branch_late_result', branchId: 'draft', payload: { agentRunId: byBranch.draft!.agentRunId }
+    })
   })
 
   it('routes retry nodes through retry and exhausted edges using retryCounters', async () => {
@@ -1488,19 +1631,41 @@ function toolJudgeGraph(): AgentGraph {
   }
 }
 
-function joinAfterManagerGraph(): AgentGraph {
+function parallelAgentsGraph(failurePolicy: 'wait_all' | 'fail_fast' = 'wait_all'): AgentGraph {
   return {
     version: 1,
-    graphId: 'join_after_manager',
+    graphId: 'parallel_agents',
     startNodeId: 'manager',
     nodes: [
       { id: 'manager', kind: 'agent', agentId: 'manager' },
-      { id: 'join_done', kind: 'join', requiredBranchIds: [] },
-      { id: 'done', kind: 'terminate' }
+      {
+        id: 'fan_out', kind: 'parallel', joinNodeId: 'join_all', failurePolicy,
+        branches: [
+          { branchId: 'research', startNodeId: 'researcher' },
+          { branchId: 'draft', startNodeId: 'writer' },
+          { branchId: 'review', startNodeId: 'reviewer' }
+        ]
+      },
+      { id: 'researcher', kind: 'agent', agentId: 'researcher' },
+      { id: 'writer', kind: 'agent', agentId: 'writer' },
+      { id: 'reviewer', kind: 'agent', agentId: 'reviewer' },
+      {
+        id: 'join_all', kind: 'join', sourceParallelNodeId: 'fan_out',
+        requiredBranchIds: ['research', 'draft', 'review'], outputPolicy: 'all'
+      },
+      { id: 'done', kind: 'terminate' },
+      { id: 'failed_done', kind: 'terminate' }
     ],
     edges: [
-      { from: 'manager', to: 'join_done', condition: 'completed' },
-      { from: 'join_done', to: 'done', condition: 'completed' }
+      { from: 'manager', to: 'fan_out', condition: 'completed' },
+      { from: 'researcher', to: 'join_all', condition: 'completed' },
+      { from: 'researcher', to: 'join_all', condition: 'failed' },
+      { from: 'writer', to: 'join_all', condition: 'completed' },
+      { from: 'writer', to: 'join_all', condition: 'failed' },
+      { from: 'reviewer', to: 'join_all', condition: 'completed' },
+      { from: 'reviewer', to: 'join_all', condition: 'failed' },
+      { from: 'join_all', to: 'done', condition: 'completed' },
+      { from: 'join_all', to: 'failed_done', condition: 'failed' }
     ]
   }
 }

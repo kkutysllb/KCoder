@@ -9,7 +9,12 @@ if (!connectionString) {
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 const result = spawnSync(
   pnpm,
-  ['vitest', 'run', 'tests/postgres-durable-engine-store.test.ts', 'tests/postgres-governed-engine.test.ts'],
+  [
+    'vitest', 'run',
+    'tests/postgres-durable-engine-store.test.ts',
+    'tests/postgres-governed-engine.test.ts',
+    'tests/postgres-durable-parallel-engine.test.ts'
+  ],
   { stdio: 'inherit', env: { ...process.env, QIONGQI_TEST_POSTGRES_URL: connectionString } }
 )
 

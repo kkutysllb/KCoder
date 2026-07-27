@@ -1,4 +1,18 @@
 // QiongQi Engine API Client
+//
+// Contract types are imported with `import type` from @qiongqi/contracts (the
+// engine's foundation package). Type-only imports are erased at compile time,
+// so the renderer's browser bundle never pulls in zod (the contracts package's
+// only runtime dependency). Never import the `*Schema` value objects here —
+// those would drag zod v4 into the bundle. If you need a type that lives only
+// in @qiongqi/loop (e.g. the timeline projection), re-declare the minimal view
+// shape locally rather than importing it, because @qiongqi/loop is not
+// browser-safe (it pulls in node-only deps).
+import type {
+  EngineStreamEvent,
+  BranchRoiSnapshot,
+  RoiSnapshot
+} from '@qiongqi/contracts'
 
 export interface ThreadResponse {
   id: string
@@ -163,9 +177,125 @@ export interface TurnResponse {
 }
 
 // ============ Turn Execution Projection types ============
-// 对齐 engine/packages/foundation/contracts/src/turn-execution.ts
+//
+// These view types are the renderer's projection of the engine's durable
+// run timeline (GET /v1/runtime/evented-v2/runs/:runId/timeline) plus the
+// governed engine stream (GET /v1/engine/streams/:streamId/subscribe).
+//
+// The engine's authoritative timeline shape (EventedV2RunTimeline) lives in
+// @qiongqi/loop, which is NOT browser-safe, so we re-declare the minimal
+// fields we consume here. The ROI / branch-attribution types ARE imported
+// from @qiongqi/contracts (browser-safe, type-only).
+//
+// DRIFT FIX: the previous hand-written types invented a `parallelGroup`
+// field on AgentGraphNodeView that does not exist anywhere in the engine.
+// The real unit of parallelism is `branchId` (on AgentRun, GraphAttribution,
+// GraphCorrelationIdentity, and DurableBranchRun). These types now model
+// branches correctly.
 
 export type ExecutionStatus = 'queued' | 'running' | 'completed' | 'failed' | 'aborted'
+
+/** Branch lifecycle status, aligned with engine DurableBranchRun.status. */
+export type BranchStatus = 'queued' | 'running' | 'suspended' | 'completed' | 'failed' | 'aborted'
+
+/**
+ * Minimal mirror of the engine's EventedV2RunTimeline — only the fields the
+ * renderer consumes. Sourced from GET /v1/runtime/evented-v2/runs/:runId/timeline.
+ */
+export interface RunTimelineView {
+  runId: string
+  threadId: string
+  turnId?: string
+  graphId: string
+  status: ExecutionStatus
+  activeNodeId: string | null
+  /** Agent keys/node ids currently active (root + any running branches). */
+  activeAgentStack: string[]
+  /** branchId -> projected status. The engine hides 'suspended' as 'running'. */
+  branchStatus: Record<string, BranchStatus>
+  agentRuns: Array<{
+    agentRunId: string
+    agentId: string
+    nodeId: string
+    branchId?: string
+    status: ExecutionStatus
+    startedAt?: string
+    updatedAt?: string
+    completedAt?: string
+    summary?: string
+    error?: string
+  }>
+  graphMetrics: {
+    fanOut: number
+    physicalAttempts: number
+    retryCount: number
+    retryAmplification: number
+    criticalPathLatencyMs: number
+  }
+  roiSnapshot?: RoiSnapshot
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * A single agent node in the execution DAG projection. Derived from the
+ * timeline's agentRuns. `branchId` is the real parallel-branch key (replaces
+ * the previous fictitious `parallelGroup`).
+ */
+export interface AgentGraphNodeView {
+  key: string
+  agentKey: string
+  role: 'manager' | 'specialist'
+  phase?: 'planning' | 'execution' | 'synthesis'
+  name: string
+  status: ExecutionStatus
+  required: boolean
+  childAgentKeys: string[]
+  /** The durable parallel branch this node belongs to (root agents have none). */
+  branchId?: string
+}
+
+export interface AgentGraphEdgeView {
+  from: string
+  to: string
+  condition?: string
+}
+
+export interface AgentGraphHandoffView {
+  from: string
+  to: string
+  status: ExecutionStatus
+}
+
+/**
+ * A durable parallel branch projection — one entry per branchId in
+ * timeline.branchStatus. Drives the parallel-lane rendering in ExecutionView.
+ */
+export interface BranchProjection {
+  branchId: string
+  parallelNodeId?: string
+  joinNodeId?: string
+  status: BranchStatus
+  /** Agent node keys active in this branch. */
+  agentKeys: string[]
+  roiSnapshot?: BranchRoiSnapshot
+  /** Set when a result arrived after the branch was aborted/cancelled. */
+  lateResult?: boolean
+  /** Set when the branch was cancelled by a fail_fast sibling failure. */
+  failFastCancelled?: boolean
+}
+
+export interface AgentGraphExecutionView {
+  key: string
+  templateId: string
+  nodes: AgentGraphNodeView[]
+  edges: AgentGraphEdgeView[]
+  handoffs: AgentGraphHandoffView[]
+  activeAgentKeys: string[]
+  /** Durable parallel branches (v1.1.2). Empty for non-parallel runs. */
+  branches: BranchProjection[]
+  warnings: string[]
+}
 
 export interface AgentExecutionView {
   key: string
@@ -176,6 +306,7 @@ export interface AgentExecutionView {
   name: string
   task?: string
   status: ExecutionStatus
+  branchId?: string
   startedAt?: string
   completedAt?: string
   durationMs?: number
@@ -195,46 +326,19 @@ export interface RuntimeDecisionView {
   fallbackReason?: string
 }
 
-export interface AgentGraphNodeView {
-  key: string
-  agentKey: string
-  role: 'manager' | 'specialist'
-  phase?: 'planning' | 'execution' | 'synthesis'
-  name: string
-  status: ExecutionStatus
-  required: boolean
-  childAgentKeys: string[]
-  parallelGroup?: string
-}
-
-export interface AgentGraphEdgeView {
-  from: string
-  to: string
-  condition?: string
-}
-
-export interface AgentGraphHandoffView {
-  from: string
-  to: string
-  status: ExecutionStatus
-}
-
-export interface AgentGraphExecutionView {
-  key: string
-  templateId: string
-  nodes: AgentGraphNodeView[]
-  edges: AgentGraphEdgeView[]
-  handoffs: AgentGraphHandoffView[]
-  activeAgentKeys: string[]
-  warnings: string[]
-}
-
 export interface DelegationTreeView {
   roots: string[]
   edges: Array<{ from: string; to: string }>
 }
 
-/** TurnExecutionView — GET /v1/threads/:id/turns/:turnId/execution 返回。 */
+/**
+ * TurnExecutionView — the renderer's projection of a turn's execution.
+ *
+ * evented_v2 runs now carry real `graph` data (nodes/edges/branches/roi)
+ * sourced from the run timeline. kernel_v3 keeps the delegation tree.
+ * `available: false` is retained for runs that have no durable projection
+ * (e.g. classic mode, or before the run is recorded).
+ */
 export type TurnExecutionView =
   | { version: 1; available: true; revision: string; status: ExecutionStatus; decision: RuntimeDecisionView; agents: AgentExecutionView[]; mode: 'kernel_v3'; delegation: DelegationTreeView }
   | { version: 1; available: true; revision: string; status: ExecutionStatus; decision: RuntimeDecisionView; agents: AgentExecutionView[]; mode: 'evented_v2'; graph: AgentGraphExecutionView }
@@ -598,41 +702,44 @@ export class EngineAPI {
     return turn.turnId
   }
 
-  // 订阅线程事件流 — 后端发具名事件（event: <kind>），必须用 addEventListener 按 kind 监听
+  // 订阅线程事件流。
+  //
+  // We use fetch + ReadableStream rather than EventSource because EventSource
+  // cannot set the Authorization header (the W3C spec forbids custom headers
+  // on EventSource). The engine authenticates the SSE endpoint via
+  // `Authorization: Bearer` (or the access_token cookie), so an EventSource
+  // with no header would get 401 and silently fail — the renderer would never
+  // receive streaming events. fetch lets us send the bearer token and parse
+  // the SSE frames manually from the stream.
   private subscribeToThread(
     threadId: string,
     turnId: string,
     onEvent: (event: SSEEvent) => void
   ): Promise<void> {
     const url = `${this.baseUrl}/v1/threads/${threadId}/events`
+    const controller = new AbortController()
 
-    return new Promise((resolve, reject) => {
-      const eventSource = new EventSource(url)
+    return new Promise<void>((resolve) => {
       let resolved = false
-
       const finish = () => {
         if (resolved) return
         resolved = true
-        eventSource.close()
+        controller.abort()
         resolve()
       }
 
-      // 后端用 event: <kind> 发送具名事件；onmessage 只收到无 event: 字段的消息。
-      // 用一个通用监听器捕获所有事件类型：浏览器 EventSource 不支持通配符，
-      // 但 SSE 帧 data 行含完整 JSON（含 kind 字段），所以监听常见 kind + message 兜底。
-      const handlePayload = (raw: string) => {
+      const dispatch = (raw: string) => {
+        if (!raw) return
         try {
           const data = JSON.parse(raw) as Record<string, unknown>
           const kind = (data.kind as string) || 'message'
           onEvent({ kind, data })
-
-          // turn 终止事件
+          // Terminate once the current turn reaches a terminal state.
           if (
             kind === 'turn_completed' ||
             kind === 'turn_failed' ||
             kind === 'turn_aborted'
           ) {
-            // 确认是当前 turn（turnId 在事件 payload 的 turnId 字段）
             const eventTurnId = data.turnId as string | undefined
             if (!eventTurnId || eventTurnId === turnId) {
               finish()
@@ -643,61 +750,315 @@ export class EngineAPI {
         }
       }
 
-      // 注册后端所有可能的事件 kind（EventSource 需要显式 addEventListener 每种具名事件）
-      const RUNTIME_EVENT_KINDS = [
-        'thread_created', 'thread_updated',
-        'turn_started', 'turn_completed', 'turn_failed', 'turn_aborted', 'turn_steered',
-        'item_created', 'item_updated', 'item_completed',
-        'assistant_text_delta', 'assistant_reasoning_delta',
-        'tool_call_ready', 'tool_result_upload_wait', 'tool_storm_suppressed',
-        'tool_catalog_changed', 'tool_call_started', 'tool_call_finished',
-        'approval_requested', 'approval_resolved',
-        'user_input_requested', 'user_input_resolved',
-        'compaction_started', 'compaction_completed',
-        'goal_updated', 'goal_cleared',
-        'todos_updated', 'todos_cleared',
-        'pipeline_stage',
-        'agent_message_delta', 'agent_message_completed',
-        'usage', 'error', 'heartbeat'
-      ]
+      (async () => {
+        try {
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: { ...this.headers, Accept: 'text/event-stream' },
+            signal: controller.signal
+          })
+          if (!response.ok || !response.body) {
+            console.error(`[KCoder] SSE stream failed: ${response.status}`)
+            finish()
+            return
+          }
+          const reader = response.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+          // SSE frames are separated by a blank line. Each frame has `event:`
+          // and `data:` lines; we only need the data payload (it carries the
+          // full `kind` field, so the `event:` line is redundant).
+          while (true) {
+            const { value, done } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            // Split on blank lines (frame boundaries). Keep any trailing
+            // partial frame in the buffer.
+            const frames = buffer.split('\n\n')
+            buffer = frames.pop() ?? ''
+            for (const frame of frames) {
+              const dataLines = frame
+                .split('\n')
+                .filter((l) => l.startsWith('data:'))
+                .map((l) => l.slice(5).replace(/^ /, ''))
+              if (dataLines.length > 0) {
+                dispatch(dataLines.join('\n'))
+              }
+            }
+          }
+        } catch (e) {
+          if ((e as Error).name !== 'AbortError') {
+            console.error('[KCoder] SSE stream error:', e)
+          }
+        } finally {
+          finish()
+        }
+      })()
 
-      for (const kind of RUNTIME_EVENT_KINDS) {
-        eventSource.addEventListener(kind, (ev: MessageEvent) => handlePayload(ev.data))
-      }
-      // 兜底：无 event: 字段的消息
-      eventSource.onmessage = (ev) => handlePayload(ev.data)
-
-      eventSource.onerror = () => {
-        if (resolved) return
-        resolved = true
-        eventSource.close()
-        // EventSource 在连接正常关闭时也会触发 onerror；用 resolve 而非 reject 避免误报
-        resolve()
-      }
-
-      // 超时保底（10 分钟）
+      // Safety timeout (10 minutes) in case the turn-terminal event is missed.
       setTimeout(finish, 10 * 60 * 1000)
     })
   }
 
-  // ============ Approval / User Input API ============
-
-  // Get turn execution projection.
+  // ============ Turn Execution / Durable Engine Stream API ============
   //
-  // The new QiongQi engine no longer exposes a per-turn execution projection
-  // endpoint (the old `/v1/threads/:id/turns/:turnId/execution` route is gone).
-  // The richer DAG/graph view now lives behind the governed durable stream
-  // (`/v1/engine/streams/:streamId/subscribe`), which is a separate adaptation
-  // tracked for a later phase. For now we return an `available: false`
-  // projection so the polling loop in useChat terminates cleanly and
-  // ExecutionView renders its "unavailable" state instead of erroring.
-  async getTurnExecution(_threadId: string, _turnId: string): Promise<TurnExecutionView> {
+  // v1.1.2 surfaces execution data through two governed endpoints:
+  //   - GET /v1/runtime/evented-v2/runs/:runId/timeline  (one-shot snapshot)
+  //   - GET /v1/engine/streams/:streamId/subscribe        (durable SSE stream)
+  //
+  // The streamId for a run is the convention `stream:${runId}`. The runId is
+  // the engine's multiAgentRunId. The timeline gives the current DAG state
+  // (nodes, branches, active stack, ROI); the stream gives live increments
+  // (branch.spawned / branch.started / branch.completed / join.* / roi.snapshot).
+
+  /**
+   * Fetch the run timeline snapshot.
+   * Returns null when the run is not yet recorded (404) — callers treat this
+   * as "projection not available yet" rather than an error.
+   */
+  async getRunTimeline(runId: string): Promise<RunTimelineView | null> {
+    const response = await fetch(`${this.baseUrl}/v1/runtime/evented-v2/runs/${encodeURIComponent(runId)}/timeline`, {
+      headers: this.headers
+    })
+    if (response.status === 404) return null
+    if (!response.ok) throw new Error(`Failed to get run timeline: ${response.statusText}`)
+    return (await response.json()) as RunTimelineView
+  }
+
+  /**
+   * Acknowledge consumed stream events up to `throughSeq` for a subscriber.
+   * The engine stream is durable + at-least-once; acking lets the store trim
+   * delivered events. Best-effort — failures are logged, not thrown.
+   */
+  async ackEngineStream(streamId: string, subscriberId: string, throughSeq: number): Promise<void> {
+    try {
+      await fetch(`${this.baseUrl}/v1/engine/streams/${encodeURIComponent(streamId)}/ack`, {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify({ subscriberId, throughSeq })
+      })
+    } catch (e) {
+      console.warn('[KCoder] engine stream ack failed (non-fatal):', e)
+    }
+  }
+
+  /**
+   * Subscribe to the governed durable engine stream for a run.
+   *
+   * Stream frames use the engine SSE wire format:
+   *   id: <seq>\nevent: <kind>\ndata: <full EngineStreamEvent JSON>\n\n
+   * The `data` payload carries `kind`, optional `branchId`, `multiAgentRunId`,
+   * `agentRunId`, `seq`, and `payload`. We forward every frame to `onEvent`;
+   * the caller decides which kinds to act on (branch.* / join.* / roi.snapshot).
+   *
+   * Resolves when the stream closes or `shouldStop` returns true. The caller
+   * is responsible for acking via ackEngineStream() if it wants durable trim.
+   */
+  subscribeEngineStream(
+    streamId: string,
+    onEvent: (event: EngineStreamEvent) => void,
+    options?: {
+      /** Called after each event; subscription stops when it returns true. */
+      shouldStop?: (event: EngineStreamEvent) => boolean
+      /** Start consuming from this seq (default: 0 = replay from start). */
+      afterSeq?: number
+      /** Safety timeout in ms (default 10 min). */
+      timeoutMs?: number
+      signal?: AbortSignal
+    }
+  ): Promise<void> {
+    const controller = new AbortController()
+    const externalSignal = options?.signal
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort()
+      else externalSignal.addEventListener('abort', () => controller.abort(), { once: true })
+    }
+
+    const params = new URLSearchParams()
+    params.set('subscriber_id', `kcoder-${Math.random().toString(36).slice(2, 10)}`)
+    if (options?.afterSeq != null) params.set('after_seq', String(options.afterSeq))
+    const url = `${this.baseUrl}/v1/engine/streams/${encodeURIComponent(streamId)}/subscribe?${params.toString()}`
+
+    return new Promise<void>((resolve) => {
+      let resolved = false
+      const finish = () => {
+        if (resolved) return
+        resolved = true
+        controller.abort()
+        resolve()
+      }
+
+      (async () => {
+        try {
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: { ...this.headers, Accept: 'text/event-stream' },
+            signal: controller.signal
+          })
+          if (!response.ok || !response.body) {
+            console.warn(`[KCoder] engine stream failed: ${response.status}`)
+            finish()
+            return
+          }
+          const reader = response.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+          while (true) {
+            const { value, done } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            const frames = buffer.split('\n\n')
+            buffer = frames.pop() ?? ''
+            for (const frame of frames) {
+              const dataLines = frame
+                .split('\n')
+                .filter((l) => l.startsWith('data:'))
+                .map((l) => l.slice(5).replace(/^ /, ''))
+              if (dataLines.length === 0) continue
+              try {
+                const evt = JSON.parse(dataLines.join('\n')) as EngineStreamEvent
+                onEvent(evt)
+                if (options?.shouldStop?.(evt)) {
+                  finish()
+                  return
+                }
+              } catch (e) {
+                console.warn('[KCoder] failed to parse engine stream event:', e)
+              }
+            }
+          }
+        } catch (e) {
+          if ((e as Error).name !== 'AbortError') {
+            console.warn('[KCoder] engine stream error:', e)
+          }
+        } finally {
+          finish()
+        }
+      })()
+
+      setTimeout(finish, options?.timeoutMs ?? 10 * 60 * 1000)
+    })
+  }
+
+  /**
+   * Build a TurnExecutionView from a run timeline snapshot.
+   *
+   * Maps the timeline's agentRuns/branchStatus/graphMetrics into the renderer's
+   * graph projection (nodes/edges/branches/activeAgentKeys). Non-evented_v2 or
+   * not-yet-recorded runs return `available: false`.
+   */
+  buildExecutionViewFromTimeline(
+    timeline: RunTimelineView,
+    decision: RuntimeDecisionView
+  ): TurnExecutionView {
+    // Project agentRuns into graph nodes. The first agent is the root manager;
+    // agents sharing a branchId form a parallel specialist lane.
+    const nodes: AgentGraphNodeView[] = timeline.agentRuns.map((ar, idx) => ({
+      key: ar.nodeId,
+      agentKey: ar.agentId,
+      role: idx === 0 ? 'manager' : 'specialist',
+      name: ar.agentId,
+      status: ar.status,
+      required: true,
+      childAgentKeys: [],
+      branchId: ar.branchId
+    }))
+
+    // Project branches from timeline.branchStatus.
+    const branches: BranchProjection[] = Object.entries(timeline.branchStatus).map(
+      ([branchId, status]) => ({
+        branchId,
+        status,
+        agentKeys: timeline.agentRuns
+          .filter((ar) => ar.branchId === branchId)
+          .map((ar) => ar.agentId)
+      })
+    )
+
+    const graph: AgentGraphExecutionView = {
+      key: timeline.graphId,
+      templateId: timeline.graphId,
+      nodes,
+      edges: [],
+      handoffs: [],
+      activeAgentKeys: timeline.activeAgentStack,
+      branches,
+      warnings: []
+    }
+
     return {
       version: 1,
-      available: false,
-      revision: '0',
-      reason: 'execution projection is not available in the current engine'
+      available: true,
+      revision: timeline.updatedAt,
+      status: timeline.status,
+      decision,
+      agents: timeline.agentRuns.map((ar, idx) => ({
+        key: ar.agentRunId,
+        sequence: idx,
+        role: idx === 0 ? 'root' : 'specialist',
+        name: ar.agentId,
+        status: ar.status,
+        branchId: ar.branchId,
+        startedAt: ar.startedAt,
+        completedAt: ar.completedAt,
+        summary: ar.summary,
+        // The timeline snapshot does not carry per-agent message/tool history;
+        // those are empty until a richer per-agent fetch is wired.
+        messages: [],
+        reasoning: [],
+        toolRuns: []
+      })),
+      mode: 'evented_v2',
+      graph
     }
+  }
+
+  /**
+   * Derive the engine's multiAgentRunId from a thread+turn pair.
+   *
+   * The engine uses the stable convention `run_${threadId}_${turnId}` (see
+   * runtime-factory.ts identityForTurn + tool-call-coordinator.ts). This lets
+   * the renderer address the timeline / engine-stream endpoints without the
+   * turn response needing to echo the runId back.
+   */
+  runIdForTurn(threadId: string, turnId: string): string {
+    return `run_${threadId}_${turnId}`
+  }
+
+  /**
+   * Derive the governed engine streamId for a run.
+   * Convention: `stream:${runId}` (see durable-engine.ts / durable-graph-store-adapters.ts).
+   */
+  streamIdForRun(runId: string): string {
+    return `stream:${runId}`
+  }
+
+  /**
+   * Get the turn execution projection.
+   *
+   * Fetches the run timeline snapshot (runId derived from threadId+turnId via
+   * the engine's stable convention) and projects it into a TurnExecutionView.
+   * Returns `available:false` when the run is not yet recorded (the engine
+   * returns 404 for the timeline endpoint until the graph run is created).
+   */
+  async getTurnExecution(threadId: string, turnId: string): Promise<TurnExecutionView> {
+    const runId = this.runIdForTurn(threadId, turnId)
+    const timeline = await this.getRunTimeline(runId)
+    if (!timeline) {
+      return {
+        version: 1,
+        available: false,
+        revision: '0',
+        reason: 'execution projection is not available yet (run not recorded)'
+      }
+    }
+    return this.buildExecutionViewFromTimeline(timeline, {
+      preferredMode: 'evented_v2',
+      effectiveMode: 'evented_v2',
+      preference: 'team',
+      source: 'timeline',
+      reason: 'durable parallel execution'
+    })
   }
 
   // ============ Thread Goal / Todos API ============

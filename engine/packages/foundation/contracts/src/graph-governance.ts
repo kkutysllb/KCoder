@@ -45,6 +45,7 @@ export const HumanCheckpointSchema = z.object({
   graphId: Key,
   graphRevision: z.number().int().positive(),
   nodeId: Key,
+  branchId: Key.optional(),
   policyRevision: z.number().int().positive(),
   evidenceRefs: z.array(Key),
   approvalScope: z.array(Key).min(1),

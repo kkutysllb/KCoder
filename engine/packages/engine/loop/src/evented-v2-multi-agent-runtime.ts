@@ -7,6 +7,9 @@ import {
   TaskEnvelopeSchema,
   type AgentGraph,
   type AgentGraphNode,
+  type AgentRun,
+  type BudgetState,
+  type JoinNode,
   type MailboxMessage,
   type KernelRunIdentity,
   type RunOutcome,
@@ -30,6 +33,14 @@ import type {
 import type { ApprovalResolutionInput, GraphGovernor } from './graph-governor.js'
 import { nextNodeForCondition, requireGraphNode, validateAgentGraph } from './multi-agent-graph.js'
 import {
+  abortOpenBranches,
+  advanceBranch,
+  buildJoinResult,
+  joinReadiness,
+  settleBranch,
+  spawnParallelBranches
+} from './parallel-branch-state.js'
+import {
   buildEventedV2RunMetrics,
   buildEventedV2RunTimeline,
   type EventedV2RunMetrics,
@@ -48,6 +59,10 @@ export type EventedV2MultiAgentRuntimeOptions = {
   dispatchPreparer?: {
     prepareAgentDispatch(
       input: AgentDispatchPreparationInput,
+      options?: MultiAgentRunUpdateOptions
+    ): Promise<MultiAgentRun>
+    prepareAgentDispatches?(
+      inputs: AgentDispatchPreparationInput[],
       options?: MultiAgentRunUpdateOptions
     ): Promise<MultiAgentRun>
   }
@@ -558,6 +573,70 @@ export class EventedV2MultiAgentRuntime {
     }))
   }
 
+  async dispatchParallelAgents(input: {
+    runId: string
+    scope: AgentExecutionInput['scope']
+    prompt: string
+    requestedBudgets: Record<string, BudgetState>
+    sharedEvidenceRefs?: string[]
+    graph?: AgentExecutionInput['graph']
+  }): Promise<MultiAgentRun> {
+    return this.withRunLock(input.runId, () => this.withRunMutationLease(input.runId, async (fence) => {
+      const current = await this.options.runs.load(input.runId)
+      if (!current) throw new Error(`MultiAgentRun not found: ${input.runId}`)
+      const preparations: AgentDispatchPreparationInput[] = []
+      for (const [branchId, branch] of Object.entries(current.branches).sort(([left], [right]) => left.localeCompare(right))) {
+        if (branch.status !== 'running' && branch.status !== 'suspended' && branch.status !== 'queued') continue
+        const node = requireGraphNode(this.graph, branch.activeNodeId)
+        if (node.kind !== 'agent' && node.kind !== 'judge') continue
+        const agentRunId = branch.agentRunIds.at(-1)
+        if (!agentRunId) throw new Error(`AgentRun not found for durable branch: ${branchId}`)
+        const agentRun = current.agentRuns.find((candidate) => candidate.agentRunId === agentRunId)
+        if (!agentRun || agentRun.branchId !== branchId) {
+          throw new Error(`AgentRun does not belong to durable branch: ${branchId}`)
+        }
+        if (agentRun.executionRef) continue
+        const requestedBudget = input.requestedBudgets[branchId]
+        if (!requestedBudget) throw new Error(`Parallel branch budget is required: ${branchId}`)
+        const agentId = executionAgentId(node)
+        const executionRef = KernelRunIdentitySchema.parse({
+          scope: input.scope,
+          parentKind: 'agent',
+          multiAgentRunId: current.runId,
+          agentRunId,
+          parentRunId: agentRunId,
+          kernelRunId: this.options.ids('kernel_run'),
+          ...(input.graph ? {
+            graph: { ...input.graph, branchId, nodeId: node.id, attemptId: agentRunId }
+          } : {})
+        })
+        preparations.push({
+          scope: input.scope,
+          multiAgentRunId: current.runId,
+          agentRunId,
+          agentId,
+          nodeId: node.id,
+          parentRunId: current.runId,
+          requestedBudget,
+          prompt: input.prompt,
+          executionRef,
+          reservationId: `reservation:${executionRef.kernelRunId}`,
+          inputRef: promptInputRef(current),
+          role: node.kind,
+          sharedEvidenceRefs: input.sharedEvidenceRefs ?? [],
+          ...(input.graph ? { graph: executionRef.graph } : {}),
+          ...(node.modelPolicyRef ? { modelPolicyRef: node.modelPolicyRef } : {})
+        })
+      }
+      if (preparations.length === 0) return current
+      const preparer = this.options.dispatchPreparer
+      if (!preparer?.prepareAgentDispatches) {
+        throw new Error('parallel dispatch requires an atomic batch preparer')
+      }
+      return preparer.prepareAgentDispatches(preparations, updateOptions(fence))
+    }))
+  }
+
   async handoff(input: {
     runId: string
     sourceAgentId: string
@@ -751,6 +830,8 @@ export class EventedV2MultiAgentRuntime {
   async completeAgentTask(input: {
     runId: string
     agentId: string
+    branchId?: string
+    agentRunId?: string
     condition?: string
     status?: 'completed' | 'degraded' | 'failed' | 'aborted' | 'suspended'
     summary?: string
@@ -758,6 +839,9 @@ export class EventedV2MultiAgentRuntime {
     peerArtifact?: PeerArtifact
     executionRef?: KernelRunIdentity
     outcome?: RunOutcome
+    output?: unknown
+    usageRefs?: string[]
+    artifactRefs?: string[]
     mailboxCompletion?: {
       messageId: string
       status: 'completed' | 'failed' | 'aborted'
@@ -774,6 +858,7 @@ export class EventedV2MultiAgentRuntime {
     return this.withRunLock(input.runId, () =>
       this.withRunMutationLease(input.runId, async (fence) => {
         const next = await this.options.runs.update(input.runId, (current) => {
+          if (input.branchId) return this.completeBranchAgentTask(current, { ...input, branchId: input.branchId })
           if (completionAgentRunId) {
             const delivered = current.agentRuns.find((agentRun) => agentRun.agentRunId === completionAgentRunId)
             if (!delivered) throw new Error(`AgentRun not found for Kernel completion: ${completionAgentRunId}`)
@@ -858,21 +943,30 @@ export class EventedV2MultiAgentRuntime {
     return this.completeAgentTask({
       runId: input.runId,
       agentId: agentRun.agentId,
+      ...(agentRun.branchId ? { branchId: agentRun.branchId } : {}),
+      agentRunId: agentRun.agentRunId,
       condition: completionCondition(completion.outcome),
       status: completion.outcome.status,
       executionRef,
-      outcome: completion.outcome
+      outcome: completion.outcome,
+      usageRefs: completion.usageRefs,
+      artifactRefs: completion.artifactRefs,
+      output: { artifactRefs: completion.artifactRefs }
     })
   }
 
   async completeExternalNode(input: {
     runId: string
     nodeId: string
+    branchId?: string
     condition: string
     payload?: Record<string, unknown>
+    usageRefs?: string[]
+    artifactRefs?: string[]
   }): Promise<MultiAgentRun> {
     return this.withRunLock(input.runId, () => this.withRunMutationLease(input.runId, async (fence) =>
       this.options.runs.update(input.runId, (current) => {
+      if (input.branchId) return this.completeBranchExternalNode(current, { ...input, branchId: input.branchId })
       const activeNode = requireGraphNode(this.graph, current.activeNodeId)
       if (activeNode.id !== input.nodeId) {
         throw new Error(`External node completion mismatch: ${activeNode.id} !== ${input.nodeId}`)
@@ -899,6 +993,107 @@ export class EventedV2MultiAgentRuntime {
       })
       return this.enterGraphNode(withCompletedNode, nextNodeId)
     }, updateOptions(fence))))
+  }
+
+  private completeBranchExternalNode(current: MultiAgentRun, input: {
+    runId: string
+    nodeId: string
+    branchId: string
+    condition: string
+    payload?: Record<string, unknown>
+    usageRefs?: string[]
+    artifactRefs?: string[]
+  }): MultiAgentRun {
+    const branch = current.branches[input.branchId]
+    if (!branch) throw new Error(`Durable branch not found: ${input.branchId}`)
+    const activeNode = requireGraphNode(this.graph, branch.activeNodeId)
+    if (activeNode.id !== input.nodeId) {
+      throw new Error(`External branch node completion mismatch: ${activeNode.id} !== ${input.nodeId}`)
+    }
+    if (!['wait', 'tool', 'judge'].includes(activeNode.kind)) {
+      throw new Error(`Durable branch node is not externally completable: ${activeNode.id}`)
+    }
+    if (activeNode.kind === 'wait' && activeNode.waitFor === 'approval' && this.options.approvalGovernor) {
+      throw new Error(`approval gate ${activeNode.id} must be resolved through its durable checkpoint`)
+    }
+    const nextNodeId = nextNodeForCondition(this.graph, activeNode.id, input.condition)
+    if (!nextNodeId) throw new Error(`No ${input.condition} edge from node: ${activeNode.id}`)
+    const now = this.options.nowIso()
+    let next = MultiAgentRunSchema.parse({
+      ...current,
+      events: [...current.events, {
+        eventId: this.options.ids('mae'),
+        type: 'node_completed',
+        nodeId: activeNode.id,
+        branchId: input.branchId,
+        payload: { condition: input.condition, ...input.payload },
+        timestamp: now
+      }],
+      updatedAt: now
+    })
+    if (nextNodeId !== branch.joinNodeId) {
+      return this.enterBranchNode(next, input.branchId, nextNodeId)
+    }
+    const status = input.condition === 'failed'
+      ? 'failed' as const
+      : input.condition === 'aborted'
+        ? 'aborted' as const
+        : 'completed' as const
+    next = settleBranch(next, {
+      branchId: input.branchId,
+      status,
+      ...(input.payload !== undefined ? { output: input.payload } : {}),
+      ...(status === 'failed' ? { error: `external_${input.condition}` } : {}),
+      usageRefs: input.usageRefs ?? [],
+      artifactRefs: input.artifactRefs ?? [],
+      nowIso: now
+    })
+    next = MultiAgentRunSchema.parse({
+      ...next,
+      events: [...next.events, {
+        eventId: this.options.ids('mae'),
+        type: status === 'completed' ? 'branch_completed' : status === 'failed' ? 'branch_failed' : 'branch_cancelled',
+        nodeId: activeNode.id,
+        branchId: input.branchId,
+        payload: { condition: input.condition },
+        timestamp: now
+      }],
+      updatedAt: now
+    })
+    if (status !== 'completed') {
+      const parallel = requireGraphNode(this.graph, branch.parallelNodeId)
+      if (parallel.kind !== 'parallel') throw new Error(`Durable branch parallel node is invalid: ${branch.parallelNodeId}`)
+      if (parallel.failurePolicy === 'fail_fast') {
+        const abortedBranchIds = Object.values(next.branches)
+          .filter((candidate) => candidate.parallelNodeId === parallel.id
+            && !['completed', 'failed', 'aborted'].includes(candidate.status))
+          .map((candidate) => candidate.branchId)
+          .sort()
+        next = abortOpenBranches(next, parallel.id, now)
+        next = MultiAgentRunSchema.parse({
+          ...next,
+          agentRuns: next.agentRuns.map((agentRun) => abortedBranchIds.includes(agentRun.branchId ?? '')
+            && !['completed', 'degraded', 'failed', 'aborted'].includes(agentRun.status)
+            ? { ...agentRun, status: 'aborted', completedAt: now, updatedAt: now }
+            : agentRun),
+          events: [
+            ...next.events,
+            ...abortedBranchIds.map((branchId) => ({
+              eventId: this.options.ids('mae'),
+              type: 'branch_cancelled' as const,
+              nodeId: next.branches[branchId]!.activeNodeId,
+              branchId,
+              payload: { reason: 'fail_fast', failedBranchId: input.branchId },
+              timestamp: now
+            }))
+          ],
+          updatedAt: now
+        })
+      }
+    }
+    const joinNode = requireGraphNode(this.graph, branch.joinNodeId)
+    if (joinNode.kind !== 'join') throw new Error(`Durable branch join node is invalid: ${branch.joinNodeId}`)
+    return this.completeJoinIfReady(next, joinNode)
   }
 
   async resolveApproval(input: ApprovalResolutionInput): Promise<MultiAgentRun> {
@@ -1039,34 +1234,35 @@ export class EventedV2MultiAgentRuntime {
         updatedAt: now
       })
     }
-    if (node.kind === 'join') {
-      const ready = node.requiredBranchIds.every((branchId) => run.branchStatus[branchId] === 'completed')
-      if (ready) {
-        const nextNodeId = nextNodeForCondition(this.graph, node.id, 'completed') ?? nextNodeForCondition(this.graph, node.id, 'joined')
-        if (nextNodeId) {
-          return this.enterGraphNode(MultiAgentRunSchema.parse({
-            ...run,
-            activeNodeId: node.id,
-            events: [
-              ...run.events,
-              {
-                eventId: this.options.ids('mae'),
-                type: 'node_started',
-                nodeId: node.id,
-                timestamp: now
-              },
-              {
-                eventId: this.options.ids('mae'),
-                type: 'node_completed',
-                nodeId: node.id,
-                payload: { condition: 'completed' },
-                timestamp: now
-              }
-            ],
-            updatedAt: now
-          }), nextNodeId)
-        }
+    if (node.kind === 'parallel') {
+      let next = spawnParallelBranches(MultiAgentRunSchema.parse({
+        ...run,
+        activeNodeId: node.id,
+        updatedAt: now
+      }), node, now)
+      next = MultiAgentRunSchema.parse({
+        ...next,
+        events: [
+          ...next.events,
+          ...[...node.branches]
+            .sort((left, right) => left.branchId.localeCompare(right.branchId))
+            .map((branch) => ({
+              eventId: this.options.ids('mae'),
+              type: 'branch_spawned' as const,
+              nodeId: node.id,
+              branchId: branch.branchId,
+              payload: { startNodeId: branch.startNodeId, joinNodeId: node.joinNodeId },
+              timestamp: now
+            }))
+        ]
+      })
+      for (const branch of [...node.branches].sort((left, right) => left.branchId.localeCompare(right.branchId))) {
+        next = this.enterBranchNode(next, branch.branchId, branch.startNodeId)
       }
+      return next
+    }
+    if (node.kind === 'join') {
+      return this.completeJoinIfReady(run, node)
     }
     if (node.kind === 'retry') {
       const attempts = (run.retryCounters[node.id] ?? 0) + 1
@@ -1109,6 +1305,333 @@ export class EventedV2MultiAgentRuntime {
       }],
       updatedAt: now
     })
+  }
+
+  private enterBranchNode(run: MultiAgentRun, branchId: string, nodeId: string): MultiAgentRun {
+    const branch = run.branches[branchId]
+    if (!branch) throw new Error(`Durable branch not found: ${branchId}`)
+    if (nodeId === branch.joinNodeId) throw new Error(`Durable branch must settle before join: ${branchId}`)
+    const node = requireGraphNode(this.graph, nodeId)
+    const now = this.options.nowIso()
+    if (node.kind === 'parallel') throw new Error(`Nested parallel is unsupported: ${node.id}`)
+    if (node.kind === 'terminate') throw new Error(`Durable branch terminated before join: ${branchId}`)
+    if (node.kind === 'handoff') {
+      const target = nextNodeForCondition(this.graph, node.id, 'accepted')
+      if (!target) throw new Error(`No accepted edge from handoff node: ${node.id}`)
+      return this.enterBranchNode(advanceBranch(run, branchId, node.id, now), branchId, target)
+    }
+    if (node.kind === 'retry') {
+      const counterId = `${branchId}:${node.id}`
+      const attempts = (run.retryCounters[counterId] ?? 0) + 1
+      const condition = attempts <= node.maxAttempts ? 'retry' : 'exhausted'
+      const target = nextNodeForCondition(this.graph, node.id, condition)
+      if (!target) throw new Error(`No ${condition} edge from retry node: ${node.id}`)
+      const advanced = advanceBranch(MultiAgentRunSchema.parse({
+        ...run,
+        retryCounters: { ...run.retryCounters, [counterId]: attempts }
+      }), branchId, node.id, now)
+      return this.enterBranchNode(advanced, branchId, target)
+    }
+    if (node.kind === 'join') throw new Error(`Durable branch reached an unrelated join: ${branchId} -> ${node.id}`)
+
+    if (node.kind === 'agent' || node.kind === 'judge') {
+      const agentId = executionAgentId(node)
+      const agentRunId = this.options.ids('agent_run')
+      const advanced = advanceBranch(run, branchId, node.id, now, 'running')
+      const currentBranch = advanced.branches[branchId]!
+      const agentRun: AgentRun = {
+        agentRunId,
+        branchId,
+        agentId,
+        nodeId: node.id,
+        status: 'queued',
+        startedAt: now,
+        updatedAt: now
+      }
+      return MultiAgentRunSchema.parse({
+        ...advanced,
+        status: 'running',
+        branches: {
+          ...advanced.branches,
+          [branchId]: { ...currentBranch, agentRunIds: [...currentBranch.agentRunIds, agentRunId] }
+        },
+        agentRuns: [...advanced.agentRuns, agentRun],
+        events: [
+          ...advanced.events,
+          {
+            eventId: this.options.ids('mae'),
+            type: 'branch_started',
+            nodeId: node.id,
+            branchId,
+            agentId,
+            timestamp: now
+          },
+          {
+            eventId: this.options.ids('mae'),
+            type: 'node_started',
+            nodeId: node.id,
+            branchId,
+            agentId,
+            timestamp: now
+          }
+        ],
+        updatedAt: now
+      })
+    }
+
+    return MultiAgentRunSchema.parse({
+      ...advanceBranch(run, branchId, node.id, now, 'suspended'),
+      status: 'running',
+      events: [...run.events, {
+        eventId: this.options.ids('mae'),
+        type: 'node_started',
+        nodeId: node.id,
+        branchId,
+        timestamp: now
+      }],
+      updatedAt: now
+    })
+  }
+
+  private completeBranchAgentTask(current: MultiAgentRun, input: {
+    runId: string
+    agentId: string
+    branchId: string
+    agentRunId?: string
+    condition?: string
+    status?: 'completed' | 'degraded' | 'failed' | 'aborted' | 'suspended'
+    summary?: string
+    error?: string
+    peerArtifact?: PeerArtifact
+    executionRef?: KernelRunIdentity
+    outcome?: RunOutcome
+    output?: unknown
+    usageRefs?: string[]
+    artifactRefs?: string[]
+  }): MultiAgentRun {
+    const branch = current.branches[input.branchId]
+    if (!branch) throw new Error(`Durable branch not found: ${input.branchId}`)
+    const completionAgentRunId = input.agentRunId
+      ?? (input.executionRef?.parentKind === 'agent' ? input.executionRef.agentRunId : undefined)
+    if (!completionAgentRunId) throw new Error(`Durable branch completion requires agentRunId: ${input.branchId}`)
+    if (!branch.agentRunIds.includes(completionAgentRunId)) {
+      throw new Error(`AgentRun does not belong to durable branch: ${input.branchId}`)
+    }
+    const agentRunIndex = current.agentRuns.findIndex((candidate) => candidate.agentRunId === completionAgentRunId)
+    if (agentRunIndex < 0) throw new Error(`AgentRun not found for durable branch: ${completionAgentRunId}`)
+    const delivered = current.agentRuns[agentRunIndex]!
+    if (delivered.branchId !== input.branchId) {
+      throw new Error(`AgentRun does not belong to durable branch: ${input.branchId}`)
+    }
+
+    const condition = input.condition ?? 'completed'
+    const status = input.status ?? agentRunStatusFromCondition(condition)
+    const branchStatus = status === 'failed'
+      ? 'failed' as const
+      : status === 'aborted'
+        ? 'aborted' as const
+        : 'completed' as const
+    if (branch.status === 'completed' || branch.status === 'failed' || branch.status === 'aborted') {
+      try {
+        settleBranch(current, {
+          branchId: input.branchId,
+          status: branchStatus,
+          ...(input.output !== undefined ? { output: input.output } : {}),
+          ...(input.error !== undefined ? { error: input.error } : {}),
+          usageRefs: input.usageRefs ?? [],
+          artifactRefs: input.artifactRefs ?? [],
+          nowIso: branch.completedAt ?? this.options.nowIso()
+        })
+        return current
+      } catch (error) {
+        if (branch.status !== 'aborted') throw error
+        const now = this.options.nowIso()
+        return MultiAgentRunSchema.parse({
+          ...current,
+          events: [...current.events, {
+            eventId: this.options.ids('mae'),
+            type: 'branch_late_result',
+            nodeId: delivered.nodeId,
+            branchId: input.branchId,
+            agentId: input.agentId,
+            payload: {
+              agentRunId: completionAgentRunId,
+              condition,
+              usageRefs: input.usageRefs ?? [],
+              artifactRefs: input.artifactRefs ?? []
+            },
+            timestamp: now
+          }],
+          updatedAt: now
+        })
+      }
+    }
+
+    const activeNode = requireGraphNode(this.graph, branch.activeNodeId)
+    if (activeNode.kind !== 'agent' && activeNode.kind !== 'judge') {
+      throw new Error(`Durable branch node must be model-driven: ${activeNode.id}`)
+    }
+    const expectedAgentId = executionAgentId(activeNode)
+    if (expectedAgentId !== input.agentId || delivered.agentId !== input.agentId || delivered.nodeId !== activeNode.id) {
+      throw new Error(`Agent task completion mismatch: ${expectedAgentId} !== ${input.agentId}`)
+    }
+    if (input.executionRef && delivered.executionRef
+      && delivered.executionRef.kernelRunId !== input.executionRef.kernelRunId) {
+      throw new Error(`Conflicting Kernel completion: ${input.executionRef.kernelRunId}`)
+    }
+    const nextNodeId = nextNodeForCondition(this.graph, activeNode.id, condition)
+    if (!nextNodeId) throw new Error(`No ${condition} edge from node: ${activeNode.id}`)
+    const now = this.options.nowIso()
+    let next = MultiAgentRunSchema.parse({
+      ...current,
+      agentRuns: current.agentRuns.map((agentRun, index) => index === agentRunIndex
+        ? {
+            ...agentRun,
+            status,
+            summary: input.summary ?? agentRun.summary,
+            ...(input.error !== undefined ? { error: input.error } : {}),
+            ...(input.peerArtifact !== undefined ? { peerArtifact: input.peerArtifact } : {}),
+            ...(input.executionRef !== undefined ? { executionRef: input.executionRef } : {}),
+            ...(input.outcome !== undefined ? { outcome: input.outcome } : {}),
+            completedAt: agentRun.completedAt ?? now,
+            updatedAt: now
+          }
+        : agentRun),
+      events: [...current.events, {
+        eventId: this.options.ids('mae'),
+        type: 'node_completed',
+        nodeId: activeNode.id,
+        branchId: input.branchId,
+        agentId: input.agentId,
+        payload: { condition, summary: input.summary },
+        timestamp: now
+      }],
+      updatedAt: now
+    })
+    if (nextNodeId !== branch.joinNodeId) return this.enterBranchNode(next, input.branchId, nextNodeId)
+
+    next = settleBranch(next, {
+      branchId: input.branchId,
+      status: branchStatus,
+      ...(input.output !== undefined ? { output: input.output } : {}),
+      ...(input.error !== undefined ? { error: input.error } : {}),
+      usageRefs: input.usageRefs ?? [],
+      artifactRefs: input.artifactRefs ?? [],
+      nowIso: now
+    })
+    next = MultiAgentRunSchema.parse({
+      ...next,
+      events: [...next.events, {
+        eventId: this.options.ids('mae'),
+        type: branchStatus === 'completed' ? 'branch_completed' : branchStatus === 'failed' ? 'branch_failed' : 'branch_cancelled',
+        nodeId: activeNode.id,
+        branchId: input.branchId,
+        agentId: input.agentId,
+        payload: { condition, agentRunId: completionAgentRunId },
+        timestamp: now
+      }],
+      updatedAt: now
+    })
+    if (branchStatus !== 'completed') {
+      const parallel = requireGraphNode(this.graph, branch.parallelNodeId)
+      if (parallel.kind !== 'parallel') throw new Error(`Durable branch parallel node is invalid: ${branch.parallelNodeId}`)
+      if (parallel.failurePolicy === 'fail_fast') {
+        const abortedBranchIds = Object.values(next.branches)
+          .filter((candidate) => candidate.parallelNodeId === parallel.id
+            && candidate.status !== 'completed'
+            && candidate.status !== 'failed'
+            && candidate.status !== 'aborted')
+          .map((candidate) => candidate.branchId)
+          .sort()
+        next = abortOpenBranches(next, parallel.id, now)
+        next = MultiAgentRunSchema.parse({
+          ...next,
+          agentRuns: next.agentRuns.map((agentRun) => abortedBranchIds.includes(agentRun.branchId ?? '')
+            && agentRun.status !== 'completed'
+            && agentRun.status !== 'degraded'
+            && agentRun.status !== 'failed'
+            && agentRun.status !== 'aborted'
+            ? { ...agentRun, status: 'aborted', completedAt: now, updatedAt: now }
+            : agentRun),
+          events: [
+            ...next.events,
+            ...abortedBranchIds.map((branchId) => ({
+              eventId: this.options.ids('mae'),
+              type: 'branch_cancelled' as const,
+              nodeId: next.branches[branchId]!.activeNodeId,
+              branchId,
+              payload: { reason: 'fail_fast', failedBranchId: input.branchId },
+              timestamp: now
+            }))
+          ],
+          updatedAt: now
+        })
+      }
+    }
+    const joinNode = requireGraphNode(this.graph, branch.joinNodeId)
+    if (joinNode.kind !== 'join') throw new Error(`Durable branch join node is invalid: ${branch.joinNodeId}`)
+    return this.completeJoinIfReady(next, joinNode)
+  }
+
+  private completeJoinIfReady(run: MultiAgentRun, node: JoinNode): MultiAgentRun {
+    const readiness = joinReadiness(run, node)
+    const now = this.options.nowIso()
+    if (readiness === 'waiting') {
+      return MultiAgentRunSchema.parse({
+        ...run,
+        status: 'running',
+        activeNodeId: node.id,
+        events: [...run.events, {
+          eventId: this.options.ids('mae'),
+          type: 'join_waiting',
+          nodeId: node.id,
+          payload: { requiredBranchIds: node.requiredBranchIds },
+          timestamp: now
+        }],
+        updatedAt: now
+      })
+    }
+    const condition = readiness === 'completed' ? 'completed' : 'failed'
+    const result = buildJoinResult(run, node)
+    const nextNodeId = nextNodeForCondition(this.graph, node.id, condition)
+      ?? (condition === 'completed' ? nextNodeForCondition(this.graph, node.id, 'joined') : undefined)
+    const completed = MultiAgentRunSchema.parse({
+      ...run,
+      activeNodeId: node.id,
+      events: [
+        ...run.events,
+        {
+          eventId: this.options.ids('mae'),
+          type: 'join_completed',
+          nodeId: node.id,
+          payload: { condition, result },
+          timestamp: now
+        },
+        {
+          eventId: this.options.ids('mae'),
+          type: 'node_completed',
+          nodeId: node.id,
+          payload: { condition, result },
+          timestamp: now
+        }
+      ],
+      updatedAt: now
+    })
+    if (!nextNodeId) {
+      return MultiAgentRunSchema.parse({
+        ...completed,
+        status: 'failed',
+        events: [...completed.events, {
+          eventId: this.options.ids('mae'),
+          type: 'run_failed',
+          nodeId: node.id,
+          payload: { reason: `join_${condition}`, result },
+          timestamp: now
+        }],
+        updatedAt: now
+      })
+    }
+    return this.enterGraphNode(completed, nextNodeId)
   }
 
   private rejectJudgeWithoutEvidence(run: MultiAgentRun, nodeId: string, agentId: string): MultiAgentRun {

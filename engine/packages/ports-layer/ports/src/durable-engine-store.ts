@@ -91,6 +91,7 @@ export const EngineStreamEventInputSchema = z.object({
   timestamp: IsoTimestampSchema,
   scope: TaskScopeSchema,
   multiAgentRunId: CanonicalRecordKeySchema.optional(),
+  branchId: CanonicalRecordKeySchema.optional(),
   agentRunId: CanonicalRecordKeySchema.optional(),
   kernelRunId: CanonicalRecordKeySchema.optional(),
   graph: GraphCorrelationIdentitySchema.optional(),
@@ -100,6 +101,9 @@ export const EngineStreamEventInputSchema = z.object({
 }).strict().superRefine((event, context) => {
   if (event.agentRunId && !event.multiAgentRunId) {
     context.addIssue({ code: 'custom', message: 'agentRunId requires multiAgentRunId', path: ['agentRunId'] })
+  }
+  if (event.branchId && !event.multiAgentRunId) {
+    context.addIssue({ code: 'custom', message: 'branchId requires multiAgentRunId', path: ['branchId'] })
   }
   if (event.kernelRunId && (!event.multiAgentRunId || !event.agentRunId)) {
     context.addIssue({ code: 'custom', message: 'kernelRunId requires multiAgentRunId and agentRunId', path: ['kernelRunId'] })

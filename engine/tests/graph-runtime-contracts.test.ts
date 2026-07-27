@@ -51,6 +51,14 @@ describe('graph runtime contracts', () => {
     })).toThrow('edge work events require edgeId')
   })
 
+  it('preserves stable branch identity on durable work events', () => {
+    expect(WorkGraphEventSchema.parse({
+      eventId: 'event-branch', scope, runId: 'run', graphId: 'graph', graphRevision: 1,
+      nodeId: 'reviewer', branchId: 'review', attemptId: 'attempt', kind: 'branch_completed',
+      payload: {}, timestamp
+    })).toMatchObject({ branchId: 'review', kind: 'branch_completed' })
+  })
+
   it('pins graph revision and digest on graph runs', () => {
     expect(GraphRunRecordSchema.parse({
       schemaVersion: 1, scope, runId: 'run', threadId: 'thread', turnId: 'turn',
@@ -68,5 +76,25 @@ describe('graph runtime contracts', () => {
       'ROOT_RUN_BUDGET_MISSING'
     ])
     expect(WorkGraphEventKindSchema.parse('root_run_repaired')).toBe('root_run_repaired')
+  })
+
+  it('exposes durable branch and join work-event kinds', () => {
+    expect([
+      'branch_spawned',
+      'branch_started',
+      'branch_completed',
+      'branch_failed',
+      'branch_cancelled',
+      'join_waiting',
+      'join_completed'
+    ].map((kind) => WorkGraphEventKindSchema.parse(kind))).toEqual([
+      'branch_spawned',
+      'branch_started',
+      'branch_completed',
+      'branch_failed',
+      'branch_cancelled',
+      'join_waiting',
+      'join_completed'
+    ])
   })
 })

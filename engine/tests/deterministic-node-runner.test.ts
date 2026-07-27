@@ -3,6 +3,36 @@ import type { GraphNodeV1 } from '@qiongqi/contracts'
 import { decideDeterministicNode } from '@qiongqi/loop'
 
 describe('deterministic graph nodes', () => {
+  it('waits at an explicit parallel coordinator boundary', () => {
+    expect(decideDeterministicNode({
+      id: 'fan_out',
+      kind: 'parallel',
+      branches: [
+        { branchId: 'a', startNodeId: 'agent_a' },
+        { branchId: 'b', startNodeId: 'agent_b' }
+      ],
+      joinNodeId: 'join_all',
+      failurePolicy: 'wait_all'
+    }, {
+      branchStatus: {},
+      retryCounters: {},
+      resolvedConditions: {}
+    })).toEqual({ status: 'wait', reason: 'parallel' })
+  })
+
+  it('does not satisfy a join with no required branches', () => {
+    expect(decideDeterministicNode({
+      id: 'join_all',
+      kind: 'join',
+      requiredBranchIds: [],
+      outputPolicy: 'all'
+    }, {
+      branchStatus: {},
+      retryCounters: {},
+      resolvedConditions: {}
+    })).toEqual({ status: 'wait', reason: 'join' })
+  })
+
   it.each([
     [{ id: 'handoff', kind: 'handoff', targetAgentId: 'agent-b' }, { status: 'advance', condition: 'accepted' }],
     [{ id: 'tool', kind: 'tool', toolName: 'read' }, { status: 'wait', reason: 'tool:read' }],

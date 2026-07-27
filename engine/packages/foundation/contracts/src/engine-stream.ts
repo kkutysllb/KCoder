@@ -23,6 +23,7 @@ export const EngineStreamEventSchema = z.object({
   timestamp: IsoTimestampSchema,
   scope: TaskScopeSchema,
   multiAgentRunId: NonEmptyString.optional(),
+  branchId: NonEmptyString.optional(),
   agentRunId: NonEmptyString.optional(),
   kernelRunId: NonEmptyString.optional(),
   graph: GraphCorrelationIdentitySchema.optional(),
@@ -32,6 +33,9 @@ export const EngineStreamEventSchema = z.object({
 }).strict().superRefine((event, context) => {
   if (event.agentRunId && !event.multiAgentRunId) {
     context.addIssue({ code: 'custom', message: 'agentRunId requires multiAgentRunId', path: ['agentRunId'] })
+  }
+  if (event.branchId && !event.multiAgentRunId) {
+    context.addIssue({ code: 'custom', message: 'branchId requires multiAgentRunId', path: ['branchId'] })
   }
   if (event.kernelRunId && (!event.multiAgentRunId || !event.agentRunId)) {
     context.addIssue({ code: 'custom', message: 'kernelRunId requires multiAgentRunId and agentRunId', path: ['kernelRunId'] })
@@ -100,6 +104,18 @@ export const GraphEdgeAttributionMetricsSchema = z.object({
 }).strict()
 export type GraphEdgeAttributionMetrics = z.infer<typeof GraphEdgeAttributionMetricsSchema>
 
+export const BranchRoiSnapshotSchema = z.object({
+  roiStatus: RoiStatusSchema,
+  currency: NonEmptyString.optional(),
+  incurredCost: z.number().nonnegative(),
+  businessValue: z.number(),
+  netValue: z.number().optional(),
+  roiRatio: z.number().optional(),
+  engineEfficiency: EngineEfficiencySchema,
+  updatedAt: IsoTimestampSchema
+}).strict()
+export type BranchRoiSnapshot = z.infer<typeof BranchRoiSnapshotSchema>
+
 export const RoiSnapshotSchema = z.object({
   scope: TaskScopeSchema,
   revision: z.number().int().nonnegative(),
@@ -113,6 +129,7 @@ export const RoiSnapshotSchema = z.object({
   graph: GraphAttributionQuerySchema.optional(),
   byNode: z.record(NonEmptyString, GraphNodeAttributionMetricsSchema).optional(),
   byEdge: z.record(NonEmptyString, GraphEdgeAttributionMetricsSchema).optional(),
+  byBranch: z.record(NonEmptyString, BranchRoiSnapshotSchema).optional(),
   fanOut: z.number().int().nonnegative().optional(),
   retryAmplification: z.number().nonnegative().optional(),
   suppressedPhysicalAttempts: z.number().int().nonnegative().optional(),

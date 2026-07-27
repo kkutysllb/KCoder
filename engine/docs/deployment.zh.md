@@ -1,4 +1,4 @@
-# Qiongqi Durable Engine v1.1.1 生产部署
+# Qiongqi Durable Engine v1.1.2 生产部署
 
 ## 1. 前置条件
 
@@ -7,6 +7,7 @@
 - provider credential 由 secret manager 解析 `credentialRef`，不得写入 profile、checkpoint、stream 或日志。
 - 新任务必须先发布 immutable `GraphRevision`，再以 `graphRef` 启动。
 - 每个 governed `start()` 必须由调用方提供 `budgetLimits`；引擎不推断产品预算。
+- 每次 `dispatchParallelAgents()` 必须由调用方提供完整 `requestedBudgets[branchId]`；缺失或额外 branch budget 都应在 dispatch 前失败。
 
 ## 2. 构建与发布门禁
 
@@ -41,6 +42,8 @@ git diff --check
 
 PostgreSQL 必须在 parent row lock 内校验“settled actual + active requested + new requested <= root limits”。SQLite/in-memory 即使通过 conformance，也不能替代多实例数据库锁。
 
+v1.1.2 的多实例发布必须执行 `tests/postgres-durable-parallel-engine.test.ts`：两个独立 store/engine 实例并发提交乱序 branch completion，最终只能产生一个 join，且两份 root projection 版本一致。没有 `QIONGQI_TEST_POSTGRES_URL` 时该门禁会跳过，这种构建不得作为已验证的多实例生产发布。
+
 ## 4. Readiness 与探针
 
 - `/health` 只表示进程可响应。
@@ -51,7 +54,7 @@ PostgreSQL 必须在 parent row lock 内校验“settled actual + active request
 
 ## 5. Streaming
 
-SSE 代理必须关闭响应缓冲，允许长连接，并传递 `Last-Event-ID` 或等价 seq cursor。引擎先提交 durable event 再输出；客户端断开不取消任务。subscriber ack 是独立 cursor，不能用一个消费者的 ack 截断其他消费者。
+SSE 代理必须关闭响应缓冲，允许长连接，并传递 `Last-Event-ID` 或等价 seq cursor。引擎先提交 durable event 再输出；客户端断开不取消任务。branch lifecycle event 带稳定 `branchId`，root `roi.snapshot.byBranch` 必须与根总量对账。subscriber ack 是独立 cursor，不能用一个消费者的 ack 截断其他消费者。
 
 private reasoning 默认不采集、不持久化、不订阅、不保留。反向代理、access log 和 trace exporter 不得记录 Authorization、prompt、工具参数、credential 或 private memory。
 
@@ -67,7 +70,7 @@ private reasoning 默认不采集、不持久化、不订阅、不保留。反�
 
 - logical/physical/replayed/suppressed/uncertain attempts 与 duplicate ratio；
 - outbox age、claim failure、lease conflict、checkpoint lag 和 resume/cancel latency；
-- graph circuit state、readiness level、node failure/retry、fan-out 和 critical-path latency；
+- graph circuit state、readiness level、node/branch failure/retry/cancel、fan-out、join latency 和 critical-path latency；
 - stream append latency、subscriber lag、SSE reconnect；
 - model/tool usage、cost、graph/node/edge ROI、avoided cost 和 ROI status。
 
@@ -75,6 +78,6 @@ ROI `incomplete` 表示缺少带 evidence 的业务价值，`unavailable` 表示
 
 ## 8. 故障演练
 
-worker claim TTL 必须覆盖正常 handler 周期，并在到期前调用 `renewWorkClaim()`；续租失败立即停止提交，等待更高 fence 的 worker 接管。发布前验证：模型 delta 中断、provider 返回后 commit 前崩溃、工具 effect 后 commit 失败、prepare commit 后 notify 前崩溃、outbox commit 后 publish 前崩溃、过期 lease takeover/续租失败、审批 token 重放、resource write 冲突、root projection 缺失/分歧、累计预算耗尽、circuit pause/resume、SSE 断线续传、取消与 late completion 竞争、PostgreSQL 暂时不可用。
+worker claim TTL 必须覆盖正常 handler 周期，并在到期前调用 `renewWorkClaim()`；续租失败立即停止提交，等待更高 fence 的 worker 接管。发布前验证：模型 delta 中断、provider 返回后 commit 前崩溃、工具 effect 后 commit 失败、parallel fan-out commit 后崩溃、乱序 branch completion、join commit 前崩溃、prepare commit 后 notify 前崩溃、outbox commit 后 publish 前崩溃、过期 dispatch/cancel claim takeover、审批 token 重放、resource write 冲突、root projection 缺失/分歧、累计预算耗尽、`wait_all`/`fail_fast`、root cancel 与 late completion 竞争、SSE branch replay、PostgreSQL 暂时不可用。
 
 验收条件是：没有静默重复 effect、没有跨 task/Agent memory 泄露、所有 run 都能从 durable facts 解释和恢复。监控应将 `ROOT_RUN_AGGREGATE_INCOMPLETE`、`ROOT_RUN_AGGREGATE_DIVERGED`、`ROOT_RUN_BUDGET_MISSING` 作为不可自动重试的治理告警。

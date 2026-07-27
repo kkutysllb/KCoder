@@ -1,6 +1,7 @@
 import {
   AgentRunIdentitySchema,
   GraphRunRecordSchema,
+  KernelCancellationPayloadSchema,
   KernelDispatchPayloadSchema,
   MailboxMessageSchema,
   MultiAgentRunSchema,
@@ -27,6 +28,7 @@ import {
 } from '@qiongqi/ports'
 import type { RootRunAggregateCoordinator } from './root-run-aggregate.js'
 import type { AgentDispatchPreparationInput } from './kernel-agent-executor.js'
+import { projectActiveNodeIds } from './parallel-branch-state.js'
 
 export type GovernedRootStoreOptions = {
   coordinator: RootRunAggregateCoordinator
@@ -273,6 +275,159 @@ export class DurableMultiAgentRunStore implements MultiAgentRunStore {
     })
   }
 
+  async prepareAgentDispatches(
+    inputs: AgentDispatchPreparationInput[],
+    options: MultiAgentRunUpdateOptions = {}
+  ): Promise<MultiAgentRun> {
+    if (!this.rootAggregate) throw new Error('prepared dispatch requires an aggregate-backed run store')
+    if (inputs.length === 0) throw new Error('parallel dispatch preparation requires at least one AgentRun')
+    const multiAgentRunId = inputs[0]!.multiAgentRunId
+    if (inputs.some((input) => input.multiAgentRunId !== multiAgentRunId || input.parentRunId !== multiAgentRunId)) {
+      throw new EngineStoreConflictError('parallel dispatch inputs must share one governed root')
+    }
+    if (new Set(inputs.map((input) => input.agentRunId)).size !== inputs.length) {
+      throw new EngineStoreConflictError('parallel dispatch contains duplicate AgentRun identities')
+    }
+
+    return this.withLock(multiAgentRunId, async () => {
+      const current = await this.rootAggregate!.coordinator.load(multiAgentRunId)
+      const run = current.graphRun.eventedV2Run
+      if (!run) throw new Error(`MultiAgentRun not found: ${multiAgentRunId}`)
+      const pending: AgentDispatchPreparationInput[] = []
+      for (const input of inputs) {
+        const agentRun = run.agentRuns.find((candidate) => candidate.agentRunId === input.agentRunId)
+        if (!agentRun) throw new Error(`AgentRun not found: ${input.agentRunId}`)
+        if (agentRun.agentId !== input.agentId || agentRun.nodeId !== input.nodeId) {
+          throw new EngineStoreConflictError('prepared dispatch does not match the durable AgentRun')
+        }
+        if (agentRun.branchId) {
+          const branch = run.branches[agentRun.branchId]
+          if (!branch?.agentRunIds.includes(agentRun.agentRunId) || branch.activeNodeId !== agentRun.nodeId) {
+            throw new EngineStoreConflictError('prepared dispatch does not match the durable branch cursor')
+          }
+        }
+        if (agentRun.executionRef) {
+          if (agentRun.executionRef.kernelRunId !== input.executionRef.kernelRunId) {
+            throw new EngineStoreConflictError('AgentRun already has a different Kernel execution identity')
+          }
+          continue
+        }
+        pending.push(input)
+      }
+      if (pending.length === 0) return MultiAgentRunSchema.parse(run)
+
+      const now = run.updatedAt
+      const executionByAgentRun = new Map(pending.map((input) => [input.agentRunId, input.executionRef]))
+      const next = MultiAgentRunSchema.parse({
+        ...run,
+        agentRuns: run.agentRuns.map((candidate) => {
+          const executionRef = executionByAgentRun.get(candidate.agentRunId)
+          return executionRef
+            ? { ...candidate, status: 'running', executionRef, updatedAt: now }
+            : candidate
+        }),
+        updatedAt: now
+      })
+      const baseMutations = this.mutationsForRun(next, run, false)
+      const payloads = pending.map((input) => KernelDispatchPayloadSchema.parse({
+        schemaVersion: 1,
+        identity: AgentRunIdentitySchema.parse({
+          scope: input.scope,
+          multiAgentRunId: input.multiAgentRunId,
+          parentRunId: input.parentRunId,
+          agentRunId: input.agentRunId,
+          agentId: input.agentId,
+          nodeId: input.nodeId,
+          executionRef: input.executionRef,
+          ...(input.graph ? { graph: input.graph } : {})
+        }),
+        reservationId: input.reservationId,
+        requestedBudget: input.requestedBudget,
+        role: input.role ?? 'agent',
+        inputRef: input.inputRef,
+        sharedEvidenceRefs: input.sharedEvidenceRefs ?? [],
+        ...(input.modelPolicyRef ? { modelPolicyRef: input.modelPolicyRef } : {})
+      }))
+
+      const aggregate = await this.rootAggregate!.coordinator.update({
+        runId: run.runId,
+        expectedVersion: current.graphRun.version,
+        ...(options.fence ? { lease: engineLease(run.runId, options.fence) } : {}),
+        mutate: () => ({
+          graphRun: this.recordForRun(next, current.graphRun.version + 1, current.graphRun.circuitState)
+        }),
+        mutations: {
+          ...baseMutations,
+          budgetReservationMutations: pending.map((input) => ({
+            type: 'reserve' as const,
+            record: {
+              reservationId: input.reservationId,
+              scope: this.scope,
+              parentRunId: run.runId,
+              childRunId: input.executionRef.kernelRunId,
+              status: 'reserved' as const,
+              reserved: input.requestedBudget,
+              createdAt: now,
+              updatedAt: now
+            }
+          })),
+          outboxIntents: [
+            ...baseMutations.outboxIntents,
+            ...pending.map((input, index) => ({
+              type: 'put' as const,
+              record: EngineOutboxIntentSchema.parse({
+                workId: `agent_execution_requested:${input.executionRef.kernelRunId}`,
+                scope: this.scope,
+                kind: 'agent_execution_requested',
+                payloadRef: input.inputRef,
+                status: 'pending',
+                availableAt: now,
+                createdAt: now,
+                updatedAt: now,
+                payload: payloads[index]
+              })
+            }))
+          ],
+          workGraphEvents: [
+            ...baseMutations.workGraphEvents,
+            ...pending.flatMap((input) => {
+              const eventBase = {
+                scope: this.scope,
+                runId: run.runId,
+                graphId: this.graphRevision.graphId,
+                graphRevision: this.graphRevision.revision,
+                nodeId: input.nodeId,
+                attemptId: input.agentRunId,
+                timestamp: now
+              }
+              return [
+                {
+                  type: 'append' as const,
+                  record: {
+                    ...eventBase,
+                    eventId: `child_spawned:${input.executionRef.kernelRunId}`,
+                    kind: 'child_spawned' as const,
+                    payload: { agentRunId: input.agentRunId, kernelRunId: input.executionRef.kernelRunId }
+                  }
+                },
+                {
+                  type: 'append' as const,
+                  record: {
+                    ...eventBase,
+                    eventId: `budget_reserved:${input.reservationId}`,
+                    kind: 'budget_reserved' as const,
+                    payload: { reservationId: input.reservationId, requestedBudget: input.requestedBudget }
+                  }
+                }
+              ]
+            })
+          ]
+        }
+      })
+      return MultiAgentRunSchema.parse(aggregate.graphRun.eventedV2Run)
+    })
+  }
+
   async loadVersion(runId: string): Promise<number | undefined> {
     const record = await this.store.loadGraphRun(runId)
     if (record && this.rootAggregate) await this.rootAggregate.coordinator.load(runId)
@@ -383,7 +538,7 @@ export class DurableMultiAgentRunStore implements MultiAgentRunStore {
       version,
       status: run.status,
       circuitState,
-      activeNodeIds: [run.activeNodeId],
+      activeNodeIds: projectActiveNodeIds(run),
       budgets: run.budgets,
       eventedV2Run: run,
       createdAt: run.createdAt,
@@ -396,10 +551,20 @@ export class DurableMultiAgentRunStore implements MultiAgentRunStore {
     previous: MultiAgentRun | undefined,
     publishRevision: boolean
   ) {
+    const projections = eventedRunProjectionMutations(
+      this.scope,
+      this.graphRevision,
+      this.rootAggregate?.policyRevision ?? 1,
+      run,
+      previous
+    )
     return {
       graphRevisionMutations: publishRevision ? [{ type: 'put' as const, record: this.graphRevision }] : [],
-      workGraphEvents: newWorkEvents(this.scope, this.graphRevision, run, previous),
-      outboxIntents: durableRunOutbox(this.scope, run, previous)
+      ...projections,
+      outboxIntents: [
+        ...durableRunOutbox(this.scope, run, previous),
+        ...durableKernelCancellations(this.scope, run, previous)
+      ]
     }
   }
 
@@ -438,6 +603,22 @@ export class DurableMultiAgentRunStore implements MultiAgentRunStore {
       release()
       if (this.locks.get(runId) === current) this.locks.delete(runId)
     }
+  }
+}
+
+export function eventedRunProjectionMutations(
+  scope: TaskScope,
+  revision: GraphRevision,
+  policyRevision: number,
+  run: MultiAgentRun,
+  previous: MultiAgentRun | undefined
+): {
+  workGraphEvents: NonNullable<EngineCommit['workGraphEvents']>
+  streamEvents: NonNullable<EngineCommit['streamEvents']>
+} {
+  return {
+    workGraphEvents: newWorkEvents(scope, revision, run, previous),
+    streamEvents: newStreamEvents(scope, revision, policyRevision, run, previous)
   }
 }
 
@@ -580,6 +761,7 @@ function newWorkEvents(
         graphId: revision.graphId,
         graphRevision: revision.revision,
         ...(event.nodeId ? { nodeId: event.nodeId } : {}),
+        ...(event.branchId ? { branchId: event.branchId } : {}),
         attemptId: event.eventId,
         kind: workEventKind(event),
         payload: { source: 'evented_v2', event },
@@ -621,6 +803,47 @@ function newWorkEvents(
   return records.map((record) => ({ type: 'append', record }))
 }
 
+function newStreamEvents(
+  scope: TaskScope,
+  revision: GraphRevision,
+  policyRevision: number,
+  run: MultiAgentRun,
+  previous: MultiAgentRun | undefined
+): NonNullable<EngineCommit['streamEvents']> {
+  const previousIds = new Set(previous?.events.map((event) => event.eventId) ?? [])
+  return run.events
+    .filter((event) => !previousIds.has(event.eventId))
+    .map((event) => ({
+      type: 'append' as const,
+      record: {
+        streamId: `stream:${run.runId}`,
+        timestamp: event.timestamp,
+        scope,
+        multiAgentRunId: run.runId,
+        ...(event.branchId ? { branchId: event.branchId } : {}),
+        graph: {
+          graphId: revision.graphId,
+          graphRevision: revision.revision,
+          graphDigest: revision.graphDigest,
+          ...(event.branchId ? { branchId: event.branchId } : {}),
+          ...(event.nodeId ? { nodeId: event.nodeId } : {}),
+          attemptId: event.eventId,
+          callerId: scope.ownerId,
+          policyRevision
+        },
+        channel: 'public' as const,
+        kind: event.type.replaceAll('_', '.'),
+        payload: {
+          eventId: event.eventId,
+          ...(event.nodeId ? { nodeId: event.nodeId } : {}),
+          ...(event.agentId ? { agentId: event.agentId } : {}),
+          ...(event.envelopeId ? { envelopeId: event.envelopeId } : {}),
+          ...(event.payload !== undefined ? { data: event.payload } : {})
+        }
+      }
+    }))
+}
+
 function edgeForLegacyEvent(revision: GraphRevision, event: MultiAgentEvent) {
   if (event.type === 'node_completed' && event.nodeId) {
     const condition = event.payload && typeof event.payload === 'object' && 'condition' in event.payload
@@ -644,8 +867,17 @@ function workEventKind(event: MultiAgentEvent): WorkGraphEvent['kind'] {
     node_completed: 'node_completed',
     handoff_requested: 'node_started',
     handoff_delivered: 'node_completed',
+    branch_spawned: 'branch_spawned',
+    branch_started: 'branch_started',
+    branch_completed: 'branch_completed',
+    branch_failed: 'branch_failed',
+    branch_cancelled: 'branch_cancelled',
+    branch_late_result: 'branch_late_result',
+    join_waiting: 'join_waiting',
+    join_completed: 'join_completed',
     run_completed: 'run_completed',
-    run_failed: 'run_failed'
+    run_failed: 'run_failed',
+    run_cancelled: 'run_cancelled'
   }[event.type] as WorkGraphEvent['kind']
 }
 
@@ -680,6 +912,41 @@ function durableRunOutbox(
     }
   }
   return mutations
+}
+
+function durableKernelCancellations(
+  scope: TaskScope,
+  run: MultiAgentRun,
+  previous: MultiAgentRun | undefined
+): NonNullable<EngineCommit['outboxIntents']> {
+  const previousById = new Map(previous?.agentRuns.map((agentRun) => [agentRun.agentRunId, agentRun]) ?? [])
+  return run.agentRuns.flatMap((agentRun) => {
+    const before = previousById.get(agentRun.agentRunId)
+    if (agentRun.status !== 'aborted'
+      || before?.status === 'aborted'
+      || !agentRun.branchId
+      || !agentRun.executionRef) return []
+    const payload = KernelCancellationPayloadSchema.parse({
+      schemaVersion: 1,
+      executionRef: agentRun.executionRef,
+      branchId: agentRun.branchId,
+      reason: 'fail_fast'
+    })
+    return [{
+      type: 'put' as const,
+      record: EngineOutboxIntentSchema.parse({
+        workId: `agent_execution_cancel_requested:${agentRun.executionRef.kernelRunId}`,
+        scope,
+        kind: 'agent_execution_cancel_requested',
+        payloadRef: `kernel-run://${agentRun.executionRef.kernelRunId}/cancel`,
+        status: 'pending',
+        availableAt: run.updatedAt,
+        createdAt: run.updatedAt,
+        updatedAt: run.updatedAt,
+        payload
+      })
+    }]
+  })
 }
 
 function mailboxMessageFromRecord(record: EngineOutboxRecord): MailboxMessage {

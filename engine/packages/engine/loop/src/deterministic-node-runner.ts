@@ -22,8 +22,11 @@ export function decideDeterministicNode(
       const condition = state.resolvedConditions[node.id]
       return condition ? { status: 'advance', condition } : { status: 'wait', reason: `tool:${node.toolName}` }
     }
+    case 'parallel':
+      return { status: 'wait', reason: 'parallel' }
     case 'join':
-      return node.requiredBranchIds.every((branchId) => state.branchStatus[branchId] === 'completed')
+      return node.requiredBranchIds.length > 0
+        && node.requiredBranchIds.every((branchId) => state.branchStatus[branchId] === 'completed')
         ? { status: 'advance', condition: 'completed' }
         : { status: 'wait', reason: 'join' }
     case 'wait': {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { InMemoryDurableEngineStore } from '@qiongqi/adapter-storage'
-import { GraphRevisionSchema, GraphRunRecordSchema, type BudgetState, type GraphRunRecord } from '@qiongqi/contracts'
+import { GraphRevisionSchema, GraphRunRecordSchema, MultiAgentRunSchema, type BudgetState, type GraphRunRecord } from '@qiongqi/contracts'
 import {
   RootRunAggregateCoordinator,
   RootRunAggregateError
@@ -246,6 +246,104 @@ describe('RootRunAggregateCoordinator', () => {
     await aggregate.delete('root-1')
     await expect(store.loadGraphRun('root-1')).resolves.toBeUndefined()
     await expect(store.loadRun('root-1')).resolves.toBeUndefined()
+  })
+
+  it('finalizes cancellation across every open durable branch projection', async () => {
+    const store = new InMemoryDurableEngineStore()
+    const running = graphRun()
+    const eventedV2Run = MultiAgentRunSchema.parse({
+      ...running.eventedV2Run!,
+      activeNodeId: 'join_all',
+      branchStatus: { draft: 'running', research: 'running', review: 'completed' },
+      branches: {
+        draft: {
+          branchId: 'draft', parallelNodeId: 'fan_out', joinNodeId: 'join_all', status: 'suspended',
+          activeNodeId: 'writer_wait', agentRunIds: [], usageRefs: [], artifactRefs: [], updatedAt: timestamp
+        },
+        research: {
+          branchId: 'research', parallelNodeId: 'fan_out', joinNodeId: 'join_all', status: 'running',
+          activeNodeId: 'researcher', agentRunIds: [], usageRefs: [], artifactRefs: [], updatedAt: timestamp
+        },
+        review: {
+          branchId: 'review', parallelNodeId: 'fan_out', joinNodeId: 'join_all', status: 'completed',
+          activeNodeId: 'join_all', agentRunIds: [], output: 'approved', usageRefs: [], artifactRefs: [],
+          completedAt: timestamp, updatedAt: timestamp
+        }
+      }
+    })
+    const graph = GraphRunRecordSchema.parse({
+      ...running,
+      activeNodeIds: ['join_all', 'writer_wait', 'researcher'],
+      eventedV2Run
+    })
+    const engine = {
+      ...rootEngine(),
+      graph: { ...rootEngine().graph!, nodeId: 'join_all' },
+      cursor: { ...rootEngine().cursor, nodeId: 'join_all' }
+    }
+    await seedBoth(store, graph, engine)
+
+    const cancelled = await coordinator(store).finalizeCancel('root-1')
+
+    expect(cancelled.graphRun.activeNodeIds).toEqual(['join_all'])
+    expect(cancelled.graphRun.eventedV2Run?.branchStatus).toEqual({
+      draft: 'aborted', research: 'aborted', review: 'completed'
+    })
+    expect(cancelled.graphRun.eventedV2Run?.branches).toMatchObject({
+      draft: { status: 'aborted' },
+      research: { status: 'aborted' },
+      review: { status: 'completed', output: 'approved' }
+    })
+    expect(cancelled.graphRun.eventedV2Run?.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'branch_cancelled', branchId: 'draft', nodeId: 'writer_wait' }),
+      expect.objectContaining({ type: 'branch_cancelled', branchId: 'research', nodeId: 'researcher' }),
+      expect.objectContaining({ type: 'run_cancelled', nodeId: 'join_all' })
+    ]))
+    expect(cancelled.graphRun.eventedV2Run?.events).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'branch_cancelled', branchId: 'review' })
+    ]))
+    await expect(store.listWorkGraphEvents('root-1', 0, 100)).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'branch_cancelled', branchId: 'draft', nodeId: 'writer_wait' }),
+      expect.objectContaining({ kind: 'branch_cancelled', branchId: 'research', nodeId: 'researcher' }),
+      expect.objectContaining({ kind: 'run_cancelled', nodeId: 'join_all' })
+    ]))
+    await expect(store.readStream('stream:root-1', 0, 100)).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'branch.cancelled', branchId: 'draft' }),
+      expect.objectContaining({ kind: 'branch.cancelled', branchId: 'research' }),
+      expect.objectContaining({ kind: 'run.cancelled' })
+    ]))
+  })
+
+  it('persists root cancellation work before best-effort Kernel cancellation', async () => {
+    const store = new InMemoryDurableEngineStore()
+    const running = graphRun()
+    const graph = GraphRunRecordSchema.parse({
+      ...running,
+      eventedV2Run: {
+        ...running.eventedV2Run!,
+        agentRuns: running.eventedV2Run!.agentRuns.map((agentRun) => ({
+          ...agentRun,
+          executionRef: {
+            scope,
+            parentKind: 'agent',
+            multiAgentRunId: 'root-1',
+            agentRunId: agentRun.agentRunId,
+            parentRunId: agentRun.agentRunId,
+            kernelRunId: 'kernel-root-agent'
+          }
+        }))
+      }
+    })
+    await seedBoth(store, graph, rootEngine())
+
+    await coordinator(store).requestCancel('root-1')
+
+    await expect(store.loadOutboxIntent('agent_execution_cancel_requested:kernel-root-agent'))
+      .resolves.toMatchObject({
+        status: 'pending',
+        kind: 'agent_execution_cancel_requested',
+        payload: { reason: 'root_cancel', executionRef: { kernelRunId: 'kernel-root-agent' } }
+      })
   })
 
   it('exports a structured aggregate error type', () => {

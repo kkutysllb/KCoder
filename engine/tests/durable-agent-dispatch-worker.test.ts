@@ -8,7 +8,7 @@ import {
   KernelAgentExecutor,
   RootRunAggregateCoordinator
 } from '@qiongqi/loop'
-import { KernelDispatchPayloadSchema, type AgentGraph } from '@qiongqi/contracts'
+import { KernelCancellationPayloadSchema, KernelDispatchPayloadSchema, type AgentGraph } from '@qiongqi/contracts'
 import { EngineRunRecordSchema, EngineStoreConflictError } from '@qiongqi/ports'
 
 const timestamp = '2026-07-26T00:00:00.000Z'
@@ -22,6 +22,139 @@ const graph: AgentGraph = {
 }
 
 describe('DurableAgentDispatchWorker', () => {
+  it('claims a durable branch cancellation and completes it with the current fence', async () => {
+    const store = new InMemoryDurableEngineStore()
+    const executionRef = {
+      scope,
+      parentKind: 'agent' as const,
+      multiAgentRunId: 'run-parallel',
+      agentRunId: 'agent-draft',
+      parentRunId: 'agent-draft',
+      kernelRunId: 'kernel-draft'
+    }
+    const payload = KernelCancellationPayloadSchema.parse({
+      schemaVersion: 1,
+      executionRef,
+      branchId: 'draft',
+      reason: 'fail_fast'
+    })
+    await store.commit({
+      scope,
+      runId: 'cancel-work-seed',
+      expectedRunVersion: 0,
+      expectedTaskRevision: 0,
+      outboxIntents: [{
+        type: 'put',
+        record: {
+          workId: 'agent_execution_cancel_requested:kernel-draft',
+          scope,
+          kind: 'agent_execution_cancel_requested',
+          payloadRef: 'kernel-run://kernel-draft/cancel',
+          status: 'pending',
+          availableAt: timestamp,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          payload
+        }
+      }]
+    })
+    const cancelled: string[] = []
+    const worker = new DurableAgentDispatchWorker({
+      store,
+      executor: {
+        async execute(input) { return { executionRef: input.executionRef } },
+        async resume() {},
+        async cancel(ref) { cancelled.push(ref.kernelRunId) }
+      }
+    })
+
+    await expect(worker.flushOnce()).resolves.toMatchObject({
+      processed: true,
+      workId: 'agent_execution_cancel_requested:kernel-draft'
+    })
+    expect(cancelled).toEqual(['kernel-draft'])
+    await expect(store.loadOutboxIntent('agent_execution_cancel_requested:kernel-draft')).resolves.toMatchObject({
+      status: 'completed'
+    })
+  })
+
+  it('reclaims durable cancellation after worker claim expiry', async () => {
+    const store = new InMemoryDurableEngineStore()
+    const executionRef = {
+      scope,
+      parentKind: 'agent' as const,
+      multiAgentRunId: 'run-cancel-recovery',
+      agentRunId: 'agent-cancel-recovery',
+      parentRunId: 'agent-cancel-recovery',
+      kernelRunId: 'kernel-cancel-recovery'
+    }
+    const workId = `agent_execution_cancel_requested:${executionRef.kernelRunId}`
+    await store.commit({
+      scope,
+      runId: 'cancel-recovery-seed',
+      expectedRunVersion: 0,
+      expectedTaskRevision: 0,
+      outboxIntents: [{
+        type: 'put',
+        record: {
+          workId,
+          scope,
+          kind: 'agent_execution_cancel_requested',
+          payloadRef: `kernel-run://${executionRef.kernelRunId}/cancel`,
+          status: 'pending',
+          availableAt: timestamp,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          payload: KernelCancellationPayloadSchema.parse({
+            schemaVersion: 1,
+            executionRef,
+            reason: 'root_cancel'
+          })
+        }
+      }]
+    })
+    let cancellations = 0
+    const crashing = new DurableAgentDispatchWorker({
+      store,
+      workerId: 'cancel-worker-stale',
+      leaseTtlMs: 1,
+      executor: {
+        async execute(input) { return { executionRef: input.executionRef } },
+        async resume() {},
+        async cancel() {
+          cancellations += 1
+          throw new Error('crash after cancellation delivery')
+        }
+      }
+    })
+
+    await expect(crashing.flushOnce()).rejects.toThrow(/crash after cancellation delivery/)
+    await expect(store.loadOutboxIntent(workId)).resolves.toMatchObject({
+      status: 'claimed', claim: { holderId: 'cancel-worker-stale', fence: 1 }
+    })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    let recoveredClaim: unknown
+    const recovered = new DurableAgentDispatchWorker({
+      store,
+      workerId: 'cancel-worker-current',
+      executor: {
+        async execute(input) { return { executionRef: input.executionRef } },
+        async resume() {},
+        async cancel() {
+          cancellations += 1
+          recoveredClaim = (await store.loadOutboxIntent(workId))?.claim
+        }
+      }
+    })
+    await expect(recovered.flushOnce()).resolves.toMatchObject({ processed: true, workId })
+    expect(cancellations).toBe(2)
+    expect(recoveredClaim).toMatchObject({ holderId: 'cancel-worker-current', fence: 2 })
+    await expect(store.loadOutboxIntent(workId)).resolves.toMatchObject({
+      status: 'completed'
+    })
+  })
+
   it('claims a prepared dispatch, resolves its input reference, and completes with the current fence', async () => {
     const { store } = await preparedFixture()
 

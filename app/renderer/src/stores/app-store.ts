@@ -1,14 +1,25 @@
 import { create } from 'zustand'
-import type { ApprovalRequest, UserInputRequest, TurnExecutionView, ThreadGoal, ThreadTodoList } from '../services/engine-api'
+import type {
+  ApprovalRequest,
+  UserInputRequest,
+  TurnExecutionView,
+  ThreadGoal,
+  ThreadTodoList,
+  BranchProjection,
+  BranchStatus
+} from '../services/engine-api'
+import type { RoiSnapshot } from '@qiongqi/contracts'
 
 // 富内容消息部件 — assistant 消息由多个 part 组成（文本/推理/工具调用/工具结果/usage/审批）
+// `branchId` 标记该 part 来自哪个持久化并行分支（root agent 的 part 无 branchId），
+// 用于并发分支场景下按 (itemId, branchId) 去重与按分支分组渲染。
 export type MessagePart =
-  | { type: 'text'; text: string }
-  | { type: 'reasoning'; text: string }
-  | { type: 'tool_call'; toolName: string; status: 'running' | 'completed' | 'failed'; callId?: string; summary?: string }
-  | { type: 'tool_result'; toolName: string; output?: string; isError?: boolean }
-  | { type: 'usage'; promptTokens: number; completionTokens: number; totalTokens: number }
-  | { type: 'approval'; approvalId: string; toolName: string; summary?: string; status: 'pending' | 'allowed' | 'denied' | 'expired' }
+  | { type: 'text'; text: string; itemId?: string; branchId?: string }
+  | { type: 'reasoning'; text: string; itemId?: string; branchId?: string }
+  | { type: 'tool_call'; toolName: string; status: 'running' | 'completed' | 'failed'; callId?: string; summary?: string; branchId?: string }
+  | { type: 'tool_result'; toolName: string; output?: string; isError?: boolean; branchId?: string }
+  | { type: 'usage'; promptTokens: number; completionTokens: number; totalTokens: number; branchId?: string }
+  | { type: 'approval'; approvalId: string; toolName: string; summary?: string; status: 'pending' | 'allowed' | 'denied' | 'expired'; branchId?: string }
 
 // Message types
 export interface Message {
@@ -55,15 +66,25 @@ interface AppState {
   modelVersion: number
 
   // 交互请求（审批 + 结构化输入）— 后端发 SSE 事件，前端需用户响应
+  //
+  // v1.1.2: 并行分支场景下多个分支可同时各自请求审批/输入，因此除了
+  // 单值的 pendingApproval/pendingUserInput（兼容旧 UI，指向最新的 pending
+  // 项）外，新增 pendingApprovals/pendingUserInputs 两个 Map 容纳并发请求。
   pendingApproval: ApprovalRequest | null
   pendingUserInput: UserInputRequest | null
+  pendingApprovals: Record<string, ApprovalRequest>
+  pendingUserInputs: Record<string, UserInputRequest>
 
   // 全局编排偏好（每回合发消息时随 StartTurnRequest 传给后端）
   orchestrationPreference: OrchestrationPreference
 
-  // 执行投影视图（GET /turns/:turnId/execution 轮询结果）
+  // 执行投影视图（run timeline 投影 + engine stream 增量）
   activeTurnId: string | null
   turnExecution: TurnExecutionView | null
+  /** v1.1.2 持久化并行分支投影：branchId -> 分支状态/agent/ROI。 */
+  branches: Record<string, BranchProjection>
+  /** v1.1.2 顶层 ROI 快照（来自 roi.snapshot engine stream 事件）。 */
+  roiSnapshot: RoiSnapshot | null
 
   // 浮动信息面板
   panelOpen: boolean
@@ -91,9 +112,25 @@ interface AppState {
   setPendingNewBranch: (branch: string | null) => void
   setPendingApproval: (approval: ApprovalRequest | null) => void
   setPendingUserInput: (input: UserInputRequest | null) => void
+  /** Add/replace a concurrent pending approval (keyed by approvalId). */
+  addPendingApproval: (approval: ApprovalRequest) => void
+  /** Mark a concurrent approval resolved and drop it from the pending map. */
+  resolvePendingApproval: (approvalId: string) => void
+  /** Add/replace a concurrent pending user-input (keyed by inputId). */
+  addPendingUserInput: (input: UserInputRequest) => void
+  /** Mark a concurrent user-input resolved and drop it from the pending map. */
+  resolvePendingUserInput: (inputId: string) => void
   setOrchestrationPreference: (pref: OrchestrationPreference) => void
   setActiveTurnId: (id: string | null) => void
   setTurnExecution: (view: TurnExecutionView | null) => void
+  /** Upsert a durable parallel branch projection (from branch.* stream events). */
+  upsertBranch: (branchId: string, patch: Partial<BranchProjection> & { status?: BranchStatus }) => void
+  /** Settle a branch to a terminal status (completed/failed/aborted). */
+  settleBranch: (branchId: string, status: BranchStatus) => void
+  /** Replace the whole branches map (from a timeline snapshot). */
+  setBranches: (branches: Record<string, BranchProjection>) => void
+  /** Replace the ROI snapshot (from roi.snapshot stream event). */
+  setRoiSnapshot: (roi: RoiSnapshot | null) => void
   setPanelOpen: (open: boolean) => void
   setPanelStrategy: (strategy: PanelStrategy) => void
   setPanelTab: (tab: PanelTab) => void
@@ -117,9 +154,13 @@ export const useAppStore = create<AppState>((set) => ({
   pendingNewBranch: null,
   pendingApproval: null,
   pendingUserInput: null,
+  pendingApprovals: {},
+  pendingUserInputs: {},
   orchestrationPreference: 'standard',
   activeTurnId: null,
   turnExecution: null,
+  branches: {},
+  roiSnapshot: null,
   panelOpen: false,
   panelStrategy: 'manual',
   panelTab: 'execution',
@@ -149,16 +190,35 @@ export const useAppStore = create<AppState>((set) => ({
       messages: state.messages.map((msg) => {
         if (msg.id !== id) return msg
         const parts = msg.parts ? [...msg.parts] : []
-        // 文本 part 累加：若最后一个 part 是 text，则合并
+
+        // Item-bound text/reasoning (from item_created/item_updated/item_completed):
+        // the engine ships the full payload per item event with no delta stream,
+        // so we dedupe by itemId and replace with the latest content rather than
+        // appending. This keeps repeated item_updated events from duplicating text.
+        if ((part.type === 'text' || part.type === 'reasoning') && part.itemId) {
+          const idx = parts.findIndex(
+            (p) => (p.type === 'text' || p.type === 'reasoning') && p.itemId === part.itemId
+          )
+          if (idx >= 0) {
+            parts[idx] = { ...part }
+            // Rebuild content from all text parts so the plain-text fallback stays in sync.
+            const content = parts.filter((p) => p.type === 'text').map((p) => p.text).join('')
+            return { ...msg, parts, content }
+          }
+          // itemId not seen yet — fall through to append below.
+        }
+
+        // Delta-style text accumulation: if the last part is a free-form text
+        // part (no itemId), merge into it.
         if (part.type === 'text' && parts.length > 0) {
           const last = parts[parts.length - 1]
-          if (last.type === 'text') {
+          if (last.type === 'text' && !last.itemId) {
             parts[parts.length - 1] = { type: 'text', text: last.text + part.text }
             return { ...msg, parts, content: msg.content + part.text }
           }
         }
         parts.push(part)
-        // 同步 content（用于纯文本回退渲染）
+        // Sync content (for plain-text fallback rendering).
         const contentUpdate = part.type === 'text' ? msg.content + part.text : msg.content
         return { ...msg, parts, content: contentUpdate }
       })
@@ -201,16 +261,110 @@ export const useAppStore = create<AppState>((set) => ({
   setSelectedModel: (model) => set({ selectedModel: model }),
   bumpModelVersion: () => set((state) => ({ modelVersion: state.modelVersion + 1 })),
   setPendingNewBranch: (branch) => set({ pendingNewBranch: branch }),
-  setPendingApproval: (approval) => set({ pendingApproval: approval }),
-  setPendingUserInput: (input) => set({ pendingUserInput: input }),
+
+  // Legacy single-value setters (kept for existing components). They sync the
+  // concurrent map so the two views never disagree.
+  setPendingApproval: (approval) =>
+    set((state) => {
+      if (!approval) {
+        // Clearing the legacy pointer clears only pending items from the map.
+        const remaining: Record<string, ApprovalRequest> = {}
+        for (const [id, a] of Object.entries(state.pendingApprovals)) {
+          if (a.status === 'pending') continue
+          remaining[id] = a
+        }
+        return { pendingApproval: null, pendingApprovals: remaining }
+      }
+      return {
+        pendingApproval: approval,
+        pendingApprovals: { ...state.pendingApprovals, [approval.approvalId]: approval }
+      }
+    }),
+  setPendingUserInput: (input) =>
+    set((state) => {
+      if (!input) {
+        const remaining: Record<string, UserInputRequest> = {}
+        for (const [id, i] of Object.entries(state.pendingUserInputs)) {
+          if (i.status === 'pending') continue
+          remaining[id] = i
+        }
+        return { pendingUserInput: null, pendingUserInputs: remaining }
+      }
+      return {
+        pendingUserInput: input,
+        pendingUserInputs: { ...state.pendingUserInputs, [input.inputId]: input }
+      }
+    }),
+
+  // Concurrent approval/input management (v1.1.2 parallel branches).
+  addPendingApproval: (approval) =>
+    set((state) => ({
+      pendingApprovals: { ...state.pendingApprovals, [approval.approvalId]: approval },
+      // Keep the legacy pointer on the most recent pending request.
+      pendingApproval: approval.status === 'pending' ? approval : state.pendingApproval
+    })),
+  resolvePendingApproval: (approvalId) =>
+    set((state) => {
+      const next = { ...state.pendingApprovals }
+      delete next[approvalId]
+      // Repoint the legacy field to any other still-pending approval.
+      const fallback = Object.values(next).find((a) => a.status === 'pending') ?? null
+      return { pendingApprovals: next, pendingApproval: fallback }
+    }),
+  addPendingUserInput: (input) =>
+    set((state) => ({
+      pendingUserInputs: { ...state.pendingUserInputs, [input.inputId]: input },
+      pendingUserInput: input.status === 'pending' ? input : state.pendingUserInput
+    })),
+  resolvePendingUserInput: (inputId) =>
+    set((state) => {
+      const next = { ...state.pendingUserInputs }
+      delete next[inputId]
+      const fallback = Object.values(next).find((i) => i.status === 'pending') ?? null
+      return { pendingUserInputs: next, pendingUserInput: fallback }
+    }),
+
   setOrchestrationPreference: (pref) => set({ orchestrationPreference: pref }),
   setActiveTurnId: (id) => set({ activeTurnId: id }),
   setTurnExecution: (view) => set({ turnExecution: view }),
+
+  // v1.1.2 durable parallel branch projection.
+  upsertBranch: (branchId, patch) =>
+    set((state) => {
+      const prev = state.branches[branchId]
+      // Merge: minimal defaults < existing record < incoming patch. branchId is
+      // always forced to the key so the record can never lose its identity.
+      // Built via Object.assign to avoid TS2783 (literal property overridden by
+      // a spread whose type is known to carry the same key).
+      const merged: BranchProjection = Object.assign(
+        { agentKeys: [], status: 'queued' as BranchStatus },
+        prev ?? {},
+        patch,
+        { branchId }
+      )
+      return { branches: { ...state.branches, [branchId]: merged } }
+    }),
+  settleBranch: (branchId, status) =>
+    set((state) => {
+      const prev = state.branches[branchId]
+      if (!prev) return {}
+      return { branches: { ...state.branches, [branchId]: { ...prev, status } } }
+    }),
+  setBranches: (branches) => set({ branches }),
+  setRoiSnapshot: (roi) => set({ roiSnapshot: roi }),
+
   setPanelOpen: (open) => set({ panelOpen: open }),
   setPanelStrategy: (strategy) => set({ panelStrategy: strategy }),
   setPanelTab: (tab) => set({ panelTab: tab }),
   setThreadGoal: (goal) => set({ threadGoal: goal }),
   setThreadTodos: (todos) => set({ threadTodos: todos }),
 
-  clearMessages: () => set({ messages: [], threadId: null, pendingNewBranch: null })
+  clearMessages: () =>
+    set({
+      messages: [],
+      threadId: null,
+      pendingNewBranch: null,
+      branches: {},
+      roiSnapshot: null
+    })
 }))

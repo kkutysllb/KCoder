@@ -5,17 +5,22 @@ import type {
   TurnExecutionView,
   AgentGraphNodeView,
   AgentExecutionView,
-  ExecutionStatus
+  ExecutionStatus,
+  BranchProjection,
+  BranchStatus
 } from '../../services/engine-api'
+import type { RoiSnapshot, BranchRoiSnapshot } from '@qiongqi/contracts'
 
 /**
- * 执行投影视图 — 渲染 GET /turns/:turnId/execution 返回的 DAG/agent 执行进度。
- * evented_v2: manager-specialist DAG（nodes/edges/handoffs）
+ * 执行投影视图 — 渲染 run timeline 投影 + engine stream 增量。
+ * evented_v2: manager-specialist DAG（nodes/edges/handoffs）+ v1.1.2 并行分支泳道 + ROI 面板
  * kernel_v3: delegation 树
  */
 export function ExecutionView() {
   const { t } = useI18n()
   const turnExecution = useAppStore((s) => s.turnExecution)
+  const branches = useAppStore((s) => s.branches)
+  const roiSnapshot = useAppStore((s) => s.roiSnapshot)
 
   if (!turnExecution) {
     return (
@@ -52,7 +57,7 @@ export function ExecutionView() {
         )}
       </div>
 
-      {/* Body: DAG / delegation + agent 列表 */}
+      {/* Body: DAG / delegation + 并行分支 + ROI + agent 列表 */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
         {/* DAG 或 delegation 树 */}
         {turnExecution.mode === 'evented_v2' ? (
@@ -69,6 +74,14 @@ export function ExecutionView() {
             agents={agents}
           />
         ) : null}
+
+        {/* v1.1.2 持久化并行分支泳道（仅在有分支数据时渲染） */}
+        {Object.keys(branches).length > 0 && (
+          <BranchLanes branches={branches} />
+        )}
+
+        {/* v1.1.2 ROI 面板（仅有 ROI 快照时渲染） */}
+        {roiSnapshot && <RoiPanel roi={roiSnapshot} />}
 
         {/* Agent 执行详情 */}
         <div className="space-y-2">
@@ -222,6 +235,203 @@ function DelegationTree({
       </div>
     </div>
   )
+}
+
+// ============ v1.1.2 并行分支泳道 ============
+
+/**
+ * 渲染持久化并行分支（来自 engine stream branch.* 事件 + timeline 快照）。
+ * 每个分支一列：branchId + 状态徽章 + late-result/fail_fast 标记 + 分支 ROI。
+ */
+function BranchLanes({ branches }: { branches: Record<string, BranchProjection> }) {
+  const { t } = useI18n()
+  const list = Object.values(branches).sort((a, b) => a.branchId.localeCompare(b.branchId))
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-[11px] font-medium text-text-muted uppercase tracking-wide">
+        {t('execution.branches')} ({list.length})
+      </h3>
+      <div className="grid grid-cols-1 gap-2">
+        {list.map((branch) => (
+          <div
+            key={branch.branchId}
+            className={`rounded-lg border px-3 py-2 ${
+              branch.status === 'running' ? 'border-[#3b82f6]/40 bg-[#3b82f6]/5' :
+              branch.status === 'completed' ? 'border-[#22c55e]/40 bg-[#22c55e]/5' :
+              branch.status === 'failed' ? 'border-[#ef4444]/40 bg-[#ef4444]/5' :
+              branch.status === 'aborted' ? 'border-[#f59e0b]/40 bg-[#f59e0b]/5' :
+              'border-border-custom bg-bg-input'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <BranchStatusDot status={branch.status} />
+              <span className="text-xs font-mono text-text-primary truncate flex-1">{branch.branchId}</span>
+              <BranchStatusBadge status={branch.status} />
+            </div>
+            {/* Agent keys active in this branch */}
+            {branch.agentKeys.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {branch.agentKeys.map((k) => (
+                  <span key={k} className="text-[9px] px-1.5 py-0.5 rounded bg-bg-hover text-text-muted font-mono">{k}</span>
+                ))}
+              </div>
+            )}
+            {/* Late result / fail_fast markers */}
+            <div className="flex gap-2 mt-1">
+              {branch.lateResult && (
+                <span className="text-[9px] text-[#f59e0b]" title={t('execution.lateResult')}>
+                  ◆ {t('execution.lateResult')}
+                </span>
+              )}
+              {branch.failFastCancelled && (
+                <span className="text-[9px] text-[#ef4444]" title={t('execution.failFast')}>
+                  ✕ {t('execution.failFast')}
+                </span>
+              )}
+            </div>
+            {/* Per-branch ROI */}
+            {branch.roiSnapshot && (
+              <div className="flex gap-3 mt-1 text-[9px] text-text-muted">
+                <span>{t('execution.cost')}: {branch.roiSnapshot.incurredCost}</span>
+                <span>{t('execution.value')}: {branch.roiSnapshot.businessValue}</span>
+                {branch.roiSnapshot.roiRatio != null && (
+                  <span>ROI: {branch.roiSnapshot.roiRatio.toFixed(2)}</span>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function BranchStatusDot({ status }: { status: BranchStatus }) {
+  const cls = status === 'running' || status === 'suspended' ? 'bg-[#3b82f6] animate-pulse'
+    : status === 'completed' ? 'bg-[#22c55e]'
+    : status === 'failed' ? 'bg-[#ef4444]'
+    : status === 'aborted' ? 'bg-[#f59e0b]'
+    : 'bg-gray-500'
+  return <span className={`w-2 h-2 rounded-full ${cls} shrink-0`} />
+}
+
+function BranchStatusBadge({ status }: { status: BranchStatus }) {
+  const { t } = useI18n()
+  const map: Record<BranchStatus, string> = {
+    queued: t('execution.branch.queued'),
+    running: t('execution.branch.running'),
+    suspended: t('execution.branch.running'), // engine hides suspended as running
+    completed: t('execution.branch.completed'),
+    failed: t('execution.branch.failed'),
+    aborted: t('execution.branch.aborted')
+  }
+  const cls = status === 'running' || status === 'suspended' ? 'text-[#3b82f6]'
+    : status === 'completed' ? 'text-[#22c55e]'
+    : status === 'failed' ? 'text-[#ef4444]'
+    : status === 'aborted' ? 'text-[#f59e0b]'
+    : 'text-text-muted'
+  return <span className={`text-[10px] font-medium ${cls}`}>{map[status]}</span>
+}
+
+// ============ v1.1.2 ROI 面板 ============
+
+/**
+ * 渲染顶层 ROI 快照（来自 roi.snapshot engine stream 事件）。
+ * 展示 fan-out / retry 放大 / 关键路径延迟 / ROI 比，以及 byBranch 明细。
+ */
+function RoiPanel({ roi }: { roi: RoiSnapshot }) {
+  const { t } = useI18n()
+  const byBranch = roi.byBranch ?? {}
+  const branchEntries = Object.entries(byBranch) as Array<[string, BranchRoiSnapshot]>
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-[11px] font-medium text-text-muted uppercase tracking-wide">{t('execution.roi')}</h3>
+      <div className="rounded-xl border border-border-subtle bg-bg-surface p-3 space-y-2">
+        {/* 顶层 ROI 指标 */}
+        <div className="grid grid-cols-2 gap-2">
+          <RoiMetric label={t('execution.cost')} value={fmtNum(roi.incurredCost)} />
+          <RoiMetric label={t('execution.value')} value={fmtNum(roi.businessValue)} />
+          {roi.netValue != null && <RoiMetric label={t('execution.netValue')} value={fmtNum(roi.netValue)} />}
+          {roi.roiRatio != null && (
+            <RoiMetric
+              label="ROI"
+              value={roi.roiRatio.toFixed(2)}
+              highlight={roi.roiRatio >= 1 ? 'positive' : 'negative'}
+            />
+          )}
+          {roi.fanOut != null && <RoiMetric label={t('execution.fanOut')} value={String(roi.fanOut)} />}
+          {roi.retryAmplification != null && (
+            <RoiMetric label={t('execution.retryAmplification')} value={roi.retryAmplification.toFixed(2)} />
+          )}
+          {roi.criticalPathLatencyMs != null && (
+            <RoiMetric
+              label={t('execution.criticalPath')}
+              value={`${(roi.criticalPathLatencyMs / 1000).toFixed(1)}s`}
+            />
+          )}
+        </div>
+
+        {/* 引擎效率（logical vs physical attempts） */}
+        {roi.engineEfficiency && (
+          <div className="flex gap-3 text-[10px] text-text-muted pt-1 border-t border-border-subtle">
+            <span>{t('execution.logical')}: {roi.engineEfficiency.logicalAttempts}</span>
+            <span>{t('execution.physical')}: {roi.engineEfficiency.physicalAttempts}</span>
+            {roi.engineEfficiency.suppressedAttempts > 0 && (
+              <span>{t('execution.suppressed')}: {roi.engineEfficiency.suppressedAttempts}</span>
+            )}
+          </div>
+        )}
+
+        {/* byBranch 明细表 */}
+        {branchEntries.length > 0 && (
+          <div className="pt-1 border-t border-border-subtle">
+            <p className="text-[10px] text-text-muted mb-1">{t('execution.byBranch')}</p>
+            <div className="space-y-0.5">
+              {branchEntries.map(([bid, snap]) => (
+                <div key={bid} className="flex items-center gap-2 text-[10px]">
+                  <span className="font-mono text-text-secondary truncate flex-1">{bid}</span>
+                  <span className="text-text-muted">{t('execution.cost')}: {fmtNum(snap.incurredCost)}</span>
+                  <span className="text-text-muted">{t('execution.value')}: {fmtNum(snap.businessValue)}</span>
+                  {snap.roiRatio != null && (
+                    <span className={snap.roiRatio >= 1 ? 'text-[#22c55e]' : 'text-[#ef4444]'}>
+                      {snap.roiRatio.toFixed(2)}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function RoiMetric({
+  label,
+  value,
+  highlight
+}: {
+  label: string
+  value: string
+  highlight?: 'positive' | 'negative'
+}) {
+  const cls = highlight === 'positive' ? 'text-[#22c55e]'
+    : highlight === 'negative' ? 'text-[#ef4444]'
+    : 'text-text-primary'
+  return (
+    <div className="rounded-md bg-bg-input px-2 py-1.5">
+      <p className="text-[9px] text-text-muted uppercase tracking-wide">{label}</p>
+      <p className={`text-xs font-medium font-mono ${cls}`}>{value}</p>
+    </div>
+  )
+}
+
+function fmtNum(n: number | undefined | null): string {
+  if (n == null) return '—'
+  return Number.isInteger(n) ? String(n) : n.toFixed(2)
 }
 
 // ============ Agent 详情卡片 ============

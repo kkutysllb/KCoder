@@ -1,6 +1,6 @@
 {
   "name": "@qiongqi/preset-coding",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Qiongqi coding preset — a software-engineering agent assembled from the domain-neutral Qiongqi runtime",
   "type": "module",
   "main": "./dist/index.js",

@@ -177,6 +177,120 @@ describe('durable graph human checkpoints', () => {
       decision: 'allow'
     })).rejects.toThrow(/aborted|cancelled/)
   })
+
+  it('resumes one suspended parallel branch without moving sibling cursors', async () => {
+    const store = new InMemoryDurableEngineStore()
+    const graph = parallelApprovalGraph()
+    const revision = compileAgentGraph(graph, { revision: 1, publishedAt: createdAt })
+    const coordinator = new RootRunAggregateCoordinator({ store, nowIso: () => createdAt })
+    const durable = createDurableEventedV2Stores({
+      store,
+      scope,
+      graphRevision: revision,
+      rootAggregate: {
+        coordinator,
+        budgetLimits: { stepsUsed: 10, toolCallsUsed: 10, inputTokens: 1_000, outputTokens: 1_000, costUsd: 10 },
+        policyRevision: 1
+      }
+    })
+    const runtime = new EventedV2MultiAgentRuntime({
+      ...durable, graph, ids: nextId(), nowIso: () => createdAt
+    })
+    const started = await runtime.start({
+      threadId: 'thread-parallel-approval', turnId: 'turn-parallel-approval',
+      workspaceKey: 'workspace-approval', prompt: 'Approve one branch.'
+    })
+    const parallel = await runtime.completeAgentTask({
+      runId: started.runId, agentId: 'manager', condition: 'completed'
+    })
+    const byBranch = Object.fromEntries(parallel.agentRuns
+      .filter((agentRun) => agentRun.branchId)
+      .map((agentRun) => [agentRun.branchId!, agentRun]))
+    for (const branchId of ['draft', 'research'] as const) {
+      const agentRun = byBranch[branchId]!
+      await runtime.completeAgentTask({
+        runId: started.runId,
+        branchId,
+        agentRunId: agentRun.agentRunId,
+        agentId: agentRun.agentId,
+        condition: 'completed',
+        usageRefs: [],
+        artifactRefs: []
+      })
+    }
+
+    const governor = new GraphGovernor({
+      store, graphRevision: revision, rootAggregate: coordinator, ids: nextId(), nowIso: () => createdAt
+    })
+    const checkpoint = await governor.requestApproval({
+      runId: started.runId,
+      nodeId: 'approval',
+      branchId: 'approval',
+      policyRevision: 1,
+      evidenceRefs: ['evidence-branch'],
+      approvalScope: ['publish'],
+      expiresAt
+    })
+    expect(checkpoint).toMatchObject({ branchId: 'approval', nodeId: 'approval' })
+
+    const completed = await governor.resolveApproval({
+      checkpointId: checkpoint.checkpointId,
+      resolutionToken: checkpoint.resolutionToken,
+      graphRevision: revision.revision,
+      decision: 'allow'
+    })
+
+    expect(completed).toMatchObject({ status: 'completed', activeNodeIds: ['done'] })
+    expect(completed.eventedV2Run?.branches.approval).toMatchObject({ status: 'completed', activeNodeId: 'join_all' })
+    const events = await store.listWorkGraphEvents(started.runId, 0, 100)
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'approval_requested', branchId: 'approval' }),
+      expect.objectContaining({ kind: 'approval_resolved', branchId: 'approval' }),
+      expect.objectContaining({ kind: 'join_completed' })
+    ]))
+  })
+
+  it('fans out durable branches when a root approval resumes into a parallel node', async () => {
+    const store = new InMemoryDurableEngineStore()
+    const graph = approvalThenParallelGraph()
+    const revision = compileAgentGraph(graph, { revision: 1, publishedAt: createdAt })
+    const coordinator = new RootRunAggregateCoordinator({ store, nowIso: () => createdAt })
+    const durable = createDurableEventedV2Stores({
+      store, scope, graphRevision: revision,
+      rootAggregate: {
+        coordinator,
+        budgetLimits: { stepsUsed: 10, toolCallsUsed: 10, inputTokens: 1_000, outputTokens: 1_000, costUsd: 10 },
+        policyRevision: 1
+      }
+    })
+    const runtime = new EventedV2MultiAgentRuntime({
+      ...durable, graph, ids: nextId(), nowIso: () => createdAt
+    })
+    const started = await runtime.start({
+      threadId: 'thread-gated-parallel', turnId: 'turn-gated-parallel',
+      workspaceKey: 'workspace-approval', prompt: 'Approve fan-out.'
+    })
+    await runtime.completeAgentTask({ runId: started.runId, agentId: 'manager', condition: 'completed' })
+    const governor = new GraphGovernor({
+      store, graphRevision: revision, rootAggregate: coordinator, ids: nextId(), nowIso: () => createdAt
+    })
+    const checkpoint = await governor.requestApproval({
+      runId: started.runId, nodeId: 'approval', policyRevision: 1,
+      evidenceRefs: [], approvalScope: ['fan-out'], expiresAt
+    })
+
+    const resumed = await governor.resolveApproval({
+      checkpointId: checkpoint.checkpointId,
+      resolutionToken: checkpoint.resolutionToken,
+      graphRevision: revision.revision,
+      decision: 'allow'
+    })
+
+    expect(resumed).toMatchObject({ status: 'running' })
+    expect(resumed.activeNodeIds).toEqual(['join_all', 'writer', 'researcher', 'reviewer'])
+    expect(Object.keys(resumed.eventedV2Run?.branches ?? {})).toEqual(['draft', 'research', 'review'])
+    expect(resumed.eventedV2Run?.agentRuns.filter((agentRun) => agentRun.branchId)).toHaveLength(3)
+  })
 })
 
 async function suspendedApprovalRun(options: { nowIso?: string } = {}) {
@@ -245,6 +359,69 @@ function approvalGraph(): AgentGraph {
       { from: 'approval', to: 'done', condition: 'approved' },
       { from: 'approval', to: 'denied', condition: 'denied' },
       { from: 'approval', to: 'expired', condition: 'expired' }
+    ]
+  }
+}
+
+function parallelApprovalGraph(): AgentGraph {
+  return {
+    version: 1,
+    graphId: 'parallel-approval-graph',
+    startNodeId: 'manager',
+    nodes: [
+      { id: 'manager', kind: 'agent', agentId: 'manager' },
+      {
+        id: 'fan_out', kind: 'parallel', joinNodeId: 'join_all', failurePolicy: 'wait_all',
+        branches: [
+          { branchId: 'approval', startNodeId: 'approval' },
+          { branchId: 'research', startNodeId: 'researcher' },
+          { branchId: 'draft', startNodeId: 'writer' }
+        ]
+      },
+      { id: 'approval', kind: 'wait', waitFor: 'approval' },
+      { id: 'researcher', kind: 'agent', agentId: 'researcher' },
+      { id: 'writer', kind: 'agent', agentId: 'writer' },
+      {
+        id: 'join_all', kind: 'join', sourceParallelNodeId: 'fan_out',
+        requiredBranchIds: ['approval', 'research', 'draft'], outputPolicy: 'all'
+      },
+      { id: 'done', kind: 'terminate' }
+    ],
+    edges: [
+      { from: 'manager', to: 'fan_out', condition: 'completed' },
+      { from: 'approval', to: 'join_all', condition: 'approved' },
+      { from: 'approval', to: 'join_all', condition: 'denied' },
+      { from: 'researcher', to: 'join_all', condition: 'completed' },
+      { from: 'writer', to: 'join_all', condition: 'completed' },
+      { from: 'join_all', to: 'done', condition: 'completed' }
+    ]
+  }
+}
+
+function approvalThenParallelGraph(): AgentGraph {
+  const graph = parallelApprovalGraph()
+  return {
+    ...graph,
+    graphId: 'approval-then-parallel-graph',
+    nodes: graph.nodes.map((node) => node.id === 'fan_out'
+      ? {
+          ...node,
+          branches: [
+            { branchId: 'draft', startNodeId: 'writer' },
+            { branchId: 'research', startNodeId: 'researcher' },
+            { branchId: 'review', startNodeId: 'reviewer' }
+          ]
+        }
+      : node.id === 'join_all'
+        ? { ...node, requiredBranchIds: ['draft', 'research', 'review'] }
+        : node).concat([{ id: 'reviewer', kind: 'agent', agentId: 'reviewer' }]),
+    edges: [
+      { from: 'manager', to: 'approval', condition: 'completed' },
+      { from: 'approval', to: 'fan_out', condition: 'approved' },
+      { from: 'researcher', to: 'join_all', condition: 'completed' },
+      { from: 'writer', to: 'join_all', condition: 'completed' },
+      { from: 'reviewer', to: 'join_all', condition: 'completed' },
+      { from: 'join_all', to: 'done', condition: 'completed' }
     ]
   }
 }

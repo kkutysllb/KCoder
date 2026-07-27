@@ -18,6 +18,49 @@ function graph(): AgentGraph {
 }
 
 describe('graph definition v1.1', () => {
+  it('compiles an explicit three-branch parallel group with a non-empty join', () => {
+    const input: AgentGraph = {
+      version: 1,
+      graphId: 'parallel-review-flow',
+      startNodeId: 'fan_out',
+      nodes: [
+        {
+          id: 'fan_out',
+          kind: 'parallel',
+          branches: [
+            { branchId: 'research', startNodeId: 'researcher' },
+            { branchId: 'draft', startNodeId: 'writer' },
+            { branchId: 'review', startNodeId: 'reviewer' }
+          ],
+          joinNodeId: 'join_all',
+          failurePolicy: 'wait_all'
+        },
+        { id: 'researcher', kind: 'agent', agentId: 'researcher' },
+        { id: 'writer', kind: 'agent', agentId: 'writer' },
+        { id: 'reviewer', kind: 'agent', agentId: 'reviewer' },
+        {
+          id: 'join_all',
+          kind: 'join',
+          sourceParallelNodeId: 'fan_out',
+          requiredBranchIds: ['research', 'draft', 'review'],
+          outputPolicy: 'all'
+        },
+        { id: 'done', kind: 'terminate' }
+      ],
+      edges: [
+        { from: 'researcher', to: 'join_all', condition: 'completed' },
+        { from: 'writer', to: 'join_all', condition: 'completed' },
+        { from: 'reviewer', to: 'join_all', condition: 'completed' },
+        { from: 'join_all', to: 'done', condition: 'completed' }
+      ]
+    }
+
+    const revision = compileAgentGraph(input, { revision: 1, publishedAt })
+
+    expect(revision.nodes[0]).toEqual(input.nodes[0])
+    expect(revision.nodes[4]).toEqual(input.nodes[4])
+  })
+
   it('compiles equivalent AgentGraphs into the same immutable revision digest', () => {
     const first = compileAgentGraph(graph(), { revision: 1, publishedAt })
     const second = compileAgentGraph(structuredClone(graph()), { revision: 1, publishedAt })

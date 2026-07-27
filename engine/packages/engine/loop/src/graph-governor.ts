@@ -3,6 +3,8 @@ import {
   HumanCheckpointSchema,
   MultiAgentRunSchema,
   type GraphRevision,
+  type AgentRun,
+  type JoinNode,
   type GraphCircuitPolicy,
   type GraphCircuitState,
   type GraphRunRecord,
@@ -17,6 +19,16 @@ import {
   type EngineLease,
   type ResourceClaimRequest
 } from '@qiongqi/ports'
+import {
+  advanceBranch,
+  abortOpenBranches,
+  buildJoinResult,
+  joinReadiness,
+  projectActiveNodeIds,
+  settleBranch,
+  spawnParallelBranches
+} from './parallel-branch-state.js'
+import { eventedRunProjectionMutations } from './durable-graph-store-adapters.js'
 import type {
   RootRunAggregateCoordinator,
   RootRunCommitMutations,
@@ -34,6 +46,7 @@ export type GraphGovernorOptions = {
 export type ApprovalGateInput = {
   runId: string
   nodeId: string
+  branchId?: string
   policyRevision: number
   evidenceRefs: string[]
   approvalScope: string[]
@@ -104,11 +117,21 @@ export class GraphGovernor {
     const run = await this.requireRun(input.runId)
     this.assertPinned(run)
     const eventedRun = requireEventedRun(run)
-    if (run.status !== 'suspended' || eventedRun.status !== 'suspended') {
-      throw new Error(`graph run ${run.runId} is not suspended for approval`)
-    }
-    if (eventedRun.activeNodeId !== input.nodeId) {
-      throw new Error(`approval node mismatch: ${eventedRun.activeNodeId} !== ${input.nodeId}`)
+    if (input.branchId) {
+      const branch = eventedRun.branches[input.branchId]
+      if (!branch || branch.status !== 'suspended') {
+        throw new Error(`graph branch ${input.branchId} is not suspended for approval`)
+      }
+      if (branch.activeNodeId !== input.nodeId) {
+        throw new Error(`approval node mismatch: ${branch.activeNodeId} !== ${input.nodeId}`)
+      }
+    } else {
+      if (run.status !== 'suspended' || eventedRun.status !== 'suspended') {
+        throw new Error(`graph run ${run.runId} is not suspended for approval`)
+      }
+      if (eventedRun.activeNodeId !== input.nodeId) {
+        throw new Error(`approval node mismatch: ${eventedRun.activeNodeId} !== ${input.nodeId}`)
+      }
     }
     const node = this.options.graphRevision.nodes.find((candidate) => candidate.id === input.nodeId)
     if (node?.kind !== 'wait' || node.waitFor !== 'approval') {
@@ -126,6 +149,7 @@ export class GraphGovernor {
       graphId: run.graphId,
       graphRevision: run.graphRevision,
       nodeId: input.nodeId,
+      ...(input.branchId ? { branchId: input.branchId } : {}),
       policyRevision: input.policyRevision,
       evidenceRefs: input.evidenceRefs,
       approvalScope: input.approvalScope,
@@ -151,7 +175,7 @@ export class GraphGovernor {
         now
       ) }]
     }, (engineRun) => ({
-      status: 'waiting_approval',
+      ...(!input.branchId ? { status: 'waiting_approval' as const } : {}),
       cursor: { ...engineRun.cursor, checkpointSeq: engineRun.cursor.checkpointSeq + 1 }
     }))
     return checkpoint
@@ -294,10 +318,17 @@ export class GraphGovernor {
     const run = await this.requireRun(checkpoint.runId)
     this.assertPinned(run)
     if (run.status === 'aborted') throw new Error(`graph run ${run.runId} is aborted or cancelled`)
-    if (run.status !== 'suspended') throw new Error(`graph run ${run.runId} is not suspended for approval`)
     const eventedRun = requireEventedRun(run)
-    if (eventedRun.activeNodeId !== checkpoint.nodeId) {
-      throw new Error(`approval checkpoint is not active at node ${checkpoint.nodeId}`)
+    if (checkpoint.branchId) {
+      const branch = eventedRun.branches[checkpoint.branchId]
+      if (!branch || branch.status !== 'suspended' || branch.activeNodeId !== checkpoint.nodeId) {
+        throw new Error(`approval checkpoint is not active for branch ${checkpoint.branchId} at node ${checkpoint.nodeId}`)
+      }
+    } else {
+      if (run.status !== 'suspended') throw new Error(`graph run ${run.runId} is not suspended for approval`)
+      if (eventedRun.activeNodeId !== checkpoint.nodeId) {
+        throw new Error(`approval checkpoint is not active at node ${checkpoint.nodeId}`)
+      }
     }
 
     const now = this.nowIso()
@@ -314,13 +345,23 @@ export class GraphGovernor {
       throw new Error(`checkpoint ${checkpoint.checkpointId} resume edge is invalid`)
     }
     const nextEventedRun = edge
-      ? advanceApprovalRun(eventedRun, this.options.graphRevision, edge.edgeId, input.decision, checkpoint.checkpointId, now)
+      ? checkpoint.branchId
+        ? advanceBranchApprovalRun(
+            eventedRun,
+            this.options.graphRevision,
+            edge.edgeId,
+            input.decision,
+            checkpoint.branchId,
+            checkpoint.checkpointId,
+            now
+          )
+        : advanceApprovalRun(eventedRun, this.options.graphRevision, edge.edgeId, input.decision, checkpoint.checkpointId, now)
       : eventedRun
     const next = GraphRunRecordSchema.parse({
       ...run,
       version: run.version + 1,
       status: nextEventedRun.status,
-      activeNodeIds: [nextEventedRun.activeNodeId],
+      activeNodeIds: projectActiveNodeIds(nextEventedRun),
       eventedV2Run: nextEventedRun,
       updatedAt: now
     })
@@ -343,6 +384,16 @@ export class GraphGovernor {
         }, now) }
       )
     }
+    const projections = eventedRunProjectionMutations(
+      run.scope,
+      this.options.graphRevision,
+      checkpoint.policyRevision,
+      nextEventedRun,
+      eventedRun
+    )
+    const projectedWorkEvents = edge
+      ? projections.workGraphEvents.filter((mutation) => mutation.record.edgeId !== edge.edgeId)
+      : projections.workGraphEvents
     try {
       const committed = await this.commitTransition(run, next, lease, {
         humanCheckpointMutations: [{
@@ -354,7 +405,8 @@ export class GraphGovernor {
           resolvedAt: now,
           updatedAt: now
         }],
-        workGraphEvents
+        workGraphEvents: [...workGraphEvents, ...projectedWorkEvents],
+        streamEvents: projections.streamEvents
       }, (engineRun) => ({
         cursor: { ...engineRun.cursor, checkpointSeq: engineRun.cursor.checkpointSeq + 1 }
       }))
@@ -380,20 +432,30 @@ export class GraphGovernor {
       candidate.from === checkpoint.nodeId && candidate.condition === 'expired')
     const currentEventedRun = requireEventedRun(run)
     const nextEventedRun = edge
-      ? advanceApprovalRun(
-          currentEventedRun,
-          this.options.graphRevision,
-          edge.edgeId,
-          'expire',
-          checkpoint.checkpointId,
-          now
-        )
+      ? checkpoint.branchId
+        ? advanceBranchApprovalRun(
+            currentEventedRun,
+            this.options.graphRevision,
+            edge.edgeId,
+            'expire',
+            checkpoint.branchId,
+            checkpoint.checkpointId,
+            now
+          )
+        : advanceApprovalRun(
+            currentEventedRun,
+            this.options.graphRevision,
+            edge.edgeId,
+            'expire',
+            checkpoint.checkpointId,
+            now
+          )
       : currentEventedRun
     const next = GraphRunRecordSchema.parse({
       ...run,
       version: run.version + 1,
       status: nextEventedRun.status,
-      activeNodeIds: [nextEventedRun.activeNodeId],
+      activeNodeIds: projectActiveNodeIds(nextEventedRun),
       eventedV2Run: nextEventedRun,
       updatedAt: now
     })
@@ -416,6 +478,16 @@ export class GraphGovernor {
         }, now) }
       )
     }
+    const projections = eventedRunProjectionMutations(
+      run.scope,
+      this.options.graphRevision,
+      checkpoint.policyRevision,
+      nextEventedRun,
+      currentEventedRun
+    )
+    const projectedWorkEvents = edge
+      ? projections.workGraphEvents.filter((mutation) => mutation.record.edgeId !== edge.edgeId)
+      : projections.workGraphEvents
     await this.commitTransition(run, next, lease, {
       humanCheckpointMutations: [{
         type: 'expire',
@@ -424,7 +496,8 @@ export class GraphGovernor {
         resolvedAt: now,
         updatedAt: now
       }],
-      workGraphEvents
+      workGraphEvents: [...workGraphEvents, ...projectedWorkEvents],
+      streamEvents: projections.streamEvents
     }, (engineRun) => ({
       cursor: { ...engineRun.cursor, checkpointSeq: engineRun.cursor.checkpointSeq + 1 }
     }))
@@ -521,6 +594,7 @@ function approvalEvent(
     graphId: checkpoint.graphId,
     graphRevision: checkpoint.graphRevision,
     nodeId: checkpoint.nodeId,
+    ...(checkpoint.branchId ? { branchId: checkpoint.branchId } : {}),
     attemptId: checkpoint.checkpointId,
     kind,
     payload,
@@ -566,6 +640,246 @@ function advanceApprovalRun(
   return enterRevisionNode(completed, revision, edge.to, ids, now)
 }
 
+function advanceBranchApprovalRun(
+  run: MultiAgentRun,
+  revision: GraphRevision,
+  edgeId: string,
+  decision: 'allow' | 'deny' | 'expire',
+  branchId: string,
+  checkpointId: string,
+  now: string
+): MultiAgentRun {
+  let eventSequence = 0
+  const ids = (prefix: string) => `${checkpointId}:${prefix}:${++eventSequence}`
+  const edge = revision.edges.find((candidate) => candidate.edgeId === edgeId)
+  if (!edge) throw new Error(`approval edge not found: ${edgeId}`)
+  const branch = run.branches[branchId]
+  if (!branch || branch.activeNodeId !== edge.from || branch.status !== 'suspended') {
+    throw new Error(`approval edge source is not active for branch ${branchId}: ${edge.from}`)
+  }
+  let next = MultiAgentRunSchema.parse({
+    ...run,
+    events: [...run.events, {
+      eventId: ids('mae'),
+      type: 'node_completed',
+      nodeId: edge.from,
+      branchId,
+      payload: { condition: edge.condition, decision, checkpointId },
+      timestamp: now
+    }],
+    updatedAt: now
+  })
+  if (edge.to !== branch.joinNodeId) {
+    return enterRevisionBranchNode(next, revision, branchId, edge.to, ids, now)
+  }
+
+  const status = decision === 'allow' ? 'completed' as const : 'failed' as const
+  next = settleBranch(next, {
+    branchId,
+    status,
+    output: { decision, checkpointId },
+    ...(status === 'failed' ? { error: `approval_${decision}` } : {}),
+    usageRefs: [],
+    artifactRefs: [],
+    nowIso: now
+  })
+  next = MultiAgentRunSchema.parse({
+    ...next,
+    events: [...next.events, {
+      eventId: ids('mae'),
+      type: status === 'completed' ? 'branch_completed' : 'branch_failed',
+      nodeId: edge.from,
+      branchId,
+      payload: { condition: edge.condition, checkpointId },
+      timestamp: now
+    }],
+    updatedAt: now
+  })
+  if (status === 'failed') next = applyRevisionFailFast(next, revision, branchId, ids, now)
+  const join = revision.nodes.find((candidate) => candidate.id === branch.joinNodeId)
+  if (join?.kind !== 'join') throw new Error(`durable branch join node is invalid: ${branch.joinNodeId}`)
+  return completeRevisionJoin(next, revision, join, ids, now)
+}
+
+function enterRevisionBranchNode(
+  run: MultiAgentRun,
+  revision: GraphRevision,
+  branchId: string,
+  nodeId: string,
+  ids: (prefix: string) => string,
+  now: string
+): MultiAgentRun {
+  const branch = run.branches[branchId]
+  if (!branch) throw new Error(`durable branch not found: ${branchId}`)
+  if (nodeId === branch.joinNodeId) {
+    const settled = settleBranch(run, {
+      branchId,
+      status: 'completed',
+      usageRefs: [],
+      artifactRefs: [],
+      nowIso: now
+    })
+    const join = revision.nodes.find((candidate) => candidate.id === branch.joinNodeId)
+    if (join?.kind !== 'join') throw new Error(`durable branch join node is invalid: ${branch.joinNodeId}`)
+    return completeRevisionJoin(settled, revision, join, ids, now)
+  }
+  const node = revision.nodes.find((candidate) => candidate.id === nodeId)
+  if (!node) throw new Error(`graph node not found: ${nodeId}`)
+  if (node.kind === 'parallel') throw new Error(`nested parallel is unsupported: ${node.id}`)
+  if (node.kind === 'terminate') throw new Error(`durable branch terminated before join: ${branchId}`)
+  if (node.kind === 'join') throw new Error(`durable branch reached an unrelated join: ${branchId} -> ${node.id}`)
+  if (node.kind === 'handoff') {
+    const edge = revision.edges.find((candidate) => candidate.from === node.id && candidate.condition === 'accepted')
+    if (!edge) throw new Error(`no accepted edge from handoff node: ${node.id}`)
+    return enterRevisionBranchNode(advanceBranch(run, branchId, node.id, now), revision, branchId, edge.to, ids, now)
+  }
+  if (node.kind === 'retry') {
+    const counterId = `${branchId}:${node.id}`
+    const attempts = (run.retryCounters[counterId] ?? 0) + 1
+    const condition = attempts <= node.maxAttempts ? 'retry' : 'exhausted'
+    const edge = revision.edges.find((candidate) => candidate.from === node.id && candidate.condition === condition)
+    if (!edge) throw new Error(`no ${condition} edge from retry node: ${node.id}`)
+    const advanced = advanceBranch(MultiAgentRunSchema.parse({
+      ...run,
+      retryCounters: { ...run.retryCounters, [counterId]: attempts }
+    }), branchId, node.id, now)
+    return enterRevisionBranchNode(advanced, revision, branchId, edge.to, ids, now)
+  }
+  if (node.kind === 'agent' || node.kind === 'judge') {
+    const agentId = node.kind === 'agent' ? node.agentId : `judge:${node.id}`
+    const agentRunId = ids('agent_run')
+    const advanced = advanceBranch(run, branchId, node.id, now, 'running')
+    const currentBranch = advanced.branches[branchId]!
+    const agentRun: AgentRun = {
+      agentRunId,
+      branchId,
+      agentId,
+      nodeId: node.id,
+      status: 'queued',
+      startedAt: now,
+      updatedAt: now
+    }
+    return MultiAgentRunSchema.parse({
+      ...advanced,
+      status: 'running',
+      branches: {
+        ...advanced.branches,
+        [branchId]: { ...currentBranch, agentRunIds: [...currentBranch.agentRunIds, agentRunId] }
+      },
+      agentRuns: [...advanced.agentRuns, agentRun],
+      events: [
+        ...advanced.events,
+        { eventId: ids('mae'), type: 'branch_started', nodeId: node.id, branchId, agentId, timestamp: now },
+        { eventId: ids('mae'), type: 'node_started', nodeId: node.id, branchId, agentId, timestamp: now }
+      ],
+      updatedAt: now
+    })
+  }
+  return MultiAgentRunSchema.parse({
+    ...advanceBranch(run, branchId, node.id, now, 'suspended'),
+    status: 'running',
+    events: [...run.events, {
+      eventId: ids('mae'),
+      type: 'node_started',
+      nodeId: node.id,
+      branchId,
+      timestamp: now
+    }],
+    updatedAt: now
+  })
+}
+
+function applyRevisionFailFast(
+  run: MultiAgentRun,
+  revision: GraphRevision,
+  failedBranchId: string,
+  ids: (prefix: string) => string,
+  now: string
+): MultiAgentRun {
+  const failed = run.branches[failedBranchId]!
+  const parallel = revision.nodes.find((candidate) => candidate.id === failed.parallelNodeId)
+  if (parallel?.kind !== 'parallel' || parallel.failurePolicy !== 'fail_fast') return run
+  const abortedBranchIds = Object.values(run.branches)
+    .filter((branch) => branch.parallelNodeId === parallel.id
+      && !['completed', 'failed', 'aborted'].includes(branch.status))
+    .map((branch) => branch.branchId)
+    .sort()
+  const aborted = abortOpenBranches(run, parallel.id, now)
+  return MultiAgentRunSchema.parse({
+    ...aborted,
+    agentRuns: aborted.agentRuns.map((agentRun) => abortedBranchIds.includes(agentRun.branchId ?? '')
+      && !['completed', 'degraded', 'failed', 'aborted'].includes(agentRun.status)
+      ? { ...agentRun, status: 'aborted', completedAt: now, updatedAt: now }
+      : agentRun),
+    events: [
+      ...aborted.events,
+      ...abortedBranchIds.map((branchId) => ({
+        eventId: ids('mae'),
+        type: 'branch_cancelled' as const,
+        nodeId: run.branches[branchId]!.activeNodeId,
+        branchId,
+        payload: { reason: 'fail_fast', failedBranchId },
+        timestamp: now
+      }))
+    ],
+    updatedAt: now
+  })
+}
+
+function completeRevisionJoin(
+  run: MultiAgentRun,
+  revision: GraphRevision,
+  node: JoinNode,
+  ids: (prefix: string) => string,
+  now: string
+): MultiAgentRun {
+  const readiness = joinReadiness(run, node)
+  if (readiness === 'waiting') {
+    return MultiAgentRunSchema.parse({
+      ...run,
+      status: 'running',
+      activeNodeId: node.id,
+      events: [...run.events, {
+        eventId: ids('mae'),
+        type: 'join_waiting',
+        nodeId: node.id,
+        payload: { requiredBranchIds: node.requiredBranchIds },
+        timestamp: now
+      }],
+      updatedAt: now
+    })
+  }
+  const condition = readiness === 'completed' ? 'completed' : 'failed'
+  const result = buildJoinResult(run, node)
+  const edge = revision.edges.find((candidate) => candidate.from === node.id && candidate.condition === condition)
+    ?? (condition === 'completed'
+      ? revision.edges.find((candidate) => candidate.from === node.id && candidate.condition === 'joined')
+      : undefined)
+  const completed = MultiAgentRunSchema.parse({
+    ...run,
+    activeNodeId: node.id,
+    events: [
+      ...run.events,
+      { eventId: ids('mae'), type: 'join_completed', nodeId: node.id, payload: { condition, result }, timestamp: now },
+      { eventId: ids('mae'), type: 'node_completed', nodeId: node.id, payload: { condition, result }, timestamp: now }
+    ],
+    updatedAt: now
+  })
+  if (edge) return enterRevisionNode(completed, revision, edge.to, ids, now)
+  return MultiAgentRunSchema.parse({
+    ...completed,
+    status: 'failed',
+    events: [...completed.events, {
+      eventId: ids('mae'),
+      type: 'run_failed',
+      nodeId: node.id,
+      payload: { reason: `join_${condition}`, result },
+      timestamp: now
+    }],
+    updatedAt: now
+  })
+}
+
 function enterRevisionNode(
   run: MultiAgentRun,
   revision: GraphRevision,
@@ -583,6 +897,33 @@ function enterRevisionNode(
       events: [...run.events, { eventId: ids('mae'), type: 'run_completed', nodeId: node.id, timestamp: now }],
       updatedAt: now
     })
+  }
+  if (node.kind === 'parallel') {
+    let next = spawnParallelBranches(MultiAgentRunSchema.parse({
+      ...run,
+      activeNodeId: node.id,
+      updatedAt: now
+    }), node, now)
+    next = MultiAgentRunSchema.parse({
+      ...next,
+      events: [
+        ...next.events,
+        ...[...node.branches]
+          .sort((left, right) => left.branchId.localeCompare(right.branchId))
+          .map((branch) => ({
+            eventId: ids('mae'),
+            type: 'branch_spawned' as const,
+            nodeId: node.id,
+            branchId: branch.branchId,
+            payload: { startNodeId: branch.startNodeId, joinNodeId: node.joinNodeId },
+            timestamp: now
+          }))
+      ]
+    })
+    for (const branch of [...node.branches].sort((left, right) => left.branchId.localeCompare(right.branchId))) {
+      next = enterRevisionBranchNode(next, revision, branch.branchId, branch.startNodeId, ids, now)
+    }
+    return next
   }
   if (node.kind === 'agent') {
     const hasActive = run.agentRuns.some((agentRun) =>
@@ -616,24 +957,7 @@ function enterRevisionNode(
     })
   }
   if (node.kind === 'join') {
-    const ready = node.requiredBranchIds.every((branchId) => run.branchStatus[branchId] === 'completed')
-    const edge = ready
-      ? revision.edges.find((candidate) => candidate.from === node.id
-        && (candidate.condition === 'completed' || candidate.condition === 'joined'))
-      : undefined
-    if (edge) {
-      const next = MultiAgentRunSchema.parse({
-        ...run,
-        activeNodeId: node.id,
-        events: [
-          ...run.events,
-          { eventId: ids('mae'), type: 'node_started', nodeId: node.id, timestamp: now },
-          { eventId: ids('mae'), type: 'node_completed', nodeId: node.id, payload: { condition: edge.condition }, timestamp: now }
-        ],
-        updatedAt: now
-      })
-      return enterRevisionNode(next, revision, edge.to, ids, now)
-    }
+    return completeRevisionJoin(run, revision, node, ids, now)
   }
   if (node.kind === 'retry') {
     const attempts = (run.retryCounters[node.id] ?? 0) + 1

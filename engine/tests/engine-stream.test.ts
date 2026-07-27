@@ -3,6 +3,7 @@ import type { ModelClient, ModelRequest } from '@qiongqi/ports'
 import { InMemoryDurableEngineStore } from '@qiongqi/adapter-storage'
 import { ModelProposalRunner, EngineStreamPublisher } from '@qiongqi/loop'
 import { LocalToolHost } from '@qiongqi/adapter-tools'
+import { EngineStreamEventSchema, RoiSnapshotSchema } from '@qiongqi/contracts'
 
 const scope = { ownerId: 'owner-1', workspaceId: 'workspace-1', taskId: 'task-1' }
 
@@ -120,5 +121,77 @@ describe('durable engine streaming', () => {
     await publisher.publish({ channel: 'public', kind: 'node.progress', payload: {} })
 
     await expect(store.readStream('stream-graph', 0, 10)).resolves.toMatchObject([{ graph }])
+  })
+
+  it('persists first-class branch correlation on stream events', () => {
+    const event = EngineStreamEventSchema.parse({
+      streamId: 'stream-branch',
+      seq: 1,
+      timestamp: '2026-07-27T00:00:00.000Z',
+      scope,
+      multiAgentRunId: 'run-parallel',
+      branchId: 'research',
+      channel: 'public',
+      kind: 'branch.completed',
+      payload: { output: 'facts' }
+    })
+
+    expect(event.branchId).toBe('research')
+    expect(() => EngineStreamEventSchema.parse({ ...event, multiAgentRunId: undefined })).toThrow(
+      'branchId requires multiAgentRunId'
+    )
+  })
+
+  it('publishes and replays branch correlation through the durable stream', async () => {
+    const store = new InMemoryDurableEngineStore()
+    const publisher = new EngineStreamPublisher({
+      store,
+      streamId: 'stream-branch-publisher',
+      scope,
+      multiAgentRunId: 'run-parallel',
+      branchId: 'research'
+    })
+
+    await publisher.publish({ channel: 'public', kind: 'branch.progress', payload: { percent: 50 } })
+
+    await expect(publisher.read('consumer', 0, 10)).resolves.toMatchObject([{
+      multiAgentRunId: 'run-parallel',
+      branchId: 'research',
+      kind: 'branch.progress'
+    }])
+  })
+
+  it('parses real-time root ROI attribution by branch', () => {
+    const snapshot = RoiSnapshotSchema.parse({
+      scope,
+      revision: 3,
+      roiStatus: 'available',
+      currency: 'USD',
+      incurredCost: 3,
+      businessValue: 9,
+      netValue: 6,
+      roiRatio: 2,
+      engineEfficiency: {
+        logicalAttempts: 3,
+        physicalAttempts: 3,
+        replayedAttempts: 0,
+        suppressedAttempts: 0,
+        estimatedWasteAvoided: 0
+      },
+      byBranch: {
+        research: {
+          roiStatus: 'available', currency: 'USD', incurredCost: 1, businessValue: 4,
+          netValue: 3, roiRatio: 3,
+          engineEfficiency: {
+            logicalAttempts: 1, physicalAttempts: 1, replayedAttempts: 0,
+            suppressedAttempts: 0, estimatedWasteAvoided: 0
+          },
+          updatedAt: '2026-07-27T00:00:00.000Z'
+        }
+      },
+      updatedAt: '2026-07-27T00:00:00.000Z'
+    })
+
+    expect(snapshot.byBranch?.research?.incurredCost).toBe(1)
   })
 })

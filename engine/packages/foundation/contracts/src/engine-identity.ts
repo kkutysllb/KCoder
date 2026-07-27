@@ -26,6 +26,7 @@ export const GraphCorrelationIdentitySchema = z.object({
   graphId: CanonicalRecordKeySchema,
   graphRevision: z.number().int().positive(),
   graphDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  branchId: CanonicalRecordKeySchema.optional(),
   nodeId: CanonicalRecordKeySchema.optional(),
   edgeId: CanonicalRecordKeySchema.optional(),
   attemptId: CanonicalRecordKeySchema,

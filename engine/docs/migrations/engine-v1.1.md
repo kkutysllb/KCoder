@@ -1,6 +1,6 @@
 # Qiongqi Engine v1.1 Migration
 
-This guide upgrades a Durable Engine v1.0 or v1.1.0 deployment to v1.1.1 governed graph execution. It is intentionally explicit: existing in-flight runs are not rewritten or repaired by loaders.
+This guide upgrades a Durable Engine v1.0, v1.1.0, or v1.1.1 deployment to v1.1.2 governed graph execution. It is intentionally explicit: existing in-flight runs are not rewritten or repaired by loaders.
 
 ## 1. Before upgrading
 
@@ -8,7 +8,7 @@ This guide upgrades a Durable Engine v1.0 or v1.1.0 deployment to v1.1.1 governe
 2. Back up PostgreSQL and record every non-terminal v1.0 run.
 3. Verify each registered model profile has an immutable revision, capabilities, endpoint format, and `credentialRef`.
 4. Remove product configuration that assumes `deepseek-chat` or any other implicit default model.
-5. Run the v1.1.1 release gate on the exact commit to deploy.
+5. Run the v1.1.2 release gate on the exact commit to deploy, including the PostgreSQL durable-parallel test for multi-instance production.
 
 ## 2. Storage
 
@@ -16,7 +16,21 @@ Apply the additive v1.1 schema for graph revisions, graph runs, work-graph event
 
 Do not populate graph identity by guessing from thread IDs, runner names, prompts, or old snapshots. A valid graph run requires a published revision and exact digest.
 
-## 3. Publish graphs
+## 3. Upgrade v1.1.1 to v1.1.2
+
+v1.1.2 makes `parallel` a public, executed graph node instead of an unsupported discriminator. Existing sequential v1.1.1 graph revisions remain valid and need no rewrite. For new or revised parallel graphs:
+
+1. Upgrade API and workers before publishing a revision containing `parallel`.
+2. Declare at least two globally unique branch IDs, one start node per branch, one owning join, and an exact non-empty `requiredBranchIds` set.
+3. Choose `wait_all` or `fail_fast`; choose join `outputPolicy` as `all`, `successful`, or a valid non-empty `selectedBranchIds` subset.
+4. Provide explicit `requestedBudgets[branchId]` for every branch dispatch. The engine does not divide a root budget or infer per-Agent limits.
+5. Keep PostgreSQL for multi-instance production. SQLite supports one process and sequential reconstruction through independent connections, not distributed writers.
+
+Do not let a v1.1.1 worker claim a v1.1.2 parallel run. A root coordinator cursor and durable branch cursors share the governed root version; older workers cannot preserve this aggregate. Existing non-terminal v1.1.1 sequential runs may drain on compatible workers or be durably cancelled before restart.
+
+Join output is stable by branch ID, not completion time. `fail_fast` and root cancellation create durable cancellation work; an external cancel may be delivered more than once after claim expiry and must be idempotent. Late branch results are audit-only and cannot reopen a terminal branch or join.
+
+## 4. Publish graphs
 
 Compile each product graph and review compiler diagnostics:
 
@@ -30,7 +44,7 @@ await engine.publishGraph(revision)
 
 Replace deprecated `node.model` values with versioned `modelPolicyRef`. Assign node/edge governance policies explicitly. Publishing the same `(graphId, revision, digest)` is idempotent; changing content requires a new revision.
 
-## 4. Start governed work with caller limits
+## 5. Start governed work with caller limits
 
 Every governed start must provide product-authorized root limits. The engine has no provider, model, or budget default:
 
@@ -64,13 +78,13 @@ settled reservation actual usage
 <= root budgetLimits
 ```
 
-## 5. Model policy migration
+## 6. Model policy migration
 
 Create one revisioned task `ModelSelectionPolicy` containing all profiles the user may select. Products can switch the preferred/candidate profile by advancing the task-policy revision. A graph node may reference a narrower model policy, but it cannot authorize a profile excluded by the task.
 
 In-flight model attempts keep their original profile revision. Never change provider/model identity under an existing revision.
 
-## 6. Incomplete v1.0 runs
+## 7. Incomplete v1.0 runs
 
 Choose one action per non-terminal run:
 
@@ -79,7 +93,7 @@ Choose one action per non-terminal run:
 
 Do not attach a `graphRef` to an existing run, synthesize old work events, reuse approval tokens, or copy agent-private memory. The v1.0 `start()` shape remains callable without `graphRef` only to support controlled draining.
 
-## 7. Repair affected v1.1.0 graph-only runs
+## 8. Repair affected v1.1.0 graph-only runs
 
 The v1.1.0 governed-start defect may have created a `GraphRunRecord` without the required root `EngineRunRecord`. `inspect()`, loaders, API instances, and workers fail closed with `ROOT_RUN_AGGREGATE_INCOMPLETE`; they never synthesize limits or repair state.
 
@@ -107,7 +121,7 @@ The migration validates the pinned revision and current facts, creates the root 
 
 Do not call the migration twice, create an EngineRun directly, rewrite the GraphRun version, or treat `ROOT_RUN_AGGREGATE_DIVERGED`/`ROOT_RUN_BUDGET_MISSING` as retryable. These errors require operator review of durable facts.
 
-## 8. Governance rollout
+## 9. Governance rollout
 
 Start at the readiness level supported by evidence:
 
@@ -118,18 +132,19 @@ Start at the readiness level supported by evidence:
 
 Configure circuit thresholds before autonomous traffic. `report_only` blocks write claims, while `paused` and `retired` block claims. Automatic evaluation never lowers severity; recovery is a manual, audited circuit operation.
 
-## 9. ROI migration
+## 10. ROI migration
 
-Continue recording evidence-backed business value separately from engine efficiency. Add graph attribution to new cost, value, and usage records. Historical un-attributed entries remain task totals and must not be retroactively assigned to nodes without evidence.
+Continue recording evidence-backed business value separately from engine efficiency. Add graph and optional branch attribution to new cost, value, and usage records. Historical un-attributed entries remain task totals and must not be retroactively assigned to nodes or branches without evidence. Consumers should accept additive `RoiSnapshot.byBranch` and reconcile it with root totals rather than treating it as a separate bill.
 
-## 10. Rollback constraints
+## 11. Rollback constraints
 
 - Stop admitting new v1.1 graph runs before rolling binaries back.
 - Do not delete graph tables, revisions, events, checkpoints, claims, or model-policy records.
 - A v1.0 binary must not claim or mutate a v1.1 graph run.
 - Runs already started on v1.1 require a v1.1-compatible worker until terminal or explicit cancellation.
+- A v1.1.1 binary must not claim a v1.1.2 run whose pinned revision contains `parallel`; drain or cancel those runs before binary rollback.
 - Rolling forward to the same or newer v1.1-compatible build is the supported recovery for active governed runs.
 
-## 11. Acceptance
+## 12. Acceptance
 
-The migration is complete when new tasks start with pinned graph identity and caller limits, GraphRun/EngineRun have the same ID and version, expired dispatch claims recover with the original execution identity, `/ready` reports the intended readiness level, stream replay survives reconnect, model switching advances policy revision, approval tokens reject replay, write claims are fenced, cumulative budget exhaustion rejects new reservations, and graph ROI updates from durable cost/value events.
+The migration is complete when new tasks start with pinned graph identity and caller limits, GraphRun/EngineRun have the same ID and version, three or more branches can finish out of order and produce one stable non-empty join, expired dispatch/cancel claims recover with the original execution identity, `/ready` reports the intended readiness level, branch stream replay survives reconnect, `byBranch` ROI reconciles with root totals, model switching advances policy revision, approval tokens reject replay, write claims are fenced, and cumulative budget exhaustion rejects new reservations.

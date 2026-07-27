@@ -44,10 +44,28 @@ const GraphJudgeNodeSchema = z.object({
   nodePolicyRef: VersionedPolicyRefSchema.optional()
 }).strict()
 
+export const GraphParallelBranchSchema = z.object({
+  branchId: Key,
+  startNodeId: Key
+}).strict()
+export type GraphParallelBranch = z.infer<typeof GraphParallelBranchSchema>
+
+const GraphParallelNodeSchema = z.object({
+  id: Key,
+  kind: z.literal('parallel'),
+  branches: z.array(GraphParallelBranchSchema).min(2),
+  joinNodeId: Key,
+  failurePolicy: z.enum(['wait_all', 'fail_fast']).default('wait_all'),
+  nodePolicyRef: VersionedPolicyRefSchema.optional()
+}).strict()
+
 const GraphJoinNodeSchema = z.object({
   id: Key,
   kind: z.literal('join'),
   requiredBranchIds: z.array(Key).default([]),
+  sourceParallelNodeId: Key.optional(),
+  outputPolicy: z.enum(['all', 'successful', 'selected']).default('all'),
+  selectedBranchIds: z.array(Key).optional(),
   nodePolicyRef: VersionedPolicyRefSchema.optional()
 }).strict()
 
@@ -76,6 +94,7 @@ export const GraphNodeV1Schema = z.discriminatedUnion('kind', [
   GraphHandoffNodeSchema,
   GraphToolNodeSchema,
   GraphJudgeNodeSchema,
+  GraphParallelNodeSchema,
   GraphJoinNodeSchema,
   GraphWaitNodeSchema,
   GraphRetryNodeSchema,

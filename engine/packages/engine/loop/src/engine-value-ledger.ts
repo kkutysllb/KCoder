@@ -3,6 +3,7 @@ import {
   GraphAttributionQuerySchema,
   RoiSnapshotSchema,
   type CostEntry,
+  type BranchRoiSnapshot,
   type ExecutionLedgerEntry,
   type GraphAttributionQuery,
   type GraphEdgeAttributionMetrics,
@@ -93,7 +94,7 @@ export class EngineValueLedger {
         ? 'incomplete'
         : 'available'
     const graphMetrics = query
-      ? projectGraphMetrics({ graphRevision, graphRuns, workEvents, costs, values, ledger, currency })
+      ? projectGraphMetrics({ graphRevision, graphRuns, workEvents, costs, values, ledger, currency, nowIso: this.nowIso() })
       : undefined
     return RoiSnapshotSchema.parse({
       scope: this.options.scope,
@@ -145,11 +146,13 @@ type GraphMetricProjectionInput = {
   values: ValueEvent[]
   ledger: ExecutionLedgerEntry[]
   currency?: string
+  nowIso: string
 }
 
 type GraphMetricProjection = {
   byNode: Record<string, GraphNodeAttributionMetrics>
   byEdge: Record<string, GraphEdgeAttributionMetrics>
+  byBranch: Record<string, BranchRoiSnapshot>
   fanOut: number
   retryAmplification: number
   suppressedPhysicalAttempts: number
@@ -264,12 +267,70 @@ function projectGraphMetrics(input: GraphMetricProjectionInput): GraphMetricProj
   return {
     byNode,
     byEdge,
+    byBranch: projectBranchRoi(input),
     fanOut: Math.max(0, ...[...fanOutGroups.values()].map((edges) => edges.size)),
     retryAmplification: baselineAttempts > 0 ? physicalNodeAttempts / baselineAttempts : 0,
     suppressedPhysicalAttempts,
     avoidedCost,
     criticalPathLatencyMs: criticalPathLatency(input.graphRevision, durationsByRun, traversedEdgesByRun)
   }
+}
+
+function projectBranchRoi(input: GraphMetricProjectionInput): Record<string, BranchRoiSnapshot> {
+  const branchIds = new Set<string>()
+  for (const cost of input.costs) if (cost.graph?.branchId) branchIds.add(cost.graph.branchId)
+  for (const value of input.values) if (value.graph?.branchId) branchIds.add(value.graph.branchId)
+  for (const entry of input.ledger) if (entry.graph?.branchId) branchIds.add(entry.graph.branchId)
+
+  const byBranch: Record<string, BranchRoiSnapshot> = {}
+  for (const branchId of [...branchIds].sort()) {
+    const costs = input.costs.filter((entry) => entry.graph?.branchId === branchId)
+    const values = input.values.filter((entry) => entry.graph?.branchId === branchId)
+    const ledger = input.ledger.filter((entry) => entry.graph?.branchId === branchId)
+    const costCurrencies = new Set(costs.map((entry) => entry.currency))
+    const valueCurrencies = new Set(values.map((entry) => entry.currency))
+    const currency = costCurrencies.size === 1 ? [...costCurrencies][0] : undefined
+    const sameCurrency = Boolean(currency) && valueCurrencies.size <= 1
+      && (values.length === 0 || valueCurrencies.has(currency!))
+    const incurredCost = currency
+      ? costs.filter((entry) => entry.currency === currency).reduce((sum, entry) => sum + entry.amount, 0)
+      : 0
+    const businessValue = currency
+      ? values.filter((entry) => entry.currency === currency).reduce((sum, entry) => sum + entry.amount, 0)
+      : 0
+    const replayedAttempts = ledger.filter((entry) => entry.status === 'replayed').length
+    const suppressedAttempts = ledger.filter((entry) => entry.status === 'suppressed').length
+    const physicalAttempts = ledger.filter((entry) =>
+      entry.status === 'completed' || entry.status === 'failed' || entry.status === 'uncertain').length
+    const avoidedCost = ledger.reduce((sum, entry) =>
+      sum + ((entry.status === 'replayed' || entry.status === 'suppressed')
+        ? avoidedModelCost(entry, currency)
+        : 0), 0)
+    const roiStatus = costs.length === 0 || !sameCurrency
+      ? 'unavailable' as const
+      : values.length === 0
+        ? 'incomplete' as const
+        : 'available' as const
+    byBranch[branchId] = {
+      roiStatus,
+      ...(currency ? { currency } : {}),
+      incurredCost,
+      businessValue,
+      ...(roiStatus === 'available' && incurredCost > 0
+        ? { netValue: businessValue - incurredCost, roiRatio: (businessValue - incurredCost) / incurredCost }
+        : {}),
+      engineEfficiency: {
+        logicalAttempts: ledger.length,
+        physicalAttempts,
+        replayedAttempts,
+        suppressedAttempts,
+        estimatedWasteAvoided: avoidedCost,
+        ...(incurredCost > 0 ? { progressPerCost: 0, evidencePerCost: 0, artifactPerCost: 0 } : {})
+      },
+      updatedAt: input.nowIso
+    }
+  }
+  return byBranch
 }
 
 function matchesGraphRun(run: GraphRunRecord, query: GraphAttributionQuery): boolean {

@@ -68,6 +68,49 @@ describe('multi-agent runtime contracts', () => {
     expect(graph.nodes.map((node) => node.kind)).toEqual(['agent', 'handoff', 'agent', 'terminate'])
   })
 
+  it('parses durable independent branch cursors and derives a non-empty join result', () => {
+    const run = MultiAgentRunSchema.parse({
+      version: 1,
+      runId: 'mar_parallel',
+      threadId: 'thread_1',
+      turnId: 'turn_1',
+      workspaceKey: 'workspace_1',
+      status: 'running',
+      graphId: 'parallel_graph',
+      activeNodeId: 'join_all',
+      activeAgentStack: [],
+      branchStatus: { research: 'running', draft: 'running', review: 'running' },
+      branches: {
+        research: {
+          branchId: 'research', parallelNodeId: 'fan_out', joinNodeId: 'join_all',
+          status: 'running', activeNodeId: 'researcher', agentRunIds: [], usageRefs: [], artifactRefs: [],
+          updatedAt: '2026-07-27T00:00:00.000Z'
+        },
+        draft: {
+          branchId: 'draft', parallelNodeId: 'fan_out', joinNodeId: 'join_all',
+          status: 'suspended', activeNodeId: 'writer_wait', agentRunIds: [], usageRefs: [], artifactRefs: [],
+          updatedAt: '2026-07-27T00:00:00.000Z'
+        },
+        review: {
+          branchId: 'review', parallelNodeId: 'fan_out', joinNodeId: 'join_all',
+          status: 'completed', activeNodeId: 'join_all', agentRunIds: ['agent_review'],
+          output: { text: 'approved' }, usageRefs: ['usage_review'], artifactRefs: ['artifact_review'],
+          completedAt: '2026-07-27T00:00:01.000Z', updatedAt: '2026-07-27T00:00:01.000Z'
+        }
+      },
+      agentRuns: [],
+      events: [],
+      outbox: [],
+      retryCounters: {},
+      budgets: { stepsUsed: 0, toolCallsUsed: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+      createdAt: '2026-07-27T00:00:00.000Z',
+      updatedAt: '2026-07-27T00:00:01.000Z'
+    })
+
+    expect(run.branches.draft?.status).toBe('suspended')
+    expect(run.branches.review?.output).toEqual({ text: 'approved' })
+  })
+
   it('parses a typed handoff task envelope', () => {
     const envelope = TaskEnvelopeSchema.parse({
       envelopeId: 'env_1',

@@ -40,4 +40,41 @@ describe('ROI stream projection', () => {
     const events = await store.readStream('graph-roi-stream', 0, 10)
     expect(events.at(-1)?.payload).toMatchObject({ graph: { runId: 'graph-run' }, roiRatio: 2 })
   })
+
+  it('projects real-time ROI by stable branch identity without changing root totals', async () => {
+    const scope = { ownerId: 'owner', workspaceId: 'workspace', taskId: 'branch-roi-stream' }
+    const graphBase = { graphId: 'graph-roi', graphRevision: 1, runId: 'graph-run' }
+    const store = new InMemoryDurableEngineStore()
+    const stream = new EngineStreamPublisher({ store, streamId: 'branch-roi-stream', scope })
+    const ledger = new EngineValueLedger({ store, scope, stream, nowIso: () => '2026-07-27T00:00:02.000Z' })
+
+    await ledger.recordCost({
+      costId: 'cost-research', scope, amount: 2, currency: 'USD', source: 'model',
+      graph: { ...graphBase, nodeId: 'researcher', branchId: 'research' },
+      incurredAt: '2026-07-27T00:00:00.000Z'
+    })
+    await ledger.recordValue({
+      valueId: 'value-research', scope, amount: 6, currency: 'USD', source: 'caller', confidence: 1,
+      evidenceRefs: [], graph: { ...graphBase, nodeId: 'researcher', branchId: 'research' },
+      recordedAt: '2026-07-27T00:00:01.000Z'
+    })
+    await ledger.recordCost({
+      costId: 'cost-draft', scope, amount: 1, currency: 'USD', source: 'model',
+      graph: { ...graphBase, nodeId: 'writer', branchId: 'draft' },
+      incurredAt: '2026-07-27T00:00:00.000Z'
+    })
+    const snapshot = await ledger.recordValue({
+      valueId: 'value-draft', scope, amount: 3, currency: 'USD', source: 'caller', confidence: 1,
+      evidenceRefs: [], graph: { ...graphBase, nodeId: 'writer', branchId: 'draft' },
+      recordedAt: '2026-07-27T00:00:01.000Z'
+    })
+
+    expect(snapshot).toMatchObject({ incurredCost: 3, businessValue: 9, roiRatio: 2 })
+    expect(snapshot.byBranch).toMatchObject({
+      draft: { incurredCost: 1, businessValue: 3, netValue: 2, roiRatio: 2 },
+      research: { incurredCost: 2, businessValue: 6, netValue: 4, roiRatio: 2 }
+    })
+    const events = await store.readStream('branch-roi-stream', 0, 10)
+    expect(events.at(-1)?.payload).toMatchObject({ byBranch: snapshot.byBranch })
+  })
 })

@@ -5,6 +5,7 @@ export const GraphAttributionSchema = z.object({
   graphId: CanonicalRecordKeySchema,
   graphRevision: z.number().int().positive(),
   runId: CanonicalRecordKeySchema,
+  branchId: CanonicalRecordKeySchema.optional(),
   nodeId: CanonicalRecordKeySchema.optional(),
   edgeId: CanonicalRecordKeySchema.optional(),
   attemptId: CanonicalRecordKeySchema.optional()

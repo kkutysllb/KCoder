@@ -59,6 +59,12 @@
       "@qiongqi/attachments": [
         "../../infrastructure/attachments/src"
       ],
+      "@qiongqi/adapter-fs": [
+        "../../infrastructure/adapter-fs/src"
+      ],
+      "@qiongqi/tool-infra": [
+        "../../infrastructure/tool-infra/src"
+      ],
       "@qiongqi/delegation": [
         "../../delegation-layer/delegation/src"
       ],

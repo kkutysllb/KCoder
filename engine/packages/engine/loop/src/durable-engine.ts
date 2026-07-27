@@ -8,7 +8,9 @@ import type {
   GraphRunRecord,
   HumanCheckpoint,
   KernelRunIdentity,
+  KernelCompletionPayload,
   ModelSelectionPolicy,
+  MultiAgentRun,
   RoiSnapshot,
   TaskScope,
   ValueEvent,
@@ -157,6 +159,62 @@ export class DurableEngine {
     await (await this.governorFor(runId)).setCircuitState(runId, state)
   }
 
+  flushAgentDispatches(limit = 1_000): Promise<number> {
+    return this.dispatchWorker.flushAvailable(limit)
+  }
+
+  async consumeKernelCompletion(input: {
+    multiAgentRunId: string
+    completion: KernelCompletionPayload | unknown
+  }): Promise<MultiAgentRun> {
+    const { runtime } = await this.runtimeForExistingRun(input.multiAgentRunId)
+    return runtime.consumeKernelCompletion({ runId: input.multiAgentRunId, completion: input.completion })
+  }
+
+  async dispatchActiveAgent(input: {
+    multiAgentRunId: string
+    prompt: string
+    requestedBudget: BudgetState
+    sharedEvidenceRefs?: string[]
+  }): Promise<MultiAgentRun> {
+    BudgetStateSchema.parse(input.requestedBudget)
+    const { aggregate, runtime } = await this.runtimeForExistingRun(input.multiAgentRunId)
+    const graph = aggregate.engineRun.graph
+    if (!graph) throw new Error(`governed root graph identity is unavailable: ${input.multiAgentRunId}`)
+    const prepared = await runtime.dispatchActiveAgent({
+      runId: input.multiAgentRunId,
+      scope: aggregate.graphRun.scope,
+      prompt: input.prompt,
+      requestedBudget: input.requestedBudget,
+      sharedEvidenceRefs: input.sharedEvidenceRefs,
+      graph
+    })
+    this.dispatchWorker.notify()
+    return prepared
+  }
+
+  async dispatchParallelAgents(input: {
+    multiAgentRunId: string
+    prompt: string
+    requestedBudgets: Record<string, BudgetState>
+    sharedEvidenceRefs?: string[]
+  }): Promise<MultiAgentRun> {
+    for (const budget of Object.values(input.requestedBudgets)) BudgetStateSchema.parse(budget)
+    const { aggregate, runtime } = await this.runtimeForExistingRun(input.multiAgentRunId)
+    const graph = aggregate.engineRun.graph
+    if (!graph) throw new Error(`governed root graph identity is unavailable: ${input.multiAgentRunId}`)
+    const prepared = await runtime.dispatchParallelAgents({
+      runId: input.multiAgentRunId,
+      scope: aggregate.graphRun.scope,
+      prompt: input.prompt,
+      requestedBudgets: input.requestedBudgets,
+      sharedEvidenceRefs: input.sharedEvidenceRefs,
+      graph
+    })
+    this.dispatchWorker.notify()
+    return prepared
+  }
+
   resume(executionRef: KernelRunIdentity, resolution?: unknown): Promise<void> {
     return this.options.kernelExecutor.resume(executionRef, resolution)
   }
@@ -204,12 +262,12 @@ export class DurableEngine {
   }
 
   recordValue(value: ValueEvent): Promise<RoiSnapshot> {
-    const ledger = this.valueLedger(value.scope)
+    const ledger = this.valueLedger(value.scope, value.graph?.runId)
     return ledger.recordValue(value)
   }
 
   recordCost(cost: CostEntry): Promise<RoiSnapshot> {
-    return this.valueLedger(cost.scope).recordCost(cost)
+    return this.valueLedger(cost.scope, cost.graph?.runId).recordCost(cost)
   }
 
   async setTaskModelPolicy(scope: TaskScope, revision: number, policy: ModelSelectionPolicy): Promise<void> {
@@ -322,6 +380,30 @@ export class DurableEngine {
     })
   }
 
+  private async runtimeForExistingRun(runId: string): Promise<{
+    aggregate: RootRunAggregate
+    runtime: EventedV2MultiAgentRuntime
+  }> {
+    const coordinator = new RootRunAggregateCoordinator({ store: this.options.store, nowIso: this.options.nowIso })
+    const aggregate = await coordinator.load(runId)
+    const revision = await this.options.store.loadGraphRevision(
+      aggregate.graphRun.graphId,
+      aggregate.graphRun.graphRevision
+    )
+    if (!revision || revision.graphDigest !== aggregate.graphRun.graphDigest) {
+      throw new Error(`Pinned GraphRevision unavailable for run: ${runId}`)
+    }
+    const budgetLimits = aggregate.engineRun.budgetLimits
+    const policyRevision = aggregate.engineRun.graph?.policyRevision
+    if (!budgetLimits || !policyRevision) {
+      throw new Error(`governed root execution policy is unavailable: ${runId}`)
+    }
+    return {
+      aggregate,
+      runtime: this.runtimeFor(aggregate.graphRun.scope, revision, budgetLimits, policyRevision)
+    }
+  }
+
   private async requireCheckpoint(checkpointId: string): Promise<HumanCheckpoint> {
     const checkpoint = await this.options.store.loadHumanCheckpoint(checkpointId)
     if (!checkpoint) throw new Error(`HumanCheckpoint not found: ${checkpointId}`)
@@ -368,11 +450,15 @@ export class DurableEngine {
     return publisher
   }
 
-  private valueLedger(scope: TaskScope): EngineValueLedger {
-    const key = scopeKey(scope)
+  private valueLedger(scope: TaskScope, runId?: string): EngineValueLedger {
+    const key = `${scopeKey(scope)}\u0000${runId ?? ''}`
     const existing = this.ledgers.get(key)
     if (existing) return existing
-    const ledger = new EngineValueLedger({ store: this.options.store, scope, stream: this.publisher(`stream:${scope.taskId}`, scope) })
+    const ledger = new EngineValueLedger({
+      store: this.options.store,
+      scope,
+      stream: this.publisher(`stream:${runId ?? scope.taskId}`, scope)
+    })
     this.ledgers.set(key, ledger)
     return ledger
   }

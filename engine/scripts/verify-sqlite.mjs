@@ -2,6 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const require = createRequire(join(process.cwd(), 'package.json'))
 const Database = require('better-sqlite3')
@@ -30,3 +32,14 @@ try {
 } finally {
   await rm(tempDir, { recursive: true, force: true })
 }
+
+const workspaceRoot = fileURLToPath(new URL('..', import.meta.url))
+const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+const result = spawnSync(pnpm, [
+  'vitest', 'run',
+  'tests/sqlite-durable-engine-store.test.ts',
+  'tests/durable-parallel-engine.test.ts'
+], { cwd: workspaceRoot, stdio: 'inherit' })
+if (result.error) throw result.error
+if (result.status !== 0) process.exit(result.status ?? 1)
+console.log('SQLite durable recovery, stale-version, and parallel join probes passed')

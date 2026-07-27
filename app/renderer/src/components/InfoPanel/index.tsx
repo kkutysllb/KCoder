@@ -21,9 +21,12 @@ export function InfoPanel() {
     turnExecution, setThreadGoal, setThreadTodos
   } = useAppStore()
 
-  // auto 策略：有执行投影数据时自动展开
+  // auto 策略：有执行投影数据、并行分支或 ROI 时自动展开
   useEffect(() => {
-    if (panelStrategy === 'auto' && turnExecution?.available) {
+    if (panelStrategy !== 'auto') return
+    const hasBranches = Object.keys(useAppStore.getState().branches).length > 0
+    const hasRoi = useAppStore.getState().roiSnapshot != null
+    if (turnExecution?.available || hasBranches || hasRoi) {
       setPanelOpen(true)
     }
   }, [panelStrategy, turnExecution, setPanelOpen])

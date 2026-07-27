@@ -14,6 +14,7 @@ export type EngineStreamPublisherOptions = {
   scope: TaskScope
   runId?: string
   multiAgentRunId?: string
+  branchId?: string
   agentRunId?: string
   kernelRunId?: string
   graph?: GraphCorrelationIdentity
@@ -97,6 +98,7 @@ export class EngineStreamPublisher {
               timestamp: this.nowIso(),
               scope: this.options.scope,
               ...(this.options.multiAgentRunId ? { multiAgentRunId: this.options.multiAgentRunId } : {}),
+              ...(this.options.branchId ? { branchId: this.options.branchId } : {}),
               ...(this.options.agentRunId ? { agentRunId: this.options.agentRunId } : {}),
               ...(this.options.kernelRunId ? { kernelRunId: this.options.kernelRunId } : {}),
               ...(this.options.graph ? { graph: this.options.graph } : {}),

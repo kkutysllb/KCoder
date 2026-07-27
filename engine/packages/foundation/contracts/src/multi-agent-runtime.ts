@@ -4,6 +4,7 @@ import { PeerArtifactSchema } from './agent-identity.js'
 import { AgentRunIdentitySchema, KernelRunIdentitySchema } from './engine-identity.js'
 import { RunOutcomeSchema } from './runtime-kernel.js'
 import { ModelPolicyRefSchema } from './graph-definition.js'
+import { BranchRoiSnapshotSchema } from './engine-stream.js'
 
 const NonEmptyString = z.string().trim().min(1)
 
@@ -37,11 +38,30 @@ export const JudgeNodeSchema = z.object({
   modelPolicyRef: ModelPolicyRefSchema.optional()
 }).strict()
 
+export const ParallelBranchSchema = z.object({
+  branchId: NonEmptyString,
+  startNodeId: NonEmptyString
+}).strict()
+export type ParallelBranch = z.infer<typeof ParallelBranchSchema>
+
+export const ParallelNodeSchema = z.object({
+  id: NonEmptyString,
+  kind: z.literal('parallel'),
+  branches: z.array(ParallelBranchSchema).min(2),
+  joinNodeId: NonEmptyString,
+  failurePolicy: z.enum(['wait_all', 'fail_fast']).default('wait_all')
+}).strict()
+export type ParallelNode = z.infer<typeof ParallelNodeSchema>
+
 export const JoinNodeSchema = z.object({
   id: NonEmptyString,
   kind: z.literal('join'),
-  requiredBranchIds: z.array(NonEmptyString).default([])
+  requiredBranchIds: z.array(NonEmptyString).default([]),
+  sourceParallelNodeId: NonEmptyString.optional(),
+  outputPolicy: z.enum(['all', 'successful', 'selected']).default('all'),
+  selectedBranchIds: z.array(NonEmptyString).optional()
 }).strict()
+export type JoinNode = z.infer<typeof JoinNodeSchema>
 
 export const WaitNodeSchema = z.object({
   id: NonEmptyString,
@@ -65,6 +85,7 @@ export const AgentGraphNodeSchema = z.discriminatedUnion('kind', [
   HandoffNodeSchema,
   ToolNodeSchema,
   JudgeNodeSchema,
+  ParallelNodeSchema,
   JoinNodeSchema,
   WaitNodeSchema,
   RetryNodeSchema,
@@ -103,6 +124,7 @@ export type TaskEnvelope = z.infer<typeof TaskEnvelopeSchema>
 
 export const AgentRunSchema = z.object({
   agentRunId: NonEmptyString,
+  branchId: NonEmptyString.optional(),
   agentId: NonEmptyString,
   nodeId: NonEmptyString,
   status: z.enum(['queued', 'running', 'completed', 'degraded', 'failed', 'aborted', 'suspended']),
@@ -137,6 +159,14 @@ export const KernelCompletionPayloadSchema = z.object({
 }).strict()
 export type KernelCompletionPayload = z.infer<typeof KernelCompletionPayloadSchema>
 
+export const KernelCancellationPayloadSchema = z.object({
+  schemaVersion: z.literal(1),
+  executionRef: KernelRunIdentitySchema,
+  branchId: NonEmptyString.optional(),
+  reason: z.enum(['fail_fast', 'root_cancel'])
+}).strict()
+export type KernelCancellationPayload = z.infer<typeof KernelCancellationPayloadSchema>
+
 export const MultiAgentEventSchema = z.object({
   eventId: NonEmptyString,
   type: z.enum([
@@ -145,11 +175,21 @@ export const MultiAgentEventSchema = z.object({
     'node_completed',
     'handoff_requested',
     'handoff_delivered',
+    'branch_spawned',
+    'branch_started',
+    'branch_completed',
+    'branch_failed',
+    'branch_cancelled',
+    'branch_late_result',
+    'join_waiting',
+    'join_completed',
     'run_completed',
-    'run_failed'
+    'run_failed',
+    'run_cancelled'
   ]),
   nodeId: NonEmptyString.optional(),
   agentId: NonEmptyString.optional(),
+  branchId: NonEmptyString.optional(),
   envelopeId: NonEmptyString.optional(),
   payload: z.unknown().optional(),
   timestamp: NonEmptyString
@@ -224,6 +264,46 @@ export const MultiAgentOutboxIntentSchema = z.discriminatedUnion('kind', [
 ])
 export type MultiAgentOutboxIntent = z.infer<typeof MultiAgentOutboxIntentSchema>
 
+export const DurableBranchRunSchema = z.object({
+  branchId: NonEmptyString,
+  parallelNodeId: NonEmptyString,
+  joinNodeId: NonEmptyString,
+  status: z.enum(['queued', 'running', 'suspended', 'completed', 'failed', 'aborted']),
+  activeNodeId: NonEmptyString,
+  agentRunIds: z.array(NonEmptyString).default([]),
+  output: z.unknown().optional(),
+  error: z.string().optional(),
+  usageRefs: z.array(NonEmptyString).default([]),
+  artifactRefs: z.array(NonEmptyString).default([]),
+  roiSnapshot: BranchRoiSnapshotSchema.optional(),
+  startedAt: NonEmptyString.optional(),
+  completedAt: NonEmptyString.optional(),
+  updatedAt: NonEmptyString
+}).strict()
+export type DurableBranchRun = z.infer<typeof DurableBranchRunSchema>
+
+export const JoinBranchResultSchema = DurableBranchRunSchema.pick({
+  status: true,
+  output: true,
+  error: true,
+  usageRefs: true,
+  artifactRefs: true,
+  roiSnapshot: true
+}).extend({
+  status: z.enum(['completed', 'failed', 'aborted'])
+}).strict()
+
+export const JoinResultSchema = z.object({
+  parallelNodeId: NonEmptyString,
+  joinNodeId: NonEmptyString,
+  branches: z.record(NonEmptyString, JoinBranchResultSchema)
+}).strict().superRefine((result, context) => {
+  if (Object.keys(result.branches).length === 0) {
+    context.addIssue({ code: 'custom', message: 'join result requires at least one branch', path: ['branches'] })
+  }
+})
+export type JoinResult = z.infer<typeof JoinResultSchema>
+
 export const MultiAgentRunSchema = z.object({
   version: z.literal(1),
   runId: NonEmptyString,
@@ -238,6 +318,7 @@ export const MultiAgentRunSchema = z.object({
     NonEmptyString,
     z.enum(['queued', 'running', 'completed', 'failed', 'aborted'])
   ).default({}),
+  branches: z.record(NonEmptyString, DurableBranchRunSchema).default({}),
   agentRuns: z.array(AgentRunSchema).default([]),
   events: z.array(MultiAgentEventSchema).default([]),
   outbox: z.array(MultiAgentOutboxIntentSchema).default([]),

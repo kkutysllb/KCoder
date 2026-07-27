@@ -1,19 +1,24 @@
 import {
   BudgetStateSchema,
   GraphRunRecordSchema,
+  KernelCancellationPayloadSchema,
+  MultiAgentEventSchema,
   RootRunAggregateErrorCodeSchema,
   type BudgetState,
   type GraphRunRecord,
+  type MultiAgentEvent,
   type RootRunAggregateErrorCode
 } from '@qiongqi/contracts'
 import {
   EngineRunRecordSchema,
+  EngineOutboxIntentSchema,
   EngineStoreConflictError,
   type DurableEngineStore,
   type EngineCommit,
   type EngineLease,
   type EngineRunRecord
 } from '@qiongqi/ports'
+import { abortOpenBranches, projectActiveNodeIds } from './parallel-branch-state.js'
 
 export class RootRunAggregateError extends Error {
   constructor(
@@ -375,6 +380,30 @@ export class RootRunAggregateCoordinator {
     const current = await this.load(runId)
     if (current.engineRun.desiredState === 'cancelled') return current
     if (isTerminal(current.engineRun)) return current
+    const now = this.nowIso()
+    const outboxIntents = (current.graphRun.eventedV2Run?.agentRuns ?? []).flatMap((agentRun) => {
+      if (!agentRun.executionRef || isAgentRunTerminal(agentRun.status)) return []
+      const payload = KernelCancellationPayloadSchema.parse({
+        schemaVersion: 1,
+        executionRef: agentRun.executionRef,
+        ...(agentRun.branchId ? { branchId: agentRun.branchId } : {}),
+        reason: 'root_cancel'
+      })
+      return [{
+        type: 'put' as const,
+        record: EngineOutboxIntentSchema.parse({
+          workId: `agent_execution_cancel_requested:${agentRun.executionRef.kernelRunId}`,
+          scope: current.graphRun.scope,
+          kind: 'agent_execution_cancel_requested',
+          payloadRef: `kernel-run://${agentRun.executionRef.kernelRunId}/cancel`,
+          status: 'pending',
+          availableAt: now,
+          createdAt: now,
+          updatedAt: now,
+          payload
+        })
+      }]
+    })
     return this.update({
       runId,
       expectedVersion: current.graphRun.version,
@@ -382,7 +411,8 @@ export class RootRunAggregateCoordinator {
       mutate: ({ graphRun }) => ({
         graphRun,
         enginePatch: { desiredState: 'cancelled' }
-      })
+      }),
+      ...(outboxIntents.length > 0 ? { mutations: { outboxIntents } } : {})
     })
   }
 
@@ -392,33 +422,45 @@ export class RootRunAggregateCoordinator {
     if (isTerminal(current.engineRun)) {
       throw new EngineStoreConflictError(`terminal root run ${runId} cannot be overwritten by cancellation`)
     }
+    const now = this.nowIso()
+    const cancellationEvents = rootCancellationEvents(current, now)
     return this.update({
       runId,
       expectedVersion: current.graphRun.version,
       allowCancelled: true,
       ...(lease ? { lease } : {}),
-      mutate: ({ graphRun }) => ({
-        graphRun: GraphRunRecordSchema.parse({
-          ...graphRun,
-          status: 'aborted',
-          ...(graphRun.eventedV2Run ? {
-            eventedV2Run: {
-              ...graphRun.eventedV2Run,
-              status: 'aborted',
-              agentRuns: graphRun.eventedV2Run.agentRuns.map((agentRun) =>
-                isAgentRunTerminal(agentRun.status)
-                  ? agentRun
-                  : { ...agentRun, status: 'aborted', completedAt: this.nowIso(), updatedAt: this.nowIso() })
-            }
-          } : {})
-        }),
-        enginePatch: {
-          desiredState: 'cancelled',
-          status: 'aborted',
-          outcome: { status: 'aborted', reason: 'user_aborted', retryable: false },
-          suspension: undefined
+      mutations: cancellationProjectionMutations(current, cancellationEvents),
+      mutate: ({ graphRun }) => {
+        let evented = graphRun.eventedV2Run
+        if (evented) {
+          const parallelNodeIds = [...new Set(Object.values(evented.branches).map((branch) => branch.parallelNodeId))]
+          for (const parallelNodeId of parallelNodeIds) {
+            evented = abortOpenBranches(evented, parallelNodeId, now)
+          }
+          evented = {
+            ...evented,
+            status: 'aborted',
+            agentRuns: evented.agentRuns.map((agentRun) =>
+              isAgentRunTerminal(agentRun.status)
+                ? agentRun
+                : { ...agentRun, status: 'aborted', completedAt: now, updatedAt: now }),
+            events: [...evented.events, ...cancellationEvents]
+          }
         }
-      })
+        return {
+          graphRun: GraphRunRecordSchema.parse({
+            ...graphRun,
+            status: 'aborted',
+            ...(evented ? { activeNodeIds: projectActiveNodeIds(evented), eventedV2Run: evented } : {})
+          }),
+          enginePatch: {
+            desiredState: 'cancelled',
+            status: 'aborted',
+            outcome: { status: 'aborted', reason: 'user_aborted', retryable: false },
+            suspension: undefined
+          }
+        }
+      }
     })
   }
 
@@ -446,6 +488,7 @@ export class RootRunAggregateCoordinator {
         eventedRun.runId !== graphRun.runId
         || eventedRun.graphId !== graphRun.graphId
         || eventedRun.activeNodeId !== activeNodeId(graphRun)
+        || !sameActiveNodes(graphRun.activeNodeIds, projectActiveNodeIds(eventedRun))
         || eventedRun.status !== graphRun.status
         || !sameBudget(eventedRun.budgets, graphRun.budgets)
       ))
@@ -459,6 +502,82 @@ export class RootRunAggregateCoordinator {
 
   private async taskRevision(scope: GraphRunRecord['scope']): Promise<number> {
     return (await this.options.store.loadTask(scope))?.revision ?? 0
+  }
+}
+
+function rootCancellationEvents(current: RootRunAggregate, timestamp: string): MultiAgentEvent[] {
+  const version = current.graphRun.version + 1
+  const branches = Object.values(current.graphRun.eventedV2Run?.branches ?? {})
+    .filter((branch) => !['completed', 'failed', 'aborted'].includes(branch.status))
+    .sort((left, right) => left.branchId.localeCompare(right.branchId))
+  return [
+    ...branches.map((branch) => MultiAgentEventSchema.parse({
+      eventId: `root_cancel:${current.graphRun.runId}:${version}:branch:${branch.branchId}`,
+      type: 'branch_cancelled',
+      nodeId: branch.activeNodeId,
+      branchId: branch.branchId,
+      payload: { reason: 'root_cancel' },
+      timestamp
+    })),
+    MultiAgentEventSchema.parse({
+      eventId: `root_cancel:${current.graphRun.runId}:${version}:run`,
+      type: 'run_cancelled',
+      nodeId: activeNodeId(current.graphRun),
+      payload: { reason: 'root_cancel' },
+      timestamp
+    })
+  ]
+}
+
+function cancellationProjectionMutations(
+  current: RootRunAggregate,
+  events: readonly MultiAgentEvent[]
+): Pick<RootRunCommitMutations, 'workGraphEvents' | 'streamEvents'> {
+  const graph = current.engineRun.graph!
+  return {
+    workGraphEvents: events.map((event) => ({
+      type: 'append' as const,
+      record: {
+        eventId: event.eventId,
+        scope: current.graphRun.scope,
+        runId: current.graphRun.runId,
+        graphId: current.graphRun.graphId,
+        graphRevision: current.graphRun.graphRevision,
+        ...(event.nodeId ? { nodeId: event.nodeId } : {}),
+        ...(event.branchId ? { branchId: event.branchId } : {}),
+        attemptId: event.eventId,
+        kind: event.type === 'branch_cancelled' ? 'branch_cancelled' : 'run_cancelled',
+        payload: { source: 'evented_v2', event },
+        timestamp: event.timestamp
+      }
+    })),
+    streamEvents: events.map((event) => ({
+      type: 'append' as const,
+      record: {
+        streamId: `stream:${current.graphRun.runId}`,
+        timestamp: event.timestamp,
+        scope: current.graphRun.scope,
+        multiAgentRunId: current.graphRun.runId,
+        ...(event.branchId ? { branchId: event.branchId } : {}),
+        graph: {
+          graphId: current.graphRun.graphId,
+          graphRevision: current.graphRun.graphRevision,
+          graphDigest: current.graphRun.graphDigest,
+          ...(event.branchId ? { branchId: event.branchId } : {}),
+          ...(event.nodeId ? { nodeId: event.nodeId } : {}),
+          attemptId: event.eventId,
+          callerId: graph.callerId,
+          policyRevision: graph.policyRevision
+        },
+        channel: 'public' as const,
+        kind: event.type.replaceAll('_', '.'),
+        payload: {
+          eventId: event.eventId,
+          ...(event.nodeId ? { nodeId: event.nodeId } : {}),
+          ...(event.payload !== undefined ? { data: event.payload } : {})
+        }
+      }
+    }))
   }
 }
 
@@ -518,6 +637,10 @@ const budgetKeys = ['stepsUsed', 'toolCallsUsed', 'inputTokens', 'outputTokens',
 
 function sameBudget(left: BudgetState, right: BudgetState): boolean {
   return budgetKeys.every((key) => left[key] === right[key])
+}
+
+function sameActiveNodes(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((nodeId, index) => nodeId === right[index])
 }
 
 function isTerminal(run: EngineRunRecord): boolean {

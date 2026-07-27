@@ -1,4 +1,5 @@
 import {
+  KernelCancellationPayloadSchema,
   KernelDispatchPayloadSchema,
   type KernelDispatchPayload,
   type WorkGraphEventRecord
@@ -30,6 +31,7 @@ export class DurableAgentDispatchWorker {
   private readonly workerId: string
   private readonly leaseTtlMs: number
   private scheduled = false
+  private draining: Promise<number> | undefined
 
   constructor(private readonly options: DurableAgentDispatchWorkerOptions) {
     this.workerId = options.workerId ?? 'qiongqi-local-kernel-worker'
@@ -41,19 +43,38 @@ export class DurableAgentDispatchWorker {
     this.scheduled = true
     queueMicrotask(() => {
       this.scheduled = false
-      void this.flushOnce().catch((error) => this.options.onError?.(error))
+      void this.flushAvailable().catch((error) => this.options.onError?.(error))
     })
+  }
+
+  flushAvailable(limit = 1_000): Promise<number> {
+    if (!Number.isInteger(limit) || limit <= 0) throw new Error('dispatch flush limit must be a positive integer')
+    if (this.draining) return this.draining
+    const drain = (async () => {
+      let processed = 0
+      while (processed < limit && (await this.flushOnce()).processed) processed += 1
+      return processed
+    })()
+    this.draining = drain
+    void drain.finally(() => {
+      if (this.draining === drain) this.draining = undefined
+    }).catch(() => undefined)
+    return drain
   }
 
   async flushOnce(): Promise<DurableAgentDispatchFlushResult> {
     const claim = await this.options.store.claimWork(
       this.workerId,
-      ['agent_execution_requested'],
+      ['agent_execution_requested', 'agent_execution_cancel_requested'],
       this.leaseTtlMs
     )
     if (!claim) return { processed: false }
 
-    const payload = KernelDispatchPayloadSchema.parse(claim.payload)
+    const cancellation = claim.kind === 'agent_execution_cancel_requested'
+      ? KernelCancellationPayloadSchema.parse(claim.payload)
+      : undefined
+    const dispatch = cancellation ? undefined : KernelDispatchPayloadSchema.parse(claim.payload)
+    const scope = cancellation?.executionRef.scope ?? dispatch!.identity.scope
     let lease: EngineLease | undefined = claim.lease
     let renewalError: unknown
     let renewalInProgress = false
@@ -77,20 +98,24 @@ export class DurableAgentDispatchWorker {
     if (timer && typeof timer === 'object' && 'unref' in timer && typeof timer.unref === 'function') timer.unref()
 
     try {
-      const input = await this.executionInput(payload)
-      await this.options.executor.execute(input)
+      if (cancellation) {
+        await this.options.executor.cancel(cancellation.executionRef)
+      } else {
+        const input = await this.executionInput(dispatch!)
+        await this.options.executor.execute(input)
+      }
       if (renewalError) throw renewalError
       if (!lease) throw new EngineStoreConflictError(`dispatch work claim lost: ${claim.workId}`)
       await this.options.store.commit({
-        scope: payload.identity.scope,
+        scope,
         runId: claim.workId,
         expectedRunVersion: 0,
-        expectedTaskRevision: (await this.options.store.loadTask(payload.identity.scope))?.revision ?? 0,
+        expectedTaskRevision: (await this.options.store.loadTask(scope))?.revision ?? 0,
         outboxIntents: [{
           type: 'complete',
           recordId: claim.workId,
           claim: lease,
-          payload
+          payload: cancellation ?? dispatch
         }]
       })
       return { processed: true, workId: claim.workId }
