@@ -4,7 +4,7 @@ import { MessageBubble } from './MessageBubble'
 import { CommandInput } from '../CommandInput'
 
 export function ChatPanel() {
-  const { messages, isGenerating, sendMessage } = useChat()
+  const { messages, isGenerating, sendMessage, stopGeneration, steer } = useChat()
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom when new messages arrive
@@ -26,7 +26,13 @@ export function ChatPanel() {
 
       {/* Input area */}
       <div className="px-6 pb-6">
-        <CommandInput onSend={sendMessage} disabled={isGenerating} />
+        <CommandInput
+          onSend={sendMessage}
+          disabled={isGenerating}
+          isGenerating={isGenerating}
+          onStop={stopGeneration}
+          onSteer={steer}
+        />
       </div>
     </div>
   )

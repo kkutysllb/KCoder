@@ -146,6 +146,9 @@ const zhCN: Dict = {
   // CommandInput
   'input.placeholder': '向 KCoder 提问, @ 提及文件、文件夹或画板, / 使用命令或子智能体, $ 使用技能, # 关联对话',
   'input.noModel': '未配置模型',
+  'chat.stop': '停止',
+  'chat.steer': '追加',
+  'chat.steer.placeholder': '追加指令到正在执行的任务...',
   'perm.confirmBeforeChange': '变更前确认',
   'perm.confirmBeforeChange.desc': '改文件前先问我。',
   'perm.autoEdit': '自动编辑',
@@ -657,6 +660,9 @@ const en: Dict = {
   // CommandInput
   'input.placeholder': 'Ask KCoder, @ to mention files, / for commands or sub-agents, $ for skills, # to link chats',
   'input.noModel': 'No model configured',
+  'chat.stop': 'Stop',
+  'chat.steer': 'Steer',
+  'chat.steer.placeholder': 'Append instructions to the running task...',
   'perm.confirmBeforeChange': 'Confirm before change',
   'perm.confirmBeforeChange.desc': 'Ask me before modifying files.',
   'perm.autoEdit': 'Auto edit',

@@ -567,11 +567,54 @@ export function useChat() {
     }
   }, [enginePort, resolvePendingUserInput])
 
+  // 停止当前 turn（中断 agent 执行）
+  const stopGeneration = useCallback(async () => {
+    const state = useAppStore.getState()
+    if (!state.threadId || !state.activeTurnId) return
+    const api = getEngineAPI(enginePort)
+    try {
+      await api.interruptTurn(state.threadId, state.activeTurnId)
+    } catch (e) {
+      console.error('[useChat] Failed to stop generation:', e)
+    }
+    // engineStreamAbortRef 会随 setGenerating(false) 之后的清理断开
+    // 这里手动 abort 确保立即停止订阅
+    engineStreamAbortRef.current?.abort()
+    setGenerating(false)
+  }, [enginePort, setGenerating])
+
+  // 追加指令到正在运行的 turn（steer）
+  const steer = useCallback(async (text: string) => {
+    const state = useAppStore.getState()
+    if (!state.threadId || !state.activeTurnId || !text.trim()) return
+    const api = getEngineAPI(enginePort)
+    try {
+      await api.steerTurn(state.threadId, state.activeTurnId, text.trim())
+    } catch (e) {
+      console.error('[useChat] Failed to steer turn:', e)
+    }
+  }, [enginePort])
+
+  // 手动压缩上下文
+  const compactContext = useCallback(async (opts?: { reason?: string; budgetTokens?: number }) => {
+    const state = useAppStore.getState()
+    if (!state.threadId) return
+    const api = getEngineAPI(enginePort)
+    try {
+      await api.compactThread(state.threadId, opts)
+    } catch (e) {
+      console.error('[useChat] Failed to compact context:', e)
+    }
+  }, [enginePort])
+
   return {
     messages,
     isGenerating,
     threadId,
     sendMessage,
+    stopGeneration,
+    steer,
+    compactContext,
     newChat,
     loadThread,
     checkConnection,

@@ -276,6 +276,12 @@ function DirectoryBranchBar() {
 interface CommandInputProps {
   onSend: (message: string) => void
   disabled?: boolean
+  /** True when the agent is currently generating — shows stop button + steer. */
+  isGenerating?: boolean
+  /** Stop the current turn (interrupt). */
+  onStop?: () => void
+  /** Append instructions to the running turn (steer). */
+  onSteer?: (text: string) => void
   permission?: PermissionMode
   onPermissionChange?: (mode: PermissionMode) => void
 }
@@ -283,10 +289,14 @@ interface CommandInputProps {
 export function CommandInput({
   onSend,
   disabled,
+  isGenerating,
+  onStop,
+  onSteer,
   permission = 'full-access',
   onPermissionChange
 }: CommandInputProps) {
   const [input, setInput] = useState('')
+  const [steerInput, setSteerInput] = useState('')
   const [showPermMenu, setShowPermMenu] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const permMenuRef = useRef<HTMLDivElement>(null)
@@ -391,6 +401,38 @@ export function CommandInput({
             rows={1}
             className="command-input resize-none min-h-[24px]"
           />
+          {/* Steer bar — only while generating. Lets the user append
+              instructions to the running turn without starting a new one. */}
+          {isGenerating && onSteer && (
+            <div className="mt-2 flex items-center gap-2 pt-2 border-t border-border-custom">
+              <input
+                type="text"
+                value={steerInput}
+                onChange={(e) => setSteerInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && steerInput.trim()) {
+                    e.preventDefault()
+                    onSteer(steerInput.trim())
+                    setSteerInput('')
+                  }
+                }}
+                placeholder={t('chat.steer.placeholder')}
+                className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-bg-hover border border-border-custom text-text-primary placeholder-text-muted outline-none focus:border-[#3b82f6] transition-colors"
+              />
+              <button
+                onClick={() => {
+                  if (steerInput.trim()) {
+                    onSteer(steerInput.trim())
+                    setSteerInput('')
+                  }
+                }}
+                disabled={!steerInput.trim()}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#3b82f6] text-white hover:bg-[#2563eb] disabled:opacity-40 transition-colors shrink-0"
+              >
+                {t('chat.steer')}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Bottom row: actions and model selector */}
@@ -481,23 +523,29 @@ export function CommandInput({
               )}
             </div>
 
-            {/* Send button */}
-            <button
-              onClick={handleSubmit}
-              disabled={disabled || !input.trim()}
-              className="w-8 h-8 rounded-full bg-white hover:bg-gray-200 disabled:bg-[#3f3f46] disabled:cursor-not-allowed flex items-center justify-center text-black disabled:text-text-muted transition-colors"
-            >
-              {disabled ? (
-                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            {/* Send / Stop button */}
+            {isGenerating ? (
+              <button
+                onClick={() => onStop?.()}
+                title={t('chat.stop')}
+                className="w-8 h-8 rounded-full bg-[#ef4444] hover:bg-[#dc2626] flex items-center justify-center text-white transition-colors"
+              >
+                {/* Stop icon (square) */}
+                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
                 </svg>
-              ) : (
+              </button>
+            ) : (
+              <button
+                onClick={handleSubmit}
+                disabled={disabled || !input.trim()}
+                className="w-8 h-8 rounded-full bg-white hover:bg-gray-200 disabled:bg-[#3f3f46] disabled:cursor-not-allowed flex items-center justify-center text-black disabled:text-text-muted transition-colors"
+              >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
                 </svg>
-              )}
-            </button>
+              </button>
+            )}
           </div>
         </div>
       </div>

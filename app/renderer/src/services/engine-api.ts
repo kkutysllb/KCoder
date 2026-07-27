@@ -192,6 +192,18 @@ export interface TurnResponse {
   userMessageItemId: string
 }
 
+// ============ Attachment types ============
+
+export interface AttachmentMetadata {
+  id: string
+  name: string
+  mimeType?: string
+  size: number
+  threadId?: string
+  workspace?: string
+  createdAt: string
+}
+
 // ============ Governed graph governance types ============
 
 /** Circuit state for a governed graph run. */
@@ -724,12 +736,16 @@ export class EngineAPI {
   async sendMessage(
     threadId: string,
     content: string,
-    onEvent: (event: SSEEvent) => void
+    onEvent: (event: SSEEvent) => void,
+    attachmentIds?: string[]
   ): Promise<string> {
     const turnResponse = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns`, {
       method: 'POST',
       headers: this.headers,
-      body: JSON.stringify({ prompt: content })
+      body: JSON.stringify({
+        prompt: content,
+        ...(attachmentIds && attachmentIds.length > 0 ? { attachmentIds } : {})
+      })
     })
 
     if (!turnResponse.ok) {
@@ -840,6 +856,62 @@ export class EngineAPI {
       // Safety timeout (10 minutes) in case the turn-terminal event is missed.
       setTimeout(finish, 10 * 60 * 1000)
     })
+  }
+
+  // ============ Turn Control API (steer / interrupt / compact) ============
+
+  /**
+   * Steer a running turn — append additional instructions mid-turn without
+   * starting a new turn. POST /v1/threads/:id/turns/:turnId/steer { text }
+   */
+  async steerTurn(threadId: string, turnId: string, text: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns/${turnId}/steer`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ text })
+    })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to steer turn: ${detail}`)
+    }
+  }
+
+  /**
+   * Interrupt a running turn — stop the agent. When discard is true, removes
+   * generated items (keeps the user prompt).
+   * POST /v1/threads/:id/turns/:turnId/interrupt { discard? }
+   */
+  async interruptTurn(threadId: string, turnId: string, discard?: boolean): Promise<{ status: string }> {
+    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns/${turnId}/interrupt`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ ...(discard != null ? { discard } : {}) })
+    })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to interrupt turn: ${detail}`)
+    }
+    return response.json()
+  }
+
+  /**
+   * Manually compact the conversation context — summarize older items to free
+   * token budget. POST /v1/threads/:id/compact { reason?, budgetTokens? }
+   */
+  async compactThread(threadId: string, opts?: { reason?: string; budgetTokens?: number }): Promise<{ replacedTokens: number; summary: string }> {
+    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}/compact`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        ...(opts?.reason ? { reason: opts.reason } : {}),
+        ...(opts?.budgetTokens ? { budgetTokens: opts.budgetTokens } : {})
+      })
+    })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to compact thread: ${detail}`)
+    }
+    return response.json()
   }
 
   // ============ Turn Execution / Durable Engine Stream API ============
@@ -1289,6 +1361,49 @@ export class EngineAPI {
     return response.json()
   }
 
+  // ============ Attachments API ============
+  //
+  // Upload files to the engine so the agent can read them during a turn.
+  // The attachment id can be passed to sendMessage via the StartTurnRequest's
+  // attachmentIds field (the engine injects attachment content into context).
+
+  /**
+   * Upload a file as an attachment. The file is base64-encoded and sent as
+   * JSON. Returns the attachment metadata (including the id to pass to turns).
+   * POST /v1/attachments { name, mimeType, dataBase64, threadId?, workspace? }
+   */
+  async uploadAttachment(file: File, opts?: { threadId?: string; workspace?: string }): Promise<AttachmentMetadata> {
+    const dataBase64 = await fileToBase64(file)
+    const response = await fetch(`${this.baseUrl}/v1/attachments`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({
+        name: file.name,
+        ...(file.type ? { mimeType: file.type } : {}),
+        dataBase64,
+        ...(opts?.threadId ? { threadId: opts.threadId } : {}),
+        ...(opts?.workspace ? { workspace: opts.workspace } : {})
+      })
+    })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to upload attachment: ${detail}`)
+    }
+    const data = await response.json()
+    return data.attachment as AttachmentMetadata
+  }
+
+  /** Get attachment metadata. GET /v1/attachments/:id */
+  async getAttachment(id: string): Promise<AttachmentMetadata | null> {
+    const response = await fetch(`${this.baseUrl}/v1/attachments/${encodeURIComponent(id)}`, {
+      headers: this.headers
+    })
+    if (response.status === 404) return null
+    if (!response.ok) throw new Error(`Failed to get attachment: ${response.statusText}`)
+    const data = await response.json()
+    return data.attachment as AttachmentMetadata
+  }
+
   // ============ Models API (product-side, over IPC) ============
   //
   // The new engine exposes no HTTP model CRUD. Model configuration is owned
@@ -1556,4 +1671,15 @@ export function getEngineAPI(port: number, token?: string): EngineAPI {
 
 export function resetEngineAPI(): void {
   apiInstance = null
+}
+
+/** Read a File and return its contents as a base64 string (for attachment upload). */
+async function fileToBase64(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer()
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary)
 }
