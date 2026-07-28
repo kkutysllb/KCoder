@@ -108,6 +108,13 @@ export type GovernedTurnDriverOptions = {
     inflightBegin(input: { id: string; kind: string; threadId: string; turnId: string }): void
     inflightEnd(turnId: string): void
   }
+  /**
+   * Resolve the user's prompt for a turn. The governed graph's run_started
+   * event must carry a non-empty prompt (the dispatch worker reads it via
+   * promptFromEvent). This callback lets the driver fetch the prompt from
+   * the turn record.
+   */
+  resolvePrompt?: (threadId: string, turnId: string) => Promise<string>
 }
 
 export type GovernedTurnDriver = {
@@ -183,12 +190,20 @@ export async function createGovernedTurnDriver(
           workspaceId: 'local-default-workspace',
           taskId: `task_${threadId}_${turnId}`
         }
-        const started = await engine.start({
+        // Resolve the user's prompt — the governed graph's run_started event
+          // must carry a non-empty prompt (the dispatch worker reads it).
+          const prompt = options.resolvePrompt
+            ? await options.resolvePrompt(threadId, turnId)
+            : ''
+          if (!prompt.trim()) {
+            throw new Error(`governed turn has no prompt: ${threadId}/${turnId}`)
+          }
+          const started = await engine.start({
           scope,
           threadId,
           turnId,
           workspaceKey: scope.workspaceId,
-          prompt: '',
+          prompt,
           modelPolicy: { authorizedProfileIds: [options.modelProfileId] },
           graphRef,
           budgetLimits

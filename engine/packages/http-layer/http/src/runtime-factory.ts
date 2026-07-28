@@ -1786,7 +1786,14 @@ async function assembleRuntime(input: {
       },
       // Pass the TurnService so the governed driver can register AbortControllers
       // and call finishTurn — this makes the SSE stream receive terminal events.
-      turnService: core.turnService
+      turnService: core.turnService,
+      // Resolve the user's prompt from the turn record — the governed graph's
+      // run_started event must carry a non-empty prompt.
+      resolvePrompt: async (threadId, turnId) => {
+        const turn = await core.turnService.getTurn(threadId, turnId)
+        if (!turn) throw new Error(`turn not found: ${threadId}/${turnId}`)
+        return turn.prompt ?? ''
+      }
     })
   }
   const multiAgentRoot = join(options.dataDir, 'threads')
