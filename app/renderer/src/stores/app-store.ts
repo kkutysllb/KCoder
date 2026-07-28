@@ -81,6 +81,8 @@ interface AppState {
   branches: Record<string, BranchProjection>
   /** v1.1.2 顶层 ROI 快照（来自 roi.snapshot engine stream 事件）。 */
   roiSnapshot: RoiSnapshot | null
+  /** 当前会话累计用量（来自 usage SSE 事件，供输入框底部 ROI 缩略条展示）。 */
+  sessionUsage: { promptTokens: number; completionTokens: number; totalTokens: number; runs: number }
 
   // 浮动信息面板
   panelOpen: boolean
@@ -129,6 +131,8 @@ interface AppState {
   setBranches: (branches: Record<string, BranchProjection>) => void
   /** Replace the ROI snapshot (from roi.snapshot stream event). */
   setRoiSnapshot: (roi: RoiSnapshot | null) => void
+  /** 累加一次 turn 的用量到会话总量。 */
+  addSessionUsage: (usage: { promptTokens: number; completionTokens: number; totalTokens: number }) => void
   setPanelOpen: (open: boolean) => void
   setPanelStrategy: (strategy: PanelStrategy) => void
   setPanelTab: (tab: PanelTab) => void
@@ -160,6 +164,7 @@ export const useAppStore = create<AppState>((set) => ({
   turnExecution: null,
   branches: {},
   roiSnapshot: null,
+  sessionUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, runs: 0 },
   panelOpen: false,
   panelStrategy: 'manual',
   panelTab: 'execution',
@@ -351,6 +356,14 @@ export const useAppStore = create<AppState>((set) => ({
     }),
   setBranches: (branches) => set({ branches }),
   setRoiSnapshot: (roi) => set({ roiSnapshot: roi }),
+  addSessionUsage: (usage) => set((state) => ({
+    sessionUsage: {
+      promptTokens: state.sessionUsage.promptTokens + usage.promptTokens,
+      completionTokens: state.sessionUsage.completionTokens + usage.completionTokens,
+      totalTokens: state.sessionUsage.totalTokens + usage.totalTokens,
+      runs: state.sessionUsage.runs + 1
+    }
+  })),
 
   setPanelOpen: (open) => set({ panelOpen: open }),
   setPanelStrategy: (strategy) => set({ panelStrategy: strategy }),
@@ -366,6 +379,7 @@ export const useAppStore = create<AppState>((set) => ({
       pendingNewBranch: null,
       branches: {},
       graphRunInspection: null,
-      roiSnapshot: null
+      roiSnapshot: null,
+      sessionUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, runs: 0 }
     })
 }))

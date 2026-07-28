@@ -253,12 +253,14 @@ export function useChat() {
         case 'usage': {
           const usage = data.usage as Record<string, unknown> | undefined
           if (usage) {
-            appendMessagePart(assistantMessageId, {
-              type: 'usage',
+            const u = {
               promptTokens: (usage.promptTokens as number) ?? 0,
               completionTokens: (usage.completionTokens as number) ?? 0,
               totalTokens: (usage.totalTokens as number) ?? 0
-            })
+            }
+            appendMessagePart(assistantMessageId, { type: 'usage', ...u })
+            // 同时累加到会话总量（供输入框底部 ROI 缩略条展示）
+            useAppStore.getState().addSessionUsage(u)
           }
           break
         }
@@ -645,16 +647,18 @@ function handleItemEvent(
 
   switch (itemKind) {
     case 'assistant_text': {
-      // The engine emits assistant_text as a single item event (item_created
-      // with status 'completed') carrying the full text — there is no
-      // assistant_text_delta stream. Ship the text bound to itemId so the
-      // store dedupes/updates across item_created/item_updated/item_completed.
+      // kernel_v3 streams live deltas (assistant_text_delta) during model
+      // generation, then emits a final item_completed with the full text.
+      // We skip item_created/item_updated to avoid clobbering the delta
+      // stream — only sync on item_completed (final authoritative text).
+      if (!isCompleted) break
       const text = (item.text as string) ?? ''
       appendPart(assistantMessageId, { type: 'text', text, itemId })
       break
     }
     case 'assistant_reasoning': {
-      // Same pattern as assistant_text: full payload per item event, no delta.
+      // Same as assistant_text: only sync on item_completed.
+      if (!isCompleted) break
       const text = (item.text as string) ?? ''
       appendPart(assistantMessageId, { type: 'reasoning', text, itemId })
       break

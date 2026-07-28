@@ -632,7 +632,80 @@ export function CommandInput({
             )}
           </div>
         </div>
+
+        {/* ROI 缩略条 — 会话累计用量，输入框最底部 */}
+        <RoiMiniStrip />
+
       </div>
     </div>
   )
+}
+
+/**
+ * ROI 缩略条 — 输入框最底部窄条，显示当前会话累计 token 用量 + 微型趋势条。
+ * 鼠标 hover 展开详细统计（每 turn 的 prompt/completion 分项）。
+ */
+function RoiMiniStrip() {
+  const { t } = useI18n()
+  const sessionUsage = useAppStore((s) => s.sessionUsage)
+  const isGenerating = useAppStore((s) => s.isGenerating)
+  if (sessionUsage.runs === 0 && !isGenerating) return null
+
+  const total = sessionUsage.totalTokens
+  const promptPct = total > 0 ? (sessionUsage.promptTokens / total) * 100 : 0
+  const completionPct = total > 0 ? (sessionUsage.completionTokens / total) * 100 : 0
+
+  return (
+    <div className="group relative">
+      <div className="flex items-center gap-2 px-4 h-6 border-t border-border-subtle bg-bg-surface/50 rounded-b-xl">
+        {/* 标签 */}
+        <span className="text-[9px] font-medium text-text-muted uppercase tracking-wide shrink-0">ROI</span>
+        {/* 数字 */}
+        <div className="flex items-center gap-2 text-[9px] font-mono text-text-muted">
+          <span>↓{formatTokens(sessionUsage.promptTokens)}</span>
+          <span>↑{formatTokens(sessionUsage.completionTokens)}</span>
+          {total > 0 && <span className="text-text-secondary">Σ{formatTokens(total)}</span>}
+          <span className="text-text-muted">{sessionUsage.runs} run{sessionUsage.runs !== 1 ? 's' : ''}</span>
+        </div>
+        {/* 微型 token 比例条 */}
+        <div className="flex-1 h-1 rounded-full bg-bg-hover overflow-hidden flex">
+          <div className="bg-[#3b82f6]/60" style={{ width: `${promptPct}%` }} title={`Prompt: ${formatTokens(sessionUsage.promptTokens)}`} />
+          <div className="bg-[#22c55e]/60" style={{ width: `${completionPct}%` }} title={`Completion: ${formatTokens(sessionUsage.completionTokens)}`} />
+        </div>
+        {/* hover 展开箭头 */}
+        <svg className="w-2.5 h-2.5 text-text-muted transition-transform group-hover:rotate-180 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+      {/* hover 展开详情 */}
+      <div className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-all duration-150 absolute right-4 top-full mt-1 z-40 rounded-lg border border-border-subtle bg-bg-sidebar shadow-2xl p-2 space-y-1 w-56">
+        <div className="flex justify-between text-[10px]">
+          <span className="text-text-muted">{t('roi.prompt')}</span>
+          <span className="font-mono text-[#3b82f6]">{formatTokens(sessionUsage.promptTokens)}</span>
+        </div>
+        <div className="flex justify-between text-[10px]">
+          <span className="text-text-muted">{t('roi.completion')}</span>
+          <span className="font-mono text-[#22c55e]">{formatTokens(sessionUsage.completionTokens)}</span>
+        </div>
+        <div className="border-t border-border-subtle pt-1 flex justify-between text-[10px]">
+          <span className="text-text-muted">{t('roi.total')}</span>
+          <span className="font-mono text-text-primary">{formatTokens(total)}</span>
+        </div>
+        <div className="flex justify-between text-[10px]">
+          <span className="text-text-muted">{t('roi.runs')}</span>
+          <span className="font-mono text-text-secondary">{sessionUsage.runs}</span>
+        </div>
+        <div className="flex justify-between text-[10px]">
+          <span className="text-text-muted">{t('roi.avgPerRun')}</span>
+          <span className="font-mono text-text-secondary">{formatTokens(sessionUsage.runs > 0 ? Math.round(total / sessionUsage.runs) : 0)}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
 }
