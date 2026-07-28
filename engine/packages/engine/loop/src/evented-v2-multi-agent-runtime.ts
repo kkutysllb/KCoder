@@ -536,7 +536,9 @@ export class EventedV2MultiAgentRuntime {
         agentRunId: agentRun.agentRunId,
         parentRunId: agentRun.agentRunId,
         kernelRunId: this.options.ids('kernel_run'),
-        ...(input.graph ? { graph: input.graph } : {})
+        ...(input.graph ? {
+          graph: { ...input.graph, nodeId: node.id, attemptId: agentRun.agentRunId }
+        } : {})
       })
       const prepared: AgentDispatchPreparationInput = {
         scope: input.scope,
@@ -545,16 +547,21 @@ export class EventedV2MultiAgentRuntime {
         agentId,
         nodeId: agentRun.nodeId,
         parentRunId: current.runId,
+        threadId: current.threadId,
+        turnId: current.turnId,
+        workspaceKey: current.workspaceKey,
         requestedBudget: input.requestedBudget,
         prompt: input.prompt,
         executionRef,
         reservationId: `reservation:${executionRef.kernelRunId}`,
         inputRef: promptInputRef(current),
         role: node.kind,
-        ...(input.graph ? { graph: input.graph } : {}),
+        ...(input.graph ? { graph: executionRef.graph } : {}),
+        ...(node.modelPolicyRef ? { modelPolicyRef: node.modelPolicyRef } : {}),
+        ...(node.executionPolicyRef ? { executionPolicyRef: node.executionPolicyRef } : {}),
+        ...(node.nodePolicyRef ? { nodePolicyRef: node.nodePolicyRef } : {}),
         ...(node.kind === 'judge' ? {
-          sharedEvidenceRefs: [...input.sharedEvidenceRefs!],
-          ...(node.modelPolicyRef ? { modelPolicyRef: node.modelPolicyRef } : {})
+          sharedEvidenceRefs: [...input.sharedEvidenceRefs!]
         } : {})
       }
       if (this.options.dispatchPreparer) {
@@ -617,6 +624,9 @@ export class EventedV2MultiAgentRuntime {
           agentId,
           nodeId: node.id,
           parentRunId: current.runId,
+          threadId: current.threadId,
+          turnId: current.turnId,
+          workspaceKey: current.workspaceKey,
           requestedBudget,
           prompt: input.prompt,
           executionRef,
@@ -625,7 +635,9 @@ export class EventedV2MultiAgentRuntime {
           role: node.kind,
           sharedEvidenceRefs: input.sharedEvidenceRefs ?? [],
           ...(input.graph ? { graph: executionRef.graph } : {}),
-          ...(node.modelPolicyRef ? { modelPolicyRef: node.modelPolicyRef } : {})
+          ...(node.modelPolicyRef ? { modelPolicyRef: node.modelPolicyRef } : {}),
+          ...(node.executionPolicyRef ? { executionPolicyRef: node.executionPolicyRef } : {}),
+          ...(node.nodePolicyRef ? { nodePolicyRef: node.nodePolicyRef } : {})
         })
       }
       if (preparations.length === 0) return current

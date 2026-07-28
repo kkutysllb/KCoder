@@ -1,6 +1,6 @@
 # @qiongqi/adapter-tools — 外部 Provider
 
-> v1.1.1。外部 provider 通过通用 ToolHost 接入，不成为 Durable Engine 的事实源。
+> v1.1.4。外部 provider 通过通用 ToolHost 接入，不成为 Durable Engine 的事实源。
 
 > MCP / Web / Memory / Delegation provider —— 工具生态的"血肉"。
 > Layer 5 — 同 registry 子模块。

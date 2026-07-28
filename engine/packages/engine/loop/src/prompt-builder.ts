@@ -355,6 +355,11 @@ export class PromptBuilder {
     )
     const effectiveSkillIds = this.deps.skillPluginHost?.effectiveSkillIds(workModeId)
     const explicitSkillIds = turn?.explicitSkillIds ?? []
+    const executionPolicy = turn?.executionPolicy
+    if (executionPolicy && !this.deps.skillPluginHost
+      && (executionPolicy.skills.requiredSkillIds.length > 0 || explicitSkillIds.length > 0)) {
+      throw new Error('turn execution skill policy requires the skill plugin host')
+    }
     const skillResolution = this.deps.skillPluginHost?.resolveTurn({
       prompt: turn?.prompt ?? '',
       workspace: thread?.workspace ?? '',
@@ -362,6 +367,12 @@ export class PromptBuilder {
       ownerUserId: thread?.ownerUserId,
       workModeId,
       effectiveSkillIds,
+      ...(executionPolicy
+        ? {
+            allowedSkillIds: executionPolicy.skills.allowedSkillIds,
+            requiredSkillIds: executionPolicy.skills.requiredSkillIds
+          }
+        : {}),
       forcedSkillIds: explicitSkillIds
     }) ?? this.deps.skillRuntime?.resolveTurn({
       prompt: turn?.prompt ?? '',
@@ -383,10 +394,12 @@ export class PromptBuilder {
       ? null
       : goalContinuationInstruction(thread?.goal)
     const activeTodoInstruction = todoContinuationInstruction(thread?.todos)
-    const allowedToolNames = allowedToolNamesWithGuiStateTools(
-      skillResolution.allowedToolNames,
-      activeGoalInstruction !== null
-    )
+    const allowedToolNames = executionPolicy
+      ? [...executionPolicy.tools.allowedToolNames]
+      : allowedToolNamesWithGuiStateTools(
+          skillResolution.allowedToolNames,
+          activeGoalInstruction !== null
+        )
     const toolContext: ToolHostContext = {
       threadId,
       turnId,

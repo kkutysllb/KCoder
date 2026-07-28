@@ -1,6 +1,6 @@
 # @qiongqi/domain：领域实体
 
-> v1.1.1。该包提供 Thread、Turn、Item、Event 等纯领域实体和 reducer，不包含 store、模型或网络代码。
+> v1.1.4。该包提供 Thread、Turn、Item、Event 等纯领域实体和 reducer，不包含 store、模型或网络代码。
 
 ## 职责
 

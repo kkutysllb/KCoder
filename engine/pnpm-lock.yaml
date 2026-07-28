@@ -18,6 +18,22 @@ importers:
         specifier: ^3.2.4
         version: 3.2.6(@types/node@26.0.0)
 
+  overlays/worktree-overlay:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@3.25.76)
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+
   packages/adapters/adapter-model:
     dependencies:
       '@qiongqi/contracts':
@@ -432,22 +448,6 @@ importers:
       '@types/node':
         specifier: ^26.0.0
         version: 26.0.0
-      typescript:
-        specifier: ^5.8.2
-        version: 5.9.3
-
-  packages/overlays/worktree-overlay:
-    dependencies:
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
-        version: 1.29.0(zod@3.25.76)
-      zod:
-        specifier: ^3.25.0
-        version: 3.25.76
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.20.1
       typescript:
         specifier: ^5.8.2
         version: 5.9.3

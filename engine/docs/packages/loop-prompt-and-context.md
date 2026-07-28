@@ -1,6 +1,6 @@
 # @qiongqi/loop：Prompt、上下文和长任务状态
 
-> v1.1.1。prompt 构建和压缩服从 TaskCheckpoint，不以自然语言摘要替代结构化任务事实。
+> v1.1.4。prompt 构建和压缩服从 TaskCheckpoint，不以自然语言摘要替代结构化任务事实。
 
 v1.1 的 prompt identity 同时包含 pinned graph revision/digest、node/edge/attempt correlation 和 task model policy revision；恢复后不能因 graph 或模型策略变化复用旧请求。
 

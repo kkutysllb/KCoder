@@ -28,7 +28,8 @@ export function compileAgentGraph(graphInput: AgentGraph, input: CompileAgentGra
     }).slice(0, 24)}`,
     from: edge.from,
     to: edge.to,
-    condition: edge.condition
+    condition: edge.condition,
+    ...(edge.edgePolicyRef ? { edgePolicyRef: edge.edgePolicyRef } : {})
   }))
   const definition = {
     schemaVersion: 1 as const,

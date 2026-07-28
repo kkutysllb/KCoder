@@ -197,10 +197,14 @@ export class SkillPluginHost {
     ownerUserId?: string
     workModeId?: string
     effectiveSkillIds?: readonly string[]
+    allowedSkillIds?: readonly string[]
+    requiredSkillIds?: readonly string[]
     forcedSkillIds?: readonly string[]
   }): SkillTurnResolution {
     if (!this.config.enabled) return emptyResolution()
-    const effectiveSkillIds = input.effectiveSkillIds ?? (input.workModeId ? this.effectiveSkillIds(input.workModeId) : undefined)
+    const workModeSkillIds = input.effectiveSkillIds
+      ?? (input.workModeId ? this.effectiveSkillIds(input.workModeId) : undefined)
+    const effectiveSkillIds = intersectSkillScopes(workModeSkillIds, input.allowedSkillIds)
     const context: SkillPluginHostContext = {
       threadId: input.threadId,
       ownerUserId: input.ownerUserId,
@@ -210,7 +214,34 @@ export class SkillPluginHost {
     }
     const available = this.plugins.filter((skill) => this.isEnabled(skill, context))
     const matches = this.matchSkills({ ...input, effectiveSkillIds })
-    const forced = uniqueStrings(input.forcedSkillIds ?? [])
+    const allowedPolicyIds = input.allowedSkillIds ? new Set(input.allowedSkillIds) : undefined
+    const explicitIds = uniqueStrings(input.forcedSkillIds ?? []).sort()
+    const disallowedExplicit = allowedPolicyIds
+      ? explicitIds.find((skillId) => !allowedPolicyIds.has(skillId))
+      : undefined
+    if (disallowedExplicit) {
+      throw new Error(`explicit skill ${disallowedExplicit} is not allowed by the turn execution policy`)
+    }
+    const requiredIds = uniqueStrings(input.requiredSkillIds ?? []).sort()
+    const disallowedRequired = allowedPolicyIds
+      ? requiredIds.find((skillId) => !allowedPolicyIds.has(skillId))
+      : undefined
+    if (disallowedRequired) {
+      throw new Error(`required skill unavailable: ${disallowedRequired} is not allowed by the turn execution policy`)
+    }
+    const required = requiredIds.map((skillId) => {
+      const resolved = this.resolveActivatableSkill(skillId, context)
+      if (!resolved.ok) {
+        throw new Error(`required skill unavailable: ${skillId} (${resolved.code})`)
+      }
+      return { skill: resolved.skill, skillId, reason: 'required-activation', score: 3_000 }
+    })
+    if (required.length > this.options.activeLimit) {
+      throw new Error(`required skill count ${required.length} exceeds active skill limit ${this.options.activeLimit}`)
+    }
+    const requiredIdsSet = new Set(required.map((match) => match.skillId))
+    const forced = explicitIds
+      .filter((skillId) => !requiredIdsSet.has(skillId))
       .sort()
       .flatMap((skillId) => {
         const resolved = this.resolveActivatableSkill(skillId, context)
@@ -218,8 +249,9 @@ export class SkillPluginHost {
           ? [{ skill: resolved.skill, skillId, reason: 'explicit-activation', score: 2_000 }]
           : []
       })
-    const forcedIds = new Set(forced.map((match) => match.skillId))
+    const forcedIds = new Set([...requiredIdsSet, ...forced.map((match) => match.skillId)])
     const active = [
+      ...required,
       ...forced,
       ...matches.filter((match) => !forcedIds.has(match.skillId))
     ].slice(0, this.options.activeLimit)
@@ -344,6 +376,17 @@ export class SkillPluginHost {
     if (name && (lower.includes(`${name}`) || lower.includes(`@${name}`))) return 'explicit:name'
     return undefined
   }
+}
+
+function intersectSkillScopes(
+  workModeSkillIds: readonly string[] | undefined,
+  allowedSkillIds: readonly string[] | undefined
+): string[] | undefined {
+  if (!workModeSkillIds && !allowedSkillIds) return undefined
+  if (!workModeSkillIds) return uniqueStrings(allowedSkillIds ?? []).sort()
+  if (!allowedSkillIds) return uniqueStrings(workModeSkillIds).sort()
+  const allowed = new Set(allowedSkillIds)
+  return uniqueStrings(workModeSkillIds).filter((skillId) => allowed.has(skillId)).sort()
 }
 
 async function discoverPlugins(

@@ -1,7 +1,7 @@
 {
   "name": "qiongqi-monorepo",
   "private": true,
-  "version": "1.1.2",
+  "version": "1.1.4",
   "description": "Qiongqi — 独立多 Agent 框架，骨架不变，血肉万变",
   "type": "module",
   "scripts": {

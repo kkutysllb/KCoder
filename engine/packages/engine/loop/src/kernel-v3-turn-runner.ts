@@ -1,4 +1,9 @@
-import type { RunIdentity, RunOutcome } from '@qiongqi/contracts'
+import {
+  BudgetStateSchema,
+  type BudgetState,
+  type RunIdentity,
+  type RunOutcome
+} from '@qiongqi/contracts'
 import type { RunEventStore, RunLeaseStore, RunSnapshotStore } from '@qiongqi/ports'
 import { productionKernelV3Graph } from './kernel-v3-graph.js'
 import { RuntimeKernel } from './runtime-kernel.js'
@@ -22,46 +27,26 @@ export type KernelV3TurnRunnerOptions = {
     turnId: string,
     status: KernelV3TurnStatus,
     outcome: RunOutcome
-  ) => Promise<void> | void
+  ) => Promise<KernelV3TurnStatus | void> | KernelV3TurnStatus | void
   nowIso?: () => string
   middleware?: MiddlewareChain
 }
 
 export type KernelV3TurnStatus = 'completed' | 'degraded' | 'suspended' | 'failed' | 'aborted'
 
+export type KernelV3TurnResult = {
+  status: KernelV3TurnStatus
+  budget: BudgetState
+}
+
 export class KernelV3TurnRunner {
   constructor(private readonly options: KernelV3TurnRunnerOptions) {}
 
-  /**
-   * Expose the kernel-v3 internals so the governed-graph turn driver can run a
-   * single-AgentRun Kernel execution for a governed agent node using the same
-   * node handlers, stores, and middleware as a normal turn.
-   */
-  get internals(): {
-    nodes: Record<string, RuntimeNodeHandler>
-    snapshots: RunSnapshotStore
-    events: RunEventStore
-    leases: RunLeaseStore
-    holderId: string
-    middleware: MiddlewareChain
-    identityForTurn: KernelV3TurnRunnerOptions['identityForTurn']
-    finishTurn: KernelV3TurnRunnerOptions['finishTurn']
-    nowIso?: () => string
-  } {
-    return {
-      nodes: this.options.nodes,
-      snapshots: this.options.snapshots,
-      events: this.options.events,
-      leases: this.options.leases,
-      holderId: this.options.holderId,
-      middleware: this.options.middleware ?? defaultKernelV3Middleware(),
-      identityForTurn: this.options.identityForTurn,
-      finishTurn: this.options.finishTurn,
-      ...(this.options.nowIso ? { nowIso: this.options.nowIso } : {})
-    }
+  async runTurn(threadId: string, turnId: string): Promise<KernelV3TurnStatus> {
+    return (await this.runTurnDetailed(threadId, turnId)).status
   }
 
-  async runTurn(threadId: string, turnId: string): Promise<KernelV3TurnStatus> {
+  async runTurnDetailed(threadId: string, turnId: string): Promise<KernelV3TurnResult> {
     const identity = await this.options.identityForTurn(threadId, turnId)
     const kernel = new RuntimeKernel({
       graph: productionKernelV3Graph(),
@@ -75,8 +60,13 @@ export class KernelV3TurnRunner {
     })
     const outcome = await kernel.run(identity)
     const status = legacyStatus(outcome)
-    await this.options.finishTurn(threadId, turnId, status, outcome)
-    return status
+    const effectiveStatus = (await this.options.finishTurn(threadId, turnId, status, outcome)) ?? status
+    const persisted = await this.options.snapshots.load(identity)
+    if (!persisted) throw new Error(`Kernel snapshot missing after turn execution: ${identity.runId}`)
+    return {
+      status: effectiveStatus,
+      budget: BudgetStateSchema.parse(persisted.budgets)
+    }
   }
 }
 

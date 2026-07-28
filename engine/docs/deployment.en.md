@@ -1,4 +1,4 @@
-# Qiongqi Durable Engine v1.1.2 Production Deployment
+# Qiongqi Durable Engine v1.1.4 Production Deployment
 
 ## 1. Prerequisites
 
@@ -42,7 +42,11 @@ When upgrading an affected v1.1.0 deployment that already produced governed Grap
 
 PostgreSQL must check `settled actual + active requested + new requested <= root limits` while holding the parent-row lock. Passing SQLite/in-memory conformance does not replace this multi-instance locking requirement.
 
-A v1.1.2 multi-instance release must run `tests/postgres-durable-parallel-engine.test.ts`. It races out-of-order branch completions through two independent store/engine instances and requires one join plus equal root projection versions. The gate skips without `QIONGQI_TEST_POSTGRES_URL`; such a build is not verified for multi-instance production.
+A v1.1.3 multi-instance release must run `pnpm verify:postgres-engine`. The gate includes out-of-order branch completion through independent store/engine instances, root projection consistency, schema-v3 dispatch, and authoritative recovery. The gate skips without `QIONGQI_TEST_POSTGRES_URL`; such a build is not verified for multi-instance production.
+
+During a v1.1.3 rolling upgrade, new writers emit dispatch schema v3. Upgrade workers before admitting v1.1.3 traffic; v1.1.3 workers can drain schema-v1/v2 work, while older workers must not claim schema-v3 intents. Configure the optional HTTP governed surface only with a matching `DurableEngine` and `DurableEngineStore` pair. A store-only process may serve legacy stream reads but cannot accept governed Turn or run lifecycle writes.
+
+Upgrade every v1.1.3 process whose stderr is collected centrally to v1.1.4. The patch changes no graph, run, checkpoint, ledger, stream, or dispatch schema, so it needs no state migration and supports a normal rolling restart. After rollout, alert on diagnostic markers but never index request content: model diagnostics are metadata-only and endpoint URLs exclude userinfo, query, and fragment data.
 
 ## 4. Readiness and probes
 

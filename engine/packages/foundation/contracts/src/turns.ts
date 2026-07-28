@@ -2,6 +2,14 @@ import { z } from 'zod'
 import { TurnItem } from './items.js'
 import { isGuiPlanRelativePath } from './gui-plan.js'
 import { ApprovalPolicySchema, SandboxModeSchema } from './policy.js'
+import { TaskScopeSchema, IsoTimestampSchema } from './engine-identity.js'
+import { BudgetStateSchema } from './runtime-kernel.js'
+import { ModelSelectionPolicySchema } from './model-profile.js'
+import {
+  TurnExecutionPolicyInputSchema,
+  TurnExecutionPolicySnapshotSchema,
+  TurnOutputValidationRecordSchema
+} from './turn-execution-policy.js'
 
 /**
  * Mode enum, inlined here (instead of importing `ThreadMode` from
@@ -50,6 +58,28 @@ export const TurnStatus = z.enum([
 ])
 export type TurnStatus = z.infer<typeof TurnStatus>
 
+export const GovernedGraphRefSchema = z.object({
+  graphId: z.string().trim().min(1),
+  revision: z.number().int().positive()
+}).strict()
+export type GovernedGraphRef = z.infer<typeof GovernedGraphRefSchema>
+
+export const GovernedTurnExecutionRequestSchema = z.object({
+  scope: TaskScopeSchema,
+  graphRef: GovernedGraphRefSchema,
+  budgetLimits: BudgetStateSchema,
+  modelPolicy: ModelSelectionPolicySchema
+}).strict()
+export type GovernedTurnExecutionRequest = z.infer<typeof GovernedTurnExecutionRequestSchema>
+
+export const GovernedTurnBindingSchema = z.object({
+  multiAgentRunId: z.string().trim().min(1),
+  streamId: z.string().trim().min(1),
+  graphRef: GovernedGraphRefSchema,
+  boundAt: IsoTimestampSchema
+}).strict()
+export type GovernedTurnBinding = z.infer<typeof GovernedTurnBindingSchema>
+
 export const TurnSchema = z.object({
   id: z.string().min(1),
   threadId: z.string().min(1),
@@ -67,6 +97,10 @@ export const TurnSchema = z.object({
   workModeId: z.string().min(1).optional(),
   activeSkillIds: z.array(z.string().min(1)).default([]),
   explicitSkillIds: z.array(z.string().min(1)).default([]),
+  executionPolicy: TurnExecutionPolicySnapshotSchema.optional(),
+  governedExecution: GovernedTurnExecutionRequestSchema.optional(),
+  governedBinding: GovernedTurnBindingSchema.optional(),
+  outputValidation: TurnOutputValidationRecordSchema.optional(),
   injectedMemoryIds: z.array(z.string().min(1)).default([]),
   skillInjectionBytes: z.number().int().nonnegative().optional(),
   toolCatalogFingerprint: z.string().optional(),
@@ -91,6 +125,9 @@ export const StartTurnRequest = z.object({
   approvalPolicy: ApprovalPolicySchema.optional(),
   sandboxMode: SandboxModeSchema.optional(),
   workModeId: z.string().min(1).optional(),
+  explicitSkillIds: z.array(z.string().trim().min(1)).optional(),
+  executionPolicy: TurnExecutionPolicyInputSchema.optional(),
+  governedExecution: GovernedTurnExecutionRequestSchema.optional(),
   /**
    * Optional per-turn mode. Overrides the thread mode for this turn so
    * the GUI can toggle Plan/agent without recreating the thread. In Plan
@@ -112,7 +149,7 @@ export const StartTurnRequest = z.object({
    * path advertised in the context.
    */
   guiPlan: GuiPlanContextSchema.optional()
-})
+}).strict()
 export type StartTurnRequest = z.input<typeof StartTurnRequest>
 
 export const StartTurnResponse = z.object({

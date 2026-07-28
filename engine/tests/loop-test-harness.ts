@@ -20,7 +20,12 @@ import { ContextCompactor } from '@qiongqi/loop'
 import { SequentialIdGenerator } from '@qiongqi/ports'
 import { createThreadRecord } from '@qiongqi/domain'
 import { createImmutablePrefix } from '@qiongqi/cache'
-import type { ModelClient, ModelRequest, ModelStreamChunk } from '@qiongqi/ports'
+import type {
+  ModelClient,
+  ModelRequest,
+  ModelStreamChunk,
+  OutputValidatorRegistry
+} from '@qiongqi/ports'
 import type { SkillPluginHost, SkillRuntime } from '@qiongqi/skills'
 import type { AttachmentStore } from '@qiongqi/attachments'
 import type { ModelCapabilityMetadata } from '@qiongqi/contracts'
@@ -94,6 +99,7 @@ export function makeHarness(
     toolArgumentRepair?: {
       maxStringBytes?: number
     }
+    outputValidators?: OutputValidatorRegistry
   } = {}
 ): Harness {
   const bus = new InMemoryEventBus()
@@ -120,7 +126,8 @@ export function makeHarness(
     steering,
     compactor,
     ids,
-    nowIso
+    nowIso,
+    ...(options.outputValidators ? { outputValidators: options.outputValidators } : {})
   })
   const threads = new ThreadService({ threadStore, sessionStore, events, ids, nowIso })
   const loop = new TurnOrchestrator({

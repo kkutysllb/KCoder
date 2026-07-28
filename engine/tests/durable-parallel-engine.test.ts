@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { InMemoryDurableEngineStore, SqliteDurableEngineStore } from '@qiongqi/adapter-storage'
-import type { AgentGraph, KernelCompletionPayload, TaskScope } from '@qiongqi/contracts'
+import {
+  KernelDispatchPayloadSchema,
+  type AgentGraph,
+  type KernelCompletionPayload,
+  type TaskScope
+} from '@qiongqi/contracts'
 import type { DurableEngineStore, ModelProvider } from '@qiongqi/ports'
 import {
   compileAgentGraph,
@@ -70,6 +75,21 @@ async function verifyDurableParallel(store: DurableEngineStore, restartedStore: 
       prompt: 'Build the durable report.',
       requestedBudgets: { draft: budget, research: budget, review: budget }
     })
+    for (const agentRun of prepared.agentRuns.filter((candidate) => candidate.branchId)) {
+      const kernelRunId = agentRun.executionRef!.kernelRunId
+      const intent = await store.loadOutboxIntent(`agent_execution_requested:${kernelRunId}`)
+      expect(KernelDispatchPayloadSchema.parse(intent?.payload)).toMatchObject({
+        schemaVersion: 3,
+        threadId: 'thread',
+        turnId: 'turn',
+        workspaceKey: 'workspace',
+        executionPolicyRef: {
+          policyId: `product.agent.${agentRun.agentId}`,
+          revision: 1,
+          digest: 'c'.repeat(64)
+        }
+      })
+    }
     await engine.flushAgentDispatches()
 
     const agentByBranch = Object.fromEntries(prepared.agentRuns
@@ -212,9 +232,18 @@ function parallelGraph(): AgentGraph {
           { branchId: 'review', startNodeId: 'reviewer' }
         ]
       },
-      { id: 'researcher', kind: 'agent', agentId: 'researcher' },
-      { id: 'writer', kind: 'agent', agentId: 'writer' },
-      { id: 'reviewer', kind: 'agent', agentId: 'reviewer' },
+      {
+        id: 'researcher', kind: 'agent', agentId: 'researcher',
+        executionPolicyRef: { policyId: 'product.agent.researcher', revision: 1, digest: 'c'.repeat(64) }
+      },
+      {
+        id: 'writer', kind: 'agent', agentId: 'writer',
+        executionPolicyRef: { policyId: 'product.agent.writer', revision: 1, digest: 'c'.repeat(64) }
+      },
+      {
+        id: 'reviewer', kind: 'agent', agentId: 'reviewer',
+        executionPolicyRef: { policyId: 'product.agent.reviewer', revision: 1, digest: 'c'.repeat(64) }
+      },
       {
         id: 'join_all', kind: 'join', sourceParallelNodeId: 'fan_out',
         requiredBranchIds: ['research', 'draft', 'review'], outputPolicy: 'all'

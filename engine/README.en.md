@@ -1,10 +1,10 @@
 # Qiongqi Durable Engine
 
-**Durable Engine v1.1.2 | engine-only | model-neutral | governed graph execution**
+**Durable Engine v1.1.4 | engine-only | model-neutral | governed graph execution**
 
 Qiongqi is a domain-neutral Agent engine monorepo. It provides execution, state, storage, model/tool adapters, and HTTP/SSE contracts without product UI, business decisions, fixed Agents, or a default model. Downstream products may register any provider and multiple model profiles, then select them by task policy or graph-node policy.
 
-## v1.1.2 architecture
+## v1.1.4 architecture
 
 ```text
 immutable GraphRevision
@@ -22,6 +22,7 @@ immutable GraphRevision
 ## Core capabilities
 
 - **Versioned governed graphs**: `compileAgentGraph()` creates a canonical digest and `publishGraph()` persists an immutable revision with deterministic agent, parallel, tool, judge, join, wait, retry, and terminate traversal.
+- **Policy-complete compilation**: every public node accepts `nodePolicyRef`, every edge accepts `edgePolicyRef`, and both survive normalization and participate in `graphDigest` without changing logical edge identity.
 - **Durable parallel/join**: one `parallel` atomically creates three or more independent branch cursors; branches may finish out of order, while `join` always produces a stable non-empty result under `wait_all` or `fail_fast`.
 - **Executed work graph**: intended topology and actual `WorkGraphEvent` history are distinct, exposing node/edge attempts, fan-out, retries, suppression, and the executed critical path.
 - **Duplicate suppression**: durable model/tool ledgers replay completed operations, suppress semantic duplicates, and fail closed for crash-uncertain effects.
@@ -29,10 +30,12 @@ immutable GraphRevision
 - **Task memory isolation**: `task_shared` stays within a task; `agent_private` stays within one AgentRun unless explicitly published.
 - **Production governance**: single-use human approval tokens, fenced write claims, `running`/`report_only`/`paused`/`retired` circuits, and evidence-based `draft`/`observe`/`assisted`/`autonomous` readiness.
 - **Prepare-first dispatch**: AgentRun/KernelRun identity, parent reservation, and dispatch intent commit before either a local or remote worker claims the same fenced handler. Recovery always reuses the prepared identity.
+- **Authoritative dispatch recovery**: new work is written as dispatch `schemaVersion: 3`; workers still read v1/v2 but rebuild thread, turn, workspace, graph, AgentRun, and policy context from durable root facts before Kernel execution.
 - **Cumulative root budgets**: callers must authorize governed-run limits. Storage atomically checks settled actual usage plus active requested reservations plus the new request.
 - **Model neutrality**: immutable provider/model/capability profiles, multi-profile task policies, and node-specific model-policy references. Credentials use `credentialRef`; no vendor or `deepseek-chat` fallback exists.
-- **Real streaming**: model deltas, tool progress, branch lifecycle, work-graph events, checkpoints, usage, ROI, and outcomes use a durable `streamId + seq` stream with replay and per-subscriber ack.
+- **Real streaming**: model deltas, tool progress, branch lifecycle, work-graph events, checkpoints, usage, ROI, and outcomes use replayable streams. The production `kernel_v3` HTTP composition publishes assistant deltas before provider completion, persists them for thread SSE replay, and converges them with the final item by stable physical-attempt identity.
 - **Live ROI and efficiency**: `recordCost()` / `recordValue()` publish `roi.snapshot` and attribute cost/value by graph, node, edge, and branch. Root totals and `byBranch` reconcile in real time. Business ROI remains separate from engine efficiency.
+- **Governed Turn/HTTP facade**: strict `StartTurnRequest.governedExecution` persists explicit task scope, graph revision, budgets, and model policy. Optional `{ engine, store }` injection exposes graph/run lifecycle routes and crash-gap-safe Turn binding.
 
 ## Quick start
 
@@ -141,7 +144,7 @@ The start node must be an `agent`. After the manager completion enters `fan_out`
 | Architecture, lifecycle, governance, and graph ROI | [docs/architecture.en.md](./docs/architecture.en.md) |
 | PostgreSQL, readiness, streaming, and release gates | [docs/deployment.en.md](./docs/deployment.en.md) |
 | v1.0 to v1.1 migration and rollback | [docs/migrations/engine-v1.1.md](./docs/migrations/engine-v1.1.md) |
-| v1.1.2 release notes | [docs/releases/v1.1.2.md](./docs/releases/v1.1.2.md) |
+| v1.1.4 release notes | [docs/releases/v1.1.4.md](./docs/releases/v1.1.4.md) |
 | All 18 workspace packages | [docs/packages/README.md](./docs/packages/README.md) |
 
 Projects that have not yet adopted durable v1 should first follow [engine-v1.md](./docs/migrations/engine-v1.md).

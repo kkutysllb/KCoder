@@ -1,6 +1,6 @@
 # @qiongqi/loop：工具协调
 
-> v1.1.1。`ToolCallCoordinator` 在执行前查询 durable effect ledger，并将工具进度写入 engine stream。
+> v1.1.4。`ToolCallCoordinator` 在执行前查询 durable effect ledger，并将工具进度写入 engine stream。
 
 graph node 执行时，ledger、usage 和 stream event 传播 graph/node/edge/attempt attribution，使 semantic suppression 和 avoided cost 可按 work graph 归因。
 

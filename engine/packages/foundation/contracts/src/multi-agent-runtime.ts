@@ -3,8 +3,9 @@ import { BudgetStateSchema } from './runtime-kernel.js'
 import { PeerArtifactSchema } from './agent-identity.js'
 import { AgentRunIdentitySchema, KernelRunIdentitySchema } from './engine-identity.js'
 import { RunOutcomeSchema } from './runtime-kernel.js'
-import { ModelPolicyRefSchema } from './graph-definition.js'
+import { ModelPolicyRefSchema, VersionedPolicyRefSchema } from './graph-definition.js'
 import { BranchRoiSnapshotSchema } from './engine-stream.js'
+import { TurnExecutionPolicyRefSchema } from './turn-execution-policy.js'
 
 const NonEmptyString = z.string().trim().min(1)
 
@@ -15,6 +16,8 @@ export const AgentNodeSchema = z.object({
   label: z.string().optional(),
   model: z.string().optional(),
   modelPolicyRef: ModelPolicyRefSchema.optional(),
+  executionPolicyRef: TurnExecutionPolicyRefSchema.optional(),
+  nodePolicyRef: VersionedPolicyRefSchema.optional(),
   capabilities: z.array(NonEmptyString).default([])
 }).strict()
 export type AgentNode = z.infer<typeof AgentNodeSchema>
@@ -22,20 +25,24 @@ export type AgentNode = z.infer<typeof AgentNodeSchema>
 export const HandoffNodeSchema = z.object({
   id: NonEmptyString,
   kind: z.literal('handoff'),
-  targetAgentId: NonEmptyString
+  targetAgentId: NonEmptyString,
+  nodePolicyRef: VersionedPolicyRefSchema.optional()
 }).strict()
 
 export const ToolNodeSchema = z.object({
   id: NonEmptyString,
   kind: z.literal('tool'),
-  toolName: NonEmptyString
+  toolName: NonEmptyString,
+  nodePolicyRef: VersionedPolicyRefSchema.optional()
 }).strict()
 
 export const JudgeNodeSchema = z.object({
   id: NonEmptyString,
   kind: z.literal('judge'),
   policy: NonEmptyString,
-  modelPolicyRef: ModelPolicyRefSchema.optional()
+  modelPolicyRef: ModelPolicyRefSchema.optional(),
+  executionPolicyRef: TurnExecutionPolicyRefSchema.optional(),
+  nodePolicyRef: VersionedPolicyRefSchema.optional()
 }).strict()
 
 export const ParallelBranchSchema = z.object({
@@ -49,7 +56,8 @@ export const ParallelNodeSchema = z.object({
   kind: z.literal('parallel'),
   branches: z.array(ParallelBranchSchema).min(2),
   joinNodeId: NonEmptyString,
-  failurePolicy: z.enum(['wait_all', 'fail_fast']).default('wait_all')
+  failurePolicy: z.enum(['wait_all', 'fail_fast']).default('wait_all'),
+  nodePolicyRef: VersionedPolicyRefSchema.optional()
 }).strict()
 export type ParallelNode = z.infer<typeof ParallelNodeSchema>
 
@@ -59,25 +67,29 @@ export const JoinNodeSchema = z.object({
   requiredBranchIds: z.array(NonEmptyString).default([]),
   sourceParallelNodeId: NonEmptyString.optional(),
   outputPolicy: z.enum(['all', 'successful', 'selected']).default('all'),
-  selectedBranchIds: z.array(NonEmptyString).optional()
+  selectedBranchIds: z.array(NonEmptyString).optional(),
+  nodePolicyRef: VersionedPolicyRefSchema.optional()
 }).strict()
 export type JoinNode = z.infer<typeof JoinNodeSchema>
 
 export const WaitNodeSchema = z.object({
   id: NonEmptyString,
   kind: z.literal('wait'),
-  waitFor: z.enum(['mailbox', 'user_input', 'approval', 'external_event'])
+  waitFor: z.enum(['mailbox', 'user_input', 'approval', 'external_event']),
+  nodePolicyRef: VersionedPolicyRefSchema.optional()
 }).strict()
 
 export const RetryNodeSchema = z.object({
   id: NonEmptyString,
   kind: z.literal('retry'),
-  maxAttempts: z.number().int().nonnegative().default(1)
+  maxAttempts: z.number().int().nonnegative().default(1),
+  nodePolicyRef: VersionedPolicyRefSchema.optional()
 }).strict()
 
 export const TerminateNodeSchema = z.object({
   id: NonEmptyString,
-  kind: z.literal('terminate')
+  kind: z.literal('terminate'),
+  nodePolicyRef: VersionedPolicyRefSchema.optional()
 }).strict()
 
 export const AgentGraphNodeSchema = z.discriminatedUnion('kind', [
@@ -96,7 +108,8 @@ export type AgentGraphNode = z.infer<typeof AgentGraphNodeSchema>
 export const AgentGraphEdgeSchema = z.object({
   from: NonEmptyString,
   to: NonEmptyString,
-  condition: NonEmptyString
+  condition: NonEmptyString,
+  edgePolicyRef: VersionedPolicyRefSchema.optional()
 }).strict()
 export type AgentGraphEdge = z.infer<typeof AgentGraphEdgeSchema>
 
@@ -139,7 +152,7 @@ export const AgentRunSchema = z.object({
 }).strict()
 export type AgentRun = z.infer<typeof AgentRunSchema>
 
-export const KernelDispatchPayloadSchema = z.object({
+export const KernelDispatchPayloadV1Schema = z.object({
   schemaVersion: z.literal(1),
   identity: AgentRunIdentitySchema,
   reservationId: NonEmptyString,
@@ -149,6 +162,43 @@ export const KernelDispatchPayloadSchema = z.object({
   sharedEvidenceRefs: z.array(NonEmptyString).default([]),
   modelPolicyRef: ModelPolicyRefSchema.optional()
 }).strict()
+export type KernelDispatchPayloadV1 = z.infer<typeof KernelDispatchPayloadV1Schema>
+
+export const KernelDispatchPayloadV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  identity: AgentRunIdentitySchema,
+  reservationId: NonEmptyString,
+  requestedBudget: BudgetStateSchema,
+  role: z.enum(['agent', 'judge']),
+  inputRef: NonEmptyString,
+  sharedEvidenceRefs: z.array(NonEmptyString).default([]),
+  modelPolicyRef: ModelPolicyRefSchema.optional(),
+  executionPolicyRef: TurnExecutionPolicyRefSchema.optional()
+}).strict()
+export type KernelDispatchPayloadV2 = z.infer<typeof KernelDispatchPayloadV2Schema>
+
+export const KernelDispatchPayloadV3Schema = z.object({
+  schemaVersion: z.literal(3),
+  identity: AgentRunIdentitySchema,
+  reservationId: NonEmptyString,
+  requestedBudget: BudgetStateSchema,
+  role: z.enum(['agent', 'judge']),
+  inputRef: NonEmptyString,
+  sharedEvidenceRefs: z.array(NonEmptyString).default([]),
+  threadId: NonEmptyString,
+  turnId: NonEmptyString,
+  workspaceKey: NonEmptyString,
+  nodePolicyRef: VersionedPolicyRefSchema.optional(),
+  modelPolicyRef: ModelPolicyRefSchema.optional(),
+  executionPolicyRef: TurnExecutionPolicyRefSchema.optional()
+}).strict()
+export type KernelDispatchPayloadV3 = z.infer<typeof KernelDispatchPayloadV3Schema>
+
+export const KernelDispatchPayloadSchema = z.discriminatedUnion('schemaVersion', [
+  KernelDispatchPayloadV1Schema,
+  KernelDispatchPayloadV2Schema,
+  KernelDispatchPayloadV3Schema
+])
 export type KernelDispatchPayload = z.infer<typeof KernelDispatchPayloadSchema>
 
 export const KernelCompletionPayloadSchema = z.object({

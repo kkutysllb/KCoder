@@ -1,6 +1,6 @@
 {
   "name": "@qiongqi/adapter-fs",
-  "version": "1.1.2",
+  "version": "1.1.4",
   "description": "Qiongqi file-system adapter — pure I/O, no Agent concepts",
   "type": "module",
   "main": "./dist/index.js",

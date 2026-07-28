@@ -9,7 +9,7 @@ import {
   RootRunAggregateCoordinator
 } from '@qiongqi/loop'
 import { KernelCancellationPayloadSchema, KernelDispatchPayloadSchema, type AgentGraph } from '@qiongqi/contracts'
-import { EngineRunRecordSchema, EngineStoreConflictError } from '@qiongqi/ports'
+import { EngineRunRecordSchema, EngineStoreConflictError, type DurableEngineStore } from '@qiongqi/ports'
 
 const timestamp = '2026-07-26T00:00:00.000Z'
 const scope = { ownerId: 'owner', workspaceId: 'workspace', taskId: 'dispatch-worker' }
@@ -17,7 +17,14 @@ const graph: AgentGraph = {
   version: 1,
   graphId: 'dispatch-worker-graph',
   startNodeId: 'agent',
-  nodes: [{ id: 'agent', kind: 'agent', agentId: 'writer' }],
+  nodes: [{
+    id: 'agent', kind: 'agent', agentId: 'writer',
+    nodePolicyRef: { policyId: 'writer-node', revision: 5 },
+    modelPolicyRef: { policyId: 'writer-model', revision: 2 },
+    executionPolicyRef: {
+      policyId: 'product.agent.writer', revision: 4, digest: 'b'.repeat(64)
+    }
+  }],
   edges: []
 }
 
@@ -158,14 +165,14 @@ describe('DurableAgentDispatchWorker', () => {
   it('claims a prepared dispatch, resolves its input reference, and completes with the current fence', async () => {
     const { store } = await preparedFixture()
 
-    const observed: string[] = []
+    const observed: Array<{ prompt: string, executionPolicyRef: unknown }> = []
     const worker = new DurableAgentDispatchWorker({
       store,
       workerId: 'worker-a',
       leaseTtlMs: 30_000,
       executor: {
         async execute(input) {
-          observed.push(input.prompt)
+          observed.push({ prompt: input.prompt, executionPolicyRef: input.executionPolicyRef })
           await expect(store.loadOutboxIntent(`agent_execution_requested:${input.executionRef.kernelRunId}`))
             .resolves.toMatchObject({ status: 'claimed', claim: { holderId: 'worker-a' } })
           await expect(store.loadBudgetReservations(input.multiAgentRunId)).resolves.toMatchObject([{
@@ -183,10 +190,150 @@ describe('DurableAgentDispatchWorker', () => {
       processed: true,
       workId: 'agent_execution_requested:kernel_run-worker'
     })
-    expect(observed).toEqual(['write the report'])
+    expect(observed).toEqual([{
+      prompt: 'write the report',
+      executionPolicyRef: {
+        policyId: 'product.agent.writer', revision: 4, digest: 'b'.repeat(64)
+      }
+    }])
     await expect(store.loadOutboxIntent('agent_execution_requested:kernel_run-worker')).resolves.toMatchObject({
       status: 'completed'
     })
+  })
+
+  it.each([1, 2] as const)('hydrates legacy schema v%s dispatches from durable graph facts', async (schemaVersion) => {
+    const { store, workId } = await preparedFixture()
+    const original = KernelDispatchPayloadSchema.parse((await store.loadOutboxIntent(workId))?.payload)
+    if (original.schemaVersion !== 3) throw new Error('fixture must write schema v3')
+    const legacy = {
+      schemaVersion,
+      identity: original.identity,
+      reservationId: original.reservationId,
+      requestedBudget: original.requestedBudget,
+      role: original.role,
+      inputRef: original.inputRef,
+      sharedEvidenceRefs: original.sharedEvidenceRefs,
+      ...(schemaVersion === 1 ? {} : { executionPolicyRef: original.executionPolicyRef })
+    }
+    const observed: unknown[] = []
+    const worker = new DurableAgentDispatchWorker({
+      store: storeWithClaimPayload(store, KernelDispatchPayloadSchema.parse(legacy)),
+      executor: {
+        async execute(input) { observed.push(input); return { executionRef: input.executionRef } },
+        async resume() {},
+        async cancel() {}
+      }
+    })
+
+    await expect(worker.flushOnce()).resolves.toMatchObject({ processed: true, workId })
+    expect(observed).toMatchObject([{
+      threadId: 'thread-worker',
+      turnId: 'turn-worker',
+      workspaceKey: 'workspace',
+      nodePolicyRef: { policyId: 'writer-node', revision: 5 },
+      modelPolicyRef: { policyId: 'writer-model', revision: 2 },
+      executionPolicyRef: {
+        policyId: 'product.agent.writer', revision: 4, digest: 'b'.repeat(64)
+      }
+    }])
+  })
+
+  it.each([
+    ['workspace', (payload: Extract<ReturnType<typeof KernelDispatchPayloadSchema.parse>, { schemaVersion: 3 }>) => ({
+      ...payload, workspaceKey: 'forged-workspace'
+    })],
+    ['graph digest', (payload: Extract<ReturnType<typeof KernelDispatchPayloadSchema.parse>, { schemaVersion: 3 }>) => ({
+      ...payload,
+      identity: {
+        ...payload.identity,
+        graph: { ...payload.identity.graph!, graphDigest: 'f'.repeat(64) },
+        executionRef: {
+          ...payload.identity.executionRef,
+          graph: { ...payload.identity.executionRef.graph!, graphDigest: 'f'.repeat(64) }
+        }
+      }
+    })],
+    ['node policy', (payload: Extract<ReturnType<typeof KernelDispatchPayloadSchema.parse>, { schemaVersion: 3 }>) => ({
+      ...payload, nodePolicyRef: { policyId: 'forged-node', revision: 1 }
+    })],
+    ['model policy', (payload: Extract<ReturnType<typeof KernelDispatchPayloadSchema.parse>, { schemaVersion: 3 }>) => ({
+      ...payload, modelPolicyRef: { policyId: 'forged-model', revision: 1 }
+    })],
+    ['execution policy', (payload: Extract<ReturnType<typeof KernelDispatchPayloadSchema.parse>, { schemaVersion: 3 }>) => ({
+      ...payload,
+      executionPolicyRef: { policyId: 'forged-execution', revision: 1, digest: 'e'.repeat(64) }
+    })]
+  ])('rejects forged %s before invoking Kernel', async (_label, forge) => {
+    const { store, workId } = await preparedFixture()
+    const original = KernelDispatchPayloadSchema.parse((await store.loadOutboxIntent(workId))?.payload)
+    if (original.schemaVersion !== 3) throw new Error('fixture must write schema v3')
+    const forged = KernelDispatchPayloadSchema.parse(forge(original))
+    let executed = false
+    const worker = new DurableAgentDispatchWorker({
+      store: storeWithClaimPayload(store, forged),
+      executor: {
+        async execute(input) { executed = true; return { executionRef: input.executionRef } },
+        async resume() {},
+        async cancel() {}
+      }
+    })
+
+    await expect(worker.flushOnce()).rejects.toBeInstanceOf(EngineStoreConflictError)
+    expect(executed).toBe(false)
+  })
+
+  it.each([
+    ['scope mismatch', async (store: DurableEngineStore, runId: string) => {
+      const record = (await store.loadGraphRun(runId))!
+      return storeWithOverrides(store, {
+        loadGraphRun: async () => ({ ...record, scope: { ...record.scope, taskId: 'forged-task' } })
+      })
+    }],
+    ['missing revision', async (store: DurableEngineStore) => storeWithOverrides(store, {
+      loadGraphRevision: async () => undefined
+    })],
+    ['digest mismatch', async (store: DurableEngineStore, runId: string) => {
+      const record = (await store.loadGraphRun(runId))!
+      return storeWithOverrides(store, {
+        loadGraphRun: async () => ({ ...record, graphDigest: 'd'.repeat(64) })
+      })
+    }],
+    ['missing node', async (store: DurableEngineStore, runId: string) => {
+      const record = (await store.loadGraphRun(runId))!
+      const revision = (await store.loadGraphRevision(record.graphId, record.graphRevision))!
+      return storeWithOverrides(store, {
+        loadGraphRevision: async () => ({ ...revision, nodes: [] })
+      })
+    }],
+    ['AgentRun mismatch', async (store: DurableEngineStore, runId: string) => {
+      const record = (await store.loadGraphRun(runId))!
+      return storeWithOverrides(store, {
+        loadGraphRun: async () => ({
+          ...record,
+          eventedV2Run: {
+            ...record.eventedV2Run!,
+            agentRuns: record.eventedV2Run!.agentRuns.map((agentRun) => ({
+              ...agentRun,
+              agentId: 'forged-agent'
+            }))
+          }
+        })
+      })
+    }]
+  ] as const)('rejects corrupt durable fact: %s', async (_label, corrupt) => {
+    const { store, runId } = await preparedFixture()
+    let executed = false
+    const worker = new DurableAgentDispatchWorker({
+      store: await corrupt(store, runId),
+      executor: {
+        async execute(input) { executed = true; return { executionRef: input.executionRef } },
+        async resume() {},
+        async cancel() {}
+      }
+    })
+
+    await expect(worker.flushOnce()).rejects.toBeInstanceOf(EngineStoreConflictError)
+    expect(executed).toBe(false)
   })
 
   it('recovers a terminal child with the original identity after claim expiry and rejects the stale fence', async () => {
@@ -269,6 +416,7 @@ describe('DurableAgentDispatchWorker', () => {
           multiAgentRunId: identity.multiAgentRunId,
           agentRunId: identity.agentRunId,
           kernelRunId: identity.executionRef.kernelRunId,
+          ...(identity.graph ? { graph: identity.graph } : {}),
           version: 1,
           status: 'created',
           desiredState: 'running',
@@ -332,7 +480,47 @@ async function preparedFixture() {
     runId: run.runId,
     scope,
     prompt: 'write the report',
-    requestedBudget: { stepsUsed: 2, toolCallsUsed: 2, inputTokens: 100, outputTokens: 50, costUsd: 1 }
+    requestedBudget: { stepsUsed: 2, toolCallsUsed: 2, inputTokens: 100, outputTokens: 50, costUsd: 1 },
+    graph: {
+      graphId: revision.graphId,
+      graphRevision: revision.revision,
+      graphDigest: revision.graphDigest,
+      nodeId: 'agent',
+      attemptId: 'agent_run-worker',
+      callerId: scope.ownerId,
+      policyRevision: 1
+    }
+  })
+  const intent = await store.loadOutboxIntent('agent_execution_requested:kernel_run-worker')
+  expect(KernelDispatchPayloadSchema.parse(intent?.payload)).toMatchObject({
+    schemaVersion: 3,
+    executionPolicyRef: {
+      policyId: 'product.agent.writer', revision: 4, digest: 'b'.repeat(64)
+    }
   })
   return { store, runId: run.runId, workId: 'agent_execution_requested:kernel_run-worker' }
+}
+
+function storeWithClaimPayload(store: DurableEngineStore, payload: unknown): DurableEngineStore {
+  return storeWithOverrides(store, {
+    claimWork: async (...args) => {
+      const claim = await store.claimWork(...args)
+      return claim ? { ...claim, payload } : undefined
+    }
+  })
+}
+
+function storeWithOverrides(store: DurableEngineStore, overrides: {
+  claimWork?: DurableEngineStore['claimWork']
+  loadGraphRun?: DurableEngineStore['loadGraphRun']
+  loadGraphRevision?: DurableEngineStore['loadGraphRevision']
+  loadRun?: DurableEngineStore['loadRun']
+}): DurableEngineStore {
+  return new Proxy(store, {
+    get(target, property) {
+      if (property in overrides) return overrides[property as keyof typeof overrides]
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    }
+  })
 }

@@ -1,6 +1,6 @@
 # @qiongqi/services：Usage、cost 与 ROI 投影
 
-> v1.1.1。`UsageService` 提供 thread/task 查询；durable cost/value 与 graph ROI 由 `EngineValueLedger` 聚合。
+> v1.1.4。`UsageService` 提供 thread/task 查询；durable cost/value 与 graph ROI 由 `EngineValueLedger` 聚合。
 
 ## 计量面
 

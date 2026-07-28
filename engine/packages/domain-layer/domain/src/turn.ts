@@ -1,4 +1,11 @@
-import type { GuiPlanContextJson, Turn, TurnReasoningEffort, TurnStatus } from '@qiongqi/contracts'
+import type {
+  GuiPlanContextJson,
+  GovernedTurnExecutionRequest,
+  Turn,
+  TurnExecutionPolicySnapshot,
+  TurnReasoningEffort,
+  TurnStatus
+} from '@qiongqi/contracts'
 import type { ThreadMode } from '@qiongqi/contracts'
 import type { TurnItem } from '@qiongqi/contracts'
 
@@ -12,6 +19,9 @@ export function createTurnRecord(input: {
   reasoningEffort?: TurnReasoningEffort
   attachmentIds?: string[]
   workModeId?: string
+  explicitSkillIds?: string[]
+  executionPolicy?: TurnExecutionPolicySnapshot
+  governedExecution?: GovernedTurnExecutionRequest
   guiPlan?: GuiPlanContextJson
   mode?: ThreadMode
   createdAt?: string
@@ -28,7 +38,9 @@ export function createTurnRecord(input: {
     items: [],
     attachmentIds: [...(input.attachmentIds ?? [])],
     activeSkillIds: [],
-    explicitSkillIds: [],
+    explicitSkillIds: [...(input.explicitSkillIds ?? [])],
+    ...(input.executionPolicy ? { executionPolicy: input.executionPolicy } : {}),
+    ...(input.governedExecution ? { governedExecution: structuredClone(input.governedExecution) } : {}),
     injectedMemoryIds: [],
     ...(input.workModeId ? { workModeId: input.workModeId } : {}),
     ...(model ? { model } : {}),

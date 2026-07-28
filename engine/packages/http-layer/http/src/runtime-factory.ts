@@ -12,7 +12,6 @@ import { FileAttachmentStore } from '@qiongqi/attachments'
 import { InMemoryApprovalGate } from '@qiongqi/adapter-storage'
 import { InMemoryUserInputGate } from '@qiongqi/adapter-storage'
 import { InMemoryEventBus } from '@qiongqi/adapter-storage'
-import { SqliteDurableEngineStore } from '@qiongqi/adapter-storage'
 import {
   FileEffectResultStore,
   FileEventedV2WorkerRegistryStore,
@@ -58,19 +57,17 @@ import {
   KernelV3TurnRunner,
   ModelProposalRunner,
   PromptBuilder,
-  RuntimeKernel,
-  productionKernelV3Graph,
   defaultManagerSpecialistGraph,
   validateAgentGraph,
   resolveEventedV2RolloutMode,
   resolveRuntimeRolloutMode,
   ToolRuntimeV3,
-  defaultKernelV3Middleware,
   type EventedV2FallbackReason,
   type EventedV2RolloutDecision,
-  type KernelExecutionResult,
+  type KernelV3TurnResult,
   type OrchestrationMode
 } from '@qiongqi/loop'
+import type { DurableEngine } from '@qiongqi/loop'
 import type {
   ToolHost,
   ToolHostContext,
@@ -79,10 +76,16 @@ import type {
   ToolCallLike,
   ToolReplayDescriptor,
   ToolReplayVerification,
-  ModelClient
+  ModelClient,
+  OutputValidatorRegistry
 } from '@qiongqi/ports'
 import type { TurnItem } from '@qiongqi/contracts'
-import { makeApprovalItem, makeUserInputItem } from '@qiongqi/domain'
+import {
+  makeApprovalItem,
+  makeAssistantReasoningItem,
+  makeAssistantTextItem,
+  makeUserInputItem
+} from '@qiongqi/domain'
 import {
   AgentCardSchema,
   type AgentGraph,
@@ -157,7 +160,6 @@ import {
   type UserDataStore
 } from './user-data-store.js'
 import { SqliteUserDataStore } from './sqlite-user-data-store.js'
-import { createGovernedTurnDriver, type GovernedTurnDriver } from './governed-turn-driver.js'
 import { UserScopedModelClient } from './user-scoped-model-client.js'
 
 // ---------------------------------------------------------------------------
@@ -187,6 +189,11 @@ export type QiongqiServeRuntimeOptions = {
     openTelemetry?: OpenTelemetryRuntimeOptions
   }
   capabilities?: QiongqiCapabilitiesConfig
+  outputValidators?: OutputValidatorRegistry
+  governedEngine?: {
+    engine: DurableEngine
+    store: import('@qiongqi/ports').DurableEngineStore
+  }
   startedAt?: string
   /**
    * System prompt for the agent. When omitted, falls back to the
@@ -241,35 +248,13 @@ export type QiongqiServeRuntimeOptions = {
    */
   orchestrationMode?: OrchestrationMode
   /**
-   * Overlay hook: per-branch workspace resolver for parallel agent isolation.
-   *
-   * When provided, the tool-context enricher consults this resolver for every
-   * tool batch. If it returns a non-null path, that path overrides
-   * `ToolHostContext.workspace` — the single field that bash cwd and all file
-   * tools resolve against — so a child agent running inside a registered git
-   * worktree targets the worktree automatically, without per-tool redirection.
-   *
-   * This is the integration point for KCoder's worktree overlay package
-   * (@kcoder/worktree-overlay). When omitted (or when it returns null), the
-   * engine keeps the thread's default workspace unchanged — fully backward
-   * compatible. This is a non-persisted runtime option (NOT a contracts field),
-   * so it adds zero wire-format or schema surface.
+   * Overlay hook: per-branch workspace resolver for parallel agent isolation
+   * (KCoder worktree overlay). When provided, the tool-context enricher
+   * overrides ToolHostContext.workspace for child threads running inside a
+   * registered git worktree. Non-persisted runtime option — adds zero
+   * wire-format or schema surface.
    */
   branchWorkspaceResolver?: (threadId: string, workspace: string) => string | null
-  /**
-   * Enable the governed-graph turn driver. When true, turns are driven through
-   * the durable governed-graph execution plane (DurableEngine + parallel/join +
-   * circuit/approval governance) instead of the plain single-AgentRun loop.
-   *
-   * This activates the full evented_v2 + Kernel two-plane architecture: each
-   * turn becomes a governed graph run with immutable GraphRevision, isolated
-   * AgentRuns on Kernel execution plane, and governance (circuit/approval/
-   * resource). The single-AgentRun kernel_v3 execution is reused as the
-   * Kernel plane for each agent node.
-   *
-   * Default: false (plain single-AgentRun loop, backward compatible).
-   */
-  governedGraph?: boolean
 }
 
 export type QiongqiServeHandle = NodeHttpServerHandle & {
@@ -327,6 +312,7 @@ export function eventedV2AgentGraphForRuntimeOptions(
 
 type RuntimeTurnRunner = {
   runTurn(threadId: string, turnId: string): Promise<'completed' | 'degraded' | 'suspended' | 'failed' | 'aborted'>
+  runTurnDetailed?(threadId: string, turnId: string): Promise<KernelV3TurnResult>
 }
 
 function loopForOrchestrationMode(
@@ -421,7 +407,10 @@ export interface CoreRuntime {
  *   to derive context windows.
  */
 export async function createCore(
-  options: Pick<QiongqiServeRuntimeOptions, 'dataDir' | 'storage' | 'contextCompaction' | 'models'>
+  options: Pick<
+    QiongqiServeRuntimeOptions,
+    'dataDir' | 'storage' | 'contextCompaction' | 'models' | 'outputValidators'
+  >
 ): Promise<CoreRuntime> {
   await mkdir(options.dataDir, { recursive: true })
   const workspaceRoot = workspaceRootFromRuntimeDataDir(options.dataDir)
@@ -485,7 +474,8 @@ export async function createCore(
     steering,
     compactor,
     ids,
-    nowIso
+    nowIso,
+    ...(options.outputValidators ? { outputValidators: options.outputValidators } : {})
   })
   const threadService = new ThreadService({
     threadStore: stores.threadStore,
@@ -862,14 +852,12 @@ export async function createToolMatrix(
   const branchWorkspaceResolver = options.branchWorkspaceResolver
   const enrichToolContext = async (context: ToolHostContext): Promise<ToolHostContext> => {
     let next = context
-    // PYTHONPATH injection (existing behaviour) — only when skill roots are set.
     if (pythonPathEnv) {
       next = { ...next, environment: { ...(next.environment ?? {}), PYTHONPATH: pythonPathEnv } }
     }
     // Overlay: per-branch worktree isolation. When a resolver is configured and
     // the current thread is bound to a registered branch worktree, override the
-    // workspace so every bash/file tool call targets the worktree. Returning null
-    // (no resolver, or thread not a branch child) leaves the default workspace.
+    // workspace so every bash/file tool call targets the worktree.
     if (branchWorkspaceResolver) {
       const branchWorkspace = branchWorkspaceResolver(next.threadId, next.workspace)
       if (branchWorkspace) {
@@ -1398,6 +1386,42 @@ export function createKernelV3TurnRunner(input: {
   const proposalRunner = new ModelProposalRunner({
     client: input.modelClient,
     endpointFormat: options.endpointFormat,
+    onDelta: async (chunk, request, context) => {
+      if (chunk.kind === 'assistant_text_delta') {
+        const itemId = `item_kernel_text_${context.proposalId}`
+        await core.events.record({
+          kind: 'assistant_text_delta',
+          threadId: request.threadId,
+          turnId: request.turnId,
+          itemId,
+          item: makeAssistantTextItem({
+            id: itemId,
+            threadId: request.threadId,
+            turnId: request.turnId,
+            text: chunk.text,
+            status: 'running'
+          })
+        })
+        return
+      }
+      if (chunk.kind === 'assistant_reasoning_delta') {
+        const itemId = `item_kernel_reasoning_${context.proposalId}`
+        await core.events.record({
+          kind: 'assistant_reasoning_delta',
+          threadId: request.threadId,
+          turnId: request.turnId,
+          itemId,
+          item: makeAssistantReasoningItem({
+            id: itemId,
+            threadId: request.threadId,
+            turnId: request.turnId,
+            text: chunk.text,
+            ...(chunk.signature ? { signature: chunk.signature } : {}),
+            status: 'running'
+          })
+        })
+      }
+    },
     onUsage: async (snapshot, request) => {
       const thread = await core.threadStore.get(request.threadId)
       promptBuilder.recordPromptPressure({
@@ -1548,16 +1572,16 @@ export function createKernelV3TurnRunner(input: {
         summary: outcome.status === 'completed' ? 'Task completed.' : `Task stopped: ${outcome.reason}.`,
         reason: outcome.reason
       } as never)
-      if (status === 'suspended') return
+      if (status === 'suspended') return status
       const turnStatus = status === 'degraded' ? 'completed' : status
-      await core.turnService.finishTurn({
+      return (await core.turnService.finishTurn({
         threadId,
         turnId,
         status: turnStatus,
         ...(turnStatus === 'failed'
           ? { error: `${outcome.reason}${outcome.retryable ? ' (retryable)' : ''}` }
           : {})
-      })
+      })).status
     },
     nowIso: core.nowIso
   })
@@ -1735,6 +1759,19 @@ async function assembleRuntime(input: {
             if (decision.primaryMode === 'evented_v2') eventedV2RolloutController.recordOutcome('failed')
             throw error
           }
+        },
+        runTurnDetailed: async (threadId: string, turnId: string): Promise<KernelV3TurnResult> => {
+          const decision = eventedV2RolloutController.decide({ threadId })
+          eventedV2RolloutController.recordDecision(decision)
+          const selected = loopForOrchestrationMode(decision.primaryMode, {
+            classic: classicLoop,
+            eventedV2: eventedV2Loop,
+            kernelV3: kernelV3Loop
+          })
+          if (!selected.runTurnDetailed) {
+            throw new Error(`detailed turn results require kernel_v3; selected ${decision.primaryMode}`)
+          }
+          return selected.runTurnDetailed(threadId, turnId)
         }
       }
     : loopForOrchestrationMode(orchestrationMode, {
@@ -1742,60 +1779,6 @@ async function assembleRuntime(input: {
         eventedV2: eventedV2Loop,
         kernelV3: kernelV3Loop
       })
-  // Governed-graph turn driver: when enabled, route turns through the durable
-  // governed-graph execution plane (DurableEngine) instead of the plain loop.
-  // Reuses the kernel_v3 internals (node handlers, stores, middleware) as the
-  // Kernel execution plane for each governed agent node.
-  const governedGraphEnabled = options.governedGraph === true && kernelV3Loop
-  let governedDriver: GovernedTurnDriver | undefined
-  if (governedGraphEnabled) {
-    const governedStore = new SqliteDurableEngineStore(join(options.dataDir, 'governed-engine.sqlite'))
-    const kernelInternals = kernelV3Loop.internals
-    governedDriver = await createGovernedTurnDriver({
-      store: governedStore,
-      agentId: options.agentName ?? 'Qiongqi',
-      modelProfileId: options.model,
-      runKernel: async ({ prepared, threadId, turnId }) => {
-        // Bridge a governed-graph agent node to a single-AgentRun Kernel execution.
-        // Build a RunIdentity from the turn context (threadId/turnId) + the agent's
-        // execution identity (kernelRunId as runId, scope for owner/workspace).
-        const identity = {
-          ownerUserId: prepared.scope.ownerId,
-          threadId,
-          turnId,
-          runId: prepared.executionRef.kernelRunId,
-          workspaceKey: prepared.scope.workspaceId
-        }
-        const kernel = new RuntimeKernel({
-          graph: productionKernelV3Graph(),
-          snapshots: kernelInternals.snapshots,
-          events: kernelInternals.events,
-          leases: kernelInternals.leases,
-          holderId: kernelInternals.holderId,
-          nodes: kernelInternals.nodes,
-          middleware: kernelInternals.middleware,
-          nowIso: kernelInternals.nowIso ?? core.nowIso
-        })
-        const outcome = await kernel.run(identity)
-        return {
-          outcome,
-          usage: { stepsUsed: 0, toolCallsUsed: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
-          usageRefs: [],
-          artifactRefs: []
-        }
-      },
-      // Pass the TurnService so the governed driver can register AbortControllers
-      // and call finishTurn — this makes the SSE stream receive terminal events.
-      turnService: core.turnService,
-      // Resolve the user's prompt from the turn record — the governed graph's
-      // run_started event must carry a non-empty prompt.
-      resolvePrompt: async (threadId, turnId) => {
-        const turn = await core.turnService.getTurn(threadId, turnId)
-        if (!turn) throw new Error(`turn not found: ${threadId}/${turnId}`)
-        return turn.prompt ?? ''
-      }
-    })
-  }
   const multiAgentRoot = join(options.dataDir, 'threads')
   const multiAgentRuns = needsEventedV2Loop
     ? new FileMultiAgentRunStore(multiAgentRoot)
@@ -1953,6 +1936,10 @@ async function assembleRuntime(input: {
     ...(multiAgentRemoteWorker ? { multiAgentRemoteWorker } : {}),
     ...(multiAgentRemoteScheduler ? { multiAgentRemoteScheduler } : {}),
     ...(eventedV2RolloutController ? { eventedV2Rollout: eventedV2RolloutController } : {}),
+    ...(options.governedEngine ? {
+      governedEngine: options.governedEngine,
+      durableEngineStore: options.governedEngine.store
+    } : {}),
     eventBus: core.eventBus,
     sessionStore: core.sessionStore,
     events: core.events,
@@ -1967,14 +1954,18 @@ async function assembleRuntime(input: {
     /** Stage 4: A2A task persistence. */
     a2aTaskStore: new FileA2ATaskStore(join(options.dataDir, 'a2a-tasks')),
     runTurn(threadId, turnId) {
-      // Governed-graph mode: drive the turn through the durable governed-graph
-      // execution plane. Falls back to the plain loop when the driver is absent.
-      if (governedDriver) {
-        return governedDriver.runTurn(threadId, turnId)
-      }
       return loop.runTurn(threadId, turnId)
     },
-    ...(governedDriver ? { governedEngine: governedDriver.engine } : {}),
+    async runTurnDetailed(threadId, turnId) {
+      if (!loop.runTurnDetailed) {
+        throw new Error(`detailed turn results require kernel_v3; configured ${orchestrationMode}`)
+      }
+      const result = await loop.runTurnDetailed(threadId, turnId)
+      return {
+        ...result,
+        modelUsage: core.usageService.forThread(threadId)
+      }
+    },
     async cancelA2ATaskTurn(input) {
       await core.turnService.interruptTurn({ ...input, discard: false })
     },

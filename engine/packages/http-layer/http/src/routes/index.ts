@@ -64,6 +64,10 @@ import { isAuthorized, bearerToken } from '../auth.js'
 import { AuthError, authSessionBody, type AuthActor } from '../auth-service.js'
 import { ERRORS } from './runtime-error.js'
 import type { ServerRuntime } from './server-runtime.js'
+import { GovernedTurnRuntime } from '../governed-turn-runtime.js'
+import { registerGovernedEngineRoutes } from './governed-engine.js'
+
+const governedTurnRuntimes = new WeakMap<ServerRuntime, GovernedTurnRuntime>()
 
 /**
  * Build the core HTTP router. Product-specific compatibility APIs belong in
@@ -79,6 +83,12 @@ export function buildRouter(runtime: ServerRuntime): Router {
   registerAuthRoutes(router, runtime)
   registerA2aRoutes(router, runtime)
   registerRuntimeRoutes(router, runtime)
+  registerGovernedEngineRoutes({
+    router,
+    runtime,
+    authorize: (request) => authorize(request, runtime),
+    governedTurns: () => governedTurns(runtime)
+  })
   registerSkillRoutes(router, runtime)
   registerAttachmentRoutes(router, runtime)
   registerMemoryRoutes(router, runtime)
@@ -228,57 +238,6 @@ function registerRuntimeRoutes(router: Router, runtime: ServerRuntime): void {
     if (!runtime.multiAgentRuntime) return ERRORS.unavailable('evented_v2 runtime is not configured')
     return jsonResponse(await runtime.multiAgentRuntime.metrics())
   })
-  // ============ Governed graph governance routes ============
-  // These expose the DurableEngine's governance surface when governedGraph
-  // mode is enabled: inspect a run's graph/circuit/workEvents, set the circuit
-  // state (report_only/paused/retired/running), and cancel a run.
-  router.add('GET', '/v1/engine/runs/:runId/inspect', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
-    if (!runtime.governedEngine) return ERRORS.unavailable('governed graph engine is not configured')
-    try {
-      return jsonResponse(await runtime.governedEngine.inspect(ctx.params.runId))
-    } catch (error) {
-      if (String((error as { message?: unknown })?.message ?? error).includes('not found')) {
-        return ERRORS.notFound(`governed run not found: ${ctx.params.runId}`)
-      }
-      throw error
-    }
-  })
-  router.add('POST', '/v1/engine/runs/:runId/circuit', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
-    if (!runtime.governedEngine) return ERRORS.unavailable('governed graph engine is not configured')
-    const body = await readJsonBody(request)
-    if (!body.ok) return body.response
-    const state = (body.value as { state?: string })?.state
-    if (state !== 'running' && state !== 'report_only' && state !== 'paused' && state !== 'retired') {
-      return ERRORS.validation('circuit state must be one of: running, report_only, paused, retired')
-    }
-    await runtime.governedEngine.setGraphCircuit(ctx.params.runId, state)
-    return jsonResponse({ runId: ctx.params.runId, circuitState: state })
-  })
-  router.add('POST', '/v1/engine/runs/:runId/cancel', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
-    if (!runtime.governedEngine) return ERRORS.unavailable('governed graph engine is not configured')
-    await runtime.governedEngine.cancel(ctx.params.runId)
-    return jsonResponse({ runId: ctx.params.runId, cancelled: true })
-  })
-  router.add('POST', '/v1/engine/checkpoints/:checkpointId/resolve', async (request, ctx) => {
-    if (!authorize(request, runtime)) return ERRORS.unauthorized()
-    if (!runtime.governedEngine) return ERRORS.unavailable('governed graph engine is not configured')
-    const body = await readJsonBody(request)
-    if (!body.ok) return body.response
-    const value = body.value as { decision?: string; token?: string; resolutionToken?: string; graphRevision?: number }
-    if (value.decision !== 'allow' && value.decision !== 'deny') {
-      return ERRORS.validation('checkpoint decision must be allow or deny')
-    }
-    await runtime.governedEngine.resolveCheckpoint(ctx.params.checkpointId, {
-      decision: value.decision,
-      ...(value.token ? { token: value.token } : {}),
-      ...(value.resolutionToken ? { resolutionToken: value.resolutionToken } : {}),
-      ...(value.graphRevision ? { graphRevision: value.graphRevision } : {})
-    })
-    return jsonResponse({ checkpointId: ctx.params.checkpointId, resolved: true })
-  })
   router.add('GET', '/v1/workspace/status', async (request) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     const url = new URL(request.url)
@@ -427,9 +386,21 @@ function registerThreadRoutes(router: Router, runtime: ServerRuntime): void {
     if (!actor) return ERRORS.unauthorized()
     if (!(await ownsThread(runtime, ctx.params.id, actor))) return ERRORS.notFound(`thread not found: ${ctx.params.id}`)
     const thread = await runtime.threadService.get(ctx.params.id)
-    return startTurn(runtime.turnService, ctx.params.id, request, ({ threadId, turnId }) => {
+    const governed = governedTurns(runtime)
+    return startTurn(runtime.turnService, ctx.params.id, request, ({ threadId, turnId }, parsed) => {
+      if (parsed.governedExecution) {
+        void governed!.runTurn(threadId, turnId).catch(async (error) => {
+          await runtime.turnService.finishGovernedTurn({
+            threadId,
+            turnId,
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error)
+          })
+        })
+        return
+      }
       runtime.runTurn(threadId, turnId)
-    }, thread?.model ?? await defaultModelForActor(runtime, actor))
+    }, thread?.model ?? await defaultModelForActor(runtime, actor), Boolean(governed))
   })
   router.add('POST', '/v1/threads/:id/review', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
@@ -455,15 +426,16 @@ function registerThreadRoutes(router: Router, runtime: ServerRuntime): void {
   })
   router.add('POST', '/v1/threads/:id/turns/:turnId/interrupt', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
-    // Governed graph: also cancel the durable engine run so Kernel execution stops.
-    // The engine's runId convention is run_<threadId>_<turnId>.
-    if (runtime.governedEngine) {
-      const runId = `run_${ctx.params.id}_${ctx.params.turnId}`
-      runtime.governedEngine.cancel(runId).catch(() => {
-        // The run may not exist (non-governed turn, already completed, etc.) — ignore.
-      })
-    }
-    return interruptTurn(runtime.turnService, ctx.params.id, ctx.params.turnId, request)
+    const turn = await runtime.turnService.getTurn(ctx.params.id, ctx.params.turnId)
+    const governed = turn?.governedBinding ? governedTurns(runtime) : undefined
+    if (turn?.governedBinding && !governed) return ERRORS.unavailable('governed DurableEngine is not configured')
+    return interruptTurn(
+      runtime.turnService,
+      ctx.params.id,
+      ctx.params.turnId,
+      request,
+      governed ? () => governed.cancelTurn(ctx.params.id, ctx.params.turnId) : undefined
+    )
   })
   router.add('POST', '/v1/threads/:id/compact', async (request, ctx) => {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
@@ -491,6 +463,21 @@ function registerThreadRoutes(router: Router, runtime: ServerRuntime): void {
     if (!authorize(request, runtime)) return ERRORS.unauthorized()
     return readThreadArtifact(runtime, ctx.params.id, request)
   })
+}
+
+function governedTurns(runtime: ServerRuntime): GovernedTurnRuntime | undefined {
+  if (!runtime.governedEngine?.engine || !runtime.governedEngine.store) return undefined
+  const existing = governedTurnRuntimes.get(runtime)
+  if (existing) return existing
+  const created = new GovernedTurnRuntime({
+    engine: runtime.governedEngine.engine,
+    store: runtime.governedEngine.store,
+    turns: runtime.turnService,
+    threads: runtime.threadService,
+    nowIso: runtime.nowIso
+  })
+  governedTurnRuntimes.set(runtime, created)
+  return created
 }
 
 function registerApprovalRoutes(router: Router, runtime: ServerRuntime): void {

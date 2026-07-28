@@ -1,6 +1,6 @@
 # @qiongqi/skills
 
-> v1.1.1。Skill 只注入能力和说明，不绕过任务 scope、模型授权、工具 ledger 或记忆隔离。
+> v1.1.4。Skill 只注入能力和说明，不绕过任务 scope、模型授权、工具 ledger 或记忆隔离。
 
 > Skill 运行时 + Plugin Host —— 引擎层之上的"能力挂载"机制。
 > Layer 6 — 依赖：`@qiongqi/contracts`、`@qiongqi/ports`、`@qiongqi/adapter-tools`。

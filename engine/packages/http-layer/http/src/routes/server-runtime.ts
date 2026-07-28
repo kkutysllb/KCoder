@@ -9,7 +9,12 @@ import type { UserInputGate } from '@qiongqi/ports'
 import type { WorkspaceInspector } from '@qiongqi/ports'
 import type { ToolHost, ToolProviderPolicy } from '@qiongqi/ports'
 import type { RuntimeEventRecorder } from '@qiongqi/services'
-import type { RuntimeInfoResponse, AgentCard } from '@qiongqi/contracts'
+import type {
+  AgentCard,
+  BudgetState,
+  RuntimeInfoResponse,
+  UsageSnapshot
+} from '@qiongqi/contracts'
 import type { A2ATaskRecord } from '../a2a-task-model.js'
 import type { FileA2ATaskStore } from '../a2a-task-store.js'
 import type { McpServerDiagnostic } from '@qiongqi/adapter-tools'
@@ -26,7 +31,7 @@ import type { AuthService } from '../auth-service.js'
 import type { QiongqiConfig } from '@qiongqi/contracts'
 import type { UserDataStore } from '../user-data-store.js'
 import type { PeerRegistry } from '@qiongqi/delegation'
-import type { EventedV2MultiAgentRuntime, EventedV2OutboxReconciler, EventedV2RemoteAgentScheduler, EventedV2RemoteAgentWorker, EventedV2RolloutController, GraphReadinessReport, DurableEngine } from '@qiongqi/loop'
+import type { DurableEngine, EventedV2MultiAgentRuntime, EventedV2OutboxReconciler, EventedV2RemoteAgentScheduler, EventedV2RemoteAgentWorker, EventedV2RolloutController, GraphReadinessReport } from '@qiongqi/loop'
 import type { EventedV2WorkerRegistryStore } from '@qiongqi/ports'
 import type { DurableEngineStore } from '@qiongqi/ports'
 
@@ -58,6 +63,16 @@ export type QiongqiConfigStore = {
   snapshot?(): QiongqiConfig
 }
 
+export type ServerRuntimeTurnStatus = 'completed' | 'degraded' | 'suspended' | 'failed' | 'aborted'
+
+export type ServerRuntimeTurnResult = {
+  status: ServerRuntimeTurnStatus
+  /** Exact counters from the persisted Kernel snapshot for this physical Turn. */
+  budget: BudgetState
+  /** Current model-usage snapshot for the owning thread. */
+  modelUsage: UsageSnapshot
+}
+
 /**
  * Dependencies that the HTTP router needs. Bundled into a single
  * type so callers can compose the runtime from the in-memory or
@@ -87,9 +102,12 @@ export type ServerRuntime = {
   multiAgentRemoteScheduler?: EventedV2RemoteAgentScheduler
   eventedV2Rollout?: EventedV2RolloutController
   durableEngineStore?: DurableEngineStore
-  /** The governed-graph engine — present when governedGraph mode is enabled. Exposes inspect/circuit/cancel for governance routes. */
-  governedEngine?: DurableEngine
-  runTurn(threadId: string, turnId: string): Promise<'completed' | 'degraded' | 'suspended' | 'failed' | 'aborted'> | void
+  governedEngine?: {
+    engine: DurableEngine
+    store: DurableEngineStore
+  }
+  runTurn(threadId: string, turnId: string): Promise<ServerRuntimeTurnStatus> | void
+  runTurnDetailed(threadId: string, turnId: string): Promise<ServerRuntimeTurnResult>
   cancelA2ATaskTurn?(input: { threadId: string; turnId: string }): Promise<void> | void
   runReview?(input: {
     threadId: string

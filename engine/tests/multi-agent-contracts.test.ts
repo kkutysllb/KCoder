@@ -47,13 +47,82 @@ describe('multi-agent runtime contracts', () => {
     expect(() => KernelDispatchPayloadSchema.parse({ ...dispatch, credentialRef: 'secret://model' })).toThrow()
   })
 
+  it('reads legacy dispatches and pins complete execution context in schema v3', () => {
+    const scope = { ownerId: 'owner', workspaceId: 'workspace', taskId: 'task' }
+    const base = {
+      identity: {
+        scope,
+        multiAgentRunId: 'root-2',
+        parentRunId: 'root-2',
+        agentRunId: 'agent-2',
+        agentId: 'writer',
+        nodeId: 'write',
+        executionRef: {
+          scope,
+          parentKind: 'agent' as const,
+          multiAgentRunId: 'root-2',
+          agentRunId: 'agent-2',
+          parentRunId: 'agent-2',
+          kernelRunId: 'kernel-2'
+        }
+      },
+      reservationId: 'reservation:kernel-2',
+      requestedBudget: {
+        stepsUsed: 1,
+        toolCallsUsed: 1,
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: 0.1
+      },
+      role: 'agent' as const,
+      inputRef: 'graph-run://root-2/events/start-2/prompt'
+    }
+
+    expect(KernelDispatchPayloadSchema.parse({ schemaVersion: 1, ...base }).schemaVersion).toBe(1)
+    expect(KernelDispatchPayloadSchema.parse({
+      schemaVersion: 2,
+      ...base,
+      executionPolicyRef: {
+        policyId: 'product.agent.writer',
+        revision: 4,
+        digest: 'b'.repeat(64)
+      }
+    })).toMatchObject({
+      schemaVersion: 2,
+      executionPolicyRef: {
+        policyId: 'product.agent.writer',
+        revision: 4,
+        digest: 'b'.repeat(64)
+      }
+    })
+    expect(KernelDispatchPayloadSchema.parse({
+      schemaVersion: 3,
+      ...base,
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      workspaceKey: '/workspace',
+      nodePolicyRef: { policyId: 'writer-policy', revision: 2 }
+    })).toMatchObject({
+      schemaVersion: 3,
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      workspaceKey: '/workspace',
+      nodePolicyRef: { policyId: 'writer-policy', revision: 2 }
+    })
+  })
+
   it('parses a manager-to-specialist graph', () => {
     const graph = AgentGraphSchema.parse({
       version: 1,
       graphId: 'graph_default',
       startNodeId: 'manager',
       nodes: [
-        { id: 'manager', kind: 'agent', agentId: 'manager', label: 'Manager' },
+        {
+          id: 'manager', kind: 'agent', agentId: 'manager', label: 'Manager',
+          executionPolicyRef: {
+            policyId: 'product.agent.manager', revision: 2, digest: 'a'.repeat(64)
+          }
+        },
         { id: 'handoff_research', kind: 'handoff', targetAgentId: 'researcher' },
         { id: 'researcher', kind: 'agent', agentId: 'researcher', label: 'Researcher' },
         { id: 'done', kind: 'terminate' }
@@ -66,6 +135,9 @@ describe('multi-agent runtime contracts', () => {
     })
 
     expect(graph.nodes.map((node) => node.kind)).toEqual(['agent', 'handoff', 'agent', 'terminate'])
+    expect(graph.nodes[0]).toMatchObject({
+      executionPolicyRef: { policyId: 'product.agent.manager', revision: 2, digest: 'a'.repeat(64) }
+    })
   })
 
   it('parses durable independent branch cursors and derives a non-empty join result', () => {

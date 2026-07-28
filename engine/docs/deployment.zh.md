@@ -1,4 +1,4 @@
-# Qiongqi Durable Engine v1.1.2 生产部署
+# Qiongqi Durable Engine v1.1.4 生产部署
 
 ## 1. 前置条件
 
@@ -42,7 +42,11 @@ git diff --check
 
 PostgreSQL 必须在 parent row lock 内校验“settled actual + active requested + new requested <= root limits”。SQLite/in-memory 即使通过 conformance，也不能替代多实例数据库锁。
 
-v1.1.2 的多实例发布必须执行 `tests/postgres-durable-parallel-engine.test.ts`：两个独立 store/engine 实例并发提交乱序 branch completion，最终只能产生一个 join，且两份 root projection 版本一致。没有 `QIONGQI_TEST_POSTGRES_URL` 时该门禁会跳过，这种构建不得作为已验证的多实例生产发布。
+v1.1.3 的多实例发布必须执行 `pnpm verify:postgres-engine`：门禁覆盖独立 store/engine 实例的乱序 branch completion、root projection 一致性、schema-v3 dispatch 与权威恢复。没有 `QIONGQI_TEST_POSTGRES_URL` 时该门禁会跳过，这种构建不得作为已验证的多实例生产发布。
+
+v1.1.3 滚动升级期间，新 writer 会生成 dispatch schema v3。必须先升级 worker 再接纳 v1.1.3 流量；v1.1.3 worker 可继续 drain schema v1/v2 work，旧 worker 不得 claim schema-v3 intent。HTTP governed 能力必须同时注入匹配的 `DurableEngine` 与 `DurableEngineStore`；只有 store 的进程可保留旧 stream 读取，但不得接收 governed Turn 或 run lifecycle 写操作。
+
+凡 stderr 被集中采集的 v1.1.3 进程都应升级到 v1.1.4。本补丁不修改 graph、run、checkpoint、ledger、stream 或 dispatch schema，无需状态迁移，可正常滚动重启。升级后可以对诊断 marker 告警，但不得索引请求内容：模型诊断只含 metadata，endpoint 会移除 userinfo、query 和 fragment。
 
 ## 4. Readiness 与探针
 

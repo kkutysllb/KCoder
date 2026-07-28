@@ -212,6 +212,6 @@ export class EventedTurnOrchestrator {
       await this.serializer.delete(threadId, turnId)
     }
 
-    return status
+    return (await this.opts.turns.finishTurn({ threadId, turnId, status })).status
   }
 }

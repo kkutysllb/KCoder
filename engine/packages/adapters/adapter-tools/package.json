@@ -1,6 +1,6 @@
 {
   "name": "@qiongqi/adapter-tools",
-  "version": "1.1.2",
+  "version": "1.1.4",
   "description": "Qiongqi adapter-tools package",
   "type": "module",
   "main": "./dist/index.js",

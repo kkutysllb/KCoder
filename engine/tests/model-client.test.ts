@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DeepseekCompatModelClient } from '@qiongqi/adapter-model'
 import {
   makeAssistantReasoningItem,
@@ -51,6 +51,10 @@ function sseStream(payloads: Array<Record<string, unknown> | '[DONE]'>): Readabl
 }
 
 describe('DeepseekCompatModelClient', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('reports sanitized endpoint details when fetch fails', async () => {
     const fetchImpl: typeof fetch = async () => {
       throw new Error('fetch failed')
@@ -2228,7 +2232,8 @@ describe('DeepseekCompatModelClient', () => {
     expect(Object.keys((sentBody?.tools?.[1]?.function?.parameters as { properties?: Record<string, unknown> }).properties ?? {})).toEqual(['a', 'b'])
   })
 
-  it('heals incomplete tool-call pairs before sending history upstream', async () => {
+  it('does not log valid tool-call-only messages while healing history upstream', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const sentBodies: Array<{ messages?: Array<Record<string, unknown>> }> = []
     const response = {
       id: 'r1',
@@ -2307,6 +2312,84 @@ describe('DeepseekCompatModelClient', () => {
       )
     ).toBe(true)
     expect(messages.some((message) => message.role === 'tool' && message.tool_call_id === 'call_ok')).toBe(true)
+    expect(
+      warn.mock.calls.some((args) => args.some((value) => String(value).includes('[diagnoseEmptyContent]')))
+    ).toBe(false)
+    warn.mockRestore()
+  })
+
+  it('redacts rejected model request diagnostics', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const fetchImpl: typeof fetch = async () => new Response(
+      'provider-secret-error content is empty',
+      { status: 400, headers: { 'content-type': 'text/plain' } }
+    )
+    const client = new DeepseekCompatModelClient({
+      baseUrl: 'https://example.com/v1/chat/completions?api_key=query-secret',
+      apiKey: 'header-secret',
+      model: 'deepseek-chat',
+      fetchImpl,
+      nonStreaming: true
+    })
+    const request = buildRequest(new AbortController().signal)
+    request.systemPrompt = 'system-secret-prompt'
+    request.history = [
+      makeUserItem({
+        id: 'user_empty',
+        turnId: 'turn_1',
+        threadId: 'thr_1',
+        text: '   '
+      }),
+      makeUserItem({
+        id: 'user_secret',
+        turnId: 'turn_1',
+        threadId: 'thr_1',
+        text: 'user-secret-content'
+      }),
+      makeToolCallItem({
+        id: 'call_secret',
+        turnId: 'turn_1',
+        threadId: 'thr_1',
+        callId: 'call_secret',
+        toolName: 'echo',
+        arguments: { text: 'tool-argument-secret' }
+      }),
+      makeAssistantReasoningItem({
+        id: 'reasoning_secret',
+        turnId: 'turn_1',
+        threadId: 'thr_1',
+        text: 'reasoning-secret-content',
+        status: 'completed'
+      }),
+      makeToolResultItem({
+        id: 'result_secret',
+        turnId: 'turn_1',
+        threadId: 'thr_1',
+        callId: 'call_secret',
+        toolName: 'echo',
+        output: 'tool-result-secret'
+      })
+    ]
+
+    for await (const _chunk of client.stream(request)) {
+      // drain
+    }
+
+    const diagnostic = JSON.stringify(warn.mock.calls)
+    expect(diagnostic).toContain('[diagnoseEmptyContent]')
+    expect(diagnostic).toContain('[diagnoseRejectedRequest]')
+    for (const secret of [
+      'query-secret',
+      'provider-secret-error',
+      'system-secret-prompt',
+      'user-secret-content',
+      'tool-argument-secret',
+      'reasoning-secret-content',
+      'tool-result-secret'
+    ]) {
+      expect(diagnostic).not.toContain(secret)
+    }
+    warn.mockRestore()
   })
 
   it('groups completed multi-tool blocks into one assistant tool_calls message', async () => {

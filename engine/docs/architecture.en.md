@@ -1,4 +1,4 @@
-# Qiongqi Durable Engine v1.1.2 Architecture
+# Qiongqi Durable Engine v1.1.3 Architecture
 
 This document describes the current implementation, not a roadmap. Qiongqi is engine-only; downstream code owns identity, business value, model credentials, Agent bindings, and product interaction.
 
@@ -50,6 +50,8 @@ sum(settled reservation actual usage)
 
 Released reservations consume no budget, and root `budgets` project settled actual usage only. Model and node policies may narrow caller limits but cannot supply or increase them.
 
+v1.1.3 dispatch writers emit `schemaVersion: 3` with thread, Turn, workspace, and node-policy context. Recovery does not trust those duplicated fields: the worker loads the same-ID root `EngineRunRecord`, `GraphRunRecord`, pinned `GraphRevision`, and prepared `AgentRun`, then reconstructs the execution input. Any scope, digest, node, AgentRun, model policy, execution policy, or `nodePolicyRef` contradiction fails before prompt resolution or Kernel invocation. Legacy schema-v1/v2 work remains readable through the same authoritative hydration path.
+
 ## 5. Durable facade
 
 | API | Semantics |
@@ -75,6 +77,8 @@ The facade does not own volatile governance state. A reconstructed instance can 
 
 Loaders and `inspect()` never synthesize a missing projection. Only caller-authorized `migrateGraphOnlyRun({ runId, budgetLimits })` repairs a graph-only v1.1.0 run. A terminal run may be repaired for audit consistency but is never dispatched again.
 
+The optional HTTP composition binding is one complete `{ engine, store }` pair. It exposes graph publication, run inspection, serial/parallel dispatch, completion consumption, Kernel resume, cancellation, durable stream replay/ack, and `StartTurnRequest.governedExecution`. A governed Turn stores the caller's explicit `TaskScope`, graph ref, limits, and model policy; after a crash it searches for an existing exact scope/thread/turn GraphRun before starting another. GraphRun remains the fact source and Turn remains an idempotent user projection.
+
 ## 6. Model-neutral routing
 
 `ModelProfileRegistry` maps immutable `profileId@revision` to `providerId`, `modelId`, endpoint format, capabilities, and `credentialRef`. A task policy may authorize several profiles while a graph-node `modelPolicyRef` narrows selection.
@@ -97,6 +101,8 @@ Automatic circuits only increase severity: `running -> report_only -> paused -> 
 ## 9. Streaming, ROI, and observability
 
 Model deltas, tool lifecycle, branch lifecycle, checkpoints, work-graph events, usage, ROI, and outcomes enter the durable stream before SSE transport. `streamId + seq` defines order and replay, and branch events carry `branchId`; acknowledgements are per subscriber, and disconnect does not cancel work. Private reasoning collection, persistence, subscription, and retention are off by default.
+
+The production `kernel_v3` proposal runner fixes a proposal identity before consuming the first provider chunk. HTTP composition records assistant deltas immediately with `item_kernel_text_<proposalId>`; the final materializer uses the same item ID, so event replay replaces the running projection with one authoritative completed item instead of duplicating text. Durable attempts derive `proposalId` from `operationId`; ledger replay emits no new delta or usage, while separate steps/retries remain isolated. Provider usage is still accounted once by the durable post-ledger hook, and durable cost/value updates remain the source of live ROI—no token cost or business value is inferred from streamed characters.
 
 Cost, value, and usage records may carry graph/node/edge/branch/attempt attribution. Live `RoiSnapshot` provides `byNode`, `byEdge`, `byBranch`, fan-out, retry amplification, suppressed physical attempts, avoided cost, and executed critical-path latency. External waiting time is excluded from execution critical path. Business value requires downstream evidence; engine efficiency never fabricates ROI.
 

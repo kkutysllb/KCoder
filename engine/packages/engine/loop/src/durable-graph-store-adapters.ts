@@ -29,6 +29,7 @@ import {
 import type { RootRunAggregateCoordinator } from './root-run-aggregate.js'
 import type { AgentDispatchPreparationInput } from './kernel-agent-executor.js'
 import { projectActiveNodeIds } from './parallel-branch-state.js'
+import { canonicalDigest } from './execution-fingerprint.js'
 
 export type GovernedRootStoreOptions = {
   coordinator: RootRunAggregateCoordinator
@@ -162,6 +163,7 @@ export class DurableMultiAgentRunStore implements MultiAgentRunStore {
       if (!run) throw new Error(`MultiAgentRun not found: ${input.multiAgentRunId}`)
       const agentRun = run.agentRuns.find((candidate) => candidate.agentRunId === input.agentRunId)
       if (!agentRun) throw new Error(`AgentRun not found: ${input.agentRunId}`)
+      this.assertPreparedContext(input, run)
       if (agentRun.agentId !== input.agentId || agentRun.nodeId !== input.nodeId) {
         throw new EngineStoreConflictError('prepared dispatch does not match the durable AgentRun')
       }
@@ -180,7 +182,7 @@ export class DurableMultiAgentRunStore implements MultiAgentRunStore {
         updatedAt: now
       })
       const payload = KernelDispatchPayloadSchema.parse({
-        schemaVersion: 1,
+        schemaVersion: 3,
         identity: AgentRunIdentitySchema.parse({
           scope: input.scope,
           multiAgentRunId: input.multiAgentRunId,
@@ -196,7 +198,10 @@ export class DurableMultiAgentRunStore implements MultiAgentRunStore {
         role: input.role ?? 'agent',
         inputRef: input.inputRef,
         sharedEvidenceRefs: input.sharedEvidenceRefs ?? [],
-        ...(input.modelPolicyRef ? { modelPolicyRef: input.modelPolicyRef } : {})
+        threadId: run.threadId,
+        turnId: run.turnId,
+        workspaceKey: run.workspaceKey,
+        ...this.authoritativeNodePolicies(input.nodeId)
       })
       const baseMutations = this.mutationsForRun(next, run, false)
       const workId = `agent_execution_requested:${input.executionRef.kernelRunId}`
@@ -297,6 +302,7 @@ export class DurableMultiAgentRunStore implements MultiAgentRunStore {
       for (const input of inputs) {
         const agentRun = run.agentRuns.find((candidate) => candidate.agentRunId === input.agentRunId)
         if (!agentRun) throw new Error(`AgentRun not found: ${input.agentRunId}`)
+        this.assertPreparedContext(input, run)
         if (agentRun.agentId !== input.agentId || agentRun.nodeId !== input.nodeId) {
           throw new EngineStoreConflictError('prepared dispatch does not match the durable AgentRun')
         }
@@ -330,7 +336,7 @@ export class DurableMultiAgentRunStore implements MultiAgentRunStore {
       })
       const baseMutations = this.mutationsForRun(next, run, false)
       const payloads = pending.map((input) => KernelDispatchPayloadSchema.parse({
-        schemaVersion: 1,
+        schemaVersion: 3,
         identity: AgentRunIdentitySchema.parse({
           scope: input.scope,
           multiAgentRunId: input.multiAgentRunId,
@@ -346,7 +352,10 @@ export class DurableMultiAgentRunStore implements MultiAgentRunStore {
         role: input.role ?? 'agent',
         inputRef: input.inputRef,
         sharedEvidenceRefs: input.sharedEvidenceRefs ?? [],
-        ...(input.modelPolicyRef ? { modelPolicyRef: input.modelPolicyRef } : {})
+        threadId: run.threadId,
+        turnId: run.turnId,
+        workspaceKey: run.workspaceKey,
+        ...this.authoritativeNodePolicies(input.nodeId)
       }))
 
       const aggregate = await this.rootAggregate!.coordinator.update({
@@ -568,6 +577,38 @@ export class DurableMultiAgentRunStore implements MultiAgentRunStore {
     }
   }
 
+  private assertPreparedContext(input: AgentDispatchPreparationInput, run: MultiAgentRun): void {
+    const node = this.graphRevision.nodes.find((candidate) => candidate.id === input.nodeId)
+    if (!node) throw new EngineStoreConflictError(`prepared dispatch graph node not found: ${input.nodeId}`)
+    if (!sameValue(input.scope, this.scope)
+      || input.threadId !== run.threadId
+      || input.turnId !== run.turnId
+      || input.workspaceKey !== run.workspaceKey
+      || !sameValue(input.nodePolicyRef, node.nodePolicyRef)
+      || !sameValue(input.modelPolicyRef, 'modelPolicyRef' in node ? node.modelPolicyRef : undefined)
+      || !sameValue(input.executionPolicyRef, 'executionPolicyRef' in node ? node.executionPolicyRef : undefined)) {
+      throw new EngineStoreConflictError('prepared dispatch contradicts durable run or pinned node policy')
+    }
+    if (input.graph && (input.graph.graphId !== this.graphRevision.graphId
+      || input.graph.graphRevision !== this.graphRevision.revision
+      || input.graph.graphDigest !== this.graphRevision.graphDigest
+      || input.graph.nodeId !== input.nodeId)) {
+      throw new EngineStoreConflictError('prepared dispatch contradicts pinned graph revision')
+    }
+  }
+
+  private authoritativeNodePolicies(nodeId: string) {
+    const node = this.graphRevision.nodes.find((candidate) => candidate.id === nodeId)
+    if (!node) throw new EngineStoreConflictError(`prepared dispatch graph node not found: ${nodeId}`)
+    return {
+      ...(node.nodePolicyRef ? { nodePolicyRef: node.nodePolicyRef } : {}),
+      ...('modelPolicyRef' in node && node.modelPolicyRef ? { modelPolicyRef: node.modelPolicyRef } : {}),
+      ...('executionPolicyRef' in node && node.executionPolicyRef
+        ? { executionPolicyRef: node.executionPolicyRef }
+        : {})
+    }
+  }
+
   private assertCompatibleRun(run: MultiAgentRun): MultiAgentRun {
     const parsed = MultiAgentRunSchema.parse(run)
     if (parsed.graphId !== this.graphRevision.graphId) {
@@ -604,6 +645,11 @@ export class DurableMultiAgentRunStore implements MultiAgentRunStore {
       if (this.locks.get(runId) === current) this.locks.delete(runId)
     }
   }
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+  if (left === undefined || right === undefined) return left === right
+  return canonicalDigest(left) === canonicalDigest(right)
 }
 
 export function eventedRunProjectionMutations(

@@ -1,6 +1,6 @@
 # @qiongqi/http — Transport
 
-> v1.1.1。SSE 使用 `streamId + seq` 续传和 subscriber ack；连接生命周期不等于任务生命周期。
+> v1.1.4。SSE 使用 `streamId + seq` 续传和 subscriber ack；连接生命周期不等于任务生命周期。
 
 > HTTP 传输原语：Router / SSE / Auth / Response / Node HTTP server / 读 body / A2A HTTP transport。
 > Layer 8 — 依赖：`@qiongqi/contracts`、`@qiongqi/ports`、`@qiongqi/delegation`。

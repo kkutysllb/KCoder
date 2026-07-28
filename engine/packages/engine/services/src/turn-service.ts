@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto'
-import type { ThreadRecord } from '@qiongqi/contracts'
+import {
+  createTurnExecutionPolicySnapshot,
+  GovernedTurnExecutionRequestSchema,
+  GovernedTurnBindingSchema,
+  type GovernedGraphRef,
+  type OutputValidatorRef,
+  type ThreadRecord,
+  type TurnOutputValidationRecord
+} from '@qiongqi/contracts'
 import type { CompactRequest, CompactResponse, StartTurnRequest, StartTurnResponse, Turn, TurnStatus } from '@qiongqi/contracts'
 import type { TurnItem } from '@qiongqi/contracts'
 import type { SessionStore } from '@qiongqi/ports'
@@ -8,7 +16,8 @@ import type { IdGenerator } from '@qiongqi/ports'
 import type {
   TurnContextCompactor,
   TurnInflightTracker,
-  TurnSteeringQueue
+  TurnSteeringQueue,
+  OutputValidatorRegistry
 } from '@qiongqi/ports'
 import { makeUserItem, makeErrorItem } from '@qiongqi/domain'
 import { appendTurnItem, createTurnRecord, finishTurn, replaceTurnItem, startTurn as startTurnRecord } from '@qiongqi/domain'
@@ -25,6 +34,7 @@ export type TurnServiceDeps = {
   compactor: TurnContextCompactor
   ids: IdGenerator
   nowIso: () => string
+  outputValidators?: OutputValidatorRegistry
 }
 
 /**
@@ -60,6 +70,13 @@ export class TurnService {
       reasoningEffort: input.request.reasoningEffort,
       attachmentIds: input.request.attachmentIds ?? [],
       workModeId,
+      explicitSkillIds: input.request.explicitSkillIds,
+      ...(input.request.executionPolicy
+        ? { executionPolicy: createTurnExecutionPolicySnapshot(input.request.executionPolicy) }
+        : {}),
+      ...(input.request.governedExecution
+        ? { governedExecution: GovernedTurnExecutionRequestSchema.parse(input.request.governedExecution) }
+        : {}),
       guiPlan: input.request.guiPlan,
       mode: input.request.mode
     })
@@ -125,6 +142,52 @@ export class TurnService {
       turnId: input.turnId,
       text: input.text
     })
+  }
+
+  async bindGovernedRun(input: {
+    threadId: string
+    turnId: string
+    multiAgentRunId: string
+    streamId: string
+    graphRef: GovernedGraphRef
+  }) {
+    const existing = await this.getTurn(input.threadId, input.turnId)
+    if (!existing) throw new Error(`turn not found: ${input.turnId}`)
+    const binding = GovernedTurnBindingSchema.parse({
+      multiAgentRunId: input.multiAgentRunId,
+      streamId: input.streamId,
+      graphRef: input.graphRef,
+      boundAt: existing.governedBinding?.boundAt ?? this.deps.nowIso()
+    })
+    await this.upsertThread(input.threadId, (current) => ({
+      ...current,
+      turns: current.turns.map((turn) => {
+        if (turn.id !== input.turnId) return turn
+        if (!turn.governedExecution) throw new Error('turn has no governed execution request')
+        if (!sameGraphRef(turn.governedExecution.graphRef, binding.graphRef)) {
+          throw new Error('governed GraphRun binding contradicts the requested graph revision')
+        }
+        if (turn.governedBinding) {
+          if (turn.governedBinding.multiAgentRunId !== binding.multiAgentRunId
+            || turn.governedBinding.streamId !== binding.streamId
+            || !sameGraphRef(turn.governedBinding.graphRef, binding.graphRef)) {
+            throw new Error('turn is already bound to a different governed GraphRun')
+          }
+          return turn
+        }
+        return { ...turn, governedBinding: binding }
+      })
+    }))
+    return binding
+  }
+
+  finishGovernedTurn(input: {
+    threadId: string
+    turnId: string
+    status: Extract<TurnStatus, 'completed' | 'failed' | 'aborted'>
+    error?: string
+  }) {
+    return this.finishTurn(input)
   }
 
   async interruptTurn(input: { threadId: string; turnId: string; discard?: boolean }): Promise<{ status: TurnStatus }> {
@@ -226,61 +289,130 @@ export class TurnService {
     turnId: string
     status: Extract<TurnStatus, 'completed' | 'failed' | 'aborted'>
     error?: string
-  }): Promise<void> {
+  }): Promise<{ status: Extract<TurnStatus, 'completed' | 'failed' | 'aborted'> }> {
+    let effectiveStatus = input.status
+    let effectiveError = input.error
+    let outputValidation: TurnOutputValidationRecord | undefined
+    if (input.status === 'completed') {
+      const validated = await this.validateTurnOutput(input.threadId, input.turnId)
+      if (validated) {
+        outputValidation = validated.record
+        if (validated.status === 'failed') {
+          effectiveStatus = 'failed'
+          effectiveError = validated.error
+        }
+      }
+    }
     this.inflightTurns.delete(input.turnId)
     this.deps.inflight.end(input.turnId)
     this.deps.steering.clear(input.turnId)
+    let changed = false
     await this.upsertThread(input.threadId, (current) => {
       const next = current.turns.map((t) => {
         if (t.id !== input.turnId) return t
-        const finished = this.finalizeOpenItems(finishTurn(t, input.status), input.status)
-        return input.error ? { ...finished, error: input.error } : finished
+        if (t.status === 'completed' || t.status === 'failed' || t.status === 'aborted') {
+          if (t.status !== effectiveStatus) {
+            throw new Error(`turn terminal status contradicts governed projection: ${t.status} !== ${effectiveStatus}`)
+          }
+          return t
+        }
+        changed = true
+        const finished = this.finalizeOpenItems(finishTurn(t, effectiveStatus), effectiveStatus)
+        return {
+          ...finished,
+          ...(effectiveError ? { error: effectiveError } : {}),
+          ...(outputValidation ? { outputValidation } : {})
+        }
       })
       return { ...touchThread(current, this.deps.nowIso()), turns: next, status: 'idle' }
     })
+    if (!changed) return { status: effectiveStatus }
     await this.deps.events.record({
-      kind: input.status === 'completed' ? 'turn_completed' : input.status === 'aborted' ? 'turn_aborted' : 'turn_failed',
+      kind: effectiveStatus === 'completed' ? 'turn_completed' : effectiveStatus === 'aborted' ? 'turn_aborted' : 'turn_failed',
       threadId: input.threadId,
       turnId: input.turnId,
-      ...(input.error ? { message: input.error } : {})
+      ...(effectiveError ? { message: effectiveError } : {})
     })
-    if (input.error) {
+    if (effectiveError) {
       await this.appendItem(input.threadId, makeErrorItem({
         id: `item_${input.turnId}_error`,
         turnId: input.turnId,
         threadId: input.threadId,
-        message: input.error
+        message: effectiveError
       }))
     }
+    return { status: effectiveStatus }
   }
 
   getAbortController(turnId: string): AbortSignal | undefined {
     return this.inflightTurns.get(turnId)?.signal
   }
 
-  /**
-   * Register an AbortController for a turn that was started outside of
-   * startTurn (e.g. the governed-graph turn driver). This makes
-   * getAbortController return a live signal so the kernel node handlers
-   * can detect interrupts, and the interrupt route can abort the turn.
-   */
-  registerInflight(turnId: string, controller: AbortController): void {
-    this.inflightTurns.set(turnId, controller)
-  }
-
-  /** Inflight tracker begin — for turns started outside startTurn. */
-  inflightBegin(input: { id: string; kind: 'model' | 'tool'; threadId: string; turnId: string }): void {
-    this.deps.inflight.begin(input)
-  }
-
-  /** Inflight tracker end — cleanup. */
-  inflightEnd(turnId: string): void {
-    this.deps.inflight.end(turnId)
-  }
-
   async getTurn(threadId: string, turnId: string): Promise<Turn | null> {
     const thread = await this.deps.threadStore.get(threadId)
     return thread?.turns.find((turn) => turn.id === turnId) ?? null
+  }
+
+  private async validateTurnOutput(
+    threadId: string,
+    turnId: string
+  ): Promise<{
+    status: 'completed' | 'failed'
+    record: TurnOutputValidationRecord
+    error?: string
+  } | undefined> {
+    const turn = await this.getTurn(threadId, turnId)
+    const validatorRef = turn?.executionPolicy?.output?.validatorRef
+    if (!turn || !validatorRef) return undefined
+    if (turn.outputValidation) {
+      return turn.outputValidation.status === 'accepted'
+        ? { status: 'completed', record: turn.outputValidation }
+        : {
+            status: 'failed',
+            record: turn.outputValidation,
+            error: turn.outputValidation.reason ?? 'output validator rejected the turn output'
+          }
+    }
+
+    const failure = (status: 'rejected' | 'error', reason: string) => ({
+      status: 'failed' as const,
+      error: `output validator failed: ${reason}`,
+      record: {
+        validatorRef,
+        status,
+        validatedAt: this.deps.nowIso(),
+        reason
+      } satisfies TurnOutputValidationRecord
+    })
+    const validator = this.deps.outputValidators?.resolve(validatorRef)
+    if (!validator) return failure('error', `output validator unavailable: ${validatorRef.validatorId}`)
+    if (!sameValidatorRef(validator.ref, validatorRef)) {
+      return failure('error', `output validator identity mismatch: ${validatorRef.validatorId}`)
+    }
+
+    const assistantItems = turn.items.filter((item) => item.kind === 'assistant_text')
+    const toolResultItems = turn.items.filter((item) => item.kind === 'tool_result')
+    try {
+      const verdict = await validator.validate({
+        threadId,
+        turnId,
+        outputText: assistantItems.map((item) => item.text).join('\n\n'),
+        assistantItemIds: assistantItems.map((item) => item.id),
+        toolResultItemIds: toolResultItems.map((item) => item.id),
+        itemRefs: [...assistantItems, ...toolResultItems].map((item) => `qiongqi-item:${item.id}`)
+      })
+      if (!verdict.ok) return failure('rejected', verdict.reason)
+      return {
+        status: 'completed',
+        record: {
+          validatorRef,
+          status: 'accepted',
+          validatedAt: this.deps.nowIso()
+        }
+      }
+    } catch (error) {
+      return failure('error', error instanceof Error ? error.message : String(error))
+    }
   }
 
   async updateTurnMetadata(
@@ -512,6 +644,16 @@ export class TurnService {
 
 function canonicalItemDigest(item: TurnItem): string {
   return createHash('sha256').update(JSON.stringify(canonicalize(item))).digest('hex')
+}
+
+function sameValidatorRef(left: OutputValidatorRef, right: OutputValidatorRef): boolean {
+  return left.validatorId === right.validatorId
+    && left.revision === right.revision
+    && left.digest === right.digest
+}
+
+function sameGraphRef(left: GovernedGraphRef, right: GovernedGraphRef): boolean {
+  return left.graphId === right.graphId && left.revision === right.revision
 }
 
 function canonicalize(value: unknown): unknown {

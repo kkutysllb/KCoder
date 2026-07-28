@@ -1,6 +1,6 @@
 # @qiongqi/adapter-storage：Durable storage adapters
 
-> v1.1.1。提供 PostgreSQL、SQLite 和 in-memory 的 `DurableEngineStore` 实现，并保留 thread/session 兼容 store。
+> v1.1.4。提供 PostgreSQL、SQLite 和 in-memory 的 `DurableEngineStore` 实现，并保留 thread/session 兼容 store。
 
 ## 适配器定位
 
@@ -22,6 +22,8 @@
 - governed root aggregate：GraphRun 和 EngineRun 同 ID、同版本、同 transaction；
 - prepare-first AgentRun/KernelRun identity、budget reservation 与 dispatch intent；
 - work claim TTL、续租、fence takeover 和 `root_run_repaired` audit fact。
+- durable branch cursor/status/output、branch lifecycle stream/work event、稳定 join result 与 branch ROI projection；
+- parallel fan-out 的批量 reservation/intent 原子提交，以及不同实例乱序 completion 的 shared-version CAS；
 
 `commit()` 同时校验 expected task revision、run version 和 lease fence。冲突由调用方重新加载后确定性处理；adapter 不覆盖 revision，不用进程内 mutex 模拟多节点一致性。
 
@@ -42,5 +44,6 @@ released reservation 计为零。重复 settlement 只有 actual 完全相同时
 - graph revision、work event、stream、ledger 和 outbox 唯一键/索引必须保留。
 - SQLite native binding 用 `pnpm run prepare:sqlite && pnpm run verify:sqlite` 验证。
 - PostgreSQL contract 用 `QIONGQI_TEST_POSTGRES_URL=... pnpm run verify:postgres-engine` 验证。
+- PostgreSQL 多实例发布还必须通过两个独立 connection/engine 并发 branch completion 的 `postgres-durable-parallel-engine` 验收。
 - readiness 必须把 SQLite/file 的多节点能力报告为 degraded。
 - worker claim TTL 应覆盖正常处理周期并提前调用 `renewWorkClaim()`；续租失败必须停止写入，让更高 fence 接管原 intent 和 identity。

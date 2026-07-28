@@ -1,6 +1,6 @@
 # @qiongqi/adapter-model：PricingProvider
 
-> v1.1.1。定价是可插拔 provider 能力，不是模型路由规则。
+> v1.1.4。定价是可插拔 provider 能力，不是模型路由规则。
 
 `PricingProvider` 根据 provider/model、token usage、cache usage 和时间等输入返回 `CostEntry` 所需金额；`CompositePricingProvider` 按注册顺序查询多个实现。未知价格返回 `null`，上层将 ROI 标记为 `unavailable` 或 `incomplete`，不能填入猜测价格。
 

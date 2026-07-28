@@ -209,13 +209,13 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
       skillRoots,
       // Overlay: when a child thread is bound to a branch worktree, redirect
       // its bash/file tool calls into the worktree automatically.
-      branchWorkspaceResolver,
-      // Governed graph: route every turn through the durable governed-graph
-      // execution plane (DurableEngine + evented_v2 orchestration + Kernel
-      // isolated AgentRun execution). This activates the full architecture:
-      // immutable GraphRevision, parallel/join, circuit/approval/resource
-      // governance, durable recovery. Each turn becomes a governed graph run.
-      governedGraph: true
+      branchWorkspaceResolver
+      // Note: governed graph (governedEngine) is NOT enabled yet. The upstream
+      // v1.1.4 native integration requires the embedder to construct a complete
+      // DurableEngine (with KernelAgentExecutor + startKernel callback). KCoder
+      // will enable this in a later phase once the Kernel execution bridge is
+      // built. Until then, turns run through the standard kernel_v3 loop, which
+      // fully supports live streaming (v1.1.3), tool calls, approvals, etc.
     })
 
     console.log('[KCoder] Agent runtime created, starting HTTP server...')

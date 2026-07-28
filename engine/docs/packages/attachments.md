@@ -1,6 +1,6 @@
 # @qiongqi/attachments
 
-> v1.1.1。artifact/attachment 通过 durable reference 进入 checkpoint 和 outcome，不内嵌大二进制。
+> v1.1.4。artifact/attachment 通过 durable reference 进入 checkpoint 和 outcome，不内嵌大二进制。
 
 > 附件存储：图像二进制剥离、MIME 校验、文本回退、作用域授权、虚拟路径解析。
 > Layer 3 — 依赖：`@qiongqi/contracts`（仅 Zod 类型与配置）。被 `@qiongqi/http` 消费。

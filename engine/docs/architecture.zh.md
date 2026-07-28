@@ -1,4 +1,4 @@
-# Qiongqi Durable Engine v1.1.2 架构
+# Qiongqi Durable Engine v1.1.3 架构
 
 本文描述当前实现，不是路线图。Qiongqi 是纯引擎；身份、业务价值、模型凭证、Agent binding 和产品交互均由下游提供。
 
@@ -50,6 +50,8 @@ sum(settled reservation actual usage)
 
 released reservation 不占预算；root 的 `budgets` projection 只累计 settled actual usage。模型/node policy 只能收紧调用方限制，不能提供或扩大限制。
 
+v1.1.3 writer 统一写入带 thread、Turn、workspace 与 node policy 上下文的 dispatch `schemaVersion: 3`。恢复 worker 不信任这些重复字段，而是加载同 ID root `EngineRunRecord`、`GraphRunRecord`、固定 `GraphRevision` 和 prepared `AgentRun` 后重建执行输入。scope、digest、node、AgentRun、model/execution/node policy 任一矛盾都会在解析 prompt 或调用 Kernel 前失败。schema v1/v2 历史 work 仍通过同一权威恢复路径读取。
+
 ## 5. Durable facade
 
 | API | 语义 |
@@ -75,6 +77,8 @@ Facade 不缓存 graph governance 状态。新实例可只凭 store 恢复 inspe
 
 loader 和 `inspect()` 不会自动创建缺失 projection。graph-only v1.1.0 run 只能由调用方显式授权 `migrateGraphOnlyRun({ runId, budgetLimits })`；terminal run 只修复审计一致性，不会重新 dispatch。
 
+HTTP 组合层只接受完整 `{ engine, store }` 注入，公开 graph publish、run inspect、串行/并行 dispatch、completion、Kernel resume、cancel、durable stream replay/ack 和 `StartTurnRequest.governedExecution`。Governed Turn 持久化调用方显式 `TaskScope`、graph ref、limits 与 model policy；崩溃恢复先按 scope/thread/turn 查找既有 GraphRun，避免重复启动。GraphRun 是事实源，Turn 只是幂等用户投影。
+
 ## 6. 模型无关路由
 
 `ModelProfileRegistry` 将 `profileId@revision` 映射到 `providerId`、`modelId`、endpoint format、capabilities 和 `credentialRef`。任务 `ModelSelectionPolicy` 可以授权多个 profile；graph node 的 `modelPolicyRef` 可以施加更窄策略。
@@ -97,6 +101,8 @@ Human checkpoint 必须对应唯一允许 resume edge，resolution token 单次�
 ## 9. Streaming、ROI 与可观测性
 
 模型 delta、工具 lifecycle、branch lifecycle、checkpoint、work graph、usage、ROI 和 outcome 先写 durable stream，再通过 SSE 传输。`streamId + seq` 是顺序与 replay identity；branch event 带 `branchId`，subscriber ack 独立，断连不取消任务。private reasoning 默认 collect/persist/subscribe/retain 全关闭。
+
+生产 `kernel_v3` proposal runner 在消费首个 provider chunk 前固定 proposal identity。HTTP 组合立即以 `item_kernel_text_<proposalId>` 记录 assistant delta；最终 materializer 使用同一 item ID，因此事件回放会把 running 投影替换为唯一权威 completed item，而不是生成双份文本。durable attempt 的 `proposalId` 来自 `operationId`；ledger replay 不再发 delta 或 usage，不同 step/retry 则保持隔离。provider usage 仍只由 durable post-ledger hook 精确入账，实时 ROI 继续来自 durable cost/value 更新，绝不按流式字符猜测 token 成本或业务价值。
 
 `CostEntry`、`ValueEvent` 和 usage 可携带 graph/node/edge/branch/attempt attribution。实时 `RoiSnapshot` 提供 `byNode`、`byEdge`、`byBranch`、fan-out、retry amplification、suppressed physical attempts、avoided cost 和 executed critical-path latency。外部等待时间不计入执行 critical path。业务价值必须由下游提供 evidence；引擎 efficiency 不伪造业务 ROI。
 

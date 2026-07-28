@@ -1,10 +1,10 @@
 # Qiongqi · 穷奇
 
-**Durable Engine v1.1.2 | 纯引擎代码 | 模型无关 | 可恢复治理图执行**
+**Durable Engine v1.1.4 | 纯引擎代码 | 模型无关 | 可恢复治理图执行**
 
 Qiongqi 是领域中立的 Agent 引擎 monorepo，只提供执行、状态、存储、模型/工具适配和 HTTP/SSE 契约。它不包含产品级 UI、业务判断、固定 Agent 或默认模型。下游可注册任意 provider 和多个 model profile，并按任务策略或 graph node policy 切换模型。
 
-## v1.1.2 架构
+## v1.1.4 架构
 
 ```text
 immutable GraphRevision
@@ -22,6 +22,7 @@ immutable GraphRevision
 ## 核心能力
 
 - **版本化治理图**：`compileAgentGraph()` 生成 canonical digest，`publishGraph()` 持久化 immutable revision；agent、parallel、tool、judge、join、wait、retry 和 terminate node 共用确定性 traversal。
+- **完整图策略**：公开九类 node 都接受 `nodePolicyRef`，edge 接受 `edgePolicyRef`；编译后策略保真并进入 `graphDigest`，但不改变逻辑 edge ID。
 - **Durable parallel/join**：一个 `parallel` 可原子生成三个或更多独立 branch cursor；分支可乱序完成，`join` 始终按稳定 branch ID 生成非空结果，并支持 `wait_all` 与 `fail_fast`。
 - **真实执行图**：intended graph 与实际 `WorkGraphEvent` 分离记录，可追踪 node/edge attempt、fan-out、retry、suppression 和 critical path。
 - **重复调用抑制**：模型请求和工具 effect 进入 durable ledger；completed replay、semantic suppression 和 uncertain fail-closed 避免崩溃后静默重发。
@@ -29,10 +30,12 @@ immutable GraphRevision
 - **任务级记忆隔离**：`task_shared` 只在任务内共享，`agent_private` 只对指定 AgentRun 可见，跨边界必须显式 publish。
 - **生产治理**：human checkpoint 使用单次 resolution token；write resource claim 必须 fenced；circuit 支持 `running`、`report_only`、`paused`、`retired`；readiness 为 `draft`、`observe`、`assisted`、`autonomous`。
 - **Prepare-first dispatch**：先原子持久化 AgentRun/KernelRun identity、父预算 reservation 和 dispatch intent，再由本地或远程 worker 通过同一 fenced handler claim；崩溃恢复始终复用原 identity。
+- **权威 dispatch 恢复**：新 intent 写入 `schemaVersion: 3`；worker 继续读取 v1/v2，但在 Kernel 执行前从 durable root、GraphRun、固定 revision 与 AgentRun 重建 thread/turn/workspace/graph/policy 上下文并拒绝矛盾 payload。
 - **累计根预算**：调用方必须为 governed run 提供根限制；引擎按“已结算实际用量 + 活跃预留请求量 + 新请求量”原子判定，不允许顺序 child 绕过总预算。
 - **模型无关**：profile 固定 provider/model/capability revision，任务 policy 可授权多个 profile，node 可引用独立 model policy；凭证只用 `credentialRef`，没有 `deepseek-chat` 或任何厂商隐式默认值。
-- **真实实时流**：模型 delta、工具进度、branch lifecycle、work graph、checkpoint、usage、ROI 和 outcome 进入带 `streamId + seq` 的 durable stream；订阅者从 cursor replay 并独立 ack。
+- **真实实时流**：模型 delta、工具进度、branch lifecycle、work graph、checkpoint、usage、ROI 和 outcome 进入可回放 stream。生产 `kernel_v3` HTTP 组合在 provider 完成前就发布 assistant delta，持久化供 thread SSE 断线续传，并用稳定物理 attempt identity 与最终 item 收敛。
 - **实时 ROI 与效率**：`recordCost()` / `recordValue()` 发布 `roi.snapshot`；可按 graph/node/edge/branch 归因 cost/value，`byBranch` 与根总量实时对账。业务 ROI 与引擎效率分开呈现。
+- **Governed Turn/HTTP 出口**：严格的 `StartTurnRequest.governedExecution` 持久化显式 task scope、graph revision、预算和模型策略；可选注入 `{ engine, store }` 后即可通过官方 HTTP 启动、恢复、推进和取消 governed run。
 
 ## 快速开始
 
@@ -141,7 +144,7 @@ start node 必须是 `agent`。manager completion 进入 `fan_out` 后，`reques
 | 架构、生命周期、治理和 graph ROI | [docs/architecture.zh.md](./docs/architecture.zh.md) |
 | PostgreSQL、readiness、流式和发布门禁 | [docs/deployment.zh.md](./docs/deployment.zh.md) |
 | v1.0 到 v1.1 迁移与回滚 | [docs/migrations/engine-v1.1.md](./docs/migrations/engine-v1.1.md) |
-| v1.1.2 发布说明 | [docs/releases/v1.1.2.md](./docs/releases/v1.1.2.md) |
+| v1.1.4 发布说明 | [docs/releases/v1.1.4.md](./docs/releases/v1.1.4.md) |
 | 18 个 workspace 包说明 | [docs/packages/README.md](./docs/packages/README.md) |
 
 初次迁移到 durable v1 的项目先阅读 [engine-v1.md](./docs/migrations/engine-v1.md)。

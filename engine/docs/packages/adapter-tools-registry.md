@@ -1,6 +1,6 @@
 # @qiongqi/adapter-tools — Registry / Host / Hooks
 
-> v1.1.1。registry 负责能力发现和路由；物理 effect 的幂等性由 durable ledger 约束。
+> v1.1.4。registry 负责能力发现和路由；物理 effect 的幂等性由 durable ledger 约束。
 
 > `CapabilityRegistry` / `LocalToolHost` / `ReadTracker` / `ToolHooks` —— 工具路由与宿主基础设施。
 > Layer 5 — 依赖：`@qiongqi/contracts`、`@qiongqi/domain`、`@qiongqi/ports`、`@qiongqi/adapter-fs`、`@qiongqi/tool-infra`、`@qiongqi/services`、`@qiongqi/memory`、`@qiongqi/delegation`。

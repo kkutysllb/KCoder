@@ -1,6 +1,6 @@
 # @qiongqi/services：事件记录
 
-> v1.1.1。`RuntimeEventRecorder` 维护兼容 runtime-event 投影；v1 durable 事实事件由 `EngineStreamPublisher` 和 `DurableEngineStore` 提交。
+> v1.1.4。`RuntimeEventRecorder` 维护兼容 runtime-event 投影；v1 durable 事实事件由 `EngineStreamPublisher` 和 `DurableEngineStore` 提交。
 
 ## 边界
 

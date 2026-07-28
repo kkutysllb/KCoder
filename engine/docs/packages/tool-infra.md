@@ -1,6 +1,6 @@
 # @qiongqi/tool-infra
 
-> v1.1.1。该包提供本地工具治理；跨进程幂等、恢复和 effect 状态由 DurableEngineStore 负责。
+> v1.1.4。该包提供本地工具治理；跨进程幂等、恢复和 effect 状态由 DurableEngineStore 负责。
 
 > 工具执行通用基础设施 —— mutation queue、output accumulator、rate limit parser、result budget、command audit。
 > Layer 4 — 依赖：`@qiongqi/adapter-fs`。被 `@qiongqi/services` 与 `@qiongqi/adapter-tools` 消费。

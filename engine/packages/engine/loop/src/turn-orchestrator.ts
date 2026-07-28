@@ -203,8 +203,7 @@ export class TurnOrchestrator {
       return 'failed'
     }
     if (signal.aborted) {
-      await this.opts.turns.finishTurn({ threadId, turnId, status: 'aborted' })
-      return 'aborted'
+      return (await this.opts.turns.finishTurn({ threadId, turnId, status: 'aborted' })).status
     }
     let goalTimer: GoalElapsedTimer | null = null
     try {
@@ -215,8 +214,7 @@ export class TurnOrchestrator {
       await this.drainSteering(threadId, turnId, signal)
       await recordPipelineStage(this.opts.events, { threadId, turnId, stage: 'post_start' })
       const status = await this.loop(threadId, turnId, signal)
-      await this.opts.turns.finishTurn({ threadId, turnId, status })
-      return status
+      return (await this.opts.turns.finishTurn({ threadId, turnId, status })).status
     } catch (error) {
       const raw = error instanceof Error ? error.message : String(error)
       // Best-effort enrichment so the renderer can show "what failed where"

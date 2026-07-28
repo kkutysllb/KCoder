@@ -10,6 +10,7 @@ import {
   type EngineLease
 } from '@qiongqi/ports'
 import type { AgentExecutor, PreparedAgentExecutionInput } from './kernel-agent-executor.js'
+import { canonicalDigest } from './execution-fingerprint.js'
 
 export type DurableAgentDispatchWorkerOptions = {
   store: DurableEngineStore
@@ -126,21 +127,113 @@ export class DurableAgentDispatchWorker {
 
   private async executionInput(payload: KernelDispatchPayload): Promise<PreparedAgentExecutionInput> {
     const identity = payload.identity
+    const authoritative = await this.resolveAuthoritativeContext(payload)
     return {
-      scope: identity.scope,
+      scope: authoritative.scope,
       multiAgentRunId: identity.multiAgentRunId,
       agentRunId: identity.agentRunId,
       agentId: identity.agentId,
       nodeId: identity.nodeId,
       parentRunId: identity.parentRunId,
+      threadId: authoritative.threadId,
+      turnId: authoritative.turnId,
+      workspaceKey: authoritative.workspaceKey,
       requestedBudget: payload.requestedBudget,
       prompt: await this.resolvePrompt(payload.inputRef),
       executionRef: identity.executionRef,
       reservationId: payload.reservationId,
       role: payload.role,
       sharedEvidenceRefs: payload.sharedEvidenceRefs,
-      ...(payload.modelPolicyRef ? { modelPolicyRef: payload.modelPolicyRef } : {}),
-      ...(identity.graph ? { graph: identity.graph } : {})
+      ...authoritative.policies,
+      ...(authoritative.graph ? { graph: authoritative.graph } : {})
+    }
+  }
+
+  private async resolveAuthoritativeContext(payload: KernelDispatchPayload) {
+    const identity = payload.identity
+    const graphRun = await this.options.store.loadGraphRun(identity.multiAgentRunId)
+    if (!graphRun) throw new EngineStoreConflictError(`durable GraphRun not found: ${identity.multiAgentRunId}`)
+    const parentRun = await this.options.store.loadRun(identity.multiAgentRunId)
+    if (!parentRun) throw new EngineStoreConflictError(`durable parent EngineRun not found: ${identity.multiAgentRunId}`)
+    const eventedRun = graphRun.eventedV2Run
+    if (!eventedRun || eventedRun.runId !== graphRun.runId
+      || eventedRun.threadId !== graphRun.threadId
+      || eventedRun.turnId !== graphRun.turnId
+      || eventedRun.workspaceKey !== graphRun.workspaceKey
+      || !sameValue(graphRun.scope, identity.scope)
+      || !sameValue(parentRun.scope, graphRun.scope)
+      || parentRun.multiAgentRunId !== graphRun.runId) {
+      throw new EngineStoreConflictError('durable root records contradict Kernel dispatch identity')
+    }
+
+    const revision = await this.options.store.loadGraphRevision(graphRun.graphId, graphRun.graphRevision)
+    if (!revision) {
+      throw new EngineStoreConflictError(`pinned GraphRevision not found: ${graphRun.graphId}@${graphRun.graphRevision}`)
+    }
+    if (revision.graphId !== graphRun.graphId
+      || revision.revision !== graphRun.graphRevision
+      || revision.graphDigest !== graphRun.graphDigest) {
+      throw new EngineStoreConflictError('pinned GraphRevision contradicts durable GraphRun')
+    }
+    const node = revision.nodes.find((candidate) => candidate.id === identity.nodeId)
+    if (!node || (node.kind !== 'agent' && node.kind !== 'judge')) {
+      throw new EngineStoreConflictError(`model-driven graph node not found: ${identity.nodeId}`)
+    }
+    const expectedAgentId = node.kind === 'judge' ? `judge:${node.id}` : node.agentId
+    const agentRun = eventedRun.agentRuns.find((candidate) => candidate.agentRunId === identity.agentRunId)
+    if (!agentRun
+      || agentRun.agentId !== expectedAgentId
+      || identity.agentId !== expectedAgentId
+      || agentRun.nodeId !== node.id
+      || !agentRun.executionRef
+      || !sameValue(agentRun.executionRef, identity.executionRef)
+      || payload.role !== node.kind) {
+      throw new EngineStoreConflictError('durable AgentRun contradicts Kernel dispatch identity')
+    }
+
+    const authoritativeGraph = parentRun.graph ? {
+      ...parentRun.graph,
+      graphId: revision.graphId,
+      graphRevision: revision.revision,
+      graphDigest: revision.graphDigest,
+      nodeId: node.id,
+      attemptId: agentRun.agentRunId,
+      ...(agentRun.branchId ? { branchId: agentRun.branchId } : {})
+    } : undefined
+    for (const candidate of [identity.graph, identity.executionRef.graph]) {
+      if (candidate && !sameValue(candidate, authoritativeGraph)) {
+        throw new EngineStoreConflictError('Kernel dispatch graph correlation contradicts durable graph facts')
+      }
+    }
+
+    const policies = {
+      ...(node.nodePolicyRef ? { nodePolicyRef: node.nodePolicyRef } : {}),
+      ...(node.modelPolicyRef ? { modelPolicyRef: node.modelPolicyRef } : {}),
+      ...(node.executionPolicyRef ? { executionPolicyRef: node.executionPolicyRef } : {})
+    }
+    if (payload.modelPolicyRef && !sameValue(payload.modelPolicyRef, node.modelPolicyRef)) {
+      throw new EngineStoreConflictError('Kernel dispatch model policy contradicts pinned graph node')
+    }
+    if ('executionPolicyRef' in payload && payload.executionPolicyRef
+      && !sameValue(payload.executionPolicyRef, node.executionPolicyRef)) {
+      throw new EngineStoreConflictError('Kernel dispatch execution policy contradicts pinned graph node')
+    }
+    if (payload.schemaVersion === 3) {
+      if (payload.threadId !== graphRun.threadId
+        || payload.turnId !== graphRun.turnId
+        || payload.workspaceKey !== graphRun.workspaceKey
+        || (payload.nodePolicyRef && !sameValue(payload.nodePolicyRef, node.nodePolicyRef))) {
+        throw new EngineStoreConflictError('Kernel dispatch context contradicts durable graph facts')
+      }
+    }
+
+    return {
+      scope: graphRun.scope,
+      threadId: graphRun.threadId,
+      turnId: graphRun.turnId,
+      workspaceKey: graphRun.workspaceKey,
+      graph: authoritativeGraph,
+      policies
     }
   }
 
@@ -159,6 +252,11 @@ export class DurableAgentDispatchWorker {
     }
     throw new EngineStoreConflictError(`Kernel dispatch input event not found: ${inputRef}`)
   }
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+  if (left === undefined || right === undefined) return left === right
+  return canonicalDigest(left) === canonicalDigest(right)
 }
 
 function promptFromEvent(event: WorkGraphEventRecord): string {

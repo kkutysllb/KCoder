@@ -15,7 +15,12 @@ const graph: AgentGraph = {
   graphId: 'layered-graph',
   startNodeId: 'agent-node',
   nodes: [
-    { id: 'agent-node', kind: 'agent', agentId: 'specialist' },
+    {
+      id: 'agent-node',
+      kind: 'agent',
+      agentId: 'specialist',
+      nodePolicyRef: { policyId: 'specialist-policy', revision: 2 }
+    },
     { id: 'terminate', kind: 'terminate' }
   ],
   edges: [{ from: 'agent-node', to: 'terminate', condition: 'completed' }]
@@ -117,15 +122,19 @@ describe('evented_v2 + Kernel layering', () => {
         }
       }]
     })
+    let executionInput: Parameters<KernelAgentExecutor['execute']>[0] | undefined
     const executor = new KernelAgentExecutor({
       store,
       ids: () => 'kernel-1',
-      startKernel: async () => ({
+      startKernel: async (input) => {
+        executionInput = input
+        return {
         outcome: { status: 'completed', reason: 'normal_stop', retryable: false },
         usage: { stepsUsed: 0, toolCallsUsed: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
         usageRefs: [],
         artifactRefs: []
-      })
+        }
+      }
     })
     const runtime = new EventedV2MultiAgentRuntime({
       runs: new InMemoryMultiAgentRunStore(), mailbox: new InMemoryMailboxStore(), graph, ids: (prefix) => `${prefix}-1`, nowIso: () => '2026-07-26T00:00:00.000Z', agentExecutor: executor
@@ -133,6 +142,12 @@ describe('evented_v2 + Kernel layering', () => {
     const run = await runtime.start({ threadId: 'thread', turnId: 'turn', workspaceKey: 'workspace', prompt: 'work' })
     const dispatched = await runtime.dispatchActiveAgent({ runId: run.runId, scope: parent.scope, prompt: 'work', requestedBudget: { stepsUsed: 1, toolCallsUsed: 1, inputTokens: 1, outputTokens: 1, costUsd: 1 } })
     expect(dispatched.agentRuns[0]?.executionRef?.kernelRunId).toBe('kernel_run-1')
+    expect(executionInput).toMatchObject({
+      threadId: 'thread',
+      turnId: 'turn',
+      workspaceKey: 'workspace',
+      nodePolicyRef: { policyId: 'specialist-policy', revision: 2 }
+    })
     const completion = { executionRef: dispatched.agentRuns[0]!.executionRef!, outcome: { status: 'completed', reason: 'normal_stop', retryable: false }, usageRefs: [], artifactRefs: [] }
     await runtime.consumeKernelCompletion({ runId: run.runId, completion })
     const twice = await runtime.consumeKernelCompletion({ runId: run.runId, completion })

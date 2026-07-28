@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { CanonicalRecordKeySchema, IsoTimestampSchema } from './engine-identity.js'
+import { TurnExecutionPolicyRefSchema } from './turn-execution-policy.js'
 
 const Key = CanonicalRecordKeySchema
 
@@ -18,6 +19,7 @@ const GraphAgentNodeSchema = z.object({
   agentId: Key,
   label: z.string().optional(),
   modelPolicyRef: ModelPolicyRefSchema.optional(),
+  executionPolicyRef: TurnExecutionPolicyRefSchema.optional(),
   nodePolicyRef: VersionedPolicyRefSchema.optional(),
   capabilities: z.array(Key).default([])
 }).strict()
@@ -41,6 +43,7 @@ const GraphJudgeNodeSchema = z.object({
   kind: z.literal('judge'),
   policy: Key,
   modelPolicyRef: ModelPolicyRefSchema.optional(),
+  executionPolicyRef: TurnExecutionPolicyRefSchema.optional(),
   nodePolicyRef: VersionedPolicyRefSchema.optional()
 }).strict()
 

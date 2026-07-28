@@ -1,6 +1,6 @@
 # @qiongqi/cache
 
-> v1.1.1。cache 只能优化读取和请求前缀，不能代替 ledger、checkpoint 或 durable store。
+> v1.1.4。cache 只能优化读取和请求前缀，不能代替 ledger、checkpoint 或 durable store。
 
 > Cache 基础设施：不可变 prompt 前缀、LRU/TTL 缓存、工具目录指纹、遥测、用量计数。
 > Layer 3 — 依赖：`@qiongqi/contracts`、`@qiongqi/ports`。被 `@qiongqi/loop` 与 `@qiongqi/services` 消费。

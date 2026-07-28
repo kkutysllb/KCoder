@@ -1,6 +1,6 @@
 # @qiongqi/adapter-model：模型 provider 适配
 
-> v1.1.1。核心路径通过 `ModelProfileRegistry` 和 `ModelProvider` 解耦模型；本包不规定默认厂商或默认 model id。
+> v1.1.4。核心路径通过 `ModelProfileRegistry` 和 `ModelProvider` 解耦模型；本包不规定默认厂商或默认 model id。
 
 ## 支持面
 
@@ -35,5 +35,7 @@ const route = registry.resolve({
 - 任务切换 profile 必须增加 policy revision；已开始的 operation 保持原 profile revision。
 - provider 返回后、ledger commit 前发生失败时进入 `uncertain`，不能自动重发。
 - private reasoning 只有四项 reasoning policy 明确允许时才可采集和发布。
+- 合法 `assistant + tool_calls + omitted content` 是 OpenAI-compatible wire shape，不得记为 empty-content 异常。
+- provider 拒绝与消息形状诊断只能输出 endpoint（移除 userinfo/query/hash）、status、role、content type/state/length、tool-call count 和 body key；不得输出 system/user content、reasoning、tool arguments/results、provider error body 或完整 request。
 
 旧兼容 client/定价 helper 只服务遗留调用方，不是 Durable Engine facade 的默认路径。

@@ -123,6 +123,48 @@ describe('SkillPluginHost.resolveTurn', () => {
     }))
   })
 
+  it('restricts automatic matches to policy-allowed skills', async () => {
+    const host = await SkillPluginHost.create(cfg({ roots: [root] }), {})
+
+    const res = host.resolveTurn({
+      prompt: '/tdd /legacy',
+      workspace: '',
+      allowedSkillIds: ['tdd']
+    })
+
+    expect(res.activeSkillIds).toEqual(['tdd'])
+    expect(res.instructions.join('\n')).not.toContain('Active Skill: Legacy')
+  })
+
+  it('activates required skills without a prompt match and fails closed when unavailable', async () => {
+    const host = await SkillPluginHost.create(cfg({ roots: [root] }), {})
+
+    expect(host.resolveTurn({
+      prompt: 'ordinary request',
+      workspace: '',
+      allowedSkillIds: ['tdd'],
+      requiredSkillIds: ['tdd']
+    }).activeSkillIds).toEqual(['tdd'])
+
+    expect(() => host.resolveTurn({
+      prompt: 'ordinary request',
+      workspace: '',
+      allowedSkillIds: ['missing'],
+      requiredSkillIds: ['missing']
+    })).toThrow(/required skill unavailable.*missing/i)
+  })
+
+  it('rejects an explicit activation outside the policy allow-list', async () => {
+    const host = await SkillPluginHost.create(cfg({ roots: [root] }), {})
+
+    expect(() => host.resolveTurn({
+      prompt: 'ordinary request',
+      workspace: '',
+      allowedSkillIds: ['legacy'],
+      forcedSkillIds: ['tdd']
+    })).toThrow(/explicit skill.*tdd.*not allowed/i)
+  })
+
   it('validates activatable skills against loading, enablement, and work mode', async () => {
     const host = await SkillPluginHost.create(cfg({ roots: [root] }), {})
 

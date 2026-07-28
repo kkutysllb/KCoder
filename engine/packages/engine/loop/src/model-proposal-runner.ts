@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { EngineStreamSink, ModelClient, ModelRequest, ModelStreamChunk } from '@qiongqi/ports'
 import { ModelProposalSchema, type ImmutableProfileRef, type ModelProposal, type RunIdentity, type TaskScope } from '@qiongqi/contracts'
 import type { EffectResultStore } from '@qiongqi/ports'
@@ -13,11 +14,19 @@ export type ModelProposalRunnerOptions = {
   provider?: string
   endpointFormat?: 'chat_completions' | 'responses' | 'messages'
   stream?: EngineStreamSink
-  onDelta?: (chunk: ModelStreamChunk, request: ModelRequest) => Promise<void> | void
+  onDelta?: (
+    chunk: ModelStreamChunk,
+    request: ModelRequest,
+    context: ModelProposalDeltaContext
+  ) => Promise<void> | void
   onUsage?: (
     usage: Extract<ModelStreamChunk, { kind: 'usage' }>['usage'],
     request: ModelRequest
   ) => Promise<void> | void
+}
+
+export type ModelProposalDeltaContext = {
+  proposalId: string
 }
 
 export type DurableModelAttempt = {
@@ -129,13 +138,14 @@ export class ModelProposalRunner {
     proposalId?: string,
     reportUsage = true
   ): Promise<ModelProposal> {
+    const resolvedProposalId = proposalId ?? randomUUID()
     const chunks: ModelStreamChunk[] = []
     let usage: Extract<ModelStreamChunk, { kind: 'usage' }>['usage'] | undefined
     for await (const chunk of this.options.client.stream(request)) {
       chunks.push(chunk)
       if (chunk.kind === 'usage') usage = chunk.usage
       await publishModelChunk(this.options.stream, chunk)
-      await this.options.onDelta?.(chunk, request)
+      await this.options.onDelta?.(chunk, request, { proposalId: resolvedProposalId })
     }
     if (usage && reportUsage) await this.options.onUsage?.(usage, request)
     const completion = await normalizeModelCompletion(chunks, {
@@ -146,7 +156,7 @@ export class ModelProposalRunner {
     return {
       ...makeModelProposal(completion, {
         model: this.options.client.model,
-        ...(proposalId ? { proposalId } : {})
+        proposalId: resolvedProposalId
       }),
       ...(usage ? { usage } : {})
     }

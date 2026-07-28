@@ -1,6 +1,6 @@
 # @qiongqi/delegation — Registry / Map
 
-> v1.1.1。registry 解析 Agent/peer capability binding；执行状态仍由 AgentRun/KernelRun 和 outbox 管理。
+> v1.1.4。registry 解析 Agent/peer capability binding；执行状态仍由 AgentRun/KernelRun 和 outbox 管理。
 
 > `PeerRegistry` + `SkillRegistry` + `TaskThreadMap` —— 跨实例寻址基础设施。
 > Layer 7 — 同 runtime 子模块。

@@ -20,4 +20,38 @@ describe('ModelProposalRunner', () => {
     expect(proposal.model).toBe('minimax-m3')
     expect(proposal.toolIntents).toHaveLength(1)
   })
+
+  it('assigns one proposal identity before publishing the first delta', async () => {
+    let releaseCompletion!: () => void
+    const completionGate = new Promise<void>((resolve) => {
+      releaseCompletion = resolve
+    })
+    let firstDelta!: (value: { proposalId: string }) => void
+    const firstDeltaSeen = new Promise<{ proposalId: string }>((resolve) => {
+      firstDelta = resolve
+    })
+    const callbackIds: string[] = []
+    const client: ModelClient = {
+      provider: 'minimax',
+      model: 'minimax-m3',
+      async *stream() {
+        yield { kind: 'assistant_text_delta', text: 'live' }
+        await completionGate
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }
+    const running = new ModelProposalRunner({
+      client,
+      onDelta: (_chunk, _request, context) => {
+        callbackIds.push(context.proposalId)
+        firstDelta(context)
+      }
+    }).run(request)
+
+    const streamed = await firstDeltaSeen
+    expect(streamed.proposalId).toBeTruthy()
+    releaseCompletion()
+    const proposal = await running
+    expect(callbackIds).toEqual([proposal.proposalId, proposal.proposalId])
+  })
 })

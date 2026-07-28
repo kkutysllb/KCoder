@@ -1,6 +1,6 @@
 # @qiongqi/adapter-fs
 
-> v1.1.1。仅提供文件系统 I/O，不参与 durable transaction 或多实例一致性。
+> v1.1.4。仅提供文件系统 I/O，不参与 durable transaction 或多实例一致性。
 
 > 纯 FS I/O 工具 —— 无 Agent 概念。从 `adapter-tools` 拆出（阶段 1.8）。
 > Layer 3 — 依赖：仅 `diff`（外部）。被 `@qiongqi/tool-infra` 与 `@qiongqi/adapter-tools` 消费。

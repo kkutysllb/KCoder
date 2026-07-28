@@ -1,6 +1,6 @@
 # @qiongqi/memory：任务记忆
 
-> v1.1.1。记忆以 task scope 和 AgentRun scope 隔离，lexical retrieval 只在授权 namespace 内发生。
+> v1.1.4。记忆以 task scope 和 AgentRun scope 隔离，lexical retrieval 只在授权 namespace 内发生。
 
 ## Namespace
 

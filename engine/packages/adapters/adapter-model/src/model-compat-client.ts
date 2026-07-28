@@ -1845,10 +1845,11 @@ function sanitizeEndpointUrl(url: string): string {
     const parsed = new URL(url)
     parsed.username = ''
     parsed.password = ''
+    parsed.search = ''
     parsed.hash = ''
     return parsed.toString()
   } catch {
-    return url.replace(/\/\/[^/@\s]+@/, '//')
+    return url.replace(/\/\/[^/@\s]+@/, '//').replace(/[?#].*$/, '')
   }
 }
 
@@ -2187,48 +2188,69 @@ function isEmptyContent(content: unknown): boolean {
   return false
 }
 
-/**
- * Diagnostic helper: logs any message that still has empty content AFTER
- * sanitization, plus a compact dump of the whole messages array. Runs on every
- * chat_completions request so we can pinpoint which message shape triggers
- * strict-provider 2013 errors. If this logs, sanitization missed a case.
- */
-function diagnoseEmptyContent(messages: ChatMessage[], baseUrl: string): void {
-  const offenders = messages
-    .map((message, index) => ({ index, message }))
-    .filter((entry) => {
-      const msg = entry.message as ChatMessage & { content?: unknown }
-      // After sanitization, assistant tool-call messages carry a placeholder
-      // ('(tool call)') so they should never be empty. Any message that is
-      // STILL empty here means sanitization missed a case.
-      return isEmptyContent(msg.content)
-    })
-  if (offenders.length === 0) return
-  // eslint-disable-next-line no-console
-  console.warn(
-    `[diagnoseEmptyContent] ${offenders.length} empty-content message(s) STILL PRESENT after sanitization for ${baseUrl}:`,
-    JSON.stringify(
-      messages.map((m, i) => ({
-        i,
-        role: m.role,
-        content: m.content,
-        contentType: Array.isArray(m.content) ? 'array' : typeof m.content,
-        hasContentKey: 'content' in m,
-        hasToolCalls: Array.isArray(m.tool_calls) && m.tool_calls.length > 0,
-        reasoningContent: (m as ChatMessage & { reasoning_content?: unknown }).reasoning_content
-      })),
-      null,
-      0
-    )
-  )
+type MessageDiagnosticMetadata = {
+  index: number
+  role: ChatMessage['role']
+  contentState: 'missing' | 'empty' | 'present'
+  contentType: 'missing' | 'string' | 'array' | 'other'
+  contentLength: number
+  toolCallCount: number
+  hasReasoning: boolean
 }
 
-/**
- * Diagnostic helper: when a provider rejects a request with a content/shape
- * error (e.g. MiniMax 2013 "chat content is empty"), dump the full request
- * body so we can see exactly what was sent. Only fires for bad-request-style
- * rejections to avoid noise on normal errors (auth, rate limit, etc.).
- */
+function messageDiagnosticMetadata(messages: ChatMessage[]): MessageDiagnosticMetadata[] {
+  return messages.map((message, index) => {
+    const content = message.content
+    const contentType = content === undefined || content === null
+      ? 'missing'
+      : Array.isArray(content)
+        ? 'array'
+        : typeof content === 'string'
+          ? 'string'
+          : 'other'
+    const contentLength = typeof content === 'string'
+      ? content.length
+      : Array.isArray(content)
+        ? content.length
+        : 0
+    return {
+      index,
+      role: message.role,
+      contentState: content === undefined || content === null
+        ? 'missing'
+        : isEmptyContent(content)
+          ? 'empty'
+          : 'present',
+      contentType,
+      contentLength,
+      toolCallCount: Array.isArray(message.tool_calls) ? message.tool_calls.length : 0,
+      hasReasoning: typeof (message as ChatMessage & { reasoning_content?: unknown }).reasoning_content === 'string'
+    }
+  })
+}
+
+function isValidToolCallOnlyAssistant(message: ChatMessage): boolean {
+  return message.role === 'assistant'
+    && Array.isArray(message.tool_calls)
+    && message.tool_calls.length > 0
+    && isEmptyContent(message.content)
+}
+
+/** Log only structural metadata for genuinely invalid empty message content. */
+function diagnoseEmptyContent(messages: ChatMessage[], baseUrl: string): void {
+  const offenders = messages.filter((message) =>
+    isEmptyContent(message.content) && !isValidToolCallOnlyAssistant(message)
+  )
+  if (offenders.length === 0) return
+  // eslint-disable-next-line no-console
+  console.warn('[diagnoseEmptyContent]', {
+    endpoint: sanitizeEndpointUrl(baseUrl),
+    offenderCount: offenders.length,
+    messages: messageDiagnosticMetadata(messages)
+  })
+}
+
+/** Log provider rejection shape without request, response, or credential data. */
 function diagnoseRejectedRequest(
   url: string,
   body: Record<string, unknown>,
@@ -2236,31 +2258,15 @@ function diagnoseRejectedRequest(
   errorText: string
 ): void {
   if (status !== 400 && !/content is empty|empty.*content|2013/i.test(errorText)) return
-  const messages = Array.isArray(body.messages) ? body.messages : []
+  const messages = Array.isArray(body.messages) ? body.messages as ChatMessage[] : []
   // eslint-disable-next-line no-console
-  console.warn(
-    `[diagnoseRejectedRequest] ${status} from ${sanitizeEndpointUrl(url)} — provider rejected request body:`,
-    '\nerror:', errorText.slice(0, 500),
-    '\nmessage overview (i/role/empty/len/hasToolCalls):',
-    messages.map((m: Record<string, unknown>, i: number) => {
-      const c = m.content
-      const len = typeof c === 'string' ? c.length : Array.isArray(c) ? JSON.stringify(c).length : -1
-      const empty = c == null || (typeof c === 'string' && c.trim() === '') || (Array.isArray(c) && c.length === 0)
-      return { i, role: m.role, empty, len, hasToolCalls: Array.isArray(m.tool_calls) && m.tool_calls.length > 0 }
-    }),
-    '\nempty messages full detail:',
-    JSON.stringify(
-      messages
-        .map((m: Record<string, unknown>, i: number) => ({ i, m }))
-        .filter((e) => {
-          const c = e.m.content
-          return c == null || (typeof c === 'string' && c.trim() === '') || (Array.isArray(c) && c.length === 0)
-        }),
-      null,
-      0
-    ),
-    '\nbody keys:', Object.keys(body)
-  )
+  console.warn('[diagnoseRejectedRequest]', {
+    endpoint: sanitizeEndpointUrl(url),
+    status,
+    messageCount: messages.length,
+    bodyKeys: Object.keys(body),
+    messages: messageDiagnosticMetadata(messages)
+  })
 }
 
 function toolResultContent(output: unknown): string {

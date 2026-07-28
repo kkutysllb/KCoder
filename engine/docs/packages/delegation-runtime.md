@@ -1,6 +1,6 @@
 # @qiongqi/delegation：子 Agent 运行时
 
-> v1.1.1。委派通过 AgentRun + isolated KernelRun 实现，不创建共享的隐式执行上下文。
+> v1.1.4。委派通过 AgentRun + isolated KernelRun 实现，不创建共享的隐式执行上下文。
 
 ## 职责
 

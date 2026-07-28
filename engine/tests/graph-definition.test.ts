@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GraphRevisionSchema, type AgentGraph } from '@qiongqi/contracts'
+import { AgentGraphSchema, GraphRevisionSchema, type AgentGraph } from '@qiongqi/contracts'
 import { compileAgentGraph } from '@qiongqi/loop'
 
 const publishedAt = '2026-07-26T00:00:00.000Z'
@@ -18,6 +18,81 @@ function graph(): AgentGraph {
 }
 
 describe('graph definition v1.1', () => {
+  it('preserves node policies for every public node kind and edge policies', () => {
+    const nodePolicyRef = { policyId: 'node-policy', revision: 7 }
+    const edgePolicyRef = { policyId: 'edge-policy', revision: 3 }
+    const input = AgentGraphSchema.parse({
+      version: 1,
+      graphId: 'policy-complete-flow',
+      startNodeId: 'fan-out',
+      nodes: [
+        {
+          id: 'fan-out',
+          kind: 'parallel',
+          branches: [
+            { branchId: 'left', startNodeId: 'agent' },
+            { branchId: 'right', startNodeId: 'judge' }
+          ],
+          joinNodeId: 'join',
+          nodePolicyRef
+        },
+        { id: 'agent', kind: 'agent', agentId: 'writer', nodePolicyRef },
+        { id: 'judge', kind: 'judge', policy: 'quality', nodePolicyRef },
+        {
+          id: 'join',
+          kind: 'join',
+          sourceParallelNodeId: 'fan-out',
+          requiredBranchIds: ['left', 'right'],
+          nodePolicyRef
+        },
+        { id: 'handoff', kind: 'handoff', targetAgentId: 'reviewer', nodePolicyRef },
+        { id: 'tool', kind: 'tool', toolName: 'lookup', nodePolicyRef },
+        { id: 'wait', kind: 'wait', waitFor: 'approval', nodePolicyRef },
+        { id: 'retry', kind: 'retry', maxAttempts: 2, nodePolicyRef },
+        { id: 'done', kind: 'terminate', nodePolicyRef }
+      ],
+      edges: [
+        { from: 'agent', to: 'join', condition: 'completed', edgePolicyRef },
+        { from: 'judge', to: 'join', condition: 'completed', edgePolicyRef }
+      ]
+    })
+
+    const revision = compileAgentGraph(input, { revision: 1, publishedAt })
+
+    expect(revision.nodes).toHaveLength(9)
+    for (const node of revision.nodes) expect(node.nodePolicyRef).toEqual(nodePolicyRef)
+    expect(revision.edges[0]?.edgePolicyRef).toEqual(edgePolicyRef)
+    expect(GraphRevisionSchema.parse(revision)).toEqual(revision)
+  })
+
+  it('includes policy revisions in the digest without changing logical edge identity', () => {
+    const policyGraph = (revision: number) => AgentGraphSchema.parse({
+      version: 1,
+      graphId: 'policy-digest-flow',
+      startNodeId: 'maker',
+      nodes: [
+        {
+          id: 'maker',
+          kind: 'agent',
+          agentId: 'implementer',
+          nodePolicyRef: { policyId: 'node-policy', revision }
+        },
+        { id: 'done', kind: 'terminate' }
+      ],
+      edges: [{
+        from: 'maker',
+        to: 'done',
+        condition: 'completed',
+        edgePolicyRef: { policyId: 'edge-policy', revision }
+      }]
+    })
+    const first = compileAgentGraph(policyGraph(7), { revision: 1, publishedAt })
+    const second = compileAgentGraph(policyGraph(8), { revision: 1, publishedAt })
+
+    expect(first.graphDigest).not.toBe(second.graphDigest)
+    expect(first.edges[0]?.edgeId).toBe(second.edges[0]?.edgeId)
+  })
+
   it('compiles an explicit three-branch parallel group with a non-empty join', () => {
     const input: AgentGraph = {
       version: 1,

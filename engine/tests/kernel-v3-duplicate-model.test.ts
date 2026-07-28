@@ -51,13 +51,16 @@ function attempt(operationId: string) {
   }
 }
 
-function harness(model: CountingModel) {
+function harness(
+  model: CountingModel,
+  onDelta?: ConstructorParameters<typeof ModelProposalRunner>[0]['onDelta']
+) {
   const store = new InMemoryDurableEngineStore()
   const results = new InMemoryEffectResultStore()
   const ledger = new ExecutionLedgerService({ store, nowIso: () => '2026-07-26T00:00:00.000Z' })
   return {
     store,
-    runner: new ModelProposalRunner({ client: model, ledger, results })
+    runner: new ModelProposalRunner({ client: model, ledger, results, ...(onDelta ? { onDelta } : {}) })
   }
 }
 
@@ -87,5 +90,18 @@ describe('Kernel v3 durable model attempts', () => {
 
     expect(model.physicalRequests).toBe(1)
     await expect(store.findLedger({ scope, kind: 'model', status: 'uncertain' })).resolves.toHaveLength(1)
+  })
+
+  it('publishes the durable operation id with every physical delta but not on ledger replay', async () => {
+    const model = new CountingModel()
+    const seen: string[] = []
+    const { runner } = harness(model, (_chunk, _request, context) => {
+      seen.push(context.proposalId)
+    })
+
+    await runner.run({ request, attempt: attempt('model-operation-stream') })
+    await runner.run({ request, attempt: attempt('model-operation-replay') })
+
+    expect(seen).toEqual(['model-operation-stream', 'model-operation-stream'])
   })
 })

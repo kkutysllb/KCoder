@@ -5,7 +5,9 @@ import {
   type GraphCorrelationIdentity,
   type KernelRunIdentity,
   type RunOutcome,
-  type TaskScope
+  type TaskScope,
+  type TurnExecutionPolicyRef,
+  type VersionedPolicyRef
 } from '@qiongqi/contracts'
 import {
   EngineRunRecordSchema,
@@ -14,6 +16,7 @@ import {
   type EngineRunRecord
 } from '@qiongqi/ports'
 import { DurableKernelLifecycle } from './durable-kernel-lifecycle.js'
+import { canonicalDigest } from './execution-fingerprint.js'
 
 export type AgentExecutionInput = {
   scope: TaskScope
@@ -22,11 +25,16 @@ export type AgentExecutionInput = {
   agentId: string
   nodeId: string
   parentRunId: string
+  threadId: string
+  turnId: string
+  workspaceKey: string
   requestedBudget: BudgetState
   prompt: string
   role?: 'agent' | 'judge'
   sharedEvidenceRefs?: string[]
   modelPolicyRef?: { policyId: string; revision: number }
+  executionPolicyRef?: TurnExecutionPolicyRef
+  nodePolicyRef?: VersionedPolicyRef
   graph?: GraphCorrelationIdentity
 }
 
@@ -261,7 +269,7 @@ function assertPreparedExecution(input: PreparedAgentExecutionInput, executionRe
     || executionRef.agentRunId !== input.agentRunId
     || executionRef.parentRunId !== input.agentRunId
     || !sameScope(executionRef.scope, input.scope)
-    || JSON.stringify(input.graph) !== JSON.stringify(executionRef.graph)) {
+    || !sameOptionalRecord(input.graph, executionRef.graph)) {
     throw new EngineStoreConflictError('prepared Kernel execution identity is inconsistent')
   }
 }
@@ -270,9 +278,14 @@ function assertPreparedChildMatches(input: PreparedAgentExecutionInput, run: Eng
   if (run.parentRef?.kind !== 'agent'
     || run.parentRef.runId !== input.agentRunId
     || !sameBudget(run.budgetLimits ?? zeroBudget(), input.requestedBudget)
-    || JSON.stringify(run.graph) !== JSON.stringify(input.graph)) {
+    || !sameOptionalRecord(run.graph, input.graph)) {
     throw new EngineStoreConflictError('durable Kernel child contradicts prepared dispatch')
   }
+}
+
+function sameOptionalRecord(left: unknown, right: unknown): boolean {
+  if (left === undefined || right === undefined) return left === right
+  return canonicalDigest(left) === canonicalDigest(right)
 }
 
 function sameScope(left: TaskScope, right: TaskScope): boolean {

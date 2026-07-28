@@ -16,8 +16,9 @@ export async function startTurn(
   turns: TurnService,
   threadId: string,
   request: Request,
-  onStarted?: (response: StartTurnResponse) => void,
-  defaultModel?: string
+  onStarted?: (response: StartTurnResponse, request: ReturnType<typeof StartTurnRequest.parse>) => void,
+  defaultModel?: string,
+  governedAvailable = false
 ): Promise<JsonResponse | Response> {
   const body = await readJsonBody(request)
   if (!body.ok) return body.response
@@ -32,12 +33,15 @@ export async function startTurn(
   if (!parsed.success) {
     return ERRORS.validation('invalid start turn body', parsed.error.issues)
   }
+  if (parsed.data.governedExecution && !governedAvailable) {
+    return ERRORS.unavailable('governed DurableEngine is not configured')
+  }
   try {
     const response: StartTurnResponse = await turns.startTurn({
       threadId,
       request: parsed.data
     })
-    onStarted?.(response)
+    onStarted?.(response, parsed.data)
     return jsonResponse(response, 202)
   } catch (error) {
     if (error instanceof Error && /not found/i.test(error.message)) {
@@ -67,7 +71,8 @@ export async function interruptTurn(
   turns: TurnService,
   threadId: string,
   turnId: string,
-  request: Request
+  request: Request,
+  beforeInterrupt?: () => Promise<void>
 ): Promise<JsonResponse | Response> {
   const body = await readJsonBody(request)
   if (!body.ok) return body.response
@@ -75,6 +80,7 @@ export async function interruptTurn(
   if (!parsed.success) {
     return ERRORS.validation('invalid interrupt turn body', parsed.error.issues)
   }
+  await beforeInterrupt?.()
   const result = await turns.interruptTurn({ threadId, turnId, discard: parsed.data.discard })
   const payload: InterruptTurnResponse = {
     threadId,

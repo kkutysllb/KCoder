@@ -1,6 +1,6 @@
 # @qiongqi/adapter-tools — 内置工具
 
-> v1.1.1。工具必须声明 effect/replay metadata，并受 durable ledger、输出预算和审计约束。
+> v1.1.4。工具必须声明 effect/replay metadata，并受 durable ledger、输出预算和审计约束。
 
 > `bash` / `read` / `edit` / `write` / `grep` / `find` / `ls` + `create-plan` / `goal` / `todo` 工具。
 > Layer 5 — 同 registry 子模块。

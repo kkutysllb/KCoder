@@ -9,7 +9,12 @@ const graph = {
   startNodeId: 'implementer',
   nodes: [
     { id: 'implementer', kind: 'agent' as const, agentId: 'implementer' },
-    { id: 'checker', kind: 'judge' as const, policy: 'evidence_required' },
+    {
+      id: 'checker',
+      kind: 'judge' as const,
+      policy: 'evidence_required',
+      nodePolicyRef: { policyId: 'checker-policy', revision: 3 }
+    },
     { id: 'accepted', kind: 'terminate' as const },
     { id: 'rejected', kind: 'terminate' as const }
   ],
@@ -55,7 +60,11 @@ describe('maker/checker isolation', () => {
     expect(executor.inputs).toMatchObject([{
       role: 'judge',
       sharedEvidenceRefs: ['artifact-1'],
-      agentId: 'judge:checker'
+      agentId: 'judge:checker',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      workspaceKey: 'workspace-1',
+      nodePolicyRef: { policyId: 'checker-policy', revision: 3 }
     }])
     expect(executor.inputs[0]!.agentRunId).not.toBe(implementerRunId)
     expect(executor.inputs[0]).not.toHaveProperty('agentPrivateMemory')
