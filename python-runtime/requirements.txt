@@ -1,0 +1,21 @@
+# KCoder QiLin sidecar 运行时依赖
+# 引擎本体（从 GitHub Release 安装；MVP 阶段用本地 wheel 或 whl URL）
+# 安装方式见 README.md
+qilin==1.0.0
+# LangGraph CLI（提供 langgraph dev 命令）
+langgraph-cli>=0.4.24
+# Gateway 自身依赖（FastAPI + uvicorn 用于 Phase 2 的 /v1/* 翻译层）
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+httpx>=0.27.0
+# Phase 6: 真实认证（bcrypt 密码哈希 + JWT 令牌）
+# 注意：passlib 1.7.4 与 bcrypt >=4.1 不兼容（__about__ 属性已移除），
+# 必须把 bcrypt 锁定在 4.0.x，否则 hash() 时抛 AttributeError。
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.0.0,<4.1.0
+PyJWT>=2.8.0
+email-validator>=2.0.0
+# MCP 适配器（QiLin 通过它连接 worktree-overlay 等 MCP server）
+# 注意：mcp>=2.0.0 API 不兼容，必须 pin <2.0.0
+langchain-mcp-adapters>=0.3.0
+mcp>=1.24.0,<2.0.0

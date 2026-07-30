@@ -1,0 +1,31 @@
+# KCoder QiLin sidecar 运行时配置
+#
+# 这是 QiLin 引擎的 AppConfig。KCoder 的 model store 在 Phase 2 会通过
+# 环境变量 / 运行时 reload 注入真实 model；这里给一个占位避免引擎启动时
+# 因 models 为空而报错（某些 fallback 路径会取 models[0]）。
+#
+# 字段说明：
+#   sandbox.use       必填。'local' = 进程内文件系统（coding 场景）
+#   models[].use      必须是 module:Class 格式（resolve_class 要求）
+#                     openai     -> langchain_openai:ChatOpenAI
+#                     anthropic  -> langchain_anthropic:ChatAnthropic
+#                     deepseek   -> langchain_deepseek:ChatDeepSeek
+#                     google     -> langchain_google_genai:ChatGoogleGenerativeAI
+#                     ollama     -> langchain_ollama:ChatOllama (需 [ollama] extras)
+#   models[].model    provider 的模型名（如 gpt-4o-mini）
+#   models[].api_key  真实 key 由 KCoder model store 在 Phase 2 注入；这里占位
+
+sandbox:
+  use: local
+
+models:
+  - name: kcoder-default
+    display_name: KCoder Default
+    description: Placeholder model; real API key injected by KCoder Settings at runtime
+    use: langchain_openai:ChatOpenAI
+    model: gpt-4o-mini
+    api_key: placeholder-injected-by-kcoder-settings
+    openai_api_base: https://api.openai.com/v1
+
+# 开发阶段用 sqlite；生产可切 postgres（AppConfig.database.backend）
+# 默认 sqlite 即可，无需显式配置

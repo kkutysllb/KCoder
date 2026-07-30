@@ -1,0 +1,7 @@
+{
+  "dependencies": ["qilin"],
+  "graphs": {
+    "agent": "qilin.agents.lead_agent.agent:make_lead_agent"
+  },
+  "env": ".env"
+}

@@ -34,10 +34,18 @@ Thumbs.db
 npm-debug.log*
 pnpm-debug.log*
 
-# Engine build artifacts (keep source, ignore compiled)
-engine/packages/*/dist/
-engine/packages/*/*/dist/
-
 # Runtime data
 .kcoder/
 .qoder/
+
+# QiLin Python sidecar 运行时产物
+python-runtime/.venv/
+python-runtime/**/__pycache__/
+python-runtime/**/*.pyc
+python-runtime/.qilin/
+python-runtime/.langgraph_api/
+python-runtime/qilin.db
+python-runtime/*.sqlite
+python-runtime/*.sqlite3
+python-runtime/extensions_config.json
+python-runtime/.env

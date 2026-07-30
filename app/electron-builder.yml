@@ -7,12 +7,16 @@ files:
   - out/**/*
   - "!node_modules/**/*"
 extraResources:
-  - from: ../engine
-    to: engine
+  - from: ../python-runtime
+    to: python-runtime
     filter:
       - "**/*"
-      - "!node_modules/**/*"
-      - "!tests/**/*"
+      - "!.venv/**/*"
+      - "!.langgraph_api/**/*"
+      - "!.qilin/**/*"
+      - "!.env"
+      - "!**/__pycache__/**/*"
+      - "!**/*.pyc"
       - "!**/*.map"
 mac:
   category: public.app-category.developer-tools
