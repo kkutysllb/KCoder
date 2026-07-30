@@ -33,9 +33,16 @@ class QiLinClient:
     def __init__(self, base_url: str, timeout: float = 30.0) -> None:
         self._base_url = base_url.rstrip("/")
         # stream 用长 timeout，普通 REST 用 timeout
+        #
+        # trust_env=False 禁止 httpx 读取系统/环境代理。gateway → langgraph dev
+        # 永远是 loopback 直连（127.0.0.1），绝不应走代理。在 macOS 上，若用户
+        # 开了系统代理（如 Clash 的 7890 端口），Python 的 urllib.getproxies()
+        # 不解析 scutil ExceptionsList 的通配符（如 127.*），导致 httpx 把
+        # loopback 请求也发给代理，代理回 502。trust_env=False 彻底绕开。
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=httpx.Timeout(timeout, read=None),  # read=None 让流不超时
+            trust_env=False,
         )
         logger.info("QiLinClient initialized for %s", self._base_url)
 

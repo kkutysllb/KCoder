@@ -26,6 +26,28 @@ export interface UserModelProfileRecord {
   aliases?: string[]
   /** Included by listModelProfiles (merged from the secrets store). */
   apiKey?: string
+  // ── QiLin ModelConfig 对齐字段（预设驱动，见 model-presets.ts）──
+  /** 引擎 class path，如 qilin.models.patched_deepseek:PatchedChatDeepSeek。核心路由字段。 */
+  use?: string
+  displayName?: string
+  supportsThinking?: boolean
+  supportsVision?: boolean
+  supportsReasoningEffort?: boolean
+  /** 思考模式开启参数模板（从预设继承，如 { extra_body: { thinking: { type: 'enabled' } } }） */
+  whenThinkingEnabled?: Record<string, unknown>
+  /** 思考模式关闭参数模板 */
+  whenThinkingDisabled?: Record<string, unknown>
+  maxTokens?: number
+  temperature?: number
+  useResponsesApi?: boolean
+  outputVersion?: string
+  /** 每百万 token 计价（控制台成本展示用，可选） */
+  pricing?: {
+    currency: string
+    inputPerMillion: number
+    outputPerMillion: number
+    inputCacheHitPerMillion?: number
+  }
 }
 
 interface UserDataRecord {

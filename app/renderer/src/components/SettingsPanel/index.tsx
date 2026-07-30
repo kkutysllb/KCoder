@@ -10,6 +10,13 @@ import { CommandsSettings } from './CommandsSettings'
 import { RemoteSettings } from './RemoteSettings'
 import { MemorySettings } from './MemorySettings'
 import { AboutSettings } from './AboutSettings'
+import {
+  MODEL_PRESETS,
+  MODEL_PRESET_BY_ID,
+  PRESET_CATEGORY_ORDER,
+  isPatchedProvider,
+  type ModelPreset
+} from './model-presets'
 
 interface SettingsPanelProps {
   isOpen: boolean
@@ -31,154 +38,73 @@ const NAV_ITEMS = [
   { id: 'about', labelKey: 'settings.nav.about', icon: AboutIcon },
 ]
 
-// Provider data
-interface Provider {
-  id: string
-  name: string
-  category: string
-  enabled: boolean
-  baseUrl: string
+// Provider 运行时状态 —— 预设（ModelPreset）的不可变字段 + 用户填写的运行时字段。
+// 预设的 use/defaultBaseUrl/能力/thinking模板 等从 MODEL_PRESETS 继承，不在此重复。
+interface ProviderRuntime {
+  /** 对应 ModelPreset.id */
+  presetId: string
+  /** 用户填写的 apiKey（不回显） */
   apiKey: string
-  models: { name: string; context: string }[]
-  /** 本地部署的供应商允许用户编辑 baseUrl（vLLM/Ollama） */
-  baseUrlEditable?: boolean
-  /** API Key 是否必填（本地部署可不填） */
-  apiKeyRequired?: boolean
-  // 能力信息（从 ModelEntry 映射，用于详情展示）
-  supportsToolCalling?: boolean
-  supportsVision?: boolean
-  supportsReasoningEffort?: boolean
-  reasoningEffortValues?: string[]
-  rawModel?: string
+  /** 用户实际编辑后的 baseUrl（本地部署可改） */
+  baseUrl: string
+  /** 用户选定的具体模型 id（如 gpt-4o-mini） */
+  selectedModel: string
+  /** 是否已启用（激活） */
+  enabled: boolean
+  /** 深度思考开关（仅 supportsThinkingDefault 为 true 的预设有意义） */
+  thinkingEnabled: boolean
 }
 
-const DEFAULT_PROVIDERS: Provider[] = [
-  {
-    id: 'bigmodel',
-    name: 'BigModel',
-    category: '云端供应商',
-    enabled: false,
-    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+/** 从预设初始化运行时状态 */
+function runtimeFromPreset(preset: ModelPreset): ProviderRuntime {
+  return {
+    presetId: preset.id,
     apiKey: '',
-    models: [],
-    apiKeyRequired: true,
-  },
-  {
-    id: 'deepseek',
-    name: 'DeepSeek',
-    category: '云端供应商',
+    baseUrl: preset.defaultBaseUrl,
+    selectedModel: '',
     enabled: false,
-    baseUrl: 'https://api.deepseek.com',
-    apiKey: '',
-    models: [],
-    apiKeyRequired: true,
-  },
-  {
-    id: 'minimax',
-    name: 'MiniMax',
-    category: '云端供应商',
-    enabled: false,
-    baseUrl: 'https://api.minimax.chat/v1',
-    apiKey: '',
-    models: [],
-    apiKeyRequired: true,
-  },
-  {
-    id: 'gpt',
-    name: 'GPT',
-    category: '云端供应商',
-    enabled: false,
-    baseUrl: 'https://api.openai.com/v1',
-    apiKey: '',
-    models: [],
-    apiKeyRequired: true,
-  },
-  {
-    id: 'claude',
-    name: 'Claude',
-    category: '云端供应商',
-    enabled: false,
-    baseUrl: 'https://api.anthropic.com',
-    apiKey: '',
-    models: [],
-    apiKeyRequired: true,
-  },
-  {
-    id: 'vllm',
-    name: 'vLLM',
-    category: '本地部署',
-    enabled: false,
-    baseUrl: 'http://localhost:8000/v1',
-    apiKey: '',
-    models: [],
-    baseUrlEditable: true,
-    apiKeyRequired: false,
-  },
-  {
-    id: 'ollama',
-    name: 'Ollama',
-    category: '本地部署',
-    enabled: false,
-    baseUrl: 'http://localhost:11434/v1',
-    apiKey: '',
-    models: [],
-    baseUrlEditable: true,
-    apiKeyRequired: false,
-  },
-]
+    thinkingEnabled: false
+  }
+}
+
+const DEFAULT_RUNTIMES: ProviderRuntime[] = MODEL_PRESETS.map(runtimeFromPreset)
+
+/** 取预设（从 runtime 反查） */
+function presetOf(runtime: ProviderRuntime): ModelPreset {
+  return MODEL_PRESET_BY_ID[runtime.presetId] ?? MODEL_PRESETS[0]
+}
 
 export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const { engineStatus, enginePort, bumpModelVersion } = useAppStore()
   const [activeNav, setActiveNav] = useState('general')
   const { t } = useI18n()
-  const [providers, setProviders] = useState<Provider[]>(DEFAULT_PROVIDERS)
+  const [runtimes, setRuntimes] = useState<ProviderRuntime[]>(DEFAULT_RUNTIMES)
   const [selectedProviderId, setSelectedProviderId] = useState<string>('')
   const [connectionType, setConnectionType] = useState('API 直连')
 
-  // 从后端加载已保存的模型（GET /api/models）— 精确按 profile name 匹配预设：
-  // 匹配的只更新 enabled；不匹配的追加为独立条目展示。不覆盖用户的 models/apiKey/能力。
+  // 从后端加载已保存的模型（GET /api/models）— 精确按 profile name 匹配预设 id：
+  // 匹配的只更新 enabled/selectedModel；不覆盖用户的 apiKey。
   const refreshModels = useCallback(async () => {
     if (engineStatus !== 'connected') return
     try {
       const result = await getEngineAPI(enginePort).getModels()
       const activeId = result.models.find((m) => m.active)?.id
+      // 已保存的 profile name → ModelEntry 索引
+      const savedById = new Map(result.models.map((m) => [m.id, m]))
 
-      // 后端已保存但不在预设里的 profile（用 profile name 即 m.id 精确匹配）
-      const presetIds = new Set(DEFAULT_PROVIDERS.map((p) => p.id))
-      const extras: Provider[] = result.models
-        .filter((m) => !presetIds.has(m.id))
-        .map((m) => ({
-          id: m.id,
-          name: m.display_name || m.name,
-          category: '已配置模型',
-          enabled: Boolean(m.active),
-          baseUrl: m.base_url ?? '',
-          apiKey: '', // 不回显
-          models: m.context_window_tokens
-            ? [{ name: m.model, context: `${Math.round(m.context_window_tokens / 1000)}K` }]
-            : [{ name: m.model, context: '-' }],
-          supportsToolCalling: m.supports_tool_calling,
-          supportsVision: m.supports_vision,
-          supportsReasoningEffort: m.supports_reasoning_effort,
-          reasoningEffortValues: m.reasoning_effort_values,
-          rawModel: m.model,
-        }))
-
-      setProviders((prev) => {
-        // 预设列表：只更新 enabled，不覆盖 models/能力/apiKey
-        const updatedPresets = prev.filter((p) => presetIds.has(p.id)).map((p) => ({
-          ...p,
-          enabled: p.id === activeId,
-        }))
-        // 去重：已有的 extras 不重复追加
-        const existingExtraIds = new Set(prev.filter((p) => !presetIds.has(p.id)).map((p) => p.id))
-        const newExtras = extras.filter((e) => !existingExtraIds.has(e.id))
-        const existingExtras = prev.filter((p) => !presetIds.has(p.id)).map((p) => ({
-          ...p,
-          enabled: p.id === activeId,
-        }))
-        return [...updatedPresets, ...existingExtras, ...newExtras]
-      })
+      setRuntimes((prev) =>
+        prev.map((rt) => {
+          const saved = savedById.get(rt.presetId)
+          if (!saved) return { ...rt, enabled: false }
+          // 匹配到已保存 profile：回显 enabled + selectedModel，不回显 apiKey
+          return {
+            ...rt,
+            enabled: rt.presetId === activeId,
+            selectedModel: saved.model || rt.selectedModel,
+            baseUrl: saved.base_url ?? rt.baseUrl
+          }
+        })
+      )
     } catch (err) {
       console.error('[KCoder] Failed to load models:', err)
     }
@@ -186,30 +112,24 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
   useEffect(() => {
     if (isOpen && activeNav === 'model') refreshModels()
-    if (isOpen && !selectedProviderId) setSelectedProviderId(providers[0]?.id ?? '')
+    if (isOpen && !selectedProviderId) setSelectedProviderId(runtimes[0]?.presetId ?? '')
   }, [isOpen, activeNav, refreshModels]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isOpen) return null
 
-  const selectedProvider = providers.find((p) => p.id === selectedProviderId)
+  const selectedRuntime = runtimes.find((r) => r.presetId === selectedProviderId)
 
-  // 激活模型：必须有具体模型名才能启用
+  // 激活模型：必须有具体模型名才能启用。先保存再激活。
   const handleToggleProvider = async (id: string) => {
-    const provider = providers.find((p) => p.id === id)
-    if (!provider) return
-    // 没有选具体模型时不能启用
-    const modelId = provider.rawModel || provider.models[0]?.name
-    if (!modelId) return
+    const rt = runtimes.find((r) => r.presetId === id)
+    if (!rt) return
+    if (!rt.selectedModel) return
+    const preset = presetOf(rt)
     try {
       const api = getEngineAPI(enginePort)
-      await api.createModel({
-        name: id,
-        model: modelId,
-        base_url: provider.baseUrl,
-        api_key: provider.apiKey || undefined,
-      })
+      await api.createModel(buildCreatePayload(id, preset, rt))
       await api.activateModel(id)
-      setProviders((prev) => prev.map((p) => ({ ...p, enabled: p.id === id })))
+      setRuntimes((prev) => prev.map((r) => ({ ...r, enabled: r.presetId === id })))
       bumpModelVersion()
       await refreshModels()
     } catch (err) {
@@ -218,54 +138,61 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   }
 
   const handleUpdateApiKey = (id: string, apiKey: string) => {
-    setProviders((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, apiKey } : p))
-    )
+    setRuntimes((prev) => prev.map((r) => (r.presetId === id ? { ...r, apiKey } : r)))
   }
 
   const handleUpdateBaseUrl = (id: string, baseUrl: string) => {
-    setProviders((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, baseUrl } : p))
-    )
+    setRuntimes((prev) => prev.map((r) => (r.presetId === id ? { ...r, baseUrl } : r)))
   }
 
-  // 从发现列表选择一个具体模型（记录到 provider 状态）
   const handleSelectModel = (id: string, modelId: string) => {
-    setProviders((prev) =>
-      prev.map((p) => p.id === id ? { ...p, rawModel: modelId, models: [{ name: modelId, context: '-' }] } : p)
-    )
+    setRuntimes((prev) => prev.map((r) => (r.presetId === id ? { ...r, selectedModel: modelId } : r)))
   }
 
-  // 保存：只保存有具体模型的供应商 + 激活选中的
+  const handleToggleThinking = (id: string, thinkingEnabled: boolean) => {
+    setRuntimes((prev) => prev.map((r) => (r.presetId === id ? { ...r, thinkingEnabled } : r)))
+  }
+
+  // 保存：只保存有具体模型 + 满足 apiKey 要求的供应商 + 激活选中的
   const handleSave = async () => {
     const api = getEngineAPI(enginePort)
-    for (const p of providers) {
-      // 必须有具体模型名才保存
-      const modelId = p.rawModel || p.models[0]?.name
-      if (!modelId) continue
+    for (const rt of runtimes) {
+      if (!rt.selectedModel) continue
+      const preset = presetOf(rt)
       // 云端供应商需要 apiKey；本地部署可不填
-      if (!p.apiKey && p.apiKeyRequired !== false) continue
+      if (!rt.apiKey && preset.apiKeyRequired) continue
       try {
-        await api.createModel({
-          name: p.id,
-          model: modelId,
-          base_url: p.baseUrl,
-          api_key: p.apiKey || undefined,
-        })
+        await api.createModel(buildCreatePayload(rt.presetId, preset, rt))
       } catch (err) {
-        console.error(`[KCoder] Failed to save model ${p.id}:`, err)
+        console.error(`[KCoder] Failed to save model ${rt.presetId}:`, err)
       }
     }
-    const enabled = providers.find((p) => p.enabled)
-    if (enabled) {
-      const modelId = enabled.rawModel || enabled.models[0]?.name
-      if (modelId) {
-        try { await api.activateModel(enabled.id) } catch (err) { console.error('[KCoder] Failed to activate:', err) }
-      }
+    const enabled = runtimes.find((r) => r.enabled)
+    if (enabled && enabled.selectedModel) {
+      try { await api.activateModel(enabled.presetId) } catch (err) { console.error('[KCoder] Failed to activate:', err) }
     }
-    window.kcoder?.send('save-settings', { providers })
+    window.kcoder?.send('save-settings', { runtimes })
     bumpModelVersion()
     onClose()
+  }
+
+  /** 构造 createModel payload：预设不可变字段 + 运行时字段 + thinking 模板 */
+  function buildCreatePayload(name: string, preset: ModelPreset, rt: ProviderRuntime) {
+    return {
+      name,
+      display_name: preset.displayName,
+      model: rt.selectedModel,
+      base_url: rt.baseUrl,
+      api_key: rt.apiKey || undefined,
+      use: preset.use,
+      supports_tool_calling: true,
+      supports_thinking: preset.supportsThinkingDefault,
+      supports_vision: preset.supportsVisionDefault,
+      supports_reasoning_effort: preset.supportsReasoningEffortDefault,
+      // thinking 开关决定用 enabled 还是 disabled 模板
+      when_thinking_enabled: rt.thinkingEnabled ? preset.whenThinkingEnabled : undefined,
+      when_thinking_disabled: preset.whenThinkingDisabled
+    }
   }
 
   return (
@@ -315,8 +242,8 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       <div className="flex-1 flex flex-col overflow-hidden">
         {activeNav === 'model' ? (
           <ModelSettings
-            providers={providers}
-            selectedProvider={selectedProvider}
+            runtimes={runtimes}
+            selectedRuntime={selectedRuntime}
             selectedProviderId={selectedProviderId}
             connectionType={connectionType}
             onSelectProvider={setSelectedProviderId}
@@ -324,6 +251,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             onUpdateApiKey={handleUpdateApiKey}
             onUpdateBaseUrl={handleUpdateBaseUrl}
             onSelectModel={handleSelectModel}
+            onToggleThinking={handleToggleThinking}
             onConnectionTypeChange={setConnectionType}
             onSave={handleSave}
             onClose={onClose}
@@ -358,8 +286,8 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
 // ============ Model Settings Page ============
 function ModelSettings({
-  providers,
-  selectedProvider,
+  runtimes,
+  selectedRuntime,
   selectedProviderId,
   connectionType,
   onSelectProvider,
@@ -367,12 +295,13 @@ function ModelSettings({
   onUpdateApiKey,
   onUpdateBaseUrl,
   onSelectModel,
+  onToggleThinking,
   onConnectionTypeChange,
   onSave,
   onClose,
 }: {
-  providers: Provider[]
-  selectedProvider?: Provider
+  runtimes: ProviderRuntime[]
+  selectedRuntime?: ProviderRuntime
   selectedProviderId: string
   connectionType: string
   onSelectProvider: (id: string) => void
@@ -380,17 +309,17 @@ function ModelSettings({
   onUpdateApiKey: (id: string, key: string) => void
   onUpdateBaseUrl: (id: string, url: string) => void
   onSelectModel: (id: string, modelId: string) => void
+  onToggleThinking: (id: string, enabled: boolean) => void
   onConnectionTypeChange: (v: string) => void
   onSave: () => void
   onClose: () => void
 }) {
   const { t } = useI18n()
-  // Group providers by category
-  const categories = providers.reduce<Record<string, Provider[]>>((acc, p) => {
-    if (!acc[p.category]) acc[p.category] = []
-    acc[p.category].push(p)
-    return acc
-  }, {})
+  // 按预设 category 分组（保持 PRESET_CATEGORY_ORDER 顺序）
+  const grouped = PRESET_CATEGORY_ORDER.map((category) => ({
+    category,
+    items: runtimes.filter((rt) => presetOf(rt).category === category)
+  })).filter((g) => g.items.length > 0)
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -398,8 +327,8 @@ function ModelSettings({
       <div className="px-8 pt-8 pb-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-text-primary">模型设置</h1>
-            <p className="mt-1 text-sm text-text-muted">管理自定义模型供应商，配置后可在聊天时选择使用。</p>
+            <h1 className="text-xl font-semibold text-text-primary">{t('settings.model.title')}</h1>
+            <p className="mt-1 text-sm text-text-muted">{t('settings.model.subtitle')}</p>
           </div>
           <div className="flex items-center gap-3">
             <button className="p-2 rounded-lg text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors">
@@ -418,57 +347,66 @@ function ModelSettings({
         </div>
       </div>
 
+      {/* 注入机制开发中提示条 */}
+      <div className="mx-8 mb-2 px-3 py-2 rounded-lg bg-[#f59e0b]/10 border border-[#f59e0b]/20 text-xs text-[#f59e0b]">
+        {t('settings.model.injectPending')}
+      </div>
+
       {/* Two-column content */}
       <div className="flex-1 flex overflow-hidden px-8 pb-8 gap-6">
         {/* Left: Provider List */}
         <div className="w-[240px] flex flex-col border-r border-border-custom pr-6">
           <div className="flex-1 overflow-y-auto space-y-4">
-            {Object.entries(categories).map(([category, items]) => (
+            {grouped.map(({ category, items }) => (
               <div key={category}>
                 <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">{category}</h3>
                 <div className="space-y-1">
-                  {items.map((provider) => (
-                    <button
-                      key={provider.id}
-                      onClick={() => onSelectProvider(provider.id)}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                        selectedProviderId === provider.id
-                          ? 'bg-bg-input text-text-primary'
-                          : 'text-text-secondary hover:bg-bg-sidebar hover:text-text-primary'
-                      }`}
-                    >
-                      <ProviderIcon name={provider.name} />
-                      <span className="flex-1 text-left">{provider.name}</span>
-                      <span className={`w-2 h-2 rounded-full ${provider.enabled ? 'bg-[#22c55e]' : 'bg-[#3f3f46]'}`} />
-                    </button>
-                  ))}
+                  {items.map((rt) => {
+                    const preset = presetOf(rt)
+                    return (
+                      <button
+                        key={rt.presetId}
+                        onClick={() => onSelectProvider(rt.presetId)}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                          selectedProviderId === rt.presetId
+                            ? 'bg-bg-input text-text-primary'
+                            : 'text-text-secondary hover:bg-bg-sidebar hover:text-text-primary'
+                        }`}
+                      >
+                        <ProviderIcon name={preset.displayName} />
+                        <span className="flex-1 text-left truncate">{preset.displayName}</span>
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${rt.enabled ? 'bg-[#22c55e]' : 'bg-[#3f3f46]'}`} />
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Add provider button */}
+          {/* Add provider button（预留）*/}
           <button className="mt-4 w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-dashed border-border-custom text-sm text-text-muted hover:text-text-secondary hover:border-[#52525b] transition-colors">
             <PlusIcon />
-                        {t('settings.model.addProvider')}
+            {t('settings.model.addProvider')}
           </button>
         </div>
 
         {/* Right: Provider Detail */}
         <div className="flex-1 overflow-y-auto">
-          {selectedProvider ? (
+          {selectedRuntime ? (
             <ProviderDetail
-              provider={selectedProvider}
+              runtime={selectedRuntime}
               onToggle={onToggleProvider}
               onUpdateApiKey={onUpdateApiKey}
               onUpdateBaseUrl={onUpdateBaseUrl}
               onSelectModel={onSelectModel}
+              onToggleThinking={onToggleThinking}
               onSave={onSave}
               onClose={onClose}
             />
           ) : (
             <div className="flex items-center justify-center h-full text-text-muted">
-              选择一个供应商查看详情
+              {t('settings.model.selectProvider')}
             </div>
           )}
         </div>
@@ -479,19 +417,21 @@ function ModelSettings({
 
 // ============ Provider Detail ============
 function ProviderDetail({
-  provider,
+  runtime,
   onToggle,
   onUpdateApiKey,
   onUpdateBaseUrl,
   onSelectModel,
+  onToggleThinking,
   onSave,
   onClose,
 }: {
-  provider: Provider
+  runtime: ProviderRuntime
   onToggle: (id: string) => void
   onUpdateApiKey: (id: string, key: string) => void
   onUpdateBaseUrl: (id: string, url: string) => void
   onSelectModel: (id: string, modelId: string) => void
+  onToggleThinking: (id: string, enabled: boolean) => void
   onSave: () => void
   onClose: () => void
 }) {
@@ -500,16 +440,22 @@ function ProviderDetail({
   const [discovered, setDiscovered] = useState<Array<{ id: string; name: string }>>([])
   const [discovering, setDiscovering] = useState(false)
   const [discoverError, setDiscoverError] = useState<string | null>(null)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+
+  const preset = presetOf(runtime)
+  const patched = isPatchedProvider(preset)
+  const hasModel = Boolean(runtime.selectedModel)
 
   // 切换 provider 时重置发现结果
   useEffect(() => {
     setDiscovered([])
     setDiscoverError(null)
-  }, [provider.id])
+    setShowAdvanced(false)
+  }, [runtime.presetId])
 
   const handleDiscover = async () => {
     // 云端供应商需要 API Key；本地部署（vLLM/Ollama）可不填
-    if (provider.apiKeyRequired !== false && !provider.apiKey.trim()) {
+    if (preset.apiKeyRequired && !runtime.apiKey.trim()) {
       setDiscoverError(t('settings.model.discover.needKey'))
       return
     }
@@ -517,7 +463,7 @@ function ProviderDetail({
     setDiscoverError(null)
     try {
       const api = getEngineAPI(enginePort)
-      const result = await api.discoverModels(provider.baseUrl, provider.apiKey)
+      const result = await api.discoverModels(runtime.baseUrl, runtime.apiKey)
       setDiscovered(result.models)
       if (result.models.length === 0) setDiscoverError(t('settings.model.discover.empty'))
     } catch (e) {
@@ -529,48 +475,56 @@ function ProviderDetail({
 
   return (
     <div className="space-y-6">
-      {/* Provider header */}
-      <div className="flex items-center gap-3">
-        <ProviderIcon name={provider.name} size="lg" />
-        <h2 className="text-lg font-semibold text-text-primary">{provider.name}</h2>
+      {/* Provider header — 名字 + 补丁徽章 + 启用状态 */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <ProviderIcon name={preset.displayName} size="lg" />
+        <h2 className="text-lg font-semibold text-text-primary">{preset.displayName}</h2>
+        {patched && (
+          <span
+            className="px-2 py-0.5 rounded text-[11px] font-medium bg-[#3b82f6]/10 text-[#3b82f6] border border-[#3b82f6]/30"
+            title={preset.notes}
+          >
+            {t('settings.model.patched')}
+          </span>
+        )}
         <span
           className={`px-2 py-0.5 rounded text-xs font-medium ${
-            provider.enabled
+            runtime.enabled
               ? 'bg-[#22c55e]/10 text-[#22c55e] border border-[#22c55e]/20'
               : 'bg-[#3f3f46]/30 text-text-muted border border-border-strong'
           }`}
         >
-          {provider.enabled ? t('settings.model.enabled') : t('settings.model.disabled')}
+          {runtime.enabled ? t('settings.model.enabled') : t('settings.model.disabled')}
         </span>
       </div>
 
+      {/* 补丁说明（仅补丁版显示）*/}
+      {preset.notes && (
+        <p className="text-xs text-text-muted leading-relaxed">{preset.notes}</p>
+      )}
+
       {/* Enable toggle — 必须先选具体模型才能启用 */}
-      {(() => {
-        const hasModel = Boolean(provider.rawModel || provider.models[0]?.name)
-        return (
-          <div className={`flex items-center justify-between p-4 rounded-xl border ${hasModel ? 'bg-bg-surface border-border-custom' : 'bg-bg-surface/50 border-border-custom opacity-60'}`}>
-            <div>
-              <p className="text-sm font-medium text-text-primary">{t('settings.model.enable')}</p>
-              <p className="text-xs text-text-muted mt-0.5">
-                {hasModel ? t('settings.model.enable.desc') : t('settings.model.enable.needModel')}
-              </p>
-            </div>
-            <button
-              onClick={() => hasModel && onToggle(provider.id)}
-              disabled={!hasModel}
-              className={`relative rounded-full transition-colors duration-200 ${
-                provider.enabled ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'
-              } ${!hasModel ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-              style={{ width: 48, height: 28 }}
-            >
-              <span
-                className="absolute top-[3px] left-[3px] rounded-full bg-white shadow-sm transition-transform duration-200"
-                style={{ width: 22, height: 22, transform: provider.enabled ? 'translateX(20px)' : 'translateX(0)' }}
-              />
-            </button>
-          </div>
-        )
-      })()}
+      <div className={`flex items-center justify-between p-4 rounded-xl border ${hasModel ? 'bg-bg-surface border-border-custom' : 'bg-bg-surface/50 border-border-custom opacity-60'}`}>
+        <div>
+          <p className="text-sm font-medium text-text-primary">{t('settings.model.enable')}</p>
+          <p className="text-xs text-text-muted mt-0.5">
+            {hasModel ? t('settings.model.enable.desc') : t('settings.model.enable.needModel')}
+          </p>
+        </div>
+        <button
+          onClick={() => hasModel && onToggle(runtime.presetId)}
+          disabled={!hasModel}
+          className={`relative rounded-full transition-colors duration-200 ${
+            runtime.enabled ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'
+          } ${!hasModel ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+          style={{ width: 48, height: 28 }}
+        >
+          <span
+            className="absolute top-[3px] left-[3px] rounded-full bg-white shadow-sm transition-transform duration-200"
+            style={{ width: 22, height: 22, transform: runtime.enabled ? 'translateX(20px)' : 'translateX(0)' }}
+          />
+        </button>
+      </div>
 
       {/* API Configuration */}
       <div className="p-4 rounded-xl bg-bg-surface border border-border-custom space-y-4">
@@ -579,27 +533,29 @@ function ProviderDetail({
           <label className="block text-xs text-text-muted mb-1.5">{t('settings.model.apiUrl')}</label>
           <input
             type="text"
-            value={provider.baseUrl}
-            onChange={provider.baseUrlEditable ? (e) => onUpdateBaseUrl(provider.id, e.target.value) : undefined}
-            readOnly={!provider.baseUrlEditable}
-            placeholder={provider.baseUrlEditable ? 'http://localhost:8000/v1' : undefined}
+            value={runtime.baseUrl}
+            onChange={preset.baseUrlEditable ? (e) => onUpdateBaseUrl(runtime.presetId, e.target.value) : undefined}
+            readOnly={!preset.baseUrlEditable}
+            placeholder={preset.baseUrlEditable ? t('settings.model.baseUrl.placeholder') : undefined}
             className={`w-full px-3 py-2 rounded-lg bg-bg-input border text-sm outline-none transition-colors ${
-              provider.baseUrlEditable
+              preset.baseUrlEditable
                 ? 'border-border-custom text-text-primary focus:border-border-strong'
                 : 'border-border-custom text-text-secondary'
             }`}
           />
-          {provider.baseUrlEditable && (
+          {preset.baseUrlEditable && (
             <p className="text-[11px] text-text-muted mt-1 opacity-70">{t('settings.model.baseUrl.hint')}</p>
           )}
         </div>
         <div>
-          <label className="block text-xs text-text-muted mb-1.5">API Key{provider.apiKeyRequired === false && `（可选）`}</label>
+          <label className="block text-xs text-text-muted mb-1.5">
+            API Key{!preset.apiKeyRequired && `（${t('settings.model.apiKey.optional')}）`}
+          </label>
           <input
             type="password"
-            value={provider.apiKey}
-            onChange={(e) => onUpdateApiKey(provider.id, e.target.value)}
-            placeholder={t('settings.model.apiKey.placeholder')}
+            value={runtime.apiKey}
+            onChange={(e) => onUpdateApiKey(runtime.presetId, e.target.value)}
+            placeholder={preset.apiKeyEnvHint}
             className="w-full px-3 py-2 rounded-lg bg-bg-input border border-border-custom text-sm text-text-primary placeholder-text-muted outline-none focus:border-border-strong transition-colors"
           />
         </div>
@@ -626,7 +582,29 @@ function ProviderDetail({
         )}
       </div>
 
-      {/* 从供应商拉取的模型列表（动态） */}
+      {/* 常见模型快捷选择（预设内置）*/}
+      {preset.commonModels.length > 0 && (
+        <div className="p-4 rounded-xl bg-bg-surface border border-border-custom">
+          <h3 className="text-sm font-medium text-text-primary mb-3">{t('settings.model.commonModels')}</h3>
+          <div className="flex flex-wrap gap-2">
+            {preset.commonModels.map((modelId) => (
+              <button
+                key={modelId}
+                onClick={() => onSelectModel(runtime.presetId, modelId)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono border transition-colors ${
+                  runtime.selectedModel === modelId
+                    ? 'bg-[#3b82f6]/10 text-[#3b82f6] border-[#3b82f6]/40'
+                    : 'bg-bg-hover text-text-secondary border-border-custom hover:text-text-primary hover:border-border-strong'
+                }`}
+              >
+                {modelId}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 从供应商拉取的模型列表（动态）*/}
       {discovered.length > 0 && (
         <div className="p-4 rounded-xl bg-bg-surface border border-border-custom">
           <div className="flex items-center justify-between mb-3">
@@ -636,18 +614,18 @@ function ProviderDetail({
             {discovered.map((m) => (
               <div
                 key={m.id}
-                className="flex items-center justify-between px-3 py-2 rounded-lg bg-bg-hover border border-border-custom"
+                className={`flex items-center justify-between px-3 py-2 rounded-lg border transition-colors ${
+                  runtime.selectedModel === m.id
+                    ? 'bg-[#3b82f6]/10 border-[#3b82f6]/40'
+                    : 'bg-bg-hover border-border-custom'
+                }`}
               >
                 <span className="text-sm text-text-primary font-mono truncate">{m.id}</span>
                 <button
-                  onClick={() => {
-                    // 只记录选中的模型到 provider 状态（不调后端）
-                    // 实际保存到后端由启用开关统一处理
-                    onSelectModel(provider.id, m.id)
-                  }}
+                  onClick={() => onSelectModel(runtime.presetId, m.id)}
                   className="shrink-0 ml-2 px-2 py-0.5 rounded text-[11px] font-medium bg-[#3b82f6]/10 text-[#3b82f6] border border-[#3b82f6]/30 hover:bg-[#3b82f6]/20 transition-colors"
                 >
-                  {t('settings.model.discover.add')}
+                  {runtime.selectedModel === m.id ? t('settings.model.discover.selected') : t('settings.model.discover.add')}
                 </button>
               </div>
             ))}
@@ -655,85 +633,93 @@ function ProviderDetail({
         </div>
       )}
 
-      {/* Model List */}
+      {/* 当前选中的模型 */}
       <div className="p-4 rounded-xl bg-bg-surface border border-border-custom">
-        <h3 className="text-sm font-medium text-text-primary mb-3">{t('settings.model.modelList')}</h3>
-        {provider.models.length > 0 ? (
-          <div className="space-y-2">
-            {provider.models.map((model) => (
-              <div
-                key={model.name}
-                className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-bg-hover border border-border-custom"
-              >
-                <span className="text-sm text-text-primary">{model.name}</span>
-                <span className="text-xs text-text-muted">{model.context}</span>
-              </div>
-            ))}
+        <h3 className="text-sm font-medium text-text-primary mb-3">{t('settings.model.selectedModel')}</h3>
+        {runtime.selectedModel ? (
+          <div className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-bg-hover border border-border-custom">
+            <span className="text-sm text-text-primary font-mono">{runtime.selectedModel}</span>
           </div>
         ) : (
           <p className="text-sm text-text-muted">{t('settings.model.noModels')}</p>
         )}
       </div>
 
-      {/* 模型能力信息（从后端 ModelEntry 映射） */}
-      {(provider.supportsToolCalling !== undefined || provider.supportsVision !== undefined) && (
-        <div className="p-4 rounded-xl bg-bg-surface border border-border-custom">
-          <h3 className="text-sm font-medium text-text-primary mb-3">模型能力</h3>
-          <div className="grid grid-cols-2 gap-3">
-            {provider.models[0] && (
-              <div className="flex items-center gap-2.5 rounded-lg bg-bg-hover border border-border-custom px-3 py-2.5">
-                <svg className="w-4 h-4 text-text-muted shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div className="min-w-0">
-                  <p className="text-[10px] text-text-muted uppercase tracking-wide">上下文窗口</p>
-                  <p className="text-xs font-medium text-text-primary">{provider.models[0].context}</p>
-                </div>
-              </div>
-            )}
-            {provider.supportsToolCalling !== undefined && (
-              <div className="flex items-center gap-2.5 rounded-lg bg-bg-hover border border-border-custom px-3 py-2.5">
-                <svg className="w-4 h-4 text-text-muted shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877" />
-                </svg>
-                <div className="min-w-0">
-                  <p className="text-[10px] text-text-muted uppercase tracking-wide">工具调用</p>
-                  <p className={`text-xs font-medium ${provider.supportsToolCalling ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
-                    {provider.supportsToolCalling ? '✓ 支持' : '✗ 不支持'}
-                  </p>
-                </div>
-              </div>
-            )}
-            {provider.supportsVision !== undefined && (
-              <div className="flex items-center gap-2.5 rounded-lg bg-bg-hover border border-border-custom px-3 py-2.5">
-                <svg className="w-4 h-4 text-text-muted shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                <div className="min-w-0">
-                  <p className="text-[10px] text-text-muted uppercase tracking-wide">视觉理解</p>
-                  <p className={`text-xs font-medium ${provider.supportsVision ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
-                    {provider.supportsVision ? '✓ 支持' : '✗ 不支持'}
-                  </p>
-                </div>
-              </div>
-            )}
-            {provider.supportsReasoningEffort !== undefined && (
-              <div className="flex items-center gap-2.5 rounded-lg bg-bg-hover border border-border-custom px-3 py-2.5">
-                <svg className="w-4 h-4 text-text-muted shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" />
-                </svg>
-                <div className="min-w-0">
-                  <p className="text-[10px] text-text-muted uppercase tracking-wide">推理强度</p>
-                  <p className={`text-xs font-medium ${provider.supportsReasoningEffort ? 'text-[#22c55e]' : 'text-text-muted'}`}>
-                    {provider.supportsReasoningEffort ? (provider.reasoningEffortValues?.join('/') ?? '可调') : '—'}
-                  </p>
-                </div>
+      {/* 能力信息（只读，来自预设）*/}
+      <div className="p-4 rounded-xl bg-bg-surface border border-border-custom">
+        <h3 className="text-sm font-medium text-text-primary mb-3">{t('settings.model.capabilities')}</h3>
+        <div className="grid grid-cols-3 gap-3">
+          <CapabilityBadge
+            label={t('settings.model.cap.thinking')}
+            supported={preset.supportsThinkingDefault}
+          />
+          <CapabilityBadge
+            label={t('settings.model.cap.vision')}
+            supported={preset.supportsVisionDefault}
+          />
+          <CapabilityBadge
+            label={t('settings.model.cap.reasoningEffort')}
+            supported={preset.supportsReasoningEffortDefault}
+          />
+        </div>
+      </div>
+
+      {/* 深度思考开关（仅支持 thinking 的预设有意义）*/}
+      {preset.supportsThinkingDefault && (
+        <div className="flex items-center justify-between p-4 rounded-xl bg-bg-surface border border-border-custom">
+          <div>
+            <p className="text-sm font-medium text-text-primary">{t('settings.model.thinking.toggle')}</p>
+            <p className="text-xs text-text-muted mt-0.5">{t('settings.model.thinking.desc')}</p>
+          </div>
+          <button
+            onClick={() => onToggleThinking(runtime.presetId, !runtime.thinkingEnabled)}
+            className={`relative rounded-full transition-colors duration-200 cursor-pointer ${
+              runtime.thinkingEnabled ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'
+            }`}
+            style={{ width: 48, height: 28 }}
+          >
+            <span
+              className="absolute top-[3px] left-[3px] rounded-full bg-white shadow-sm transition-transform duration-200"
+              style={{ width: 22, height: 22, transform: runtime.thinkingEnabled ? 'translateX(20px)' : 'translateX(0)' }}
+            />
+          </button>
+        </div>
+      )}
+
+      {/* 高级设置（折叠）*/}
+      <div className="p-4 rounded-xl bg-bg-surface border border-border-custom">
+        <button
+          onClick={() => setShowAdvanced((v) => !v)}
+          className="w-full flex items-center justify-between text-sm font-medium text-text-primary"
+        >
+          <span>{t('settings.model.advanced')}</span>
+          <svg className={`w-4 h-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+          </svg>
+        </button>
+        {showAdvanced && (
+          <div className="mt-4 space-y-3">
+            <div>
+              <label className="block text-xs text-text-muted mb-1.5">{t('settings.model.classPath')}</label>
+              <input
+                type="text"
+                value={preset.use}
+                readOnly
+                className="w-full px-3 py-2 rounded-lg bg-bg-input border border-border-custom text-xs font-mono text-text-secondary outline-none"
+              />
+              <p className="text-[11px] text-text-muted mt-1 opacity-70">{t('settings.model.classPath.desc')}</p>
+            </div>
+            {preset.whenThinkingEnabled && (
+              <div>
+                <label className="block text-xs text-text-muted mb-1.5">{t('settings.model.thinkingTemplate')}</label>
+                <pre className="px-3 py-2 rounded-lg bg-bg-input border border-border-custom text-[11px] font-mono text-text-secondary overflow-x-auto">
+                  {JSON.stringify(preset.whenThinkingEnabled, null, 2)}
+                </pre>
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Actions */}
       <div className="flex items-center justify-end gap-3 pt-2">
@@ -749,6 +735,20 @@ function ProviderDetail({
         >
           {t('settings.model.saveConfig')}
         </button>
+      </div>
+    </div>
+  )
+}
+
+/** 能力徽章 — 只读展示预设能力 */
+function CapabilityBadge({ label, supported }: { label: string; supported: boolean }) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg bg-bg-hover border border-border-custom px-3 py-2.5">
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] text-text-muted uppercase tracking-wide">{label}</p>
+        <p className={`text-xs font-medium ${supported ? 'text-[#22c55e]' : 'text-text-muted'}`}>
+          {supported ? '✓' : '—'}
+        </p>
       </div>
     </div>
   )

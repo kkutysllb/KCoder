@@ -16,6 +16,13 @@
  */
 import type { ModelEntry } from './engine-api'
 
+interface ModelPricing {
+  currency: string
+  inputPerMillion: number
+  outputPerMillion: number
+  inputCacheHitPerMillion?: number
+}
+
 interface ModelProfileRecord {
   providerModel?: string
   baseUrl?: string
@@ -24,6 +31,19 @@ interface ModelProfileRecord {
   supportsToolCalling?: boolean
   aliases?: string[]
   apiKey?: string
+  // QiLin ModelConfig 对齐字段（预设驱动）
+  use?: string
+  displayName?: string
+  supportsThinking?: boolean
+  supportsVision?: boolean
+  supportsReasoningEffort?: boolean
+  whenThinkingEnabled?: Record<string, unknown>
+  whenThinkingDisabled?: Record<string, unknown>
+  maxTokens?: number
+  temperature?: number
+  useResponsesApi?: boolean
+  outputVersion?: string
+  pricing?: ModelPricing
 }
 
 interface ModelListResult {
@@ -39,6 +59,19 @@ interface ModelProfileInput {
   contextWindowTokens?: number
   supportsToolCalling?: boolean
   aliases?: string[]
+  // QiLin ModelConfig 对齐字段（预设驱动）
+  use?: string
+  displayName?: string
+  supportsThinking?: boolean
+  supportsVision?: boolean
+  supportsReasoningEffort?: boolean
+  whenThinkingEnabled?: Record<string, unknown>
+  whenThinkingDisabled?: Record<string, unknown>
+  maxTokens?: number
+  temperature?: number
+  useResponsesApi?: boolean
+  outputVersion?: string
+  pricing?: ModelPricing
 }
 
 interface DiscoveredModel {
@@ -77,14 +110,19 @@ export async function getModels(userId: string): Promise<{ models: ModelEntry[] 
   const models: ModelEntry[] = Object.entries(profiles).map(([name, profile]) => ({
     id: name,
     name,
-    display_name: name,
+    display_name: profile.displayName ?? name,
     model: profile.providerModel ?? name,
     base_url: profile.baseUrl ?? null,
     active: activeModel === name,
     context_window_tokens: profile.contextWindowTokens ?? null,
     supports_tool_calling: profile.supportsToolCalling ?? true,
-    supports_vision: false,
-    supports_reasoning_effort: false
+    supports_vision: profile.supportsVision ?? false,
+    supports_reasoning_effort: profile.supportsReasoningEffort ?? false,
+    // 预设驱动的新字段（供 UI 详情页回显）
+    use: profile.use,
+    supports_thinking: profile.supportsThinking,
+    when_thinking_enabled: profile.whenThinkingEnabled,
+    when_thinking_disabled: profile.whenThinkingDisabled
   }))
   return { models }
 }

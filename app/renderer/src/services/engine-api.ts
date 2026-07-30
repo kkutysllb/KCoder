@@ -522,6 +522,12 @@ export interface ModelEntry {
   supports_vision: boolean
   supports_reasoning_effort: boolean
   reasoning_effort_values?: string[]
+  // 预设驱动的新字段（供 UI 详情页回显预设状态）
+  /** 引擎 class path，决定路由到补丁版还是裸 langchain */
+  use?: string
+  supports_thinking?: boolean
+  when_thinking_enabled?: Record<string, unknown>
+  when_thinking_disabled?: Record<string, unknown>
 }
 
 /** WorkspaceStatus — GET /v1/workspace/status?path= 返回的工作区状态。 */
@@ -1573,7 +1579,26 @@ data: <full EngineStreamEvent JSON>
         (payload.context_window_tokens as number) ?? undefined,
       supportsToolCalling:
         (payload.supportsToolCalling as boolean) ??
-        (payload.supports_tool_calling as boolean) ?? undefined
+        (payload.supports_tool_calling as boolean) ?? undefined,
+      // 预设驱动的 QiLin 字段透传
+      use: (payload.use as string) ?? undefined,
+      displayName: (payload.displayName as string) ?? (payload.display_name as string) ?? undefined,
+      supportsThinking: (payload.supportsThinking as boolean) ??
+        (payload.supports_thinking as boolean) ?? undefined,
+      supportsVision: (payload.supportsVision as boolean) ??
+        (payload.supports_vision as boolean) ?? undefined,
+      supportsReasoningEffort: (payload.supportsReasoningEffort as boolean) ??
+        (payload.supports_reasoning_effort as boolean) ?? undefined,
+      whenThinkingEnabled: (payload.whenThinkingEnabled as Record<string, unknown>) ??
+        (payload.when_thinking_enabled as Record<string, unknown>) ?? undefined,
+      whenThinkingDisabled: (payload.whenThinkingDisabled as Record<string, unknown>) ??
+        (payload.when_thinking_disabled as Record<string, unknown>) ?? undefined,
+      maxTokens: (payload.maxTokens as number) ?? (payload.max_tokens as number) ?? undefined,
+      temperature: (payload.temperature as number) ?? undefined,
+      useResponsesApi: (payload.useResponsesApi as boolean) ??
+        (payload.use_responses_api as boolean) ?? undefined,
+      outputVersion: (payload.outputVersion as string) ??
+        (payload.output_version as string) ?? undefined
     })
   }
 

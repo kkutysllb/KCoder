@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .auth import init_auth_state
@@ -45,6 +46,11 @@ _GATEWAY_VERSION = "0.2.0"
 _QILIN_SERVICE_URL = os.environ.get("QILIN_SERVICE_URL", "http://127.0.0.1:19200")
 _ASSISTANT_GRAPH_ID = os.environ.get("QILIN_GRAPH_ID", "agent")
 
+# CORS: 开发模式下 renderer 由 electron-vite dev server 提供（默认
+# http://localhost:5173）。浏览器对跨 origin 的 fetch 严格执行 CORS
+# preflight。gateway 仅 bind 127.0.0.1，放开 loopback 的任意端口安全。
+_CORS_ORIGIN_REGEX = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
+
 
 async def _init_db_and_auth(app: FastAPI) -> None:
     """Phase 6: 初始化 QiLin DB engine + auth 子系统.
@@ -58,7 +64,11 @@ async def _init_db_and_auth(app: FastAPI) -> None:
     """
     try:
         from qilin.config.app_config import get_app_config
-        from qilin.persistence import init_engine_from_config
+        # 注意：直接从 engine 子模块导入。QiLin v1.0.0 的
+        # persistence/__init__.py 的 __all__ 未导出 init_engine_from_config
+        # （上游 bug），但函数本身定义在 engine.py。从子模块导入可绕过
+        # __all__ 限制，且不修改 vendored 源码。
+        from qilin.persistence.engine import init_engine_from_config
 
         config = get_app_config()
         await init_engine_from_config(config.database)
@@ -197,6 +207,17 @@ def create_app() -> FastAPI:
                 "qilin_service_url": _QILIN_SERVICE_URL,
             }
         )
+
+    # CORS 必须在中间件栈最外层（FastAPI 中间件 LIFO：后 add 先执行）。
+    # 这样 OPTIONS preflight 在此直接返回，不进入 user_id 解析等内层。
+    # 用 regex 覆盖 loopback 任意端口，兼容 electron-vite/纯浏览器调试。
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=_CORS_ORIGIN_REGEX,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     return app
 

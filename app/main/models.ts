@@ -26,8 +26,10 @@ function getStore(dataDir: string): FileUserDataStore {
 
 /**
  * Input shape from the renderer when creating/updating a model profile.
- * Mirrors the engine's UserModelProfileRecord but only the fields a user
- * configures through the Settings UI.
+ * Mirrors UserModelProfileRecord; the QiLin-aligned fields (use, thinking,
+ * vision, ...) come from the preset selected in the Settings UI and are
+ * forwarded verbatim so the engine injection step can build a complete
+ * ModelConfig entry.
  */
 export interface ModelProfileInput {
   providerModel: string
@@ -37,6 +39,24 @@ export interface ModelProfileInput {
   contextWindowTokens?: number
   supportsToolCalling?: boolean
   aliases?: string[]
+  // ── QiLin ModelConfig 对齐字段（预设驱动）──
+  use?: string
+  displayName?: string
+  supportsThinking?: boolean
+  supportsVision?: boolean
+  supportsReasoningEffort?: boolean
+  whenThinkingEnabled?: Record<string, unknown>
+  whenThinkingDisabled?: Record<string, unknown>
+  maxTokens?: number
+  temperature?: number
+  useResponsesApi?: boolean
+  outputVersion?: string
+  pricing?: {
+    currency: string
+    inputPerMillion: number
+    outputPerMillion: number
+    inputCacheHitPerMillion?: number
+  }
 }
 
 export interface ModelListResult {
@@ -62,7 +82,20 @@ export async function saveModel(
     endpointFormat: input.endpointFormat,
     contextWindowTokens: input.contextWindowTokens,
     supportsToolCalling: input.supportsToolCalling,
-    aliases: input.aliases
+    aliases: input.aliases,
+    // 透传预设驱动的 QiLin 字段（undefined 的会被 JSON.stringify 跳过）
+    use: input.use,
+    displayName: input.displayName,
+    supportsThinking: input.supportsThinking,
+    supportsVision: input.supportsVision,
+    supportsReasoningEffort: input.supportsReasoningEffort,
+    whenThinkingEnabled: input.whenThinkingEnabled,
+    whenThinkingDisabled: input.whenThinkingDisabled,
+    maxTokens: input.maxTokens,
+    temperature: input.temperature,
+    useResponsesApi: input.useResponsesApi,
+    outputVersion: input.outputVersion,
+    pricing: input.pricing
   }
   await getStore(dataDir).saveModelProfile(userId, name, profile, {
     apiKey: input.apiKey
