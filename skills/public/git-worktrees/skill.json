@@ -1,0 +1,55 @@
+{
+  "specVersion": "1.0",
+  "id": "git-worktrees",
+  "name": "Git Worktrees",
+  "description": "Isolate parallel work in git worktrees so branches don't clobber each other's working state.",
+  "version": "1.0.0",
+  "category": "workflow",
+  "priority": 0,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/worktrees"
+    ],
+    "promptPatterns": [
+      "\\b(worktree|work tree|工作树|并行分支)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "worktrees",
+      "alias": [
+        "worktree"
+      ],
+      "description": "Manage isolated git worktrees for parallel work",
+      "injectPrompt": "Apply the git-worktrees skill: use git worktrees to isolate this work in its own directory so it doesn't interfere with the main checkout; clean up the worktree when done."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "bash",
+      "read"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "worktrees",
+        "title": "Isolate in a worktree",
+        "icon": "git-branch"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "workspace",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

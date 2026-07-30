@@ -1,0 +1,58 @@
+{
+  "specVersion": "1.0",
+  "id": "review",
+  "name": "Code Review",
+  "description": "Review uncommitted or branch changes and report findings by severity with file:line references.",
+  "version": "1.0.0",
+  "category": "review",
+  "priority": 0,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/review"
+    ],
+    "promptPatterns": [
+      "\\b(review|code-review|codereview|审查|代码审查)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "review",
+      "alias": [
+        "code-review",
+        "codereview",
+        "审查"
+      ],
+      "description": "Review code changes and report findings",
+      "injectPrompt": "Apply the review skill: inspect the relevant changes, then report findings grouped by severity (critical/important/minor) with concrete file:line references and suggested fixes."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "review",
+        "title": "Review changes",
+        "icon": "check"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "read",
+    "network": false,
+    "exec": "none",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

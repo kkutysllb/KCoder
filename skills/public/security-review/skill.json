@@ -1,0 +1,57 @@
+{
+  "specVersion": "1.0",
+  "id": "security-review",
+  "name": "Security Review",
+  "description": "Read-only security audit of a change: injection, auth, secrets, dependencies, least privilege.",
+  "version": "1.0.0",
+  "category": "review",
+  "priority": 0,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/security-review"
+    ],
+    "promptPatterns": [
+      "\\b(security review|安全审查|vulnerability|cve)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "security-review",
+      "alias": [
+        "security",
+        "安全审查"
+      ],
+      "description": "Audit a change for security issues",
+      "injectPrompt": "Apply the security-review skill: audit the change for injection, auth/authz gaps, leaked secrets, unsafe dependency usage, and over-broad permissions; report each issue with severity, file:line, and a remediation."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "read",
+      "grep",
+      "find"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [
+      {
+        "commandId": "security-review",
+        "title": "Security review",
+        "icon": "shield"
+      }
+    ],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "read",
+    "network": false,
+    "exec": "none",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

@@ -28,6 +28,7 @@
 
 sandbox:
   use: local
+  allow_host_bash: true  # 启用 host bash 工具（否则被 is_host_bash_allowed 过滤）
 
 models:
   # 占位模型——避免引擎启动时 models 为空而报错（fallback 路径会取 models[0]）。
@@ -39,5 +40,46 @@ models:
     model: gpt-4o-mini
     api_key: placeholder-injected-by-kcoder-settings
     openai_api_base: https://api.openai.com/v1
+
+# ─── 工具集 ───
+# 权威定义见 vendor/qilin/config.example.yaml（tools 段）
+# bash 工具需配合 sandbox.allow_host_bash: true，否则被 is_host_bash_allowed 过滤
+tools:
+  - name: ls
+    group: file:read
+    use: qilin.sandbox.tools:ls_tool
+  - name: read_file
+    group: file:read
+    use: qilin.sandbox.tools:read_file_tool
+  - name: glob
+    group: file:read
+    use: qilin.sandbox.tools:glob_tool
+    max_results: 200
+  - name: grep
+    group: file:read
+    use: qilin.sandbox.tools:grep_tool
+    max_results: 100
+  - name: write_file
+    group: file:write
+    use: qilin.sandbox.tools:write_file_tool
+  - name: str_replace
+    group: file:write
+    use: qilin.sandbox.tools:str_replace_tool
+  - name: bash
+    group: bash
+    use: qilin.sandbox.tools:bash_tool
+  - name: web_search
+    group: web
+    use: qilin.community.ddg_search.tools:web_search_tool
+    max_results: 5
+
+# ─── 技能 ───
+# path 相对 cwd（langgraph dev 在 python-runtime/ 下运行），指向项目根 skills 目录。
+# 结构：<path>/public/<name>/SKILL.md（SkillCategory.PUBLIC = "public"）
+# 内置 coding 技能包（复制自 KSkills/coding，作为公共内置技能）
+skills:
+  path: ../skills
+  scan:
+    enabled: true
 
 # 开发阶段用 sqlite（默认）；生产可切 postgres（AppConfig.database.backend）

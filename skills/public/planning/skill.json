@@ -1,0 +1,46 @@
+{
+  "specVersion": "1.0",
+  "id": "planning",
+  "name": "Planning",
+  "description": "Draft and refine implementation plans; gate coding work behind an approved plan.",
+  "version": "1.0.0",
+  "category": "planning",
+  "priority": 10,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/plan"
+    ],
+    "promptPatterns": [
+      "\\b(plan|计划|sdd)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "plan",
+      "alias": [
+        "计划"
+      ],
+      "description": "Draft or refine an implementation plan",
+      "injectPrompt": "Apply the planning skill: draft a concrete implementation plan for this request (files to create/modify, approach per file, verification steps), then gate coding work behind an approved plan."
+    }
+  ],
+  "tools": {
+    "allowed": [],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "write",
+    "network": false,
+    "exec": "none",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}

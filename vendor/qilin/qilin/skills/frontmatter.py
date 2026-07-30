@@ -23,6 +23,10 @@ ALLOWED_FRONTMATTER_PROPERTIES = {
     "compatibility",
     "version",
     "author",
+    # KSkills 技能生态的标准字段（标记技能包类型，如 type: knowledge-only）。
+    # QiLin 运行时解析器（parse_skill_file）本就忽略该字段；加入白名单仅为让
+    # _validate_skill_frontmatter 与运行时行为一致，兼容 KSkills SKILL.md 安装。
+    "package",
 }
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)

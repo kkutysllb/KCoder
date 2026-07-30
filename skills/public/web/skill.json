@@ -1,0 +1,50 @@
+{
+  "specVersion": "1.0",
+  "id": "web",
+  "name": "Web",
+  "description": "Fetch URLs and search the web to ground answers in current information.",
+  "version": "1.0.0",
+  "category": "integration",
+  "priority": 0,
+  "entry": "SKILL.md",
+  "activation": {
+    "commands": [
+      "/web"
+    ],
+    "promptPatterns": [
+      "\\b(web|search|搜索|联网)\\b"
+    ],
+    "fileTypes": [],
+    "autoActivate": false
+  },
+  "commands": [
+    {
+      "id": "web",
+      "alias": [
+        "search",
+        "搜索"
+      ],
+      "description": "Search or fetch from the web",
+      "injectPrompt": "Apply the web skill: use the web tools to search or fetch current information when the answer depends on data outside the workspace, then cite sources."
+    }
+  ],
+  "tools": {
+    "allowed": [
+      "web_fetch",
+      "web_search"
+    ],
+    "declarations": [],
+    "mcpServers": {}
+  },
+  "contributes": {
+    "chatMenu": [],
+    "quickTask": []
+  },
+  "permissions": {
+    "workspace": "read",
+    "network": true,
+    "exec": "none",
+    "requiresApproval": "on-request"
+  },
+  "assets": []
+}
