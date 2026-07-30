@@ -1,18 +1,13 @@
-// QiongQi Engine API Client
+// QiLin Engine API Client
 //
-// Contract types are imported with `import type` from @qiongqi/contracts (the
-// engine's foundation package). Type-only imports are erased at compile time,
-// so the renderer's browser bundle never pulls in zod (the contracts package's
-// only runtime dependency). Never import the `*Schema` value objects here —
-// those would drag zod v4 into the bundle. If you need a type that lives only
-// in @qiongqi/loop (e.g. the timeline projection), re-declare the minimal view
-// shape locally rather than importing it, because @qiongqi/loop is not
-// browser-safe (it pulls in node-only deps).
+// Governed-graph shapes (RoiSnapshot / EngineStreamEvent) are localized to
+// ./contracts.ts as structural interfaces. QiLin never emits governed-graph
+// events, so the data stays null at runtime.
 import type {
   EngineStreamEvent,
   BranchRoiSnapshot,
   RoiSnapshot
-} from '@qiongqi/contracts'
+} from './contracts'
 
 export interface ThreadResponse {
   id: string
@@ -255,10 +250,10 @@ export interface GraphRunInspection {
 // run timeline (GET /v1/runtime/evented-v2/runs/:runId/timeline) plus the
 // governed engine stream (GET /v1/engine/streams/:streamId/subscribe).
 //
-// The engine's authoritative timeline shape (EventedV2RunTimeline) lives in
-// @qiongqi/loop, which is NOT browser-safe, so we re-declare the minimal
-// fields we consume here. The ROI / branch-attribution types ARE imported
-// from @qiongqi/contracts (browser-safe, type-only).
+// The engine's authoritative timeline shape (EventedV2RunTimeline) is
+// browser-unsafe in the foundation package, so we re-declare the minimal
+// fields we consume here. The ROI / branch-attribution types are imported
+// type-only from ./contracts (structural local interfaces).
 //
 // DRIFT FIX: the previous hand-written types invented a `parallelGroup`
 // field on AgentGraphNodeView that does not exist anywhere in the engine.
@@ -996,7 +991,11 @@ export class EngineAPI {
    * Subscribe to the governed durable engine stream for a run.
    *
    * Stream frames use the engine SSE wire format:
-   *   id: <seq>\nevent: <kind>\ndata: <full EngineStreamEvent JSON>\n\n
+   *   id: <seq>
+event: <kind>
+data: <full EngineStreamEvent JSON>
+
+
    * The `data` payload carries `kind`, optional `branchId`, `multiAgentRunId`,
    * `agentRunId`, `seq`, and `payload`. We forward every frame to `onEvent`;
    * the caller decides which kinds to act on (branch.* / join.* / roi.snapshot).
@@ -1706,55 +1705,179 @@ export class EngineAPI {
   // state rather than crashing.
 
   async listSubAgents(): Promise<SubAgentEntry[]> {
-    return []
+    const response = await fetch(`${this.baseUrl}/v1/sub-agents`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to list sub-agents: ${response.statusText}`)
+    }
+    const data = await response.json()
+    return (data.subAgents ?? []) as SubAgentEntry[]
   }
-  async createSubAgent(_payload: Omit<SubAgentEntry, 'type' | 'source'>): Promise<unknown> {
-    throw new Error('Sub-agent management is not supported by the current engine')
+  async createSubAgent(payload: Omit<SubAgentEntry, 'type' | 'source'>): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/v1/sub-agents`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to create sub-agent: ${response.statusText}`)
+    }
+    return response.json()
   }
-  async updateSubAgent(_id: string, _payload: Partial<SubAgentEntry>): Promise<unknown> {
-    throw new Error('Sub-agent management is not supported by the current engine')
+  async updateSubAgent(id: string, payload: Partial<SubAgentEntry>): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/v1/sub-agents/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: this.headers,
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to update sub-agent: ${response.statusText}`)
+    }
+    return response.json()
   }
-  async deleteSubAgent(_id: string): Promise<void> {
-    throw new Error('Sub-agent management is not supported by the current engine')
+  async deleteSubAgent(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/v1/sub-agents/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to delete sub-agent: ${response.statusText}`)
+    }
   }
-  async cloneSubAgent(_id: string): Promise<unknown> {
-    throw new Error('Sub-agent management is not supported by the current engine')
+  async cloneSubAgent(id: string): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/v1/sub-agents/${encodeURIComponent(id)}/clone`, {
+      method: 'POST',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to clone sub-agent: ${response.statusText}`)
+    }
+    return response.json()
   }
 
   async getMcpConfig(): Promise<McpConfigResponse> {
-    return { mcp_servers: {}, mcpServers: {}, skills: {} }
+    const response = await fetch(`${this.baseUrl}/v1/mcp/config`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to get MCP config: ${response.statusText}`)
+    }
+    const data = await response.json()
+    return {
+      mcp_servers: data.mcp_servers ?? {},
+      mcpServers: data.mcpServers ?? data.mcp_servers ?? {},
+      skills: data.skills ?? {}
+    }
   }
-  async saveMcpConfig(_config: { mcp_servers: Record<string, McpServerConfigEntry> }): Promise<McpConfigResponse> {
-    throw new Error('MCP configuration management is not supported by the current engine')
+  async saveMcpConfig(config: { mcp_servers: Record<string, McpServerConfigEntry> }): Promise<McpConfigResponse> {
+    const response = await fetch(`${this.baseUrl}/v1/mcp/config`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ mcp_servers: config.mcp_servers })
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to save MCP config: ${response.statusText}`)
+    }
+    const data = await response.json()
+    return {
+      mcp_servers: data.mcp_servers ?? {},
+      mcpServers: data.mcpServers ?? data.mcp_servers ?? {},
+      skills: data.skills ?? {}
+    }
   }
 
   async listPlugins(): Promise<PluginEntry[]> {
-    return []
+    const response = await fetch(`${this.baseUrl}/v1/plugins`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to list plugins: ${response.statusText}`)
+    }
+    const data = await response.json()
+    return (data.plugins ?? []) as PluginEntry[]
   }
-  async togglePlugin(_id: string, _enabled: boolean): Promise<unknown> {
-    throw new Error('Plugin management is not supported by the current engine')
+  async togglePlugin(id: string, enabled: boolean): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/v1/plugins/${encodeURIComponent(id)}/toggle`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ enabled })
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to toggle plugin: ${response.statusText}`)
+    }
+    return response.json()
   }
   async getPluginDiscover(): Promise<{ plugins: DiscoverPlugin[] }> {
-    return { plugins: [] }
+    const response = await fetch(`${this.baseUrl}/v1/plugins/discover`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to discover plugins: ${response.statusText}`)
+    }
+    return response.json()
   }
-  async installPlugin(_id: string): Promise<unknown> {
-    throw new Error('Plugin management is not supported by the current engine')
+  async installPlugin(id: string): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/v1/plugins/${encodeURIComponent(id)}/install`, {
+      method: 'POST',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to install plugin: ${response.statusText}`)
+    }
+    return response.json()
   }
   async checkPluginUpdates(): Promise<{ updates: Array<{ id: string; latest: string }> }> {
-    return { updates: [] }
+    const response = await fetch(`${this.baseUrl}/v1/plugins/check-updates`, {
+      method: 'POST',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to check plugin updates: ${response.statusText}`)
+    }
+    return response.json()
   }
 
   async listCommands(): Promise<CommandEntry[]> {
-    return []
+    const response = await fetch(`${this.baseUrl}/v1/commands`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to list commands: ${response.statusText}`)
+    }
+    const data = await response.json()
+    return (data.commands ?? []) as CommandEntry[]
   }
-  async createCommand(_payload: Omit<CommandEntry, 'source'>): Promise<unknown> {
-    throw new Error('Command management is not supported by the current engine')
+  async createCommand(payload: Omit<CommandEntry, 'source'>): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/v1/commands`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to create command: ${response.statusText}`)
+    }
+    return response.json()
   }
-  async updateCommand(_id: string, _payload: Partial<CommandEntry>): Promise<unknown> {
-    throw new Error('Command management is not supported by the current engine')
+  async updateCommand(id: string, payload: Partial<CommandEntry>): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}/v1/commands/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: this.headers,
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to update command: ${response.statusText}`)
+    }
+    return response.json()
   }
-  async deleteCommand(_id: string): Promise<void> {
-    throw new Error('Command management is not supported by the current engine')
+  async deleteCommand(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/v1/commands/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to delete command: ${response.statusText}`)
+    }
   }
 
   async getRemoteConfig(): Promise<RemoteConfig> {
@@ -1770,7 +1893,8 @@ export class EngineAPI {
     }
   }
   async saveRemoteConfig(_config: Partial<RemoteConfig>): Promise<unknown> {
-    throw new Error('Remote control is not supported by the current engine')
+    // Phase 8: no-op — QiLin has no remote-control surface.
+    return {}
   }
   async testRemoteConnection(_url: string, _token: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
     return { ok: false, error: 'Remote control is not supported by the current engine' }

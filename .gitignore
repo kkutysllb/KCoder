@@ -49,3 +49,4 @@ python-runtime/*.sqlite
 python-runtime/*.sqlite3
 python-runtime/extensions_config.json
 python-runtime/.env
+docs/

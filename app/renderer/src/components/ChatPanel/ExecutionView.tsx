@@ -12,7 +12,7 @@ import type {
   GraphRunInspection,
   CircuitState
 } from '../../services/engine-api'
-import type { RoiSnapshot, BranchRoiSnapshot } from '@qiongqi/contracts'
+import type { RoiSnapshot, BranchRoiSnapshot } from '../../services/contracts'
 
 /**
  * 执行投影视图 — 渲染 run timeline 投影 + engine stream 增量。

@@ -1,8 +1,0 @@
-{
-  "calls": [
-    { "callId": "provider-call-1", "toolName": "read", "arguments": { "path": "./a" } },
-    { "callId": "provider-call-2", "toolName": "read", "arguments": { "path": "a" } }
-  ],
-  "semanticKey": "file.read:/workspace/a:1:2000",
-  "resourceVersion": "revision-1"
-}

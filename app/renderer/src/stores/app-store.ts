@@ -10,7 +10,7 @@ import type {
   GraphRunInspection,
   CircuitState
 } from '../services/engine-api'
-import type { RoiSnapshot } from '@qiongqi/contracts'
+import type { RoiSnapshot } from '../services/contracts'
 
 // 富内容消息部件 — assistant 消息由多个 part 组成（文本/推理/工具调用/工具结果/usage/审批）
 // `branchId` 标记该 part 来自哪个持久化并行分支（root agent 的 part 无 branchId），

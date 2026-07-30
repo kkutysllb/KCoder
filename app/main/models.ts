@@ -1,22 +1,17 @@
 /**
  * Product-side model management.
  *
- * The new QiongQi engine is model-neutral and exposes no HTTP CRUD for
- * models. It does, however, ship a per-user `UserDataStore` that the runtime
- * consults at request time (`UserScopedModelClient` resolves each thread's
- * model from the owner's profiles). KCoder drives that store directly from
- * the main process and exposes it to the renderer over IPC.
+ * KCoder owns its per-user model profile storage (FileUserDataStore — a
+ * local file-backed implementation).
+ * The QiLin sidecar reads model configuration from config.yaml; injecting
+ * these per-user profiles into QiLin's request-time model resolution is a
+ * future integration step. For now, the Settings UI can list / save / delete
+ * profiles and the data persists on disk.
  *
- * CRITICAL: the userId MUST match the authenticated user's id, because the
- * engine keys model profiles per user and resolves them at request time via
- * `thread.ownerUserId`. A fixed local-user id would never match threads
- * created by a logged-in user, so the runtime would fall back to the startup
- * model and never see the configured profiles.
- *
- * This is the product adapting to the engine, not the reverse: we use the
- * engine's own storage contract rather than inventing a parallel one.
+ * CRITICAL: the userId MUST match the authenticated user's id so profiles
+ * stay isolated per user.
  */
-import { FileUserDataStore, type UserModelProfileRecord } from '@qiongqi/http'
+import { FileUserDataStore, type UserModelProfileRecord } from './user-data-store'
 
 let store: FileUserDataStore | null = null
 

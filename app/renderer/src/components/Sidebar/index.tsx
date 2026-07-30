@@ -180,11 +180,15 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
 
   // 加载会话列表
   const loadThreads = useCallback(async () => {
-    if (engineStatus !== 'connected') return
+    if (engineStatus !== 'connected') {
+      console.log('[KCoder] loadThreads: skipped, engineStatus =', engineStatus)
+      return
+    }
     setLoadingThreads(true)
     try {
       const api = getEngineAPI(enginePort)
       const result = await api.listThreads()
+      console.log('[KCoder] loadThreads: got', result.threads.length, 'threads from port', enginePort)
       // 按更新时间降序
       const sorted = [...result.threads].sort((a, b) =>
         (b.updatedAt || '').localeCompare(a.updatedAt || '')
@@ -192,6 +196,18 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
       setThreads(sorted)
     } catch (error) {
       console.error('[KCoder] Failed to load threads:', error)
+      // 重试一次（引擎可能刚启动，store 还没 ready）
+      setTimeout(async () => {
+        try {
+          const api = getEngineAPI(enginePort)
+          const result = await api.listThreads()
+          setThreads([...result.threads].sort((a, b) =>
+            (b.updatedAt || '').localeCompare(a.updatedAt || '')
+          ))
+        } catch {
+          // 静默 — 下次 selectThread/loadThread 时会重新触发
+        }
+      }, 2000)
     } finally {
       setLoadingThreads(false)
     }

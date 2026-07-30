@@ -6,7 +6,7 @@ import {
   type ApprovalRequest,
   type UserInputRequest
 } from '../services/engine-api'
-import type { EngineStreamEvent, RoiSnapshot } from '@qiongqi/contracts'
+import type { EngineStreamEvent, RoiSnapshot } from '../services/contracts'
 
 export function useChat() {
   const {
