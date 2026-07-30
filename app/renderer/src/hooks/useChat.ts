@@ -18,6 +18,7 @@ export function useChat() {
     addMessage,
     updateMessage,
     appendMessagePart,
+    settleStreamingReasoning,
     updateLastToolCall,
     updateApprovalPart,
     addPendingApproval,
@@ -206,16 +207,27 @@ export function useChat() {
 
       switch (kind) {
         // —— 文本流式增量 ——
+        // 收到文本增量意味着推理阶段结束、正文阶段开始。先把仍在流式的 reasoning
+        // part 收尾（打上 completedAt），渲染层据此折叠为「已思考 Ns」摘要条。
         case 'assistant_text_delta': {
+          settleStreamingReasoning(assistantMessageId)
           const delta = (data.delta as string) ?? ''
           if (delta) appendMessagePart(assistantMessageId, { type: 'text', text: delta })
           break
         }
 
         // —— 推理流式增量 ——
+        // 带上 isStreaming:true + startedAt，让 appendMessagePart 的合并分支能识别
+        // 「最后一段正在流式的 reasoning」并追加而不是新建碎片 part。
         case 'assistant_reasoning_delta': {
           const delta = (data.delta as string) ?? (data.text as string) ?? ''
-          if (delta) appendMessagePart(assistantMessageId, { type: 'reasoning', text: delta })
+          if (delta)
+            appendMessagePart(assistantMessageId, {
+              type: 'reasoning',
+              text: delta,
+              isStreaming: true,
+              startedAt: Date.now()
+            })
           break
         }
 
@@ -234,7 +246,14 @@ export function useChat() {
           const callId = (data.callId as string) ?? ''
           const toolName = (data.toolName as string) ?? 'tool'
           if (callId) {
-            appendMessagePart(assistantMessageId, { type: 'tool_call', toolName, status: 'running', callId })
+            appendMessagePart(assistantMessageId, {
+              type: 'tool_call',
+              toolName,
+              status: 'running',
+              callId,
+              startedAt: Date.now(),
+              args: (data.args as Record<string, unknown> | undefined) ?? undefined
+            })
           }
           break
         }
@@ -243,7 +262,8 @@ export function useChat() {
           if (callId) {
             updateLastToolCall(assistantMessageId, callId, {
               status: data.isError ? 'failed' : 'completed',
-              summary: (data.summary as string) ?? undefined
+              summary: (data.summary as string) ?? undefined,
+              completedAt: Date.now()
             })
           }
           break
@@ -321,11 +341,18 @@ export function useChat() {
           break
         }
 
-        // turn 终止事件由 subscribeToThread 处理（resolve promise）
+        // turn 终止事件由 subscribeToThread 处理（resolve promise）。
+        // turn_failed 需要显示错误信息——否则引擎报错时前端完全静默，
+        // 用户只看到“消息发出去了但什么都没发生”。
+        case 'turn_failed': {
+          const failMsg = (data.message as string) ?? 'turn 执行失败（引擎未提供错误详情）'
+          appendMessagePart(assistantMessageId, { type: 'text', text: `\n\n⚠️ ${failMsg}` })
+          break
+        }
         case 'turn_completed':
-        case 'turn_failed':
         case 'turn_aborted':
         case 'heartbeat':
+          break
         // —— 线程目标 / 待办实时更新 ——
         // 引擎在 agent 使用 create_goal/update_goal/todo_write 工具时发出这些
         // 事件，实时同步到 Plan 面板（不再只在切线程时拉一次）。
@@ -348,6 +375,16 @@ export function useChat() {
           break
         }
 
+        // —— 上下文压缩（当前 QiLin 引擎未发，预留渲染，信号源就绪后零改动生效）——
+        case 'compaction_started': {
+          appendMessagePart(assistantMessageId, { type: 'compaction', kind: 'started' })
+          break
+        }
+        case 'compaction_completed': {
+          appendMessagePart(assistantMessageId, { type: 'compaction', kind: 'completed' })
+          break
+        }
+
         case 'pipeline_stage':
         case 'tool_call_ready':
         case 'tool_result_upload_wait':
@@ -357,15 +394,24 @@ export function useChat() {
         case 'thread_updated':
         case 'turn_started':
         case 'turn_steered':
-        case 'compaction_started':
-        case 'compaction_completed':
         case 'agent_message_delta':
         case 'agent_message_completed':
           // 这些事件暂不渲染（后续迭代），静默忽略
           break
       }
     },
-    [appendMessagePart, updateLastToolCall, updateApprovalPart, addPendingApproval, resolvePendingApproval, addPendingUserInput, resolvePendingUserInput, setThreadGoal, setThreadTodos]
+    [
+      appendMessagePart,
+      settleStreamingReasoning,
+      updateLastToolCall,
+      updateApprovalPart,
+      addPendingApproval,
+      resolvePendingApproval,
+      addPendingUserInput,
+      resolvePendingUserInput,
+      setThreadGoal,
+      setThreadTodos
+    ]
   )
 
   // 轮询执行投影视图（SSE 流期间每 1.5s 拉一次 DAG 进度）+ governed graph 治理状态
@@ -459,7 +505,7 @@ export function useChat() {
         // turn completes — this makes the stop button functional.
         const turnId = await api.sendMessage(currentThreadId, content.trim(), (event: SSEEvent) => {
           handleSseEvent(assistantMessageId, event)
-        }, attachmentIds)
+        }, attachmentIds, useAppStore.getState().selectedModel ?? undefined)
 
         // 立即设置 activeTurnId — 停止按钮和 steer 依赖它
         useAppStore.getState().setActiveTurnId(turnId)

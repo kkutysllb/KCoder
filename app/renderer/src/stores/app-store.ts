@@ -17,11 +17,46 @@ import type { RoiSnapshot } from '../services/contracts'
 // 用于并发分支场景下按 (itemId, branchId) 去重与按分支分组渲染。
 export type MessagePart =
   | { type: 'text'; text: string; itemId?: string; branchId?: string }
-  | { type: 'reasoning'; text: string; itemId?: string; branchId?: string }
-  | { type: 'tool_call'; toolName: string; status: 'running' | 'completed' | 'failed'; callId?: string; summary?: string; branchId?: string }
+  | {
+      type: 'reasoning'
+      text: string
+      itemId?: string
+      branchId?: string
+      /** 流式标记：收到 reasoning_delta 时为 true，文本流开始时收尾为 false */
+      isStreaming?: boolean
+      startedAt?: number
+      completedAt?: number
+    }
+  | {
+      type: 'tool_call'
+      toolName: string
+      status: 'running' | 'completed' | 'failed'
+      callId?: string
+      summary?: string
+      branchId?: string
+      startedAt?: number
+      completedAt?: number
+      /** 工具调用参数（从 data.args 提取）*/
+      args?: Record<string, unknown>
+    }
   | { type: 'tool_result'; toolName: string; output?: string; isError?: boolean; branchId?: string }
-  | { type: 'usage'; promptTokens: number; completionTokens: number; totalTokens: number; branchId?: string }
-  | { type: 'approval'; approvalId: string; toolName: string; summary?: string; status: 'pending' | 'allowed' | 'denied' | 'expired'; branchId?: string }
+  | {
+      type: 'usage'
+      promptTokens: number
+      completionTokens: number
+      totalTokens: number
+      branchId?: string
+      model?: string
+    }
+  | {
+      type: 'approval'
+      approvalId: string
+      toolName: string
+      summary?: string
+      status: 'pending' | 'allowed' | 'denied' | 'expired'
+      branchId?: string
+    }
+  | { type: 'compaction'; kind: 'started' | 'completed'; branchId?: string }
 
 // Message types
 export interface Message {
@@ -103,6 +138,8 @@ interface AppState {
   addMessage: (message: Message) => void
   updateMessage: (id: string, content: string) => void
   appendMessagePart: (id: string, part: MessagePart) => void
+  /** 收尾流式 reasoning：把最后一个 isStreaming:true 的 reasoning part 标记为完成。 */
+  settleStreamingReasoning: (id: string) => void
   updateLastToolCall: (id: string, callId: string, patch: Partial<Extract<MessagePart, { type: 'tool_call' }>>) => void
   updateApprovalPart: (messageId: string, approvalId: string, status: 'pending' | 'allowed' | 'denied' | 'expired') => void
   setGenerating: (generating: boolean) => void
@@ -222,10 +259,46 @@ export const useAppStore = create<AppState>((set) => ({
             return { ...msg, parts, content: msg.content + part.text }
           }
         }
+        // Delta-style reasoning accumulation: mirror the text merge above so
+        // assistant_reasoning_delta streams build one continuous reasoning part
+        // rather than a fragment per delta (which used to spam dozens of parts).
+        if (part.type === 'reasoning' && !part.itemId && parts.length > 0) {
+          const last = parts[parts.length - 1]
+          if (
+            last.type === 'reasoning' &&
+            !last.itemId &&
+            last.isStreaming !== false
+          ) {
+            parts[parts.length - 1] = {
+              ...last,
+              text: last.text + part.text,
+              isStreaming: part.isStreaming ?? true,
+              startedAt: last.startedAt ?? part.startedAt,
+              completedAt: part.completedAt
+            }
+            return { ...msg, parts }
+          }
+        }
         parts.push(part)
         // Sync content (for plain-text fallback rendering).
         const contentUpdate = part.type === 'text' ? msg.content + part.text : msg.content
         return { ...msg, parts, content: contentUpdate }
+      })
+    })),
+
+  settleStreamingReasoning: (id) =>
+    set((state) => ({
+      messages: state.messages.map((msg) => {
+        if (msg.id !== id || !msg.parts) return msg
+        let settled = false
+        const parts = msg.parts.map((p) => {
+          if (p.type === 'reasoning' && p.isStreaming === true && !settled) {
+            settled = true
+            return { ...p, isStreaming: false, completedAt: p.completedAt ?? Date.now() }
+          }
+          return p
+        })
+        return settled ? { ...msg, parts } : msg
       })
     })),
 

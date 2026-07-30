@@ -347,9 +347,9 @@ function ModelSettings({
         </div>
       </div>
 
-      {/* 注入机制开发中提示条 */}
-      <div className="mx-8 mb-2 px-3 py-2 rounded-lg bg-[#f59e0b]/10 border border-[#f59e0b]/20 text-xs text-[#f59e0b]">
-        {t('settings.model.injectPending')}
+      {/* 配置注入提示条：保存后自动写入引擎 config.yaml，新对话生效 */}
+      <div className="mx-8 mb-2 px-3 py-2 rounded-lg bg-[#22c55e]/10 border border-[#22c55e]/20 text-xs text-[#86efac]">
+        {t('settings.model.injectActive')}
       </div>
 
       {/* Two-column content */}

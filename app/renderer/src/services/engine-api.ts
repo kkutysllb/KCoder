@@ -761,14 +761,16 @@ export class EngineAPI {
     threadId: string,
     content: string,
     onEvent: (event: SSEEvent) => void,
-    attachmentIds?: string[]
+    attachmentIds?: string[],
+    model?: string
   ): Promise<string> {
     const turnResponse = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({
         prompt: content,
-        ...(attachmentIds && attachmentIds.length > 0 ? { attachmentIds } : {})
+        ...(attachmentIds && attachmentIds.length > 0 ? { attachmentIds } : {}),
+        ...(model ? { model_name: model } : {})
       })
     })
 

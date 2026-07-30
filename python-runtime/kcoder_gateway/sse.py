@@ -6,14 +6,20 @@ KCoder renderer 期望的 SSE 格式（见 engine-api.ts subscribeToThread）::
     data: {"kind": "tool_call_started", "callId": "...", "toolName": "..."}\n\n
     data: {"kind": "turn_completed", "turnId": "...", "threadId": "..."}\n\n
 
-LangGraph Platform 的 SSE 格式（stream_mode="messages"）::
+LangGraph Platform 的 SSE 格式（stream_mode=["messages"]，实测 langgraph_api 0.10.x）::
 
     event: metadata\n
     data: {"run_id": "..."}\n\n
-    event: messages\n
-    data: [{"type":"AIMessageChunk","content":"Hello"}, {}]\n\n
+    event: messages/partial\n
+    data: [{"type":"AIMessageChunk","content":"Hel"}, {...}]\n\n
+    event: messages/complete\n
+    data: [{"type":"AIMessageChunk","content":"Hello"}, {...}]\n\n
     event: end\n
     data: {}\n\n
+
+注意：旧版 LangGraph（<0.4）用 ``event: messages``；新版拆成 ``messages/partial``
+（流式增量，content 为增量文本）、``messages/complete``（完整消息，content 为
+累积全文）和 ``messages/metadata``（每条消息的 graph run 元数据，无消息体）。
 
 本模块负责：
 1. 解析 LangGraph SSE 帧（跨字节块缓冲）
@@ -100,8 +106,15 @@ def translate_event(event_type: str, data: Any, run: ActiveRun) -> list[dict[str
             run_id = str(data.get("run_id", ""))
         events.append({"kind": "turn_started", "turnId": run.turn_id, "runId": run_id})
 
-    elif event_type in ("messages", "messages-tuple"):
-        events.extend(_translate_messages_event(data, run))
+    elif event_type == "messages" or event_type.startswith("messages/"):
+        # messages/metadata 只含 graph run 元数据，不是真正的消息体，跳过
+        if event_type == "messages/metadata":
+            return events
+        # messages/partial 是流式增量（AIMessageChunk，content 为增量文本）；
+        # messages/complete 是该消息流结束后的完整 AIMessage（content 为累积全文）。
+        # 为避免文本重复，complete 只处理工具调用最终态，跳过文本提取。
+        is_complete = event_type == "messages/complete"
+        events.extend(_translate_messages_event(data, run, skip_text=is_complete))
 
     elif event_type == "end":
         events.append(
@@ -127,13 +140,15 @@ def translate_event(event_type: str, data: Any, run: ActiveRun) -> list[dict[str
 
 
 def _translate_messages_event(
-    data: Any, run: ActiveRun
+    data: Any, run: ActiveRun, *, skip_text: bool = False
 ) -> list[dict[str, Any]]:
-    """翻译 stream_mode=messages 的事件.
+    """翻译 stream_mode=messages 的事件（messages/partial、messages/complete 等）.
 
-    data 格式可能是:
-      - [msg_dict, meta_dict]  （标准 tuple，LangGraph 1.x）
-      - {"messages": [...], "metadata": {...}}  （某些版本）
+    data 格式是 LangGraph 的标准 tuple：``[msg_dict, meta_dict]``。
+    某些旧版本可能发 ``{"messages": [...], "metadata": {...}}``，一并兼容。
+
+    ``skip_text=True`` 时跳过 AI 文本提取（用于 messages/complete 避免与
+    messages/partial 的增量文本重复——complete 的 content 是累积全文）。
     """
     messages: list[dict[str, Any]] = []
 
@@ -150,12 +165,18 @@ def _translate_messages_event(
     events: list[dict[str, Any]] = []
     for msg in messages:
         if isinstance(msg, dict):
-            events.extend(_translate_single_message(msg))
+            events.extend(_translate_single_message(msg, skip_text=skip_text))
     return events
 
 
-def _translate_single_message(msg: dict[str, Any]) -> list[dict[str, Any]]:
-    """将单个 LangChain 消息字典翻译成 KCoder 事件."""
+def _translate_single_message(
+    msg: dict[str, Any], *, skip_text: bool = False
+) -> list[dict[str, Any]]:
+    """将单个 LangChain 消息字典翻译成 KCoder 事件.
+
+    ``skip_text=True`` 时跳过 AI 文本提取（messages/complete 的 content 是
+    累积全文，与 messages/partial 增量重复）。工具调用最终态不受影响。
+    """
     events: list[dict[str, Any]] = []
     msg_type = str(msg.get("type", msg.get("role", "")))
 
@@ -170,10 +191,11 @@ def _translate_single_message(msg: dict[str, Any]) -> list[dict[str, Any]]:
         return events
 
     if is_ai:
-        # 文本内容增量
-        text = _extract_text(msg.get("content", ""))
-        if text:
-            events.append({"kind": "assistant_text_delta", "delta": text})
+        # 文本内容增量（skip_text=True 时跳过——用于 messages/complete 避免与 partial 重复）
+        if not skip_text:
+            text = _extract_text(msg.get("content", ""))
+            if text:
+                events.append({"kind": "assistant_text_delta", "delta": text})
 
         # 工具调用（完整调用或流式 chunk）
         for tc in (msg.get("tool_calls") or []):
@@ -284,6 +306,7 @@ async def consume_langgraph_stream(
     prompt: str,
     *,
     user_id: str | None = None,
+    model_name: str | None = None,
 ) -> None:
     """后台任务：消费 LangGraph SSE 流 → 翻译 → 推入 event_queue.
 
@@ -291,16 +314,23 @@ async def consume_langgraph_stream(
 
     ``user_id``（可选）注入到 LangGraph ``configurable``，让 QiLin 的
     ``resolve_config_user_id`` 能识别当前用户（Phase 6）。
+    ``model_name``（可选）注入到 ``configurable.model_name``，让 QiLin 的
+    ``_resolve_model_name`` 按需选用指定模型（而非默认 models[0]）。
     """
     q = run.event_queue
     got_end = False
 
     try:
         input_data = {"messages": [{"role": "user", "content": prompt}]}
-        # Phase 6: 把 user_id 放入 configurable，QiLin 用它隔离用户数据
-        run_config: dict[str, Any] | None = None
+        # 把 user_id / model_name 放入 configurable，QiLin 据此隔离用户数据 / 选模型
+        configurable: dict[str, Any] = {}
         if user_id:
-            run_config = {"configurable": {"user_id": user_id}}
+            configurable["user_id"] = user_id
+        if model_name:
+            configurable["model_name"] = model_name
+        run_config: dict[str, Any] | None = (
+            {"configurable": configurable} if configurable else None
+        )
         buffer = ""
         async for raw_chunk in client.stream_run(
             run.thread_id, assistant_id, input_data, config=run_config

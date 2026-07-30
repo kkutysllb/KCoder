@@ -1,0 +1,43 @@
+# KCoder QiLin sidecar 运行时配置 — 模板
+#
+# 复制本文件为 config.yaml 并填入真实值：
+#     cp config.yaml.example config.yaml
+#
+# ⚠️ config.yaml 包含敏感信息（API key），已在 .gitignore 中忽略，切勿提交。
+#
+# 运行机制：
+#   KCoder 的 model store（Settings > 模型配置）在保存/激活/删除模型时，
+#   会通过 qilin-config-injector.ts 自动把 user-data.json 里的 profile 写入
+#   config.yaml 的 models: 段（段落保留式替换，不影响 sandbox 等其它段）。
+#   QiLin 引擎通过文件 signature 检测自动热重载，无需重启。
+#   因此本文件运行时会自动更新，手动编辑的内容会被覆盖。
+#
+# 字段说明：
+#   sandbox.use       必填。'local' = 进程内文件系统（coding 场景）
+#   models[].name     模型唯一标识（注入时用 profile id）
+#   models[].use      module:Class 格式（resolve_class 要求）
+#                     openai     -> langchain_openai:ChatOpenAI
+#                     anthropic  -> langchain_anthropic:ChatAnthropic
+#                     minimax    -> qilin.models.patched_minimax:PatchedChatMiniMax
+#                     ollama     -> langchain_ollama:ChatOllama
+#   models[].model    provider 的模型名（如 gpt-4o-mini）
+#   models[].api_key  真实 API key（运行时由 KCoder Settings 注入）
+#   models[].openai_api_base  自定义 API 基址（兼容 OpenAI 协议的供应商）
+#   models[].supports_thinking / supports_vision / supports_reasoning_effort
+#                     能力位（布尔），控制 UI 与推理行为
+
+sandbox:
+  use: local
+
+models:
+  # 占位模型——避免引擎启动时 models 为空而报错（fallback 路径会取 models[0]）。
+  # KCoder Settings 保存首个模型 profile 后，此占位会被自动替换为真实配置。
+  - name: kcoder-default
+    display_name: KCoder Default
+    description: Placeholder model; real API key injected by KCoder Settings at runtime
+    use: langchain_openai:ChatOpenAI
+    model: gpt-4o-mini
+    api_key: placeholder-injected-by-kcoder-settings
+    openai_api_base: https://api.openai.com/v1
+
+# 开发阶段用 sqlite（默认）；生产可切 postgres（AppConfig.database.backend）

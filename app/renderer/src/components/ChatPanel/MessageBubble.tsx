@@ -4,32 +4,83 @@ import remarkGfm from 'remark-gfm'
 import type { Message, MessagePart } from '../../stores/app-store'
 import { CodeBlock } from '../CodeBlock'
 import { useChat } from '../../hooks/useChat'
+import { useAppStore } from '../../stores/app-store'
+import { StageProgress } from './parts/StageProgress'
+import { BranchGroup } from './parts/BranchGroup'
+import { TurnMeta } from './parts/TurnMeta'
+import { CompactionNotice } from './parts/CompactionNotice'
+import { StreamingDots } from './parts/icons'
 
 interface MessageBubbleProps {
   message: Message
 }
 
+/**
+ * 消息气泡 —— Claude/ChatGPT 对话流风格。
+ *
+ * 用户消息：右对齐浅灰气泡，纯文本。
+ * AI 消息：左侧 K 头像 + 右侧 turn 容器，parts 按语义分区：
+ *   1. 阶段进度条（仅生成中）
+ *   2. 分支组（reasoning / tool_call / tool_result / approval / compaction）
+ *   3. 正文文本（markdown）
+ *   4. turn 元信息（usage + 模型 + 耗时，turn 完成时）
+ */
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user'
 
+  if (isUser) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[80%] rounded-xl px-4 py-3 bg-bg-hover text-text-primary">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
+        </div>
+      </div>
+    )
+  }
+
+  // AI 消息
+  const parts = message.parts ?? []
+  const branches = useAppStore((s) => s.branches)
+  const selectedModel = useAppStore((s) => s.selectedModel)
+
+  // 把 parts 分成三类：text 正文单独提取，其他进 BranchGroup，compaction 单独处理
+  const textParts: Extract<MessagePart, { type: 'text' }>[] = []
+  const interactiveParts: MessagePart[] = []
+  for (const p of parts) {
+    if (p.type === 'text') {
+      textParts.push(p)
+    } else if (p.type === 'usage') {
+      // usage 不在主流程渲染，交给 TurnMeta
+      continue
+    } else {
+      interactiveParts.push(p)
+    }
+  }
+  const fullText = textParts.map((p) => p.text).join('')
+
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div
-        className={`max-w-[85%] rounded-xl px-4 py-3 ${
-          isUser
-            ? 'bg-bg-hover text-text-primary'
-            : 'bg-transparent text-text-primary'
-        }`}
-      >
-        {isUser ? (
-          <p className="whitespace-pre-wrap text-sm">{message.content}</p>
-        ) : message.parts && message.parts.length > 0 ? (
-          <div className="space-y-2">
-            {message.parts.map((part, index) => (
-              <PartRenderer key={index} part={part} />
-            ))}
+    <div className="flex gap-3">
+      {/* 左侧头像 */}
+      <KAvatar streaming={message.isStreaming === true && parts.length === 0} />
+
+      {/* 右侧 turn 容器 */}
+      <div className="flex-1 min-w-0">
+        {/* 1. 阶段进度条 */}
+        <StageProgress parts={parts} isGenerating={message.isStreaming === true} />
+
+        {/* 2. 分支组（reasoning/tool_call/tool_result/approval/compaction）*/}
+        {interactiveParts.length > 0 && (
+          <div className="space-y-2 mb-2">
+            <BranchGroup
+              parts={interactiveParts}
+              branches={branches}
+              renderApproval={(p) => <ApprovalPartCard approvalId={p.approvalId} toolName={p.toolName} summary={p.summary} status={p.status} />}
+            />
           </div>
-        ) : (
+        )}
+
+        {/* 3. 正文文本 */}
+        {fullText && (
           <div className="prose prose-invert prose-sm max-w-none">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
@@ -37,11 +88,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                 code({ className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '')
                   const codeString = String(children).replace(/\n$/, '')
-
                   if (match) {
                     return <CodeBlock language={match[1]} code={codeString} />
                   }
-
                   return (
                     <code className="px-1.5 py-0.5 rounded bg-bg-hover text-text-primary text-[13px]" {...props}>
                       {children}
@@ -50,89 +99,44 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                 }
               }}
             >
-              {message.content || (message.isStreaming ? '...' : '')}
+              {fullText}
             </ReactMarkdown>
           </div>
         )}
 
-        {/* Streaming indicator */}
-        {message.isStreaming && !message.content && (!message.parts || message.parts.length === 0) && (
-          <div className="flex items-center gap-1 pt-1">
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#71717a] [animation-delay:-0.3s]" />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#71717a] [animation-delay:-0.15s]" />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#71717a]" />
+        {/* 生成中占位（空 parts + 空 text 时显示三点动画）*/}
+        {message.isStreaming && !fullText && parts.length === 0 && (
+          <div className="flex items-center gap-1 pt-1 text-text-muted">
+            <StreamingDots />
           </div>
         )}
+
+        {/* 4. turn 元信息 */}
+        <TurnMeta message={message} fallbackModel={selectedModel} />
       </div>
     </div>
   )
 }
 
-/** 渲染单个消息部件 */
-function PartRenderer({ part }: { part: MessagePart }) {
-  switch (part.type) {
-    case 'text':
-      // 文本 part 用 markdown 渲染
-      return (
-        <div className="prose prose-invert prose-sm max-w-none">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              code({ className, children, ...props }) {
-                const match = /language-(\w+)/.exec(className || '')
-                const codeString = String(children).replace(/\n$/, '')
-                if (match) {
-                  return <CodeBlock language={match[1]} code={codeString} />
-                }
-                return (
-                  <code className="px-1.5 py-0.5 rounded bg-bg-hover text-text-primary text-[13px]" {...props}>
-                    {children}
-                  </code>
-                )
-              }
-            }}
-          >
-            {part.text}
-          </ReactMarkdown>
-        </div>
-      )
-
-    case 'reasoning':
-      return <ReasoningBlock text={part.text} />
-
-    case 'tool_call':
-      return (
-        <div className="flex items-center gap-2 rounded-lg border border-border-subtle bg-bg-hover/50 px-3 py-2">
-          <ToolStatusIcon status={part.status} />
-          <span className="text-xs font-medium text-text-secondary">{part.toolName}</span>
-          {part.summary && <span className="text-xs text-text-muted truncate">— {part.summary}</span>}
-          {part.status === 'running' && (
-            <span className="ml-auto text-[10px] text-text-muted animate-pulse">执行中…</span>
-          )}
-        </div>
-      )
-
-    case 'tool_result':
-      return <ToolResultBlock toolName={part.toolName} output={part.output} isError={part.isError} />
-
-    case 'usage':
-      return (
-        <div className="flex items-center gap-3 text-[10px] text-text-muted border-t border-border-subtle pt-1.5 mt-1">
-          <span>输入 {part.promptTokens}</span>
-          <span>输出 {part.completionTokens}</span>
-          <span>共 {part.totalTokens} tokens</span>
-        </div>
-      )
-
-    case 'approval':
-      return <ApprovalPartCard approvalId={part.approvalId} toolName={part.toolName} summary={part.summary} status={part.status} />
-
-    default:
-      return null
-  }
+/** K 字母圆形头像 —— 流式中带呼吸光晕 */
+function KAvatar({ streaming }: { streaming: boolean }) {
+  return (
+    <div
+      className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${
+        streaming
+          ? 'bg-gradient-to-br from-[#3b82f6] to-[#6366f1] shadow-[0_0_0_3px_rgba(59,130,246,0.15)] animate-pulse'
+          : 'bg-gradient-to-br from-[#3b82f6] to-[#6366f1]'
+      }`}
+    >
+      K
+    </div>
+  )
 }
 
-/** 审批卡片 — pending 时显示允许/拒绝按钮，resolved 时显示结果 */
+/**
+ * 审批卡片 —— 保留原有交互（允许/拒绝按钮 + 状态徽章），仅从 PartRenderer 中内联。
+ * 状态：pending 时显示按钮，resolved 显示结果徽章。
+ */
 function ApprovalPartCard({ approvalId, toolName, summary, status }: {
   approvalId: string
   toolName: string
@@ -162,7 +166,6 @@ function ApprovalPartCard({ approvalId, toolName, summary, status }: {
   return (
     <div className="rounded-lg border border-[#f59e0b]/30 bg-[#f59e0b]/5 px-3 py-2.5">
       <div className="flex items-center gap-2">
-        {/* 审批图标 */}
         <svg className="w-4 h-4 shrink-0 text-[#f59e0b]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
         </svg>
@@ -203,61 +206,4 @@ function ApprovalPartCard({ approvalId, toolName, summary, status }: {
       )}
     </div>
   )
-}
-
-/** 推理块 — 可折叠 */
-function ReasoningBlock({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false)
-  return (
-    <div className="rounded-lg bg-bg-hover/30 border border-border-subtle">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-1.5 px-3 py-1.5 text-xs text-text-muted hover:text-text-secondary"
-      >
-        <span className={`transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-        思考过程
-      </button>
-      {expanded && (
-        <div className="px-3 pb-2 text-xs text-text-muted whitespace-pre-wrap border-t border-border-subtle">
-          {text}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** 工具结果块 — 可折叠 */
-function ToolResultBlock({ toolName, output, isError }: { toolName: string; output?: string; isError?: boolean }) {
-  const [expanded, setExpanded] = useState(false)
-  if (!output) return null
-  const preview = output.length > 200 ? output.slice(0, 200) + '…' : output
-  return (
-    <div className={`rounded-lg border ${isError ? 'border-red-500/30 bg-red-500/5' : 'border-border-subtle bg-bg-hover/30'}`}>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-1.5 px-3 py-1.5 text-xs text-text-muted hover:text-text-secondary"
-      >
-        <span className={`transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-        {toolName} 结果 {isError && <span className="text-red-400">（失败）</span>}
-      </button>
-      {expanded ? (
-        <pre className="px-3 pb-2 text-xs text-text-muted whitespace-pre-wrap break-all border-t border-border-subtle max-h-60 overflow-auto">
-          {output}
-        </pre>
-      ) : (
-        <div className="px-3 pb-1.5 text-[11px] text-text-muted truncate">{preview}</div>
-      )}
-    </div>
-  )
-}
-
-/** 工具状态图标 */
-function ToolStatusIcon({ status }: { status: 'running' | 'completed' | 'failed' }) {
-  if (status === 'running') {
-    return <span className="h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
-  }
-  if (status === 'completed') {
-    return <span className="h-2 w-2 rounded-full bg-green-500" />
-  }
-  return <span className="h-2 w-2 rounded-full bg-red-500" />
 }

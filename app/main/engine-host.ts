@@ -26,6 +26,7 @@ import {
   isQiLinRunning,
   type QiLinRuntimeConfig
 } from './qilin-runtime-manager'
+import { syncEngineModelsBestEffort } from './qilin-config-injector'
 
 // Engine configuration（保留原签名，renderer 通过 ipc 消费这些字段元信息）
 export interface EngineConfig {
@@ -99,6 +100,14 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
   } catch (error) {
     console.error('[KCoder] Failed to start QiLin sidecar:', error)
     throw error
+  }
+
+  // 引擎启动后防御性注入：把已有 model profiles 写入 config.yaml。
+  // 覆盖“用户不打开 Settings 但引擎重启”场景。失败不阻塞启动。
+  try {
+    await syncEngineModelsBestEffort(fullConfig.dataDir)
+  } catch (err) {
+    console.warn('[KCoder] Best-effort config injection failed (non-fatal):', err)
   }
 }
 

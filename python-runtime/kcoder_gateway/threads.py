@@ -62,6 +62,7 @@ class CreateThreadRequest(BaseModel):
 class StartTurnRequest(BaseModel):
     prompt: str
     attachmentIds: list[str] | None = None
+    model_name: str | None = None
 
 
 # ────────────────────────────────────────────────────────────────
@@ -257,7 +258,8 @@ async def start_turn(
     # 启动后台消费任务
     run.task = asyncio.create_task(
         consume_langgraph_stream(
-            client, registry, run, assistant_id, req.prompt, user_id=user_id
+            client, registry, run, assistant_id, req.prompt,
+            user_id=user_id, model_name=req.model_name,
         )
     )
 

@@ -92,8 +92,8 @@ function resolvePython(config: QiLinRuntimeConfig): string {
  *   4. 开发模式：<repo>/python-runtime（__dirname = <repo>/app/out/main，
  *      回溯 3 层到仓库根）
  */
-function resolveRuntimeDir(config: QiLinRuntimeConfig): string {
-  if (config.runtimeDir) return config.runtimeDir
+export function resolveRuntimeDir(config?: Partial<QiLinRuntimeConfig>): string {
+  if (config?.runtimeDir) return config.runtimeDir
   if (process.env.KCODER_PYTHON_RUNTIME) return process.env.KCODER_PYTHON_RUNTIME
   if (app.isPackaged) return join(process.resourcesPath, 'python-runtime')
   return resolve(__dirname, '..', '..', '..', 'python-runtime')

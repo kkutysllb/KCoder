@@ -2,16 +2,15 @@
  * Product-side model management.
  *
  * KCoder owns its per-user model profile storage (FileUserDataStore — a
- * local file-backed implementation).
- * The QiLin sidecar reads model configuration from config.yaml; injecting
- * these per-user profiles into QiLin's request-time model resolution is a
- * future integration step. For now, the Settings UI can list / save / delete
- * profiles and the data persists on disk.
+ * local file-backed implementation). Profiles are injected into QiLin's
+ * config.yaml at save/delete/activate time so the engine picks them up on
+ * the next request (QiLin auto-reloads config on file signature change).
  *
  * CRITICAL: the userId MUST match the authenticated user's id so profiles
  * stay isolated per user.
  */
 import { FileUserDataStore, type UserModelProfileRecord } from './user-data-store'
+import { syncEngineModels } from './qilin-config-injector'
 
 let store: FileUserDataStore | null = null
 
@@ -100,16 +99,37 @@ export async function saveModel(
   await getStore(dataDir).saveModelProfile(userId, name, profile, {
     apiKey: input.apiKey
   })
+
+  // 注入 config.yaml — 失败不阻塞（user-data.json 已写入，下次引擎启动补偿）
+  try {
+    await syncEngineModels(dataDir, userId)
+  } catch (err) {
+    console.warn(`[KCoder] Failed to sync engine config after saving model ${name}:`, err)
+  }
 }
 
 /** Delete a named model profile for a user. */
 export async function deleteModel(dataDir: string, userId: string, name: string): Promise<void> {
   await getStore(dataDir).deleteModelProfile(userId, name)
+
+  // 重新注入（删除后 models 列表更新）— 失败不阻塞
+  try {
+    await syncEngineModels(dataDir, userId)
+  } catch (err) {
+    console.warn(`[KCoder] Failed to sync engine config after deleting model ${name}:`, err)
+  }
 }
 
 /** Activate a named model profile for a user (sets their activeModel). */
 export async function activateModel(dataDir: string, userId: string, name: string): Promise<void> {
   await getStore(dataDir).activateModelProfile(userId, name)
+
+  // 重新注入（active profile 决定 models[0]，即引擎默认模型）— 失败不阻塞
+  try {
+    await syncEngineModels(dataDir, userId)
+  } catch (err) {
+    console.warn(`[KCoder] Failed to sync engine config after activating model ${name}:`, err)
+  }
 }
 
 export interface DiscoveredModel {
