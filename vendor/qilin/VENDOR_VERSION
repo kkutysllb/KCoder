@@ -1,0 +1,15 @@
+QiLin engine vendored into KCoder
+===================================
+
+Upstream: https://github.com/kkutysllb/QiLin
+Tag:      v1.0.0
+Commit:   4b9cb74306b75ed5741b53d8543a4c9da7f64f9a
+Date:     2026-07-29
+Imported: 2026-07-30 via `git subtree add --prefix=vendor/qilin`
+
+跟进上游更新:
+    git subtree pull --prefix=vendor/qilin qilin-upstream <new-tag> \\
+        -m "vendor: bump QiLin to <new-tag>"
+
+KCoder 对引擎本体的改动应优先推回上游；若必须本地 fork，
+请在此文件追加 "LOCAL PATCHES" 段落说明改动点。

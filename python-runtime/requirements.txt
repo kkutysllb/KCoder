@@ -1,7 +1,8 @@
 # KCoder QiLin sidecar 运行时依赖
-# 引擎本体（从 GitHub Release 安装；MVP 阶段用本地 wheel 或 whl URL）
-# 安装方式见 README.md
-qilin==1.0.0
+# 引擎本体：从仓库内 vendor/qilin 源码可编辑安装（开发改引擎即时生效）
+# 路径相对本文件所在目录 python-runtime/，即 <repo>/vendor/qilin
+# vendored 版本见 vendor/qilin/VENDOR_VERSION；跟进上游用 git subtree pull
+-e ../vendor/qilin
 # LangGraph CLI（提供 langgraph dev 命令）
 langgraph-cli>=0.4.24
 # Gateway 自身依赖（FastAPI + uvicorn 用于 Phase 2 的 /v1/* 翻译层）
