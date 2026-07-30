@@ -165,17 +165,21 @@ def _translate_messages_event(
     events: list[dict[str, Any]] = []
     for msg in messages:
         if isinstance(msg, dict):
-            events.extend(_translate_single_message(msg, skip_text=skip_text))
+            events.extend(_translate_single_message(msg, run, skip_text=skip_text))
     return events
 
 
 def _translate_single_message(
-    msg: dict[str, Any], *, skip_text: bool = False
+    msg: dict[str, Any], run: ActiveRun, *, skip_text: bool = False
 ) -> list[dict[str, Any]]:
     """将单个 LangChain 消息字典翻译成 KCoder 事件.
 
     ``skip_text=True`` 时跳过 AI 文本提取（messages/complete 的 content 是
     累积全文，与 messages/partial 增量重复）。工具调用最终态不受影响。
+
+    messages/partial 的 content 也是【累积全文】（langgraph_api 内部
+    ``messages[msg.id] += msg`` 后 yield 整个累积消息），因此对 partial
+    必须做前缀 diff：增量 = 当前 text 去掉与该 msg.id 上次记录的公共前缀。
     """
     events: list[dict[str, Any]] = []
     msg_type = str(msg.get("type", msg.get("role", "")))
@@ -194,8 +198,10 @@ def _translate_single_message(
         # 文本内容增量（skip_text=True 时跳过——用于 messages/complete 避免与 partial 重复）
         if not skip_text:
             text = _extract_text(msg.get("content", ""))
-            if text:
-                events.append({"kind": "assistant_text_delta", "delta": text})
+            msg_id = str(msg.get("id", ""))
+            delta = _compute_ai_delta(text, msg_id, run)
+            if delta:
+                events.append({"kind": "assistant_text_delta", "delta": delta})
 
         # 工具调用（完整调用或流式 chunk）
         for tc in (msg.get("tool_calls") or []):
@@ -249,6 +255,37 @@ def _extract_text(content: Any) -> str:
     return ""
 
 
+def _compute_ai_delta(text: str, msg_id: str, run: ActiveRun) -> str:
+    """计算 messages/partial 的真实增量.
+
+    langgraph_api 的 ``messages/partial`` yield 的是【累积后完整消息】
+    （``stream.py``: ``messages[msg.id] += msg`` 后 yield ``messages[msg.id]``），
+    所以同一 msg.id 的连续 partial 帧，content 是递增的前缀关系。
+    增量 = 当前 text 去掉与上次记录的公共前缀。
+
+    无 msg_id 时无法跨帧追踪，退化为全量发送（单次不会重复，
+    但若同帧多 chunk 无 id 会重复——LangChain 正常消息都有 id，此为兜底）。
+    """
+    if not text:
+        return ""
+    if not msg_id:
+        return text
+    prev = run.ai_text_seen.get(msg_id)
+    if not prev:
+        delta = text
+    elif text.startswith(prev):
+        # 正常路径：当前 = 上次 + 新增
+        delta = text[len(prev):]
+    elif prev.startswith(text):
+        # 异常回退（当前比上次还短，可能消息被重置）：全量重发
+        delta = text
+    else:
+        # 同 id 但内容无前缀关系（极少见，如分支重写）：全量重发
+        delta = text
+    run.ai_text_seen[msg_id] = text
+    return delta
+
+
 # ────────────────────────────────────────────────────────────────
 # ActiveRun 管理
 # ────────────────────────────────────────────────────────────────
@@ -269,6 +306,10 @@ class ActiveRun:
         default_factory=asyncio.Queue
     )
     task: asyncio.Task[None] | None = None
+    # 按 message id 追踪 AI 文本累积量。langgraph_api 的 messages/partial
+    # 发送的是【累积后完整消息】（见 stream.py: messages[msg.id] += msg），
+    # 所以必须做前缀 diff 才能得到真正的增量，否则会层层重复。
+    ai_text_seen: dict[str, str] = field(default_factory=dict)
 
 
 class RunRegistry:

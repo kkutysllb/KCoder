@@ -5,13 +5,18 @@ circuit breakers, checkpoints, branches). QiLin has no equivalent, so all
 governed endpoints return null-safe responses so the renderer's ExecutionView
 and governance controls degrade gracefully.
 
-Response strategy (mirrors engine-api.ts error handling):
-  - getRunTimeline: 404 → null  (engine-api.ts L973)
-  - inspectGraphRun: 503 → null  (engine-api.ts L1228)
-  - subscribeEngineStream: !ok → warn + close  (engine-api.ts L1048-1051)
-  - ackEngineStream: try/catch, ignores body  (engine-api.ts L990-992)
+Response strategy (mirrors engine-api.ts handling):
+  - getRunTimeline:       200 + JSON null  (renderer response.json() → null → available:false)
+  - inspectGraphRun:      200 + JSON null  (renderer response.json() → null)
+  - subscribeEngineStream: 200 + empty SSE stream (closes immediately)
+  - ackEngineStream:      200 + {ok:true}  (best-effort)
   - circuit/cancel/checkpoint: 503 (only triggered by explicit UI action on
     a governed run, which will never exist under QiLin)
+
+注：timeline / inspect 最初用 404 / 503 表达“能力未配置”，但浏览器 DevTools
+会把所有 4xx/5xx 自动打印成控制台红色错误（JS 的 try/catch 无法抑制），
+导致每次发消息都刷屏。改为 200 + JSON null 后语义不变（仍是“无数据”，
+前端走相同的 null 降级路径），但消除了控制台噪音。
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ import json
 from typing import Any
 
 from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 router = APIRouter(prefix="/v1", tags=["engine-stub"])
 
@@ -29,18 +34,16 @@ router = APIRouter(prefix="/v1", tags=["engine-stub"])
 
 
 @router.get("/runtime/evented-v2/runs/{run_id}/timeline")
-async def get_run_timeline(run_id: str) -> dict[str, Any]:
-    """GET /v1/runtime/evented-v2/runs/:runId/timeline → 404.
+async def get_run_timeline(run_id: str) -> JSONResponse:
+    """GET /v1/runtime/evented-v2/runs/:runId/timeline → 200 + JSON null.
 
-    renderer's getRunTimeline treats 404 as "not yet recorded" and returns
-    null, which makes getTurnExecution return {available: false}.
+    返回 200 + body ``null``：renderer 的 ``response.json()`` 解析出 null，
+    ``getRunTimeline`` 返回 null，``getTurnExecution`` 据此返回 ``{available: false}``。
+    用 200 而非 404 是为了避免浏览器 DevTools 把 4xx 当控制台错误刷屏。
     """
-    from fastapi import HTTPException
-
-    raise HTTPException(
-        status_code=404,
-        detail=f"Run timeline not available (governed engine not configured): {run_id}",
-    )
+    # run_id 仅用于日志/标识；governed engine 未配置，一律返回 null
+    _ = run_id
+    return JSONResponse(content=None)
 
 
 # ── Engine stream subscribe (GET /v1/engine/streams/:streamId/subscribe) ───
@@ -77,18 +80,14 @@ async def ack_engine_stream(stream_id: str) -> dict[str, Any]:
 
 
 @router.get("/engine/runs/{run_id}/inspect")
-async def inspect_graph_run(run_id: str) -> dict[str, Any]:
-    """GET /v1/engine/runs/:runId/inspect → 503.
+async def inspect_graph_run(run_id: str) -> JSONResponse:
+    """GET /v1/engine/runs/:runId/inspect → 200 + JSON null.
 
-    renderer's inspectGraphRun treats 503 as "governed engine not
-    configured" and returns null.
+    返回 200 + body ``null``：renderer 的 ``inspectGraphRun`` 解析出 null，
+    调用方据此跳过 governance 渲染。用 200 而非 503 避免控制台噪音。
     """
-    from fastapi import HTTPException
-
-    raise HTTPException(
-        status_code=503,
-        detail=f"Governed graph engine not configured: {run_id}",
-    )
+    _ = run_id
+    return JSONResponse(content=None)
 
 
 @router.post("/engine/runs/{run_id}/circuit")
