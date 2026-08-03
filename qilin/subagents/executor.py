@@ -452,6 +452,8 @@ class SubagentExecutor:
         is_internal: bool = False,
         authz_attributes: Mapping[str, Any] | None = None,
         qilin_trace_id: str | None = None,
+        parent_context_secrets: Mapping[str, Any] | None = None,
+        parent_skill_context: list[dict[str, Any]] | None = None,
     ):
         """Initialize the executor.
 
@@ -476,6 +478,13 @@ class SubagentExecutor:
                 the same run as the lead agent.
             qilin_trace_id: QiLin request-level correlation id propagated
                 from the parent run for Langfuse metadata correlation.
+            parent_context_secrets: Active data secrets from the parent runtime
+                context (config.context.secrets), written into the subagent's
+                runtime context so SkillActivationMiddleware can bind them into
+                sandbox env for delegated bash commands.
+            parent_skill_context: Skill references the parent thread has loaded
+                (ThreadState.skill_context), seeded into the subagent's initial
+                state so parent-activated skills bind secrets immediately.
         """
         self.config = config
         self.app_config = app_config
@@ -508,6 +517,15 @@ class SubagentExecutor:
         self.is_internal = is_internal
         self.authz_attributes = normalize_authz_attributes(authz_attributes)
         self.qilin_trace_id = qilin_trace_id
+        # Active data secrets inherited from the parent runtime context, so
+        # delegated bash commands inside the subagent see the same sandbox
+        # env bindings the lead agent would. Kept as a shallow copy to avoid
+        # aliasing the parent's mutable mapping.
+        self._parent_context_secrets = dict(parent_context_secrets) if parent_context_secrets else None
+        # Skill references loaded in the parent thread, seeded into the initial
+        # state so SkillActivationMiddleware sees them from the first model call
+        # (its binding source lags one step when derived from the state channel).
+        self._parent_skill_context = list(parent_skill_context) if parent_skill_context else None
 
         self._base_tools = _filter_tools(
             tools,
@@ -764,6 +782,12 @@ class SubagentExecutor:
         if self.thread_data is not None:
             state["thread_data"] = self.thread_data
 
+        # Seed parent-loaded skill references into the initial state so the
+        # subagent inherits skills activated by the parent (e.g. a completed
+        # SKILL.md read) and can bind their secrets from the first model call.
+        if self._parent_skill_context:
+            state["skill_context"] = list(self._parent_skill_context)
+
         return state, final_tools, deferred_setup
 
     async def _aexecute(self, task: str, result_holder: SubagentResult | None = None) -> SubagentResult:
@@ -874,6 +898,12 @@ class SubagentExecutor:
             context["authz_attributes"] = dict(self.authz_attributes)
             if self.qilin_trace_id:
                 context[QILIN_TRACE_METADATA_KEY] = self.qilin_trace_id
+            # Inherit active data secrets from the parent run so the subagent's
+            # SkillActivationMiddleware can bind them into its sandbox env.
+            # LangGraph replaces context wholesale (no merging), so secrets
+            # must be re-declared here explicitly.
+            if self._parent_context_secrets:
+                context["secrets"] = dict(self._parent_context_secrets)
             context["is_subagent"] = True
 
             logger.info(f"[trace={self.trace_id}] Subagent {self.config.name} starting async execution with max_turns={self.config.max_turns}")

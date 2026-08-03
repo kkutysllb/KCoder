@@ -313,6 +313,10 @@ async def task_tool(
     if runtime is not None:
         sandbox_state = runtime.state.get("sandbox")
         thread_data = runtime.state.get("thread_data")
+        # Skill references the parent thread has actually loaded (ThreadState.skill_context),
+        # carried into the subagent's initial state so skills activated in the parent
+        # (e.g. a completed SKILL.md read) stay bound for delegated bash commands.
+        parent_skill_context = runtime.state.get("skill_context")
         thread_id = runtime.context.get("thread_id") if runtime.context else None
         if thread_id is None:
             thread_id = runtime.config.get("configurable", {}).get("thread_id")
@@ -400,6 +404,13 @@ async def task_tool(
         "is_internal": is_internal,
         "authz_attributes": authz_attributes,
         "qilin_trace_id": qilin_trace_id,
+        # Propagate active data secrets (e.g. TUSHARE_TOKEN) so the subagent's
+        # SkillActivationMiddleware can bind them into its sandbox env; without
+        # this the subagent context is constructed fresh and secrets are lost.
+        "parent_context_secrets": parent_context.get("secrets"),
+        # Propagate parent-loaded skill references so the subagent inherits the
+        # parent's activated skills (SkillActivationMiddleware binding source).
+        "parent_skill_context": parent_skill_context,
     }
     if resolved_app_config is not None:
         executor_kwargs["app_config"] = resolved_app_config
