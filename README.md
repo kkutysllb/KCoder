@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/qilin-hero.png" alt="QiLin 麒麟智能体引擎" width="640" />
+</p>
+
 # QiLin
 
 > 中文版（Chinese version follows below）· [English Version](#english-version)
