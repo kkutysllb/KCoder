@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import tempfile
 import threading
 from pathlib import Path
 from typing import Any, Literal
@@ -73,6 +74,23 @@ class McpOAuthConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+def normalize_mcp_transport_alias(data: Any) -> Any:
+    """Normalize the MCP-spec ``transport`` field into ``type``.
+
+    The official MCP configuration schema uses ``transport`` to indicate
+    the transport mechanism (``stdio``/``sse``/``http``). Earlier versions
+    of this project only honored ``type``, which caused remote SSE/HTTP
+    servers configured with just ``transport`` to be incorrectly treated as
+    ``stdio`` (the default). This normalizes the two so either spelling
+    works, with ``type`` taking precedence when both are provided.
+    """
+    if isinstance(data, dict):
+        transport = data.get("transport")
+        if transport and not data.get("type"):
+            data = {**data, "type": transport}
+    return data
+
+
 class McpServerConfig(BaseModel):
     """Configuration for a single MCP server."""
 
@@ -105,11 +123,7 @@ class McpServerConfig(BaseModel):
         ``stdio`` (the default). This validator normalizes the two so either
         spelling works, with ``type`` taking precedence when both are provided.
         """
-        if isinstance(data, dict):
-            transport = data.get("transport")
-            if transport and not data.get("type"):
-                data = {**data, "type": transport}
-        return data
+        return normalize_mcp_transport_alias(data)
 
 
 def resolve_effective_mcp_routing(server_config: McpServerConfig | None, original_tool_name: str) -> dict[str, Any]:
@@ -244,7 +258,7 @@ class ExtensionsConfig(BaseModel):
         resolved_path = cls.resolve_config_path(config_path)
         if resolved_path is None:
             # Return empty config if extensions config file is not found
-            return cls(mcp_servers={}, skills={})
+            return cls(mcpServers={}, skills={})  # type: ignore[call-arg]  # by-alias construction
 
         try:
             with open(resolved_path, encoding="utf-8") as f:
@@ -396,3 +410,36 @@ def set_extensions_config(config: ExtensionsConfig) -> None:
     """
     global _extensions_config
     _extensions_config = config
+
+
+def atomic_write_extensions_config(config_path: Path, config_data: dict[str, Any]) -> None:
+    """Atomically write extensions config JSON to *config_path*.
+
+    Writes to a temp file in the same directory and replaces the target,
+    so a crash mid-write never leaves a truncated config behind. The
+    parent directory is created if missing (config management endpoints
+    may bootstrap a brand-new config file).
+
+    Args:
+        config_path: Destination for the extensions config JSON file.
+        config_data: Full extensions config shape as produced by
+            ``ExtensionsConfig.to_file_dict()`` (all top-level keys).
+    """
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            dir=config_path.parent,
+            suffix=".tmp",
+            delete=False,
+        ) as fd:
+            tmp_path = Path(fd.name)
+            json.dump(config_data, fd, indent=2)
+            fd.flush()
+            os.fsync(fd.fileno())
+        tmp_path.replace(config_path)
+    except BaseException:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        raise

@@ -16,7 +16,7 @@
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -38,6 +38,14 @@ class OrchestrationState(TypedDict, total=False):
     max_rounds: int
 
 
+class _WorkerExecutor(Protocol):
+    """最小执行器契约：测试 fake 与真实 SubagentExecutor 都满足。"""
+
+    async def _aexecute(
+        self, task: str, result_holder: SubagentResult | None = None
+    ) -> SubagentResult: ...
+
+
 @dataclass
 class OrchestratorGraph:
     """Build and run a LangGraph orchestrator/workers graph.
@@ -52,7 +60,7 @@ class OrchestratorGraph:
     """
 
     workers: dict[str, AgentSpec]
-    executor_factory: Callable[[AgentSpec], object]
+    executor_factory: Callable[[AgentSpec], _WorkerExecutor]
     max_rounds: int = 10
     max_concurrency: int = 3
 
@@ -66,9 +74,9 @@ class OrchestratorGraph:
             raise ValueError("OrchestratorGraph requires at least one worker")
 
         graph = StateGraph(OrchestrationState)
-        graph.add_node("orchestrator", self._orchestrator_node)
+        graph.add_node("orchestrator", self._orchestrator_node)  # type: ignore[arg-type]  # langgraph 桩泛型局限
         for name in self.workers:
-            graph.add_node(name, self._make_worker_node(name))
+            graph.add_node(name, self._make_worker_node(name))  # type: ignore[arg-type]  # langgraph 桩泛型局限
         graph.add_edge(START, "orchestrator")
         graph.add_conditional_edges(
             "orchestrator",
