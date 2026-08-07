@@ -24,6 +24,7 @@
 | LangGraph 兼容的内核 | LangGraph-compatible kernel |
 | 多 Provider 模型适配（OpenAI / Anthropic / DeepSeek / Gemini / Ollama） | Multi-provider model adapters |
 | 子代理递归 + 独立 checkpoint | Recursive sub-agents with independent checkpoints |
+| 多智能体编排（single/multi 配置切换 + 并行批次 + 协作模式） | Multi-agent orchestration (single/multi mode switch, parallel batch, collaboration patterns) |
 | 多沙箱后端（Local / aio_sandbox / boxlite / E2B / Tenki） | Multi-backend sandbox |
 | RBAC 风格的资源授权 | RBAC-style resource authorization |
 | Langfuse / Monocle 双 trace 适配 | Langfuse / Monocle trace adapters |
@@ -148,6 +149,7 @@ sandbox:
 | [架构总览](docs/architecture.md) | [Architecture](docs/architecture.md) | 三层架构、运行机制、可观测性、安全模型 |
 | [agents 模块](docs/modules/agents.md) | [agents](docs/modules/agents.md) | Lead Agent 工厂与中间件链 |
 | [subagents 模块](docs/modules/subagents.md) | [subagents](docs/modules/subagents.md) | 子代理执行与注册 |
+| [orchestration 模块](docs/modules/orchestration.md) | [orchestration](docs/modules/orchestration.md) | 多智能体编排（handoff/图/消息总线/协作模式） |
 | [tools 模块](docs/modules/tools.md) | [tools](docs/modules/tools.md) | 工具装配流水线 |
 | [skills 模块](docs/modules/skills.md) | [skills](docs/modules/skills.md) | 技能系统 |
 | [mcp 模块](docs/modules/mcp.md) | [mcp](docs/modules/mcp.md) | MCP 协议适配 |

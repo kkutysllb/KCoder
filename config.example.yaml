@@ -78,6 +78,10 @@ token_budget:
   max_output_tokens: null       # Optional separate output-only limit
   warn_threshold: 0.8           # Warn at 80% of the budget
   hard_stop_threshold: 1.0      # Force stop at 100% of the budget
+  # per_agent:                  # 多 agent 模式的 per-agent 配额 override
+  #   coder:
+  #     enabled: true
+  #     max_tokens: 50000       # 未列出的 agent 回退到全局限制
 
 # ============================================================================
 # Recursion Limit — Hard ceiling for a client-supplied run recursion_limit
@@ -2302,15 +2306,22 @@ run_ownership:
 #         multi（Orchestrator 图编排，workers 注册参与编排的子代理）
 # ---------------------------------------------------------------------------
 orchestration:
+  # 运行形态（切换需重启：图结构在 make_lead_agent 构建时定型）：
+  #   single（默认，v1.0.0 行为）：lead agent + task_tool 委派
+  #   multi（v2.0.0）：OrchestratorGraph 编排，workers 注册参与编排的子代理
   mode: single          # single | multi
   max_concurrency: 3    # multi 模式下并行执行上限
   # workers:            # multi 模式必须至少配置一个 worker
   #   - name: coder
   #     description: 编写代码的 worker
   #     system_prompt: You are a coding worker.
-  #     tools: [read_file, bash]
-  #     model: inherit
+  #     tools: [read_file, bash]        # None = 继承全部工具
+  #     disallowed_tools: [task]        # 默认禁 task，防止嵌套委派
+  #     skills: []                      # 空 = 禁用技能；省略 = 全部可用
+  #     model: inherit                  # inherit | 显式模型名
+  #     role: worker                    # worker | peer（对等协作模式）
   #     max_turns: 80
+  #     timeout_seconds: 900
 
 # authorization:
 #   enabled: true
