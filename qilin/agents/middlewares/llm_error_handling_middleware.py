@@ -166,7 +166,7 @@ class _AsyncWaiter:
     granted).
     """
 
-    __slots__ = ("loop", "event", "granted")
+    __slots__ = ("event", "granted", "loop")
 
     def __init__(self, loop: asyncio.AbstractEventLoop, event: asyncio.Event) -> None:
         self.loop = loop

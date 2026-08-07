@@ -11,17 +11,29 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from qilin.config.acp_config import ACPAgentConfig, load_acp_config_from_dict
 from qilin.config.agent_storage_config import AgentStorageConfig
-from qilin.config.agents_api_config import AgentsApiConfig, load_agents_api_config_from_dict
+from qilin.config.agents_api_config import (
+    AgentsApiConfig,
+    load_agents_api_config_from_dict,
+)
 from qilin.config.auth_config import AuthAppConfig
-from qilin.config.authorization_config import AuthorizationConfig, load_authorization_config_from_dict
+from qilin.config.authorization_config import (
+    AuthorizationConfig,
+    load_authorization_config_from_dict,
+)
 from qilin.config.channel_connections_config import ChannelConnectionsConfig
-from qilin.config.checkpointer_config import CheckpointerConfig, load_checkpointer_config_from_dict
+from qilin.config.checkpointer_config import (
+    CheckpointerConfig,
+    load_checkpointer_config_from_dict,
+)
 from qilin.config.database_config import DatabaseConfig
 from qilin.config.dedupe_storage_config import DedupeStorageConfig
 from qilin.config.extensions_config import ExtensionsConfig
 from qilin.config.file_signature import ConfigSignature as _ConfigSignature
 from qilin.config.file_signature import get_config_signature as _get_config_signature
-from qilin.config.guardrails_config import GuardrailsConfig, load_guardrails_config_from_dict
+from qilin.config.guardrails_config import (
+    GuardrailsConfig,
+    load_guardrails_config_from_dict,
+)
 from qilin.config.input_polish_config import InputPolishConfig
 from qilin.config.loop_detection_config import LoopDetectionConfig
 from qilin.config.memory_config import MemoryConfig, load_memory_config_from_dict
@@ -37,17 +49,29 @@ from qilin.config.scheduler_config import SchedulerConfig
 from qilin.config.skill_evolution_config import SkillEvolutionConfig
 from qilin.config.skill_scan_config import SkillScanConfig
 from qilin.config.skills_config import SkillsConfig
-from qilin.config.stream_bridge_config import StreamBridgeConfig, load_stream_bridge_config_from_dict
-from qilin.config.subagents_config import SubagentsAppConfig, load_subagents_config_from_dict
+from qilin.config.stream_bridge_config import (
+    StreamBridgeConfig,
+    load_stream_bridge_config_from_dict,
+)
+from qilin.config.subagents_config import (
+    SubagentsAppConfig,
+    load_subagents_config_from_dict,
+)
 from qilin.config.suggestions_config import SuggestionsConfig
-from qilin.config.summarization_config import SummarizationConfig, load_summarization_config_from_dict
+from qilin.config.summarization_config import (
+    SummarizationConfig,
+    load_summarization_config_from_dict,
+)
 from qilin.config.title_config import TitleConfig, load_title_config_from_dict
 from qilin.config.token_budget_config import TokenBudgetConfig
 from qilin.config.token_usage_config import TokenUsageConfig
 from qilin.config.tool_config import ToolConfig, ToolGroupConfig
 from qilin.config.tool_output_config import ToolOutputConfig
 from qilin.config.tool_progress_config import ToolProgressConfig
-from qilin.config.tool_search_config import ToolSearchConfig, load_tool_search_config_from_dict
+from qilin.config.tool_search_config import (
+    ToolSearchConfig,
+    load_tool_search_config_from_dict,
+)
 
 load_dotenv()
 
@@ -716,7 +740,7 @@ def peek_current_app_config() -> AppConfig | None:
 def push_current_app_config(config: AppConfig) -> None:
     """Push a runtime-scoped AppConfig override for the current execution context."""
     stack = _current_app_config_stack.get()
-    _current_app_config_stack.set(stack + (_current_app_config.get(),))
+    _current_app_config_stack.set((*stack, _current_app_config.get()))
     _current_app_config.set(config)
 
 

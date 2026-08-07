@@ -63,7 +63,6 @@ _XML_TAG_RE = re.compile(r"</?[A-Za-z_][\w:.-]*(?:\s[^<>]*?)?\s*/?>")
 class ClarificationMiddlewareState(AgentState):
     """Compatible with the `ThreadState` schema."""
 
-    pass
 
 
 class ClarificationMiddleware(AgentMiddleware[ClarificationMiddlewareState]):

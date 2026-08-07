@@ -227,7 +227,7 @@ def build_invoke_acp_agent_tool(agents: dict) -> BaseTool:
         try:
             from acp import spawn_agent_process
 
-            async with spawn_agent_process(client, cmd, *args, env=agent_env, cwd=physical_cwd) as (conn, proc):
+            async with spawn_agent_process(client, cmd, *args, env=agent_env, cwd=physical_cwd) as (conn, _):
                 logger.info("Spawning ACP agent '%s' with command '%s' and args %s in cwd %s", agent, cmd, args, physical_cwd)
                 await conn.initialize(
                     protocol_version=PROTOCOL_VERSION,

@@ -273,7 +273,7 @@ def run_lark_cli(config: BrokerConfig, args: list[str], stdin: bytes) -> ExecRes
         return ExecResult(126, b"", message.encode("utf-8"), False)
     env = {**os.environ, **config.credential_env()}
     try:
-        completed = subprocess.run(  # noqa: S603 - argv list, shell=False, fixed binary
+        completed = subprocess.run(
             [config.lark_cli_path, *args],
             input=stdin,
             capture_output=True,
@@ -313,7 +313,7 @@ def make_handler(config: BrokerConfig) -> type[BaseHTTPRequestHandler]:
         timeout = LARK_BROKER_SOCKET_TIMEOUT_SECONDS
 
         # Quiet: default BaseHTTPRequestHandler logs to stderr per request.
-        def log_message(self, *_args: Any) -> None:  # noqa: D401
+        def log_message(self, *_args: Any) -> None:
             return
 
         def _send_json(self, status: int, body: dict[str, Any]) -> None:
@@ -324,13 +324,13 @@ def make_handler(config: BrokerConfig) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(payload)
 
-        def do_GET(self) -> None:  # noqa: N802 - stdlib API
+        def do_GET(self) -> None:
             if self.path.rstrip("/") == LARK_BROKER_HEALTH_PATH:
                 self._send_json(200, {"ok": True})
                 return
             self._send_json(404, {"error": "not found"})
 
-        def do_POST(self) -> None:  # noqa: N802 - stdlib API
+        def do_POST(self) -> None:
             if self.path.rstrip("/") != LARK_BROKER_EXEC_PATH:
                 self._send_json(404, {"error": "not found"})
                 return
@@ -348,7 +348,7 @@ def make_handler(config: BrokerConfig) -> type[BaseHTTPRequestHandler]:
                 if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
                     raise ValueError("args must be a list of strings")
                 stdin = base64.b64decode(request.get("stdin_b64", "") or "")
-            except Exception:  # noqa: BLE001 - untrusted client input
+            except Exception:
                 self._send_json(400, {"error": "invalid request"})
                 return
 
@@ -357,7 +357,7 @@ def make_handler(config: BrokerConfig) -> type[BaseHTTPRequestHandler]:
                 return
             try:
                 result = run_lark_cli(config, args, stdin)
-            except Exception:  # noqa: BLE001 - keep the wire contract uniform
+            except Exception:
                 # run_lark_cli already maps the expected failures (timeout,
                 # missing binary) to ExecResults; anything else (OSError,
                 # PermissionError, …) would otherwise close the connection with

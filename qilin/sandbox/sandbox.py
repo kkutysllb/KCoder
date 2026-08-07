@@ -88,7 +88,6 @@ class Sandbox(ABC):
         Raises:
             ValueError: when an ``env`` key is not a valid env-var name.
         """
-        pass
 
     @abstractmethod
     def read_file(self, path: str) -> str:
@@ -100,7 +99,6 @@ class Sandbox(ABC):
         Returns:
             The content of the file.
         """
-        pass
 
     @abstractmethod
     def download_file(self, path: str) -> bytes:
@@ -119,7 +117,6 @@ class Sandbox(ABC):
                 and remote implementations must raise ``OSError`` so callers
                 have a single exception type to handle.
         """
-        pass
 
     @abstractmethod
     def list_dir(self, path: str, max_depth=2) -> list[str]:
@@ -132,7 +129,6 @@ class Sandbox(ABC):
         Returns:
             The contents of the directory.
         """
-        pass
 
     @abstractmethod
     def write_file(self, path: str, content: str, append: bool = False) -> None:
@@ -143,12 +139,10 @@ class Sandbox(ABC):
             content: The text content to write to the file.
             append: Whether to append the content to the file. If False, the file will be created or overwritten.
         """
-        pass
 
     @abstractmethod
     def glob(self, path: str, pattern: str, *, include_dirs: bool = False, max_results: int = 200) -> tuple[list[str], bool]:
         """Find paths that match a glob pattern under a root directory."""
-        pass
 
     @abstractmethod
     def grep(
@@ -162,7 +156,6 @@ class Sandbox(ABC):
         max_results: int = 100,
     ) -> tuple[list[GrepMatch], bool]:
         """Search for matches inside a text file or files under a directory."""
-        pass
 
     @abstractmethod
     def update_file(self, path: str, content: bytes) -> None:
@@ -172,4 +165,3 @@ class Sandbox(ABC):
             path: The absolute path of the file to update.
             content: The binary content to write to the file.
         """
-        pass

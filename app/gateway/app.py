@@ -10,7 +10,11 @@ from app.gateway.auth_disabled import warn_if_auth_disabled_enabled
 from app.gateway.auth_middleware import AuthMiddleware
 from app.gateway.browser_capability import ensure_browser_runtime_available
 from app.gateway.config import get_gateway_config
-from app.gateway.csrf_middleware import CORS_EXPOSED_HEADERS, CSRFMiddleware, get_configured_cors_origins
+from app.gateway.csrf_middleware import (
+    CORS_EXPOSED_HEADERS,
+    CSRFMiddleware,
+    get_configured_cors_origins,
+)
 from app.gateway.deps import langgraph_runtime
 from app.gateway.routers import (
     agents,
@@ -39,7 +43,11 @@ from app.gateway.routers import (
 )
 from app.gateway.trace_middleware import TraceMiddleware, resolve_trace_enabled
 from qilin.config import app_config as qilin_app_config
-from qilin.logging_config import DEFAULT_LOG_DATE_FORMAT, DEFAULT_LOG_FORMAT, configure_logging
+from qilin.logging_config import (
+    DEFAULT_LOG_DATE_FORMAT,
+    DEFAULT_LOG_FORMAT,
+    configure_logging,
+)
 from qilin.tracing.monocle import setup_monocle_tracing_if_enabled
 from qilin.uploads.manager import cleanup_stale_upload_staging_files
 

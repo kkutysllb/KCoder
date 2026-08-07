@@ -3,10 +3,10 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-import qilin.utils.llm_text as llm_text
 from app.gateway.authz import require_permission
 from app.gateway.deps import get_config
 from qilin.config.app_config import AppConfig
+from qilin.utils import llm_text
 from qilin.utils.oneshot_llm import run_oneshot_llm
 
 logger = logging.getLogger(__name__)

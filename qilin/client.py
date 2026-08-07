@@ -36,12 +36,27 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_core.runnables import RunnableConfig
 
 from qilin.agents.lead_agent.agent import build_middlewares
-from qilin.agents.lead_agent.prompt import apply_prompt_template, get_enabled_skills_for_config
-from qilin.agents.thread_state import get_thread_state_schema, normalize_middleware_state_schemas
+from qilin.agents.lead_agent.prompt import (
+    apply_prompt_template,
+    get_enabled_skills_for_config,
+)
+from qilin.agents.thread_state import (
+    get_thread_state_schema,
+    normalize_middleware_state_schemas,
+)
 from qilin.authz.principal import build_principal_from_context
 from qilin.config.agents_config import AGENT_NAME_PATTERN
-from qilin.config.app_config import get_app_config, is_trace_correlation_enabled, reload_app_config
-from qilin.config.extensions_config import ExtensionsConfig, SkillStateConfig, get_extensions_config, reload_extensions_config
+from qilin.config.app_config import (
+    get_app_config,
+    is_trace_correlation_enabled,
+    reload_app_config,
+)
+from qilin.config.extensions_config import (
+    ExtensionsConfig,
+    SkillStateConfig,
+    get_extensions_config,
+    reload_extensions_config,
+)
 from qilin.config.paths import get_paths
 from qilin.models import create_chat_model
 from qilin.runtime import CheckpointStateAccessor
@@ -51,12 +66,28 @@ from qilin.runtime.checkpoint_mode import (
     freeze_checkpoint_snapshot_frequency,
     inject_checkpoint_mode,
 )
-from qilin.runtime.goal import DEFAULT_MAX_GOAL_CONTINUATIONS, build_goal_state, goal_thread_lock, read_thread_goal, write_thread_goal
+from qilin.runtime.goal import (
+    DEFAULT_MAX_GOAL_CONTINUATIONS,
+    build_goal_state,
+    goal_thread_lock,
+    read_thread_goal,
+    write_thread_goal,
+)
 from qilin.runtime.user_context import get_effective_user_id
 from qilin.skills.describe import build_skill_search_setup
 from qilin.skills.storage import get_or_new_user_skill_storage
-from qilin.tools.builtins.tool_search import assemble_deferred_tools, build_mcp_routing_middleware, get_mcp_routing_hints_prompt_section
-from qilin.trace_context import QILIN_TRACE_METADATA_KEY, generate_trace_id, get_current_trace_id, reset_current_trace_id, set_current_trace_id
+from qilin.tools.builtins.tool_search import (
+    assemble_deferred_tools,
+    build_mcp_routing_middleware,
+    get_mcp_routing_hints_prompt_section,
+)
+from qilin.trace_context import (
+    QILIN_TRACE_METADATA_KEY,
+    generate_trace_id,
+    get_current_trace_id,
+    reset_current_trace_id,
+    set_current_trace_id,
+)
 from qilin.tracing import build_tracing_callbacks, inject_langfuse_metadata
 from qilin.uploads.manager import (
     claim_unique_filename,
@@ -229,19 +260,20 @@ class QiLinClient:
     @staticmethod
     def _atomic_write_json(path: Path, data: dict) -> None:
         """Write JSON to *path* atomically (temp file + replace)."""
-        fd = tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=path.parent,
-            suffix=".tmp",
-            delete=False,
-        )
+        tmp_path: Path | None = None
         try:
-            json.dump(data, fd, indent=2)
-            fd.close()
-            Path(fd.name).replace(path)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                dir=path.parent,
+                suffix=".tmp",
+                delete=False,
+            ) as fd:
+                tmp_path = Path(fd.name)
+                json.dump(data, fd, indent=2)
+            tmp_path.replace(path)
         except BaseException:
-            fd.close()
-            Path(fd.name).unlink(missing_ok=True)
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
             raise
 
     def _get_runnable_config(self, thread_id: str, **overrides) -> RunnableConfig:
@@ -1299,7 +1331,9 @@ class QiLinClient:
             reload_extensions_config()
         else:
             # CUSTOM / LEGACY: write per-user state
-            from qilin.skills.storage.user_scoped_skill_storage import UserScopedSkillStorage
+            from qilin.skills.storage.user_scoped_skill_storage import (
+                UserScopedSkillStorage,
+            )
 
             if isinstance(storage, UserScopedSkillStorage):
                 storage.set_skill_enabled_state(name, enabled)
@@ -1320,7 +1354,10 @@ class QiLinClient:
         # cached enabled-state would stay stale until process restart. See
         # review feedback on PR #3889.
         try:
-            from qilin.agents.lead_agent.prompt import clear_skills_system_prompt_cache, invalidate_user_skill_cache
+            from qilin.agents.lead_agent.prompt import (
+                clear_skills_system_prompt_cache,
+                invalidate_user_skill_cache,
+            )
 
             skill_category_value = skill.category.value if hasattr(skill.category, "value") else skill.category
             if skill_category_value == SkillCategory.PUBLIC.value:
@@ -1484,7 +1521,10 @@ class QiLinClient:
             FileNotFoundError: If any file does not exist.
             ValueError: If any supplied path exists but is not a regular file.
         """
-        from qilin.utils.file_conversion import CONVERTIBLE_EXTENSIONS, convert_file_to_markdown
+        from qilin.utils.file_conversion import (
+            CONVERTIBLE_EXTENSIONS,
+            convert_file_to_markdown,
+        )
 
         # Validate all files upfront to avoid partial uploads.
         resolved_files = []

@@ -535,7 +535,7 @@ async def update_mcp_configuration(request: Request, body: McpConfigUpdateReques
         raise
     except Exception as e:
         logger.error(f"Failed to update MCP configuration: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update MCP configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update MCP configuration: {e!s}")
 
 
 @router.patch(
@@ -557,4 +557,4 @@ async def update_mcp_server_state(request: Request, body: McpServerStateUpdateRe
         raise
     except Exception as e:
         logger.error("Failed to update MCP server %s state: %s", body.server_name, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update MCP server state: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update MCP server state: {e!s}")

@@ -402,7 +402,7 @@ class BoxliteProvider(WarmPoolLifecycleMixin[BoxliteBox], SandboxProvider):
                 return reclaimed
 
             box = self._create_box(sandbox_id)
-            conflict: tuple[str, str] | None | object = _NO_ACTIVE_IDENTITY
+            conflict: tuple[str, str] | object | None = _NO_ACTIVE_IDENTITY
             with self._lock:
                 if box.id in self._boxes:
                     conflict = self._active_box_identity.get(box.id)

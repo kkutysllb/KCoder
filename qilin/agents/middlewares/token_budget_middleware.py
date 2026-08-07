@@ -37,7 +37,11 @@ from typing import Any, override
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
-from langchain.agents.middleware.types import ModelCallResult, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import (
+    ModelCallResult,
+    ModelRequest,
+    ModelResponse,
+)
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.runtime import Runtime
 
@@ -296,7 +300,7 @@ class TokenBudgetMiddleware(AgentMiddleware[AgentState]):
         warning_msg = HumanMessage(content=merged_text, name="budget_warning")
 
         messages = getattr(request, "messages", [])
-        new_messages = list(messages) + [warning_msg]
+        new_messages = [*list(messages), warning_msg]
         return request.override(messages=new_messages)
 
     @override

@@ -50,7 +50,7 @@ def web_search_tool(query: str) -> str:
         json_results = json.dumps(normalized_results, indent=2, ensure_ascii=False)
         return json_results
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error: {e!s}"
 
 
 @tool("web_fetch", parse_docstring=True)
@@ -76,4 +76,4 @@ def web_fetch_tool(url: str) -> str:
         else:
             return "Error: No results found"
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error: {e!s}"

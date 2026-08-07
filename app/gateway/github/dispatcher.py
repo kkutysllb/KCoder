@@ -76,8 +76,7 @@ def _is_self_event(
         return False
 
     # Strip the GitHub bot suffix — ``llm-gateway-ai[bot]`` → ``llm-gateway-ai``.
-    if sender_login.endswith("[bot]"):
-        sender_login = sender_login[:-5]
+    sender_login = sender_login.removesuffix("[bot]")
 
     # Build the self-identity set: explicit bot_login wins, then every
     # mention_login the agent declares across its bindings (the agent's

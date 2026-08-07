@@ -12,7 +12,10 @@ from typing import Any
 from langchain_core.language_models import LanguageModelInput
 from langchain_deepseek import ChatDeepSeek
 
-from qilin.models.assistant_payload_replay import restore_assistant_payloads, restore_reasoning_content
+from qilin.models.assistant_payload_replay import (
+    restore_assistant_payloads,
+    restore_reasoning_content,
+)
 
 
 class PatchedChatDeepSeek(ChatDeepSeek):

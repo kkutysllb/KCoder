@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from qilin.skills.review.analyzer import analyze_skill_package
-from qilin.skills.review.models import DEFAULT_PACKAGE_LIMITS, SEVERITY_RANK, PackageLimits, stable_json_dumps
+from qilin.skills.review.models import (
+    DEFAULT_PACKAGE_LIMITS,
+    SEVERITY_RANK,
+    PackageLimits,
+    stable_json_dumps,
+)
 from qilin.skills.review.readers import ArchivePackageReader, LocalDirectoryReader
 
 

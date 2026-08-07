@@ -415,7 +415,7 @@ async def upload_files(
         except Exception as e:
             logger.error(f"Failed to upload {file.filename}: {e}")
             await run_file_io(_cleanup_uploaded_paths, written_paths)
-            raise HTTPException(status_code=500, detail=f"Failed to upload {file.filename}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to upload {file.filename}: {e!s}")
 
     # Uploaded files are created with 0o600 permissions (owner read/write only).
     # In Docker sandbox deployments the gateway writes as root but the sandbox
@@ -479,4 +479,4 @@ async def delete_uploaded_file(thread_id: str, filename: str, request: Request) 
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to delete {filename}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete {filename}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete {filename}: {e!s}")

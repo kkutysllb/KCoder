@@ -29,7 +29,11 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import PrivateAttr
 
-from qilin.agents.memory.manager import MemoryConflictError, MemoryCorruptionError, MemoryManager
+from qilin.agents.memory.manager import (
+    MemoryConflictError,
+    MemoryCorruptionError,
+    MemoryManager,
+)
 
 from .qilinmem.config import QiLinMemConfig
 from .qilinmem.core.llm import build_llm
@@ -41,9 +45,18 @@ from .qilinmem.core.message_processing import (
     load_patterns,
 )
 from .qilinmem.core.paths import DEFAULT_AGENT_BUCKET
-from .qilinmem.core.prompt import format_memory_for_injection, load_prompt, load_prompt_messages, warm_tiktoken_cache
+from .qilinmem.core.prompt import (
+    format_memory_for_injection,
+    load_prompt,
+    load_prompt_messages,
+    warm_tiktoken_cache,
+)
 from .qilinmem.core.queue import MemoryUpdateQueue, QueueFull
-from .qilinmem.core.storage import MemoryRevisionConflict, MemoryStorageCorruption, create_storage
+from .qilinmem.core.storage import (
+    MemoryRevisionConflict,
+    MemoryStorageCorruption,
+    create_storage,
+)
 from .qilinmem.core.updater import MemoryUpdater, _coerce_source_confidence
 
 logger = logging.getLogger(__name__)

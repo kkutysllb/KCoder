@@ -7,7 +7,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 from pydantic_core import PydanticCustomError
 
-from qilin.runtime.stream_modes import RunStreamMode, UnsupportedStreamModeError, normalize_stream_modes
+from qilin.runtime.stream_modes import (
+    RunStreamMode,
+    UnsupportedStreamModeError,
+    normalize_stream_modes,
+)
 
 
 class RunCreateRequest(BaseModel):

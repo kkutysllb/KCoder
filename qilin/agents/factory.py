@@ -20,9 +20,17 @@ from langchain.agents.middleware import AgentMiddleware
 
 from qilin.agents.features import RuntimeFeatures
 from qilin.agents.middlewares.clarification_middleware import ClarificationMiddleware
-from qilin.agents.middlewares.dangling_tool_call_middleware import DanglingToolCallMiddleware
-from qilin.agents.middlewares.tool_error_handling_middleware import ToolErrorHandlingMiddleware
-from qilin.agents.thread_state import adapt_state_schema_for_mode, get_thread_state_schema, normalize_middleware_state_schemas
+from qilin.agents.middlewares.dangling_tool_call_middleware import (
+    DanglingToolCallMiddleware,
+)
+from qilin.agents.middlewares.tool_error_handling_middleware import (
+    ToolErrorHandlingMiddleware,
+)
+from qilin.agents.thread_state import (
+    adapt_state_schema_for_mode,
+    get_thread_state_schema,
+    normalize_middleware_state_schemas,
+)
 from qilin.config.database_config import CheckpointChannelMode
 from qilin.tools.builtins import ask_clarification_tool
 
@@ -223,7 +231,9 @@ def _assemble_from_features(
         if isinstance(feat.sandbox, AgentMiddleware):
             chain.append(feat.sandbox)
         else:
-            from qilin.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
+            from qilin.agents.middlewares.thread_data_middleware import (
+                ThreadDataMiddleware,
+            )
             from qilin.agents.middlewares.uploads_middleware import UploadsMiddleware
             from qilin.sandbox.middleware import SandboxMiddleware
 
@@ -271,11 +281,16 @@ def _assemble_from_features(
         if isinstance(feat.memory, AgentMiddleware):
             chain.append(feat.memory)
         else:
-            from qilin.config.memory_config import get_memory_config, should_use_memory_tools
+            from qilin.config.memory_config import (
+                get_memory_config,
+                should_use_memory_tools,
+            )
 
             memory_cfg: MemoryConfig = feat.memory_config or get_memory_config()
             if should_use_memory_tools(memory_cfg):
-                from qilin.agents.memory.manager import backend_requires_passive_writes_in_tool_mode
+                from qilin.agents.memory.manager import (
+                    backend_requires_passive_writes_in_tool_mode,
+                )
                 from qilin.agents.memory.tools import get_memory_tools
 
                 existing_names = {tool.name for tool in extra_tools}
@@ -286,7 +301,9 @@ def _assemble_from_features(
                     extra_tools.append(memory_tool)
                     existing_names.add(memory_tool.name)
                 if backend_requires_passive_writes_in_tool_mode(memory_cfg.manager_class):
-                    from qilin.agents.middlewares.memory_middleware import MemoryMiddleware
+                    from qilin.agents.middlewares.memory_middleware import (
+                        MemoryMiddleware,
+                    )
 
                     chain.append(MemoryMiddleware(agent_name=name, memory_config=memory_cfg))
             else:
@@ -301,7 +318,9 @@ def _assemble_from_features(
         if isinstance(feat.vision, AgentMiddleware):
             chain.append(feat.vision)
         else:
-            from qilin.agents.middlewares.view_image_middleware import ViewImageMiddleware
+            from qilin.agents.middlewares.view_image_middleware import (
+                ViewImageMiddleware,
+            )
 
             chain.append(ViewImageMiddleware())
 
@@ -315,7 +334,9 @@ def _assemble_from_features(
         if isinstance(feat.subagent, AgentMiddleware):
             chain.append(feat.subagent)
         else:
-            from qilin.agents.middlewares.subagent_limit_middleware import SubagentLimitMiddleware
+            from qilin.agents.middlewares.subagent_limit_middleware import (
+                SubagentLimitMiddleware,
+            )
 
             chain.append(SubagentLimitMiddleware())
         from qilin.tools.builtins import task_tool
@@ -327,7 +348,9 @@ def _assemble_from_features(
         if isinstance(feat.loop_detection, AgentMiddleware):
             chain.append(feat.loop_detection)
         else:
-            from qilin.agents.middlewares.loop_detection_middleware import LoopDetectionMiddleware
+            from qilin.agents.middlewares.loop_detection_middleware import (
+                LoopDetectionMiddleware,
+            )
             from qilin.config.loop_detection_config import LoopDetectionConfig
 
             chain.append(LoopDetectionMiddleware.from_config(LoopDetectionConfig()))
@@ -337,7 +360,9 @@ def _assemble_from_features(
         if isinstance(feat.token_budget, AgentMiddleware):
             chain.append(feat.token_budget)
         else:
-            from qilin.agents.middlewares.token_budget_middleware import TokenBudgetMiddleware
+            from qilin.agents.middlewares.token_budget_middleware import (
+                TokenBudgetMiddleware,
+            )
             from qilin.config.token_budget_config import TokenBudgetConfig
 
             chain.append(TokenBudgetMiddleware.from_config(TokenBudgetConfig()))

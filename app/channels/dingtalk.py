@@ -16,11 +16,22 @@ import httpx
 from app.channels.base import Channel
 from app.channels.commands import is_known_channel_command
 from app.channels.connection_identity import attach_connection_identity
-from app.channels.message_bus import InboundMessage, InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
+from app.channels.message_bus import (
+    InboundMessage,
+    InboundMessageType,
+    MessageBus,
+    OutboundMessage,
+    ResolvedAttachment,
+)
 from qilin.config.paths import VIRTUAL_PATH_PREFIX, get_paths
 from qilin.runtime.user_context import get_effective_user_id
 from qilin.sandbox.sandbox_provider import get_sandbox_provider
-from qilin.uploads.manager import UnsafeUploadPathError, claim_unique_filename, normalize_filename, write_upload_file_no_symlink
+from qilin.uploads.manager import (
+    UnsafeUploadPathError,
+    claim_unique_filename,
+    normalize_filename,
+    write_upload_file_no_symlink,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -944,7 +955,7 @@ class DingTalkChannel(Channel):
         conversation_id: str,
         text: str,
         *,
-        at_user_ids: list[str] | None = None,  # noqa: ARG002
+        at_user_ids: list[str] | None = None,
     ) -> None:
         # at_user_ids accepted for call-site compatibility but not passed to the API
         # (sampleMarkdown does not support @mentions).

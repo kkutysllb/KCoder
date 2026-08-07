@@ -164,7 +164,7 @@ class ClaudeChatModel(ChatAnthropic):
         if isinstance(system, list):
             # Remove any existing billing blocks, then insert a single one at index 0.
             filtered = [b for b in system if not (isinstance(b, dict) and OAUTH_BILLING_HEADER in b.get("text", ""))]
-            payload["system"] = [billing_block] + filtered
+            payload["system"] = [billing_block, *filtered]
         elif isinstance(system, str):
             if OAUTH_BILLING_HEADER in system:
                 payload["system"] = [billing_block]

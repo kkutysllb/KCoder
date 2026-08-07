@@ -8,7 +8,14 @@ by :mod:`asyncio.Queue`.
 """
 
 from .async_provider import make_stream_bridge
-from .base import END_SENTINEL, HEARTBEAT_SENTINEL, StreamBridge, StreamEvent, StreamGap, StreamItem
+from .base import (
+    END_SENTINEL,
+    HEARTBEAT_SENTINEL,
+    StreamBridge,
+    StreamEvent,
+    StreamGap,
+    StreamItem,
+)
 from .memory import MemoryStreamBridge
 
 # NOTE: ``RedisStreamBridge`` is intentionally NOT imported here. ``redis`` is an

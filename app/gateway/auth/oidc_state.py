@@ -27,8 +27,8 @@ OIDC_CODE_VERIFIER_BYTES = 32
 class OIDCStatePayload(BaseModel):
     """Payload stored inside the signed OIDC state cookie."""
 
-    provider: str = Field(description="OIDC provider ID (must match the state cookie)")  # noqa: E501
-    state: str = Field(description="Cryptographically random state value — compared in constant time with the query param")  # noqa: E501
+    provider: str = Field(description="OIDC provider ID (must match the state cookie)")
+    state: str = Field(description="Cryptographically random state value — compared in constant time with the query param")
     nonce: str | None = Field(default=None, description="OIDC nonce, verified against the ID token nonce claim")
     code_verifier: str | None = Field(default=None, description="PKCE code verifier, sent during token exchange")
     next_path: str = Field(default="/workspace", description="Redirect target after successful auth")

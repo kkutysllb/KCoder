@@ -77,7 +77,7 @@ class AuthContext:
         permissions: List of permission strings (e.g., "threads:read")
     """
 
-    __slots__ = ("user", "permissions")
+    __slots__ = ("permissions", "user")
 
     def __init__(self, user: User | None = None, permissions: list[str] | None = None):
         self.user = user
@@ -290,7 +290,11 @@ def _is_internal_caller(request: Request, user: Any) -> bool:
        where AuthMiddleware may not have stamped ``auth_source`` yet).
     """
     from app.gateway.auth_disabled import AUTH_SOURCE_INTERNAL
-    from app.gateway.internal_auth import INTERNAL_AUTH_HEADER_NAME, INTERNAL_SYSTEM_ROLE, is_valid_internal_auth_token
+    from app.gateway.internal_auth import (
+        INTERNAL_AUTH_HEADER_NAME,
+        INTERNAL_SYSTEM_ROLE,
+        is_valid_internal_auth_token,
+    )
 
     if getattr(getattr(request, "state", None), "auth_source", None) == AUTH_SOURCE_INTERNAL:
         return True
@@ -435,7 +439,10 @@ def require_permission(
             # strict-deny rather than strict-allow — only an *existing*
             # row with a *different* user_id triggers 404.
             if owner_check:
-                from app.gateway.internal_auth import INTERNAL_OWNER_USER_ID_HEADER_NAME, INTERNAL_SYSTEM_ROLE
+                from app.gateway.internal_auth import (
+                    INTERNAL_OWNER_USER_ID_HEADER_NAME,
+                    INTERNAL_SYSTEM_ROLE,
+                )
 
                 thread_id = kwargs.get("thread_id")
                 if thread_id is None:

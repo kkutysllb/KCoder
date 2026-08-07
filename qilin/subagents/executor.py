@@ -560,7 +560,9 @@ class SubagentExecutor:
             self.model_name = resolve_subagent_model_name(self.config, self.parent_model, app_config=app_config)
         model = create_chat_model(name=self.model_name, thinking_enabled=False, app_config=app_config, attach_tracing=False)
 
-        from qilin.agents.middlewares.tool_error_handling_middleware import build_subagent_runtime_middlewares
+        from qilin.agents.middlewares.tool_error_handling_middleware import (
+            build_subagent_runtime_middlewares,
+        )
 
         # Reuse shared middleware composition with lead agent. ``agent_name``
         # lets the builder resolve the per-agent token_budget override.
@@ -673,7 +675,11 @@ class SubagentExecutor:
         # Lazy import: see the TYPE_CHECKING note at the top of this module -
         # importing tool_search runs tools/builtins/__init__, which would
         # re-enter this package during its own initialization.
-        from qilin.tools.builtins.tool_search import assemble_deferred_tools, get_deferred_tools_prompt_section, get_mcp_routing_hints_prompt_section
+        from qilin.tools.builtins.tool_search import (
+            assemble_deferred_tools,
+            get_deferred_tools_prompt_section,
+            get_mcp_routing_hints_prompt_section,
+        )
 
         # Skills are discoverable metadata until explicitly slash-activated or
         # loaded through read_file. Their allowed-tools declarations are applied
@@ -683,7 +689,10 @@ class SubagentExecutor:
 
         resolved_app_config = self.app_config or get_app_config()
 
-        from qilin.skills.describe import build_skill_search_setup, get_skill_index_prompt_section
+        from qilin.skills.describe import (
+            build_skill_search_setup,
+            get_skill_index_prompt_section,
+        )
 
         skill_setup = build_skill_search_setup(
             skills,

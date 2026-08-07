@@ -73,15 +73,10 @@ def extract_target(event: str, payload: dict[str, Any]) -> tuple[str, int] | Non
     if event == "pull_request":
         pr = payload.get("pull_request") or {}
         number = pr.get("number") or payload.get("number")
-    elif event == "pull_request_review":
+    elif event == "pull_request_review" or event == "pull_request_review_comment":
         pr = payload.get("pull_request") or {}
         number = pr.get("number")
-    elif event == "pull_request_review_comment":
-        pr = payload.get("pull_request") or {}
-        number = pr.get("number")
-    elif event == "issue_comment":
-        number = (payload.get("issue") or {}).get("number")
-    elif event == "issues":
+    elif event == "issue_comment" or event == "issues":
         number = (payload.get("issue") or {}).get("number")
     else:
         return None

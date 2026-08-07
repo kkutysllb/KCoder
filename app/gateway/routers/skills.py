@@ -9,7 +9,11 @@ from pydantic import BaseModel, Field
 
 from app.gateway.deps import get_config, require_admin_user
 from app.gateway.path_utils import resolve_thread_virtual_path
-from qilin.agents.lead_agent.prompt import clear_skills_system_prompt_cache, refresh_skills_system_prompt_cache_async, refresh_user_skills_system_prompt_cache_async
+from qilin.agents.lead_agent.prompt import (
+    clear_skills_system_prompt_cache,
+    refresh_skills_system_prompt_cache_async,
+    refresh_user_skills_system_prompt_cache_async,
+)
 from qilin.config.app_config import AppConfig
 from qilin.config.extensions_config import (
     ExtensionsConfig,
@@ -159,7 +163,7 @@ async def list_skills(config: AppConfig = Depends(get_config)) -> SkillsListResp
         return SkillsListResponse(skills=[_skill_to_response(skill) for skill in skills])
     except Exception as e:
         logger.error(f"Failed to load skills: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to load skills: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to load skills: {e!s}")
 
 
 @router.post(
@@ -196,7 +200,7 @@ async def install_skill(request: Request, body: SkillInstallRequest, config: App
         raise
     except Exception as e:
         logger.error(f"Failed to install skill: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to install skill: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to install skill: {e!s}")
 
 
 @router.post(
@@ -235,7 +239,7 @@ async def list_custom_skills(config: AppConfig = Depends(get_config)) -> SkillsL
         return SkillsListResponse(skills=[_skill_to_response(skill) for skill in skills])
     except Exception as e:
         logger.error("Failed to list custom skills: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to list custom skills: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list custom skills: {e!s}")
 
 
 @router.get("/skills/custom/{skill_name}", response_model=CustomSkillContentResponse, summary="Get Custom Skill Content")
@@ -257,7 +261,7 @@ async def _read_custom_skill_response(skill_name: str, config: AppConfig) -> Cus
         raise
     except Exception as e:
         logger.error("Failed to get custom skill %s: %s", skill_name, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get custom skill: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get custom skill: {e!s}")
 
 
 @router.put("/skills/custom/{skill_name}", response_model=CustomSkillContentResponse, summary="Edit Custom Skill")
@@ -296,7 +300,7 @@ async def update_custom_skill(skill_name: str, body: CustomSkillUpdateRequest, r
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error("Failed to update custom skill %s: %s", skill_name, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update custom skill: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update custom skill: {e!s}")
 
 
 @router.delete("/skills/custom/{skill_name}", summary="Delete Custom Skill")
@@ -325,7 +329,7 @@ async def delete_custom_skill(skill_name: str, request: Request, config: AppConf
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error("Failed to delete custom skill %s: %s", skill_name, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to delete custom skill: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete custom skill: {e!s}")
 
 
 @router.get("/skills/custom/{skill_name}/history", response_model=CustomSkillHistoryResponse, summary="Get Custom Skill History")
@@ -351,7 +355,7 @@ async def get_custom_skill_history(skill_name: str, request: Request, config: Ap
         raise
     except Exception as e:
         logger.error("Failed to read history for %s: %s", skill_name, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to read history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to read history: {e!s}")
 
 
 @router.post("/skills/custom/{skill_name}/rollback", response_model=CustomSkillContentResponse, summary="Rollback Custom Skill")
@@ -400,7 +404,7 @@ async def rollback_custom_skill(skill_name: str, body: SkillRollbackRequest, req
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error("Failed to roll back custom skill %s: %s", skill_name, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to roll back custom skill: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to roll back custom skill: {e!s}")
 
 
 @router.get(
@@ -423,7 +427,7 @@ async def get_skill(skill_name: str, config: AppConfig = Depends(get_config)) ->
         raise
     except Exception as e:
         logger.error(f"Failed to get skill {skill_name}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get skill: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get skill: {e!s}")
 
 
 def _write_extensions_skill_state(skill_name: str, enabled: bool) -> None:
@@ -494,7 +498,9 @@ async def update_skill(skill_name: str, body: SkillUpdateRequest, request: Reque
             await asyncio.to_thread(_write_extensions_skill_state, skill_name, body.enabled)
         else:
             # CUSTOM / LEGACY: write per-user state
-            from qilin.skills.storage.user_scoped_skill_storage import UserScopedSkillStorage
+            from qilin.skills.storage.user_scoped_skill_storage import (
+                UserScopedSkillStorage,
+            )
 
             if isinstance(storage, UserScopedSkillStorage):
                 await asyncio.to_thread(storage.set_skill_enabled_state, skill_name, body.enabled)
@@ -532,4 +538,4 @@ async def update_skill(skill_name: str, body: SkillUpdateRequest, request: Reque
         raise
     except Exception as e:
         logger.error(f"Failed to update skill {skill_name}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update skill: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update skill: {e!s}")

@@ -10,7 +10,13 @@ from concurrent.futures import CancelledError as FutureCancelledError
 from typing import Any, TypeVar
 
 from app.channels.commands import extract_connect_code
-from app.channels.message_bus import InboundMessage, InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
+from app.channels.message_bus import (
+    InboundMessage,
+    InboundMessageType,
+    MessageBus,
+    OutboundMessage,
+    ResolvedAttachment,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -15,7 +15,9 @@ from typing import Annotated, Any
 from langchain.tools import tool
 from langgraph.config import get_config
 
-from qilin.agents.middlewares.input_sanitization_middleware import neutralize_untrusted_tags
+from qilin.agents.middlewares.input_sanitization_middleware import (
+    neutralize_untrusted_tags,
+)
 from qilin.config.paths import get_paths
 from qilin.runtime.user_context import get_effective_user_id
 from qilin.tools.types import Runtime

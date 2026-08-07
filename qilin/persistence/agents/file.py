@@ -103,7 +103,7 @@ class FileAgentStore(AgentStore):
                 try:
                     agents.append(self.get(entry.name, user_id=effective_user))
                     seen.add(entry.name)
-                except Exception as e:  # noqa: BLE001 — one bad agent must not hide the rest
+                except Exception as e:
                     logger.warning("Skipping agent '%s': %s", entry.name, e)
         agents.sort(key=lambda a: a.name)
         return agents
@@ -113,7 +113,7 @@ class FileAgentStore(AgentStore):
         for user_id, name in self._discover():
             try:
                 result.append((user_id, self.get(name, user_id=user_id)))
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.warning("list_all: skipping agent %s/%s: %s", user_id, name, e)
         return result
 

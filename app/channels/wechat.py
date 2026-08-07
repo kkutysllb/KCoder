@@ -26,7 +26,13 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from app.channels.base import Channel
 from app.channels.commands import is_known_channel_command
 from app.channels.connection_identity import attach_connection_identity
-from app.channels.message_bus import InboundMessage, InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
+from app.channels.message_bus import (
+    InboundMessage,
+    InboundMessageType,
+    MessageBus,
+    OutboundMessage,
+    ResolvedAttachment,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1413,14 +1419,16 @@ class WechatChannel(Channel):
                 # iLink bot_token is never briefly readable at umask defaults
                 # (mirrors ChannelRuntimeConfigStore._save). NamedTemporaryFile
                 # uses mkstemp, which creates the file at 0o600 from the start.
-                fd = tempfile.NamedTemporaryFile(mode="w", dir=self._auth_path.parent, suffix=".tmp", delete=False, encoding="utf-8")
+                tmp_name: str | None = None
                 try:
-                    json.dump(data, fd, ensure_ascii=False, indent=2)
-                    fd.close()
-                    Path(fd.name).replace(self._auth_path)
+                    with tempfile.NamedTemporaryFile(mode="w", dir=self._auth_path.parent, suffix=".tmp", delete=False, encoding="utf-8") as fd:
+                        json.dump(data, fd, ensure_ascii=False, indent=2)
+                        tmp_name = fd.name
+                    if tmp_name:
+                        Path(tmp_name).replace(self._auth_path)
                 except BaseException:
-                    fd.close()
-                    Path(fd.name).unlink(missing_ok=True)
+                    if tmp_name:
+                        Path(tmp_name).unlink(missing_ok=True)
                     raise
             except OSError:
                 logger.warning("[WeChat] failed to persist auth state to %s", self._auth_path)

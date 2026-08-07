@@ -94,7 +94,7 @@ def view_image_tool(
         actual_path = resolve_and_validate_user_data_path(image_path, thread_data)
     except (PermissionError, SandboxRuntimeError) as e:
         return Command(
-            update={"messages": [ToolMessage(f"Error: {str(e)}", tool_call_id=tool_call_id)]},
+            update={"messages": [ToolMessage(f"Error: {e!s}", tool_call_id=tool_call_id)]},
         )
 
     path = Path(actual_path)

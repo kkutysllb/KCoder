@@ -22,7 +22,13 @@ from langchain_core.messages.utils import convert_to_messages
 from langgraph.types import Command
 
 from app.gateway.auth_disabled import AUTH_SOURCE_INTERNAL
-from app.gateway.deps import get_checkpointer, get_local_provider, get_run_context, get_run_manager, get_stream_bridge
+from app.gateway.deps import (
+    get_checkpointer,
+    get_local_provider,
+    get_run_context,
+    get_run_manager,
+    get_stream_bridge,
+)
 from app.gateway.internal_auth import (
     INTERNAL_OWNER_USER_ID_HEADER_NAME,
     INTERNAL_SYSTEM_ROLE,
@@ -31,8 +37,13 @@ from app.gateway.internal_auth import (
 )
 from app.gateway.run_models import RunCreateRequest
 from app.gateway.utils import sanitize_log_param
-from qilin.agents.middlewares.dynamic_context_middleware import _DYNAMIC_CONTEXT_REMINDER_KEY, _REMINDER_DATE_KEY
-from qilin.agents.middlewares.view_image_middleware import _IMAGE_CONTEXT_MESSAGE_MARKER_KEY
+from qilin.agents.middlewares.dynamic_context_middleware import (
+    _DYNAMIC_CONTEXT_REMINDER_KEY,
+    _REMINDER_DATE_KEY,
+)
+from qilin.agents.middlewares.view_image_middleware import (
+    _IMAGE_CONTEXT_MESSAGE_MARKER_KEY,
+)
 from qilin.config.app_config import get_app_config
 from qilin.config.database_config import resolve_checkpoint_graph_cache_max
 from qilin.runtime import (
@@ -83,13 +94,12 @@ async def reserve_checkpoint_write(
 ) -> AsyncIterator[None]:
     """Serialize an out-of-run checkpoint writer against all thread operations."""
     run_manager = get_run_manager(request)
-    async with goal_thread_lock(thread_id):
-        async with run_manager.reserve_thread_operation(
-            thread_id,
-            kind=ThreadOperationKind.checkpoint_write,
-            user_id=user_id,
-        ):
-            yield
+    async with goal_thread_lock(thread_id), run_manager.reserve_thread_operation(
+        thread_id,
+        kind=ThreadOperationKind.checkpoint_write,
+        user_id=user_id,
+    ):
+        yield
 
 
 _TERMINAL_RUN_STATUSES = {
@@ -734,7 +744,7 @@ class _RawCheckpointSnapshot:
     metadata, config ancestry, created_at) comes straight from the tuple.
     """
 
-    __slots__ = ("checkpoint_exists", "config", "values", "metadata", "parent_config", "created_at", "tasks", "tasks_known", "next")
+    __slots__ = ("checkpoint_exists", "config", "created_at", "metadata", "next", "parent_config", "tasks", "tasks_known", "values")
 
     def __init__(self, config: dict[str, Any], tup: Any | None) -> None:
         self.checkpoint_exists = tup is not None

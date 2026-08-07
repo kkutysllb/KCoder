@@ -22,14 +22,16 @@
 
 | 文件 | 作用 |
 |------|------|
-| `utils/async_helpers.py` | async 任务池 / gather helper |
 | `utils/file_io.py` | 异步文件读写（批量 worker） |
-| `utils/json_compat.py` | Old Python JSON 兼容 |
-| `utils/hashing.py` | sha256 / md5 |
-| `utils/limiter.py` | 限流令牌桶 |
-| `utils/soft_lock.py` | 进程内软锁（asyncio.Lock） |
-| `utils/oneshot_llm.py` | 一次性 LLM 调用（用于元调用如 summarization） |
+| `utils/file_conversion.py` | 文档转换（PDF / PPT / Excel / Word → Markdown） |
+| `utils/file_outline.py` | 文档大纲提取（注入上下文） |
 | `utils/custom_events.py` | 自定义事件总线（LangGraph middleware 间通信） |
+| `utils/oneshot_llm.py` | 一次性 LLM 调用（用于元调用如 summarization） |
+| `utils/llm_text.py` | LLM 响应文本规范化 |
+| `utils/messages.py` | 消息内容提取 / 还原辅助 |
+| `utils/network.py` | 线程安全网络工具 |
+| `utils/readability.py` | 网页正文提取（Article / ReadabilityExtractor） |
+| `utils/time.py` | ISO 8601 时间戳辅助 |
 
 ### 设计要点
 
@@ -62,14 +64,16 @@
 
 | File | Purpose |
 |------|---------|
-| `utils/async_helpers.py` | asyncio task pool / gather |
-| `utils/file_io.py` | Async file IO (batched workers) |
-| `utils/json_compat.py` | Old-Python JSON compat |
-| `utils/hashing.py` | sha256 / md5 |
-| `utils/limiter.py` | Token-bucket rate limit |
-| `utils/soft_lock.py` | In-process soft lock (asyncio.Lock) |
-| `utils/oneshot_llm.py` | One-shot LLM call (summarization, etc.) |
+| `utils/file_io.py` | Async file I/O (batched workers) |
+| `utils/file_conversion.py` | Document conversion (PDF / PPT / Excel / Word → Markdown) |
+| `utils/file_outline.py` | Document outline extraction (context injection) |
 | `utils/custom_events.py` | Custom event bus (middleware-to-middleware) |
+| `utils/oneshot_llm.py` | One-shot LLM calls (summarization, etc.) |
+| `utils/llm_text.py` | LLM response text normalization |
+| `utils/messages.py` | Message content extraction / restoration |
+| `utils/network.py` | Thread-safe network utilities |
+| `utils/readability.py` | Web article extraction (Article / ReadabilityExtractor) |
+| `utils/time.py` | ISO 8601 timestamp helpers |
 
 ### Design Highlights
 

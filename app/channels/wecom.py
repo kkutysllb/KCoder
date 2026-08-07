@@ -232,7 +232,7 @@ class WeComChannel(Channel):
         if not text and not files:
             return
         if not text:
-            text = "（receive image/file）"
+            text = "(receive image/file)"
         await self._publish_ws_inbound(frame, text, files=files)
 
     async def _on_ws_image(self, frame: dict[str, Any]) -> None:
@@ -244,7 +244,7 @@ class WeComChannel(Channel):
             return
         await self._publish_ws_inbound(
             frame,
-            "（receive image ）",
+            "(receive image )",
             files=[
                 {
                     "type": "image",
@@ -263,7 +263,7 @@ class WeComChannel(Channel):
             return
         await self._publish_ws_inbound(
             frame,
-            "（receive file）",
+            "(receive file)",
             files=[
                 {
                     "type": "file",

@@ -163,7 +163,7 @@ class MCPSessionPool:
                 if loop is current_loop and not loop.is_closed():
                     self._entries.move_to_end(key)
                     return session
-                # Session belongs to a different/closed event loop – evict it.
+                # Session belongs to a different/closed event loop - evict it.
                 self._entries.pop(key)
                 evicted.append((loop, ent_task, ent_close, False))
 

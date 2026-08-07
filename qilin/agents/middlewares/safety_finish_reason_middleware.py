@@ -138,7 +138,7 @@ class SafetyFinishReasonMiddleware(AgentMiddleware[AgentState]):
         for detector in self._detectors:
             try:
                 hit = detector.detect(message)
-            except Exception:  # noqa: BLE001 - never let a buggy detector break the agent run
+            except Exception:
                 logger.exception("SafetyTerminationDetector %r raised; treating as no-match", getattr(detector, "name", type(detector).__name__))
                 continue
             if hit is not None:
@@ -237,7 +237,7 @@ class SafetyFinishReasonMiddleware(AgentMiddleware[AgentState]):
             writer = get_stream_writer()
         except GraphBubbleUp:
             raise
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug("get_stream_writer unavailable; skipping safety_termination event", exc_info=True)
             return
 
@@ -245,7 +245,7 @@ class SafetyFinishReasonMiddleware(AgentMiddleware[AgentState]):
             emit_custom_event(self._build_event_payload(termination, suppressed_names, runtime), writer=writer)
         except GraphBubbleUp:
             raise
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug("Failed to emit safety_termination stream event", exc_info=True)
 
     async def _aemit_event(
@@ -260,7 +260,7 @@ class SafetyFinishReasonMiddleware(AgentMiddleware[AgentState]):
             writer = get_stream_writer()
         except GraphBubbleUp:
             raise
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug("get_stream_writer unavailable; skipping async safety_termination event", exc_info=True)
             return
 
@@ -268,7 +268,7 @@ class SafetyFinishReasonMiddleware(AgentMiddleware[AgentState]):
             await aemit_custom_event(self._build_event_payload(termination, suppressed_names, runtime), writer=writer)
         except GraphBubbleUp:
             raise
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug("Failed to emit async safety_termination stream event", exc_info=True)
 
     def _record_audit_event(
@@ -324,7 +324,7 @@ class SafetyFinishReasonMiddleware(AgentMiddleware[AgentState]):
                 action="suppress_tool_calls",
                 changes=changes,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             # Audit-event persistence must never break agent execution.
             logger.warning("Failed to record middleware:safety_termination event", exc_info=True)
 

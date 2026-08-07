@@ -13,7 +13,13 @@ from typing import Any
 from app.channels.base import Channel
 from app.channels.commands import is_known_channel_command
 from app.channels.connection_identity import attach_connection_identity
-from app.channels.message_bus import InboundMessage, InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
+from app.channels.message_bus import (
+    InboundMessage,
+    InboundMessageType,
+    MessageBus,
+    OutboundMessage,
+    ResolvedAttachment,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +42,7 @@ class DiscordChannel(Channel):
 
     def __init__(self, bus: MessageBus, config: dict[str, Any]) -> None:
         super().__init__(name="discord", bus=bus, config=config)
+        self._background_tasks: set[asyncio.Task] = set()
         self._bot_token = str(config.get("bot_token", "")).strip()
         self._allowed_guilds: set[int] = set()
         for guild_id in config.get("allowed_guilds", []):
@@ -352,8 +359,8 @@ class DiscordChannel(Channel):
                 self._publish(inbound)
                 # Start typing indicator in the thread
                 if typing_target:
-                    asyncio.create_task(self._start_typing(typing_target, chat_id, thread_id))
-                asyncio.create_task(self._add_reaction(message))
+                    self._spawn_background_task(self._start_typing(typing_target, chat_id, thread_id))
+                self._spawn_background_task(self._add_reaction(message))
                 return
 
             # Thread not tracked (orphaned) — create new thread and handle below
@@ -460,10 +467,16 @@ class DiscordChannel(Channel):
 
         # Start typing indicator in the correct target (thread or channel)
         if typing_target:
-            asyncio.create_task(self._start_typing(typing_target, chat_id, thread_id))
+            self._spawn_background_task(self._start_typing(typing_target, chat_id, thread_id))
 
         self._publish(inbound)
-        asyncio.create_task(self._add_reaction(message))
+        self._spawn_background_task(self._add_reaction(message))
+
+    def _spawn_background_task(self, coro) -> None:
+        """Run *coro* as a tracked background task (kept alive until done)."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     def _publish(self, inbound) -> None:
         """Publish an inbound message to the main event loop."""

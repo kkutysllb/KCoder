@@ -44,27 +44,28 @@ class ChannelRuntimeConfigStore:
         return {}
 
     def _save(self) -> None:
-        fd = tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=self._path.parent,
-            suffix=".tmp",
-            delete=False,
-        )
+        tmp_path: Path | None = None
         try:
-            try:
-                Path(fd.name).chmod(0o600)
-            except OSError:
-                logger.debug("Unable to chmod temporary channel runtime config store at %s", fd.name, exc_info=True)
-            json.dump(self._data, fd, indent=2, ensure_ascii=False)
-            fd.close()
-            Path(fd.name).replace(self._path)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                dir=self._path.parent,
+                suffix=".tmp",
+                delete=False,
+            ) as fd:
+                tmp_path = Path(fd.name)
+                try:
+                    tmp_path.chmod(0o600)
+                except OSError:
+                    logger.debug("Unable to chmod temporary channel runtime config store at %s", fd.name, exc_info=True)
+                json.dump(self._data, fd, indent=2, ensure_ascii=False)
+            tmp_path.replace(self._path)
             try:
                 self._path.chmod(0o600)
             except OSError:
                 logger.debug("Unable to chmod channel runtime config store at %s", self._path, exc_info=True)
         except BaseException:
-            fd.close()
-            Path(fd.name).unlink(missing_ok=True)
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
             raise
 
     def load_all(self) -> dict[str, dict[str, Any]]:

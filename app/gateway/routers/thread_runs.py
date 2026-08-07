@@ -33,15 +33,39 @@ from app.gateway.checkpoint_lineage import (
     find_checkpoint_before_message_chronologically,
     is_duration_only_checkpoint,
 )
-from app.gateway.deps import get_current_user, get_feedback_repo, get_run_event_store, get_run_manager, get_run_store, get_stream_bridge
+from app.gateway.deps import (
+    get_current_user,
+    get_feedback_repo,
+    get_run_event_store,
+    get_run_manager,
+    get_run_store,
+    get_stream_bridge,
+)
 from app.gateway.pagination import trim_run_message_page
 from app.gateway.run_models import RunCreateRequest
-from app.gateway.services import build_checkpoint_state_accessor, build_thread_checkpoint_state_accessor, sse_consumer, start_run, wait_for_run_completion
+from app.gateway.services import (
+    build_checkpoint_state_accessor,
+    build_thread_checkpoint_state_accessor,
+    sse_consumer,
+    start_run,
+    wait_for_run_completion,
+)
 from app.gateway.utils import sanitize_log_param
-from qilin.agents.middlewares.dynamic_context_middleware import strip_injected_user_message_id_suffix
-from qilin.runtime import CancelOutcome, RunRecord, RunStatus, serialize_channel_values_for_api
+from qilin.agents.middlewares.dynamic_context_middleware import (
+    strip_injected_user_message_id_suffix,
+)
+from qilin.runtime import (
+    CancelOutcome,
+    RunRecord,
+    RunStatus,
+    serialize_channel_values_for_api,
+)
 from qilin.runtime.secret_context import redact_config_secrets, redact_metadata_secrets
-from qilin.utils.messages import ORIGINAL_USER_CONTENT_KEY, get_original_user_content_text, message_to_text
+from qilin.utils.messages import (
+    ORIGINAL_USER_CONTENT_KEY,
+    get_original_user_content_text,
+    message_to_text,
+)
 from qilin.workspace_changes import get_workspace_changes_response
 
 logger = logging.getLogger(__name__)

@@ -31,7 +31,7 @@ class Theme:
 THEME = Theme()
 
 SYMBOLS = {
-    "user": "›",
+    "user": "›",  # noqa: RUF001 - deliberate TUI glyph
     "assistant": "●",
     "tool": "⚙",
     "running": "◐",

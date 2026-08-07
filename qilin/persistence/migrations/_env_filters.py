@@ -21,7 +21,7 @@ LANGGRAPH_OWNED_TABLES: frozenset[str] = frozenset(
 )
 
 
-def include_object(object_, name, type_, reflected, compare_to):  # noqa: ARG001
+def include_object(object_, name, type_, reflected, compare_to):
     """Returns False for any LangGraph-owned table or for an index/constraint
     whose parent table is LangGraph-owned. Returns True otherwise.
 

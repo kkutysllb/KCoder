@@ -138,7 +138,7 @@ def get_or_new_user_skill_storage(user_id: str, **kwargs) -> SkillStorage:
         # will evict the oldest/least-recently-accessed entry (never the
         # one we just created).
         while len(_user_scoped_storages) > _MAX_USER_SCOPED_STORAGES:
-            evicted_key, evicted_val = _user_scoped_storages.popitem(last=False)
+            evicted_key, _ = _user_scoped_storages.popitem(last=False)
             logger.info("Evicted user-scoped skill storage for safe_id=%s (cache ceiling %d)", evicted_key, _MAX_USER_SCOPED_STORAGES)
         return cached
 
@@ -197,7 +197,7 @@ __all__ = [
     "UserScopedSkillStorage",
     "get_or_new_skill_storage",
     "get_or_new_user_skill_storage",
-    "user_should_see_legacy_skills",
     "reset_skill_storage",
     "reset_user_skill_storage",
+    "user_should_see_legacy_skills",
 ]

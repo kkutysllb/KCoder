@@ -109,7 +109,7 @@ def stream_actions(client: _ClientLike, message: str, *, thread_id: str | None =
             if event.type == "end":
                 return  # RunEnded already emitted by translate()
         yield RunEnded()
-    except Exception as exc:  # noqa: BLE001 - surface any model/runtime error in-UI
+    except Exception as exc:
         yield AssistantError(str(exc) or exc.__class__.__name__)
         yield RunEnded()
 

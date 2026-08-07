@@ -30,7 +30,13 @@ from langgraph.types import Checkpointer
 from qilin.community.browser_automation.session import browser_multi_worker_error
 from qilin.config.app_config import AppConfig, get_app_config
 from qilin.persistence.feedback import FeedbackRepository
-from qilin.runtime import ORPHAN_RECOVERY_STOP_REASON, STARTUP_ORPHAN_RECOVERY_ERROR, RunContext, RunManager, StreamBridge
+from qilin.runtime import (
+    ORPHAN_RECOVERY_STOP_REASON,
+    STARTUP_ORPHAN_RECOVERY_ERROR,
+    RunContext,
+    RunManager,
+    StreamBridge,
+)
 from qilin.runtime.events.store.base import RunEventStore
 from qilin.runtime.runs.store.base import RunStore
 
@@ -339,7 +345,7 @@ def get_config() -> AppConfig:
     """
     try:
         return get_app_config()
-    except Exception as exc:  # noqa: BLE001 - request boundary: log and degrade gracefully
+    except Exception as exc:
         logger.exception("Failed to load AppConfig at request time")
         raise HTTPException(status_code=503, detail="Configuration not available") from exc
 
@@ -369,9 +375,16 @@ async def langgraph_runtime(app: FastAPI, startup_config: AppConfig) -> AsyncGen
         async with langgraph_runtime(app, startup_config):
             yield
     """
-    from qilin.persistence.engine import close_engine, get_session_factory, init_engine_from_config
+    from qilin.persistence.engine import (
+        close_engine,
+        get_session_factory,
+        init_engine_from_config,
+    )
     from qilin.runtime import make_store, make_stream_bridge
-    from qilin.runtime.checkpoint_mode import freeze_checkpoint_channel_mode, freeze_checkpoint_snapshot_frequency
+    from qilin.runtime.checkpoint_mode import (
+        freeze_checkpoint_channel_mode,
+        freeze_checkpoint_snapshot_frequency,
+    )
     from qilin.runtime.checkpointer.async_provider import make_checkpointer
     from qilin.runtime.events.store import make_run_event_store
 
@@ -518,7 +531,7 @@ async def langgraph_runtime(app: FastAPI, startup_config: AppConfig) -> AsyncGen
 
 
 # ---------------------------------------------------------------------------
-# Getters – called by routers per-request
+# Getters - called by routers per-request
 # ---------------------------------------------------------------------------
 
 
@@ -638,7 +651,11 @@ async def get_current_user_from_request(request: Request):
     """
     state = getattr(request, "state", None)
     state_user = getattr(state, "user", None)
-    from app.gateway.auth_disabled import AUTH_SOURCE_AUTH_DISABLED, AUTH_SOURCE_INTERNAL, AUTH_SOURCE_SESSION
+    from app.gateway.auth_disabled import (
+        AUTH_SOURCE_AUTH_DISABLED,
+        AUTH_SOURCE_INTERNAL,
+        AUTH_SOURCE_SESSION,
+    )
 
     if state_user is not None and getattr(state, "auth_source", None) in {
         AUTH_SOURCE_SESSION,
@@ -648,7 +665,12 @@ async def get_current_user_from_request(request: Request):
         return state_user
 
     from app.gateway.auth import decode_token
-    from app.gateway.auth.errors import AuthErrorCode, AuthErrorResponse, TokenError, token_error_to_code
+    from app.gateway.auth.errors import (
+        AuthErrorCode,
+        AuthErrorResponse,
+        TokenError,
+        token_error_to_code,
+    )
 
     access_token = request.cookies.get("access_token")
     if not access_token:

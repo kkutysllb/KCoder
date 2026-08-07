@@ -18,7 +18,11 @@ from qilin.config.paths import VIRTUAL_PATH_PREFIX
 from qilin.tools.types import Runtime
 from qilin.utils.readability import ReadabilityExtractor
 
-from .browserless_client import BrowserlessClient, BrowserlessFetchResult, BrowserlessScreenshotResult
+from .browserless_client import (
+    BrowserlessClient,
+    BrowserlessFetchResult,
+    BrowserlessScreenshotResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +280,7 @@ async def web_fetch_tool(url: str) -> str:
 
     except Exception as e:
         logger.error(f"Error in web_fetch_tool: {e}")
-        return f"Error: {str(e)}"
+        return f"Error: {e!s}"
 
 
 @tool("web_capture", parse_docstring=True)
@@ -355,4 +359,4 @@ async def web_capture_tool(
 
     except Exception as e:
         logger.error(f"Error in web_capture_tool: {e}")
-        return _tool_message(f"Error: {str(e)}", tool_call_id)
+        return _tool_message(f"Error: {e!s}", tool_call_id)

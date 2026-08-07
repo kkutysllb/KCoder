@@ -26,8 +26,8 @@
 | 文件 / 子包 | 作用 |
 |--------------|------|
 | `runtime/runs/` | Run 生命周期管理 |
-| `runtime/checkpointer.py` + `runtime/checkpointer/` | 持久化 checkpointer 抽象 |
-| `runtime/store/` + `runtime/store.py` | LangGraph Store 适配 |
+| `runtime/checkpointer/` | 持久化 checkpointer 抽象 |
+| `runtime/store/` | LangGraph Store 适配 |
 | `runtime/stream_bridge/` | SSE / Redis 流桥 |
 | `runtime/serialization.py` | LC 对象序列化 |
 | `runtime/converters.py` | 复杂类型转换 |
@@ -86,8 +86,8 @@ new → pending → (admission?) → streaming → (interrupt?) → completed | 
 | Path | Purpose |
 |------|---------|
 | `runtime/runs/` | Run lifecycle management |
-| `runtime/checkpointer.py` + `runtime/checkpointer/` | Checkpointer abstraction |
-| `runtime/store/` + `runtime/store.py` | LangGraph Store adapter |
+| `runtime/checkpointer/` | Checkpointer abstraction |
+| `runtime/store/` | LangGraph Store adapter |
 | `runtime/stream_bridge/` | SSE / Redis bridges |
 | `runtime/serialization.py` | LC object serializer |
 | `runtime/converters.py` | Type converters |

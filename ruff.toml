@@ -1,0 +1,46 @@
+# QiLin lint baseline (ruff.toml is authoritative; pyproject.toml carries
+# no [tool.ruff] section to avoid dual-config-source ambiguity).
+extend-exclude = [
+    "dist",
+    "qilin/agents/memory/backends/qilinmem",  # vendored third-party code
+]
+
+[lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF", "G", "ASYNC"]
+ignore = [
+    "BLE001",   # broad `except Exception` is a deliberate engine-wide defensive pattern
+    "E501",     # line-length; formatting backlog tracked separately
+    "B008",     # FastAPI `Depends`/`Query` call-in-default is the framework idiom
+    "S110",     # some try-except-pass fallback paths are intentional
+    "TRY004",   # style preference, low value
+    "SIM102",   # nested if style, low value
+    "SIM103",   # early-return style, low value
+    "SIM117",   # nested with style, low value
+    "SIM108",   # if/else-to-ternary style, low value
+    "SIM105",   # try-except-pass fallback paths are deliberate defensive patterns
+    "PIE810",   # startswith/endswith tuple micro-optimization, low value
+    "PLW0602",  # module-level global writes are an established pattern here
+    "RUF012",   # Textual `BINDINGS` class lists are the framework idiom
+    "PYI063",   # stub-file style, not applicable
+    "PLC0414",  # import-alias style, low value
+    "G201",     # logger.exception refactor backlog (tracked)
+    "G202",     # logger.exception refactor backlog (tracked)
+    "G004",     # f-string logging backlog (228 existing; tracked)
+    "B904",     # raise-without-from backlog (85 existing; tracked)
+    "B905",     # zip-strict backlog (tracked)
+    "ASYNC109", # asyncio.timeout backlog (tracked)
+    "ASYNC230", # async file-IO refactor backlog (tracked)
+    "N806",     # function-local variable naming, established style
+    "N815",     # mixed-case variable naming, established style
+    "N818",     # exception-class suffix, established style
+    "B027",     # empty no-op hooks in ABCs are an intentional optional-hook pattern
+    "RUF022",   # __all__ grouping comments are deliberate; alphabetical order adds no value
+]
+
+# Fullwidth CJK punctuation used deliberately in user-facing Chinese strings
+# (log messages, CLI guidance). These are intentional typography, not
+# confusable-ASCII mistakes.
+allowed-confusables = ["，", "：", "（", "）"]
+
+[lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]  # assert is expected in tests

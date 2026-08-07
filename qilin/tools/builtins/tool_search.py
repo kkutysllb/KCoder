@@ -328,7 +328,7 @@ def get_mcp_routing_hints_prompt_section(tools: Iterable[BaseTool], *, deferred_
         return ""
 
     lines = ["<mcp_routing_hints>"]
-    for priority, tool_name, keywords in sorted(hints, key=lambda item: (-item[0], item[1])):
+    for _, tool_name, keywords in sorted(hints, key=lambda item: (-item[0], item[1])):
         # tool_name comes verbatim from the external MCP server; escape at render
         # (keep the raw name for the deferred_names membership check above).
         esc_name = html.escape(tool_name, quote=False)

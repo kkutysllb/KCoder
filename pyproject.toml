@@ -68,3 +68,21 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["qilin"]
+
+# ---------------------------------------------------------------------------
+# Code-quality gate: pytest / mypy
+# (ruff config lives in ruff.toml)
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = false
+exclude = ["qilin/agents/memory/backends/qilinmem/", "dist/"]
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"

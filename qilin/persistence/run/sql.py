@@ -93,7 +93,7 @@ class RunRepository(RunStore):
         *,
         thread_id,
         assistant_id=None,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
         model_name: str | None = None,
         status="pending",
         operation_kind: str = "run",
@@ -147,7 +147,7 @@ class RunRepository(RunStore):
         self,
         run_id,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="RunRepository.get")
         async with self._sf() as session:
@@ -162,7 +162,7 @@ class RunRepository(RunStore):
         self,
         thread_id,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
         limit=100,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="RunRepository.list_by_thread")
@@ -178,7 +178,7 @@ class RunRepository(RunStore):
         self,
         thread_id,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="RunRepository.list_successful_regenerate_sources")
         source = RunRow.metadata_json["regenerate_from_run_id"].as_string()
@@ -199,7 +199,7 @@ class RunRepository(RunStore):
         self,
         thread_id,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="RunRepository.list_edit_regenerate_runs")
         replay_kind = RunRow.metadata_json["replay_kind"].as_string()
@@ -222,7 +222,7 @@ class RunRepository(RunStore):
         thread_id,
         run_ids,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         if not run_ids:
             return {}
@@ -273,7 +273,7 @@ class RunRepository(RunStore):
         self,
         run_id,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="RunRepository.delete")
         async with self._sf() as session:

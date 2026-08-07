@@ -12,7 +12,11 @@ from langgraph.runtime import Runtime
 from qilin.agents.memory import get_memory_manager
 from qilin.config.memory_config import get_memory_config
 from qilin.runtime.user_context import resolve_runtime_user_id
-from qilin.trace_context import QILIN_TRACE_METADATA_KEY, get_current_trace_id, normalize_trace_id
+from qilin.trace_context import (
+    QILIN_TRACE_METADATA_KEY,
+    get_current_trace_id,
+    normalize_trace_id,
+)
 
 if TYPE_CHECKING:
     from qilin.config.memory_config import MemoryConfig
@@ -23,7 +27,6 @@ logger = logging.getLogger(__name__)
 class MemoryMiddlewareState(AgentState):
     """Compatible with the `ThreadState` schema."""
 
-    pass
 
 
 class MemoryMiddleware(AgentMiddleware[MemoryMiddlewareState]):

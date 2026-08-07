@@ -47,8 +47,15 @@ from qilin.config.paths import Paths, get_paths
 from qilin.config.summarization_config import ContextSize
 from qilin.persistence.thread_meta import THREAD_PINNED_METADATA_KEY
 from qilin.runtime import serialize_channel_values_for_api
-from qilin.runtime.checkpoint_mode import CheckpointModeMismatchError, CheckpointModeReconfigurationError
-from qilin.runtime.checkpoint_state import graph_reducer_channels, graph_state_schema, graph_writable_channels
+from qilin.runtime.checkpoint_mode import (
+    CheckpointModeMismatchError,
+    CheckpointModeReconfigurationError,
+)
+from qilin.runtime.checkpoint_state import (
+    graph_reducer_channels,
+    graph_state_schema,
+    graph_writable_channels,
+)
 from qilin.runtime.context_compaction import (
     ContextCompactionDisabled,
     ContextCompactionFailed,
@@ -294,9 +301,7 @@ def _ignore_branch_user_data(directory: str, names: list[str]) -> set[str]:
     base = Path(directory)
     for name in names:
         path = base / name
-        if name.startswith(".upload-") and name.endswith(".part"):
-            ignored.add(name)
-        elif path.is_symlink():
+        if (name.startswith(".upload-") and name.endswith(".part")) or path.is_symlink():
             ignored.add(name)
     return ignored
 
@@ -397,7 +402,10 @@ class ThreadSearchRequest(BaseModel):
         """
         if not v:
             return v
-        from qilin.persistence.json_compat import validate_metadata_filter_key, validate_metadata_filter_value
+        from qilin.persistence.json_compat import (
+            validate_metadata_filter_key,
+            validate_metadata_filter_value,
+        )
 
         bad_entries: list[str] = []
         for key, value in v.items():
@@ -1366,7 +1374,9 @@ async def get_thread_history(
                 if messages:
                     serialized_msgs = serialize_channel_values_for_api({"messages": messages}).get("messages", [])
                     try:
-                        from app.gateway.routers.thread_runs import stamp_turn_duration_on_last_ai
+                        from app.gateway.routers.thread_runs import (
+                            stamp_turn_duration_on_last_ai,
+                        )
 
                         # Human messages define turn boundaries. New checkpoints
                         # carry the completed turns' durations in metadata, so the
@@ -1402,8 +1412,13 @@ async def get_thread_history(
                         # metadata-only checkpoint write.
                         missing_run_ids = turn_run_ids - set(checkpoint_run_durations)
                         if missing_run_ids:
-                            from app.gateway.deps import get_run_event_store, get_run_manager
-                            from app.gateway.routers.thread_runs import compute_run_durations
+                            from app.gateway.deps import (
+                                get_run_event_store,
+                                get_run_manager,
+                            )
+                            from app.gateway.routers.thread_runs import (
+                                compute_run_durations,
+                            )
                             from qilin.runtime.runs.worker import persist_run_durations
 
                             run_mgr = get_run_manager(request)

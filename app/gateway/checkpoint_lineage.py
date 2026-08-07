@@ -127,7 +127,7 @@ async def find_checkpoint_before_message(
         visited.add(current_identity)
 
     # Each step performs one ancestor read, but normal branch/regenerate
-    # histories cross the target boundary within 1–3 reads. Keep max_depth as
+    # histories cross the target boundary within 1-3 reads. Keep max_depth as
     # a conservative safety cap for valid histories with many intermediate or
     # duration-only checkpoints.
     for _ in range(max_depth):

@@ -58,7 +58,7 @@ def _build_engine(url: str) -> Engine:
         # both engines behave identically against the shared DB and a concurrent
         # writer waits up to 30s instead of failing early on lock contention.
         @event.listens_for(engine, "connect")
-        def _enable_sqlite_pragmas(dbapi_conn, _record):  # noqa: ARG001 — SQLAlchemy contract
+        def _enable_sqlite_pragmas(dbapi_conn, _record):
             cursor = dbapi_conn.cursor()
             try:
                 cursor.execute("PRAGMA journal_mode=WAL;")

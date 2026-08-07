@@ -264,7 +264,7 @@ AUTO: Final[_AutoSentinel] = _AutoSentinel()
 
 
 def resolve_user_id(
-    value: str | None | _AutoSentinel,
+    value: str | _AutoSentinel | None,
     *,
     method_name: str = "repository method",
 ) -> str | None:

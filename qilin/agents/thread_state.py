@@ -17,7 +17,10 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 import qilin.checkpoint_patches as _checkpoint_patches  # noqa: F401 - import-time saver fixes
 from qilin.agents.goal_state import GoalState
-from qilin.config.database_config import DEFAULT_CHECKPOINT_SNAPSHOT_FREQUENCY, CheckpointChannelMode
+from qilin.config.database_config import (
+    DEFAULT_CHECKPOINT_SNAPSHOT_FREQUENCY,
+    CheckpointChannelMode,
+)
 from qilin.subagents.status_contract import SUBAGENT_STATUS_VALUES
 
 

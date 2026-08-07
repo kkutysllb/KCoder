@@ -12,7 +12,12 @@ from langgraph.types import Command
 from qilin.runtime.user_context import resolve_runtime_user_id
 from qilin.skills.review.analyzer import analyze_skill_package
 from qilin.skills.review.models import stable_json_dumps
-from qilin.skills.review.readers import ArchivePackageReader, InstalledSkillReader, LocalDirectoryReader, build_inline_snapshot
+from qilin.skills.review.readers import (
+    ArchivePackageReader,
+    InstalledSkillReader,
+    LocalDirectoryReader,
+    build_inline_snapshot,
+)
 from qilin.skills.review.renderer import build_static_report, render_report_markdown
 from qilin.skills.storage import get_or_new_skill_storage, get_or_new_user_skill_storage
 from qilin.tools.types import Runtime
@@ -153,7 +158,9 @@ def _tool_message_content_payload(payload: dict) -> dict:
 
 
 def _neutralize_review_content(content: str) -> str:
-    from qilin.agents.middlewares.input_sanitization_middleware import neutralize_untrusted_tags
+    from qilin.agents.middlewares.input_sanitization_middleware import (
+        neutralize_untrusted_tags,
+    )
 
     return neutralize_untrusted_tags(content)
 

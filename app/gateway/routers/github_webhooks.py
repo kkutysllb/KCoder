@@ -356,7 +356,7 @@ async def receive_github_webhook(
                     payload,
                     operator_default_mention_login=operator_default_mention_login,
                 )
-            except Exception as exc:  # noqa: BLE001 — re-raised as 503 below
+            except Exception as exc:
                 logger.exception(
                     "github_webhook: fanout failed (delivery=%s event=%s) — returning 503 (recoverable via manual/API redelivery)",
                     x_github_delivery,

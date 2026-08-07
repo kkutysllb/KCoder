@@ -9,7 +9,11 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from app.channels.base import Channel
-from app.channels.manager import DEFAULT_GATEWAY_URL, DEFAULT_LANGGRAPH_URL, ChannelManager
+from app.channels.manager import (
+    DEFAULT_GATEWAY_URL,
+    DEFAULT_LANGGRAPH_URL,
+    ChannelManager,
+)
 from app.channels.message_bus import MessageBus
 from app.channels.runtime_config_store import merge_runtime_channel_configs
 from app.channels.store import ChannelStore
@@ -242,7 +246,7 @@ class ChannelService:
 
     async def stop(self) -> None:
         """Stop all channels and the manager."""
-        for name, channel in list(self._channels.items()):
+        for channel in list(self._channels.values()):
             try:
                 await channel.stop()
                 logger.info("Channel stopped")

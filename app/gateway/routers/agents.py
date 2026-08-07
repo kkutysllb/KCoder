@@ -223,7 +223,7 @@ async def list_agents() -> AgentsListResponse:
         return await asyncio.to_thread(_list)
     except Exception as e:
         logger.error(f"Failed to list agents: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to list agents: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list agents: {e!s}")
 
 
 @router.get(
@@ -288,7 +288,7 @@ async def get_agent(name: str) -> AgentResponse:
         raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
     except Exception as e:
         logger.error(f"Failed to get agent '{name}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get agent: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get agent: {e!s}")
 
 
 @router.post(
@@ -344,7 +344,7 @@ async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
         raise HTTPException(status_code=409, detail=f"Agent '{normalized_name}' already exists")
     except Exception as e:
         logger.error(f"Failed to create agent '{request.name}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to create agent: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create agent: {e!s}")
 
 
 @router.put(
@@ -461,7 +461,7 @@ async def update_agent(name: str, request: AgentUpdateRequest) -> AgentResponse:
         raise
     except Exception as e:
         logger.error(f"Failed to update agent '{name}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update agent: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update agent: {e!s}")
 
 
 class UserProfileResponse(BaseModel):
@@ -498,7 +498,7 @@ async def get_user_profile() -> UserProfileResponse:
         return UserProfileResponse(content=raw or None)
     except Exception as e:
         logger.error(f"Failed to read user profile: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to read user profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to read user profile: {e!s}")
 
 
 @router.put(
@@ -526,7 +526,7 @@ async def update_user_profile(request: UserProfileUpdateRequest) -> UserProfileR
         return UserProfileResponse(content=request.content or None)
     except Exception as e:
         logger.error(f"Failed to update user profile: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update user profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update user profile: {e!s}")
 
 
 @router.delete(
@@ -556,7 +556,7 @@ async def delete_agent(name: str) -> None:
         outcome = await asyncio.to_thread(store.delete, name, user_id=user_id)
     except Exception as e:
         logger.error(f"Failed to delete agent '{name}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to delete agent: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete agent: {e!s}")
 
     if outcome == "legacy":
         raise HTTPException(

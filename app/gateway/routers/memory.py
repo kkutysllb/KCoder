@@ -7,7 +7,12 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from app.gateway.internal_auth import get_trusted_internal_owner_user_id
-from qilin.agents.memory import MemoryConflictError, MemoryCorruptionError, MemoryManager, get_memory_manager
+from qilin.agents.memory import (
+    MemoryConflictError,
+    MemoryCorruptionError,
+    MemoryManager,
+    get_memory_manager,
+)
 from qilin.config.memory_config import get_memory_config
 from qilin.config.paths import make_safe_user_id
 from qilin.runtime.user_context import get_effective_user_id

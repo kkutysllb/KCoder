@@ -9,7 +9,11 @@ from pydantic import BaseModel, Field
 from app.gateway.authz import require_permission
 from app.gateway.browser_capability import browser_capability
 from qilin.config.paths import get_paths
-from qilin.runtime.user_context import get_effective_user_id, reset_current_user, set_current_user
+from qilin.runtime.user_context import (
+    get_effective_user_id,
+    reset_current_user,
+    set_current_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +90,10 @@ async def navigate_browser(thread_id: str, body: BrowserNavigateRequest, request
         raise HTTPException(status_code=404, detail="Browser automation is not enabled")
 
     try:
-        from qilin.community.browser_automation import navigate_and_capture, redact_browser_url
+        from qilin.community.browser_automation import (
+            navigate_and_capture,
+            redact_browser_url,
+        )
     except ImportError as exc:  # Playwright is an optional dependency.
         raise HTTPException(status_code=501, detail="Browser automation is not available") from exc
 

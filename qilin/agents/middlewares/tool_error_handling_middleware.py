@@ -162,11 +162,19 @@ def _build_runtime_middlewares(
     authorization_infrastructure_tool_names: frozenset[str] = frozenset(),
 ) -> list[AgentMiddleware]:
     """Build shared base middlewares for agent execution."""
-    from qilin.agents.middlewares.input_sanitization_middleware import InputSanitizationMiddleware
-    from qilin.agents.middlewares.llm_error_handling_middleware import LLMErrorHandlingMiddleware
+    from qilin.agents.middlewares.input_sanitization_middleware import (
+        InputSanitizationMiddleware,
+    )
+    from qilin.agents.middlewares.llm_error_handling_middleware import (
+        LLMErrorHandlingMiddleware,
+    )
     from qilin.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
-    from qilin.agents.middlewares.tool_output_budget_middleware import ToolOutputBudgetMiddleware
-    from qilin.agents.middlewares.tool_result_sanitization_middleware import ToolResultSanitizationMiddleware
+    from qilin.agents.middlewares.tool_output_budget_middleware import (
+        ToolOutputBudgetMiddleware,
+    )
+    from qilin.agents.middlewares.tool_result_sanitization_middleware import (
+        ToolResultSanitizationMiddleware,
+    )
     from qilin.sandbox.middleware import SandboxMiddleware
 
     # Layer 1 — outermost wrap_model_call wrappers (listed outer→inner).
@@ -197,7 +205,9 @@ def _build_runtime_middlewares(
     # Layer 3 — post-processing append-only middlewares.
     tail: list[AgentMiddleware] = []
     if include_dangling_tool_call_patch:
-        from qilin.agents.middlewares.dangling_tool_call_middleware import DanglingToolCallMiddleware
+        from qilin.agents.middlewares.dangling_tool_call_middleware import (
+            DanglingToolCallMiddleware,
+        )
 
         tail.append(DanglingToolCallMiddleware())
     tail.append(LLMErrorHandlingMiddleware(app_config=app_config))
@@ -261,7 +271,9 @@ def _build_runtime_middlewares(
     # a ToolProgress slot.  The middleware stamps qilin_tool_meta on the blocked
     # ToolMessage itself so downstream callers receive a well-formed result.
     if app_config.read_before_write.enabled:
-        from qilin.agents.middlewares.read_before_write_middleware import ReadBeforeWriteMiddleware
+        from qilin.agents.middlewares.read_before_write_middleware import (
+            ReadBeforeWriteMiddleware,
+        )
 
         tail.append(ReadBeforeWriteMiddleware())
 
@@ -272,7 +284,9 @@ def _build_runtime_middlewares(
     tool_progress_config = app_config.tool_progress
     _ToolProgressMiddleware = None
     if tool_progress_config.enabled:
-        from qilin.agents.middlewares.tool_progress_middleware import ToolProgressMiddleware as _ToolProgressMiddleware
+        from qilin.agents.middlewares.tool_progress_middleware import (
+            ToolProgressMiddleware as _ToolProgressMiddleware,
+        )
 
         tail.append(_ToolProgressMiddleware.from_config(tool_progress_config))
 
@@ -342,8 +356,12 @@ def build_subagent_runtime_middlewares(
     # active authority. Mirror the lead agent's activation + policy pair so a
     # subagent keeps its ordinary tool set until a slash command or a completed
     # SKILL.md read activates the corresponding allowed-tools declaration.
-    from qilin.agents.middlewares.skill_activation_middleware import SkillActivationMiddleware
-    from qilin.agents.middlewares.skill_tool_policy_middleware import SkillToolPolicyMiddleware
+    from qilin.agents.middlewares.skill_activation_middleware import (
+        SkillActivationMiddleware,
+    )
+    from qilin.agents.middlewares.skill_tool_policy_middleware import (
+        SkillToolPolicyMiddleware,
+    )
 
     slash_source_owner_token = secrets.token_urlsafe(24)
     middlewares.append(
@@ -381,10 +399,14 @@ def build_subagent_runtime_middlewares(
     # tool-policy filtering); promotion is read from graph state. Empty/None
     # setup (deferral disabled or no MCP tool survived) is a pure no-op.
     if deferred_setup is not None and deferred_setup.deferred_names:
-        from qilin.agents.middlewares.deferred_tool_filter_middleware import DeferredToolFilterMiddleware
+        from qilin.agents.middlewares.deferred_tool_filter_middleware import (
+            DeferredToolFilterMiddleware,
+        )
 
         middlewares.append(DeferredToolFilterMiddleware(deferred_setup.deferred_names, deferred_setup.catalog_hash))
-        from qilin.agents.middlewares.mcp_routing_middleware import assert_mcp_routing_before_deferred_filter
+        from qilin.agents.middlewares.mcp_routing_middleware import (
+            assert_mcp_routing_before_deferred_filter,
+        )
 
         assert_mcp_routing_before_deferred_filter(middlewares)
 
@@ -404,7 +426,9 @@ def build_subagent_runtime_middlewares(
     # turn/token budget with lead-visible stop reason is Phase 2.
     loop_detection_config = app_config.loop_detection
     if loop_detection_config.enabled:
-        from qilin.agents.middlewares.loop_detection_middleware import LoopDetectionMiddleware
+        from qilin.agents.middlewares.loop_detection_middleware import (
+            LoopDetectionMiddleware,
+        )
 
         middlewares.append(LoopDetectionMiddleware.from_config(loop_detection_config))
 
@@ -432,11 +456,15 @@ def build_subagent_runtime_middlewares(
     else:
         token_budget_config = app_config.subagents.token_budget
     if token_budget_config.enabled:
-        from qilin.agents.middlewares.token_budget_middleware import TokenBudgetMiddleware
+        from qilin.agents.middlewares.token_budget_middleware import (
+            TokenBudgetMiddleware,
+        )
 
         middlewares.append(TokenBudgetMiddleware.from_config(token_budget_config))
 
-    from qilin.agents.middlewares.configured_extensions import load_configured_extension_middlewares
+    from qilin.agents.middlewares.configured_extensions import (
+        load_configured_extension_middlewares,
+    )
 
     middlewares.extend(load_configured_extension_middlewares(app_config))
 
@@ -446,7 +474,9 @@ def build_subagent_runtime_middlewares(
     # propagate back to the lead agent via the task tool result.
     safety_config = app_config.safety_finish_reason
     if safety_config.enabled:
-        from qilin.agents.middlewares.safety_finish_reason_middleware import SafetyFinishReasonMiddleware
+        from qilin.agents.middlewares.safety_finish_reason_middleware import (
+            SafetyFinishReasonMiddleware,
+        )
 
         middlewares.append(SafetyFinishReasonMiddleware.from_config(safety_config))
 
@@ -457,7 +487,9 @@ def build_subagent_runtime_middlewares(
     # leave an assistant tool-call + tool-result tail with no leading user
     # context, which strict providers reject. The same middleware also keeps
     # skill references durable when their original read results are compacted.
-    from qilin.agents.middlewares.durable_context_middleware import DurableContextMiddleware
+    from qilin.agents.middlewares.durable_context_middleware import (
+        DurableContextMiddleware,
+    )
 
     middlewares.append(
         DurableContextMiddleware(
@@ -498,7 +530,9 @@ def build_subagent_runtime_middlewares(
     # ``step_events.py``) or it drops steps captured after the compaction
     # point. It does not implement ``consume_stop_reason``, so it does not
     # interfere with the Phase 2 guard-cap stop-reason channel.
-    from qilin.agents.middlewares.summarization_middleware import create_summarization_middleware
+    from qilin.agents.middlewares.summarization_middleware import (
+        create_summarization_middleware,
+    )
 
     summarization_middleware = create_summarization_middleware(
         app_config=app_config,
@@ -524,7 +558,9 @@ def build_subagent_runtime_middlewares(
     # per-request payload (no ``after_model``/``consume_stop_reason``), so it is
     # inert to the Phase 2 guard-cap channel, and must sit inner of
     # DurableContextMiddleware to observe the injected system message.
-    from qilin.agents.middlewares.system_message_coalescing_middleware import SystemMessageCoalescingMiddleware
+    from qilin.agents.middlewares.system_message_coalescing_middleware import (
+        SystemMessageCoalescingMiddleware,
+    )
 
     middlewares.append(SystemMessageCoalescingMiddleware())
 

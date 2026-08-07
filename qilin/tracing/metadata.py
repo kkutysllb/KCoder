@@ -19,7 +19,11 @@ from __future__ import annotations
 from typing import Any
 
 from qilin.config import get_enabled_tracing_providers
-from qilin.trace_context import QILIN_TRACE_METADATA_KEY, get_current_trace_id, normalize_trace_id
+from qilin.trace_context import (
+    QILIN_TRACE_METADATA_KEY,
+    get_current_trace_id,
+    normalize_trace_id,
+)
 
 # Lazy-imported below to avoid a circular import: ``qilin.runtime`` eagerly
 # imports the run worker, which in turn needs ``qilin.tracing``.

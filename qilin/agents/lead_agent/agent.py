@@ -33,20 +33,36 @@ from langchain_core.runnables import RunnableConfig
 
 from qilin.agents.lead_agent.prompt import apply_prompt_template
 from qilin.agents.middlewares.clarification_middleware import ClarificationMiddleware
-from qilin.agents.middlewares.configured_extensions import load_configured_extension_middlewares
+from qilin.agents.middlewares.configured_extensions import (
+    load_configured_extension_middlewares,
+)
 from qilin.agents.middlewares.loop_detection_middleware import LoopDetectionMiddleware
 from qilin.agents.middlewares.memory_middleware import MemoryMiddleware
-from qilin.agents.middlewares.model_length_finish_reason_middleware import ModelLengthFinishReasonMiddleware
-from qilin.agents.middlewares.safety_finish_reason_middleware import SafetyFinishReasonMiddleware
+from qilin.agents.middlewares.model_length_finish_reason_middleware import (
+    ModelLengthFinishReasonMiddleware,
+)
+from qilin.agents.middlewares.safety_finish_reason_middleware import (
+    SafetyFinishReasonMiddleware,
+)
 from qilin.agents.middlewares.subagent_limit_middleware import SubagentLimitMiddleware
-from qilin.agents.middlewares.summarization_middleware import QiLinSummarizationMiddleware, create_summarization_middleware
-from qilin.agents.middlewares.terminal_response_middleware import TerminalResponseMiddleware
+from qilin.agents.middlewares.summarization_middleware import (
+    QiLinSummarizationMiddleware,
+    create_summarization_middleware,
+)
+from qilin.agents.middlewares.terminal_response_middleware import (
+    TerminalResponseMiddleware,
+)
 from qilin.agents.middlewares.title_middleware import TitleMiddleware
 from qilin.agents.middlewares.todo_middleware import TodoMiddleware
 from qilin.agents.middlewares.token_usage_middleware import TokenUsageMiddleware
-from qilin.agents.middlewares.tool_error_handling_middleware import build_lead_runtime_middlewares
+from qilin.agents.middlewares.tool_error_handling_middleware import (
+    build_lead_runtime_middlewares,
+)
 from qilin.agents.middlewares.view_image_middleware import ViewImageMiddleware
-from qilin.agents.thread_state import get_thread_state_schema, normalize_middleware_state_schemas
+from qilin.agents.thread_state import (
+    get_thread_state_schema,
+    normalize_middleware_state_schemas,
+)
 from qilin.authz.tool_filter import apply_tool_authorization
 from qilin.config.agents_config import load_agent_config, validate_agent_name
 from qilin.config.app_config import AppConfig, get_app_config
@@ -321,14 +337,18 @@ def build_middlewares(
 
     # Always inject current date (and optionally memory) as <system-reminder> into the
     # first HumanMessage to keep the system prompt fully static for prefix-cache reuse.
-    from qilin.agents.middlewares.dynamic_context_middleware import DynamicContextMiddleware
+    from qilin.agents.middlewares.dynamic_context_middleware import (
+        DynamicContextMiddleware,
+    )
 
     middlewares.append(DynamicContextMiddleware(agent_name=agent_name, app_config=resolved_app_config))
 
     # Deterministically load a full SKILL.md when the user starts the turn with
     # /skill-name. This keeps the base system prompt metadata-only while giving
     # explicit user activation priority over model-side relevance guessing.
-    from qilin.agents.middlewares.skill_activation_middleware import SkillActivationMiddleware
+    from qilin.agents.middlewares.skill_activation_middleware import (
+        SkillActivationMiddleware,
+    )
 
     slash_source_owner_token = secrets.token_urlsafe(24)
     middlewares.append(
@@ -342,7 +362,9 @@ def build_middlewares(
 
     # Enabled skills are only discoverable metadata. Apply allowed-tools at
     # runtime after explicit slash activation or an actual skill-file load.
-    from qilin.agents.middlewares.skill_tool_policy_middleware import SkillToolPolicyMiddleware
+    from qilin.agents.middlewares.skill_tool_policy_middleware import (
+        SkillToolPolicyMiddleware,
+    )
 
     middlewares.append(
         SkillToolPolicyMiddleware(
@@ -356,7 +378,9 @@ def build_middlewares(
     # Capture completed task delegations and loaded skill files before
     # summarization can compact them, then inject durable context channels
     # (summary + ledger + skills) into model calls.
-    from qilin.agents.middlewares.durable_context_middleware import DurableContextMiddleware
+    from qilin.agents.middlewares.durable_context_middleware import (
+        DurableContextMiddleware,
+    )
 
     middlewares.append(
         DurableContextMiddleware(
@@ -387,7 +411,9 @@ def build_middlewares(
     # Add MemoryMiddleware after TitleMiddleware. Tool mode normally skips it;
     # conversation-extraction backends may explicitly retain passive writes.
     if should_use_memory_tools(resolved_app_config.memory):
-        from qilin.agents.memory.manager import backend_requires_passive_writes_in_tool_mode
+        from qilin.agents.memory.manager import (
+            backend_requires_passive_writes_in_tool_mode,
+        )
 
         if backend_requires_passive_writes_in_tool_mode(resolved_app_config.memory.manager_class):
             middlewares.append(MemoryMiddleware(agent_name=agent_name, memory_config=resolved_app_config.memory))
@@ -412,17 +438,23 @@ def build_middlewares(
     # catalog; SkillToolPolicyMiddleware separately filters model visibility,
     # tool_search results, and execution for the active skill at runtime.
     if deferred_setup is not None and deferred_setup.deferred_names:
-        from qilin.agents.middlewares.deferred_tool_filter_middleware import DeferredToolFilterMiddleware
+        from qilin.agents.middlewares.deferred_tool_filter_middleware import (
+            DeferredToolFilterMiddleware,
+        )
 
         middlewares.append(DeferredToolFilterMiddleware(deferred_setup.deferred_names, deferred_setup.catalog_hash))
-        from qilin.agents.middlewares.mcp_routing_middleware import assert_mcp_routing_before_deferred_filter
+        from qilin.agents.middlewares.mcp_routing_middleware import (
+            assert_mcp_routing_before_deferred_filter,
+        )
 
         assert_mcp_routing_before_deferred_filter(middlewares)
 
     # Coalesce every SystemMessage into a single leading one before the request
     # reaches the provider. Strict backends (vLLM, SGLang, Qwen, Anthropic)
     # reject non-leading SystemMessages. See system_message_coalescing_middleware.py.
-    from qilin.agents.middlewares.system_message_coalescing_middleware import SystemMessageCoalescingMiddleware
+    from qilin.agents.middlewares.system_message_coalescing_middleware import (
+        SystemMessageCoalescingMiddleware,
+    )
 
     middlewares.append(SystemMessageCoalescingMiddleware())
 
@@ -441,7 +473,9 @@ def build_middlewares(
     # TokenBudgetMiddleware - enforce per-run token limits
     token_budget_config = resolved_app_config.token_budget
     if token_budget_config.enabled:
-        from qilin.agents.middlewares.token_budget_middleware import TokenBudgetMiddleware
+        from qilin.agents.middlewares.token_budget_middleware import (
+            TokenBudgetMiddleware,
+        )
 
         middlewares.append(TokenBudgetMiddleware.from_config(token_budget_config))
 
@@ -535,7 +569,11 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
     # Lazy import to avoid circular dependency
     from qilin.tools import get_available_tools
     from qilin.tools.builtins import setup_agent, update_agent
-    from qilin.tools.builtins.tool_search import assemble_deferred_tools, build_mcp_routing_middleware, get_mcp_routing_hints_prompt_section
+    from qilin.tools.builtins.tool_search import (
+        assemble_deferred_tools,
+        build_mcp_routing_middleware,
+        get_mcp_routing_hints_prompt_section,
+    )
 
     cfg = _get_runtime_config(config)
     resolved_app_config = app_config
@@ -650,7 +688,10 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
             enabled=skill_search_enabled,
             container_base_path=container_base_path,
         )
-        raw_tools = get_available_tools(model_name=model_name, subagent_enabled=subagent_enabled, app_config=resolved_app_config) + [setup_agent]
+        raw_tools = [
+            *get_available_tools(model_name=model_name, subagent_enabled=subagent_enabled, app_config=resolved_app_config),
+            setup_agent,
+        ]
         configured_tools = raw_tools
         if non_interactive:
             configured_tools = [tool for tool in configured_tools if tool.name not in _NON_INTERACTIVE_DISABLED_TOOL_NAMES]

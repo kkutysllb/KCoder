@@ -78,7 +78,11 @@ from qilin.trace_context import (
 )
 from qilin.tracing import inject_langfuse_metadata
 from qilin.utils.messages import message_to_text
-from qilin.workspace_changes import capture_workspace_snapshot, get_changed_output_paths, record_workspace_changes
+from qilin.workspace_changes import (
+    capture_workspace_snapshot,
+    get_changed_output_paths,
+    record_workspace_changes,
+)
 from qilin.workspace_changes.types import WorkspaceSnapshot
 
 from .manager import RunManager, RunRecord, RunStartOutcome
@@ -1177,7 +1181,18 @@ async def run_agent(
             await run_manager.set_finalizing(run_id, False)
 
         await bridge.publish_end(run_id)
-        asyncio.create_task(bridge.cleanup(run_id, delay=60))
+        _spawn_cleanup_task(bridge, run_id)
+
+
+# Fire-and-forget stream-bridge cleanup: keep a reference so the delayed
+# task is not garbage-collected (which would cancel it) before the delay elapses.
+_background_cleanup_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_cleanup_task(bridge, run_id: str) -> None:
+    task = asyncio.create_task(bridge.cleanup(run_id, delay=60))
+    _background_cleanup_tasks.add(task)
+    task.add_done_callback(_background_cleanup_tasks.discard)
 
 
 # ---------------------------------------------------------------------------

@@ -21,7 +21,11 @@ from collections.abc import Iterable
 
 from qilin.authz.principal import build_principal_from_context
 from qilin.authz.provider import AuthorizationProvider, AuthzDecision, AuthzRequest
-from qilin.guardrails.provider import GuardrailDecision, GuardrailReason, GuardrailRequest
+from qilin.guardrails.provider import (
+    GuardrailDecision,
+    GuardrailReason,
+    GuardrailRequest,
+)
 
 
 class GuardrailAuthorizationAdapter:

@@ -17,7 +17,10 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_openai import ChatOpenAI
 
-from qilin.models.assistant_payload_replay import restore_assistant_payloads, restore_reasoning_content
+from qilin.models.assistant_payload_replay import (
+    restore_assistant_payloads,
+    restore_reasoning_content,
+)
 
 _MISSING = object()
 

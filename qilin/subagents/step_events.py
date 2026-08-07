@@ -121,8 +121,7 @@ def capture_new_step_messages(
     middleware violates this invariant, the reset branch needs a full re-scan.
     """
     total = len(messages)
-    if total < processed_count:
-        processed_count = total
+    processed_count = min(processed_count, total)
     if total > processed_count:
         for message in messages[processed_count:total]:
             capture_step_message(message, captured, seen_ids)

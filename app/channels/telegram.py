@@ -80,7 +80,12 @@ class TelegramChannel(Channel):
             return
 
         try:
-            from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+            from telegram.ext import (
+                ApplicationBuilder,
+                CommandHandler,
+                MessageHandler,
+                filters,
+            )
         except ImportError:
             logger.error("python-telegram-bot is not installed. Install it with: uv add python-telegram-bot")
             return
@@ -444,7 +449,7 @@ class TelegramChannel(Channel):
                 continue
 
             try:
-                resolved_size, content = await self._run_on_telegram_loop(self._download_inbound_file(bot, file_id))
+                _, content = await self._run_on_telegram_loop(self._download_inbound_file(bot, file_id))
             except Exception as exc:
                 # Exception strings from HTTP clients can contain request URLs.
                 # Log only the class name so a Bot API token can never leak.

@@ -76,7 +76,7 @@ class ModelLengthFinishReasonMiddleware(AgentMiddleware[AgentState]):
         for detector in self._detectors:
             try:
                 hit = detector.detect(message)
-            except Exception:  # noqa: BLE001 - provider detectors must not break a run
+            except Exception:
                 logger.exception("ModelLengthTerminationDetector %r raised; treating as no-match", getattr(detector, "name", type(detector).__name__))
                 continue
             if hit is not None:

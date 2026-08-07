@@ -15,6 +15,17 @@ QiLin 是一个面向生产环境的 **Python 智能体运行时引擎 (agent ha
 
 ---
 
+## 🗺️ 版本路线 / Version Roadmap
+
+| 版本 / Version | 定位 / Positioning | 状态 / Status |
+|---|---|---|
+| **v1.0.0** | **单智能体框架 / Single-agent framework** — lead agent + 工具式子代理委派 | ✅ 当前版本 / Current |
+| **v2.0.0** | **多智能体框架 / Multi-agent framework** — 编排拓扑、agent 间通信、handoff 协议 | 🔜 规划中 / Planned |
+
+v1.0.0 的架构形态为"单主代理 + 工具式子代理"（hierarchical delegation）：全部控制流由 lead agent 主导，子代理经 `task_tool` 委派、调用-返回、用完即弃。v2.0.0 将在该基座上演进为真正的多智能体框架：Orchestrator 图编排、agent 间消息协议、上下文移交（handoff）、以及按 agent 维度的治理与可观测性。
+
+---
+
 ## ✨ 核心亮点 / Highlights
 
 - 🔌 **双模引擎 / Dual-mode Runtime** — 同一套代码同时支持 **embedded 模式**（进程内 LangGraph 执行器）与 **service 模式**（LangGraph Server 部署）。

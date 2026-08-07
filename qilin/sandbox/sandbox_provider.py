@@ -20,7 +20,6 @@ class SandboxProvider(ABC):
         Returns:
             The ID of the acquired sandbox environment.
         """
-        pass
 
     async def acquire_async(self, thread_id: str | None = None, *, user_id: str | None = None) -> str:
         """Acquire a sandbox without blocking the event loop.
@@ -39,7 +38,6 @@ class SandboxProvider(ABC):
         Args:
             sandbox_id: The ID of the sandbox environment to retain.
         """
-        pass
 
     @abstractmethod
     def release(self, sandbox_id: str) -> None:
@@ -48,14 +46,12 @@ class SandboxProvider(ABC):
         Args:
             sandbox_id: The ID of the sandbox environment to destroy.
         """
-        pass
 
     def reset(self) -> None:
         """Clear cached state that survives provider instance replacement.
 
         Provider overrides can release resources and make the instance unusable.
         """
-        pass
 
 
 _default_sandbox_provider: SandboxProvider | None = None

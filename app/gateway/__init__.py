@@ -1,6 +1,6 @@
 from .config import GatewayConfig, get_gateway_config
 
-__all__ = ["app", "create_app", "GatewayConfig", "get_gateway_config"]
+__all__ = ["GatewayConfig", "app", "create_app", "get_gateway_config"]
 
 
 def __getattr__(name: str):

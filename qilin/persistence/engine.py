@@ -14,7 +14,12 @@ import asyncio
 import json
 import logging
 
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 # Recycle pooled Postgres connections before stale idle sockets can hang
 # pool_pre_ping. The command timeout bounds stalled ORM queries independently.
@@ -151,7 +156,7 @@ async def init_engine(
         # ``migrations/env.py::run_migrations_online`` so its connections
         # behave identically.
         @event.listens_for(_engine.sync_engine, "connect")
-        def _enable_sqlite_wal(dbapi_conn, _record):  # noqa: ARG001 — SQLAlchemy contract
+        def _enable_sqlite_wal(dbapi_conn, _record):
             cursor = dbapi_conn.cursor()
             try:
                 cursor.execute("PRAGMA journal_mode=WAL;")

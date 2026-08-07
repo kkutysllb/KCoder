@@ -8,6 +8,11 @@ Usage:
     from qilin.persistence import init_engine, close_engine, get_session_factory
 """
 
-from qilin.persistence.engine import close_engine, get_engine, get_session_factory, init_engine
+from qilin.persistence.engine import (
+    close_engine,
+    get_engine,
+    get_session_factory,
+    init_engine,
+)
 
 __all__ = ["close_engine", "get_engine", "get_session_factory", "init_engine"]

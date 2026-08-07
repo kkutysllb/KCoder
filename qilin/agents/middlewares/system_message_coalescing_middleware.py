@@ -32,10 +32,16 @@ from typing import override
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
-from langchain.agents.middleware.types import ModelCallResult, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import (
+    ModelCallResult,
+    ModelRequest,
+    ModelResponse,
+)
 from langchain_core.messages import SystemMessage
 
-from qilin.agents.middlewares.dynamic_context_middleware import is_dynamic_context_reminder
+from qilin.agents.middlewares.dynamic_context_middleware import (
+    is_dynamic_context_reminder,
+)
 
 
 def _flatten_content(content) -> str:

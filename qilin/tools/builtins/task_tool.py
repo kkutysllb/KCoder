@@ -15,8 +15,15 @@ from langgraph.types import Command
 from qilin.authz.principal import normalize_authz_attributes
 from qilin.config import get_app_config
 from qilin.runtime.user_context import resolve_runtime_user_id
-from qilin.sandbox.security import LOCAL_BASH_SUBAGENT_DISABLED_MESSAGE, is_host_bash_allowed
-from qilin.subagents import SubagentExecutor, get_available_subagent_names, get_subagent_config
+from qilin.sandbox.security import (
+    LOCAL_BASH_SUBAGENT_DISABLED_MESSAGE,
+    is_host_bash_allowed,
+)
+from qilin.subagents import (
+    SubagentExecutor,
+    get_available_subagent_names,
+    get_subagent_config,
+)
 from qilin.subagents.config import resolve_subagent_model_name
 from qilin.subagents.executor import (
     SubagentStatus,
@@ -31,7 +38,11 @@ from qilin.subagents.status_contract import (
     make_subagent_additional_kwargs,
 )
 from qilin.tools.types import Runtime
-from qilin.trace_context import QILIN_TRACE_METADATA_KEY, get_current_trace_id, normalize_trace_id
+from qilin.trace_context import (
+    QILIN_TRACE_METADATA_KEY,
+    get_current_trace_id,
+    normalize_trace_id,
+)
 from qilin.utils.custom_events import aemit_custom_event
 
 if TYPE_CHECKING:

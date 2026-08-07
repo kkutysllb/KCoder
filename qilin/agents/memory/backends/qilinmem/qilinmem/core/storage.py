@@ -31,7 +31,14 @@ from typing import Any, Protocol
 import yaml
 
 from ..config import QiLinMemConfig
-from .paths import DEFAULT_AGENT_BUCKET, agent_facts_directory, fact_file_path, memory_file_path, safe_user_id, validate_agent_name
+from .paths import (
+    DEFAULT_AGENT_BUCKET,
+    agent_facts_directory,
+    fact_file_path,
+    memory_file_path,
+    safe_user_id,
+    validate_agent_name,
+)
 
 logger = logging.getLogger(__name__)
 

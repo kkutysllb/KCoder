@@ -28,7 +28,10 @@ from qilin.sandbox.path_patterns import build_output_mask_pattern
 from qilin.sandbox.sandbox import Sandbox
 from qilin.sandbox.sandbox_provider import get_sandbox_provider
 from qilin.sandbox.search import GrepMatch
-from qilin.sandbox.security import LOCAL_HOST_BASH_DISABLED_MESSAGE, is_host_bash_allowed
+from qilin.sandbox.security import (
+    LOCAL_HOST_BASH_DISABLED_MESSAGE,
+    is_host_bash_allowed,
+)
 from qilin.tools.types import Runtime
 
 logger = logging.getLogger(__name__)
@@ -1756,7 +1759,10 @@ def _lark_cli_env_from_runtime(runtime: Runtime, command: str, *, sandbox_paths:
     if not _LARK_CLI_COMMAND_RE.search(command):
         return None
     try:
-        from qilin.integrations.lark_cli import lark_cli_env_overlay, sandbox_lark_broker_active
+        from qilin.integrations.lark_cli import (
+            lark_cli_env_overlay,
+            sandbox_lark_broker_active,
+        )
 
         broker = sandbox_paths and sandbox_lark_broker_active()
         return lark_cli_env_overlay(resolve_runtime_user_id(runtime), sandbox_paths=sandbox_paths, broker=broker)

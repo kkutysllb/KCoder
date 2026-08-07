@@ -43,7 +43,7 @@ class Session:
         """
         try:
             threads = self.client.list_threads(limit=100).get("thread_list", [])
-        except Exception:  # noqa: BLE001 - resolution is best-effort
+        except Exception:
             return ref
         if any(t.get("thread_id") == ref for t in threads):
             return ref
@@ -65,7 +65,7 @@ class Session:
             from qilin.persistence.engine import close_engine
 
             loop.run(close_engine())
-        except Exception:  # noqa: BLE001 - teardown is best-effort
+        except Exception:
             pass
         loop.close()
 

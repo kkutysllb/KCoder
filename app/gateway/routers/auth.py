@@ -31,10 +31,20 @@ from app.gateway.auth.oidc_state import (
     get_state_cookie,
     set_state_cookie,
 )
-from app.gateway.auth.session_cookie import ACCESS_TOKEN_COOKIE_NAME, SESSION_PERSISTENCE_COOKIE_NAME, set_session_cookie
+from app.gateway.auth.session_cookie import (
+    ACCESS_TOKEN_COOKIE_NAME,
+    SESSION_PERSISTENCE_COOKIE_NAME,
+    set_session_cookie,
+)
 from app.gateway.auth.session_cookie_state import SKIP_AUTH_CSRF_COOKIE_STATE_ATTR
 from app.gateway.auth.user_provisioning import get_or_provision_oidc_user
-from app.gateway.csrf_middleware import CSRF_COOKIE_NAME, _request_origin, auth_csrf_cookie_settings, generate_csrf_token, is_secure_request
+from app.gateway.csrf_middleware import (
+    CSRF_COOKIE_NAME,
+    _request_origin,
+    auth_csrf_cookie_settings,
+    generate_csrf_token,
+    is_secure_request,
+)
 from app.gateway.deps import get_current_user_from_request, get_local_provider
 from qilin.config.auth_config import OIDCProviderConfig
 
@@ -163,7 +173,7 @@ def _set_session_cookie(response: Response, token: str, request: Request, *, rem
 #
 # **Limitation**: with multi-worker deployments (e.g., gunicorn -w N), each
 # worker maintains its own lockout table, so an attacker effectively gets
-# N × _MAX_LOGIN_ATTEMPTS guesses before being locked out everywhere. For
+# N * _MAX_LOGIN_ATTEMPTS guesses before being locked out everywhere. For
 # production multi-worker setups, replace this with a shared store (Redis,
 # database-backed counter) to enforce a true per-IP limit.
 
@@ -651,7 +661,7 @@ async def list_auth_providers():
 async def oauth_login(
     request: Request,
     provider: str,
-    next: str | None = None,  # noqa: A002 (shadowing built-in is intentional — this is the query param name)
+    next: str | None = None,
     remember_me: bool = True,
 ):
     """Initiate OIDC login flow.

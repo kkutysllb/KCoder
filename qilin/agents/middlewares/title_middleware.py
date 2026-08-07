@@ -10,7 +10,9 @@ from langgraph.config import get_config
 from langgraph.constants import TAG_NOSTREAM
 from langgraph.runtime import Runtime
 
-from qilin.agents.middlewares.dynamic_context_middleware import is_dynamic_context_reminder
+from qilin.agents.middlewares.dynamic_context_middleware import (
+    is_dynamic_context_reminder,
+)
 from qilin.config.title_config import get_title_config
 from qilin.models import create_chat_model
 

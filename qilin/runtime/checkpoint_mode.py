@@ -13,7 +13,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from qilin.config.database_config import DEFAULT_CHECKPOINT_SNAPSHOT_FREQUENCY, CheckpointChannelMode
+from qilin.config.database_config import (
+    DEFAULT_CHECKPOINT_SNAPSHOT_FREQUENCY,
+    CheckpointChannelMode,
+)
 
 INTERNAL_CHECKPOINT_MODE_KEY = "__qilin_checkpoint_channel_mode"
 CHECKPOINT_MODE_METADATA_KEY = "qilin_checkpoint_channel_mode"

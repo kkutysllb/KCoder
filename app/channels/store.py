@@ -54,19 +54,20 @@ class ChannelStore:
         return {}
 
     def _save(self) -> None:
-        fd = tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=self._path.parent,
-            suffix=".tmp",
-            delete=False,
-        )
+        tmp_path: Path | None = None
         try:
-            json.dump(self._data, fd, indent=2)
-            fd.close()
-            Path(fd.name).replace(self._path)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                dir=self._path.parent,
+                suffix=".tmp",
+                delete=False,
+            ) as fd:
+                tmp_path = Path(fd.name)
+                json.dump(self._data, fd, indent=2)
+            tmp_path.replace(self._path)
         except BaseException:
-            fd.close()
-            Path(fd.name).unlink(missing_ok=True)
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
             raise
 
     # -- key helpers -------------------------------------------------------

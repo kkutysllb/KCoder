@@ -10,16 +10,17 @@
 一个统一的 Python 包，把 LangGraph 状态机、模型调用、工具/技能生态、子代理递归、沙箱隔离、权限模型、可观测性与定时调度整合在同一二进制 / 同进程中运行。
 
 - **包名称 / Package**：`qilin`
-- **核心代码量 / Codebase**：约 437 文件，22 个子模块
+- **核心代码量 / Codebase**：约 419 文件，21 个子模块
 - **Python 版本 / Python**：≥ 3.12
 - **CLI**：`qilin`
+- **版本路线 / Roadmap**：v1.0.0 单智能体框架（当前）→ v2.0.0 多智能体框架
 
 ## ✨ 核心能力 / Core Capabilities
 
 | 中文 | English |
 |------|---------|
 | 嵌入式 & 服务化双模运行 | Embedded or service-mode runtime |
-| 22 个高内聚子系统 | 22 cohesive subsystems |
+| 21 个高内聚子系统 | 21 cohesive subsystems |
 | LangGraph 兼容的内核 | LangGraph-compatible kernel |
 | 多 Provider 模型适配（OpenAI / Anthropic / DeepSeek / Gemini / Ollama） | Multi-provider model adapters |
 | 子代理递归 + 独立 checkpoint | Recursive sub-agents with independent checkpoints |
@@ -110,7 +111,7 @@ sandbox:
 ```
 .
 ├── pyproject.toml         # 包元信息 + CLI 注册
-├── qilin/                 # 核心引擎代码（437 文件）
+├── qilin/                 # 核心引擎代码（419 文件）
 │   ├── client.py          # QiLinClient 嵌入式入口
 │   ├── constants.py       # 共享运行时常量
 │   ├── agents/            # Lead Agent + 中间件 + 记忆后端
@@ -125,19 +126,18 @@ sandbox:
 │   ├── sandbox/           # 沙箱抽象层
 │   ├── guardrails/        # 安全护栏中间件
 │   ├── authz/             # RBAC 资源授权
-│   ├── tracing/           # 多 Provider 追踪
-│   ├── memory/            # （在 agents/memory）事实提取 / 检索
+│   ├── tracing/           # Langfuse / Monocle 追踪
+│   ├── reflection/        # 变量解析（SkillACP）
 │   ├── community/         # 第三方生态（搜索、沙箱等）
 │   ├── integrations/      # Lark 等第三方渠道
 │   ├── models/            # 模型适配
 │   ├── tui/               # Textual 终端 UI
 │   ├── uploads/           # 用户上传管理
 │   ├── utils/             # 通用工具
-│   ├── workspace_changes/ # 工作区变更追踪
-│   └── tracing/           # Langfuse / Monocle
+│   └── workspace_changes/ # 工作区变更追踪
 ├── docs/                  # 项目文档（架构 + 各模块详解）
 │   ├── architecture.md
-│   └── modules/*.md       # 22 份模块文档
+│   └── modules/*.md       # 21 份模块文档
 └── README.md              # 本文件
 ```
 
@@ -187,7 +187,7 @@ Apache-2.0
 A single Python package that consolidates LangGraph state machines, model orchestration, tool/skill ecosystems, recursive sub-agents, sandbox isolation, fine-grained authorization, observability, and scheduled tasks — all in one binary / one process.
 
 - **Package**：`qilin`
-- **Codebase**：~437 files, 22 sub-modules
+- **Codebase**：~419 files, 21 sub-modules
 - **Python**：≥ 3.12
 - **CLI**：`qilin`
 
@@ -196,7 +196,7 @@ A single Python package that consolidates LangGraph state machines, model orches
 | Capability |
 |------------|
 | Embedded or service-mode runtime |
-| 22 cohesive subsystems |
+| 21 cohesive subsystems |
 | LangGraph-compatible kernel |
 | Multi-provider model adapters (OpenAI / Anthropic / DeepSeek / Gemini / Ollama) |
 | Recursive sub-agents with independent checkpoints |
@@ -242,7 +242,7 @@ echo "What is 2+2?" | qilin --json
 ```
 .
 ├── pyproject.toml         # Package metadata + CLI registration
-├── qilin/                 # Core engine (437 files, 22 sub-modules)
+├── qilin/                 # Core engine (419 files, 21 sub-modules)
 │   ├── client.py          # QiLinClient — embedded entry
 │   ├── constants.py       # Shared runtime constants
 │   ├── agents/            # Lead Agent + middlewares + memory backends
@@ -258,6 +258,7 @@ echo "What is 2+2?" | qilin --json
 │   ├── guardrails/        # Safety middleware
 │   ├── authz/             # RBAC authorization
 │   ├── tracing/           # Langfuse / Monocle
+│   ├── reflection/        # SkillACP variable resolution
 │   ├── community/         # 3rd-party ecosystem (search, sandbox, ...)
 │   ├── integrations/      # Lark, Lark CLI, ...
 │   ├── models/            # Model adapters
@@ -267,7 +268,7 @@ echo "What is 2+2?" | qilin --json
 │   └── workspace_changes/ # Workspace change tracker
 ├── docs/
 │   ├── architecture.md
-│   └── modules/*.md       # 22 module docs
+│   └── modules/*.md       # 21 module docs
 └── README.md              # This file
 ```
 

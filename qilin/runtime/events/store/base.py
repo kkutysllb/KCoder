@@ -79,7 +79,7 @@ class RunEventStore(abc.ABC):
         limit: int = 50,
         before_seq: int | None = None,
         after_seq: int | None = None,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> list[dict]:
         """Return displayable messages (category=message) for a thread, ordered by seq ascending.
 
@@ -136,7 +136,7 @@ class RunEventStore(abc.ABC):
         thread_id: str,
         run_ids: set[str],
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> dict[str, int]:
         """Return each run's last non-middleware AI message sequence.
 

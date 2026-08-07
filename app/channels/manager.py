@@ -32,7 +32,11 @@ from app.channels.message_bus import (
 )
 from app.channels.run_policy import CHANNEL_RUN_POLICY, ChannelRunPolicy
 from app.channels.store import ChannelStore
-from app.gateway.csrf_middleware import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, generate_csrf_token
+from app.gateway.csrf_middleware import (
+    CSRF_COOKIE_NAME,
+    CSRF_HEADER_NAME,
+    generate_csrf_token,
+)
 
 # Import built-in channel run-policy registrars eagerly so direct
 # ChannelManager construction sees the same policy map as gateway bootstrap.
@@ -621,7 +625,7 @@ def _unknown_command_reply(command: str | None = None) -> str:
 
 def _human_input_message(content: str, *, original_content: str | None = None, files: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     message: dict[str, Any] = {"role": "human", "content": content}
-    if original_content is not None and original_content != content or files:
+    if (original_content is not None and original_content != content) or files:
         additional_kwargs: dict[str, Any] = {}
         if original_content is not None and original_content != content:
             additional_kwargs[ORIGINAL_USER_CONTENT_KEY] = original_content
@@ -1936,7 +1940,7 @@ class ChannelManager:
                 await self._publish_progress_update(
                     msg,
                     thread_id,
-                    "Queued behind another request in this conversation. I’ll start working on this as soon as it finishes.",
+                    "Queued behind another request in this conversation. I'll start working on this as soon as it finishes.",
                 )
             if serial_state is not None:
                 await serial_state.lock.acquire()

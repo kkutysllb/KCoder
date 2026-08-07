@@ -14,7 +14,10 @@ from urllib.parse import unquote, urlparse
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.config import get_config
 
-from qilin.config.extensions_config import ExtensionsConfig, resolve_effective_mcp_routing
+from qilin.config.extensions_config import (
+    ExtensionsConfig,
+    resolve_effective_mcp_routing,
+)
 from qilin.config.paths import VIRTUAL_PATH_PREFIX, Paths, get_paths
 from qilin.mcp.client import build_servers_config
 from qilin.mcp.oauth import build_oauth_tool_interceptor, get_initial_oauth_headers
@@ -345,9 +348,19 @@ def _convert_call_tool_result(
     tree are left untouched.
     """
     from langchain_core.messages import ToolMessage
-    from langchain_core.messages.content import create_file_block, create_image_block, create_text_block
+    from langchain_core.messages.content import (
+        create_file_block,
+        create_image_block,
+        create_text_block,
+    )
     from langchain_core.tools import ToolException
-    from mcp.types import EmbeddedResource, ImageContent, ResourceLink, TextContent, TextResourceContents
+    from mcp.types import (
+        EmbeddedResource,
+        ImageContent,
+        ResourceLink,
+        TextContent,
+        TextResourceContents,
+    )
 
     # Pass ToolMessage through directly (interceptor short-circuit).
     if isinstance(call_tool_result, ToolMessage):
@@ -445,8 +458,7 @@ def _make_session_pool_tool(
     # Strip the server-name prefix to recover the original MCP tool name.
     original_name = tool.name
     prefix = f"{server_name}_"
-    if original_name.startswith(prefix):
-        original_name = original_name[len(prefix) :]
+    original_name = original_name.removeprefix(prefix)
 
     pool = get_session_pool()
 
@@ -688,7 +700,7 @@ async def get_mcp_tools() -> list[BaseTool]:
                     continue
                 tag_mcp_tool(tool)
                 prefix = f"{source_name}_"
-                original_name = tool.name[len(prefix) :] if tool.name.startswith(prefix) else tool.name
+                original_name = tool.name.removeprefix(prefix)
                 routing = resolve_effective_mcp_routing(server_cfg, original_name)
                 if routing.get("mode") != "off":
                     tag_mcp_routing(tool, routing)

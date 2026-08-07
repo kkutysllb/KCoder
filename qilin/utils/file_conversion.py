@@ -159,7 +159,7 @@ async def convert_file_to_markdown(file_path: Path, output_path: Path | None = N
     """
     try:
         pdf_converter = _get_pdf_converter()
-        file_size = file_path.stat().st_size
+        file_size = file_path.stat().st_size  # noqa: ASYNC240 - single small stat, not worth anyio
 
         if file_size > _ASYNC_THRESHOLD_BYTES:
             text = await asyncio.to_thread(_do_convert, file_path, pdf_converter)

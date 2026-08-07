@@ -28,7 +28,6 @@ class SandboxNotFoundError(SandboxError):
 class SandboxRuntimeError(SandboxError):
     """Raised when sandbox runtime is not available or misconfigured."""
 
-    pass
 
 
 class SandboxCommandError(SandboxError):
@@ -62,13 +61,11 @@ class SandboxFileError(SandboxError):
 class SandboxPermissionError(SandboxFileError):
     """Raised when a permission error occurs during file operations."""
 
-    pass
 
 
 class SandboxFileNotFoundError(SandboxFileError):
     """Raised when a file or directory is not found."""
 
-    pass
 
 
 class SandboxCapacityExceededError(SandboxError):

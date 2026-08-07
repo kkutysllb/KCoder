@@ -19,7 +19,13 @@ from typing import Any
 import httpx
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from qilin.models.credential_loader import CodexCliCredential, load_codex_cli_credential
@@ -411,7 +417,7 @@ class CodexChatModel(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         """Generate a response using Codex Responses API."""
-        tools = kwargs.get("tools", None)
+        tools = kwargs.get("tools")
         response = self._call_codex_api(messages, tools=tools)
         return self._parse_response(response)
 

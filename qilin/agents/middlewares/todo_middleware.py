@@ -21,7 +21,12 @@ from typing import Any, override
 
 from langchain.agents.middleware import TodoListMiddleware
 from langchain.agents.middleware.todo import Todo
-from langchain.agents.middleware.types import ModelCallResult, ModelRequest, ModelResponse, hook_config
+from langchain.agents.middleware.types import (
+    ModelCallResult,
+    ModelRequest,
+    ModelResponse,
+    hook_config,
+)
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.runtime import Runtime
 

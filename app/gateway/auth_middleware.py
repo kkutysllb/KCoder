@@ -25,7 +25,11 @@ from app.gateway.auth_disabled import (
     is_auth_disabled,
 )
 from app.gateway.authz import AuthContext, resolve_route_permissions
-from app.gateway.internal_auth import INTERNAL_AUTH_HEADER_NAME, get_internal_user, is_valid_internal_auth_token
+from app.gateway.internal_auth import (
+    INTERNAL_AUTH_HEADER_NAME,
+    get_internal_user,
+    is_valid_internal_auth_token,
+)
 from qilin.runtime.user_context import reset_current_user, set_current_user
 
 # Paths that never require authentication.

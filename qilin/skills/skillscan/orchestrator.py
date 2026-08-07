@@ -209,7 +209,7 @@ def scan_archive_preflight(archive_path: Path) -> ScanResult:
                 if _is_executable_binary(prefix):
                     findings.append(_finding("package-executable-binary", file=normalized, evidence=_binary_magic_evidence(prefix)))
                 if _is_nested_archive_name(normalized) or _looks_like_archive(prefix):
-                    findings.append(_nested_archive_finding(normalized, prefix, lambda: _read_archive_member(zf, info), scanner_errors))
+                    findings.append(_nested_archive_finding(normalized, prefix, lambda info=info: _read_archive_member(zf, info), scanner_errors))
             if total_size > MAX_TOTAL_ARCHIVE_BYTES:
                 findings.append(_finding("package-oversized-total", file=None, evidence=f"{total_size} bytes"))
     except (zipfile.BadZipFile, OSError) as e:
@@ -479,7 +479,7 @@ def _finding_from_match(rule_id: str, rel_path: str, text: str, match: re.Match[
 
 def _finding_for_text(rule_id: str, rel_path: str, text: str, evidence: str) -> SecurityFinding:
     index = text.find(evidence)
-    return _finding(rule_id, file=rel_path, line=_line_number(text, index if index >= 0 else 0), evidence=evidence)
+    return _finding(rule_id, file=rel_path, line=_line_number(text, max(index, 0)), evidence=evidence)
 
 
 def _finding_for_node(rule_id: str, rel_path: str, node: ast.AST | None, evidence: str) -> SecurityFinding:
@@ -626,12 +626,12 @@ def _decode_text_for_analysis(file_bytes: bytes) -> str | None:
 
 
 def _is_python_path(rel_path: str, text: str) -> bool:
-    return PurePosixPath(rel_path).suffix.lower() == ".py" or text.startswith("#!") and "python" in text.splitlines()[0].lower()
+    return PurePosixPath(rel_path).suffix.lower() == ".py" or (text.startswith("#!") and "python" in text.splitlines()[0].lower())
 
 
 def _is_shell_path(rel_path: str, text: str) -> bool:
     suffix = PurePosixPath(rel_path).suffix.lower()
-    return suffix in {".sh", ".bash"} or text.startswith("#!") and any(shell in text.splitlines()[0].lower() for shell in ("sh", "bash", "zsh"))
+    return suffix in {".sh", ".bash"} or (text.startswith("#!") and any(shell in text.splitlines()[0].lower() for shell in ("sh", "bash", "zsh")))
 
 
 def _looks_like_placeholder(value: str) -> bool:

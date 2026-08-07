@@ -40,7 +40,7 @@ class InfoQuestClient:
             )
 
             logger.debug(config_details)
-            logger.debug("\n" + "*" * 70 + "\n")
+            logger.debug("\n%s\n", "*" * 70)
 
     def fetch(self, url: str, return_format: str = "html") -> str:
         if logger.isEnabledFor(logging.DEBUG):
@@ -102,7 +102,7 @@ class InfoQuestClient:
                 logger.debug("Successfully received response, content length: %d bytes, first 200 chars: %s", len(response.text), response_sample)
             return response.text
         except Exception as e:
-            error_message = f"fetch API failed: {str(e)}"
+            error_message = f"fetch API failed: {e!s}"
             logger.error(error_message)
             return f"Error: {error_message}"
 
@@ -278,7 +278,7 @@ class InfoQuestClient:
                 return json.dumps(raw_results, indent=2, ensure_ascii=False)
 
         except Exception as e:
-            error_message = f"InfoQuest Web-Search - Search tool execution failed | mode=synchronous | error={str(e)}"
+            error_message = f"InfoQuest Web-Search - Search tool execution failed | mode=synchronous | error={e!s}"
             logger.error(error_message)
             return f"Error: {error_message}"
 
@@ -399,6 +399,6 @@ class InfoQuestClient:
                 return json.dumps(raw_results, indent=2, ensure_ascii=False)
 
         except Exception as e:
-            error_message = f"InfoQuest Image Search - Image search tool execution failed | mode=synchronous | error={str(e)}"
+            error_message = f"InfoQuest Image Search - Image search tool execution failed | mode=synchronous | error={e!s}"
             logger.error(error_message)
             return f"Error: {error_message}"
