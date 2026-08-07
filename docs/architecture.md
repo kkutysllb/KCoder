@@ -2,7 +2,7 @@
 
 > QiLin Engine — Overall Technical Architecture
 >
-> 版本 / Version: 1.0.0 · 更新 / Updated: 2026-07
+> 版本 / Version: 2.0.0 · 更新 / Updated: 2026-08
 
 ---
 
@@ -30,11 +30,12 @@ QiLin 采用经典的"内核 + 外延 + 服务面"三层架构：
 ```
 ┌────────────────────────────────────────────────────────────┐
 │  Service Surface (服务面)                                  │
-│    └─ TUI · Gateway · LangGraph Server · Embedded Client  │
+│    └─ TUI · Gateway · Channels · Scheduler API ·           │
+│       LangGraph Server · Embedded Client                   │
 ├────────────────────────────────────────────────────────────┤
 │  Engine Core (内核)                                         │
-│    ├─ agents · subagents · tools · skills · mcp            │
-│    ├─ runtime · persistence · scheduler                    │
+│    ├─ agents · subagents · orchestration · tools · skills  │
+│    ├─ mcp · runtime · persistence · scheduler              │
 │    ├─ config · sandbox · memory · guardrails · authz       │
 ├────────────────────────────────────────────────────────────┤
 │  Foundation (基础层)                                       │
@@ -53,12 +54,13 @@ QiLin 采用经典的"内核 + 外延 + 服务面"三层架构：
 
 #### 2.2 引擎内核（Engine Core）
 
-内核层是 QiLin 的核心，由 13 个相互协作的子系统组成：
+内核层是 QiLin 的核心，由 15 个相互协作的子系统组成：
 
 | 模块 | 职责 |
 |------|------|
 | **agents** | Lead Agent 工厂、LangGraph 中间件链、线程状态模式、记忆后端抽象、目标状态 |
-| **subagents** | 子代理执行器、注册中心、配置解析、内置（general-purpose / bash_agent） |
+| **subagents** | 子代理执行器、注册中心、配置解析、内置（general-purpose / bash_agent）、并行批次执行 |
+| **orchestration** | v2.0.0 多智能体编排：handoff 协议、OrchestratorGraph 编排图、AgentInbox 消息总线、协作模式 |
 | **tools** | 工具清单注册与装配（含 MCP 工具、内建工具、子代理任务工具、ACP 代理工具） |
 | **skills** | 技能清单、Markdown 描述、解析器、安装器、安全扫描器、目录权限控制 |
 | **mcp** | MCP（Model Context Protocol）服务器适配：客户端、连接池、缓存、工具元数据 |
@@ -78,8 +80,12 @@ QiLin 采用经典的"内核 + 外延 + 服务面"三层架构：
 
 - **TUI** (`qilin.tui`)：基于 Textual 的终端工作台，支持交互式会话、流式渲染、命令面板、剪贴板视图
 - **Embedded Client** (`QiLinClient`)：纯 Python 编程接口，可在同进程内启用 `client.chat()` / `client.stream()`
+- **Gateway** (`app/gateway`)：FastAPI HTTP Agent Server，提供 agents / threads / runs / memory / skills / mcp / uploads / artifacts / channels / scheduled_tasks 等 20+ 组 REST 路由，内置 JWT 认证、CSRF / CORS 防护、trace 中间件与 GitHub Webhook 接入
+- **Channels** (`app/channels`)：IM 渠道接入层，统一管理飞书 / Discord / Slack / Telegram / 钉钉 / 企微 / 微信 / GitHub 8 大渠道的连接、消息收发、去重与运行策略
+- **Scheduler API** (`app/scheduler`)：定时任务的 HTTP 管理服务，复用 `qilin.scheduler` 调度内核
 - **LangGraph Server 兼容**：内核本身遵循 LangGraph API 协议，可被 `langgraph dev` / `langgraph up` 直接加载
-- **Gateway / API**：通过 langgraph-api 接入的 HTTP / SSE 网关（不在本包实现，由上层部署）
+
+> 注：`app/` 服务面代码随仓库分发，未包含在 PyPI wheel 中，需源码部署使用。
 
 ### 3. 关键运行机制
 
@@ -150,6 +156,23 @@ async with sandbox.open() as sb:
 | Skills 状态 | DB | – |
 | Webhook 去重 | Memory / PostgreSQL | Auto |
 | 渠道连接 | DB | – |
+
+#### 3.6 多智能体编排（v2.0.0）
+
+v2.0.0 在单智能体基座上新增编排层，运行形态由 `orchestration.mode` 选择：
+
+- **single**（默认）：v1.0.0 lead agent + `task_tool` 委派行为完全不变
+- **multi**：`make_lead_agent` 构建 OrchestratorGraph（1 个 orchestrator 节点 + N 个 worker 节点），按 `to_agent` 路由，`max_rounds` 防死循环
+
+编排栈（自底向上）：
+
+1. **subagents/batch**（P0）：`run_batch_async` 有界并发执行独立子代理任务，失败隔离 + 保序返回
+2. **orchestration/handoff**（P1）：`AgentHandoff` 结构化上下文转移协议，`inherit_trace_id` 跨 agent 贯穿 trace
+3. **orchestration/graph**（P1）：OrchestratorGraph 编排图构建器
+4. **orchestration/inbox**（P2）：`AgentInbox` 每 agent 一个 `asyncio.Queue` 的消息总线 + 订阅广播
+5. **orchestration/patterns**（P2）：orchestrator-workers（同任务并行分派 + 聚合）与 peer-consensus（对等共识）协作模式
+
+治理与可观测：`authz.principal.normalize_agent_identity` 提供 agent 维度身份；`TokenBudgetConfig.per_agent` 提供 per-agent 配额；模式切换属图结构变更，注册为 startup-only（需重启）。
 
 ### 4. 配置系统
 
@@ -239,6 +262,7 @@ flowchart LR
 | 新 Sandbox | `sandbox/SandboxProvider` |
 | 新 Memory Backend | `agents/memory/backends/`（基于 `MemoryManager` ABC） |
 | 新 Tool | `tools/builtins/` 或通过 MCP 自动注入 |
+| 新协作模式 | `orchestration/patterns`（复用 `run_batch_async` / `AgentInbox`） |
 | 新 Subagent | `subagents/builtins/` + `subagents/registry.register` |
 | 新 Guardrail | `guardrails/GuardrailProvider` |
 | 新 Authorization 策略 | `authz/enforcement` |
@@ -277,12 +301,13 @@ flowchart LR
 ```
 ┌────────────────────────────────────────────────────────────┐
 │  Service Surface                                          │
-│    └─ TUI · Gateway · LangGraph Server · Embedded Client  │
+│    └─ TUI · Gateway · Channels · Scheduler API ·          │
+│       LangGraph Server · Embedded Client                  │
 ├────────────────────────────────────────────────────────────┤
 │  Engine Core                                               │
-│    ├─ agents · subagents · tools · skills · mcp            │
-│    ├─ runtime · persistence · scheduler                    │
-│    ├─ config · sandbox · memory · guardrails · authz       │
+│    ├─ agents · subagents · orchestration · tools · skills │
+│    ├─ mcp · runtime · persistence · scheduler             │
+│    ├─ config · sandbox · memory · guardrails · authz      │
 ├────────────────────────────────────────────────────────────┤
 │  Foundation                                                │
 │    ├─ models · tracing · reflection · utils · uploads      │
@@ -303,7 +328,8 @@ flowchart LR
 | Module | Responsibility |
 |--------|----------------|
 | **agents** | Lead-Agent factory, LangGraph middleware chain, thread-state schema, memory backend abstraction, goal state |
-| **subagents** | Sub-agent executor, registry, config resolver, built-ins (general-purpose / bash_agent) |
+| **subagents** | Sub-agent executor, registry, config resolver, built-ins (general-purpose / bash_agent), parallel batch execution |
+| **orchestration** | v2.0.0 multi-agent orchestration: handoff protocol, OrchestratorGraph, AgentInbox message bus, collaboration patterns |
 | **tools** | Tool registry & assembly: built-ins, MCP tools, sub-agent task tool, ACP agent tool |
 | **skills** | Skill catalog, Markdown descriptor, parser, installer, security scanner, path-based permissions |
 | **mcp** | Model Context Protocol client, connection pool, cache, tool metadata |
@@ -321,8 +347,12 @@ flowchart LR
 
 - **TUI** (`qilin.tui`) — Textual-based terminal workbench: interactive sessions, streaming, command palette, clipboard view
 - **Embedded Client** (`QiLinClient`) — Pure-Python API; `client.chat()` / `client.stream()` in process
+- **Gateway** (`app/gateway`) — FastAPI HTTP Agent Server: 20+ REST route groups (agents / threads / runs / memory / skills / mcp / uploads / artifacts / channels / scheduled_tasks), with JWT auth, CSRF / CORS protection, trace middleware, and GitHub webhook ingestion
+- **Channels** (`app/channels`) — IM channel adapter layer: Feishu / Discord / Slack / Telegram / DingTalk / WeCom / WeChat / GitHub, covering connection, messaging, dedupe, and run policies
+- **Scheduler API** (`app/scheduler`) — HTTP management service for scheduled tasks, reusing the `qilin.scheduler` kernel
 - **LangGraph Server compatible** — Kernel follows LangGraph API contract; loadable via `langgraph dev`
-- **Gateway / API** — HTTP / SSE gateway through langgraph-api (not in this package)
+
+> Note: the `app/` service surface ships in the repo but is not part of the PyPI wheel; use source deployment.
 
 ### 3. Runtime Mechanisms
 
@@ -381,6 +411,23 @@ Implementations:
 | Skills state | DB | — |
 | Webhook dedupe | Memory / PostgreSQL | Auto |
 | Channel connections | DB | — |
+
+#### 3.6 Multi-Agent Orchestration (v2.0.0)
+
+v2.0.0 adds an orchestration layer on top of the single-agent base. The runtime shape is chosen by `orchestration.mode`:
+
+- **single** (default) — v1.0.0 lead agent + `task_tool` delegation, unchanged
+- **multi** — `make_lead_agent` builds an OrchestratorGraph (1 orchestrator node + N worker nodes), routed by `to_agent`, with `max_rounds` guarding against loops
+
+The stack (bottom-up):
+
+1. **subagents/batch** (P0) — `run_batch_async` executes independent subagent tasks with bounded concurrency, failure isolation, and order-preserving results
+2. **orchestration/handoff** (P1) — `AgentHandoff` structured context transfer; `inherit_trace_id` keeps one trace across agents
+3. **orchestration/graph** (P1) — OrchestratorGraph builder
+4. **orchestration/inbox** (P2) — `AgentInbox` message bus (one `asyncio.Queue` per agent) with subscription broadcast
+5. **orchestration/patterns** (P2) — orchestrator-workers (parallel dispatch + aggregation) and peer-consensus collaboration patterns
+
+Governance & observability: `authz.principal.normalize_agent_identity` adds an agent dimension to authorization; `TokenBudgetConfig.per_agent` provides per-agent quotas; mode switching rebuilds the graph and is registered as startup-only (restart required).
 
 ### 4. Configuration System
 
@@ -463,6 +510,7 @@ Each skill passes through `skillscan.orchestrator` doing both static analysis an
 | New sandbox | implement `sandbox.SandboxProvider` |
 | New memory backend | subclass `MemoryManager` ABC under `agents/memory/backends/` |
 | New tool | drop into `tools/builtins/` or expose via MCP |
+| New collaboration pattern | `orchestration/patterns` (reusing `run_batch_async` / `AgentInbox`) |
 | New sub-agent | add to `subagents/builtins/` + `subagents/registry.register` |
 | New guardrail | implement `guardrails.GuardrailProvider` |
 | New authz policy | extend `authz/enforcement` |
