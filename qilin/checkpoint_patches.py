@@ -25,11 +25,14 @@ from packaging.version import Version
 logger = logging.getLogger(__name__)
 
 _PATCH_FLAG = "_qilin_delta_history_patched"
-# The patch was authored and verified against langgraph 1.2.9
-# (langgraph/checkpoint/memory/__init__.py::InMemorySaver.get_delta_channel_history).
+# The patch was authored and verified against langgraph 1.2.9, and re-verified
+# against 1.2.10 (langgraph-checkpoint 4.1.1): the InMemorySaver override in
+# langgraph/checkpoint/memory/__init__.py::InMemorySaver.get_delta_channel_history
+# is byte-identical between the two releases, and the migration first-message
+# drop is still reproducible (see tests/test_checkpoint_patches.py).
 # On any newer LangGraph the override must be re-inspected before keeping the
 # patch: if upstream fixed or removed it, this module must stand down.
-_PATCH_VALIDATED_LANGGRAPH_VERSION = Version("1.2.9")
+_PATCH_VALIDATED_LANGGRAPH_VERSION = Version("1.2.10")
 
 
 def _get_delta_channel_history_via_base(self: Any, *, config: Any, channels: Any) -> Any:
