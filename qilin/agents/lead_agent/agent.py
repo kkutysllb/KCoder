@@ -30,6 +30,7 @@ import secrets
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.runnables import RunnableConfig
+from langgraph.graph.state import CompiledStateGraph
 
 from qilin.agents.lead_agent.prompt import apply_prompt_template
 from qilin.agents.middlewares.clarification_middleware import ClarificationMiddleware
@@ -67,6 +68,11 @@ from qilin.authz.tool_filter import apply_tool_authorization
 from qilin.config.agents_config import load_agent_config, validate_agent_name
 from qilin.config.app_config import AppConfig, get_app_config
 from qilin.config.memory_config import should_use_memory_tools
+from qilin.config.orchestration_config import (
+    AgentSpec,
+    OrchestrationConfig,
+    OrchestrationMode,
+)
 from qilin.config.subagents_config import DEFAULT_MAX_TOTAL_SUBAGENTS_PER_RUN
 from qilin.models import create_chat_model
 from qilin.runtime.checkpoint_mode import (
@@ -534,6 +540,78 @@ def _load_enabled_available_skills(available_skills: set[str] | None, *, app_con
     return [skill for skill in skills if skill.name in available_skills]
 
 
+def _resolve_orchestration_mode(
+    cfg: dict, orchestration: OrchestrationConfig
+) -> OrchestrationMode:
+    """Resolve the effective orchestration mode for this run.
+
+    Runtime ``orchestration_mode`` overrides the app config for a single
+    request (temporary switch without restart); invalid values fall back to
+    the app config — never to an arbitrary mode.
+    """
+    requested = cfg.get("orchestration_mode")
+    if requested is None:
+        return orchestration.mode
+    try:
+        return OrchestrationMode(requested)
+    except ValueError:
+        logger.warning(
+            "Invalid orchestration_mode %r, falling back to %s",
+            requested,
+            orchestration.mode,
+        )
+        return orchestration.mode
+
+
+def _build_orchestrator_graph(
+    config: RunnableConfig,
+    *,
+    app_config: AppConfig,
+    model_name: str,
+    user_id: str | None,
+    max_concurrency: int,
+) -> CompiledStateGraph:
+    """Build the multi-agent OrchestratorGraph (orchestration.mode=multi).
+
+    workers 来自 ``app_config.orchestration.workers``；每个 worker 由独立
+    ``SubagentExecutor`` 驱动（``AgentSpec`` -> ``SubagentConfig`` ->
+    executor，继承 lead 的 model / user / trace 上下文）。图构建时只注册
+    节点，executor 在执行时按需构造。
+    """
+    # Lazy imports: qilin.orchestration pulls the subagent registry chain and
+    # qilin.tools has its own circular-dependency guards (same pattern as the
+    # v1 assembly path below).
+    from qilin.orchestration.graph import OrchestratorGraph
+    from qilin.subagents.executor import SubagentExecutor
+    from qilin.tools import get_available_tools
+    from qilin.trace_context import get_current_trace_id
+
+    orchestration = app_config.orchestration
+    workers = {spec.name: spec for spec in orchestration.workers}
+
+    def _executor_factory(spec: AgentSpec) -> SubagentExecutor:
+        subagent_config = spec.to_subagent_configs()[spec.name]
+        tools = get_available_tools(
+            model_name=model_name,
+            subagent_enabled=True,
+            app_config=app_config,
+        )
+        return SubagentExecutor(
+            config=subagent_config,
+            tools=tools,
+            app_config=app_config,
+            parent_model=model_name,
+            user_id=user_id,
+            qilin_trace_id=get_current_trace_id(),
+        )
+
+    return OrchestratorGraph(
+        workers=workers,
+        executor_factory=_executor_factory,
+        max_concurrency=max_concurrency,
+    ).build()
+
+
 def make_lead_agent(config: RunnableConfig):
     """LangGraph graph factory; keep the signature compatible with LangGraph Server."""
     runtime_config = _get_runtime_config(config)
@@ -623,6 +701,31 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
 
     if model_config is None:
         raise ValueError("No chat model could be resolved. Please configure at least one model in config.yaml or provide a valid 'model_name'/'model' in the request.")
+
+    # Multi-agent mode (v2.0.0): orchestration.mode == "multi" with a non-empty
+    # worker registry builds the OrchestratorGraph instead of the v1 lead
+    # graph. Runtime configurable "orchestration_mode" overrides the app
+    # config for a single request; invalid values fall back (see
+    # ``_resolve_orchestration_mode``). Switching single <-> multi rebuilds
+    # the graph and is therefore restart-bound (reload_boundary registers
+    # "orchestration" as startup-only).
+    orchestration = resolved_app_config.orchestration
+    if (
+        _resolve_orchestration_mode(cfg, orchestration) == OrchestrationMode.MULTI
+        and orchestration.workers
+    ):
+        logger.info(
+            "Building multi-agent orchestrator graph with %d workers",
+            len(orchestration.workers),
+        )
+        return _build_orchestrator_graph(
+            config,
+            app_config=resolved_app_config,
+            model_name=model_name,
+            user_id=resolved_user_id,
+            max_concurrency=orchestration.max_concurrency,
+        )
+
     if thinking_enabled and not model_config.supports_thinking:
         logger.warning(f"Thinking mode is enabled but model '{model_name}' does not support it; fallback to non-thinking mode.")
         thinking_enabled = False
