@@ -38,6 +38,7 @@ from qilin.config.input_polish_config import InputPolishConfig
 from qilin.config.loop_detection_config import LoopDetectionConfig
 from qilin.config.memory_config import MemoryConfig, load_memory_config_from_dict
 from qilin.config.model_config import ModelConfig
+from qilin.config.orchestration_config import OrchestrationConfig
 from qilin.config.read_before_write_config import ReadBeforeWriteConfig
 from qilin.config.reload_boundary import format_field_description
 from qilin.config.run_events_config import RunEventsConfig
@@ -326,6 +327,14 @@ class AppConfig(BaseModel):
         description=format_field_description(
             "dedupe_storage",
             field_doc="Inbound webhook dedupe storage backend (memory / postgres / auto) for cross-pod redelivery dedup. See issue #4120.",
+        ),
+    )
+
+    orchestration: OrchestrationConfig = Field(
+        default_factory=OrchestrationConfig,
+        description=format_field_description(
+            "orchestration",
+            field_doc="Multi-agent orchestration mode (single = v1 lead-agent delegation, multi = orchestrator graph with worker registry).",
         ),
     )
 

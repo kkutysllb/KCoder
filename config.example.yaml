@@ -15,7 +15,7 @@
 # ============================================================================
 # Bump this number when the config schema changes.
 # Run `make config-upgrade` to merge new fields into your local config.yaml.
-config_version: 31
+config_version: 32
 
 # ============================================================================
 # Logging
@@ -2296,6 +2296,22 @@ run_ownership:
 # every authenticated user has access to all resources.
 # See RFC: https://github.com/bytedance/qilin/issues/4063
 #
+# ---------------------------------------------------------------------------
+# orchestration: 多智能体编排模式（v2.0.0）
+#   mode: single（默认，v1.0.0 行为：lead agent + task_tool 委派）
+#         multi（Orchestrator 图编排，workers 注册参与编排的子代理）
+# ---------------------------------------------------------------------------
+orchestration:
+  mode: single          # single | multi
+  max_concurrency: 3    # multi 模式下并行执行上限
+  # workers:            # multi 模式必须至少配置一个 worker
+  #   - name: coder
+  #     description: 编写代码的 worker
+  #     system_prompt: You are a coding worker.
+  #     tools: [read_file, bash]
+  #     model: inherit
+  #     max_turns: 80
+
 # authorization:
 #   enabled: true
 #   fail_closed: true            # block on provider error / unresolved identity
