@@ -13,7 +13,7 @@ memory / skills / mcp / uploads / artifacts / scheduled_tasks / channels …）�
 形式对外暴露，并内置完整的认证与安全面。与嵌入式 `QiLinClient` 互补：同一份内核代码，
 进程内调用走 client，跨进程 / 跨语言调用走 gateway。
 
-实现基于 FastAPI + uvicorn，随仓库 `app/` 分发（**未包含在 PyPI wheel 中**，需源码部署）。
+实现基于 FastAPI + uvicorn，代码随 `qilin` wheel 一并分发，运行依赖通过 `gateway` extras 安装。
 
 ### 路由面（REST API）
 
@@ -83,7 +83,7 @@ memory / skills / mcp / uploads / artifacts / scheduled_tasks / channels …）�
 # 安装服务端依赖（gateway + channels extras）
 pip install "qilin[gateway,channels]"
 
-# 启动 HTTP Agent Server（源码部署：仓库根目录）
+# 启动 HTTP Agent Server
 uvicorn app.gateway.app:app --port 8001
 ```
 
@@ -119,8 +119,8 @@ scheduled_tasks / channels …) as REST APIs with a complete auth and security
 surface. It complements the embedded `QiLinClient`: same kernel, in-process calls
 go through the client, cross-process / cross-language calls go through the gateway.
 
-Built on FastAPI + uvicorn, shipped under `app/` in the repo (**not part of the
-PyPI wheel** — use source deployment).
+Built on FastAPI + uvicorn, shipped in the `qilin` wheel; runtime dependencies
+come from the `gateway` extra.
 
 ### REST Surface
 
@@ -196,7 +196,7 @@ PyPI wheel** — use source deployment).
 # Install server dependencies (gateway + channels extras)
 pip install "qilin[gateway,channels]"
 
-# Start the HTTP Agent Server (source deployment: repo root)
+# Start the HTTP Agent Server
 uvicorn app.gateway.app:app --port 8001
 ```
 

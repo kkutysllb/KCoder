@@ -117,7 +117,7 @@ sandbox:
 # 安装服务端依赖
 pip install "qilin[gateway,channels]"
 
-# 启动 HTTP Agent Server（仓库内 app/gateway，源码部署）
+# 启动 HTTP Agent Server
 uvicorn app.gateway.app:app --port 8080
 ```
 
@@ -154,7 +154,7 @@ uvicorn app.gateway.app:app --port 8080
 │   ├── uploads/           # 用户上传管理
 │   ├── utils/             # 通用工具
 │   └── workspace_changes/ # 工作区变更追踪
-├── app/                   # 服务面（源码部署，未随 PyPI wheel 分发）
+├── app/                   # 服务面（HTTP Agent Server + IM 渠道，随 wheel 分发）
 │   ├── gateway/           # FastAPI HTTP Agent Server（REST + 认证 + webhook）
 │   ├── channels/          # IM 渠道接入层（8 大渠道）
 │   └── scheduler/         # 定时任务 HTTP 调度服务
@@ -248,7 +248,7 @@ pip install "qilin[tui]"
 # All optional features
 pip install "qilin[postgres,redis,tenki,monocle,browser,boxlite]"
 
-# Agent Server / IM channels (source deployment; see app/)
+# Agent Server / IM channels
 pip install "qilin[gateway,channels]"
 ```
 
@@ -300,7 +300,7 @@ echo "What is 2+2?" | qilin --json
 │   ├── uploads/           # Upload management
 │   ├── utils/             # Generic utilities
 │   └── workspace_changes/ # Workspace change tracker
-├── app/                   # Service surface (source deployment; not in the PyPI wheel)
+├── app/                   # Service surface (HTTP Agent Server + IM channels, shipped in the wheel)
 │   ├── gateway/           # FastAPI HTTP Agent Server (REST + auth + webhooks)
 │   ├── channels/          # IM channel adapters (8 channels)
 │   └── scheduler/         # Scheduled-task HTTP service

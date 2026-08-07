@@ -99,7 +99,7 @@ channel_connections:
 # 安装渠道 SDK（channels extras）
 pip install "qilin[channels]"
 
-# 源码部署：渠道服务随 gateway 进程一起启动（lifespan 拉起）
+# 渠道服务随 gateway 进程一起启动（lifespan 拉起）
 uvicorn app.gateway.app:app --port 8001
 ```
 
@@ -218,7 +218,7 @@ channel_connections:
 # Install channel SDKs (channels extras)
 pip install "qilin[channels]"
 
-# Source deployment: channels start together with the gateway process (lifespan)
+# Channels start together with the gateway process (lifespan)
 uvicorn app.gateway.app:app --port 8001
 ```
 

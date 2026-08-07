@@ -85,7 +85,7 @@ QiLin 采用经典的"内核 + 外延 + 服务面"三层架构：
 - **Scheduler API** (`app/scheduler`)：定时任务的 HTTP 管理服务，复用 `qilin.scheduler` 调度内核
 - **LangGraph Server 兼容**：内核本身遵循 LangGraph API 协议，可被 `langgraph dev` / `langgraph up` 直接加载
 
-> 注：`app/` 服务面代码随仓库分发，未包含在 PyPI wheel 中，需源码部署使用。
+> 注：`app/` 服务面随 `qilin` wheel 一并分发，需通过 `qilin[gateway]` / `qilin[channels]` extras 安装依赖后启用。
 
 ### 3. 关键运行机制
 
@@ -352,7 +352,7 @@ flowchart LR
 - **Scheduler API** (`app/scheduler`) — HTTP management service for scheduled tasks, reusing the `qilin.scheduler` kernel
 - **LangGraph Server compatible** — Kernel follows LangGraph API contract; loadable via `langgraph dev`
 
-> Note: the `app/` service surface ships in the repo but is not part of the PyPI wheel; use source deployment.
+> Note: the `app/` service surface ships in the wheel; install `qilin[gateway]` / `qilin[channels]` to enable it.
 
 ### 3. Runtime Mechanisms
 

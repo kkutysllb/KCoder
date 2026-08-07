@@ -43,5 +43,21 @@ jobs:
       - name: Unit tests
         run: pytest tests -v
 
+      # Packaging gate: the wheel must ship both qilin/ and the app/ service
+      # surface (gateway/channels/scheduler). Regression guard for
+      # [tool.hatch.build.targets.wheel] packages.
+      - name: Build wheel (packaging gate)
+        run: |
+          pip install build
+          python -m build --wheel --outdir /tmp/wheelcheck
+          python -c "
+import glob, zipfile
+names = zipfile.ZipFile(glob.glob('/tmp/wheelcheck/*.whl')[0]).namelist()
+app_files = [n for n in names if n.startswith('app/')]
+assert app_files, 'app/ missing from wheel'
+assert any(n.startswith('qilin/') for n in names), 'qilin/ missing from wheel'
+print(f'wheel OK: {len(app_files)} app files, {len(names)} total')
+"
+
       - name: Byte-compile check
         run: python -m compileall -q qilin app

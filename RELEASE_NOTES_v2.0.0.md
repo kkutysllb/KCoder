@@ -174,7 +174,7 @@ orchestration:
 ```
 
 ```bash
-# HTTP Agent Server（源码部署）
+# HTTP Agent Server
 pip install "qilin[gateway,channels]"
 uvicorn app.gateway.app:app --port 8001
 ```
@@ -189,8 +189,9 @@ uvicorn app.gateway.app:app --port 8001
   依赖锁定文件，建议使用 uv 管理环境。
 - **配置版本**：`config.example.yaml` 的 `config_version` 已更新至 32，旧配置
   缺省字段均有默认值，可直接沿用。
-- **服务面部署**：`app/`（gateway / channels / scheduler）随仓库分发但**未包含在
-  PyPI wheel 中**，需源码部署（clone 仓库后运行 `uvicorn app.gateway.app:app`）。
+- **服务面启用**：`app/`（gateway / channels / scheduler）随 wheel 一并分发，通过
+  `qilin[gateway]` / `qilin[channels]` extras 安装依赖后即可
+  `uvicorn app.gateway.app:app` 启动。
 - **质量门禁**：CI 新增 mypy clean-module 白名单检查，贡献代码需保证白名单
   模块零类型错误。
 
