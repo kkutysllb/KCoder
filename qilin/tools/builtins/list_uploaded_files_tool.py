@@ -93,9 +93,9 @@ def _list_uploaded_files_impl(
         state = runtime.state
         uploaded = state.get("uploaded_files") if isinstance(state, dict) else getattr(state, "uploaded_files", None)
         if isinstance(uploaded, list):
-            for entry in uploaded:
-                if isinstance(entry, dict) and entry.get("filename"):
-                    current_run_filenames.add(entry["filename"])
+            for item in uploaded:
+                if isinstance(item, dict) and item.get("filename"):
+                    current_run_filenames.add(item["filename"])
     except Exception:
         logger.warning(
             "Failed to read uploaded_files from runtime.state; current-run files may appear in list_uploaded_files results",

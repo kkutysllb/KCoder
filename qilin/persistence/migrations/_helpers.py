@@ -37,6 +37,7 @@ operators to notice and decide.
 from __future__ import annotations
 
 import logging
+from typing import Any, cast
 
 import sqlalchemy as sa
 from alembic import op
@@ -171,7 +172,7 @@ def safe_add_column(table: str, column: sa.Column) -> None:
         return
     existing = {c["name"]: c for c in insp.get_columns(table)}
     if column.name in existing:
-        _check_column_drift(table, column, existing[column.name])
+        _check_column_drift(table, column, cast("dict[str, Any]", existing[column.name]))
         return
     with op.batch_alter_table(table) as batch:
         batch.add_column(column)

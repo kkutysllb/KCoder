@@ -72,7 +72,10 @@ def do_run_migrations(connection):
 
 
 async def run_migrations_online() -> None:
-    connectable = create_async_engine(config.get_main_option("sqlalchemy.url"))
+    url = config.get_main_option("sqlalchemy.url")
+    if url is None:
+        raise ValueError("sqlalchemy.url is not set in the alembic configuration")
+    connectable = create_async_engine(url)
 
     # Cross-process bootstrap safety for SQLite: every connection alembic
     # opens needs a wide ``busy_timeout`` so that when another process holds

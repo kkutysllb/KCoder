@@ -26,6 +26,7 @@ bucket semantics, distinct from the AUTO/None sentinel used by the async
 from __future__ import annotations
 
 import abc
+import builtins
 from collections.abc import Hashable
 from typing import Any, Literal
 
@@ -84,11 +85,11 @@ class AgentStore(abc.ABC):
         """Return the agent's ``SOUL.md`` content, or ``None`` if unset/empty."""
 
     @abc.abstractmethod
-    def list(self, *, user_id: str | None = None) -> list[AgentConfig]:
+    def list(self, *, user_id: str | None = None) -> builtins.list[AgentConfig]:
         """Return every custom agent owned by ``user_id``, sorted by name."""
 
     @abc.abstractmethod
-    def list_all(self) -> list[tuple[str, AgentConfig]]:
+    def list_all(self) -> builtins.list[tuple[str, AgentConfig]]:
         """Return ``(user_id, config)`` for every agent across all owners.
 
         Used by the GitHub registry, which scans all users' agents for repo

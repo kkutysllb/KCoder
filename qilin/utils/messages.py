@@ -112,7 +112,7 @@ def restore_original_human_message(message: HumanMessage) -> HumanMessage:
                 continue
             if restored_text:
                 continue
-            if is_mapping_text:
+            if isinstance(block, Mapping) and isinstance(block.get("text"), str):
                 restored_content.append({**block, "text": original_content})
             else:
                 restored_content.append(original_content)

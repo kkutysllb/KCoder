@@ -37,7 +37,7 @@ import asyncio
 import logging
 import threading
 from collections import OrderedDict
-from typing import Any
+from typing import Any, cast
 
 from mcp import ClientSession
 
@@ -96,7 +96,7 @@ class MCPSessionPool:
         """
         from langchain_mcp_adapters.sessions import create_session
 
-        cm = create_session(connection)
+        cm = create_session(cast("Any", connection))
         try:
             session = await cm.__aenter__()
         except BaseException as e:

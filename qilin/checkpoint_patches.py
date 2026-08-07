@@ -13,7 +13,7 @@ from __future__ import annotations
 import importlib.metadata
 import logging
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 from langgraph.channels.binop import BinaryOperatorAggregate
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -131,9 +131,9 @@ def _binop_first_write_stores_overwrite_wrapper() -> bool:
     MISSING) - the same shape as ``ThreadState``'s ``sandbox`` / ``goal`` /
     ``todos`` / ``promoted`` channels.
     """
-    channel = BinaryOperatorAggregate(dict | None, lambda existing, new: new)
+    channel = BinaryOperatorAggregate(cast(Any, dict | None), lambda existing, new: new)
     channel.key = "qilin-overwrite-probe"
-    channel.update([Overwrite({"probe": True})])
+    channel.update([cast(Any, Overwrite({"probe": True}))])
     return isinstance(channel.get(), Overwrite)
 
 

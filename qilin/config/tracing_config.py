@@ -18,7 +18,7 @@ class LangSmithTracingConfig(BaseModel):
     def is_configured(self) -> bool:
         return self.enabled and bool(self.api_key)
 
-    def validate(self) -> None:
+    def validate_config(self) -> None:
         if self.enabled and not self.api_key:
             raise ValueError("LangSmith tracing is enabled but LANGSMITH_API_KEY (or LANGCHAIN_API_KEY) is not set.")
 
@@ -35,7 +35,7 @@ class LangfuseTracingConfig(BaseModel):
     def is_configured(self) -> bool:
         return self.enabled and bool(self.public_key) and bool(self.secret_key)
 
-    def validate(self) -> None:
+    def validate_config(self) -> None:
         if not self.enabled:
             return
         missing: list[str] = []
@@ -71,7 +71,7 @@ class MonocleTracingConfig(BaseModel):
         """The configured exporters, parsed once so validation and setup agree."""
         return [e.strip() for e in self.exporters.split(",") if e.strip()]
 
-    def validate(self) -> None:
+    def validate_config(self) -> None:
         if not self.enabled:
             return
         selected = self.exporter_list
@@ -112,8 +112,8 @@ class TracingConfig(BaseModel):
         return enabled
 
     def validate_enabled(self) -> None:
-        self.langsmith.validate()
-        self.langfuse.validate()
+        self.langsmith.validate_config()
+        self.langfuse.validate_config()
 
 
 _tracing_config: TracingConfig | None = None

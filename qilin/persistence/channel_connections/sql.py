@@ -8,10 +8,10 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import CursorResult, delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -408,7 +408,7 @@ class ChannelConnectionRepository:
         async with self.session_factory() as session:
             result = await session.execute(delete(ChannelOAuthStateRow).where(ChannelOAuthStateRow.expires_at < current_time))
             await session.commit()
-            return int(result.rowcount or 0)
+            return int(cast("CursorResult[Any]", result).rowcount or 0)
 
     async def count_oauth_states(
         self,
@@ -467,7 +467,7 @@ class ChannelConnectionRepository:
                 .values(consumed_at=current_time)
             )
             await session.commit()
-            if result.rowcount != 1:
+            if cast("CursorResult[Any]", result).rowcount != 1:
                 return None
             return {
                 "owner_user_id": row.owner_user_id,

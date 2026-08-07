@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -73,7 +73,7 @@ class OrchestrationConfig(BaseModel):
 
         result: dict[str, SubagentConfig] = {}
         for w in self.workers:
-            kwargs: dict[str, object] = {
+            kwargs: dict[str, Any] = {
                 "name": w.name,
                 "description": w.description,
                 "system_prompt": w.system_prompt,

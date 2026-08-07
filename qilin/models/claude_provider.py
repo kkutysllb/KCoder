@@ -26,6 +26,10 @@ from typing import Any
 
 import anthropic
 from langchain_anthropic import ChatAnthropic
+from langchain_core.callbacks.manager import (
+    AsyncCallbackManagerForLLMRun,
+    CallbackManagerForLLMRun,
+)
 from langchain_core.messages import BaseMessage
 from pydantic import PrivateAttr
 
@@ -293,15 +297,21 @@ class ClaudeChatModel(ChatAnthropic):
             self._strip_cache_control(payload)
         return await super()._acreate(payload)
 
-    def _generate(self, messages: list[BaseMessage], stop: list[str] | None = None, **kwargs: Any) -> Any:
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> Any:
         """Override with OAuth patching and retry logic."""
         if self._is_oauth:
             self._patch_client_oauth(self._client)
 
-        last_error = None
+        last_error: Exception | None = None
         for attempt in range(1, self.retry_max_attempts + 1):
             try:
-                return super()._generate(messages, stop=stop, **kwargs)
+                return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
             except anthropic.RateLimitError as e:
                 last_error = e
                 if attempt >= self.retry_max_attempts:
@@ -316,19 +326,26 @@ class ClaudeChatModel(ChatAnthropic):
                 wait_ms = self._calc_backoff_ms(attempt, e)
                 logger.warning(f"Server error, retrying attempt {attempt}/{self.retry_max_attempts} after {wait_ms}ms")
                 time.sleep(wait_ms / 1000)
+        assert last_error is not None  # 循环内要么返回要么 raise
         raise last_error
 
-    async def _agenerate(self, messages: list[BaseMessage], stop: list[str] | None = None, **kwargs: Any) -> Any:
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> Any:
         """Async override with OAuth patching and retry logic."""
         import asyncio
 
         if self._is_oauth:
             self._patch_client_oauth(self._async_client)
 
-        last_error = None
+        last_error: Exception | None = None
         for attempt in range(1, self.retry_max_attempts + 1):
             try:
-                return await super()._agenerate(messages, stop=stop, **kwargs)
+                return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
             except anthropic.RateLimitError as e:
                 last_error = e
                 if attempt >= self.retry_max_attempts:
@@ -343,6 +360,7 @@ class ClaudeChatModel(ChatAnthropic):
                 wait_ms = self._calc_backoff_ms(attempt, e)
                 logger.warning(f"Server error, retrying attempt {attempt}/{self.retry_max_attempts} after {wait_ms}ms")
                 await asyncio.sleep(wait_ms / 1000)
+        assert last_error is not None  # 循环内要么返回要么 raise
         raise last_error
 
     @staticmethod

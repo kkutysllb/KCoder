@@ -10,7 +10,7 @@ enter the conversation history.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import AIMessage, AIMessageChunk
@@ -106,9 +106,9 @@ class PatchedChatMiMo(ChatOpenAI):
         if choices:
             delta = choices[0].get("delta") or {}
             reasoning = _extract_reasoning_content(delta)
-            if reasoning is not _MISSING and isinstance(generation_chunk.message, AIMessageChunk):
+            if reasoning is not _MISSING and isinstance(reasoning, str) and isinstance(generation_chunk.message, AIMessageChunk):
                 generation_chunk = ChatGenerationChunk(
-                    message=_with_reasoning_content(generation_chunk.message, reasoning),
+                    message=cast("AIMessageChunk", _with_reasoning_content(generation_chunk.message, reasoning)),
                     generation_info=generation_chunk.generation_info,
                 )
 
@@ -132,7 +132,7 @@ class PatchedChatMiMo(ChatOpenAI):
                 reasoning = _extract_reasoning_content(_get_typed_choice_message(response, index))
 
             message = generation.message
-            if reasoning is not _MISSING and isinstance(message, AIMessage):
+            if reasoning is not _MISSING and isinstance(reasoning, str) and isinstance(message, AIMessage):
                 if patched_generations is None:
                     patched_generations = list(result.generations)
                 patched_generations[index] = ChatGeneration(

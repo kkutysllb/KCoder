@@ -53,6 +53,8 @@ def _get_api_key(tool_name: str) -> str | None:
 
 
 def _coerce_max_results(value: object, *, default: int = _DEFAULT_MAX_RESULTS) -> int:
+    if not isinstance(value, (int, float, str)):
+        return default
     try:
         coerced = int(value)
     except (TypeError, ValueError):

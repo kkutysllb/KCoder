@@ -277,6 +277,8 @@ class ThreadState(AgentState):
     delegations: Annotated[list[DelegationEntry], merge_delegations]
     skill_context: Annotated[list[SkillEntry], merge_skill_context]
     summary_text: NotRequired[str | None]
+    # Lazily-created per-thread data directories (sandbox tooling marker).
+    thread_directories_created: NotRequired[bool | None]
 
 
 def _normalize_messages(value: Any) -> list[AnyMessage]:

@@ -23,7 +23,10 @@ def _column_keys(cls: type) -> tuple[str, ...]:
     messages page), so the SQLAlchemy mapper reflection is cached per class —
     the mapping is fixed at class-definition time, so this never goes stale.
     """
-    return tuple(c.key for c in sa_inspect(cls).mapper.column_attrs)
+    keys: list[str] = []
+    for c in sa_inspect(cls).mapper.column_attrs:  # type: ignore[var-annotated]
+        keys.append(c.key)
+    return tuple(keys)
 
 
 class Base(DeclarativeBase):

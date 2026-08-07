@@ -130,7 +130,7 @@ class InfoQuestClient:
         else:
             normalized_format = return_format
 
-        data = {"url": url, "format": normalized_format}
+        data: dict[str, Any] = {"url": url, "format": normalized_format}
 
         # Add timeout parameters if set to positive values
         timeout_params = {}
@@ -157,7 +157,7 @@ class InfoQuestClient:
         """Get results from the InfoQuest Web-Search API synchronously."""
         headers = self._prepare_headers()
 
-        params = {"format": output_format, "query": query}
+        params: dict[str, Any] = {"format": output_format, "query": query}
         if self.search_time_range > 0:
             params["time_range"] = self.search_time_range
 
@@ -321,7 +321,7 @@ class InfoQuestClient:
         """Get image search results from the InfoQuest Web-Search API synchronously."""
         headers = self._prepare_headers()
 
-        params = {"format": output_format, "query": query, "search_type": "Images"}
+        params: dict[str, Any] = {"format": output_format, "query": query, "search_type": "Images"}
 
         # Add time_range filter if specified (1-365)
         if 1 <= self.image_search_time_range <= 365:

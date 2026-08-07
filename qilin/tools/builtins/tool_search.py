@@ -24,7 +24,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cached_property
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from langchain.tools import BaseTool
 from langchain_core.messages import ToolMessage
@@ -271,9 +271,12 @@ def build_mcp_routing_middleware(
     if not routing_index:
         return None
 
-    from qilin.agents.middlewares.mcp_routing_middleware import McpRoutingMiddleware
+    from qilin.agents.middlewares.mcp_routing_middleware import (
+        McpRoutingIndex,
+        McpRoutingMiddleware,
+    )
 
-    return McpRoutingMiddleware(routing_index, deferred_setup.catalog_hash, top_k)
+    return McpRoutingMiddleware(cast(McpRoutingIndex, routing_index), deferred_setup.catalog_hash, top_k)
 
 
 # Prompt rendering

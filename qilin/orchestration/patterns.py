@@ -12,7 +12,7 @@ import math
 from collections.abc import Callable
 
 from qilin.config.orchestration_config import AgentSpec
-from qilin.subagents.batch import BatchTask, run_batch_async
+from qilin.subagents.batch import BatchTask, _SubagentExecutor, run_batch_async
 from qilin.subagents.executor import SubagentResult, SubagentStatus
 
 
@@ -20,7 +20,7 @@ async def orchestrator_workers(
     specs: list[AgentSpec],
     task: str,
     *,
-    executor_factory: Callable[[AgentSpec], object],
+    executor_factory: Callable[[AgentSpec], _SubagentExecutor],
     max_concurrency: int = 3,
 ) -> dict[str, SubagentResult]:
     """Dispatch the same *task* to every worker in parallel.
@@ -47,7 +47,7 @@ async def peer_consensus(
     specs: list[AgentSpec],
     task: str,
     *,
-    executor_factory: Callable[[AgentSpec], object],
+    executor_factory: Callable[[AgentSpec], _SubagentExecutor],
     min_agreement: float = 0.6,
     max_concurrency: int = 3,
 ) -> tuple[str | None, int, int]:

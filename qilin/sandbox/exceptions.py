@@ -34,7 +34,7 @@ class SandboxCommandError(SandboxError):
     """Raised when a command execution fails in the sandbox."""
 
     def __init__(self, message: str, command: str | None = None, exit_code: int | None = None):
-        details = {}
+        details: dict[str, object] = {}
         if command:
             details["command"] = command[:100] + "..." if len(command) > 100 else command
         if exit_code is not None:

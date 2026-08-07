@@ -9,7 +9,7 @@ from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 
-from langchain.tools import tool
+from langchain.tools import BaseTool, tool
 
 from qilin.agents.thread_state import ThreadDataState
 from qilin.config import get_app_config
@@ -548,8 +548,9 @@ def _get_mcp_allowed_paths() -> list[str]:
 def _get_tool_config_int(name: str, key: str, default: int) -> int:
     try:
         tool_config = get_app_config().get_tool_config(name)
-        if tool_config is not None and key in tool_config.model_extra:
-            value = tool_config.model_extra.get(key)
+        extra = tool_config.model_extra if tool_config is not None else None
+        if extra is not None and key in extra:
+            value = extra.get(key)
             if isinstance(value, int):
                 return value
     except Exception:
@@ -1482,6 +1483,15 @@ async def ensure_sandbox_initialized_async(runtime: Runtime | None = None) -> Sa
     return sandbox
 
 
+def _tool_sync_func(tool: BaseTool) -> Callable[..., str] | None:
+    """Extract the sync callable backing a ``@tool``-decorated tool.
+
+    ``BaseTool``'s static type hides ``func`` (set on the ``StructuredTool``
+    instance at decoration time), so look it up dynamically.
+    """
+    return getattr(tool, "func", None)
+
+
 async def _run_sync_tool_after_async_sandbox_init(
     func: Callable[..., str] | None,
     runtime: Runtime,
@@ -1529,8 +1539,11 @@ def ensure_thread_directories_exist(runtime: Runtime | None) -> None:
     # Create the three directories
     import os
 
-    for key in ["workspace_path", "uploads_path", "outputs_path"]:
-        path = thread_data.get(key)
+    for path in (
+        thread_data.get("workspace_path"),
+        thread_data.get("uploads_path"),
+        thread_data.get("outputs_path"),
+    ):
         if path:
             os.makedirs(path, exist_ok=True)
 
@@ -1849,7 +1862,7 @@ def bash_tool(runtime: Runtime, description: str, command: str) -> str:
 
 
 async def _bash_tool_async(runtime: Runtime, description: str, command: str) -> str:
-    return await _run_sync_tool_after_async_sandbox_init(bash_tool.func, runtime, description, command)
+    return await _run_sync_tool_after_async_sandbox_init(_tool_sync_func(bash_tool), runtime, description, command)
 
 
 bash_tool.coroutine = _bash_tool_async
@@ -1884,6 +1897,7 @@ def ls_tool(runtime: Runtime, description: str, path: str) -> str:
                 # from the sandbox mapping's user_id).
                 pass
             elif not _is_custom_mount_path(path):
+                assert thread_data is not None  # validate_local_tool_path already raised otherwise
                 path = _resolve_and_validate_user_data_path(path, thread_data)
             # Custom mount paths and skills/ACP paths are resolved by LocalSandbox._resolve_path()
         children = sandbox.list_dir(path)
@@ -1917,7 +1931,7 @@ def ls_tool(runtime: Runtime, description: str, path: str) -> str:
 
 
 async def _ls_tool_async(runtime: Runtime, description: str, path: str) -> str:
-    return await _run_sync_tool_after_async_sandbox_init(ls_tool.func, runtime, description, path)
+    return await _run_sync_tool_after_async_sandbox_init(_tool_sync_func(ls_tool), runtime, description, path)
 
 
 ls_tool.coroutine = _ls_tool_async
@@ -1990,7 +2004,7 @@ async def _glob_tool_async(
     max_results: int = _DEFAULT_GLOB_MAX_RESULTS,
 ) -> str:
     return await _run_sync_tool_after_async_sandbox_init(
-        glob_tool.func,
+        _tool_sync_func(glob_tool),
         runtime,
         description,
         pattern,
@@ -2093,7 +2107,7 @@ async def _grep_tool_async(
     max_results: int = _DEFAULT_GREP_MAX_RESULTS,
 ) -> str:
     return await _run_sync_tool_after_async_sandbox_init(
-        grep_tool.func,
+        _tool_sync_func(grep_tool),
         runtime,
         description,
         pattern,
@@ -2126,6 +2140,7 @@ def read_current_file_content(runtime: Runtime | None, path: str) -> str:
         elif _is_acp_workspace_path(path):
             path = _resolve_acp_workspace_path(path, _extract_thread_id_from_thread_data(thread_data))
         elif not _is_custom_mount_path(path):
+            assert thread_data is not None  # validate_local_tool_path already raised otherwise
             path = _resolve_and_validate_user_data_path(path, thread_data)
         # Custom mount paths are resolved by LocalSandbox._resolve_path()
     return sandbox.read_file(path)
@@ -2200,7 +2215,7 @@ async def _read_file_tool_async(
     start_line: int | None = None,
     end_line: int | None = None,
 ) -> str:
-    return await _run_sync_tool_after_async_sandbox_init(read_file_tool.func, runtime, description, path, start_line, end_line)
+    return await _run_sync_tool_after_async_sandbox_init(_tool_sync_func(read_file_tool), runtime, description, path, start_line, end_line)
 
 
 read_file_tool.coroutine = _read_file_tool_async
@@ -2286,6 +2301,7 @@ def write_file_tool(
             thread_data = get_thread_data(runtime)
             validate_local_tool_path(path, thread_data)
             if not _is_custom_mount_path(path):
+                assert thread_data is not None  # validate_local_tool_path already raised otherwise
                 path = _resolve_and_validate_user_data_path(path, thread_data)
             # Custom mount paths are resolved by LocalSandbox._resolve_path()
         with get_file_operation_lock(sandbox, path):
@@ -2316,7 +2332,7 @@ async def _write_file_tool_async(
     content: str,
     append: bool = False,
 ) -> str:
-    return await _run_sync_tool_after_async_sandbox_init(write_file_tool.func, runtime, description, path, content, append)
+    return await _run_sync_tool_after_async_sandbox_init(_tool_sync_func(write_file_tool), runtime, description, path, content, append)
 
 
 write_file_tool.coroutine = _write_file_tool_async
@@ -2352,6 +2368,7 @@ def str_replace_tool(
             thread_data = get_thread_data(runtime)
             validate_local_tool_path(path, thread_data)
             if not _is_custom_mount_path(path):
+                assert thread_data is not None  # validate_local_tool_path already raised otherwise
                 path = _resolve_and_validate_user_data_path(path, thread_data)
             # Custom mount paths are resolved by LocalSandbox._resolve_path()
         with get_file_operation_lock(sandbox, path):
@@ -2387,7 +2404,7 @@ async def _str_replace_tool_async(
     replace_all: bool = False,
 ) -> str:
     return await _run_sync_tool_after_async_sandbox_init(
-        str_replace_tool.func,
+        _tool_sync_func(str_replace_tool),
         runtime,
         description,
         path,

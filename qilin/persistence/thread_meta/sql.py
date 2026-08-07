@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import case, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.sql.expression import ColumnElement
 
 from qilin.persistence.json_compat import json_match
 from qilin.persistence.thread_meta.base import (
@@ -129,7 +130,7 @@ class ThreadMetaRepository(ThreadMetaStore):
         """
         resolved_user_id = resolve_user_id(user_id, method_name="ThreadMetaRepository.search")
         pinned_order = case(
-            (json_match(ThreadMetaRow.metadata_json, THREAD_PINNED_METADATA_KEY, True), 1),
+            (json_match(cast("ColumnElement[Any]", ThreadMetaRow.metadata_json), THREAD_PINNED_METADATA_KEY, True), 1),
             else_=0,
         )
         stmt = select(ThreadMetaRow).order_by(
@@ -146,7 +147,7 @@ class ThreadMetaRepository(ThreadMetaStore):
             applied = 0
             for key, value in metadata.items():
                 try:
-                    stmt = stmt.where(json_match(ThreadMetaRow.metadata_json, key, value))
+                    stmt = stmt.where(json_match(cast("ColumnElement[Any]", ThreadMetaRow.metadata_json), key, value))
                     applied += 1
                 except (ValueError, TypeError) as exc:
                     logger.warning("Skipping metadata filter key %s: %s", ascii(key), exc)

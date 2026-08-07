@@ -11,7 +11,9 @@ checkpoints transparently, so full -> delta is the supported migration path.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
+
+from langchain_core.runnables.config import RunnableConfig
 
 from qilin.config.database_config import (
     DEFAULT_CHECKPOINT_SNAPSHOT_FREQUENCY,
@@ -81,7 +83,8 @@ def resolve_checkpoint_snapshot_frequency(snapshot_frequency: int | None = None)
     return frozen if frozen is not None else DEFAULT_CHECKPOINT_SNAPSHOT_FREQUENCY
 
 
-def inject_checkpoint_mode(config: dict[str, Any], mode: CheckpointChannelMode) -> None:
+def inject_checkpoint_mode(config: dict[str, Any] | RunnableConfig, mode: CheckpointChannelMode) -> None:
+    config = cast(dict[str, Any], config)
     configurable = config.setdefault("configurable", {})
     configurable[INTERNAL_CHECKPOINT_MODE_KEY] = mode
     metadata = config.setdefault("metadata", {})

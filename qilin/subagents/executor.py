@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from langchain.agents import create_agent
 from langchain.tools import BaseTool
-from langchain_core.callbacks.base import BaseCallbackManager
+from langchain_core.callbacks.base import BaseCallbackHandler, BaseCallbackManager
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import var_child_runnable_config
@@ -380,6 +380,7 @@ def _copy_isolated_subagent_context() -> Context:
         return context
 
     callbacks = inherited_config.get("callbacks")
+    isolated_callbacks: BaseCallbackManager | list[BaseCallbackHandler] | None = None
     if isinstance(callbacks, BaseCallbackManager):
         isolated_callbacks = callbacks.copy()
         isolated_callbacks.handlers = [handler for handler in callbacks.handlers if not getattr(handler, "qilin_loop_bound", False)]
@@ -389,7 +390,7 @@ def _copy_isolated_subagent_context() -> Context:
     elif getattr(callbacks, "qilin_loop_bound", False):
         isolated_callbacks = None
     else:
-        isolated_callbacks = callbacks
+        isolated_callbacks = None
 
     isolated_config = inherited_config.copy()
     if isolated_callbacks:
@@ -575,7 +576,7 @@ class SubagentExecutor:
                 deferred_setup,
                 top_k=app_config.tool_search.auto_promote_top_k,
             )
-        middleware_kwargs = {
+        middleware_kwargs: dict[str, Any] = {
             "app_config": app_config,
             "model_name": self.model_name,
             "lazy_init": True,
@@ -861,7 +862,11 @@ class SubagentExecutor:
             # attach_tracing=False on the model avoids double-counted traces.
             tracing_callbacks = build_tracing_callbacks()
             if tracing_callbacks:
-                existing_callbacks = list(run_config.get("callbacks") or [])
+                raw_callbacks = run_config.get("callbacks") or []
+                if isinstance(raw_callbacks, list):
+                    existing_callbacks = raw_callbacks
+                else:
+                    existing_callbacks = list(raw_callbacks.handlers)
                 run_config["callbacks"] = [*existing_callbacks, *tracing_callbacks]
 
             # Normalize subagent name for tracing so it matches the lead-agent

@@ -386,8 +386,8 @@ class AppConfig(BaseModel):
             if not Path.exists(path):
                 raise FileNotFoundError(f"Config file specified by param `config_path` not found at {path}")
             return path
-        elif os.getenv("QILIN_CONFIG_PATH"):
-            path = Path(os.getenv("QILIN_CONFIG_PATH"))
+        elif env_config_path := os.getenv("QILIN_CONFIG_PATH"):
+            path = Path(env_config_path)
             if not Path.exists(path):
                 raise FileNotFoundError(f"Config file specified by environment variable `QILIN_CONFIG_PATH` not found at {path}")
             return path
@@ -452,7 +452,7 @@ class AppConfig(BaseModel):
     @classmethod
     def _validate_acp_agents(
         cls,
-        config_data: Mapping[str, Mapping[str, object]] | None,
+        config_data: Mapping[str, Mapping[str, Any]] | None,
     ) -> dict[str, ACPAgentConfig]:
         if config_data is None:
             config_data = {}
@@ -691,6 +691,7 @@ def get_app_config() -> AppConfig:
         elif _app_config_path == resolved_path and _app_config_signature != current_signature:
             logger.info("Config file content signature changed, reloading AppConfig")
         _load_and_cache_app_config(str(resolved_path))
+    assert _app_config is not None
     return _app_config
 
 

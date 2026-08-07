@@ -12,14 +12,16 @@ the app, so this adds no dependency.
 
 from __future__ import annotations
 
+import builtins
 import logging
 import shutil
 import threading
 import uuid
 from collections.abc import Hashable
 from datetime import UTC, datetime
+from typing import Any, cast
 
-from sqlalchemy import Engine, create_engine, delete, event, func, select
+from sqlalchemy import CursorResult, Engine, create_engine, delete, event, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -116,14 +118,14 @@ class SqlAgentStore(AgentStore):
             return None
         return row.soul or None
 
-    def list(self, *, user_id: str | None = None) -> list[AgentConfig]:
+    def list(self, *, user_id: str | None = None) -> builtins.list[AgentConfig]:
         effective_user = user_id or get_effective_user_id()
         stmt = select(AgentRow).where(AgentRow.user_id == effective_user).order_by(AgentRow.name.asc())
         with self._Session() as session:
             rows = list(session.execute(stmt).scalars())
         return [parse_agent_config(r.config or {}, r.name) for r in rows]
 
-    def list_all(self) -> list[tuple[str, AgentConfig]]:
+    def list_all(self) -> builtins.list[tuple[str, AgentConfig]]:
         stmt = select(AgentRow).order_by(AgentRow.user_id.asc(), AgentRow.name.asc())
         with self._Session() as session:
             rows = list(session.execute(stmt).scalars())
@@ -193,7 +195,7 @@ class SqlAgentStore(AgentStore):
         with self._Session() as session:
             result = session.execute(delete(AgentRow).where(AgentRow.user_id == effective_user, AgentRow.name == name.lower()))
             session.commit()
-            row_deleted = result.rowcount > 0
+            row_deleted = cast("CursorResult[Any]", result).rowcount > 0
         agent_dir = get_paths().user_agent_dir(effective_user, name)
         if row_deleted:
             # The agent existed as a row; remove any co-located on-disk memory

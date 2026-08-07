@@ -44,8 +44,9 @@ def _is_host_bash_tool(tool: object) -> bool:
 
 def _ensure_sync_invocable_tool(tool: BaseTool) -> BaseTool:
     """Attach a sync wrapper to async-only tools used by sync agent callers."""
-    if getattr(tool, "func", None) is None and getattr(tool, "coroutine", None) is not None:
-        tool.func = make_sync_tool_wrapper(tool.coroutine, tool.name)
+    coroutine = getattr(tool, "coroutine", None)
+    if getattr(tool, "func", None) is None and coroutine is not None:
+        tool.func = make_sync_tool_wrapper(coroutine, tool.name)
     return tool
 
 

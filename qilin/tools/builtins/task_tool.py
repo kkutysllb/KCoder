@@ -387,7 +387,7 @@ async def task_tool(
     # Subagents also must not get list_uploaded_files — they have an independent
     # ThreadState where runtime.state["uploaded_files"] is absent, so the
     # current-run file exclusion would not work.
-    available_tools_kwargs = {
+    available_tools_kwargs: dict[str, Any] = {
         "model_name": effective_model,
         "groups": parent_tool_groups,
         "subagent_enabled": False,
@@ -525,7 +525,7 @@ async def task_tool(
                     tool_call_id=tool_call_id,
                     status="completed",
                     result=result.result,
-                    stop_reason=result.stop_reason,
+                    stop_reason=cast(SubagentStopReasonValue | None, result.stop_reason),
                     model_name=effective_model,
                     usage=usage,
                 )
@@ -551,7 +551,7 @@ async def task_tool(
                     tool_call_id=tool_call_id,
                     status="failed",
                     error=result.error,
-                    stop_reason=result.stop_reason,
+                    stop_reason=cast(SubagentStopReasonValue | None, result.stop_reason),
                     model_name=effective_model,
                     usage=usage,
                 )
@@ -627,11 +627,11 @@ async def task_tool(
                 # _background_tasks once the background thread reaches a terminal state.
                 request_cancel_background_task(task_id)
                 _schedule_deferred_subagent_cleanup(task_id, trace_id, max_poll_count)
-                message = f"Task polling timed out after {timeout_minutes} minutes. This may indicate the background task is stuck. Status: {result.status.value}"
+                poll_message = f"Task polling timed out after {timeout_minutes} minutes. This may indicate the background task is stuck. Status: {result.status.value}"
                 return _task_result_command(
                     tool_call_id=tool_call_id,
                     status="polling_timed_out",
-                    error=message,
+                    error=poll_message,
                     model_name=effective_model,
                     usage=usage,
                 )

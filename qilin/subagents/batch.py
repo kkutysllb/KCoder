@@ -7,8 +7,15 @@
 
 import asyncio
 from dataclasses import dataclass
+from typing import Protocol
 
 from qilin.subagents.executor import SubagentResult, SubagentStatus
+
+
+class _SubagentExecutor(Protocol):
+    """Duck-typed executor contract: only ``_aexecute`` is used by batch."""
+
+    async def _aexecute(self, task: str, result_holder: SubagentResult | None = None) -> SubagentResult: ...
 
 
 @dataclass
@@ -20,7 +27,7 @@ class BatchTask:
     """
 
     task: str
-    executor: object  # duck-typed: 需要 async _aexecute(task, result_holder=None)
+    executor: _SubagentExecutor
     task_id: str | None = None
 
 

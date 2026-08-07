@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from collections.abc import Awaitable
-from typing import Any
+from collections.abc import Awaitable, Coroutine
+from concurrent.futures import Future
+from typing import Any, cast
 
 from qilin.runtime.user_context import DEFAULT_USER_ID
 
@@ -38,7 +39,7 @@ class _LoopThread:
         self._loop.run_forever()
 
     def run(self, coro: Awaitable[Any], *, timeout: float = 15.0) -> Any:
-        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        future: Future[Any] = asyncio.run_coroutine_threadsafe(cast("Coroutine[Any, Any, Any]", coro), self._loop)
         return future.result(timeout)
 
     def close(self) -> None:

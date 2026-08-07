@@ -12,6 +12,7 @@ import shutil
 import stat
 import zipfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import Any, cast
 
 from qilin.skills.permissions import make_skill_tree_sandbox_readable
 from qilin.skills.security_scanner import scan_skill_content
@@ -57,7 +58,7 @@ class SkillSecurityScanError(ValueError):
 
     def __init__(self, message: str, *, findings: list[StaticFinding] | None = None, skill_name: str | None = None) -> None:
         super().__init__(message)
-        self.findings = [dict(finding) for finding in (findings or [])]
+        self.findings = list(findings or [])
         self.skill_name = skill_name
 
 
@@ -259,7 +260,12 @@ async def _scan_skill_file_or_raise(skill_dir: Path, path: Path, skill_name: str
         raise SkillSecurityScanError(f"Security scan failed for skill '{skill_name}': {location} must be valid UTF-8") from e
 
     try:
-        result = await scan_skill_content(content, executable=executable, location=location, static_findings=static_findings or [])
+        result = await scan_skill_content(
+            content,
+            executable=executable,
+            location=location,
+            static_findings=cast("list[dict[str, Any]]", [dict(f) for f in static_findings]) if static_findings else None,
+        )
     except Exception as e:
         raise SkillSecurityScanError(f"Security scan failed for {location}: {e}") from e
 

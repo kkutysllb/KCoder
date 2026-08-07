@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Mapping
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -49,7 +50,7 @@ def get_acp_agents() -> dict[str, ACPAgentConfig]:
     return _acp_agents
 
 
-def load_acp_config_from_dict(config_dict: Mapping[str, Mapping[str, object]] | None) -> None:
+def load_acp_config_from_dict(config_dict: Mapping[str, Mapping[str, Any]] | None) -> None:
     """Load ACP agent configuration from a dictionary (typically from config.yaml).
 
     Args:

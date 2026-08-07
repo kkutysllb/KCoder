@@ -240,7 +240,7 @@ class QiLinClient:
         self._environment = environment
 
         # Lazy agent — created on first call, recreated when config changes.
-        self._agent = None
+        self._agent: Any = None
         self._agent_config_key: tuple | None = None
 
     def reset_agent(self) -> None:
@@ -743,7 +743,6 @@ class QiLinClient:
         # records inside the binding while returning control to the caller
         # with the ContextVar restored.
         inner = self._stream_without_trace_context(message, thread_id=thread_id, **kwargs)
-        _EXHAUSTED = object()
         try:
             while True:
                 token = set_current_trace_id(trace_id)
@@ -751,11 +750,9 @@ class QiLinClient:
                     try:
                         event = next(inner)
                     except StopIteration:
-                        event = _EXHAUSTED
+                        break
                 finally:
                     reset_current_trace_id(token)
-                if event is _EXHAUSTED:
-                    break
                 yield event
         finally:
             inner.close()
@@ -875,7 +872,11 @@ class QiLinClient:
         # CallbackHandler lifts onto the root trace's ``sessionId`` / ``userId``.
         tracing_callbacks = build_tracing_callbacks()
         if tracing_callbacks:
-            existing_callbacks = list(config.get("callbacks") or [])
+            raw_callbacks = config.get("callbacks") or []
+            if isinstance(raw_callbacks, list):
+                existing_callbacks = raw_callbacks
+            else:
+                existing_callbacks = list(raw_callbacks.handlers)
             config["callbacks"] = [*existing_callbacks, *tracing_callbacks]
 
         run_id = str(uuid.uuid4())

@@ -68,7 +68,7 @@ def _assistant_markdown(text: str) -> RenderableType:
     grid.add_column(width=1, vertical="top")  # marker
     grid.add_column(ratio=1)  # markdown body
     grid.add_row(
-        Text(SYMBOLS["assistant"], style=f"bold {THEME.assistant}"),
+        Text(str(SYMBOLS["assistant"]), style=f"bold {THEME.assistant}"),
         Markdown(text),
     )
     return grid

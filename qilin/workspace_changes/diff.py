@@ -64,8 +64,8 @@ def compare_snapshots(
                     path=path,
                     root=sample.root,
                     status=status,
-                    binary=bool((after_file or before_file).binary if (after_file or before_file) else False),
-                    sensitive=bool((after_file or before_file).sensitive if (after_file or before_file) else False),
+                    binary=bool(sample.binary),
+                    sensitive=bool(sample.sensitive),
                     size_before=before_file.size if before_file else None,
                     size_after=after_file.size if after_file else None,
                     sha256_before=before_file.sha256 if before_file else None,
@@ -75,7 +75,7 @@ def compare_snapshots(
                     diff_unavailable_reason=reason,
                     additions=line_additions,
                     deletions=line_deletions,
-                    symlink=bool((after_file or before_file).symlink if (after_file or before_file) else False),
+                    symlink=bool(sample.symlink),
                     symlink_target_before=before_file.symlink_target if before_file else None,
                     symlink_target_after=after_file.symlink_target if after_file else None,
                 )
@@ -159,9 +159,7 @@ def _build_diff(
     before_text = _snapshot_text(before_file) if before_file else ""
     after_text = _snapshot_text(after_file) if after_file else ""
 
-    if before_file is not None and before_text is None:
-        return "", 0, 0, False, None
-    if after_file is not None and after_text is None:
+    if before_text is None or after_text is None:
         return "", 0, 0, False, None
 
     lines = list(
