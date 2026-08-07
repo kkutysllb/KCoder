@@ -20,9 +20,17 @@ QiLin 是一个面向生产环境的 **Python 智能体运行时引擎 (agent ha
 | 版本 / Version | 定位 / Positioning | 状态 / Status |
 |---|---|---|
 | **v1.0.0** | **单智能体框架 / Single-agent framework** — lead agent + 工具式子代理委派 | ✅ 当前版本 / Current |
-| **v2.0.0** | **多智能体框架 / Multi-agent framework** — 编排拓扑、agent 间通信、handoff 协议 | 🔜 规划中 / Planned |
+| **v2.0.0** | **多智能体框架 / Multi-agent framework** — 编排拓扑、agent 间通信、handoff 协议、并行批次与协作模式 | 🔧 开发中 / In development |
 
-v1.0.0 的架构形态为"单主代理 + 工具式子代理"（hierarchical delegation）：全部控制流由 lead agent 主导，子代理经 `task_tool` 委派、调用-返回、用完即弃。v2.0.0 将在该基座上演进为真正的多智能体框架：Orchestrator 图编排、agent 间消息协议、上下文移交（handoff）、以及按 agent 维度的治理与可观测性。
+v1.0.0 的架构形态为"单主代理 + 工具式子代理"（hierarchical delegation）：全部控制流由 lead agent 主导，子代理经 `task_tool` 委派、调用-返回、用完即弃。v2.0.0 在该基座上演进为真正的多智能体框架，核心改造（2026-08-07 起）：
+
+- **配置选择单/多 agent**：`orchestration.mode: single | multi`（`make_lead_agent` 按模式构建 v1 lead 图或 OrchestratorGraph；单次请求可 runtime 临时覆盖，切换需重启）
+- **P0 执行层**：`subagents/batch` 并行批次执行（有界并发 + 失败隔离 + 保序）
+- **P1 编排层**：handoff 协议（`AgentHandoff` / `HandoffResult` / `HandoffError`）、`OrchestratorGraph`（orchestrator + worker 节点、按 `to_agent` 路由、`max_rounds` 防死循环）、`orchestration` 配置段（`AgentSpec` worker 注册表）
+- **P2 协作层**：`AgentInbox` 消息总线（每 agent 队列 + 订阅广播）、`orchestrator_workers` / `peer_consensus` 协作模式
+- **P3 治理与可观测**：agent 身份（`normalize_agent_identity`）、per-agent token 配额（`TokenBudgetConfig.per_agent`）、跨 agent trace 关联（`qilin_trace_id` 注入 handoff）
+
+测试基线从 54 增至 128（P0-P3 + 模式切换全部配套测试）。
 
 ---
 
