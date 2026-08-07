@@ -40,7 +40,7 @@ ignore = [
 # Fullwidth CJK punctuation used deliberately in user-facing Chinese strings
 # (log messages, CLI guidance). These are intentional typography, not
 # confusable-ASCII mistakes.
-allowed-confusables = ["，", "：", "（", "）"]
+allowed-confusables = ["，", "：", "（", "）", "；"]
 
 [lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]  # assert is expected in tests
