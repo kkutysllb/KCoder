@@ -100,6 +100,7 @@ class OrchestratorGraph:
             }
 
         active = handoffs.pop(0)
+        active.inherit_trace_id()  # 无显式 trace 时继承父 trace（P3）
         return {"active_handoff": active, "handoffs": handoffs, "round": round_no}
 
     def _route(self, state: OrchestrationState) -> str:
@@ -130,7 +131,10 @@ class OrchestratorGraph:
                 )._aexecute(active.task)
             except Exception as exc:
                 outcome = HandoffResult(
-                    success=False, error=str(exc), handoff=active
+                    success=False,
+                    error=str(exc),
+                    handoff=active,
+                    trace_id=active.context.get("trace_id"),
                 )
             else:
                 outcome = HandoffResult(
@@ -138,6 +142,7 @@ class OrchestratorGraph:
                     result=subagent_result.result,
                     error=subagent_result.error,
                     handoff=active,
+                    trace_id=active.context.get("trace_id"),
                 )
 
             return {

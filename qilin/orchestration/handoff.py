@@ -10,6 +10,8 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any
 
+from qilin.trace_context import get_current_trace_id
+
 
 @dataclass
 class AgentHandoff:
@@ -32,6 +34,19 @@ class AgentHandoff:
             data["result"] = self.result
         return data
 
+    def inherit_trace_id(self) -> "AgentHandoff":
+        """Inherit the ambient ``qilin_trace_id`` when none is set.
+
+        context 已含 ``trace_id`` 时不覆盖（显式指定优先）；无 ambient
+        trace 时保持原样。原地修改并返回 self，便于链式调用。
+        """
+        if "trace_id" in self.context:
+            return self
+        current = get_current_trace_id()
+        if current is not None:
+            self.context["trace_id"] = current
+        return self
+
 
 @dataclass
 class HandoffResult:
@@ -41,6 +56,7 @@ class HandoffResult:
     result: str | None = None
     error: str | None = None
     handoff: AgentHandoff | None = None
+    trace_id: str | None = None  # 关联父 trace，跨 agent 可观测
 
 
 class HandoffError(RuntimeError):

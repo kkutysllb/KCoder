@@ -1,6 +1,7 @@
 """Unit tests for qilin.orchestration.handoff (handoff protocol)."""
 
 from qilin.orchestration.handoff import AgentHandoff, HandoffError, HandoffResult
+from qilin.trace_context import request_trace_context
 
 
 class TestAgentHandoff:
@@ -75,3 +76,38 @@ class TestHandoffError:
 
         assert isinstance(err, RuntimeError)
         assert str(err) == "unknown target agent"
+
+
+class TestTraceInheritance:
+    def test_inherits_ambient_trace_id(self) -> None:
+        h = AgentHandoff(from_agent="lead", to_agent="coder", task="t")
+
+        with request_trace_context("abc123"):
+            h.inherit_trace_id()
+
+        assert h.context["trace_id"] == "abc123"
+
+    def test_keeps_existing_trace_id(self) -> None:
+        h = AgentHandoff(
+            from_agent="lead",
+            to_agent="coder",
+            task="t",
+            context={"trace_id": "already-set"},
+        )
+
+        with request_trace_context("ambient"):
+            h.inherit_trace_id()
+
+        assert h.context["trace_id"] == "already-set"
+
+    def test_without_trace_context_is_noop(self) -> None:
+        h = AgentHandoff(from_agent="lead", to_agent="coder", task="t")
+
+        h.inherit_trace_id()
+
+        assert "trace_id" not in h.context
+
+    def test_handoff_result_carries_trace_id(self) -> None:
+        r = HandoffResult(success=True, trace_id="abc123")
+
+        assert r.trace_id == "abc123"

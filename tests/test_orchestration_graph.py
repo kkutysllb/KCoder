@@ -7,6 +7,7 @@ from qilin.config.orchestration_config import AgentSpec
 from qilin.orchestration.graph import OrchestratorGraph
 from qilin.orchestration.handoff import AgentHandoff, HandoffError
 from qilin.subagents.executor import SubagentResult, SubagentStatus
+from qilin.trace_context import request_trace_context
 
 
 class FakeExecutor:
@@ -120,3 +121,15 @@ class TestInvoke:
         # 只能执行 2 个，其余保留在待办队列中。
         assert len(final["results"]) == 2
         assert len(final["handoffs"]) == 3
+
+
+    async def test_result_inherits_trace_id_from_handoff(self) -> None:
+        graph = OrchestratorGraph(
+            workers=_specs(), executor_factory=_factory
+        ).build()
+        handoff = AgentHandoff(from_agent="lead", to_agent="coder", task="t")
+
+        with request_trace_context("trace-42"):
+            final = await graph.ainvoke({"handoffs": [handoff]})
+
+        assert final["results"][0].trace_id == "trace-42"
