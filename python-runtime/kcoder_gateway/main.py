@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 from .auth import init_auth_state
 from .auth import router as auth_router
 from .commands_routes import router as commands_router
+from .data_space import KCoderDataSpace
 from .mcp_routes import router as mcp_router
 from .memory_routes import router as memory_router
 from .plugins_routes import router as plugins_router

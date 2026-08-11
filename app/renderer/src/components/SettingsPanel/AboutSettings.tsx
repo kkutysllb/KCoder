@@ -16,9 +16,13 @@ export function AboutSettings() {
           {/* Logo + Name + Version */}
           <div className="flex flex-col items-center pt-10 pb-8">
             {/* K Logo */}
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#3b82f6] to-[#8b5cf6] flex items-center justify-center shadow-lg shadow-[#3b82f6]/20">
-              <span className="text-2xl font-bold text-white tracking-tight">K</span>
-            </div>
+            <img
+              src="/favicon-64.png"
+              alt="KCoder"
+              width={64}
+              height={64}
+              className="rounded-2xl shadow-lg shadow-[#1E88E5]/20"
+            />
             <h1 className="text-xl font-semibold text-text-primary mt-4">KCoder</h1>
             <p className="text-xs text-text-muted mt-1 font-mono">v{APP_VERSION}</p>
             <p className="text-sm text-text-muted mt-3 text-center max-w-[360px] leading-relaxed">

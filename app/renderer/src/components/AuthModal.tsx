@@ -87,9 +87,13 @@ export function AuthModal({ isOpen, onClose, auth, enginePort }: AuthModalProps)
       <div className="relative w-[380px] rounded-2xl bg-bg-surface border border-border-custom shadow-2xl p-6">
         {/* Logo */}
         <div className="flex flex-col items-center mb-6">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#3b82f6] to-[#8b5cf6] flex items-center justify-center">
-            <span className="text-lg font-bold text-white">K</span>
-          </div>
+          <img
+            src="/favicon-64.png"
+            alt="KCoder"
+            width={48}
+            height={48}
+            className="rounded-xl"
+          />
           <h2 className="text-base font-semibold text-text-primary mt-3">
             {detecting ? t('auth.detecting') : t(titleKey)}
           </h2>

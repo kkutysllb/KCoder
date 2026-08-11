@@ -5,6 +5,7 @@ import { WelcomeScreen } from './components/WelcomeScreen'
 import { ChatPanel } from './components/ChatPanel'
 import { SettingsPanel } from './components/SettingsPanel'
 import { AuthModal } from './components/AuthModal'
+import { AuthExperience } from './components/AuthExperience'
 import { TerminalPanel } from './components/TerminalPanel'
 import { UserInputModal } from './components/ChatPanel/UserInputModal'
 import { InfoPanel } from './components/InfoPanel'
@@ -143,6 +144,16 @@ export default function App() {
 
   return (
     <I18nProvider>
+    {auth.checking ? (
+      <div className="flex h-full items-center justify-center bg-[#080b10]">
+        <div className="flex flex-col items-center gap-4 text-[#8fa1b3]">
+          <img src="/favicon-64.png" alt="KCoder" className="h-12 w-12 rounded-[15px] shadow-[0_0_32px_rgba(30,136,229,0.25)]" />
+          <span className="text-xs tracking-[0.18em]">KCODER</span>
+        </div>
+      </div>
+    ) : !auth.user ? (
+      <AuthExperience auth={auth} enginePort={enginePort} />
+    ) : (
     <div className="flex h-full bg-bg-primary">
       {/* Sidebar */}
       {!sidebarCollapsed && (
@@ -216,6 +227,7 @@ export default function App() {
       {/* 浮动信息面板（执行/计划/环境） */}
       <InfoPanel />
     </div>
+    )}
     </I18nProvider>
   )
 }
