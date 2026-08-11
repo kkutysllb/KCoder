@@ -348,6 +348,7 @@ async def consume_langgraph_stream(
     *,
     user_id: str | None = None,
     model_name: str | None = None,
+    subagent_enabled: bool = False,
 ) -> None:
     """后台任务：消费 LangGraph SSE 流 → 翻译 → 推入 event_queue.
 
@@ -357,6 +358,8 @@ async def consume_langgraph_stream(
     ``resolve_config_user_id`` 能识别当前用户（Phase 6）。
     ``model_name``（可选）注入到 ``configurable.model_name``，让 QiLin 的
     ``_resolve_model_name`` 按需选用指定模型（而非默认 models[0]）。
+    ``subagent_enabled``（可选）注入到 ``configurable.subagent_enabled``，
+    为 True 时 QiLin 启用 task_tool（子 agent 编排；agent.py 默认 False）。
     """
     q = run.event_queue
     got_end = False
@@ -369,6 +372,8 @@ async def consume_langgraph_stream(
             configurable["user_id"] = user_id
         if model_name:
             configurable["model_name"] = model_name
+        if subagent_enabled:
+            configurable["subagent_enabled"] = subagent_enabled
         run_config: dict[str, Any] | None = (
             {"configurable": configurable} if configurable else None
         )

@@ -445,7 +445,30 @@ export function useChat() {
 
       const api = getEngineAPI(enginePort)
 
-      // Add user message
+      // ── /command 前缀解析（前端展开）──
+      // 输入 /my-cmd args 时，查 commands.json 拿 content 展开为提示词发给 agent。
+      // 失败则原样发送，不阻断。保留 QiLin 原生 /skill-name 激活（RESERVED 排除）。
+      let finalContent = content.trim()
+      if (finalContent.startsWith('/')) {
+        const cmdId = finalContent.slice(1).split(/\s+/)[0]
+        // 排除 QiLin 保留的 slash 控制命令（skill 激活等）
+        const RESERVED = ['bootstrap', 'goal', 'help', 'memory', 'models', 'new', 'status']
+        if (cmdId && !RESERVED.includes(cmdId)) {
+          try {
+            const cmd = await api.getCommand(cmdId)
+            if (cmd && cmd.content) {
+              // $ARGUMENTS 占位符代为 /cmd 后面的参数
+              const args = finalContent.slice(1 + cmdId.length).trim()
+              finalContent = cmd.content.replace(/\$ARGUMENTS/g, args)
+            }
+          } catch (e) {
+            console.error('[KCoder] Failed to resolve command:', e)
+            // 失败则原样发送，不阻断
+          }
+        }
+      }
+
+      // Add user message（显示用户原始输入，不显示展开后的 content）
       const userMessage: Message = {
         id: `user-${Date.now()}`,
         role: 'user',
@@ -503,9 +526,9 @@ export function useChat() {
         // execution plane. sendMessage now returns turnId immediately (SSE
         // subscription is fire-and-forget), so activeTurnId is set BEFORE the
         // turn completes — this makes the stop button functional.
-        const turnId = await api.sendMessage(currentThreadId, content.trim(), (event: SSEEvent) => {
+        const turnId = await api.sendMessage(currentThreadId, finalContent, (event: SSEEvent) => {
           handleSseEvent(assistantMessageId, event)
-        }, attachmentIds, useAppStore.getState().selectedModel ?? undefined)
+        }, attachmentIds, useAppStore.getState().selectedModel ?? undefined, useAppStore.getState().subagentEnabled || undefined)
 
         // 立即设置 activeTurnId — 停止按钮和 steer 依赖它
         useAppStore.getState().setActiveTurnId(turnId)

@@ -80,7 +80,11 @@ contextBridge.exposeInMainWorld('kcoder', {
   dialog: {
     openFolder: (options?: OpenDialogOptions) =>
       ipcRenderer.invoke('dialog:openFolder', options) as Promise<string | null>
-  }
+  },
+
+  // Sub-agents config: trigger config.yaml re-sync after CRUD in Settings.
+  // Main process reads sub_agents.json and injects custom_agents into config.yaml.
+  syncSubAgents: () => ipcRenderer.invoke('sub-agents:sync') as Promise<void>
 })
 
 // Type declaration for the exposed API
@@ -119,6 +123,7 @@ declare global {
       dialog: {
         openFolder: (options?: OpenDialogOptions) => Promise<string | null>
       }
+      syncSubAgents: () => Promise<void>
     }
   }
 }

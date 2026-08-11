@@ -754,15 +754,17 @@ export class EngineAPI {
   // Send a message and get streaming response. Returns the turnId for execution polling.
   //
   // Governed graph: the backend drives every turn through the durable
-  // governed-graph execution plane. There is no per-turn orchestration field
-  // in StartTurnRequest (the engine's OrchestrationMode is a boot-time config,
-  // not a per-turn choice), so we send only { prompt }.
+  // governed-graph execution plane. Per-turn fields:
+  //   - model_name: override the default model (models[0])
+  //   - subagent_enabled: enable task_tool for sub-agent orchestration
+  //     (QiLin agent.py defaults to false; only true here opts in)
   async sendMessage(
     threadId: string,
     content: string,
     onEvent: (event: SSEEvent) => void,
     attachmentIds?: string[],
-    model?: string
+    model?: string,
+    subagentEnabled?: boolean
   ): Promise<string> {
     const turnResponse = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns`, {
       method: 'POST',
@@ -770,7 +772,8 @@ export class EngineAPI {
       body: JSON.stringify({
         prompt: content,
         ...(attachmentIds && attachmentIds.length > 0 ? { attachmentIds } : {}),
-        ...(model ? { model_name: model } : {})
+        ...(model ? { model_name: model } : {}),
+        ...(subagentEnabled ? { subagent_enabled: true } : {})
       })
     })
 
@@ -1352,6 +1355,20 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
 
+  // 重命名会话标题 — PATCH /v1/threads/:id
+  // 后端只允许更新 title（workspace 等绑定字段不可改）。
+  async updateThreadTitle(threadId: string, title: string): Promise<ThreadSummary> {
+    const response = await fetch(`${this.baseUrl}/v1/threads/${encodeURIComponent(threadId)}`, {
+      method: 'PATCH',
+      headers: { ...this.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title })
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to update thread title: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
   // ============ Workspace / Git API ============
 
   // 查询工作区状态（git 分支/脏标记） — GET /v1/workspace/status?path=
@@ -1874,6 +1891,13 @@ data: <full EngineStreamEvent JSON>
     }
     const data = await response.json()
     return (data.commands ?? []) as CommandEntry[]
+  }
+
+  // 单条查询（后端无 GET /v1/commands/:id 端点，list 后前端 find）。
+  // 用于输入框解析 /command 前缀时拿 content 展开为提示词。
+  async getCommand(commandId: string): Promise<CommandEntry | null> {
+    const commands = await this.listCommands()
+    return commands.find((c) => c.id === commandId) ?? null
   }
   async createCommand(payload: Omit<CommandEntry, 'source'>): Promise<unknown> {
     const response = await fetch(`${this.baseUrl}/v1/commands`, {

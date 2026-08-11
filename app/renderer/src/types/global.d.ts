@@ -47,6 +47,8 @@ interface KcoderBridge {
     openFolder: (options?: OpenDialogOptions) => Promise<string | null>
   }
   models: ModelsBridge
+  /** Trigger config.yaml re-sync of sub_agents.json → custom_agents. */
+  syncSubAgents: () => Promise<void>
 }
 
 declare global {

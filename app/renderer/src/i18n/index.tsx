@@ -42,6 +42,9 @@ const zhCN: Dict = {
   'sidebar.sortByCreated': '创建时间',
   'sidebar.showMore': '显示更多',
   'sidebar.user': '用户',
+  'sidebar.others': '其他',
+  'sidebar.newChat': '新对话',
+  'sidebar.untitled': '未命名会话',
 
   // Terminal
   'terminal.title': '终端',
@@ -367,6 +370,7 @@ const zhCN: Dict = {
   'settings.nav.agents': '子智能体',
   'settings.agents.title': '子智能体',
   'settings.agents.subtitle': '管理 KCoder Agent 运行时消费的用户级子智能体 Markdown 文件。',
+    'settings.agents.enableOrchestration': '启用子 Agent 编排（task_tool）',
   'settings.agents.search': '搜索子智能体...',
   'settings.agents.filter.all': '全部',
   'settings.agents.filter.builtin': '内置',
@@ -625,6 +629,9 @@ const en: Dict = {
   'sidebar.sortByCreated': 'Created Time',
   'sidebar.showMore': 'Show more',
   'sidebar.user': 'User',
+  'sidebar.others': 'Others',
+  'sidebar.newChat': 'New Chat',
+  'sidebar.untitled': 'Untitled',
 
   // Terminal
   'terminal.title': 'Terminal',
@@ -949,6 +956,7 @@ const en: Dict = {
   'settings.nav.agents': 'Sub-agents',
   'settings.agents.title': 'Sub-agents',
   'settings.agents.subtitle': 'Manage user-level sub-agent Markdown files consumed by the KCoder Agent runtime.',
+    'settings.agents.enableOrchestration': 'Enable sub-agent orchestration (task_tool)',
   'settings.agents.search': 'Search sub-agents...',
   'settings.agents.filter.all': 'All',
   'settings.agents.filter.builtin': 'Built-in',

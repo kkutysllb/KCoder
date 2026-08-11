@@ -352,22 +352,37 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
           </div>
         )}
         {(() => {
-          // 按 workspace 分组
+          // 按 workspace 分组：有 workspace 的按项目（目录名）归类；
+          // 无 workspace 的（简单对话）归到「其他」分组并排在最后。
+          // 顶部插入一个使用频度区分位（顶项项目优先）。
+          const OTHERS_KEY = '__others__'
           const groups = new Map<string, ThreadSummary[]>()
           for (const thread of threads) {
-            const key = thread.workspace || ''
+            const key = thread.workspace?.trim() ? thread.workspace! : OTHERS_KEY
             const list = groups.get(key) ?? []
             list.push(thread)
             groups.set(key, list)
           }
-          return Array.from(groups.entries()).map(([workspace, groupThreads]) => {
-            const projectName = workspace ? workspace.split('/').pop() : t('sidebar.ungrouped')
+          // 排序：有 workspace 的项目在前（按最新更新时间降序），
+          // 「其他」分组始终排在最后。
+          const groupKeys = Array.from(groups.keys()).sort((a, b) => {
+            if (a === OTHERS_KEY) return 1
+            if (b === OTHERS_KEY) return -1
+            // 取每组最新 thread.updatedAt 比较
+            const at = groups.get(a)![0].updatedAt || ''
+            const bt = groups.get(b)![0].updatedAt || ''
+            return bt.localeCompare(at)
+          })
+          return groupKeys.map(workspace => {
+            const groupThreads = groups.get(workspace)!
+            const isOthers = workspace === OTHERS_KEY
+            const projectName = isOthers ? t('sidebar.others') : (workspace.split('/').pop() || workspace)
             return (
-              <div key={workspace || '__ungrouped'} className="mb-4">
+              <div key={workspace} className="mb-4">
                 {/* 项目分组标题 */}
                 <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-medium text-text-muted">
                   <Icons.Folder />
-                  <span className="truncate flex-1" title={workspace || undefined}>{projectName}</span>
+                  <span className="truncate flex-1" title={isOthers ? undefined : workspace}>{projectName}</span>
                   <span className="text-[10px] opacity-60">{groupThreads.length}</span>
                 </div>
                 {/* 该项目下的任务 */}
@@ -375,15 +390,19 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
                   {groupThreads.map(thread => {
                     const isActive = thread.id === threadId
                     const time = formatRelativeTime(thread.updatedAt)
+                    // 标题展示：New Chat → 新对话；空 title → 未命名会话
+                    const displayTitle = !thread.title ? t('sidebar.untitled')
+                      : thread.title === 'New Chat' ? t('sidebar.newChat')
+                      : thread.title
                     return (
                       <div
                         key={thread.id}
                         className={`task-item group w-full ${isActive ? 'bg-bg-hover text-text-primary' : ''}`}
                         onClick={() => selectThread(thread.id, thread.workspace)}
-                        title={thread.title || thread.id}
+                        title={displayTitle}
                       >
                         <span className="truncate flex-1 text-left">
-                          {thread.title || '未命名会话'}
+                          {displayTitle}
                         </span>
                         <span className="text-xs text-text-muted shrink-0 ml-2 group-hover:hidden">{time}</span>
                         {/* Delete button — visible on hover */}

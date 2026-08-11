@@ -98,6 +98,8 @@ interface AppState {
   pendingNewBranch: string | null
   /** 模型配置变更计数器（设置页保存后递增，触发聊天框刷新模型列表） */
   modelVersion: number
+  /** 是否启用子 Agent 编排（task_tool）。false 时 QiLin 不暴露 delegate_task */
+  subagentEnabled: boolean
 
   // 交互请求（审批 + 结构化输入）— 后端发 SSE 事件，前端需用户响应
   //
@@ -148,6 +150,7 @@ interface AppState {
   setSelectedModel: (model: string | null) => void
   bumpModelVersion: () => void
   setPendingNewBranch: (branch: string | null) => void
+  setSubagentEnabled: (enabled: boolean) => void
   setPendingApproval: (approval: ApprovalRequest | null) => void
   setPendingUserInput: (input: UserInputRequest | null) => void
   /** Add/replace a concurrent pending approval (keyed by approvalId). */
@@ -192,6 +195,7 @@ export const useAppStore = create<AppState>((set) => ({
   selectedBranch: null,
   selectedModel: null,
   modelVersion: 0,
+  subagentEnabled: false,
   pendingNewBranch: null,
   pendingApproval: null,
   pendingUserInput: null,
@@ -339,6 +343,7 @@ export const useAppStore = create<AppState>((set) => ({
   setSelectedModel: (model) => set({ selectedModel: model }),
   bumpModelVersion: () => set((state) => ({ modelVersion: state.modelVersion + 1 })),
   setPendingNewBranch: (branch) => set({ pendingNewBranch: branch }),
+  setSubagentEnabled: (enabled) => set({ subagentEnabled: enabled }),
 
   // Legacy single-value setters (kept for existing components). They sync the
   // concurrent map so the two views never disagree.

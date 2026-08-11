@@ -97,6 +97,20 @@ class QiLinClient:
         r.raise_for_status()
         return r.json()
 
+    async def update_thread_metadata(self, thread_id: str, metadata: dict[str, Any]) -> dict[str, Any]:
+        """PATCH /threads/{id} → 更新 thread metadata（合并式，不替换）.
+
+        LangGraph Platform 的 Threads.patch 会把传入的 metadata 合并到现有
+        metadata（而非整体替换），所以只传需要更新的字段即可，例如
+        ``{"metadata": {"title": "新标题"}}`` 只改 title，保留 workspace/model 等。
+
+        典型用途：首条用户消息后，根据消息内容把 title 从 "New Chat"
+        更新为有意义的摘要。
+        """
+        r = await self._client.patch(f"/threads/{thread_id}", json={"metadata": metadata})
+        r.raise_for_status()
+        return r.json()
+
     # ---------- Assistant / Run ----------
 
     async def find_default_assistant(self, graph_id: str = "agent") -> str | None:

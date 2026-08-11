@@ -82,4 +82,15 @@ skills:
   scan:
     enabled: true
 
+# ─── 记忆 ───
+# 后端 manager_class=qilinmem 已验证可用（create/get/delete 全通）。
+# mode=middleware：每回合后 MemoryMiddleware 自动总结存入记忆库；
+# injection_enabled=true：记忆自动注入系统提示词上下文。
+# Settings > Memory 面板的 CRUD 走 gateway memory_routes.py → QiLin MemoryManager。
+memory:
+  enabled: true
+  mode: middleware
+  injection_enabled: true
+  manager_class: qilinmem
+
 # 开发阶段用 sqlite（默认）；生产可切 postgres（AppConfig.database.backend）

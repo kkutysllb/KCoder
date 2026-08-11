@@ -27,7 +27,7 @@ import { resolveRuntimeDir } from './qilin-runtime-manager'
  *   1. process.env.QILIN_CONFIG_PATH（与 gateway 一致）
  *   2. <runtimeDir>/config.yaml（复用 runtime-manager 的 resolveRuntimeDir）
  */
-function resolveConfigYamlPath(): string {
+export function resolveConfigYamlPath(): string {
   if (process.env.QILIN_CONFIG_PATH) return process.env.QILIN_CONFIG_PATH
   return join(resolveRuntimeDir(), 'config.yaml')
 }
@@ -176,7 +176,7 @@ export async function syncEngineModelsBestEffort(dataDir: string): Promise<void>
 }
 
 /** 原子写入：同目录 tmp + rename（避免跨文件系统 rename 失败）。 */
-async function atomicWrite(path: string, content: string): Promise<void> {
+export async function atomicWrite(path: string, content: string): Promise<void> {
   const tmpPath = `${path}.${process.pid}.${Date.now()}.tmp`
   await writeFile(tmpPath, content, 'utf8')
   await rename(tmpPath, path)

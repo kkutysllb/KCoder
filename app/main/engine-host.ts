@@ -27,6 +27,7 @@ import {
   type QiLinRuntimeConfig
 } from './qilin-runtime-manager'
 import { syncEngineModelsBestEffort } from './qilin-config-injector'
+import { syncSubAgents } from './sub-agent-injector'
 
 // Engine configuration（保留原签名，renderer 通过 ipc 消费这些字段元信息）
 export interface EngineConfig {
@@ -108,6 +109,14 @@ export async function startEngine(config?: Partial<EngineConfig>): Promise<void>
     await syncEngineModelsBestEffort(fullConfig.dataDir)
   } catch (err) {
     console.warn('[KCoder] Best-effort config injection failed (non-fatal):', err)
+  }
+
+  // 引擎启动后防御性注入：把 sub_agents.json 写入 config.yaml custom_agents。
+  // 覆盖“用户不打开 Settings 但引擎重启”场景。失败不阻塞启动。
+  try {
+    await syncSubAgents(fullConfig.dataDir)
+  } catch (err) {
+    console.warn('[KCoder] Best-effort sub-agents injection failed (non-fatal):', err)
   }
 }
 

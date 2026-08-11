@@ -13,6 +13,7 @@ import {
   discoverModels,
   type ModelProfileInput
 } from './models'
+import { syncSubAgents } from './sub-agent-injector'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -42,6 +43,23 @@ function setupModelIPC(): void {
   )
 }
 
+/**
+ * Register sub-agents config sync IPC handler.
+ *
+ * Renderer triggers this after sub-agent CRUD in Settings; main process
+ * re-reads sub_agents.json and injects custom_agents into config.yaml.
+ */
+function setupSubAgentsIPC(): void {
+  const dataDir = getEngineDataDir()
+  ipcMain.handle('sub-agents:sync', async () => {
+    try {
+      await syncSubAgents(dataDir)
+    } catch (err) {
+      console.error('[KCoder] Failed to sync sub-agents:', err)
+    }
+  })
+}
+
 async function bootstrap(): Promise<void> {
   // Start the QiongQi engine
   console.log('[KCoder] Starting engine...')
@@ -50,6 +68,9 @@ async function bootstrap(): Promise<void> {
 
   // Register model management IPC (after engine dataDir is known)
   setupModelIPC()
+
+  // Register sub-agents config sync IPC (after engine dataDir is known)
+  setupSubAgentsIPC()
 
   // Create main window
   mainWindow = createWindow({

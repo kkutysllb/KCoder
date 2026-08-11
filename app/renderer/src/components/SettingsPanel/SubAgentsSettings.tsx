@@ -14,7 +14,7 @@ type AgentFilter = 'all' | 'builtin' | 'user'
 
 export function SubAgentsSettings() {
   const { t } = useI18n()
-  const { enginePort, engineStatus } = useAppStore()
+  const { enginePort, engineStatus, subagentEnabled, setSubagentEnabled } = useAppStore()
   const [allAgents, setAllAgents] = useState<SubAgentEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -29,6 +29,11 @@ export function SubAgentsSettings() {
       const api = getEngineAPI(enginePort)
       const agents = await api.listSubAgents()
       setAllAgents(agents)
+      // sub_agents.json 可能有变更（CRUD 后或首次加载），触发主进程同步 config.yaml。
+      // 幂等操作，失败不阻断 UI。
+      window.kcoder.syncSubAgents().catch((e) =>
+        console.warn('[SubAgents] config sync failed:', e)
+      )
     } catch (e) {
       console.error('[SubAgents] Failed to load:', e)
     } finally {
@@ -100,6 +105,20 @@ export function SubAgentsSettings() {
             <div>
               <h1 className="text-lg font-semibold text-text-primary">{t('settings.agents.title')}</h1>
               <p className="text-xs text-text-muted mt-1">{t('settings.agents.subtitle')}</p>
+              {/* 启用子 Agent 编排：开启后 sendMessage 透传 subagent_enabled=true，
+                  QiLin 启用 task_tool 暴露 delegate_task */}
+              <label className="mt-3 flex items-center gap-2 cursor-pointer select-none">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={subagentEnabled}
+                  onClick={() => setSubagentEnabled(!subagentEnabled)}
+                  className={`relative w-9 h-5 rounded-full transition-colors ${subagentEnabled ? 'bg-white' : 'bg-bg-hover'}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full transition-transform ${subagentEnabled ? 'translate-x-4 bg-black' : 'bg-text-muted'}`} />
+                </button>
+                <span className="text-xs text-text-secondary">{t('settings.agents.enableOrchestration')}</span>
+              </label>
             </div>
             {/* Action buttons */}
             <div className="flex items-center gap-1.5">

@@ -63,6 +63,7 @@ class StartTurnRequest(BaseModel):
     prompt: str
     attachmentIds: list[str] | None = None
     model_name: str | None = None
+    subagent_enabled: bool = False
 
 
 # ────────────────────────────────────────────────────────────────
@@ -210,6 +211,81 @@ async def delete_thread(thread_id: str, request: Request) -> dict[str, Any]:
 
 
 # ────────────────────────────────────────────────────────────────
+# 端点 3b: PATCH /v1/threads/{id} — 更新 thread metadata（title 等）
+# ────────────────────────────────────────────────────────────────
+
+
+class UpdateThreadRequest(BaseModel):
+    """PATCH /v1/threads/{id} 请求体。
+
+    只允许更新 title；workspace 等其他字段经讨论不应被随意修改
+    （workspace 在创建时绑定，后续变更会打乱侧边栏项目归类）。
+    """
+    title: str | None = None
+
+
+@router.patch("/threads/{thread_id}")
+async def update_thread(
+    thread_id: str, req: UpdateThreadRequest, request: Request
+) -> dict[str, Any]:
+    """更新 thread metadata（合并式，不替换其他字段）。
+
+    LangGraph 的 Threads.patch 把传入的 metadata 合并到现有 metadata，
+    所以只传 title 不会覆盖 workspace/model/workModeId。
+    """
+    client = _get_client(request)
+
+    metadata: dict[str, Any] = {}
+    if req.title is not None:
+        title = req.title.strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="title cannot be empty")
+        metadata["title"] = title
+
+    if not metadata:
+        raise HTTPException(status_code=400, detail="no updatable fields provided")
+
+    try:
+        thread = await client.update_thread_metadata(thread_id, metadata)
+    except Exception as exc:
+        logger.exception("Failed to update thread %s", thread_id)
+        raise HTTPException(status_code=502, detail=f"Upstream error: {exc}") from exc
+
+    return _to_thread_response(thread)
+
+
+# ────────────────────────────────────────────────────────────────
+# Title 自动生成辅助
+# ────────────────────────────────────────────────────────────────
+
+
+def _generate_title_from_prompt(prompt: str, *, max_len: int = 40) -> str:
+    """从首条用户消息生成可读 title。
+
+    规则：取首行/首句，去除多余空白，截断到 max_len 字符并加省略号。
+    代码标识符/路径/中文均可保留。对于多行 prompt（如粘贴代码），
+    取首行避免 title 过长。
+    """
+    first_line = prompt.strip().splitlines()[0] if prompt.strip() else ""
+    # 去除 markdown 代码块标记、# 标题标记等前缀噪音
+    cleaned = first_line.lstrip("#`*->").strip()
+    if not cleaned:
+        cleaned = first_line.strip() or "New Chat"
+    if len(cleaned) > max_len:
+        return cleaned[:max_len].rstrip() + "…"
+    return cleaned
+
+
+async def _safe_update_title(client: Any, thread_id: str, title: str) -> None:
+    """后台安全更新 title，失败仅记日志（不阻断 turn）."""
+    try:
+        await client.update_thread_metadata(thread_id, {"title": title})
+        logger.info("Auto-updated title for thread %s: %r", thread_id, title)
+    except Exception:
+        logger.warning("Failed to auto-update title for thread %s", thread_id, exc_info=True)
+
+
+# ────────────────────────────────────────────────────────────────
 # 端点 4: POST /v1/threads/{id}/turns — 发消息（异步启动）
 # ────────────────────────────────────────────────────────────────
 
@@ -255,11 +331,28 @@ async def start_turn(
     current_user = await get_current_user(request)
     user_id = current_user.id if current_user else None
 
+    # 首条消息自动更新 title：若 thread 当前 title 仍是创建时的默认值
+    # （"New Chat"），则根据首条用户消息生成可读 title。
+    # 使用 asyncio.create_task 非阻塞更新，不 turn 启动不延迟；失败仅记日志。
+    try:
+        thread = await client.get_thread(thread_id)
+        meta = _get_metadata(thread)
+        current_title = meta.get("title", "New Chat")
+        if current_title == "New Chat" and req.prompt.strip():
+            new_title = _generate_title_from_prompt(req.prompt)
+            if new_title != "New Chat":
+                asyncio.create_task(
+                    _safe_update_title(client, thread_id, new_title)
+                )
+    except Exception:
+        logger.debug("title auto-update check failed", exc_info=True)
+
     # 启动后台消费任务
     run.task = asyncio.create_task(
         consume_langgraph_stream(
             client, registry, run, assistant_id, req.prompt,
             user_id=user_id, model_name=req.model_name,
+            subagent_enabled=req.subagent_enabled,
         )
     )
 
