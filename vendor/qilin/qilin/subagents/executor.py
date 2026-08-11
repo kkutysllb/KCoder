@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from langchain.agents import create_agent
 from langchain.tools import BaseTool
-from langchain_core.callbacks.base import BaseCallbackManager
+from langchain_core.callbacks.base import BaseCallbackHandler, BaseCallbackManager
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import var_child_runnable_config
@@ -380,6 +380,7 @@ def _copy_isolated_subagent_context() -> Context:
         return context
 
     callbacks = inherited_config.get("callbacks")
+    isolated_callbacks: BaseCallbackManager | list[BaseCallbackHandler] | None = None
     if isinstance(callbacks, BaseCallbackManager):
         isolated_callbacks = callbacks.copy()
         isolated_callbacks.handlers = [handler for handler in callbacks.handlers if not getattr(handler, "qilin_loop_bound", False)]
@@ -389,7 +390,7 @@ def _copy_isolated_subagent_context() -> Context:
     elif getattr(callbacks, "qilin_loop_bound", False):
         isolated_callbacks = None
     else:
-        isolated_callbacks = callbacks
+        isolated_callbacks = None
 
     isolated_config = inherited_config.copy()
     if isolated_callbacks:
@@ -452,6 +453,8 @@ class SubagentExecutor:
         is_internal: bool = False,
         authz_attributes: Mapping[str, Any] | None = None,
         qilin_trace_id: str | None = None,
+        parent_context_secrets: Mapping[str, Any] | None = None,
+        parent_skill_context: list[dict[str, Any]] | None = None,
     ):
         """Initialize the executor.
 
@@ -476,6 +479,13 @@ class SubagentExecutor:
                 the same run as the lead agent.
             qilin_trace_id: QiLin request-level correlation id propagated
                 from the parent run for Langfuse metadata correlation.
+            parent_context_secrets: Active data secrets from the parent runtime
+                context (config.context.secrets), written into the subagent's
+                runtime context so SkillActivationMiddleware can bind them into
+                sandbox env for delegated bash commands.
+            parent_skill_context: Skill references the parent thread has loaded
+                (ThreadState.skill_context), seeded into the subagent's initial
+                state so parent-activated skills bind secrets immediately.
         """
         self.config = config
         self.app_config = app_config
@@ -508,6 +518,15 @@ class SubagentExecutor:
         self.is_internal = is_internal
         self.authz_attributes = normalize_authz_attributes(authz_attributes)
         self.qilin_trace_id = qilin_trace_id
+        # Active data secrets inherited from the parent runtime context, so
+        # delegated bash commands inside the subagent see the same sandbox
+        # env bindings the lead agent would. Kept as a shallow copy to avoid
+        # aliasing the parent's mutable mapping.
+        self._parent_context_secrets = dict(parent_context_secrets) if parent_context_secrets else None
+        # Skill references loaded in the parent thread, seeded into the initial
+        # state so SkillActivationMiddleware sees them from the first model call
+        # (its binding source lags one step when derived from the state channel).
+        self._parent_skill_context = list(parent_skill_context) if parent_skill_context else None
 
         self._base_tools = _filter_tools(
             tools,
@@ -542,7 +561,9 @@ class SubagentExecutor:
             self.model_name = resolve_subagent_model_name(self.config, self.parent_model, app_config=app_config)
         model = create_chat_model(name=self.model_name, thinking_enabled=False, app_config=app_config, attach_tracing=False)
 
-        from qilin.agents.middlewares.tool_error_handling_middleware import build_subagent_runtime_middlewares
+        from qilin.agents.middlewares.tool_error_handling_middleware import (
+            build_subagent_runtime_middlewares,
+        )
 
         # Reuse shared middleware composition with lead agent. ``agent_name``
         # lets the builder resolve the per-agent token_budget override.
@@ -555,7 +576,7 @@ class SubagentExecutor:
                 deferred_setup,
                 top_k=app_config.tool_search.auto_promote_top_k,
             )
-        middleware_kwargs = {
+        middleware_kwargs: dict[str, Any] = {
             "app_config": app_config,
             "model_name": self.model_name,
             "lazy_init": True,
@@ -655,7 +676,11 @@ class SubagentExecutor:
         # Lazy import: see the TYPE_CHECKING note at the top of this module -
         # importing tool_search runs tools/builtins/__init__, which would
         # re-enter this package during its own initialization.
-        from qilin.tools.builtins.tool_search import assemble_deferred_tools, get_deferred_tools_prompt_section, get_mcp_routing_hints_prompt_section
+        from qilin.tools.builtins.tool_search import (
+            assemble_deferred_tools,
+            get_deferred_tools_prompt_section,
+            get_mcp_routing_hints_prompt_section,
+        )
 
         # Skills are discoverable metadata until explicitly slash-activated or
         # loaded through read_file. Their allowed-tools declarations are applied
@@ -665,7 +690,10 @@ class SubagentExecutor:
 
         resolved_app_config = self.app_config or get_app_config()
 
-        from qilin.skills.describe import build_skill_search_setup, get_skill_index_prompt_section
+        from qilin.skills.describe import (
+            build_skill_search_setup,
+            get_skill_index_prompt_section,
+        )
 
         skill_setup = build_skill_search_setup(
             skills,
@@ -764,6 +792,12 @@ class SubagentExecutor:
         if self.thread_data is not None:
             state["thread_data"] = self.thread_data
 
+        # Seed parent-loaded skill references into the initial state so the
+        # subagent inherits skills activated by the parent (e.g. a completed
+        # SKILL.md read) and can bind their secrets from the first model call.
+        if self._parent_skill_context:
+            state["skill_context"] = list(self._parent_skill_context)
+
         return state, final_tools, deferred_setup
 
     async def _aexecute(self, task: str, result_holder: SubagentResult | None = None) -> SubagentResult:
@@ -828,7 +862,11 @@ class SubagentExecutor:
             # attach_tracing=False on the model avoids double-counted traces.
             tracing_callbacks = build_tracing_callbacks()
             if tracing_callbacks:
-                existing_callbacks = list(run_config.get("callbacks") or [])
+                raw_callbacks = run_config.get("callbacks") or []
+                if isinstance(raw_callbacks, list):
+                    existing_callbacks = raw_callbacks
+                else:
+                    existing_callbacks = list(raw_callbacks.handlers)
                 run_config["callbacks"] = [*existing_callbacks, *tracing_callbacks]
 
             # Normalize subagent name for tracing so it matches the lead-agent
@@ -874,6 +912,12 @@ class SubagentExecutor:
             context["authz_attributes"] = dict(self.authz_attributes)
             if self.qilin_trace_id:
                 context[QILIN_TRACE_METADATA_KEY] = self.qilin_trace_id
+            # Inherit active data secrets from the parent run so the subagent's
+            # SkillActivationMiddleware can bind them into its sandbox env.
+            # LangGraph replaces context wholesale (no merging), so secrets
+            # must be re-declared here explicitly.
+            if self._parent_context_secrets:
+                context["secrets"] = dict(self._parent_context_secrets)
             context["is_subagent"] = True
 
             logger.info(f"[trace={self.trace_id}] Subagent {self.config.name} starting async execution with max_turns={self.config.max_turns}")

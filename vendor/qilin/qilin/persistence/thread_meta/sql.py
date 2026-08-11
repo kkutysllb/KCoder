@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import case, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.sql.expression import ColumnElement
 
 from qilin.persistence.json_compat import json_match
-from qilin.persistence.thread_meta.base import THREAD_PINNED_METADATA_KEY, InvalidMetadataFilterError, ThreadMetaStore
+from qilin.persistence.thread_meta.base import (
+    THREAD_PINNED_METADATA_KEY,
+    InvalidMetadataFilterError,
+    ThreadMetaStore,
+)
 from qilin.persistence.thread_meta.model import ThreadMetaRow
 from qilin.runtime.user_context import AUTO, _AutoSentinel, resolve_user_id
 from qilin.utils.time import coerce_iso
@@ -40,7 +45,7 @@ class ThreadMetaRepository(ThreadMetaStore):
         thread_id: str,
         *,
         assistant_id: str | None = None,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
         display_name: str | None = None,
         metadata: dict | None = None,
     ) -> dict:
@@ -67,7 +72,7 @@ class ThreadMetaRepository(ThreadMetaStore):
         self,
         thread_id: str,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> dict | None:
         resolved_user_id = resolve_user_id(user_id, method_name="ThreadMetaRepository.get")
         async with self._sf() as session:
@@ -116,7 +121,7 @@ class ThreadMetaRepository(ThreadMetaStore):
         status: str | None = None,
         limit: int = 100,
         offset: int = 0,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> list[dict[str, Any]]:
         """Search threads with optional metadata and status filters.
 
@@ -125,7 +130,7 @@ class ThreadMetaRepository(ThreadMetaStore):
         """
         resolved_user_id = resolve_user_id(user_id, method_name="ThreadMetaRepository.search")
         pinned_order = case(
-            (json_match(ThreadMetaRow.metadata_json, THREAD_PINNED_METADATA_KEY, True), 1),
+            (json_match(cast("ColumnElement[Any]", ThreadMetaRow.metadata_json), THREAD_PINNED_METADATA_KEY, True), 1),
             else_=0,
         )
         stmt = select(ThreadMetaRow).order_by(
@@ -142,7 +147,7 @@ class ThreadMetaRepository(ThreadMetaStore):
             applied = 0
             for key, value in metadata.items():
                 try:
-                    stmt = stmt.where(json_match(ThreadMetaRow.metadata_json, key, value))
+                    stmt = stmt.where(json_match(cast("ColumnElement[Any]", ThreadMetaRow.metadata_json), key, value))
                     applied += 1
                 except (ValueError, TypeError) as exc:
                     logger.warning("Skipping metadata filter key %s: %s", ascii(key), exc)
@@ -170,7 +175,7 @@ class ThreadMetaRepository(ThreadMetaStore):
         thread_id: str,
         display_name: str,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> None:
         """Update the display_name (title) for a thread."""
         resolved_user_id = resolve_user_id(user_id, method_name="ThreadMetaRepository.update_display_name")
@@ -185,7 +190,7 @@ class ThreadMetaRepository(ThreadMetaStore):
         thread_id: str,
         status: str,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> None:
         resolved_user_id = resolve_user_id(user_id, method_name="ThreadMetaRepository.update_status")
         async with self._sf() as session:
@@ -200,7 +205,7 @@ class ThreadMetaRepository(ThreadMetaStore):
         metadata: dict,
         *,
         touch: bool = True,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> None:
         """Merge ``metadata`` into ``metadata_json``.
 
@@ -247,7 +252,7 @@ class ThreadMetaRepository(ThreadMetaStore):
         thread_id: str,
         owner_user_id: str,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> None:
         """Move a thread metadata row to ``owner_user_id``."""
         resolved_user_id = resolve_user_id(user_id, method_name="ThreadMetaRepository.update_owner")
@@ -261,7 +266,7 @@ class ThreadMetaRepository(ThreadMetaStore):
         self,
         thread_id: str,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> None:
         resolved_user_id = resolve_user_id(user_id, method_name="ThreadMetaRepository.delete")
         async with self._sf() as session:

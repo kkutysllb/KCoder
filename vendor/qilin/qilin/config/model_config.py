@@ -5,8 +5,8 @@ class ModelConfig(BaseModel):
     """Config section for a model"""
 
     name: str = Field(..., description="Unique name for the model")
-    display_name: str | None = Field(..., default_factory=lambda: None, description="Display name for the model")
-    description: str | None = Field(..., default_factory=lambda: None, description="Description for the model")
+    display_name: str | None = Field(default=None, description="Display name for the model")
+    description: str | None = Field(default=None, description="Description for the model")
     use: str = Field(
         ...,
         description="Class path of the model provider(e.g. langchain_openai.ChatOpenAI)",

@@ -30,7 +30,10 @@ from qilin.runtime.checkpointer.provider import (
     POSTGRES_INSTALL,
     SQLITE_INSTALL,
 )
-from qilin.runtime.store._sqlite_utils import ensure_sqlite_parent_dir, resolve_sqlite_conn_str
+from qilin.runtime.store._sqlite_utils import (
+    ensure_sqlite_parent_dir,
+    resolve_sqlite_conn_str,
+)
 
 logger = logging.getLogger(__name__)
 

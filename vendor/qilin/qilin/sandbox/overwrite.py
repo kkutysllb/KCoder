@@ -1,9 +1,11 @@
 """Helpers for ``langgraph.types.Overwrite``-wrapped channel values."""
 
+from typing import Any, cast
+
 from langgraph.types import Overwrite
 
 
-def unwrap_sandbox(sandbox: object) -> tuple[object, bool]:
+def unwrap_sandbox(sandbox: object) -> tuple[dict[str, Any] | None, bool]:
     """Unwrap an ``Overwrite``-wrapped sandbox channel value, if present.
 
     Fork-restored checkpoints can deliver the sandbox channel still wrapped in
@@ -17,5 +19,5 @@ def unwrap_sandbox(sandbox: object) -> tuple[object, bool]:
     this run (e.g. release it).
     """
     if isinstance(sandbox, Overwrite):
-        return sandbox.value, True
-    return sandbox, False
+        return cast(dict[str, Any] | None, sandbox.value), True
+    return cast(dict[str, Any] | None, sandbox), False

@@ -16,11 +16,18 @@ from typing import override
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
-from langchain.agents.middleware.types import ModelCallResult, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import (
+    ModelCallResult,
+    ModelRequest,
+    ModelResponse,
+)
 from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
 from langgraph.runtime import Runtime
 
-from qilin.agents.middlewares.delegation_ledger import extract_delegations, render_delegation_ledger
+from qilin.agents.middlewares.delegation_ledger import (
+    extract_delegations,
+    render_delegation_ledger,
+)
 from qilin.agents.middlewares.skill_context import extract_skills, render_skill_context
 from qilin.agents.thread_state import _DELEGATION_LEDGER_MAX_ENTRIES, TERMINAL_STATUSES
 from qilin.config.summarization_config import DEFAULT_SKILL_FILE_READ_TOOL_NAMES

@@ -28,14 +28,13 @@ class SandboxNotFoundError(SandboxError):
 class SandboxRuntimeError(SandboxError):
     """Raised when sandbox runtime is not available or misconfigured."""
 
-    pass
 
 
 class SandboxCommandError(SandboxError):
     """Raised when a command execution fails in the sandbox."""
 
     def __init__(self, message: str, command: str | None = None, exit_code: int | None = None):
-        details = {}
+        details: dict[str, object] = {}
         if command:
             details["command"] = command[:100] + "..." if len(command) > 100 else command
         if exit_code is not None:
@@ -62,13 +61,11 @@ class SandboxFileError(SandboxError):
 class SandboxPermissionError(SandboxFileError):
     """Raised when a permission error occurs during file operations."""
 
-    pass
 
 
 class SandboxFileNotFoundError(SandboxFileError):
     """Raised when a file or directory is not found."""
 
-    pass
 
 
 class SandboxCapacityExceededError(SandboxError):

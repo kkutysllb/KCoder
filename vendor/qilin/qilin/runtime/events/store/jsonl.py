@@ -237,7 +237,7 @@ class JsonlRunEventStore(RunEventStore):
         with open(path, "a", encoding="utf-8") as f:
             f.write(lines)
 
-    async def list_messages(self, thread_id, *, limit=50, before_seq=None, after_seq=None, user_id: str | None | _AutoSentinel = AUTO):
+    async def list_messages(self, thread_id, *, limit=50, before_seq=None, after_seq=None, user_id: str | _AutoSentinel | None = AUTO):
         all_events = await asyncio.to_thread(self._read_thread_events, thread_id)
         messages = [e for e in all_events if e.get("category") == "message"]
 
@@ -272,7 +272,7 @@ class JsonlRunEventStore(RunEventStore):
         else:
             return filtered[-limit:] if len(filtered) > limit else filtered
 
-    async def get_last_visible_ai_seq_by_run(self, thread_id, run_ids, *, user_id: str | None | _AutoSentinel = AUTO):
+    async def get_last_visible_ai_seq_by_run(self, thread_id, run_ids, *, user_id: str | _AutoSentinel | None = AUTO):
         def _scan() -> dict[str, int]:
             result: dict[str, int] = {}
             for run_id in run_ids:

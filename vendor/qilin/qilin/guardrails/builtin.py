@@ -1,6 +1,10 @@
 """Built-in guardrail providers that ship with QiLin."""
 
-from qilin.guardrails.provider import GuardrailDecision, GuardrailReason, GuardrailRequest
+from qilin.guardrails.provider import (
+    GuardrailDecision,
+    GuardrailReason,
+    GuardrailRequest,
+)
 
 
 class AllowlistProvider:

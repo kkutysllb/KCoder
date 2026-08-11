@@ -425,7 +425,7 @@ class MemoryManager(BaseModel):
 
     def on_turn_start(self, turn_number: int, message: Any, **kwargs: Any) -> None:
         """Turn-start nudge (future background review). Default: no-op."""
-        return None
+        return
 
     # ── Async (speculative) ──────────────────────────────────────────────
     # Interface placeholders so a future async LLM client can override without
@@ -492,7 +492,7 @@ class MemoryManager(BaseModel):
         default is intentionally a no-op for lightweight or third-party
         implementations.
         """
-        return None
+        return
 
 
 # ── Backend discovery (drop-in) ───────────────────────────────────────────
@@ -523,7 +523,7 @@ def _scan_backends() -> dict[str, type[MemoryManager]]:
         dotted = f"qilin.agents.memory.backends.{entry.name}"
         try:
             module: ModuleType = importlib.import_module(dotted)
-        except Exception:  # noqa: BLE001 - a broken backend must not break the factory
+        except Exception:
             logger.exception("Failed to import memory backend %r; skipping", entry.name)
             continue
         cls = getattr(module, _MANAGER_CLASS_ATTR, None)
@@ -673,7 +673,7 @@ def _host_default_llm() -> Any:
         from qilin.models import create_chat_model
 
         return create_chat_model(name=None)
-    except Exception:  # noqa: BLE001 - no default model is a config state, not a crash
+    except Exception:
         logger.warning("Could not build host default model for QiLinMem memory extraction; memory extraction will be disabled", exc_info=True)
         return None
 

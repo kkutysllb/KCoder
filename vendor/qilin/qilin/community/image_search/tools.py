@@ -102,8 +102,10 @@ def image_search_tool(
     config = get_app_config().get_tool_config("image_search")
 
     # Override max_results from config if set
-    if config is not None and "max_results" in config.model_extra:
-        max_results = config.model_extra.get("max_results", max_results)
+    if config is not None:
+        extra = config.model_extra or {}
+        if "max_results" in extra:
+            max_results = extra.get("max_results", max_results)
 
     results = _search_images(
         query=query,

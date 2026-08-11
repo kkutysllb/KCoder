@@ -20,8 +20,8 @@ import logging
 import threading
 import time
 import uuid
-from collections.abc import Awaitable
-from typing import TYPE_CHECKING, Any, TypeVar
+from collections.abc import Awaitable, Coroutine
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from qilin.config import get_app_config
 from qilin.config.paths import VIRTUAL_PATH_PREFIX
@@ -113,7 +113,7 @@ class _EventLoopThread:
     def run(self, coro: Awaitable[T], *, timeout: float | None = None) -> T:
         if self._loop is None:
             raise RuntimeError("BoxLite event loop is not ready")
-        return asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout)
+        return asyncio.run_coroutine_threadsafe(cast("Coroutine[Any, Any, T]", coro), self._loop).result(timeout)
 
     def close(self) -> None:
         if self._loop is None:
@@ -162,8 +162,8 @@ class _SyncBoxAdapter:
 def _run_sync_adapter[T](coro: Awaitable[T], *, timeout: float | None = None) -> T:
     """Run sync-adapter coroutines without using the BoxLite async loop."""
     if timeout is None:
-        return asyncio.run(coro)
-    return asyncio.run(asyncio.wait_for(coro, timeout=timeout))
+        return asyncio.run(cast("Coroutine[Any, Any, T]", coro))
+    return asyncio.run(asyncio.wait_for(cast("Coroutine[Any, Any, T]", coro), timeout=timeout))
 
 
 class BoxliteProvider(WarmPoolLifecycleMixin[BoxliteBox], SandboxProvider):
@@ -174,7 +174,7 @@ class BoxliteProvider(WarmPoolLifecycleMixin[BoxliteBox], SandboxProvider):
     _idle_checker_thread_name = "boxlite-idle-reaper"
 
     @staticmethod
-    def _sandbox_id(thread_id: str, user_id: str) -> str:
+    def _sandbox_id(thread_id: str, user_id: str | None) -> str:
         """Deterministic sandbox ID from user/thread scope.
 
         Includes user_id so a box created for one user's bucket cannot be
@@ -402,7 +402,7 @@ class BoxliteProvider(WarmPoolLifecycleMixin[BoxliteBox], SandboxProvider):
                 return reclaimed
 
             box = self._create_box(sandbox_id)
-            conflict: tuple[str, str] | None | object = _NO_ACTIVE_IDENTITY
+            conflict: Any = _NO_ACTIVE_IDENTITY
             with self._lock:
                 if box.id in self._boxes:
                     conflict = self._active_box_identity.get(box.id)

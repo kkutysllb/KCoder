@@ -17,7 +17,10 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 import qilin.checkpoint_patches as _checkpoint_patches  # noqa: F401 - import-time saver fixes
 from qilin.agents.goal_state import GoalState
-from qilin.config.database_config import DEFAULT_CHECKPOINT_SNAPSHOT_FREQUENCY, CheckpointChannelMode
+from qilin.config.database_config import (
+    DEFAULT_CHECKPOINT_SNAPSHOT_FREQUENCY,
+    CheckpointChannelMode,
+)
 from qilin.subagents.status_contract import SUBAGENT_STATUS_VALUES
 
 
@@ -274,6 +277,8 @@ class ThreadState(AgentState):
     delegations: Annotated[list[DelegationEntry], merge_delegations]
     skill_context: Annotated[list[SkillEntry], merge_skill_context]
     summary_text: NotRequired[str | None]
+    # Lazily-created per-thread data directories (sandbox tooling marker).
+    thread_directories_created: NotRequired[bool | None]
 
 
 def _normalize_messages(value: Any) -> list[AnyMessage]:

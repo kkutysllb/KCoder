@@ -53,7 +53,7 @@ class StaticScanBlockedError(ValueError):
     skill_name: str | None
 
     def __init__(self, findings: list[SecurityFinding], *, skill_name: str | None = None, message: str | None = None) -> None:
-        self.findings = [dict(finding) for finding in findings]  # type: ignore[list-item]
+        self.findings = list(findings)  # type: ignore[list-item]
         self.skill_name = skill_name
         subject = f"skill '{skill_name}'" if skill_name else "skill content"
         super().__init__(message or f"Static security scan blocked {subject}")

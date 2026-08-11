@@ -20,7 +20,7 @@ import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any
+from typing import Any, cast
 
 from qilin.skills.package_paths import is_eval_fixture_skill_md
 from qilin.skills.skillscan.models import (
@@ -209,7 +209,7 @@ def scan_archive_preflight(archive_path: Path) -> ScanResult:
                 if _is_executable_binary(prefix):
                     findings.append(_finding("package-executable-binary", file=normalized, evidence=_binary_magic_evidence(prefix)))
                 if _is_nested_archive_name(normalized) or _looks_like_archive(prefix):
-                    findings.append(_nested_archive_finding(normalized, prefix, lambda: _read_archive_member(zf, info), scanner_errors))
+                    findings.append(_nested_archive_finding(normalized, prefix, lambda info=info: _read_archive_member(zf, info), scanner_errors))
             if total_size > MAX_TOTAL_ARCHIVE_BYTES:
                 findings.append(_finding("package-oversized-total", file=None, evidence=f"{total_size} bytes"))
     except (zipfile.BadZipFile, OSError) as e:
@@ -479,7 +479,7 @@ def _finding_from_match(rule_id: str, rel_path: str, text: str, match: re.Match[
 
 def _finding_for_text(rule_id: str, rel_path: str, text: str, evidence: str) -> SecurityFinding:
     index = text.find(evidence)
-    return _finding(rule_id, file=rel_path, line=_line_number(text, index if index >= 0 else 0), evidence=evidence)
+    return _finding(rule_id, file=rel_path, line=_line_number(text, max(index, 0)), evidence=evidence)
 
 
 def _finding_for_node(rule_id: str, rel_path: str, node: ast.AST | None, evidence: str) -> SecurityFinding:
@@ -626,12 +626,12 @@ def _decode_text_for_analysis(file_bytes: bytes) -> str | None:
 
 
 def _is_python_path(rel_path: str, text: str) -> bool:
-    return PurePosixPath(rel_path).suffix.lower() == ".py" or text.startswith("#!") and "python" in text.splitlines()[0].lower()
+    return PurePosixPath(rel_path).suffix.lower() == ".py" or (text.startswith("#!") and "python" in text.splitlines()[0].lower())
 
 
 def _is_shell_path(rel_path: str, text: str) -> bool:
     suffix = PurePosixPath(rel_path).suffix.lower()
-    return suffix in {".sh", ".bash"} or text.startswith("#!") and any(shell in text.splitlines()[0].lower() for shell in ("sh", "bash", "zsh"))
+    return suffix in {".sh", ".bash"} or (text.startswith("#!") and any(shell in text.splitlines()[0].lower() for shell in ("sh", "bash", "zsh")))
 
 
 def _looks_like_placeholder(value: str) -> bool:
@@ -774,6 +774,8 @@ _PYTHON_CLIENT_CONSTRUCTORS = frozenset(_PYTHON_CLIENT_SPECS)
 _PYTHON_CLIENT_SINK_METHODS = frozenset().union(*(spec.methods for spec in _PYTHON_CLIENT_SPECS.values()))
 _PYTHON_CLIENT_ANALYSIS_BUDGET = 100_000
 _PYTHON_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+# Type alias for the nodes in ``_PYTHON_SCOPE_NODES`` (nested-scope introducers).
+_ScopeNode = ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda | ast.ClassDef
 _PYTHON_COMPREHENSION_NODES = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 _PYTHON_MATCH_CAPTURE_NODES = (ast.MatchAs, ast.MatchStar, ast.MatchMapping)
 # Statements whose parts do not all run, or run an unknown number of times. Their bodies are
@@ -833,7 +835,7 @@ def _find_client_handle_sink(tree: ast.AST, rel_path: str) -> ast.AST | None:
     return analysis.found
 
 
-def _walk_client_statements(body: list[ast.AST], scope: _ClientScope, inherited: _ClientScope, analysis: _ClientAnalysis) -> None:
+def _walk_client_statements(body: list[ast.stmt], scope: _ClientScope, inherited: _ClientScope, analysis: _ClientAnalysis) -> None:
     """Walk ordinary statements; a walrus-bearing statement is an explicit false negative."""
     for statement in body:
         if analysis.found is not None:
@@ -883,7 +885,7 @@ def _walk_client_scope(node: ast.AST, scope: _ClientScope, inherited: _ClientSco
             _walk_client_scope(node.value, scope, inherited, analysis)
         if analysis.found is not None:
             return
-        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        targets = node.targets if isinstance(node, ast.Assign) else cast(list[ast.expr], [node.target])
         _rebind_client_scope(targets, node.value if isinstance(node, (ast.Assign, ast.AnnAssign)) else None, scope)
         return
     if isinstance(node, (ast.With, ast.AsyncWith)):
@@ -959,13 +961,19 @@ def _branching_header_exprs(node: ast.AST) -> list[ast.AST]:
     return []  # `try` has no header; handler types run only when an exception was raised
 
 
-def _branching_bodies(node: ast.AST) -> list[list[ast.AST]]:
+def _branching_bodies(node: ast.AST) -> list[list[ast.stmt]]:
     if isinstance(node, (ast.Try, ast.TryStar)):
         # A handler's `type` expression and its body run on the same path, so they share one copy.
-        handlers = [[*([handler.type] if handler.type is not None else []), *handler.body] for handler in node.handlers]
+        handlers = [
+            [cast(ast.stmt, handler.type), *handler.body] if handler.type is not None else handler.body
+            for handler in node.handlers
+        ]
         return [node.body, *handlers, node.orelse, node.finalbody]
     if isinstance(node, ast.Match):
-        return [[*([case.guard] if case.guard is not None else []), *case.body] for case in node.cases]
+        return [
+            [cast(ast.stmt, case.guard), *case.body] if case.guard is not None else case.body
+            for case in node.cases
+        ]
     if isinstance(node, ast.If):
         return [node.body, node.orelse]
     if isinstance(node, (ast.For, ast.AsyncFor)):
@@ -1010,14 +1018,14 @@ def _walrus_target_names(node: ast.AST, analysis: _ClientAnalysis) -> set[str]:
     return found
 
 
-def _walk_client_nested_scope(node: ast.AST, scope: _ClientScope, inherited: _ClientScope, analysis: _ClientAnalysis) -> None:
+def _walk_client_nested_scope(node: _ScopeNode, scope: _ClientScope, inherited: _ClientScope, analysis: _ClientAnalysis) -> None:
     annotation_bindings = {name for annotation in _client_scope_annotations(node) for name in _walrus_target_names(annotation, analysis)}
     _drop_client_bindings(scope, annotation_bindings)
     for expr in _client_scope_prelude(node):
         _walk_client_scope(expr, scope, inherited, analysis)
         if analysis.found is not None:
             return
-    body = node.body if isinstance(node.body, list) else [node.body]
+    body: list[ast.stmt] = node.body if isinstance(node.body, list) else [cast(ast.stmt, node.body)]
     unstable_aliases = _client_unstable_aliases(body, analysis)
     if isinstance(node, ast.ClassDef):
         inner, nested = inherited.aliases_only(analysis, unstable_aliases=unstable_aliases), inherited
@@ -1029,13 +1037,13 @@ def _walk_client_nested_scope(node: ast.AST, scope: _ClientScope, inherited: _Cl
         _drop_client_bindings(scope, {node.name})
 
 
-def _match_capture_names(node: ast.AST) -> list[str]:
+def _match_capture_names(node: ast.MatchAs | ast.MatchStar | ast.MatchMapping) -> list[str]:
     if isinstance(node, ast.MatchMapping):
         return [node.rest] if node.rest else []
     return [node.name] if node.name else []
 
 
-def _client_scope_prelude(node: ast.AST) -> list[ast.AST]:
+def _client_scope_prelude(node: _ScopeNode) -> list[ast.expr]:
     """Expressions a scope-defining statement evaluates in its *enclosing* scope, not the new one:
     decorators, argument/keyword defaults, and class bases/keywords. Annotations are not walked for
     sinks -- whether the runtime evaluates one depends on the scope, on `from __future__ import
@@ -1050,7 +1058,7 @@ def _client_scope_prelude(node: ast.AST) -> list[ast.AST]:
     return [*node.decorator_list, *defaults]
 
 
-def _client_scope_annotations(node: ast.AST) -> list[ast.AST]:
+def _client_scope_annotations(node: ast.AST) -> list[ast.expr]:
     if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         return []
     args = node.args
@@ -1063,7 +1071,7 @@ def _client_scope_annotations(node: ast.AST) -> list[ast.AST]:
     return annotations
 
 
-def _client_unstable_aliases(body: list[ast.AST], analysis: _ClientAnalysis) -> frozenset[str]:
+def _client_unstable_aliases(body: list[ast.stmt], analysis: _ClientAnalysis) -> frozenset[str]:
     """Names whose import-alias value is not stable for a nested scope.
 
     This is a binding-only prepass: it never interprets expression values or paths. Any ordinary
@@ -1104,13 +1112,15 @@ def _client_unstable_aliases(body: list[ast.AST], analysis: _ClientAnalysis) -> 
             unstable.add(current.name)
         elif isinstance(current, _PYTHON_MATCH_CAPTURE_NODES):
             unstable.update(_match_capture_names(current))
-        stack.extend(reversed(list(ast.iter_child_nodes(current))))
+        # Children may be expressions; the stack is typed as statements, but the
+        # checks above only branch on node classes, so widening is safe here.
+        stack.extend(reversed(list(cast(Iterable[ast.stmt], ast.iter_child_nodes(current)))))
     if saw_star_import:
         unstable.update(imported)
     return frozenset(unstable)
 
 
-def _client_scope_bindings(node: ast.AST, analysis: _ClientAnalysis) -> set[str]:
+def _client_scope_bindings(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda, analysis: _ClientAnalysis) -> set[str]:
     """Names that shadow inherited constructor aliases throughout a function scope."""
     args = node.args
     names = {arg.arg for arg in [*args.posonlyargs, *args.args, *args.kwonlyargs]}
@@ -1162,7 +1172,7 @@ def _client_constructor_from_value(value: ast.AST | None, scope: _ClientScope) -
     return ""
 
 
-def _rebind_client_scope(targets: list[ast.AST], value: ast.AST | None, scope: _ClientScope) -> None:
+def _rebind_client_scope(targets: list[ast.expr], value: ast.AST | None, scope: _ClientScope) -> None:
     """Apply one binding: drop the targets, then re-add them if the value is a client handle.
 
     The value is resolved before the targets are dropped, so `session = session` and `s = session`

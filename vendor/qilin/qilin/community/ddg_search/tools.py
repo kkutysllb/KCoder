@@ -148,10 +148,11 @@ def web_search_tool(
 
     if config is not None:
         # Override tool call defaults from config if set.
-        max_results = config.model_extra.get("max_results", max_results)
-        region = config.model_extra.get("region", region)
-        safesearch = config.model_extra.get("safesearch", safesearch)
-        backend = config.model_extra.get("backend", backend)
+        extra = config.model_extra or {}
+        max_results = extra.get("max_results", max_results)
+        region = extra.get("region", region)
+        safesearch = extra.get("safesearch", safesearch)
+        backend = extra.get("backend", backend)
 
     results = _search_text(
         query=query,

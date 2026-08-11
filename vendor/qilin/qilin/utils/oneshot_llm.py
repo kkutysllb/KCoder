@@ -16,8 +16,10 @@ helper stops at the extracted raw text.
 from __future__ import annotations
 
 import os
+from typing import Any, cast
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 
 from qilin.config.app_config import AppConfig
 from qilin.models import create_chat_model
@@ -53,7 +55,7 @@ async def run_oneshot_llm(
         The extracted plain-text content of the model response (uncleaned).
     """
     model = create_chat_model(name=model_name, thinking_enabled=False, app_config=app_config)
-    invoke_config: dict = {"run_name": run_name}
+    invoke_config: dict[str, Any] = {"run_name": run_name}
     inject_langfuse_metadata(
         invoke_config,
         thread_id=thread_id,
@@ -67,6 +69,6 @@ async def run_oneshot_llm(
             SystemMessage(content=system_instruction),
             HumanMessage(content=user_content),
         ],
-        config=invoke_config,
+        config=cast(RunnableConfig, invoke_config),
     )
     return extract_response_text(response.content)

@@ -10,7 +10,14 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from .base import END_SENTINEL, HEARTBEAT_SENTINEL, StreamBridge, StreamEvent, StreamGap, StreamItem
+from .base import (
+    END_SENTINEL,
+    HEARTBEAT_SENTINEL,
+    StreamBridge,
+    StreamEvent,
+    StreamGap,
+    StreamItem,
+)
 
 logger = logging.getLogger(__name__)
 _MEMORY_STREAM_ID_RE = re.compile(r"\d+-(\d+)")

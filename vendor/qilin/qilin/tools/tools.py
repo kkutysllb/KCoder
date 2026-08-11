@@ -6,7 +6,14 @@ from qilin.config import get_app_config
 from qilin.config.app_config import AppConfig
 from qilin.reflection import resolve_variable
 from qilin.sandbox.security import is_host_bash_allowed
-from qilin.tools.builtins import ask_clarification_tool, list_uploaded_files, present_file_tool, review_skill_package, task_tool, view_image_tool
+from qilin.tools.builtins import (
+    ask_clarification_tool,
+    list_uploaded_files,
+    present_file_tool,
+    review_skill_package,
+    task_tool,
+    view_image_tool,
+)
 from qilin.tools.mcp_metadata import tag_mcp_tool
 from qilin.tools.sync import make_sync_tool_wrapper
 
@@ -37,8 +44,9 @@ def _is_host_bash_tool(tool: object) -> bool:
 
 def _ensure_sync_invocable_tool(tool: BaseTool) -> BaseTool:
     """Attach a sync wrapper to async-only tools used by sync agent callers."""
-    if getattr(tool, "func", None) is None and getattr(tool, "coroutine", None) is not None:
-        tool.func = make_sync_tool_wrapper(tool.coroutine, tool.name)
+    coroutine = getattr(tool, "coroutine", None)
+    if getattr(tool, "func", None) is None and coroutine is not None:
+        tool.func = make_sync_tool_wrapper(coroutine, tool.name)
     return tool
 
 
@@ -149,7 +157,9 @@ def get_available_tools(
     # Add invoke_acp_agent tool if any ACP agents are configured
     acp_tools: list[BaseTool] = []
     try:
-        from qilin.tools.builtins.invoke_acp_agent_tool import build_invoke_acp_agent_tool
+        from qilin.tools.builtins.invoke_acp_agent_tool import (
+            build_invoke_acp_agent_tool,
+        )
 
         if app_config is None:
             from qilin.config.acp_config import get_acp_agents

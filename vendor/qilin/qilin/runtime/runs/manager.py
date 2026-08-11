@@ -679,7 +679,7 @@ class RunManager:
         self,
         thread_id: str,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> set[str]:
         """Return all source runs superseded by successful regenerations.
 
@@ -741,7 +741,7 @@ class RunManager:
         self,
         thread_id: str,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> EditReplayVisibility:
         """Return run-id visibility rules for edit-and-rerun attempts.
 
@@ -836,7 +836,7 @@ class RunManager:
         thread_id: str,
         run_ids: set[str],
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> dict[str, RunRecord]:
         """Batch-load selected thread runs with in-memory records preferred."""
         if not run_ids:
@@ -1750,7 +1750,7 @@ class RunManager:
                 claimed = await self._call_store_with_retry(
                     "claim_for_takeover",
                     record.run_id,
-                    lambda: self._store.claim_for_takeover(
+                    lambda record=record: self._store.claim_for_takeover(
                         record.run_id,
                         grace_seconds=grace_seconds,
                         error=error,
@@ -1997,7 +1997,7 @@ class RunManager:
                     renewal = await self._call_store_with_retry(
                         "renew_lease",
                         run_id,
-                        lambda: self._store.renew_lease(
+                        lambda run_id=run_id, new_expiry=new_expiry: self._store.renew_lease(
                             run_id,
                             owner_worker_id=self._worker_id,
                             lease_expires_at=new_expiry,
@@ -2037,7 +2037,7 @@ class RunManager:
                         still_active = self._runs.get(run_id) is record and record.status in (RunStatus.pending, RunStatus.running) and record.owner_worker_id == self._worker_id and (record.task is None or not record.task.done())
                     if still_active:
                         logger.warning(
-                            "Run %s lease renewal failed (status=%s,owner=%s) – worker likely taken over; aborting local task",
+                            "Run %s lease renewal failed (status=%s,owner=%s) - worker likely taken over; aborting local task",
                             run_id,
                             record.status.value,
                             record.owner_worker_id,

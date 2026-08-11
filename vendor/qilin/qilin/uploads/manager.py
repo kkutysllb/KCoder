@@ -10,6 +10,7 @@ import os
 import re
 import stat
 from pathlib import Path
+from typing import BinaryIO
 from urllib.parse import quote
 
 from qilin.config.paths import VIRTUAL_PATH_PREFIX, get_paths
@@ -175,7 +176,7 @@ def cleanup_stale_upload_staging_files(base_dir: Path | str | None = None) -> in
     return removed
 
 
-def open_upload_file_no_symlink(base_dir: Path, filename: str) -> tuple[Path, object]:
+def open_upload_file_no_symlink(base_dir: Path, filename: str) -> tuple[Path, BinaryIO]:
     """Open an upload destination for safe streaming writes.
 
     Upload directories may be mounted into local sandboxes. A sandbox process can

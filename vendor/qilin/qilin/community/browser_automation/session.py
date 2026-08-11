@@ -316,6 +316,7 @@ class BrowserSession:
         self._input_live_frame_generation = 0
         self._input_live_frame_pending = False
         self._page_listener_bound = False
+        self._background_tasks: set[asyncio.Task] = set()
 
     @property
     def active_refs(self) -> int:
@@ -403,7 +404,7 @@ class BrowserSession:
         """
         self._page = page
         if self._on_frame is not None and not self._screencast_binding and page is not self._screencast_page:
-            asyncio.ensure_future(self._rebind_screencast_safe())
+            self._spawn_background_task(self._rebind_screencast_safe())
 
     def _bind_new_page_listener(self) -> None:
         """Follow popups/new tabs so auth flows stay visible and controllable.
@@ -560,11 +561,17 @@ class BrowserSession:
         finally:
             self._settle_live_frames_pending = False
 
+    def _spawn_background_task(self, coro) -> None:
+        """Run *coro* as a tracked background task (kept alive until done)."""
+        task = asyncio.ensure_future(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
     def _schedule_settle_live_frames(self) -> None:
         if self._settle_live_frames_pending:
             return
         self._settle_live_frames_pending = True
-        asyncio.ensure_future(self._settle_live_frames())
+        self._spawn_background_task(self._settle_live_frames())
 
     async def _push_live_frame(self) -> None:
         if self._on_frame is None:
@@ -598,7 +605,7 @@ class BrowserSession:
         if self._input_live_frame_pending:
             return
         self._input_live_frame_pending = True
-        asyncio.ensure_future(self._flush_input_live_frames())
+        self._spawn_background_task(self._flush_input_live_frames())
 
     async def _back(self) -> PageSnapshot:
         page = await self._ensure_page()

@@ -202,12 +202,12 @@ def reset_mcp_tools_cache() -> None:
     _config_path = None
     _config_signature = None
 
-    # Close persistent sessions – they will be recreated by the next
+    # Close persistent sessions - they will be recreated by the next
     # get_mcp_tools() call with the (possibly updated) connection config.
     #
     # close_all_sync() already picks the correct strategy per owning loop:
     #   * sessions owned by the *current* running loop are only *signalled*
-    #     (their owner task runs __aexit__ once the loop regains control –
+    #     (their owner task runs __aexit__ once the loop regains control -
     #     this is correct and leak-free, since the loop keeps the task alive),
     #   * sessions on other threads' loops are torn down deterministically,
     #   * idle/closed loops are handled or skipped.

@@ -19,7 +19,7 @@ import shutil
 import tempfile
 from collections.abc import Hashable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -38,12 +38,19 @@ from qilin.persistence.agents.base import (
 )
 from qilin.runtime.user_context import DEFAULT_USER_ID
 
+# The ``list`` method below shadows the builtin; mypy resolves ``list[...]``
+# annotations inside the class against the method itself, so module-level
+# aliases are used for every list annotation in the class.
+_AgentList = list[tuple[str, AgentConfig]]
+_AgentPairList = list[tuple[str, str]]
+_SignatureList = list[tuple[str, str, float]]
+
 logger = logging.getLogger(__name__)
 
 
 class FileAgentStore(AgentStore):
     def get(self, name: str, *, user_id: str | None = None) -> AgentConfig:
-        name = validate_agent_name(name)
+        name = cast(str, validate_agent_name(name))  # str 输入必然返回 str 或抛 ValueError
         agent_dir = resolve_agent_dir(name, user_id=user_id)
         config_file = agent_dir / "config.yaml"
         if not agent_dir.exists():
@@ -58,7 +65,7 @@ class FileAgentStore(AgentStore):
         return parse_agent_config(data, name)
 
     def exists(self, name: str, *, user_id: str | None = None) -> bool:
-        name = validate_agent_name(name)
+        name = cast(str, validate_agent_name(name))  # str 输入必然返回 str 或抛 ValueError
         paths = _ac.get_paths()
         effective_user = user_id or _ac.get_effective_user_id()
         return paths.user_agent_dir(effective_user, name).exists() or paths.agent_dir(name).exists()
@@ -103,22 +110,22 @@ class FileAgentStore(AgentStore):
                 try:
                     agents.append(self.get(entry.name, user_id=effective_user))
                     seen.add(entry.name)
-                except Exception as e:  # noqa: BLE001 — one bad agent must not hide the rest
+                except Exception as e:
                     logger.warning("Skipping agent '%s': %s", entry.name, e)
         agents.sort(key=lambda a: a.name)
         return agents
 
-    def list_all(self) -> list[tuple[str, AgentConfig]]:
-        result: list[tuple[str, AgentConfig]] = []
+    def list_all(self) -> _AgentList:
+        result: _AgentList = []
         for user_id, name in self._discover():
             try:
                 result.append((user_id, self.get(name, user_id=user_id)))
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.warning("list_all: skipping agent %s/%s: %s", user_id, name, e)
         return result
 
     def create(self, name: str, config: dict, soul: str, *, user_id: str | None = None) -> None:
-        name = validate_agent_name(name)
+        name = cast(str, validate_agent_name(name))  # str 输入必然返回 str 或抛 ValueError
         paths = _ac.get_paths()
         effective_user = user_id or _ac.get_effective_user_id()
         agent_dir = paths.user_agent_dir(effective_user, name)
@@ -143,7 +150,7 @@ class FileAgentStore(AgentStore):
             raise
 
     def update(self, name: str, config: dict | None, soul: str | None, *, user_id: str | None = None) -> None:
-        name = validate_agent_name(name)
+        name = cast(str, validate_agent_name(name))  # str 输入必然返回 str 或抛 ValueError
         effective_user = user_id or _ac.get_effective_user_id()
         agent_dir = _ac.get_paths().user_agent_dir(effective_user, name)
         pre_existing = agent_dir.exists()
@@ -158,7 +165,7 @@ class FileAgentStore(AgentStore):
             raise
 
     def delete(self, name: str, *, user_id: str | None = None) -> AgentDeleteOutcome:
-        name = validate_agent_name(name)
+        name = cast(str, validate_agent_name(name))  # str 输入必然返回 str 或抛 ValueError
         paths = _ac.get_paths()
         effective_user = user_id or _ac.get_effective_user_id()
         agent_dir = paths.user_agent_dir(effective_user, name)
@@ -177,7 +184,7 @@ class FileAgentStore(AgentStore):
         return "deleted"
 
     def signature(self) -> Hashable:
-        sig: list[tuple[str, str, float]] = []
+        sig: _SignatureList = []
         for user_id, name in self._discover():
             config = resolve_agent_dir(name, user_id=user_id) / "config.yaml"
             try:
@@ -188,7 +195,7 @@ class FileAgentStore(AgentStore):
 
     # -- internals --
 
-    def _discover(self) -> list[tuple[str, str]]:
+    def _discover(self) -> _AgentPairList:
         """Enumerate ``(user_id, name)`` across per-user and legacy layouts.
 
         A legacy shared-layout agent is attributed to ``DEFAULT_USER_ID`` and is

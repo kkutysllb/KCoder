@@ -13,7 +13,12 @@ from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
 from qilin.authz.principal import normalize_authz_attributes
-from qilin.guardrails.provider import GuardrailDecision, GuardrailProvider, GuardrailReason, GuardrailRequest
+from qilin.guardrails.provider import (
+    GuardrailDecision,
+    GuardrailProvider,
+    GuardrailReason,
+    GuardrailRequest,
+)
 from qilin.runtime.events.catalog import MIDDLEWARE_GUARDRAIL_TAG
 
 logger = logging.getLogger(__name__)
@@ -119,7 +124,7 @@ class GuardrailMiddleware(AgentMiddleware[AgentState]):
                 action=action,
                 changes=changes,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.warning("Failed to record middleware:guardrail event", exc_info=True)
 
     @override

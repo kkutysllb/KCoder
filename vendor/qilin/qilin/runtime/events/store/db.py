@@ -17,7 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from qilin.persistence.models.run_event import RunEventRow
 from qilin.runtime.events.store.base import RunEventStore
-from qilin.runtime.user_context import AUTO, _AutoSentinel, get_current_user, resolve_user_id
+from qilin.runtime.user_context import (
+    AUTO,
+    _AutoSentinel,
+    get_current_user,
+    resolve_user_id,
+)
 from qilin.utils.time import coerce_iso
 
 logger = logging.getLogger(__name__)
@@ -126,7 +131,7 @@ class DbRunEventStore(RunEventStore):
 
         return await session.scalar(stmt.with_for_update())
 
-    async def put(self, *, thread_id, run_id, event_type, category, content="", metadata=None, created_at=None):  # noqa: D401
+    async def put(self, *, thread_id, run_id, event_type, category, content="", metadata=None, created_at=None):
         """Write a single event — low-frequency path only.
 
         This opens a dedicated transaction with a FOR UPDATE lock to
@@ -254,7 +259,7 @@ class DbRunEventStore(RunEventStore):
         limit=50,
         before_seq=None,
         after_seq=None,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="DbRunEventStore.list_messages")
         stmt = select(RunEventRow).where(RunEventRow.thread_id == thread_id, RunEventRow.category == "message")
@@ -288,7 +293,7 @@ class DbRunEventStore(RunEventStore):
         task_id=None,
         limit=500,
         after_seq=None,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="DbRunEventStore.list_events")
         stmt = select(RunEventRow).where(RunEventRow.thread_id == thread_id, RunEventRow.run_id == run_id)
@@ -318,7 +323,7 @@ class DbRunEventStore(RunEventStore):
         limit=50,
         before_seq=None,
         after_seq=None,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="DbRunEventStore.list_messages_by_run")
         stmt = select(RunEventRow).where(
@@ -350,7 +355,7 @@ class DbRunEventStore(RunEventStore):
         thread_id,
         run_ids,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         if not run_ids:
             return {}
@@ -379,7 +384,7 @@ class DbRunEventStore(RunEventStore):
         self,
         thread_id,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="DbRunEventStore.count_messages")
         stmt = select(func.count()).select_from(RunEventRow).where(RunEventRow.thread_id == thread_id, RunEventRow.category == "message")
@@ -392,7 +397,7 @@ class DbRunEventStore(RunEventStore):
         self,
         thread_id,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="DbRunEventStore.delete_by_thread")
         async with self._sf() as session:
@@ -419,7 +424,7 @@ class DbRunEventStore(RunEventStore):
         thread_id,
         run_id,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="DbRunEventStore.delete_by_run")
         async with self._sf() as session:

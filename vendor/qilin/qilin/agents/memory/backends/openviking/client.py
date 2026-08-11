@@ -9,7 +9,13 @@ from typing import Any
 import httpx
 
 from .config import OpenVikingConfig
-from .models import OpenVikingCommitResult, OpenVikingIdentity, OpenVikingMessage, OpenVikingSearchHit, OpenVikingSessionContext
+from .models import (
+    OpenVikingCommitResult,
+    OpenVikingIdentity,
+    OpenVikingMessage,
+    OpenVikingSearchHit,
+    OpenVikingSessionContext,
+)
 
 
 class OpenVikingClientError(RuntimeError):

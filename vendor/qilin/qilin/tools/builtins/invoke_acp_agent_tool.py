@@ -119,7 +119,7 @@ def _build_permission_response(options: list[Any], *, auto_approve: bool) -> Any
                     continue
 
                 return RequestPermissionResponse(
-                    outcome=AllowedOutcome(outcome="selected", optionId=option_id),
+                    outcome=AllowedOutcome(outcome="selected", option_id=option_id),
                 )
 
     return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
@@ -163,7 +163,7 @@ def build_invoke_acp_agent_tool(agents: dict) -> BaseTool:
     # Capture agents in closure so the function can reference it
     _agents = dict(agents)
 
-    async def _invoke(agent: str, prompt: str, config: Annotated[RunnableConfig, InjectedToolArg] = None) -> str:
+    async def _invoke(agent: str, prompt: str, config: Annotated[RunnableConfig | None, InjectedToolArg] = None) -> str:
         logger.info("Invoking ACP agent %s (prompt length: %d)", agent, len(prompt))
         logger.debug("Invoking ACP agent %s with prompt: %.200s%s", agent, prompt, "..." if len(prompt) > 200 else "")
         if agent not in _agents:
@@ -207,7 +207,7 @@ def build_invoke_acp_agent_tool(agents: dict) -> BaseTool:
                     logger.warning("ACP permission denied for tool call %s in session %s (set auto_approve_permissions: true in config.yaml to enable)", tool_call.tool_call_id, session_id)
                 return response
 
-        client = _CollectingClient()
+        client = _CollectingClient()  # type: ignore[abstract]
         cmd = agent_config.command
         args = agent_config.args or []
         physical_cwd = _get_work_dir(thread_id)
@@ -227,7 +227,7 @@ def build_invoke_acp_agent_tool(agents: dict) -> BaseTool:
         try:
             from acp import spawn_agent_process
 
-            async with spawn_agent_process(client, cmd, *args, env=agent_env, cwd=physical_cwd) as (conn, proc):
+            async with spawn_agent_process(client, cmd, *args, env=agent_env, cwd=physical_cwd) as (conn, _):
                 logger.info("Spawning ACP agent '%s' with command '%s' and args %s in cwd %s", agent, cmd, args, physical_cwd)
                 await conn.initialize(
                     protocol_version=PROTOCOL_VERSION,

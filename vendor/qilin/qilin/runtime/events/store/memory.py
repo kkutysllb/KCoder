@@ -122,7 +122,7 @@ class MemoryRunEventStore(RunEventStore):
             True,
         )
 
-    async def list_messages(self, thread_id, *, limit=50, before_seq=None, after_seq=None, user_id: str | None | _AutoSentinel = AUTO):
+    async def list_messages(self, thread_id, *, limit=50, before_seq=None, after_seq=None, user_id: str | _AutoSentinel | None = AUTO):
         # ``messages`` is messages-only and seq-sorted, so the seq window is a
         # contiguous slice located with bisect (O(log m)) rather than a full scan.
         messages = self._messages.get(thread_id, [])
@@ -166,7 +166,7 @@ class MemoryRunEventStore(RunEventStore):
             return window[:limit]
         return window[-limit:]
 
-    async def get_last_visible_ai_seq_by_run(self, thread_id, run_ids, *, user_id: str | None | _AutoSentinel = AUTO):
+    async def get_last_visible_ai_seq_by_run(self, thread_id, run_ids, *, user_id: str | _AutoSentinel | None = AUTO):
         result: dict[str, int] = {}
         messages_by_run = self._messages_by_run.get(thread_id, {})
         for run_id in run_ids:

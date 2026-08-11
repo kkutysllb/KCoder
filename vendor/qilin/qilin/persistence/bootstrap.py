@@ -427,7 +427,7 @@ async def _postgres_lock(engine: AsyncEngine):
         finally:
             try:
                 await conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _PG_LOCK_KEY})
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.warning("bootstrap: pg_advisory_unlock raised; session close will release", exc_info=True)
 
 

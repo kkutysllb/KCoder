@@ -22,10 +22,10 @@ from qilin.agents.memory.manager import (
 )
 
 __all__ = [
-    "MemoryManager",
-    "MemoryManagerError",
     "MemoryConflictError",
     "MemoryCorruptionError",
+    "MemoryManager",
+    "MemoryManagerError",
     "get_memory_manager",
     "reset_memory_manager",
 ]

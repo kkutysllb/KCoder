@@ -16,10 +16,16 @@ right metadata without leaking Langfuse internals into the call sites.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
+
+from langchain_core.runnables.config import RunnableConfig
 
 from qilin.config import get_enabled_tracing_providers
-from qilin.trace_context import QILIN_TRACE_METADATA_KEY, get_current_trace_id, normalize_trace_id
+from qilin.trace_context import (
+    QILIN_TRACE_METADATA_KEY,
+    get_current_trace_id,
+    normalize_trace_id,
+)
 
 # Lazy-imported below to avoid a circular import: ``qilin.runtime`` eagerly
 # imports the run worker, which in turn needs ``qilin.tracing``.
@@ -78,7 +84,7 @@ def build_langfuse_trace_metadata(
 
 
 def inject_langfuse_metadata(
-    config: dict,
+    config: dict[str, Any] | RunnableConfig,
     *,
     thread_id: str | None,
     user_id: str | None = None,
@@ -111,4 +117,5 @@ def inject_langfuse_metadata(
     merged_metadata = dict(config.get("metadata") or {})
     for key, value in langfuse_metadata.items():
         merged_metadata.setdefault(key, value)
+    config = cast(dict[str, Any], config)
     config["metadata"] = merged_metadata

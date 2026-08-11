@@ -33,7 +33,7 @@ __all__ = ["LANGGRAPH_OWNED_TABLES", "include_object"]
 
 # Import all models so metadata is populated.
 try:
-    import qilin.persistence.models as models  # register ORM models with Base.metadata
+    from qilin.persistence import models  # register ORM models with Base.metadata
 
     _ = models
 except ImportError:
@@ -72,7 +72,10 @@ def do_run_migrations(connection):
 
 
 async def run_migrations_online() -> None:
-    connectable = create_async_engine(config.get_main_option("sqlalchemy.url"))
+    url = config.get_main_option("sqlalchemy.url")
+    if url is None:
+        raise ValueError("sqlalchemy.url is not set in the alembic configuration")
+    connectable = create_async_engine(url)
 
     # Cross-process bootstrap safety for SQLite: every connection alembic
     # opens needs a wide ``busy_timeout`` so that when another process holds
@@ -85,7 +88,7 @@ async def run_migrations_online() -> None:
         from sqlalchemy import event
 
         @event.listens_for(connectable.sync_engine, "connect")
-        def _alembic_sqlite_busy_timeout(dbapi_conn, _record):  # noqa: ARG001
+        def _alembic_sqlite_busy_timeout(dbapi_conn, _record):
             cursor = dbapi_conn.cursor()
             try:
                 cursor.execute("PRAGMA busy_timeout=30000;")

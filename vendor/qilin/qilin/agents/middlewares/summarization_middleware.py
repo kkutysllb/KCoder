@@ -9,13 +9,21 @@ from typing import Any, Protocol, override, runtime_checkable
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import SummarizationMiddleware
-from langchain_core.messages import AnyMessage, HumanMessage, RemoveMessage, get_buffer_string, trim_messages
+from langchain_core.messages import (
+    AnyMessage,
+    HumanMessage,
+    RemoveMessage,
+    get_buffer_string,
+    trim_messages,
+)
 from langgraph.config import get_config
 from langgraph.constants import TAG_NOSTREAM
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.runtime import Runtime
 
-from qilin.agents.middlewares.dynamic_context_middleware import is_dynamic_context_reminder
+from qilin.agents.middlewares.dynamic_context_middleware import (
+    is_dynamic_context_reminder,
+)
 from qilin.config.app_config import get_app_config
 from qilin.models import create_chat_model
 

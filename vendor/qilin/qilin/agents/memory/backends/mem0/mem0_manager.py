@@ -239,7 +239,7 @@ class Mem0Manager(MemoryManager):
         if filters is None:
             return []
         if category:
-            parts = filters["AND"] if "AND" in filters else [filters]
+            parts = filters.get("AND", [filters])
             filters = {"AND": [*parts, {"categories": {"contains": category}}]}
         results = self._read_or_fallback(
             [],
@@ -311,5 +311,5 @@ class Mem0Manager(MemoryManager):
         agent_name: str | None = None,
     ) -> None:
         if not user_id and not agent_name:
-            return None
+            return
         self._write_or_drop(lambda: self._client.delete_all_memories(user_id=user_id, agent_id=agent_name, run_id=None))

@@ -72,7 +72,9 @@ async def _async_store(config) -> AsyncIterator[BaseStore]:
 
     if config.type == "postgres":
         try:
-            from langgraph.store.postgres.aio import AsyncPostgresStore  # type: ignore[import]
+            from langgraph.store.postgres.aio import (
+                AsyncPostgresStore,  # type: ignore[import]
+            )
         except ImportError as exc:
             raise ImportError(POSTGRES_STORE_INSTALL) from exc
 

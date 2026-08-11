@@ -31,7 +31,7 @@ class Article:
     def to_message(self) -> list[dict]:
         image_pattern = r"!\[.*?\]\((.*?)\)"
 
-        content: list[dict[str, str]] = []
+        content: list[dict[str, object]] = []
         markdown = self.to_markdown()
 
         if not markdown or not markdown.strip():

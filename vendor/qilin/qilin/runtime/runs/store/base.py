@@ -129,7 +129,6 @@ class RunStore(abc.ABC):
         Returns ``False`` when the store can prove no row was updated. Older or
         lightweight stores may return ``None`` when they cannot report rowcount.
         """
-        pass
 
     @abc.abstractmethod
     async def start_run(self, run_id: str) -> bool:
@@ -137,7 +136,6 @@ class RunStore(abc.ABC):
 
         Returns ``False`` when the row is missing or no longer pending.
         """
-        pass
 
     @abc.abstractmethod
     async def delete(self, run_id: str) -> None:
@@ -159,7 +157,6 @@ class RunStore(abc.ABC):
         model_name: str | None,
     ) -> None:
         """Update the model_name field for an existing run."""
-        pass
 
     @abc.abstractmethod
     async def update_run_completion(
@@ -186,7 +183,6 @@ class RunStore(abc.ABC):
         ``False`` when the row is missing or already has a conflicting terminal
         outcome.
         """
-        pass
 
     async def update_run_progress(
         self,
@@ -205,7 +201,7 @@ class RunStore(abc.ABC):
         first_human_message: str | None = None,
     ) -> None:
         """Persist a best-effort running snapshot without changing run status."""
-        return None
+        return
 
     @abc.abstractmethod
     async def list_pending(self, *, before: str | None = None) -> list[dict[str, Any]]:
@@ -214,7 +210,6 @@ class RunStore(abc.ABC):
     @abc.abstractmethod
     async def list_inflight(self, *, before: str | None = None) -> list[dict[str, Any]]:
         """Return persisted runs that are still ``pending`` or ``running``."""
-        pass
 
     @abc.abstractmethod
     async def aggregate_tokens_by_thread(self, thread_id: str, *, include_active: bool = False) -> dict[str, Any]:
@@ -224,7 +219,6 @@ class RunStore(abc.ABC):
         total_output_tokens, total_runs, by_model (model_name → {tokens, runs}),
         by_caller ({lead_agent, subagent, middleware}).
         """
-        pass
 
     @abc.abstractmethod
     async def update_lease(
@@ -235,7 +229,6 @@ class RunStore(abc.ABC):
         lease_expires_at: str,
     ) -> bool:
         """Renew the lease on an active run. Returns ``False`` when no row matched."""
-        pass
 
     async def renew_lease(
         self,
@@ -310,7 +303,6 @@ class RunStore(abc.ABC):
           - the lease is still valid (owner heartbeat is alive), or
           - the row doesn't exist.
         """
-        pass
 
     @abc.abstractmethod
     async def list_inflight_with_expired_lease(
@@ -320,7 +312,6 @@ class RunStore(abc.ABC):
         grace_seconds: int = 10,
     ) -> list[dict[str, Any]]:
         """Return active runs whose lease has expired (or is NULL for pre-ownership rows)."""
-        pass
 
     async def create_thread_operation_atomic(
         self,

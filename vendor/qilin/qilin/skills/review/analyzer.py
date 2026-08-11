@@ -7,7 +7,10 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from qilin.skills.frontmatter import ALLOWED_FRONTMATTER_PROPERTIES, split_skill_markdown
+from qilin.skills.frontmatter import (
+    ALLOWED_FRONTMATTER_PROPERTIES,
+    split_skill_markdown,
+)
 from qilin.skills.package_paths import is_eval_fixture_path, is_eval_fixture_skill_md
 from qilin.skills.parser import parse_allowed_tools, parse_required_secrets
 from qilin.skills.review.digest import compute_package_digest

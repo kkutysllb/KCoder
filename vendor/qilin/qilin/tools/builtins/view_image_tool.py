@@ -91,10 +91,21 @@ def view_image_tool(
 
     try:
         validate_local_tool_path(image_path, thread_data, read_only=True)
+        if thread_data is None:
+            return Command(
+                update={
+                    "messages": [
+                        ToolMessage(
+                            "Error: thread data unavailable for path resolution",
+                            tool_call_id=tool_call_id,
+                        )
+                    ]
+                },
+            )
         actual_path = resolve_and_validate_user_data_path(image_path, thread_data)
     except (PermissionError, SandboxRuntimeError) as e:
         return Command(
-            update={"messages": [ToolMessage(f"Error: {str(e)}", tool_call_id=tool_call_id)]},
+            update={"messages": [ToolMessage(f"Error: {e!s}", tool_call_id=tool_call_id)]},
         )
 
     path = Path(actual_path)

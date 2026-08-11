@@ -58,9 +58,10 @@ async def web_fetch_tool(url: str) -> str:
     trust_env = True
     config = get_app_config().get_tool_config("web_fetch")
     if config is not None:
-        timeout = _coerce_timeout(config.model_extra.get("timeout"), timeout)
-        proxy = _coerce_proxy(config.model_extra.get("proxy"))
-        trust_env = _coerce_bool(config.model_extra.get("trust_env"), trust_env)
+        extra = config.model_extra or {}
+        timeout = _coerce_timeout(extra.get("timeout"), timeout)
+        proxy = _coerce_proxy(extra.get("proxy"))
+        trust_env = _coerce_bool(extra.get("trust_env"), trust_env)
     html_content = await jina_client.crawl(url, return_format="html", timeout=timeout, proxy=proxy, trust_env=trust_env)
     if isinstance(html_content, str) and html_content.startswith("Error:"):
         return html_content

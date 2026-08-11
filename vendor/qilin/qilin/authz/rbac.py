@@ -61,9 +61,10 @@ class _CompiledPolicy:
         # Deny always wins.
         if target in self.denied:
             return False
-        if self.allowed is _ALL:
-            return True
-        return target in self.allowed
+        if isinstance(self.allowed, frozenset):
+            return target in self.allowed
+        # The only non-frozenset allowed value is the _ALL sentinel.
+        return True
 
 
 class RbacAuthorizationProvider:

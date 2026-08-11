@@ -19,7 +19,10 @@ import os
 from collections.abc import AsyncIterator
 
 from qilin.config.app_config import AppConfig
-from qilin.config.stream_bridge_config import StreamBridgeConfig, get_stream_bridge_config
+from qilin.config.stream_bridge_config import (
+    StreamBridgeConfig,
+    get_stream_bridge_config,
+)
 
 from .base import StreamBridge
 

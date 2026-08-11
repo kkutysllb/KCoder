@@ -40,14 +40,24 @@ from qilin.community.warm_pool_lifecycle import (
 from qilin.config import get_app_config
 from qilin.config.paths import VIRTUAL_PATH_PREFIX, get_paths, join_host_path
 from qilin.integrations.lark_cli import INTEGRATION_ID as LARK_CLI_INTEGRATION_ID
-from qilin.integrations.lark_cli import LARK_CLI_SANDBOX_CONFIG_DIR, LARK_CLI_SANDBOX_DATA_DIR, LARK_CLI_SANDBOX_RUNTIME_DIR, ensure_lark_cli_credential_tree, lark_skills_installed
+from qilin.integrations.lark_cli import (
+    LARK_CLI_SANDBOX_CONFIG_DIR,
+    LARK_CLI_SANDBOX_DATA_DIR,
+    LARK_CLI_SANDBOX_RUNTIME_DIR,
+    ensure_lark_cli_credential_tree,
+    lark_skills_installed,
+)
 from qilin.runtime.user_context import get_effective_user_id
 from qilin.sandbox.sandbox import Sandbox
 from qilin.sandbox.sandbox_provider import SandboxProvider
 from qilin.skills.storage import user_should_see_legacy_skills
 
 from .aio_sandbox import AioSandbox
-from .backend import SandboxBackend, wait_for_sandbox_ready, wait_for_sandbox_ready_async
+from .backend import (
+    SandboxBackend,
+    wait_for_sandbox_ready,
+    wait_for_sandbox_ready_async,
+)
 from .local_backend import LocalContainerBackend
 from .ownership import (
     OwnershipBackendError,

@@ -8,13 +8,16 @@ import re
 from collections.abc import Iterable, Mapping
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import unquote, urlparse
 
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.config import get_config
 
-from qilin.config.extensions_config import ExtensionsConfig, resolve_effective_mcp_routing
+from qilin.config.extensions_config import (
+    ExtensionsConfig,
+    resolve_effective_mcp_routing,
+)
 from qilin.config.paths import VIRTUAL_PATH_PREFIX, Paths, get_paths
 from qilin.mcp.client import build_servers_config
 from qilin.mcp.oauth import build_oauth_tool_interceptor, get_initial_oauth_headers
@@ -345,9 +348,19 @@ def _convert_call_tool_result(
     tree are left untouched.
     """
     from langchain_core.messages import ToolMessage
-    from langchain_core.messages.content import create_file_block, create_image_block, create_text_block
+    from langchain_core.messages.content import (
+        create_file_block,
+        create_image_block,
+        create_text_block,
+    )
     from langchain_core.tools import ToolException
-    from mcp.types import EmbeddedResource, ImageContent, ResourceLink, TextContent, TextResourceContents
+    from mcp.types import (
+        EmbeddedResource,
+        ImageContent,
+        ResourceLink,
+        TextContent,
+        TextResourceContents,
+    )
 
     # Pass ToolMessage through directly (interceptor short-circuit).
     if isinstance(call_tool_result, ToolMessage):
@@ -384,7 +397,7 @@ def _convert_call_tool_result(
         )
 
     # Convert MCP content blocks to LangChain content blocks.
-    lc_content = []
+    lc_content: list[Any] = []
     for item in call_tool_result.content:
         if isinstance(item, TextContent):
             lc_content.append(create_text_block(text=_resolve_text(item.text)))
@@ -445,8 +458,7 @@ def _make_session_pool_tool(
     # Strip the server-name prefix to recover the original MCP tool name.
     original_name = tool.name
     prefix = f"{server_name}_"
-    if original_name.startswith(prefix):
-        original_name = original_name[len(prefix) :]
+    original_name = original_name.removeprefix(prefix)
 
     pool = get_session_pool()
 
@@ -519,7 +531,7 @@ def _make_session_pool_tool(
                     **kwargs,
                 )
 
-            handler = base_handler
+            handler: Any = base_handler
             for interceptor in reversed(tool_interceptors):
                 outer = handler
 
@@ -549,6 +561,7 @@ def _make_session_pool_tool(
         # the event loop.
         changed_files: list[Path] | None = None
         if is_stdio and before_files is not None and _result_has_text_content(call_tool_result):
+            assert source_base_dir is not None
             changed_files = await asyncio.to_thread(_changed_workspace_files, source_base_dir, before_files)
         return await asyncio.to_thread(
             _convert_call_tool_result,
@@ -562,7 +575,7 @@ def _make_session_pool_tool(
     return StructuredTool(
         name=tool.name,
         description=tool.description,
-        args_schema=tool.args_schema,
+        args_schema=cast(Any, tool.args_schema),
         coroutine=call_with_persistent_session,
         response_format="content_and_artifact",
         metadata=tool.metadata,
@@ -627,7 +640,7 @@ async def get_mcp_tools() -> list[BaseTool]:
             raw_interceptor_paths = []
         for interceptor_path in raw_interceptor_paths:
             try:
-                builder = resolve_variable(interceptor_path)
+                builder: Any = resolve_variable(interceptor_path)
                 interceptor = builder()
                 if callable(interceptor):
                     tool_interceptors.append(interceptor)
@@ -641,7 +654,7 @@ async def get_mcp_tools() -> list[BaseTool]:
                 )
 
         client = MultiServerMCPClient(
-            servers_config,
+            cast(Any, servers_config),
             tool_interceptors=tool_interceptors,
             tool_name_prefix=True,
         )
@@ -688,7 +701,7 @@ async def get_mcp_tools() -> list[BaseTool]:
                     continue
                 tag_mcp_tool(tool)
                 prefix = f"{source_name}_"
-                original_name = tool.name[len(prefix) :] if tool.name.startswith(prefix) else tool.name
+                original_name = tool.name.removeprefix(prefix)
                 routing = resolve_effective_mcp_routing(server_cfg, original_name)
                 if routing.get("mode") != "off":
                     tag_mcp_routing(tool, routing)
@@ -706,8 +719,9 @@ async def get_mcp_tools() -> list[BaseTool]:
 
         # Patch tools to support sync invocation, as qilin client streams synchronously
         for tool in wrapped_tools:
-            if getattr(tool, "func", None) is None and getattr(tool, "coroutine", None) is not None:
-                tool.func = make_sync_tool_wrapper(tool.coroutine, tool.name)
+            coroutine = getattr(tool, "coroutine", None)
+            if getattr(tool, "func", None) is None and coroutine is not None:
+                tool.func = make_sync_tool_wrapper(coroutine, tool.name)
 
         return wrapped_tools
 

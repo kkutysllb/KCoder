@@ -4,9 +4,17 @@ import json
 import re
 import uuid
 from collections.abc import Iterator
+from typing import cast
 
 import httpx
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    ToolCall,
+    ToolMessage,
+)
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_openai import ChatOpenAI
 
@@ -19,7 +27,7 @@ def _fix_messages(messages: list) -> list:
     flattens multi-modal list contents into strings and converts tool-related
     messages into raw text with XML tags expected by the underlying model.
     """
-    fixed = []
+    fixed: list[BaseMessage] = []
     for msg in messages:
         # Flatten content if it's a list of blocks
         if isinstance(msg.content, list):
@@ -205,11 +213,11 @@ class MindIEChatModel(ChatOpenAI):
                 if "<tool_call>" in msg.content:
                     clean_content, extracted_tools = _parse_xml_tool_call_to_dict(msg.content)
 
-                    if extracted_tools:
+                    if extracted_tools and isinstance(msg, AIMessage):
                         msg.content = clean_content
-                        if getattr(msg, "tool_calls", None) is None:
+                        if msg.tool_calls is None:
                             msg.tool_calls = []
-                        msg.tool_calls.extend(extracted_tools)
+                        msg.tool_calls.extend(cast("list[ToolCall]", extracted_tools))
         return result
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):

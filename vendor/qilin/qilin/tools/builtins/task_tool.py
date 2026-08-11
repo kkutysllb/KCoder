@@ -15,8 +15,15 @@ from langgraph.types import Command
 from qilin.authz.principal import normalize_authz_attributes
 from qilin.config import get_app_config
 from qilin.runtime.user_context import resolve_runtime_user_id
-from qilin.sandbox.security import LOCAL_BASH_SUBAGENT_DISABLED_MESSAGE, is_host_bash_allowed
-from qilin.subagents import SubagentExecutor, get_available_subagent_names, get_subagent_config
+from qilin.sandbox.security import (
+    LOCAL_BASH_SUBAGENT_DISABLED_MESSAGE,
+    is_host_bash_allowed,
+)
+from qilin.subagents import (
+    SubagentExecutor,
+    get_available_subagent_names,
+    get_subagent_config,
+)
 from qilin.subagents.config import resolve_subagent_model_name
 from qilin.subagents.executor import (
     SubagentStatus,
@@ -31,7 +38,11 @@ from qilin.subagents.status_contract import (
     make_subagent_additional_kwargs,
 )
 from qilin.tools.types import Runtime
-from qilin.trace_context import QILIN_TRACE_METADATA_KEY, get_current_trace_id, normalize_trace_id
+from qilin.trace_context import (
+    QILIN_TRACE_METADATA_KEY,
+    get_current_trace_id,
+    normalize_trace_id,
+)
 from qilin.utils.custom_events import aemit_custom_event
 
 if TYPE_CHECKING:
@@ -313,6 +324,10 @@ async def task_tool(
     if runtime is not None:
         sandbox_state = runtime.state.get("sandbox")
         thread_data = runtime.state.get("thread_data")
+        # Skill references the parent thread has actually loaded (ThreadState.skill_context),
+        # carried into the subagent's initial state so skills activated in the parent
+        # (e.g. a completed SKILL.md read) stay bound for delegated bash commands.
+        parent_skill_context = runtime.state.get("skill_context")
         thread_id = runtime.context.get("thread_id") if runtime.context else None
         if thread_id is None:
             thread_id = runtime.config.get("configurable", {}).get("thread_id")
@@ -372,7 +387,7 @@ async def task_tool(
     # Subagents also must not get list_uploaded_files — they have an independent
     # ThreadState where runtime.state["uploaded_files"] is absent, so the
     # current-run file exclusion would not work.
-    available_tools_kwargs = {
+    available_tools_kwargs: dict[str, Any] = {
         "model_name": effective_model,
         "groups": parent_tool_groups,
         "subagent_enabled": False,
@@ -400,6 +415,13 @@ async def task_tool(
         "is_internal": is_internal,
         "authz_attributes": authz_attributes,
         "qilin_trace_id": qilin_trace_id,
+        # Propagate active data secrets (e.g. TUSHARE_TOKEN) so the subagent's
+        # SkillActivationMiddleware can bind them into its sandbox env; without
+        # this the subagent context is constructed fresh and secrets are lost.
+        "parent_context_secrets": parent_context.get("secrets"),
+        # Propagate parent-loaded skill references so the subagent inherits the
+        # parent's activated skills (SkillActivationMiddleware binding source).
+        "parent_skill_context": parent_skill_context,
     }
     if resolved_app_config is not None:
         executor_kwargs["app_config"] = resolved_app_config
@@ -503,7 +525,7 @@ async def task_tool(
                     tool_call_id=tool_call_id,
                     status="completed",
                     result=result.result,
-                    stop_reason=result.stop_reason,
+                    stop_reason=cast(SubagentStopReasonValue | None, result.stop_reason),
                     model_name=effective_model,
                     usage=usage,
                 )
@@ -529,7 +551,7 @@ async def task_tool(
                     tool_call_id=tool_call_id,
                     status="failed",
                     error=result.error,
-                    stop_reason=result.stop_reason,
+                    stop_reason=cast(SubagentStopReasonValue | None, result.stop_reason),
                     model_name=effective_model,
                     usage=usage,
                 )
@@ -605,11 +627,11 @@ async def task_tool(
                 # _background_tasks once the background thread reaches a terminal state.
                 request_cancel_background_task(task_id)
                 _schedule_deferred_subagent_cleanup(task_id, trace_id, max_poll_count)
-                message = f"Task polling timed out after {timeout_minutes} minutes. This may indicate the background task is stuck. Status: {result.status.value}"
+                poll_message = f"Task polling timed out after {timeout_minutes} minutes. This may indicate the background task is stuck. Status: {result.status.value}"
                 return _task_result_command(
                     tool_call_id=tool_call_id,
                     status="polling_timed_out",
-                    error=message,
+                    error=poll_message,
                     model_name=effective_model,
                     usage=usage,
                 )

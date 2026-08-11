@@ -9,8 +9,10 @@ from qilin.config import get_app_config
 def _get_firecrawl_client(tool_name: str = "web_search") -> FirecrawlApp:
     config = get_app_config().get_tool_config(tool_name)
     api_key = None
-    if config is not None and "api_key" in config.model_extra:
-        api_key = config.model_extra.get("api_key")
+    if config is not None:
+        extra = config.model_extra or {}
+        if "api_key" in extra:
+            api_key = extra.get("api_key")
     return FirecrawlApp(api_key=api_key)  # type: ignore[arg-type]
 
 
@@ -25,7 +27,8 @@ def web_search_tool(query: str) -> str:
         config = get_app_config().get_tool_config("web_search")
         max_results = 5
         if config is not None:
-            max_results = config.model_extra.get("max_results", max_results)
+            extra = config.model_extra or {}
+            max_results = extra.get("max_results", max_results)
 
         client = _get_firecrawl_client("web_search")
         result = client.search(query, limit=max_results)
@@ -43,7 +46,7 @@ def web_search_tool(query: str) -> str:
         json_results = json.dumps(normalized_results, indent=2, ensure_ascii=False)
         return json_results
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error: {e!s}"
 
 
 @tool("web_fetch", parse_docstring=True)
@@ -68,6 +71,6 @@ def web_fetch_tool(url: str) -> str:
         if not markdown_content:
             return "Error: No content found"
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error: {e!s}"
 
     return f"# {title}\n\n{markdown_content[:4096]}"

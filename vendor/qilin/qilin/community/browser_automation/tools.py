@@ -32,7 +32,12 @@ from qilin.config.paths import VIRTUAL_PATH_PREFIX
 from qilin.constants import BROWSER_FRAMES_DIRNAME
 from qilin.tools.types import Runtime
 
-from .session import BrowserSession, BrowserSessionManager, PageSnapshot, get_browser_session_manager
+from .session import (
+    BrowserSession,
+    BrowserSessionManager,
+    PageSnapshot,
+    get_browser_session_manager,
+)
 
 logger = logging.getLogger(__name__)
 

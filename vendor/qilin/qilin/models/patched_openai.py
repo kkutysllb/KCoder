@@ -103,10 +103,10 @@ def _restore_tool_call_signatures(payload_msg: dict, orig_msg: AIMessage) -> Non
 
     # Build an id → raw_tc lookup for efficient matching.
     raw_by_id: dict[str, dict] = {}
-    for raw_tc in raw_tool_calls:
-        tc_id = raw_tc.get("id")
+    for raw_entry in raw_tool_calls:
+        tc_id = raw_entry.get("id")
         if tc_id:
-            raw_by_id[tc_id] = raw_tc
+            raw_by_id[tc_id] = raw_entry
 
     for idx, payload_tc in enumerate(payload_tool_calls):
         # Try matching by id first, then fall back to positional.

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from qilin.persistence.thread_meta.base import THREAD_PINNED_METADATA_KEY, InvalidMetadataFilterError, ThreadMetaStore
+from qilin.persistence.thread_meta.base import (
+    THREAD_PINNED_METADATA_KEY,
+    InvalidMetadataFilterError,
+    ThreadMetaStore,
+)
 from qilin.persistence.thread_meta.memory import MemoryThreadMetaStore
 from qilin.persistence.thread_meta.model import ThreadMetaRow
 from qilin.persistence.thread_meta.sql import ThreadMetaRepository
@@ -14,9 +18,9 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 __all__ = [
+    "THREAD_PINNED_METADATA_KEY",
     "InvalidMetadataFilterError",
     "MemoryThreadMetaStore",
-    "THREAD_PINNED_METADATA_KEY",
     "ThreadMetaRepository",
     "ThreadMetaRow",
     "ThreadMetaStore",

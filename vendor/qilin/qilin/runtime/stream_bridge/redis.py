@@ -27,7 +27,14 @@ except ImportError:  # pragma: no cover - only hit when the optional extra is mi
         "Or switch to stream_bridge.type: memory in config.yaml for single-process deployment."
     ) from None
 
-from .base import END_SENTINEL, HEARTBEAT_SENTINEL, StreamBridge, StreamEvent, StreamGap, StreamItem
+from .base import (
+    END_SENTINEL,
+    HEARTBEAT_SENTINEL,
+    StreamBridge,
+    StreamEvent,
+    StreamGap,
+    StreamItem,
+)
 
 logger = logging.getLogger(__name__)
 

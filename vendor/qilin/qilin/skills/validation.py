@@ -6,7 +6,10 @@ Pure-logic validation of SKILL.md frontmatter — no FastAPI or HTTP dependencie
 import re
 from pathlib import Path
 
-from qilin.skills.frontmatter import ALLOWED_FRONTMATTER_PROPERTIES, split_skill_markdown
+from qilin.skills.frontmatter import (
+    ALLOWED_FRONTMATTER_PROPERTIES,
+    split_skill_markdown,
+)
 from qilin.skills.parser import parse_allowed_tools
 from qilin.skills.types import SKILL_MD_FILE
 

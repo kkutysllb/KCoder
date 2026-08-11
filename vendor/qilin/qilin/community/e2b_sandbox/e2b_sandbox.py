@@ -10,7 +10,12 @@ from e2b_code_interpreter import Sandbox as E2BClientSandbox
 
 from qilin.config.paths import VIRTUAL_PATH_PREFIX
 from qilin.sandbox.sandbox import Sandbox, _validate_extra_env
-from qilin.sandbox.search import GrepMatch, path_matches, should_ignore_path, truncate_line
+from qilin.sandbox.search import (
+    GrepMatch,
+    path_matches,
+    should_ignore_path,
+    truncate_line,
+)
 
 logger = logging.getLogger(__name__)
 

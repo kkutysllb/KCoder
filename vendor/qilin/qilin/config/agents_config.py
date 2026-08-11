@@ -255,7 +255,7 @@ def preserve_non_managed_fields(existing_cfg: AgentConfig) -> dict[str, object]:
     user did not write (and that defaulted to a Pydantic default) is not
     materialized into the dict — the file round-trips visually intact.
     """
-    return existing_cfg.model_dump(exclude_unset=True, exclude=MANAGED_AGENT_CONFIG_FIELDS)
+    return existing_cfg.model_dump(exclude_unset=True, exclude=set(MANAGED_AGENT_CONFIG_FIELDS))
 
 
 def resolve_agent_dir(name: str, *, user_id: str | None = None) -> Path:

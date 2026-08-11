@@ -79,14 +79,14 @@ def make_sync_tool_wrapper(coro: Callable[..., Any], tool_name: str) -> Callable
 
     if config_param:
 
-        def sync_wrapper(*args: Any, config: RunnableConfig = None, **kwargs: Any) -> Any:
+        def sync_wrapper(*args: Any, config: RunnableConfig | None = None, **kwargs: Any) -> Any:
             if config is not None or config_param not in kwargs:
                 kwargs[config_param] = config
             return run_coroutine(*args, **kwargs)
 
         return sync_wrapper
 
-    def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+    def _plain_sync_wrapper(*args: Any, **kwargs: Any) -> Any:
         return run_coroutine(*args, **kwargs)
 
-    return sync_wrapper
+    return _plain_sync_wrapper

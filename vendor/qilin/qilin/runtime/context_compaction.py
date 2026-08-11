@@ -9,7 +9,11 @@ from types import SimpleNamespace
 
 from langgraph.types import Overwrite
 
-from qilin.agents.middlewares.summarization_middleware import QiLinSummarizationMiddleware, SummaryGenerationError, create_summarization_middleware
+from qilin.agents.middlewares.summarization_middleware import (
+    QiLinSummarizationMiddleware,
+    SummaryGenerationError,
+    create_summarization_middleware,
+)
 from qilin.config.app_config import AppConfig, get_app_config
 from qilin.runtime.checkpoint_state import CheckpointStateAccessor
 

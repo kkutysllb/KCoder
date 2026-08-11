@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from collections.abc import Awaitable
-from typing import Any
+from collections.abc import Awaitable, Coroutine
+from concurrent.futures import Future
+from typing import Any, cast
 
 from qilin.runtime.user_context import DEFAULT_USER_ID
 
@@ -38,7 +39,7 @@ class _LoopThread:
         self._loop.run_forever()
 
     def run(self, coro: Awaitable[Any], *, timeout: float = 15.0) -> Any:
-        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        future: Future[Any] = asyncio.run_coroutine_threadsafe(cast("Coroutine[Any, Any, Any]", coro), self._loop)
         return future.result(timeout)
 
     def close(self) -> None:
@@ -66,7 +67,7 @@ class ThreadMetaWriter:
             return
         try:
             self._loop.run(self._ensure_created(thread_id, assistant_id, metadata))
-        except Exception:  # noqa: BLE001 - best-effort
+        except Exception:
             pass
 
     async def _ensure_created(self, thread_id: str, assistant_id: str | None, metadata: dict | None) -> None:
@@ -84,7 +85,7 @@ class ThreadMetaWriter:
             return
         try:
             self._loop.run(self._store.update_display_name(thread_id, title, user_id=self.user_id))
-        except Exception:  # noqa: BLE001 - best-effort
+        except Exception:
             pass
 
 
@@ -98,7 +99,10 @@ def build_persistence() -> tuple[_LoopThread, ThreadMetaWriter]:
     store = None
     try:
         from qilin.config.app_config import get_app_config
-        from qilin.persistence.engine import get_session_factory, init_engine_from_config
+        from qilin.persistence.engine import (
+            get_session_factory,
+            init_engine_from_config,
+        )
         from qilin.persistence.thread_meta import make_thread_store
 
         config = get_app_config()
@@ -106,6 +110,6 @@ def build_persistence() -> tuple[_LoopThread, ThreadMetaWriter]:
         session_factory = get_session_factory()
         if session_factory is not None:
             store = make_thread_store(session_factory)
-    except Exception:  # noqa: BLE001 - degrade to no-op writer
+    except Exception:
         store = None
     return loop, ThreadMetaWriter(loop, store)

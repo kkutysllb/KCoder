@@ -8,7 +8,7 @@ import logging
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 from weakref import WeakValueDictionary
 
 from langchain.tools import tool
@@ -66,7 +66,7 @@ def _history_record(*, action: str, file_path: str, prev_content: str | None, ne
 async def _scan_or_raise(content: str, *, executable: bool, location: str, static_findings: list[StaticFinding] | None = None) -> dict[str, Any]:
     # In-graph: the graph root already attached tracing (see the INVARIANT in
     # agents/lead_agent/agent.py), so the scan model must not attach it again.
-    result = await scan_skill_content(content, executable=executable, location=location, static_findings=static_findings or [], attach_tracing=False)
+    result = await scan_skill_content(content, executable=executable, location=location, static_findings=cast(list[dict[str, Any]], [dict(f) for f in static_findings]) if static_findings else None, attach_tracing=False)
     if result.decision == "block":
         raise ValueError(f"Security scan blocked the write: {result.reason}")
     if executable and result.decision != "allow":

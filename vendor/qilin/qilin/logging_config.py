@@ -32,13 +32,12 @@ class JsonTraceFormatter(logging.Formatter):
     _qilin_trace_formatter = True
 
     def format(self, record: logging.LogRecord) -> str:
-        if not hasattr(record, "trace_id"):
-            record.trace_id = get_current_trace_id() or "-"
+        trace_id: str = getattr(record, "trace_id", None) or get_current_trace_id() or "-"
         payload: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
             "logger": record.name,
             "level": record.levelname,
-            "trace_id": record.trace_id,
+            "trace_id": trace_id,
             "message": record.getMessage(),
         }
         if record.exc_info:

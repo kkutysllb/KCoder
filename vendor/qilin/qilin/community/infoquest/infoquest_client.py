@@ -40,7 +40,7 @@ class InfoQuestClient:
             )
 
             logger.debug(config_details)
-            logger.debug("\n" + "*" * 70 + "\n")
+            logger.debug("\n%s\n", "*" * 70)
 
     def fetch(self, url: str, return_format: str = "html") -> str:
         if logger.isEnabledFor(logging.DEBUG):
@@ -102,7 +102,7 @@ class InfoQuestClient:
                 logger.debug("Successfully received response, content length: %d bytes, first 200 chars: %s", len(response.text), response_sample)
             return response.text
         except Exception as e:
-            error_message = f"fetch API failed: {str(e)}"
+            error_message = f"fetch API failed: {e!s}"
             logger.error(error_message)
             return f"Error: {error_message}"
 
@@ -130,7 +130,7 @@ class InfoQuestClient:
         else:
             normalized_format = return_format
 
-        data = {"url": url, "format": normalized_format}
+        data: dict[str, Any] = {"url": url, "format": normalized_format}
 
         # Add timeout parameters if set to positive values
         timeout_params = {}
@@ -157,7 +157,7 @@ class InfoQuestClient:
         """Get results from the InfoQuest Web-Search API synchronously."""
         headers = self._prepare_headers()
 
-        params = {"format": output_format, "query": query}
+        params: dict[str, Any] = {"format": output_format, "query": query}
         if self.search_time_range > 0:
             params["time_range"] = self.search_time_range
 
@@ -278,7 +278,7 @@ class InfoQuestClient:
                 return json.dumps(raw_results, indent=2, ensure_ascii=False)
 
         except Exception as e:
-            error_message = f"InfoQuest Web-Search - Search tool execution failed | mode=synchronous | error={str(e)}"
+            error_message = f"InfoQuest Web-Search - Search tool execution failed | mode=synchronous | error={e!s}"
             logger.error(error_message)
             return f"Error: {error_message}"
 
@@ -321,7 +321,7 @@ class InfoQuestClient:
         """Get image search results from the InfoQuest Web-Search API synchronously."""
         headers = self._prepare_headers()
 
-        params = {"format": output_format, "query": query, "search_type": "Images"}
+        params: dict[str, Any] = {"format": output_format, "query": query, "search_type": "Images"}
 
         # Add time_range filter if specified (1-365)
         if 1 <= self.image_search_time_range <= 365:
@@ -399,6 +399,6 @@ class InfoQuestClient:
                 return json.dumps(raw_results, indent=2, ensure_ascii=False)
 
         except Exception as e:
-            error_message = f"InfoQuest Image Search - Image search tool execution failed | mode=synchronous | error={str(e)}"
+            error_message = f"InfoQuest Image Search - Image search tool execution failed | mode=synchronous | error={e!s}"
             logger.error(error_message)
             return f"Error: {error_message}"

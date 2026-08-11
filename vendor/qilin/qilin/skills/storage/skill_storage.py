@@ -10,7 +10,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from qilin.constants import DEFAULT_SKILLS_CONTAINER_PATH
-from qilin.skills.types import SKILL_MD_FILE, Skill, SkillCategory  # noqa: F401
+from qilin.skills.types import SKILL_MD_FILE, Skill, SkillCategory
 
 logger = logging.getLogger(__name__)
 

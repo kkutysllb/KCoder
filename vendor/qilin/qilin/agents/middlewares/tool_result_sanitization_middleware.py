@@ -76,7 +76,9 @@ def _neutralize_content(content: object) -> object:
     """
     # Imported lazily so this module can be loaded even when a test stubs the
     # input-sanitization module, and to mirror the codebase's deferred-import style.
-    from qilin.agents.middlewares.input_sanitization_middleware import neutralize_untrusted_tags
+    from qilin.agents.middlewares.input_sanitization_middleware import (
+        neutralize_untrusted_tags,
+    )
 
     if isinstance(content, str):
         return neutralize_untrusted_tags(content)

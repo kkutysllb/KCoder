@@ -1,9 +1,10 @@
 [project]
 name = "qilin"
-version = "1.0.0"
+version = "2.0.0"
 description = "QiLin agent harness framework"
 requires-python = ">=3.12"
 dependencies = [
+    "anthropic>=0.120.2",
     "agent-client-protocol>=0.4.0",
     "agent-sandbox>=0.0.30",
     "croniter>=6.0.0",
@@ -23,6 +24,8 @@ dependencies = [
     "langgraph-runtime-inmem>=0.28.0",
     "markdownify>=1.2.2",
     "markitdown[all,xlsx]>=0.0.1a2",
+    "mcp>=1.29.0",
+    "packaging>=26.3",
     "pydantic>=2.12.5",
     "pyyaml>=6.0.3",
     "readabilipy>=0.3.0",
@@ -30,6 +33,7 @@ dependencies = [
     "firecrawl-py>=1.15.0",
     "tiktoken>=0.8.0",
     "ddgs>=9.10.0",
+    "defusedxml>=0.7.1",
     "duckdb>=1.4.4",
     "langchain-google-genai>=4.2.1",
     "langgraph-checkpoint-sqlite>=3.1.0,<3.2",
@@ -48,6 +52,22 @@ qilin = "qilin.tui.cli:main"
 tui = ["textual>=0.80"]
 groundroute = []
 ollama = ["langchain-ollama>=0.3.0"]
+gateway = [
+    "bcrypt>=5.0.0",
+    "email-validator>=2.3.0",
+    "fastapi>=0.141.1",
+    "PyJWT>=2.13.0",
+    "python-multipart>=0.0.32",
+    "uvicorn>=0.52.1",
+]
+channels = [
+    "dingtalk-stream>=0.24.3",
+    "discord-py>=2.7.1",
+    "lark-oapi>=1.7.2",
+    "markdown-to-mrkdwn>=0.3.3",
+    "python-telegram-bot>=22.8",
+    "slack-sdk>=3.43.0",
+]
 postgres = [
     "asyncpg>=0.29",
     "langgraph-checkpoint-postgres>=3.1.0,<3.2",
@@ -67,4 +87,22 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["qilin"]
+packages = ["qilin", "app"]
+
+# ---------------------------------------------------------------------------
+# Code-quality gate: pytest / mypy
+# (ruff config lives in ruff.toml)
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = false
+exclude = ["qilin/agents/memory/backends/qilinmem/", "dist/"]
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"

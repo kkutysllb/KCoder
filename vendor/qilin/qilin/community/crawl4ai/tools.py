@@ -114,4 +114,4 @@ async def web_fetch_tool(url: str) -> str:
 
     except Exception as e:
         logger.error(f"Error in web_fetch_tool: {e}")
-        return f"Error: {str(e)}"
+        return f"Error: {e!s}"

@@ -17,7 +17,9 @@ machinery but schedules no pending nodes, so the written head stays idle.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
+
+from langchain_core.runnables.config import RunnableConfig
 
 from qilin.agents.thread_state import get_thread_state_schema
 from qilin.config.database_config import CheckpointChannelMode
@@ -60,7 +62,10 @@ def build_state_mutation_graph(
     from langgraph.graph import StateGraph
 
     builder = StateGraph(state_schema if state_schema is not None else get_thread_state_schema(mode, snapshot_frequency))
-    builder.add_node(as_node, _finish_state_mutation)
+    # langgraph's NodeInputT bound excludes plain-dict node functions; the
+    # schema here is always a TypedDict-like at runtime, so the overload is
+    # a stub limitation, not a real mismatch.
+    builder.add_node(as_node, _finish_state_mutation)  # type: ignore[call-overload]
     builder.set_entry_point(as_node)
     builder.set_finish_point(as_node)
     return builder.compile()
@@ -149,8 +154,8 @@ class CheckpointStateAccessor:
         raise_if_snapshot_incompatible(snapshot, self.mode)
         return snapshot
 
-    def history(self, config: dict[str, Any], *, limit: int | None = None) -> list[Any]:
-        prepared = self._prepare_config(config)
+    def history(self, config: dict[str, Any] | RunnableConfig, *, limit: int | None = None) -> list[Any]:
+        prepared = self._prepare_config(cast(dict[str, Any], config))
         if limit is not None and limit <= 0:
             return []
         result = []

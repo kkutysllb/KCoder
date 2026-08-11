@@ -15,7 +15,9 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import run_in_executor
 from langgraph.runtime import Runtime
 
-from qilin.agents.middlewares.input_sanitization_middleware import neutralize_untrusted_tags
+from qilin.agents.middlewares.input_sanitization_middleware import (
+    neutralize_untrusted_tags,
+)
 from qilin.config.paths import Paths, get_paths
 from qilin.runtime.user_context import resolve_runtime_user_id
 from qilin.uploads.manager import is_upload_staging_file

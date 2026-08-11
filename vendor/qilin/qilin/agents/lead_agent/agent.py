@@ -30,27 +30,49 @@ import secrets
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.runnables import RunnableConfig
+from langgraph.graph.state import CompiledStateGraph
 
 from qilin.agents.lead_agent.prompt import apply_prompt_template
 from qilin.agents.middlewares.clarification_middleware import ClarificationMiddleware
-from qilin.agents.middlewares.configured_extensions import load_configured_extension_middlewares
+from qilin.agents.middlewares.configured_extensions import (
+    load_configured_extension_middlewares,
+)
 from qilin.agents.middlewares.loop_detection_middleware import LoopDetectionMiddleware
 from qilin.agents.middlewares.memory_middleware import MemoryMiddleware
-from qilin.agents.middlewares.model_length_finish_reason_middleware import ModelLengthFinishReasonMiddleware
-from qilin.agents.middlewares.safety_finish_reason_middleware import SafetyFinishReasonMiddleware
+from qilin.agents.middlewares.model_length_finish_reason_middleware import (
+    ModelLengthFinishReasonMiddleware,
+)
+from qilin.agents.middlewares.safety_finish_reason_middleware import (
+    SafetyFinishReasonMiddleware,
+)
 from qilin.agents.middlewares.subagent_limit_middleware import SubagentLimitMiddleware
-from qilin.agents.middlewares.summarization_middleware import QiLinSummarizationMiddleware, create_summarization_middleware
-from qilin.agents.middlewares.terminal_response_middleware import TerminalResponseMiddleware
+from qilin.agents.middlewares.summarization_middleware import (
+    QiLinSummarizationMiddleware,
+    create_summarization_middleware,
+)
+from qilin.agents.middlewares.terminal_response_middleware import (
+    TerminalResponseMiddleware,
+)
 from qilin.agents.middlewares.title_middleware import TitleMiddleware
 from qilin.agents.middlewares.todo_middleware import TodoMiddleware
 from qilin.agents.middlewares.token_usage_middleware import TokenUsageMiddleware
-from qilin.agents.middlewares.tool_error_handling_middleware import build_lead_runtime_middlewares
+from qilin.agents.middlewares.tool_error_handling_middleware import (
+    build_lead_runtime_middlewares,
+)
 from qilin.agents.middlewares.view_image_middleware import ViewImageMiddleware
-from qilin.agents.thread_state import get_thread_state_schema, normalize_middleware_state_schemas
+from qilin.agents.thread_state import (
+    get_thread_state_schema,
+    normalize_middleware_state_schemas,
+)
 from qilin.authz.tool_filter import apply_tool_authorization
 from qilin.config.agents_config import load_agent_config, validate_agent_name
 from qilin.config.app_config import AppConfig, get_app_config
 from qilin.config.memory_config import should_use_memory_tools
+from qilin.config.orchestration_config import (
+    AgentSpec,
+    OrchestrationConfig,
+    OrchestrationMode,
+)
 from qilin.config.subagents_config import DEFAULT_MAX_TOTAL_SUBAGENTS_PER_RUN
 from qilin.models import create_chat_model
 from qilin.runtime.checkpoint_mode import (
@@ -321,14 +343,18 @@ def build_middlewares(
 
     # Always inject current date (and optionally memory) as <system-reminder> into the
     # first HumanMessage to keep the system prompt fully static for prefix-cache reuse.
-    from qilin.agents.middlewares.dynamic_context_middleware import DynamicContextMiddleware
+    from qilin.agents.middlewares.dynamic_context_middleware import (
+        DynamicContextMiddleware,
+    )
 
     middlewares.append(DynamicContextMiddleware(agent_name=agent_name, app_config=resolved_app_config))
 
     # Deterministically load a full SKILL.md when the user starts the turn with
     # /skill-name. This keeps the base system prompt metadata-only while giving
     # explicit user activation priority over model-side relevance guessing.
-    from qilin.agents.middlewares.skill_activation_middleware import SkillActivationMiddleware
+    from qilin.agents.middlewares.skill_activation_middleware import (
+        SkillActivationMiddleware,
+    )
 
     slash_source_owner_token = secrets.token_urlsafe(24)
     middlewares.append(
@@ -342,7 +368,9 @@ def build_middlewares(
 
     # Enabled skills are only discoverable metadata. Apply allowed-tools at
     # runtime after explicit slash activation or an actual skill-file load.
-    from qilin.agents.middlewares.skill_tool_policy_middleware import SkillToolPolicyMiddleware
+    from qilin.agents.middlewares.skill_tool_policy_middleware import (
+        SkillToolPolicyMiddleware,
+    )
 
     middlewares.append(
         SkillToolPolicyMiddleware(
@@ -356,7 +384,9 @@ def build_middlewares(
     # Capture completed task delegations and loaded skill files before
     # summarization can compact them, then inject durable context channels
     # (summary + ledger + skills) into model calls.
-    from qilin.agents.middlewares.durable_context_middleware import DurableContextMiddleware
+    from qilin.agents.middlewares.durable_context_middleware import (
+        DurableContextMiddleware,
+    )
 
     middlewares.append(
         DurableContextMiddleware(
@@ -387,7 +417,9 @@ def build_middlewares(
     # Add MemoryMiddleware after TitleMiddleware. Tool mode normally skips it;
     # conversation-extraction backends may explicitly retain passive writes.
     if should_use_memory_tools(resolved_app_config.memory):
-        from qilin.agents.memory.manager import backend_requires_passive_writes_in_tool_mode
+        from qilin.agents.memory.manager import (
+            backend_requires_passive_writes_in_tool_mode,
+        )
 
         if backend_requires_passive_writes_in_tool_mode(resolved_app_config.memory.manager_class):
             middlewares.append(MemoryMiddleware(agent_name=agent_name, memory_config=resolved_app_config.memory))
@@ -412,17 +444,23 @@ def build_middlewares(
     # catalog; SkillToolPolicyMiddleware separately filters model visibility,
     # tool_search results, and execution for the active skill at runtime.
     if deferred_setup is not None and deferred_setup.deferred_names:
-        from qilin.agents.middlewares.deferred_tool_filter_middleware import DeferredToolFilterMiddleware
+        from qilin.agents.middlewares.deferred_tool_filter_middleware import (
+            DeferredToolFilterMiddleware,
+        )
 
         middlewares.append(DeferredToolFilterMiddleware(deferred_setup.deferred_names, deferred_setup.catalog_hash))
-        from qilin.agents.middlewares.mcp_routing_middleware import assert_mcp_routing_before_deferred_filter
+        from qilin.agents.middlewares.mcp_routing_middleware import (
+            assert_mcp_routing_before_deferred_filter,
+        )
 
         assert_mcp_routing_before_deferred_filter(middlewares)
 
     # Coalesce every SystemMessage into a single leading one before the request
     # reaches the provider. Strict backends (vLLM, SGLang, Qwen, Anthropic)
     # reject non-leading SystemMessages. See system_message_coalescing_middleware.py.
-    from qilin.agents.middlewares.system_message_coalescing_middleware import SystemMessageCoalescingMiddleware
+    from qilin.agents.middlewares.system_message_coalescing_middleware import (
+        SystemMessageCoalescingMiddleware,
+    )
 
     middlewares.append(SystemMessageCoalescingMiddleware())
 
@@ -441,7 +479,9 @@ def build_middlewares(
     # TokenBudgetMiddleware - enforce per-run token limits
     token_budget_config = resolved_app_config.token_budget
     if token_budget_config.enabled:
-        from qilin.agents.middlewares.token_budget_middleware import TokenBudgetMiddleware
+        from qilin.agents.middlewares.token_budget_middleware import (
+            TokenBudgetMiddleware,
+        )
 
         middlewares.append(TokenBudgetMiddleware.from_config(token_budget_config))
 
@@ -500,6 +540,78 @@ def _load_enabled_available_skills(available_skills: set[str] | None, *, app_con
     return [skill for skill in skills if skill.name in available_skills]
 
 
+def _resolve_orchestration_mode(
+    cfg: dict, orchestration: OrchestrationConfig
+) -> OrchestrationMode:
+    """Resolve the effective orchestration mode for this run.
+
+    Runtime ``orchestration_mode`` overrides the app config for a single
+    request (temporary switch without restart); invalid values fall back to
+    the app config — never to an arbitrary mode.
+    """
+    requested = cfg.get("orchestration_mode")
+    if requested is None:
+        return orchestration.mode
+    try:
+        return OrchestrationMode(requested)
+    except ValueError:
+        logger.warning(
+            "Invalid orchestration_mode %r, falling back to %s",
+            requested,
+            orchestration.mode,
+        )
+        return orchestration.mode
+
+
+def _build_orchestrator_graph(
+    config: RunnableConfig,
+    *,
+    app_config: AppConfig,
+    model_name: str,
+    user_id: str | None,
+    max_concurrency: int,
+) -> CompiledStateGraph:
+    """Build the multi-agent OrchestratorGraph (orchestration.mode=multi).
+
+    workers 来自 ``app_config.orchestration.workers``；每个 worker 由独立
+    ``SubagentExecutor`` 驱动（``AgentSpec`` -> ``SubagentConfig`` ->
+    executor，继承 lead 的 model / user / trace 上下文）。图构建时只注册
+    节点，executor 在执行时按需构造。
+    """
+    # Lazy imports: qilin.orchestration pulls the subagent registry chain and
+    # qilin.tools has its own circular-dependency guards (same pattern as the
+    # v1 assembly path below).
+    from qilin.orchestration.graph import OrchestratorGraph
+    from qilin.subagents.executor import SubagentExecutor
+    from qilin.tools import get_available_tools
+    from qilin.trace_context import get_current_trace_id
+
+    orchestration = app_config.orchestration
+    workers = {spec.name: spec for spec in orchestration.workers}
+
+    def _executor_factory(spec: AgentSpec) -> SubagentExecutor:
+        subagent_config = spec.to_subagent_configs()[spec.name]
+        tools = get_available_tools(
+            model_name=model_name,
+            subagent_enabled=True,
+            app_config=app_config,
+        )
+        return SubagentExecutor(
+            config=subagent_config,
+            tools=tools,
+            app_config=app_config,
+            parent_model=model_name,
+            user_id=user_id,
+            qilin_trace_id=get_current_trace_id(),
+        )
+
+    return OrchestratorGraph(
+        workers=workers,
+        executor_factory=_executor_factory,
+        max_concurrency=max_concurrency,
+    ).build()
+
+
 def make_lead_agent(config: RunnableConfig):
     """LangGraph graph factory; keep the signature compatible with LangGraph Server."""
     runtime_config = _get_runtime_config(config)
@@ -535,7 +647,11 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
     # Lazy import to avoid circular dependency
     from qilin.tools import get_available_tools
     from qilin.tools.builtins import setup_agent, update_agent
-    from qilin.tools.builtins.tool_search import assemble_deferred_tools, build_mcp_routing_middleware, get_mcp_routing_hints_prompt_section
+    from qilin.tools.builtins.tool_search import (
+        assemble_deferred_tools,
+        build_mcp_routing_middleware,
+        get_mcp_routing_hints_prompt_section,
+    )
 
     cfg = _get_runtime_config(config)
     resolved_app_config = app_config
@@ -585,6 +701,31 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
 
     if model_config is None:
         raise ValueError("No chat model could be resolved. Please configure at least one model in config.yaml or provide a valid 'model_name'/'model' in the request.")
+
+    # Multi-agent mode (v2.0.0): orchestration.mode == "multi" with a non-empty
+    # worker registry builds the OrchestratorGraph instead of the v1 lead
+    # graph. Runtime configurable "orchestration_mode" overrides the app
+    # config for a single request; invalid values fall back (see
+    # ``_resolve_orchestration_mode``). Switching single <-> multi rebuilds
+    # the graph and is therefore restart-bound (reload_boundary registers
+    # "orchestration" as startup-only).
+    orchestration = resolved_app_config.orchestration
+    if (
+        _resolve_orchestration_mode(cfg, orchestration) == OrchestrationMode.MULTI
+        and orchestration.workers
+    ):
+        logger.info(
+            "Building multi-agent orchestrator graph with %d workers",
+            len(orchestration.workers),
+        )
+        return _build_orchestrator_graph(
+            config,
+            app_config=resolved_app_config,
+            model_name=model_name,
+            user_id=resolved_user_id,
+            max_concurrency=orchestration.max_concurrency,
+        )
+
     if thinking_enabled and not model_config.supports_thinking:
         logger.warning(f"Thinking mode is enabled but model '{model_name}' does not support it; fallback to non-thinking mode.")
         thinking_enabled = False
@@ -650,7 +791,10 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
             enabled=skill_search_enabled,
             container_base_path=container_base_path,
         )
-        raw_tools = get_available_tools(model_name=model_name, subagent_enabled=subagent_enabled, app_config=resolved_app_config) + [setup_agent]
+        raw_tools = [
+            *get_available_tools(model_name=model_name, subagent_enabled=subagent_enabled, app_config=resolved_app_config),
+            setup_agent,
+        ]
         configured_tools = raw_tools
         if non_interactive:
             configured_tools = [tool for tool in configured_tools if tool.name not in _NON_INTERACTIVE_DISABLED_TOOL_NAMES]

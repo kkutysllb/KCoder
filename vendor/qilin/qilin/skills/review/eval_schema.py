@@ -12,7 +12,7 @@ def analyze_eval_manifests(snapshot: dict[str, Any]) -> tuple[dict[str, Any], li
     files = {str(entry["path"]): entry for entry in snapshot.get("files", [])}
     eval_files = [path for path in sorted(files) if path.startswith("evals/") and path.endswith(".json")]
     findings: list[dict[str, Any]] = []
-    aggregate = {
+    aggregate: dict[str, Any] = {
         "schema": None,
         "valid": None,
         "case_count": 0,

@@ -85,15 +85,15 @@ def _join_host_path(base: str, *parts: str) -> str:
         return base
 
     if re.match(r"^[A-Za-z]:[\\/]", base) or base.startswith("\\\\") or "\\" in base:
-        result = PureWindowsPath(base)
+        win_result = PureWindowsPath(base)
         for part in parts:
-            result /= part
-        return str(result)
+            win_result /= part
+        return str(win_result)
 
-    result = Path(base)
+    posix_result = Path(base)
     for part in parts:
-        result /= part
-    return str(result)
+        posix_result /= part
+    return str(posix_result)
 
 
 def join_host_path(base: str, *parts: str) -> str:

@@ -8,30 +8,25 @@
 
 ### 职责
 
-`qilin.scheduler` 提供一次性（one-shot）与 Cron 定时任务调度。它运行于 QiLin 进程的同一 asyncio 事件循环内，每隔 `poll_interval_seconds` 轮询一次 `scheduled_tasks` 表，对到期任务派发为一次新的 Run。
+`qilin.scheduler` 提供调度时间计算的**纯函数原语**：cron 表达式规范化、时区校验，以及根据任务声明（one-shot / cron）计算下一次执行时间。它不持有事件循环、不做轮询、不接触数据库——轮询、派发与 lease 协调分别由服务化调度器（`app/scheduler/service.py`）与 `runtime/runs` 负责。
 
-- **轮询器（poller）**：定时扫描 `scheduled_tasks`，解析下一次执行时间
-- **Cron 解析**：基于 `croniter` 支持标准 5 字段 cron 表达式
-- **派发**：到期任务由 `RunManager` 启动新的 `scheduled_task_runs` 记录
-- **错误恢复**：失败的派发不会让调度器永久卡住，会被记录并按 retry-policy 重试
-- **多 worker 协调**：在 `run_ownership` 模式下保证同一任务在同一时刻只被一个 worker 抢到
+- **`validate_timezone`**：校验时区名（`zoneinfo`），未知时区抛 `ValueError`
+- **`normalize_cron_expression`**：规范化标准 5 字段 cron 表达式（去多余空白、校验字段数）
+- **`next_run_at`**：根据 `schedule_type`（`once` / `cron`）与 `schedule_spec` 计算下一次执行时间；naive 时间一律按任务声明时区解释，返回 `UTC` 感知时间
 
 ### 关键文件
 
 | 文件 | 作用 |
 |------|------|
-| `scheduler/__init__.py` | 对外 API：`start_scheduler`，`stop_scheduler` |
-| `scheduler/poller.py` | 轮询任务表 |
-| `scheduler/cron.py` | cron 表达式解析 |
-| `scheduler/dispatcher.py` | 派发到 RunManager |
-| `scheduler/locks.py` | 多 worker 锁定（lease） |
+| `scheduler/__init__.py` | 对外 API：`next_run_at`，`normalize_cron_expression`，`validate_timezone` |
+| `scheduler/schedules.py` | 调度计算实现（基于 `croniter`，无 IO） |
 
 ### 设计要点
 
-1. **轮询而非线程**：避免引入多线程；调度器是 asyncio task。
-2. **精确到秒**：cron 解析时显式校验时区，避免服务器时区漂移。
-3. **可观察**：每次派发与失败都会被 `journal` 记录，可在 `tui` 中看到下一次 ETA。
-4. **可关闭**：`SchedulerConfig.enabled=False` 时整个子模块不启动。
+1. **纯函数、零依赖副作用**：模块不依赖 asyncio、配置或持久化层，可独立单测；这也让 `next_run_at` 成为回归测试的稳定锚点。
+2. **时区显式**：naive `run_at` / cron 基准时间按任务声明时区解释，避免服务器时区漂移；结果统一归一化为 UTC。
+3. **Cron 5 字段**：基于 `croniter`，支持标准 5 字段表达式。
+4. **单一消费方**：服务化调度（`ScheduledTaskService`）只依赖这里的计算原语，不在业务层重复实现时间逻辑。
 
 ### 配置示例
 
@@ -39,18 +34,15 @@
 scheduler:
   enabled: true
   poll_interval_seconds: 5
-  default_timezone: "UTC"
-  tasks:
-    - name: "daily-report"
-      agent: "analyst"
-      cron: "0 9 * * *"
-      prompt: "生成昨日汇总报告"
+  lease_seconds: 120
+  max_concurrent_runs: 3
+  min_once_delay_seconds: 60
 ```
 
 ### 关联模块
 
-- **上游**：`config/scheduler_config.py` 决定是否启用与轮询间隔
-- **下游**：`runtime/runs/manager.py` 启动 Run；`persistence/scheduled_tasks/`、`persistence/scheduled_task_runs/` 存表
+- **上游**：`config/scheduler_config.py` 提供 `SchedulerConfig`（enabled / 轮询间隔 / lease / 并发上限）
+- **下游**：`app/scheduler/service.py`（`ScheduledTaskService`：轮询 `scheduled_tasks` 表并派发 Run）、`runtime/runs/`（Run 生命周期与多 worker lease）、`persistence/scheduled_tasks/` 与 `persistence/scheduled_task_runs/`（任务与运行记录表）
 
 ---
 
@@ -58,30 +50,25 @@ scheduler:
 
 ### Responsibility
 
-`qilin.scheduler` provides one-shot and Cron-based scheduled task execution. It runs in QiLin's asyncio event loop, polling the `scheduled_tasks` table every `poll_interval_seconds`, dispatching due tasks as new Runs.
+`qilin.scheduler` provides **pure-function scheduling primitives**: cron normalization, timezone validation, and computing the next run time from a task's declared schedule (`once` / `cron`). It holds no event loop, does no polling, and touches no storage — polling, dispatch, and lease coordination live in the service scheduler (`app/scheduler/service.py`) and `runtime/runs`.
 
-- **Poller** — Periodically scans `scheduled_tasks`, computes next run time
-- **Cron parser** — Standard 5-field cron via `croniter`
-- **Dispatcher** — Spawns `scheduled_task_runs` via `RunManager`
-- **Error recovery** — Failures don't permanently block the scheduler; retry-policy applies
-- **Multi-worker lease** — `run_ownership` mode ensures one task is locked by only one worker at a time
+- **`validate_timezone`** — validates a timezone name via `zoneinfo`; raises `ValueError` on unknown zones
+- **`normalize_cron_expression`** — normalizes a standard 5-field cron expression (collapses whitespace, validates field count)
+- **`next_run_at`** — computes the next run time from `schedule_type` (`once` / `cron`) and `schedule_spec`; naive times are interpreted in the task's declared timezone and the result is returned as timezone-aware UTC
 
 ### Key Files
 
 | File | Purpose |
 |------|---------|
-| `scheduler/__init__.py` | Public API: `start_scheduler`, `stop_scheduler` |
-| `scheduler/poller.py` | Task table poller |
-| `scheduler/cron.py` | Cron expression parser |
-| `scheduler/dispatcher.py` | Dispatches to RunManager |
-| `scheduler/locks.py` | Multi-worker lease locks |
+| `scheduler/__init__.py` | Public API: `next_run_at`, `normalize_cron_expression`, `validate_timezone` |
+| `scheduler/schedules.py` | Scheduling math (`croniter`-based, no I/O) |
 
 ### Design Highlights
 
-1. **Polling > threading** — asyncio task, no extra threads.
-2. **Second precision** — Explicit timezone validation prevents drift.
-3. **Observable** — Every dispatch and failure is journaled.
-4. **Disable-friendly** — `SchedulerConfig.enabled=False` short-circuits boot.
+1. **Pure functions, no side effects** — no asyncio/config/storage dependencies; independently unit-testable, which also makes `next_run_at` a stable regression anchor.
+2. **Explicit timezone** — naive `run_at` / cron base times are interpreted in the task's declared timezone; results normalize to UTC.
+3. **5-field cron** — `croniter`-based.
+4. **Single consumer** — the service scheduler (`ScheduledTaskService`) consumes only these primitives and never re-implements time math.
 
 ### Config Example
 
@@ -89,15 +76,12 @@ scheduler:
 scheduler:
   enabled: true
   poll_interval_seconds: 5
-  default_timezone: "UTC"
-  tasks:
-    - name: "daily-report"
-      agent: "analyst"
-      cron: "0 9 * * *"
-      prompt: "Generate yesterday's summary."
+  lease_seconds: 120
+  max_concurrent_runs: 3
+  min_once_delay_seconds: 60
 ```
 
 ### Related Modules
 
-- **Upstream** — `config/scheduler_config.py`
-- **Downstream** — `runtime/runs/manager.py`; `persistence/scheduled_tasks/`, `persistence/scheduled_task_runs/`
+- **Upstream** — `config/scheduler_config.py` provides `SchedulerConfig` (enabled / poll interval / lease / concurrency cap)
+- **Downstream** — `app/scheduler/service.py` (`ScheduledTaskService`: polls `scheduled_tasks` and dispatches Runs), `runtime/runs/` (Run lifecycle & multi-worker lease), `persistence/scheduled_tasks/` and `persistence/scheduled_task_runs/` (task & run tables)

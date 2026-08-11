@@ -46,7 +46,7 @@ class RuntimeFeatures:
 # ---------------------------------------------------------------------------
 
 
-def Next(anchor: type[AgentMiddleware]):
+def Next(anchor: type[AgentMiddleware]):  # noqa: N802 - public API mirroring @Next/@Prev decorator names
     """Declare this middleware should be placed after *anchor* in the chain."""
     if not (isinstance(anchor, type) and issubclass(anchor, AgentMiddleware)):
         raise TypeError(f"@Next expects an AgentMiddleware subclass, got {anchor!r}")
@@ -58,7 +58,7 @@ def Next(anchor: type[AgentMiddleware]):
     return decorator
 
 
-def Prev(anchor: type[AgentMiddleware]):
+def Prev(anchor: type[AgentMiddleware]):  # noqa: N802 - public API mirroring @Next/@Prev decorator names
     """Declare this middleware should be placed before *anchor* in the chain."""
     if not (isinstance(anchor, type) and issubclass(anchor, AgentMiddleware)):
         raise TypeError(f"@Prev expects an AgentMiddleware subclass, got {anchor!r}")

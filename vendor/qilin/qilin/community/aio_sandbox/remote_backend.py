@@ -18,6 +18,7 @@ Architecture:
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import requests
 
@@ -219,7 +220,7 @@ class RemoteSandboxBackend(SandboxBackend):
         """POST /api/sandboxes → create Pod + Service."""
         effective_user_id = user_id or get_effective_user_id()
         include_legacy_skills = user_should_see_legacy_skills(effective_user_id)
-        payload = {
+        payload: dict[str, Any] = {
             "sandbox_id": sandbox_id,
             "thread_id": thread_id,
             "user_id": effective_user_id,

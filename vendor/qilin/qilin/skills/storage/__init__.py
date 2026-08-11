@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections import OrderedDict
+from typing import Any, cast
 
 from qilin.skills.storage.local_skill_storage import LocalSkillStorage
 from qilin.skills.storage.skill_storage import SkillStorage
@@ -59,7 +60,7 @@ def get_or_new_skill_storage(**kwargs) -> SkillStorage:
         from qilin.reflection import resolve_class
 
         cls = resolve_class(skills_config.use, SkillStorage)
-        return cls(
+        return cast(Any, cls)(
             host_path=host_path if host_path is not None else str(skills_config.get_skills_path()),
             container_path=skills_config.container_path,
             **kwargs,
@@ -101,7 +102,7 @@ def get_or_new_skill_storage(**kwargs) -> SkillStorage:
         return _default_skill_storage
 
 
-def get_or_new_user_skill_storage(user_id: str, **kwargs) -> SkillStorage:
+def get_or_new_user_skill_storage(user_id: str, **kwargs) -> UserScopedSkillStorage:
     """Return a per-user ``SkillStorage`` instance for custom skill isolation.
 
     Uses :class:`UserScopedSkillStorage` which redirects custom skill paths
@@ -138,7 +139,7 @@ def get_or_new_user_skill_storage(user_id: str, **kwargs) -> SkillStorage:
         # will evict the oldest/least-recently-accessed entry (never the
         # one we just created).
         while len(_user_scoped_storages) > _MAX_USER_SCOPED_STORAGES:
-            evicted_key, evicted_val = _user_scoped_storages.popitem(last=False)
+            evicted_key, _ = _user_scoped_storages.popitem(last=False)
             logger.info("Evicted user-scoped skill storage for safe_id=%s (cache ceiling %d)", evicted_key, _MAX_USER_SCOPED_STORAGES)
         return cached
 
@@ -153,7 +154,7 @@ def user_should_see_legacy_skills(user_id: str, **kwargs) -> bool:
     if kwargs:
         from qilin.config.paths import make_safe_user_id
 
-        storage = UserScopedSkillStorage(make_safe_user_id(user_id), **kwargs)
+        storage: SkillStorage = UserScopedSkillStorage(make_safe_user_id(user_id), **kwargs)
     else:
         storage = get_or_new_user_skill_storage(user_id)
     return any((skill.category.value if hasattr(skill.category, "value") else skill.category) == SkillCategory.LEGACY.value for skill in storage.load_skills(enabled_only=False))
@@ -197,7 +198,7 @@ __all__ = [
     "UserScopedSkillStorage",
     "get_or_new_skill_storage",
     "get_or_new_user_skill_storage",
-    "user_should_see_legacy_skills",
     "reset_skill_storage",
     "reset_user_skill_storage",
+    "user_should_see_legacy_skills",
 ]

@@ -12,7 +12,7 @@
 
 - **入口**：`resolvers.py` 暴露 `resolve_variable()` 与 `resolve_variables()`
 - **典型用法**：
-  - 配置加载时：`sandbox_config.py` 中 `default_runtime_image: ${MY_IMAGE}` → 实际使用时被替换
+  - 配置加载时：`config/sandbox_config.py` 中 `default_runtime_image: ${MY_IMAGE}` → 实际使用时被替换
   - 运行时：Agent 在 system prompt 中嵌入 `${DATABASE_URL}` 之类的环境敏感字符串
 - **并发安全**：所有解析逻辑是纯函数，可以并发调用
 - **默认值**：可选 `${VAR:-default}` 语法
@@ -44,7 +44,7 @@
 
 - **Entry** — `resolvers.py` exposes `resolve_variable()` and `resolve_variables()`
 - **Typical uses**:
-  - At config load: `sandbox_config.py` `default_runtime_image: ${MY_IMAGE}` is replaced
+  - At config load: `config/sandbox_config.py` `default_runtime_image: ${MY_IMAGE}` is replaced
   - At runtime: Agent embeds `${DATABASE_URL}` in the system prompt
 - **Concurrency-safe** — Pure functions, safely callable concurrently
 - **Default values** — Optional `${VAR:-default}` syntax

@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from langchain_core.runnables.config import RunnableConfig
+
 from qilin.config import get_app_config
 from qilin.config.app_config import AppConfig
 from qilin.models import create_chat_model
@@ -126,9 +128,9 @@ async def scan_skill_content(
     try:
         config = app_config or get_app_config()
         model_name = config.skill_evolution.moderation_model_name
-        model_kwargs = {"thinking_enabled": False, "app_config": config, "attach_tracing": attach_tracing}
+        model_kwargs: dict[str, Any] = {"thinking_enabled": False, "app_config": config, "attach_tracing": attach_tracing}
         model = create_chat_model(name=model_name, **model_kwargs) if model_name else create_chat_model(**model_kwargs)
-        invoke_config: dict[str, Any] = {"run_name": "security_agent"}
+        invoke_config: RunnableConfig = {"run_name": "security_agent"}
         if attach_tracing:
             # Standalone callers own the trace root, so they must inject their own
             # Langfuse attribution -- the other half of the standalone pattern that

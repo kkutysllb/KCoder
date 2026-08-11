@@ -35,7 +35,7 @@ class FeedbackRepository:
         run_id: str,
         thread_id: str,
         rating: int,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
         message_id: str | None = None,
         comment: str | None = None,
     ) -> dict:
@@ -63,7 +63,7 @@ class FeedbackRepository:
         self,
         feedback_id: str,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> dict | None:
         resolved_user_id = resolve_user_id(user_id, method_name="FeedbackRepository.get")
         async with self._sf() as session:
@@ -80,7 +80,7 @@ class FeedbackRepository:
         run_id: str,
         *,
         limit: int = 100,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> list[dict]:
         resolved_user_id = resolve_user_id(user_id, method_name="FeedbackRepository.list_by_run")
         stmt = select(FeedbackRow).where(FeedbackRow.thread_id == thread_id, FeedbackRow.run_id == run_id)
@@ -96,7 +96,7 @@ class FeedbackRepository:
         thread_id: str,
         *,
         limit: int = 100,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> list[dict]:
         resolved_user_id = resolve_user_id(user_id, method_name="FeedbackRepository.list_by_thread")
         stmt = select(FeedbackRow).where(FeedbackRow.thread_id == thread_id)
@@ -111,7 +111,7 @@ class FeedbackRepository:
         self,
         feedback_id: str,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> bool:
         resolved_user_id = resolve_user_id(user_id, method_name="FeedbackRepository.delete")
         async with self._sf() as session:
@@ -130,7 +130,7 @@ class FeedbackRepository:
         run_id: str,
         thread_id: str,
         rating: int,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
         comment: str | None = None,
     ) -> dict:
         """Create or update feedback for (thread_id, run_id, user_id). rating must be +1 or -1."""
@@ -169,7 +169,7 @@ class FeedbackRepository:
         *,
         thread_id: str,
         run_id: str,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> bool:
         """Delete the current user's feedback for a run. Returns True if a record was deleted."""
         resolved_user_id = resolve_user_id(user_id, method_name="FeedbackRepository.delete_by_run")
@@ -191,7 +191,7 @@ class FeedbackRepository:
         self,
         thread_id: str,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> dict[str, dict]:
         """Return feedback grouped by run_id for a thread: {run_id: feedback_dict}."""
         resolved_user_id = resolve_user_id(user_id, method_name="FeedbackRepository.list_by_thread_grouped")
@@ -207,7 +207,7 @@ class FeedbackRepository:
         thread_id: str,
         run_ids: set[str],
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ) -> dict[str, dict]:
         """Return feedback for only the selected runs in one thread."""
         if not run_ids:

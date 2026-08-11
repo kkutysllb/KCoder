@@ -29,7 +29,12 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from qilin.config.paths import VIRTUAL_PATH_PREFIX
 from qilin.sandbox.sandbox import Sandbox, _validate_extra_env
-from qilin.sandbox.search import GrepMatch, path_matches, should_ignore_path, truncate_line
+from qilin.sandbox.search import (
+    GrepMatch,
+    path_matches,
+    should_ignore_path,
+    truncate_line,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator

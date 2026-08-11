@@ -117,14 +117,18 @@ def render_report_markdown(report: dict[str, Any], facts: dict[str, Any] | None 
     labels = _READINESS_LABELS[locale]
     assurance_labels = _ASSURANCE_LABELS[locale]
     zh = locale == "zh"
+    readiness = report.get("readiness")
+    assurance = report.get("assurance")
+    readiness_label = labels.get(readiness, readiness) if isinstance(readiness, str) else readiness
+    assurance_label = assurance_labels.get(assurance, assurance) if isinstance(assurance, str) else assurance
     lines = [
         "# Skill Review Report" if not zh else "# 技能审查报告",
         "",
         "## Executive Summary" if not zh else "## 摘要",
         f"- Subject: {report.get('subject', {}).get('display_ref')}",
         f"- Digest: {report.get('subject', {}).get('package_digest')}",
-        f"- Readiness: {report.get('readiness')} ({labels.get(report.get('readiness'), report.get('readiness'))})",
-        f"- Assurance: {report.get('assurance')} ({assurance_labels.get(report.get('assurance'), report.get('assurance'))})",
+        f"- Readiness: {readiness} ({readiness_label})",
+        f"- Assurance: {assurance} ({assurance_label})",
         "",
         "## Scope and Completeness" if not zh else "## 范围与完整性",
         f"- Scope: {', '.join(report.get('review', {}).get('scope', []))}",

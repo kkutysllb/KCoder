@@ -31,7 +31,7 @@ _HIGH_RISK_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r">+\s*/etc/"),
     # --- pipe to sh/bash (generalised, replaces old curl|sh rule) ---
     re.compile(r"\|\s*(ba)?sh\b"),
-    # --- command substitution (targeted – only dangerous executables) ---
+    # --- command substitution (targeted - only dangerous executables) ---
     re.compile(r"[`$]\(?\s*(curl|wget|bash|sh|python|ruby|perl|base64)"),
     # --- base64 decode piped to execution ---
     re.compile(r"base64\s+.*-d.*\|"),
@@ -258,7 +258,7 @@ class SandboxAuditMiddleware(AgentMiddleware[ThreadState]):
             return result
         warning = f"\n\n⚠️ Warning: `{command}` is a medium-risk command that may modify the runtime environment."
         if isinstance(result.content, list):
-            new_content = list(result.content) + [{"type": "text", "text": warning}]
+            new_content = [*list(result.content), {"type": "text", "text": warning}]
         else:
             new_content = str(result.content) + warning
         return ToolMessage(

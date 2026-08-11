@@ -445,7 +445,7 @@ class LocalSandbox(Sandbox):
             return shell
 
         if os.name == "nt":
-            system_root = os.environ.get("SystemRoot", r"C:\Windows")
+            system_root = os.environ.get("SYSTEMROOT", r"C:\Windows")
             shell = LocalSandbox._find_first_available_shell(
                 (
                     "pwsh",

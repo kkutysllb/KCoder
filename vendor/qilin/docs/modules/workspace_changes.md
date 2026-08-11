@@ -18,8 +18,11 @@
 
 | 文件 | 作用 |
 |------|------|
-| `workspace_changes/recorder.py` | 变更录制与 diff |
-| `workspace_changes/filters.py` | 路径白/黑名单 |
+| `workspace_changes/recorder.py` | 变更录制与快照管理 |
+| `workspace_changes/scanner.py` | 工作区扫描与敏感路径判定 |
+| `workspace_changes/diff.py` | 变更 diff 计算 |
+| `workspace_changes/api.py` | 面向调用方的变更响应组装 |
+| `workspace_changes/types.py` | 快照 / 变更数据类型 |
 
 ### 设计要点
 
@@ -58,8 +61,11 @@
 
 | File | Purpose |
 |------|---------|
-| `workspace_changes/recorder.py` | Change recording + diff |
-| `workspace_changes/filters.py` | Path allow/block lists |
+| `workspace_changes/recorder.py` | Change recording & snapshot management |
+| `workspace_changes/scanner.py` | Workspace scanning & sensitive-path detection |
+| `workspace_changes/diff.py` | Change diff computation |
+| `workspace_changes/api.py` | Change-response assembly for callers |
+| `workspace_changes/types.py` | Snapshot / change data types |
 
 ### Design Highlights
 

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/qilin-hero.png" alt="QiLin 麒麟智能体引擎" width="640" />
+</p>
+
 # QiLin
 
 > 中文版（Chinese version follows below）· [English Version](#english-version)
@@ -6,19 +10,23 @@
 一个统一的 Python 包，把 LangGraph 状态机、模型调用、工具/技能生态、子代理递归、沙箱隔离、权限模型、可观测性与定时调度整合在同一二进制 / 同进程中运行。
 
 - **包名称 / Package**：`qilin`
-- **核心代码量 / Codebase**：约 437 文件，22 个子模块
+- **核心代码量 / Codebase**：约 517 文件，25 个子模块
 - **Python 版本 / Python**：≥ 3.12
 - **CLI**：`qilin`
+- **版本路线 / Roadmap**：v1.0.0 单智能体框架 → **v2.0.0 多智能体框架（当前）**
 
 ## ✨ 核心能力 / Core Capabilities
 
 | 中文 | English |
 |------|---------|
 | 嵌入式 & 服务化双模运行 | Embedded or service-mode runtime |
-| 22 个高内聚子系统 | 22 cohesive subsystems |
+| 25 个高内聚子系统 | 25 cohesive subsystems |
 | LangGraph 兼容的内核 | LangGraph-compatible kernel |
 | 多 Provider 模型适配（OpenAI / Anthropic / DeepSeek / Gemini / Ollama） | Multi-provider model adapters |
 | 子代理递归 + 独立 checkpoint | Recursive sub-agents with independent checkpoints |
+| 多智能体编排（single/multi 配置切换 + 并行批次 + 协作模式） | Multi-agent orchestration (single/multi mode switch, parallel batch, collaboration patterns) |
+| HTTP Agent Server（REST API + JWT 认证 + CSRF + GitHub Webhook） | HTTP Agent Server (REST API + JWT auth + CSRF + GitHub webhooks) |
+| 8 大 IM 渠道接入（飞书/Discord/Slack/Telegram/钉钉/企微/微信/GitHub） | 8 IM channel adapters (Feishu/Discord/Slack/Telegram/DingTalk/WeCom/WeChat/GitHub) |
 | 多沙箱后端（Local / aio_sandbox / boxlite / E2B / Tenki） | Multi-backend sandbox |
 | RBAC 风格的资源授权 | RBAC-style resource authorization |
 | Langfuse / Monocle 双 trace 适配 | Langfuse / Monocle trace adapters |
@@ -53,6 +61,8 @@ pip install "qilin[postgres,redis,tenki,monocle,browser,boxlite]"
 | `memory-zh` | jieba 中文分词 |
 | `ollama` | Ollama 本地模型 |
 | `groundroute` | GroundRoute 自定义检索 |
+| `gateway` | FastAPI HTTP Agent Server（uvicorn / PyJWT / bcrypt） |
+| `channels` | IM 渠道 SDK（钉钉 / Discord / 飞书 / Slack / Telegram 等） |
 
 ## 🚀 快速开始 / Quick Start
 
@@ -101,16 +111,30 @@ sandbox:
   provider: qilin.community.aio_sandbox.aio_sandbox_provider:AioSandboxProvider
 ```
 
+### Agent Server（HTTP 服务 / Service Mode）
+
+```bash
+# 安装服务端依赖
+pip install "qilin[gateway,channels]"
+
+# 启动 HTTP Agent Server
+uvicorn app.gateway.app:app --port 8080
+```
+
+服务端提供 agents / threads / runs / memory / skills / mcp / uploads / channels 等 REST API，
+详见 [gateway 模块文档](docs/modules/gateway.md)；IM 渠道接入见 [channels 模块文档](docs/modules/channels.md)。
+
 ## 📂 项目结构 / Project Layout
 
 ```
 .
 ├── pyproject.toml         # 包元信息 + CLI 注册
-├── qilin/                 # 核心引擎代码（437 文件）
+├── qilin/                 # 核心引擎代码（517 文件）
 │   ├── client.py          # QiLinClient 嵌入式入口
 │   ├── constants.py       # 共享运行时常量
 │   ├── agents/            # Lead Agent + 中间件 + 记忆后端
 │   ├── subagents/         # 子代理执行器 + 注册中心
+│   ├── orchestration/     # 多智能体编排（handoff/图/消息总线/协作）
 │   ├── tools/             # 工具注册与装配
 │   ├── skills/            # 技能系统（含扫描器）
 │   ├── mcp/               # MCP 协议适配
@@ -121,19 +145,22 @@ sandbox:
 │   ├── sandbox/           # 沙箱抽象层
 │   ├── guardrails/        # 安全护栏中间件
 │   ├── authz/             # RBAC 资源授权
-│   ├── tracing/           # 多 Provider 追踪
-│   ├── memory/            # （在 agents/memory）事实提取 / 检索
+│   ├── tracing/           # Langfuse / Monocle 追踪
+│   ├── reflection/        # 变量解析（SkillACP）
 │   ├── community/         # 第三方生态（搜索、沙箱等）
 │   ├── integrations/      # Lark 等第三方渠道
 │   ├── models/            # 模型适配
 │   ├── tui/               # Textual 终端 UI
 │   ├── uploads/           # 用户上传管理
 │   ├── utils/             # 通用工具
-│   ├── workspace_changes/ # 工作区变更追踪
-│   └── tracing/           # Langfuse / Monocle
+│   └── workspace_changes/ # 工作区变更追踪
+├── app/                   # 服务面（HTTP Agent Server + IM 渠道，随 wheel 分发）
+│   ├── gateway/           # FastAPI HTTP Agent Server（REST + 认证 + webhook）
+│   ├── channels/          # IM 渠道接入层（8 大渠道）
+│   └── scheduler/         # 定时任务 HTTP 调度服务
 ├── docs/                  # 项目文档（架构 + 各模块详解）
 │   ├── architecture.md
-│   └── modules/*.md       # 22 份模块文档
+│   └── modules/*.md       # 24 份模块文档
 └── README.md              # 本文件
 ```
 
@@ -142,8 +169,11 @@ sandbox:
 | 文档 | Document | 简介 / Summary |
 |------|----------|----------------|
 | [架构总览](docs/architecture.md) | [Architecture](docs/architecture.md) | 三层架构、运行机制、可观测性、安全模型 |
+| [gateway 模块](docs/modules/gateway.md) | [gateway](docs/modules/gateway.md) | HTTP Agent Server（REST API + 认证） |
+| [channels 模块](docs/modules/channels.md) | [channels](docs/modules/channels.md) | IM 渠道接入（8 大渠道） |
 | [agents 模块](docs/modules/agents.md) | [agents](docs/modules/agents.md) | Lead Agent 工厂与中间件链 |
 | [subagents 模块](docs/modules/subagents.md) | [subagents](docs/modules/subagents.md) | 子代理执行与注册 |
+| [orchestration 模块](docs/modules/orchestration.md) | [orchestration](docs/modules/orchestration.md) | 多智能体编排（handoff/图/消息总线/协作模式） |
 | [tools 模块](docs/modules/tools.md) | [tools](docs/modules/tools.md) | 工具装配流水线 |
 | [skills 模块](docs/modules/skills.md) | [skills](docs/modules/skills.md) | 技能系统 |
 | [mcp 模块](docs/modules/mcp.md) | [mcp](docs/modules/mcp.md) | MCP 协议适配 |
@@ -183,19 +213,23 @@ Apache-2.0
 A single Python package that consolidates LangGraph state machines, model orchestration, tool/skill ecosystems, recursive sub-agents, sandbox isolation, fine-grained authorization, observability, and scheduled tasks — all in one binary / one process.
 
 - **Package**：`qilin`
-- **Codebase**：~437 files, 22 sub-modules
+- **Codebase**：~517 files, 25 sub-modules
 - **Python**：≥ 3.12
 - **CLI**：`qilin`
+- **Roadmap**：v1.0.0 single-agent → **v2.0.0 multi-agent (current)**
 
 ### ✨ Core Capabilities
 
 | Capability |
 |------------|
 | Embedded or service-mode runtime |
-| 22 cohesive subsystems |
+| 25 cohesive subsystems |
 | LangGraph-compatible kernel |
 | Multi-provider model adapters (OpenAI / Anthropic / DeepSeek / Gemini / Ollama) |
 | Recursive sub-agents with independent checkpoints |
+| Multi-agent orchestration (single/multi mode switch, parallel batch, collaboration patterns) |
+| HTTP Agent Server (REST API + JWT auth + CSRF + GitHub webhooks) |
+| 8 IM channel adapters (Feishu/Discord/Slack/Telegram/DingTalk/WeCom/WeChat/GitHub) |
 | Multi-backend sandbox (Local / aio_sandbox / boxlite / E2B / Tenki) |
 | RBAC-style resource authorization |
 | Langfuse / Monocle trace adapters |
@@ -213,6 +247,9 @@ pip install "qilin[tui]"
 
 # All optional features
 pip install "qilin[postgres,redis,tenki,monocle,browser,boxlite]"
+
+# Agent Server / IM channels
+pip install "qilin[gateway,channels]"
 ```
 
 ### 🚀 Quick Start
@@ -238,11 +275,12 @@ echo "What is 2+2?" | qilin --json
 ```
 .
 ├── pyproject.toml         # Package metadata + CLI registration
-├── qilin/                 # Core engine (437 files, 22 sub-modules)
+├── qilin/                 # Core engine (517 files, 25 sub-modules)
 │   ├── client.py          # QiLinClient — embedded entry
 │   ├── constants.py       # Shared runtime constants
 │   ├── agents/            # Lead Agent + middlewares + memory backends
 │   ├── subagents/         # Sub-agent executor + registry
+│   ├── orchestration/     # Multi-agent orchestration (handoff/graph/bus/patterns)
 │   ├── tools/             # Tool registry & assembly
 │   ├── skills/            # Skill system
 │   ├── mcp/               # MCP adapters
@@ -254,6 +292,7 @@ echo "What is 2+2?" | qilin --json
 │   ├── guardrails/        # Safety middleware
 │   ├── authz/             # RBAC authorization
 │   ├── tracing/           # Langfuse / Monocle
+│   ├── reflection/        # SkillACP variable resolution
 │   ├── community/         # 3rd-party ecosystem (search, sandbox, ...)
 │   ├── integrations/      # Lark, Lark CLI, ...
 │   ├── models/            # Model adapters
@@ -261,9 +300,13 @@ echo "What is 2+2?" | qilin --json
 │   ├── uploads/           # Upload management
 │   ├── utils/             # Generic utilities
 │   └── workspace_changes/ # Workspace change tracker
+├── app/                   # Service surface (HTTP Agent Server + IM channels, shipped in the wheel)
+│   ├── gateway/           # FastAPI HTTP Agent Server (REST + auth + webhooks)
+│   ├── channels/          # IM channel adapters (8 channels)
+│   └── scheduler/         # Scheduled-task HTTP service
 ├── docs/
 │   ├── architecture.md
-│   └── modules/*.md       # 22 module docs
+│   └── modules/*.md       # 21 module docs
 └── README.md              # This file
 ```
 

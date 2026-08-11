@@ -14,13 +14,21 @@ Supports:
 import json
 import logging
 import time
+from collections.abc import Sequence
 from typing import Any
 
 import httpx
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables import Runnable
 
 from qilin.models.credential_loader import CodexCliCredential, load_codex_cli_credential
 
@@ -140,7 +148,7 @@ class CodexChatModel(BaseChatModel):
         Returns (instructions, input_items).
         """
         instructions_parts: list[str] = []
-        input_items = []
+        input_items: list[dict[str, Any]] = []
 
         for msg in messages:
             if isinstance(msg, SystemMessage):
@@ -243,6 +251,8 @@ class CodexChatModel(BaseChatModel):
             except Exception:
                 raise
 
+        if last_error is None:
+            raise RuntimeError("Codex API request failed without an exception")
         raise last_error
 
     def _stream_response(self, headers: dict, payload: dict) -> dict:
@@ -411,11 +421,11 @@ class CodexChatModel(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         """Generate a response using Codex Responses API."""
-        tools = kwargs.get("tools", None)
+        tools = kwargs.get("tools")
         response = self._call_codex_api(messages, tools=tools)
         return self._parse_response(response)
 
-    def bind_tools(self, tools: list, **kwargs: Any) -> Any:
+    def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> Runnable[Any, Any]:
         """Bind tools for function calling."""
         from langchain_core.runnables import RunnableBinding
         from langchain_core.tools import BaseTool

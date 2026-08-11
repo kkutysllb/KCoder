@@ -129,7 +129,9 @@ class McpRoutingMiddleware(AgentMiddleware[AgentState]):
 
 def assert_mcp_routing_before_deferred_filter(middlewares: Sequence[AgentMiddleware]) -> None:
     """Fail fast if auto-promote would run after deferred schema filtering."""
-    from qilin.agents.middlewares.deferred_tool_filter_middleware import DeferredToolFilterMiddleware
+    from qilin.agents.middlewares.deferred_tool_filter_middleware import (
+        DeferredToolFilterMiddleware,
+    )
 
     routing_idx = next((idx for idx, middleware in enumerate(middlewares) if isinstance(middleware, McpRoutingMiddleware)), None)
     filter_idx = next((idx for idx, middleware in enumerate(middlewares) if isinstance(middleware, DeferredToolFilterMiddleware)), None)

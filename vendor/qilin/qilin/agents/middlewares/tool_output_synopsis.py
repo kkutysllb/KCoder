@@ -376,7 +376,7 @@ def _try_json(content: str) -> ToolOutputSynopsis | None:
     # who relied on the old preview to only expose head/tail snippets should
     # review their tool outputs for sensitive mid-document values.
     if isinstance(value, dict):
-        keys = [str(key) for key in value.keys()]
+        keys = [str(key) for key in value]
         summary.append(f"JSON object with {len(keys)} top-level keys.")
         summary.append(f"Top-level keys: {', '.join(keys[:_KEY_LIMIT]) or '(none)'}")
     elif isinstance(value, list):
@@ -537,7 +537,7 @@ def _try_yaml(content: str) -> ToolOutputSynopsis | None:
     summary: list[str]
     structure: list[str] = []
     if isinstance(value, dict):
-        keys = [str(key) for key in value.keys()]
+        keys = [str(key) for key in value]
         summary = [f"YAML object with {len(keys)} top-level keys.", f"Top-level keys: {', '.join(keys[:_KEY_LIMIT])}"]
         for key, child in list(value.items())[:_KEY_LIMIT]:
             structure.append(f"{key}: {_type_name(child)}")

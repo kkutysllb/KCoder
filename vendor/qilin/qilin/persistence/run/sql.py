@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import case, or_, select, update
+from sqlalchemy import CursorResult, case, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from qilin.persistence.run.model import RunRow
@@ -93,7 +93,7 @@ class RunRepository(RunStore):
         *,
         thread_id,
         assistant_id=None,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
         model_name: str | None = None,
         status="pending",
         operation_kind: str = "run",
@@ -147,7 +147,7 @@ class RunRepository(RunStore):
         self,
         run_id,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="RunRepository.get")
         async with self._sf() as session:
@@ -162,7 +162,7 @@ class RunRepository(RunStore):
         self,
         thread_id,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
         limit=100,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="RunRepository.list_by_thread")
@@ -178,7 +178,7 @@ class RunRepository(RunStore):
         self,
         thread_id,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="RunRepository.list_successful_regenerate_sources")
         source = RunRow.metadata_json["regenerate_from_run_id"].as_string()
@@ -199,7 +199,7 @@ class RunRepository(RunStore):
         self,
         thread_id,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="RunRepository.list_edit_regenerate_runs")
         replay_kind = RunRow.metadata_json["replay_kind"].as_string()
@@ -222,7 +222,7 @@ class RunRepository(RunStore):
         thread_id,
         run_ids,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         if not run_ids:
             return {}
@@ -248,7 +248,7 @@ class RunRepository(RunStore):
         async with self._sf() as session:
             result = await session.execute(update(RunRow).where(RunRow.run_id == run_id, RunRow.status.in_(("pending", "running", "interrupted"))).values(**values))
             await session.commit()
-            return result.rowcount != 0
+            return cast(CursorResult[Any], result).rowcount != 0
 
     async def start_run(self, run_id: str) -> bool:
         """Start only a still-pending run; cancelled rows must not be resurrected."""
@@ -262,7 +262,7 @@ class RunRepository(RunStore):
                 .values(status="running", updated_at=datetime.now(UTC))
             )
             await session.commit()
-            return result.rowcount != 0
+            return cast(CursorResult[Any], result).rowcount != 0
 
     async def update_model_name(self, run_id, model_name):
         async with self._sf() as session:
@@ -273,7 +273,7 @@ class RunRepository(RunStore):
         self,
         run_id,
         *,
-        user_id: str | None | _AutoSentinel = AUTO,
+        user_id: str | _AutoSentinel | None = AUTO,
     ):
         resolved_user_id = resolve_user_id(user_id, method_name="RunRepository.delete")
         async with self._sf() as session:
@@ -378,7 +378,7 @@ class RunRepository(RunStore):
                 .values(**values)
             )
             await session.commit()
-            return result.rowcount != 0
+            return cast(CursorResult[Any], result).rowcount != 0
 
     async def update_run_progress(
         self,
@@ -514,7 +514,7 @@ class RunRepository(RunStore):
         async with self._sf() as session:
             result = await session.execute(update(RunRow).where(RunRow.run_id == run_id, RunRow.owner_worker_id == owner_worker_id, RunRow.status.in_(("pending", "running"))).values(**values))
             await session.commit()
-            return result.rowcount != 0
+            return cast(CursorResult[Any], result).rowcount != 0
 
     async def renew_lease(
         self,
@@ -642,7 +642,7 @@ class RunRepository(RunStore):
                 .values(**values)
             )
             await session.commit()
-            return result.rowcount != 0
+            return cast(CursorResult[Any], result).rowcount != 0
 
     async def list_inflight_with_expired_lease(
         self,
@@ -771,4 +771,5 @@ class RunRepository(RunStore):
             await session.commit()
 
             new_row = await session.get(RunRow, run_id)
+            assert new_row is not None  # 本事务刚插入的行必然存在
             return self._row_to_dict(new_row), claimed

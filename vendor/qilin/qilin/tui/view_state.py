@@ -161,7 +161,7 @@ def initial_state(rows: tuple[Row, ...] = ()) -> ViewState:
 
 
 def _append(state: ViewState, row: Row) -> ViewState:
-    return replace(state, rows=state.rows + (row,))
+    return replace(state, rows=(*state.rows, row))
 
 
 def reduce(state: ViewState, action: Action) -> ViewState:

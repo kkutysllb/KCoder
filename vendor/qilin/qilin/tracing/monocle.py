@@ -35,7 +35,7 @@ def setup_monocle_tracing_if_enabled() -> bool:
     # Fail fast on an unknown MONOCLE_EXPORTERS value or a missing OKAHU_API_KEY,
     # with a clear message, before instrumenting. Validated here (not in the
     # per-run callback path) so a config typo never breaks agent runs.
-    monocle.validate()
+    monocle.validate_config()
 
     # Coexistence with Langfuse (v4, also OTel-based) is verified: whichever
     # library initializes second reuses the existing global TracerProvider and

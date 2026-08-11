@@ -204,14 +204,14 @@ class QiLinTUI(App):
         try:
             models = client.list_models().get("models", [])
             self._model = next((m.get("display_name") or m.get("name") for m in models if m.get("name")), "")
-        except Exception:  # noqa: BLE001 - header is best-effort
+        except Exception:
             self._model = ""
         try:
             skills = client.list_skills(enabled_only=True).get("skills", [])
             self._skills_meta = [s for s in skills if s.get("name")]
             self._skill_names = [s["name"] for s in self._skills_meta]
             self._skills = len(self._skill_names)
-        except Exception:  # noqa: BLE001
+        except Exception:
             self._skills_meta = []
             self._skill_names = []
             self._skills = 0
@@ -242,7 +242,7 @@ class QiLinTUI(App):
 
     # ----- slash command palette ----------------------------------------- #
 
-    def check_action(self, action: str, parameters):  # noqa: D401 - Textual hook
+    def check_action(self, action: str, parameters):
         custom = {"nav_up", "nav_down", "palette_complete", "palette_accept", "escape"}
         if action in custom:
             # A modal overlay (e.g. the model/thread picker) is on top — never
@@ -416,7 +416,7 @@ class QiLinTUI(App):
     def _open_model_picker(self) -> None:
         try:
             models = self.session.client.list_models().get("models", [])
-        except Exception:  # noqa: BLE001
+        except Exception:
             models = []
         options = [(m["name"], (m.get("display_name") or m["name"])) for m in models if m.get("name")]
         if not options:
@@ -435,7 +435,7 @@ class QiLinTUI(App):
     def _open_thread_switcher(self) -> None:
         try:
             threads = self.session.recent_threads(limit=20)
-        except Exception:  # noqa: BLE001
+        except Exception:
             threads = []
         options: list[tuple[str, str]] = []
         for thread in threads:
@@ -477,7 +477,7 @@ class QiLinTUI(App):
                 return
             try:
                 goal = self.session.client.get_goal(self._conv_thread_id).get("goal")
-            except Exception:  # noqa: BLE001
+            except Exception:
                 self._dispatch(SystemMessage("Could not read goal.", tone="error"))
                 return
             if not goal:
@@ -490,7 +490,7 @@ class QiLinTUI(App):
             if self._conv_thread_id:
                 try:
                     self.session.client.clear_goal(self._conv_thread_id)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     self._dispatch(SystemMessage("Could not clear goal.", tone="error"))
                     return
             self._dispatch(SystemMessage("Goal cleared."))
@@ -501,7 +501,7 @@ class QiLinTUI(App):
             self._refresh_header()
         try:
             goal = self.session.client.set_goal(self._conv_thread_id, command.objective).get("goal")
-        except Exception:  # noqa: BLE001
+        except Exception:
             self._dispatch(SystemMessage("Could not set goal.", tone="error"))
             return
         self._dispatch(SystemMessage(f"Goal set: {goal.get('objective') if goal else command.objective}"))
@@ -513,7 +513,7 @@ class QiLinTUI(App):
     def _show_mcp(self) -> None:
         try:
             servers = self.session.client.get_mcp_config().get("mcp_servers", {})
-        except Exception:  # noqa: BLE001
+        except Exception:
             self._dispatch(SystemMessage("Could not read MCP config.", tone="error"))
             return
         if not servers:
@@ -525,7 +525,7 @@ class QiLinTUI(App):
     def _show_memory(self) -> None:
         try:
             data = self.session.client.get_memory()
-        except Exception:  # noqa: BLE001
+        except Exception:
             self._dispatch(SystemMessage("Could not read memory.", tone="error"))
             return
         facts = data.get("facts", []) if isinstance(data, dict) else []
@@ -551,7 +551,7 @@ class QiLinTUI(App):
             return
         try:
             uploads = self.session.client.list_uploads(self._conv_thread_id).get("files", [])
-        except Exception:  # noqa: BLE001
+        except Exception:
             self._dispatch(SystemMessage("Could not list uploads.", tone="error"))
             return
         if not uploads:

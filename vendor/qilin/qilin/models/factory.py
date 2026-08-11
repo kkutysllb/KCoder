@@ -312,7 +312,7 @@ def create_chat_model(name: str | None = None, thinking_enabled: bool = False, *
     if attach_tracing:
         callbacks = build_tracing_callbacks()
         if callbacks:
-            existing_callbacks = model_instance.callbacks or []
-            model_instance.callbacks = [*existing_callbacks, *callbacks]
+            existing_callbacks = model_instance.callbacks if isinstance(model_instance.callbacks, list) else []
+            model_instance.callbacks = list(existing_callbacks) + list(callbacks)
             logger.debug(f"Tracing attached to model '{name}' with providers={len(callbacks)}")
     return model_instance

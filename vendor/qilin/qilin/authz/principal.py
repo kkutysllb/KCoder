@@ -31,6 +31,41 @@ def normalize_authz_attributes(raw: Any) -> dict[str, Any]:
     raise TypeError(f"authz_attributes must be a Mapping, got {type(raw).__name__}")
 
 
+_AGENT_IDENTITY_KEYS = ("agent_id", "agent_role")
+
+
+def normalize_agent_identity(raw: Any) -> dict[str, str]:
+    """Validate and extract the agent-dimension identity from *raw*.
+
+    ``agent_id`` / ``agent_role`` 必须是非空 ``str``：缺失或空串不产生键，
+    非法类型抛 ``TypeError``。与 user 维度的 attributes 并存——调用方把
+    返回的 dict 合并进 :func:`normalize_authz_attributes` 的结果即可
+    （agent 维度独立校验，不触碰 user 键）。
+
+    Raises:
+        TypeError: ``raw`` 非 ``None`` 且非 ``Mapping``，或 agent 键值
+            不是 ``str``。
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, Mapping):
+        raise TypeError(
+            f"authz_attributes must be a Mapping, got {type(raw).__name__}"
+        )
+    identity: dict[str, str] = {}
+    for key in _AGENT_IDENTITY_KEYS:
+        value = raw.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            raise TypeError(
+                f"authz attribute '{key}' must be a str, got {type(value).__name__}"
+            )
+        if value:
+            identity[key] = value
+    return identity
+
+
 def build_principal_from_context(
     context: Mapping[str, Any],
     *,

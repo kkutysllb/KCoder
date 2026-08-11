@@ -29,7 +29,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Mapping
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict, cast
 
 SUBAGENT_STATUS_KEY = "subagent_status"
 SUBAGENT_STOP_REASON_KEY = "subagent_stop_reason"
@@ -260,11 +260,12 @@ def read_subagent_result_metadata(
     # maps to the Phase 2 ``completed + turn_capped`` shape (partial survives on
     # the wire); one with no result maps to ``failed + turn_capped``.
     legacy_stop_reason = _LEGACY_STATUS_NORMALIZATION.get(raw_status) if isinstance(raw_status, str) else None
+    status: SubagentStatusValue
     if legacy_stop_reason is not None:
         raw_result_brief = additional_kwargs.get(SUBAGENT_RESULT_BRIEF_KEY)
         status = "completed" if (isinstance(raw_result_brief, str) and raw_result_brief.strip()) else "failed"
-    elif raw_status in SUBAGENT_STATUS_VALUES:
-        status = raw_status
+    elif isinstance(raw_status, str) and raw_status in SUBAGENT_STATUS_VALUES:
+        status = cast(SubagentStatusValue, raw_status)
     else:
         return None
     payload: StructuredSubagentResult = {"status": status}

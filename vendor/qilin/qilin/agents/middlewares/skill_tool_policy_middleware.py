@@ -12,14 +12,24 @@ from typing import TYPE_CHECKING, override
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
-from langchain.agents.middleware.types import ModelCallResult, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import (
+    ModelCallResult,
+    ModelRequest,
+    ModelResponse,
+)
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
-from qilin.runtime.secret_context import SKILL_TOOL_POLICY_DECISION_CONTEXT_KEY, read_slash_skill_source_path
+from qilin.runtime.secret_context import (
+    SKILL_TOOL_POLICY_DECISION_CONTEXT_KEY,
+    read_slash_skill_source_path,
+)
 from qilin.skills.storage import get_or_new_skill_storage, get_or_new_user_skill_storage
-from qilin.skills.tool_policy import ALWAYS_AVAILABLE_BUILTIN_TOOL_NAMES, allowed_tool_names_for_skills
+from qilin.skills.tool_policy import (
+    ALWAYS_AVAILABLE_BUILTIN_TOOL_NAMES,
+    allowed_tool_names_for_skills,
+)
 from qilin.skills.types import Skill
 
 if TYPE_CHECKING:
@@ -86,7 +96,7 @@ class SkillToolPolicyMiddleware(AgentMiddleware[AgentState]):
         if isinstance(state, Mapping):
             entries = state.get("skill_context") or []
         elif hasattr(state, "skill_context"):
-            entries = getattr(state, "skill_context") or []
+            entries = state.skill_context or []
         else:
             logger.warning("Unsupported agent state shape for skill tool policy: %s", type(state).__name__)
             entries = []
@@ -163,7 +173,7 @@ class SkillToolPolicyMiddleware(AgentMiddleware[AgentState]):
                 "allowed_names": None if allowed is None else sorted(allowed),
             }
 
-    def _read_policy_decision(self, context: dict | None, policy: _PolicySignature) -> set[str] | None | object:
+    def _read_policy_decision(self, context: dict | None, policy: _PolicySignature) -> set[str] | object | None:
         if context is None:
             return _MISSING_POLICY_DECISION
         decision = context.get(SKILL_TOOL_POLICY_DECISION_CONTEXT_KEY)

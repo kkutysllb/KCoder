@@ -74,7 +74,11 @@ except ImportError:  # pragma: no cover - Windows fallback
 from qilin.config.app_config import AppConfig
 from qilin.config.paths import Paths, get_paths
 from qilin.integrations.lark_broker import LARK_BROKER_URL_ENV
-from qilin.skills.installer import is_executable_binary_prefix, is_symlink_member, is_unsafe_zip_member
+from qilin.skills.installer import (
+    is_executable_binary_prefix,
+    is_symlink_member,
+    is_unsafe_zip_member,
+)
 from qilin.skills.parser import parse_skill_file
 from qilin.skills.permissions import make_skill_tree_sandbox_readable
 from qilin.skills.types import SKILL_MD_FILE, SkillCategory
@@ -352,7 +356,7 @@ def _download_lark_release_asset(version: str, asset_name: str, *, max_bytes: in
                 chunks.append(chunk)
     except ValueError:
         raise
-    except Exception as exc:  # noqa: BLE001 - network boundary
+    except Exception as exc:
         raise ValueError(f"Could not download official Lark CLI release asset {asset_name!r} for {version}.") from exc
     return b"".join(chunks)
 
@@ -586,7 +590,7 @@ def _probe_lark_cli_at_path(path: str) -> LarkCliProbe:
             text=True,
             timeout=5,
         )
-    except Exception as exc:  # noqa: BLE001 - probe boundary
+    except Exception as exc:
         return LarkCliProbe(available=False, path=path, error=str(exc))
 
     output = (result.stdout or result.stderr or "").strip()
@@ -624,7 +628,7 @@ def probe_lark_auth(user_id: str, *, verify: bool = False) -> LarkAuthProbe:
         )
     except subprocess.TimeoutExpired:
         return LarkAuthProbe(status="error", message="lark-cli auth status timed out")
-    except Exception as exc:  # noqa: BLE001 - probe boundary
+    except Exception as exc:
         return LarkAuthProbe(status="error", message=str(exc))
 
     raw = (result.stdout or result.stderr or "").strip()
@@ -745,7 +749,7 @@ def sandbox_lark_broker_active(config: AppConfig | None = None) -> bool:
             from qilin.config.app_config import get_app_config
 
             config = get_app_config()
-        except Exception:  # noqa: BLE001 - degrade to non-broker overlay
+        except Exception:
             return False
 
     now = time.monotonic()
@@ -790,8 +794,8 @@ def get_lark_integration_status(
         latest_available_version=latest_available,
         runtime_version_mismatch=_versions_drifted(manifest_version, cli.version),
         app_configured=bool(app_config["configured"]),
-        app_id=app_config["app_id"],
-        app_brand=app_config["brand"],
+        app_id=app_config["app_id"] if isinstance(app_config["app_id"], str) else None,
+        app_brand=app_config["brand"] if isinstance(app_config["brand"], str) else None,
         skills_expected=len(LARK_SKILL_NAMES),
         skills_installed=len(installed_skills),
         installed_skills=installed_skills,
@@ -1276,7 +1280,7 @@ def _post_lark_form(url: str, body: bytes) -> dict[str, Any]:
     try:
         with urllib.request.urlopen(request, timeout=LARK_HTTP_TIMEOUT_SECONDS) as response:
             raw = response.read().decode("utf-8")
-    except Exception as exc:  # noqa: BLE001 - network boundary
+    except Exception as exc:
         raise ValueError(f"Lark app registration request failed: {exc}") from exc
     parsed = _parse_json_object(raw)
     if parsed is None:
@@ -1443,7 +1447,7 @@ def _resolve_latest_lark_cli_version() -> str:
         version = _normalize_lark_cli_version_tag(tag)
         if version is not None:
             return version
-    except Exception:  # noqa: BLE001 - version discovery is best-effort
+    except Exception:
         pass
     return FALLBACK_LARK_CLI_VERSION
 
@@ -1468,7 +1472,7 @@ def _cached_latest_lark_cli_version() -> str | None:
             data = json.loads(response.read().decode("utf-8"))
         tag = str(data.get("tag_name") or "").strip() if isinstance(data, dict) else ""
         version = _normalize_lark_cli_version_tag(tag)
-    except Exception:  # noqa: BLE001 - status probe is best-effort
+    except Exception:
         version = None
     _cached_latest_lark_cli_version._cache = (now, version)  # type: ignore[attr-defined]
     return version
@@ -1505,7 +1509,7 @@ def _download_lark_archive(version: str) -> Path:
     except ValueError:
         archive_path.unlink(missing_ok=True)
         raise
-    except Exception as exc:  # noqa: BLE001 - network boundary
+    except Exception as exc:
         archive_path.unlink(missing_ok=True)
         raise ValueError(f"Could not download the Lark skill pack ({version}) from GitHub. Check the Gateway's internet access, or pre-stage the archive via {LARK_CLI_SOURCE_ARCHIVE_ENV}.") from exc
     return archive_path

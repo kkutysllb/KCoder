@@ -13,7 +13,7 @@ from __future__ import annotations
 import importlib.metadata
 import logging
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 from langgraph.channels.binop import BinaryOperatorAggregate
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -25,11 +25,14 @@ from packaging.version import Version
 logger = logging.getLogger(__name__)
 
 _PATCH_FLAG = "_qilin_delta_history_patched"
-# The patch was authored and verified against langgraph 1.2.9
-# (langgraph/checkpoint/memory/__init__.py::InMemorySaver.get_delta_channel_history).
+# The patch was authored and verified against langgraph 1.2.9, and re-verified
+# against 1.2.10 (langgraph-checkpoint 4.1.1): the InMemorySaver override in
+# langgraph/checkpoint/memory/__init__.py::InMemorySaver.get_delta_channel_history
+# is byte-identical between the two releases, and the migration first-message
+# drop is still reproducible (see tests/test_checkpoint_patches.py).
 # On any newer LangGraph the override must be re-inspected before keeping the
 # patch: if upstream fixed or removed it, this module must stand down.
-_PATCH_VALIDATED_LANGGRAPH_VERSION = Version("1.2.9")
+_PATCH_VALIDATED_LANGGRAPH_VERSION = Version("1.2.10")
 
 
 def _get_delta_channel_history_via_base(self: Any, *, config: Any, channels: Any) -> Any:
@@ -128,9 +131,9 @@ def _binop_first_write_stores_overwrite_wrapper() -> bool:
     MISSING) - the same shape as ``ThreadState``'s ``sandbox`` / ``goal`` /
     ``todos`` / ``promoted`` channels.
     """
-    channel = BinaryOperatorAggregate(dict | None, lambda existing, new: new)
+    channel = BinaryOperatorAggregate(cast(Any, dict | None), lambda existing, new: new)
     channel.key = "qilin-overwrite-probe"
-    channel.update([Overwrite({"probe": True})])
+    channel.update([cast(Any, Overwrite({"probe": True}))])
     return isinstance(channel.get(), Overwrite)
 
 

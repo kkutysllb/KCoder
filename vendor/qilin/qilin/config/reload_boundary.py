@@ -77,6 +77,10 @@ STARTUP_ONLY_FIELDS: dict[str, str] = {
         "make_inbound_dedupe_store() resolves the inbound dedupe store once when ChannelService is constructed at startup; the store "
         "(in-process memory or shared Postgres) is captured onto ChannelManager and is not rebuilt on config.yaml edits."
     ),
+    "orchestration": (
+        "make_lead_agent() builds either the v1 lead-agent graph or the multi-agent orchestrator graph based on orchestration.mode at "
+        "graph-construction time; switching single <-> multi (or changing the worker registry) rebuilds the graph and needs a restart."
+    ),
 }
 
 
