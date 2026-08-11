@@ -28,6 +28,7 @@
  * 查找，agent 通过 delegate_task(subagent_type="<id>") 调用。
  */
 import { readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { resolveConfigYamlPath, atomicWrite } from './qilin-config-injector'
@@ -146,8 +147,11 @@ function replaceCustomAgentsSection(original: string, newBlock: string): string 
 }
 
 /**
- * 读 `<dataDir>/kcoder_local/sub_agents.json`，转换为 custom_agents YAML，
- * 注入 config.yaml 的 `subagents.custom_agents:` 子段。
+ * 读 `<dataDir>/kcoder_local/sub_agents.json`（v0.1 仓库内）或
+ * `<dataDir>/product/kcoder_local/sub_agents.json`（v0.2 数据根），
+ * 转换为 custom_agents YAML，注入 config.yaml 的 `subagents.custom_agents:` 子段。
+ *
+ * 路径解析优先 v0.2 位置（统一数据根的 product/）；不存在时回退 v0.1 位置。
  *
  * - 文件不存在（ENOENT）→ 静默跳过（保留 config.yaml 原状，首次运行场景）
  * - 文件存在但为空数组 → 写入 `custom_agents: {}`（清空残留，支持删除场景）
@@ -158,7 +162,11 @@ function replaceCustomAgentsSection(original: string, newBlock: string): string 
  *   2. SubAgentsSettings 保存成功后（renderer 经 IPC 触发）
  */
 export async function syncSubAgents(dataDir: string): Promise<void> {
-  const jsonPath = join(dataDir, 'kcoder_local', 'sub_agents.json')
+  // v0.2: <dataDir>/product/kcoder_local/sub_agents.json
+  // v0.1 回退：<dataDir>/kcoder_local/sub_agents.json
+  const v02Path = join(dataDir, 'product', 'kcoder_local', 'sub_agents.json')
+  const v01Path = join(dataDir, 'kcoder_local', 'sub_agents.json')
+  const jsonPath = existsSync(v02Path) ? v02Path : v01Path
   let raw: string
   try {
     raw = await readFile(jsonPath, 'utf8')

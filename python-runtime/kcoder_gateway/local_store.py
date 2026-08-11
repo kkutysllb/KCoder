@@ -26,13 +26,29 @@ _LOCAL_SUBDIR = "kcoder_local"
 
 
 def resolve_local_dir(request: Request) -> Path:
-    """Return the gateway-local storage directory ``<dataDir>/kcoder_local/``.
+    """Return the gateway-local storage directory.
 
-    Resolved from ``request.app.state.data_dir`` when main.py sets it (the
-    runtime directory, sibling of config.yaml). Falls back to a process-cwd
-    ``./kcoder_local`` so manual ``python -m kcoder_gateway.main`` debugging
-    still works. Always creates the directory so callers can write directly.
+    v0.2: 优先使用 ``<app_data_dir>/product/kcoder_local/``（统一数据根）。
+    v0.1 回退：``<runtime_dir>/kcoder_local/``（仓库内 sidecar 自管 JSON）。
+
+    解析优先级：
+    1. ``KCODER_APP_DATA_DIR`` 环境变量 → ``<env>/product/kcoder_local/``
+    2. ``request.app.state.data_dir``（main.py 设置的 runtime_dir）
+       → ``<runtime_dir>/kcoder_local/``（向后兼容）
+
+    Always creates the directory so callers can write directly.
     """
+    # v0.2: 优先用 KCODER_APP_DATA_DIR
+    app_data = os.environ.get("KCODER_APP_DATA_DIR")
+    if app_data:
+        local_dir = Path(app_data) / "product" / _LOCAL_SUBDIR
+        try:
+            local_dir.mkdir(parents=True, exist_ok=True)
+            return local_dir
+        except OSError:
+            logger.debug("v02 local_dir mkdir failed for %s", local_dir, exc_info=True)
+
+    # v0.1 回退：runtime_dir / kcoder_local
     data_dir = Path(getattr(request.app.state, "data_dir", "") or ".")
     local_dir = data_dir / _LOCAL_SUBDIR
     try:

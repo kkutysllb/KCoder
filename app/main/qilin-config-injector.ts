@@ -15,6 +15,7 @@
  *   5. 原子写入（同目录 tmp + rename），避免引擎读到半写文件
  */
 import { readFile, writeFile, rename } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { FileUserDataStore, type UserModelProfileRecord } from './user-data-store'
@@ -154,7 +155,11 @@ export async function syncEngineModels(dataDir: string, userId: string): Promise
  * 用于引擎启动时（userId 未知）的防御性注入。无 profile / 文件不存在时静默跳过。
  */
 export async function syncEngineModelsBestEffort(dataDir: string): Promise<void> {
-  const userDataPath = join(dataDir, 'system', 'data', 'user-data.json')
+  // v0.2: user-data.json 在 <dataDir>/config/user-data.json（统一数据根）
+  // 回退：<dataDir>/system/data/user-data.json（v0.1 兼容）
+  const newPath = join(dataDir, 'config', 'user-data.json')
+  const legacyPath = join(dataDir, 'system', 'data', 'user-data.json')
+  const userDataPath = existsSync(newPath) ? newPath : (existsSync(legacyPath) ? legacyPath : newPath)
   let raw: string
   try {
     raw = await readFile(userDataPath, 'utf8')

@@ -18,6 +18,11 @@ extraResources:
       - "!**/__pycache__/**/*"
       - "!**/*.pyc"
       - "!**/*.map"
+  # Tray icons (跨平台托盘图标资源；main/tray.ts 通过 process.resourcesPath/build/tray/ 引用)
+  - from: build/tray
+    to: build/tray
+    filter:
+      - "**/*"
 mac:
   category: public.app-category.developer-tools
   target:

@@ -27,8 +27,13 @@ export function createWindow(options: WindowOptions): BrowserWindow {
     }
   })
 
-  // Show window when ready
+  // Show window when ready, maximized by default.
+  //
+  // 用户首次启动 / 每次启动默认最大化窗口，提升开箱体验。用户手动还原后，
+  // 当前会话保留还原尺寸；下次启动仍然最大化（行为简单可预测，不绑定
+  // 持久化的窗口尺寸状态——若未来需要"记住上次尺寸"，可引入 electron-store）。
   mainWindow.on('ready-to-show', () => {
+    mainWindow.maximize()
     mainWindow.show()
   })
 

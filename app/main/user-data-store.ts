@@ -9,6 +9,7 @@
  */
 
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises'
+import { existsSync, mkdirSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -67,7 +68,21 @@ export class FileUserDataStore {
   private current: UserDataSnapshot = emptySnapshot()
 
   constructor(options: { workspaceRoot: string }) {
-    this.path = join(options.workspaceRoot, 'system', 'data', 'user-data.json')
+    // v0.2: user-data.json 落在 <workspaceRoot>/config/（统一数据根的子目录）
+    // 兼容 v0.1：若新位置不存在但旧 <workspaceRoot>/system/data/user-data.json
+    // 存在，自动迁移过来（一次性）
+    const newPath = join(options.workspaceRoot, 'config', 'user-data.json')
+    const legacyPath = join(options.workspaceRoot, 'system', 'data', 'user-data.json')
+    if (!existsSync(newPath) && existsSync(legacyPath)) {
+      try {
+        mkdirSync(dirname(newPath), { recursive: true })
+        renameSync(legacyPath, newPath)
+        console.log(`[KCoder] Migrated user-data.json: ${legacyPath} → ${newPath}`)
+      } catch (err) {
+        console.warn(`[KCoder] user-data.json migration failed, falling back to legacy path`, err)
+      }
+    }
+    this.path = newPath
   }
 
   async listModelProfiles(

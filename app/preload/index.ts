@@ -9,12 +9,17 @@ contextBridge.exposeInMainWorld('kcoder', {
   window: {
     minimize: () => ipcRenderer.send('window-minimize'),
     maximize: () => ipcRenderer.send('window-maximize'),
-    close: () => ipcRenderer.send('window-close')
+    close: () => ipcRenderer.send('window-close'),
+    // Toggle maximize/restore — used by the landing page's double-click-on-header.
+    // Returns the new maximized state.
+    toggleMaximize: () => ipcRenderer.invoke('window-toggle-maximize') as Promise<boolean>,
+    // Query current maximized state (for UI affordance sync).
+    isMaximized: () => ipcRenderer.invoke('window-is-maximized') as Promise<boolean>
   },
 
   // Send messages to main process
   send: (channel: string, ...args: unknown[]) => {
-    const validChannels = ['save-settings']
+    const validChannels = ['save-settings', 'tray:update-locale']
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, ...args)
     }
@@ -37,7 +42,7 @@ contextBridge.exposeInMainWorld('kcoder', {
 
   // IPC event listeners
   on: (channel: string, callback: (...args: unknown[]) => void) => {
-    const validChannels = ['new-chat', 'open-settings', 'workspace-opened']
+    const validChannels = ['new-chat', 'open-settings', 'workspace-opened', 'window-state-changed']
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, (_event, ...args) => callback(...args))
     }
@@ -96,6 +101,8 @@ declare global {
         minimize: () => void
         maximize: () => void
         close: () => void
+        toggleMaximize: () => Promise<boolean>
+        isMaximized: () => Promise<boolean>
       }
       send: (channel: string, ...args: unknown[]) => void
       on: (channel: string, callback: (...args: unknown[]) => void) => void

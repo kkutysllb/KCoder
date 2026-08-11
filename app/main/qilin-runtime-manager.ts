@@ -33,10 +33,30 @@ export interface QiLinRuntimeConfig {
   runtimeDir?: string
   /** Gateway 监听端口（renderer-facing，127.0.0.1）。langgraph dev 用 port+1。 */
   port: number
-  /** 数据目录（.qilin/ 会建在这里）。默认 ~/.kcoder/qilin-data。 */
+  /**
+   * 用户数据根目录（v0.2 起统一 ~/.kcoder）。引擎数据 / 配置 / 日志都落在其下。
+   * 未指定时用 ~/.kcoder；可用 KCODER_APP_DATA_DIR 环境变量覆盖。
+   */
   dataDir?: string
   /** 启动超时毫秒；默认 60000。 */
   startupTimeoutMs?: number
+}
+
+/**
+ * 解析 KCoder 用户数据根目录（跨平台统一）。
+ *
+ * 优先级：
+ *   1. KCODER_APP_DATA_DIR 环境变量（命令行 / 调试覆盖）
+ *   2. ~/.kcoder（产品默认，macOS / Windows / Linux 一致）
+ *
+ * 选择 ~/.kcoder 而非系统 Application Support 目录：避免 macOS 空格路径
+ * 被 sandbox bash 拆词；数据可见可备份；与仓库内调试缓存区分。
+ */
+export function resolveAppDataDir(): string {
+  if (process.env.KCODER_APP_DATA_DIR) {
+    return process.env.KCODER_APP_DATA_DIR
+  }
+  return join(homedir(), '.kcoder')
 }
 
 interface RunningHandle {
@@ -119,9 +139,17 @@ export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: nu
   // 回填到 config，使 resolvePython 能探测 <runtimeDir>/.venv/bin/python
   config.runtimeDir = runtimeDir
 
-  // 确保 dataDir 存在（langgraph dev 会在里面建 sqlite 等）
-  const dataDir = config.dataDir || join(homedir(), '.kcoder', 'qilin-data')
-  mkdirSync(dataDir, { recursive: true })
+  // ── v0.2: 用户数据空间统一根 ~/.kcoder ────────────────────────────
+  // 建立六大子目录（config/runtime/product/cache/logs/backups），并把数据根
+  // 通过 KCODER_APP_DATA_DIR 环境变量传给 sidecar。sidecar 内部的
+  // KCoderDataSpace 模块负责生成 qilin.runtime.yaml + 迁移 v0.1 散落数据。
+  const appDataDir = config.dataDir || resolveAppDataDir()
+  const subDirs = ['config', 'runtime', 'runtime/qilin', 'runtime/qilin/data',
+                   'runtime/langgraph_api', 'product', 'cache', 'logs', 'backups']
+  for (const sub of subDirs) {
+    mkdirSync(join(appDataDir, sub), { recursive: true })
+  }
+  console.log(`[KCoder] App data dir: ${appDataDir}`)
 
   const pythonPath = resolvePython(config)
   const gatewayPort = config.port
@@ -132,6 +160,26 @@ export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: nu
     `[KCoder] Starting QiLin sidecar: python=${pythonPath}, ` +
       `gateway=${gatewayPort}, langgraph=${langgraphPort}, runtimeDir=${runtimeDir}`
   )
+
+  // sidecar 子进程共享的数据根 / QiLin 配置路径环境变量
+  // 注意：QILIN_CONFIG_PATH 最终指向 <appDataDir>/config/qilin.runtime.yaml，
+  // 该文件由 sidecar 的 KCoderDataSpace 在首次启动时生成。这里检查：
+  //   - 已存在 → 直接用（langgraph dev + gateway 都读它）
+  //   - 不存在 → 让 sidecar 自己生成；langgraph dev 首次启动用仓库内 config.yaml
+  //     作为 fallback，gateway 启动后 KCoderDataSpace 会生成 runtime.yaml 供下次使用
+  const sidecarEnv: NodeJS.ProcessEnv = { ...process.env }
+  const runtimeConfigPath = join(appDataDir, 'config', 'qilin.runtime.yaml')
+  if (existsSync(runtimeConfigPath)) {
+    sidecarEnv.QILIN_CONFIG_PATH = runtimeConfigPath
+    console.log(`[KCoder] Using existing runtime config: ${runtimeConfigPath}`)
+  } else {
+    // 首次启动：langgraph dev 用仓库内 config.yaml，gateway 启动后会生成
+    // runtime.yaml 供下次使用
+    sidecarEnv.QILIN_CONFIG_PATH = join(runtimeDir, 'config.yaml')
+    console.log(`[KCoder] First run: using template config, will generate runtime.yaml`)
+  }
+  sidecarEnv.KCODER_APP_DATA_DIR = appDataDir
+  sidecarEnv.QILIN_HOME = join(appDataDir, 'runtime', 'qilin')
 
   // ── 1. 启动 langgraph dev（QiLin service，内部端口）
   const langgraphArgs = [
@@ -150,12 +198,7 @@ export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: nu
 
   const langgraphChild = spawn(pythonPath, langgraphArgs, {
     cwd: runtimeDir,
-    env: {
-      ...process.env,
-      QILIN_CONFIG_PATH: join(runtimeDir, 'config.yaml'),
-      QILIN_EXTENSIONS_CONFIG_PATH: join(runtimeDir, 'extensions_config.json'),
-      LANGGRAPH_API_URL: `http://127.0.0.1:${langgraphPort}`
-    },
+    env: sidecarEnv,
     stdio: ['ignore', 'pipe', 'pipe']
   })
 
@@ -175,11 +218,10 @@ export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: nu
   const gatewayChild = spawn(pythonPath, ['-m', 'kcoder_gateway.main'], {
     cwd: runtimeDir,
     env: {
-      ...process.env,
+      ...sidecarEnv,
       KCODER_GATEWAY_PORT: String(gatewayPort),
       KCODER_GATEWAY_HOST: '127.0.0.1',
       QILIN_SERVICE_URL: `http://127.0.0.1:${langgraphPort}`,
-      QILIN_CONFIG_PATH: join(runtimeDir, 'config.yaml'),
       QILIN_EXTENSIONS_CONFIG_PATH: join(runtimeDir, 'extensions_config.json')
     },
     stdio: ['ignore', 'pipe', 'pipe']

@@ -292,14 +292,43 @@ def main() -> None:
         stream=sys.stdout,
     )
 
-    # Ensure QiLin can find config.yaml regardless of cwd.
     runtime_dir = Path(__file__).resolve().parent.parent
-    config_path = os.environ.get("QILIN_CONFIG_PATH") or str(runtime_dir / "config.yaml")
-    if Path(config_path).exists():
-        os.environ.setdefault("QILIN_CONFIG_PATH", config_path)
-        logger.info("QiLin config path: %s", config_path)
-    else:
-        logger.warning("QiLin config.yaml not found at %s", config_path)
+
+    # ── 用户数据空间初始化（v0.2 起统一根 ~/.kcoder）────────────────────
+    # 解析数据根 → 创建子目录 → 生成 runtime config → 注入环境变量
+    # 失败时降级到旧逻辑（仓库内 config.yaml），保证兼容性
+    try:
+        space = KCoderDataSpace.resolve()
+        space.ensure_directories()
+        space.ensure_local_user()
+
+        # v0.1 散落数据迁移（幂等，仅首次触发）
+        repo_root = runtime_dir.parent
+        migrated = space.migrate_from_v01(repo_root)
+        if migrated:
+            logger.info("Migrated %d items from v0.1 layout", migrated)
+
+        # 生成 runtime config（首次从模板，已存在时增量合并）
+        template_path = runtime_dir / "config.yaml"
+        if template_path.exists():
+            runtime_cfg = space.write_runtime_config(template_path)
+            # 注入环境变量，覆盖仓库内 config.yaml
+            os.environ["QILIN_CONFIG_PATH"] = str(runtime_cfg)
+            os.environ["QILIN_HOME"] = str(space.qilin_home)
+            os.environ.setdefault("KCODER_APP_DATA_DIR", str(space.root))
+            logger.info("Data space ready: root=%s", space.root)
+            logger.info("Runtime config: %s", runtime_cfg)
+    except Exception:
+        logger.exception(
+            "Data space init failed (non-fatal, falling back to repo-local config)"
+        )
+        # 降级：使用仓库内 config.yaml（v0.1 行为）
+        config_path = os.environ.get("QILIN_CONFIG_PATH") or str(runtime_dir / "config.yaml")
+        if Path(config_path).exists():
+            os.environ.setdefault("QILIN_CONFIG_PATH", config_path)
+            logger.info("Fallback QiLin config path: %s", config_path)
+        else:
+            logger.warning("No QiLin config.yaml found at %s", config_path)
 
     # Phase 3: 生成 extensions_config.json（worktree-overlay MCP 注册）
     _ensure_extensions_config(runtime_dir)

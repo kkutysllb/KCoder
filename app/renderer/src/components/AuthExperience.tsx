@@ -119,8 +119,27 @@ export function AuthExperience({ auth, enginePort }: AuthExperienceProps) {
   const [showConfirm, setShowConfirm] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [isMaximized, setIsMaximized] = useState(false)
 
   const api = useMemo(() => getEngineAPI(enginePort), [enginePort])
+
+  // 同步窗口最大化状态（用于双击 header 的 UI affordance）
+  useEffect(() => {
+    window.kcoder.window.isMaximized().then(setIsMaximized).catch(() => {})
+    const onStateChanged = (state: unknown) => {
+      if (state && typeof state === 'object' && 'maximized' in state) {
+        setIsMaximized(Boolean((state as { maximized: boolean }).maximized))
+      }
+    }
+    window.kcoder.on('window-state-changed', onStateChanged)
+    return () => window.kcoder.off('window-state-changed', onStateChanged)
+  }, [])
+
+  // 双击 header 区域：切换窗口最大化/还原。
+  // macOS 标题栏原生行为；Windows / Linux 用户也可用。
+  const handleHeaderDoubleClick = useCallback(() => {
+    window.kcoder.window.toggleMaximize().then(setIsMaximized).catch(() => {})
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -193,7 +212,18 @@ export function AuthExperience({ auth, enginePort }: AuthExperienceProps) {
     <main className="min-h-screen overflow-auto bg-[#080b10] text-white">
       <div className="mx-auto grid min-h-screen max-w-[1440px] lg:grid-cols-[1.08fr_0.92fr]">
         <section className="relative flex min-h-[580px] flex-col overflow-hidden border-b border-white/[0.08] px-7 py-8 sm:px-12 lg:min-h-screen lg:border-b-0 lg:border-r lg:px-16 lg:py-10">
-          <div className="relative z-10 flex items-center justify-between">
+          {/* Header row — double-click toggles window maximize/restore.
+              macOS-style titlebar behavior; works on Windows/Linux too.
+              app-region: drag is NOT applied because we're in BrowserView
+              (not the OS titlebar); drag would swallow the dblclick event. */}
+          <div
+            className="relative z-10 flex items-center justify-between"
+            onDoubleClick={handleHeaderDoubleClick}
+            title={isMaximized ? t('auth.page.windowRestore') : t('auth.page.windowMaximize')}
+            role="button"
+            tabIndex={0}
+            aria-label={isMaximized ? t('auth.page.windowRestore') : t('auth.page.windowMaximize')}
+          >
             <BrandMark large />
             <span className="hidden text-[11px] uppercase tracking-[0.22em] text-[#71849a] sm:block">Local agent workspace</span>
           </div>

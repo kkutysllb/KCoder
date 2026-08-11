@@ -46,7 +46,9 @@ export interface EngineConfig {
 function getDefaultConfig(): EngineConfig {
   return {
     port: 18899 + Math.floor(Math.random() * 1000), // 与原版相同的随机端口范围
-    dataDir: join(homedir(), '.kcoder', 'qilin-data'),
+    // v0.2: 数据根统一为 ~/.kcoder（不再是 ~/.kcoder/qilin-data）
+    // 六大子目录由 runtime-manager 创建，sidecar 的 KCoderDataSpace 管理细节
+    dataDir: join(homedir(), '.kcoder'),
     runtimeToken: randomBytes(32).toString('hex'),
     apiKey: process.env.KCODER_API_KEY || '',
     baseUrl: process.env.KCODER_BASE_URL || '',

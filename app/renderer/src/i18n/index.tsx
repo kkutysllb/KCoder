@@ -160,6 +160,8 @@ const zhCN: Dict = {
   'auth.page.back': '返回',
   'auth.page.showPassword': '显示密码',
   'auth.page.hidePassword': '隐藏密码',
+  'auth.page.windowMaximize': '双击最大化窗口',
+  'auth.page.windowRestore': '双击还原窗口',
 
   // WelcomeScreen
   'welcome.morning': '早上好，新的一天从代码开始',
@@ -763,6 +765,8 @@ const en: Dict = {
   'auth.page.back': 'Back',
   'auth.page.showPassword': 'Show password',
   'auth.page.hidePassword': 'Hide password',
+  'auth.page.windowMaximize': 'Double-click to maximize window',
+  'auth.page.windowRestore': 'Double-click to restore window',
 
   // WelcomeScreen
   'welcome.morning': 'Good morning, start the day with code',
@@ -1245,6 +1249,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l)
+    // 通知 main 进程同步 tray 菜单语言（main 进程持有独立的 tray 文案字典）
+    try {
+      window.kcoder.send('tray:update-locale', l)
+    } catch {
+      // preload 未就绪或被沙箱拦截时静默降级
+    }
   }, [])
 
   const t = useCallback(
