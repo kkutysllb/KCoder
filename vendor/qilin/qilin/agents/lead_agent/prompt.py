@@ -19,7 +19,7 @@ from qilin.constants import DEFAULT_SKILLS_CONTAINER_PATH
 from qilin.skills.storage import get_or_new_skill_storage, get_or_new_user_skill_storage
 from qilin.skills.types import Skill, SkillCategory
 from qilin.subagents import get_available_subagent_names
-from qilin.tools.builtins.tool_search import get_deferred_tools_prompt_section
+from qilin.tools.builtins.tool_search import get_deferred_tools_prompt_section, get_mcp_inventory_prompt_section
 
 if TYPE_CHECKING:
     from qilin.config.app_config import AppConfig
@@ -607,6 +607,8 @@ You: "Deploying to staging..." [proceed]
 {memory_tool_section}
 
 
+{mcp_inventory_section}
+
 {deferred_tools_section}
 
 {mcp_routing_hints_section}
@@ -1025,6 +1027,7 @@ def apply_prompt_template(
     app_config: AppConfig | None = None,
     deferred_names: frozenset[str] = frozenset(),
     mcp_routing_hints_section: str = "",
+    mcp_tools: list | None = None,
     user_id: str | None = None,
     skill_names: frozenset[str] | None = None,
 ) -> str:
@@ -1066,6 +1069,12 @@ def apply_prompt_template(
     # Get deferred tools section (tool_search)
     deferred_tools_section = get_deferred_tools_prompt_section(deferred_names=deferred_names)
 
+    # MCP inventory: factual list of bound MCP servers + tools. Lets the agent
+    # describe its integrations truthfully instead of defaulting to "no MCP".
+    # Computed here (not in agent.py) so every build path renders it the same way
+    # and the caller only needs to forward the bound tool list.
+    mcp_inventory_section = get_mcp_inventory_prompt_section(mcp_tools or [])
+
     # Build ACP agent section only if ACP agents are configured
     acp_section = _build_acp_section(app_config=app_config)
     custom_mounts_section = _build_custom_mounts_section(app_config=app_config)
@@ -1090,6 +1099,7 @@ def apply_prompt_template(
         soul=get_agent_soul(agent_name, user_id=user_id),
         self_update_section=_build_self_update_section(agent_name),
         skills_section=skills_section,
+        mcp_inventory_section=mcp_inventory_section,
         deferred_tools_section=deferred_tools_section,
         mcp_routing_hints_section=mcp_routing_hints_section,
         subagent_section=subagent_section,

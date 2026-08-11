@@ -2,10 +2,11 @@ QiLin engine vendored into KCoder
 ===================================
 
 Upstream: https://github.com/kkutysllb/QiLin
-Tag:      v1.0.0
-Commit:   4b9cb74306b75ed5741b53d8543a4c9da7f64f9a
-Date:     2026-07-29
-Imported: 2026-07-30 via `git subtree add --prefix=vendor/qilin`
+Tag:      v2.0.0
+Commit:   720a9c5aa5671ed84ed0afa96ecff03d019532a2
+Date:     2026-08-07
+Imported: 2026-07-30 via `git subtree add --prefix=vendor/qilin` (v1.0.0)
+Upgraded: 2026-08-11 via `git subtree pull` to v2.0.0 (multi-agent framework)
 
 跟进上游更新:
     git subtree pull --prefix=vendor/qilin qilin-upstream <new-tag> \\
@@ -13,3 +14,22 @@ Imported: 2026-07-30 via `git subtree add --prefix=vendor/qilin`
 
 KCoder 对引擎本体的改动应优先推回上游；若必须本地 fork，
 请在此文件追加 "LOCAL PATCHES" 段落说明改动点。
+
+LOCAL PATCHES
+-------------
+以下改动相对上游 v2.0.0 存在本地 fork，升级时需在新基线上重新应用：
+
+1. MCP 能力清单 prompt section（让 Agent 如实描述其 MCP 集成）
+   - qilin/tools/builtins/tool_search.py: 新增 get_mcp_inventory_prompt_section()
+     生成 <mcp_capability> 段，按 server 分组列出已绑定的 MCP 工具。
+   - qilin/agents/lead_agent/prompt.py: apply_prompt_template 增加 mcp_tools
+     参数，在系统提示词中渲染 mcp_inventory_section。
+   - qilin/agents/lead_agent/agent.py: 两处 apply_prompt_template 调用点
+     （bootstrap 分支约 846 行、default 分支约 931 行）传入 mcp_tools=final_tools。
+   状态：待推回上游。
+
+2. 技能 frontmatter 白名单兼容 KSkills 技能包
+   - qilin/skills/frontmatter.py: KNOWN 字段白名单增加 "package"
+     （标记技能包类型；运行时解析器本就忽略该字段，加入仅为让
+     _validate_skill_frontmatter 与运行时行为一致）。
+   状态：可推回上游（小改动，无副作用）。

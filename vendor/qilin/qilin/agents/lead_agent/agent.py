@@ -843,6 +843,7 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
                 deferred_names=setup.deferred_names,
                 user_id=resolved_user_id,
                 skill_names=skill_setup.skill_names or None,
+                mcp_tools=final_tools,
             ),
             state_schema=get_thread_state_schema(mode),
         )
@@ -923,10 +924,11 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
             agent_name=agent_name,
             available_skills=available_skills,
             app_config=resolved_app_config,
-            deferred_names=setup.deferred_names,
-            mcp_routing_hints_section=mcp_routing_hints_section,
-            user_id=resolved_user_id,
-            skill_names=skill_setup.skill_names or None,
+                deferred_names=setup.deferred_names,
+                mcp_routing_hints_section=mcp_routing_hints_section,
+                user_id=resolved_user_id,
+                skill_names=skill_setup.skill_names or None,
+                mcp_tools=final_tools,
         ),
         state_schema=get_thread_state_schema(mode),
     )

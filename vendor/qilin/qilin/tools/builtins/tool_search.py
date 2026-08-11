@@ -342,3 +342,52 @@ def get_mcp_routing_hints_prompt_section(tools: Iterable[BaseTool], *, deferred_
             lines.append(f"  prefer the `{esc_name}` tool.")
     lines.append("</mcp_routing_hints>")
     return "\n".join(lines)
+
+
+def get_mcp_inventory_prompt_section(tools: Iterable[BaseTool]) -> str:
+    """Generate <mcp_capability> section listing bound MCP servers and their tools.
+
+    This is the single source of truth the agent uses to describe its MCP
+    integrations factually. Without it, the model has no way to tell which of
+    its bound tools come from MCP servers (the tool ``description`` does not
+    mention "MCP", and the ``qilin_mcp`` metadata tag is framework-internal),
+    so it falls back to its pretrained default of "I have no MCP servers" —
+    which is wrong once MCP tools are actually bound.
+
+    Returns an empty string when no MCP tools are bound, so the prompt stays
+    clean for agents without MCP integrations.
+
+    Grouping: MCP tools are named ``{server_name}_{original_name}`` by the
+    loader (see ``qilin.mcp.tools``). The server is the substring before the
+    first underscore. This matches how ``_wrap_mcp_tool`` strips the prefix to
+    recover the original tool name at call time.
+    """
+    mcp_tools = [t for t in tools if is_mcp_tool(t)]
+    if not mcp_tools:
+        return ""
+
+    by_server: dict[str, list[str]] = {}
+    for tool in mcp_tools:
+        parts = tool.name.split("_", 1)
+        if len(parts) == 2:
+            server, original = parts
+        else:
+            server, original = "mcp", tool.name
+        by_server.setdefault(server, []).append(original)
+
+    lines = [
+        "<mcp_capability>",
+        "You have access to the following MCP (Model Context Protocol) servers, connected at runtime.",
+        "These are real external integrations — when asked about your tools, capabilities, or integrations,",
+        "report them factually from this list. Do NOT claim you have no MCP servers while this section is present.",
+        "",
+    ]
+    for server in sorted(by_server):
+        tool_list = ", ".join(sorted(by_server[server]))
+        lines.append(f"- {server}: {tool_list}")
+    lines.extend([
+        "",
+        "When a user asks which MCP servers / external integrations / tools you have, answer from this section.",
+        "</mcp_capability>",
+    ])
+    return "\n".join(lines)
