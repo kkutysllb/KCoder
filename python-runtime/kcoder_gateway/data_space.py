@@ -209,7 +209,7 @@ class KCoderDataSpace:
             template_cfg: dict[str, Any] = yaml.safe_load(fh) or {}
 
         if self.runtime_config_path.exists():
-            self._merge_runtime_config(template_cfg)
+            self._merge_runtime_config(template_cfg, template_path)
             return self.runtime_config_path
 
         # 首次生成
@@ -226,12 +226,14 @@ class KCoderDataSpace:
         run_events["backend"] = "db"
         cfg["run_events"] = run_events
 
-        # 技能根目录转绝对路径（模板里是相对，如 ../skills）
+        # 技能根目录转绝对路径（模板里是相对 CWD 的，如 ../skills）
+        # template_path = python-runtime/config.yaml，其 parent 就是 CWD (python-runtime/)
+        # 所以相对路径 ../skills 应该以 template_path.parent 为基准解析
         skills = dict(cfg.get("skills") or {})
         skills_path = skills.get("path") or skills.pop("root", None) or "skills"
         cfg["skills"] = {
             **skills,
-            "path": str((template_path.parent.parent / skills_path).resolve()),
+            "path": str((template_path.parent / skills_path).resolve()),
         }
 
         self.runtime_config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -240,12 +242,14 @@ class KCoderDataSpace:
         logger.info("Generated runtime config: %s", self.runtime_config_path)
         return self.runtime_config_path
 
-    def _merge_runtime_config(self, template_cfg: dict[str, Any]) -> None:
+    def _merge_runtime_config(self, template_cfg: dict[str, Any], template_path: Path) -> None:
         """runtime.yaml 已存在时增量合并产品级段。
 
         - tools 段：直接用模板覆盖（产品级定义权威）
         - 其他段（models/memory/sandbox/database/subagents/...）：保留用户配置
         - skills.path 指向不存在目录时回退到内置技能包
+
+        ``template_path`` 用于计算技能回退路径（相对 CWD → 绝对路径）。
         """
         try:
             import yaml
@@ -277,11 +281,10 @@ class KCoderDataSpace:
         skills_path_str = existing_skills.get("path")
         if isinstance(skills_path_str, str) and skills_path_str:
             sp = Path(skills_path_str).expanduser()
-            if not sp.is_absolute():
-                sp = self.root.parent / sp  # best-effort：相对仓库根
             if not sp.exists():
+                # 技能路径失效：用模板里的相对路径（如 ../skills）从 CWD 解析绝对路径
                 template_skills_path = (template_cfg.get("skills") or {}).get("path", "skills")
-                bundled = (self.root.parent / template_skills_path).resolve()
+                bundled = (template_path.parent / template_skills_path).resolve()
                 if bundled.is_dir() and existing_skills.get("path") != str(bundled):
                     existing_skills["path"] = str(bundled)
                     existing["skills"] = existing_skills
