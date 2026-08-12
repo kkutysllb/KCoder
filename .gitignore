@@ -6,6 +6,7 @@ dist/
 out/
 .vite/
 *.tsbuildinfo
+electron.vite.config.*.mjs
 
 # Electron
 release/
