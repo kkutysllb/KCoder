@@ -259,14 +259,26 @@ export interface TitleConfig {
   prompt_template: string
 }
 
-/** 运行时配置三段合集。 */
+/** 沙箱配置（对齐 QiLin SandboxConfig，仅暴露本地场景字段）。 */
+export interface SandboxConfig {
+  use: string
+  allow_host_bash: boolean
+  bash_command_timeout: number
+  bash_output_max_chars: number
+  read_file_output_max_chars: number
+  ls_output_max_chars: number
+  [key: string]: unknown
+}
+
+/** 运行时配置四段合集。 */
 export interface RuntimeConfig {
   memory: MemoryRuntimeConfig
   summarization: SummarizationConfig
   title: TitleConfig
+  sandbox: SandboxConfig
 }
 
-export type RuntimeConfigSection = 'memory' | 'summarization' | 'title'
+export type RuntimeConfigSection = 'memory' | 'summarization' | 'title' | 'sandbox'
 
 // ============ Governed graph governance types ============
 

@@ -10,6 +10,7 @@ import { PluginsSettings } from './PluginsSettings'
 import { CommandsSettings } from './CommandsSettings'
 import { RemoteSettings } from './RemoteSettings'
 import { MemorySettings } from './MemorySettings'
+import { SandboxSettings } from './SandboxSettings'
 import { AboutSettings } from './AboutSettings'
 import {
   MODEL_PRESETS,
@@ -35,6 +36,7 @@ const NAV_ITEMS = [
   { id: 'plugins', labelKey: 'settings.nav.plugins', icon: PluginIcon },
   { id: 'commands', labelKey: 'settings.nav.commands', icon: CommandIcon },
   { id: 'memory', labelKey: 'settings.nav.memory', icon: MemoryIcon },
+  { id: 'sandbox', labelKey: 'settings.nav.sandbox', icon: SandboxIcon },
   { id: 'remote', labelKey: 'settings.nav.remote', icon: RemoteIcon },
   { id: 'about', labelKey: 'settings.nav.about', icon: AboutIcon },
 ]
@@ -283,6 +285,8 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           <CommandsSettings />
         ) : activeNav === 'memory' ? (
           <MemorySettings />
+        ) : activeNav === 'sandbox' ? (
+          <SandboxSettings />
         ) : activeNav === 'remote' ? (
           <RemoteSettings />
         ) : activeNav === 'about' ? (
@@ -1347,6 +1351,14 @@ function MemoryIcon({ active }: { active?: boolean }) {
   return (
     <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+    </svg>
+  )
+}
+
+function SandboxIcon({ active }: { active?: boolean }) {
+  return (
+    <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c.92 0 1.667.746 1.667 1.667 0 .092-.008.183-.023.272a36.04 36.04 0 015.197 2.083 1.667 1.667 0 011.65 2.893l-.013.014a1.667 1.667 0 01-.625 2.27 1.667 1.667 0 01-2.27-.625 36.09 36.09 0 00-1.05-1.725A33.67 33.67 0 0112 12a33.67 33.67 0 01-4.533-1.16 36.09 36.09 0 00-1.05 1.725 1.667 1.667 0 01-2.27.625 1.667 1.667 0 01-.625-2.27 1.667 1.667 0 01.376-.402l-.013-.014a1.667 1.667 0 011.65-2.893A36.04 36.04 0 0110.356 4.94a1.667 1.667 0 01-.023-.273C10.333 3.746 11.08 3 12 3z" />
     </svg>
   )
 }

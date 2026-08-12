@@ -543,6 +543,14 @@ const zhCN: Dict = {
   'settings.memory.factsTitle': '记忆事实',
   'settings.memory.saving': '保存中…',
   'settings.memory.saved': '已保存，引擎将在 1-2 秒内热重载生效值。',
+
+  // SettingsPanel - sandbox
+  'settings.nav.sandbox': '工具与沙箱',
+  'settings.sandbox.title': '工具与沙箱',
+  'settings.sandbox.desc': '沙箱执行环境与工具输出限制。provider 切换需重启 gateway。',
+  'settings.sandbox.configTitle': '沙箱配置',
+  'settings.sandbox.configDesc': 'LocalSandboxProvider（本地执行）。控制 Host Bash 开关、命令超时和工具输出上限。',
+  'settings.sandbox.restartHint': '沙箱 provider 在启动时初始化，切换 provider 需重启后端生效。命令超时和输出上限可热重载。',
   'settings.commands.title': '命令',
   'settings.commands.subtitle': '管理 KCoder Agent 的 .md 命令文件。命令可通过 /command-name 在聊天中调用。',
   'settings.commands.search': '搜索命令...',
@@ -1171,6 +1179,14 @@ const en: Dict = {
   'settings.memory.factsTitle': 'Memory Facts',
   'settings.memory.saving': 'Saving…',
   'settings.memory.saved': 'Saved. The engine will hot-reload the effective values within 1-2 seconds.',
+
+  // SettingsPanel - sandbox
+  'settings.nav.sandbox': 'Tools & Sandbox',
+  'settings.sandbox.title': 'Tools & Sandbox',
+  'settings.sandbox.desc': 'Sandbox execution environment and tool output limits. Provider changes require a gateway restart.',
+  'settings.sandbox.configTitle': 'Sandbox Configuration',
+  'settings.sandbox.configDesc': 'LocalSandboxProvider (local execution). Controls Host Bash toggle, command timeout, and tool output limits.',
+  'settings.sandbox.restartHint': 'The sandbox provider is initialized at startup. Switching providers requires a backend restart to take effect. Command timeout and output limits are hot-reloadable.',
   'settings.commands.title': 'Commands',
   'settings.commands.subtitle': 'Manage KCoder Agent .md command files. Commands are invoked via /command-name in chat.',
   'settings.commands.search': 'Search commands...',
