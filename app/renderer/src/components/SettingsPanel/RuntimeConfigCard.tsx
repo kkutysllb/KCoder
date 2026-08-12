@@ -199,7 +199,7 @@ export function FieldRow({
   }
 
   if (field.type === 'number') {
-    const numVal = typeof value === 'number' ? value : 0
+    const numVal = typeof value === 'number' && !Number.isNaN(value) ? value : 0
     return (
       <div className="py-0.5">
         <label htmlFor={labelId} className="block text-xs text-text-primary">{field.label}</label>
