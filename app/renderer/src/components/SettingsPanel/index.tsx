@@ -84,6 +84,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const { t } = useI18n()
   const [runtimes, setRuntimes] = useState<ProviderRuntime[]>(DEFAULT_RUNTIMES)
   const [selectedProviderId, setSelectedProviderId] = useState<string>('')
+  const [savedModels, setSavedModels] = useState<ModelEntry[]>([])
 
   // 从后端加载已保存的模型（GET /api/models）— 精确按 profile name 匹配预设 id：
   // 匹配的只更新 enabled/selectedModel；不覆盖用户的 apiKey。
@@ -108,6 +109,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           }
         })
       )
+      setSavedModels(result.models)
     } catch (err) {
       console.error('[KCoder] Failed to load models:', err)
     }
@@ -261,6 +263,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             runtimes={runtimes}
             selectedRuntime={selectedRuntime}
             selectedProviderId={selectedProviderId}
+            savedModels={savedModels}
             onSelectProvider={setSelectedProviderId}
             onToggleProvider={handleToggleProvider}
             onUpdateApiKey={handleUpdateApiKey}
@@ -305,6 +308,7 @@ function ModelSettings({
   runtimes,
   selectedRuntime,
   selectedProviderId,
+  savedModels,
   onSelectProvider,
   onToggleProvider,
   onUpdateApiKey,
@@ -317,6 +321,7 @@ function ModelSettings({
   runtimes: ProviderRuntime[]
   selectedRuntime?: ProviderRuntime
   selectedProviderId: string
+  savedModels: ModelEntry[]
   onSelectProvider: (id: string) => void
   onToggleProvider: (id: string) => void
   onUpdateApiKey: (id: string, key: string) => void
@@ -336,36 +341,69 @@ function ModelSettings({
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="px-8 pt-8 pb-4">
+      <div className="px-8 pt-6 pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-text-primary">{t('settings.model.title')}</h1>
-            <p className="mt-1 text-sm text-text-muted">{t('settings.model.subtitle')}</p>
+            <h1 className="text-lg font-semibold text-text-primary">{t('settings.model.title')}</h1>
+            <p className="mt-1 text-xs text-text-muted">{t('settings.model.subtitle')}</p>
           </div>
         </div>
       </div>
 
       {/* 配置注入提示条：保存后自动写入引擎 config.yaml，新对话生效 */}
-      <div className="mx-8 mb-2 px-3 py-2 rounded-lg bg-[#22c55e]/10 border border-[#22c55e]/20 text-xs text-[#86efac]">
+      <div className="mx-8 mb-2 px-3 py-1.5 rounded-lg bg-[#22c55e]/10 border border-[#22c55e]/20 text-xs text-[#86efac]">
         {t('settings.model.injectActive')}
       </div>
 
+      {/* 已配置模型概览 */}
+      {savedModels.length > 0 && (
+        <div className="mx-8 mb-3 flex items-center gap-3 px-3 py-2 rounded-xl bg-bg-surface border border-border-subtle">
+          {(() => {
+            const active = savedModels.find((m) => m.active)
+            return (
+              <>
+                {/* 激活模型徽章 */}
+                {active && (
+                  <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[#22c55e]/10 border border-[#22c55e]/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e]" />
+                    <span className="text-xs text-[#86efac] font-medium">{active.display_name || active.name}</span>
+                    <span className="text-[10px] text-[#86efac]/60 font-mono">{active.model}</span>
+                  </div>
+                )}
+                {/* 已配置数量 */}
+                <span className="text-xs text-text-muted shrink-0">
+                  {t('settings.model.configured.prefix')} {savedModels.length}
+                </span>
+                {/* 其余已配置模型（紧凑行列表，可滚动） */}
+                <div className="flex items-center gap-1.5 overflow-x-auto">
+                  {savedModels.filter((m) => !m.active).map((m) => (
+                    <span key={m.id} className="shrink-0 px-2 py-0.5 rounded text-[11px] bg-bg-hover text-text-secondary font-mono">
+                      {m.display_name || m.name}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )
+          })()}
+        </div>
+      )}
+
       {/* Two-column content */}
-      <div className="flex-1 flex overflow-hidden px-8 pb-8 gap-6">
+      <div className="flex-1 flex overflow-hidden px-8 pb-8 gap-5">
         {/* Left: Provider List */}
-        <div className="w-[240px] flex flex-col border-r border-border-custom pr-6">
-          <div className="flex-1 overflow-y-auto space-y-4">
+        <div className="w-[220px] flex flex-col border-r border-border-custom pr-5">
+          <div className="flex-1 overflow-y-auto space-y-3">
             {grouped.map(({ category, items }) => (
               <div key={category}>
-                <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">{category}</h3>
-                <div className="space-y-1">
+                <h3 className="text-[11px] font-medium text-text-muted uppercase tracking-wider mb-1.5">{category}</h3>
+                <div className="space-y-0.5">
                   {items.map((rt) => {
                     const preset = presetOf(rt)
                     return (
                       <button
                         key={rt.presetId}
                         onClick={() => onSelectProvider(rt.presetId)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                        className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[13px] transition-colors ${
                           selectedProviderId === rt.presetId
                             ? 'bg-bg-input text-text-primary'
                             : 'text-text-secondary hover:bg-bg-sidebar hover:text-text-primary'
@@ -383,7 +421,7 @@ function ModelSettings({
           </div>
 
           {/* Add provider button（预留）*/}
-          <button className="mt-4 w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-dashed border-border-custom text-sm text-text-muted hover:text-text-secondary hover:border-[#52525b] transition-colors">
+          <button className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-border-custom text-[13px] text-text-muted hover:text-text-secondary hover:border-[#52525b] transition-colors">
             <PlusIcon />
             {t('settings.model.addProvider')}
           </button>
@@ -472,11 +510,11 @@ function ProviderDetail({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Provider header — 名字 + 补丁徽章 + 启用状态 */}
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-2.5 flex-wrap">
         <ProviderIcon name={preset.displayName} size="lg" />
-        <h2 className="text-lg font-semibold text-text-primary">{preset.displayName}</h2>
+        <h2 className="text-base font-semibold text-text-primary">{preset.displayName}</h2>
         {patched && (
           <span
             className="px-2 py-0.5 rounded text-[11px] font-medium bg-[#3b82f6]/10 text-[#3b82f6] border border-[#3b82f6]/30"
@@ -525,8 +563,8 @@ function ProviderDetail({
       </div>
 
       {/* API Configuration */}
-      <div className="p-4 rounded-xl bg-bg-surface border border-border-custom space-y-4">
-        <h3 className="text-sm font-medium text-text-primary">{t('settings.model.apiConfig')}</h3>
+      <div className="p-3.5 rounded-xl bg-bg-surface border border-border-custom space-y-3">
+        <h3 className="text-[13px] font-medium text-text-primary">{t('settings.model.apiConfig')}</h3>
         <div>
           <label className="block text-xs text-text-muted mb-1.5">{t('settings.model.apiUrl')}</label>
           <input
@@ -535,7 +573,7 @@ function ProviderDetail({
             onChange={preset.baseUrlEditable ? (e) => onUpdateBaseUrl(runtime.presetId, e.target.value) : undefined}
             readOnly={!preset.baseUrlEditable}
             placeholder={preset.baseUrlEditable ? t('settings.model.baseUrl.placeholder') : undefined}
-            className={`w-full px-3 py-2 rounded-lg bg-bg-input border text-sm outline-none transition-colors ${
+            className={`w-full px-3 py-1.5 rounded-lg bg-bg-input border text-[13px] outline-none transition-colors ${
               preset.baseUrlEditable
                 ? 'border-border-custom text-text-primary focus:border-border-strong'
                 : 'border-border-custom text-text-secondary'
@@ -554,14 +592,14 @@ function ProviderDetail({
             value={runtime.apiKey}
             onChange={(e) => onUpdateApiKey(runtime.presetId, e.target.value)}
             placeholder={preset.apiKeyEnvHint}
-            className="w-full px-3 py-2 rounded-lg bg-bg-input border border-border-custom text-sm text-text-primary placeholder-text-muted outline-none focus:border-border-strong transition-colors"
+            className="w-full px-3 py-1.5 rounded-lg bg-bg-input border border-border-custom text-[13px] text-text-primary placeholder-text-muted outline-none focus:border-border-strong transition-colors"
           />
         </div>
         {/* 获取模型按钮 — 从供应商 API 动态拉取 */}
         <button
           onClick={handleDiscover}
           disabled={discovering}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[#3b82f6] text-white hover:bg-[#2563eb] disabled:opacity-50 transition-colors"
+          className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-[13px] font-medium bg-[#3b82f6] text-white hover:bg-[#2563eb] disabled:opacity-50 transition-colors"
         >
           {discovering ? (
             <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">
@@ -582,14 +620,14 @@ function ProviderDetail({
 
       {/* 常见模型快捷选择（预设内置）*/}
       {preset.commonModels.length > 0 && (
-        <div className="p-4 rounded-xl bg-bg-surface border border-border-custom">
-          <h3 className="text-sm font-medium text-text-primary mb-3">{t('settings.model.commonModels')}</h3>
-          <div className="flex flex-wrap gap-2">
+        <div className="p-3.5 rounded-xl bg-bg-surface border border-border-custom">
+          <h3 className="text-[13px] font-medium text-text-primary mb-2.5">{t('settings.model.commonModels')}</h3>
+          <div className="flex flex-wrap gap-1.5">
             {preset.commonModels.map((modelId) => (
               <button
                 key={modelId}
                 onClick={() => onSelectModel(runtime.presetId, modelId)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-mono border transition-colors ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono border transition-colors ${
                   runtime.selectedModel === modelId
                     ? 'bg-[#3b82f6]/10 text-[#3b82f6] border-[#3b82f6]/40'
                     : 'bg-bg-hover text-text-secondary border-border-custom hover:text-text-primary hover:border-border-strong'
@@ -604,15 +642,15 @@ function ProviderDetail({
 
       {/* 从供应商拉取的模型列表（动态）*/}
       {discovered.length > 0 && (
-        <div className="p-4 rounded-xl bg-bg-surface border border-border-custom">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium text-text-primary">{t('settings.model.discover.found')}（{discovered.length}）</h3>
+        <div className="p-3.5 rounded-xl bg-bg-surface border border-border-custom">
+          <div className="flex items-center justify-between mb-2.5">
+            <h3 className="text-[13px] font-medium text-text-primary">{t('settings.model.discover.found')}（{discovered.length}）</h3>
           </div>
           <div className="space-y-1 max-h-[300px] overflow-y-auto">
             {discovered.map((m) => (
               <div
                 key={m.id}
-                className={`flex items-center justify-between px-3 py-2 rounded-lg border transition-colors ${
+                className={`flex items-center justify-between px-3 py-1.5 rounded-lg border transition-colors ${
                   runtime.selectedModel === m.id
                     ? 'bg-[#3b82f6]/10 border-[#3b82f6]/40'
                     : 'bg-bg-hover border-border-custom'
@@ -632,11 +670,11 @@ function ProviderDetail({
       )}
 
       {/* 当前选中的模型 */}
-      <div className="p-4 rounded-xl bg-bg-surface border border-border-custom">
-        <h3 className="text-sm font-medium text-text-primary mb-3">{t('settings.model.selectedModel')}</h3>
+      <div className="p-3.5 rounded-xl bg-bg-surface border border-border-custom">
+        <h3 className="text-[13px] font-medium text-text-primary mb-2.5">{t('settings.model.selectedModel')}</h3>
         {runtime.selectedModel ? (
-          <div className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-bg-hover border border-border-custom">
-            <span className="text-sm text-text-primary font-mono">{runtime.selectedModel}</span>
+          <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-bg-hover border border-border-custom">
+            <span className="text-[13px] text-text-primary font-mono">{runtime.selectedModel}</span>
           </div>
         ) : (
           <p className="text-sm text-text-muted">{t('settings.model.noModels')}</p>
@@ -644,8 +682,8 @@ function ProviderDetail({
       </div>
 
       {/* 能力信息（只读，来自预设）*/}
-      <div className="p-4 rounded-xl bg-bg-surface border border-border-custom">
-        <h3 className="text-sm font-medium text-text-primary mb-3">{t('settings.model.capabilities')}</h3>
+      <div className="p-3.5 rounded-xl bg-bg-surface border border-border-custom">
+        <h3 className="text-[13px] font-medium text-text-primary mb-2.5">{t('settings.model.capabilities')}</h3>
         <div className="grid grid-cols-3 gap-3">
           <CapabilityBadge
             label={t('settings.model.cap.thinking')}
@@ -685,10 +723,10 @@ function ProviderDetail({
       )}
 
       {/* 高级设置（折叠）*/}
-      <div className="p-4 rounded-xl bg-bg-surface border border-border-custom">
+      <div className="p-3.5 rounded-xl bg-bg-surface border border-border-custom">
         <button
           onClick={() => setShowAdvanced((v) => !v)}
-          className="w-full flex items-center justify-between text-sm font-medium text-text-primary"
+          className="w-full flex items-center justify-between text-[13px] font-medium text-text-primary"
         >
           <span>{t('settings.model.advanced')}</span>
           <svg className={`w-4 h-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -720,16 +758,16 @@ function ProviderDetail({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-3 pt-2">
+      <div className="flex items-center justify-end gap-3 pt-1">
         <button
           onClick={onClose}
-          className="px-4 py-2 rounded-lg text-sm text-text-secondary hover:bg-bg-hover transition-colors"
+          className="px-3.5 py-1.5 rounded-lg text-[13px] text-text-secondary hover:bg-bg-hover transition-colors"
         >
           {t('settings.model.cancel')}
         </button>
         <button
           onClick={onSave}
-          className="px-5 py-2 rounded-lg text-sm font-medium bg-white text-black hover:bg-gray-200 transition-colors"
+          className="px-4 py-1.5 rounded-lg text-[13px] font-medium bg-white text-black hover:bg-gray-200 transition-colors"
         >
           {t('settings.model.saveConfig')}
         </button>

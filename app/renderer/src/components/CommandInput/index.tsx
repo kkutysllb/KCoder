@@ -440,6 +440,7 @@ export function CommandInput({
   const displayModelName = activeModel?.display_name || activeModel?.name || selectedModel || t('input.noModel')
 
   return (
+    <div className="flex flex-col gap-1 w-full">
     <div className="composer-card">
       {/* Top row: project directory + branch selectors（窄条） */}
       <DirectoryBranchBar />
@@ -640,9 +641,10 @@ export function CommandInput({
             )}
           </div>
         </div>
+    </div>
 
-        {/* ROI 缩略条 — 会话累计用量，输入框最底部 */}
-        <RoiMiniStrip />
+      {/* ROI 缩略条 — 紧贴输入框下方，始终展示会话用量摘要；hover 上浮详情 */}
+      <RoiMiniStrip />
     </div>
   )
 }
@@ -662,7 +664,7 @@ function ReasoningModePicker({
   onChange: (mode: 'auto' | 'off' | 'low' | 'medium' | 'high') => void
 }) {
   const { t } = useI18n()
-  const supportsEffort = Boolean(model?.supports_thinking && model.supports_reasoning_effort)
+  const supportsEffort = Boolean(model?.supports_thinking)
   const effectiveValue = supportsEffort || value === 'auto' || value === 'off' ? value : 'auto'
 
   return (
@@ -691,63 +693,134 @@ function ReasoningModePicker({
 }
 
 /**
- * ROI 缩略条 — 输入框最底部窄条，显示当前会话累计 token 用量 + 微型趋势条。
- * 鼠标 hover 展开详细统计（每 turn 的 prompt/completion 分项）。
+ * ROI 缩略条 — 紧贴输入框下方的独立窄条，始终展示当前会话的 token 用量摘要。
+ * 鼠标 hover 时在上方弹出详细统计面板，维度参考 KWorks：
+ * - 会话总量（输入/输出/总量）
+ * - 工具调用次数
+ * - 思考耗时
+ * - 平均回合用量
  */
 function RoiMiniStrip() {
   const { t } = useI18n()
   const sessionUsage = useAppStore((s) => s.sessionUsage)
   const isGenerating = useAppStore((s) => s.isGenerating)
-  if (sessionUsage.runs === 0 && !isGenerating) return null
+  const messages = useAppStore((s) => s.messages_v2)
 
   const total = sessionUsage.totalTokens
   const promptPct = total > 0 ? (sessionUsage.promptTokens / total) * 100 : 0
   const completionPct = total > 0 ? (sessionUsage.completionTokens / total) * 100 : 0
 
+  // 从 messages_v2 聚合工具调用、思考耗时等维度
+  const assistantTurns = messages.filter((m) => m.role === 'assistant')
+  const totalToolCalls = assistantTurns.reduce((sum, m) => sum + (m.toolCalls?.length ?? 0), 0)
+  const totalThinkingMs = assistantTurns.reduce((sum, m) => sum + (m.thinkingMs ?? 0), 0)
+  const completedTurns = assistantTurns.filter((m) => m.status === 'done').length
+  const failedTurns = assistantTurns.filter((m) => m.status === 'error').length
+
   return (
     <div className="group relative">
-      <div className="flex items-center gap-2 px-4 h-6 border-t border-border-subtle bg-bg-surface/50 rounded-b-xl">
-        {/* 标签 */}
-        <span className="text-[9px] font-medium text-text-muted uppercase tracking-wide shrink-0">ROI</span>
-        {/* 数字 */}
-        <div className="flex items-center gap-2 text-[9px] font-mono text-text-muted">
+      {/* 摘要条 — 固定高度，始终可见 */}
+      <div className="flex items-center gap-2 px-4 h-6 rounded-lg bg-bg-surface/60 border border-border-subtle backdrop-blur-sm">
+        {/* 运行中脉冲指示灯 */}
+        <span
+          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+            isGenerating ? 'bg-[#22c55e] animate-pulse' : 'bg-text-muted/40'
+          }`}
+        />
+        {/* 摘要数字 */}
+        <div className="flex items-center gap-2.5 text-[10px] font-mono text-text-muted shrink-0">
           <span>↓{formatTokens(sessionUsage.promptTokens)}</span>
           <span>↑{formatTokens(sessionUsage.completionTokens)}</span>
           {total > 0 && <span className="text-text-secondary">Σ{formatTokens(total)}</span>}
-          <span className="text-text-muted">{sessionUsage.runs} run{sessionUsage.runs !== 1 ? 's' : ''}</span>
+          <span>{sessionUsage.runs}{sessionUsage.runs !== 1 ? ' runs' : ' run'}</span>
         </div>
         {/* 微型 token 比例条 */}
         <div className="flex-1 h-1 rounded-full bg-bg-hover overflow-hidden flex">
           <div className="bg-[#3b82f6]/60" style={{ width: `${promptPct}%` }} title={`Prompt: ${formatTokens(sessionUsage.promptTokens)}`} />
           <div className="bg-[#22c55e]/60" style={{ width: `${completionPct}%` }} title={`Completion: ${formatTokens(sessionUsage.completionTokens)}`} />
         </div>
-        {/* hover 展开箭头 */}
-        <svg className="w-2.5 h-2.5 text-text-muted transition-transform group-hover:rotate-180 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        {/* hover 展开箭头（向上） */}
+        <svg className="w-2.5 h-2.5 text-text-muted transition-transform group-hover:-rotate-180 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </div>
-      {/* hover 展开详情 */}
-      <div className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-all duration-150 absolute right-4 top-full mt-1 z-40 rounded-lg border border-border-subtle bg-bg-sidebar shadow-2xl p-2 space-y-1 w-56">
-        <div className="flex justify-between text-[10px]">
-          <span className="text-text-muted">{t('roi.prompt')}</span>
-          <span className="font-mono text-[#3b82f6]">{formatTokens(sessionUsage.promptTokens)}</span>
+
+      {/* hover 弹出详情 — 向上悬浮，不占文档流空间 */}
+      <div className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-all duration-150 absolute right-0 bottom-full mb-1 z-40 rounded-lg border border-border-subtle bg-bg-sidebar shadow-2xl p-3 space-y-2 w-72">
+        {/* ── Token 用量区 ── */}
+        <div>
+          <p className="text-[9px] font-medium text-text-muted uppercase tracking-wide mb-1.5">Tokens</p>
+          <div className="space-y-1">
+            <div className="flex justify-between text-[11px]">
+              <span className="text-text-muted">{t('roi.prompt')}</span>
+              <span className="font-mono text-[#3b82f6]">↓{formatTokens(sessionUsage.promptTokens)}</span>
+            </div>
+            <div className="flex justify-between text-[11px]">
+              <span className="text-text-muted">{t('roi.completion')}</span>
+              <span className="font-mono text-[#22c55e]">↑{formatTokens(sessionUsage.completionTokens)}</span>
+            </div>
+            <div className="flex justify-between text-[11px]">
+              <span className="text-text-muted">{t('roi.avgPerRun')}</span>
+              <span className="font-mono text-text-secondary">
+                {sessionUsage.runs > 0 ? formatTokens(Math.round(total / sessionUsage.runs)) : '—'}
+                <span className="text-text-muted ml-1">/ run</span>
+              </span>
+            </div>
+          </div>
         </div>
-        <div className="flex justify-between text-[10px]">
-          <span className="text-text-muted">{t('roi.completion')}</span>
-          <span className="font-mono text-[#22c55e]">{formatTokens(sessionUsage.completionTokens)}</span>
+
+        {/* ── 任务效率区 ── */}
+        <div className="border-t border-border-subtle pt-2">
+          <p className="text-[9px] font-medium text-text-muted uppercase tracking-wide mb-1.5">{t('roi.efficiency')}</p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+            <div className="flex justify-between">
+              <span className="text-text-muted">{t('roi.runs')}</span>
+              <span className="font-mono text-text-secondary">{sessionUsage.runs}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-text-muted">{t('roi.toolCalls')}</span>
+              <span className="font-mono text-text-secondary">{totalToolCalls}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-text-muted">{t('roi.thinking')}</span>
+              <span className="font-mono text-text-secondary">{formatDuration(totalThinkingMs)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-text-muted">{t('roi.successRate')}</span>
+              <span className="font-mono text-text-secondary">
+                {sessionUsage.runs > 0
+                  ? `${Math.round((completedTurns / sessionUsage.runs) * 100)}%`
+                  : '—'}
+              </span>
+            </div>
+          </div>
         </div>
-        <div className="border-t border-border-subtle pt-1 flex justify-between text-[10px]">
-          <span className="text-text-muted">{t('roi.total')}</span>
-          <span className="font-mono text-text-primary">{formatTokens(total)}</span>
-        </div>
-        <div className="flex justify-between text-[10px]">
-          <span className="text-text-muted">{t('roi.runs')}</span>
-          <span className="font-mono text-text-secondary">{sessionUsage.runs}</span>
-        </div>
-        <div className="flex justify-between text-[10px]">
-          <span className="text-text-muted">{t('roi.avgPerRun')}</span>
-          <span className="font-mono text-text-secondary">{formatTokens(sessionUsage.runs > 0 ? Math.round(total / sessionUsage.runs) : 0)}</span>
-        </div>
+
+        {/* ── 任务状态分布 ── */}
+        {sessionUsage.runs > 0 && (
+          <div className="border-t border-border-subtle pt-2">
+            <div className="flex items-center gap-2 h-1.5 rounded-full overflow-hidden bg-bg-hover">
+              {completedTurns > 0 && (
+                <div className="bg-[#22c55e]/70" style={{ width: `${(completedTurns / sessionUsage.runs) * 100}%` }} title={`Done: ${completedTurns}`} />
+              )}
+              {failedTurns > 0 && (
+                <div className="bg-[#ef4444]/70" style={{ width: `${(failedTurns / sessionUsage.runs) * 100}%` }} title={`Error: ${failedTurns}`} />
+              )}
+              {isGenerating && (
+                <div className="bg-[#3b82f6]/70 animate-pulse" style={{ width: '100%' }} title="Running" />
+              )}
+            </div>
+            <div className="flex gap-3 mt-1 text-[9px] text-text-muted">
+              <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#22c55e]/70" />{completedTurns}</span>
+              {failedTurns > 0 && (
+                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#ef4444]/70" />{failedTurns}</span>
+              )}
+              {isGenerating && (
+                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#3b82f6]/70 animate-pulse" />1</span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -757,4 +830,14 @@ function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
   return String(n)
+}
+
+function formatDuration(ms: number): string {
+  if (ms <= 0) return '—'
+  if (ms < 1_000) return `${ms}ms`
+  const s = ms / 1_000
+  if (s < 60) return `${s.toFixed(1)}s`
+  const m = Math.floor(s / 60)
+  const rest = Math.round(s % 60)
+  return `${m}m${rest}s`
 }

@@ -3,8 +3,6 @@ import { useI18n } from '../../i18n'
 // ============ About Settings Page ============
 
 const APP_VERSION = '0.1.0'
-const ENGINE_NAME = 'QiongQi Agent Runtime'
-const ENGINE_VERSION = '3.x'
 
 export function AboutSettings() {
   const { t } = useI18n()
@@ -32,8 +30,6 @@ export function AboutSettings() {
 
           {/* Info cards */}
           <div className="space-y-3">
-            {/* Engine */}
-            <InfoRow label={t('settings.about.engine')} value={`${ENGINE_NAME} v${ENGINE_VERSION}`} />
             {/* Electron */}
             <InfoRow label={t('settings.about.electron')} value="Electron + Vite + React" />
             {/* Architecture */}
