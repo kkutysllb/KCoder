@@ -27,7 +27,7 @@ passlib[bcrypt]>=1.7.4
 bcrypt>=4.0.0,<4.1.0
 PyJWT>=2.8.0
 email-validator>=2.0.0
-# MCP 适配器（QiLin 通过它连接 worktree-overlay 等 MCP server）
+# MCP 适配器（QiLin 通过它连接外部 MCP server）
 # 注意：mcp>=2.0.0 API 不兼容，必须 pin <2.0.0；
 # 下限 1.29.0 对齐 v2.0.0 引擎要求。
 langchain-mcp-adapters>=0.3.0

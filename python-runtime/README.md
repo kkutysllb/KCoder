@@ -21,10 +21,10 @@ python-runtime/
 ├── config.yaml             # QiLin AppConfig（sandbox + models 占位）
 ├── .env / .env.example     # 环境变量（QILIN_CONFIG_PATH 等）
 ├── requirements.txt        # Python 依赖（qilin + langgraph-cli + gateway + mcp）
-├── extensions_config.json  # 【自动生成】MCP server 注册（worktree-overlay）
+├── extensions_config.json  # MCP server 注册（用户通过前端 MCP 设置页面管理）
 ├── kcoder_gateway/         # FastAPI 翻译层（/v1/* → LangGraph Platform API）
 │   ├── __init__.py
-│   ├── main.py             # FastAPI app + lifespan + extensions_config 生成
+│   ├── main.py             # FastAPI app + lifespan
 │   ├── qilin_client.py     # LangGraph Platform HTTP 客户端
 │   ├── threads.py          # 5 个核心端点（建会话/列表/删除/发消息/SSE）
 │   └── sse.py              # SSE 事件桥（LangGraph → KCoder renderer 格式）
@@ -96,21 +96,7 @@ curl http://127.0.0.1:18900/health
 # => {"status":"ok","gateway_version":"0.2.0",...}
 ```
 
-### MCP worktree-overlay 适配（Phase 3）
-
-gateway 启动时自动生成 `extensions_config.json`，注册 KCoder 的
-`engine/overlays/worktree-overlay/dist/mcp-server.js` 为 MCP server。
-QiLin agent 首次构造时懒加载该配置，连接 MCP server 并发现 4 个工具：
-`create_worktree` / `list_worktrees` / `remove_worktree` / `merge_worktree`。
-
-验证日志（langgraph dev stdout）：
-```
-[info] Configured MCP server: git-worktree
-[info] Successfully loaded 4 tool(s) from MCP servers
-[info] Total tools loaded: 0, built-in tools: 4, MCP tools: 4, ACP tools: 0
-```
-
-### 已知限制（Phase 3）
+### 已知限制
 
 - model 凭据（api_key）是占位符，真实调用需通过 KCoder model store 注入
 - runtime-manager.ts 当前只 spawn `langgraph dev`，gateway 需手动启动（Phase 4 补齐）
@@ -179,14 +165,6 @@ langgraph dev --port 19200 --host 127.0.0.1 --no-browser --allow-blocking
 KCODER_GATEWAY_PORT=18900 python -m kcoder_gateway.main
 ```
 
-### MCP worktree-overlay (Phase 3)
-
-The gateway auto-generates `extensions_config.json` at startup, registering
-KCoder's `engine/overlays/worktree-overlay/dist/mcp-server.js` as an MCP
-server. QiLin's agent lazy-loads this config on first construction and
-discovers 4 tools: `create_worktree` / `list_worktrees` /
-`remove_worktree` / `merge_worktree`.
-
-### Known Limitations (Phase 3)
+### Known Limitations
 
 See Chinese section above.

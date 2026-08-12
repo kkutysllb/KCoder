@@ -303,10 +303,9 @@ class KCoderDataSpace:
     def write_default_extensions_config(self) -> Path:
         """写入空的 extensions_config.json（MCP server CRUD 初始真源）。
 
-        在 gateway 的 main.py 已有 _ensure_extensions_config 逻辑（自动注册
-        worktree-overlay），这里只在数据空间根的 config/ 写一份空骨架，
-        作为 MCP 配置 API 的持久化文件。当前 KCoder 仍用仓库内
-        extensions_config.json，此方法预留给后续 MCP 配置迁移到用户数据目录。
+        在数据空间根的 config/ 写一份空骨架，作为 MCP 配置 API 的持久化文件。
+        当前 KCoder 仍用仓库内 extensions_config.json，此方法预留给后续 MCP
+        配置迁移到用户数据目录。
         """
         path = self.config_dir / "extensions_config.json"
         if path.exists():

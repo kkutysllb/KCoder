@@ -57,8 +57,8 @@ KCoder 采用**三层解耦架构**，每一层职责清晰、可独立演进：
                           ▼                             ▼
                   ┌───────────────┐           ┌─────────────────┐
                   │  MCP Servers  │           │  LLM Providers  │
-                  │  worktree-    │           │  OpenAI / Claude│
-                  │  overlay 等   │           │  DeepSeek 等    │
+                  │  外部 MCP     │           │  OpenAI / Claude│
+                  │               │           │  DeepSeek 等    │
                   └───────────────┘           └─────────────────┘
 ```
 
@@ -145,8 +145,6 @@ KCoder 在引擎能力之上，提供完整的桌面级编码工作站体验：
 ### 终端与工作区
 
 - **真实 PTY 终端**：基于 node-pty + xterm.js 的多标签终端，完整的 shell 交互能力
-- **Git Worktree 隔离**：通过内置 MCP server（`worktree-overlay`）实现按分支的工作区隔离，支持并行 Agent 工作流
-  - 工具：`create_worktree` / `list_worktrees` / `remove_worktree` / `merge_worktree`
 - **工作区状态**：实时查询 Git 分支、脏标记状态
 
 ### 设置与配置
@@ -232,14 +230,6 @@ KCoder/
 │       ├── docs/                   #     引擎文档
 │       ├── pyproject.toml          #     包元信息
 │       └── VENDOR_VERSION          #     vendored 版本追溯
-│
-├── overlays/                       # MCP 工具覆盖层
-│   └── worktree-overlay/           #   Git worktree 隔离 MCP server
-│       └── src/
-│           ├── mcp-server.ts       #     MCP 服务入口
-│           ├── git.ts              #     Git worktree 操作
-│           ├── registry.ts         #     工具注册
-│           └── resolver.ts         #     路径解析
 │
 ├── docs/                           # 项目文档
 │   ├── qilin-mvp-report.md         #   QiLin 集成 MVP 报告
@@ -412,5 +402,5 @@ git subtree pull --prefix=vendor/qilin qilin-upstream <new-tag> \
 
 ## 许可协议
 
-- **KCoder 桌面端**（`app/`、`python-runtime/`、`overlays/`）：项目自有
+- **KCoder 桌面端**（`app/`、`python-runtime/`）：项目自有
 - **QiLin 引擎**（`vendor/qilin/`）：Apache-2.0（上游 [kkutysllb/QiLin](https://github.com/kkutysllb/QiLin)）

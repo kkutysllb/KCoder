@@ -10,7 +10,6 @@ The gateway binds 127.0.0.1 only and is never exposed to the network.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import sys
@@ -309,56 +308,6 @@ def _ensure_browser_runtime() -> None:
         )
 
 
-def _ensure_extensions_config(runtime_dir: Path) -> None:
-    """生成 extensions_config.json，注册 worktree-overlay MCP server.
-
-    QiLin 通过 ExtensionsConfig（QILIN_EXTENSIONS_CONFIG_PATH）加载 MCP servers。
-    MCP server 的 path 必须是绝对路径——mcp-server.ts 用
-    ``import.meta.url === file://${process.argv[1]}`` 判断是否为直接运行。
-
-    worktree-overlay 编译产物位于::
-
-        <kcoder_root>/overlays/worktree-overlay/dist/mcp-server.js
-
-    我们从 gateway 模块位置反推 kcoder_root，确保跨机器可移植。
-
-    注意：QiLin 懒加载 extensions config（首次 Agent 构造时），所以即使
-    gateway 在 LangGraph service 之后启动，文件也能在第一次 turn 前就绪。
-    """
-    kcoder_root = runtime_dir.parent
-    mcp_server_js = (
-        kcoder_root / "overlays" / "worktree-overlay" / "dist" / "mcp-server.js"
-    )
-
-    if not mcp_server_js.exists():
-        logger.warning(
-            "worktree-overlay mcp-server.js not found at %s — git worktree MCP tools disabled",
-            mcp_server_js,
-        )
-        return
-
-    config = {
-        "mcpServers": {
-            "git-worktree": {
-                "type": "stdio",
-                "command": "node",
-                "args": [str(mcp_server_js)],
-                "description": "Git worktree operations for parallel agent branches (create/list/remove/merge)",
-            }
-        }
-    }
-
-    config_file = runtime_dir / "extensions_config.json"
-    config_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
-
-    os.environ.setdefault("QILIN_EXTENSIONS_CONFIG_PATH", str(config_file))
-    logger.info(
-        "Extensions config written: %s (git-worktree MCP: %s)",
-        config_file,
-        mcp_server_js,
-    )
-
-
 def main() -> None:
     """Entry point for `python -m kcoder_gateway.main`."""
     logging.basicConfig(
@@ -404,9 +353,6 @@ def main() -> None:
             logger.info("Fallback QiLin config path: %s", config_path)
         else:
             logger.warning("No QiLin config.yaml found at %s", config_path)
-
-    # Phase 3: 生成 extensions_config.json（worktree-overlay MCP 注册）
-    _ensure_extensions_config(runtime_dir)
 
     # 浏览器自动化：自动安装 Chromium 二进制（桌面应用零配置）
     _ensure_browser_runtime()
