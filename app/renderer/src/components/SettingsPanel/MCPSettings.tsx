@@ -32,60 +32,81 @@ export interface McpServerEntry {
   lastError?: string
 }
 
-// ---- Mock data (will be replaced by engine API: GET /api/mcp/config) ----
+// ---- 内置预设 MCP 工具库（免费、无需 API Key）----
+// 参考 KWorks MCP_PRESETS，用户可一键安装
 
-const PLUGIN_SERVERS: McpServerEntry[] = [
+interface McpPreset {
+  /** 推导出的 server 名称 */
+  name: string
+  enabled: boolean
+  transport: 'stdio' | 'streamable-http' | 'sse'
+  command?: string
+  args: string[]
+  description: string
+}
+
+const MCP_PRESETS: McpPreset[] = [
   {
-    name: 'android-emulator',
-    enabled: false,
+    name: 'sequential-thinking',
+    enabled: true,
     transport: 'stdio',
     command: 'npx',
-    args: ['-y', '@anthropic/mcp-android-emulator'],
-    headers: {},
-    env: {},
-    trustScope: 'workspace',
-    timeoutMs: 30000,
-    description: '该 MCP 服务器内置在插件中，启用插件后会加载。',
-    source: 'plugin',
-    pluginId: 'kcoder-plugins-official',
-    status: 'plugin-disabled',
-    toolCount: 0,
+    args: ['-y', '@modelcontextprotocol/server-sequential-thinking'],
+    description: '通过思维序列进行动态和反思性的问题求解',
   },
   {
-    name: 'ios-simulator',
-    enabled: false,
+    name: 'context7',
+    enabled: true,
     transport: 'stdio',
     command: 'npx',
-    args: ['-y', '@anthropic/mcp-ios-simulator'],
-    headers: {},
-    env: {},
-    trustScope: 'workspace',
-    timeoutMs: 30000,
-    description: '该 MCP 服务器内置在插件中，启用插件后会加载。',
-    source: 'plugin',
-    pluginId: 'kcoder-plugins-official',
-    status: 'plugin-disabled',
-    toolCount: 0,
+    args: ['-y', '@upstash/context7-mcp'],
+    description: '查询任何库或框架的最新文档',
   },
-]
-
-const DEFAULT_USER_SERVERS: McpServerEntry[] = [
+  {
+    name: 'fetch',
+    enabled: true,
+    transport: 'stdio',
+    command: 'uvx',
+    args: ['--with', 'mcp>=1.9,<1.10', 'mcp-server-fetch'],
+    description: '从 URL 获取并摘要网页内容',
+  },
+  {
+    name: 'memory',
+    enabled: true,
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-memory'],
+    description: '基于知识图谱的持久化记忆，用于长期回顾',
+  },
+  {
+    name: 'time',
+    enabled: true,
+    transport: 'stdio',
+    command: 'uvx',
+    args: ['--with', 'mcp>=1.9,<1.10', 'mcp-server-time'],
+    description: '时区转换和跨区域当前时间查询',
+  },
+  {
+    name: 'git',
+    enabled: true,
+    transport: 'stdio',
+    command: 'uvx',
+    args: ['--with', 'mcp>=1.9,<1.10', 'mcp-server-git'],
+    description: 'Git 仓库操作：log、diff、status 等',
+  },
   {
     name: 'filesystem',
     enabled: true,
     transport: 'stdio',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
-    headers: {},
-    env: {},
-    trustScope: 'workspace',
-    timeoutMs: 30000,
-    description: '提供文件系统读写能力的 MCP 服务器。',
-    source: 'user',
-    status: 'connected',
-    toolCount: 8,
+    description: '安全的文件系统读写能力（修改 /tmp 为你的路径）',
   },
 ]
+
+const PLUGIN_SERVERS: McpServerEntry[] = []
+
+const DEFAULT_USER_SERVERS: McpServerEntry[] = []
 
 // ---- Persistence: 通过 engine API GET/PUT /api/mcp/config（localStorage 仅作离线缓存）----
 
@@ -176,6 +197,33 @@ export function MCPSettings() {
 
   const filteredPlugin = PLUGIN_SERVERS.filter((s) => matchSearch(s, search))
   const filteredUser = userServers.filter((s) => matchSearch(s, search))
+
+  /** 检查预设是否已安装（按 name 匹配） */
+  const isPresetInstalled = (preset: McpPreset): boolean =>
+    userServers.some((s) => s.name === preset.name)
+
+  /** 一键安装预设工具 */
+  const handleAddPreset = (preset: McpPreset) => {
+    if (isPresetInstalled(preset)) return
+    const entry: McpServerEntry = {
+      name: preset.name,
+      enabled: preset.enabled,
+      transport: preset.transport,
+      command: preset.command,
+      args: preset.args,
+      headers: {},
+      env: {},
+      trustScope: 'workspace',
+      timeoutMs: 30000,
+      description: preset.description,
+      source: 'user',
+      status: 'disabled',
+      toolCount: 0,
+    }
+    const next = [...userServers, entry]
+    setUserServers(next)
+    persistServers(next)
+  }
 
   const handleToggle = (name: string) => {
     const next = userServers.map((s) =>
@@ -330,6 +378,43 @@ export function MCPSettings() {
                 ))}
               </div>
             )}
+          </section>
+
+          {/* 内置预设工具库 */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <svg className="w-3.5 h-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+              </svg>
+              <h2 className="text-xs font-medium text-text-muted">{t('settings.mcp.section.preset')}</h2>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {MCP_PRESETS.map((preset) => {
+                const installed = isPresetInstalled(preset)
+                return (
+                  <div
+                    key={preset.name}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border-subtle bg-bg-surface px-3 py-2.5 hover:border-border-strong transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <span className="text-sm font-medium text-text-primary">{preset.name}</span>
+                      <p className="text-xs text-text-muted truncate mt-0.5">{preset.description}</p>
+                    </div>
+                    <button
+                      disabled={installed}
+                      onClick={() => handleAddPreset(preset)}
+                      className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        installed
+                          ? 'bg-bg-hover text-text-muted cursor-default'
+                          : 'border border-border-custom text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+                      }`}
+                    >
+                      {installed ? t('settings.mcp.preset.installed') : t('settings.mcp.preset.install')}
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
           </section>
         </div>
       </div>
@@ -539,7 +624,13 @@ function ServerEditorModal({
       enabled: server?.enabled ?? true,
       transport,
       command: transport === 'stdio' ? command.trim() : undefined,
-      args: transport === 'stdio' ? args.split(/\s+/).filter(Boolean) : [],
+      args:
+        transport === 'stdio'
+          ? args
+              .replace(/[\u200B-\u200D\uFEFF]/g, '') // strip zero-width spaces / BOM
+              .split(/\s+/)
+              .filter(Boolean)
+          : [],
       url: transport !== 'stdio' ? url.trim() : undefined,
       headers: server?.headers ?? {},
       env: parseEnv(envText),
