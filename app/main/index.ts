@@ -1,10 +1,11 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
-import { startEngine, stopEngine, getEnginePort, getEngineToken, getEngineDataDir } from './engine-host'
+import { startEngine, stopEngine, restartEngine, getEnginePort, getEngineToken, getEngineDataDir } from './engine-host'
 import { createWindow } from './window'
 import { setupMenu } from './menu'
 import { setupTerminalIPC, killAllTerminals } from './terminal'
 import { setupDialogIPC } from './dialog'
+import { setupSettingsIPC } from './settings'
 import { createTray, destroyTray, updateTrayLocale, type TrayLocale } from './tray'
 import {
   listModels,
@@ -45,6 +46,18 @@ function setupModelIPC(): void {
 }
 
 /**
+ * Register engine restart IPC handler.
+ *
+ * Renderer（设置页重启按钮）调用此 handler 重启 Python sidecar，使
+ * config.yaml 中启动时初始化的字段（database.backend / sandbox.use 等）
+ * 在不退出 app 的情况下生效。返回新的 { port, token }，由调用方自行更新
+ * store + 重建 API 实例。
+ */
+function setupEngineIPC(): void {
+  ipcMain.handle('engine:restart', async () => restartEngine())
+}
+
+/**
  * Register sub-agents config sync IPC handler.
  *
  * Renderer triggers this after sub-agent CRUD in Settings; main process
@@ -73,6 +86,9 @@ async function bootstrap(): Promise<void> {
   // Register sub-agents config sync IPC (after engine dataDir is known)
   setupSubAgentsIPC()
 
+  // Register engine restart IPC (设置页重启按钮)
+  setupEngineIPC()
+
   // Create main window
   mainWindow = createWindow({
     enginePort: getEnginePort(),
@@ -92,6 +108,9 @@ async function bootstrap(): Promise<void> {
 
   // Setup folder picker dialog IPC handlers
   setupDialogIPC(() => mainWindow)
+
+  // Setup save-settings IPC (proxy / cert 从 renderer 偏好应用到 main 进程网络层)
+  setupSettingsIPC()
 
   // Setup tray IPC (renderer 切换语言时通知 main 同步 tray 菜单)
   setupTrayIPC()

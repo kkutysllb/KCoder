@@ -16,6 +16,7 @@
 import { app, BrowserWindow, Menu, Tray, nativeImage } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
+import { restartEngine } from './engine-host'
 
 export type TrayLocale = 'zh-CN' | 'en'
 
@@ -26,6 +27,7 @@ const STRINGS: Record<TrayLocale, {
   hide: string
   newChat: string
   settings: string
+  restartEngine: string
   quit: string
 }> = {
   'zh-CN': {
@@ -34,6 +36,7 @@ const STRINGS: Record<TrayLocale, {
     hide: '隐藏主窗口',
     newChat: '新会话',
     settings: '设置...',
+    restartEngine: '重启后端引擎',
     quit: '退出 KCoder'
   },
   'en': {
@@ -42,6 +45,7 @@ const STRINGS: Record<TrayLocale, {
     hide: 'Hide main window',
     newChat: 'New chat',
     settings: 'Settings...',
+    restartEngine: 'Restart Engine',
     quit: 'Quit KCoder'
   }
 }
@@ -162,6 +166,22 @@ function buildMenu(getMainWindow: () => BrowserWindow | null): Menu {
           if (!w.isVisible()) w.show()
           w.focus()
           w.webContents.send('open-settings')
+        }
+      }
+    },
+    {
+      label: s.restartEngine,
+      click: async () => {
+        try {
+          const { port, token } = await restartEngine()
+          const w = getMainWindow()
+          if (w) {
+            if (!w.isVisible()) w.show()
+            w.focus()
+            w.webContents.send('engine:restarted', { port, token })
+          }
+        } catch (err) {
+          console.error('[KCoder] Tray restart engine failed:', err)
         }
       }
     },

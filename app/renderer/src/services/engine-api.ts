@@ -270,15 +270,38 @@ export interface SandboxConfig {
   [key: string]: unknown
 }
 
+/** 数据与持久化配置（对齐 QiLin DatabaseConfig）。 */
+export interface DatabaseConfig {
+  backend: 'memory' | 'sqlite' | 'postgres'
+  checkpoint_channel_mode: 'full' | 'delta'
+  sqlite_dir: string
+  postgres_url: string
+  pool_size: number
+  pool_recycle: number
+  command_timeout: number | null
+  [key: string]: unknown
+}
+
+/** 附件上传配置（size 字段以字节存储）。 */
+export interface UploadsConfig {
+  max_files: number
+  max_file_size: number
+  max_total_size: number
+  auto_convert_documents: boolean
+  [key: string]: unknown
+}
+
 /** 运行时配置四段合集。 */
 export interface RuntimeConfig {
   memory: MemoryRuntimeConfig
   summarization: SummarizationConfig
   title: TitleConfig
   sandbox: SandboxConfig
+  database: DatabaseConfig
+  uploads: UploadsConfig
 }
 
-export type RuntimeConfigSection = 'memory' | 'summarization' | 'title' | 'sandbox'
+export type RuntimeConfigSection = 'memory' | 'summarization' | 'title' | 'sandbox' | 'database' | 'uploads'
 
 // ============ Governed graph governance types ============
 
@@ -569,6 +592,7 @@ export interface ThreadSummary {
   status?: string
   createdAt: string
   updatedAt: string
+  archived?: boolean
 }
 
 /** ModelEntry — GET /api/models 返回的模型条目。 */
@@ -1409,8 +1433,10 @@ data: <full EngineStreamEvent JSON>
   }
 
   // 列出会话 — GET /v1/threads
-  async listThreads(): Promise<{ threads: ThreadSummary[] }> {
-    const response = await fetch(`${this.baseUrl}/v1/threads?limit=200`, {
+  async listThreads(opts?: { includeArchived?: boolean }): Promise<{ threads: ThreadSummary[] }> {
+    const params = new URLSearchParams({ limit: '200' })
+    if (opts?.includeArchived) params.set('include_archived', 'true')
+    const response = await fetch(`${this.baseUrl}/v1/threads?${params}`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -1429,6 +1455,23 @@ data: <full EngineStreamEvent JSON>
     })
     if (!response.ok) {
       throw new Error(`Failed to update thread title: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // 更新会话（标题 / 归档） — PATCH /v1/threads/:id
+  // 可同时更新 title 与 archived（写入 thread metadata）。
+  async updateThread(
+    threadId: string,
+    opts: { title?: string; archived?: boolean }
+  ): Promise<ThreadSummary> {
+    const response = await fetch(`${this.baseUrl}/v1/threads/${encodeURIComponent(threadId)}`, {
+      method: 'PATCH',
+      headers: { ...this.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(opts)
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to update thread: ${response.statusText}`)
     }
     return response.json()
   }

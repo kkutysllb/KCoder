@@ -10,8 +10,64 @@ import type { EngineStreamEvent, RoiSnapshot } from '../services/contracts'
 import { reduceSseEvent, type SseEventKind } from '../lib/turnReducer'
 import type { ChatMessage } from '../lib/chatMessage'
 import { isInternalOnlyText, sanitizeAssistantText } from '../lib/chatMessage'
+import { getGeneralPrefs } from '../lib/generalPrefs'
+
+/**
+ * 任务完成时播放短促提示音（Web Audio API，无外部资源依赖）。
+ *频率 880Hz 正弦波，300ms 指数衰减。
+ */
+function playNotificationSound(): void {
+  try {
+    const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.frequency.value = 880
+    osc.type = 'sine'
+    gain.gain.setValueAtTime(0.15, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.3)
+    osc.onended = () => ctx.close()
+  } catch {
+    // AudioContext 可能不可用或被浏览器策略阻止
+  }
+}
+
+/**
+ * 任务完成时发送桌面通知 + 提示音（仅在窗口失焦时触发）。
+ */
+function notifyTurnCompletion(): void {
+  // 窗口在前台时不打扰用户
+  if (document.hasFocus() && !document.hidden) return
+
+  const prefs = getGeneralPrefs()
+  const isZh = prefs.language === 'zh-CN'
+  const title = 'KCoder'
+  const body = isZh ? '任务已完成' : 'Task completed'
+
+  if (prefs.taskNotification && 'Notification' in window) {
+    if (Notification.permission === 'granted') {
+      new Notification(title, { body })
+    } else if (Notification.permission !== 'denied') {
+      Notification.requestPermission().then((perm) => {
+        if (perm === 'granted') new Notification(title, { body })
+      })
+    }
+  }
+
+  if (prefs.notificationSound) {
+    playNotificationSound()
+  }
+}
 
 export function useChat() {
+  // sendMessage 的自引用 ref（queue 模式递归发送用，避免 useCallback 循环依赖）
+  const sendMessageRef = useRef<((text: string, attachmentIds?: string[]) => Promise<void>) | null>(null)
+
   const {
     enginePort,
     threadId,
@@ -504,6 +560,8 @@ export function useChat() {
       } finally {
         updateMessage(assistantMessageId, useAppStore.getState().messages.find((m) => m.id === assistantMessageId)?.content ?? '')
         setGenerating(false)
+        // 任务完成通知（窗口失焦时触发桌面通知 + 提示音）
+        notifyTurnCompletion()
         // 最终再拉一次执行投影（确保 completed 状态）
         const state = useAppStore.getState()
         if (state.activeTurnId && state.threadId) {
@@ -511,6 +569,18 @@ export function useChat() {
             const view = await getEngineAPI(enginePort).getTurnExecution(state.threadId, state.activeTurnId)
             state.setTurnExecution(view)
           } catch { /* 投影不可用时静默 */ }
+        }
+
+        // queue 交互模式：turn 完成后检查排队消息，自动发送下一条
+        const nextQueued = useAppStore.getState().dequeueMessage()
+        if (nextQueued) {
+          // 延迟调用避免在 finally 中递归 sendMessage（依赖 useCallback 引用）
+          setTimeout(() => {
+            const s = useAppStore.getState()
+            if (!s.isGenerating) {
+              sendMessageRef.current?.(nextQueued)
+            }
+          }, 100)
         }
       }
     },
@@ -693,7 +763,10 @@ export function useChat() {
     }
   }, [enginePort])
 
-  return {
+  // 绑定 sendMessage 到 ref（queue 模式递归发送用）
+  sendMessageRef.current = sendMessage
+
+    return {
     messages,
     isGenerating,
     threadId,

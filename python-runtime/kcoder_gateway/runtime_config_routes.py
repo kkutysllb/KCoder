@@ -1,8 +1,8 @@
-"""Runtime config endpoints — memory / summarization / title / sandbox 四段读写.
+"""Runtime config endpoints — memory / summarization / title / sandbox / database / uploads 段读写.
 
 数据流::
 
-    renderer Settings > Memory / Tools & Sandbox
+    renderer Settings > Memory / Tools & Sandbox / General Settings
         ↓ getRuntimeConfig / updateRuntimeConfigSection
     GET/PUT /v1/runtime-config[/{section}]
         ↓ 读 / 写 config.yaml（PyYAML round-trip）
@@ -12,21 +12,23 @@
 
 设计要点：
     1. 读：直接调 QiLin ``get_*_config().model_dump()`` 返回**生效值**（而非
-       文件原始值），确保前端看到的是热重载后的真实状态。sandbox 段无独立
-       单例函数，走 ``get_app_config().sandbox.model_dump()``
+       文件原始值），确保前端看到的是热重载后的真实状态。sandbox / database
+       段无独立单例函数，走 ``get_app_config().sandbox / .database``。
+       uploads 段靠 AppConfig ``extra="allow"`` 从 YAML 读入 dict
     2. 写：PyYAML round-trip（safe_load 全文 → 改一段 → safe_dump 回）。注释
        丢失可接受：config.yaml 由 KCoder 自动管理，注释在 config.yaml.example
     3. 原子写入：tempfile + os.replace（避免引擎读到半写文件）
     4. Pydantic 校验：PUT 入参用 QiLin 的 ``MemoryConfig`` /
-       ``SummarizationConfig`` / ``TitleConfig`` / ``SandboxConfig`` 直接校验，
-       失败返回 422 + fieldErrors
+       ``SummarizationConfig`` / ``TitleConfig`` / ``SandboxConfig`` /
+       ``DatabaseConfig`` 直接校验；uploads 段无 QiLin 模型，用内联
+       ``UploadsConfigModel`` 校验。失败返回 422 + fieldErrors
     5. 热重载触发：PUT 后调 ``get_app_config()``，其内部 signature 检测发现
        文件变更自动重载（app_config.py:683）
 
 .. note::
-    sandbox 段特殊：provider（``use``）在启动时初始化，切换需重启 gateway；
-    ``bash_command_timeout`` / ``*_max_chars`` 等参数每次调用从 config 读取，
-    热重载可生效。
+    sandbox / database 段特殊：provider（``use``）/ backend /
+    checkpoint_channel_mode 在启动时初始化，切换需重启 gateway；
+    uploads 全字段每次请求从 config 读取，热重载可生效。
 """
 
 from __future__ import annotations
@@ -39,15 +41,19 @@ from typing import Any, Literal
 
 import yaml
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 logger = logging.getLogger("kcoder_gateway.runtime_config")
 
 router = APIRouter(prefix="/v1/runtime-config", tags=["runtime-config"])
 
 # 可编辑的配置段名（与 QiLin AppConfig 顶层字段对齐）
-RuntimeConfigSection = Literal["memory", "summarization", "title", "sandbox"]
-_VALID_SECTIONS: tuple[str, ...] = ("memory", "summarization", "title", "sandbox")
+RuntimeConfigSection = Literal[
+    "memory", "summarization", "title", "sandbox", "database", "uploads"
+]
+_VALID_SECTIONS: tuple[str, ...] = (
+    "memory", "summarization", "title", "sandbox", "database", "uploads",
+)
 
 
 # ────────────────────────────────────────────────────────────────
@@ -78,8 +84,23 @@ def _resolve_config_path() -> Path:
 # ────────────────────────────────────────────────────────────────
 
 
+class UploadsConfigModel(BaseModel):
+    """附件上传配置的 Pydantic 模型。
+
+    uploads 段不是 QiLin AppConfig 的显式字段，靠 ``extra="allow"`` 从 YAML
+    读入 dict。此处定义校验模型，确保 PUT 入参合法。
+    size 字段以**字节**存储（与引擎读取侧一致）。
+    """
+
+    max_files: int = Field(default=10, ge=1, le=100)
+    max_file_size: int = Field(default=10_485_760, ge=1, description="bytes (10 MB default)")
+    max_total_size: int = Field(default=52_428_800, ge=1, description="bytes (50 MB default)")
+    auto_convert_documents: bool = Field(default=True)
+
+
 def _get_qilin_config_models() -> dict[str, type[BaseModel]]:
-    """懒加载 QiLin 四段配置 Pydantic 模型，用于 PUT 入参校验。"""
+    """懒加载配置 Pydantic 模型，用于 PUT 入参校验。"""
+    from qilin.config.database_config import DatabaseConfig
     from qilin.config.memory_config import MemoryConfig
     from qilin.config.sandbox_config import SandboxConfig
     from qilin.config.summarization_config import SummarizationConfig
@@ -90,14 +111,17 @@ def _get_qilin_config_models() -> dict[str, type[BaseModel]]:
         "summarization": SummarizationConfig,
         "title": TitleConfig,
         "sandbox": SandboxConfig,
+        "database": DatabaseConfig,
+        "uploads": UploadsConfigModel,
     }
 
 
 def _read_effective_configs() -> dict[str, dict[str, Any]]:
-    """读取四段配置的**生效值**（QiLin 热重载后的单例 / AppConfig 实例）。
+    """读取各段配置的**生效值**（QiLin 热重载后的单例 / AppConfig 实例）。
 
-    memory / summarization / title 有独立单例函数；sandbox 段无单例，
-    直接从 ``get_app_config().sandbox`` 读取（AppConfig 热重载时刷新）。
+    memory / summarization / title 有独立单例函数；sandbox / database 段
+    无单例，直接从 ``get_app_config()`` 读取。uploads 段靠 ``extra="allow"``
+    从 YAML 读入 dict（不存在则返回空 dict）。
     """
     from qilin.config.app_config import get_app_config
     from qilin.config.memory_config import get_memory_config
@@ -105,11 +129,20 @@ def _read_effective_configs() -> dict[str, dict[str, Any]]:
     from qilin.config.title_config import get_title_config
 
     app_cfg = get_app_config()
+    uploads_raw = getattr(app_cfg, "uploads", None)
+    if isinstance(uploads_raw, dict):
+        uploads_dict = dict(uploads_raw)
+    elif uploads_raw is not None:
+        uploads_dict = dict(getattr(uploads_raw, "__dict__", {}))
+    else:
+        uploads_dict = {}
     return {
         "memory": get_memory_config().model_dump(),
         "summarization": get_summarization_config().model_dump(),
         "title": get_title_config().model_dump(),
         "sandbox": app_cfg.sandbox.model_dump(mode="json"),
+        "database": app_cfg.database.model_dump(mode="json"),
+        "uploads": uploads_dict,
     }
 
 
@@ -144,7 +177,7 @@ def _atomic_write(path: Path, content: str) -> None:
 @router.get("")
 @router.get("/")
 async def get_runtime_config() -> dict[str, Any]:
-    """GET /v1/runtime-config → { memory, summarization, title, sandbox } 生效值。"""
+    """GET /v1/runtime-config → { memory, summarization, title, sandbox, database, uploads } 生效值。"""
     try:
         return _read_effective_configs()
     except Exception as exc:

@@ -40,6 +40,8 @@ interface KcoderBridge {
     close: () => void
   }
   send: (channel: string, ...args: unknown[]) => void
+  /** Restart the Python sidecar engine, returns new port + token. */
+  restartEngine: () => Promise<{ port: number; token: string }>
   on: (channel: string, callback: (...args: unknown[]) => void) => void
   off: (channel: string, callback: (...args: unknown[]) => void) => void
   terminal: TerminalApi

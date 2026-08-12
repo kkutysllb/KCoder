@@ -25,6 +25,11 @@ contextBridge.exposeInMainWorld('kcoder', {
     }
   },
 
+  // Restart the Python sidecar engine (stop → start with fresh config).
+  // Returns new { port, token } so the renderer can update its API client.
+  restartEngine: () =>
+    ipcRenderer.invoke('engine:restart') as Promise<{ port: number; token: string }>,
+
   // Product-side model management (drives the engine's UserDataStore).
   // The new engine exposes no HTTP model CRUD; the product owns this.
   // userId is the authenticated user's id — required so profiles resolve
@@ -42,7 +47,7 @@ contextBridge.exposeInMainWorld('kcoder', {
 
   // IPC event listeners
   on: (channel: string, callback: (...args: unknown[]) => void) => {
-    const validChannels = ['new-chat', 'open-settings', 'workspace-opened', 'window-state-changed']
+    const validChannels = ['new-chat', 'open-settings', 'workspace-opened', 'window-state-changed', 'engine:restarted']
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, (_event, ...args) => callback(...args))
     }
@@ -105,6 +110,8 @@ declare global {
         isMaximized: () => Promise<boolean>
       }
       send: (channel: string, ...args: unknown[]) => void
+      /** Restart the Python sidecar engine, returns new port + token. */
+      restartEngine: () => Promise<{ port: number; token: string }>
       on: (channel: string, callback: (...args: unknown[]) => void) => void
       off: (channel: string, callback: (...args: unknown[]) => void) => void
       models: {

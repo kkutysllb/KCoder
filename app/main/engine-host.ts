@@ -144,6 +144,27 @@ export async function stopEngine(): Promise<void> {
 }
 
 /**
+ * Restart the engine: stop then start with a fresh config.
+ *
+ * 用于让 config.yaml 中启动时初始化的字段（如 database.backend、
+ * sandbox.use）在不退出 app 的情况下重新生效。每次 startEngine 会生成
+ * 新的随机 port/token，调用方（IPC / tray）需把新值通知 renderer。
+ *
+ * 安全性：startEngine 内部会重新执行 syncEngineModelsBestEffort +
+ * syncSubAgents，保证 config.yaml 的最新配置被重新加载。dataDir 不变
+ * （固定 ~/.kcoder），已注册的 IPC handler 不受影响。
+ *
+ * @returns 新的 { port, token }，供 renderer 更新 store + 重建 API 实例
+ */
+export async function restartEngine(): Promise<{ port: number; token: string }> {
+  console.log('[KCoder] Restarting engine...')
+  await stopEngine()
+  await startEngine()
+  console.log(`[KCoder] Engine restarted on port ${getEnginePort()}`)
+  return { port: getEnginePort(), token: getEngineToken() }
+}
+
+/**
  * Get the port the engine is running on (0 if not started).
  *
  * Renderer 通过 ipc 调这个函数，拿到 port 后直接 fetch http://127.0.0.1:<port>/v1/*

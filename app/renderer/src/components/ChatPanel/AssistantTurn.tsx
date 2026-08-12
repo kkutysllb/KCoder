@@ -104,12 +104,9 @@ export function AssistantTurn({
     hasInteractiveClarification
 
   return (
-    <article className="flex gap-3" aria-label="助手消息">
-      {/* 左侧 K 头像 */}
-      <KAvatar streaming={streaming && !hasContent} />
-
-      {/* 右侧 turn 容器 */}
-      <div className="flex-1 min-w-0">
+    <article aria-label="助手消息">
+      {/* turn 容器：去掉左侧 28px K 头像后，文字直接铺满 */}
+      <div className="min-w-0">
         {/* 1. 阶段徽章 / compaction 通知 */}
         {showTurnHeader && (
           <div className="flex items-center gap-2 mb-2">
@@ -236,19 +233,4 @@ export function AssistantTurn({
 function formatMs(ms: number): string {
   if (ms < 1000) return '<1s'
   return `${(ms / 1000).toFixed(1)}s`
-}
-
-/** K 字母圆形头像 —— 流式中带呼吸光晕 */
-function KAvatar({ streaming }: { streaming: boolean }) {
-  return (
-    <div
-      className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${
-        streaming
-          ? 'bg-gradient-to-br from-[#1e88e5] to-[#6366f1] shadow-[0_0_0_3px_rgba(30,136,229,0.15)] animate-pulse'
-          : 'bg-gradient-to-br from-[#1e88e5] to-[#6366f1]'
-      }`}
-    >
-      K
-    </div>
-  )
 }

@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
 import { getEngineAPI, type WorkspaceStatus } from '../../services/engine-api'
+import { getGeneralPref } from '../../lib/generalPrefs'
 
 export function InfoPanel() {
   const { t } = useI18n()
@@ -57,7 +58,7 @@ export function InfoPanel() {
         <div className="flex-1 overflow-y-auto pb-3">
           <GitSection workspacePath={workspacePath} selectedBranch={selectedBranch} />
           <PlanSection />
-          <ProgressSection />
+          {getGeneralPref('showTodo') && <ProgressSection />}
         </div>
       </aside>
   )

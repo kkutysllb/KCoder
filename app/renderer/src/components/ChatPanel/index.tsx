@@ -1,10 +1,11 @@
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useCallback } from 'react'
 import { useChat } from '../../hooks/useChat'
 import { ChatFeed, type ChatFeedHandle } from './ChatFeed'
 import { CommandInput } from '../CommandInput'
 import { WelcomeScreen } from '../WelcomeScreen'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
+import { getGeneralPref } from '../../lib/generalPrefs'
 
 export function ChatPanel() {
   const { messages, isGenerating, sendMessage, editAndResend, stopGeneration, steer } = useChat()
@@ -13,6 +14,20 @@ export function ChatPanel() {
   const branches = useAppStore((s) => s.branches)
   const [atBottom, setAtBottom] = useAtBottomState()
   const { t } = useI18n()
+
+  // 读取「显示思考过程」偏好（用户在常规设置中切换）
+  const showThinking = getGeneralPref('showThinking')
+
+  // queue 交互模式：用户在 turn 运行中输入的消息入队，turn 完成后自动发送
+  const handleQueue = useCallback((text: string) => {
+    useAppStore.getState().enqueueMessage(text)
+    useAppStore.getState().addMessage({
+      id: crypto.randomUUID(),
+      role: 'system',
+      content: t('chat.queued'),
+      timestamp: Date.now()
+    })
+  }, [t])
 
   // 可编辑的 user message IDs：每条 user 消息后紧跟一个已完成（或不存在）
   // 的 assistant turn——只要下一条 assistant turn 不是 streaming 就允许编辑。
@@ -36,6 +51,7 @@ export function ChatPanel() {
         ref={feedRef}
         messages={messages}
         streamingId={hasMessages && isGenerating ? messages[messages.length - 1].id : undefined}
+        showReasoning={showThinking}
         selectedModel={selectedModel}
         branches={branches}
         editDisabled={isGenerating}
@@ -69,6 +85,7 @@ export function ChatPanel() {
             isGenerating={isGenerating}
             onStop={stopGeneration}
             onSteer={steer}
+            onQueue={handleQueue}
           />
         </div>
       )}

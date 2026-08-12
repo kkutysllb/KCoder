@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useI18n } from '../../i18n'
 import { useAppStore } from '../../stores/app-store'
 import { getEngineAPI, type ModelEntry, type BranchListResponse } from '../../services/engine-api'
+import { getGeneralPref } from '../../lib/generalPrefs'
 
 // Agent permission modes - maps to engine approvalPolicy/sandboxMode, backend integration reserved
 const PERMISSION_MODES = [
@@ -280,8 +281,10 @@ interface CommandInputProps {
   isGenerating?: boolean
   /** Stop the current turn (interrupt). */
   onStop?: () => void
-  /** Append instructions to the running turn (steer). */
+  /** Append instructions to the running turn (steer / guide mode). */
   onSteer?: (text: string) => void
+  /** Queue a message for after the current turn finishes (queue mode). */
+  onQueue?: (text: string) => void
   permission?: PermissionMode
   onPermissionChange?: (mode: PermissionMode) => void
 }
@@ -292,6 +295,7 @@ export function CommandInput({
   isGenerating,
   onStop,
   onSteer,
+  onQueue,
   permission = 'full-access',
   onPermissionChange
 }: CommandInputProps) {
@@ -341,10 +345,18 @@ export function CommandInput({
     const text = input.trim()
     if (!text && pendingFiles.length === 0) return
 
-    // isGenerating + onSteer：把输入作为追加指令发送给运行中的 turn
-    // （合并 steer 到主输入框，避免高度增加 + 双输入框 UI）
-    if (isGenerating && onSteer) {
-      onSteer(text)
+    // isGenerating：按 interactionMode 分流
+    // guide → steer（追加到运行中的 turn）
+    // queue → onQueue（排队等 turn 完成后自动发送）
+    if (isGenerating) {
+      const mode = getGeneralPref('interactionMode')
+      if (mode === 'guide' && onSteer) {
+        onSteer(text)
+      } else if (onQueue) {
+        onQueue(text)
+      } else if (onSteer) {
+        onSteer(text)
+      }
       setInput('')
       return
     }

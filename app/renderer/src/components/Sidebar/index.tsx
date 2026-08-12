@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
 import { getEngineAPI, type AuthUser, type ThreadSummary } from '../../services/engine-api'
+import { getGeneralPref } from '../../lib/generalPrefs'
 
 // Icons as components
 const Icons = {
@@ -129,6 +130,16 @@ function formatRelativeTime(iso: string): string {
   return new Date(ts).toLocaleDateString('zh-CN')
 }
 
+/** 归档保留时长转毫秒 */
+function parseRetention(retention: string): number {
+  const match = retention.match(/^(\d+)([dwm])$/)
+  if (!match) return 7 * 24 * 60 * 60 * 1000 // 默认 7 天
+  const value = parseInt(match[1], 10)
+  const unit = match[2]
+  const multipliers = { d: 86400000, w: 604800000, m: 2592000000 }
+  return value * (multipliers[unit as keyof typeof multipliers] ?? multipliers.d)
+}
+
 /** View / sort dropdown menu (reference design) */
 function SortMenu({
   viewMode,
@@ -198,20 +209,40 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
     setLoadingThreads(true)
     try {
       const api = getEngineAPI(enginePort)
-      const result = await api.listThreads()
+      const result = await api.listThreads({ includeArchived: true })
       console.log('[KCoder] loadThreads: got', result.threads.length, 'threads from port', enginePort)
       // 按更新时间降序
       const sorted = [...result.threads].sort((a, b) =>
         (b.updatedAt || '').localeCompare(a.updatedAt || '')
       )
       setThreads(sorted)
+
+      // 自动归档：超过保留期且未归档的会话标记为 archived
+      if (getGeneralPref('autoArchive')) {
+        const retentionMs = parseRetention(getGeneralPref('archiveRetention'))
+        const now = Date.now()
+        const toArchive = sorted.filter(
+          (t) => !t.archived && t.updatedAt && now - new Date(t.updatedAt).getTime() > retentionMs
+        )
+        if (toArchive.length > 0) {
+          await Promise.all(
+            toArchive.map((t) => api.updateThread(t.id, { archived: true }).catch(() => {}))
+          )
+          const refreshed = await api.listThreads({ includeArchived: true })
+          setThreads(
+            [...refreshed.threads].sort((a, b) =>
+              (b.updatedAt || '').localeCompare(a.updatedAt || '')
+            )
+          )
+        }
+      }
     } catch (error) {
       console.error('[KCoder] Failed to load threads:', error)
       // 重试一次（引擎可能刚启动，store 还没 ready）
       setTimeout(async () => {
         try {
           const api = getEngineAPI(enginePort)
-          const result = await api.listThreads()
+          const result = await api.listThreads({ includeArchived: true })
           setThreads([...result.threads].sort((a, b) =>
             (b.updatedAt || '').localeCompare(a.updatedAt || '')
           ))
@@ -261,6 +292,21 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
       alert(t('sidebar.deleteFailed'))
     }
   }, [enginePort, threadId, clearMessages, setThreadId, t])
+
+  // 归档 / 取消归档
+  const handleArchiveToggle = useCallback(async (id: string, currentlyArchived: boolean | undefined, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      const api = getEngineAPI(enginePort)
+      await api.updateThread(id, { archived: !currentlyArchived })
+      setThreads((prev) => prev.map((t) => (t.id === id ? { ...t, archived: !currentlyArchived } : t)))
+    } catch (error) {
+      console.error('[KCoder] Failed to toggle archive:', error)
+    }
+  }, [enginePort])
+
+  // 归档过滤：showArchived 为 false 时只显示未归档会话
+  const visibleThreads = showArchived ? threads : threads.filter((t) => !t.archived)
 
   return (
     <div
@@ -386,7 +432,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
           // 顶部插入一个使用频度区分位（顶项项目优先）。
           const OTHERS_KEY = '__others__'
           const groups = new Map<string, ThreadSummary[]>()
-          for (const thread of threads) {
+          for (const thread of visibleThreads) {
             const key = thread.workspace?.trim() ? thread.workspace! : OTHERS_KEY
             const list = groups.get(key) ?? []
             list.push(thread)
@@ -426,7 +472,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
                     return (
                       <div
                         key={thread.id}
-                        className={`task-item group w-full ${isActive ? 'bg-bg-hover text-text-primary' : ''}`}
+                        className={`task-item group w-full ${isActive ? 'bg-bg-hover text-text-primary' : ''} ${thread.archived ? 'opacity-50' : ''}`}
                         onClick={() => selectThread(thread.id, thread.workspace)}
                         title={displayTitle}
                       >
@@ -434,6 +480,16 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
                           {displayTitle}
                         </span>
                         <span className="text-xs text-text-muted shrink-0 ml-2 group-hover:hidden">{time}</span>
+                        {/* Archive toggle — visible on hover */}
+                        <button
+                          onClick={(e) => handleArchiveToggle(thread.id, thread.archived, e)}
+                          className="hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-text-muted hover:text-[#10b981] hover:bg-[#10b981]/10 transition-colors shrink-0"
+                          title={thread.archived ? t('sidebar.unarchive') : t('sidebar.archive')}
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+                          </svg>
+                        </button>
                         {/* Delete button — visible on hover */}
                         <button
                           onClick={(e) => handleDeleteThread(thread.id, e)}

@@ -94,6 +94,9 @@ interface AppState {
   messages_v2: ChatMessage[]
   isGenerating: boolean
 
+  /** 排队消息队列（queue 交互模式下，turn 运行中用户输入的消息入队，turn 完成后自动发送） */
+  queuedMessages: string[]
+
   // Workspace / task context（输入框上方窄条的选择状态）
   workspacePath: string | null
   selectedBranch: string | null
@@ -165,6 +168,10 @@ interface AppState {
   /** 批量加载历史消息（loadThread 用）。输入旧 Message[]，内部双写 v2。 */
   setChatMessages: (msgs: Message[]) => void
   setGenerating: (generating: boolean) => void
+  /** 入队一条消息（queue 模式）。 */
+  enqueueMessage: (text: string) => void
+  /** 出队首条消息并返回（无消息返回 undefined）。 */
+  dequeueMessage: () => string | undefined
   setWorkspacePath: (path: string | null) => void
   setSelectedBranch: (branch: string | null) => void
   setSelectedModel: (model: string | null) => void
@@ -213,6 +220,7 @@ export const useAppStore = create<AppState>((set) => ({
   messages: [],
   messages_v2: [],
   isGenerating: false,
+  queuedMessages: [],
   workspacePath: null,
   selectedBranch: null,
   selectedModel: null,
@@ -369,6 +377,22 @@ export const useAppStore = create<AppState>((set) => ({
     })),
 
   setGenerating: (generating) => set({ isGenerating: generating }),
+
+  enqueueMessage: (text) =>
+    set((state) => ({ queuedMessages: [...state.queuedMessages, text] })),
+  dequeueMessage: () => {
+    let result: string | undefined
+    set((state) => {
+      if (state.queuedMessages.length === 0) {
+        result = undefined
+        return {}
+      }
+      const [first, ...rest] = state.queuedMessages
+      result = first
+      return { queuedMessages: rest }
+    })
+    return result
+  },
 
   setWorkspacePath: (path) => set({ workspacePath: path }),
   setSelectedBranch: (branch) => set({ selectedBranch: branch }),

@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
-import { getEngineAPI, type ModelEntry } from '../../services/engine-api'
+import { getEngineAPI, type ModelEntry, type RuntimeConfig, type RuntimeConfigSection } from '../../services/engine-api'
 import { SidebarResizeHandle } from '../SidebarResizeHandle'
+import { RuntimeConfigCard, type FieldDef } from './RuntimeConfigCard'
 import { SkillsSettings } from './SkillsSettings'
 import { SubAgentsSettings } from './SubAgentsSettings'
 import { MCPSettings } from './MCPSettings'
@@ -804,6 +805,123 @@ function savePrefs(prefs: GeneralPrefs) {
 function GeneralSettings() {
   const [prefs, setPrefs] = useState<GeneralPrefs>(loadPrefs)
   const { t, setLocale } = useI18n()
+  const { enginePort, engineStatus, initializeEngine, setEngineStatus } = useAppStore()
+
+  // Runtime config state（database + uploads 引擎级配置）
+  const [runtimeCfg, setRuntimeCfg] = useState<RuntimeConfig | null>(null)
+  const [cfgLoading, setCfgLoading] = useState(true)
+  const [cfgSaving, setCfgSaving] = useState(false)
+  const [refreshEffectedAt, setRefreshEffectedAt] = useState(0)
+  // 引擎重启状态
+  const [restarting, setRestarting] = useState(false)
+  const [restartMsg, setRestartMsg] = useState<string | null>(null)
+
+  const loadRuntimeConfig = useCallback(async () => {
+    if (engineStatus !== 'connected') { setCfgLoading(false); return }
+    setCfgLoading(true)
+    try {
+      const cfg = await getEngineAPI(enginePort).getRuntimeConfig()
+      setRuntimeCfg(cfg)
+    } catch (e) {
+      console.error('[General] Failed to load runtime config:', e)
+    } finally {
+      setCfgLoading(false)
+    }
+  }, [enginePort, engineStatus])
+
+  useEffect(() => {
+    loadRuntimeConfig()
+  }, [loadRuntimeConfig])
+
+  // 保存后轮询刷新生效值
+  useEffect(() => {
+    if (refreshEffectedAt === 0) return
+    let cancelled = false
+    const poll = async (): Promise<void> => {
+      for (let i = 0; i < 3; i++) {
+        await new Promise((r) => setTimeout(r, 800))
+        if (cancelled) return
+        try {
+          const cfg = await getEngineAPI(enginePort).getRuntimeConfig()
+          if (!cancelled) setRuntimeCfg(cfg)
+          return
+        } catch {
+          // 继续重试
+        }
+      }
+    }
+    poll()
+    return () => { cancelled = true }
+  }, [refreshEffectedAt, enginePort])
+
+  const handleSaveSection = useCallback(
+    async (section: RuntimeConfigSection, value: Record<string, unknown>): Promise<void> => {
+      setCfgSaving(true)
+      try {
+        await getEngineAPI(enginePort).updateRuntimeConfigSection(section, value)
+        setRuntimeCfg((prev) => prev ? { ...prev, [section]: value as never } : prev)
+        setRefreshEffectedAt(Date.now())
+      } finally {
+        setCfgSaving(false)
+      }
+    },
+    [enginePort]
+  )
+
+  // uploads MB↔bytes 转换
+  const uploadsInitialValue = useMemo(() => {
+    if (!runtimeCfg) return {}
+    const u = runtimeCfg.uploads
+    return {
+      max_files: u.max_files,
+      max_file_size: +(u.max_file_size / BYTES_PER_MB).toFixed(2),
+      max_total_size: +(u.max_total_size / BYTES_PER_MB).toFixed(2),
+      auto_convert_documents: u.auto_convert_documents,
+    }
+  }, [runtimeCfg])
+
+  const handleSaveUploads = useCallback(async (value: Record<string, unknown>): Promise<void> => {
+    const payload: Record<string, unknown> = {
+      max_files: Number(value.max_files) || 1,
+      max_file_size: Math.max(1, Math.round((Number(value.max_file_size) || 1) * BYTES_PER_MB)),
+      max_total_size: Math.max(1, Math.round((Number(value.max_total_size) || 1) * BYTES_PER_MB)),
+      auto_convert_documents: Boolean(value.auto_convert_documents),
+    }
+    await handleSaveSection('uploads', payload)
+  }, [handleSaveSection])
+
+  // 重启后端引擎：使 config.yaml 中启动时初始化的字段生效
+  const handleRestartEngine = useCallback(async () => {
+    setRestarting(true)
+    setRestartMsg(null)
+    try {
+      const { port, token } = await window.kcoder.restartEngine()
+      initializeEngine(port)
+      // 等待引擎就绪（langgraph dev 启动需要数秒）
+      const api = getEngineAPI(port, token)
+      let attempts = 0
+      const pollHealth = async (): Promise<void> => {
+        const ok = await api.health()
+        if (ok) {
+          setEngineStatus('connected')
+          return
+        }
+        if (attempts++ < 30) {
+          await new Promise((r) => setTimeout(r, 500))
+          return pollHealth()
+        }
+        throw new Error('health check timeout')
+      }
+      await pollHealth()
+      setRestartMsg(t('settings.general.restarted'))
+      setRefreshEffectedAt(Date.now())
+    } catch (e) {
+      setEngineStatus('error')
+      setRestartMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRestarting(false)
+    }
+  }, [initializeEngine, setEngineStatus, t])
 
   // Apply theme to document root
   useEffect(() => {
@@ -954,9 +1072,9 @@ function GeneralSettings() {
             extraButton={
               <button
                 className="shrink-0 px-3 py-1.5 rounded-lg text-xs bg-bg-input text-text-secondary hover:bg-bg-active hover:text-text-primary transition-colors"
-                onClick={() => {
-                  // Reserved: invoke Electron dialog.showOpenDialog via IPC
-                  console.log('[KCoder] TODO: open folder picker via IPC')
+                onClick={async () => {
+                  const path = await window.kcoder.dialog.openFolder()
+                  if (path) update('dataPath', path)
                 }}
               >
                 {t('settings.general.browse')}
@@ -964,12 +1082,103 @@ function GeneralSettings() {
             }
           />
         </div>
+
+        {/* ── 引擎级配置（database + uploads） ── */}
+        <div className="max-w-[680px] mx-auto mt-6 space-y-4">
+          <h2 className="text-sm font-semibold text-text-primary">{t('settings.general.engineConfig')}</h2>
+
+          {/* database 重启提示 */}
+          <div className="flex items-start gap-2 rounded-lg border border-[#f59e0b]/30 bg-[#f59e0b]/5 px-3 py-2.5">
+            <svg className="w-4 h-4 text-[#f59e0b] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+            <p className="text-[11px] text-text-secondary leading-relaxed">{t('settings.general.dbRestartHint')}</p>
+          </div>
+
+          {cfgLoading ? (
+            <div className="text-center py-6 text-xs text-text-muted">{t('common.loading')}</div>
+          ) : runtimeCfg ? (
+            <>
+              <RuntimeConfigCard
+                title={t('settings.general.dbTitle')}
+                description={t('settings.general.dbDesc')}
+                fields={DATABASE_FIELDS}
+                initialValue={runtimeCfg.database as unknown as Record<string, unknown>}
+                onSave={(v) => handleSaveSection('database', v)}
+                saving={cfgSaving}
+              />
+              <RuntimeConfigCard
+                title={t('settings.general.uploadsTitle')}
+                description={t('settings.general.uploadsDesc')}
+                fields={UPLOADS_FIELDS}
+                initialValue={uploadsInitialValue}
+                onSave={handleSaveUploads}
+                saving={cfgSaving}
+              />
+            </>
+          ) : null}
+
+          {/* 重启后端引擎 */}
+          <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border border-border-subtle">
+            <div className="text-[11px] text-text-secondary leading-relaxed">
+              {restartMsg ?? t('settings.general.restartEngineHint')}
+            </div>
+            <button
+              onClick={handleRestartEngine}
+              disabled={restarting}
+              className="shrink-0 px-3 py-1.5 rounded-md text-xs font-medium bg-accent-primary/10 text-accent-primary hover:bg-accent-primary/20 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+            >
+              {restarting && (
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992V4.356M19.684 8.59A7.5 7.5 0 1 0 19.684 15.41" />
+                </svg>
+              )}
+              {restarting ? t('settings.general.restarting') : t('settings.general.restartEngine')}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
 }
 
-// Setting row: flat layout with title+desc left, control right (matching reference design)
+const BYTES_PER_MB = 1024 * 1024
+
+const DATABASE_FIELDS: FieldDef[] = [
+  {
+    key: 'backend',
+    label: '存储后端',
+    type: 'select',
+    hint: 'memory 不持久化 / sqlite 单节点 / postgres 多节点',
+    options: [
+      { value: 'memory', label: 'memory（开发，重启丢失）' },
+      { value: 'sqlite', label: 'sqlite（单节点）' },
+      { value: 'postgres', label: 'postgres（多节点）' }
+    ]
+  },
+  { key: 'sqlite_dir', label: 'SQLite 目录', type: 'string', hint: 'backend=sqlite 时生效。默认 .qilin/data' },
+  { key: 'postgres_url', label: 'Postgres URL', type: 'string', hint: 'backend=postgres 时生效。推荐用 $DATABASE_URL 引用 secrets.env' },
+  {
+    key: 'checkpoint_channel_mode',
+    label: 'Checkpoint 模式',
+    type: 'select',
+    hint: 'full 完整消息 / delta 增量。重启生效',
+    options: [
+      { value: 'full', label: 'full（完整消息快照）' },
+      { value: 'delta', label: 'delta（DeltaChannel 增量）' }
+    ]
+  },
+  { key: 'pool_size', label: '连接池大小', type: 'number', min: 1, step: 1, hint: 'postgres ORM 连接池' },
+  { key: 'pool_recycle', label: '连接回收秒数', type: 'number', min: 1, step: 1, hint: 'postgres 连接闲置回收' },
+  { key: 'command_timeout', label: '命令超时（秒）', type: 'number', min: 1, step: 1, hint: 'postgres 命令超时' }
+]
+
+const UPLOADS_FIELDS: FieldDef[] = [
+  { key: 'max_files', label: '文件数量上限', type: 'number', min: 1, max: 100, step: 1, hint: '单个会话允许的最大附件数量（1-100）' },
+  { key: 'max_file_size', label: '单文件上限（MB）', type: 'number', min: 1, step: 1, hint: '单个附件的最大体积，单位 MB' },
+  { key: 'max_total_size', label: '总量上限（MB）', type: 'number', min: 1, step: 1, hint: '单个会话所有附件合计的最大体积，单位 MB' },
+  { key: 'auto_convert_documents', label: '自动转换文档', type: 'boolean', hint: '上传时自动把 PDF/docx/pptx/xlsx 等转成 markdown' }
+]
 function SettingRow({ title, desc, children }: { title: string; desc: string; children: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-6 py-5">
@@ -982,7 +1191,8 @@ function SettingRow({ title, desc, children }: { title: string; desc: string; ch
   )
 }
 
-// Setting row with input field below description (for text-type settings)
+// Setting row with input field below description (for text-type settings).
+// 输入改动暂存在本地状态，点击「保存」后才提交到父组件（写 localStorage + IPC）。
 function SettingInputRow({ title, desc, value, onChange, placeholder, extraButton }: {
   title: string
   desc: string
@@ -992,6 +1202,20 @@ function SettingInputRow({ title, desc, value, onChange, placeholder, extraButto
   extraButton?: ReactNode
 }) {
   const { t } = useI18n()
+  const [localValue, setLocalValue] = useState(value)
+  const [savedHint, setSavedHint] = useState(false)
+
+  // 外部 value 变化时同步本地（如 Browse 按钮选择文件夹后父组件直接 update）
+  useEffect(() => { setLocalValue(value) }, [value])
+
+  const dirty = localValue !== value
+
+  const handleSave = () => {
+    onChange(localValue)
+    setSavedHint(true)
+    setTimeout(() => setSavedHint(false), 2500)
+  }
+
   return (
     <div className="py-5">
       <p className="text-sm font-medium text-text-primary">{title}</p>
@@ -999,14 +1223,23 @@ function SettingInputRow({ title, desc, value, onChange, placeholder, extraButto
       <div className="flex items-center gap-2 mt-3">
         <input
           type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
+          value={localValue}
+          onChange={(e) => setLocalValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && dirty) handleSave() }}
           placeholder={placeholder}
           className="flex-1 px-3 py-2 rounded-lg text-sm bg-bg-hover border border-border-custom text-text-primary placeholder-text-muted outline-none focus:border-border-strong transition-colors"
         />
         {extraButton}
-        <button className="shrink-0 px-4 py-2 rounded-lg text-xs bg-bg-input text-text-primary hover:bg-bg-active transition-colors">
-          {t('settings.general.save')}
+        <button
+          onClick={handleSave}
+          disabled={!dirty && !savedHint}
+          className={`shrink-0 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
+            dirty
+              ? 'bg-white text-black hover:bg-gray-200'
+              : 'bg-bg-input text-text-muted cursor-default'
+          }`}
+        >
+          {savedHint ? t('settings.general.saved') : t('settings.general.save')}
         </button>
       </div>
     </div>

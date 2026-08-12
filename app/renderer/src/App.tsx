@@ -70,13 +70,16 @@ export default function App() {
   const [terminalMounted, setTerminalMounted] = useState(false)
 
   useEffect(() => {
-    // Apply saved theme on startup
+    // Apply saved theme on startup + sync general prefs to main process (proxy/cert)
     try {
       const raw = localStorage.getItem('kcoder-general-prefs')
-      const theme = raw ? (JSON.parse(raw).theme || 'dark') : 'dark'
+      const parsed = raw ? JSON.parse(raw) : {}
+      const theme = parsed.theme || 'dark'
       const mq = window.matchMedia('(prefers-color-scheme: light)')
       const isLight = theme === 'light' || (theme === 'system' && mq.matches)
       document.documentElement.classList.toggle('theme-light', isLight)
+      // Sync proxy/cert settings to main process on startup
+      window.kcoder?.send('save-settings', { general: parsed })
     } catch { /* ignore */ }
 
     // Get engine port/token from URL query params
@@ -102,6 +105,33 @@ export default function App() {
 
     // Listen for settings IPC
     window.kcoder?.on('open-settings', () => setShowSettings(true))
+  }, [initializeEngine, setEngineStatus])
+
+  // Listen for engine restart events triggered from the tray menu.
+  // The tray calls restartEngine() in the main process and sends the new
+  // { port, token } so the renderer can reconnect.
+  useEffect(() => {
+    const handleRestarted = (data: unknown) => {
+      const { port, token } = data as { port: number; token: string }
+      initializeEngine(port)
+      const api = getEngineAPI(port, token)
+      let attempts = 0
+      const checkHealth = async () => {
+        const ok = await api.health()
+        if (ok) {
+          setEngineStatus('connected')
+        } else if (attempts++ < 30) {
+          setTimeout(checkHealth, 500)
+        } else {
+          setEngineStatus('error')
+        }
+      }
+      checkHealth()
+    }
+    window.kcoder?.on('engine:restarted', handleRestarted)
+    return () => {
+      window.kcoder?.off('engine:restarted', handleRestarted as (...args: unknown[]) => void)
+    }
   }, [initializeEngine, setEngineStatus])
 
   const hasMessages = messages.length > 0
@@ -148,13 +178,10 @@ export default function App() {
         </div>
       )}
 
-      {/* Main content area — 信息面板打开时整体向左偏移（参考 KStock context-open） */}
-      <div
-        className={`flex-1 flex flex-col overflow-hidden relative transition-[margin-right] duration-200 ease-out ${
-          panelOpen ? 'mr-[356px]' : 'mr-0'
-        }`}
-      >
-        {/* Top-right controls: panel toggle + terminal */}
+      {/* Main content area — 顶部状态栏区域（右上角控件）不随面板移动；
+          面板展开时仅内层内容区右侧让位 356px，外层不位移 */}
+      <div className="flex-1 flex flex-col overflow-hidden relative">
+        {/* Top-right controls: panel toggle + terminal — 固定在窗口右上角，永不移动 */}
         <div className="absolute top-3 right-4 z-30 no-drag flex items-center gap-1">
           <PanelToggleButton />
           <div className="w-px h-4 bg-border-custom mx-0.5" />
@@ -175,26 +202,34 @@ export default function App() {
             </button>
           </div>
         )}
-        {hasMessages ? (
-          <ChatPanel />
-        ) : (
-          // ChatPanel 内部会通过 ChatFeed 的 emptySlot 渲染 WelcomeScreen，
-          // 同时承担"回到底部"按钮和编辑重发的交互。但首次启动时
-          // messages 为空，直接挂 ChatPanel 让它自己渲染 emptySlot。
-          <ChatPanel />
-        )}
 
-        {/* Terminal panel — kept mounted to preserve PTY sessions */}
-        {terminalMounted && (
-          <TerminalPanel
-            workspacePath={workspacePath}
-            visible={showTerminal}
-            onEmpty={() => {
-              setShowTerminal(false)
-              setTerminalMounted(false)
-            }}
-          />
-        )}
+        {/* 内层内容区 — 面板展开时右侧让位 356px（padding 只压缩内容，不影响外层顶部区域） */}
+        <div
+          className={`flex-1 flex flex-col overflow-hidden transition-[padding-right] duration-200 ease-out ${
+            panelOpen ? 'pr-[356px]' : 'pr-0'
+          }`}
+        >
+          {hasMessages ? (
+            <ChatPanel />
+          ) : (
+            // ChatPanel 内部会通过 ChatFeed 的 emptySlot 渲染 WelcomeScreen，
+            // 同时承担"回到底部"按钮和编辑重发的交互。但首次启动时
+            // messages 为空，直接挂 ChatPanel 让它自己渲染 emptySlot。
+            <ChatPanel />
+          )}
+
+          {/* Terminal panel — kept mounted to preserve PTY sessions */}
+          {terminalMounted && (
+            <TerminalPanel
+              workspacePath={workspacePath}
+              visible={showTerminal}
+              onEmpty={() => {
+                setShowTerminal(false)
+                setTerminalMounted(false)
+              }}
+            />
+          )}
+        </div>
       </div>
 
       {/* Settings panel */}

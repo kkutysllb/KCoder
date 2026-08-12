@@ -121,6 +121,7 @@ def _to_thread_summary(thread: dict[str, Any]) -> dict[str, Any]:
         "status": "idle",
         "createdAt": thread.get("created_at", ""),
         "updatedAt": thread.get("updated_at", ""),
+        "archived": bool(meta.get("archived", False)),
     }
 
 
@@ -187,11 +188,13 @@ async def create_thread(req: CreateThreadRequest, request: Request) -> dict[str,
 
 
 @router.get("/threads")
-async def list_threads(request: Request, limit: int = 200) -> dict[str, Any]:
+async def list_threads(request: Request, limit: int = 200, include_archived: bool = False) -> dict[str, Any]:
     """列出所有 threads.
 
     renderer 调 GET /v1/threads?limit=200，期望 {threads: [ThreadSummary]}.
     LangGraph 的列表端点是 POST /threads/search（注意不是 GET）。
+
+    ``include_archived=False`` 时过滤掉已归档的 thread（metadata.archived=True）。
     """
     client = _get_client(request)
 
@@ -201,7 +204,10 @@ async def list_threads(request: Request, limit: int = 200) -> dict[str, Any]:
         logger.exception("Failed to search threads")
         raise HTTPException(status_code=502, detail=f"Upstream error: {exc}") from exc
 
-    return {"threads": [_to_thread_summary(t) for t in threads]}
+    summaries = [_to_thread_summary(t) for t in threads]
+    if not include_archived:
+        summaries = [s for s in summaries if not s.get("archived")]
+    return {"threads": summaries}
 
 
 # ────────────────────────────────────────────────────────────────
@@ -228,10 +234,11 @@ async def delete_thread(thread_id: str, request: Request) -> dict[str, Any]:
 class UpdateThreadRequest(BaseModel):
     """PATCH /v1/threads/{id} 请求体。
 
-    只允许更新 title；workspace 等其他字段经讨论不应被随意修改
+    允许更新 title 和 archived 标记；workspace 等其他字段经讨论不应被随意修改
     （workspace 在创建时绑定，后续变更会打乱侧边栏项目归类）。
     """
     title: str | None = None
+    archived: bool | None = None
 
 
 @router.patch("/threads/{thread_id}")
@@ -251,6 +258,9 @@ async def update_thread(
         if not title:
             raise HTTPException(status_code=400, detail="title cannot be empty")
         metadata["title"] = title
+
+    if req.archived is not None:
+        metadata["archived"] = req.archived
 
     if not metadata:
         raise HTTPException(status_code=400, detail="no updatable fields provided")
