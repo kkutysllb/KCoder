@@ -41,22 +41,6 @@ export interface SkillEntry {
   validationError?: string
 }
 
-/** SkillDraft — an in-progress skill authoring session (GET /v1/skills/drafts). */
-export interface SkillDraft {
-  draftId: string
-  mode: 'file' | 'package'
-  workModeId?: string
-  status?: string
-  files?: Array<{ path: string; kind: string; size: number }>
-  evidence?: unknown
-  draft?: {
-    metadata: { id: string; name: string; description?: string }
-    skillMarkdown: string
-  }
-  createdAt: string
-  updatedAt: string
-}
-
 export interface MarketplaceSkill {
   id: string
   name: string
@@ -1778,10 +1762,12 @@ data: <full EngineStreamEvent JSON>
 
   // ============ Skills API ============
   //
-  // The engine exposes GET /v1/skills (list) and the /v1/skills/drafts/*
-  // authoring pipeline (upload files → analyze → generate SKILL.md → install).
-  // The old register/unregister/delete endpoints are gone; skill creation
-  // goes through the drafts pipeline.
+  // Endpoints exposed by the gateway (skills_routes.py):
+  //   GET    /v1/skills                  — list all skills
+  //   PUT    /v1/skills/{name}/enabled   — toggle enabled state
+  //   DELETE /v1/skills/{name}           — delete custom skill
+  //   POST   /v1/skills/install-from-file  — install .skill archive
+  //   POST   /v1/skills/install-from-npm   — install from npm/GitHub/local
 
   // List all skills — GET /v1/skills
   async listSkills(): Promise<SkillEntry[]> {
@@ -1795,96 +1781,58 @@ data: <full EngineStreamEvent JSON>
     return (data.skills ?? []) as SkillEntry[]
   }
 
-  // List skill drafts — GET /v1/skills/drafts
-  async listSkillDrafts(): Promise<SkillDraft[]> {
-    const response = await fetch(`${this.baseUrl}/v1/skills/drafts`, {
-      headers: this.headers
-    })
-    if (!response.ok) throw new Error(`Failed to list skill drafts: ${response.statusText}`)
-    const data = await response.json()
-    return (data.drafts ?? []) as SkillDraft[]
-  }
-
-  // Create a skill draft by uploading files — POST /v1/skills/drafts (multipart/form-data)
-  async createSkillDraft(files: File[], opts?: { mode?: 'file' | 'package'; workModeId?: string }): Promise<{ draftId: string; mode: string; files: Array<{ path: string; kind: string; size: number }> }> {
-    const form = new FormData()
-    for (const file of files) {
-      form.append('files', file)
-    }
-    if (opts?.mode) form.append('mode', opts.mode)
-    if (opts?.workModeId) form.append('workModeId', opts.workModeId)
-    const response = await fetch(`${this.baseUrl}/v1/skills/drafts`, {
-      method: 'POST',
-      headers: { Authorization: this.headers.Authorization },
-      body: form
-    })
-    if (!response.ok) {
-      const text = await response.text().catch(() => response.statusText)
-      throw new Error(`Failed to create skill draft: ${text}`)
-    }
-    return response.json()
-  }
-
-  // Analyze a skill draft's uploaded files — POST /v1/skills/drafts/:id/analyze
-  async analyzeSkillDraft(draftId: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/v1/skills/drafts/${encodeURIComponent(draftId)}/analyze`, {
-      method: 'POST',
-      headers: this.headers
-    })
-    if (!response.ok) {
-      const text = await response.text().catch(() => response.statusText)
-      throw new Error(`Failed to analyze skill draft: ${text}`)
-    }
-    return response.json()
-  }
-
-  // Generate a SKILL.md from analyzed evidence — POST /v1/skills/drafts/:id/generate
-  async generateSkillDraft(draftId: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/v1/skills/drafts/${encodeURIComponent(draftId)}/generate`, {
-      method: 'POST',
-      headers: this.headers
-    })
-    if (!response.ok) {
-      const text = await response.text().catch(() => response.statusText)
-      throw new Error(`Failed to generate skill draft: ${text}`)
-    }
-    return response.json()
-  }
-
-  // Update a skill draft's generated content — PATCH /v1/skills/drafts/:id
-  async updateSkillDraft(draftId: string, draft: unknown): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/v1/skills/drafts/${encodeURIComponent(draftId)}`, {
-      method: 'PATCH',
+  // Toggle skill enabled state — PUT /v1/skills/{name}/enabled
+  async toggleSkill(name: string, enabled: boolean): Promise<SkillEntry> {
+    const response = await fetch(`${this.baseUrl}/v1/skills/${encodeURIComponent(name)}/enabled`, {
+      method: 'PUT',
       headers: this.headers,
-      body: JSON.stringify({ draft })
+      body: JSON.stringify({ enabled })
     })
     if (!response.ok) {
       const text = await response.text().catch(() => response.statusText)
-      throw new Error(`Failed to update skill draft: ${text}`)
+      throw new Error(`Failed to toggle skill: ${text}`)
     }
     return response.json()
   }
 
-  // Install a skill draft as a real skill — POST /v1/skills/drafts/:id/install
-  async installSkillDraft(draftId: string, generated: unknown): Promise<{ success: boolean; skillId: string }> {
-    const response = await fetch(`${this.baseUrl}/v1/skills/drafts/${encodeURIComponent(draftId)}/install`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify(generated)
-    })
-    if (!response.ok) {
-      const text = await response.text().catch(() => response.statusText)
-      throw new Error(`Failed to install skill draft: ${text}`)
-    }
-    return response.json()
-  }
-
-  // Delete a user skill — removes the skill directory from disk.
-  // The engine has no dedicated delete endpoint, so this is a product-side
-  // operation via the preload bridge (window.kcoder.deleteSkill) when available;
-  // otherwise it rejects with a clear message.
+  // Delete a custom skill — DELETE /v1/skills/{name}
   async deleteSkill(name: string): Promise<void> {
-    throw new Error(`Skill delete requires the product-side file bridge. Requested: ${name}`)
+    const response = await fetch(`${this.baseUrl}/v1/skills/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+      headers: this.headers
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to delete skill: ${text}`)
+    }
+  }
+
+  // Install a .skill ZIP archive — POST /v1/skills/install-from-file
+  async installSkillFromFile(filePath: string): Promise<{ success: boolean; skill_name: string }> {
+    const response = await fetch(`${this.baseUrl}/v1/skills/install-from-file`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ path: filePath })
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to install skill from file: ${text}`)
+    }
+    return response.json()
+  }
+
+  // Install from npm/GitHub/local path — POST /v1/skills/install-from-npm
+  async installSkillFromNpm(source: string): Promise<{ success: boolean; skill_name: string }> {
+    const response = await fetch(`${this.baseUrl}/v1/skills/install-from-npm`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ source })
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to install skill from npm: ${text}`)
+    }
+    return response.json()
   }
 
   // ============ Sub-Agents / MCP / Plugins / Commands / Remote API ============

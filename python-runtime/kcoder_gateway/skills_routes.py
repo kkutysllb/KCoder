@@ -1,8 +1,12 @@
-"""Real Skills endpoints — list from QiLin, drafts pipeline local.
+"""Skills endpoints — list / toggle / delete / install.
 
-GET /v1/skills         → QiLin SkillStorage.load_skills() (real)
-GET /v1/skills/drafts  → local <dataDir>/kcoder_local/skills_drafts.json
-POST/analyze/generate/install → local JSON (drafts persist, install is a no-op ack)
+GET    /v1/skills                    → QiLin SkillStorage.load_skills()
+PUT    /v1/skills/{name}/enabled     → toggle PUBLIC (extensions_config) or
+                                        CUSTOM/LEGACY (per-user state)
+DELETE /v1/skills/{name}             → delete custom skill from disk
+POST   /v1/skills/install-from-file  → install .skill ZIP archive
+POST   /v1/skills/install-from-npm   → install from npm pkg / GitHub URL /
+                                        local directory
 
 QiLin's SkillStorage returns `Skill` dataclasses with fields:
     name, description, license, skill_dir, skill_file, relative_path,
@@ -11,28 +15,23 @@ QiLin's SkillStorage returns `Skill` dataclasses with fields:
 These are mapped to KCoder's SkillEntry (id/name/description/category/
 enabled/builtin/editable/...). Fields KCoder has no source for (version,
 commands, contributions) default to empty.
-
-The drafts pipeline (analyze → generate → install) is a KCoder-specific
-feature with no QiLin equivalent. Without an LLM API key, analyze/generate
-return empty evidence / draft skeletons so the UI renders; install writes
-the draft's SKILL.md to the user's skills directory via QiLin's
-install_skill_from_archive when a real archive is provided, otherwise it
-acknowledges and the user must restart the sidecar to pick up manual edits.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-import uuid
-from datetime import datetime, timezone
+import os
+import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
-
-from .local_store import load_json, save_json
+from pydantic import BaseModel
 
 logger = logging.getLogger("kcoder_gateway.skills")
 
@@ -47,15 +46,6 @@ def _resolve_user_id(request: Request) -> str:
     if isinstance(resolved, str) and resolved:
         return resolved
     return "anonymous"
-
-
-def _drafts_path(request: Request) -> Path:
-    data_dir = Path(getattr(request.app.state, "data_dir", "") or ".")
-    return data_dir / "kcoder_local" / "skills_drafts.json"
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _skill_to_entry(skill: Any, *, editable: bool = False) -> dict[str, Any]:
@@ -133,190 +123,40 @@ async def list_skills(request: Request) -> dict[str, Any]:
     return {"skills": entries}
 
 
-# ============ endpoints: drafts (local JSON) ============
+# ============ helpers: extensions_config / custom root ============
 
 
-@router.get("/drafts")
-async def list_skill_drafts(request: Request) -> dict[str, Any]:
-    """GET /v1/skills/drafts → { drafts: [...] }."""
-    drafts = load_json(_drafts_path(request), default=[])
-    if not isinstance(drafts, list):
-        drafts = []
-    return {"drafts": drafts}
+def _resolve_config_path() -> Path | None:
+    """解析 extensions_config.json 路径（同 mcp_routes 逻辑）."""
+    env_path = os.environ.get("QILIN_EXTENSIONS_CONFIG_PATH")
+    if env_path:
+        p = Path(env_path)
+        if p.exists():
+            return p
+    runtime_dir = Path(__file__).resolve().parent.parent
+    fallback = runtime_dir / "extensions_config.json"
+    if fallback.exists():
+        return fallback
+    return None
 
 
-@router.post("/drafts")
-async def create_skill_draft(request: Request) -> dict[str, Any]:
-    """POST /v1/skills/drafts → accept multipart upload or JSON; returns a draft shell.
-
-    KCoder's renderer uploads FormData with files + mode. Without a real LLM
-    to analyze/generate SKILL.md, we accept the upload, persist a draft shell
-    (mode + file list), and return a draftId the renderer can use for the
-    subsequent analyze/generate/install calls.
-    """
-    form = await request.form()
-    mode = str(form.get("mode") or "file")
-    work_mode_id = str(form.get("workModeId") or "")
-
-    files_meta: list[dict[str, Any]] = []
-    # form.getlist returns all entries under key "files"
-    for value in form.getlist("files"):
-        name = getattr(value, "filename", None) or str(value)
-        size = getattr(value, "size", 0) or 0
-        kind = "markdown" if name.lower().endswith((".md", ".skill")) else "file"
-        files_meta.append({"path": name, "kind": kind, "size": int(size)})
-
-    draft_id = f"draft_{uuid.uuid4().hex[:10]}"
-    now = _utc_now()
-    draft = {
-        "draftId": draft_id,
-        "mode": mode,
-        "workModeId": work_mode_id,
-        "status": "uploaded",
-        "files": files_meta,
-        "evidence": {},
-        "createdAt": now,
-        "updatedAt": now,
-    }
-
-    drafts = load_json(_drafts_path(request), default=[])
-    if not isinstance(drafts, list):
-        drafts = []
-    drafts.append(draft)
-    save_json(_drafts_path(request), drafts)
-
-    return {
-        "draftId": draft_id,
-        "mode": mode,
-        "files": files_meta,
-    }
-
-
-@router.post("/drafts/{draft_id}/analyze")
-async def analyze_skill_draft(request: Request, draft_id: str) -> dict[str, Any]:
-    """POST /v1/skills/drafts/:id/analyze → empty evidence (LLM-required; no key).
-
-    Without an LLM API key wired into the gateway, we cannot run the resource
-    graph analysis. We return an empty evidence map and status='analyzed' so
-    the renderer's UI advances to the generate step. When a key is available,
-    a future integration can invoke QiLin's skill review analyzer here.
-    """
-    return {
-        "draftId": draft_id,
-        "evidence": {},
-        "status": "analyzed",
-        "note": "skill draft analysis requires an LLM API key (not configured); returning empty evidence",
-    }
-
-
-@router.post("/drafts/{draft_id}/generate")
-async def generate_skill_draft(request: Request, draft_id: str) -> dict[str, Any]:
-    """POST /v1/skills/drafts/:id/generate → empty SKILL.md skeleton.
-
-    Same LLM limitation as analyze. We return a minimal draft skeleton so the
-    renderer can show the generate step's UI; the user can edit the SKILL.md
-    manually before install.
-    """
-    drafts = load_json(_drafts_path(request), default=[])
-    draft_record = None
-    if isinstance(drafts, list):
-        for d in drafts:
-            if isinstance(d, dict) and d.get("draftId") == draft_id:
-                draft_record = d
-                break
-
-    name = draft_id.replace("draft_", "skill-") if draft_record is None else (
-        Path(draft_record.get("files", [{}])[0].get("path", draft_id)).stem
-        if draft_record.get("files") else draft_id
+def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
+    """原子写 JSON：temp file + os.replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=path.name + ".", suffix=".tmp", dir=str(path.parent)
     )
-    skeleton = {
-        "draftId": draft_id,
-        "draft": {
-            "metadata": {
-                "id": name,
-                "name": name,
-                "description": "Edit this description in the draft before installing.",
-            },
-            "skillMarkdown": (
-                "---\n"
-                f"name: {name}\n"
-                "description: Edit this description in the draft before installing.\n"
-                "---\n\n"
-                "# Instructions\n\n"
-                "Describe what this skill does and when it should activate.\n"
-            ),
-        },
-        "note": "skill draft generation requires an LLM API key (not configured); returning skeleton",
-    }
-    return skeleton
-
-
-class UpdateDraftRequest(BaseModel):
-    draft: dict[str, Any] = Field(default_factory=dict)
-
-
-@router.patch("/drafts/{draft_id}")
-async def update_skill_draft(request: Request, draft_id: str, payload: UpdateDraftRequest) -> dict[str, Any]:
-    """PATCH /v1/skills/drafts/:id → persist the edited draft content."""
-    drafts = load_json(_drafts_path(request), default=[])
-    if isinstance(drafts, list):
-        for d in drafts:
-            if isinstance(d, dict) and d.get("draftId") == draft_id:
-                d["draft"] = payload.draft
-                d["updatedAt"] = _utc_now()
-                save_json(_drafts_path(request), drafts)
-                return {"draftId": draft_id, "updated": True}
-    # Draft not found — create an entry so install still works.
-    if isinstance(drafts, list):
-        now = _utc_now()
-        drafts.append({
-            "draftId": draft_id,
-            "mode": "file",
-            "status": "edited",
-            "draft": payload.draft,
-            "createdAt": now,
-            "updatedAt": now,
-        })
-        save_json(_drafts_path(request), drafts)
-    return {"draftId": draft_id, "updated": True}
-
-
-class InstallDraftRequest(BaseModel):
-    # The renderer sends the full generated payload from the generate step.
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    skillMarkdown: str = Field(default="")
-
-
-@router.post("/drafts/{draft_id}/install")
-async def install_skill_draft(request: Request, draft_id: str, payload: InstallDraftRequest) -> dict[str, Any]:
-    """POST /v1/skills/drafts/:id/install → write SKILL.md to user skills dir.
-
-    QiLin's `install_skill_from_archive` expects a packaged skill archive;
-    for a freshly authored draft we instead write the SKILL.md directly to
-    the user's custom skills directory so QiLin picks it up on next reload.
-    """
-    user_id = _resolve_user_id(request)
-    storage = _load_skill_storage(user_id)
-    if storage is None:
-        raise HTTPException(status_code=503, detail="SkillStorage unavailable")
-
-    name = str(payload.metadata.get("id") or payload.metadata.get("name") or draft_id)
-    if not name:
-        raise HTTPException(status_code=400, detail="skill name required in metadata.id or metadata.name")
-
-    # Write SKILL.md to the user's custom skills root. UserScopedSkillStorage
-    # exposes the custom root via `_custom_root` / the skills path config.
     try:
-        custom_root = _resolve_custom_skills_root(storage, user_id)
-        custom_root.mkdir(parents=True, exist_ok=True)
-        skill_dir = custom_root / name
-        skill_dir.mkdir(parents=True, exist_ok=True)
-        (skill_dir / "SKILL.md").write_text(payload.skillMarkdown, encoding="utf-8")
-    except Exception as exc:
-        logger.exception("install_skill_draft failed")
-        raise HTTPException(status_code=500, detail=f"install failed: {exc}") from exc
-
-    return {"success": True, "skillId": name}
+        with os.fdopen(fd, "w", encoding="utf-8") as fp:
+            json.dump(data, fp, indent=2, ensure_ascii=False)
+            fp.write("\n")
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def _resolve_custom_skills_root(storage: Any, user_id: str) -> Path:
@@ -331,9 +171,314 @@ def _resolve_custom_skills_root(storage: Any, user_id: str) -> Path:
         val = getattr(storage, attr, None)
         if isinstance(val, (str, Path)):
             return Path(val)
-    # UserScopedSkillStorage stores _user_id + inherits host_path from SkillStorage
     host_path = getattr(storage, "host_path", None)
     if isinstance(host_path, (str, Path)):
         return Path(host_path) / "custom"
-    # Fallback: data_dir/kcoder_local/skills/custom (at least writes somewhere safe)
     return Path(".") / "kcoder_local" / "skills" / "custom"
+
+
+def _write_public_skill_state(skill_name: str, enabled: bool) -> None:
+    """Read-modify-write a PUBLIC skill's enabled state in extensions_config.json.
+
+    Blocking filesystem IO — callers should dispatch via ``asyncio.to_thread``.
+    """
+    config_path = _resolve_config_path()
+    if config_path is None:
+        raise HTTPException(status_code=503, detail="extensions_config.json path unresolved")
+    try:
+        from qilin.config.extensions_config import (
+            SkillStateConfig,
+            get_extensions_config,
+            reload_extensions_config,
+        )
+
+        extensions_config = get_extensions_config().model_copy(deep=True)
+        extensions_config.skills[skill_name] = SkillStateConfig(enabled=enabled)
+        config_data = extensions_config.to_file_dict()
+        _atomic_write_json(config_path, config_data)
+        reload_extensions_config()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to write PUBLIC skill state")
+        raise HTTPException(status_code=500, detail=f"Failed to update skill state: {exc}") from exc
+
+
+# ============ endpoints: toggle enabled ============
+
+
+class ToggleSkillRequest(BaseModel):
+    enabled: bool
+
+
+@router.put("/{skill_name}/enabled")
+async def toggle_skill_enabled(request: Request, skill_name: str, payload: ToggleSkillRequest) -> dict[str, Any]:
+    """PUT /v1/skills/{name}/enabled → toggle skill enabled state.
+
+    PUBLIC skills → global extensions_config.json (shared state).
+    CUSTOM/LEGACY skills → per-user _skill_states.json (isolated state).
+    """
+    user_id = _resolve_user_id(request)
+    storage = _load_skill_storage(user_id)
+    if storage is None:
+        raise HTTPException(status_code=503, detail="SkillStorage unavailable")
+
+    try:
+        skills = storage.load_skills(enabled_only=False)
+    except Exception:
+        logger.exception("SkillStorage.load_skills failed")
+        raise HTTPException(status_code=500, detail="Failed to load skills")
+
+    skill = next((s for s in skills if s.name == skill_name), None)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
+
+    category_value = getattr(getattr(skill, "category", None), "value", "")
+
+    if category_value == "public":
+        await asyncio.to_thread(_write_public_skill_state, skill_name, payload.enabled)
+    else:
+        # CUSTOM / LEGACY → per-user state
+        set_state = getattr(storage, "set_skill_enabled_state", None)
+        if set_state is not None:
+            await asyncio.to_thread(set_state, skill_name, payload.enabled)
+        else:
+            # Fallback: write to extensions_config.json
+            await asyncio.to_thread(_write_public_skill_state, skill_name, payload.enabled)
+
+    # Reload + return updated entry
+    try:
+        skills = storage.load_skills(enabled_only=False)
+    except Exception:
+        logger.exception("SkillStorage.load_skills reload failed")
+        raise HTTPException(status_code=500, detail="Failed to reload skills")
+
+    updated = next((s for s in skills if s.name == skill_name), None)
+    if updated is None:
+        raise HTTPException(status_code=500, detail=f"Failed to reload skill '{skill_name}'")
+
+    editable = category_value == "custom"
+    return _skill_to_entry(updated, editable=editable)
+
+
+# ============ endpoints: delete ============
+
+
+@router.delete("/{skill_name}")
+async def delete_skill(request: Request, skill_name: str) -> dict[str, Any]:
+    """DELETE /v1/skills/{name} → delete a custom skill from disk.
+
+    Only CUSTOM-category skills can be deleted.
+    """
+    user_id = _resolve_user_id(request)
+    storage = _load_skill_storage(user_id)
+    if storage is None:
+        raise HTTPException(status_code=503, detail="SkillStorage unavailable")
+
+    try:
+        skills = storage.load_skills(enabled_only=False)
+    except Exception:
+        logger.exception("SkillStorage.load_skills failed")
+        raise HTTPException(status_code=500, detail="Failed to load skills")
+
+    skill = next((s for s in skills if s.name == skill_name), None)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
+
+    category_value = getattr(getattr(skill, "category", None), "value", "")
+    if category_value != "custom":
+        raise HTTPException(status_code=403, detail=f"Only custom skills can be deleted; '{skill_name}' is {category_value}")
+
+    try:
+        await asyncio.to_thread(storage.delete_custom_skill, skill_name)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("delete_custom_skill failed")
+        raise HTTPException(status_code=500, detail=f"Failed to delete skill: {exc}") from exc
+
+    return {"success": True, "skillId": skill_name}
+
+
+# ============ endpoints: install from file ============
+
+
+class InstallFileRequest(BaseModel):
+    path: str
+
+
+@router.post("/install-from-file")
+async def install_from_file(request: Request, payload: InstallFileRequest) -> dict[str, Any]:
+    """POST /v1/skills/install-from-file → install .skill ZIP archive.
+
+    Delegates to QiLin's ``ainstall_skill_from_archive`` which runs the full
+    security scan pipeline (safe_extract + _scan_skill_archive_contents_or_raise).
+    """
+    user_id = _resolve_user_id(request)
+    storage = _load_skill_storage(user_id)
+    if storage is None:
+        raise HTTPException(status_code=503, detail="SkillStorage unavailable")
+
+    archive_path = Path(payload.path)
+    if not archive_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {payload.path}")
+    if archive_path.suffix != ".skill":
+        raise HTTPException(status_code=400, detail="File must have .skill extension")
+
+    try:
+        result = await storage.ainstall_skill_from_archive(str(archive_path))
+        return {"success": True, "skill_name": result.get("skill_name", archive_path.stem)}
+    except Exception as exc:
+        logger.exception("install_from_file failed")
+        raise HTTPException(status_code=500, detail=f"Install failed: {exc}") from exc
+
+
+# ============ endpoints: install from npm / GitHub / local path ============
+
+
+class InstallNpmRequest(BaseModel):
+    source: str
+
+
+def _find_skill_md(root: Path) -> Path | None:
+    """Recursively search for SKILL.md under root."""
+    for current_root, _dir_names, file_names in os.walk(root):
+        if "SKILL.md" in file_names:
+            return Path(current_root) / "SKILL.md"
+    return None
+
+
+def _parse_skill_name_from_frontmatter(skill_md_path: Path) -> str | None:
+    """Extract the ``name`` field from a SKILL.md YAML frontmatter."""
+    try:
+        content = skill_md_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    # Match frontmatter block between --- delimiters
+    match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
+    if not match:
+        return None
+    frontmatter = match.group(1)
+    # Extract name: value
+    for line in frontmatter.splitlines():
+        m = re.match(r"^name:\s*(.+?)\s*$", line)
+        if m:
+            return m.group(1).strip().strip('"').strip("'")
+    return None
+
+
+def _install_skill_dir_contents(src_dir: Path, skill_md: Path, custom_root: Path) -> str:
+    """Copy skill files from src_dir/skill_md.parent into custom_root/<name>/.
+
+    Returns the skill name. Uses the ``name`` field from frontmatter; if
+    absent, falls back to the parent directory name.
+    """
+    name = _parse_skill_name_from_frontmatter(skill_md) or skill_md.parent.name
+    # Sanitize: lowercase, hyphens only (QiLin validate_skill_name convention)
+    name = re.sub(r"[^a-z0-9-]", "-", name.lower()).strip("-")
+    name = re.sub(r"-+", "-", name)
+    if not name:
+        name = skill_md.parent.name.lower()
+
+    dest = custom_root / name
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+
+    # Copy the skill directory (skill_md.parent) contents into dest
+    src_skill_dir = skill_md.parent
+    for item in src_skill_dir.iterdir():
+        target = dest / item.name
+        if item.is_dir():
+            shutil.copytree(item, target, dirs_exist_ok=True)
+        else:
+            shutil.copy2(item, target)
+    return name
+
+
+def _install_from_local_dir(source: str, custom_root: Path) -> str:
+    """Install skill from a local directory path."""
+    src = Path(source)
+    if not src.is_dir():
+        raise ValueError(f"Path is not a directory: {source}")
+    skill_md = _find_skill_md(src)
+    if skill_md is None:
+        raise ValueError(f"No SKILL.md found under {source}")
+    return _install_skill_dir_contents(src, skill_md, custom_root)
+
+
+def _install_via_npm_pack(source: str, custom_root: Path) -> str:
+    """Install skill via ``npm pack`` → unpack tgz → find SKILL.md → copy.
+
+    Works for npm registry packages and GitHub URLs (npm pack supports both).
+    """
+    tmpdir = tempfile.mkdtemp(prefix="npm-skill-")
+    try:
+        result = subprocess.run(
+            ["npm", "pack", source, "--pack-destination", tmpdir],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise ValueError(f"npm pack failed: {result.stderr.strip()}")
+
+        # Find the produced .tgz
+        tgz_files = list(Path(tmpdir).glob("*.tgz"))
+        if not tgz_files:
+            raise ValueError("npm pack produced no archive")
+        tgz = tgz_files[0]
+
+        # Extract tgz (npm packs use a 'package/' prefix)
+        extract_dir = Path(tmpdir) / "extracted"
+        extract_dir.mkdir(exist_ok=True)
+        shutil.unpack_archive(str(tgz), str(extract_dir), "gztar")
+
+        # Find SKILL.md (typically under package/ subdir)
+        skill_md = _find_skill_md(extract_dir)
+        if skill_md is None:
+            raise ValueError(f"No SKILL.md found in npm package '{source}'")
+
+        return _install_skill_dir_contents(extract_dir, skill_md, custom_root)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+@router.post("/install-from-npm")
+async def install_from_npm(request: Request, payload: InstallNpmRequest) -> dict[str, Any]:
+    """POST /v1/skills/install-from-npm → install from npm pkg / GitHub URL / local dir.
+
+    Detection logic:
+    - Local directory (os.path.isdir) → direct copy
+    - Otherwise (npm package name, GitHub URL) → npm pack → extract → copy
+    """
+    user_id = _resolve_user_id(request)
+    storage = _load_skill_storage(user_id)
+    if storage is None:
+        raise HTTPException(status_code=503, detail="SkillStorage unavailable")
+
+    custom_root = _resolve_custom_skills_root(storage, user_id)
+    custom_root.mkdir(parents=True, exist_ok=True)
+
+    source = payload.source.strip()
+    if not source:
+        raise HTTPException(status_code=400, detail="source is required")
+
+    def _do_install() -> str:
+        if os.path.isdir(source):
+            return _install_from_local_dir(source, custom_root)
+        return _install_via_npm_pack(source, custom_root)
+
+    try:
+        skill_name = await asyncio.to_thread(_do_install)
+        return {"success": True, "skill_name": skill_name}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("install_from_npm failed")
+        raise HTTPException(status_code=500, detail=f"Install failed: {exc}") from exc

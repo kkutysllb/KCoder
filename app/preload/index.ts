@@ -86,10 +86,12 @@ contextBridge.exposeInMainWorld('kcoder', {
     }
   },
 
-  // Folder picker dialog API
+  // Folder / file picker dialog API
   dialog: {
     openFolder: (options?: OpenDialogOptions) =>
-      ipcRenderer.invoke('dialog:openFolder', options) as Promise<string | null>
+      ipcRenderer.invoke('dialog:openFolder', options) as Promise<string | null>,
+    openFile: (options?: OpenDialogOptions) =>
+      ipcRenderer.invoke('dialog:openFile', options) as Promise<string | null>
   },
 
   // Sub-agents config: trigger config.yaml re-sync after CRUD in Settings.
@@ -136,6 +138,7 @@ declare global {
       }
       dialog: {
         openFolder: (options?: OpenDialogOptions) => Promise<string | null>
+        openFile: (options?: OpenDialogOptions) => Promise<string | null>
       }
       syncSubAgents: () => Promise<void>
     }
