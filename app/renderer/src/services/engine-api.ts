@@ -218,6 +218,56 @@ export interface MemoryRecord {
   deletedAt?: string
 }
 
+// ============ Runtime config types ============
+//
+// 对齐 QiLin Pydantic 模型（vendor/qilin/qilin/config/*_config.py）。
+// GET /v1/runtime-config 返回热重载后的生效值；PUT 写 config.yaml。
+
+/** 记忆机制配置（对齐 QiLin MemoryConfig）。 */
+export interface MemoryRuntimeConfig {
+  enabled: boolean
+  mode: 'middleware' | 'tool'
+  injection_enabled: boolean
+  shutdown_flush_timeout_seconds: number
+  manager_class: string
+  backend_config: Record<string, unknown>
+}
+
+/** 上下文尺寸规格（触发阈值 / 保留策略）。 */
+export interface ContextSize {
+  type: 'fraction' | 'tokens' | 'messages'
+  value: number
+}
+
+/** 摘要配置（对齐 QiLin SummarizationConfig）。 */
+export interface SummarizationConfig {
+  enabled: boolean
+  model_name: string | null
+  trigger: ContextSize | ContextSize[] | null
+  keep: ContextSize
+  trim_tokens_to_summarize: number | null
+  summary_prompt: string | null
+  skill_file_read_tool_names: string[]
+}
+
+/** 标题生成配置（对齐 QiLin TitleConfig）。 */
+export interface TitleConfig {
+  enabled: boolean
+  max_words: number
+  max_chars: number
+  model_name: string | null
+  prompt_template: string
+}
+
+/** 运行时配置三段合集。 */
+export interface RuntimeConfig {
+  memory: MemoryRuntimeConfig
+  summarization: SummarizationConfig
+  title: TitleConfig
+}
+
+export type RuntimeConfigSection = 'memory' | 'summarization' | 'title'
+
 // ============ Governed graph governance types ============
 
 /** Circuit state for a governed graph run. */
@@ -1550,6 +1600,37 @@ data: <full EngineStreamEvent JSON>
       headers: this.headers
     })
     if (!response.ok) throw new Error(`Failed to get memory diagnostics: ${response.statusText}`)
+    return response.json()
+  }
+
+  // ============ Runtime config API ============
+  //
+  // 读热重载后的生效值，写 config.yaml。覆盖 memory / summarization / title 三段。
+  // PUT 后 QiLin signature 检测自动热重载（1-2s 内生效）。
+
+  /** 读取三段运行时配置生效值。 GET /v1/runtime-config */
+  async getRuntimeConfig(): Promise<RuntimeConfig> {
+    const response = await fetch(`${this.baseUrl}/v1/runtime-config`, {
+      headers: this.headers
+    })
+    if (!response.ok) throw new Error(`Failed to get runtime config: ${response.statusText}`)
+    return response.json()
+  }
+
+  /** 写单段配置到 config.yaml。 PUT /v1/runtime-config/{section} */
+  async updateRuntimeConfigSection<S extends RuntimeConfigSection>(
+    section: S,
+    value: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
+    const response = await fetch(`${this.baseUrl}/v1/runtime-config/${section}`, {
+      method: 'PUT',
+      headers: { ...this.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(value)
+    })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => response.statusText)
+      throw new Error(`Failed to update ${section} config: ${detail}`)
+    }
     return response.json()
   }
 

@@ -1,7 +1,384 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
-import { getEngineAPI, type MemoryRecord } from '../../services/engine-api'
+import {
+  getEngineAPI,
+  type MemoryRecord,
+  type RuntimeConfig,
+  type RuntimeConfigSection,
+  type ContextSize
+} from '../../services/engine-api'
+
+// ============ Field definitions for config cards ============
+
+type FieldType = 'boolean' | 'string' | 'nullable-string' | 'number' | 'select' | 'context-size'
+
+interface SelectOption {
+  value: string
+  label: string
+}
+
+interface FieldDef {
+  key: string
+  label: string
+  type: FieldType
+  hint?: string
+  min?: number
+  max?: number
+  step?: number
+  options?: SelectOption[]
+}
+
+// 记忆机制配置字段
+const MEMORY_FIELDS: FieldDef[] = [
+  { key: 'enabled', label: '启用记忆机制', type: 'boolean', hint: '总开关（关闭后 agent 不再记忆）' },
+  {
+    key: 'mode',
+    label: '运行模式',
+    type: 'select',
+    hint: 'middleware 被动摘要 / tool 模型主动调用',
+    options: [
+      { value: 'middleware', label: '中间件（被动摘要）' },
+      { value: 'tool', label: '工具（模型主动调用）' }
+    ]
+  },
+  { key: 'injection_enabled', label: '注入系统提示', type: 'boolean', hint: '把记忆注入到 system prompt' },
+  {
+    key: 'shutdown_flush_timeout_seconds',
+    label: '关闭刷新超时（秒）',
+    type: 'number',
+    min: 1,
+    max: 300,
+    step: 1,
+    hint: '优雅关闭时刷入记忆的最大秒数'
+  },
+  {
+    key: 'manager_class',
+    label: '后端选择器',
+    type: 'string',
+    hint: 'qilinmem / noop 或点分路径'
+  }
+]
+
+// 摘要配置字段
+const SUMMARIZATION_FIELDS: FieldDef[] = [
+  { key: 'enabled', label: '启用摘要', type: 'boolean', hint: '长会话达到阈值时自动压缩历史' },
+  {
+    key: 'model_name',
+    label: '摘要模型',
+    type: 'nullable-string',
+    hint: '留空 = 用运行模型生成'
+  },
+  {
+    key: 'trigger',
+    label: '触发阈值',
+    type: 'context-size',
+    hint: '达到阈值时触发压缩（OR 逻辑，任一满足即触发）'
+  },
+  {
+    key: 'keep',
+    label: '保留策略',
+    type: 'context-size',
+    hint: '压缩后保留多少历史'
+  },
+  {
+    key: 'trim_tokens_to_summarize',
+    label: '截断 token 上限',
+    type: 'number',
+    min: 0,
+    step: 100,
+    hint: '准备消息时的最大 token 数'
+  }
+]
+
+// 标题生成配置字段
+const TITLE_FIELDS: FieldDef[] = [
+  { key: 'enabled', label: '启用标题生成', type: 'boolean' },
+  { key: 'max_words', label: '最大词数', type: 'number', min: 1, max: 20, step: 1 },
+  { key: 'max_chars', label: '最大字符数', type: 'number', min: 10, max: 200, step: 1 },
+  {
+    key: 'model_name',
+    label: '标题模型',
+    type: 'nullable-string',
+    hint: '留空 = 本地快速回退'
+  }
+]
+
+// ============ RuntimeConfigCard ============
+
+function deepEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+/** 把后端返回的 ContextSize | ContextSize[] | null 统一成编辑器可用的单一 ContextSize。 */
+function normalizeContextSize(val: unknown): ContextSize {
+  if (Array.isArray(val) && val.length > 0 && val[0] && typeof val[0] === 'object') {
+    return { type: val[0].type ?? 'messages', value: val[0].value ?? 20 }
+  }
+  if (val && typeof val === 'object' && 'type' in val) {
+    const cs = val as Record<string, unknown>
+    return {
+      type: (cs.type as ContextSize['type']) ?? 'messages',
+      value: typeof cs.value === 'number' ? cs.value : 20
+    }
+  }
+  return { type: 'messages', value: 20 }
+}
+
+function RuntimeConfigCard({
+  title,
+  description,
+  fields,
+  initialValue,
+  onSave,
+  saving
+}: {
+  title: string
+  description: string
+  fields: FieldDef[]
+  initialValue: Record<string, unknown>
+  onSave: (value: Record<string, unknown>) => Promise<void>
+  saving: boolean
+}) {
+  const { t } = useI18n()
+  const [formValue, setFormValue] = useState<Record<string, unknown>>(() => ({ ...initialValue }))
+  const [error, setError] = useState<string | null>(null)
+  const [savedHint, setSavedHint] = useState(false)
+
+  // 当外部 initialValue 变化（热重载后刷新），同步到 form
+  useEffect(() => {
+    setFormValue({ ...initialValue })
+  }, [initialValue])
+
+  const dirty = useMemo(() => !deepEqual(formValue, initialValue), [formValue, initialValue])
+
+  const setField = (key: string, value: unknown): void => {
+    setFormValue((prev) => ({ ...prev, [key]: value }))
+    setError(null)
+    setSavedHint(false)
+  }
+
+  const handleSave = async (): Promise<void> => {
+    setError(null)
+    setSavedHint(false)
+    try {
+      await onSave(formValue)
+      setSavedHint(true)
+      setTimeout(() => setSavedHint(false), 2500)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const handleReset = (): void => {
+    setFormValue({ ...initialValue })
+    setError(null)
+    setSavedHint(false)
+  }
+
+  return (
+    <div className="rounded-xl border border-border-custom bg-bg-surface p-4 space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
+        <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">{description}</p>
+      </div>
+      <div className="space-y-2.5">
+        {fields.map((field) => (
+          <FieldRow
+            key={field.key}
+            field={field}
+            value={formValue[field.key]}
+            onChange={(v) => setField(field.key, v)}
+          />
+        ))}
+      </div>
+      {error && (
+        <div className="px-3 py-2 rounded-lg bg-[#ef4444]/10 text-[#ef4444] text-xs">{error}</div>
+      )}
+      {savedHint && (
+        <div className="px-3 py-1.5 rounded-lg bg-green-500/10 text-green-500 text-[11px]">
+          {t('settings.memory.saved')}
+        </div>
+      )}
+      <div className="flex justify-end gap-2 pt-1">
+        {dirty && (
+          <button
+            onClick={handleReset}
+            disabled={saving}
+            className="px-3 py-1.5 rounded-lg text-xs text-text-muted hover:bg-bg-hover transition-colors disabled:opacity-40"
+          >
+            {t('common.cancel')}
+          </button>
+        )}
+        <button
+          onClick={handleSave}
+          disabled={!dirty || saving}
+          className="px-4 py-1.5 rounded-lg text-xs font-medium bg-white text-black hover:bg-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {saving ? t('settings.memory.saving') : t('common.save')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function FieldRow({
+  field,
+  value,
+  onChange
+}: {
+  field: FieldDef
+  value: unknown
+  onChange: (v: unknown) => void
+}) {
+  const labelId = `cfg-${field.key}`
+
+  if (field.type === 'boolean') {
+    const checked = Boolean(value)
+    return (
+      <div className="flex items-center justify-between gap-3 py-0.5">
+        <label htmlFor={labelId} className="flex-1">
+          <span className="text-xs text-text-primary">{field.label}</span>
+          {field.hint && <p className="text-[10px] text-text-muted mt-0.5">{field.hint}</p>}
+        </label>
+        <button
+          id={labelId}
+          type="button"
+          role="switch"
+          aria-checked={checked}
+          onClick={() => onChange(!checked)}
+          className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${checked ? 'bg-white' : 'bg-bg-hover'}`}
+        >
+          <span
+            className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full transition-transform ${checked ? 'translate-x-4 bg-black' : 'bg-text-muted'}`}
+          />
+        </button>
+      </div>
+    )
+  }
+
+  if (field.type === 'select') {
+    return (
+      <div className="py-0.5">
+        <label htmlFor={labelId} className="block text-xs text-text-primary">{field.label}</label>
+        {field.hint && <p className="text-[10px] text-text-muted mb-1">{field.hint}</p>}
+        <select
+          id={labelId}
+          value={String(value ?? '')}
+          onChange={(e) => onChange(e.target.value)}
+          className="mt-1 w-full px-2.5 py-1.5 rounded-lg text-xs bg-bg-input border border-border-custom text-text-primary outline-none focus:border-border-strong"
+        >
+          {field.options?.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+    )
+  }
+
+  if (field.type === 'number') {
+    const numVal = typeof value === 'number' ? value : 0
+    return (
+      <div className="py-0.5">
+        <label htmlFor={labelId} className="block text-xs text-text-primary">{field.label}</label>
+        {field.hint && <p className="text-[10px] text-text-muted mb-1">{field.hint}</p>}
+        <input
+          id={labelId}
+          type="number"
+          value={numVal}
+          min={field.min}
+          max={field.max}
+          step={field.step ?? 1}
+          onChange={(e) => {
+            const n = Number(e.target.value)
+            onChange(Number.isNaN(n) ? 0 : n)
+          }}
+          className="mt-1 w-full px-2.5 py-1.5 rounded-lg text-xs bg-bg-input border border-border-custom text-text-primary outline-none focus:border-border-strong"
+        />
+      </div>
+    )
+  }
+
+  if (field.type === 'nullable-string') {
+    // 可清空的字符串：value 为 null 时显示空串
+    const strVal = value == null ? '' : String(value)
+    return (
+      <div className="py-0.5">
+        <label htmlFor={labelId} className="block text-xs text-text-primary">{field.label}</label>
+        {field.hint && <p className="text-[10px] text-text-muted mb-1">{field.hint}</p>}
+        <div className="mt-1 flex gap-1">
+          <input
+            id={labelId}
+            type="text"
+            value={strVal}
+            placeholder="(空)"
+            onChange={(e) => onChange(e.target.value || null)}
+            className="flex-1 px-2.5 py-1.5 rounded-lg text-xs bg-bg-input border border-border-custom text-text-primary outline-none focus:border-border-strong"
+          />
+          {value != null && (
+            <button
+              type="button"
+              onClick={() => onChange(null)}
+              className="px-2 rounded-lg text-[10px] text-text-muted hover:bg-bg-hover border border-border-custom"
+              title="清空"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (field.type === 'context-size') {
+    const cs = normalizeContextSize(value)
+    return (
+      <div className="py-0.5">
+        <label className="block text-xs text-text-primary">{field.label}</label>
+        {field.hint && <p className="text-[10px] text-text-muted mb-1">{field.hint}</p>}
+        <div className="mt-1 flex gap-1">
+          <select
+            value={cs.type}
+            onChange={(e) => onChange({ type: e.target.value as ContextSize['type'], value: cs.value })}
+            className="px-2 py-1.5 rounded-lg text-xs bg-bg-input border border-border-custom text-text-primary outline-none focus:border-border-strong"
+          >
+            <option value="messages">messages</option>
+            <option value="tokens">tokens</option>
+            <option value="fraction">fraction</option>
+          </select>
+          <input
+            type="number"
+            value={cs.value}
+            min={0}
+            step={cs.type === 'fraction' ? 0.05 : 1}
+            onChange={(e) => {
+              const n = Number(e.target.value)
+              onChange({ type: cs.type, value: Number.isNaN(n) ? 0 : n })
+            }}
+            className="flex-1 px-2.5 py-1.5 rounded-lg text-xs bg-bg-input border border-border-custom text-text-primary outline-none focus:border-border-strong"
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // string
+  return (
+    <div className="py-0.5">
+      <label htmlFor={labelId} className="block text-xs text-text-primary">{field.label}</label>
+      {field.hint && <p className="text-[10px] text-text-muted mb-1">{field.hint}</p>}
+      <input
+        id={labelId}
+        type="text"
+        value={String(value ?? '')}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 w-full px-2.5 py-1.5 rounded-lg text-xs bg-bg-input border border-border-custom text-text-primary outline-none focus:border-border-strong"
+      />
+    </div>
+  )
+}
+
+// ============ Sub-Agents Settings Page ============
 
 export function MemorySettings() {
   const { t } = useI18n()
@@ -12,7 +389,73 @@ export function MemorySettings() {
   const [showCreate, setShowCreate] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
+  const [factsExpanded, setFactsExpanded] = useState(true)
 
+  // Runtime config state（三段配置）
+  const [runtimeCfg, setRuntimeCfg] = useState<RuntimeConfig | null>(null)
+  const [cfgLoading, setCfgLoading] = useState(true)
+  const [cfgSaving, setCfgSaving] = useState(false)
+  const [refreshEffectedAt, setRefreshEffectedAt] = useState(0)
+
+  // 加载运行时配置
+  const loadRuntimeConfig = useCallback(async () => {
+    if (engineStatus !== 'connected') { setCfgLoading(false); return }
+    setCfgLoading(true)
+    try {
+      const api = getEngineAPI(enginePort)
+      const cfg = await api.getRuntimeConfig()
+      setRuntimeCfg(cfg)
+    } catch (e) {
+      // 配置加载失败不阻断事实面板
+      console.error('[Memory] Failed to load runtime config:', e)
+    } finally {
+      setCfgLoading(false)
+    }
+  }, [enginePort, engineStatus])
+
+  useEffect(() => {
+    loadRuntimeConfig()
+  }, [loadRuntimeConfig])
+
+  // 保存后轮询刷新生效值（QiLin 热重载 1-2s 内生效）
+  useEffect(() => {
+    if (refreshEffectedAt === 0) return
+    let cancelled = false
+    const poll = async (): Promise<void> => {
+      for (let i = 0; i < 3; i++) {
+        await new Promise((r) => setTimeout(r, 800))
+        if (cancelled) return
+        try {
+          const api = getEngineAPI(enginePort)
+          const cfg = await api.getRuntimeConfig()
+          if (!cancelled) setRuntimeCfg(cfg)
+          return
+        } catch {
+          // 继续重试
+        }
+      }
+    }
+    poll()
+    return () => { cancelled = true }
+  }, [refreshEffectedAt, enginePort])
+
+  const handleSaveSection = useCallback(
+    async (section: RuntimeConfigSection, value: Record<string, unknown>): Promise<void> => {
+      setCfgSaving(true)
+      try {
+        const api = getEngineAPI(enginePort)
+        await api.updateRuntimeConfigSection(section, value)
+        // 立即更新本地（optimistic），轮询会拿回热重载后的值
+        setRuntimeCfg((prev) => prev ? { ...prev, [section]: value as never } : prev)
+        setRefreshEffectedAt(Date.now())
+      } finally {
+        setCfgSaving(false)
+      }
+    },
+    [enginePort]
+  )
+
+  // 记忆事实 CRUD（保留原有逻辑）
   const loadMemories = useCallback(async () => {
     if (engineStatus !== 'connected') { setLoading(false); return }
     setLoading(true)
@@ -32,7 +475,7 @@ export function MemorySettings() {
     loadMemories()
   }, [loadMemories])
 
-  const handleCreate = async (content: string, scope: 'user' | 'workspace' | 'project', tags: string[]) => {
+  const handleCreate = async (content: string, scope: 'user' | 'workspace' | 'project', tags: string[]): Promise<void> => {
     try {
       const api = getEngineAPI(enginePort)
       await api.createMemory({ content, scope, tags, ...(workspacePath ? { workspace: workspacePath } : {}) })
@@ -43,7 +486,7 @@ export function MemorySettings() {
     }
   }
 
-  const handleUpdate = async (id: string) => {
+  const handleUpdate = async (id: string): Promise<void> => {
     try {
       const api = getEngineAPI(enginePort)
       await api.updateMemory(id, { content: editContent })
@@ -54,7 +497,7 @@ export function MemorySettings() {
     }
   }
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: string): Promise<void> => {
     try {
       const api = getEngineAPI(enginePort)
       await api.deleteMemory(id)
@@ -64,7 +507,7 @@ export function MemorySettings() {
     }
   }
 
-  const handleToggleDisable = async (memory: MemoryRecord) => {
+  const handleToggleDisable = async (memory: MemoryRecord): Promise<void> => {
     try {
       const api = getEngineAPI(enginePort)
       await api.updateMemory(memory.id, { disabled: !memory.disabledAt })
@@ -83,127 +526,180 @@ export function MemorySettings() {
             <h2 className="text-base font-semibold text-text-primary">{t('settings.memory.title')}</h2>
             <p className="text-xs text-text-muted mt-1">{t('settings.memory.desc')}</p>
           </div>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white text-black hover:bg-gray-200 transition-colors"
-          >
-            + {t('settings.memory.create')}
-          </button>
         </div>
 
-        {/* Stats */}
-        <div className="flex gap-3 text-xs text-text-muted">
-          <span>{t('settings.memory.total')}: {memories.length}</span>
-          <span>{t('settings.memory.active')}: {memories.filter((m) => !m.disabledAt && !m.deletedAt).length}</span>
-          <span>{t('settings.memory.disabled')}: {memories.filter((m) => m.disabledAt).length}</span>
-        </div>
-
-        {error && (
-          <div className="px-3 py-2 rounded-lg bg-[#ef4444]/10 text-[#ef4444] text-xs">{error}</div>
-        )}
-
-        {/* Create form */}
-        {showCreate && (
-          <CreateMemoryForm
-            onSubmit={handleCreate}
-            onCancel={() => setShowCreate(false)}
-          />
-        )}
-
-        {/* Memory list */}
-        {loading ? (
-          <div className="text-center py-8 text-xs text-text-muted">{t('common.loading')}</div>
-        ) : memories.length === 0 ? (
-          <div className="text-center py-12 text-xs text-text-muted">{t('settings.memory.empty')}</div>
-        ) : (
-          <div className="space-y-2">
-            {memories.map((memory) => (
-              <div
-                key={memory.id}
-                className={`rounded-lg border p-3 transition-colors ${
-                  memory.deletedAt ? 'border-border-subtle opacity-40' :
-                  memory.disabledAt ? 'border-[#f59e0b]/30 bg-[#f59e0b]/5' :
-                  'border-border-custom bg-bg-input'
-                }`}
-              >
-                {editingId === memory.id ? (
-                  /* Edit mode */
-                  <div className="space-y-2">
-                    <textarea
-                      value={editContent}
-                      onChange={(e) => setEditContent(e.target.value)}
-                      rows={3}
-                      className="w-full px-3 py-2 rounded-lg text-sm bg-bg-hover border border-border-custom text-text-primary outline-none focus:border-[#3b82f6] resize-none"
-                    />
-                    <div className="flex justify-end gap-2">
-                      <button onClick={() => setEditingId(null)} className="px-3 py-1 rounded text-xs text-text-muted hover:bg-bg-hover">{t('common.cancel')}</button>
-                      <button onClick={() => handleUpdate(memory.id)} className="px-3 py-1 rounded text-xs bg-white text-black hover:bg-gray-200">{t('common.save')}</button>
-                    </div>
-                  </div>
-                ) : (
-                  /* View mode */
-                  <>
-                    <div className="flex items-start gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-text-primary whitespace-pre-wrap break-words">{memory.content}</p>
-                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-muted">{memory.scope}</span>
-                          {memory.confidence < 1 && (
-                            <span className="text-[10px] text-text-muted">{Math.round(memory.confidence * 100)}%</span>
-                          )}
-                          {memory.tags.map((tag) => (
-                            <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-[#3b82f6]/10 text-[#3b82f6]">#{tag}</span>
-                          ))}
-                          {memory.disabledAt && <span className="text-[10px] text-[#f59e0b]">{t('settings.memory.disabledBadge')}</span>}
-                          {memory.deletedAt && <span className="text-[10px] text-[#ef4444]">{t('settings.memory.deletedBadge')}</span>}
-                        </div>
-                      </div>
-                      {/* Actions */}
-                      {!memory.deletedAt && (
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            onClick={() => { setEditingId(memory.id); setEditContent(memory.content) }}
-                            title={t('common.edit')}
-                            className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-                            </svg>
-                          </button>
-                          <button
-                            onClick={() => handleToggleDisable(memory)}
-                            title={memory.disabledAt ? t('settings.memory.enable') : t('settings.memory.disable')}
-                            className="p-1 rounded text-text-muted hover:text-[#f59e0b] hover:bg-bg-hover transition-colors"
-                          >
-                            {memory.disabledAt ? (
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1 1 0 010-.644C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178a1 1 0 010 .644C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.964-7.178z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              </svg>
-                            ) : (
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
-                              </svg>
-                            )}
-                          </button>
-                          <button
-                            onClick={() => handleDelete(memory.id)}
-                            title={t('common.delete')}
-                            className="p-1 rounded text-text-muted hover:text-[#ef4444] hover:bg-bg-hover transition-colors"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                            </svg>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            ))}
+        {/* Runtime config cards */}
+        {cfgLoading ? (
+          <div className="text-center py-6 text-xs text-text-muted">{t('common.loading')}</div>
+        ) : runtimeCfg ? (
+          <div className="space-y-3">
+            <RuntimeConfigCard
+              title={t('settings.memory.configTitle')}
+              description={t('settings.memory.configDesc')}
+              fields={MEMORY_FIELDS}
+              initialValue={runtimeCfg.memory as unknown as Record<string, unknown>}
+              onSave={(v) => handleSaveSection('memory', v)}
+              saving={cfgSaving}
+            />
+            <RuntimeConfigCard
+              title={t('settings.memory.summarizationTitle')}
+              description={t('settings.memory.summarizationDesc')}
+              fields={SUMMARIZATION_FIELDS}
+              initialValue={runtimeCfg.summarization as unknown as Record<string, unknown>}
+              onSave={(v) => handleSaveSection('summarization', v)}
+              saving={cfgSaving}
+            />
+            <RuntimeConfigCard
+              title={t('settings.memory.titleConfigTitle')}
+              description={t('settings.memory.titleConfigDesc')}
+              fields={TITLE_FIELDS}
+              initialValue={runtimeCfg.title as unknown as Record<string, unknown>}
+              onSave={(v) => handleSaveSection('title', v)}
+              saving={cfgSaving}
+            />
           </div>
-        )}
+        ) : null}
+
+        {/* Divider */}
+        <div className="border-t border-border-custom pt-4 mt-6">
+          <div className="flex items-center justify-between mb-3">
+            <button
+              type="button"
+              onClick={() => setFactsExpanded((v) => !v)}
+              className="flex items-center gap-1.5 text-sm font-semibold text-text-primary hover:opacity-80 transition-opacity"
+            >
+              <svg className={`w-3.5 h-3.5 transition-transform ${factsExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+              {t('settings.memory.factsTitle')}
+              <span className="text-xs font-normal text-text-muted">({memories.length})</span>
+            </button>
+            <button
+              onClick={() => { setShowCreate(true); setFactsExpanded(true) }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white text-black hover:bg-gray-200 transition-colors"
+            >
+              + {t('settings.memory.create')}
+            </button>
+          </div>
+
+          {factsExpanded && (
+            <>
+          {/* Stats */}
+          <div className="flex gap-3 text-xs text-text-muted mb-3">
+            <span>{t('settings.memory.total')}: {memories.length}</span>
+            <span>{t('settings.memory.active')}: {memories.filter((m) => !m.disabledAt && !m.deletedAt).length}</span>
+            <span>{t('settings.memory.disabled')}: {memories.filter((m) => m.disabledAt).length}</span>
+          </div>
+
+          {error && (
+            <div className="px-3 py-2 rounded-lg bg-[#ef4444]/10 text-[#ef4444] text-xs mb-3">{error}</div>
+          )}
+
+          {/* Create form */}
+          {showCreate && (
+            <CreateMemoryForm
+              onSubmit={handleCreate}
+              onCancel={() => setShowCreate(false)}
+            />
+          )}
+
+          {/* Memory list */}
+          {loading ? (
+            <div className="text-center py-8 text-xs text-text-muted">{t('common.loading')}</div>
+          ) : memories.length === 0 ? (
+            <div className="text-center py-12 text-xs text-text-muted">{t('settings.memory.empty')}</div>
+          ) : (
+            <div className="space-y-2">
+              {memories.map((memory) => (
+                <div
+                  key={memory.id}
+                  className={`rounded-lg border p-3 transition-colors ${
+                    memory.deletedAt ? 'border-border-subtle opacity-40' :
+                    memory.disabledAt ? 'border-[#f59e0b]/30 bg-[#f59e0b]/5' :
+                    'border-border-custom bg-bg-input'
+                  }`}
+                >
+                  {editingId === memory.id ? (
+                    /* Edit mode */
+                    <div className="space-y-2">
+                      <textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        rows={3}
+                        className="w-full px-3 py-2 rounded-lg text-sm bg-bg-hover border border-border-custom text-text-primary outline-none focus:border-[#3b82f6] resize-none"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => setEditingId(null)} className="px-3 py-1 rounded text-xs text-text-muted hover:bg-bg-hover">{t('common.cancel')}</button>
+                        <button onClick={() => handleUpdate(memory.id)} className="px-3 py-1 rounded text-xs bg-white text-black hover:bg-gray-200">{t('common.save')}</button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* View mode */
+                    <>
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-text-primary whitespace-pre-wrap break-words">{memory.content}</p>
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-muted">{memory.scope}</span>
+                            {memory.confidence < 1 && (
+                              <span className="text-[10px] text-text-muted">{Math.round(memory.confidence * 100)}%</span>
+                            )}
+                            {memory.tags.map((tag) => (
+                              <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-[#3b82f6]/10 text-[#3b82f6]">#{tag}</span>
+                            ))}
+                            {memory.disabledAt && <span className="text-[10px] text-[#f59e0b]">{t('settings.memory.disabledBadge')}</span>}
+                            {memory.deletedAt && <span className="text-[10px] text-[#ef4444]">{t('settings.memory.deletedBadge')}</span>}
+                          </div>
+                        </div>
+                        {/* Actions */}
+                        {!memory.deletedAt && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => { setEditingId(memory.id); setEditContent(memory.content) }}
+                              title={t('common.edit')}
+                              className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => handleToggleDisable(memory)}
+                              title={memory.disabledAt ? t('settings.memory.enable') : t('settings.memory.disable')}
+                              className="p-1 rounded text-text-muted hover:text-[#f59e0b] hover:bg-bg-hover transition-colors"
+                            >
+                              {memory.disabledAt ? (
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1 1 0 010-.644C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178a1 1 0 010 .644C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.964-7.178z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                </svg>
+                              ) : (
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                                </svg>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => handleDelete(memory.id)}
+                              title={t('common.delete')}
+                              className="p-1 rounded text-text-muted hover:text-[#ef4444] hover:bg-bg-hover transition-colors"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                              </svg>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -215,14 +711,14 @@ function CreateMemoryForm({ onSubmit, onCancel }: { onSubmit: (content: string, 
   const [scope, setScope] = useState<'user' | 'workspace' | 'project'>('workspace')
   const [tagsInput, setTagsInput] = useState('')
 
-  const handleSubmit = () => {
+  const handleSubmit = (): void => {
     if (!content.trim()) return
     const tags = tagsInput.split(',').map((s) => s.trim()).filter(Boolean)
     onSubmit(content.trim(), scope, tags)
   }
 
   return (
-    <div className="rounded-lg border border-border-custom bg-bg-input p-4 space-y-3">
+    <div className="rounded-lg border border-border-custom bg-bg-input p-4 space-y-3 mb-3">
       <textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
