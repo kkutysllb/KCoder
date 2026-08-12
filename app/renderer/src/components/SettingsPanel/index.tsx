@@ -24,6 +24,7 @@ import {
 
 interface SettingsPanelProps {
   isOpen: boolean
+  initialNav?: string
   onClose: () => void
 }
 
@@ -80,9 +81,14 @@ function presetOf(runtime: ProviderRuntime): ModelPreset {
   return MODEL_PRESET_BY_ID[runtime.presetId] ?? MODEL_PRESETS[0]
 }
 
-export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
+export function SettingsPanel({ isOpen, initialNav, onClose }: SettingsPanelProps) {
   const { engineStatus, enginePort, bumpModelVersion, settingsNavWidth, setSettingsNavWidth } = useAppStore()
-  const [activeNav, setActiveNav] = useState('general')
+  const [activeNav, setActiveNav] = useState(initialNav ?? 'general')
+
+  // Sync activeNav when initialNav changes (e.g. sidebar "skills" button)
+  useEffect(() => {
+    if (initialNav) setActiveNav(initialNav)
+  }, [initialNav])
   const { t } = useI18n()
   const [runtimes, setRuntimes] = useState<ProviderRuntime[]>(DEFAULT_RUNTIMES)
   const [selectedProviderId, setSelectedProviderId] = useState<string>('')

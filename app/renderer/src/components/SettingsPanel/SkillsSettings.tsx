@@ -20,7 +20,7 @@ type InstallTab = 'file' | 'npm'
 
 export function SkillsSettings() {
   const { t } = useI18n()
-  const { enginePort, engineStatus } = useAppStore()
+  const { enginePort } = useAppStore()
   const [skills, setSkills] = useState<SkillEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -45,12 +45,8 @@ export function SkillsSettings() {
   }, [api])
 
   useEffect(() => {
-    if (engineStatus === 'connected') {
-      loadSkills()
-    } else {
-      setLoading(false)
-    }
-  }, [engineStatus, loadSkills])
+    loadSkills()
+  }, [loadSkills])
 
   const handleToggle = async (skill: SkillEntry) => {
     setToggling((prev) => new Set(prev).add(skill.id))
@@ -180,10 +176,6 @@ export function SkillsSettings() {
               >
                 {t('settings.skills.retry')}
               </button>
-            </div>
-          ) : engineStatus !== 'connected' ? (
-            <div className="text-center py-16">
-              <p className="text-sm text-text-muted">{t('settings.skills.engineOffline')}</p>
             </div>
           ) : builtinSkills.length === 0 && customSkills.length === 0 ? (
             <div className="text-center py-16">

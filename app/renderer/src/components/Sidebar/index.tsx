@@ -100,7 +100,7 @@ const Icons = {
 }
 
 interface SidebarProps {
-  onOpenSettings?: () => void
+  onOpenSettings?: (tab?: string) => void
   onToggleCollapse?: () => void
   user?: AuthUser | null
   onOpenAuth?: () => void
@@ -359,7 +359,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
           <Icons.Clock />
           <span>{t('sidebar.scheduledTasks')}</span>
         </button>
-        <button className="sidebar-item w-full">
+        <button className="sidebar-item w-full" onClick={() => onOpenSettings?.('skills')}>
           <Icons.Skills />
           <span>{t('sidebar.skills')}</span>
         </button>
@@ -532,7 +532,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
                 >
                   <Icons.Logout />
                 </button>
-                <button className="hover:text-text-secondary transition-colors" onClick={onOpenSettings}>
+                <button className="hover:text-text-secondary transition-colors" onClick={() => onOpenSettings?.()}>
                   <Icons.Settings />
                 </button>
               </div>
@@ -553,7 +553,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
                 <button className="hover:text-text-secondary transition-colors">
                   <Icons.Device />
                 </button>
-                <button className="hover:text-text-secondary transition-colors" onClick={onOpenSettings}>
+                <button className="hover:text-text-secondary transition-colors" onClick={() => onOpenSettings?.()}>
                   <Icons.Settings />
                 </button>
               </div>

@@ -64,6 +64,7 @@ export default function App() {
   const { loadThread } = useChat()
   const auth = useAuth(enginePort)
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<string>('general')
   const [showAuth, setShowAuth] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showTerminal, setShowTerminal] = useState(false)
@@ -159,7 +160,7 @@ export default function App() {
       {!sidebarCollapsed && (
         <div className="relative shrink-0">
           <Sidebar
-            onOpenSettings={() => setShowSettings(true)}
+            onOpenSettings={(tab) => { if (tab) setSettingsTab(tab); setShowSettings(true) }}
             onToggleCollapse={() => setSidebarCollapsed(true)}
             user={auth.user}
             onOpenAuth={() => setShowAuth(true)}
@@ -233,7 +234,7 @@ export default function App() {
       </div>
 
       {/* Settings panel */}
-      <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
+      <SettingsPanel isOpen={showSettings} initialNav={settingsTab} onClose={() => setShowSettings(false)} />
 
       {/* Auth modal */}
       <AuthModal
