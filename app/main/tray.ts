@@ -61,8 +61,8 @@ let currentLocale: TrayLocale = 'zh-CN'
  *
  * - Windows：用 iconWindows.ico（含 16/24/32/48/64 五尺寸，自动选最佳）
  *
- * - Linux：用 iconLinux32.png（22x22 在大多数 GNOME/KDE 托盘区最清晰，
- *   32x32 作为备选）
+ * - Linux：优先用 iconLinux22.png（22x22 在大多数 GNOME/KDE 托盘区最清晰），
+ *   32x32 作为兼容回退。
  */
 function resolveTrayIcon(): string | Electron.NativeImage {
   const buildDir = resolveBuildDir()
@@ -99,9 +99,12 @@ function resolveTrayIcon(): string | Electron.NativeImage {
     if (existsSync(icoPath)) return icoPath
   }
 
-  // Linux / fallback
-  const pngPath = join(buildDir, 'tray', 'iconLinux32.png')
-  if (existsSync(pngPath)) return pngPath
+  // Linux / fallback: prefer the native tray size to avoid desktop-shell downscaling blur.
+  const linux22Path = join(buildDir, 'tray', 'iconLinux22.png')
+  if (existsSync(linux22Path)) return linux22Path
+
+  const linux32Path = join(buildDir, 'tray', 'iconLinux32.png')
+  if (existsSync(linux32Path)) return linux32Path
 
   return nativeImage.createEmpty()
 }
