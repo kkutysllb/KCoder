@@ -11,6 +11,7 @@ import type {
   CircuitState
 } from '../services/engine-api'
 import type { RoiSnapshot } from '../services/contracts'
+import type { ChatMessage } from '../lib/chatMessage'
 
 // 富内容消息部件 — assistant 消息由多个 part 组成（文本/推理/工具调用/工具结果/usage/审批）
 // `branchId` 标记该 part 来自哪个持久化并行分支（root agent 的 part 无 branchId），
@@ -72,11 +73,7 @@ export interface Message {
 // Engine connection status
 export type EngineStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
-/** 浮动面板展开策略 */
-export type PanelStrategy = 'manual' | 'auto'
-
-/** 浮动面板激活的 tab */
-export type PanelTab = 'execution' | 'plan' | 'env'
+/** 浮动面板展开策略 —— 已废弃（面板开合完全由用户控制，见 InfoPanel） */
 
 // App state
 interface AppState {
@@ -88,6 +85,13 @@ interface AppState {
   // Chat
   threadId: string | null
   messages: Message[]
+  /**
+   * turn-based 消息列表（新架构）。与 messages 并行维护：
+   *   - useChat.handleSseEvent 调 reduceSseEvent → applyTurnUpdate 写入这里
+   *   - 渲染层（ChatFeed）优先读 messages_v2，缺失时 fallback 到 messages
+   *   - addMessage 同时写两份（保持同步），turnReducer 只写 messages_v2
+   */
+  messages_v2: ChatMessage[]
   isGenerating: boolean
 
   // Workspace / task context（输入框上方窄条的选择状态）
@@ -100,6 +104,13 @@ interface AppState {
   modelVersion: number
   /** 是否启用子 Agent 编排（task_tool）。false 时 QiLin 不暴露 delegate_task */
   subagentEnabled: boolean
+
+  /** 侧边栏宽度（拖拽持久化） */
+  sidebarWidth: number
+  /** 设置面板左侧 nav 宽度（拖拽持久化） */
+  settingsNavWidth: number
+  /** 推理深度（每次 turn 生效）：auto=默认 / off=关闭思考 / low|medium|high=显式强度 */
+  reasoningMode: 'auto' | 'off' | 'low' | 'medium' | 'high'
 
   // 交互请求（审批 + 结构化输入）— 后端发 SSE 事件，前端需用户响应
   //
@@ -123,9 +134,6 @@ interface AppState {
 
   // 浮动信息面板
   panelOpen: boolean
-  panelStrategy: PanelStrategy
-  panelTab: PanelTab
-
   // 线程目标 + 待办（GET /v1/threads/:id/goal + /todos）
   threadGoal: ThreadGoal | null
   threadTodos: ThreadTodoList | null
@@ -144,6 +152,18 @@ interface AppState {
   settleStreamingReasoning: (id: string) => void
   updateLastToolCall: (id: string, callId: string, patch: Partial<Extract<MessagePart, { type: 'tool_call' }>>) => void
   updateApprovalPart: (messageId: string, approvalId: string, status: 'pending' | 'allowed' | 'denied' | 'expired') => void
+
+  // ── turn-based (messages_v2) 新 API ──
+  /** 添加一条 ChatMessage（同时同步到旧 messages 数组，保持双写）。 */
+  addChatMessage: (msg: ChatMessage) => void
+  /**
+   * 用 turnReducer 产出的 partial state 更新 messages_v2 中指定 id 的消息。
+   * 调用方负责先调 reduceSseEvent 得到 partial，再调本方法回写。
+   * 同时把 text 同步到旧 messages 的 content 字段（向后兼容）。
+   */
+  applyTurnUpdate: (id: string, partial: Partial<ChatMessage>) => void
+  /** 批量加载历史消息（loadThread 用）。输入旧 Message[]，内部双写 v2。 */
+  setChatMessages: (msgs: Message[]) => void
   setGenerating: (generating: boolean) => void
   setWorkspacePath: (path: string | null) => void
   setSelectedBranch: (branch: string | null) => void
@@ -151,6 +171,9 @@ interface AppState {
   bumpModelVersion: () => void
   setPendingNewBranch: (branch: string | null) => void
   setSubagentEnabled: (enabled: boolean) => void
+  setReasoningMode: (mode: 'auto' | 'off' | 'low' | 'medium' | 'high') => void
+  setSidebarWidth: (width: number) => void
+  setSettingsNavWidth: (width: number) => void
   setPendingApproval: (approval: ApprovalRequest | null) => void
   setPendingUserInput: (input: UserInputRequest | null) => void
   /** Add/replace a concurrent pending approval (keyed by approvalId). */
@@ -174,8 +197,6 @@ interface AppState {
   /** 累加一次 turn 的用量到会话总量。 */
   addSessionUsage: (usage: { promptTokens: number; completionTokens: number; totalTokens: number }) => void
   setPanelOpen: (open: boolean) => void
-  setPanelStrategy: (strategy: PanelStrategy) => void
-  setPanelTab: (tab: PanelTab) => void
   setThreadGoal: (goal: ThreadGoal | null) => void
   setThreadTodos: (todos: ThreadTodoList | null) => void
   /** Set the governed graph run inspection (from inspect endpoint). */
@@ -190,12 +211,16 @@ export const useAppStore = create<AppState>((set) => ({
   engineStatus: 'disconnected',
   threadId: null,
   messages: [],
+  messages_v2: [],
   isGenerating: false,
   workspacePath: null,
   selectedBranch: null,
   selectedModel: null,
   modelVersion: 0,
   subagentEnabled: false,
+  reasoningMode: 'auto',
+  sidebarWidth: 240,
+  settingsNavWidth: 200,
   pendingNewBranch: null,
   pendingApproval: null,
   pendingUserInput: null,
@@ -207,8 +232,6 @@ export const useAppStore = create<AppState>((set) => ({
   roiSnapshot: null,
   sessionUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, runs: 0 },
   panelOpen: false,
-  panelStrategy: 'manual',
-  panelTab: 'execution',
   threadGoal: null,
   threadTodos: null,
   graphRunInspection: null,
@@ -222,12 +245,21 @@ export const useAppStore = create<AppState>((set) => ({
   setThreadId: (id) => set({ threadId: id }),
 
   addMessage: (message) =>
-    set((state) => ({ messages: [...state.messages, message] })),
+    set((state) => ({
+      messages: [...state.messages, message],
+      // 同步到 messages_v2（把旧 Message 适配成 ChatMessage）
+      messages_v2: [...state.messages_v2, adaptLegacyToChat(message)]
+    })),
 
   updateMessage: (id, content) =>
     set((state) => ({
       messages: state.messages.map((msg) =>
         msg.id === id ? { ...msg, content, isStreaming: false } : msg
+      ),
+      messages_v2: state.messages_v2.map((msg) =>
+        msg.id === id
+          ? { ...msg, text: content, isStreaming: false, status: msg.status === 'streaming' ? 'done' : msg.status }
+          : msg
       )
     })),
 
@@ -344,6 +376,9 @@ export const useAppStore = create<AppState>((set) => ({
   bumpModelVersion: () => set((state) => ({ modelVersion: state.modelVersion + 1 })),
   setPendingNewBranch: (branch) => set({ pendingNewBranch: branch }),
   setSubagentEnabled: (enabled) => set({ subagentEnabled: enabled }),
+  setReasoningMode: (mode) => set({ reasoningMode: mode }),
+  setSidebarWidth: (width) => set({ sidebarWidth: width }),
+  setSettingsNavWidth: (width) => set({ settingsNavWidth: width }),
 
   // Legacy single-value setters (kept for existing components). They sync the
   // concurrent map so the two views never disagree.
@@ -444,8 +479,6 @@ export const useAppStore = create<AppState>((set) => ({
   })),
 
   setPanelOpen: (open) => set({ panelOpen: open }),
-  setPanelStrategy: (strategy) => set({ panelStrategy: strategy }),
-  setPanelTab: (tab) => set({ panelTab: tab }),
   setThreadGoal: (goal) => set({ threadGoal: goal }),
   setThreadTodos: (todos) => set({ threadTodos: todos }),
   setGraphRunInspection: (inspection) => set({ graphRunInspection: inspection }),
@@ -453,11 +486,68 @@ export const useAppStore = create<AppState>((set) => ({
   clearMessages: () =>
     set({
       messages: [],
+      messages_v2: [],
       threadId: null,
       pendingNewBranch: null,
       branches: {},
       graphRunInspection: null,
       roiSnapshot: null,
       sessionUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, runs: 0 }
+    }),
+
+  // ── turn-based (messages_v2) 新 API 实现 ──────────────────────────
+  addChatMessage: (msg) =>
+    set((state) => ({
+      messages_v2: [...state.messages_v2, msg],
+      // 同步写旧 messages 数组（保持双写，便于渐进迁移）
+      messages: [...state.messages, adaptChatToLegacy(msg)]
+    })),
+
+  applyTurnUpdate: (id, partial) =>
+    set((state) => ({
+      messages_v2: state.messages_v2.map((msg) => {
+        if (msg.id !== id) return msg
+        const merged = { ...msg, ...partial }
+        return merged
+      }),
+      // 同步 text 到旧 messages.content（向后兼容渲染）
+      messages: state.messages.map((msg) => {
+        if (msg.id !== id) return msg
+        const newText = partial.text ?? msg.content
+        const newStreaming = partial.isStreaming ?? msg.isStreaming
+        return { ...msg, content: newText, isStreaming: newStreaming }
+      })
+    })),
+
+  setChatMessages: (msgs) =>
+    set({
+      messages: msgs,
+      messages_v2: msgs.map(adaptLegacyToChat)
     })
 }))
+
+// ── 适配函数（旧 Message <-> 新 ChatMessage 互转） ──────────────────
+
+/** 旧 Message → 新 ChatMessage（最简映射，不含 parts 聚合）。 */
+function adaptLegacyToChat(m: Message): ChatMessage {
+  return {
+    id: m.id,
+    role: m.role,
+    createdAt: m.timestamp,
+    content: m.content,
+    text: m.role === 'assistant' ? m.content : undefined,
+    isStreaming: m.isStreaming,
+    status: m.isStreaming ? 'streaming' : 'done'
+  }
+}
+
+/** 新 ChatMessage → 旧 Message（最简映射）。 */
+function adaptChatToLegacy(m: ChatMessage): Message {
+  return {
+    id: m.id,
+    role: m.role,
+    content: m.content ?? m.text ?? '',
+    timestamp: m.createdAt,
+    isStreaming: m.isStreaming
+  }
+}

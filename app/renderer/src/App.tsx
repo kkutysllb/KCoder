@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { useAppStore } from './stores/app-store'
 import { Sidebar } from './components/Sidebar'
-import { WelcomeScreen } from './components/WelcomeScreen'
 import { ChatPanel } from './components/ChatPanel'
 import { SettingsPanel } from './components/SettingsPanel'
 import { AuthModal } from './components/AuthModal'
@@ -9,10 +8,14 @@ import { AuthExperience } from './components/AuthExperience'
 import { TerminalPanel } from './components/TerminalPanel'
 import { UserInputModal } from './components/ChatPanel/UserInputModal'
 import { InfoPanel } from './components/InfoPanel'
+import { SidebarResizeHandle } from './components/SidebarResizeHandle'
 import { useChat } from './hooks/useChat'
 import { useAuth } from './hooks/useAuth'
 import { getEngineAPI } from './services/engine-api'
 import { I18nProvider, useI18n } from './i18n'
+
+const SIDEBAR_MIN = 200
+const SIDEBAR_MAX = 420
 
 /** Floating terminal open/close button (top-right, reference design) */
 function TerminalToggleButton({ active, onToggle }: { active: boolean; onToggle: () => void }) {
@@ -50,48 +53,15 @@ function PanelToggleButton() {
       }`}
     >
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25A2.25 2.25 0 0113.5 8.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
       </svg>
     </button>
   )
 }
 
-/** 展开策略按钮（手动/自动） */
-function PanelStrategyButton() {
-  const { t } = useI18n()
-  const { panelStrategy, setPanelStrategy, panelOpen, setPanelOpen } = useAppStore()
-  const isAuto = panelStrategy === 'auto'
-  return (
-    <button
-      onClick={() => {
-        const next = isAuto ? 'manual' : 'auto'
-        setPanelStrategy(next)
-        // 切到 auto 时若面板已关则不强制开（等数据触发）；切到 manual 时保持当前状态
-        if (next === 'manual' && !panelOpen) setPanelOpen(false)
-      }}
-      title={isAuto ? t('panel.strategyAuto') : t('panel.strategyManual')}
-      className={`p-1.5 rounded-md transition-colors ${
-        isAuto ? 'text-[#3b82f6] bg-[#3b82f6]/10' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
-      }`}
-    >
-      {isAuto ? (
-        /* 自动：闪电图标 */
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-        </svg>
-      ) : (
-        /* 手动：手形图标 */
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M10.05 4.575a1.575 1.575 0 10-3.15 0v3m3.15-3v-1.5a1.575 1.575 0 013.15 0v1.5m-3.15 0l.075 5.975m.075-5.975a1.575 1.575 0 013.15 0v3m-9.45-.75V7.5a1.575 1.575 0 013.15 0v4.312m0-1.687a1.575 1.575 0 013.15 0v3m0 0V12m0 0a1.575 1.575 0 013.15 0v4.312c0 .433-.09.85-.252 1.233l-.424.994a3.375 3.375 0 01-2.51 2.024l-.426.085a7.59 7.59 0 01-3.057-.067c-.51-.114-1.02-.275-1.49-.488a6.15 6.15 0 01-1.005-.564l-.275-.19a3.375 3.375 0 01-1.292-2.992l.425-3.397" />
-        </svg>
-      )}
-    </button>
-  )
-}
-
 export default function App() {
-  const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath } = useAppStore()
-  const { sendMessage, isGenerating, loadThread } = useChat()
+  const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath, panelOpen, sidebarWidth, setSidebarWidth } = useAppStore()
+  const { loadThread } = useChat()
   const auth = useAuth(enginePort)
   const [showSettings, setShowSettings] = useState(false)
   const [showAuth, setShowAuth] = useState(false)
@@ -155,23 +125,37 @@ export default function App() {
       <AuthExperience auth={auth} enginePort={enginePort} />
     ) : (
     <div className="flex h-full bg-bg-primary">
-      {/* Sidebar */}
+      {/* Sidebar — 包一层 relative，宽度由 store 驱动，右边缘加拖拽 handle */}
       {!sidebarCollapsed && (
-        <Sidebar
-          onOpenSettings={() => setShowSettings(true)}
-          onToggleCollapse={() => setSidebarCollapsed(true)}
-          user={auth.user}
-          onOpenAuth={() => setShowAuth(true)}
-          onLogout={() => auth.logout()}
-          onSelectThread={(id) => loadThread(id)}
-        />
+        <div className="relative shrink-0">
+          <Sidebar
+            onOpenSettings={() => setShowSettings(true)}
+            onToggleCollapse={() => setSidebarCollapsed(true)}
+            user={auth.user}
+            onOpenAuth={() => setShowAuth(true)}
+            onLogout={() => auth.logout()}
+            onSelectThread={(id) => loadThread(id)}
+            width={sidebarWidth}
+          />
+          <SidebarResizeHandle
+            width={sidebarWidth}
+            minWidth={SIDEBAR_MIN}
+            maxWidth={SIDEBAR_MAX}
+            onResize={setSidebarWidth}
+            label="拖拽调整侧栏宽度"
+            style={{ left: sidebarWidth }}
+          />
+        </div>
       )}
 
-      {/* Main content area */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
-        {/* Top-right controls: panel strategy + panel toggle + terminal */}
+      {/* Main content area — 信息面板打开时整体向左偏移（参考 KStock context-open） */}
+      <div
+        className={`flex-1 flex flex-col overflow-hidden relative transition-[margin-right] duration-200 ease-out ${
+          panelOpen ? 'mr-[356px]' : 'mr-0'
+        }`}
+      >
+        {/* Top-right controls: panel toggle + terminal */}
         <div className="absolute top-3 right-4 z-30 no-drag flex items-center gap-1">
-          <PanelStrategyButton />
           <PanelToggleButton />
           <div className="w-px h-4 bg-border-custom mx-0.5" />
           <TerminalToggleButton active={showTerminal} onToggle={toggleTerminal} />
@@ -194,7 +178,10 @@ export default function App() {
         {hasMessages ? (
           <ChatPanel />
         ) : (
-          <WelcomeScreen onSend={sendMessage} disabled={isGenerating} />
+          // ChatPanel 内部会通过 ChatFeed 的 emptySlot 渲染 WelcomeScreen，
+          // 同时承担"回到底部"按钮和编辑重发的交互。但首次启动时
+          // messages 为空，直接挂 ChatPanel 让它自己渲染 emptySlot。
+          <ChatPanel />
         )}
 
         {/* Terminal panel — kept mounted to preserve PTY sessions */}

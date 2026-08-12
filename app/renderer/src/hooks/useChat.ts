@@ -7,6 +7,9 @@ import {
   type UserInputRequest
 } from '../services/engine-api'
 import type { EngineStreamEvent, RoiSnapshot } from '../services/contracts'
+import { reduceSseEvent, type SseEventKind } from '../lib/turnReducer'
+import type { ChatMessage } from '../lib/chatMessage'
+import { isInternalOnlyText, sanitizeAssistantText } from '../lib/chatMessage'
 
 export function useChat() {
   const {
@@ -17,10 +20,6 @@ export function useChat() {
     setThreadId,
     addMessage,
     updateMessage,
-    appendMessagePart,
-    settleStreamingReasoning,
-    updateLastToolCall,
-    updateApprovalPart,
     addPendingApproval,
     resolvePendingApproval,
     addPendingUserInput,
@@ -33,8 +32,34 @@ export function useChat() {
     setBranches,
     setRoiSnapshot,
     setThreadGoal,
-    setThreadTodos
+    setThreadTodos,
+    // 新 turn-based API
+    applyTurnUpdate,
+    setChatMessages
   } = useAppStore()
+
+  /**
+   * turn-based SSE 处理：调 turnReducer 纯函数产出 partial state，
+   * 再 applyTurnUpdate 回写到 messages_v2。同时同步旧 messages.content。
+   *
+   * 这是 useChat 接入 turnReducer 的核心入口。所有可被 reducer 理解的事件
+   * （text_delta / reasoning_delta / tool_call_* / usage / turn_completed 等）
+   * 都走这条路径；剩余事件（approval / user_input / goal / todos / branch 等
+   * 涉及 store 其他状态的）仍走旧 switch 分支。
+   */
+  const turnUpdate = useCallback(
+    (assistantMessageId: string, kind: SseEventKind, data: Record<string, unknown> | undefined) => {
+      // 从 store 拿当前消息作为 reducer 输入状态
+      const currentMsg = useAppStore.getState().messages_v2.find((m) => m.id === assistantMessageId)
+      const state: Partial<ChatMessage> = currentMsg ?? {}
+      const next = reduceSseEvent(state, kind, data, Date.now())
+      // 只在有变化时回写（reducer 返回原对象表示无变化）
+      if (next !== state) {
+        applyTurnUpdate(assistantMessageId, next)
+      }
+    },
+    [applyTurnUpdate]
+  )
 
   const abortRef = useRef<AbortController | null>(null)
   // Abort controller for the engine-stream subscription (separate from the
@@ -205,96 +230,48 @@ export function useChat() {
     (assistantMessageId: string, event: SSEEvent) => {
       const { kind, data } = event
 
+      // ── 可被 turnReducer 处理的事件（文本/推理/工具/用量/结束） ──
+      // 这 12 个 kind 直接走 reducer 纯函数路径
+      const reducerKinds: ReadonlySet<SseEventKind> = new Set([
+        'assistant_text_delta',
+        'assistant_reasoning_delta',
+        'tool_call_started',
+        'tool_call_finished',
+        'usage',
+        'turn_completed',
+        'turn_failed',
+        'error',
+        'text_delta',
+        'reasoning_delta'
+      ])
+      if (reducerKinds.has(kind as SseEventKind)) {
+        // usage 同时累加到会话总量（保持原行为）
+        if (kind === 'usage' && data?.usage) {
+          const usage = data.usage as Record<string, unknown>
+          useAppStore.getState().addSessionUsage({
+            promptTokens: (usage.promptTokens as number) ?? 0,
+            completionTokens: (usage.completionTokens as number) ?? 0,
+            totalTokens: (usage.totalTokens as number) ?? 0
+          })
+        }
+        turnUpdate(assistantMessageId, kind as SseEventKind, data)
+        return
+      }
+
+      // ── item_* 事件（携带完整 TurnItem，兼容老协议） ──
+      // 这类事件 reducer 也能处理，但需要把 item 包装成 reducer 期望的格式
+      if (kind === 'item_created' || kind === 'item_updated' || kind === 'item_completed') {
+        const item = data.item as Record<string, unknown> | undefined
+        if (item) {
+          // 让 reducer 通过 reduceItemEvent 处理
+          turnUpdate(assistantMessageId, kind as SseEventKind, data)
+        }
+        return
+      }
+
+      // ── 剩余事件（涉及 store 其他状态：审批/输入/goal/todos/branch/compaction） ──
+      // 这些保留旧逻辑，不走 reducer
       switch (kind) {
-        // —— 文本流式增量 ——
-        // 收到文本增量意味着推理阶段结束、正文阶段开始。先把仍在流式的 reasoning
-        // part 收尾（打上 completedAt），渲染层据此折叠为「已思考 Ns」摘要条。
-        case 'assistant_text_delta': {
-          settleStreamingReasoning(assistantMessageId)
-          const delta = (data.delta as string) ?? ''
-          if (delta) appendMessagePart(assistantMessageId, { type: 'text', text: delta })
-          break
-        }
-
-        // —— 推理流式增量 ——
-        // 带上 isStreaming:true + startedAt，让 appendMessagePart 的合并分支能识别
-        // 「最后一段正在流式的 reasoning」并追加而不是新建碎片 part。
-        case 'assistant_reasoning_delta': {
-          const delta = (data.delta as string) ?? (data.text as string) ?? ''
-          if (delta)
-            appendMessagePart(assistantMessageId, {
-              type: 'reasoning',
-              text: delta,
-              isStreaming: true,
-              startedAt: Date.now()
-            })
-          break
-        }
-
-        // —— item 事件（携带完整 TurnItem）——
-        case 'item_created':
-        case 'item_updated':
-        case 'item_completed': {
-          const item = data.item as Record<string, unknown> | undefined
-          if (!item) break
-          handleItemEvent(assistantMessageId, item, kind, appendMessagePart, updateLastToolCall)
-          break
-        }
-
-        // —— 工具调用生命周期 ——
-        case 'tool_call_started': {
-          const callId = (data.callId as string) ?? ''
-          const toolName = (data.toolName as string) ?? 'tool'
-          if (callId) {
-            appendMessagePart(assistantMessageId, {
-              type: 'tool_call',
-              toolName,
-              status: 'running',
-              callId,
-              startedAt: Date.now(),
-              args: (data.args as Record<string, unknown> | undefined) ?? undefined
-            })
-          }
-          break
-        }
-        case 'tool_call_finished': {
-          const callId = (data.callId as string) ?? ''
-          if (callId) {
-            updateLastToolCall(assistantMessageId, callId, {
-              status: data.isError ? 'failed' : 'completed',
-              summary: (data.summary as string) ?? undefined,
-              completedAt: Date.now()
-            })
-          }
-          break
-        }
-
-        // —— token 用量 ——
-        case 'usage': {
-          const usage = data.usage as Record<string, unknown> | undefined
-          if (usage) {
-            const u = {
-              promptTokens: (usage.promptTokens as number) ?? 0,
-              completionTokens: (usage.completionTokens as number) ?? 0,
-              totalTokens: (usage.totalTokens as number) ?? 0
-            }
-            appendMessagePart(assistantMessageId, { type: 'usage', ...u })
-            // 同时累加到会话总量（供输入框底部 ROI 缩略条展示）
-            useAppStore.getState().addSessionUsage(u)
-          }
-          break
-        }
-
-        // —— 错误 ——
-        case 'error': {
-          const msg = (data.message as string) ?? '发生错误'
-          appendMessagePart(assistantMessageId, { type: 'text', text: `\n\n⚠️ ${msg}` })
-          break
-        }
-
-        // —— 审批请求 ——
-        // v1.1.2: 并行分支可同时各自请求审批，因此用并发 Map（addPendingApproval）
-        // 记录每个 pending 审批；旧的单值 pendingApproval 由 store 自动同步指向最新的。
         case 'approval_requested': {
           const approvalId = (data.approvalId as string) ?? ''
           const toolName = (data.toolName as string) ?? 'tool'
@@ -302,7 +279,13 @@ export function useChat() {
           const status = (data.status as ApprovalRequest['status']) ?? 'pending'
           const branchId = (data.branchId as string) ?? undefined
           if (approvalId) {
-            appendMessagePart(assistantMessageId, { type: 'approval', approvalId, toolName, summary, status, branchId })
+            // 审批作为特殊 tool_call 写入 turn 状态
+            turnUpdate(assistantMessageId, 'tool_call_started', {
+              callId: approvalId,
+              toolName,
+              summary,
+              args: { approvalId, status, branchId }
+            })
             if (status === 'pending') {
               addPendingApproval({ approvalId, toolName, summary, status })
             }
@@ -313,15 +296,17 @@ export function useChat() {
           const approvalId = (data.approvalId as string) ?? ''
           const status = (data.status as ApprovalRequest['status']) ?? 'allowed'
           if (approvalId) {
-            updateApprovalPart(assistantMessageId, approvalId, status)
-            // 从并发 Map 移除（store 会把旧的单值指针重指到其它仍 pending 的项）
+            // 更新审批 tool_call 状态
+            turnUpdate(assistantMessageId, 'tool_call_finished', {
+              callId: approvalId,
+              isError: status === 'denied' || status === 'expired',
+              summary: status
+            })
             resolvePendingApproval(approvalId)
           }
           break
         }
 
-        // —— 结构化输入请求 ——
-        // 同审批：并发 Map 容纳多个分支同时挂起的输入请求。
         case 'user_input_requested': {
           const inputId = (data.inputId as string) ?? ''
           if (inputId) {
@@ -341,21 +326,6 @@ export function useChat() {
           break
         }
 
-        // turn 终止事件由 subscribeToThread 处理（resolve promise）。
-        // turn_failed 需要显示错误信息——否则引擎报错时前端完全静默，
-        // 用户只看到“消息发出去了但什么都没发生”。
-        case 'turn_failed': {
-          const failMsg = (data.message as string) ?? 'turn 执行失败（引擎未提供错误详情）'
-          appendMessagePart(assistantMessageId, { type: 'text', text: `\n\n⚠️ ${failMsg}` })
-          break
-        }
-        case 'turn_completed':
-        case 'turn_aborted':
-        case 'heartbeat':
-          break
-        // —— 线程目标 / 待办实时更新 ——
-        // 引擎在 agent 使用 create_goal/update_goal/todo_write 工具时发出这些
-        // 事件，实时同步到 Plan 面板（不再只在切线程时拉一次）。
         case 'goal_updated': {
           const goal = data.goal as import('../services/engine-api').ThreadGoal | undefined
           if (goal) setThreadGoal(goal)
@@ -375,16 +345,16 @@ export function useChat() {
           break
         }
 
-        // —— 上下文压缩（当前 QiLin 引擎未发，预留渲染，信号源就绪后零改动生效）——
-        case 'compaction_started': {
-          appendMessagePart(assistantMessageId, { type: 'compaction', kind: 'started' })
-          break
-        }
+        case 'compaction_started':
         case 'compaction_completed': {
-          appendMessagePart(assistantMessageId, { type: 'compaction', kind: 'completed' })
+          // 写入 turn 状态（status = compacted）
+          turnUpdate(assistantMessageId, kind as SseEventKind, data)
           break
         }
 
+        case 'turn_started':
+        case 'turn_aborted':
+        case 'heartbeat':
         case 'pipeline_stage':
         case 'tool_call_ready':
         case 'tool_result_upload_wait':
@@ -392,7 +362,6 @@ export function useChat() {
         case 'tool_catalog_changed':
         case 'thread_created':
         case 'thread_updated':
-        case 'turn_started':
         case 'turn_steered':
         case 'agent_message_delta':
         case 'agent_message_completed':
@@ -400,18 +369,7 @@ export function useChat() {
           break
       }
     },
-    [
-      appendMessagePart,
-      settleStreamingReasoning,
-      updateLastToolCall,
-      updateApprovalPart,
-      addPendingApproval,
-      resolvePendingApproval,
-      addPendingUserInput,
-      resolvePendingUserInput,
-      setThreadGoal,
-      setThreadTodos
-    ]
+    [turnUpdate, addPendingApproval, resolvePendingApproval, addPendingUserInput, resolvePendingUserInput, setThreadGoal, setThreadTodos]
   )
 
   // 轮询执行投影视图（SSE 流期间每 1.5s 拉一次 DAG 进度）+ governed graph 治理状态
@@ -469,6 +427,7 @@ export function useChat() {
       }
 
       // Add user message（显示用户原始输入，不显示展开后的 content）
+      // 同时写入旧 messages（向后兼容）和 messages_v2（turn-based）
       const userMessage: Message = {
         id: `user-${Date.now()}`,
         role: 'user',
@@ -508,7 +467,7 @@ export function useChat() {
         }
       }
 
-      // Add placeholder for assistant response（带空 parts 数组）
+      // Add placeholder for assistant response（同时写两份）
       const assistantMessageId = `assistant-${Date.now()}`
       const assistantMessage: Message = {
         id: assistantMessageId,
@@ -528,7 +487,7 @@ export function useChat() {
         // turn completes — this makes the stop button functional.
         const turnId = await api.sendMessage(currentThreadId, finalContent, (event: SSEEvent) => {
           handleSseEvent(assistantMessageId, event)
-        }, attachmentIds, useAppStore.getState().selectedModel ?? undefined, useAppStore.getState().subagentEnabled || undefined)
+        }, attachmentIds, useAppStore.getState().selectedModel ?? undefined, useAppStore.getState().subagentEnabled || undefined, useAppStore.getState().reasoningMode || undefined)
 
         // 立即设置 activeTurnId — 停止按钮和 steer 依赖它
         useAppStore.getState().setActiveTurnId(turnId)
@@ -541,10 +500,7 @@ export function useChat() {
         await api.waitForTurnCompletion()
       } catch (error) {
         console.error('Failed to send message:', error)
-        appendMessagePart(assistantMessageId, {
-          type: 'text',
-          text: '⚠️ 无法连接到引擎，请检查引擎状态后重试。'
-        })
+        turnUpdate(assistantMessageId, 'error', { message: '无法连接到引擎，请检查引擎状态后重试。' })
       } finally {
         updateMessage(assistantMessageId, useAppStore.getState().messages.find((m) => m.id === assistantMessageId)?.content ?? '')
         setGenerating(false)
@@ -558,7 +514,7 @@ export function useChat() {
         }
       }
     },
-    [enginePort, threadId, isGenerating, addMessage, updateMessage, appendMessagePart, setThreadId, setGenerating, setEngineStatus, handleSseEvent, pollExecution, subscribeEngineProjection]
+    [enginePort, threadId, isGenerating, addMessage, updateMessage, setThreadId, setGenerating, setEngineStatus, handleSseEvent, pollExecution, subscribeEngineProjection]
   )
 
   // 加载历史会话
@@ -584,29 +540,84 @@ export function useChat() {
                 timestamp: Date.parse((item.createdAt as string) ?? '') || Date.now()
               })
             } else if (kind === 'assistant_text') {
+              // 过滤 QiLin 注入的 <memory>...</memory> 等内部块：
+              // - 整条都是 internal → 丢弃（不显示）
+              // - 混入到合法 reply 中 → 剥掉 memory 块保留 reply
+              const rawText = (item.text as string) ?? ''
+              if (isInternalOnlyText(rawText)) continue
+              const cleanText = sanitizeAssistantText(rawText)
               newMessages.push({
                 id: (item.id as string) ?? `msg-${Date.now()}-${Math.random()}`,
                 role: 'assistant',
-                content: (item.text as string) ?? '',
+                content: cleanText,
                 timestamp: Date.parse((item.createdAt as string) ?? '') || Date.now(),
-                parts: [{ type: 'text', text: (item.text as string) ?? '' }]
+                parts: [{ type: 'text', text: cleanText }]
               })
             }
           }
         }
-        // 批量加入（绕过逐条 addMessage 的多次 set）
-        useAppStore.setState((state) => ({ messages: [...state.messages, ...newMessages] }))
+        // 批量加载：走 setChatMessages 双写 messages + messages_v2。
+        // 若只写 messages，ChatFeed（优先读 v2）会误走 emptySlot 渲染 WelcomeScreen。
+        setChatMessages(newMessages)
       } catch (error) {
         console.error('Failed to load thread:', error)
       }
     },
-    [enginePort, clearMessages, setThreadId]
+    [enginePort, clearMessages, setThreadId, setChatMessages]
   )
 
   // Start a new chat
   const newChat = useCallback(() => {
     clearMessages()
   }, [clearMessages])
+
+  /**
+   * 编辑历史 user 消息并重发。
+   *
+   * gateway 当前不支持"从某条消息重新生成"（branch from message），所以采用
+   * "撤回 + 重发"策略：
+   *   1. 从 messages_v2 中找到被编辑的 user message 的位置
+   *   2. 删除该消息及之后的所有消息（user 视角是"撤回"）
+   *   3. 用编辑后的文本调 sendMessage 重新发送
+   *
+   * 注意：引擎侧 thread 的 turns 历史不会被删除（gateway 无 API），但前端
+   * 视图会被重置——用户看到的是"重发后的新对话流"。引擎历史仅在 loadThread
+   * 重新加载时再次出现。如果未来 gateway 支持 delete_turn 或 branch_from_message，
+   * 可以改用更优雅的方案。
+   */
+  const editAndResend = useCallback(
+    async (messageId: string, replacementText: string) => {
+      if (!replacementText.trim() || isGenerating) return
+
+      // 1. 找到 message 在 messages_v2 中的索引
+      const state = useAppStore.getState()
+      const idx = state.messages_v2.findIndex((m) => m.id === messageId)
+      if (idx < 0) {
+        throw new Error(`Message ${messageId} not found`)
+      }
+      const targetMsg = state.messages_v2[idx]
+      if (targetMsg.role !== 'user') {
+        throw new Error('Only user messages can be edited')
+      }
+
+      // 2. 截断：保留 [0, idx)，删除 [idx, end]
+      const keptMessages = state.messages_v2.slice(0, idx)
+      useAppStore.setState({
+        messages_v2: keptMessages,
+        messages: keptMessages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content ?? m.text ?? '',
+          timestamp: m.createdAt,
+          isStreaming: m.isStreaming
+        }))
+      })
+
+      // 3. 重发——直接调 sendMessage，让它把新的 user message 加进去并启动 turn
+      await sendMessage(replacementText)
+    },
+    [isGenerating, sendMessage]
+  )
 
   // 解决审批请求（允许/拒绝）
   const resolveApproval = useCallback(async (approvalId: string, decision: 'allow' | 'deny', reason?: string) => {
@@ -687,6 +698,7 @@ export function useChat() {
     isGenerating,
     threadId,
     sendMessage,
+    editAndResend,
     stopGeneration,
     steer,
     compactContext,
@@ -699,70 +711,5 @@ export function useChat() {
   }
 }
 
-/**
- * 处理 item_created/item_updated/item_completed 事件中的 TurnItem。
- * 按 item.kind 分发到对应的 message part。
- */
-function handleItemEvent(
-  assistantMessageId: string,
-  item: Record<string, unknown>,
-  kind: string,
-  appendPart: (id: string, part: MessagePart) => void,
-  updateToolCall: (id: string, callId: string, patch: Partial<Extract<MessagePart, { type: 'tool_call' }>>) => void
-) {
-  const itemKind = (item.kind as string) ?? ''
-  const itemId = (item.id as string) ?? ''
-  const isCompleted = kind === 'item_completed'
-
-  switch (itemKind) {
-    case 'assistant_text': {
-      // kernel_v3 streams live deltas (assistant_text_delta) during model
-      // generation, then emits a final item_completed with the full text.
-      // We skip item_created/item_updated to avoid clobbering the delta
-      // stream — only sync on item_completed (final authoritative text).
-      if (!isCompleted) break
-      const text = (item.text as string) ?? ''
-      appendPart(assistantMessageId, { type: 'text', text, itemId })
-      break
-    }
-    case 'assistant_reasoning': {
-      // Same as assistant_text: only sync on item_completed.
-      if (!isCompleted) break
-      const text = (item.text as string) ?? ''
-      appendPart(assistantMessageId, { type: 'reasoning', text, itemId })
-      break
-    }
-    case 'tool_call': {
-      const callId = (item.callId as string) ?? ''
-      const toolName = (item.toolName as string) ?? 'tool'
-      const status = (item.status as string) ?? 'running'
-      if (callId) {
-        const mappedStatus = status === 'completed' ? 'completed' : status === 'failed' ? 'failed' : 'running'
-        updateToolCall(assistantMessageId, callId, {
-          status: mappedStatus as 'running' | 'completed' | 'failed',
-          summary: (item.summary as string) ?? undefined
-        })
-      } else if (isCompleted) {
-        appendPart(assistantMessageId, {
-          type: 'tool_call',
-          toolName,
-          status: 'completed',
-          summary: (item.summary as string) ?? undefined
-        })
-      }
-      break
-    }
-    case 'tool_result': {
-      const toolName = (item.toolName as string) ?? 'tool'
-      const output = item.output
-      const isError = (item.isError as boolean) ?? false
-      appendPart(assistantMessageId, {
-        type: 'tool_result',
-        toolName,
-        output: typeof output === 'string' ? output : JSON.stringify(output),
-        isError
-      })
-      break
-    }
-  }
-}
+// 注：handleItemEvent 已被 turnReducer 的 reduceItemEvent 取代（在 turnReducer.ts 中）。
+// 旧 item 协议（item_created/item_updated/item_completed）现在走 turnUpdate 路径。

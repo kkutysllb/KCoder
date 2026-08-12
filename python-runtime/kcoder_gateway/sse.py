@@ -349,6 +349,7 @@ async def consume_langgraph_stream(
     user_id: str | None = None,
     model_name: str | None = None,
     subagent_enabled: bool = False,
+    reasoning_mode: str | None = None,
 ) -> None:
     """后台任务：消费 LangGraph SSE 流 → 翻译 → 推入 event_queue.
 
@@ -360,13 +361,19 @@ async def consume_langgraph_stream(
     ``_resolve_model_name`` 按需选用指定模型（而非默认 models[0]）。
     ``subagent_enabled``（可选）注入到 ``configurable.subagent_enabled``，
     为 True 时 QiLin 启用 task_tool（子 agent 编排；agent.py 默认 False）。
+    ``reasoning_mode``（可选）映射到 ``configurable.thinking_enabled`` /
+    ``configurable.reasoning_effort``：
+      - "off"        → thinking_enabled=False（关闭思考）
+      - "low"/"medium"/"high" → thinking_enabled=True + reasoning_effort=X
+      - "auto"/None  → 不注入（让 QiLin 按自定义 agent 默认 / 运行时默认）
+    QiLin lead_agent 的优先级：request > custom agent default > runtime default。
     """
     q = run.event_queue
     got_end = False
 
     try:
         input_data = {"messages": [{"role": "user", "content": prompt}]}
-        # 把 user_id / model_name 放入 configurable，QiLin 据此隔离用户数据 / 选模型
+        # 把 user_id / model_name / 推理参数放入 configurable，QiLin 据此隔离用户数据 / 选模型
         configurable: dict[str, Any] = {}
         if user_id:
             configurable["user_id"] = user_id
@@ -374,6 +381,11 @@ async def consume_langgraph_stream(
             configurable["model_name"] = model_name
         if subagent_enabled:
             configurable["subagent_enabled"] = subagent_enabled
+        if reasoning_mode == "off":
+            configurable["thinking_enabled"] = False
+        elif reasoning_mode in ("low", "medium", "high"):
+            configurable["thinking_enabled"] = True
+            configurable["reasoning_effort"] = reasoning_mode
         run_config: dict[str, Any] | None = (
             {"configurable": configurable} if configurable else None
         )

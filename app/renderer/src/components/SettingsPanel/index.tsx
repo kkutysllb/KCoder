@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
 import { getEngineAPI, type ModelEntry } from '../../services/engine-api'
+import { SidebarResizeHandle } from '../SidebarResizeHandle'
 import { SkillsSettings } from './SkillsSettings'
 import { SubAgentsSettings } from './SubAgentsSettings'
 import { MCPSettings } from './MCPSettings'
@@ -75,12 +76,11 @@ function presetOf(runtime: ProviderRuntime): ModelPreset {
 }
 
 export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
-  const { engineStatus, enginePort, bumpModelVersion } = useAppStore()
+  const { engineStatus, enginePort, bumpModelVersion, settingsNavWidth, setSettingsNavWidth } = useAppStore()
   const [activeNav, setActiveNav] = useState('general')
   const { t } = useI18n()
   const [runtimes, setRuntimes] = useState<ProviderRuntime[]>(DEFAULT_RUNTIMES)
   const [selectedProviderId, setSelectedProviderId] = useState<string>('')
-  const [connectionType, setConnectionType] = useState('API 直连')
 
   // 从后端加载已保存的模型（GET /api/models）— 精确按 profile name 匹配预设 id：
   // 匹配的只更新 enabled/selectedModel；不覆盖用户的 apiKey。
@@ -197,14 +197,18 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex bg-bg-primary">
-      {/* Left Navigation */}
-      <div className="w-[200px] border-r border-border-custom bg-bg-surface flex flex-col">
-        {/* Back button - leave space for real macOS traffic lights (hiddenInset) */}
-        <div className="h-12 flex items-center px-4">
-          <button
-            onClick={onClose}
-            className="flex items-center gap-1.5 ml-14 px-2 py-1 rounded-md text-xs text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
-          >
+      {/* Left Navigation — 包一层 relative 让 ResizeHandle 绝对定位 */}
+      <div className="relative shrink-0">
+        <div
+          className="h-full border-r border-border-custom bg-bg-surface flex flex-col"
+          style={{ width: settingsNavWidth }}
+        >
+          {/* Back button - leave space for real macOS traffic lights (hiddenInset) */}
+          <div className="h-12 flex items-center px-4">
+            <button
+              onClick={onClose}
+              className="flex items-center gap-1.5 ml-14 px-2 py-1 rounded-md text-xs text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
@@ -236,6 +240,15 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             {t('settings.engine')}{engineStatus === 'connected' ? t('settings.engineConnected') : t('settings.engineDisconnected')} · :{enginePort}
           </div>
         </div>
+        </div>
+        <SidebarResizeHandle
+          width={settingsNavWidth}
+          minWidth={160}
+          maxWidth={360}
+          onResize={setSettingsNavWidth}
+          label="拖拽调整设置面板侧栏宽度"
+          style={{ left: settingsNavWidth }}
+        />
       </div>
 
       {/* Main Content */}
@@ -245,14 +258,12 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             runtimes={runtimes}
             selectedRuntime={selectedRuntime}
             selectedProviderId={selectedProviderId}
-            connectionType={connectionType}
             onSelectProvider={setSelectedProviderId}
             onToggleProvider={handleToggleProvider}
             onUpdateApiKey={handleUpdateApiKey}
             onUpdateBaseUrl={handleUpdateBaseUrl}
             onSelectModel={handleSelectModel}
             onToggleThinking={handleToggleThinking}
-            onConnectionTypeChange={setConnectionType}
             onSave={handleSave}
             onClose={onClose}
           />
@@ -289,28 +300,24 @@ function ModelSettings({
   runtimes,
   selectedRuntime,
   selectedProviderId,
-  connectionType,
   onSelectProvider,
   onToggleProvider,
   onUpdateApiKey,
   onUpdateBaseUrl,
   onSelectModel,
   onToggleThinking,
-  onConnectionTypeChange,
   onSave,
   onClose,
 }: {
   runtimes: ProviderRuntime[]
   selectedRuntime?: ProviderRuntime
   selectedProviderId: string
-  connectionType: string
   onSelectProvider: (id: string) => void
   onToggleProvider: (id: string) => void
   onUpdateApiKey: (id: string, key: string) => void
   onUpdateBaseUrl: (id: string, url: string) => void
   onSelectModel: (id: string, modelId: string) => void
   onToggleThinking: (id: string, enabled: boolean) => void
-  onConnectionTypeChange: (v: string) => void
   onSave: () => void
   onClose: () => void
 }) {
@@ -329,20 +336,6 @@ function ModelSettings({
           <div>
             <h1 className="text-xl font-semibold text-text-primary">{t('settings.model.title')}</h1>
             <p className="mt-1 text-sm text-text-muted">{t('settings.model.subtitle')}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button className="p-2 rounded-lg text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors">
-              <RefreshIcon />
-            </button>
-            <select
-              value={connectionType}
-              onChange={(e) => onConnectionTypeChange(e.target.value)}
-              className="px-3 py-1.5 rounded-lg text-sm bg-bg-input border border-border-custom text-text-primary outline-none cursor-pointer"
-            >
-              <option value="个人套餐">个人套餐</option>
-              <option value="团队套餐">团队套餐</option>
-              <option value="API 直连">API 直连</option>
-            </select>
           </div>
         </div>
       </div>
@@ -1370,14 +1363,6 @@ function AboutIcon({ active }: { active?: boolean }) {
   return (
     <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-    </svg>
-  )
-}
-
-function RefreshIcon() {
-  return (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
     </svg>
   )
 }

@@ -1,39 +1,83 @@
-import { useRef, useEffect } from 'react'
+import { useMemo, useRef } from 'react'
 import { useChat } from '../../hooks/useChat'
-import { MessageBubble } from './MessageBubble'
+import { ChatFeed, type ChatFeedHandle } from './ChatFeed'
 import { CommandInput } from '../CommandInput'
+import { WelcomeScreen } from '../WelcomeScreen'
+import { useAppStore } from '../../stores/app-store'
+import { useI18n } from '../../i18n'
 
 export function ChatPanel() {
-  const { messages, isGenerating, sendMessage, stopGeneration, steer } = useChat()
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const { messages, isGenerating, sendMessage, editAndResend, stopGeneration, steer } = useChat()
+  const feedRef = useRef<ChatFeedHandle>(null)
+  const selectedModel = useAppStore((s) => s.selectedModel)
+  const branches = useAppStore((s) => s.branches)
+  const [atBottom, setAtBottom] = useAtBottomState()
+  const { t } = useI18n()
 
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  // 可编辑的 user message IDs：每条 user 消息后紧跟一个已完成（或不存在）
+  // 的 assistant turn——只要下一条 assistant turn 不是 streaming 就允许编辑。
+  // 简化策略：当 isGenerating=false 时所有 user 消息都可编辑。
+  const editableUserMessageIds = useMemo(() => {
+    if (isGenerating) return new Set<string>()
+    const ids = new Set<string>()
+    for (const m of messages) {
+      if (m.role === 'user') ids.add(m.id)
+    }
+    return ids
+  }, [messages, isGenerating])
+
+  const hasMessages = messages.length > 0
 
   return (
-    <div className="flex flex-1 flex-col h-full">
-      {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="mx-auto max-w-3xl space-y-6">
-          {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} />
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-      </div>
+    <div className="relative flex flex-1 flex-col h-full">
+      {/* Messages area — ChatFeed 优先读 messages_v2，缺失时 fallback 到 messages。
+          空消息时通过 emptySlot 渲染 WelcomeScreen（WelcomeScreen 内部自带 CommandInput）。 */}
+      <ChatFeed
+        ref={feedRef}
+        messages={messages}
+        streamingId={hasMessages && isGenerating ? messages[messages.length - 1].id : undefined}
+        selectedModel={selectedModel}
+        branches={branches}
+        editDisabled={isGenerating}
+        editableUserMessageIds={editableUserMessageIds}
+        onEditResend={editAndResend}
+        onAtBottomChange={setAtBottom}
+        emptySlot={<WelcomeScreen onSend={sendMessage} disabled={isGenerating} />}
+      />
 
-      {/* Input area */}
-      <div className="px-6 pb-6">
-        <CommandInput
-          onSend={sendMessage}
-          disabled={isGenerating}
-          isGenerating={isGenerating}
-          onStop={stopGeneration}
-          onSteer={steer}
-        />
-      </div>
+      {/* Composer（悬浮底部）— 只在有消息时显示（空状态由 WelcomeScreen 提供）。
+          参考 KStock composer-dock：悬浮圆角卡片 + blur + focus 青绿边框。
+          isGenerating 时主输入框仍可输入（Enter 触发 steer 追加指令）。 */}
+      {hasMessages && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 w-[min(900px,calc(100%-32px))]">
+          {/* 回到底部浮动按钮：悬浮在 composer 正上方（KStock 设计） */}
+          {!atBottom && (
+            <button
+              type="button"
+              onClick={() => feedRef.current?.scrollToBottom('smooth')}
+              aria-label={t('chat.scrollToBottom')}
+              title={t('chat.scrollToBottom')}
+              className="scroll-to-bottom-button absolute left-1/2 -top-11 -translate-x-1/2"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+              </svg>
+            </button>
+          )}
+          <CommandInput
+            onSend={sendMessage}
+            isGenerating={isGenerating}
+            onStop={stopGeneration}
+            onSteer={steer}
+          />
+        </div>
+      )}
     </div>
   )
+}
+
+/** 简单的 atBottom 状态 hook（避免 ChatPanel 重渲染传播到 ChatFeed 内部）。 */
+import { useState } from 'react'
+function useAtBottomState() {
+  return useState(true)
 }

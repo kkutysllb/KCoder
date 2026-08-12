@@ -764,7 +764,8 @@ export class EngineAPI {
     onEvent: (event: SSEEvent) => void,
     attachmentIds?: string[],
     model?: string,
-    subagentEnabled?: boolean
+    subagentEnabled?: boolean,
+    reasoningMode?: 'auto' | 'off' | 'low' | 'medium' | 'high'
   ): Promise<string> {
     const turnResponse = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns`, {
       method: 'POST',
@@ -773,7 +774,8 @@ export class EngineAPI {
         prompt: content,
         ...(attachmentIds && attachmentIds.length > 0 ? { attachmentIds } : {}),
         ...(model ? { model_name: model } : {}),
-        ...(subagentEnabled ? { subagent_enabled: true } : {})
+        ...(subagentEnabled ? { subagent_enabled: true } : {}),
+        ...(reasoningMode && reasoningMode !== 'auto' ? { reasoning_mode: reasoningMode } : {})
       })
     })
 

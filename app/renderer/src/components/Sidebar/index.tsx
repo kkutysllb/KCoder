@@ -50,6 +50,11 @@ const Icons = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
     </svg>
   ),
+  PanelLeftClose: () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 5.25h16.5a.75.75 0 01.75.75v12a.75.75 0 01-.75.75H3.75a.75.75 0 01-.75-.75V6a.75.75 0 01.75-.75zM14 9l-3 3 3 3" />
+    </svg>
+  ),
   SortUpDown: () => (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" />
@@ -100,7 +105,13 @@ interface SidebarProps {
   onOpenAuth?: () => void
   onLogout?: () => void
   onSelectThread?: (threadId: string) => void
+  /** 侧栏宽度（外部传入以便支持拖拽缩放） */
+  width?: number
 }
+
+const DEFAULT_SIDEBAR_WIDTH = 260
+const MIN_SIDEBAR_WIDTH = 200
+const MAX_SIDEBAR_WIDTH = 420
 
 /** 相对时间格式化（"刚刚"/"5分钟前"/"2小时前"/"3天前"） */
 function formatRelativeTime(iso: string): string {
@@ -169,7 +180,7 @@ function SortMenu({
   )
 }
 
-export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, onLogout, onSelectThread }: SidebarProps) {
+export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, onLogout, onSelectThread, width }: SidebarProps) {
   const [showSortMenu, setShowSortMenu] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [sortBy, setSortBy] = useState<'updated' | 'created'>('updated')
@@ -252,20 +263,38 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
   }, [enginePort, threadId, clearMessages, setThreadId, t])
 
   return (
-    <div className="w-[260px] h-full bg-bg-sidebar flex flex-col border-r border-border-custom">
+    <div
+      className="h-full bg-bg-sidebar flex flex-col border-r border-border-custom shrink-0"
+      style={{ width: width ?? DEFAULT_SIDEBAR_WIDTH }}
+    >
       {/* Top bar - leave space for real macOS traffic lights (hiddenInset at x:16,y:16) */}
       <div className="drag-region h-12 flex items-center px-3">
         <div className="no-drag flex items-center gap-0.5 ml-20 text-[#8a8a8f]">
-          {/* Collapse sidebar — simple left chevron (reference design) */}
+          {/* 历史导航后退（保留为导航按钮，不复用为折叠） */}
+          <button
+            className="p-1 rounded-md hover:text-text-primary hover:bg-bg-hover transition-colors"
+            onClick={() => window.history.back()}
+            title={t('sidebar.back')}
+          >
+            <Icons.Back />
+          </button>
+          {/* 历史导航前进 */}
+          <button
+            className="p-1 rounded-md hover:text-text-primary hover:bg-bg-hover transition-colors"
+            onClick={() => window.history.forward()}
+            title={t('sidebar.forward')}
+          >
+            <Icons.Forward />
+          </button>
+          {/* 分隔 */}
+          <div className="w-px h-3.5 bg-border-custom mx-0.5" />
+          {/* 折叠侧边栏（专门按钮，与历史导航分离） */}
           <button
             className="p-1 rounded-md hover:text-text-primary hover:bg-bg-hover transition-colors"
             onClick={onToggleCollapse}
             title={t('sidebar.collapse')}
           >
-            <Icons.Back />
-          </button>
-          <button className="p-1 rounded-md hover:text-text-primary hover:bg-bg-hover transition-colors">
-            <Icons.Forward />
+            <Icons.PanelLeftClose />
           </button>
         </div>
       </div>

@@ -11,7 +11,6 @@
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises'
 import { existsSync, mkdirSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { tmpdir } from 'node:os'
 
 /**
  * A single model profile. `apiKey` is written to a separate secrets map
@@ -250,8 +249,3 @@ async function atomicWriteJson(path: string, data: unknown): Promise<void> {
   await writeFile(tmpPath, payload, 'utf8')
   await rename(tmpPath, path)
 }
-
-// Keep the tmpdir import used in the type-only edge case where the process
-// is killed between write and rename — the temp file lands in the same
-// directory, but this reference keeps the import "used" for future callers.
-void tmpdir

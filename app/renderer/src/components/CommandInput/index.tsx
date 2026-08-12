@@ -159,20 +159,20 @@ function DirectoryBranchBar() {
     : (selectedBranch || (isGitRepo ? t('newtask.branch.createExisting') : '—'))
 
   return (
-    <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+    <div className="composer-dirbar">
       {/* 项目目录选择器 */}
       <button
-        className="dropdown-btn"
+        className="composer-chip"
         onClick={handleBrowse}
         title={workspacePath || t('newtask.directory.placeholder')}
       >
         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
         </svg>
-        <span className="max-w-[180px] truncate">
+        <span className="max-w-[140px] truncate">
           {workspacePath ? workspacePath.split('/').pop() : t('newtask.directory')}
         </span>
-        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-3 h-3 caret" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
@@ -181,15 +181,15 @@ function DirectoryBranchBar() {
       {workspacePath && (
         <div className="relative" ref={branchMenuRef}>
           <button
-            className="dropdown-btn"
+            className="composer-chip"
             onClick={() => setShowBranchMenu((v) => !v)}
             disabled={loadingDir}
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 3v12m0 0l-3-3m3 3l3-3m6-9a9 9 0 110 18 9 9 0 010-18z" transform="matrix(-1 0 0 1 24 0)" />
             </svg>
-            <span className="max-w-[140px] truncate">{loadingDir ? t('newtask.branch.loading') : branchLabel}</span>
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <span className="max-w-[110px] truncate">{loadingDir ? t('newtask.branch.loading') : branchLabel}</span>
+            <svg className="w-3 h-3 caret" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </button>
@@ -296,7 +296,6 @@ export function CommandInput({
   onPermissionChange
 }: CommandInputProps) {
   const [input, setInput] = useState('')
-  const [steerInput, setSteerInput] = useState('')
   const [showPermMenu, setShowPermMenu] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [uploadingFiles, setUploadingFiles] = useState(false)
@@ -339,7 +338,19 @@ export function CommandInput({
   }, [input])
 
   const handleSubmit = async () => {
-    if ((!input.trim() && pendingFiles.length === 0) || disabled) return
+    const text = input.trim()
+    if (!text && pendingFiles.length === 0) return
+
+    // isGenerating + onSteer：把输入作为追加指令发送给运行中的 turn
+    // （合并 steer 到主输入框，避免高度增加 + 双输入框 UI）
+    if (isGenerating && onSteer) {
+      onSteer(text)
+      setInput('')
+      return
+    }
+
+    if (disabled) return
+
     let attachmentIds: string[] | undefined
     // Upload pending files as attachments before sending.
     if (pendingFiles.length > 0) {
@@ -361,7 +372,7 @@ export function CommandInput({
         setUploadingFiles(false)
       }
     }
-    const messageText = input.trim() || (pendingFiles.length > 0 ? `(${pendingFiles.length} file(s))` : '')
+    const messageText = text || (pendingFiles.length > 0 ? `(${pendingFiles.length} file(s))` : '')
     onSend(messageText, attachmentIds)
     setInput('')
     setPendingFiles([])
@@ -375,7 +386,7 @@ export function CommandInput({
   }
 
   // 模型选择器（底栏右侧）— 从 store 读取，复用 DirectoryBranchBar 加载的模型
-  const { enginePort, engineStatus, selectedModel, setSelectedModel, modelVersion, threadId, workspacePath } = useAppStore()
+  const { enginePort, engineStatus, selectedModel, setSelectedModel, modelVersion, threadId, workspacePath, reasoningMode, setReasoningMode } = useAppStore()
   const [models, setModels] = useState<ModelEntry[]>([])
   const [showModelMenu, setShowModelMenu] = useState(false)
   const modelMenuRef = useRef<HTMLDivElement>(null)
@@ -394,7 +405,11 @@ export function CommandInput({
           setSelectedModel(res.models[0].name)
         }
       })
-      .catch(() => { /* 忽略 */ })
+      .catch((e) => {
+        // 静默吞错会掩盖"模型 API 失败"导致的"未配置模型"误导性提示。
+        // 至少打日志便于诊断；UI 层有 selectedModel fallback 显示当前选择名。
+        console.error('[CommandInput] Failed to load models:', e)
+      })
   }, [enginePort, engineStatus, setSelectedModel, modelVersion])
 
   useEffect(() => {
@@ -408,12 +423,14 @@ export function CommandInput({
   }, [])
 
   const activeModel = models.find((m) => m.name === selectedModel)
+  // 即使 models 还没加载好（异步竞态 / getModels 失败），也用 selectedModel
+  // 兜底显示当前选择的模型名，避免误导用户看到"未配置模型"。
+  const displayModelName = activeModel?.display_name || activeModel?.name || selectedModel || t('input.noModel')
 
   return (
-    <div className="w-full max-w-3xl mx-auto">
-      <div className="bg-bg-input rounded-xl border border-border-strong shadow-lg">
-        {/* Top row: project directory + branch selectors（窄条） */}
-        <DirectoryBranchBar />
+    <div className="composer-card">
+      {/* Top row: project directory + branch selectors（窄条） */}
+      <DirectoryBranchBar />
 
         {/* Pending attachments preview */}
         {pendingFiles.length > 0 && (
@@ -454,47 +471,15 @@ export function CommandInput({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={t('input.placeholder')}
-            disabled={disabled}
+            placeholder={isGenerating ? t('chat.steer.placeholder') : t('input.placeholder')}
+            disabled={disabled && !isGenerating}
             rows={1}
-            className="command-input resize-none min-h-[24px]"
+            className={`command-input resize-none ${isGenerating ? 'placeholder-[#60a5fa]' : ''}`}
           />
-          {/* Steer bar — only while generating. Lets the user append
-              instructions to the running turn without starting a new one. */}
-          {isGenerating && onSteer && (
-            <div className="mt-2 flex items-center gap-2 pt-2 border-t border-border-custom">
-              <input
-                type="text"
-                value={steerInput}
-                onChange={(e) => setSteerInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey && steerInput.trim()) {
-                    e.preventDefault()
-                    onSteer(steerInput.trim())
-                    setSteerInput('')
-                  }
-                }}
-                placeholder={t('chat.steer.placeholder')}
-                className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-bg-hover border border-border-custom text-text-primary placeholder-text-muted outline-none focus:border-[#3b82f6] transition-colors"
-              />
-              <button
-                onClick={() => {
-                  if (steerInput.trim()) {
-                    onSteer(steerInput.trim())
-                    setSteerInput('')
-                  }
-                }}
-                disabled={!steerInput.trim()}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#3b82f6] text-white hover:bg-[#2563eb] disabled:opacity-40 transition-colors shrink-0"
-              >
-                {t('chat.steer')}
-              </button>
-            </div>
-          )}
         </div>
 
-        {/* Bottom row: actions and model selector */}
-        <div className="flex items-center justify-between px-4 py-3">
+        {/* Bottom toolbar: actions + model selector + send */}
+        <div className="composer-toolbar">
           <div className="flex items-center gap-2">
             {/* Attachment button (paperclip) — opens file picker */}
             <input
@@ -514,7 +499,7 @@ export function CommandInput({
               onClick={() => fileInputRef.current?.click()}
               title={t('chat.attach')}
               disabled={uploadingFiles}
-              className="w-7 h-7 rounded-md bg-bg-active hover:bg-[#3f3f46] flex items-center justify-center text-text-secondary transition-colors disabled:opacity-50"
+              className="composer-chip !p-0 !w-7 !h-7 justify-center"
             >
               {uploadingFiles ? (
                 <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -529,11 +514,11 @@ export function CommandInput({
             </button>
             <div className="relative" ref={permMenuRef}>
               <button
-                className="dropdown-btn !bg-transparent !px-2"
+                className="composer-chip"
                 onClick={() => setShowPermMenu(!showPermMenu)}
               >
-                <span className="text-text-secondary">{t(currentPerm.labelKey)}</span>
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <span>{t(currentPerm.labelKey)}</span>
+                <svg className="w-3 h-3 caret" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
@@ -568,15 +553,22 @@ export function CommandInput({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 ml-auto">
+            {/* 推理深度选择器（参考 KStock ReasoningModePicker） */}
+            <ReasoningModePicker
+              model={activeModel}
+              value={reasoningMode}
+              onChange={setReasoningMode}
+            />
+
             {/* Model selector */}
             <div className="relative" ref={modelMenuRef}>
               <button
-                className="dropdown-btn"
+                className="composer-chip"
                 onClick={() => setShowModelMenu((v) => !v)}
               >
-                <span className="max-w-[120px] truncate">{activeModel ? (activeModel.display_name || activeModel.name) : t('input.noModel')}</span>
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <span className="max-w-[110px] truncate">{displayModelName}</span>
+                <svg className="w-3 h-3 caret" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
@@ -610,20 +602,24 @@ export function CommandInput({
             {/* Send / Stop button */}
             {isGenerating ? (
               <button
+                type="button"
                 onClick={() => onStop?.()}
                 title={t('chat.stop')}
-                className="w-8 h-8 rounded-full bg-[#ef4444] hover:bg-[#dc2626] flex items-center justify-center text-white transition-colors"
+                aria-label={t('chat.stop')}
+                className="send-button stop"
               >
                 {/* Stop icon (square) */}
-                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                   <rect x="6" y="6" width="12" height="12" rx="2" />
                 </svg>
               </button>
             ) : (
               <button
+                type="button"
                 onClick={handleSubmit}
                 disabled={disabled || !input.trim()}
-                className="w-8 h-8 rounded-full bg-white hover:bg-gray-200 disabled:bg-[#3f3f46] disabled:cursor-not-allowed flex items-center justify-center text-black disabled:text-text-muted transition-colors"
+                aria-label="发送消息"
+                className="send-button"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
@@ -635,9 +631,50 @@ export function CommandInput({
 
         {/* ROI 缩略条 — 会话累计用量，输入框最底部 */}
         <RoiMiniStrip />
-
-      </div>
     </div>
+  )
+}
+
+/**
+ * 推理深度选择器（参考 KStock ReasoningModePicker）。
+ * - auto / off：所有模型可用
+ * - low / medium / high：仅模型 supports_thinking && supports_reasoning_effort 时可用
+ */
+function ReasoningModePicker({
+  model,
+  value,
+  onChange
+}: {
+  model: ModelEntry | undefined
+  value: 'auto' | 'off' | 'low' | 'medium' | 'high'
+  onChange: (mode: 'auto' | 'off' | 'low' | 'medium' | 'high') => void
+}) {
+  const { t } = useI18n()
+  const supportsEffort = Boolean(model?.supports_thinking && model.supports_reasoning_effort)
+  const effectiveValue = supportsEffort || value === 'auto' || value === 'off' ? value : 'auto'
+
+  return (
+    <label
+      className="reasoning-mode-picker"
+      title={supportsEffort ? t('chat.reasoning.title') : t('chat.reasoning.titleLimited')}
+    >
+      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <span>{t('chat.reasoning')}</span>
+      <select
+        aria-label="推理模式"
+        value={effectiveValue}
+        disabled={!model}
+        onChange={(e) => onChange(e.target.value as 'auto' | 'off' | 'low' | 'medium' | 'high')}
+      >
+        <option value="auto">{t('chat.reasoning.auto')}</option>
+        <option value="off">{t('chat.reasoning.off')}</option>
+        {supportsEffort && <option value="low">{t('chat.reasoning.low')}</option>}
+        {supportsEffort && <option value="medium">{t('chat.reasoning.medium')}</option>}
+        {supportsEffort && <option value="high">{t('chat.reasoning.high')}</option>}
+      </select>
+    </label>
   )
 }
 

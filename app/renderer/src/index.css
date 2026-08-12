@@ -131,3 +131,379 @@ body {
 .dropdown-btn {
   @apply flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-[#a1a1aa] bg-[#333336] hover:bg-[#3f3f46] cursor-pointer transition-colors;
 }
+
+/* ─────────────────────────────────────────────────────────────────
+   Markdown body — assistant turn 正文样式
+   参考 KStock styles.css .markdown-body（行 3807-3992），暗色主题排版。
+   使用 KCoder CSS 变量以适配 dark/light 主题切换。
+   ───────────────────────────────────────────────────────────────── */
+
+.turn-text {
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--color-text-primary);
+  word-break: break-word;
+}
+
+.markdown-body {
+  word-break: break-word;
+}
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body p {
+  margin: 0 0 10px;
+  line-height: 1.75;
+}
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 18px 0 10px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-text-primary);
+}
+.markdown-body h1 {
+  font-size: 1.4em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.markdown-body h2 {
+  font-size: 1.25em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.markdown-body h3 { font-size: 1.1em; }
+.markdown-body h4 { font-size: 1em; }
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0 0 12px;
+  padding-left: 24px;
+}
+.markdown-body li {
+  margin: 4px 0;
+}
+.markdown-body li > p {
+  margin: 0;
+}
+
+/* GFM 任务列表 */
+.markdown-body li[data-task] {
+  list-style: none;
+  margin-left: -20px;
+}
+.markdown-body input[type="checkbox"] {
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.markdown-body code {
+  font-family: "SF Mono", "Fira Code", ui-monospace, "Cascadia Code", Menlo, monospace;
+  font-size: 0.88em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--color-bg-input);
+  color: #f1d77a;
+}
+
+.markdown-body pre {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.32);
+  overflow-x: auto;
+}
+.markdown-body pre code {
+  padding: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.markdown-body blockquote {
+  margin: 0 0 12px;
+  padding: 4px 12px;
+  border-left: 3px solid rgba(49, 199, 162, 0.4);
+  color: var(--color-text-secondary);
+}
+.markdown-body blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body a {
+  color: #7db9ff;
+  text-decoration: none;
+}
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.markdown-body strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.markdown-body em {
+  font-style: italic;
+}
+
+.markdown-body hr {
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+/* GFM 表格 */
+.markdown-body table {
+  margin: 0 0 12px;
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+.markdown-body th,
+.markdown-body td {
+  padding: 6px 10px;
+  border: 1px solid var(--color-border-subtle);
+  text-align: left;
+}
+.markdown-body th {
+  background: var(--color-bg-input);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.markdown-body td {
+  color: var(--color-text-secondary);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   User bubble — 右对齐气泡样式（参考 KStock + 现代聊天 UI 优化）
+   ───────────────────────────────────────────────────────────────── */
+.user-bubble {
+  max-width: 80%;
+  border-radius: 14px;
+  padding: 10px 14px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Composer — 消息输入区（参考 KStock styles.css composer-dock，
+   行 1498-1602）。悬浮圆角卡片 + blur + focus 青绿边框。
+   ───────────────────────────────────────────────────────────────── */
+
+/* 定位由父级控制（ChatPanel 悬浮底部 / WelcomeScreen 居中），
+   这里只负责卡片视觉。 */
+.composer-card {
+  width: 100%;
+  min-height: 104px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 16px;
+  padding: 12px 13px 10px;
+  background: rgba(26, 29, 34, 0.94);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.composer-card:focus-within {
+  border-color: rgba(86, 199, 165, 0.52);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.3), 0 0 0 3px rgba(86, 199, 165, 0.08);
+}
+
+/* 目录/分支选择条：压缩成一行紧凑样式，放在 textarea 上方 */
+.composer-dirbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px 8px;
+}
+
+.composer-card textarea {
+  width: 100%;
+  min-height: 54px;
+  padding: 2px 4px;
+  resize: none;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  outline: none;
+  line-height: 1.6;
+  font-family: inherit;
+}
+
+.composer-card textarea::placeholder {
+  color: #7c8792;
+}
+
+.composer-toolbar {
+  min-height: 32px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.send-button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #f2f4f7;
+  color: #111315;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.send-button:hover:not(:disabled) {
+  background: #ffffff;
+}
+.send-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.send-button.stop {
+  background: #e04a4a;
+  color: #fff;
+}
+.send-button.stop:hover {
+  background: #c93c3c;
+}
+
+/* composer 内的小工具按钮（附件/权限/模型/目录） */
+.composer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #b7bdc6;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  border: 1px solid transparent;
+}
+.composer-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e8eaed;
+}
+.composer-chip .caret {
+  margin-left: 2px;
+  opacity: 0.7;
+}
+
+/* 「回到底部」浮动按钮：悬浮在 composer 正上方（由父级定位） */
+.scroll-to-bottom-button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  background: rgba(34, 37, 41, 0.92);
+  color: #c9cdd4;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32);
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.scroll-to-bottom-button:hover {
+  color: #f1f3f5;
+  background: rgba(49, 199, 162, 0.18);
+  border-color: rgba(49, 199, 162, 0.5);
+}
+
+/* 推理深度选择器（参考 KStock .reasoning-mode-picker） */
+.reasoning-mode-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #a9afb8;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.reasoning-mode-picker > span {
+  color: #8f98a2;
+  font-size: 11px;
+}
+.reasoning-mode-picker select {
+  width: 62px;
+  min-height: 26px;
+  padding: 2px 5px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.reasoning-mode-picker select:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   SidebarResizeHandle — 侧栏拖拽分隔条（参考 KStock styles.css 880-925）
+   ───────────────────────────────────────────────────────────────── */
+
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 14;
+  width: 10px;
+  transform: translateX(-50%);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sidebar-resize-handle::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  background: transparent;
+  content: '';
+  transition: background 140ms ease, box-shadow 140ms ease;
+}
+
+.sidebar-resize-handle:hover::after,
+.sidebar-resize-handle:focus-visible::after {
+  background: rgba(86, 199, 165, 0.85);
+  box-shadow: 0 0 12px rgba(86, 199, 165, 0.38);
+}
+
+.sidebar-resize-handle:focus-visible {
+  outline: none;
+}
+
+body.sidebar-resizing {
+  cursor: col-resize !important;
+  user-select: none;
+}

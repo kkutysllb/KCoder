@@ -20,7 +20,7 @@ export function WelcomeScreen({ onSend, disabled }: WelcomeScreenProps) {
   const greeting = t(getGreetingKey())
 
   return (
-    <div className="flex-1 relative flex flex-col items-center justify-center px-8 overflow-hidden">
+    <div className="flex-1 h-full relative flex flex-col items-center px-8 overflow-hidden">
       {/* Large background "K" letter - disappears when task starts */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
         <span className="text-[420px] font-bold leading-none text-white/[0.03] tracking-tighter">
@@ -28,13 +28,17 @@ export function WelcomeScreen({ onSend, disabled }: WelcomeScreenProps) {
         </span>
       </div>
 
+      {/* Spacer to push content group down (greeting + input + hints centered as a block) */}
+      <div className="flex-1" />
+
       {/* Greeting text */}
-      <h1 className="relative z-10 text-2xl font-medium text-text-primary mb-12 tracking-wide">
+      <h1 className="relative z-10 text-2xl font-medium text-text-primary mb-10 tracking-wide">
         {greeting}
       </h1>
 
-      {/* Command input */}
-      <div className="relative z-10 w-full flex justify-center">
+      {/* Command input — constrained width so it renders as a centered
+          hero input, not a full-width top bar */}
+      <div className="relative z-10 w-full max-w-2xl flex justify-center">
         <CommandInput onSend={onSend} disabled={disabled} />
       </div>
 
@@ -57,6 +61,9 @@ export function WelcomeScreen({ onSend, disabled }: WelcomeScreenProps) {
           {t('welcome.hintChat')}
         </span>
       </div>
+
+      {/* Bottom spacer keeps the block vertically centered even on short windows */}
+      <div className="flex-1" />
     </div>
   )
 }

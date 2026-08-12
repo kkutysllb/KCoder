@@ -64,11 +64,21 @@ class StartTurnRequest(BaseModel):
     attachmentIds: list[str] | None = None
     model_name: str | None = None
     subagent_enabled: bool = False
+    # 推理深度：auto / off / low / medium / high（auto 不传，让 QiLin 用默认）
+    reasoning_mode: str | None = None
 
 
 # ────────────────────────────────────────────────────────────────
 # 字段映射辅助函数
 # ────────────────────────────────────────────────────────────────
+
+# QiLin DynamicContextMiddleware 的 ID-swap 后缀：
+#   - 真实用户消息 id = "{stable_id}__user"
+#   - 注入的 memory reminder HumanMessage id = "{stable_id}__memory"
+# 与 vendor/qilin/qilin/agents/middlewares/dynamic_context_middleware.py
+# 的 INJECTED_USER_MESSAGE_ID_SUFFIX / __memory 保持一致。
+INJECTED_USER_MESSAGE_ID_SUFFIX = "__user"
+INJECTED_MEMORY_MESSAGE_ID_SUFFIX = "__memory"
 
 
 def _now_iso() -> str:
@@ -353,6 +363,7 @@ async def start_turn(
             client, registry, run, assistant_id, req.prompt,
             user_id=user_id, model_name=req.model_name,
             subagent_enabled=req.subagent_enabled,
+            reasoning_mode=req.reasoning_mode,
         )
     )
 
@@ -465,6 +476,21 @@ def _message_to_item(msg: dict[str, Any]) -> dict[str, Any] | None:
     msg_id = str(msg.get("id", ""))
 
     if "human" in type_lower:
+        # ── 内部消息拦截（根因修复）───────────────────────────────
+        # QiLin DynamicContextMiddleware 会把 memory reminder 注入为
+        # HumanMessage（id 后缀 "__memory"，additional_kwargs.hide_from_ui=True），
+        # 这是给 LLM 看的工作记忆，**不应** 通过 history API 暴露给客户端。
+        # 若不拦截，前端 loadThread 会把它当 user_message 渲染 → 泄漏 <memory> 块。
+        additional_kwargs = msg.get("additional_kwargs") or {}
+        is_hidden = bool(additional_kwargs.get("hide_from_ui"))
+        if msg_id.endswith(INJECTED_MEMORY_MESSAGE_ID_SUFFIX) or is_hidden:
+            return None
+
+        # 真实用户消息：QiLin ID-swap 后 id 带 "__user" 后缀，还原原始 id
+        # （否则前端按 id 匹配会找不到对应消息）
+        if msg_id.endswith(INJECTED_USER_MESSAGE_ID_SUFFIX):
+            msg_id = msg_id[: -len(INJECTED_USER_MESSAGE_ID_SUFFIX)]
+
         return {
             "id": msg_id,
             "kind": "user_message",
