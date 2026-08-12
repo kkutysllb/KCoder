@@ -20,8 +20,6 @@ export interface GeneralPrefs {
   interactionMode: 'queue' | 'guide'
   autoArchive: boolean
   archiveRetention: '7d' | '14d' | '30d' | '90d'
-  httpProxy: string
-  noProxy: string
   certPath: string
   dataPath: string
 }
@@ -36,8 +34,6 @@ const DEFAULT_PREFS: GeneralPrefs = {
   interactionMode: 'queue',
   autoArchive: true,
   archiveRetention: '7d',
-  httpProxy: '',
-  noProxy: '',
   certPath: '',
   dataPath: '',
 }

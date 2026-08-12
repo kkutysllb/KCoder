@@ -236,6 +236,79 @@ def _parse_bind_args() -> tuple[str, int]:
     return host, port
 
 
+def _ensure_browser_runtime() -> None:
+    """自动安装 Chromium 浏览器二进制（桌面应用零配置就绪）。
+
+    KWorks 作为服务器产品，在 browser_capability.py 的
+    ensure_browser_runtime_available() 中只检查不安装——没装就拒绝启动，
+    由运维在部署阶段执行 playwright install chromium。
+
+    KCoder 是桌面应用，用户不会开终端。因此在 gateway 启动时自动检测
+    Chromium 是否就绪：
+      1. playwright 包是否可导入（已在 requirements.txt 声明硬依赖）
+      2. Chromium 浏览器二进制是否存在于 ms-playwright 缓存目录
+    缺失时自动执行 playwright install chromium（幂等，已安装会跳过）。
+    安装失败不阻塞 gateway 启动——浏览器工具会在调用时报错，其余功能正常。
+    """
+    import shutil
+    import subprocess
+
+    # Step 1: playwright 包是否可用
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        logger.warning(
+            "Playwright package not installed; browser automation tools disabled"
+        )
+        return
+
+    # Step 2: Chromium 二进制是否已在缓存目录（跨平台）
+    browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if browsers_path:
+        cache_base = Path(browsers_path)
+    elif sys.platform == "darwin":
+        cache_base = Path.home() / "Library" / "Caches" / "ms-playwright"
+    elif sys.platform == "win32":
+        cache_base = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "ms-playwright"
+    else:
+        cache_base = Path.home() / ".cache" / "ms-playwright"
+
+    has_chromium = cache_base.exists() and any(cache_base.glob("chromium-*"))
+    if has_chromium:
+        logger.info("Chromium browser binary already available at %s", cache_base)
+        return
+
+    # Step 3: 自动安装 Chromium
+    logger.info(
+        "Chromium not found in %s; running playwright install chromium...",
+        cache_base,
+    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if result.returncode == 0:
+            logger.info("Chromium browser binary installed successfully")
+        else:
+            logger.warning(
+                "playwright install chromium exited %d: %s",
+                result.returncode,
+                (result.stderr or result.stdout or "")[:300],
+            )
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "playwright install chromium timed out (180s); "
+            "browser tools will fail until manually installed"
+        )
+    except Exception as exc:
+        logger.warning(
+            "playwright install chromium failed: %s; browser tools may fail", exc
+        )
+
+
 def _ensure_extensions_config(runtime_dir: Path) -> None:
     """生成 extensions_config.json，注册 worktree-overlay MCP server.
 
@@ -334,6 +407,9 @@ def main() -> None:
 
     # Phase 3: 生成 extensions_config.json（worktree-overlay MCP 注册）
     _ensure_extensions_config(runtime_dir)
+
+    # 浏览器自动化：自动安装 Chromium 二进制（桌面应用零配置）
+    _ensure_browser_runtime()
 
     host, port = _parse_bind_args()
     logger.info("Starting kcoder_gateway on %s:%s", host, port)

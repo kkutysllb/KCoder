@@ -12,6 +12,7 @@ import { CommandsSettings } from './CommandsSettings'
 import { RemoteSettings } from './RemoteSettings'
 import { MemorySettings } from './MemorySettings'
 import { SandboxSettings } from './SandboxSettings'
+import { WebToolsSettings } from './WebToolsSettings'
 import { AboutSettings } from './AboutSettings'
 import {
   MODEL_PRESETS,
@@ -38,6 +39,7 @@ const NAV_ITEMS = [
   { id: 'commands', labelKey: 'settings.nav.commands', icon: CommandIcon },
   { id: 'memory', labelKey: 'settings.nav.memory', icon: MemoryIcon },
   { id: 'sandbox', labelKey: 'settings.nav.sandbox', icon: SandboxIcon },
+  { id: 'web', labelKey: 'settings.nav.web', icon: WebToolsIcon },
   { id: 'remote', labelKey: 'settings.nav.remote', icon: RemoteIcon },
   { id: 'about', labelKey: 'settings.nav.about', icon: AboutIcon },
 ]
@@ -291,6 +293,8 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           <MemorySettings />
         ) : activeNav === 'sandbox' ? (
           <SandboxSettings />
+        ) : activeNav === 'web' ? (
+          <WebToolsSettings />
         ) : activeNav === 'remote' ? (
           <RemoteSettings />
         ) : activeNav === 'about' ? (
@@ -803,8 +807,6 @@ interface GeneralPrefs {
   interactionMode: 'queue' | 'guide'
   autoArchive: boolean
   archiveRetention: '7d' | '14d' | '30d' | '90d'
-  httpProxy: string
-  noProxy: string
   certPath: string
   dataPath: string
 }
@@ -819,8 +821,6 @@ const DEFAULT_PREFS: GeneralPrefs = {
   interactionMode: 'queue',
   autoArchive: true,
   archiveRetention: '7d',
-  httpProxy: '',
-  noProxy: '',
   certPath: '',
   dataPath: '',
 }
@@ -1072,24 +1072,6 @@ function GeneralSettings() {
               ]}
             />
           </SettingRow>
-
-          {/* HTTP 代理 */}
-          <SettingInputRow
-            title={t('settings.general.proxy')}
-            desc={t('settings.general.proxy.desc')}
-            value={prefs.httpProxy}
-            onChange={(v) => update('httpProxy', v)}
-            placeholder={t('settings.general.proxy.placeholder')}
-          />
-
-          {/* No Proxy */}
-          <SettingInputRow
-            title={t('settings.general.noProxy')}
-            desc={t('settings.general.noProxy.desc')}
-            value={prefs.noProxy}
-            onChange={(v) => update('noProxy', v)}
-            placeholder={t('settings.general.noProxy.placeholder')}
-          />
 
           {/* 自定义证书 */}
           <SettingInputRow
@@ -1630,6 +1612,14 @@ function SandboxIcon({ active }: { active?: boolean }) {
   return (
     <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c.92 0 1.667.746 1.667 1.667 0 .092-.008.183-.023.272a36.04 36.04 0 015.197 2.083 1.667 1.667 0 011.65 2.893l-.013.014a1.667 1.667 0 01-.625 2.27 1.667 1.667 0 01-2.27-.625 36.09 36.09 0 00-1.05-1.725A33.67 33.67 0 0112 12a33.67 33.67 0 01-4.533-1.16 36.09 36.09 0 00-1.05 1.725 1.667 1.667 0 01-2.27.625 1.667 1.667 0 01-.625-2.27 1.667 1.667 0 01.376-.402l-.013-.014a1.667 1.667 0 011.65-2.893A36.04 36.04 0 0110.356 4.94a1.667 1.667 0 01-.023-.273C10.333 3.746 11.08 3 12 3z" />
+    </svg>
+  )
+}
+
+function WebToolsIcon({ active }: { active?: boolean }) {
+  return (
+    <svg className={`w-4 h-4 ${active ? 'text-text-primary' : 'text-text-muted'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
     </svg>
   )
 }

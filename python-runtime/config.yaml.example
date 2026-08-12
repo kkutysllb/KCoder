@@ -72,6 +72,35 @@ tools:
     group: web
     use: qilin.community.ddg_search.tools:web_search_tool
     max_results: 5
+  # ── 浏览器自动化（有状态 Playwright Chromium） ──
+  # 有状态浏览器工具：browser_navigate → browser_click/type → browser_snapshot 循环。
+  # 启动参数从 network 配置段读取 fallback；per-tool config 可覆盖。
+  # 需要安装可选依赖：cd python-runtime && uv sync --extra browser && uv run playwright install chromium
+  - name: browser_navigate
+    group: browser
+    use: qilin.community.browser_automation.tools:browser_navigate_tool
+  - name: browser_snapshot
+    group: browser
+    use: qilin.community.browser_automation.tools:browser_snapshot_tool
+  - name: browser_click
+    group: browser
+    use: qilin.community.browser_automation.tools:browser_click_tool
+  - name: browser_type
+    group: browser
+    use: qilin.community.browser_automation.tools:browser_type_tool
+  - name: browser_get_text
+    group: browser
+    use: qilin.community.browser_automation.tools:browser_get_text_tool
+    max_chars: 8000
+  - name: browser_back
+    group: browser
+    use: qilin.community.browser_automation.tools:browser_back_tool
+  - name: browser_screenshot
+    group: browser
+    use: qilin.community.browser_automation.tools:browser_screenshot_tool
+  - name: browser_close
+    group: browser
+    use: qilin.community.browser_automation.tools:browser_close_tool
 
 # ─── 技能 ───
 # path 相对 cwd（langgraph dev 在 python-runtime/ 下运行），指向项目根 skills 目录。
@@ -92,5 +121,21 @@ memory:
   mode: middleware
   injection_enabled: true
   manager_class: qilinmem
+
+# ─── 网络与 Web 工具 ───
+# 全局代理与 web 工具默认值。Settings > Web 工具面板的读写走 gateway
+# runtime_config_routes.py → config.yaml network 段（热重载）。
+# proxy 为空/null 时直连；所有 web 工具（web_search / web_fetch /
+# image_search / 浏览器自动化）共享同一个 proxy。
+network:
+  proxy: null                    # 全局代理，如 http://127.0.0.1:7890 或 socks5://127.0.0.1:7891
+  web_search_max_results: 5      # web_search 返回的最大结果数（1-50）
+  web_fetch_timeout: 10          # web_fetch 每次请求超时秒数（1-120）
+  image_search_max_results: 5    # image_search 返回的最大结果数（1-50）
+  # Playwright Chromium 浏览器自动化参数（browser_navigate 等）
+  browser_headless: true         # 无头模式，不显示浏览器窗口
+  browser_viewport_width: 1280   # 视口宽度像素（320-3840）
+  browser_viewport_height: 720   # 视口高度像素（240-2160）
+  browser_timeout_ms: 30000      # 导航/交互操作超时毫秒（1000-120000）
 
 # 开发阶段用 sqlite（默认）；生产可切 postgres（AppConfig.database.backend）

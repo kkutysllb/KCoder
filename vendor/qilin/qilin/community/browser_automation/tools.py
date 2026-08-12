@@ -108,21 +108,25 @@ class _SessionLease:
 
 
 def _resolve_session(runtime: Runtime, tool_name: str) -> _SessionLease:
-    # Launch config (headless/viewport/timeout/cdp_url) is read from a single
-    # canonical source — always ``browser_navigate`` — regardless of which tool
-    # first creates the session. ``get_session`` caches per thread and ignores
-    # these params for later callers, so keying launch config off the calling
-    # tool made it "first tool to run wins": a ``headless: false`` set only on
-    # ``browser_navigate`` was silently dropped if another tool (or the live WS)
-    # initialized the session first. ``tool_name`` is retained for callers that
-    # read their own non-launch config (e.g. ``browser_get_text``'s max_chars).
+    # Launch config (headless/viewport/timeout/cdp_url/proxy) is read from a
+    # single canonical source — always ``browser_navigate`` — regardless of
+    # which tool first creates the session. ``get_session`` caches per thread
+    # and ignores these params for later callers, so keying launch config off
+    # the calling tool made it "first tool to run wins": a ``headless: false``
+    # set only on ``browser_navigate`` was silently dropped if another tool (or
+    # the live WS) initialized the session first. ``tool_name`` is retained for
+    # callers that read their own non-launch config (e.g. ``browser_get_text``'s
+    # max_chars). Global network config provides defaults; per-tool config may
+    # override.
     del tool_name
+    network = get_app_config().network
     cfg = _get_tool_config("browser_navigate")
-    headless = _as_bool(cfg.get("headless"), True)
-    timeout_ms = _as_int(cfg.get("timeout_ms"), 30000)
-    width = _as_int(cfg.get("viewport_width"), 1280)
-    height = _as_int(cfg.get("viewport_height"), 720)
+    headless = _as_bool(cfg.get("headless"), network.browser_headless)
+    timeout_ms = _as_int(cfg.get("timeout_ms"), network.browser_timeout_ms)
+    width = _as_int(cfg.get("viewport_width"), network.browser_viewport_width)
+    height = _as_int(cfg.get("viewport_height"), network.browser_viewport_height)
     cdp_url = _as_str(cfg.get("cdp_url"))
+    proxy = _as_str(cfg.get("proxy")) or network.proxy
     manager = get_browser_session_manager()
     thread_id = _thread_id(runtime)
     session = manager.get_session(
@@ -131,6 +135,7 @@ def _resolve_session(runtime: Runtime, tool_name: str) -> _SessionLease:
         timeout_ms=timeout_ms,
         viewport={"width": width, "height": height},
         cdp_url=cdp_url,
+        proxy=proxy,
         allow_unguarded_cdp=_as_bool(cfg.get("allow_unguarded_cdp"), False),
         url_guard=validate_browser_url,
         pin=True,
@@ -235,14 +240,16 @@ async def navigate_and_capture(*, thread_id: str | None, url: str, outputs_path:
     url_error = _validate_url("browser_navigate", url)
     if url_error:
         raise ValueError(url_error)
+    network = get_app_config().network
     cfg = _get_tool_config("browser_navigate")
     manager = get_browser_session_manager()
     with manager.acquire_session(
         thread_id,
-        headless=_as_bool(cfg.get("headless"), True),
-        timeout_ms=_as_int(cfg.get("timeout_ms"), 30000),
-        viewport={"width": _as_int(cfg.get("viewport_width"), 1280), "height": _as_int(cfg.get("viewport_height"), 720)},
+        headless=_as_bool(cfg.get("headless"), network.browser_headless),
+        timeout_ms=_as_int(cfg.get("timeout_ms"), network.browser_timeout_ms),
+        viewport={"width": _as_int(cfg.get("viewport_width"), network.browser_viewport_width), "height": _as_int(cfg.get("viewport_height"), network.browser_viewport_height)},
         cdp_url=_as_str(cfg.get("cdp_url")),
+        proxy=_as_str(cfg.get("proxy")) or network.proxy,
         allow_unguarded_cdp=_as_bool(cfg.get("allow_unguarded_cdp"), False),
         url_guard=validate_browser_url,
     ) as session:

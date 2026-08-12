@@ -291,6 +291,19 @@ export interface UploadsConfig {
   [key: string]: unknown
 }
 
+/** 网络与 Web 工具配置（全局代理 + 搜索/浏览器默认值）。 */
+export interface NetworkConfig {
+  proxy: string | null
+  web_search_max_results: number
+  web_fetch_timeout: number
+  image_search_max_results: number
+  browser_headless: boolean
+  browser_viewport_width: number
+  browser_viewport_height: number
+  browser_timeout_ms: number
+  [key: string]: unknown
+}
+
 /** 运行时配置四段合集。 */
 export interface RuntimeConfig {
   memory: MemoryRuntimeConfig
@@ -299,9 +312,10 @@ export interface RuntimeConfig {
   sandbox: SandboxConfig
   database: DatabaseConfig
   uploads: UploadsConfig
+  network: NetworkConfig
 }
 
-export type RuntimeConfigSection = 'memory' | 'summarization' | 'title' | 'sandbox' | 'database' | 'uploads'
+export type RuntimeConfigSection = 'memory' | 'summarization' | 'title' | 'sandbox' | 'database' | 'uploads' | 'network'
 
 // ============ Governed graph governance types ============
 

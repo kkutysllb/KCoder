@@ -38,6 +38,7 @@ from qilin.config.input_polish_config import InputPolishConfig
 from qilin.config.loop_detection_config import LoopDetectionConfig
 from qilin.config.memory_config import MemoryConfig, load_memory_config_from_dict
 from qilin.config.model_config import ModelConfig
+from qilin.config.network_config import NetworkConfig
 from qilin.config.orchestration_config import OrchestrationConfig
 from qilin.config.read_before_write_config import ReadBeforeWriteConfig
 from qilin.config.reload_boundary import format_field_description
@@ -272,6 +273,10 @@ class AppConfig(BaseModel):
     read_before_write: ReadBeforeWriteConfig = Field(default_factory=ReadBeforeWriteConfig, description="Read-before-write file gate middleware configuration")
     safety_finish_reason: SafetyFinishReasonConfig = Field(default_factory=SafetyFinishReasonConfig, description="Provider safety-filter finish_reason interception middleware configuration")
     auth: AuthAppConfig = Field(default_factory=AuthAppConfig, description="Authentication configuration (local + OIDC SSO)")
+    network: NetworkConfig = Field(
+        default_factory=NetworkConfig,
+        description="Network and web tool configuration (global proxy, web tool defaults)",
+    )
     model_config = ConfigDict(extra="allow")
     database: DatabaseConfig = Field(
         default_factory=DatabaseConfig,

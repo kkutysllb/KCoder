@@ -49,10 +49,10 @@ router = APIRouter(prefix="/v1/runtime-config", tags=["runtime-config"])
 
 # 可编辑的配置段名（与 QiLin AppConfig 顶层字段对齐）
 RuntimeConfigSection = Literal[
-    "memory", "summarization", "title", "sandbox", "database", "uploads"
+    "memory", "summarization", "title", "sandbox", "database", "uploads", "network"
 ]
 _VALID_SECTIONS: tuple[str, ...] = (
-    "memory", "summarization", "title", "sandbox", "database", "uploads",
+    "memory", "summarization", "title", "sandbox", "database", "uploads", "network",
 )
 
 
@@ -98,6 +98,27 @@ class UploadsConfigModel(BaseModel):
     auto_convert_documents: bool = Field(default=True)
 
 
+class NetworkConfigModel(BaseModel):
+    """网络与 Web 工具配置的 Pydantic 模型。
+
+    network 段不是 QiLin AppConfig 的显式字段，靠 ``extra="allow"`` 从 YAML
+    读入 dict。统一管理全局代理与 web 工具默认值（web_search / web_fetch /
+    image_search / browser automation 共享 proxy）。
+    """
+
+    proxy: str | None = Field(
+        default=None,
+        description="Global HTTP/SOCKS proxy for all web tools. Empty or null = direct.",
+    )
+    web_search_max_results: int = Field(default=5, ge=1, le=50)
+    web_fetch_timeout: int = Field(default=10, ge=1, le=120, description="seconds")
+    image_search_max_results: int = Field(default=5, ge=1, le=50)
+    browser_headless: bool = Field(default=True)
+    browser_viewport_width: int = Field(default=1280, ge=320, le=3840)
+    browser_viewport_height: int = Field(default=720, ge=240, le=2160)
+    browser_timeout_ms: int = Field(default=30000, ge=1000, le=120000)
+
+
 def _get_qilin_config_models() -> dict[str, type[BaseModel]]:
     """懒加载配置 Pydantic 模型，用于 PUT 入参校验。"""
     from qilin.config.database_config import DatabaseConfig
@@ -113,6 +134,7 @@ def _get_qilin_config_models() -> dict[str, type[BaseModel]]:
         "sandbox": SandboxConfig,
         "database": DatabaseConfig,
         "uploads": UploadsConfigModel,
+        "network": NetworkConfigModel,
     }
 
 
@@ -136,6 +158,16 @@ def _read_effective_configs() -> dict[str, dict[str, Any]]:
         uploads_dict = dict(getattr(uploads_raw, "__dict__", {}))
     else:
         uploads_dict = {}
+
+    # network 段：与 uploads 类似，靠 extra="allow" 从 YAML 读入 dict
+    network_raw = getattr(app_cfg, "network", None)
+    if isinstance(network_raw, dict):
+        network_dict = dict(network_raw)
+    elif network_raw is not None:
+        network_dict = dict(getattr(network_raw, "__dict__", {}))
+    else:
+        network_dict = {}
+
     return {
         "memory": get_memory_config().model_dump(),
         "summarization": get_summarization_config().model_dump(),
@@ -143,6 +175,7 @@ def _read_effective_configs() -> dict[str, dict[str, Any]]:
         "sandbox": app_cfg.sandbox.model_dump(mode="json"),
         "database": app_cfg.database.model_dump(mode="json"),
         "uploads": uploads_dict,
+        "network": network_dict,
     }
 
 

@@ -141,18 +141,25 @@ def web_search_tool(
         query: Search keywords describing what you want to find. Be specific for better results.
         max_results: Maximum number of results to return. Default is 5.
     """
-    config = get_app_config().get_tool_config("web_search")
+    config = get_app_config()
+    network_config = config.network
+    tool_config = config.get_tool_config("web_search")
     region = DEFAULT_REGION
     safesearch = DEFAULT_SAFESEARCH
     backend = DEFAULT_BACKEND
+    # The global network proxy; per-tool config may override it.
+    proxy: str | None = network_config.proxy
 
-    if config is not None:
+    if tool_config is not None:
         # Override tool call defaults from config if set.
-        extra = config.model_extra or {}
-        max_results = extra.get("max_results", max_results)
+        extra = tool_config.model_extra or {}
+        max_results = extra.get("max_results", network_config.web_search_max_results)
         region = extra.get("region", region)
         safesearch = extra.get("safesearch", safesearch)
         backend = extra.get("backend", backend)
+        proxy = extra.get("proxy", proxy)
+    else:
+        max_results = network_config.web_search_max_results
 
     results = _search_text(
         query=query,

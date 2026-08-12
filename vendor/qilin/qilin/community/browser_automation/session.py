@@ -265,6 +265,7 @@ class BrowserSession:
         timeout_ms: int,
         viewport: dict[str, int],
         cdp_url: str | None = None,
+        proxy: str | None = None,
         url_guard: Callable[[str], str | None] | None = None,
         on_activity: Callable[[], None] | None = None,
     ) -> None:
@@ -272,6 +273,7 @@ class BrowserSession:
         self._headless = headless
         self._timeout_ms = timeout_ms
         self._viewport = viewport
+        self._proxy = proxy
         # Optional SSRF guard applied at the browser request boundary. It returns
         # an error string to block a URL (redirect/popup/subresource) or None to
         # allow it. The explicit navigate URL is screened by the caller, but
@@ -380,7 +382,10 @@ class BrowserSession:
                 return self._page
 
             if self._browser is None or not self._browser.is_connected():
-                self._browser = await self._playwright.chromium.launch(headless=self._headless)
+                launch_kwargs: dict[str, Any] = {"headless": self._headless}
+                if self._proxy:
+                    launch_kwargs["proxy"] = {"server": self._proxy}
+                self._browser = await self._playwright.chromium.launch(**launch_kwargs)
             # device_scale_factor=2 renders screenshots at retina density so the
             # panel stays crisp when the image is scaled up to fill the view.
             self._context = await self._browser.new_context(viewport=self._viewport, device_scale_factor=2)
@@ -880,6 +885,7 @@ class BrowserSessionManager:
         timeout_ms: int = 30000,
         viewport: dict[str, int] | None = None,
         cdp_url: str | None = None,
+        proxy: str | None = None,
         allow_unguarded_cdp: bool = False,
         url_guard: Callable[[str], str | None] | None = None,
         pin: bool = False,
@@ -905,6 +911,7 @@ class BrowserSessionManager:
                     timeout_ms=timeout_ms,
                     viewport=viewport or {"width": 1280, "height": 720},
                     cdp_url=cdp_url,
+                    proxy=proxy,
                     url_guard=url_guard,
                     on_activity=lambda: self._touch_session(key),
                 )
