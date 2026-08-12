@@ -1,5 +1,4 @@
 ---
-id: goal
 name: Goal
 description: "A goal is a persistent objective that spans many turns. Use it to track and drive an objective across multiple turns of work."
 ---

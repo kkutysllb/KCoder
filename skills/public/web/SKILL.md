@@ -1,5 +1,4 @@
 ---
-id: web
 name: Web
 description: "Use web tools (web_search, web_fetch) when the answer depends on information outside the local workspace, such as recent releases, library docs, or current events."
 ---

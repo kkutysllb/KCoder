@@ -1,5 +1,4 @@
 ---
-id: planning
 name: Planning
 description: "Draft a concrete implementation plan before writing code. A plan lists steps, files touched, and risks."
 ---

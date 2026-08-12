@@ -1,5 +1,4 @@
 ---
-id: todo
 name: Todo
 description: "Keep a focused, step-by-step todo list for the current task. Use the todo tools to track progress on multi-step work."
 ---

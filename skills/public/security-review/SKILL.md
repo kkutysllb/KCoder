@@ -1,5 +1,4 @@
 ---
-id: security-review
 name: Security Review
 description: "Read-only security audit of the changes or codebase, checking common vulnerability areas. Use for security-focused review."
 ---
