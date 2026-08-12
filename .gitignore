@@ -53,3 +53,4 @@ python-runtime/.env
 docs/
 python-runtime/config.yaml
 .workbuddy
+python-runtime/.kcoder_jwt_secret
