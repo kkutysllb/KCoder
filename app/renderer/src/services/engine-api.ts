@@ -856,15 +856,12 @@ export class EngineAPI {
   // Governed graph: the backend drives every turn through the durable
   // governed-graph execution plane. Per-turn fields:
   //   - model_name: override the default model (models[0])
-  //   - subagent_enabled: enable task_tool for sub-agent orchestration
-  //     (QiLin agent.py defaults to false; only true here opts in)
   async sendMessage(
     threadId: string,
     content: string,
     onEvent: (event: SSEEvent) => void,
     attachmentIds?: string[],
     model?: string,
-    subagentEnabled?: boolean,
     reasoningMode?: 'auto' | 'off' | 'low' | 'medium' | 'high'
   ): Promise<string> {
     const turnResponse = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns`, {
@@ -874,7 +871,6 @@ export class EngineAPI {
         prompt: content,
         ...(attachmentIds && attachmentIds.length > 0 ? { attachmentIds } : {}),
         ...(model ? { model_name: model } : {}),
-        ...(subagentEnabled ? { subagent_enabled: true } : {}),
         ...(reasoningMode && reasoningMode !== 'auto' ? { reasoning_mode: reasoningMode } : {})
       })
     })
@@ -1900,7 +1896,7 @@ data: <full EngineStreamEvent JSON>
   // Each Settings panel already tolerates failures, so the UI shows empty
   // state rather than crashing.
 
-  async listSubAgents(): Promise<SubAgentEntry[]> {
+  async listSubAgents(): Promise<{ settings: Record<string, unknown>; subAgents: SubAgentEntry[] }> {
     const response = await fetch(`${this.baseUrl}/v1/sub-agents`, {
       headers: this.headers
     })
@@ -1908,7 +1904,21 @@ data: <full EngineStreamEvent JSON>
       throw new Error(`Failed to list sub-agents: ${response.statusText}`)
     }
     const data = await response.json()
-    return (data.subAgents ?? []) as SubAgentEntry[]
+    return {
+      settings: (data.settings ?? {}) as Record<string, unknown>,
+      subAgents: (data.subAgents ?? []) as SubAgentEntry[],
+    }
+  }
+  async updateSubAgentSettings(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const response = await fetch(`${this.baseUrl}/v1/sub-agents/settings`, {
+      method: 'PUT',
+      headers: this.headers,
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to update sub-agent settings: ${response.statusText}`)
+    }
+    return response.json()
   }
   async createSubAgent(payload: Omit<SubAgentEntry, 'type' | 'source'>): Promise<unknown> {
     const response = await fetch(`${this.baseUrl}/v1/sub-agents`, {

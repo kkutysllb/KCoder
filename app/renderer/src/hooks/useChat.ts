@@ -543,7 +543,7 @@ export function useChat() {
         // turn completes — this makes the stop button functional.
         const turnId = await api.sendMessage(currentThreadId, finalContent, (event: SSEEvent) => {
           handleSseEvent(assistantMessageId, event)
-        }, attachmentIds, useAppStore.getState().selectedModel ?? undefined, useAppStore.getState().subagentEnabled || undefined, useAppStore.getState().reasoningMode || undefined)
+        }, attachmentIds, useAppStore.getState().selectedModel ?? undefined, useAppStore.getState().reasoningMode || undefined)
 
         // 立即设置 activeTurnId — 停止按钮和 steer 依赖它
         useAppStore.getState().setActiveTurnId(turnId)

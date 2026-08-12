@@ -42,19 +42,57 @@ interface SubAgentEntry {
   inheritMode?: 'default' | 'custom'
 }
 
+/** sub_agents.json 全局参数段。 */
+interface SubAgentSettings {
+  timeout_seconds?: number
+  max_turns?: number | null
+  max_total_per_run?: number
+}
+
+/** sub_agents.json 完整存储格式。 */
+interface SubAgentsStore {
+  settings?: SubAgentSettings
+  agents?: SubAgentEntry[]
+  // 兼容旧 key
+  subAgents?: SubAgentEntry[]
+}
+
+/**
+ * 把全局参数翻译成 YAML 行（2 空格缩进，subagents 段同级字段）。
+ */
+function settingsToYamlLines(settings: SubAgentSettings): string[] {
+  const lines: string[] = []
+  if (settings.timeout_seconds != null) {
+    lines.push(`  timeout_seconds: ${settings.timeout_seconds}`)
+  }
+  if (settings.max_turns != null) {
+    lines.push(`  max_turns: ${settings.max_turns}`)
+  }
+  if (settings.max_total_per_run != null) {
+    lines.push(`  max_total_per_run: ${settings.max_total_per_run}`)
+  }
+  return lines
+}
+
 /**
  * 把单个 sub-agent 翻译成 YAML custom_agents 条目。
  *
  * 输出形如（4 空格缩进 agent id，6 空格缩进字段）：
  *   ```
- *   code-reviewer:
- *         description: "代码审查专家"
- *         system_prompt: "你是一个代码审查员..."
- *         tools: ["read_file","grep"]
+ *   nova:
+ *         description: "代码探索者"
+ *         system_prompt: "..."
+ *         timeout_seconds: 900
+ *         max_turns: 50
  *   ```
  * JSON.stringify 产出的是合法 YAML 1.2 子集，PyYAML safe_load 可直接解析。
+ *
+ * 关键：CustomSubagentConfig 自带 timeout_seconds=900 / max_turns=50 默认值，
+ * 但全局 subagents.timeout_seconds / max_turns 只对内置子代理生效（见
+ * registry.py:83-99 的注释）。因此必须把全局参数显式写入每个 custom
+ * agent 的 YAML 条目，才能让用户的配置真正生效。
  */
-function subAgentToYamlEntry(agent: SubAgentEntry): string {
+function subAgentToYamlEntry(agent: SubAgentEntry, settings?: SubAgentSettings): string {
   const lines: string[] = [`    ${agent.id}:`]
   const push = (key: string, value: unknown): void => {
     lines.push(`      ${key}: ${JSON.stringify(value)}`)
@@ -69,18 +107,29 @@ function subAgentToYamlEntry(agent: SubAgentEntry): string {
     push('tools', agent.tools ?? [])
   }
 
+  // 全局参数注入：使全局 timeout_seconds / max_turns 对 custom agents 生效。
+ // registry.py 明确不会用全局值覆盖 custom agent 自身的值，所以必须显式写入。
+  if (settings) {
+    if (settings.timeout_seconds != null) {
+      push('timeout_seconds', settings.timeout_seconds)
+    }
+    if (settings.max_turns != null) {
+      push('max_turns', settings.max_turns)
+    }
+  }
+
   return lines.join('\n')
 }
 
 /**
- * 用新的 custom_agents 块替换 config.yaml 中 `subagents.custom_agents:` 子段。
+ * 用新的块替换 config.yaml 中整个 `subagents:` 段的内容。
  *
- * 三种情况：
+ * newBlock 包含全局参数行（如 `  timeout_seconds: 1800`）和
+ * `  custom_agents:` 子段，统一覆盖原 subagents 段的全部内容。
+ *
+ * 两种情况：
  *   1. 无 `subagents:` 顶层段 → 追加 `subagents:\n<newBlock>`
- *   2. 有 `subagents:` 无 `  custom_agents:` 子段 → 在 subagents 段末尾追加 newBlock
- *   3. 有 `  custom_agents:` 子段 → 替换该子段（保留 subagents 下其他同级字段）
- *
- * newBlock 形如：`"  custom_agents:\n    agent-id:\n      description: ..."`
+ *   2. 有 `subagents:` 段 → 替换其全部内容（保留后续顶层段不变）
  */
 function replaceCustomAgentsSection(original: string, newBlock: string): string {
   const lines = original.split('\n')
@@ -109,41 +158,15 @@ function replaceCustomAgentsSection(original: string, newBlock: string): string 
     }
   }
 
-  // 3. 在 subagents 段内定位 `  custom_agents:` 子段（恰好 2 空格缩进）
-  let caStart = -1
-  for (let i = subStart + 1; i < subEnd; i++) {
-    if (/^  custom_agents:\s*$/.test(lines[i])) {
-      caStart = i
-      break
-    }
+  // 情况 2：替换 subagents 段的全部内容（`subagents:` 行保留，后续全部用 newBlock 覆盖）
+  const before = lines.slice(0, subStart + 1).join('\n') // 包含 `subagents:` 行
+  const after = lines.slice(subEnd)
+  const parts: string[] = [before, newBlock]
+  if (after.length > 0) {
+    const afterText = after.join('\n').replace(/^\s+$/, '')
+    if (afterText.trim()) parts.push(afterText)
   }
-
-  // 情况 2：有 subagents 段无 custom_agents 子段 → 在 subEnd 前追加
-  if (caStart === -1) {
-    const before = lines.slice(0, subEnd).join('\n').replace(/\s+$/, '')
-    const after = lines.slice(subEnd).join('\n').replace(/^\s+/, '').replace(/\s+$/, '')
-    const parts: string[] = [before, newBlock]
-    if (after) parts.push(after)
-    return `${parts.join('\n\n')}\n`
-  }
-
-  // 情况 3：定位 custom_agents 子段结束
-  // 遇到下一个 2 空格同级 key（`  \S`）或 subagents 段结束
-  let caEnd = subEnd
-  for (let i = caStart + 1; i < subEnd; i++) {
-    if (/^  \S/.test(lines[i])) {
-      caEnd = i
-      break
-    }
-  }
-
-  const before = lines.slice(0, caStart).join('\n').replace(/\s+$/, '')
-  const after = lines.slice(caEnd).join('\n').replace(/^\s+/, '').replace(/\s+$/, '')
-  const parts: string[] = []
-  if (before) parts.push(before)
-  parts.push(newBlock)
-  if (after) parts.push(after)
-  return `${parts.join('\n\n')}\n`
+  return `${parts.join('\n')}\n`
 }
 
 /**
@@ -175,19 +198,33 @@ export async function syncSubAgents(dataDir: string): Promise<void> {
     throw err
   }
 
-  // sub_agents.json 可能是数组（save_json 直存）或 {subAgents: [...]} 包装
-  const parsed = JSON.parse(raw) as SubAgentEntry[] | { subAgents?: SubAgentEntry[] }
-  const agents = Array.isArray(parsed) ? parsed : (parsed.subAgents ?? [])
+  // sub_agents.json 格式：{ settings: {...}, agents: [...] }
+  // 兼容旧格式：裸数组、{ subAgents: [...] }
+  let settings: SubAgentSettings | undefined
+  let agents: SubAgentEntry[]
+  const parsed = JSON.parse(raw)
+  if (Array.isArray(parsed)) {
+    agents = parsed
+  } else if (parsed && typeof parsed === 'object') {
+    const store = parsed as SubAgentsStore
+    settings = store.settings
+    agents = store.agents ?? store.subAgents ?? []
+  } else {
+    agents = []
+  }
 
   // 过滤无效条目：必须有 id 和 content（system_prompt 必填）
   const valid = agents.filter((a) => a && a.id && a.content)
 
-  const block = valid.length > 0
-    ? `  custom_agents:\n${valid.map(subAgentToYamlEntry).join('\n')}`
+  // 构建 subagents 段：全局参数行 + custom_agents 子段
+  const settingsLines = settings ? settingsToYamlLines(settings) : []
+  const customAgentsBlock = valid.length > 0
+    ? `  custom_agents:\n${valid.map((a) => subAgentToYamlEntry(a, settings)).join('\n')}`
     : `  custom_agents: {}`
+  const fullBlock = [...settingsLines, customAgentsBlock].join('\n')
 
   const configPath = resolveConfigYamlPath()
   const original = await readFile(configPath, 'utf8')
-  const updated = replaceCustomAgentsSection(original, block)
+  const updated = replaceCustomAgentsSection(original, fullBlock)
   await atomicWrite(configPath, updated)
 }

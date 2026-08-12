@@ -1,17 +1,29 @@
-"""Sub-agents endpoints — Phase 13 本地 JSON 实现.
+"""Sub-agents endpoints — 本地 JSON 实现.
 
 QiLin 的 subagents 是内部执行器，无 HTTP 管理接口。KCoder 的 Settings >
-Sub-agents 面板需要完整 CRUD + clone，全部落在 ``<dataDir>/kcoder_local/
-sub_agents.json``。
+Sub-agents 面板需要完整 CRUD + 全局参数配置，全部落在
+``<dataDir>/kcoder_local/sub_agents.json``。
+
+存储格式：``{ "settings": {...}, "agents": [...] }``
 
 端点表
 ------
 
-- ``GET /v1/sub-agents``                读 sub_agents.json → ``{ subAgents: SubAgentEntry[] }``
-- ``POST /v1/sub-agents``               创建
-- ``PATCH /v1/sub-agents/{id}``         更新
-- ``DELETE /v1/sub-agents/{id}``        删除
-- ``POST /v1/sub-agents/{id}/clone``    复制
+- ``GET /v1/sub-agents``                 读 → ``{ settings, subAgents }``
+- ``PUT /v1/sub-agents/settings``         更新全局参数
+- ``POST /v1/sub-agents``                 创建子代理
+- ``DELETE /v1/sub-agents/{id}``          删除子代理
+
+全局参数 (settings)
+------------------
+
+::
+
+    {
+      "timeout_seconds": 1800,   # 子代理默认超时（秒）
+      "max_turns": null,          # 全局最大轮次覆盖 (null=用默认值)
+      "max_total_per_run": 6      # 每次 run 最大委派数 (1-50)
+    }
 
 数据结构（对齐 renderer SubAgentEntry）
 -------------------------------------
@@ -57,17 +69,54 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _load(request: Request) -> list[dict[str, Any]]:
-    data = load_json(_store_path(request), default=[])
+# ---- 默认全局参数 ----
+# 对齐 QiLin CustomSubagentConfig 默认值（vendor/qilin/qilin/config/subagents_config.py:111-120）
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "timeout_seconds": 900,
+    "max_turns": 50,
+    "max_total_per_run": 6,
+}
+
+
+def _load_all(request: Request) -> dict[str, Any]:
+    """读取完整存储（settings + agents），兼容旧格式。"""
+    path = _store_path(request)
+    data = load_json(path, default={"settings": dict(DEFAULT_SETTINGS), "agents": []})
     if isinstance(data, list):
-        return [item for item in data if isinstance(item, dict)]
-    if isinstance(data, dict) and isinstance(data.get("subAgents"), list):
-        return [item for item in data["subAgents"] if isinstance(item, dict)]
-    return []
+        # v1 格式：裸数组 → 迁移
+        return {"settings": dict(DEFAULT_SETTINGS), "agents": [d for d in data if isinstance(d, dict)]}
+    if isinstance(data, dict):
+        settings = data.get("settings") if isinstance(data.get("settings"), dict) else {}
+        # 兼容旧 key subAgents
+        agents_list = data.get("agents")
+        if agents_list is None and isinstance(data.get("subAgents"), list):
+            agents_list = data["subAgents"]
+        if agents_list is None:
+            agents_list = []
+        # 合并 settings（未知字段保留，缺失字段补默认值）
+        merged_settings = dict(DEFAULT_SETTINGS)
+        merged_settings.update({k: v for k, v in settings.items() if k in DEFAULT_SETTINGS})
+        return {"settings": merged_settings, "agents": [d for d in agents_list if isinstance(d, dict)]}
+    return {"settings": dict(DEFAULT_SETTINGS), "agents": []}
+
+
+def _load(request: Request) -> list[dict[str, Any]]:
+    return _load_all(request)["agents"]
+
+
+def _load_settings(request: Request) -> dict[str, Any]:
+    return _load_all(request)["settings"]
+
+
+def _save_all(request: Request, agents: list[dict[str, Any]], settings: dict[str, Any] | None = None) -> None:
+    """原子写入完整存储。"""
+    if settings is None:
+        settings = _load_settings(request)
+    save_json(_store_path(request), {"settings": settings, "agents": agents})
 
 
 def _save(request: Request, agents: list[dict[str, Any]]) -> None:
-    save_json(_store_path(request), agents)
+    _save_all(request, agents)
 
 
 def _normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -100,7 +149,35 @@ def _normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
 @router.get("")
 @router.get("/")
 async def list_sub_agents(request: Request) -> dict[str, Any]:
-    return {"subAgents": _load(request)}
+    return {"settings": _load_settings(request), "subAgents": _load(request)}
+
+
+@router.put("/settings")
+@router.put("/settings/")
+async def update_settings(request: Request) -> JSONResponse:
+    """更新全局参数，写入 sub_agents.json 的 settings 段。"""
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "invalid JSON body"})
+    if not isinstance(payload, dict):
+        return JSONResponse(status_code=400, content={"error": "body must be an object"})
+
+    settings = _load_settings(request)
+    # 只允许已知字段
+    if "timeout_seconds" in payload:
+        val = payload["timeout_seconds"]
+        settings["timeout_seconds"] = max(1, int(val)) if val else DEFAULT_SETTINGS["timeout_seconds"]
+    if "max_turns" in payload:
+        val = payload["max_turns"]
+        settings["max_turns"] = max(1, int(val)) if val else None
+    if "max_total_per_run" in payload:
+        val = payload["max_total_per_run"]
+        settings["max_total_per_run"] = max(1, min(50, int(val))) if val else DEFAULT_SETTINGS["max_total_per_run"]
+
+    agents = _load(request)
+    _save_all(request, agents, settings)
+    return JSONResponse(status_code=200, content=settings)
 
 
 @router.post("")

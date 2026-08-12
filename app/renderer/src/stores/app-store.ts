@@ -105,9 +105,6 @@ interface AppState {
   pendingNewBranch: string | null
   /** 模型配置变更计数器（设置页保存后递增，触发聊天框刷新模型列表） */
   modelVersion: number
-  /** 是否启用子 Agent 编排（task_tool）。false 时 QiLin 不暴露 delegate_task */
-  subagentEnabled: boolean
-
   /** 侧边栏宽度（拖拽持久化） */
   sidebarWidth: number
   /** 设置面板左侧 nav 宽度（拖拽持久化） */
@@ -177,7 +174,6 @@ interface AppState {
   setSelectedModel: (model: string | null) => void
   bumpModelVersion: () => void
   setPendingNewBranch: (branch: string | null) => void
-  setSubagentEnabled: (enabled: boolean) => void
   setReasoningMode: (mode: 'auto' | 'off' | 'low' | 'medium' | 'high') => void
   setSidebarWidth: (width: number) => void
   setSettingsNavWidth: (width: number) => void
@@ -225,7 +221,6 @@ export const useAppStore = create<AppState>((set) => ({
   selectedBranch: null,
   selectedModel: null,
   modelVersion: 0,
-  subagentEnabled: false,
   reasoningMode: 'auto',
   sidebarWidth: 240,
   settingsNavWidth: 200,
@@ -399,7 +394,6 @@ export const useAppStore = create<AppState>((set) => ({
   setSelectedModel: (model) => set({ selectedModel: model }),
   bumpModelVersion: () => set((state) => ({ modelVersion: state.modelVersion + 1 })),
   setPendingNewBranch: (branch) => set({ pendingNewBranch: branch }),
-  setSubagentEnabled: (enabled) => set({ subagentEnabled: enabled }),
   setReasoningMode: (mode) => set({ reasoningMode: mode }),
   setSidebarWidth: (width) => set({ sidebarWidth: width }),
   setSettingsNavWidth: (width) => set({ settingsNavWidth: width }),
