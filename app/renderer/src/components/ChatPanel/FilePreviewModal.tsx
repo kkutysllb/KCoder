@@ -68,7 +68,7 @@ export function FilePreviewModal({ path, onClose }: FilePreviewModalProps) {
   const isMarkdown = fileName.endsWith('.md')
 
   return (
-    <aside className="fixed top-12 right-3 z-[60] flex h-[calc(100vh-60px)] w-[640px] flex-col overflow-hidden rounded-xl border border-[rgba(255,255,255,0.13)] bg-[rgba(30,33,36,0.97)] shadow-2xl backdrop-blur-md">
+    <aside className="fixed top-12 right-3 z-[60] flex h-[calc(100vh-60px)] w-[640px] flex-col overflow-hidden rounded-xl border border-[rgba(255,255,255,0.13)] bg-[rgba(30,33,36,0.97)] shadow-2xl backdrop-blur-md animate-[slide-in-right_0.25s_ease-out]">
       {/* 标题栏 */}
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[rgba(255,255,255,0.08)] px-4 py-3">
         <span

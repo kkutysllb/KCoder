@@ -507,3 +507,15 @@ body.sidebar-resizing {
   cursor: col-resize !important;
   user-select: none;
 }
+
+/* 右侧滑出抽屉的滑入动画（文件预览面板等） */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0.4;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
