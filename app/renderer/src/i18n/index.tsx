@@ -48,6 +48,16 @@ const zhCN: Dict = {
   'sidebar.others': '其他',
   'sidebar.newChat': '新对话',
   'sidebar.untitled': '未命名会话',
+  'sidebar.addProject': '添加项目',
+  'sidebar.renameProject': '重命名项目',
+  'sidebar.deleteProject': '删除项目',
+  'sidebar.projectNamePrompt': '输入项目名称',
+  'sidebar.deleteProjectConfirm': '删除项目「{name}」？其下 {count} 个任务将归档（数据保留，可在归档中查看）。',
+  'sidebar.renameFailed': '重命名失败，请重试',
+  'sidebar.addProjectFailed': '添加项目失败，请重试',
+  'sidebar.deleteProjectFailed': '删除项目失败，请重试',
+  'sidebar.chats': '会话',
+  'sidebar.tasks': '任务',
 
   // Terminal
   'terminal.title': '终端',
@@ -737,6 +747,16 @@ const en: Dict = {
   'sidebar.others': 'Others',
   'sidebar.newChat': 'New Chat',
   'sidebar.untitled': 'Untitled',
+  'sidebar.addProject': 'Add Project',
+  'sidebar.renameProject': 'Rename Project',
+  'sidebar.deleteProject': 'Delete Project',
+  'sidebar.projectNamePrompt': 'Enter project name',
+  'sidebar.deleteProjectConfirm': 'Delete project "{name}"? Its {count} tasks will be archived (data preserved, viewable in Archive).',
+  'sidebar.renameFailed': 'Rename failed, please try again',
+  'sidebar.addProjectFailed': 'Add project failed, please try again',
+  'sidebar.deleteProjectFailed': 'Delete project failed, please try again',
+  'sidebar.chats': 'Chats',
+  'sidebar.tasks': 'Tasks',
 
   // Terminal
   'terminal.title': 'Terminal',

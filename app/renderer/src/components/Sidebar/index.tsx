@@ -1,7 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
-import { getEngineAPI, type AuthUser, type ThreadSummary } from '../../services/engine-api'
+import {
+  getEngineAPI,
+  type AuthUser,
+  type ProjectEntry,
+  type ThreadSummary
+} from '../../services/engine-api'
 import { getGeneralPref } from '../../lib/generalPrefs'
 
 // Icons as components
@@ -140,6 +145,65 @@ function parseRetention(retention: string): number {
   return value * (multipliers[unit as keyof typeof multipliers] ?? multipliers.d)
 }
 
+/** 路径归一化（容忍尾部斜杠差异，用于 workspace↔project 匹配） */
+function normPath(p: string): string {
+  return p.replace(/\/+$/, '') || p
+}
+
+/** 任务/会话行（项目分组与「会话」分区共用的渲染单元） */
+function ThreadRow({
+  thread,
+  isActive,
+  onSelect,
+  onArchive,
+  onDelete
+}: {
+  thread: ThreadSummary
+  isActive: boolean
+  onSelect: () => void
+  onArchive: (e: React.MouseEvent) => void
+  onDelete: (e: React.MouseEvent) => void
+}) {
+  const { t } = useI18n()
+  const time = formatRelativeTime(thread.updatedAt)
+  // 标题展示：New Chat → 新对话；空 title → 未命名会话
+  const displayTitle = !thread.title
+    ? t('sidebar.untitled')
+    : thread.title === 'New Chat'
+      ? t('sidebar.newChat')
+      : thread.title
+  return (
+    <div
+      className={`task-item group w-full ${isActive ? 'bg-bg-hover text-text-primary' : ''} ${thread.archived ? 'opacity-50' : ''}`}
+      onClick={onSelect}
+      title={displayTitle}
+    >
+      <span className="truncate flex-1 text-left">{displayTitle}</span>
+      <span className="text-xs text-text-muted shrink-0 ml-2 group-hover:hidden">{time}</span>
+      {/* Archive toggle — visible on hover */}
+      <button
+        onClick={onArchive}
+        className="hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-text-muted hover:text-[#10b981] hover:bg-[#10b981]/10 transition-colors shrink-0"
+        title={thread.archived ? t('sidebar.unarchive') : t('sidebar.archive')}
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+        </svg>
+      </button>
+      {/* Delete button — visible on hover */}
+      <button
+        onClick={onDelete}
+        className="hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-text-muted hover:text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors shrink-0"
+        title={t('sidebar.delete')}
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
 /** View / sort dropdown menu (reference design) */
 function SortMenu({
   viewMode,
@@ -196,7 +260,11 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
   const [showArchived, setShowArchived] = useState(false)
   const [sortBy, setSortBy] = useState<'updated' | 'created'>('updated')
   const [threads, setThreads] = useState<ThreadSummary[]>([])
+  const [projects, setProjects] = useState<ProjectEntry[]>([])
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
   const [loadingThreads, setLoadingThreads] = useState(false)
+  // 已尝试自动注册的 workspace 路径（防重复请求）
+  const autoRegisteredRef = useRef<Set<string>>(new Set())
   const { enginePort, engineStatus, threadId, setThreadId, setWorkspacePath, clearMessages } = useAppStore()
   const { t } = useI18n()
 
@@ -216,6 +284,34 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
         (b.updatedAt || '').localeCompare(a.updatedAt || '')
       )
       setThreads(sorted)
+
+      // 项目实体列表（老 gateway 无此端点时忽略，保持旧行为）
+      let projectsList: ProjectEntry[] = []
+      try {
+        projectsList = (await api.listProjects()).projects
+      } catch {
+        projectsList = []
+      }
+
+      // 老数据兜底：workspace 非空但未注册项目的任务 → 自动注册项目。
+      // 保证「项目」分区永不丢数据（幂等 upsert，后端按 path 去重）。
+      const registeredPaths = new Set(projectsList.map((p) => normPath(p.path)))
+      for (const thread of sorted) {
+        const ws = thread.workspace?.trim()
+        if (!ws || registeredPaths.has(normPath(ws))) continue
+        if (autoRegisteredRef.current.has(ws)) continue
+        autoRegisteredRef.current.add(ws)
+        try {
+          const entry = await api.createProject(ws)
+          projectsList = [
+            ...projectsList.filter((p) => p.id !== entry.id),
+            entry
+          ]
+        } catch (error) {
+          console.error('[KCoder] Failed to auto-register project:', ws, error)
+        }
+      }
+      setProjects(projectsList)
 
       // 自动归档：超过保留期且未归档的会话标记为 archived
       if (getGeneralPref('autoArchive')) {
@@ -308,6 +404,103 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
   // 归档过滤：showArchived 为 false 时只显示未归档会话
   const visibleThreads = showArchived ? threads : threads.filter((t) => !t.archived)
 
+  // 切换项目分组折叠态
+  const toggleProjectCollapse = useCallback((projectId: string) => {
+    setCollapsedProjects((prev) => {
+      const next = new Set(prev)
+      if (next.has(projectId)) {
+        next.delete(projectId)
+      } else {
+        next.add(projectId)
+      }
+      return next
+    })
+  }, [])
+
+  // 新建项目 — 打开文件夹选择器并注册
+  const handleAddProject = useCallback(async () => {
+    const picked = await window.kcoder?.dialog?.openFolder()
+    if (!picked) return
+    try {
+      const api = getEngineAPI(enginePort)
+      const entry = await api.createProject(picked)
+      setProjects((prev) => [...prev.filter((p) => p.id !== entry.id), entry])
+    } catch (error) {
+      console.error('[KCoder] Failed to add project:', error)
+      alert(t('sidebar.addProjectFailed'))
+    }
+  }, [enginePort, t])
+
+  // 重命名项目
+  const handleRenameProject = useCallback(async (project: ProjectEntry) => {
+    const name = prompt(t('sidebar.projectNamePrompt'), project.name)
+    if (!name || !name.trim() || name.trim() === project.name) return
+    try {
+      const api = getEngineAPI(enginePort)
+      const updated = await api.updateProject(project.id, { name: name.trim() })
+      setProjects((prev) => prev.map((p) => (p.id === project.id ? updated : p)))
+    } catch (error) {
+      console.error('[KCoder] Failed to rename project:', error)
+      alert(t('sidebar.renameFailed'))
+    }
+  }, [enginePort, t])
+
+  // 删除项目 — 注销注册，其下任务由后端自动归档
+  const handleDeleteProject = useCallback(async (project: ProjectEntry) => {
+    const count = threads.filter(
+      (th) => normPath(th.workspace) === normPath(project.path) && !th.archived
+    ).length
+    const message = t('sidebar.deleteProjectConfirm')
+      .replace('{name}', project.name)
+      .replace('{count}', String(count))
+    if (!confirm(message)) return
+    try {
+      const api = getEngineAPI(enginePort)
+      await api.deleteProject(project.id)
+      setProjects((prev) => prev.filter((p) => p.id !== project.id))
+      await loadThreads()
+    } catch (error) {
+      console.error('[KCoder] Failed to delete project:', error)
+      alert(t('sidebar.deleteProjectFailed'))
+    }
+  }, [enginePort, t, threads, loadThreads])
+
+  // ── 双分区分组计算（任务归项目 / 普通对话归会话） ────────────────
+  // 任务：workspace 非空（创建时绑定目录）
+  const taskThreads = visibleThreads.filter((t) => t.workspace?.trim())
+  // 会话：workspace 为空（不绑定项目的普通对话）
+  const chatThreads = visibleThreads.filter((t) => !t.workspace?.trim())
+
+  // 线程排序：sortBy 生效（默认按更新时间降序）
+  const sortThreads = (list: ThreadSummary[]): ThreadSummary[] => {
+    const key = sortBy === 'created' ? 'createdAt' : 'updatedAt'
+    return [...list].sort((a, b) => (b[key] || '').localeCompare(a[key] || ''))
+  }
+
+  // 任务按项目实体分组：优先匹配已注册项目（路径归一化比较）；
+  // 未匹配的兜底临时分组（正常情况下已被 loadThreads 自动注册补齐）
+  const byPath = new Map<string, ProjectEntry>()
+  for (const p of projects) byPath.set(normPath(p.path), p)
+  const groupMap = new Map<
+    string,
+    { key: string; project: ProjectEntry | null; threads: ThreadSummary[] }
+  >()
+  for (const thread of taskThreads) {
+    const project = byPath.get(normPath(thread.workspace)) ?? null
+    const key = project ? project.id : `__ws__${thread.workspace}`
+    const group = groupMap.get(key) ?? { key, project, threads: [] }
+    group.threads.push(thread)
+    groupMap.set(key, group)
+  }
+  const timeKey = sortBy === 'created' ? 'createdAt' : 'updatedAt'
+  const projectGroups = Array.from(groupMap.values())
+    .map((g) => ({ ...g, threads: sortThreads(g.threads) }))
+    .sort(
+      (a, b) =>
+        (b.threads[0]?.[timeKey] || '').localeCompare(a.threads[0]?.[timeKey] || '')
+    )
+  const sortedChatThreads = sortThreads(chatThreads)
+
   return (
     <div
       className="h-full bg-bg-sidebar flex flex-col border-r border-border-custom shrink-0"
@@ -365,58 +558,54 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
         </button>
       </div>
 
-      {/* 项目 tab + sort/archive controls */}
+      {/* sort/archive controls */}
       <div className="px-3 py-2">
-        <div className="flex items-center gap-1.5 text-[13px]">
-          {/* 项目 tab（保留，删除了「分组」tab） */}
-          <button
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#1e1e22] text-white"
-          >
-            <Icons.Folder />
-            <span>{t('sidebar.project')}</span>
-          </button>
-
-          {/* Sort / filter + archive */}
-          <div className="ml-auto flex items-center gap-0.5">
-            <div className="relative">
-              <button
-                onClick={() => setShowSortMenu(v => !v)}
-                className={`p-1.5 rounded-md transition-colors ${
-                  showSortMenu ? 'text-white bg-bg-hover' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
-                }`}
-                title={t('sidebar.sort')}
-              >
-                <Icons.SortUpDown />
-              </button>
-              {showSortMenu && (
-                <SortMenu
-                  viewMode="project"
-                  sortBy={sortBy}
-                  onViewMode={() => setShowSortMenu(false)}
-                  onSortBy={(s) => { setSortBy(s); setShowSortMenu(false) }}
-                  onClose={() => setShowSortMenu(false)}
-                />
-              )}
-            </div>
+        <div className="flex items-center justify-end gap-0.5">
+          <div className="relative">
             <button
-              onClick={() => setShowArchived(v => !v)}
+              onClick={() => setShowSortMenu(v => !v)}
               className={`p-1.5 rounded-md transition-colors ${
-                showArchived ? 'text-white bg-bg-hover' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
+                showSortMenu ? 'text-white bg-bg-hover' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
               }`}
-              title={t('sidebar.archive')}
+              title={t('sidebar.sort')}
             >
-              <Icons.ArchiveBox />
+              <Icons.SortUpDown />
             </button>
+            {showSortMenu && (
+              <SortMenu
+                viewMode="project"
+                sortBy={sortBy}
+                onViewMode={() => setShowSortMenu(false)}
+                onSortBy={(s) => { setSortBy(s); setShowSortMenu(false) }}
+                onClose={() => setShowSortMenu(false)}
+              />
+            )}
           </div>
+          <button
+            onClick={() => setShowArchived(v => !v)}
+            className={`p-1.5 rounded-md transition-colors ${
+              showArchived ? 'text-white bg-bg-hover' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
+            }`}
+            title={t('sidebar.archive')}
+          >
+            <Icons.ArchiveBox />
+          </button>
         </div>
       </div>
 
-      {/* Section title */}
-      <div className="px-4 pt-2 pb-1 text-[13px] font-medium text-text-primary">
-        {t('sidebar.conversations')}
+      {/* Section: 项目（一等实体分组，下挂任务） */}
+      <div className="px-4 pt-1 pb-1 flex items-center justify-between">
+        <span className="text-[13px] font-medium text-text-primary">{t('sidebar.project')}</span>
+        <button
+          onClick={handleAddProject}
+          className="p-1 rounded-md text-text-muted hover:text-white hover:bg-bg-hover transition-colors"
+          title={t('sidebar.addProject')}
+        >
+          <Icons.Plus />
+        </button>
       </div>
 
-      {/* 会话列表（按项目目录分组，对接 GET /v1/threads） */}
+      {/* 项目/会话列表（双分区：任务归项目，普通对话归会话） */}
       <div className="flex-1 overflow-y-auto px-3 pb-4">
         {loadingThreads && threads.length === 0 && (
           <div className="px-2 py-4 text-xs text-text-muted text-center">加载中…</div>
@@ -426,88 +615,82 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
             {engineStatus === 'connected' ? '暂无会话，点击「新建任务」开始' : '引擎未连接'}
           </div>
         )}
-        {(() => {
-          // 按 workspace 分组：有 workspace 的按项目（目录名）归类；
-          // 无 workspace 的（简单对话）归到「其他」分组并排在最后。
-          // 顶部插入一个使用频度区分位（顶项项目优先）。
-          const OTHERS_KEY = '__others__'
-          const groups = new Map<string, ThreadSummary[]>()
-          for (const thread of visibleThreads) {
-            const key = thread.workspace?.trim() ? thread.workspace! : OTHERS_KEY
-            const list = groups.get(key) ?? []
-            list.push(thread)
-            groups.set(key, list)
-          }
-          // 排序：有 workspace 的项目在前（按最新更新时间降序），
-          // 「其他」分组始终排在最后。
-          const groupKeys = Array.from(groups.keys()).sort((a, b) => {
-            if (a === OTHERS_KEY) return 1
-            if (b === OTHERS_KEY) return -1
-            // 取每组最新 thread.updatedAt 比较
-            const at = groups.get(a)![0].updatedAt || ''
-            const bt = groups.get(b)![0].updatedAt || ''
-            return bt.localeCompare(at)
-          })
-          return groupKeys.map(workspace => {
-            const groupThreads = groups.get(workspace)!
-            const isOthers = workspace === OTHERS_KEY
-            const projectName = isOthers ? t('sidebar.others') : (workspace.split('/').pop() || workspace)
-            return (
-              <div key={workspace} className="mb-4">
-                {/* 项目分组标题 */}
-                <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-medium text-text-muted">
+
+        {/* 项目分组：可折叠、hover 重命名/删除 */}
+        {projectGroups.map(({ key, project, threads: taskList }) => {
+          const collapsed = collapsedProjects.has(key)
+          const projectName = project?.name ?? (project?.path.split('/').pop() || key)
+          return (
+            <div key={key} className="mb-2">
+              <div className="group flex items-center gap-1 px-2 py-1.5 text-[12px] font-medium text-text-secondary rounded-md hover:bg-bg-hover transition-colors">
+                <button
+                  className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
+                  onClick={() => toggleProjectCollapse(key)}
+                >
+                  <svg className={`w-3 h-3 transition-transform ${collapsed ? '' : 'rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                   <Icons.Folder />
-                  <span className="truncate flex-1" title={isOthers ? undefined : workspace}>{projectName}</span>
-                  <span className="text-[10px] opacity-60">{groupThreads.length}</span>
-                </div>
-                {/* 该项目下的任务 */}
-                <div className="space-y-0.5">
-                  {groupThreads.map(thread => {
-                    const isActive = thread.id === threadId
-                    const time = formatRelativeTime(thread.updatedAt)
-                    // 标题展示：New Chat → 新对话；空 title → 未命名会话
-                    const displayTitle = !thread.title ? t('sidebar.untitled')
-                      : thread.title === 'New Chat' ? t('sidebar.newChat')
-                      : thread.title
-                    return (
-                      <div
-                        key={thread.id}
-                        className={`task-item group w-full ${isActive ? 'bg-bg-hover text-text-primary' : ''} ${thread.archived ? 'opacity-50' : ''}`}
-                        onClick={() => selectThread(thread.id, thread.workspace)}
-                        title={displayTitle}
-                      >
-                        <span className="truncate flex-1 text-left">
-                          {displayTitle}
-                        </span>
-                        <span className="text-xs text-text-muted shrink-0 ml-2 group-hover:hidden">{time}</span>
-                        {/* Archive toggle — visible on hover */}
-                        <button
-                          onClick={(e) => handleArchiveToggle(thread.id, thread.archived, e)}
-                          className="hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-text-muted hover:text-[#10b981] hover:bg-[#10b981]/10 transition-colors shrink-0"
-                          title={thread.archived ? t('sidebar.unarchive') : t('sidebar.archive')}
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
-                          </svg>
-                        </button>
-                        {/* Delete button — visible on hover */}
-                        <button
-                          onClick={(e) => handleDeleteThread(thread.id, e)}
-                          className="hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-text-muted hover:text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors shrink-0"
-                          title={t('sidebar.delete')}
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                          </svg>
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
+                  <span className="truncate" title={project?.path}>{projectName}</span>
+                  <span className="text-[10px] opacity-60 shrink-0">{taskList.length}</span>
+                </button>
+                {project && (
+                  <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+                    <button
+                      onClick={() => handleRenameProject(project)}
+                      className="p-1 rounded text-text-muted hover:text-white hover:bg-bg-hover/60 transition-colors"
+                      title={t('sidebar.renameProject')}
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => handleDeleteProject(project)}
+                      className="p-1 rounded text-text-muted hover:text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors"
+                      title={t('sidebar.deleteProject')}
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
               </div>
-            )
-          })
-        })()}
+              {!collapsed && (
+                <div className="space-y-0.5 mt-0.5">
+                  {taskList.map(thread => (
+                    <ThreadRow
+                      key={thread.id}
+                      thread={thread}
+                      isActive={thread.id === threadId}
+                      onSelect={() => selectThread(thread.id, thread.workspace)}
+                      onArchive={(e) => handleArchiveToggle(thread.id, thread.archived, e)}
+                      onDelete={(e) => handleDeleteThread(thread.id, e)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+        {/* Section: 会话（不绑定项目的普通对话，时间序平铺） */}
+        <div className="px-1 pt-3 pb-1 text-[13px] font-medium text-text-primary">
+          {t('sidebar.chats')}
+        </div>
+        <div className="space-y-0.5">
+          {sortedChatThreads.map(thread => (
+            <ThreadRow
+              key={thread.id}
+              thread={thread}
+              isActive={thread.id === threadId}
+              onSelect={() => selectThread(thread.id, thread.workspace)}
+              onArchive={(e) => handleArchiveToggle(thread.id, thread.archived, e)}
+              onDelete={(e) => handleDeleteThread(thread.id, e)}
+            />
+          ))}
+        </div>
       </div>
 
       {/* User profile */}

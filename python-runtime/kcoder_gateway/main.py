@@ -27,6 +27,7 @@ from .data_space import KCoderDataSpace
 from .mcp_routes import router as mcp_router
 from .memory_routes import router as memory_router
 from .plugins_routes import router as plugins_router
+from .projects_routes import router as projects_router
 from .qilin_client import QiLinClient
 from .runtime_config_routes import router as runtime_config_router
 from .skills_routes import router as skills_router
@@ -190,6 +191,7 @@ def create_app() -> FastAPI:
     app.include_router(plugins_router)  # Phase 13 本地 plugins.json
     app.include_router(sub_agents_router)  # Phase 13 本地 sub_agents.json
     app.include_router(commands_router)  # Phase 13 本地 commands.json
+    app.include_router(projects_router)  # 项目实体：本地 projects.json + 任务归档
     app.include_router(runtime_config_router)  # Phase 14 运行时配置读写
     app.include_router(token_usage_router)  # Token 统计与预算：跨会话用量聚合
     app.include_router(engine_router)

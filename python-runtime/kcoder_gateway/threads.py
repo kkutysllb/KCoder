@@ -43,6 +43,7 @@ from .sse import (
     workspace_tracker,
 )
 from .qilin_client import QiLinClient
+from .projects_routes import ensure_project
 
 logger = logging.getLogger("kcoder_gateway.threads")
 
@@ -180,6 +181,16 @@ async def create_thread(req: CreateThreadRequest, request: Request) -> dict[str,
         metadata["model"] = req.model
     if req.mode:
         metadata["mode"] = req.mode
+
+    # 绑定 workspace → 自动注册项目（upsert by path，失败不阻断建线程）。
+    # 保证侧边栏「项目」分区总能覆盖到每个任务。
+    if req.workspace:
+        try:
+            ensure_project(request, req.workspace)
+        except Exception:
+            logger.warning(
+                "Failed to auto-register project for %s", req.workspace, exc_info=True
+            )
 
     thread = await client.create_thread(metadata=metadata)
     return _to_thread_response(thread)

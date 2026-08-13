@@ -700,7 +700,7 @@ export interface BranchListResponse {
   current: string | null
 }
 
-/** ProjectEntry — GET /api/projects 返回的已注册项目。 */
+/** ProjectEntry — GET /v1/projects 返回的已注册项目（一等实体）。 */
 export interface ProjectEntry {
   id: string
   name: string
@@ -1533,6 +1533,63 @@ data: <full EngineStreamEvent JSON>
     })
     if (!response.ok) {
       throw new Error(`Failed to update thread: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // ============ Project API ============
+
+  // 列出已注册项目 — GET /v1/projects
+  async listProjects(): Promise<{ projects: ProjectEntry[] }> {
+    const response = await fetch(`${this.baseUrl}/v1/projects`, { headers: this.headers })
+    if (!response.ok) {
+      throw new Error(`Failed to list projects: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // 注册项目（upsert by path） — POST /v1/projects
+  async createProject(path: string, name?: string): Promise<ProjectEntry> {
+    const response = await fetch(`${this.baseUrl}/v1/projects`, {
+      method: 'POST',
+      headers: { ...this.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, name })
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to create project: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // 重命名/更新项目 — PATCH /v1/projects/:id
+  async updateProject(
+    projectId: string,
+    patch: { name?: string; description?: string }
+  ): Promise<ProjectEntry> {
+    const response = await fetch(
+      `${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}`,
+      {
+        method: 'PATCH',
+        headers: { ...this.headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch)
+      }
+    )
+    if (!response.ok) {
+      throw new Error(`Failed to update project: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  // 注销项目（其下任务自动归档） — DELETE /v1/projects/:id
+  async deleteProject(
+    projectId: string
+  ): Promise<{ deleted: boolean; archivedThreads?: number }> {
+    const response = await fetch(
+      `${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}`,
+      { method: 'DELETE', headers: this.headers }
+    )
+    if (!response.ok) {
+      throw new Error(`Failed to delete project: ${response.statusText}`)
     }
     return response.json()
   }
