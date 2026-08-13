@@ -50,20 +50,32 @@ class SandboxMiddleware(AgentMiddleware[SandboxMiddlewareState]):
         super().__init__()
         self._lazy_init = lazy_init
 
-    def _acquire_sandbox(self, thread_id: str, *, user_id: str) -> str:
+    def _acquire_sandbox(self, thread_id: str, *, user_id: str, workspace_path: str | None = None) -> str:
         provider = get_sandbox_provider()
-        sandbox_id = provider.acquire(thread_id, user_id=user_id)
+        sandbox_id = provider.acquire(thread_id, user_id=user_id, workspace_path=workspace_path)
         logger.info(f"Acquiring sandbox {sandbox_id}")
         return sandbox_id
 
-    async def _acquire_sandbox_async(self, thread_id: str, *, user_id: str) -> str:
+    async def _acquire_sandbox_async(self, thread_id: str, *, user_id: str, workspace_path: str | None = None) -> str:
         provider = get_sandbox_provider()
-        sandbox_id = await provider.acquire_async(thread_id, user_id=user_id)
+        sandbox_id = await provider.acquire_async(thread_id, user_id=user_id, workspace_path=workspace_path)
         logger.info(f"Acquiring sandbox {sandbox_id}")
         return sandbox_id
 
     async def _release_sandbox_async(self, sandbox_id: str) -> None:
         await asyncio.to_thread(get_sandbox_provider().release, sandbox_id)
+
+    @staticmethod
+    def _extract_workspace_path(runtime: Runtime[Any]) -> str | None:
+        """Extract workspace_path from runtime configurable.
+
+        The gateway injects it into ``configurable`` so the sandbox provider
+        can map the user-selected project directory as
+        ``/mnt/user-data/workspace``.
+        """
+        configurable = (runtime.config or {}).get("configurable", {}) if hasattr(runtime, "config") and runtime.config else {}
+        ws = configurable.get("workspace_path")
+        return ws if isinstance(ws, str) and ws else None
 
     @override
     def before_agent(self, state: SandboxMiddlewareState, runtime: Runtime[Any]) -> dict | None:
@@ -76,7 +88,11 @@ class SandboxMiddleware(AgentMiddleware[SandboxMiddlewareState]):
             thread_id = (runtime.context or {}).get("thread_id")
             if thread_id is None:
                 return super().before_agent(state, runtime)
-            sandbox_id = self._acquire_sandbox(thread_id, user_id=resolve_runtime_user_id(runtime))
+            sandbox_id = self._acquire_sandbox(
+                thread_id,
+                user_id=resolve_runtime_user_id(runtime),
+                workspace_path=self._extract_workspace_path(runtime),
+            )
             logger.info(f"Assigned sandbox {sandbox_id} to thread {thread_id}")
             return {"sandbox": {"sandbox_id": sandbox_id}}
         return super().before_agent(state, runtime)
@@ -93,7 +109,11 @@ class SandboxMiddleware(AgentMiddleware[SandboxMiddlewareState]):
             thread_id = (runtime.context or {}).get("thread_id")
             if thread_id is None:
                 return await super().abefore_agent(state, runtime)
-            sandbox_id = await self._acquire_sandbox_async(thread_id, user_id=resolve_runtime_user_id(runtime))
+            sandbox_id = await self._acquire_sandbox_async(
+                thread_id,
+                user_id=resolve_runtime_user_id(runtime),
+                workspace_path=self._extract_workspace_path(runtime),
+            )
             logger.info(f"Assigned sandbox {sandbox_id} to thread {thread_id}")
             return {"sandbox": {"sandbox_id": sandbox_id}}
         return await super().abefore_agent(state, runtime)

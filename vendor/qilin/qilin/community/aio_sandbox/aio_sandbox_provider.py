@@ -1771,7 +1771,7 @@ class AioSandboxProvider(WarmPoolLifecycleMixin[SandboxInfo], SandboxProvider):
 
     # ── Core: acquire / get / release / shutdown ─────────────────────────
 
-    def acquire(self, thread_id: str | None = None, *, user_id: str | None = None) -> str:
+    def acquire(self, thread_id: str | None = None, *, user_id: str | None = None, workspace_path: str | None = None) -> str:
         """Acquire a sandbox environment and return its ID.
 
         For the same thread_id, this method will return the same sandbox_id

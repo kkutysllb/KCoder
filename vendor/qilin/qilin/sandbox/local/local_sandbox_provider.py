@@ -232,7 +232,12 @@ class LocalSandboxProvider(SandboxProvider):
         return (user_id, thread_id)
 
     @staticmethod
-    def _build_thread_path_mappings(thread_id: str, *, user_id: str | None = None) -> list[PathMapping]:
+    def _build_thread_path_mappings(
+        thread_id: str,
+        *,
+        user_id: str | None = None,
+        workspace_path: str | None = None,
+    ) -> list[PathMapping]:
         """Build per-thread path mappings for /mnt/user-data, /mnt/acp-workspace,
         and /mnt/skills/custom.
 
@@ -240,6 +245,10 @@ class LocalSandboxProvider(SandboxProvider):
         :func:`get_effective_user_id` for legacy callers.  Custom skills are
         mounted per-user (read-only) because agent writes custom skills via
         ``skill_manage_tool`` on the host filesystem, not inside the sandbox.
+
+        When ``workspace_path`` is provided, the host directory at that path is
+        mapped as ``/mnt/user-data/workspace`` (overriding the default internal
+        directory). If the directory does not exist, it is created.
         """
         from qilin.config import get_app_config
         from qilin.config.paths import get_paths
@@ -309,6 +318,32 @@ class LocalSandboxProvider(SandboxProvider):
         except Exception as exc:
             logger.warning("Could not setup per-thread custom skills mount: %s", exc, exc_info=True)
 
+        # Override the default workspace mount when a user-selected project
+        # directory is provided. The override replaces the original mapping in
+        # place so the list still contains exactly one entry per container path.
+        if workspace_path:
+            ws_resolved = Path(workspace_path).expanduser().resolve()
+            if not ws_resolved.exists():
+                ws_resolved.mkdir(parents=True, exist_ok=True)
+            ws_container = f"{_USER_DATA_VIRTUAL_PREFIX}/workspace"
+            for i, m in enumerate(mappings):
+                if m.container_path == ws_container:
+                    mappings[i] = PathMapping(
+                        container_path=ws_container,
+                        local_path=str(ws_resolved),
+                        read_only=False,
+                    )
+                    break
+            else:
+                # No existing workspace mapping to replace — append one.
+                mappings.append(
+                    PathMapping(
+                        container_path=ws_container,
+                        local_path=str(ws_resolved),
+                        read_only=False,
+                    )
+                )
+
         # Legacy (pre-migration global-custom) skills: only mount for users
         # who have no per-user custom skills yet, mirroring the
         # ``UserScopedSkillStorage._iter_skill_files`` visibility rule. Users
@@ -334,7 +369,7 @@ class LocalSandboxProvider(SandboxProvider):
 
         return mappings
 
-    def acquire(self, thread_id: str | None = None, *, user_id: str | None = None) -> str:
+    def acquire(self, thread_id: str | None = None, *, user_id: str | None = None, workspace_path: str | None = None) -> str:
         """Return a sandbox id scoped to *thread_id* (or the generic singleton).
 
         - ``thread_id=None`` keeps the legacy singleton with id ``"local"`` for
@@ -370,7 +405,7 @@ class LocalSandboxProvider(SandboxProvider):
 
         # ``_build_thread_path_mappings`` touches the filesystem
         # (``ensure_thread_dirs``); release the lock during I/O.
-        new_mappings = list(self._path_mappings) + self._build_thread_path_mappings(thread_id, user_id=effective_user_id)
+        new_mappings = list(self._path_mappings) + self._build_thread_path_mappings(thread_id, user_id=effective_user_id, workspace_path=workspace_path)
 
         with self._lock:
             # Re-check after the lock-free I/O: another caller may have

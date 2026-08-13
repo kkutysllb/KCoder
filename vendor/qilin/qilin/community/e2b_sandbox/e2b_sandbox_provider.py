@@ -330,7 +330,7 @@ class E2BSandboxProvider(SandboxProvider):
                 self._thread_locks[key] = lock
             return lock
 
-    def acquire(self, thread_id: str | None = None, *, user_id: str | None = None) -> str:
+    def acquire(self, thread_id: str | None = None, *, user_id: str | None = None, workspace_path: str | None = None) -> str:
         effective_user_id = self._effective_acquire_user_id(user_id)
         if thread_id:
             with self._get_thread_lock(thread_id, effective_user_id):

@@ -247,7 +247,7 @@ class TenkiSandboxProvider(WarmPoolLifecycleMixin[TenkiSandbox], SandboxProvider
 
     # ── Acquire / release ────────────────────────────────────────────────
 
-    def acquire(self, thread_id: str | None = None, *, user_id: str | None = None) -> str:
+    def acquire(self, thread_id: str | None = None, *, user_id: str | None = None, workspace_path: str | None = None) -> str:
         if thread_id is None:
             sandbox_id = str(uuid.uuid4())[:8]
             sandbox = self._create_sandbox(sandbox_id)

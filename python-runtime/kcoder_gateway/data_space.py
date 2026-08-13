@@ -290,7 +290,14 @@ class KCoderDataSpace:
                     existing["skills"] = existing_skills
                     changed = True
 
-        # 3) database.sqlite_dir 修复（旧配置可能指向仓库内）
+        # 3) sandbox.use 修复：旧配置用短名 'local'，需改为完整类路径
+        existing_sandbox = dict(existing.get("sandbox") or {})
+        if existing_sandbox.get("use") == "local":
+            existing_sandbox["use"] = "qilin.sandbox.local:LocalSandboxProvider"
+            existing["sandbox"] = existing_sandbox
+            changed = True
+
+        # 4) database.sqlite_dir 修复（旧配置可能指向仓库内）
         existing_db = dict(existing.get("database") or {})
         if existing_db.get("sqlite_dir") != str(self.qilin_data_dir):
             existing_db["backend"] = "sqlite"

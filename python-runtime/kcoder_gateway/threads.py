@@ -351,12 +351,12 @@ async def start_turn(
     current_user = await get_current_user(request)
     user_id = current_user.id if current_user else None
 
-    # 首条消息自动更新 title：若 thread 当前 title 仍是创建时的默认值
-    # （"New Chat"），则根据首条用户消息生成可读 title。
-    # 使用 asyncio.create_task 非阻塞更新，不 turn 启动不延迟；失败仅记日志。
+    # 读取 thread metadata：提取 workspace_path 和自动更新 title
+    workspace_path: str | None = None
     try:
         thread = await client.get_thread(thread_id)
         meta = _get_metadata(thread)
+        workspace_path = meta.get("workspace", "") or None
         current_title = meta.get("title", "New Chat")
         if current_title == "New Chat" and req.prompt.strip():
             new_title = _generate_title_from_prompt(req.prompt)
@@ -374,6 +374,7 @@ async def start_turn(
             user_id=user_id, model_name=req.model_name,
             subagent_enabled=req.subagent_enabled,
             reasoning_mode=req.reasoning_mode,
+            workspace_path=workspace_path,
         )
     )
 

@@ -475,6 +475,7 @@ async def consume_langgraph_stream(
     model_name: str | None = None,
     subagent_enabled: bool = False,
     reasoning_mode: str | None = None,
+    workspace_path: str | None = None,
 ) -> None:
     """后台任务：消费 LangGraph SSE 流 → 翻译 → 推入 event_queue.
 
@@ -491,7 +492,9 @@ async def consume_langgraph_stream(
       - "off"        → thinking_enabled=False（关闭思考）
       - "low"/"medium"/"high" → thinking_enabled=True + reasoning_effort=X
       - "auto"/None  → 不注入（让 QiLin 按自定义 agent 默认 / 运行时默认）
-    QiLin lead_agent 的优先级：request > custom agent default > runtime default。
+    ``workspace_path``（可选）注入到 ``configurable.workspace_path``，
+    让 QiLin sandbox provider 将 /mnt/user-data/workspace 映射到用户选择的
+    真实项目目录（而非默认的内部空目录）。
     """
     q = run.event_queue
     got_end = False
@@ -512,6 +515,8 @@ async def consume_langgraph_stream(
         elif reasoning_mode in ("low", "medium", "high"):
             configurable["thinking_enabled"] = True
             configurable["reasoning_effort"] = reasoning_mode
+        if workspace_path:
+            configurable["workspace_path"] = workspace_path
         run_config: dict[str, Any] | None = (
             {"configurable": configurable} if configurable else None
         )

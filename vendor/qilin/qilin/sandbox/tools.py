@@ -1422,8 +1422,10 @@ def ensure_sandbox_initialized(runtime: Runtime | None = None) -> Sandbox:
     if thread_id is None:
         raise SandboxRuntimeError("Thread ID not available in runtime context")
 
+    workspace_path = runtime.config.get("configurable", {}).get("workspace_path") if runtime.config else None
+
     provider = get_sandbox_provider()
-    sandbox_id = provider.acquire(thread_id, user_id=resolve_runtime_user_id(runtime))
+    sandbox_id = provider.acquire(thread_id, user_id=resolve_runtime_user_id(runtime), workspace_path=workspace_path)
 
     # Update runtime state - this persists across tool calls
     runtime.state["sandbox"] = {"sandbox_id": sandbox_id}
@@ -1469,8 +1471,10 @@ async def ensure_sandbox_initialized_async(runtime: Runtime | None = None) -> Sa
     if thread_id is None:
         raise SandboxRuntimeError("Thread ID not available in runtime context")
 
+    workspace_path = runtime.config.get("configurable", {}).get("workspace_path") if runtime.config else None
+
     provider = get_sandbox_provider()
-    sandbox_id = await provider.acquire_async(thread_id, user_id=resolve_runtime_user_id(runtime))
+    sandbox_id = await provider.acquire_async(thread_id, user_id=resolve_runtime_user_id(runtime), workspace_path=workspace_path)
 
     runtime.state["sandbox"] = {"sandbox_id": sandbox_id}
 
