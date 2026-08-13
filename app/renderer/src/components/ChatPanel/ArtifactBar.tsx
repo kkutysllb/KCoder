@@ -24,13 +24,15 @@ interface ArtifactItem {
 /** 从 toolCalls 中提取 present_files 的文件路径 */
 function extractArtifacts(msg: ChatMessage): ArtifactItem[] {
   const calls = msg.toolCalls ?? []
+  const seen = new Set<string>()
   const items: ArtifactItem[] = []
   for (const call of calls) {
     if (call.name === 'present_files' && call.args) {
       const filepaths = call.args.filepaths
       if (Array.isArray(filepaths)) {
         for (const fp of filepaths) {
-          if (typeof fp === 'string' && fp) {
+          if (typeof fp === 'string' && fp && !seen.has(fp)) {
+            seen.add(fp)
             const filename = fp.split('/').pop() || fp
             const ext = filename.split('.').pop()?.toLowerCase() || ''
             items.push({ path: fp, filename, ext })
