@@ -36,6 +36,12 @@ export function ChatPanel() {
   // 读取「显示思考过程」偏好（用户在常规设置中切换）
   const showThinking = getGeneralPref('showThinking')
 
+  // ask_clarification 用户选择后，把答案作为新消息发送（QiLin middleware 已
+  // 通过 Command(goto=END) 结束当前 turn，用户回复就是下一个 turn 的输入）
+  const handleClarifyPick = useCallback((text: string) => {
+    sendMessage(text)
+  }, [sendMessage])
+
   // queue 交互模式：用户在 turn 运行中输入的消息入队，turn 完成后自动发送
   const handleQueue = useCallback((text: string) => {
     useAppStore.getState().enqueueMessage(text)
@@ -73,6 +79,7 @@ export function ChatPanel() {
         editDisabled={isGenerating}
         editableUserMessageIds={editableUserMessageIds}
         onEditResend={editAndResend}
+        onClarifyPick={handleClarifyPick}
         onAtBottomChange={setAtBottom}
         bottomInset={composerInset}
         emptySlot={<WelcomeScreen onSend={sendMessage} disabled={isGenerating} />}

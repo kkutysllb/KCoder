@@ -252,15 +252,35 @@ def _translate_single_message(
     elif is_tool:
         call_id = str(msg.get("tool_call_id", ""))
         text = _extract_text(msg.get("content", ""))
+        tool_name = str(msg.get("name", ""))
+        artifact = msg.get("artifact")
         if call_id:
-            events.append(
-                {
-                    "kind": "tool_call_finished",
-                    "callId": call_id,
-                    "summary": text[:500] if text else "",
-                    "isError": False,
-                }
-            )
+            event: dict[str, Any] = {
+                "kind": "tool_call_finished",
+                "callId": call_id,
+                "summary": text[:500] if text else "",
+                "isError": False,
+            }
+            # Pass through the tool name so the frontend can identify
+            # special tools (e.g. ask_clarification) without relying on
+            # the preceding tool_call_started event being processed.
+            if tool_name:
+                event["toolName"] = tool_name
+            # Pass through the artifact (e.g. human_input payload from
+            # ask_clarification) so the frontend can render interactive
+            # cards instead of falling back to plain text.
+            # QiLin wraps the payload as {"human_input": payload}; unwrap
+            # it so the frontend receives the payload object directly.
+            if artifact is not None:
+                if (
+                    tool_name == "ask_clarification"
+                    and isinstance(artifact, dict)
+                    and "human_input" in artifact
+                ):
+                    event["artifact"] = artifact["human_input"]
+                else:
+                    event["artifact"] = artifact
+            events.append(event)
 
     return events
 

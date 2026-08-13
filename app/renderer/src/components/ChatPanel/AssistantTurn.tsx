@@ -45,9 +45,9 @@ function detectClarification(msg: ChatMessage): {
   payload?: HumanInputPayload
   isInteractive: boolean
 } {
-  // KCoder 当前 SSE 协议暂无 ask_clarification 事件；
-  // 这个检测为未来集成 QiLin clarification middleware 预留。
-  // 当 toolCalls 里有 name === 'ask_clarification' 且 status === 'completed' 时触发。
+  // SSE 翻译层 (sse.py) 从 ToolMessage.artifact 中提取 human_input payload，
+  // 在 tool_call_finished 事件中传递。当 toolCalls 里有 name === 'ask_clarification'
+  // 且 status === 'completed' 时触发 ClarificationCard 渲染。
   const call = msg.toolCalls?.find(
     (c) => c.name === 'ask_clarification' && c.status === 'completed'
   )
