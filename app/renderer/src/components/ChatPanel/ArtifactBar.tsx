@@ -1,0 +1,182 @@
+// ArtifactBar — present_files 工具产出的可点击文件卡片。
+//
+// 当 agent 调用 present_files 时，SSE 翻译层从 tool_call args 中提取
+// filepaths 数组，通过 tool_call_started 事件传递到前端。
+// 本组件从 msg.toolCalls 中检测 present_files 调用，
+// 渲染可点击的文件卡片，点击后弹窗显示文件内容。
+
+import { useState, useCallback } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import type { ChatMessage } from '../../lib/chatMessage'
+import { useAppStore } from '../../stores/app-store'
+
+interface ArtifactBarProps {
+  msg: ChatMessage
+}
+
+interface ArtifactItem {
+  path: string
+  filename: string
+  ext: string
+}
+
+/** 从 toolCalls 中提取 present_files 的文件路径 */
+function extractArtifacts(msg: ChatMessage): ArtifactItem[] {
+  const calls = msg.toolCalls ?? []
+  const items: ArtifactItem[] = []
+  for (const call of calls) {
+    if (call.name === 'present_files' && call.args) {
+      const filepaths = call.args.filepaths
+      if (Array.isArray(filepaths)) {
+        for (const fp of filepaths) {
+          if (typeof fp === 'string' && fp) {
+            const filename = fp.split('/').pop() || fp
+            const ext = filename.split('.').pop()?.toLowerCase() || ''
+            items.push({ path: fp, filename, ext })
+          }
+        }
+      }
+    }
+  }
+  return items
+}
+
+const ICON_MAP: Record<string, string> = {
+  md: '📄',
+  txt: '📄',
+  json: '📋',
+  csv: '📊',
+  html: '🌐',
+  py: '🐍',
+  ts: '🔷',
+  tsx: '🔷',
+  js: '📜',
+  jsx: '📜',
+  sh: '⚙️',
+  yml: '⚙️',
+  yaml: '⚙️',
+  png: '🖼️',
+  jpg: '🖼️',
+  jpeg: '🖼️',
+  gif: '🖼️',
+  svg: '🖼️',
+  pdf: '📕',
+}
+
+export function ArtifactBar({ msg }: ArtifactBarProps) {
+  const artifacts = extractArtifacts(msg)
+  const [viewer, setViewer] = useState<{ path: string; content: string; loading: boolean } | null>(null)
+
+  const openArtifact = useCallback(async (path: string) => {
+    setViewer({ path, content: '', loading: true })
+    try {
+      const threadId = useAppStore.getState().threadId
+      if (!threadId) {
+        setViewer({ path, content: 'Error: Thread ID not available', loading: false })
+        return
+      }
+      const port = window.location.port
+      const res = await fetch(
+        `http://localhost:${port}/v1/threads/${threadId}/file?path=${encodeURIComponent(path)}`
+      )
+      if (!res.ok) {
+        const text = await res.text().catch(() => res.statusText)
+        setViewer({ path, content: `Failed to load: ${text}`, loading: false })
+        return
+      }
+      const content = await res.text()
+      setViewer({ path, content, loading: false })
+    } catch (err) {
+      setViewer({ path, content: `Error: ${err}`, loading: false })
+    }
+  }, [])
+
+  if (artifacts.length === 0) return null
+
+  return (
+    <>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {artifacts.map((item) => {
+          const icon = ICON_MAP[item.ext] || '📎'
+          return (
+            <button
+              key={item.path}
+              onClick={() => openArtifact(item.path)}
+              className="group flex items-center gap-2 rounded-lg border border-blue-500/20 bg-blue-500/[0.04] px-3 py-2 text-left hover:border-blue-500/40 hover:bg-blue-500/[0.08] transition-colors"
+            >
+              <span className="text-base">{icon}</span>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-text-primary truncate max-w-[200px]">
+                  {item.filename}
+                </p>
+                <p className="text-[10px] text-text-muted uppercase">{item.ext || 'file'}</p>
+              </div>
+              <svg
+                className="w-3 h-3 text-text-muted opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* 文件查看弹窗 */}
+      {viewer && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setViewer(null)}
+        >
+          <div
+            className="relative w-[min(900px,90vw)] h-[80vh] rounded-xl border border-border-subtle bg-bg-sidebar shadow-2xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 标题栏 */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-sm">{ICON_MAP[viewer.path.split('.').pop()?.toLowerCase() || ''] || '📎'}</span>
+                <span className="text-sm font-medium text-text-primary truncate">
+                  {viewer.path.split('/').pop()}
+                </span>
+              </div>
+              <button
+                onClick={() => setViewer(null)}
+                className="p-1 rounded hover:bg-bg-hover transition-colors shrink-0"
+                aria-label="Close"
+              >
+                <svg className="w-4 h-4 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* 内容区 */}
+            <div className="flex-1 overflow-auto p-4">
+              {viewer.loading ? (
+                <div className="flex items-center justify-center h-full text-text-muted text-sm">
+                  <span className="animate-pulse">加载中…</span>
+                </div>
+              ) : viewer.path.endsWith('.md') ? (
+                <div className="markdown-body">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{viewer.content}</ReactMarkdown>
+                </div>
+              ) : (
+                <pre className="text-xs text-text-primary whitespace-pre-wrap font-mono break-all">
+                  {viewer.content}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+

@@ -27,10 +27,11 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 from .sse import (
@@ -597,3 +598,63 @@ async def compact_thread(thread_id: str) -> dict[str, Any]:
     """
     logger.info("compact stub: thread=%s (no-op)", thread_id)
     return {"replacedTokens": 0, "summary": ""}
+
+
+# ────────────────────────────────────────────────────────────────
+# 文件查看端点
+# ────────────────────────────────────────────────────────────────
+
+
+@router.get("/threads/{thread_id}/file")
+async def read_thread_file(
+    thread_id: str, path: str, request: Request
+) -> PlainTextResponse:
+    """GET /v1/threads/:id/file?path=/mnt/user-data/outputs/report.md
+
+    读取 thread outputs 目录下的文件内容，返回纯文本。
+    仅允许访问 /mnt/user-data/outputs/ 下的文件（安全边界）。
+    """
+    client = _get_client(request)
+
+    # 从 thread state 获取 outputs_path
+    try:
+        state = await client.get_thread_state(thread_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Upstream error: {exc}") from exc
+
+    values = state.get("values", {}) if isinstance(state, dict) else {}
+    thread_data = values.get("thread_data", {}) if isinstance(values, dict) else {}
+    outputs_path = thread_data.get("outputs_path", "") if isinstance(thread_data, dict) else ""
+
+    if not outputs_path:
+        raise HTTPException(status_code=404, detail="Thread outputs directory not found")
+
+    outputs_dir = Path(outputs_path).resolve()
+
+    # 将虚拟路径转换为实际文件路径
+    VIRTUAL_OUTPUTS_PREFIX = "/mnt/user-data/outputs"
+    if path.startswith(VIRTUAL_OUTPUTS_PREFIX):
+        relative = path[len(VIRTUAL_OUTPUTS_PREFIX):].lstrip("/")
+        actual_path = outputs_dir / relative
+    else:
+        actual_path = outputs_dir / Path(path).name
+
+    # 安全检查：确保解析后的路径在 outputs 目录内
+    try:
+        actual_path = actual_path.resolve()
+        actual_path.relative_to(outputs_dir)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=403, detail="Access denied: path outside outputs directory") from exc
+
+    if not actual_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {path}")
+
+    if not actual_path.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file")
+
+    try:
+        content = actual_path.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read file: {exc}") from exc
+
+    return PlainTextResponse(content=content, media_type="text/plain; charset=utf-8")

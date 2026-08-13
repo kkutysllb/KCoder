@@ -21,6 +21,7 @@ import { ReasoningBlock } from './ReasoningBlock'
 import { SubagentGroup } from './SubagentGroup'
 import { ToolActivitySummary } from './ToolActivitySummary'
 import { ClarificationCard } from './ClarificationCard'
+import { ArtifactBar } from './ArtifactBar'
 import { StreamingDots } from './parts/icons'
 
 interface AssistantTurnProps {
@@ -142,6 +143,9 @@ export function AssistantTurn({
         {showToolCalls && (
           <ToolActivitySummary calls={visibleToolCalls} streaming={streaming} />
         )}
+
+        {/* 4.5 产出文件（present_files 工具调用的文件卡片）*/}
+        <ArtifactBar msg={msg} />
 
         {/* 5. 正文 / 澄清卡片 */}
         {hasInteractiveClarification && clarifyPayload && onClarifyPick ? (

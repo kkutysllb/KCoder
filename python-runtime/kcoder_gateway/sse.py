@@ -235,9 +235,21 @@ def _translate_single_message(
                 name = tc.get("name") or ""
                 call_id = tc.get("id") or ""
                 if call_id and name:
-                    events.append(
-                        {"kind": "tool_call_started", "callId": call_id, "toolName": name}
-                    )
+                    tc_event: dict[str, Any] = {
+                        "kind": "tool_call_started",
+                        "callId": call_id,
+                        "toolName": name,
+                    }
+                    # present_files: extract file paths from args so the
+                    # frontend can render artifact links immediately, even
+                    # though the state-level artifacts list isn't streamed.
+                    if name == "present_files":
+                        tc_args = tc.get("args") or {}
+                        if isinstance(tc_args, dict):
+                            filepaths = tc_args.get("filepaths") or []
+                            if isinstance(filepaths, list) and filepaths:
+                                tc_event["args"] = {"filepaths": filepaths}
+                    events.append(tc_event)
 
         for tcc in (msg.get("tool_call_chunks") or []):
             if isinstance(tcc, dict):
