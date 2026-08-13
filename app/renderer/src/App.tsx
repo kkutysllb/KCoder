@@ -9,6 +9,7 @@ import { TerminalPanel } from './components/TerminalPanel'
 import { UserInputModal } from './components/ChatPanel/UserInputModal'
 import { InfoPanel } from './components/InfoPanel'
 import { ChangePanel } from './components/ChangePanel'
+import { FilePreviewPanel } from './components/ChatPanel/FilePreviewPanel'
 import { SidebarResizeHandle } from './components/SidebarResizeHandle'
 import { useChat } from './hooks/useChat'
 import { useAuth } from './hooks/useAuth'
@@ -108,7 +109,7 @@ function NewChatButton() {
 }
 
 export default function App() {
-  const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath, panelOpen, sidebarWidth, setSidebarWidth } = useAppStore()
+  const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath, panelOpen, sidebarWidth, setSidebarWidth, filePreviewPath, closeFilePreview } = useAppStore()
   const { loadThread } = useChat()
   const auth = useAuth(enginePort)
   const [showSettings, setShowSettings] = useState(false)
@@ -282,6 +283,12 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* 文件预览右栏（三分栏第三栏）：作为 flex 子项参与文档流，
+          打开时主内容区自动收缩让位，不浮动覆盖 workspace 内容 */}
+      {filePreviewPath && (
+        <FilePreviewPanel path={filePreviewPath} onClose={closeFilePreview} />
+      )}
 
       {/* Settings panel */}
       <SettingsPanel isOpen={showSettings} initialNav={settingsTab} onClose={() => setShowSettings(false)} />

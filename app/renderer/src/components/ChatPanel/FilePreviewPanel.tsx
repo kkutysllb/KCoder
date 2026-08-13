@@ -1,18 +1,18 @@
-// FilePreviewModal — 应用内文件预览抽屉（thread outputs 文件）。
+// FilePreviewPanel — 应用内文件预览右栏（三分栏布局的第三栏）。
 //
-// ArtifactBar（present_files 卡片）与 AssistantTurn（正文中的文件链接）
-// 共用：点击后经 GET /v1/threads/:id/file 拉取内容，md 文件渲染 markdown，
-// 其余纯文本展示。避免 Electron 把文件路径链接抛给系统浏览器（黑屏）。
+// 全局单例（App.tsx 挂载），作为 flex 布局的第三栏参与文档流：打开时
+// 主内容区（聊天区）自动收缩让位，不浮动覆盖 workspace 内容；关闭时
+// 整栏移除。参考 Codex 的右侧文件预览设计。
 //
-// 右侧滑出抽屉（参考 ChangePanel/InfoPanel 风格），z-[60] 高于两个浮动
-// 面板（z-50），弹出时自然遮挡右边的浮动面板。
+// 数据经 GET /v1/threads/:id/file 拉取，md 文件渲染 markdown，其余纯文本。
+// 挂载时播放 slide-in-right 滑入动画（视觉上从右侧滑出）。
 
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAppStore } from '../../stores/app-store'
 
-interface FilePreviewModalProps {
+interface FilePreviewPanelProps {
   path: string
   onClose: () => void
 }
@@ -26,7 +26,7 @@ function safeDecodePath(p: string): string {
   }
 }
 
-export function FilePreviewModal({ path, onClose }: FilePreviewModalProps) {
+export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
   const enginePort = useAppStore((s) => s.enginePort)
   const threadId = useAppStore((s) => s.threadId)
   const [content, setContent] = useState<string | null>(null)
@@ -68,9 +68,9 @@ export function FilePreviewModal({ path, onClose }: FilePreviewModalProps) {
   const isMarkdown = fileName.endsWith('.md')
 
   return (
-    <aside className="fixed top-12 right-3 z-[60] flex h-[calc(100vh-60px)] w-[640px] flex-col overflow-hidden rounded-xl border border-[rgba(255,255,255,0.13)] bg-[rgba(30,33,36,0.97)] shadow-2xl backdrop-blur-md animate-[slide-in-right_0.25s_ease-out]">
+    <section className="flex h-full w-[640px] shrink-0 flex-col overflow-hidden border-l border-border-custom bg-bg-primary animate-[slide-in-right_0.25s_ease-out]">
       {/* 标题栏 */}
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[rgba(255,255,255,0.08)] px-4 py-3">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-custom px-4 py-3">
         <span
           className="min-w-0 flex-1 truncate font-mono text-sm text-text-primary"
           title={decodedPath}
@@ -106,6 +106,6 @@ export function FilePreviewModal({ path, onClose }: FilePreviewModalProps) {
           </pre>
         )}
       </div>
-    </aside>
+    </section>
   )
 }

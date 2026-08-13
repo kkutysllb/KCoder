@@ -138,6 +138,8 @@ interface AppState {
   changePanelOpen: boolean
   /** 未查看的变更文件数（收到带 fileChanges 的 turn_completed 时累加）。 */
   unreadChangeCount: number
+  /** 文件预览右栏路径（三分栏第三栏，null=关闭）。 */
+  filePreviewPath: string | null
   // 线程目标 + 待办（GET /v1/threads/:id/goal + /todos）
   threadGoal: ThreadGoal | null
   threadTodos: ThreadTodoList | null
@@ -209,6 +211,9 @@ interface AppState {
   addUnreadChanges: (count: number) => void
   /** 清零未读变更数（打开变更面板时调）。 */
   clearUnreadChanges: () => void
+  /** 打开文件预览右栏（同时关闭浮动面板，避免遮挡与双重让位）。 */
+  openFilePreview: (path: string) => void
+  closeFilePreview: () => void
   setThreadGoal: (goal: ThreadGoal | null) => void
   setThreadTodos: (todos: ThreadTodoList | null) => void
   /** Set the governed graph run inspection (from inspect endpoint). */
@@ -246,6 +251,7 @@ export const useAppStore = create<AppState>((set) => ({
   panelOpen: false,
   changePanelOpen: false,
   unreadChangeCount: 0,
+  filePreviewPath: null,
   threadGoal: null,
   threadTodos: null,
   graphRunInspection: null,
@@ -512,6 +518,9 @@ export const useAppStore = create<AppState>((set) => ({
   addUnreadChanges: (count) =>
     set((state) => ({ unreadChangeCount: state.unreadChangeCount + count })),
   clearUnreadChanges: () => set({ unreadChangeCount: 0 }),
+  openFilePreview: (path) =>
+    set({ filePreviewPath: path, panelOpen: false, changePanelOpen: false }),
+  closeFilePreview: () => set({ filePreviewPath: null }),
   setThreadGoal: (goal) => set({ threadGoal: goal }),
   setThreadTodos: (todos) => set({ threadTodos: todos }),
   setGraphRunInspection: (inspection) => set({ graphRunInspection: inspection }),

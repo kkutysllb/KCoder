@@ -10,12 +10,13 @@
 //   7. 错误信息
 //   8. TurnMeta（usage + 模型 + 耗时）
 
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage, HumanInputPayload } from '../../lib/chatMessage'
 import { isInternalOnlyText, sanitizeAssistantText } from '../../lib/chatMessage'
 import { CodeBlock } from '../CodeBlock'
+import { useAppStore } from '../../stores/app-store'
 import { StageBadge } from './StageBadge'
 import { ReasoningBlock } from './ReasoningBlock'
 import { SubagentGroup } from './SubagentGroup'
@@ -23,7 +24,6 @@ import { ToolActivitySummary } from './ToolActivitySummary'
 import { ClarificationCard } from './ClarificationCard'
 import { ArtifactBar } from './ArtifactBar'
 import { FileChangeCard } from './FileChangeCard'
-import { FilePreviewModal } from './FilePreviewModal'
 import { StreamingDots } from './parts/icons'
 
 interface AssistantTurnProps {
@@ -79,8 +79,8 @@ export function AssistantTurn({
 }: AssistantTurnProps) {
   const streaming = isStreaming ?? msg.status === 'streaming'
 
-  // 正文中文件路径链接（/mnt/user-data/...）的应用内预览弹窗状态
-  const [previewPath, setPreviewPath] = useState<string | null>(null)
+  // 文件链接点击 → 打开全局预览右栏（三分栏第三栏，App.tsx 挂载）
+  const openFilePreview = useAppStore((s) => s.openFilePreview)
 
   // 兜底净化：剥掉 QiLin 注入的 <memory> 等内部块（防止 SSE 流式或
   // loadThread 路径漏过滤时直接渲染给用户）。
@@ -167,7 +167,7 @@ export function AssistantTurn({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  // 链接：workspace 虚拟路径 → 应用内预览；http(s) → 新窗口打开
+                  // 链接：workspace 虚拟路径 → 预览右栏；http(s) → 新窗口打开
                   a({ href, children, ...props }) {
                     const h = href || ''
                     if (h.startsWith('/mnt/user-data/')) {
@@ -176,9 +176,9 @@ export function AssistantTurn({
                           href={h}
                           onClick={(e) => {
                             e.preventDefault()
-                            setPreviewPath(h)
+                            openFilePreview(h)
                           }}
-                          title="在应用内预览该文件"
+                          title="在预览面板中打开该文件"
                           {...props}
                         >
                           {children}
@@ -236,11 +236,6 @@ export function AssistantTurn({
             </svg>
             <span className="text-xs text-red-300">{msg.error}</span>
           </div>
-        )}
-
-        {/* 正文文件链接预览弹窗 */}
-        {previewPath && (
-          <FilePreviewModal path={previewPath} onClose={() => setPreviewPath(null)} />
         )}
 
         {/* TurnMeta（usage + 模型 + 耗时） */}
