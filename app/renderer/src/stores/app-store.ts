@@ -170,6 +170,9 @@ interface AppState {
   applyTurnUpdate: (id: string, partial: Partial<ChatMessage>) => void
   /** 批量加载历史消息（loadThread 用）。输入旧 Message[]，内部双写 v2。 */
   setChatMessages: (msgs: Message[]) => void
+  /** 批量加载历史消息（loadThread 用）。输入完整 ChatMessage[]（含 reasoning/toolCalls），
+   *  直接写 messages_v2，同时反向同步旧 messages（保留双写）。 */
+  setChatMessagesV2: (msgs: ChatMessage[]) => void
   setGenerating: (generating: boolean) => void
   /** 入队一条消息（queue 模式）。 */
   enqueueMessage: (text: string) => void
@@ -565,6 +568,12 @@ export const useAppStore = create<AppState>((set) => ({
     set({
       messages: msgs,
       messages_v2: msgs.map(adaptLegacyToChat)
+    }),
+
+  setChatMessagesV2: (msgs) =>
+    set({
+      messages_v2: msgs,
+      messages: msgs.map(adaptChatToLegacy)
     })
 }))
 

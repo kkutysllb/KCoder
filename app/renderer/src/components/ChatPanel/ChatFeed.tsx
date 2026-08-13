@@ -62,6 +62,9 @@ interface ChatFeedProps {
   /** 滚动容器底部预留空间（px）——悬浮 composer 会遮挡消息末尾，
       由父级动态测量 composer 高度后传入；默认 160 保持原行为。 */
   bottomInset?: number
+  /** 浮动面板是否展开——展开时给消息内容右侧加 padding，让消息不被 InfoPanel 遮住；
+      ChatFeed 容器本身仍保持满宽（滚动条始终在窗口最右端）。 */
+  panelOpen?: boolean
 }
 
 /** 距底部多少像素内算"贴底"（小于此阈值时启用流式跟随）。 */
@@ -84,7 +87,8 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
     onEditResend,
     selectedModel,
     branches,
-    bottomInset = 160
+    bottomInset = 160,
+    panelOpen = false
   }, ref) {
     const scrollRef = useRef<HTMLDivElement>(null)
     const stickToBottom = useRef(true)
@@ -162,7 +166,10 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
         ref={scrollRef}
         onScroll={handleScroll}
       >
-        <div className="max-w-4xl mx-auto px-6 py-8 space-y-8">
+        {/* 消息内容：mx-auto 居中。面板展开时右侧加 pr 让消息文本
+            不被 InfoPanel 遮住；滚动条仍在 ChatFeed 容器（main 满宽）最右。
+            PANEL_INSET 必须与 ChatPanel 中 Composer 的扣除值保持一致。 */}
+        <div className={`max-w-4xl mx-auto py-8 space-y-8 ${panelOpen ? 'pl-6 pr-[380px]' : 'px-6'}`}>
           {adaptedMessages.map((m) =>
             m.role === 'user' ? (
               <UserBubble
@@ -181,7 +188,6 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
                 showReasoning={showReasoning}
                 showToolCalls={showToolCalls}
                 onClarifyPick={onClarifyPick}
-                fallbackModel={selectedModel}
                 branches={branches}
               />
             )

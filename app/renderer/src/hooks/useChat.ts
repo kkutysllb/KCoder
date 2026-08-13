@@ -8,7 +8,7 @@ import {
 } from '../services/engine-api'
 import type { EngineStreamEvent, RoiSnapshot } from '../services/contracts'
 import { reduceSseEvent, type SseEventKind } from '../lib/turnReducer'
-import type { ChatMessage } from '../lib/chatMessage'
+import type { ChatMessage, ToolCall } from '../lib/chatMessage'
 import { isInternalOnlyText, sanitizeAssistantText } from '../lib/chatMessage'
 import { getGeneralPrefs } from '../lib/generalPrefs'
 
@@ -91,7 +91,7 @@ export function useChat() {
     setThreadTodos,
     // 新 turn-based API
     applyTurnUpdate,
-    setChatMessages
+    setChatMessagesV2
   } = useAppStore()
 
   /**
@@ -605,43 +605,128 @@ export function useChat() {
         }
         clearMessages()
         setThreadId(loadThreadId)
-        const newMessages: Message[] = []
+
+        const genId = () => `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        const itemTs = (item: Record<string, unknown>) =>
+          Date.parse((item.createdAt as string) ?? '') || Date.now()
+
+        // 重建 turn-based 消息列表。LangGraph 的扁平 message 列表里，一次用户提问对应
+        // 连续的 AIMessage（含 tool_calls / reasoning）+ ToolMessage（tool_result）+ 最终
+        // AIMessage。这里把它们合并成「一个 user + 一个 assistant turn」，并在
+        // tool_result 出现时按 callId 回填 toolCalls 的 status/output，避免历史消息
+        // 的工具调用与思考内容缺失（否则渲染层会出现空洞）。
+        const v2: ChatMessage[] = []
+        let curAssistant: ChatMessage | null = null
+
+        const flushAssistant = () => {
+          const cur = curAssistant
+          if (!cur) return
+          // 历史线程已结束：把仍处于 running 的 toolCalls 收尾为 completed
+          const toolCalls = cur.toolCalls?.map((tc) =>
+            tc.status === 'running' ? { ...tc, status: 'completed' as const } : tc
+          )
+          v2.push(toolCalls ? { ...cur, toolCalls } : cur)
+          curAssistant = null
+        }
+
         for (const turn of thread.turns ?? []) {
           for (const item of turn.items ?? []) {
-            const role = (item.role as string) ?? 'assistant'
+            const role = (item.role as string) ?? ''
             const kind = (item.kind as string) ?? ''
+
+            // ── 用户消息：切分 assistant turn ──
             if (role === 'user' || kind === 'user_message') {
-              newMessages.push({
-                id: (item.id as string) ?? `msg-${Date.now()}-${Math.random()}`,
+              flushAssistant()
+              v2.push({
+                id: (item.id as string) ?? genId(),
                 role: 'user',
-                content: (item.text as string) ?? '',
-                timestamp: Date.parse((item.createdAt as string) ?? '') || Date.now()
+                createdAt: itemTs(item),
+                content: (item.text as string) ?? ''
               })
-            } else if (kind === 'assistant_text') {
-              // 过滤 QiLin 注入的 <memory>...</memory> 等内部块：
-              // - 整条都是 internal → 丢弃（不显示）
-              // - 混入到合法 reply 中 → 剥掉 memory 块保留 reply
+              continue
+            }
+
+            // ── assistant 正文（可能附 toolCalls / reasoning）──
+            if (kind === 'assistant_text') {
               const rawText = (item.text as string) ?? ''
+              // 纯 internal（<memory> 等）整条丢弃；否则剥掉内部块保留正文
               if (isInternalOnlyText(rawText)) continue
               const cleanText = sanitizeAssistantText(rawText)
-              newMessages.push({
-                id: (item.id as string) ?? `msg-${Date.now()}-${Math.random()}`,
-                role: 'assistant',
-                content: cleanText,
-                timestamp: Date.parse((item.createdAt as string) ?? '') || Date.now(),
-                parts: [{ type: 'text', text: cleanText }]
-              })
+
+              // 确保当前 assistant turn 存在（用局部变量收窄，避免闭包类型收窄失效）
+              let cur: ChatMessage
+              if (!curAssistant) {
+                cur = {
+                  id: (item.id as string) ?? genId(),
+                  role: 'assistant',
+                  createdAt: itemTs(item),
+                  text: cleanText || '',
+                  status: 'done'
+                }
+              } else {
+                cur = cleanText
+                  ? { ...curAssistant, text: `${curAssistant.text ?? ''}${cleanText}` }
+                  : curAssistant
+              }
+
+              // reasoning（后端已从 additional_kwargs.reasoning_content 提取）
+              const reasoningText = (item.reasoning as string) ?? ''
+              if (reasoningText) {
+                cur = {
+                  ...cur,
+                  reasoning: {
+                    text: reasoningText,
+                    startedAt: cur.createdAt,
+                    endedAt: cur.createdAt
+                  }
+                }
+              }
+
+              // 工具调用（后端字段名 toolName）
+              const rawToolCalls = (item.toolCalls as Array<Record<string, unknown>>) ?? []
+              if (rawToolCalls.length > 0) {
+                const calls: ToolCall[] = rawToolCalls.map((tc) => ({
+                  id: (tc.id as string) ?? genId(),
+                  name: (tc.toolName as string) ?? (tc.name as string) ?? 'tool',
+                  args: tc.args as Record<string, unknown> | undefined,
+                  status: 'running' as const
+                }))
+                cur = { ...cur, toolCalls: [...(cur.toolCalls ?? []), ...calls] }
+              }
+
+              curAssistant = cur
+              continue
+            }
+
+            // ── 工具结果：按 callId 回填到当前 assistant turn ──
+            if (kind === 'tool_result') {
+              const current: ChatMessage | null = curAssistant
+              const callId = (item.callId as string) ?? ''
+              const output = (item.output as string) ?? ''
+              if (current && callId) {
+                curAssistant = {
+                  ...current,
+                  toolCalls: (current.toolCalls ?? []).map((tc) =>
+                    tc.id === callId
+                      ? { ...tc, status: 'completed' as const, output: output || undefined }
+                      : tc
+                  )
+                }
+              }
+              continue
             }
           }
         }
-        // 批量加载：走 setChatMessages 双写 messages + messages_v2。
-        // 若只写 messages，ChatFeed（优先读 v2）会误走 emptySlot 渲染 WelcomeScreen。
-        setChatMessages(newMessages)
+        flushAssistant()
+
+        // 直接写 turn-based 消息列表（保留 reasoning/toolCalls），
+        // 同时由 store 反向同步旧 messages（双写）。
+        setChatMessagesV2(v2)
       } catch (error) {
         console.error('Failed to load thread:', error)
       }
     },
-    [enginePort, clearMessages, setThreadId, setChatMessages]
+    [enginePort, clearMessages, setThreadId, setChatMessagesV2]
   )
 
   // Start a new chat

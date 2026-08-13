@@ -13,6 +13,11 @@ export function ChatPanel() {
   const composerRef = useRef<HTMLDivElement>(null)
   const selectedModel = useAppStore((s) => s.selectedModel)
   const branches = useAppStore((s) => s.branches)
+  // 浮动面板宽度（含 right-3 间距 + 余量）——面板展开时 ChatFeed 消息容器
+  // 和 Composer 宽度都需扣掉这部分，避免内容被 InfoPanel 遮住。ChatFeed
+  // 容器本身仍满宽（滚动条始终在窗口最右端）。
+  const panelOpen = useAppStore((s) => s.panelOpen)
+  const PANEL_INSET = 380 // 面板宽度 356 + right-3 + 视觉缓冲 ≈ 380
   const [atBottom, setAtBottom] = useAtBottomState()
   const { t } = useI18n()
 
@@ -82,16 +87,22 @@ export function ChatPanel() {
         onClarifyPick={handleClarifyPick}
         onAtBottomChange={setAtBottom}
         bottomInset={composerInset}
+        panelOpen={panelOpen}
         emptySlot={<WelcomeScreen onSend={sendMessage} disabled={isGenerating} />}
       />
 
       {/* Composer（悬浮底部）— 只在有消息时显示（空状态由 WelcomeScreen 提供）。
           参考 KStock composer-dock：悬浮圆角卡片 + blur + focus 青绿边框。
-          isGenerating 时主输入框仍可输入（Enter 触发 steer 追加指令）。 */}
+          isGenerating 时主输入框仍可输入（Enter 触发 steer 追加指令）。
+          浮动面板展开时，Composer 宽度需扣除面板宽度（PANEL_INSET），
+          否则 Composer 会被 InfoPanel 遮住右侧。 */}
       {hasMessages && (
         <div
           ref={composerRef}
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 w-[min(900px,calc(100%-32px))]"
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10"
+          style={{
+            width: `min(900px, calc(100% - 32px${panelOpen ? ` - ${PANEL_INSET}px` : ''}))`
+          }}
         >
           {/* 回到底部浮动按钮：悬浮在 composer 正上方（KStock 设计） */}
           {!atBottom && (

@@ -229,7 +229,8 @@ export default function App() {
       )}
 
       {/* Main content area — 顶部状态栏区域（右上角控件）不随面板移动；
-          面板展开时仅内层内容区右侧让位 356px，外层不位移 */}
+          外层不位移，ChatFeed 在 main 满宽（滚动条始终在窗口最右端）；
+          InfoPanel 浮在上面盖住一部分滚动条，消息/Composer 内部给面板让位 */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
         {/* Top-right controls: panel toggle + terminal — 固定在窗口右上角，永不移动 */}
         <div className="absolute top-3 right-4 z-30 no-drag flex items-center gap-1">
@@ -255,12 +256,8 @@ export default function App() {
           </div>
         )}
 
-        {/* 内层内容区 — 面板展开时右侧让位 356px（padding 只压缩内容，不影响外层顶部区域） */}
-        <div
-          className={`flex-1 flex flex-col overflow-hidden transition-[padding-right] duration-200 ease-out ${
-            panelOpen ? 'pr-[356px]' : 'pr-0'
-          }`}
-        >
+        {/* 内层内容区 — 不再压缩；ChatFeed 在此满宽，滚动条始终在窗口最右端 */}
+        <div className="flex-1 flex flex-col overflow-hidden">
           {hasMessages ? (
             <ChatPanel />
           ) : (

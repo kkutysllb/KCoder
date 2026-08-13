@@ -41,6 +41,7 @@ from .sse import (
     consume_langgraph_stream,
     sse_event_generator,
     workspace_tracker,
+    _extract_reasoning_text,
 )
 from .qilin_client import QiLinClient
 from .projects_routes import ensure_project
@@ -531,6 +532,12 @@ def _message_to_item(msg: dict[str, Any]) -> dict[str, Any] | None:
             "role": "assistant",
             "text": text,
         }
+        # 思考内容（reasoning_content）：历史消息里同样存于
+        # additional_kwargs.reasoning_content / 顶层 reasoning_content，
+        # 与 sse.py 的实时提取保持一致，否则前端 loadThread 会丢失思考块。
+        reasoning = _extract_reasoning_text(msg)
+        if reasoning:
+            item["reasoning"] = reasoning
         # 附带工具调用（如果有）
         tool_calls = msg.get("tool_calls") or []
         if tool_calls:

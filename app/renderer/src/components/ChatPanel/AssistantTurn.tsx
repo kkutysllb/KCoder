@@ -8,7 +8,6 @@
 //   5. 正文 text（markdown）
 //   6. ClarificationCard（如有交互式澄清，替换 fallback 正文）
 //   7. 错误信息
-//   8. TurnMeta（usage + 模型 + 耗时）
 
 import { useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
@@ -34,8 +33,6 @@ interface AssistantTurnProps {
   showToolCalls?: boolean
   /** ask_clarification 选项被选中时回调。 */
   onClarifyPick?: (text: string, question?: string) => void
-  /** 当前选中的模型（turn 元信息展示用）。 */
-  fallbackModel?: string | null
   /** branches 状态（并行分支投影）。 */
   branches?: Record<string, unknown>
 }
@@ -74,8 +71,7 @@ export function AssistantTurn({
   showStage = true,
   showReasoning = true,
   showToolCalls = true,
-  onClarifyPick,
-  fallbackModel
+  onClarifyPick
 }: AssistantTurnProps) {
   const streaming = isStreaming ?? msg.status === 'streaming'
 
@@ -237,32 +233,7 @@ export function AssistantTurn({
             <span className="text-xs text-red-300">{msg.error}</span>
           </div>
         )}
-
-        {/* TurnMeta（usage + 模型 + 耗时） */}
-        {msg.status === 'done' && (msg.usage || fallbackModel || msg.thinkingMs != null) && (
-          <div className="mt-2 flex items-center gap-3 text-[10px] text-text-muted">
-            {msg.usage && (
-              <span>
-                {msg.usage.totalTokens.toLocaleString()} tokens
-                {msg.usage.totalTokens > 0 && (
-                  <span className="text-text-muted/60 ml-1">
-                    ({msg.usage.promptTokens}↑ {msg.usage.completionTokens}↓)
-                  </span>
-                )}
-              </span>
-            )}
-            {fallbackModel && <span>{fallbackModel}</span>}
-            {msg.thinkingMs != null && msg.thinkingMs > 0 && (
-              <span>思考 {formatMs(msg.thinkingMs)}</span>
-            )}
-          </div>
-        )}
       </div>
     </article>
   )
-}
-
-function formatMs(ms: number): string {
-  if (ms < 1000) return '<1s'
-  return `${(ms / 1000).toFixed(1)}s`
 }
