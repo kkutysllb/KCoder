@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import urllib.parse
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -616,6 +617,10 @@ async def read_thread_file(
     仅允许访问 /mnt/user-data/outputs/ 下的文件（安全边界）。
     """
     client = _get_client(request)
+
+    # path 可能携带 URL 编码（agent 输出的链接本身已编码时，前端 encodeURIComponent
+    # 会造成双重编码；FastAPI 只解一层），这里统一解码后再匹配虚拟路径。
+    path = urllib.parse.unquote(path)
 
     # 从 thread state 获取 outputs_path
     try:
