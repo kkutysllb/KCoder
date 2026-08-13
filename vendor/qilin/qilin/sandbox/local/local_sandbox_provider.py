@@ -77,6 +77,9 @@ class LocalSandboxProvider(SandboxProvider):
         self._path_mappings = self._setup_path_mappings()
         self._generic_sandbox: LocalSandbox | None = None
         self._thread_sandboxes: OrderedDict[tuple[str, str], LocalSandbox] = OrderedDict()
+        # Track the workspace_path used when building each cached sandbox so
+        # that a workspace change for the same thread triggers a rebuild.
+        self._thread_workspace_paths: dict[tuple[str, str], str | None] = {}
         self._max_cached_threads = max_cached_threads
         self._lock = threading.Lock()
 
@@ -398,10 +401,18 @@ class LocalSandboxProvider(SandboxProvider):
         with self._lock:
             cached = self._thread_sandboxes.get(key)
             if cached is not None:
-                # Mark as most-recently used so frequently-touched threads
-                # survive eviction.
-                self._thread_sandboxes.move_to_end(key)
-                return cached.id
+                cached_ws = self._thread_workspace_paths.get(key)
+                if cached_ws == workspace_path:
+                    # Same workspace — reuse the cached sandbox.
+                    self._thread_sandboxes.move_to_end(key)
+                    return cached.id
+                # Workspace changed — discard the stale sandbox and rebuild.
+                logger.info(
+                    "Workspace changed for thread %s (%r → %r), rebuilding sandbox",
+                    thread_id, cached_ws, workspace_path,
+                )
+                del self._thread_sandboxes[key]
+                self._thread_workspace_paths.pop(key, None)
 
         # ``_build_thread_path_mappings`` touches the filesystem
         # (``ensure_thread_dirs``); release the lock during I/O.
@@ -414,6 +425,7 @@ class LocalSandboxProvider(SandboxProvider):
             if cached is None:
                 cached = LocalSandbox(self._sandbox_id_for_thread(thread_id, effective_user_id), path_mappings=new_mappings)
                 self._thread_sandboxes[key] = cached
+                self._thread_workspace_paths[key] = workspace_path
                 self._evict_until_within_cap_locked()
             else:
                 self._thread_sandboxes.move_to_end(key)
@@ -479,6 +491,7 @@ class LocalSandboxProvider(SandboxProvider):
         with self._lock:
             self._generic_sandbox = None
             self._thread_sandboxes.clear()
+            self._thread_workspace_paths.clear()
             _singleton = None
 
     def shutdown(self) -> None:

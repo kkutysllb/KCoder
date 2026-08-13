@@ -1,5 +1,6 @@
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import NotRequired, override
 
 from langchain.agents import AgentState
@@ -98,6 +99,21 @@ class ThreadDataMiddleware(AgentMiddleware[ThreadDataMiddlewareState]):
             # Eager initialization: create directories immediately
             paths = self._create_thread_directories(thread_id, user_id=user_id)
             logger.debug("Created thread data directories for thread %s", thread_id)
+
+        # Override workspace_path when the user selected a real project directory.
+        # The gateway injects it into ``configurable.workspace_path`` so the agent
+        # can operate on the user's actual codebase instead of the internal empty
+        # workspace directory.
+        config = get_config()
+        user_workspace = config.get("configurable", {}).get("workspace_path")
+        if isinstance(user_workspace, str) and user_workspace:
+            ws_resolved = Path(user_workspace).expanduser().resolve()
+            if not ws_resolved.exists():
+                ws_resolved.mkdir(parents=True, exist_ok=True)
+            paths["workspace_path"] = str(ws_resolved)
+            logger.info(
+                "Thread %s workspace overridden to %s", thread_id, ws_resolved
+            )
 
         messages = list(state.get("messages", []))
         last_message = messages[-1] if messages else None
