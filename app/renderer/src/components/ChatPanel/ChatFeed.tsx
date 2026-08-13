@@ -59,6 +59,9 @@ interface ChatFeedProps {
   selectedModel?: string | null
   /** branches 状态（并行分支投影）。 */
   branches?: Record<string, unknown>
+  /** 滚动容器底部预留空间（px）——悬浮 composer 会遮挡消息末尾，
+      由父级动态测量 composer 高度后传入；默认 160 保持原行为。 */
+  bottomInset?: number
 }
 
 /** 距底部多少像素内算"贴底"（小于此阈值时启用流式跟随）。 */
@@ -80,7 +83,8 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
     editDisabled = false,
     onEditResend,
     selectedModel,
-    branches
+    branches,
+    bottomInset = 160
   }, ref) {
     const scrollRef = useRef<HTMLDivElement>(null)
     const stickToBottom = useRef(true)
@@ -152,7 +156,12 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
     }
 
     return (
-      <div className="flex-1 overflow-y-auto pb-40" ref={scrollRef} onScroll={handleScroll}>
+      <div
+        className="flex-1 overflow-y-auto"
+        style={{ paddingBottom: bottomInset }}
+        ref={scrollRef}
+        onScroll={handleScroll}
+      >
         <div className="max-w-4xl mx-auto px-6 py-8 space-y-8">
           {adaptedMessages.map((m) =>
             m.role === 'user' ? (

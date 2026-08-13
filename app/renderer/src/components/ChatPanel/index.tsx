@@ -1,4 +1,4 @@
-import { useMemo, useRef, useCallback } from 'react'
+import { useMemo, useRef, useCallback, useState, useEffect } from 'react'
 import { useChat } from '../../hooks/useChat'
 import { ChatFeed, type ChatFeedHandle } from './ChatFeed'
 import { CommandInput } from '../CommandInput'
@@ -10,10 +10,28 @@ import { getGeneralPref } from '../../lib/generalPrefs'
 export function ChatPanel() {
   const { messages, isGenerating, sendMessage, editAndResend, stopGeneration, steer } = useChat()
   const feedRef = useRef<ChatFeedHandle>(null)
+  const composerRef = useRef<HTMLDivElement>(null)
   const selectedModel = useAppStore((s) => s.selectedModel)
   const branches = useAppStore((s) => s.branches)
   const [atBottom, setAtBottom] = useAtBottomState()
   const { t } = useI18n()
+
+  // 悬浮 composer 会遮挡消息末尾：动态测量其高度作为 ChatFeed 的底部
+  // 预留空间（含 bottom-4 间距与 20px 视觉呼吸间距）。textarea 多行、
+  // 目录选择条、附件预览出现时高度变化都会被 ResizeObserver 捕获。
+  const [composerInset, setComposerInset] = useState(160)
+  const hasMessages = messages.length > 0
+  useEffect(() => {
+    const el = composerRef.current
+    if (!el) return
+    const update = () => {
+      setComposerInset(Math.max(160, el.offsetHeight + 16 + 20))
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [hasMessages])
 
   // 读取「显示思考过程」偏好（用户在常规设置中切换）
   const showThinking = getGeneralPref('showThinking')
@@ -41,8 +59,6 @@ export function ChatPanel() {
     return ids
   }, [messages, isGenerating])
 
-  const hasMessages = messages.length > 0
-
   return (
     <div className="relative flex flex-1 flex-col h-full">
       {/* Messages area — ChatFeed 优先读 messages_v2，缺失时 fallback 到 messages。
@@ -58,6 +74,7 @@ export function ChatPanel() {
         editableUserMessageIds={editableUserMessageIds}
         onEditResend={editAndResend}
         onAtBottomChange={setAtBottom}
+        bottomInset={composerInset}
         emptySlot={<WelcomeScreen onSend={sendMessage} disabled={isGenerating} />}
       />
 
@@ -65,7 +82,10 @@ export function ChatPanel() {
           参考 KStock composer-dock：悬浮圆角卡片 + blur + focus 青绿边框。
           isGenerating 时主输入框仍可输入（Enter 触发 steer 追加指令）。 */}
       {hasMessages && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 w-[min(900px,calc(100%-32px))]">
+        <div
+          ref={composerRef}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 w-[min(900px,calc(100%-32px))]"
+        >
           {/* 回到底部浮动按钮：悬浮在 composer 正上方（KStock 设计） */}
           {!atBottom && (
             <button
@@ -94,7 +114,6 @@ export function ChatPanel() {
 }
 
 /** 简单的 atBottom 状态 hook（避免 ChatPanel 重渲染传播到 ChatFeed 内部）。 */
-import { useState } from 'react'
 function useAtBottomState() {
   return useState(true)
 }
