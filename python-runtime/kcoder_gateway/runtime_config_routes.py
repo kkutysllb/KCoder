@@ -49,10 +49,12 @@ router = APIRouter(prefix="/v1/runtime-config", tags=["runtime-config"])
 
 # 可编辑的配置段名（与 QiLin AppConfig 顶层字段对齐）
 RuntimeConfigSection = Literal[
-    "memory", "summarization", "title", "sandbox", "database", "uploads", "network"
+    "memory", "summarization", "title", "sandbox", "database", "uploads", "network",
+    "token_usage", "token_budget",
 ]
 _VALID_SECTIONS: tuple[str, ...] = (
     "memory", "summarization", "title", "sandbox", "database", "uploads", "network",
+    "token_usage", "token_budget",
 )
 
 
@@ -126,6 +128,8 @@ def _get_qilin_config_models() -> dict[str, type[BaseModel]]:
     from qilin.config.sandbox_config import SandboxConfig
     from qilin.config.summarization_config import SummarizationConfig
     from qilin.config.title_config import TitleConfig
+    from qilin.config.token_budget_config import TokenBudgetConfig
+    from qilin.config.token_usage_config import TokenUsageConfig
 
     return {
         "memory": MemoryConfig,
@@ -135,6 +139,8 @@ def _get_qilin_config_models() -> dict[str, type[BaseModel]]:
         "database": DatabaseConfig,
         "uploads": UploadsConfigModel,
         "network": NetworkConfigModel,
+        "token_usage": TokenUsageConfig,
+        "token_budget": TokenBudgetConfig,
     }
 
 
@@ -176,6 +182,8 @@ def _read_effective_configs() -> dict[str, dict[str, Any]]:
         "database": app_cfg.database.model_dump(mode="json"),
         "uploads": uploads_dict,
         "network": network_dict,
+        "token_usage": app_cfg.token_usage.model_dump(mode="json"),
+        "token_budget": app_cfg.token_budget.model_dump(mode="json"),
     }
 
 

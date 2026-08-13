@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
@@ -104,6 +105,8 @@ def translate_event(event_type: str, data: Any, run: ActiveRun) -> list[dict[str
         run_id = ""
         if isinstance(data, dict):
             run_id = str(data.get("run_id", ""))
+        if run_id:
+            run.run_id = run_id
         events.append({"kind": "turn_started", "turnId": run.turn_id, "runId": run_id})
 
     elif event_type == "messages" or event_type.startswith("messages/"):
@@ -195,10 +198,33 @@ def _translate_single_message(
         return events
 
     if is_ai:
+        # Token 用量：usage_metadata（langchain 标准）或 additional_kwargs.usage
+        # （OpenAI 兼容）兑底。按消息 id 去重，同一消息在 partial/complete/
+        # values 多帧出现只计一次。首次计入时向 renderer 发 usage 事件
+        # （输入框底部 ROI 缩略条据此累加会话用量）。
+        msg_id = str(msg.get("id", ""))
+        usage = _extract_usage(msg)
+        if usage:
+            model = _extract_model_name(msg)
+            cache_read = _extract_cache_read(msg)
+            if _account_usage(run, msg_id, usage, model=model, cache_read=cache_read):
+                events.append(
+                    {
+                        "kind": "usage",
+                        "usage": {
+                            "promptTokens": usage["input_tokens"],
+                            "completionTokens": usage["output_tokens"],
+                            "totalTokens": usage["total_tokens"],
+                        },
+                        "model": model,
+                    }
+                )
+        if msg_id:
+            run.ai_message_ids.add(msg_id)
+
         # 文本内容增量（skip_text=True 时跳过——用于 messages/complete 避免与 partial 重复）
         if not skip_text:
             text = _extract_text(msg.get("content", ""))
-            msg_id = str(msg.get("id", ""))
             delta = _compute_ai_delta(text, msg_id, run)
             if delta:
                 events.append({"kind": "assistant_text_delta", "delta": delta})
@@ -297,6 +323,10 @@ class ActiveRun:
 
     POST /v1/threads/:id/turns 创建一个 ActiveRun 并启动后台消费任务；
     GET /v1/threads/:id/events 从 event_queue 读取翻译后的事件。
+
+    ``usage_by_model`` 在流式消费过程中由 ``_account_usage`` 按消息 id
+    去重累积；run 结束（end / 异常）时由 ``consume_langgraph_stream``
+    写入 runs 表（RunRow），供 Token 统计面板聚合。
     """
 
     thread_id: str
@@ -310,6 +340,101 @@ class ActiveRun:
     # 发送的是【累积后完整消息】（见 stream.py: messages[msg.id] += msg），
     # 所以必须做前缀 diff 才能得到真正的增量，否则会层层重复。
     ai_text_seen: dict[str, str] = field(default_factory=dict)
+    # LangGraph run id（从 metadata 事件捕获，用于 runs 表主键）
+    run_id: str | None = None
+    # 按模型聚合的 token 用量（桶字段对齐 RunRow.token_usage_by_model）
+    usage_by_model: dict[str, dict[str, int]] = field(default_factory=dict)
+    # 已计入 usage 的消息 id（同一消息在 partial/complete/values 多帧重复出现，只计一次）
+    counted_usage_ids: set[str] = field(default_factory=set)
+    # 已见过的 AI 消息 id（llm_call_count 统计）
+    ai_message_ids: set[str] = field(default_factory=set)
+
+
+def _extract_usage(msg: dict[str, Any]) -> dict[str, int] | None:
+    """从 LangChain 消息字典提取 token 用量。
+
+    ``usage_metadata`` 是 langchain-core 标准字段（引擎 adapter 会写入）；
+    OpenAI 兼容的 ``additional_kwargs.usage`` 作为兑底（prompt_tokens /
+    completion_tokens）。
+    """
+    usage_metadata = msg.get("usage_metadata")
+    if isinstance(usage_metadata, dict):
+        input_tokens = int(usage_metadata.get("input_tokens") or 0)
+        output_tokens = int(usage_metadata.get("output_tokens") or 0)
+        total_tokens = int(usage_metadata.get("total_tokens") or 0)
+        if total_tokens > 0 or input_tokens > 0 or output_tokens > 0:
+            return {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": total_tokens or (input_tokens + output_tokens),
+            }
+    additional = msg.get("additional_kwargs")
+    if isinstance(additional, dict):
+        usage = additional.get("usage")
+        if isinstance(usage, dict):
+            input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+            output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+            if input_tokens > 0 or output_tokens > 0:
+                return {
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens,
+                }
+    return None
+
+
+def _extract_cache_read(msg: dict[str, Any]) -> int:
+    """提取 Prompt 缓存命中 token（usage_metadata.input_token_details.cache_read）。"""
+    usage_metadata = msg.get("usage_metadata")
+    if isinstance(usage_metadata, dict):
+        details = usage_metadata.get("input_token_details")
+        if isinstance(details, dict):
+            return int(details.get("cache_read") or 0)
+    return 0
+
+
+def _extract_model_name(msg: dict[str, Any]) -> str:
+    """从消息元数据提取模型名（response_metadata / additional_kwargs）。"""
+    resp_meta = msg.get("response_metadata")
+    if isinstance(resp_meta, dict):
+        name = resp_meta.get("model_name") or resp_meta.get("model")
+        if name:
+            return str(name)
+    additional = msg.get("additional_kwargs")
+    if isinstance(additional, dict):
+        name = additional.get("model_name") or additional.get("model")
+        if name:
+            return str(name)
+    return "unknown"
+
+
+def _account_usage(
+    run: ActiveRun,
+    msg_id: str | None,
+    usage: dict[str, int] | None,
+    *,
+    model: str = "unknown",
+    cache_read: int = 0,
+) -> bool:
+    """按消息 id 去重累计 usage 到 run.usage_by_model；返回是否首次计入。"""
+    if not usage:
+        return False
+    if msg_id:
+        if msg_id in run.counted_usage_ids:
+            return False
+        run.counted_usage_ids.add(msg_id)
+    total = usage.get("total_tokens", 0) or 0
+    input_tokens = usage.get("input_tokens", 0) or 0
+    output_tokens = usage.get("output_tokens", 0) or 0
+    bucket = run.usage_by_model.setdefault(
+        model,
+        {"total_tokens": 0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0},
+    )
+    bucket["total_tokens"] += total
+    bucket["input_tokens"] += input_tokens
+    bucket["output_tokens"] += output_tokens
+    bucket["cache_read_tokens"] += cache_read
+    return True
 
 
 class RunRegistry:
@@ -370,6 +495,7 @@ async def consume_langgraph_stream(
     """
     q = run.event_queue
     got_end = False
+    run_error: str | None = None
 
     try:
         input_data = {"messages": [{"role": "user", "content": prompt}]}
@@ -433,6 +559,7 @@ async def consume_langgraph_stream(
 
     except asyncio.CancelledError:
         logger.info("LangGraph stream cancelled for thread %s", run.thread_id)
+        run_error = "cancelled"
         await q.put(
             {
                 "kind": "turn_aborted",
@@ -444,6 +571,7 @@ async def consume_langgraph_stream(
 
     except Exception as exc:
         logger.exception("LangGraph stream failed for thread %s", run.thread_id)
+        run_error = str(exc)
         await q.put(
             {
                 "kind": "turn_failed",
@@ -454,6 +582,31 @@ async def consume_langgraph_stream(
         )
 
     finally:
+        # 持久化本次 run 的用量（runs 表）——KCoder 对话走 langgraph dev 的
+        # /runs/stream，不经过引擎 RunJournal，由 gateway 补写一行供
+        # /v1/token-usage 统计聚合。正常完成或异常结束都会记录。
+        if got_end or run_error is not None or run.usage_by_model:
+            try:
+                from .token_usage_routes import persist_run_usage
+
+                run_id = run.run_id or f"gateway-{uuid.uuid4().hex[:12]}"
+                await persist_run_usage(
+                    run_id=run_id,
+                    thread_id=run.thread_id,
+                    assistant_id=assistant_id,
+                    user_id=user_id,
+                    status="success" if got_end else "error",
+                    usage_by_model=run.usage_by_model,
+                    llm_call_count=len(run.ai_message_ids),
+                    model_name=model_name,
+                    error=run_error,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to persist run usage for thread %s (non-fatal)",
+                    run.thread_id,
+                    exc_info=True,
+                )
         # 哨兵：通知 SSE 端点关闭
         await q.put(None)
         registry.remove(run.thread_id)

@@ -39,6 +39,7 @@ from .stubs import (
 )
 from .sub_agents_routes import router as sub_agents_router
 from .threads import router as threads_router
+from .token_usage_routes import router as token_usage_router
 from .workspace_routes import router as workspace_router
 
 logger = logging.getLogger("kcoder_gateway")
@@ -190,6 +191,7 @@ def create_app() -> FastAPI:
     app.include_router(sub_agents_router)  # Phase 13 本地 sub_agents.json
     app.include_router(commands_router)  # Phase 13 本地 commands.json
     app.include_router(runtime_config_router)  # Phase 14 运行时配置读写
+    app.include_router(token_usage_router)  # Token 统计与预算：跨会话用量聚合
     app.include_router(engine_router)
     app.include_router(approvals_router)
     app.include_router(thread_extras_router)

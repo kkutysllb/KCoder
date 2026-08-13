@@ -288,7 +288,24 @@ export interface NetworkConfig {
   [key: string]: unknown
 }
 
-/** 运行时配置四段合集。 */
+/** Token 用量记录开关（对齐 QiLin TokenUsageConfig）。 */
+export interface TokenUsageConfig {
+  enabled: boolean
+}
+
+/** Token 预算限制（对齐 QiLin TokenBudgetConfig）。 */
+export interface TokenBudgetConfig {
+  enabled: boolean
+  max_tokens: number
+  max_input_tokens: number | null
+  max_output_tokens: number | null
+  warn_threshold: number
+  hard_stop_threshold: number
+  per_agent: Record<string, unknown>
+  [key: string]: unknown
+}
+
+/** 运行时配置合集。 */
 export interface RuntimeConfig {
   memory: MemoryRuntimeConfig
   summarization: SummarizationConfig
@@ -297,9 +314,59 @@ export interface RuntimeConfig {
   database: DatabaseConfig
   uploads: UploadsConfig
   network: NetworkConfig
+  tokenUsage: TokenUsageConfig
+  tokenBudget: TokenBudgetConfig
 }
 
-export type RuntimeConfigSection = 'memory' | 'summarization' | 'title' | 'sandbox' | 'database' | 'uploads' | 'network'
+export type RuntimeConfigSection = 'memory' | 'summarization' | 'title' | 'sandbox' | 'database' | 'uploads' | 'network' | 'token_usage' | 'token_budget'
+
+// ============ Token usage statistics types ============
+
+/** 单模型的 token 用量分解（GET /v1/token-usage/stats by_model）。 */
+export interface TokenUsageModelBreakdown {
+  tokens: number
+  runs: number
+  llm_call_count: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+}
+
+/** 按调用方分解（lead agent / subagent / middleware）。 */
+export interface TokenUsageCallerBreakdown {
+  lead_agent: number
+  subagent: number
+  middleware: number
+}
+
+/** 跨会话全局 token 用量统计（GET /v1/token-usage/stats）。 */
+export interface TokenUsageStats {
+  total_tokens: number
+  total_input_tokens: number
+  total_output_tokens: number
+  total_runs: number
+  total_llm_call_count: number
+  total_cache_read_tokens: number
+  by_model: Record<string, TokenUsageModelBreakdown>
+  by_caller: TokenUsageCallerBreakdown
+}
+
+/** 按天×模型的时间序列条目（GET /v1/token-usage/timeseries）。 */
+export interface TokenUsageTimeseriesItem {
+  date: string
+  model_name: string
+  run_count: number
+  llm_call_count: number
+  total_tokens: number
+  input_tokens: number
+  output_tokens: number
+}
+
+/** 日历月筛选（北京时间）。 */
+export interface MonthFilter {
+  year: number
+  month: number
+}
 
 // ============ Governed graph governance types ============
 
@@ -1663,7 +1730,14 @@ data: <full EngineStreamEvent JSON>
       headers: this.headers
     })
     if (!response.ok) throw new Error(`Failed to get runtime config: ${response.statusText}`)
-    return response.json()
+    const data = (await response.json()) as Record<string, unknown>
+    // 后端段名为 snake_case（token_usage / token_budget），前端类型为 camelCase。
+    // 其他段（memory / sandbox / network 等）为单字段名，无需映射。
+    return {
+      ...(data as unknown as RuntimeConfig),
+      tokenUsage: (data.token_usage ?? {}) as TokenUsageConfig,
+      tokenBudget: (data.token_budget ?? {}) as TokenBudgetConfig
+    } as RuntimeConfig
   }
 
   /** 写单段配置到 config.yaml。 PUT /v1/runtime-config/{section} */
@@ -1680,6 +1754,39 @@ data: <full EngineStreamEvent JSON>
       const detail = await response.text().catch(() => response.statusText)
       throw new Error(`Failed to update ${section} config: ${detail}`)
     }
+    return response.json()
+  }
+
+  // ============ Token usage statistics API ============
+  //
+  // 跨会话聚合统计（runs 表），月度窗口按北京时间。
+
+  /** 全局 token 用量统计。 GET /v1/token-usage/stats?year=&month= */
+  async getTokenUsageStats(filter?: MonthFilter): Promise<TokenUsageStats> {
+    const params = new URLSearchParams()
+    if (filter) {
+      params.set('year', String(filter.year))
+      params.set('month', String(filter.month))
+    }
+    const qs = params.toString()
+    const response = await fetch(`${this.baseUrl}/v1/token-usage/stats${qs ? `?${qs}` : ''}`, {
+      headers: this.headers
+    })
+    if (!response.ok) throw new Error(`Failed to get token usage stats: ${response.statusText}`)
+    return response.json()
+  }
+
+  /** 按天×模型 token 用量时间序列。 GET /v1/token-usage/timeseries */
+  async getTokenUsageTimeseries(days = 30, filter?: MonthFilter): Promise<TokenUsageTimeseriesItem[]> {
+    const params = new URLSearchParams({ days: String(days) })
+    if (filter) {
+      params.set('year', String(filter.year))
+      params.set('month', String(filter.month))
+    }
+    const response = await fetch(`${this.baseUrl}/v1/token-usage/timeseries?${params.toString()}`, {
+      headers: this.headers
+    })
+    if (!response.ok) throw new Error(`Failed to get token usage timeseries: ${response.statusText}`)
     return response.json()
   }
 
