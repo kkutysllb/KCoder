@@ -74,6 +74,14 @@ export function ToolActivitySummary({ calls, streaming }: ToolActivitySummaryPro
 
 /** 单个工具调用行（展开视图）。 */
 function ToolCallRow({ call }: { call: ToolCall }) {
+  // write_file / str_replace 等文件工具的路径参数 → 显示文件名
+  const filePath =
+    typeof call.args?.path === 'string'
+      ? call.args.path
+      : typeof call.args?.file_path === 'string'
+        ? call.args.file_path
+        : null
+  const fileName = filePath ? filePath.split('/').pop() || filePath : null
   const statusIcon =
     call.status === 'running' ? (
       <svg className="w-3 h-3 animate-spin text-blue-400" viewBox="0 0 24 24" fill="none">
@@ -96,6 +104,11 @@ function ToolCallRow({ call }: { call: ToolCall }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="font-mono text-text-primary">{call.name}</span>
+          {fileName && (
+            <span className="min-w-0 truncate font-mono text-[10px] text-[#3b82f6]/80" title={filePath ?? undefined}>
+              {fileName}
+            </span>
+          )}
           {call.startedAt && call.endedAt && (
             <span className="text-[10px] text-text-muted">
               {formatMs(call.endedAt - call.startedAt)}

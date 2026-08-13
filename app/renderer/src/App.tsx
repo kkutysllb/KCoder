@@ -8,6 +8,7 @@ import { AuthExperience } from './components/AuthExperience'
 import { TerminalPanel } from './components/TerminalPanel'
 import { UserInputModal } from './components/ChatPanel/UserInputModal'
 import { InfoPanel } from './components/InfoPanel'
+import { ChangePanel } from './components/ChangePanel'
 import { SidebarResizeHandle } from './components/SidebarResizeHandle'
 import { useChat } from './hooks/useChat'
 import { useAuth } from './hooks/useAuth'
@@ -249,6 +250,9 @@ export default function App() {
 
       {/* 浮动信息面板（执行/计划/环境） */}
       <InfoPanel />
+
+      {/* 文件变更聚合抽屉（状态栏变更按钮打开） */}
+      <ChangePanel />
     </div>
     )}
     </I18nProvider>

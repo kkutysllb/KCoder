@@ -113,6 +113,14 @@ export function useChat() {
       if (next !== state) {
         applyTurnUpdate(assistantMessageId, next)
       }
+      // turn 完成且携带文件变更 → 累加未读变更数（状态栏 badge）
+      if (kind === 'turn_completed') {
+        const fc = data?.fileChanges as { files?: unknown[] } | undefined
+        const count = Array.isArray(fc?.files) ? fc.files.length : 0
+        if (count > 0) {
+          useAppStore.getState().addUnreadChanges(count)
+        }
+      }
     },
     [applyTurnUpdate]
   )

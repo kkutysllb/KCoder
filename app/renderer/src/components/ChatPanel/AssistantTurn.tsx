@@ -22,6 +22,7 @@ import { SubagentGroup } from './SubagentGroup'
 import { ToolActivitySummary } from './ToolActivitySummary'
 import { ClarificationCard } from './ClarificationCard'
 import { ArtifactBar } from './ArtifactBar'
+import { FileChangeCard } from './FileChangeCard'
 import { StreamingDots } from './parts/icons'
 
 interface AssistantTurnProps {
@@ -146,6 +147,9 @@ export function AssistantTurn({
 
         {/* 4.5 产出文件（present_files 工具调用的文件卡片）*/}
         <ArtifactBar msg={msg} />
+
+        {/* 4.6 workspace 文件变更（turn 结束时 gateway 计算并附带）*/}
+        {msg.fileChanges && <FileChangeCard changes={msg.fileChanges} />}
 
         {/* 5. 正文 / 澄清卡片 */}
         {hasInteractiveClarification && clarifyPayload && onClarifyPick ? (

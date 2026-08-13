@@ -134,6 +134,10 @@ interface AppState {
 
   // 浮动信息面板
   panelOpen: boolean
+  // 变更面板（workspace 文件变更聚合抽屉）
+  changePanelOpen: boolean
+  /** 未查看的变更文件数（收到带 fileChanges 的 turn_completed 时累加）。 */
+  unreadChangeCount: number
   // 线程目标 + 待办（GET /v1/threads/:id/goal + /todos）
   threadGoal: ThreadGoal | null
   threadTodos: ThreadTodoList | null
@@ -200,6 +204,11 @@ interface AppState {
   /** 累加一次 turn 的用量到会话总量。 */
   addSessionUsage: (usage: { promptTokens: number; completionTokens: number; totalTokens: number }) => void
   setPanelOpen: (open: boolean) => void
+  setChangePanelOpen: (open: boolean) => void
+  /** 累加未读变更文件数。 */
+  addUnreadChanges: (count: number) => void
+  /** 清零未读变更数（打开变更面板时调）。 */
+  clearUnreadChanges: () => void
   setThreadGoal: (goal: ThreadGoal | null) => void
   setThreadTodos: (todos: ThreadTodoList | null) => void
   /** Set the governed graph run inspection (from inspect endpoint). */
@@ -235,6 +244,8 @@ export const useAppStore = create<AppState>((set) => ({
   roiSnapshot: null,
   sessionUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, runs: 0 },
   panelOpen: false,
+  changePanelOpen: false,
+  unreadChangeCount: 0,
   threadGoal: null,
   threadTodos: null,
   graphRunInspection: null,
@@ -497,6 +508,10 @@ export const useAppStore = create<AppState>((set) => ({
   })),
 
   setPanelOpen: (open) => set({ panelOpen: open }),
+  setChangePanelOpen: (open) => set({ changePanelOpen: open }),
+  addUnreadChanges: (count) =>
+    set((state) => ({ unreadChangeCount: state.unreadChangeCount + count })),
+  clearUnreadChanges: () => set({ unreadChangeCount: 0 }),
   setThreadGoal: (goal) => set({ threadGoal: goal }),
   setThreadTodos: (todos) => set({ threadTodos: todos }),
   setGraphRunInspection: (inspection) => set({ graphRunInspection: inspection }),

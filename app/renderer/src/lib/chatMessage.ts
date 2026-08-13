@@ -96,6 +96,43 @@ export interface TurnUsage {
   totalTokens: number
 }
 
+/** 单文件变更状态（对应 gateway workspace_changes 的 WorkspaceChangeStatus）。 */
+export type FileChangeStatus = 'created' | 'modified' | 'deleted' | 'symlink_created'
+
+/** 单文件变更（对应 gateway WorkspaceFileChange.to_dict()）。 */
+export interface FileChange {
+  path: string
+  root: string
+  status: FileChangeStatus
+  binary: boolean
+  sensitive: boolean
+  size_before: number | null
+  size_after: number | null
+  diff: string
+  diff_truncated: boolean
+  diff_unavailable_reason: 'binary' | 'large' | 'sensitive' | 'truncated' | 'symlink' | null
+  additions: number
+  deletions: number
+  symlink: boolean
+}
+
+/** 一轮 turn 的 workspace 变更摘要（对应 gateway WorkspaceChangeSummary）。 */
+export interface FileChangeSummary {
+  created: number
+  modified: number
+  deleted: number
+  symlink_created: number
+  additions: number
+  deletions: number
+  truncated: boolean
+}
+
+/** turn_completed 事件携带的 fileChanges 载荷。 */
+export interface FileChangesPayload {
+  summary: FileChangeSummary
+  files: FileChange[]
+}
+
 /** turn 生命周期状态。 */
 export type TurnStatus =
   | 'streaming'     // 流式中
@@ -131,6 +168,8 @@ export interface ChatMessage {
   todos?: TodoItem[]
   /** 该 turn 的 token 用量（完成时填）。 */
   usage?: TurnUsage
+  /** 该 turn 的 workspace 文件变更（turn_completed 时由 gateway 计算并附带）。 */
+  fileChanges?: FileChangesPayload
   /** reasoning 耗时（ms），完成后由 reducer 填充。 */
   thinkingMs?: number
 

@@ -40,8 +40,12 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
 from .qilin_client import QiLinClient
+from .workspace_changes_tracker import WorkspaceChangesTracker
 
 logger = logging.getLogger("kcoder_gateway.sse")
+
+# 模块级单例：threads.py 的 GET /threads/{id}/changes 端点共享同一实例
+workspace_tracker = WorkspaceChangesTracker()
 
 
 # ────────────────────────────────────────────────────────────────
@@ -552,6 +556,9 @@ async def consume_langgraph_stream(
         run_config: dict[str, Any] | None = (
             {"configurable": configurable} if configurable else None
         )
+        # turn 前捕获 workspace 快照（失败不阻塞对话，仅记录日志）
+        await workspace_tracker.capture_before(run.turn_id, workspace_path)
+
         buffer = ""
         async for raw_chunk in client.stream_run(
             run.thread_id, assistant_id, input_data, config=run_config
@@ -568,6 +575,13 @@ async def consume_langgraph_stream(
                 if event_type is None and event_data is None:
                     continue
                 for ev in translate_event(event_type or "", event_data, run):
+                    if ev.get("kind") == "turn_completed":
+                        # run 结束：计算本轮 workspace 变更并附加到 turn_completed
+                        changes = await workspace_tracker.compute_changes(
+                            run.turn_id, run.thread_id, workspace_path
+                        )
+                        if changes:
+                            ev["fileChanges"] = changes
                     await q.put(ev)
                 if event_type == "end":
                     got_end = True
@@ -577,6 +591,12 @@ async def consume_langgraph_stream(
             event_type, event_data = parse_sse_frame(buffer)
             if event_type is not None or event_data is not None:
                 for ev in translate_event(event_type or "", event_data, run):
+                    if ev.get("kind") == "turn_completed":
+                        changes = await workspace_tracker.compute_changes(
+                            run.turn_id, run.thread_id, workspace_path
+                        )
+                        if changes:
+                            ev["fileChanges"] = changes
                     await q.put(ev)
                 if event_type == "end":
                     got_end = True
@@ -586,13 +606,17 @@ async def consume_langgraph_stream(
                 "LangGraph stream ended without 'end' event (thread=%s) — synthesizing turn_completed",
                 run.thread_id,
             )
-            await q.put(
-                {
-                    "kind": "turn_completed",
-                    "turnId": run.turn_id,
-                    "threadId": run.thread_id,
-                }
+            completed_event: dict[str, Any] = {
+                "kind": "turn_completed",
+                "turnId": run.turn_id,
+                "threadId": run.thread_id,
+            }
+            changes = await workspace_tracker.compute_changes(
+                run.turn_id, run.thread_id, workspace_path
             )
+            if changes:
+                completed_event["fileChanges"] = changes
+            await q.put(completed_event)
 
     except asyncio.CancelledError:
         logger.info("LangGraph stream cancelled for thread %s", run.thread_id)

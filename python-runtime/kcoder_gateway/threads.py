@@ -39,6 +39,7 @@ from .sse import (
     RunRegistry,
     consume_langgraph_stream,
     sse_event_generator,
+    workspace_tracker,
 )
 from .qilin_client import QiLinClient
 
@@ -658,3 +659,24 @@ async def read_thread_file(
         raise HTTPException(status_code=500, detail=f"Failed to read file: {exc}") from exc
 
     return PlainTextResponse(content=content, media_type="text/plain; charset=utf-8")
+
+
+# ────────────────────────────────────────────────────────────────
+# 变更历史端点
+# ────────────────────────────────────────────────────────────────
+
+
+@router.get("/threads/{thread_id}/changes")
+async def get_thread_changes(
+    thread_id: str, request: Request
+) -> dict[str, Any]:
+    """GET /v1/threads/:id/changes — 该 thread 的 workspace 变更历史（新→旧）。
+
+    数据来自 gateway 内存变更历史（sse.py 的 workspace_tracker，每轮 turn
+    结束时记录，上限 50 条）。历史不含 diff 的完整内容查询：files 数组
+    完整返回（含 diff），供 ChangePanel 渲染。
+    """
+    return {
+        "threadId": thread_id,
+        "changes": workspace_tracker.history(thread_id),
+    }

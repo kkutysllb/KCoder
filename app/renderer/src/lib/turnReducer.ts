@@ -14,6 +14,7 @@
 
 import type {
   ChatMessage,
+  FileChangesPayload,
   ReasoningBlock,
   ToolCall,
   TurnStatus
@@ -155,18 +156,21 @@ export function reduceSseEvent(
       return { ...state, status: 'compacted' as TurnStatus }
 
     // ── turn 结束 ────────────────────────────────────────────────
-    case 'turn_completed':
+    case 'turn_completed': {
+      const fileChanges = (data?.fileChanges as FileChangesPayload | undefined) ?? undefined
       return {
         ...state,
         status: 'done' as TurnStatus,
         isStreaming: false,
         reasoning: settleReasoning(state.reasoning, now),
+        fileChanges,
         // 收尾 thinkingMs
         thinkingMs:
           state.reasoning?.startedAt != null
             ? now - state.reasoning.startedAt
             : state.thinkingMs
       }
+    }
 
     case 'turn_failed':
     case 'error': {
