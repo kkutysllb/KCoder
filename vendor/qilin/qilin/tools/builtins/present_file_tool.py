@@ -63,12 +63,23 @@ def _normalize_presented_filepath(
     outputs_dir = Path(outputs_path).resolve()
     stripped = filepath.lstrip("/")
     virtual_prefix = VIRTUAL_PATH_PREFIX.lstrip("/")
+    outputs_virtual = OUTPUTS_VIRTUAL_PREFIX.lstrip("/")
 
     if stripped == virtual_prefix or stripped.startswith(virtual_prefix + "/"):
-        try:
-            actual_path = get_paths().resolve_virtual_path(thread_id, filepath, user_id=get_effective_user_id())
-        except TypeError:
-            actual_path = get_paths().resolve_virtual_path(thread_id, filepath)
+        # Resolve virtual path directly against thread_data.outputs_path instead
+        # of re-computing via Paths.resolve_virtual_path(). The latter derives
+        # the base from user_id, which can diverge from the user_id used by
+        # ThreadDataMiddleware when setting outputs_path — causing a mismatch
+        # that rejects valid files.
+        if stripped.startswith(outputs_virtual + "/"):
+            relative = stripped[len(outputs_virtual):].lstrip("/")
+            actual_path = (outputs_dir / relative).resolve()
+        else:
+            # Non-outputs virtual path (workspace/uploads) — fall back to Paths
+            try:
+                actual_path = get_paths().resolve_virtual_path(thread_id, filepath, user_id=get_effective_user_id())
+            except TypeError:
+                actual_path = get_paths().resolve_virtual_path(thread_id, filepath)
     else:
         actual_path = Path(filepath).expanduser().resolve()
 
