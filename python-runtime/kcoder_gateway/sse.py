@@ -252,6 +252,12 @@ def _translate_single_message(
                 name = tc.get("name") or ""
                 call_id = tc.get("id") or ""
                 if call_id and name:
+                    # 幂等：messages/partial 帧重复携带累积 tool_calls，
+                    # 同一 call_id 只发一次 tool_call_started（否则前端
+                    # 会出现重复 key 与重复行）。
+                    if call_id in run.tool_call_ids_seen:
+                        continue
+                    run.tool_call_ids_seen.add(call_id)
                     tc_event: dict[str, Any] = {
                         "kind": "tool_call_started",
                         "callId": call_id,
@@ -410,6 +416,9 @@ class ActiveRun:
     # 按 message id 追踪 AI 思考文本累积量（reasoning_content，同 ai_text_seen
     # 的前缀 diff 逻辑）。
     ai_reasoning_seen: dict[str, str] = field(default_factory=dict)
+    # 已发送过 tool_call_started 的 call_id（partial 帧重复携带累积
+    # tool_calls，只发一次避免前端重复 key）。
+    tool_call_ids_seen: set[str] = field(default_factory=set)
     # LangGraph run id（从 metadata 事件捕获，用于 runs 表主键）
     run_id: str | None = None
     # 按模型聚合的 token 用量（桶字段对齐 RunRow.token_usage_by_model）

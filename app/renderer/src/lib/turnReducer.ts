@@ -89,6 +89,9 @@ export function reduceSseEvent(
       const callId = (data?.callId as string) ?? ''
       const toolName = (data?.toolName as string) ?? 'tool'
       if (!callId) return state
+      // 幂等：同一 callId 的 started 事件可能重复到达（langgraph partial
+      // 帧重复携带累积 tool_calls），已存在则跳过，避免重复 key 与重复行。
+      if ((state.toolCalls ?? []).some((c) => c.id === callId)) return state
       const call: ToolCall = {
         id: callId,
         name: toolName,
