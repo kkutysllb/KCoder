@@ -98,7 +98,7 @@ def translate_event(event_type: str, data: Any, run: ActiveRun) -> list[dict[str
     核心映射（D2 决策点）::
 
         metadata      → turn_started
-        messages/AI   → assistant_text_delta (+ tool_call_started)
+        messages/AI   → assistant_text_delta / assistant_reasoning_delta (+ tool_call_started)
         messages/Tool → tool_call_finished
         end           → turn_completed
         error         → turn_failed
@@ -229,9 +229,22 @@ def _translate_single_message(
         # 文本内容增量（skip_text=True 时跳过——用于 messages/complete 避免与 partial 重复）
         if not skip_text:
             text = _extract_text(msg.get("content", ""))
-            delta = _compute_ai_delta(text, msg_id, run)
+            delta = _compute_prefix_delta(text, msg_id, run.ai_text_seen)
             if delta:
                 events.append({"kind": "assistant_text_delta", "delta": delta})
+
+            # 思考内容增量（reasoning_content）。QiLin 各模型适配器
+            # （patched_deepseek/stepfun/mimo/vllm）统一把思考文本放在
+            # additional_kwargs.reasoning_content；messages/partial 同样是
+            # 累积全文，按 msg_id 做前缀 diff。
+            reasoning = _extract_reasoning_text(msg)
+            reasoning_delta = _compute_prefix_delta(
+                reasoning, msg_id, run.ai_reasoning_seen
+            )
+            if reasoning_delta:
+                events.append(
+                    {"kind": "assistant_reasoning_delta", "delta": reasoning_delta}
+                )
 
         # 工具调用（完整调用或流式 chunk）
         for tc in (msg.get("tool_calls") or []):
@@ -317,8 +330,8 @@ def _extract_text(content: Any) -> str:
     return ""
 
 
-def _compute_ai_delta(text: str, msg_id: str, run: ActiveRun) -> str:
-    """计算 messages/partial 的真实增量.
+def _compute_prefix_delta(text: str, msg_id: str, seen: dict[str, str]) -> str:
+    """计算 messages/partial 的真实增量（文本与思考内容共用）。
 
     langgraph_api 的 ``messages/partial`` yield 的是【累积后完整消息】
     （``stream.py``: ``messages[msg.id] += msg`` 后 yield ``messages[msg.id]``），
@@ -332,7 +345,7 @@ def _compute_ai_delta(text: str, msg_id: str, run: ActiveRun) -> str:
         return ""
     if not msg_id:
         return text
-    prev = run.ai_text_seen.get(msg_id)
+    prev = seen.get(msg_id)
     if not prev:
         delta = text
     elif text.startswith(prev):
@@ -344,8 +357,26 @@ def _compute_ai_delta(text: str, msg_id: str, run: ActiveRun) -> str:
     else:
         # 同 id 但内容无前缀关系（极少见，如分支重写）：全量重发
         delta = text
-    run.ai_text_seen[msg_id] = text
+    seen[msg_id] = text
     return delta
+
+
+def _extract_reasoning_text(msg: dict[str, Any]) -> str:
+    """从 LangChain 消息字典提取思考文本.
+
+    QiLin 各模型适配器统一把思考内容存入 ``additional_kwargs.reasoning_content``
+    （DeepSeek/StepFun/MiMo/vLLM 的 patched adapter 均如此）；部分版本也可能
+    放顶层 ``reasoning_content`` 字段，一并兼容。
+    """
+    additional = msg.get("additional_kwargs")
+    if isinstance(additional, dict):
+        rc = additional.get("reasoning_content")
+        if isinstance(rc, str) and rc:
+            return rc
+    rc = msg.get("reasoning_content")
+    if isinstance(rc, str) and rc:
+        return rc
+    return ""
 
 
 # ────────────────────────────────────────────────────────────────
@@ -376,6 +407,9 @@ class ActiveRun:
     # 发送的是【累积后完整消息】（见 stream.py: messages[msg.id] += msg），
     # 所以必须做前缀 diff 才能得到真正的增量，否则会层层重复。
     ai_text_seen: dict[str, str] = field(default_factory=dict)
+    # 按 message id 追踪 AI 思考文本累积量（reasoning_content，同 ai_text_seen
+    # 的前缀 diff 逻辑）。
+    ai_reasoning_seen: dict[str, str] = field(default_factory=dict)
     # LangGraph run id（从 metadata 事件捕获，用于 runs 表主键）
     run_id: str | None = None
     # 按模型聚合的 token 用量（桶字段对齐 RunRow.token_usage_by_model）
