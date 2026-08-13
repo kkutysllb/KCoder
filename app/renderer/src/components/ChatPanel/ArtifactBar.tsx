@@ -3,13 +3,11 @@
 // 当 agent 调用 present_files 时，SSE 翻译层从 tool_call args 中提取
 // filepaths 数组，通过 tool_call_started 事件传递到前端。
 // 本组件从 msg.toolCalls 中检测 present_files 调用，
-// 渲染可点击的文件卡片，点击后弹窗显示文件内容。
+// 渲染可点击的文件卡片，点击后用 FilePreviewModal 弹窗显示文件内容。
 
-import { useState, useCallback } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { useState } from 'react'
 import type { ChatMessage } from '../../lib/chatMessage'
-import { useAppStore } from '../../stores/app-store'
+import { FilePreviewModal } from './FilePreviewModal'
 
 interface ArtifactBarProps {
   msg: ChatMessage
@@ -68,31 +66,7 @@ const ICON_MAP: Record<string, string> = {
 
 export function ArtifactBar({ msg }: ArtifactBarProps) {
   const artifacts = extractArtifacts(msg)
-  const [viewer, setViewer] = useState<{ path: string; content: string; loading: boolean } | null>(null)
-
-  const openArtifact = useCallback(async (path: string) => {
-    setViewer({ path, content: '', loading: true })
-    try {
-      const threadId = useAppStore.getState().threadId
-      if (!threadId) {
-        setViewer({ path, content: 'Error: Thread ID not available', loading: false })
-        return
-      }
-      const port = window.location.port
-      const res = await fetch(
-        `http://localhost:${port}/v1/threads/${threadId}/file?path=${encodeURIComponent(path)}`
-      )
-      if (!res.ok) {
-        const text = await res.text().catch(() => res.statusText)
-        setViewer({ path, content: `Failed to load: ${text}`, loading: false })
-        return
-      }
-      const content = await res.text()
-      setViewer({ path, content, loading: false })
-    } catch (err) {
-      setViewer({ path, content: `Error: ${err}`, loading: false })
-    }
-  }, [])
+  const [selectedPath, setSelectedPath] = useState<string | null>(null)
 
   if (artifacts.length === 0) return null
 
@@ -104,7 +78,7 @@ export function ArtifactBar({ msg }: ArtifactBarProps) {
           return (
             <button
               key={item.path}
-              onClick={() => openArtifact(item.path)}
+              onClick={() => setSelectedPath(item.path)}
               className="group flex items-center gap-2 rounded-lg border border-blue-500/20 bg-blue-500/[0.04] px-3 py-2 text-left hover:border-blue-500/40 hover:bg-blue-500/[0.08] transition-colors"
             >
               <span className="text-base">{icon}</span>
@@ -129,56 +103,10 @@ export function ArtifactBar({ msg }: ArtifactBarProps) {
         })}
       </div>
 
-      {/* 文件查看弹窗 */}
-      {viewer && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => setViewer(null)}
-        >
-          <div
-            className="relative w-[min(900px,90vw)] h-[80vh] rounded-xl border border-border-subtle bg-bg-sidebar shadow-2xl flex flex-col overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* 标题栏 */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-sm">{ICON_MAP[viewer.path.split('.').pop()?.toLowerCase() || ''] || '📎'}</span>
-                <span className="text-sm font-medium text-text-primary truncate">
-                  {viewer.path.split('/').pop()}
-                </span>
-              </div>
-              <button
-                onClick={() => setViewer(null)}
-                className="p-1 rounded hover:bg-bg-hover transition-colors shrink-0"
-                aria-label="Close"
-              >
-                <svg className="w-4 h-4 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {/* 内容区 */}
-            <div className="flex-1 overflow-auto p-4">
-              {viewer.loading ? (
-                <div className="flex items-center justify-center h-full text-text-muted text-sm">
-                  <span className="animate-pulse">加载中…</span>
-                </div>
-              ) : viewer.path.endsWith('.md') ? (
-                <div className="markdown-body">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{viewer.content}</ReactMarkdown>
-                </div>
-              ) : (
-                <pre className="text-xs text-text-primary whitespace-pre-wrap font-mono break-all">
-                  {viewer.content}
-                </pre>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* 文件预览弹窗（共享组件，engine 端口 + 应用内渲染） */}
+      {selectedPath && (
+        <FilePreviewModal path={selectedPath} onClose={() => setSelectedPath(null)} />
       )}
     </>
   )
 }
-
-

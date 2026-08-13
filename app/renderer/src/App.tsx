@@ -60,6 +60,53 @@ function PanelToggleButton() {
   )
 }
 
+/** 文件变更面板开关按钮（badge 显示未读变更文件数） */
+function ChangePanelToggleButton() {
+  const { changePanelOpen, setChangePanelOpen, unreadChangeCount, clearUnreadChanges } =
+    useAppStore()
+  return (
+    <button
+      onClick={() => {
+        const next = !changePanelOpen
+        setChangePanelOpen(next)
+        if (next) clearUnreadChanges()
+      }}
+      title="文件变更面板"
+      className={`relative p-1.5 rounded-md transition-colors ${
+        changePanelOpen
+          ? 'text-white bg-bg-hover'
+          : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
+      }`}
+    >
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 12.25l4.5-4.5 4.5 4.5M12 7.75v9.5" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 4.5h15" opacity={0.4} />
+      </svg>
+      {unreadChangeCount > 0 && (
+        <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[#3b82f6] px-0.5 text-[9px] font-medium leading-none text-white">
+          {unreadChangeCount > 99 ? '99+' : unreadChangeCount}
+        </span>
+      )}
+    </button>
+  )
+}
+
+/** 新建会话按钮 */
+function NewChatButton() {
+  const { newChat } = useChat()
+  return (
+    <button
+      onClick={() => newChat()}
+      title="新建会话"
+      className="p-1.5 rounded-md transition-colors text-[#8a8a8f] hover:text-white hover:bg-bg-hover"
+    >
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+      </svg>
+    </button>
+  )
+}
+
 export default function App() {
   const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath, panelOpen, sidebarWidth, setSidebarWidth } = useAppStore()
   const { loadThread } = useChat()
@@ -186,6 +233,8 @@ export default function App() {
         {/* Top-right controls: panel toggle + terminal — 固定在窗口右上角，永不移动 */}
         <div className="absolute top-3 right-4 z-30 no-drag flex items-center gap-1">
           <PanelToggleButton />
+          <ChangePanelToggleButton />
+          <NewChatButton />
           <div className="w-px h-4 bg-border-custom mx-0.5" />
           <TerminalToggleButton active={showTerminal} onToggle={toggleTerminal} />
         </div>

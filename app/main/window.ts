@@ -37,9 +37,13 @@ export function createWindow(options: WindowOptions): BrowserWindow {
     mainWindow.show()
   })
 
-  // Open external links in default browser
+  // Open external links in default browser；workspace 虚拟路径/相对路径/file://
+  // 等非 http(s) URL 直接 deny——否则 Electron 会新建黑屏窗口或把无效地址
+  // 丢给系统浏览器。
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      shell.openExternal(url)
+    }
     return { action: 'deny' }
   })
 

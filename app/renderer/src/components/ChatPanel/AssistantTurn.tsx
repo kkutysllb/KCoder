@@ -10,7 +10,7 @@
 //   7. 错误信息
 //   8. TurnMeta（usage + 模型 + 耗时）
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage, HumanInputPayload } from '../../lib/chatMessage'
@@ -23,6 +23,7 @@ import { ToolActivitySummary } from './ToolActivitySummary'
 import { ClarificationCard } from './ClarificationCard'
 import { ArtifactBar } from './ArtifactBar'
 import { FileChangeCard } from './FileChangeCard'
+import { FilePreviewModal } from './FilePreviewModal'
 import { StreamingDots } from './parts/icons'
 
 interface AssistantTurnProps {
@@ -77,6 +78,9 @@ export function AssistantTurn({
   fallbackModel
 }: AssistantTurnProps) {
   const streaming = isStreaming ?? msg.status === 'streaming'
+
+  // 正文中文件路径链接（/mnt/user-data/...）的应用内预览弹窗状态
+  const [previewPath, setPreviewPath] = useState<string | null>(null)
 
   // 兜底净化：剥掉 QiLin 注入的 <memory> 等内部块（防止 SSE 流式或
   // loadThread 路径漏过滤时直接渲染给用户）。
@@ -163,9 +167,29 @@ export function AssistantTurn({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  // 链接：始终新窗口打开 + 安全 rel
-                  a(props) {
-                    return <a {...props} target="_blank" rel="noopener noreferrer" />
+                  // 链接：workspace 虚拟路径 → 应用内预览；http(s) → 新窗口打开
+                  a({ href, children, ...props }) {
+                    const h = href || ''
+                    if (h.startsWith('/mnt/user-data/')) {
+                      return (
+                        <a
+                          href={h}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            setPreviewPath(h)
+                          }}
+                          title="在应用内预览该文件"
+                          {...props}
+                        >
+                          {children}
+                        </a>
+                      )
+                    }
+                    return (
+                      <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+                        {children}
+                      </a>
+                    )
                   },
                   // 代码块：fallback 到 inline 样式（CodeBlock 组件已存在但对单行 token 适配差）
                   code({ className, children, ...props }) {
@@ -212,6 +236,11 @@ export function AssistantTurn({
             </svg>
             <span className="text-xs text-red-300">{msg.error}</span>
           </div>
+        )}
+
+        {/* 正文文件链接预览弹窗 */}
+        {previewPath && (
+          <FilePreviewModal path={previewPath} onClose={() => setPreviewPath(null)} />
         )}
 
         {/* TurnMeta（usage + 模型 + 耗时） */}
