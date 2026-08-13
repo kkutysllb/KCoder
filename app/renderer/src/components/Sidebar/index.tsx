@@ -118,6 +118,8 @@ interface SidebarProps {
 const DEFAULT_SIDEBAR_WIDTH = 260
 const MIN_SIDEBAR_WIDTH = 200
 const MAX_SIDEBAR_WIDTH = 420
+/** 项目下默认展示的最近任务数，超出部分折叠到「更多」 */
+const DEFAULT_VISIBLE_TASKS = 5
 
 /** 相对时间格式化（"刚刚"/"5分钟前"/"2小时前"/"3天前"） */
 function formatRelativeTime(iso: string): string {
@@ -262,6 +264,10 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
   const [threads, setThreads] = useState<ThreadSummary[]>([])
   const [projects, setProjects] = useState<ProjectEntry[]>([])
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
+  // 展开全部任务的项目（默认只展示最近 DEFAULT_VISIBLE_TASKS 个）
+  const [showAllProjects, setShowAllProjects] = useState<Set<string>>(new Set())
+  // 会话区折叠态
+  const [chatsCollapsed, setChatsCollapsed] = useState(false)
   const [loadingThreads, setLoadingThreads] = useState(false)
   // 已尝试自动注册的 workspace 路径（防重复请求）
   const autoRegisteredRef = useRef<Set<string>>(new Set())
@@ -407,6 +413,19 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
   // 切换项目分组折叠态
   const toggleProjectCollapse = useCallback((projectId: string) => {
     setCollapsedProjects((prev) => {
+      const next = new Set(prev)
+      if (next.has(projectId)) {
+        next.delete(projectId)
+      } else {
+        next.add(projectId)
+      }
+      return next
+    })
+  }, [])
+
+  // 切换项目内任务列表「显示全部/收起最近 5 个」
+  const toggleShowAll = useCallback((projectId: string) => {
+    setShowAllProjects((prev) => {
       const next = new Set(prev)
       if (next.has(projectId)) {
         next.delete(projectId)
@@ -616,22 +635,23 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
           </div>
         )}
 
-        {/* 项目分组：可折叠、hover 重命名/删除 */}
+        {/* 项目分组：点击名称折叠/展开，hover 重命名/删除 */}
         {projectGroups.map(({ key, project, threads: taskList }) => {
           const collapsed = collapsedProjects.has(key)
+          const showAll = showAllProjects.has(key)
           const projectName = project?.name ?? (project?.path.split('/').pop() || key)
+          // 默认只展示最近 DEFAULT_VISIBLE_TASKS 个任务，其余通过「更多」展开
+          const visibleTasks = showAll ? taskList : taskList.slice(0, DEFAULT_VISIBLE_TASKS)
           return (
             <div key={key} className="mb-2">
               <div className="group flex items-center gap-1 px-2 py-1.5 text-[12px] font-medium text-text-secondary rounded-md hover:bg-bg-hover transition-colors">
                 <button
                   className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
                   onClick={() => toggleProjectCollapse(key)}
+                  title={project?.path}
                 >
-                  <svg className={`w-3 h-3 transition-transform ${collapsed ? '' : 'rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
                   <Icons.Folder />
-                  <span className="truncate" title={project?.path}>{projectName}</span>
+                  <span className="truncate">{projectName}</span>
                   <span className="text-[10px] opacity-60 shrink-0">{taskList.length}</span>
                 </button>
                 {project && (
@@ -659,7 +679,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
               </div>
               {!collapsed && (
                 <div className="space-y-0.5 mt-0.5">
-                  {taskList.map(thread => (
+                  {visibleTasks.map(thread => (
                     <ThreadRow
                       key={thread.id}
                       thread={thread}
@@ -669,28 +689,50 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
                       onDelete={(e) => handleDeleteThread(thread.id, e)}
                     />
                   ))}
+                  {/* 任务超过 5 个时：默认折叠，点击「更多」展开全部 */}
+                  {taskList.length > DEFAULT_VISIBLE_TASKS && (
+                    <button
+                      className="w-full text-left px-2 py-1 text-xs text-text-muted hover:text-text-secondary hover:bg-bg-hover rounded-md transition-colors"
+                      onClick={() => toggleShowAll(key)}
+                    >
+                      {showAll
+                        ? t('sidebar.showLess')
+                        : `${t('sidebar.showMore')} (${taskList.length - DEFAULT_VISIBLE_TASKS})`}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
           )
         })}
 
-        {/* Section: 会话（不绑定项目的普通对话，时间序平铺） */}
-        <div className="px-1 pt-3 pb-1 text-[13px] font-medium text-text-primary">
-          {t('sidebar.chats')}
+        {/* Section: 会话（不绑定项目的普通对话，时间序平铺，右侧折叠按钮） */}
+        <div className="px-1 pt-3 pb-1 flex items-center justify-between">
+          <span className="text-[13px] font-medium text-text-primary">{t('sidebar.chats')}</span>
+          <button
+            onClick={() => setChatsCollapsed(v => !v)}
+            className="p-1 rounded-md text-text-muted hover:text-white hover:bg-bg-hover transition-colors"
+            title={t('sidebar.collapse')}
+          >
+            <svg className={`w-3.5 h-3.5 transition-transform ${chatsCollapsed ? '' : 'rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
         </div>
-        <div className="space-y-0.5">
-          {sortedChatThreads.map(thread => (
-            <ThreadRow
-              key={thread.id}
-              thread={thread}
-              isActive={thread.id === threadId}
-              onSelect={() => selectThread(thread.id, thread.workspace)}
-              onArchive={(e) => handleArchiveToggle(thread.id, thread.archived, e)}
-              onDelete={(e) => handleDeleteThread(thread.id, e)}
-            />
-          ))}
-        </div>
+        {!chatsCollapsed && (
+          <div className="space-y-0.5">
+            {sortedChatThreads.map(thread => (
+              <ThreadRow
+                key={thread.id}
+                thread={thread}
+                isActive={thread.id === threadId}
+                onSelect={() => selectThread(thread.id, thread.workspace)}
+                onArchive={(e) => handleArchiveToggle(thread.id, thread.archived, e)}
+                onDelete={(e) => handleDeleteThread(thread.id, e)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* User profile */}
