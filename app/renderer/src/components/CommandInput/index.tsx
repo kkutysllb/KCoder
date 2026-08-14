@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useI18n } from '../../i18n'
 import { useAppStore } from '../../stores/app-store'
 import { getEngineAPI, type ModelEntry, type BranchListResponse } from '../../services/engine-api'
@@ -332,6 +332,66 @@ export function CommandInput({
   }, [])
   const { t } = useI18n()
 
+  // ── @-mention：输入 @ 触发文件选择器，选中后插入路径并加入上下文 ──
+  const [filesIndex, setFilesIndex] = useState<string[] | null>(null)
+  const [mention, setMention] = useState<{ active: boolean; query: string; start: number }>({ active: false, query: '', start: -1 })
+  const [mentionIdx, setMentionIdx] = useState(0)
+  const [mentionedFiles, setMentionedFiles] = useState<string[]>([])
+
+  // 首次触发 @ 时懒加载工作区文件清单（缓存到 filesIndex）。
+  // 用 getState() 读 workspacePath/enginePort，避免与下方 store 解构的 TDZ 冲突。
+  const ensureFilesIndex = useCallback(async () => {
+    if (filesIndex) return
+    const { workspacePath: wp, enginePort: ep } = useAppStore.getState()
+    if (!wp) return
+    try {
+      const data = await getEngineAPI(ep).workspaceFiles(wp)
+      setFilesIndex(data.files)
+    } catch (e) {
+      console.error('[CommandInput] load files index failed:', e)
+    }
+  }, [filesIndex])
+
+  // 从光标位置提取当前 @token
+  const detectMention = useCallback((value: string, cursor: number) => {
+    const before = value.slice(0, cursor)
+    const m = before.match(/(^|\s)@([\w./\-]*)$/)
+    if (!m) {
+      setMention({ active: false, query: '', start: -1 })
+      return
+    }
+    const atIdx = (m.index ?? 0) + m[1].length
+    setMention({ active: true, query: m[2], start: atIdx })
+    setMentionIdx(0)
+    void ensureFilesIndex()
+  }, [ensureFilesIndex])
+
+  const mentionResults = useMemo(() => {
+    if (!mention.active || !filesIndex) return []
+    const q = mention.query.toLowerCase()
+    const filtered = q
+      ? filesIndex.filter((f) => f.toLowerCase().includes(q)).slice(0, 12)
+      : filesIndex.slice(0, 12)
+    return filtered
+  }, [mention, filesIndex])
+
+  const insertMention = useCallback((file: string) => {
+    const ta = textareaRef.current
+    if (!ta) return
+    const cursor = ta.selectionStart
+    const before = input.slice(0, mention.start)
+    const after = input.slice(cursor)
+    const next = `${before}@${file} ${after}`
+    setInput(next)
+    setMention({ active: false, query: '', start: -1 })
+    setMentionedFiles((prev) => (prev.includes(file) ? prev : [...prev, file]))
+    requestAnimationFrame(() => {
+      const pos = (before + `@${file} `).length
+      ta.focus()
+      ta.setSelectionRange(pos, pos)
+    })
+  }, [input, mention.start])
+
   // Close permission menu on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -408,12 +468,39 @@ export function CommandInput({
       }
     }
     const messageText = text || (pendingFiles.length > 0 ? `(${pendingFiles.length} file(s))` : '')
-    onSend(messageText, attachmentIds)
+    // 把 @-mention 的文件作为「请参考」上下文注入 prompt（agent 用 read 工具读取）
+    const finalText = mentionedFiles.length > 0
+      ? `${messageText}\n\n<user_referenced_files>\n请参考以下工作区文件（相对路径）：\n${mentionedFiles.map((f) => `- ${f}`).join('\n')}\n</user_referenced_files>`
+      : messageText
+    onSend(finalText, attachmentIds)
     setInput('')
     setPendingFiles([])
+    setMentionedFiles([])
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // @-mention 键盘导航：↑↓ 选择、Enter 确认、Esc 关闭
+    if (mention.active && mentionResults.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setMentionIdx((i) => Math.min(i + 1, mentionResults.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionIdx((i) => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        insertMention(mentionResults[mentionIdx])
+        return
+      }
+      if (e.key === 'Escape') {
+        setMention({ active: false, query: '', start: -1 })
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
@@ -490,6 +577,26 @@ export function CommandInput({
           </div>
         )}
 
+        {/* @-mention 引用的文件 chips */}
+        {mentionedFiles.length > 0 && (
+          <div className="px-4 pt-2 flex flex-wrap gap-1.5">
+            {mentionedFiles.map((f, i) => (
+              <span key={i} className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#3b82f6]/10 text-[11px] text-[#60a5fa] border border-[#3b82f6]/30">
+                <span className="text-[#60a5fa]">@</span>
+                <span className="truncate max-w-40 font-mono">{f}</span>
+                <button
+                  onClick={() => setMentionedFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                  className="text-[#60a5fa]/60 hover:text-[#ef4444] transition-colors shrink-0"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Input area */}
         <div
           className="px-4 py-2"
@@ -505,7 +612,10 @@ export function CommandInput({
           <textarea
             ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value)
+              detectMention(e.target.value, e.target.selectionStart)
+            }}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={isGenerating ? t('chat.steer.placeholder') : t('input.placeholder')}
@@ -513,6 +623,24 @@ export function CommandInput({
             rows={1}
             className={`command-input resize-none ${isGenerating ? 'placeholder-[#60a5fa]' : ''}`}
           />
+          {/* @-mention 文件选择器 */}
+          {mention.active && mentionResults.length > 0 && (
+            <div className="absolute bottom-full left-4 mb-1 max-h-[260px] w-[320px] overflow-y-auto rounded-lg border border-[#3a3a3e] bg-[#1d1d21] shadow-2xl py-1 z-50">
+              {mentionResults.map((f, i) => (
+                <button
+                  key={f}
+                  onMouseEnter={() => setMentionIdx(i)}
+                  onClick={() => insertMention(f)}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${i === mentionIdx ? 'bg-[#2e2e34] text-text-primary' : 'text-text-secondary'}`}
+                >
+                  <svg className="w-3 h-3 shrink-0 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                  <span className="truncate font-mono">{f}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Bottom toolbar: actions + model selector + send */}

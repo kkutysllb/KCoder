@@ -11,6 +11,7 @@ import { InfoPanel } from './components/InfoPanel'
 import { ChangePanel } from './components/ChangePanel'
 import { FilePreviewPanel } from './components/ChatPanel/FilePreviewPanel'
 import { FileTree } from './components/FileTree'
+import { SearchPanel } from './components/SearchPanel'
 import { SidebarResizeHandle } from './components/SidebarResizeHandle'
 import { CommandPalette, type CommandItem } from './components/CommandPalette'
 import { useChat } from './hooks/useChat'
@@ -194,6 +195,7 @@ export default function App() {
   const [showTerminal, setShowTerminal] = useState(false)
   const [terminalMounted, setTerminalMounted] = useState(false)
   const [showFileTree, setShowFileTree] = useState(false)
+  const [fileSearchQuery, setFileSearchQuery] = useState('')
 
   useEffect(() => {
     // Apply saved theme on startup + sync general prefs to main process (proxy/cert)
@@ -374,7 +376,7 @@ export default function App() {
         <FilePreviewPanel path={filePreviewPath} onClose={closeFilePreview} />
       )}
 
-      {/* 工作区文件树（左侧浮动面板，右上角按钮切换） */}
+      {/* 工作区文件树 + 全局搜索（左侧浮动面板，右上角按钮切换） */}
       {showFileTree && (
         <aside className="absolute left-0 top-12 bottom-0 z-20 w-[260px] flex flex-col border-r border-border-custom bg-bg-primary shadow-xl animate-[slide-in-right_0.2s_ease-out]">
           <div className="flex items-center justify-between px-3 py-2 border-b border-border-custom">
@@ -385,8 +387,21 @@ export default function App() {
               </svg>
             </button>
           </div>
+          {/* 搜索框：有内容时显示搜索结果，否则显示文件树 */}
+          <div className="px-2 py-1.5 border-b border-border-custom">
+            <input
+              value={fileSearchQuery}
+              onChange={(e) => setFileSearchQuery(e.target.value)}
+              placeholder="在工作区中搜索…"
+              className="w-full rounded bg-bg-hover px-2 py-1 text-xs text-text-primary placeholder:text-text-muted outline-none focus:ring-1 focus:ring-[#3b82f6]"
+            />
+          </div>
           <div className="flex-1 overflow-y-auto">
-            <FileTree rootPath={workspacePath ?? ''} onOpenFile={(p) => openFilePreview(p)} />
+            {fileSearchQuery.trim() ? (
+              <SearchPanel rootPath={workspacePath ?? ''} query={fileSearchQuery} onOpenFile={(p) => openFilePreview(p)} />
+            ) : (
+              <FileTree rootPath={workspacePath ?? ''} onOpenFile={(p) => openFilePreview(p)} />
+            )}
           </div>
         </aside>
       )}

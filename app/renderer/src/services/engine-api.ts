@@ -1778,6 +1778,13 @@ data: <full EngineStreamEvent JSON>
     return r.json()
   }
 
+  /** GET /v1/workspace/files?path= → 扁平文件清单（rg --files，@-mention/快速打开用）。 */
+  async workspaceFiles(path: string): Promise<{ path: string; files: string[]; truncated: boolean }> {
+    const r = await fetch(`${this.baseUrl}/v1/workspace/files?path=${encodeURIComponent(path)}`, { headers: this.headers })
+    if (!r.ok) throw new Error(`workspace files failed: ${r.status}`)
+    return r.json()
+  }
+
   /** GET /v1/workspace/file?path= → 读取文本文件内容。 */
   async readWorkspaceFile(path: string): Promise<{ path: string; content: string; size: number; truncated: boolean }> {
     const r = await fetch(`${this.baseUrl}/v1/workspace/file?path=${encodeURIComponent(path)}`, { headers: this.headers })

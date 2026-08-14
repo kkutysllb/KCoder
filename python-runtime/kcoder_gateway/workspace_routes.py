@@ -268,6 +268,45 @@ async def workspace_tree(path: str = "") -> dict[str, Any]:
     return {"path": decoded, "entries": entries, "truncated": truncated}
 
 
+@router.get("/files")
+async def workspace_list_files(path: str = "") -> dict[str, Any]:
+    """GET /v1/workspace/files?path= → 扁平文件清单（rg --files，尊重 .gitignore）.
+
+    供 @-mention / 快速打开。返回 ``{ path, files: [relpath], truncated }``。
+    rg 不可用时回退到 os.walk（受限）。
+    """
+    cwd = unquote(path) if path else ""
+    if not cwd or not os.path.isdir(cwd):
+        raise HTTPException(status_code=400, detail=f"not a directory: {cwd!r}")
+    files: list[str] = []
+    truncated = False
+    try:
+        proc = subprocess.run(
+            ["rg", "--files", "--no-ignore-vcs", "--ignore", "-N"],
+            cwd=cwd, capture_output=True, text=True, timeout=10, check=False,
+        )
+        if proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                files.append(line)
+                if len(files) >= 5000:
+                    truncated = True
+                    break
+            return {"path": cwd, "files": files, "truncated": truncated, "engine": "ripgrep"}
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    # 回退：os.walk
+    for dirpath, dirnames, filenames in os.walk(cwd):
+        dirnames[:] = [d for d in dirnames if d not in _HIDDEN_DIRS and not d.startswith(".git")]
+        for fn in filenames:
+            files.append(os.path.relpath(os.path.join(dirpath, fn), cwd))
+            if len(files) >= 5000:
+                truncated = True
+                break
+        if truncated:
+            break
+    return {"path": cwd, "files": files, "truncated": truncated, "engine": "python"}
+
+
 @router.get("/file")
 async def workspace_read_file(path: str = "") -> dict[str, Any]:
     """GET /v1/workspace/file?path= → 读取文本文件内容.
