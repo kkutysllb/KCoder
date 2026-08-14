@@ -12,7 +12,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "electron-store": "^10.0.0",
+    "monaco-editor": "^0.56.0",
     "node-pty": "^1.0.0"
   },
   "devDependencies": {

@@ -1795,6 +1795,20 @@ data: <full EngineStreamEvent JSON>
     return r.json()
   }
 
+  /** PUT /v1/workspace/file → 写入文本文件（编辑器保存）。 */
+  async writeWorkspaceFile(path: string, content: string): Promise<{ path: string; saved: boolean; size: number }> {
+    const r = await fetch(`${this.baseUrl}/v1/workspace/file`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...this.headers },
+      body: JSON.stringify({ path, content })
+    })
+    if (!r.ok) {
+      const detail = await r.json().catch(() => ({}))
+      throw new Error(typeof detail?.detail === 'string' ? detail.detail : `write failed: ${r.status}`)
+    }
+    return r.json()
+  }
+
   /** POST /v1/workspace/search { path, query, glob?, maxResults? } → ripgrep 搜索。 */
   async workspaceSearch(
     path: string,

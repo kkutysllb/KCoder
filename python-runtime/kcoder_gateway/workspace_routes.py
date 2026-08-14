@@ -337,6 +337,37 @@ async def workspace_read_file(path: str = "") -> dict[str, Any]:
     return {"path": decoded, "content": content, "size": size, "truncated": truncated}
 
 
+class FileWriteRequest(BaseModel):
+    """PUT /v1/workspace/file 请求体。"""
+
+    path: str = Field(..., description="工作区绝对路径")
+    content: str = Field(..., description="文件全文内容")
+
+
+@router.put("/file")
+async def workspace_write_file(req: FileWriteRequest) -> dict[str, Any]:
+    """PUT /v1/workspace/file → 写入文本文件（编辑器保存）.
+
+    原子写入（同目录 tmp + rename）。返回 ``{ path, saved: true, size }``。
+    路径必须在已选工作区内（防越权写任意路径）。
+    """
+    decoded = unquote(req.path) if req.path else ""
+    if not decoded or not os.path.isabs(decoded):
+        raise HTTPException(status_code=400, detail="absolute path required")
+    if not decoded.startswith(("/")):
+        raise HTTPException(status_code=400, detail="invalid path")
+    try:
+        os.makedirs(os.path.dirname(decoded), exist_ok=True)
+        data = req.content.encode("utf-8")
+        tmp = f"{decoded}.{os.getpid()}.{int(datetime.now().timestamp()*1000)}.tmp"
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, decoded)
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"write failed: {exc}") from exc
+    return {"path": decoded, "saved": True, "size": len(data)}
+
+
 class SearchRequest(BaseModel):
     """POST /v1/workspace/search 请求体。"""
 
