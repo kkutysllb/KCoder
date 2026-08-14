@@ -6,7 +6,6 @@ import {
   type ApprovalRequest,
   type UserInputRequest
 } from '../services/engine-api'
-import type { EngineStreamEvent, RoiSnapshot } from '../services/contracts'
 import { reduceSseEvent, type SseEventKind } from '../lib/turnReducer'
 import type { ChatMessage, ToolCall } from '../lib/chatMessage'
 import { isInternalOnlyText, sanitizeAssistantText } from '../lib/chatMessage'
@@ -83,10 +82,6 @@ export function useChat() {
     setGenerating,
     setEngineStatus,
     clearMessages,
-    upsertBranch,
-    settleBranch,
-    setBranches,
-    setRoiSnapshot,
     setThreadGoal,
     setThreadTodos,
     // 新 turn-based API
@@ -126,9 +121,6 @@ export function useChat() {
   )
 
   const abortRef = useRef<AbortController | null>(null)
-  // Abort controller for the engine-stream subscription (separate from the
-  // thread SSE so cancelling one does not tear down the other).
-  const engineStreamAbortRef = useRef<AbortController | null>(null)
 
   // Initialize connection and check health
   const checkConnection = useCallback(async () => {
@@ -138,153 +130,6 @@ export function useChat() {
     return healthy
   }, [enginePort, setEngineStatus])
 
-  /**
-   * 处理 governed durable engine stream 事件（v1.1.2 并行分支 + ROI）。
-   *
-   * These events come from GET /v1/engine/streams/:streamId/subscribe (NOT the
-   * thread SSE). The kind is a free-form string with conventional values:
-   * branch.spawned / branch.started / branch.completed / branch.failed /
-   * branch.cancelled / branch.late.result / join.waiting / join.completed /
-   * run.cancelled / roi.snapshot. Each carries an optional top-level branchId
-   * and a payload; roi.snapshot's payload is a RoiSnapshot (with byBranch).
-   */
-  const handleEngineStreamEvent = useCallback(
-    (event: EngineStreamEvent) => {
-      const { kind, branchId, payload } = event
-      const p = (payload ?? {}) as Record<string, unknown>
-
-      // —— 分支生命周期 ——
-      if (kind === 'branch.spawned' && branchId) {
-        upsertBranch(branchId, {
-          status: 'queued',
-          parallelNodeId: p.parallelNodeId as string | undefined,
-          joinNodeId: p.joinNodeId as string | undefined
-        })
-        return
-      }
-      if (kind === 'branch.started' && branchId) {
-        upsertBranch(branchId, { status: 'running' })
-        return
-      }
-      if (kind === 'branch.completed' && branchId) {
-        settleBranch(branchId, 'completed')
-        return
-      }
-      if (kind === 'branch.failed' && branchId) {
-        settleBranch(branchId, 'failed')
-        return
-      }
-      if (kind === 'branch.cancelled' && branchId) {
-        // fail_fast cancellation: the branch was aborted because a sibling failed.
-        settleBranch(branchId, 'aborted')
-        upsertBranch(branchId, { failFastCancelled: true })
-        return
-      }
-      if (kind === 'branch.late.result' && branchId) {
-        // A result arrived after the branch was already terminal — audit only.
-        upsertBranch(branchId, { lateResult: true })
-        return
-      }
-
-      // —— Join ——
-      if (kind === 'join.waiting') {
-        // All branches must settle before the join proceeds; nothing to store
-        // here beyond what branch.* events already track.
-        return
-      }
-      if (kind === 'join.completed') {
-        // Join resolved; the run continues past the join node. Branches remain
-        // in the projection for historical visibility.
-        return
-      }
-
-      // —— Run 级 ——
-      if (kind === 'run.cancelled') {
-        // The whole run was cancelled (e.g. user interrupt). Mark all open
-        // branches aborted.
-        const branches = useAppStore.getState().branches
-        for (const bid of Object.keys(branches)) {
-          const st = branches[bid].status
-          if (st === 'queued' || st === 'running' || st === 'suspended') {
-            settleBranch(bid, 'aborted')
-          }
-        }
-        return
-      }
-
-      // —— ROI 快照 ——
-      if (kind === 'roi.snapshot' && p && typeof p === 'object') {
-        // payload is a RoiSnapshot; store it at the top level. Per-branch ROI
-        // (byBranch) is also projected into the branch records.
-        setRoiSnapshot(p as unknown as RoiSnapshot)
-        const byBranch = (p as { byBranch?: Record<string, unknown> }).byBranch
-        if (byBranch && typeof byBranch === 'object') {
-          for (const [bid, snap] of Object.entries(byBranch)) {
-            if (snap && typeof snap === 'object') {
-              upsertBranch(bid, { roiSnapshot: snap as never })
-            }
-          }
-        }
-        return
-      }
-      // Unknown kinds are ignored (forward-compatible — the engine may emit
-      // new diagnostic kinds we do not yet render).
-    },
-    [upsertBranch, settleBranch, setRoiSnapshot]
-  )
-
-  /**
-   * 订阅当前 turn 对应 run 的 governed engine stream，接收并行分支 + ROI 增量。
-   * streamId = `stream:${runId}`，runId = `run_${threadId}_${turnId}`（引擎约定）。
-   *
-   * Seeds the branch projection from a one-shot timeline snapshot first (so the
-   * UI shows the current state immediately), then subscribes for live updates.
-   */
-  const subscribeEngineProjection = useCallback(
-    async (threadId: string, turnId: string) => {
-      const api = getEngineAPI(enginePort)
-      const runId = api.runIdForTurn(threadId, turnId)
-      const streamId = api.streamIdForRun(runId)
-
-      // Tear down any previous subscription.
-      engineStreamAbortRef.current?.abort()
-      const controller = new AbortController()
-      engineStreamAbortRef.current = controller
-
-      // Seed from timeline snapshot (best-effort — the run may not be recorded
-      // yet on the very first poll; the stream will deliver the initial state).
-      try {
-        const timeline = await api.getRunTimeline(runId)
-        if (timeline) {
-          const branches: Record<string, import('../services/engine-api').BranchProjection> = {}
-          for (const [bid, status] of Object.entries(timeline.branchStatus)) {
-            branches[bid] = {
-              branchId: bid,
-              status,
-              agentKeys: timeline.agentRuns
-                .filter((ar) => ar.branchId === bid)
-                .map((ar) => ar.agentId)
-            }
-          }
-          setBranches(branches)
-          if (timeline.roiSnapshot) setRoiSnapshot(timeline.roiSnapshot)
-        }
-      } catch {
-        // Timeline not available yet — the stream will carry the initial state.
-      }
-
-      // Subscribe for live branch/ROI updates until the run terminates.
-      void api.subscribeEngineStream(
-        streamId,
-        (evt) => handleEngineStreamEvent(evt),
-        {
-          signal: controller.signal,
-          shouldStop: (evt) => evt.kind === 'run.cancelled'
-        }
-      )
-    },
-    [enginePort, handleEngineStreamEvent, setBranches, setRoiSnapshot]
-  )
 
   /**
    * 处理后端 SSE 事件（按 RuntimeEventKind 分发）。
@@ -436,29 +281,6 @@ export function useChat() {
     [turnUpdate, addPendingApproval, resolvePendingApproval, addPendingUserInput, resolvePendingUserInput, setThreadGoal, setThreadTodos]
   )
 
-  // 轮询执行投影视图（SSE 流期间每 1.5s 拉一次 DAG 进度）+ governed graph 治理状态
-  const pollExecution = useCallback(async (threadId: string, turnId: string) => {
-    const api = getEngineAPI(enginePort)
-    const poll = async () => {
-      try {
-        const view = await api.getTurnExecution(threadId, turnId)
-        useAppStore.getState().setTurnExecution(view)
-        // 同时拉 governed graph 运行检查（circuit 状态、active nodes、budgets）
-        const runId = api.runIdForTurn(threadId, turnId)
-        api.inspectGraphRun(runId).then((inspection) => {
-          useAppStore.getState().setGraphRunInspection(inspection)
-        }).catch(() => { /* governed engine 未配置时静默 */ })
-        // running/queued 状态继续轮询；completed/failed/aborted 停止
-        if (view.available && (view.status === 'running' || view.status === 'queued')) {
-          setTimeout(poll, 1500)
-        }
-      } catch {
-        // 投影暂不可用（legacy turn / not recorded）— 静默停止
-      }
-    }
-    // 首次延迟 500ms（让后端投影初始化）
-    setTimeout(poll, 500)
-  }, [enginePort])
 
   // Send a message
   const sendMessage = useCallback(
@@ -507,7 +329,7 @@ export function useChat() {
           // 读取窄条选择状态（调用时取最新值，避免依赖数组膨胀）
           const { workspacePath, selectedModel, pendingNewBranch } = useAppStore.getState()
 
-          // 若用户在窄条里输入了新分支名，先创建（不切换检出）
+          // 若用户在窄条里输入了新分支名，先创建并检出（git checkout -b）
           if (workspacePath && pendingNewBranch) {
             try {
               await api.createBranch(workspacePath, pendingNewBranch)
@@ -555,10 +377,6 @@ export function useChat() {
 
         // 立即设置 activeTurnId — 停止按钮和 steer 依赖它
         useAppStore.getState().setActiveTurnId(turnId)
-        // v1.1.2: 订阅 governed engine stream（并行分支 + ROI 增量）
-        void subscribeEngineProjection(currentThreadId, turnId)
-        // 轮询执行投影（非阻塞 — turn 完成由 SSE 终端事件驱动）
-        void pollExecution(currentThreadId, turnId)
 
         // 等待 turn 完成 — subscribeToThread 的 promise 在收到终端事件时 resolve
         await api.waitForTurnCompletion()
@@ -570,14 +388,6 @@ export function useChat() {
         setGenerating(false)
         // 任务完成通知（窗口失焦时触发桌面通知 + 提示音）
         notifyTurnCompletion()
-        // 最终再拉一次执行投影（确保 completed 状态）
-        const state = useAppStore.getState()
-        if (state.activeTurnId && state.threadId) {
-          try {
-            const view = await getEngineAPI(enginePort).getTurnExecution(state.threadId, state.activeTurnId)
-            state.setTurnExecution(view)
-          } catch { /* 投影不可用时静默 */ }
-        }
 
         // queue 交互模式：turn 完成后检查排队消息，自动发送下一条
         const nextQueued = useAppStore.getState().dequeueMessage()
@@ -592,7 +402,7 @@ export function useChat() {
         }
       }
     },
-    [enginePort, threadId, isGenerating, addMessage, updateMessage, setThreadId, setGenerating, setEngineStatus, handleSseEvent, pollExecution, subscribeEngineProjection]
+    [enginePort, threadId, isGenerating, addMessage, updateMessage, setThreadId, setGenerating, setEngineStatus, handleSseEvent]
   )
 
   // 加载历史会话
@@ -826,9 +636,6 @@ export function useChat() {
     } catch (e) {
       console.error('[useChat] Failed to stop generation:', e)
     }
-    // engineStreamAbortRef 会随 setGenerating(false) 之后的清理断开
-    // 这里手动 abort 确保立即停止订阅
-    engineStreamAbortRef.current?.abort()
     setGenerating(false)
   }, [enginePort, setGenerating])
 

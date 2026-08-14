@@ -690,7 +690,22 @@ export interface WorkspaceStatus {
   headSha: string | null
   isDirty: boolean | null
   fileChangeCount: number | null
+  /** 新增行数（git diff --shortstat 统计，仅在工作树脏时有值）。 */
+  additions?: number
+  /** 删除行数。 */
+  deletions?: number
   checkedAt: string
+}
+
+/** CommitResult — POST /v1/workspace/commit 与 /push 的结构化返回。 */
+export interface CommitResult {
+  success: boolean
+  /** 提交/推送输出（git stdout，可用于 toast 显示）。 */
+  output?: string
+  /** 失败时的错误描述。 */
+  error?: string
+  /** 提交/推送后的 HEAD sha（commit 成功时填）。 */
+  headSha?: string
 }
 
 /** BranchListResponse — GET /v1/workspace/branches?path= 返回的分支列表。 */
@@ -968,8 +983,18 @@ export class EngineAPI {
     const url = `${this.baseUrl}/v1/threads/${threadId}/events`
     const controller = new AbortController()
 
+    // Reconnect tuning: unexpected stream drops (network blip, gateway/langgraph
+    // restart) are retried with exponential backoff. A "terminal" SSE event
+    // (turn_completed/failed/aborted) or an explicit caller abort stops retries.
+    const MAX_RETRIES = 8
+    const BASE_DELAY_MS = 1000
+    const MAX_DELAY_MS = 30_000
+
     return new Promise<void>((resolve) => {
       let resolved = false
+      let terminal = false // turn reached a terminal state → success, no retry
+      let lastEventId = '' // best-effort resume hint (backend may ignore)
+
       const finish = () => {
         if (resolved) return
         resolved = true
@@ -982,6 +1007,7 @@ export class EngineAPI {
         try {
           const data = JSON.parse(raw) as Record<string, unknown>
           const kind = (data.kind as string) || 'message'
+          if (data.eventId) lastEventId = String(data.eventId)
           onEvent({ kind, data })
           // Terminate once the current turn reaches a terminal state.
           if (
@@ -991,6 +1017,7 @@ export class EngineAPI {
           ) {
             const eventTurnId = data.turnId as string | undefined
             if (!eventTurnId || eventTurnId === turnId) {
+              terminal = true
               finish()
             }
           }
@@ -999,50 +1026,95 @@ export class EngineAPI {
         }
       }
 
-      (async () => {
-        try {
-          const response = await fetch(url, {
-            method: 'GET',
-            headers: { ...this.headers, Accept: 'text/event-stream' },
-            signal: controller.signal
-          })
-          if (!response.ok || !response.body) {
-            console.error(`[KCoder] SSE stream failed: ${response.status}`)
-            finish()
-            return
-          }
-          const reader = response.body.getReader()
-          const decoder = new TextDecoder()
-          let buffer = ''
-          // SSE frames are separated by a blank line. Each frame has `event:`
-          // and `data:` lines; we only need the data payload (it carries the
-          // full `kind` field, so the `event:` line is redundant).
-          while (true) {
-            const { value, done } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
-            // Split on blank lines (frame boundaries). Keep any trailing
-            // partial frame in the buffer.
-            const frames = buffer.split('\n\n')
-            buffer = frames.pop() ?? ''
-            for (const frame of frames) {
-              const dataLines = frame
-                .split('\n')
-                .filter((l) => l.startsWith('data:'))
-                .map((l) => l.slice(5).replace(/^ /, ''))
-              if (dataLines.length > 0) {
-                dispatch(dataLines.join('\n'))
-              }
+      // One SSE attempt: open fetch, pump frames until the stream closes/errors.
+      // Returns normally when the stream ends (caller decides whether to retry).
+      const attempt = async (): Promise<void> => {
+        const headers: Record<string, string> = {
+          ...this.headers,
+          Accept: 'text/event-stream'
+        }
+        if (lastEventId) headers['Last-Event-ID'] = lastEventId
+        const response = await fetch(url, {
+          method: 'GET',
+          headers,
+          signal: controller.signal
+        })
+        if (!response.ok || !response.body) {
+          throw new Error(`SSE stream failed: ${response.status}`)
+        }
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        // SSE frames are separated by a blank line. Each frame has `event:`
+        // and `data:` lines; we only need the data payload (it carries the
+        // full `kind` field, so the `event:` line is redundant).
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          // Split on blank lines (frame boundaries). Keep any trailing
+          // partial frame in the buffer.
+          const frames = buffer.split('\n\n')
+          buffer = frames.pop() ?? ''
+          for (const frame of frames) {
+            const dataLines = frame
+              .split('\n')
+              .filter((l) => l.startsWith('data:'))
+              .map((l) => l.slice(5).replace(/^ /, ''))
+            if (dataLines.length > 0) {
+              dispatch(dataLines.join('\n'))
             }
           }
-        } catch (e) {
-          if ((e as Error).name !== 'AbortError') {
-            console.error('[KCoder] SSE stream error:', e)
-          }
-        } finally {
-          finish()
         }
-      })()
+      }
+
+      const sleep = (ms: number) =>
+        new Promise<void>((r) => {
+          const t = setTimeout(r, ms)
+          // If the caller aborts mid-backoff, stop waiting immediately.
+          controller.signal.addEventListener(
+            'abort',
+            () => {
+              clearTimeout(t)
+              r()
+            },
+            { once: true }
+          )
+        })
+
+      ;(async () => {
+        let retries = 0
+        while (!terminal && !resolved) {
+          try {
+            await attempt()
+            // Stream ended cleanly without a terminal event → the run is still
+            // in flight but the connection dropped. Reconnect.
+            if (terminal || resolved) break
+            if (controller.signal.aborted) break
+            if (retries >= MAX_RETRIES) {
+              console.error('[KCoder] SSE stream ended without terminal event; giving up after retries')
+              break
+            }
+          } catch (e) {
+            if ((e as Error).name === 'AbortError') break // caller-initiated stop
+            if (terminal || resolved) break
+            if (controller.signal.aborted) break
+            if (retries >= MAX_RETRIES) {
+              console.error('[KCoder] SSE stream error; giving up after retries:', e)
+              break
+            }
+            console.warn(`[KCoder] SSE stream dropped (attempt ${retries + 1}), reconnecting...`, e)
+          }
+          // Backoff before the next attempt.
+          const delay = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** retries)
+          retries += 1
+          await sleep(delay)
+        }
+      })().catch((e) => {
+        if ((e as Error).name !== 'AbortError') {
+          console.error('[KCoder] SSE reconnect loop error:', e)
+        }
+      }).finally(() => finish())
 
       // Safety timeout (10 minutes) in case the turn-terminal event is missed.
       setTimeout(finish, 10 * 60 * 1000)
@@ -1623,15 +1695,69 @@ data: <full EngineStreamEvent JSON>
     }
   }
 
-  // 在指定目录新建分支（不切换检出）。
-  //
-  // No dedicated endpoint in the new engine. This is a no-op stub so the
-  // command input's "new branch" affordance does not throw; branch creation
-  // should move to a product-side git helper in a later phase.
-  async createBranch(path: string, name: string, _base?: string): Promise<{ path: string; branch: string }> {
-    console.warn('[KCoder] createBranch is not supported by the current engine; skipping', { path, name })
-    return { path, branch: name }
+  // 在指定目录新建并检出分支。POST /v1/workspace/branch { path, name, base? }
+  // 后端执行 `git checkout -b <name> [base]`，返回 { path, branch, created }。
+  // 分支已存在 → 409；非 git 仓库 → 400。
+  async createBranch(path: string, name: string, base?: string): Promise<{ path: string; branch: string }> {
+    const response = await fetch(`${this.baseUrl}/v1/workspace/branch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.headers },
+      body: JSON.stringify({ path, name, ...(base ? { base } : {}) })
+    })
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}))
+      const msg = typeof detail?.detail === 'string' ? detail.detail : response.statusText
+      throw new Error(`Failed to create branch: ${msg}`)
+    }
+    return response.json()
   }
+
+  /**
+   * 提交工作区变更。POST /v1/workspace/commit { path, message }
+   * 后端会执行 `git add -A` + `git commit -m <message>`，返回结构化结果。
+   */
+  async commitWorkspace(path: string, message: string): Promise<CommitResult> {
+    const response = await fetch(`${this.baseUrl}/v1/workspace/commit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.headers },
+      body: JSON.stringify({ path, message })
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      const detail = typeof data?.detail === 'string' ? data.detail : response.statusText
+      return { success: false, error: detail, output: '' }
+    }
+    return { success: true, ...data }
+  }
+
+  /**
+   * 推送当前分支到远端。POST /v1/workspace/push { path, remote?, branch? }
+   */
+  async pushWorkspace(path: string, opts?: { remote?: string; branch?: string }): Promise<CommitResult> {
+    const response = await fetch(`${this.baseUrl}/v1/workspace/push`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.headers },
+      body: JSON.stringify({ path, ...(opts ?? {}) })
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      const detail = typeof data?.detail === 'string' ? data.detail : response.statusText
+      return { success: false, error: detail, output: '' }
+    }
+    return { success: true, ...data }
+  }
+
+  /**
+   * 强制刷新工作区状态（commit/push 后调用，跳过轮询等待）。
+   */
+  async refreshWorkspaceStatus(path: string): Promise<WorkspaceStatus> {
+    return this.getWorkspaceStatus(path)
+  }
+
+  /**
+   * 列出当前可用的子代理配置。复用现有 sub-agents 管理 API（见类底部
+   * 同名 listSubAgents），InfoPanel 智能体 section 用。
+   */
 
   // Get thread history
   async getThread(threadId: string): Promise<unknown> {

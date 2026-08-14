@@ -4,12 +4,16 @@ import { useAppStore } from '../../stores/app-store'
 import { getEngineAPI, type ModelEntry, type BranchListResponse } from '../../services/engine-api'
 import { getGeneralPref } from '../../lib/generalPrefs'
 
-// Agent permission modes - maps to engine approvalPolicy/sandboxMode, backend integration reserved
+// Agent permission modes - maps to engine approvalPolicy/sandboxMode.
+// NOTE: confirm-before-change / plan-mode 依赖后端审批中断（QiLin interrupts），
+// 当前引擎未发射 approval 事件，这两个模式暂不可用（标记 enabled:false）。
+// 真实人机协作走 ask_clarification → ClarificationCard（已可用）。审批中断
+// 打通后把对应 enabled 改回 true。
 const PERMISSION_MODES = [
-  { id: 'confirm-before-change', labelKey: 'perm.confirmBeforeChange', descKey: 'perm.confirmBeforeChange.desc' },
-  { id: 'auto-edit', labelKey: 'perm.autoEdit', descKey: 'perm.autoEdit.desc' },
-  { id: 'plan-mode', labelKey: 'perm.planMode', descKey: 'perm.planMode.desc' },
-  { id: 'full-access', labelKey: 'perm.fullAccess', descKey: 'perm.fullAccess.desc' },
+  { id: 'confirm-before-change', labelKey: 'perm.confirmBeforeChange', descKey: 'perm.confirmBeforeChange.desc', enabled: false },
+  { id: 'auto-edit', labelKey: 'perm.autoEdit', descKey: 'perm.autoEdit.desc', enabled: true },
+  { id: 'plan-mode', labelKey: 'perm.planMode', descKey: 'perm.planMode.desc', enabled: false },
+  { id: 'full-access', labelKey: 'perm.fullAccess', descKey: 'perm.fullAccess.desc', enabled: true },
 ] as const
 
 type PermissionMode = typeof PERMISSION_MODES[number]['id']
@@ -539,28 +543,39 @@ export function CommandInput({
               {/* Permission mode dropdown menu */}
               {showPermMenu && (
                 <div className="absolute bottom-full left-0 mb-2 w-[240px] rounded-xl bg-[#2a2a2e] border border-[#3a3a3e] shadow-2xl py-1.5 z-50">
-                  {PERMISSION_MODES.map((mode) => (
+                  {PERMISSION_MODES.map((mode) => {
+                    const disabled = !mode.enabled
+                    return (
                     <button
                       key={mode.id}
-                      onClick={() => handlePermSelect(mode.id)}
+                      disabled={disabled}
+                      onClick={() => !disabled && handlePermSelect(mode.id)}
                       className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-                        permission === mode.id
-                          ? 'bg-[#333338]'
-                          : 'hover:bg-[#303034]'
+                        disabled
+                          ? 'opacity-40 cursor-not-allowed'
+                          : permission === mode.id
+                            ? 'bg-[#333338]'
+                            : 'hover:bg-[#303034]'
                       }`}
                     >
                       <PermIcon id={mode.id} className="w-5 h-5 shrink-0 text-text-primary" />
                       <span className="flex-1 min-w-0">
-                        <span className="block text-[13px] font-medium text-text-primary leading-tight">{t(mode.labelKey)}</span>
+                        <span className="block text-[13px] font-medium text-text-primary leading-tight">
+                          {t(mode.labelKey)}
+                          {disabled && (
+                            <span className="ml-1.5 align-middle text-[10px] font-normal text-[#8b8b90] border border-[#4a4a4e] rounded px-1 py-px">{t('perm.comingSoon')}</span>
+                          )}
+                        </span>
                         <span className="block text-xs text-[#8b8b90] mt-0.5 leading-tight">{t(mode.descKey)}</span>
                       </span>
-                      {permission === mode.id && (
+                      {permission === mode.id && !disabled && (
                         <svg className="w-4 h-4 shrink-0 text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                       )}
                     </button>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>

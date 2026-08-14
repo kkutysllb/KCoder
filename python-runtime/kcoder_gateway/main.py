@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .auth import init_auth_state
+from .attachments_routes import router as attachments_router
 from .auth import router as auth_router
 from .commands_routes import router as commands_router
 from .data_space import KCoderDataSpace
@@ -34,7 +35,6 @@ from .skills_routes import router as skills_router
 from .sse import RunRegistry
 from .stubs import (
     approvals_router,
-    attachments_router,
     engine_router,
     thread_extras_router,
 )
@@ -184,7 +184,7 @@ def create_app() -> FastAPI:
     # auth: Phase 6 真实实现（其余仍为 Phase 5 stub，后续阶段逐步替换）
     app.include_router(auth_router)
     app.include_router(memory_router)  # Phase 10 真实对接 QiLin MemoryManager
-    app.include_router(attachments_router)  # stub（后续阶段替换）
+    app.include_router(attachments_router)  # 真实附件持久化（替换 stub）
     app.include_router(workspace_router)  # Phase 7 真实 git status
     app.include_router(skills_router)  # Phase 11 真实对接 QiLin SkillStorage
     app.include_router(mcp_router)  # Phase 12 真实对接 QiLin ExtensionsConfig

@@ -382,10 +382,24 @@ async def start_turn(
     except Exception:
         logger.debug("title auto-update check failed", exc_info=True)
 
+    # 注入附件内容：把附件文本拼成 <user_attachments> 块 prepend 到 prompt，
+    # 让 agent 真正读到用户上传的文件（修复 stub 时代"上传假成功、agent 读不到"）。
+    # 二进制附件只列元信息；失败不阻断 turn（按无附件处理）。
+    effective_prompt = req.prompt
+    if req.attachmentIds:
+        try:
+            from .attachments_routes import build_attachments_block
+
+            block = build_attachments_block(request, req.attachmentIds)
+            if block:
+                effective_prompt = f"{block}\n\n{req.prompt}"
+        except Exception:
+            logger.debug("attachments injection failed", exc_info=True)
+
     # 启动后台消费任务
     run.task = asyncio.create_task(
         consume_langgraph_stream(
-            client, registry, run, assistant_id, req.prompt,
+            client, registry, run, assistant_id, effective_prompt,
             user_id=user_id, model_name=req.model_name,
             subagent_enabled=req.subagent_enabled,
             reasoning_mode=req.reasoning_mode,

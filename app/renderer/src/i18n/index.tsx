@@ -123,16 +123,31 @@ const zhCN: Dict = {
   'panel.sectionGit': 'Git 工具',
   'panel.sectionPlan': '计划',
   'panel.sectionProgress': '进度',
+  'panel.sectionAgents': '智能体',
   'panel.tokens': 'tokens',
   'panel.time': '用时',
   'panel.planEmpty': '暂无目标',
   'panel.progressEmpty': '暂无待办',
+  'panel.progressDone': '已完成 {n} 项',
   'panel.envDir': '项目目录',
   'panel.envBranch': '当前分支',
   'panel.headSha': 'HEAD',
   'panel.changes': '变更',
   'panel.workingTreeClean': '无变更',
   'panel.notGitRepo': '非 Git 仓库',
+  'panel.commit': '提交',
+  'panel.push': '推送',
+  'panel.refresh': '刷新',
+  'panel.commitEmpty': '无变更可提交',
+  'panel.commitNeedMessage': '请输入提交说明',
+  'panel.commitSuccess': '提交成功',
+  'panel.pushSuccess': '推送成功',
+  'panel.gitOpFailed': '{op}失败',
+  'panel.agentsEmpty': '本次任务尚未调用子代理',
+
+  // Status bar
+  'statusbar.toggleChanges': '切换变更聚合抽屉',
+  'statusbar.toggleFilePreview': '切换文件预览右抽屉',
 
   // Auth
   'auth.title.login': '登录 KCoder',
@@ -241,6 +256,7 @@ const zhCN: Dict = {
   'perm.planMode.desc': '编辑前先出计划。',
   'perm.fullAccess': '完全访问',
   'perm.fullAccess.desc': '减少确认次数。',
+  'perm.comingSoon': '即将支持',
 
   // NewTask — 输入框上方窄条（目录/分支/模型选择）
   'newtask.directory': '项目目录',
@@ -823,16 +839,31 @@ const en: Dict = {
   'panel.sectionGit': 'Git',
   'panel.sectionPlan': 'Plan',
   'panel.sectionProgress': 'Progress',
+  'panel.sectionAgents': 'Agents',
   'panel.tokens': 'tokens',
   'panel.time': 'time',
   'panel.planEmpty': 'No objective yet',
   'panel.progressEmpty': 'No todos yet',
+  'panel.progressDone': '{n} done',
   'panel.envDir': 'Project Directory',
   'panel.envBranch': 'Current Branch',
   'panel.headSha': 'HEAD',
   'panel.changes': 'Changes',
   'panel.workingTreeClean': 'No changes',
   'panel.notGitRepo': 'Not a git repo',
+  'panel.commit': 'Commit',
+  'panel.push': 'Push',
+  'panel.refresh': 'Refresh',
+  'panel.commitEmpty': 'Nothing to commit',
+  'panel.commitNeedMessage': 'Commit message required',
+  'panel.commitSuccess': 'Committed',
+  'panel.pushSuccess': 'Pushed',
+  'panel.gitOpFailed': '{op} failed',
+  'panel.agentsEmpty': 'No sub-agents invoked yet',
+
+  // Status bar
+  'statusbar.toggleChanges': 'Toggle Changes Drawer',
+  'statusbar.toggleFilePreview': 'Toggle File Preview Panel',
 
   // Auth
   'auth.title.login': 'Sign in to KCoder',
@@ -940,6 +971,7 @@ const en: Dict = {
   'perm.planMode.desc': 'Create a plan before editing.',
   'perm.fullAccess': 'Full access',
   'perm.fullAccess.desc': 'Fewer confirmations.',
+  'perm.comingSoon': 'Coming soon',
 
   // NewTask — inline bar above input (directory/branch/model selection)
   'newtask.directory': 'Project Directory',
