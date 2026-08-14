@@ -13,6 +13,7 @@ import remarkGfm from 'remark-gfm'
 import { useAppStore } from '../../stores/app-store'
 import { getEngineAPI } from '../../services/engine-api'
 import { CodeEditor } from '../CodeEditor'
+import { EditorTabs } from '../EditorTabs'
 
 interface FilePreviewPanelProps {
   path: string
@@ -33,10 +34,14 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
   const threadId = useAppStore((s) => s.threadId)
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [dirty, setDirty] = useState(false)
-  const [editedContent, setEditedContent] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState<string | null>(null)
+  // 编辑状态上提到 store（按路径持久化）：切 Tab 不丢失未保存修改。
+  // store 键 = path prop（与 openFilePreview 存入的键一致）。
+  const editedContent = useAppStore((s) => s.tabEdited[path])
+  const dirty = useAppStore((s) => !!s.tabDirty[path])
+  const setTabEdited = useAppStore((s) => s.setTabEdited)
+  const setTabDirty = useAppStore((s) => s.setTabDirty)
 
   const decodedPath = safeDecodePath(path)
   const isVirtual = decodedPath.startsWith('/mnt/')
@@ -50,7 +55,7 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
     try {
       await getEngineAPI(enginePort).writeWorkspaceFile(decodedPath, editedContent)
       setContent(editedContent)
-      setDirty(false)
+      setTabDirty(path, false)
       setSaveMsg('已保存')
       setTimeout(() => setSaveMsg(null), 2000)
     } catch (e) {
@@ -62,8 +67,6 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
 
   useEffect(() => {
     let cancelled = false
-    setDirty(false)
-    setEditedContent(null)
     setSaveMsg(null)
     const load = async () => {
       try {
@@ -106,6 +109,8 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
 
   return (
     <section className="flex h-full w-[640px] shrink-0 flex-col overflow-hidden border-l border-border-custom bg-bg-primary animate-[slide-in-right_0.25s_ease-out]">
+      {/* 多 Tab 栏 */}
+      <EditorTabs />
       {/* 标题栏 */}
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-custom px-4 py-3">
         <span
@@ -149,14 +154,15 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
       ) : error ? (
         <div className="flex-1 overflow-auto p-4 text-sm text-red-400">{error}</div>
       ) : editable ? (
-        // 工作区文件：Monaco 可编辑（md 也用编辑器，便于直接改）
+        // 工作区文件：Monaco 可编辑（md 也用编辑器，便于直接改）。
+        // 编辑值优先用 store 缓存（tabEdited），切 Tab 回来恢复未保存修改。
         <div className="flex-1 min-h-0">
           <CodeEditor
             path={decodedPath}
-            value={content!}
+            value={editedContent ?? content!}
             onChange={(v) => {
-              setEditedContent(v)
-              setDirty(v !== content)
+              setTabEdited(path, v)
+              setTabDirty(path, v !== content)
             }}
             onSave={handleSave}
           />

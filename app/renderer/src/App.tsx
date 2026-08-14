@@ -185,7 +185,7 @@ function FilePreviewToggleButton() {
 }
 
 export default function App() {
-  const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath, panelOpen, setPanelOpen, sidebarWidth, setSidebarWidth, filePreviewPath, closeFilePreview, openFilePreview } = useAppStore()
+  const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath, panelOpen, setPanelOpen, sidebarWidth, setSidebarWidth, openTabs, activeTab, closeFilePreview, openFilePreview } = useAppStore()
   const { loadThread } = useChat()
   const auth = useAuth(enginePort)
   const [showSettings, setShowSettings] = useState(false)
@@ -372,8 +372,8 @@ export default function App() {
 
       {/* 文件预览右栏（三分栏第三栏）：作为 flex 子项参与文档流，
           打开时主内容区自动收缩让位，不浮动覆盖 workspace 内容 */}
-      {filePreviewPath && (
-        <FilePreviewPanel path={filePreviewPath} onClose={closeFilePreview} />
+      {openTabs.length > 0 && activeTab && (
+        <FilePreviewPanel path={activeTab} onClose={closeFilePreview} />
       )}
 
       {/* 工作区文件树 + 全局搜索（左侧浮动面板，右上角按钮切换） */}

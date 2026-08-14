@@ -138,8 +138,18 @@ interface AppState {
   changePanelOpen: boolean
   /** 未查看的变更文件数（收到带 fileChanges 的 turn_completed 时累加）。 */
   unreadChangeCount: number
-  /** 文件预览右栏路径（三分栏第三栏，null=关闭）。 */
+  /** 文件预览右栏路径（三分栏第三栏，null=关闭）。= activeTab 的兼容别名。 */
   filePreviewPath: string | null
+  /** 最近打开过的预览路径——关闭右栏后保留，用于状态栏按钮再次 toggle 打开。 */
+  lastFilePreviewPath: string | null
+  /** 编辑器多 Tab：已打开的文件路径列表。 */
+  openTabs: string[]
+  /** 编辑器多 Tab：当前激活的 Tab 路径（null=无激活）。 */
+  activeTab: string | null
+  /** 每 Tab 的脏标记（有未保存编辑）。 */
+  tabDirty: Record<string, boolean>
+  /** 每 Tab 缓存的编辑内容（切 Tab 时不丢失未保存修改）。 */
+  tabEdited: Record<string, string>
   // 线程目标 + 待办（GET /v1/threads/:id/goal + /todos）
   threadGoal: ThreadGoal | null
   threadTodos: ThreadTodoList | null
@@ -210,13 +220,27 @@ interface AppState {
   addSessionUsage: (usage: { promptTokens: number; completionTokens: number; totalTokens: number }) => void
   setPanelOpen: (open: boolean) => void
   setChangePanelOpen: (open: boolean) => void
+  /** 切换变更聚合抽屉（与 toggleFilePreview 模式一致）。 */
+  toggleChangePanel: () => void
   /** 累加未读变更文件数。 */
   addUnreadChanges: (count: number) => void
   /** 清零未读变更数（打开变更面板时调）。 */
   clearUnreadChanges: () => void
-  /** 打开文件预览右栏（同时关闭浮动面板，避免遮挡与双重让位）。 */
+  /** 打开文件预览右栏（同时关闭浮动面板，避免遮挡与双重让位）。
+      多 Tab：路径加入 openTabs 并设为 active（兼容 filePreviewPath）。 */
   openFilePreview: (path: string) => void
   closeFilePreview: () => void
+  /** 关闭指定 Tab（dirty 时调用方应先确认）。 */
+  closeTab: (path: string) => void
+  /** 切换激活 Tab。 */
+  setActiveTab: (path: string) => void
+  /** 标记某 Tab 脏/干净。 */
+  setTabDirty: (path: string, dirty: boolean) => void
+  /** 缓存某 Tab 的编辑内容（切 Tab 不丢失未保存修改）。 */
+  setTabEdited: (path: string, content: string) => void
+  /** 切换文件预览右栏——关闭态下若 lastFilePreviewPath 存在则再次打开，
+      否则 noop（用户从未预览过文件，按钮看起来"没反应"是符合预期的）。 */
+  toggleFilePreview: () => void
   setThreadGoal: (goal: ThreadGoal | null) => void
   setThreadTodos: (todos: ThreadTodoList | null) => void
   /** Set the governed graph run inspection (from inspect endpoint). */
@@ -255,6 +279,11 @@ export const useAppStore = create<AppState>((set) => ({
   changePanelOpen: false,
   unreadChangeCount: 0,
   filePreviewPath: null,
+  lastFilePreviewPath: null,
+  openTabs: [],
+  activeTab: null,
+  tabDirty: {},
+  tabEdited: {},
   threadGoal: null,
   threadTodos: null,
   graphRunInspection: null,
@@ -518,12 +547,79 @@ export const useAppStore = create<AppState>((set) => ({
 
   setPanelOpen: (open) => set({ panelOpen: open }),
   setChangePanelOpen: (open) => set({ changePanelOpen: open }),
+  toggleChangePanel: () =>
+    set((state) => ({ changePanelOpen: !state.changePanelOpen })),
   addUnreadChanges: (count) =>
     set((state) => ({ unreadChangeCount: state.unreadChangeCount + count })),
   clearUnreadChanges: () => set({ unreadChangeCount: 0 }),
   openFilePreview: (path) =>
-    set({ filePreviewPath: path, panelOpen: false, changePanelOpen: false }),
-  closeFilePreview: () => set({ filePreviewPath: null }),
+    set((state) => ({
+      openTabs: state.openTabs.includes(path) ? state.openTabs : [...state.openTabs, path],
+      activeTab: path,
+      filePreviewPath: path, // 兼容别名
+      lastFilePreviewPath: path,
+      panelOpen: false,
+      changePanelOpen: false
+    })),
+  closeTab: (path) =>
+    set((state) => {
+      const idx = state.openTabs.indexOf(path)
+      const nextTabs = state.openTabs.filter((p) => p !== path)
+      const nextDirty = { ...state.tabDirty }
+      delete nextDirty[path]
+      const nextEdited = { ...state.tabEdited }
+      delete nextEdited[path]
+      let active = state.activeTab
+      if (state.activeTab === path) {
+        active = nextTabs.length ? nextTabs[Math.min(idx, nextTabs.length - 1)] : null
+      }
+      return {
+        openTabs: nextTabs,
+        activeTab: active,
+        tabDirty: nextDirty,
+        tabEdited: nextEdited,
+        filePreviewPath: active // 兼容别名
+      }
+    }),
+  closeFilePreview: () =>
+    set((state) => {
+      if (!state.activeTab) return {}
+      const path = state.activeTab
+      const idx = state.openTabs.indexOf(path)
+      const nextTabs = state.openTabs.filter((p) => p !== path)
+      const nextDirty = { ...state.tabDirty }
+      delete nextDirty[path]
+      const nextEdited = { ...state.tabEdited }
+      delete nextEdited[path]
+      const active = nextTabs.length ? nextTabs[Math.min(idx, nextTabs.length - 1)] : null
+      return {
+        openTabs: nextTabs,
+        activeTab: active,
+        tabDirty: nextDirty,
+        tabEdited: nextEdited,
+        filePreviewPath: active
+      }
+    }),
+  setActiveTab: (path) =>
+    set({ activeTab: path, filePreviewPath: path }),
+  setTabDirty: (path, dirty) =>
+    set((state) => ({ tabDirty: { ...state.tabDirty, [path]: dirty } })),
+  setTabEdited: (path, content) =>
+    set((state) => ({ tabEdited: { ...state.tabEdited, [path]: content } })),
+  toggleFilePreview: () =>
+    set((state) => {
+      // 有当前路径 → 关闭整栏（保留 tabs）；否则用 lastFilePreviewPath 打开
+      if (state.activeTab) return { activeTab: state.activeTab }
+      if (state.lastFilePreviewPath) {
+        const p = state.lastFilePreviewPath
+        return {
+          openTabs: state.openTabs.includes(p) ? state.openTabs : [...state.openTabs, p],
+          activeTab: p,
+          filePreviewPath: p
+        }
+      }
+      return {}
+    }),
   setThreadGoal: (goal) => set({ threadGoal: goal }),
   setThreadTodos: (todos) => set({ threadTodos: todos }),
   setGraphRunInspection: (inspection) => set({ graphRunInspection: inspection }),
