@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react'
-import { useAppStore, type Message, type MessagePart } from '../stores/app-store'
+import { useAppStore } from '../stores/app-store'
 import {
   getEngineAPI,
   type SSEEvent,
@@ -70,11 +70,10 @@ export function useChat() {
   const {
     enginePort,
     threadId,
-    messages,
+    messages_v2,
     isGenerating,
     setThreadId,
-    addMessage,
-    updateMessage,
+    addChatMessage,
     addPendingApproval,
     resolvePendingApproval,
     addPendingUserInput,
@@ -84,7 +83,7 @@ export function useChat() {
     clearMessages,
     setThreadGoal,
     setThreadTodos,
-    // 新 turn-based API
+    // turn-based API
     applyTurnUpdate,
     setChatMessagesV2
   } = useAppStore()
@@ -354,14 +353,13 @@ export function useChat() {
       }
 
       // Add user message（显示用户原始输入，不显示展开后的 content）
-      // 同时写入旧 messages（向后兼容）和 messages_v2（turn-based）
-      const userMessage: Message = {
+      const userMessage: ChatMessage = {
         id: `user-${Date.now()}`,
         role: 'user',
-        content: content.trim(),
-        timestamp: Date.now()
+        createdAt: Date.now(),
+        content: content.trim()
       }
-      addMessage(userMessage)
+      addChatMessage(userMessage)
 
       // Create thread if needed
       let currentThreadId = threadId
@@ -396,17 +394,17 @@ export function useChat() {
         }
       }
 
-      // Add placeholder for assistant response（同时写两份）
+      // Add placeholder for assistant response
       const assistantMessageId = `assistant-${Date.now()}`
-      const assistantMessage: Message = {
+      const assistantMessage: ChatMessage = {
         id: assistantMessageId,
         role: 'assistant',
-        content: '',
-        timestamp: Date.now(),
-        isStreaming: true,
-        parts: []
+        createdAt: Date.now(),
+        text: '',
+        status: 'streaming',
+        isStreaming: true
       }
-      addMessage(assistantMessage)
+      addChatMessage(assistantMessage)
       setGenerating(true)
 
       try {
@@ -427,7 +425,6 @@ export function useChat() {
         console.error('Failed to send message:', error)
         turnUpdate(assistantMessageId, 'error', { message: '无法连接到引擎，请检查引擎状态后重试。' })
       } finally {
-        updateMessage(assistantMessageId, useAppStore.getState().messages.find((m) => m.id === assistantMessageId)?.content ?? '')
         setGenerating(false)
         // 任务完成通知（窗口失焦时触发桌面通知 + 提示音）
         notifyTurnCompletion()
@@ -445,7 +442,7 @@ export function useChat() {
         }
       }
     },
-    [enginePort, threadId, isGenerating, addMessage, updateMessage, setThreadId, setGenerating, setEngineStatus, handleSseEvent]
+    [enginePort, threadId, isGenerating, addChatMessage, setThreadId, setGenerating, setEngineStatus, handleSseEvent]
   )
 
   // 加载历史会话
@@ -619,16 +616,7 @@ export function useChat() {
 
       // 2. 截断：保留 [0, idx)，删除 [idx, end]
       const keptMessages = state.messages_v2.slice(0, idx)
-      useAppStore.setState({
-        messages_v2: keptMessages,
-        messages: keptMessages.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content ?? m.text ?? '',
-          timestamp: m.createdAt,
-          isStreaming: m.isStreaming
-        }))
-      })
+      useAppStore.setState({ messages_v2: keptMessages })
 
       // 3. 重发——直接调 sendMessage，让它把新的 user message 加进去并启动 turn
       await sendMessage(replacementText)
@@ -731,7 +719,7 @@ export function useChat() {
   sendMessageRef.current = sendMessage
 
     return {
-    messages,
+    messages_v2,
     isGenerating,
     threadId,
     sendMessage,

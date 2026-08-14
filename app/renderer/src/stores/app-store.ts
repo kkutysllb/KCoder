@@ -13,63 +13,6 @@ import type {
 import type { RoiSnapshot } from '../services/contracts'
 import type { ChatMessage } from '../lib/chatMessage'
 
-// 富内容消息部件 — assistant 消息由多个 part 组成（文本/推理/工具调用/工具结果/usage/审批）
-// `branchId` 标记该 part 来自哪个持久化并行分支（root agent 的 part 无 branchId），
-// 用于并发分支场景下按 (itemId, branchId) 去重与按分支分组渲染。
-export type MessagePart =
-  | { type: 'text'; text: string; itemId?: string; branchId?: string }
-  | {
-      type: 'reasoning'
-      text: string
-      itemId?: string
-      branchId?: string
-      /** 流式标记：收到 reasoning_delta 时为 true，文本流开始时收尾为 false */
-      isStreaming?: boolean
-      startedAt?: number
-      completedAt?: number
-    }
-  | {
-      type: 'tool_call'
-      toolName: string
-      status: 'running' | 'completed' | 'failed'
-      callId?: string
-      summary?: string
-      branchId?: string
-      startedAt?: number
-      completedAt?: number
-      /** 工具调用参数（从 data.args 提取）*/
-      args?: Record<string, unknown>
-    }
-  | { type: 'tool_result'; toolName: string; output?: string; isError?: boolean; branchId?: string }
-  | {
-      type: 'usage'
-      promptTokens: number
-      completionTokens: number
-      totalTokens: number
-      branchId?: string
-      model?: string
-    }
-  | {
-      type: 'approval'
-      approvalId: string
-      toolName: string
-      summary?: string
-      status: 'pending' | 'allowed' | 'denied' | 'expired'
-      branchId?: string
-    }
-  | { type: 'compaction'; kind: 'started' | 'completed'; branchId?: string }
-
-// Message types
-export interface Message {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  timestamp: number
-  isStreaming?: boolean
-  /** 富内容部件（assistant 消息）。向后兼容：若无 parts 则用 content 渲染纯文本。 */
-  parts?: MessagePart[]
-}
-
 // Engine connection status
 export type EngineStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
@@ -82,14 +25,13 @@ interface AppState {
   engineToken: string
   engineStatus: EngineStatus
 
-  // Chat
+  // Chat（单一消息模型：turn-based ChatMessage[]）
   threadId: string | null
-  messages: Message[]
   /**
-   * turn-based 消息列表（新架构）。与 messages 并行维护：
-   *   - useChat.handleSseEvent 调 reduceSseEvent → applyTurnUpdate 写入这里
-   *   - 渲染层（ChatFeed）优先读 messages_v2，缺失时 fallback 到 messages
-   *   - addMessage 同时写两份（保持同步），turnReducer 只写 messages_v2
+   * 消息列表（唯一数据源，turn-based ChatMessage）：
+   *   - useChat.handleSseEvent 调 reduceSseEvent → applyTurnUpdate 写入
+   *   - 历史加载用 setChatMessagesV2 批量写入
+   *   - 渲染层（ChatFeed/AssistantTurn/UserBubble）直接消费
    */
   messages_v2: ChatMessage[]
   isGenerating: boolean
@@ -161,27 +103,16 @@ interface AppState {
   initializeEngine: (port: number) => void
   setEngineStatus: (status: EngineStatus) => void
   setThreadId: (id: string | null) => void
-  addMessage: (message: Message) => void
-  updateMessage: (id: string, content: string) => void
-  appendMessagePart: (id: string, part: MessagePart) => void
-  /** 收尾流式 reasoning：把最后一个 isStreaming:true 的 reasoning part 标记为完成。 */
-  settleStreamingReasoning: (id: string) => void
-  updateLastToolCall: (id: string, callId: string, patch: Partial<Extract<MessagePart, { type: 'tool_call' }>>) => void
-  updateApprovalPart: (messageId: string, approvalId: string, status: 'pending' | 'allowed' | 'denied' | 'expired') => void
 
-  // ── turn-based (messages_v2) 新 API ──
-  /** 添加一条 ChatMessage（同时同步到旧 messages 数组，保持双写）。 */
+  // ── 消息 API（单一 ChatMessage 模型）──
+  /** 添加一条 ChatMessage。 */
   addChatMessage: (msg: ChatMessage) => void
   /**
    * 用 turnReducer 产出的 partial state 更新 messages_v2 中指定 id 的消息。
    * 调用方负责先调 reduceSseEvent 得到 partial，再调本方法回写。
-   * 同时把 text 同步到旧 messages 的 content 字段（向后兼容）。
    */
   applyTurnUpdate: (id: string, partial: Partial<ChatMessage>) => void
-  /** 批量加载历史消息（loadThread 用）。输入旧 Message[]，内部双写 v2。 */
-  setChatMessages: (msgs: Message[]) => void
-  /** 批量加载历史消息（loadThread 用）。输入完整 ChatMessage[]（含 reasoning/toolCalls），
-   *  直接写 messages_v2，同时反向同步旧 messages（保留双写）。 */
+  /** 批量加载历史消息（loadThread 用）。直接写 messages_v2。 */
   setChatMessagesV2: (msgs: ChatMessage[]) => void
   setGenerating: (generating: boolean) => void
   /** 入队一条消息（queue 模式）。 */
@@ -254,7 +185,6 @@ export const useAppStore = create<AppState>((set) => ({
   engineToken: '',
   engineStatus: 'disconnected',
   threadId: null,
-  messages: [],
   messages_v2: [],
   isGenerating: false,
   queuedMessages: [],
@@ -295,130 +225,6 @@ export const useAppStore = create<AppState>((set) => ({
   setEngineStatus: (status) => set({ engineStatus: status }),
 
   setThreadId: (id) => set({ threadId: id }),
-
-  addMessage: (message) =>
-    set((state) => ({
-      messages: [...state.messages, message],
-      // 同步到 messages_v2（把旧 Message 适配成 ChatMessage）
-      messages_v2: [...state.messages_v2, adaptLegacyToChat(message)]
-    })),
-
-  updateMessage: (id, content) =>
-    set((state) => ({
-      messages: state.messages.map((msg) =>
-        msg.id === id ? { ...msg, content, isStreaming: false } : msg
-      ),
-      messages_v2: state.messages_v2.map((msg) =>
-        msg.id === id
-          ? { ...msg, text: content, isStreaming: false, status: msg.status === 'streaming' ? 'done' : msg.status }
-          : msg
-      )
-    })),
-
-  appendMessagePart: (id, part) =>
-    set((state) => ({
-      messages: state.messages.map((msg) => {
-        if (msg.id !== id) return msg
-        const parts = msg.parts ? [...msg.parts] : []
-
-        // Item-bound text/reasoning (from item_created/item_updated/item_completed):
-        // the engine ships the full payload per item event with no delta stream,
-        // so we dedupe by itemId and replace with the latest content rather than
-        // appending. This keeps repeated item_updated events from duplicating text.
-        if ((part.type === 'text' || part.type === 'reasoning') && part.itemId) {
-          const idx = parts.findIndex(
-            (p) => (p.type === 'text' || p.type === 'reasoning') && p.itemId === part.itemId
-          )
-          if (idx >= 0) {
-            parts[idx] = { ...part }
-            // Rebuild content from all text parts so the plain-text fallback stays in sync.
-            const content = parts.filter((p) => p.type === 'text').map((p) => p.text).join('')
-            return { ...msg, parts, content }
-          }
-          // itemId not seen yet — fall through to append below.
-        }
-
-        // Delta-style text accumulation: if the last part is a free-form text
-        // part (no itemId), merge into it.
-        if (part.type === 'text' && parts.length > 0) {
-          const last = parts[parts.length - 1]
-          if (last.type === 'text' && !last.itemId) {
-            parts[parts.length - 1] = { type: 'text', text: last.text + part.text }
-            return { ...msg, parts, content: msg.content + part.text }
-          }
-        }
-        // Delta-style reasoning accumulation: mirror the text merge above so
-        // assistant_reasoning_delta streams build one continuous reasoning part
-        // rather than a fragment per delta (which used to spam dozens of parts).
-        if (part.type === 'reasoning' && !part.itemId && parts.length > 0) {
-          const last = parts[parts.length - 1]
-          if (
-            last.type === 'reasoning' &&
-            !last.itemId &&
-            last.isStreaming !== false
-          ) {
-            parts[parts.length - 1] = {
-              ...last,
-              text: last.text + part.text,
-              isStreaming: part.isStreaming ?? true,
-              startedAt: last.startedAt ?? part.startedAt,
-              completedAt: part.completedAt
-            }
-            return { ...msg, parts }
-          }
-        }
-        parts.push(part)
-        // Sync content (for plain-text fallback rendering).
-        const contentUpdate = part.type === 'text' ? msg.content + part.text : msg.content
-        return { ...msg, parts, content: contentUpdate }
-      })
-    })),
-
-  settleStreamingReasoning: (id) =>
-    set((state) => ({
-      messages: state.messages.map((msg) => {
-        if (msg.id !== id || !msg.parts) return msg
-        let settled = false
-        const parts = msg.parts.map((p) => {
-          if (p.type === 'reasoning' && p.isStreaming === true && !settled) {
-            settled = true
-            return { ...p, isStreaming: false, completedAt: p.completedAt ?? Date.now() }
-          }
-          return p
-        })
-        return settled ? { ...msg, parts } : msg
-      })
-    })),
-
-  updateLastToolCall: (id, callId, patch) =>
-    set((state) => ({
-      messages: state.messages.map((msg) => {
-        if (msg.id !== id || !msg.parts) return msg
-        const parts = [...msg.parts]
-        // 找到匹配 callId 的最后一个 tool_call part 并更新
-        for (let i = parts.length - 1; i >= 0; i--) {
-          const p = parts[i]
-          if (p.type === 'tool_call' && p.callId === callId) {
-            parts[i] = { ...p, ...patch }
-            break
-          }
-        }
-        return { ...msg, parts }
-      })
-    })),
-
-  updateApprovalPart: (messageId, approvalId, status) =>
-    set((state) => ({
-      messages: state.messages.map((msg) => {
-        if (msg.id !== messageId || !msg.parts) return msg
-        return {
-          ...msg,
-          parts: msg.parts.map((p) =>
-            p.type === 'approval' && p.approvalId === approvalId ? { ...p, status } : p
-          )
-        }
-      })
-    })),
 
   setGenerating: (generating) => set({ isGenerating: generating }),
 
@@ -627,7 +433,6 @@ export const useAppStore = create<AppState>((set) => ({
 
   clearMessages: () =>
     set({
-      messages: [],
       messages_v2: [],
       threadId: null,
       pendingNewBranch: null,
@@ -637,65 +442,19 @@ export const useAppStore = create<AppState>((set) => ({
       sessionUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, runs: 0 }
     }),
 
-  // ── turn-based (messages_v2) 新 API 实现 ──────────────────────────
+  // ── 消息 API（单一 ChatMessage 模型）实现 ──────────────────────────
   addChatMessage: (msg) =>
     set((state) => ({
-      messages_v2: [...state.messages_v2, msg],
-      // 同步写旧 messages 数组（保持双写，便于渐进迁移）
-      messages: [...state.messages, adaptChatToLegacy(msg)]
+      messages_v2: [...state.messages_v2, msg]
     })),
 
   applyTurnUpdate: (id, partial) =>
     set((state) => ({
       messages_v2: state.messages_v2.map((msg) => {
         if (msg.id !== id) return msg
-        const merged = { ...msg, ...partial }
-        return merged
-      }),
-      // 同步 text 到旧 messages.content（向后兼容渲染）
-      messages: state.messages.map((msg) => {
-        if (msg.id !== id) return msg
-        const newText = partial.text ?? msg.content
-        const newStreaming = partial.isStreaming ?? msg.isStreaming
-        return { ...msg, content: newText, isStreaming: newStreaming }
+        return { ...msg, ...partial }
       })
     })),
 
-  setChatMessages: (msgs) =>
-    set({
-      messages: msgs,
-      messages_v2: msgs.map(adaptLegacyToChat)
-    }),
-
-  setChatMessagesV2: (msgs) =>
-    set({
-      messages_v2: msgs,
-      messages: msgs.map(adaptChatToLegacy)
-    })
+  setChatMessagesV2: (msgs) => set({ messages_v2: msgs })
 }))
-
-// ── 适配函数（旧 Message <-> 新 ChatMessage 互转） ──────────────────
-
-/** 旧 Message → 新 ChatMessage（最简映射，不含 parts 聚合）。 */
-function adaptLegacyToChat(m: Message): ChatMessage {
-  return {
-    id: m.id,
-    role: m.role,
-    createdAt: m.timestamp,
-    content: m.content,
-    text: m.role === 'assistant' ? m.content : undefined,
-    isStreaming: m.isStreaming,
-    status: m.isStreaming ? 'streaming' : 'done'
-  }
-}
-
-/** 新 ChatMessage → 旧 Message（最简映射）。 */
-function adaptChatToLegacy(m: ChatMessage): Message {
-  return {
-    id: m.id,
-    role: m.role,
-    content: m.content ?? m.text ?? '',
-    timestamp: m.createdAt,
-    isStreaming: m.isStreaming
-  }
-}

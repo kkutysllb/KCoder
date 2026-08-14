@@ -211,7 +211,7 @@ function FilePreviewToggleButton() {
 }
 
 export default function App() {
-  const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath, panelOpen, setPanelOpen, sidebarWidth, setSidebarWidth, openTabs, activeTab, closeFilePreview, openFilePreview } = useAppStore()
+  const { initializeEngine, setEngineStatus, messages_v2, enginePort, workspacePath, panelOpen, setPanelOpen, sidebarWidth, setSidebarWidth, openTabs, activeTab, closeFilePreview, openFilePreview } = useAppStore()
   const { loadThread } = useChat()
   const auth = useAuth(enginePort)
   const [showSettings, setShowSettings] = useState(false)
@@ -288,7 +288,7 @@ export default function App() {
     }
   }, [initializeEngine, setEngineStatus])
 
-  const hasMessages = messages.length > 0
+  const hasMessages = messages_v2.length > 0
 
   const toggleTerminal = () => {
     const next = !showTerminal

@@ -192,15 +192,6 @@ export interface ChatMessage {
   isStreaming?: boolean
   /** 错误信息（status === 'error' 时填）。 */
   error?: string
-
-  // ── 兼容字段（旧 parts 数组，新代码不应再写入）──
-  /**
-   * @deprecated 使用 text / reasoning / toolCalls 等平铺字段替代。
-   * 保留是为了过渡期渲染旧消息；新消息不再写入 parts。
-   */
-  parts?: unknown[]
-  /** @deprecated 旧字段，等价于 text。 */
-  content_text?: string
 }
 
 /** 创建 user 消息。 */

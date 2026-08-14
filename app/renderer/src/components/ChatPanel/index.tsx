@@ -9,7 +9,7 @@ import { getGeneralPref } from '../../lib/generalPrefs'
 import { StatusBar } from '../StatusBar'
 
 export function ChatPanel() {
-  const { messages, isGenerating, sendMessage, editAndResend, regenerate, stopGeneration, steer } = useChat()
+  const { messages_v2, isGenerating, sendMessage, editAndResend, regenerate, stopGeneration, steer } = useChat()
   const feedRef = useRef<ChatFeedHandle>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const selectedModel = useAppStore((s) => s.selectedModel)
@@ -27,7 +27,7 @@ export function ChatPanel() {
   // 预留空间（含 bottom-4 间距与 20px 视觉呼吸间距）。textarea 多行、
   // 目录选择条、附件预览出现时高度变化都会被 ResizeObserver 捕获。
   const [composerInset, setComposerInset] = useState(160)
-  const hasMessages = messages.length > 0
+  const hasMessages = messages_v2.length > 0
   useEffect(() => {
     const el = composerRef.current
     if (!el) return
@@ -52,11 +52,12 @@ export function ChatPanel() {
   // queue 交互模式：用户在 turn 运行中输入的消息入队，turn 完成后自动发送
   const handleQueue = useCallback((text: string) => {
     useAppStore.getState().enqueueMessage(text)
-    useAppStore.getState().addMessage({
+    useAppStore.getState().addChatMessage({
       id: crypto.randomUUID(),
       role: 'system',
+      createdAt: Date.now(),
       content: t('chat.queued'),
-      timestamp: Date.now()
+      status: 'done'
     })
   }, [t])
 
@@ -66,11 +67,11 @@ export function ChatPanel() {
   const editableUserMessageIds = useMemo(() => {
     if (isGenerating) return new Set<string>()
     const ids = new Set<string>()
-    for (const m of messages) {
+    for (const m of messages_v2) {
       if (m.role === 'user') ids.add(m.id)
     }
     return ids
-  }, [messages, isGenerating])
+  }, [messages_v2, isGenerating])
 
   return (
     <div className="relative flex flex-1 min-h-0 flex-col h-full">
@@ -78,8 +79,7 @@ export function ChatPanel() {
           空消息时通过 emptySlot 渲染 WelcomeScreen（WelcomeScreen 内部自带 CommandInput）。 */}
       <ChatFeed
         ref={feedRef}
-        messages={messages}
-        streamingId={hasMessages && isGenerating ? messages[messages.length - 1].id : undefined}
+        streamingId={hasMessages && isGenerating ? messages_v2[messages_v2.length - 1].id : undefined}
         showReasoning={showThinking}
         selectedModel={selectedModel}
         branches={branches}

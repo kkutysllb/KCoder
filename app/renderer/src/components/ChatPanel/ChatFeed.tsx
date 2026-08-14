@@ -16,8 +16,6 @@ import {
   type ReactNode
 } from 'react'
 import type { ChatMessage } from '../../lib/chatMessage'
-import { adaptMessages } from '../../lib/messageAdapter'
-import type { Message } from '../../stores/app-store'
 import { useAppStore } from '../../stores/app-store'
 import { UserBubble } from './UserBubble'
 import { AssistantTurn } from './AssistantTurn'
@@ -29,10 +27,6 @@ export interface ChatFeedHandle {
 }
 
 interface ChatFeedProps {
-  /** 旧 Message[]（store 中存储的格式）；内部会自动适配为新 ChatMessage[]。 */
-  messages: Message[]
-  /** 或者直接传新 ChatMessage[]（优先级高于 messages）。 */
-  chatMessages?: ChatMessage[]
   /** 流式中的 assistant turn id（高亮 + 滚动跟随）。 */
   streamingId?: string
   /** 是否启用自动滚动（流式跟随）。 */
@@ -71,8 +65,6 @@ const STICK_THRESHOLD_PX = 80
 
 export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
   function ChatFeed({
-    messages,
-    chatMessages,
     streamingId,
     autoScroll = true,
     showStage = true,
@@ -104,9 +96,7 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
     // 避免中间栏被双重挤压。仅在「浮动面板开 且 文件预览关」时才让位。
     const filePreviewOpen = useAppStore((s) => s.openTabs.length > 0 && !!s.activeTab)
     const reserveForPanel = panelOpen && !filePreviewOpen
-    const adaptedMessages =
-      chatMessages ??
-      (messagesV2 && messagesV2.length > 0 ? messagesV2 : adaptMessages(messages))
+    const adaptedMessages = messagesV2
 
     const computeAtBottom = useCallback((el: HTMLElement) => {
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight
