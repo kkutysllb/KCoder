@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAppStore } from '../../stores/app-store'
+import { getEngineAPI } from '../../services/engine-api'
 
 interface FilePreviewPanelProps {
   path: string
@@ -38,22 +39,30 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
     let cancelled = false
     const load = async () => {
       try {
-        if (!threadId) {
-          if (!cancelled) setError('Thread ID not available')
-          return
+        // 虚拟沙箱路径（/mnt/...）走 thread-scoped 端点；真实工作区路径走
+        // workspace 端点（readWorkspaceFile，支持任意绝对路径）。
+        const isVirtual = decodedPath.startsWith('/mnt/')
+        if (isVirtual) {
+          if (!threadId) {
+            if (!cancelled) setError('Thread ID not available')
+            return
+          }
+          const res = await fetch(
+            `http://127.0.0.1:${enginePort}/v1/threads/${threadId}/file?path=${encodeURIComponent(decodedPath)}`
+          )
+          if (!res.ok) {
+            const text = await res.text().catch(() => res.statusText)
+            if (!cancelled) setError(`Failed to load: ${text}`)
+            return
+          }
+          const text = await res.text()
+          if (!cancelled) setContent(text)
+        } else {
+          const data = await getEngineAPI(enginePort).readWorkspaceFile(decodedPath)
+          if (!cancelled) {
+            setContent(data.truncated ? `${data.content}\n\n[文件过大，已截断]` : data.content)
+          }
         }
-        // engine 端口固定走 store 的 enginePort，不能用 window.location.port
-        // （dev 模式下是 vite 端口，会拿到 index.html 而非文件内容）。
-        const res = await fetch(
-          `http://127.0.0.1:${enginePort}/v1/threads/${threadId}/file?path=${encodeURIComponent(decodedPath)}`
-        )
-        if (!res.ok) {
-          const text = await res.text().catch(() => res.statusText)
-          if (!cancelled) setError(`Failed to load: ${text}`)
-          return
-        }
-        const text = await res.text()
-        if (!cancelled) setContent(text)
       } catch (err) {
         if (!cancelled) setError(`Error: ${err}`)
       }
@@ -101,11 +110,35 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
           </div>
         ) : (
-          <pre className="whitespace-pre-wrap break-all font-mono text-xs text-text-primary">
-            {content}
-          </pre>
+          // 三元里 TS 不会跨分支收窄 content（仍可能为 null）。
+          // 走到这里 content 必非 null，用 `!` 显式断言。
+          <CodeWithLineNumbers content={content!} />
         )}
       </div>
     </section>
+  )
+}
+
+/** 纯文本内容 + 行号渲染。md 不走这里（行号会打散 markdown 结构）。 */
+function CodeWithLineNumbers({ content }: { content: string }) {
+  const lines = content.split('\n')
+  // 行号宽度：取总行数的位数（10 行 → 2ch，1000 行 → 4ch），加右侧 padding。
+  const gutterWidth = Math.max(2, String(lines.length).length) + 1
+  return (
+    <pre className="font-mono text-xs text-text-primary leading-5">
+      {lines.map((line, i) => (
+        <div key={i} className="flex">
+          <span
+            className="select-none pr-3 text-right text-text-muted/50 shrink-0 tabular-nums"
+            style={{ width: `${gutterWidth}ch` }}
+          >
+            {i + 1}
+          </span>
+          <span className="whitespace-pre-wrap break-all flex-1 min-w-0">
+            {line || ' '}
+          </span>
+        </div>
+      ))}
+    </pre>
   )
 }

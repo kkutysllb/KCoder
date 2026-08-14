@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+from fnmatch import fnmatch
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -212,6 +213,194 @@ async def create_branch(req: BranchCreateRequest) -> dict[str, Any]:
             detail=f"failed to create branch {req.name!r}: {out or 'git error'}",
         )
     return {"path": cwd, "branch": req.name, "created": True}
+
+
+# ────────────────────────────────────────────────────────────────
+# 文件浏览 / 读取 / 搜索 — 支撑文件树、编辑器、@-mention、全局搜索
+# ────────────────────────────────────────────────────────────────
+
+# 文件树默认隐藏的目录（噪音/体积过大）。.git 单独硬屏蔽。
+_HIDDEN_DIRS = {
+    "node_modules", ".venv", "venv", "__pycache__", ".mypy_cache", ".pytest_cache",
+    ".ruff_cache", "dist", "build", "out", ".next", ".turbo", ".cache", "target",
+    ".git", ".hg", ".svn", ".DS_Store",
+}
+_TREE_MAX_ENTRIES = 2000
+_FILE_READ_MAX_BYTES = 1_000_000  # 1MB 文本上限
+
+
+@router.get("/tree")
+async def workspace_tree(path: str = "") -> dict[str, Any]:
+    """GET /v1/workspace/tree?path= → 单层目录条目（供文件树懒展开）.
+
+    返回 ``{ path, entries: [{ name, type, size? }] }``。隐藏 _HIDDEN_DIRS 与
+    .git；非目录返回 400；条目数超 _TREE_MAX_ENTRIES 截断并标 truncated。
+    """
+    decoded = unquote(path) if path else ""
+    if not decoded or not os.path.isdir(decoded):
+        raise HTTPException(status_code=400, detail=f"not a directory: {decoded!r}")
+    entries: list[dict[str, Any]] = []
+    truncated = False
+    try:
+        names = sorted(os.listdir(decoded))
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"cannot list: {exc}") from exc
+    for name in names:
+        if name in _HIDDEN_DIRS or name.startswith(".git"):
+            continue
+        full = os.path.join(decoded, name)
+        try:
+            is_dir = os.path.isdir(full)
+        except OSError:
+            continue
+        entry: dict[str, Any] = {"name": name, "type": "dir" if is_dir else "file"}
+        if not is_dir:
+            try:
+                entry["size"] = os.path.getsize(full)
+            except OSError:
+                pass
+        entries.append(entry)
+        if len(entries) >= _TREE_MAX_ENTRIES:
+            truncated = True
+            break
+    # 目录排前
+    entries.sort(key=lambda e: (e["type"] != "dir", e["name"].lower()))
+    return {"path": decoded, "entries": entries, "truncated": truncated}
+
+
+@router.get("/file")
+async def workspace_read_file(path: str = "") -> dict[str, Any]:
+    """GET /v1/workspace/file?path= → 读取文本文件内容.
+
+    返回 ``{ path, content, size, truncated }``。二进制文件（含 NUL 字节）返回
+    422；超过 _FILE_READ_MAX_BYTES 截断并标 truncated。
+    """
+    decoded = unquote(path) if path else ""
+    if not decoded or not os.path.isfile(decoded):
+        raise HTTPException(status_code=404, detail=f"file not found: {decoded!r}")
+    try:
+        size = os.path.getsize(decoded)
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        with open(decoded, "rb") as f:
+            raw = f.read(_FILE_READ_MAX_BYTES + 1)
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"read failed: {exc}") from exc
+    truncated = len(raw) > _FILE_READ_MAX_BYTES
+    raw = raw[:_FILE_READ_MAX_BYTES]
+    if b"\x00" in raw:
+        raise HTTPException(status_code=422, detail="binary file, not text")
+    try:
+        content = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        content = raw.decode("utf-8", errors="replace")
+    return {"path": decoded, "content": content, "size": size, "truncated": truncated}
+
+
+class SearchRequest(BaseModel):
+    """POST /v1/workspace/search 请求体。"""
+
+    path: str = Field(..., description="搜索根目录（绝对路径）")
+    query: str = Field(..., min_length=1, description="搜索文本/正则")
+    glob: str | None = Field(default=None, description="文件名 glob 过滤，如 *.ts")
+    maxResults: int = Field(default=200, ge=1, le=1000)
+
+
+@router.post("/search")
+async def workspace_search(req: SearchRequest) -> dict[str, Any]:
+    """POST /v1/workspace/search → ripgrep 全文搜索.
+
+    优先用 ``rg``（如可用），失败回退到 ``git grep``，再失败回退到 Python 递归
+    扫描（受限）。返回 ``{ results: [{ file, line, column, text }], truncated, engine }``。
+    """
+    cwd = unquote(req.path) if req.path else ""
+    if not cwd or not os.path.isdir(cwd):
+        raise HTTPException(status_code=400, detail=f"not a directory: {cwd!r}")
+    query = req.query
+    max_r = req.maxResults
+
+    # 1) 尝试 ripgrep
+    try:
+        args = ["rg", "--no-heading", "--line-number", "--color=never",
+                "--max-count", str(max_r)]
+        if req.glob:
+            args += ["-g", req.glob]
+        args += [query, cwd]
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=15, check=False)
+        if proc.returncode in (0, 1):  # 0=有命中 1=无命中
+            results = _parse_search_lines(proc.stdout, cwd, query, max_r)
+            return {"results": results, "truncated": len(results) >= max_r, "engine": "ripgrep"}
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # 2) 回退：git grep（仅 tracked 文件）
+    try:
+        args = ["git", "-C", cwd, "grep", "--line-number", "--column", "-N"]
+        if req.glob:
+            args += ["--", req.glob]
+        args += [query]
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=15, check=False)
+        if proc.returncode in (0, 1):
+            results = _parse_git_grep(proc.stdout, cwd, query, max_r)
+            return {"results": results, "truncated": len(results) >= max_r, "engine": "git-grep"}
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # 3) 最后回退：Python 纯扫描（慢，仅小目录可用）
+    results = _python_search(cwd, query, req.glob, max_r)
+    return {"results": results, "truncated": len(results) >= max_r, "engine": "python"}
+
+
+def _parse_search_lines(text: str, root: str, query: str, max_r: int) -> list[dict[str, Any]]:
+    """解析 rg 输出（path:line:content）。列号从内容中定位 query 得到。"""
+    out: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        if len(out) >= max_r:
+            break
+        parts = line.split(":", 2)
+        if len(parts) < 3:
+            continue
+        fpath, lineno, content = parts
+        col = content.lower().find(query.lower()) + 1
+        if col <= 0:
+            col = 1
+        out.append({
+            "file": os.path.relpath(fpath, root) if fpath.startswith(root) else fpath,
+            "line": int(lineno), "column": col, "text": content,
+        })
+    return out
+
+
+def _parse_git_grep(text: str, root: str, query: str, max_r: int) -> list[dict[str, Any]]:
+    """解析 git grep 输出（path:line:content）。"""
+    return _parse_search_lines(text, root, query, max_r)
+
+
+def _python_search(root: str, query: str, glob: str | None, max_r: int) -> list[dict[str, Any]]:
+    """纯 Python 递归搜索（无 rg/git 时的兜底，仅扫描非隐藏文本文件）。"""
+    out: list[dict[str, Any]] = []
+    q = query.lower()
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _HIDDEN_DIRS and not d.startswith(".git")]
+        for fn in filenames:
+            if glob and not fnmatch(fn, glob):
+                continue
+            full = os.path.join(dirpath, fn)
+            try:
+                with open(full, encoding="utf-8", errors="ignore") as f:
+                    for i, line in enumerate(f, 1):
+                        if q in line.lower():
+                            col = line.lower().find(q) + 1
+                            out.append({
+                                "file": os.path.relpath(full, root),
+                                "line": i, "column": col, "text": line.rstrip("\n"),
+                            })
+                            if len(out) >= max_r:
+                                return out
+            except OSError:
+                continue
+    return out
 
 
 # ────────────────────────────────────────────────────────────────

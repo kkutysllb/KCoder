@@ -715,6 +715,21 @@ export interface BranchListResponse {
   current: string | null
 }
 
+/** 文件树单层条目（GET /v1/workspace/tree）。 */
+export interface WorkspaceTreeEntry {
+  name: string
+  type: 'dir' | 'file'
+  size?: number
+}
+
+/** 全文搜索命中（POST /v1/workspace/search）。 */
+export interface SearchHit {
+  file: string
+  line: number
+  column: number
+  text: string
+}
+
 /** ProjectEntry — GET /v1/projects 返回的已注册项目（一等实体）。 */
 export interface ProjectEntry {
   id: string
@@ -1752,6 +1767,40 @@ data: <full EngineStreamEvent JSON>
    */
   async refreshWorkspaceStatus(path: string): Promise<WorkspaceStatus> {
     return this.getWorkspaceStatus(path)
+  }
+
+  // ============ 文件浏览 / 读取 / 搜索 ============
+
+  /** GET /v1/workspace/tree?path= → 单层目录条目（文件树懒展开用）。 */
+  async workspaceTree(path: string): Promise<{ path: string; entries: WorkspaceTreeEntry[]; truncated: boolean }> {
+    const r = await fetch(`${this.baseUrl}/v1/workspace/tree?path=${encodeURIComponent(path)}`, { headers: this.headers })
+    if (!r.ok) throw new Error(`workspace tree failed: ${r.status}`)
+    return r.json()
+  }
+
+  /** GET /v1/workspace/file?path= → 读取文本文件内容。 */
+  async readWorkspaceFile(path: string): Promise<{ path: string; content: string; size: number; truncated: boolean }> {
+    const r = await fetch(`${this.baseUrl}/v1/workspace/file?path=${encodeURIComponent(path)}`, { headers: this.headers })
+    if (!r.ok) {
+      const detail = await r.json().catch(() => ({}))
+      throw new Error(typeof detail?.detail === 'string' ? detail.detail : `read failed: ${r.status}`)
+    }
+    return r.json()
+  }
+
+  /** POST /v1/workspace/search { path, query, glob?, maxResults? } → ripgrep 搜索。 */
+  async workspaceSearch(
+    path: string,
+    query: string,
+    opts?: { glob?: string; maxResults?: number }
+  ): Promise<{ results: SearchHit[]; truncated: boolean; engine: string }> {
+    const r = await fetch(`${this.baseUrl}/v1/workspace/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.headers },
+      body: JSON.stringify({ path, query, ...(opts?.glob ? { glob: opts.glob } : {}), ...(opts?.maxResults ? { maxResults: opts.maxResults } : {}) })
+    })
+    if (!r.ok) throw new Error(`workspace search failed: ${r.status}`)
+    return r.json()
   }
 
   /**

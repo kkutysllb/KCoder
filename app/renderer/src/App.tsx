@@ -10,6 +10,7 @@ import { UserInputModal } from './components/ChatPanel/UserInputModal'
 import { InfoPanel } from './components/InfoPanel'
 import { ChangePanel } from './components/ChangePanel'
 import { FilePreviewPanel } from './components/ChatPanel/FilePreviewPanel'
+import { FileTree } from './components/FileTree'
 import { SidebarResizeHandle } from './components/SidebarResizeHandle'
 import { CommandPalette, type CommandItem } from './components/CommandPalette'
 import { useChat } from './hooks/useChat'
@@ -183,7 +184,7 @@ function FilePreviewToggleButton() {
 }
 
 export default function App() {
-  const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath, panelOpen, setPanelOpen, sidebarWidth, setSidebarWidth, filePreviewPath, closeFilePreview } = useAppStore()
+  const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath, panelOpen, setPanelOpen, sidebarWidth, setSidebarWidth, filePreviewPath, closeFilePreview, openFilePreview } = useAppStore()
   const { loadThread } = useChat()
   const auth = useAuth(enginePort)
   const [showSettings, setShowSettings] = useState(false)
@@ -192,6 +193,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showTerminal, setShowTerminal] = useState(false)
   const [terminalMounted, setTerminalMounted] = useState(false)
+  const [showFileTree, setShowFileTree] = useState(false)
 
   useEffect(() => {
     // Apply saved theme on startup + sync general prefs to main process (proxy/cert)
@@ -309,6 +311,15 @@ export default function App() {
         {/* Top-right controls: panel toggle + terminal — 固定在窗口右上角，永不移动 */}
         <div className="absolute top-3 right-4 z-30 no-drag flex items-center gap-1">
           <PanelToggleButton />
+          <button
+            onClick={() => setShowFileTree((v) => !v)}
+            title="文件浏览器"
+            className={`p-1.5 rounded-md transition-colors ${showFileTree ? 'text-white bg-bg-hover' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'}`}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+            </svg>
+          </button>
           <ChangePanelToggleButton />
           <NewChatButton />
           <div className="w-px h-4 bg-border-custom mx-0.5" />
@@ -361,6 +372,23 @@ export default function App() {
           打开时主内容区自动收缩让位，不浮动覆盖 workspace 内容 */}
       {filePreviewPath && (
         <FilePreviewPanel path={filePreviewPath} onClose={closeFilePreview} />
+      )}
+
+      {/* 工作区文件树（左侧浮动面板，右上角按钮切换） */}
+      {showFileTree && (
+        <aside className="absolute left-0 top-12 bottom-0 z-20 w-[260px] flex flex-col border-r border-border-custom bg-bg-primary shadow-xl animate-[slide-in-right_0.2s_ease-out]">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-border-custom">
+            <span className="text-xs font-medium text-text-secondary">文件</span>
+            <button onClick={() => setShowFileTree(false)} className="text-text-muted hover:text-text-primary">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            <FileTree rootPath={workspacePath ?? ''} onOpenFile={(p) => openFilePreview(p)} />
+          </div>
+        </aside>
       )}
 
       {/* Settings panel */}
