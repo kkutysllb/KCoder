@@ -311,6 +311,25 @@ export function CommandInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const permMenuRef = useRef<HTMLDivElement>(null)
+
+  // 粘贴剪贴板图片 → 走附件管线（截图快速喂给 agent）。
+  // 纯文本粘贴不拦截，正常进 textarea。
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    const images: File[] = []
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]
+      if (it.type.startsWith('image/')) {
+        const f = it.getAsFile()
+        if (f) images.push(f)
+      }
+    }
+    if (images.length > 0) {
+      e.preventDefault() // 阻止图片二进制进入 textarea
+      setPendingFiles((prev) => [...prev, ...images])
+    }
+  }, [])
   const { t } = useI18n()
 
   // Close permission menu on outside click
@@ -488,6 +507,7 @@ export function CommandInput({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={isGenerating ? t('chat.steer.placeholder') : t('input.placeholder')}
             disabled={disabled && !isGenerating}
             rows={1}

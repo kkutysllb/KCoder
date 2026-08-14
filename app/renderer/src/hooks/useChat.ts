@@ -89,6 +89,25 @@ export function useChat() {
     setChatMessagesV2
   } = useAppStore()
 
+  // rAF 批处理：流式 delta 高频到达时，每帧合并为一次 store 写入，
+  // 避免逐 token setState 导致整 feed 重渲染（长会话/高 token 速率下的卡顿源）。
+  // pendingStateRef 线程化同一消息的 in-flight 状态，保证连续 delta 不读到 store 旧值。
+  const pendingStateRef = useRef<Partial<ChatMessage> | null>(null)
+  const pendingIdRef = useRef<string | null>(null)
+  const rafRef = useRef<number | null>(null)
+
+  /** 立即落地 pending 状态到 store（清空缓冲）。 */
+  const flushPending = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+    if (pendingStateRef.current) {
+      applyTurnUpdate(pendingIdRef.current!, pendingStateRef.current)
+      pendingStateRef.current = null
+    }
+  }, [applyTurnUpdate])
+
   /**
    * turn-based SSE 处理：调 turnReducer 纯函数产出 partial state，
    * 再 applyTurnUpdate 回写到 messages_v2。同时同步旧 messages.content。
@@ -100,14 +119,36 @@ export function useChat() {
    */
   const turnUpdate = useCallback(
     (assistantMessageId: string, kind: SseEventKind, data: Record<string, unknown> | undefined) => {
-      // 从 store 拿当前消息作为 reducer 输入状态
-      const currentMsg = useAppStore.getState().messages_v2.find((m) => m.id === assistantMessageId)
-      const state: Partial<ChatMessage> = currentMsg ?? {}
-      const next = reduceSseEvent(state, kind, data, Date.now())
-      // 只在有变化时回写（reducer 返回原对象表示无变化）
-      if (next !== state) {
-        applyTurnUpdate(assistantMessageId, next)
+      const isTerminal = kind === 'turn_completed' || kind === 'turn_failed'
+
+      // 取 reducer 输入状态：优先用同一消息的 in-flight 状态（连续 delta 时不读 store 旧值）
+      let base: Partial<ChatMessage>
+      if (pendingIdRef.current === assistantMessageId && pendingStateRef.current) {
+        base = pendingStateRef.current
+      } else {
+        base =
+          useAppStore.getState().messages_v2.find((m) => m.id === assistantMessageId) ?? {}
+        pendingIdRef.current = assistantMessageId
       }
+      const next = reduceSseEvent(base, kind, data, Date.now())
+      if (next !== base) {
+        pendingStateRef.current = next
+      }
+
+      if (isTerminal) {
+        // 终端事件立即落地（不等下一帧，保证 turn 终态及时）
+        flushPending()
+      } else if (pendingStateRef.current && rafRef.current === null) {
+        // 安排下一帧合并 flush
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null
+          if (pendingStateRef.current) {
+            applyTurnUpdate(pendingIdRef.current!, pendingStateRef.current)
+            pendingStateRef.current = null
+          }
+        })
+      }
+
       // turn 完成且携带文件变更 → 累加未读变更数（状态栏 badge）
       if (kind === 'turn_completed') {
         const fc = data?.fileChanges as { files?: unknown[] } | undefined
@@ -117,7 +158,7 @@ export function useChat() {
         }
       }
     },
-    [applyTurnUpdate]
+    [applyTurnUpdate, flushPending]
   )
 
   const abortRef = useRef<AbortController | null>(null)
@@ -592,6 +633,26 @@ export function useChat() {
     [isGenerating, sendMessage]
   )
 
+  // 重新生成指定 assistant 回复：找到其前一条 user 消息，截断后用原文重发。
+  // 复用 editAndResend（同样是前端截断 + 重发；引擎侧不支持 branch-from-message）。
+  const regenerate = useCallback(
+    async (assistantMessageId: string) => {
+      if (isGenerating) return
+      const state = useAppStore.getState()
+      const idx = state.messages_v2.findIndex((m) => m.id === assistantMessageId)
+      if (idx < 0) return
+      for (let i = idx - 1; i >= 0; i--) {
+        const m = state.messages_v2[i]
+        if (m.role === 'user') {
+          const text = m.text ?? m.content ?? ''
+          if (text.trim()) await editAndResend(m.id, text)
+          return
+        }
+      }
+    },
+    [isGenerating, editAndResend]
+  )
+
   // 解决审批请求（允许/拒绝）
   const resolveApproval = useCallback(async (approvalId: string, decision: 'allow' | 'deny', reason?: string) => {
     const api = getEngineAPI(enginePort)
@@ -672,6 +733,7 @@ export function useChat() {
     threadId,
     sendMessage,
     editAndResend,
+    regenerate,
     stopGeneration,
     steer,
     compactContext,

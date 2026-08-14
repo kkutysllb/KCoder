@@ -49,6 +49,8 @@ interface ChatFeedProps {
   onAtBottomChange?: (atBottom: boolean) => void
   /** ask_clarification 选项被选中时回调。 */
   onClarifyPick?: (text: string, question?: string) => void
+  /** 重新生成指定 assistant 回复（截断到其前一条 user 消息并重发）。 */
+  onRegenerate?: (assistantMessageId: string) => void
   /** 可编辑的 user message IDs（由父级根据已完成 assistant turn 计算）。 */
   editableUserMessageIds?: ReadonlySet<string>
   /** 当前有 run 进行时锁定编辑入口。 */
@@ -82,6 +84,7 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
     emptySlot,
     onAtBottomChange,
     onClarifyPick,
+    onRegenerate,
     editableUserMessageIds,
     editDisabled = false,
     onEditResend,
@@ -188,6 +191,7 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
                 showReasoning={showReasoning}
                 showToolCalls={showToolCalls}
                 onClarifyPick={onClarifyPick}
+                onRegenerate={onRegenerate}
                 branches={branches}
               />
             )

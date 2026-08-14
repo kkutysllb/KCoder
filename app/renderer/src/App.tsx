@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { useAppStore } from './stores/app-store'
 import { Sidebar } from './components/Sidebar'
 import { ChatPanel } from './components/ChatPanel'
@@ -11,6 +11,7 @@ import { InfoPanel } from './components/InfoPanel'
 import { ChangePanel } from './components/ChangePanel'
 import { FilePreviewPanel } from './components/ChatPanel/FilePreviewPanel'
 import { SidebarResizeHandle } from './components/SidebarResizeHandle'
+import { CommandPalette, type CommandItem } from './components/CommandPalette'
 import { useChat } from './hooks/useChat'
 import { useAuth } from './hooks/useAuth'
 import { getEngineAPI } from './services/engine-api'
@@ -108,8 +109,81 @@ function NewChatButton() {
   )
 }
 
+/** 命令面板挂载点 — 在 I18nProvider 内渲染以使用 useI18n。 */
+function KCommandPalette(props: {
+  onNewChat: () => void
+  onToggleTerminal: () => void
+  onTogglePanel: () => void
+  onToggleSidebar: () => void
+  onOpenSettings: (tab?: string) => void
+}) {
+  const { t } = useI18n()
+  const { newChat } = useChat()
+
+  const toggleTheme = () => {
+    try {
+      const raw = localStorage.getItem('kcoder-general-prefs')
+      const parsed = raw ? JSON.parse(raw) : {}
+      const cur = parsed.theme || 'dark'
+      const mq = window.matchMedia('(prefers-color-scheme: light)')
+      const isLight = cur === 'light' || (cur === 'system' && mq.matches)
+      const nextTheme = isLight ? 'dark' : 'light'
+      parsed.theme = nextTheme
+      localStorage.setItem('kcoder-general-prefs', JSON.stringify(parsed))
+      document.documentElement.classList.toggle('theme-light', nextTheme === 'light')
+      window.kcoder?.send('save-settings', { general: parsed })
+    } catch { /* ignore */ }
+  }
+
+  const commands: CommandItem[] = useMemo(() => [
+    { id: 'new-chat', label: t('cp.newChat'), group: t('commandPalette.group.actions'), keywords: 'new chat', shortcut: '⌘N', action: () => { newChat(); props.onNewChat() } },
+    { id: 'toggle-terminal', label: t('cp.toggleTerminal'), group: t('commandPalette.group.view'), keywords: 'terminal', action: props.onToggleTerminal },
+    { id: 'toggle-panel', label: t('cp.togglePanel'), group: t('commandPalette.group.view'), keywords: 'info panel', action: props.onTogglePanel },
+    { id: 'toggle-sidebar', label: t('cp.toggleSidebar'), group: t('commandPalette.group.view'), keywords: 'sidebar', action: props.onToggleSidebar },
+    { id: 'toggle-theme', label: t('cp.toggleTheme'), group: t('commandPalette.group.view'), keywords: 'theme light dark', action: toggleTheme },
+    { id: 'settings', label: t('cp.settings'), group: t('commandPalette.group.settings'), keywords: 'settings preferences', action: () => props.onOpenSettings() },
+    { id: 'settings-models', label: t('cp.settings.models'), group: t('commandPalette.group.settings'), keywords: 'model', action: () => props.onOpenSettings('models') },
+    { id: 'settings-agents', label: t('cp.settings.agents'), group: t('commandPalette.group.settings'), keywords: 'agent subagent', action: () => props.onOpenSettings('agents') },
+    { id: 'settings-mcp', label: t('cp.settings.mcp'), group: t('commandPalette.group.settings'), keywords: 'mcp', action: () => props.onOpenSettings('mcp') },
+    { id: 'settings-skills', label: t('cp.settings.skills'), group: t('commandPalette.group.settings'), keywords: 'skill', action: () => props.onOpenSettings('skills') },
+  ], [t, newChat, props])
+
+  return <CommandPalette commands={commands} />
+}
+
+/** 文件预览右抽屉开关按钮（顶部按钮组最右，展开/关闭右侧文件预览栏） */
+function FilePreviewToggleButton() {
+  const { t } = useI18n()
+  const filePreviewPath = useAppStore((s) => s.filePreviewPath)
+  const lastFilePreviewPath = useAppStore((s) => s.lastFilePreviewPath)
+  const toggleFilePreview = useAppStore((s) => s.toggleFilePreview)
+  // 从未预览过文件 → 按钮禁用（无路径可 toggle 打开）
+  const disabled = !filePreviewPath && !lastFilePreviewPath
+  const active = !!filePreviewPath
+  return (
+    <button
+      onClick={toggleFilePreview}
+      disabled={disabled}
+      title={t('statusbar.toggleFilePreview')}
+      className={`p-1.5 rounded-md transition-colors ${
+        active
+          ? 'text-white bg-bg-hover'
+          : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
+      } disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[#8a8a8f]`}
+    >
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M3.75 3.75v16.5a.75.75 0 00.75.75H19.5a.75.75 0 00.75-.75V3.75a.75.75 0 00-.75-.75H4.5a.75.75 0 00-.75.75zM14.25 3.75v16.5"
+        />
+      </svg>
+    </button>
+  )
+}
+
 export default function App() {
-  const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath, panelOpen, sidebarWidth, setSidebarWidth, filePreviewPath, closeFilePreview } = useAppStore()
+  const { initializeEngine, setEngineStatus, messages, enginePort, workspacePath, panelOpen, setPanelOpen, sidebarWidth, setSidebarWidth, filePreviewPath, closeFilePreview } = useAppStore()
   const { loadThread } = useChat()
   const auth = useAuth(enginePort)
   const [showSettings, setShowSettings] = useState(false)
@@ -239,6 +313,8 @@ export default function App() {
           <NewChatButton />
           <div className="w-px h-4 bg-border-custom mx-0.5" />
           <TerminalToggleButton active={showTerminal} onToggle={toggleTerminal} />
+          {/* 最右：文件预览右抽屉开关 */}
+          <FilePreviewToggleButton />
         </div>
 
         {/* Sidebar expand button when collapsed — simple right chevron (reference design) */}
@@ -306,6 +382,15 @@ export default function App() {
 
       {/* 文件变更聚合抽屉（状态栏变更按钮打开） */}
       <ChangePanel />
+
+      {/* 命令面板（Cmd+K / Ctrl+K） */}
+      <KCommandPalette
+        onNewChat={() => {}}
+        onToggleTerminal={toggleTerminal}
+        onTogglePanel={() => setPanelOpen(!panelOpen)}
+        onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onOpenSettings={(tab) => { if (tab) setSettingsTab(tab); setShowSettings(true) }}
+      />
     </div>
     )}
     </I18nProvider>

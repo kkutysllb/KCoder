@@ -1,7 +1,12 @@
-// ToolActivitySummary — 工具调用摘要（参考 KStock ToolActivitySummary.tsx）。
+// ToolActivitySummary — 工具调用可视化（参考 Cursor/Cline 的工具透明度）。
 //
 // 默认折叠（只显示计数 + 概要），点击展开看每个工具调用的详情。
-// 流式中显示 spinner；有错误高亮。
+// 每个工具按类型差异化渲染：
+//   - terminal（bash/shell/exec）：$ 命令行 + 终端输出区（stdout/stderr 可见）
+//   - file（read/write/edit/str_replace）：文件路径 + 输出
+//   - search（grep/glob/find）：pattern + 命中摘要
+//   - generic：工具名 + 输出
+// 关键改进：成功工具的输出也展示（不止错误），长输出可折叠截断。
 
 import { useState } from 'react'
 import type { ToolCall } from '../../lib/chatMessage'
@@ -72,16 +77,62 @@ export function ToolActivitySummary({ calls, streaming }: ToolActivitySummaryPro
   )
 }
 
-/** 单个工具调用行（展开视图）。 */
+/** 工具分类（决定如何渲染参数与输出）。 */
+type ToolKind = 'terminal' | 'file' | 'search' | 'generic'
+
+const TERMINAL_TOOLS = new Set([
+  'bash', 'shell', 'sh', 'zsh', 'exec', 'run_command', 'terminal', 'execute_bash',
+  'powershell', 'cmd',
+])
+const FILE_TOOLS = new Set([
+  'read', 'read_file', 'view', 'view_file', 'cat', 'write', 'write_file',
+  'create_file', 'edit', 'str_replace', 'replace', 'str_replace_editor',
+  'patch', 'multiedit', 'multi_edit', 'save_file', 'update_file',
+])
+const SEARCH_TOOLS = new Set([
+  'grep', 'glob', 'find', 'search', 'search_files', 'list', 'ls', 'rg',
+  'find_files', 'list_files',
+])
+
+function classifyTool(name: string): ToolKind {
+  const lower = name.toLowerCase()
+  if (TERMINAL_TOOLS.has(lower)) return 'terminal'
+  if (FILE_TOOLS.has(lower)) return 'file'
+  if (SEARCH_TOOLS.has(lower)) return 'search'
+  // MCP 工具名形如 server_tool，按子串兜底
+  if (/bash|shell|exec|terminal/.test(lower)) return 'terminal'
+  if (/read|write|edit|file|save|patch/.test(lower)) return 'file'
+  if (/grep|glob|search|find/.test(lower)) return 'search'
+  return 'generic'
+}
+
+/** 从 args 提取主要展示参数（命令/文件路径/pattern）。 */
+function primaryArg(call: ToolCall): string | null {
+  const a = call.args ?? {}
+  const candidates = ['command', 'cmd', 'script', 'path', 'file_path', 'filePath', 'file', 'pattern', 'query', 'regex']
+  for (const k of candidates) {
+    const v = a[k]
+    if (typeof v === 'string' && v.trim()) return v
+  }
+  return null
+}
+
+function shortPath(p: string): string {
+  // 取最后两段路径，完整路径放 title
+  const parts = p.split('/')
+  if (parts.length <= 2) return p
+  return '…/' + parts.slice(-2).join('/')
+}
+
+/** 单个工具调用行（展开视图）— 按类型差异化渲染。 */
 function ToolCallRow({ call }: { call: ToolCall }) {
-  // write_file / str_replace 等文件工具的路径参数 → 显示文件名
-  const filePath =
-    typeof call.args?.path === 'string'
-      ? call.args.path
-      : typeof call.args?.file_path === 'string'
-        ? call.args.file_path
-        : null
-  const fileName = filePath ? filePath.split('/').pop() || filePath : null
+  const kind = classifyTool(call.name)
+  const arg = primaryArg(call)
+  const fileName = (() => {
+    const p = call.args?.path ?? call.args?.file_path ?? call.args?.filePath ?? call.args?.file
+    return typeof p === 'string' ? p : null
+  })()
+
   const statusIcon =
     call.status === 'running' ? (
       <svg className="w-3 h-3 animate-spin text-blue-400" viewBox="0 0 24 24" fill="none">
@@ -99,31 +150,74 @@ function ToolCallRow({ call }: { call: ToolCall }) {
     )
 
   return (
-    <div className="flex items-start gap-2 px-2 py-1.5 rounded-md bg-bg-hover/50 text-xs">
-      <span className="mt-0.5 shrink-0">{statusIcon}</span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-text-primary">{call.name}</span>
-          {fileName && (
-            <span className="min-w-0 truncate font-mono text-[10px] text-[#3b82f6]/80" title={filePath ?? undefined}>
-              {fileName}
-            </span>
-          )}
-          {call.startedAt && call.endedAt && (
-            <span className="text-[10px] text-text-muted">
-              {formatMs(call.endedAt - call.startedAt)}
-            </span>
-          )}
-        </div>
-        {call.summary && (
-          <p className="mt-0.5 text-text-muted line-clamp-2">{call.summary}</p>
+    <div className="rounded-md bg-bg-hover/50 text-xs overflow-hidden">
+      {/* 头部：图标 + 工具名 + 主参数 + 耗时 */}
+      <div className="flex items-center gap-2 px-2 py-1.5">
+        <span className="shrink-0">{statusIcon}</span>
+        <span className="font-mono text-text-primary shrink-0">{call.name}</span>
+        {arg && (kind === 'terminal') && (
+          <code className="min-w-0 truncate font-mono text-[11px] text-[#9ca3af] flex-1" title={arg}>
+            <span className="text-[#6b7280]">$ </span>{arg}
+          </code>
         )}
-        {call.isError && call.output && (
-          <pre className="mt-1 text-[10px] text-red-400/80 whitespace-pre-wrap font-mono bg-red-500/5 rounded p-1">
-            {call.output}
-          </pre>
+        {arg && (kind === 'file') && fileName && (
+          <span className="min-w-0 truncate font-mono text-[10px] text-[#3b82f6]/80 flex-1" title={fileName}>
+            {shortPath(fileName)}
+          </span>
+        )}
+        {arg && (kind === 'search' || kind === 'generic') && (
+          <span className="min-w-0 truncate font-mono text-[11px] text-[#9ca3af] flex-1" title={arg}>
+            {arg}
+          </span>
+        )}
+        {call.startedAt && call.endedAt && (
+          <span className="text-[10px] text-text-muted shrink-0">
+            {formatMs(call.endedAt - call.startedAt)}
+          </span>
         )}
       </div>
+
+      {/* 摘要（如果有） */}
+      {call.summary && (
+        <p className="px-2 pb-1.5 text-text-muted line-clamp-2">{call.summary}</p>
+      )}
+
+      {/* 输出区：成功/失败都展示（不止错误），终端风格块 */}
+      {call.output && (
+        <ToolOutput text={call.output} isError={!!call.isError} />
+      )}
+    </div>
+  )
+}
+
+/** 工具输出区：终端风格块，长输出可折叠截断。 */
+function ToolOutput({ text, isError }: { text: string; isError: boolean }) {
+  const MAX_LINES = 12
+  const lines = text.split('\n')
+  const tooLong = lines.length > MAX_LINES
+  const [expanded, setExpanded] = useState(false)
+  const shown = tooLong && !expanded ? lines.slice(0, MAX_LINES).join('\n') : text
+
+  return (
+    <div className="border-t border-[#3a3a3e]/60">
+      <pre
+        className={`px-2 py-1.5 overflow-x-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all ${
+          isError ? 'text-red-400/90 bg-red-500/5' : 'text-[#c0c0c5] bg-[#0d0d10]/60'
+        }`}
+      >
+        {shown}
+      </pre>
+      {tooLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          className="w-full px-2 py-1 text-[10px] text-text-muted hover:text-text-secondary bg-bg-hover/30 transition-colors text-left"
+        >
+          {expanded
+            ? '收起'
+            : `展开全部（共 ${lines.length} 行，省略 ${lines.length - MAX_LINES} 行）`}
+        </button>
+      )}
     </div>
   )
 }

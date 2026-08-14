@@ -6,9 +6,10 @@ import { WelcomeScreen } from '../WelcomeScreen'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
 import { getGeneralPref } from '../../lib/generalPrefs'
+import { StatusBar } from '../StatusBar'
 
 export function ChatPanel() {
-  const { messages, isGenerating, sendMessage, editAndResend, stopGeneration, steer } = useChat()
+  const { messages, isGenerating, sendMessage, editAndResend, regenerate, stopGeneration, steer } = useChat()
   const feedRef = useRef<ChatFeedHandle>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const selectedModel = useAppStore((s) => s.selectedModel)
@@ -84,6 +85,7 @@ export function ChatPanel() {
         editDisabled={isGenerating}
         editableUserMessageIds={editableUserMessageIds}
         onEditResend={editAndResend}
+        onRegenerate={regenerate}
         onClarifyPick={handleClarifyPick}
         onAtBottomChange={setAtBottom}
         bottomInset={composerInset}
@@ -95,12 +97,14 @@ export function ChatPanel() {
           参考 KStock composer-dock：悬浮圆角卡片 + blur + focus 青绿边框。
           isGenerating 时主输入框仍可输入（Enter 触发 steer 追加指令）。
           浮动面板展开时，Composer 宽度需扣除面板宽度（PANEL_INSET），
-          否则 Composer 会被 InfoPanel 遮住右侧。 */}
+          否则 Composer 会被 InfoPanel 遮住右侧。
+          bottom-4 → 44px：底部 StatusBar 占 28px + 16px 视觉间距。 */}
       {hasMessages && (
         <div
           ref={composerRef}
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10"
+          className="absolute left-1/2 -translate-x-1/2 z-10"
           style={{
+            bottom: 44,
             width: `min(900px, calc(100% - 32px${panelOpen ? ` - ${PANEL_INSET}px` : ''}))`
           }}
         >
@@ -127,6 +131,10 @@ export function ChatPanel() {
           />
         </div>
       )}
+
+      {/* 底部状态栏：engine 状态 + workspace + 右侧 toggle 按钮组
+          （变更聚合抽屉 / 文件预览右抽屉）。h-7，固定占 28px。 */}
+      <StatusBar />
     </div>
   )
 }
