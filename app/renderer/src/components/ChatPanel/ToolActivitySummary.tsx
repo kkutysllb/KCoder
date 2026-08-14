@@ -305,18 +305,18 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
   )
 }
 
-/** 工具输出区：卡片包裹 + Shiki 语法高亮（按语言），长输出可折叠截断。 */
+/** 工具输出区：卡片包裹 + Shiki 语法高亮 + 卡片内滚动（不限行数硬截断）。
+ *  短输出完整显示；长输出在卡片内可纵向滚动查看全部；仅超长（>400 行）做
+ *  性能保护截断并提示。横向超宽也可滚动。 */
 function ToolOutput({ text, isError, language }: { text: string; isError: boolean; language: string }) {
   const { t } = useI18n()
-  const MAX_LINES = 14
+  // 仅对极长输出做性能保护（避免渲染数万行）；常规输出全部可滚动查看
+  const PERF_CAP = 400
   const lines = text.split('\n')
-  const tooLong = lines.length > MAX_LINES
-  const [expanded, setExpanded] = useState(false)
-  const shown = tooLong && !expanded ? lines.slice(0, MAX_LINES).join('\n') : text
+  const tooLong = lines.length > PERF_CAP
+  const shown = tooLong ? lines.slice(0, PERF_CAP).join('\n') : text
   const [html, setHtml] = useState<string | null>(null)
 
-  // 异步高亮：错误输出不高亮（保持红色可读）；成功输出按推断语言着色。
-  // shown 变化（展开/截断）时重新高亮。失败回退纯文本。
   useEffect(() => {
     if (isError) {
       setHtml(null)
@@ -334,30 +334,26 @@ function ToolOutput({ text, isError, language }: { text: string; isError: boolea
 
   return (
     <div className="mx-1.5 mb-1.5 overflow-hidden rounded-lg border border-border-custom bg-[#0d0d10]">
-      {isError || !html ? (
-        <pre
-          className={`overflow-x-auto px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all ${
-            isError ? 'text-red-400/90 bg-red-500/5' : 'text-[#c0c0c5]'
-          }`}
-        >
-          {shown}
-        </pre>
-      ) : (
-        <div
-          className="overflow-x-auto px-3 py-2 text-[11px] leading-relaxed [&_.line]:block [&>pre.shiki]:!m-0 [&>pre.shiki]:!bg-transparent"
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-      )}
+      <div className="max-h-[360px] overflow-auto">
+        {isError || !html ? (
+          <pre
+            className={`px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre ${
+              isError ? 'text-red-400/90 bg-red-500/5' : 'text-[#c0c0c5]'
+            }`}
+          >
+            {shown}
+          </pre>
+        ) : (
+          <div
+            className="px-3 py-2 text-[11px] leading-relaxed [&_.line]:block [&>pre.shiki]:!m-0 [&>pre.shiki]:!bg-transparent"
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        )}
+      </div>
       {tooLong && (
-        <button
-          type="button"
-          onClick={() => setExpanded((e) => !e)}
-          className="w-full border-t border-border-custom px-3 py-1 text-left text-[10px] text-text-muted transition-colors hover:bg-bg-hover hover:text-text-secondary"
-        >
-          {expanded
-            ? t('tools.collapse')
-            : t('tools.truncated', { n: lines.length, m: lines.length - MAX_LINES })}
-        </button>
+        <div className="border-t border-border-custom px-3 py-1 text-[10px] text-text-muted">
+          {t('tools.truncated', { n: lines.length, m: lines.length - PERF_CAP })}
+        </div>
       )}
     </div>
   )
