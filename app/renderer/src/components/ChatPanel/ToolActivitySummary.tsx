@@ -126,10 +126,37 @@ function shortPath(p: string): string {
   return '…/' + parts.slice(-2).join('/')
 }
 
-/** 单个工具调用行（展开视图）— 按类型差异化渲染。 */
+// 工具名 → 中文标签 i18n key（按工具语义归类，匹配 exact + 子串）。
+const TOOL_LABEL_RULES: Array<{ test: RegExp; key: string }> = [
+  { test: /^(bash|execute_bash|run_command|shell|exec|terminal|powershell|cmd|zsh|sh)$/, key: 'tool.bash' },
+  { test: /^(read|read_file|readfile|view|view_file|cat|get_file|read_file_tool)$/, key: 'tool.read' },
+  { test: /^(write|write_file|writefile|create_file|save_file|new_file)$/, key: 'tool.write' },
+  { test: /^(multiedit|multi_edit)$/, key: 'tool.multiedit' },
+  { test: /^(edit|str_replace|str_replace_editor|replace|patch|update_file|edit_file)$/, key: 'tool.edit' },
+  { test: /^(grep|search|search_files|rg|content_search)$/, key: 'tool.search' },
+  { test: /^(glob|find|find_files|list_files|list|ls)$/, key: 'tool.glob' },
+  { test: /^(task|delegate_task|delegate|dispatch_agent)$/, key: 'tool.task' },
+  { test: /^(todo_write|todowrite|update_todos)$/, key: 'tool.todo' },
+]
+
+/** 工具友好名：命中规则 → 中文化；否则保留原名（MCP 工具等）。 */
+function toolDisplayName(name: string, t: (k: string) => string): string {
+  const lower = name.toLowerCase()
+  for (const r of TOOL_LABEL_RULES) {
+    if (r.test.test(lower)) return t(r.key)
+  }
+  return name
+}
+
+/** 单个工具调用行（展开视图）— 头部默认折叠内部信息，点击展开。 */
 function ToolCallRow({ call }: { call: ToolCall }) {
+  const { t } = useI18n()
   const kind = classifyTool(call.name)
   const arg = primaryArg(call)
+  const displayName = toolDisplayName(call.name, t)
+  // 失败的工具默认展开（便于直接看错误），成功的默认折叠
+  const [open, setOpen] = useState(call.status === 'failed')
+  const hasDetails = !!(call.summary || call.output)
   const fileName = (() => {
     const p = call.args?.path ?? call.args?.file_path ?? call.args?.filePath ?? call.args?.file
     return typeof p === 'string' ? p : null
@@ -153,10 +180,21 @@ function ToolCallRow({ call }: { call: ToolCall }) {
 
   return (
     <div className="rounded-md bg-bg-hover/50 text-xs overflow-hidden">
-      {/* 头部：图标 + 工具名 + 主参数 + 耗时 */}
-      <div className="flex items-center gap-2 px-2 py-1.5">
+      {/* 头部：图标 + 工具名（中文）+ 主参数 + 耗时；有详情时点击展开/折叠 */}
+      <div
+        className={`flex items-center gap-2 px-2 py-1.5 ${hasDetails ? 'cursor-pointer hover:bg-bg-hover' : ''}`}
+        onClick={hasDetails ? () => setOpen((o) => !o) : undefined}
+      >
+        {hasDetails && (
+          <svg
+            className={`w-3 h-3 shrink-0 text-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        )}
         <span className="shrink-0">{statusIcon}</span>
-        <span className="font-mono text-text-primary shrink-0">{call.name}</span>
+        <span className="text-text-primary shrink-0">{displayName}</span>
         {arg && (kind === 'terminal') && (
           <code className="min-w-0 truncate font-mono text-[11px] text-[#9ca3af] flex-1" title={arg}>
             <span className="text-[#6b7280]">$ </span>{arg}
@@ -179,14 +217,16 @@ function ToolCallRow({ call }: { call: ToolCall }) {
         )}
       </div>
 
-      {/* 摘要（如果有） */}
-      {call.summary && (
-        <p className="px-2 pb-1.5 text-text-muted line-clamp-2">{call.summary}</p>
-      )}
-
-      {/* 输出区：成功/失败都展示（不止错误），终端风格块 */}
-      {call.output && (
-        <ToolOutput text={call.output} isError={!!call.isError} />
+      {/* 内部信息（摘要 + 输出）默认折叠，点击头部展开 */}
+      {open && (
+        <>
+          {call.summary && (
+            <p className="px-2 pb-1.5 text-text-muted line-clamp-2">{call.summary}</p>
+          )}
+          {call.output && (
+            <ToolOutput text={call.output} isError={!!call.isError} />
+          )}
+        </>
       )}
     </div>
   )
