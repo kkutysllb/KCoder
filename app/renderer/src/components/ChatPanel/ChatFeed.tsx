@@ -100,6 +100,10 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
     // 阻碍新消息流入）。消息列表通常 < 100 条，ad-hoc 适配开销可忽略。
     const messagesV2 = useAppStore((s) => s.messages_v2)
     const panelOpen = useAppStore((s) => s.panelOpen)
+    // 文件预览栏打开时，浮动面板已被其遮挡（不占位）→ 聊天不再为浮动面板让位，
+    // 避免中间栏被双重挤压。仅在「浮动面板开 且 文件预览关」时才让位。
+    const filePreviewOpen = useAppStore((s) => s.openTabs.length > 0 && !!s.activeTab)
+    const reserveForPanel = panelOpen && !filePreviewOpen
     const adaptedMessages =
       chatMessages ??
       (messagesV2 && messagesV2.length > 0 ? messagesV2 : adaptMessages(messages))
@@ -170,7 +174,7 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
             面板展开时用一层 padding-right 预留右侧空间——注意这一层在
             max-w-4xl 之外，所以不会压窄文字（文字仍在 max-w-4xl 内自然宽度，
             只是在缩窄后的区域里居中，整体视觉左移）。 */}
-        <div className={panelOpen ? 'pr-[360px]' : ''}>
+        <div className={reserveForPanel ? 'pr-[360px]' : ''}>
         <div className="max-w-4xl mx-auto px-6 py-8 space-y-8">
           {adaptedMessages.map((m) =>
             m.role === 'user' ? (

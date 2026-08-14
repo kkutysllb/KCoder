@@ -127,7 +127,7 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
   const isMarkdown = fileName.endsWith('.md')
 
   return (
-    <section className="flex h-full w-[640px] shrink-0 flex-col overflow-hidden border-l border-border-custom bg-bg-primary animate-[slide-in-right_0.25s_ease-out]">
+    <section className="relative z-[55] flex h-full w-[640px] shrink-0 flex-col overflow-hidden border-l border-border-custom bg-bg-primary animate-[slide-in-right_0.25s_ease-out]">
       {/* 多 Tab 栏 */}
       <EditorTabs />
       {/* 标题栏 */}

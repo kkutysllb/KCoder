@@ -16,7 +16,10 @@ export function ChatPanel() {
   const branches = useAppStore((s) => s.branches)
   // 浮动面板展开时：ChatFeed 内部用预留层左移避让（滚动条仍满宽最右）；
   // Composer 也需左移（中心左移半个面板宽 + 宽度扣面板宽），否则会钻到面板下方。
+  // 文件预览栏打开时浮动面板已被遮挡 → 不再让位（避免中间栏双重挤压）。
   const panelOpen = useAppStore((s) => s.panelOpen)
+  const filePreviewOpen = useAppStore((s) => s.openTabs.length > 0 && !!s.activeTab)
+  const panelShift = panelOpen && !filePreviewOpen
   const [atBottom, setAtBottom] = useAtBottomState()
   const { t } = useI18n()
 
@@ -102,8 +105,8 @@ export function ChatPanel() {
           className="absolute -translate-x-1/2 z-10 transition-[left,width] duration-200 ease-out"
           style={{
             bottom: 44,
-            left: panelOpen ? 'calc(50% - 180px)' : '50%',
-            width: `min(900px, calc(100% - 32px${panelOpen ? ' - 360px' : ''}))`
+            left: panelShift ? 'calc(50% - 180px)' : '50%',
+            width: `min(900px, calc(100% - 32px${panelShift ? ' - 360px' : ''}))`
           }}
         >
           {/* 回到底部浮动按钮：悬浮在 composer 正上方（KStock 设计） */}
