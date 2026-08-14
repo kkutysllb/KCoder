@@ -8,9 +8,10 @@
 //   - generic：工具名 + 输出
 // 关键改进：成功工具的输出也展示（不止错误），长输出可折叠截断。
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { ToolCall } from '../../lib/chatMessage'
 import { useI18n } from '../../i18n'
+import { highlight } from '../../lib/highlighter'
 
 interface ToolActivitySummaryProps {
   calls: ToolCall[]
@@ -148,19 +149,40 @@ function toolDisplayName(name: string, t: (k: string) => string): string {
   return name
 }
 
+// 扩展名 → shiki 语言（覆盖 highlighter 注册的常用集）
+const EXT_LANG: Record<string, string> = {
+  ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', mjs: 'javascript',
+  py: 'python', json: 'json', md: 'markdown', yml: 'yaml', yaml: 'yaml', sh: 'bash',
+  sql: 'sql', css: 'css', html: 'html', xml: 'xml', go: 'go', rs: 'rust', java: 'java',
+  c: 'c', cpp: 'cpp',
+}
+
+/** 推断工具输出的高亮语言：编辑类→diff，终端类→bash，文件类→按扩展名，否则 text。 */
+function inferToolLang(name: string, kind: ToolKind, fileName: string | null): string {
+  const lower = name.toLowerCase()
+  if (/edit|str_replace|replace|patch|multiedit|multi_edit/.test(lower)) return 'diff'
+  if (kind === 'terminal') return 'bash'
+  if (fileName) {
+    const ext = fileName.split('.').pop()?.toLowerCase() || ''
+    if (EXT_LANG[ext]) return EXT_LANG[ext]
+  }
+  return 'text'
+}
+
 /** 单个工具调用行（展开视图）— 头部默认折叠内部信息，点击展开。 */
 function ToolCallRow({ call }: { call: ToolCall }) {
   const { t } = useI18n()
   const kind = classifyTool(call.name)
   const arg = primaryArg(call)
-  const displayName = toolDisplayName(call.name, t)
-  // 失败的工具默认展开（便于直接看错误），成功的默认折叠
-  const [open, setOpen] = useState(call.status === 'failed')
-  const hasDetails = !!(call.summary || call.output)
   const fileName = (() => {
     const p = call.args?.path ?? call.args?.file_path ?? call.args?.filePath ?? call.args?.file
     return typeof p === 'string' ? p : null
   })()
+  const displayName = toolDisplayName(call.name, t)
+  const outLang = inferToolLang(call.name, kind, fileName)
+  // 失败的工具默认展开（便于直接看错误），成功的默认折叠
+  const [open, setOpen] = useState(call.status === 'failed')
+  const hasDetails = !!(call.summary || call.output)
 
   const statusIcon =
     call.status === 'running' ? (
@@ -224,7 +246,7 @@ function ToolCallRow({ call }: { call: ToolCall }) {
             <p className="px-2 pb-1.5 text-text-muted line-clamp-2">{call.summary}</p>
           )}
           {call.output && (
-            <ToolOutput text={call.output} isError={!!call.isError} />
+            <ToolOutput text={call.output} isError={!!call.isError} language={outLang} />
           )}
         </>
       )}
@@ -232,29 +254,54 @@ function ToolCallRow({ call }: { call: ToolCall }) {
   )
 }
 
-/** 工具输出区：终端风格块，长输出可折叠截断。 */
-function ToolOutput({ text, isError }: { text: string; isError: boolean }) {
+/** 工具输出区：卡片包裹 + Shiki 语法高亮（按语言），长输出可折叠截断。 */
+function ToolOutput({ text, isError, language }: { text: string; isError: boolean; language: string }) {
   const { t } = useI18n()
-  const MAX_LINES = 12
+  const MAX_LINES = 14
   const lines = text.split('\n')
   const tooLong = lines.length > MAX_LINES
   const [expanded, setExpanded] = useState(false)
   const shown = tooLong && !expanded ? lines.slice(0, MAX_LINES).join('\n') : text
+  const [html, setHtml] = useState<string | null>(null)
+
+  // 异步高亮：错误输出不高亮（保持红色可读）；成功输出按推断语言着色。
+  // shown 变化（展开/截断）时重新高亮。失败回退纯文本。
+  useEffect(() => {
+    if (isError) {
+      setHtml(null)
+      return
+    }
+    let cancelled = false
+    setHtml(null)
+    highlight(shown, language).then((h) => {
+      if (!cancelled) setHtml(h)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [shown, language, isError])
 
   return (
-    <div className="border-t border-[#3a3a3e]/60">
-      <pre
-        className={`px-2 py-1.5 overflow-x-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all ${
-          isError ? 'text-red-400/90 bg-red-500/5' : 'text-[#c0c0c5] bg-[#0d0d10]/60'
-        }`}
-      >
-        {shown}
-      </pre>
+    <div className="mx-1.5 mb-1.5 overflow-hidden rounded-lg border border-border-custom bg-[#0d0d10]">
+      {isError || !html ? (
+        <pre
+          className={`overflow-x-auto px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all ${
+            isError ? 'text-red-400/90 bg-red-500/5' : 'text-[#c0c0c5]'
+          }`}
+        >
+          {shown}
+        </pre>
+      ) : (
+        <div
+          className="overflow-x-auto px-3 py-2 text-[11px] leading-relaxed [&_.line]:block [&>pre.shiki]:!m-0 [&>pre.shiki]:!bg-transparent"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
       {tooLong && (
         <button
           type="button"
           onClick={() => setExpanded((e) => !e)}
-          className="w-full px-2 py-1 text-[10px] text-text-muted hover:text-text-secondary bg-bg-hover/30 transition-colors text-left"
+          className="w-full border-t border-border-custom px-3 py-1 text-left text-[10px] text-text-muted transition-colors hover:bg-bg-hover hover:text-text-secondary"
         >
           {expanded
             ? t('tools.collapse')
