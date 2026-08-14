@@ -483,8 +483,15 @@ async def get_thread(thread_id: str, request: Request) -> dict[str, Any]:
         logger.exception("Failed to get thread %s", thread_id)
         raise HTTPException(status_code=502, detail=f"Upstream error: {exc}") from exc
 
-    # 从 state 提取消息列表
-    values = state.get("values", {}) if isinstance(state, dict) else {}
+    # 从 state 提取消息列表。兼容不同 langgraph-api 版本的 state 响应结构：
+    # 多数版本 {"values": {...}}，部分用 {"channel_values": {...}}，极少数直接是 values。
+    values = {}
+    if isinstance(state, dict):
+        values = state.get("values")
+        if not isinstance(values, dict):
+            values = state.get("channel_values")
+        if not isinstance(values, dict):
+            values = state  # 兜底：state 本身即 values
     messages = values.get("messages", []) if isinstance(values, dict) else []
 
     # 将 LangChain messages 翻译成 KCoder item 结构
@@ -493,6 +500,14 @@ async def get_thread(thread_id: str, request: Request) -> dict[str, Any]:
         item = _message_to_item(msg)
         if item:
             items.append(item)
+
+    logger.info(
+        "get_thread %s: state keys=%s, messages=%d, items=%d",
+        thread_id,
+        list(state.keys()) if isinstance(state, dict) else type(state).__name__,
+        len(messages) if isinstance(messages, list) else 0,
+        len(items),
+    )
 
     base = _to_thread_response(thread)
     base["turns"] = [{"id": "turn-0", "items": items}] if items else []

@@ -456,6 +456,7 @@ export function useChat() {
         const thread = (await api.getThread(loadThreadId)) as {
           turns?: Array<{ items?: Array<Record<string, unknown>> }>
         }
+        console.log('[loadThread]', loadThreadId, 'turns=', thread.turns?.length, 'items=', thread.turns?.[0]?.items?.length, thread)
         clearMessages()
         setThreadId(loadThreadId)
 
