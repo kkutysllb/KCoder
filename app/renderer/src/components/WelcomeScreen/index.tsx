@@ -69,27 +69,7 @@ export function WelcomeScreen({ onSend, disabled }: WelcomeScreenProps) {
           </button>
         ))}
       </div>
-
-      {/* 极简能力提示（一行，克制） */}
-      <div className="relative z-10 mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 text-[11px] text-text-muted">
-        <Hint k="@" label={t('welcome.hintFile')} />
-        <Hint k="/" label={t('welcome.hintCommand')} />
-        <Hint k="$" label={t('welcome.hintSkill')} />
-        <Hint k="⌘K" label={t('welcome.hintCmdK')} />
-        <Hint k="⌘V" label={t('welcome.hintPaste')} />
-      </div>
     </div>
-  )
-}
-
-function Hint({ k, label }: { k: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <kbd className="min-w-[1.25rem] text-center rounded bg-bg-input px-1 py-0.5 font-sans text-text-muted/90">
-        {k}
-      </kbd>
-      <span>{label}</span>
-    </span>
   )
 }
 
