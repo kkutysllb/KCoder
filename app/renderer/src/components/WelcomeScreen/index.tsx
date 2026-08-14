@@ -19,76 +19,99 @@ export function WelcomeScreen({ onSend, disabled }: WelcomeScreenProps) {
   const { t } = useI18n()
   const greeting = t(getGreetingKey())
 
+  const tips = [
+    { text: t('welcome.tip1'), icon: 'arch' },
+    { text: t('welcome.tip2'), icon: 'code' },
+    { text: t('welcome.tip3'), icon: 'search' },
+  ]
+
   return (
-    <div className="flex-1 h-full relative flex flex-col items-center px-8 overflow-hidden">
-      {/* Large background "K" letter - disappears when task starts */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
-        <span className="text-[420px] font-bold leading-none text-white/[0.03] tracking-tighter">
-          K
-        </span>
+    <div className="flex-1 h-full relative flex flex-col items-center justify-center px-6 overflow-hidden">
+      {/* 柔和背景光晕（替代原先沉重的巨型 K 字水印） */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(60% 50% at 50% 38%, rgba(59,130,246,0.10), transparent 70%)',
+        }}
+      />
+
+      {/* 顶部品牌标记 */}
+      <div className="relative z-10 mb-7 flex flex-col items-center gap-3">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#3b82f6] to-[#1d4ed8] shadow-[0_8px_30px_rgba(59,130,246,0.35)]">
+          <span className="text-lg font-bold text-white">K</span>
+        </div>
+        <h1 className="text-xl font-medium text-text-primary tracking-wide">{greeting}</h1>
       </div>
 
-      {/* Spacer to push content group down (greeting + input + hints centered as a block) */}
-      <div className="flex-1" />
-
-      {/* Greeting text */}
-      <h1 className="relative z-10 text-2xl font-medium text-text-primary mb-10 tracking-wide">
-        {greeting}
-      </h1>
-
-      {/* Command input — constrained width so it renders as a centered
-          hero input, not a full-width top bar */}
-      <div className="relative z-10 w-full max-w-2xl flex justify-center">
-        <CommandInput onSend={onSend} disabled={disabled} />
-      </div>
-
-      {/* Quick hints */}
-      <div className="relative z-10 mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-text-muted">
-        <span className="flex items-center gap-1.5">
-          <kbd className="px-1.5 py-0.5 rounded bg-bg-input text-text-muted">@</kbd>
-          {t('welcome.hintFile')}
-        </span>
-        <span className="flex items-center gap-1.5">
-          <kbd className="px-1.5 py-0.5 rounded bg-bg-input text-text-muted">/</kbd>
-          {t('welcome.hintCommand')}
-        </span>
-        <span className="flex items-center gap-1.5">
-          <kbd className="px-1.5 py-0.5 rounded bg-bg-input text-text-muted">$</kbd>
-          {t('welcome.hintSkill')}
-        </span>
-        <span className="flex items-center gap-1.5">
-          <kbd className="px-1.5 py-0.5 rounded bg-bg-input text-text-muted">⌘K</kbd>
-          {t('welcome.hintCmdK')}
-        </span>
-        <span className="flex items-center gap-1.5">
-          <kbd className="px-1.5 py-0.5 rounded bg-bg-input text-text-muted">📁</kbd>
-          {t('welcome.hintFiles')}
-        </span>
-        <span className="flex items-center gap-1.5">
-          <kbd className="px-1.5 py-0.5 rounded bg-bg-input text-text-muted">⌘V</kbd>
-          {t('welcome.hintPaste')}
-        </span>
-      </div>
-
-      {/* 示例提示（点击即发） */}
-      <div className="relative z-10 mt-5 w-full max-w-2xl">
-        <div className="mb-2 text-center text-[11px] text-text-muted">{t('welcome.tipTitle')}</div>
-        <div className="flex flex-col items-center gap-1.5">
-          {[t('welcome.tip1'), t('welcome.tip2'), t('welcome.tip3')].map((tip) => (
-            <button
-              key={tip}
-              onClick={() => onSend(tip)}
-              disabled={disabled}
-              className="w-full max-w-xl rounded-lg border border-border-custom bg-bg-surface/40 px-3 py-2 text-left text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:border-[#3b82f6]/40 disabled:opacity-50"
-            >
-              {tip}
-            </button>
-          ))}
+      {/* 主输入区 */}
+      <div className="relative z-10 w-full max-w-2xl">
+        <div className="rounded-2xl shadow-[0_8px_40px_rgba(0,0,0,0.25)] ring-1 ring-border-custom/60 overflow-hidden">
+          <CommandInput onSend={onSend} disabled={disabled} />
         </div>
       </div>
 
-      {/* Bottom spacer keeps the block vertically centered even on short windows */}
-      <div className="flex-1" />
+      {/* 示例卡片（点击即发） */}
+      <div className="relative z-10 mt-7 grid w-full max-w-2xl grid-cols-1 gap-2 sm:grid-cols-3">
+        {tips.map((tip) => (
+          <button
+            key={tip.text}
+            onClick={() => onSend(tip.text)}
+            disabled={disabled}
+            className="group flex flex-col gap-2 rounded-xl border border-border-custom bg-bg-surface/30 px-3.5 py-3 text-left transition-all hover:border-[#3b82f6]/40 hover:bg-bg-hover disabled:opacity-50"
+          >
+            <TipIcon name={tip.icon} />
+            <span className="text-xs leading-snug text-text-secondary group-hover:text-text-primary">
+              {tip.text}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* 极简能力提示（一行，克制） */}
+      <div className="relative z-10 mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 text-[11px] text-text-muted">
+        <Hint k="@" label={t('welcome.hintFile')} />
+        <Hint k="/" label={t('welcome.hintCommand')} />
+        <Hint k="$" label={t('welcome.hintSkill')} />
+        <Hint k="⌘K" label={t('welcome.hintCmdK')} />
+        <Hint k="⌘V" label={t('welcome.hintPaste')} />
+      </div>
     </div>
+  )
+}
+
+function Hint({ k, label }: { k: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <kbd className="min-w-[1.25rem] text-center rounded bg-bg-input px-1 py-0.5 font-sans text-text-muted/90">
+        {k}
+      </kbd>
+      <span>{label}</span>
+    </span>
+  )
+}
+
+function TipIcon({ name }: { name: string }) {
+  const cls = 'h-4 w-4 text-[#60a5fa]'
+  if (name === 'arch') {
+    return (
+      <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 7l9-4 9 4-9 4-9-4z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l9 4 9-4M3 17l9 4 9-4" />
+      </svg>
+    )
+  }
+  if (name === 'code') {
+    return (
+      <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l-3 3 3 3M16 9l3 3-3 3M13 5l-2 14" />
+      </svg>
+    )
+  }
+  return (
+    <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+      <circle cx="11" cy="11" r="7" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4-4" />
+    </svg>
   )
 }

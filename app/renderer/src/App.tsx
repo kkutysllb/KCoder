@@ -95,22 +95,6 @@ function ChangePanelToggleButton() {
   )
 }
 
-/** 新建会话按钮 */
-function NewChatButton() {
-  const { newChat } = useChat()
-  return (
-    <button
-      onClick={() => newChat()}
-      title="新建会话"
-      className="p-1.5 rounded-md transition-colors text-[#8a8a8f] hover:text-white hover:bg-bg-hover"
-    >
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-      </svg>
-    </button>
-  )
-}
-
 /** 工作区文件树 + 搜索面板（在 I18nProvider 内渲染，用 useI18n + store）。 */
 function FileTreePanel({
   query,
@@ -365,7 +349,6 @@ export default function App() {
             </svg>
           </button>
           <ChangePanelToggleButton />
-          <NewChatButton />
           <div className="w-px h-4 bg-border-custom mx-0.5" />
           <TerminalToggleButton active={showTerminal} onToggle={toggleTerminal} />
           {/* 最右：文件预览右抽屉开关 */}
