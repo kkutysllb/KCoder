@@ -246,6 +246,13 @@ const zhCN: Dict = {
   'welcome.hintCommand': '命令',
   'welcome.hintSkill': '技能',
   'welcome.hintChat': '关联对话',
+  'welcome.hintCmdK': '命令面板',
+  'welcome.hintFiles': '文件浏览器',
+  'welcome.hintPaste': '粘贴图片',
+  'welcome.tipTitle': '试试这些',
+  'welcome.tip1': '帮我理解这个项目的架构',
+  'welcome.tip2': '@src 入口文件，解释启动流程',
+  'welcome.tip3': '找出所有 TODO 并列出来',
 
   // CommandInput
   'input.placeholder': '向 KCoder 提问, @ 提及文件、文件夹或画板, / 使用命令或子智能体, $ 使用技能, # 关联对话',
@@ -1007,6 +1014,13 @@ const en: Dict = {
   'welcome.hintCommand': 'Commands',
   'welcome.hintSkill': 'Skills',
   'welcome.hintChat': 'Link chats',
+  'welcome.hintCmdK': 'Command palette',
+  'welcome.hintFiles': 'File browser',
+  'welcome.hintPaste': 'Paste image',
+  'welcome.tipTitle': 'Try these',
+  'welcome.tip1': 'Explain this project\'s architecture',
+  'welcome.tip2': '@src entry file, explain the startup flow',
+  'welcome.tip3': 'Find all TODOs and list them',
 
   // CommandInput
   'input.placeholder': 'Ask KCoder, @ to mention files, / for commands or sub-agents, $ for skills, # to link chats',

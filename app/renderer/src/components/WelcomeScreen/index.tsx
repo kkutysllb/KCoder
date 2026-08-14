@@ -43,7 +43,7 @@ export function WelcomeScreen({ onSend, disabled }: WelcomeScreenProps) {
       </div>
 
       {/* Quick hints */}
-      <div className="relative z-10 mt-8 flex items-center gap-6 text-xs text-text-muted">
+      <div className="relative z-10 mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-text-muted">
         <span className="flex items-center gap-1.5">
           <kbd className="px-1.5 py-0.5 rounded bg-bg-input text-text-muted">@</kbd>
           {t('welcome.hintFile')}
@@ -57,9 +57,34 @@ export function WelcomeScreen({ onSend, disabled }: WelcomeScreenProps) {
           {t('welcome.hintSkill')}
         </span>
         <span className="flex items-center gap-1.5">
-          <kbd className="px-1.5 py-0.5 rounded bg-bg-input text-text-muted">#</kbd>
-          {t('welcome.hintChat')}
+          <kbd className="px-1.5 py-0.5 rounded bg-bg-input text-text-muted">⌘K</kbd>
+          {t('welcome.hintCmdK')}
         </span>
+        <span className="flex items-center gap-1.5">
+          <kbd className="px-1.5 py-0.5 rounded bg-bg-input text-text-muted">📁</kbd>
+          {t('welcome.hintFiles')}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <kbd className="px-1.5 py-0.5 rounded bg-bg-input text-text-muted">⌘V</kbd>
+          {t('welcome.hintPaste')}
+        </span>
+      </div>
+
+      {/* 示例提示（点击即发） */}
+      <div className="relative z-10 mt-5 w-full max-w-2xl">
+        <div className="mb-2 text-center text-[11px] text-text-muted">{t('welcome.tipTitle')}</div>
+        <div className="flex flex-col items-center gap-1.5">
+          {[t('welcome.tip1'), t('welcome.tip2'), t('welcome.tip3')].map((tip) => (
+            <button
+              key={tip}
+              onClick={() => onSend(tip)}
+              disabled={disabled}
+              className="w-full max-w-xl rounded-lg border border-border-custom bg-bg-surface/40 px-3 py-2 text-left text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:border-[#3b82f6]/40 disabled:opacity-50"
+            >
+              {tip}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Bottom spacer keeps the block vertically centered even on short windows */}
