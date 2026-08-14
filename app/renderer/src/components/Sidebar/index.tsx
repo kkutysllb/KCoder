@@ -557,6 +557,12 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
         </div>
       </div>
 
+      {/* 品牌标识 */}
+      <div className="flex items-center gap-2 px-4 pt-2 pb-1.5">
+        <img src="/favicon-64.png" alt="KCoder" className="h-6 w-6 rounded-md" />
+        <span className="text-sm font-semibold text-text-primary tracking-[0.08em]">KCoder</span>
+      </div>
+
       {/* Navigation items */}
       <div className="px-3 py-2 space-y-0.5">
         <button className="sidebar-item w-full" onClick={handleNewChat}>

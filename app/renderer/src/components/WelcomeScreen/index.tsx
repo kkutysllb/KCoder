@@ -38,9 +38,11 @@ export function WelcomeScreen({ onSend, disabled }: WelcomeScreenProps) {
 
       {/* 顶部品牌标记 */}
       <div className="relative z-10 mb-7 flex flex-col items-center gap-3">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#3b82f6] to-[#1d4ed8] shadow-[0_8px_30px_rgba(59,130,246,0.35)]">
-          <span className="text-lg font-bold text-white">K</span>
-        </div>
+        <img
+          src="/favicon-64.png"
+          alt="KCoder"
+          className="h-14 w-14 rounded-2xl shadow-[0_8px_30px_rgba(59,130,246,0.30)]"
+        />
         <h1 className="text-xl font-medium text-text-primary tracking-wide">{greeting}</h1>
       </div>
 
