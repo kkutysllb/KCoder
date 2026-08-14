@@ -14,8 +14,9 @@ export function ChatPanel() {
   const composerRef = useRef<HTMLDivElement>(null)
   const selectedModel = useAppStore((s) => s.selectedModel)
   const branches = useAppStore((s) => s.branches)
-  // 浮动面板展开时，整列由 App.tsx 容器级 paddingRight 左移让位；
-  // 这里 Composer / ChatFeed 不再各自扣宽度（避免压窄文字）。
+  // 浮动面板展开时：ChatFeed 内部用预留层左移避让（滚动条仍满宽最右）；
+  // Composer 也需左移（中心左移半个面板宽 + 宽度扣面板宽），否则会钻到面板下方。
+  const panelOpen = useAppStore((s) => s.panelOpen)
   const [atBottom, setAtBottom] = useAtBottomState()
   const { t } = useI18n()
 
@@ -98,10 +99,11 @@ export function ChatPanel() {
       {hasMessages && (
         <div
           ref={composerRef}
-          className="absolute left-1/2 -translate-x-1/2 z-10"
+          className="absolute -translate-x-1/2 z-10 transition-[left,width] duration-200 ease-out"
           style={{
             bottom: 44,
-            width: `min(900px, calc(100% - 32px))`
+            left: panelOpen ? 'calc(50% - 180px)' : '50%',
+            width: `min(900px, calc(100% - 32px${panelOpen ? ' - 360px' : ''}))`
           }}
         >
           {/* 回到底部浮动按钮：悬浮在 composer 正上方（KStock 设计） */}
