@@ -33,6 +33,7 @@ function safeDecodePath(p: string): string {
 export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
   const enginePort = useAppStore((s) => s.enginePort)
   const threadId = useAppStore((s) => s.threadId)
+  const workspacePath = useAppStore((s) => s.workspacePath)
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -84,6 +85,22 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
             `http://127.0.0.1:${enginePort}/v1/threads/${threadId}/file?path=${encodeURIComponent(decodedPath)}`
           )
           if (!res.ok) {
+            // 沙箱虚拟路径在 thread 端点找不到（404）→ 尝试剥离 /mnt/[user-data/][workspace/]
+            // 前缀，按工作区相对路径用 workspace 端点读取（agent 常以沙箱路径引用工作区文件）
+            const rel = decodedPath.replace(/^\/mnt\/(?:user-data\/)?(?:workspace\/)?/, '')
+            if (workspacePath && rel && rel !== decodedPath) {
+              try {
+                const data = await getEngineAPI(enginePort).readWorkspaceFile(
+                  `${workspacePath}/${rel}`.replace(/\/+/g, '/')
+                )
+                if (!cancelled) {
+                  setContent(data.truncated ? `${data.content}\n\n${t('editor.truncated')}` : data.content)
+                  return
+                }
+              } catch {
+                /* 回退也失败，落到下面的错误提示 */
+              }
+            }
             const text = await res.text().catch(() => res.statusText)
             if (!cancelled) setError(`Failed to load: ${text}`)
             return

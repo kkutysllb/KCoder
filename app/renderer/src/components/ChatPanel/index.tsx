@@ -70,7 +70,7 @@ export function ChatPanel() {
   }, [messages, isGenerating])
 
   return (
-    <div className="relative flex flex-1 flex-col h-full">
+    <div className="relative flex flex-1 min-h-0 flex-col h-full">
       {/* Messages area — ChatFeed 优先读 messages_v2，缺失时 fallback 到 messages。
           空消息时通过 emptySlot 渲染 WelcomeScreen（WelcomeScreen 内部自带 CommandInput）。 */}
       <ChatFeed

@@ -371,8 +371,10 @@ export default function App() {
         )}
 
         {/* 内层内容区 — 满宽（滚动条始终在窗口最右端）；面板展开时由
-            ChatFeed/Composer 内部各自左移避让（见各自实现），容器本身不动。 */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+            ChatFeed/Composer 内部各自左移避让（见各自实现），容器本身不动。
+            min-h-0：让 flex 子项（ChatPanel + TerminalPanel）能正确分配高度——
+            否则 ChatPanel 默认 min-height:auto 不收缩，会把终端挤出可视区。 */}
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {hasMessages ? (
             <ChatPanel />
           ) : (
