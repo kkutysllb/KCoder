@@ -23,7 +23,7 @@ import { ReasoningBlock } from './ReasoningBlock'
 import { SubagentGroup } from './SubagentGroup'
 import { ClarificationCard } from './ClarificationCard'
 import { ArtifactBar } from './ArtifactBar'
-import { FileChangeCard } from './FileChangeCard'
+import { DeliveryResult } from './DeliveryResult'
 import { StreamingDots } from './parts/icons'
 
 interface AssistantTurnProps {
@@ -252,9 +252,13 @@ export function AssistantTurn({
           />
         )}
 
-        {/* 产出文件 + workspace 文件变更（turn 级，置于末尾） */}
+        {/* 产出文件 */}
         <ArtifactBar msg={msg} />
-        {msg.fileChanges && <FileChangeCard changes={msg.fileChanges} />}
+
+        {/* 交付结果（turn 完成且有文件变更时收尾）：✓已完成 + 统计 + 复制/提交 + 文件清单 */}
+        {!streaming && msg.fileChanges && msg.fileChanges.files.length > 0 && (
+          <DeliveryResult msg={msg} />
+        )}
 
         {/* 空内容 streaming 占位 */}
         {!hasContent && streaming && (
