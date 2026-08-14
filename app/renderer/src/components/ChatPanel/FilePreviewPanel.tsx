@@ -14,6 +14,7 @@ import { useAppStore } from '../../stores/app-store'
 import { getEngineAPI } from '../../services/engine-api'
 import { CodeEditor } from '../CodeEditor'
 import { EditorTabs } from '../EditorTabs'
+import { useI18n } from '../../i18n'
 
 interface FilePreviewPanelProps {
   path: string
@@ -36,6 +37,7 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState<string | null>(null)
+  const { t } = useI18n()
   // 编辑状态上提到 store（按路径持久化）：切 Tab 不丢失未保存修改。
   // store 键 = path prop（与 openFilePreview 存入的键一致）。
   const editedContent = useAppStore((s) => s.tabEdited[path])
@@ -56,10 +58,10 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
       await getEngineAPI(enginePort).writeWorkspaceFile(decodedPath, editedContent)
       setContent(editedContent)
       setTabDirty(path, false)
-      setSaveMsg('已保存')
+      setSaveMsg(t('editor.saved'))
       setTimeout(() => setSaveMsg(null), 2000)
     } catch (e) {
-      setSaveMsg(`保存失败: ${e}`)
+      setSaveMsg(`${t('editor.saveFailed')}: ${e}`)
     } finally {
       setSaving(false)
     }
@@ -91,7 +93,7 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
         } else {
           const data = await getEngineAPI(enginePort).readWorkspaceFile(decodedPath)
           if (!cancelled) {
-            setContent(data.truncated ? `${data.content}\n\n[文件过大，已截断]` : data.content)
+            setContent(data.truncated ? `${data.content}\n\n${t('editor.truncated')}` : data.content)
           }
         }
       } catch (err) {
@@ -132,7 +134,7 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
                 : 'text-text-muted cursor-default'
             }`}
           >
-            {saving ? '保存中…' : '保存'}
+            {saving ? t('editor.saving') : t('editor.save')}
           </button>
         )}
         <button
@@ -149,7 +151,7 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
       {/* 内容区 */}
       {content == null && error == null ? (
         <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
-          <span className="animate-pulse">加载中…</span>
+          <span className="animate-pulse">{t('files.loading')}</span>
         </div>
       ) : error ? (
         <div className="flex-1 overflow-auto p-4 text-sm text-red-400">{error}</div>

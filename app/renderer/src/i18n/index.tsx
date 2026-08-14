@@ -137,6 +137,32 @@ const zhCN: Dict = {
   'cp.settings.agents': '子智能体',
   'cp.settings.mcp': 'MCP 服务器',
   'cp.settings.skills': '技能',
+  'files.title': '文件',
+  'files.empty': '未选择工作区目录',
+  'files.browserTitle': '文件浏览器',
+  'files.searchPlaceholder': '在工作区中搜索…',
+  'files.loading': '加载中…',
+  'files.searching': '搜索中…',
+  'files.noResults': '无匹配结果',
+  'files.truncated': '结果过多，已截断',
+  'files.closeTabConfirm': '有未保存修改，确定关闭？',
+  'editor.saving': '保存中…',
+  'editor.save': '保存',
+  'editor.saved': '已保存',
+  'editor.saveFailed': '保存失败',
+  'editor.loadingEditor': '加载编辑器…',
+  'editor.truncated': '[文件过大，已截断]',
+  'tools.calling': '正在调用 {n} 个工具…',
+  'tools.doneWithFail': '{n} 个工具调用完成 · {f} 个失败',
+  'tools.calls': '{n} 个工具调用',
+  'tools.truncated': '展开全部（共 {n} 行，省略 {m} 行）',
+  'tools.collapse': '收起',
+  'changes.allReverted': '全部已撤销',
+  'changes.revertConfirm': '撤销对 {path} 的更改？\n（{action}）',
+  'changes.revertActionDelete': '删除该新文件',
+  'changes.revertActionRestore': '恢复到 git HEAD',
+  'changes.revertFailed': '撤销失败',
+  'changes.revertTitle': '撤销对该文件的更改',
   'panel.title': '任务上下文',
   'panel.sectionGit': 'Git 工具',
   'panel.sectionPlan': '计划',
@@ -872,6 +898,32 @@ const en: Dict = {
   'cp.settings.agents': 'Sub-agents',
   'cp.settings.mcp': 'MCP servers',
   'cp.settings.skills': 'Skills',
+  'files.title': 'Files',
+  'files.empty': 'No workspace folder selected',
+  'files.browserTitle': 'File browser',
+  'files.searchPlaceholder': 'Search in workspace…',
+  'files.loading': 'Loading…',
+  'files.searching': 'Searching…',
+  'files.noResults': 'No matches',
+  'files.truncated': 'Too many results, truncated',
+  'files.closeTabConfirm': 'Has unsaved changes, close anyway?',
+  'editor.saving': 'Saving…',
+  'editor.save': 'Save',
+  'editor.saved': 'Saved',
+  'editor.saveFailed': 'Save failed',
+  'editor.loadingEditor': 'Loading editor…',
+  'editor.truncated': '[File too large, truncated]',
+  'tools.calling': 'Calling {n} tools…',
+  'tools.doneWithFail': '{n} tools done · {f} failed',
+  'tools.calls': '{n} tool calls',
+  'tools.truncated': 'Show all ({n} lines, {m} hidden)',
+  'tools.collapse': 'Collapse',
+  'changes.allReverted': 'All reverted',
+  'changes.revertConfirm': 'Revert changes to {path}?\n({action})',
+  'changes.revertActionDelete': 'delete the new file',
+  'changes.revertActionRestore': 'restore to git HEAD',
+  'changes.revertFailed': 'Revert failed',
+  'changes.revertTitle': 'Revert changes to this file',
   'panel.title': 'Task Context',
   'panel.sectionGit': 'Git',
   'panel.sectionPlan': 'Plan',
@@ -1482,7 +1534,7 @@ const dictionaries: Record<Locale, Dict> = { 'zh-CN': zhCN, en }
 interface I18nContextValue {
   locale: Locale
   setLocale: (l: Locale) => void
-  t: (key: string) => string
+  t: (key: string, params?: Record<string, string | number>) => string
 }
 
 const I18nContext = createContext<I18nContextValue>({
@@ -1518,7 +1570,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const t = useCallback(
-    (key: string): string => dictionaries[locale][key] ?? dictionaries['zh-CN'][key] ?? key,
+    (key: string, params?: Record<string, string | number>): string => {
+      const s = dictionaries[locale][key] ?? dictionaries['zh-CN'][key] ?? key
+      if (!params) return s
+      return s.replace(/\{(\w+)\}/g, (_, k) => (k in params ? String(params[k]) : `{${k}}`))
+    },
     [locale]
   )
 

@@ -7,6 +7,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { getEngineAPI, type WorkspaceTreeEntry } from '../../services/engine-api'
 import { useAppStore } from '../../stores/app-store'
+import { useI18n } from '../../i18n'
 
 interface FileTreeProps {
   rootPath: string
@@ -20,10 +21,11 @@ interface Node {
 }
 
 export function FileTree({ rootPath, onOpenFile }: FileTreeProps) {
+  const { t } = useI18n()
   if (!rootPath) {
     return (
       <div className="px-3 py-6 text-center text-xs text-text-muted">
-        未选择工作区目录
+        {t('files.empty')}
       </div>
     )
   }
@@ -59,6 +61,7 @@ function DirNode({
   const [error, setError] = useState<string | null>(null)
   const enginePort = useAppStore((s) => s.enginePort)
   const fetchedRef = useRef(false)
+  const { t } = useI18n()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -111,7 +114,7 @@ function DirNode({
       {open && (
         <div>
           {loading && (
-            <div className="px-3 py-1 text-[11px] text-text-muted" style={{ paddingLeft: depth * 12 + 30 }}>加载中…</div>
+            <div className="px-3 py-1 text-[11px] text-text-muted" style={{ paddingLeft: depth * 12 + 30 }}>{t('files.loading')}</div>
           )}
           {error && (
             <div className="px-3 py-1 text-[11px] text-red-400" style={{ paddingLeft: depth * 12 + 30 }}>{error}</div>

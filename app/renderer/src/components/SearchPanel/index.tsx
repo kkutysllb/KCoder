@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { getEngineAPI, type SearchHit } from '../../services/engine-api'
 import { useAppStore } from '../../stores/app-store'
+import { useI18n } from '../../i18n'
 
 interface SearchPanelProps {
   rootPath: string
@@ -21,6 +22,7 @@ export function SearchPanel({ rootPath, query, onOpenFile }: SearchPanelProps) {
   const [error, setError] = useState<string | null>(null)
   const enginePort = useAppStore((s) => s.enginePort)
   const reqId = useRef(0)
+  const { t } = useI18n()
 
   useEffect(() => {
     const q = query.trim()
@@ -63,13 +65,13 @@ export function SearchPanel({ rootPath, query, onOpenFile }: SearchPanelProps) {
   return (
     <div className="py-1">
       {loading && (
-        <div className="px-3 py-1 text-[11px] text-text-muted">搜索中…</div>
+        <div className="px-3 py-1 text-[11px] text-text-muted">{t('files.searching')}</div>
       )}
       {error && (
         <div className="px-3 py-1 text-[11px] text-red-400">{error}</div>
       )}
       {!loading && results.length === 0 && !error && (
-        <div className="px-3 py-2 text-[11px] text-text-muted">无匹配结果</div>
+        <div className="px-3 py-2 text-[11px] text-text-muted">{t('files.noResults')}</div>
       )}
       {Array.from(groups.entries()).map(([file, hits]) => (
         <div key={file} className="mb-1">
@@ -92,7 +94,7 @@ export function SearchPanel({ rootPath, query, onOpenFile }: SearchPanelProps) {
         </div>
       ))}
       {truncated && (
-        <div className="px-3 py-1 text-[10px] text-text-muted">结果过多，已截断</div>
+        <div className="px-3 py-1 text-[10px] text-text-muted">{t('files.truncated')}</div>
       )}
     </div>
   )

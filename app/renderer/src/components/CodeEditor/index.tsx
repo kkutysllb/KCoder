@@ -69,7 +69,7 @@ export function CodeEditor({ path, value, onChange, onSave, readOnly }: CodeEdit
       theme={isLight ? 'vs' : 'vs-dark'}
       onChange={(v) => onChange?.(v ?? '')}
       onMount={handleMount}
-      loading={<div className="flex h-full items-center justify-center text-xs text-text-muted">加载编辑器…</div>}
+      loading={<div className="flex h-full items-center justify-center text-xs text-text-muted">Loading editor…</div>}
       options={{
         readOnly,
         minimap: { enabled: false },

@@ -8,6 +8,7 @@ import type { FileChangesPayload, FileChange } from '../../lib/chatMessage'
 import { DiffViewer } from './DiffViewer'
 import { useAppStore } from '../../stores/app-store'
 import { getEngineAPI } from '../../services/engine-api'
+import { useI18n } from '../../i18n'
 
 interface FileChangeCardProps {
   changes: FileChangesPayload
@@ -27,6 +28,7 @@ export function FileChangeCard({ changes }: FileChangeCardProps) {
   const [reverting, setReverting] = useState<string | null>(null)
   const enginePort = useAppStore((s) => s.enginePort)
   const workspacePath = useAppStore((s) => s.workspacePath)
+  const { t } = useI18n()
 
   const { summary, files } = changes
   const visibleFiles = files.filter((f) => !revertedPaths.has(f.path))
@@ -37,13 +39,16 @@ export function FileChangeCard({ changes }: FileChangeCardProps) {
   const handleRevert = async (e: React.MouseEvent, file: FileChange) => {
     e.stopPropagation()
     if (!workspacePath) return
-    if (!confirm(`撤销对 ${file.path} 的更改？\n（${file.status === 'created' ? '删除该新文件' : '恢复到 git HEAD'}）`)) return
+    if (!confirm(t('changes.revertConfirm', {
+      path: file.path,
+      action: file.status === 'created' ? t('changes.revertActionDelete') : t('changes.revertActionRestore')
+    }))) return
     setReverting(file.path)
     try {
       await getEngineAPI(enginePort).revertWorkspaceFile(workspacePath, file.path, file.status)
       setRevertedPaths((prev) => new Set(prev).add(file.path))
     } catch (err) {
-      alert(`撤销失败: ${err}`)
+      alert(`${t('changes.revertFailed')}: ${err}`)
     } finally {
       setReverting(null)
     }
@@ -124,7 +129,7 @@ export function FileChangeCard({ changes }: FileChangeCardProps) {
                 <button
                   onClick={(e) => handleRevert(e, file)}
                   disabled={reverting === file.path}
-                  title="撤销对该文件的更改"
+                  title={t('changes.revertTitle')}
                   className="shrink-0 rounded p-1 text-text-muted opacity-0 group-hover:opacity-100 hover:text-[#ef4444] disabled:opacity-50 transition-all"
                 >
                   {reverting === file.path ? (
@@ -142,7 +147,7 @@ export function FileChangeCard({ changes }: FileChangeCardProps) {
             </div>
           ))}
           {visibleFiles.length === 0 && (
-            <div className="px-3 py-2 text-xs text-text-muted">全部已撤销</div>
+            <div className="px-3 py-2 text-xs text-text-muted">{t('changes.allReverted')}</div>
           )}
         </div>
       )}

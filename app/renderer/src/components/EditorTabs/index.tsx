@@ -5,6 +5,7 @@
 // 按 activeTab 渲染）实现多文件编辑切换。
 
 import { useAppStore } from '../../stores/app-store'
+import { useI18n } from '../../i18n'
 
 export function EditorTabs() {
   const openTabs = useAppStore((s) => s.openTabs)
@@ -12,6 +13,7 @@ export function EditorTabs() {
   const tabDirty = useAppStore((s) => s.tabDirty)
   const setActiveTab = useAppStore((s) => s.setActiveTab)
   const closeTab = useAppStore((s) => s.closeTab)
+  const { t } = useI18n()
 
   if (openTabs.length === 0) return null
 
@@ -38,7 +40,7 @@ export function EditorTabs() {
             <button
               onClick={(e) => {
                 e.stopPropagation()
-                if (dirty && !confirm(`${name} 有未保存修改，确定关闭？`)) return
+                if (dirty && !confirm(t('files.closeTabConfirm'))) return
                 closeTab(path)
               }}
               className={`rounded p-0.5 transition-colors ${

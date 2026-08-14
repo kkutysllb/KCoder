@@ -10,6 +10,7 @@
 
 import { useState } from 'react'
 import type { ToolCall } from '../../lib/chatMessage'
+import { useI18n } from '../../i18n'
 
 interface ToolActivitySummaryProps {
   calls: ToolCall[]
@@ -18,6 +19,7 @@ interface ToolActivitySummaryProps {
 
 export function ToolActivitySummary({ calls, streaming }: ToolActivitySummaryProps) {
   const [expanded, setExpanded] = useState(false)
+  const { t } = useI18n()
   if (calls.length === 0) return null
 
   const runningCount = calls.filter((c) => c.status === 'running').length
@@ -27,11 +29,11 @@ export function ToolActivitySummary({ calls, streaming }: ToolActivitySummaryPro
   // 摘要文案
   let summary: string
   if (streaming && runningCount > 0) {
-    summary = `正在调用 ${runningCount} 个工具…`
+    summary = t('tools.calling', { n: runningCount })
   } else if (failedCount > 0) {
-    summary = `${completedCount} 个工具调用完成 · ${failedCount} 个失败`
+    summary = t('tools.doneWithFail', { n: completedCount, f: failedCount })
   } else {
-    summary = `${calls.length} 个工具调用`
+    summary = t('tools.calls', { n: calls.length })
   }
 
   const hasError = failedCount > 0
@@ -192,6 +194,7 @@ function ToolCallRow({ call }: { call: ToolCall }) {
 
 /** 工具输出区：终端风格块，长输出可折叠截断。 */
 function ToolOutput({ text, isError }: { text: string; isError: boolean }) {
+  const { t } = useI18n()
   const MAX_LINES = 12
   const lines = text.split('\n')
   const tooLong = lines.length > MAX_LINES
@@ -214,8 +217,8 @@ function ToolOutput({ text, isError }: { text: string; isError: boolean }) {
           className="w-full px-2 py-1 text-[10px] text-text-muted hover:text-text-secondary bg-bg-hover/30 transition-colors text-left"
         >
           {expanded
-            ? '收起'
-            : `展开全部（共 ${lines.length} 行，省略 ${lines.length - MAX_LINES} 行）`}
+            ? t('tools.collapse')
+            : t('tools.truncated', { n: lines.length, m: lines.length - MAX_LINES })}
         </button>
       )}
     </div>
