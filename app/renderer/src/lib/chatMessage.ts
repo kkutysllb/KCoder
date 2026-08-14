@@ -12,6 +12,15 @@
 
 export type ChatRole = 'user' | 'assistant' | 'system'
 
+/**
+ * 有序 turn 片段——按执行到达顺序交错记录正文与工具调用，
+ * 供 Cursor/Cline 风格的「分阶段」渲染（正文 → 工具 → 正文 → 工具…）。
+ * text 片段连续到达时合并到同一片段；每次 tool_call_started 推入一个 tool 片段。
+ */
+export type TurnSegment =
+  | { type: 'text'; text: string }
+  | { type: 'tool'; callId: string }
+
 /** assistant 的思考流（reasoning）。流式中 startedAt 已填，完成后填 endedAt。 */
 export interface ReasoningBlock {
   text: string
@@ -162,6 +171,8 @@ export interface ChatMessage {
   reasoning?: ReasoningBlock
   /** 工具调用列表（按时间顺序）。 */
   toolCalls?: ToolCall[]
+  /** 有序片段（正文 ↔ 工具调用交错，按到达顺序）。无则回退到平铺渲染。 */
+  segments?: TurnSegment[]
   /** 并行子代理任务列表。 */
   subagents?: SubagentTask[]
   /** 引擎 values 快照的 Todo 列表。 */

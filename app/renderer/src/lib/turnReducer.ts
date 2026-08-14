@@ -17,8 +17,27 @@ import type {
   FileChangesPayload,
   ReasoningBlock,
   ToolCall,
+  TurnSegment,
   TurnStatus
 } from './chatMessage'
+
+/** 把文本增量追加到 segments：末尾若是 text 片段则合并，否则新建 text 片段。 */
+function appendTextSegment(segments: TurnSegment[] | undefined, delta: string): TurnSegment[] {
+  if (!delta) return segments ?? []
+  const segs = segments ?? []
+  const last = segs[segs.length - 1]
+  if (last && last.type === 'text') {
+    return [...segs.slice(0, -1), { type: 'text', text: last.text + delta }]
+  }
+  return [...segs, { type: 'text', text: delta }]
+}
+
+/** 推入一个 tool 片段（同一 callId 幂等，防重复）。 */
+function pushToolSegment(segments: TurnSegment[] | undefined, callId: string): TurnSegment[] {
+  const segs = segments ?? []
+  if (segs.some((s) => s.type === 'tool' && s.callId === callId)) return segs
+  return [...segs, { type: 'tool', callId }]
+}
 
 /** KCoder gateway SSE 事件类型（与 sse.py translate_event 对齐）。 */
 export type SseEventKind =
@@ -71,6 +90,7 @@ export function reduceSseEvent(
       return {
         ...state,
         text: (state.text ?? '') + delta,
+        segments: appendTextSegment(state.segments, delta),
         reasoning
       }
     }
@@ -101,7 +121,8 @@ export function reduceSseEvent(
       }
       return {
         ...state,
-        toolCalls: [...(state.toolCalls ?? []), call]
+        toolCalls: [...(state.toolCalls ?? []), call],
+        segments: pushToolSegment(state.segments, callId)
       }
     }
 
@@ -246,6 +267,7 @@ function reduceItemEvent(
   const text = item.text as string | undefined
   if (text) {
     next.text = (next.text ?? '') + text
+    next.segments = appendTextSegment(next.segments, text)
   }
 
   // reasoning 内容
@@ -267,6 +289,7 @@ function reduceItemEvent(
       output: toolCall.output as string | undefined
     }
     next.toolCalls = [...(next.toolCalls ?? []), call]
+    next.segments = pushToolSegment(next.segments, call.id)
   }
 
   return next

@@ -12,15 +12,15 @@
 import { useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { ChatMessage, HumanInputPayload } from '../../lib/chatMessage'
+import type { ChatMessage, HumanInputPayload, ToolCall } from '../../lib/chatMessage'
 import { isInternalOnlyText, sanitizeAssistantText } from '../../lib/chatMessage'
 import { CodeBlock } from '../CodeBlock'
+import { ToolActivitySummary, ToolCallRow } from './ToolActivitySummary'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
 import { StageBadge } from './StageBadge'
 import { ReasoningBlock } from './ReasoningBlock'
 import { SubagentGroup } from './SubagentGroup'
-import { ToolActivitySummary } from './ToolActivitySummary'
 import { ClarificationCard } from './ClarificationCard'
 import { ArtifactBar } from './ArtifactBar'
 import { FileChangeCard } from './FileChangeCard'
@@ -99,6 +99,50 @@ export function AssistantTurn({
     () => msg.toolCalls?.filter((c) => c.name !== 'ask_clarification') ?? [],
     [msg.toolCalls]
   )
+  // callId → ToolCall 映射（交错渲染时按 segment.callId 查找）
+  const callById = useMemo(() => {
+    const m: Record<string, ToolCall> = {}
+    for (const c of visibleToolCalls) m[c.id] = c
+    return m
+  }, [visibleToolCalls])
+
+  // markdown 渲染组件（链接/代码块），正文段与回退正文共用
+  const mdComponents = useMemo(
+    () => ({
+      a({ href, children, ...props }: React.ComponentPropsWithoutRef<'a'> & { href?: string }) {
+        const h = href || ''
+        if (h.startsWith('/mnt/user-data/')) {
+          return (
+            <a
+              href={h}
+              onClick={(e) => {
+                e.preventDefault()
+                openFilePreview(h)
+              }}
+              title="在预览面板中打开该文件"
+              {...props}
+            >
+              {children}
+            </a>
+          )
+        }
+        return (
+          <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+            {children}
+          </a>
+        )
+      },
+      code({ className, children, ...props }: React.ComponentPropsWithoutRef<'code'> & { className?: string }) {
+        const match = /language-(\w+)/.exec(className || '')
+        const codeString = String(children).replace(/\n$/, '')
+        if (match) {
+          return <CodeBlock language={match[1]} code={codeString} />
+        }
+        return <code className="" {...props}>{children}</code>
+      }
+    }),
+    [openFilePreview]
+  )
 
   const hasToolActivity = showToolCalls && visibleToolCalls.length > 0
   const showTurnHeader = (showStage && !hasToolActivity) || msg.status === 'compacted'
@@ -145,81 +189,72 @@ export function AssistantTurn({
           <SubagentGroup key={task.taskId} task={task} showToolCalls={showToolCalls} />
         ))}
 
-        {/* 4. 工具调用摘要 */}
-        {showToolCalls && (
-          <ToolActivitySummary calls={visibleToolCalls} streaming={streaming} />
+        {/* 4. 正文 ↔ 工具调用按执行顺序交错展示（Cursor/Cline 风格）。
+            有 segments 时分阶段渲染（正文段→工具卡片→正文段…）；
+            无 segments（历史消息）回退到「聚合工具摘要 + 整段正文」。 */}
+        {msg.segments && msg.segments.length > 0 ? (
+          <div className="space-y-3">
+            {msg.segments.map((seg, i) => {
+              if (seg.type === 'text') {
+                const segText = sanitizeAssistantText(seg.text)
+                if (!segText) return null
+                const isLast = i === msg.segments!.length - 1
+                return (
+                  <div key={`t-${i}`} className="turn-text markdown-body">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                      {segText}
+                    </ReactMarkdown>
+                    {streaming && isLast && (
+                      <span className="inline-block ml-1 align-middle" aria-hidden="true">
+                        <span className="inline-block w-1.5 h-3 bg-[#3b82f6] animate-pulse" />
+                      </span>
+                    )}
+                  </div>
+                )
+              }
+              const call = callById[seg.callId]
+              if (!call) return null
+              return <ToolCallRow key={`c-${seg.callId}`} call={call} />
+            })}
+          </div>
+        ) : (
+          <>
+            {showToolCalls && (
+              <ToolActivitySummary calls={visibleToolCalls} streaming={streaming} />
+            )}
+            {hasInteractiveClarification && clarifyPayload && onClarifyPick ? (
+              <ClarificationCard
+                payload={clarifyPayload}
+                onPick={(text) => onClarifyPick(text, clarifyPayload.question)}
+              />
+            ) : (
+              displayText && (
+                <div className="turn-text markdown-body">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                    {displayText}
+                  </ReactMarkdown>
+                  {streaming && (
+                    <span className="inline-block ml-1 align-middle" aria-hidden="true">
+                      <span className="inline-block w-1.5 h-3 bg-[#3b82f6] animate-pulse" />
+                    </span>
+                  )}
+                </div>
+              )
+            )}
+          </>
         )}
 
-        {/* 4.5 产出文件（present_files 工具调用的文件卡片）*/}
-        <ArtifactBar msg={msg} />
-
-        {/* 4.6 workspace 文件变更（turn 结束时 gateway 计算并附带）*/}
-        {msg.fileChanges && <FileChangeCard changes={msg.fileChanges} />}
-
-        {/* 5. 正文 / 澄清卡片 */}
-        {hasInteractiveClarification && clarifyPayload && onClarifyPick ? (
+        {/* 交错模式下澄清卡片置于内容之后 */}
+        {msg.segments && msg.segments.length > 0 && hasInteractiveClarification && clarifyPayload && onClarifyPick && (
           <ClarificationCard
             payload={clarifyPayload}
             onPick={(text) => onClarifyPick(text, clarifyPayload.question)}
           />
-        ) : (
-          displayText && (
-            <div className="turn-text markdown-body">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  // 链接：workspace 虚拟路径 → 预览右栏；http(s) → 新窗口打开
-                  a({ href, children, ...props }) {
-                    const h = href || ''
-                    if (h.startsWith('/mnt/user-data/')) {
-                      return (
-                        <a
-                          href={h}
-                          onClick={(e) => {
-                            e.preventDefault()
-                            openFilePreview(h)
-                          }}
-                          title="在预览面板中打开该文件"
-                          {...props}
-                        >
-                          {children}
-                        </a>
-                      )
-                    }
-                    return (
-                      <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
-                        {children}
-                      </a>
-                    )
-                  },
-                  // 代码块：fallback 到 inline 样式（CodeBlock 组件已存在但对单行 token 适配差）
-                  code({ className, children, ...props }) {
-                    const match = /language-(\w+)/.exec(className || '')
-                    const codeString = String(children).replace(/\n$/, '')
-                    if (match) {
-                      return <CodeBlock language={match[1]} code={codeString} />
-                    }
-                    return (
-                      <code
-                        className=""
-                        {...props}
-                      >
-                        {children}
-                      </code>
-                    )
-                  }
-                }}
-              >
-                {displayText}
-              </ReactMarkdown>
-              {streaming && (
-                <span className="inline-block ml-1 align-middle" aria-hidden="true">
-                  <span className="inline-block w-1.5 h-3 bg-[#3b82f6] animate-pulse" />
-                </span>
-              )}
-            </div>
-          )
         )}
+
+        {/* 产出文件 + workspace 文件变更（turn 级，置于末尾） */}
+        <ArtifactBar msg={msg} />
+        {msg.fileChanges && <FileChangeCard changes={msg.fileChanges} />}
 
         {/* 空内容 streaming 占位 */}
         {!hasContent && streaming && (

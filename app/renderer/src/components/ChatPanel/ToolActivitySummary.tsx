@@ -170,8 +170,31 @@ function inferToolLang(name: string, kind: ToolKind, fileName: string | null): s
   return 'text'
 }
 
+/** 计算编辑类工具的增删行数（+N -M）：优先从 output diff 行，其次从 str_replace 参数。 */
+function computeEditStats(call: ToolCall): { add: number; del: number } | null {
+  if (call.output) {
+    let add = 0
+    let del = 0
+    for (const line of call.output.split('\n')) {
+      if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('\\')) continue
+      if (line.startsWith('+')) add++
+      else if (line.startsWith('-')) del++
+    }
+    if (add || del) return { add, del }
+  }
+  const oldS = call.args?.old_string ?? call.args?.oldString
+  const newS = call.args?.new_string ?? call.args?.newString
+  if (typeof oldS === 'string' && typeof newS === 'string') {
+    return {
+      del: oldS.split('\n').filter((l) => l.trim()).length,
+      add: newS.split('\n').filter((l) => l.trim()).length,
+    }
+  }
+  return null
+}
+
 /** 单个工具调用行（展开视图）— 头部默认折叠内部信息，点击展开。 */
-function ToolCallRow({ call }: { call: ToolCall }) {
+export function ToolCallRow({ call }: { call: ToolCall }) {
   const { t } = useI18n()
   const kind = classifyTool(call.name)
   const arg = primaryArg(call)
@@ -196,6 +219,9 @@ function ToolCallRow({ call }: { call: ToolCall }) {
         : workspacePath ? `${workspacePath}/${fileName}`.replace(/\/+/g, '/') : fileName
     openFilePreview(resolved)
   }
+  // 编辑类工具的增删统计（+N -M 徽标）
+  const isEditTool = /edit|str_replace|replace|patch|write|create|multiedit|multi_edit/.test(call.name.toLowerCase())
+  const editStats = isEditTool && kind === 'file' ? computeEditStats(call) : null
 
   const statusIcon =
     call.status === 'running' ? (
@@ -253,6 +279,13 @@ function ToolCallRow({ call }: { call: ToolCall }) {
         {call.startedAt && call.endedAt && (
           <span className="text-[10px] text-text-muted shrink-0">
             {formatMs(call.endedAt - call.startedAt)}
+          </span>
+        )}
+        {/* 编辑类工具的增删统计 +N -M */}
+        {editStats && (
+          <span className="shrink-0 font-mono text-[10px] tabular-nums">
+            <span className="text-[#22c55e]">+{editStats.add}</span>{' '}
+            <span className="text-[#ef4444]">-{editStats.del}</span>
           </span>
         )}
       </div>
