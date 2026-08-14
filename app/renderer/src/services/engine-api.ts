@@ -1809,6 +1809,24 @@ data: <full EngineStreamEvent JSON>
     return r.json()
   }
 
+  /** POST /v1/workspace/revert → 撤销 agent 对单文件的更改（git restore / 删除）。 */
+  async revertWorkspaceFile(
+    workspace: string,
+    path: string,
+    status: string
+  ): Promise<{ reverted: boolean; action: string }> {
+    const r = await fetch(`${this.baseUrl}/v1/workspace/revert`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.headers },
+      body: JSON.stringify({ workspace, path, status })
+    })
+    if (!r.ok) {
+      const detail = await r.json().catch(() => ({}))
+      throw new Error(typeof detail?.detail === 'string' ? detail.detail : `revert failed: ${r.status}`)
+    }
+    return r.json()
+  }
+
   /** POST /v1/workspace/search { path, query, glob?, maxResults? } → ripgrep 搜索。 */
   async workspaceSearch(
     path: string,

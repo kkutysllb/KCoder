@@ -368,6 +368,55 @@ async def workspace_write_file(req: FileWriteRequest) -> dict[str, Any]:
     return {"path": decoded, "saved": True, "size": len(data)}
 
 
+class RevertRequest(BaseModel):
+    """POST /v1/workspace/revert 请求体。"""
+
+    workspace: str = Field(..., description="工作区绝对路径（git 根）")
+    path: str = Field(..., description="相对工作区的文件路径")
+    status: str = Field(default="modified", description="created/modified/deleted/symlink_created")
+
+
+@router.post("/revert")
+async def workspace_revert_file(req: RevertRequest) -> dict[str, Any]:
+    """POST /v1/workspace/revert → 撤销 agent 对单个文件的更改.
+
+    - created/symlink_created（新增）：删除文件
+    - modified/deleted（改动/删除已跟踪文件）：git restore <path> 恢复到 HEAD
+
+    返回 ``{ workspace, path, reverted: true }``。非 git 仓库或路径越权返回 400。
+    """
+    ws = unquote(req.workspace) if req.workspace else ""
+    rel = req.path.lstrip("/")  # 防路径穿越
+    if not ws or not os.path.isdir(ws):
+        raise HTTPException(status_code=400, detail=f"invalid workspace: {ws!r}")
+    full = os.path.normpath(os.path.join(ws, rel))
+    # 路径必须落在 workspace 内
+    if not full.startswith(os.path.abspath(ws)):
+        raise HTTPException(status_code=400, detail="path escapes workspace")
+
+    if req.status in ("created", "symlink_created"):
+        try:
+            if os.path.islink(full) or os.path.isfile(full):
+                os.remove(full)
+            else:
+                raise HTTPException(status_code=404, detail=f"file not found: {rel}")
+        except OSError as exc:
+            raise HTTPException(status_code=400, detail=f"delete failed: {exc}") from exc
+        return {"workspace": ws, "path": rel, "reverted": True, "action": "deleted"}
+
+    # modified / deleted → git restore（恢复到 HEAD）
+    ok, _ = _run_git(ws, "restore", "--", rel)
+    if not ok:
+        # 可能文件未被 git 跟踪，回退到 checkout
+        ok2, _ = _run_git(ws, "checkout", "HEAD", "--", rel)
+        if not ok2:
+            raise HTTPException(
+                status_code=400,
+                detail=f"git restore failed (untracked or not in HEAD?): {rel}",
+            )
+    return {"workspace": ws, "path": rel, "reverted": True, "action": "restored"}
+
+
 class SearchRequest(BaseModel):
     """POST /v1/workspace/search 请求体。"""
 

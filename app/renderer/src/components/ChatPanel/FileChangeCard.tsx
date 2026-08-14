@@ -6,6 +6,8 @@
 import { useState } from 'react'
 import type { FileChangesPayload, FileChange } from '../../lib/chatMessage'
 import { DiffViewer } from './DiffViewer'
+import { useAppStore } from '../../stores/app-store'
+import { getEngineAPI } from '../../services/engine-api'
 
 interface FileChangeCardProps {
   changes: FileChangesPayload
@@ -21,11 +23,31 @@ const STATUS_DOT: Record<FileChange['status'], string> = {
 export function FileChangeCard({ changes }: FileChangeCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [selected, setSelected] = useState<FileChange | null>(null)
+  const [revertedPaths, setRevertedPaths] = useState<Set<string>>(new Set())
+  const [reverting, setReverting] = useState<string | null>(null)
+  const enginePort = useAppStore((s) => s.enginePort)
+  const workspacePath = useAppStore((s) => s.workspacePath)
 
   const { summary, files } = changes
+  const visibleFiles = files.filter((f) => !revertedPaths.has(f.path))
   const totalFiles =
     summary.created + summary.modified + summary.deleted + summary.symlink_created
   if (totalFiles === 0 && files.length === 0) return null
+
+  const handleRevert = async (e: React.MouseEvent, file: FileChange) => {
+    e.stopPropagation()
+    if (!workspacePath) return
+    if (!confirm(`撤销对 ${file.path} 的更改？\n（${file.status === 'created' ? '删除该新文件' : '恢复到 git HEAD'}）`)) return
+    setReverting(file.path)
+    try {
+      await getEngineAPI(enginePort).revertWorkspaceFile(workspacePath, file.path, file.status)
+      setRevertedPaths((prev) => new Set(prev).add(file.path))
+    } catch (err) {
+      alert(`撤销失败: ${err}`)
+    } finally {
+      setReverting(null)
+    }
+  }
 
   const hasAdd = summary.additions > 0
   const hasDel = summary.deletions > 0
@@ -74,18 +96,21 @@ export function FileChangeCard({ changes }: FileChangeCardProps) {
       {/* 展开文件列表 */}
       {expanded && (
         <div className="border-t border-border-custom">
-          {files.map((file) => (
-            <button
+          {visibleFiles.map((file) => (
+            <div
               key={file.path}
-              onClick={() => setSelected(file)}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-bg-hover"
+              className="group flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-bg-hover"
             >
               <span
                 className={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[file.status] ?? 'bg-gray-500'}`}
               />
-              <span className="min-w-0 flex-1 truncate font-mono text-xs text-text-primary">
+              <button
+                onClick={() => setSelected(file)}
+                className="min-w-0 flex-1 truncate font-mono text-xs text-text-primary text-left"
+                title={file.path}
+              >
                 {file.path}
-              </span>
+              </button>
               <span className="shrink-0 font-mono text-[11px] tabular-nums">
                 {file.additions > 0 && (
                   <span className="text-[#22c55e]">+{file.additions}</span>
@@ -94,10 +119,30 @@ export function FileChangeCard({ changes }: FileChangeCardProps) {
                   <span className="ml-1 text-[#ef4444]">-{file.deletions}</span>
                 )}
               </span>
-            </button>
+              {/* 撤销更改（reject）— 仅 git 工作区有此能力 */}
+              {workspacePath && (
+                <button
+                  onClick={(e) => handleRevert(e, file)}
+                  disabled={reverting === file.path}
+                  title="撤销对该文件的更改"
+                  className="shrink-0 rounded p-1 text-text-muted opacity-0 group-hover:opacity-100 hover:text-[#ef4444] disabled:opacity-50 transition-all"
+                >
+                  {reverting === file.path ? (
+                    <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : (
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                    </svg>
+                  )}
+                </button>
+              )}
+            </div>
           ))}
-          {files.length === 0 && (
-            <div className="px-3 py-2 text-xs text-text-muted">无文件详情</div>
+          {visibleFiles.length === 0 && (
+            <div className="px-3 py-2 text-xs text-text-muted">全部已撤销</div>
           )}
         </div>
       )}
