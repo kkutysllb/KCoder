@@ -11,6 +11,7 @@
 import { useState, useEffect } from 'react'
 import type { ToolCall } from '../../lib/chatMessage'
 import { useI18n } from '../../i18n'
+import { useAppStore } from '../../stores/app-store'
 import { highlight } from '../../lib/highlighter'
 
 interface ToolActivitySummaryProps {
@@ -183,6 +184,18 @@ function ToolCallRow({ call }: { call: ToolCall }) {
   // 失败的工具默认展开（便于直接看错误），成功的默认折叠
   const [open, setOpen] = useState(call.status === 'failed')
   const hasDetails = !!(call.summary || call.output)
+  const workspacePath = useAppStore((s) => s.workspacePath)
+  const openFilePreview = useAppStore((s) => s.openFilePreview)
+
+  // 点击文件名 → 在右侧预览栏打开该文件（相对路径按工作区解析）
+  const openFile = (e: React.MouseEvent) => {
+    e.stopPropagation() // 防止触发行折叠/展开
+    if (!fileName) return
+    const resolved =
+      fileName.startsWith('/') ? fileName
+        : workspacePath ? `${workspacePath}/${fileName}`.replace(/\/+/g, '/') : fileName
+    openFilePreview(resolved)
+  }
 
   const statusIcon =
     call.status === 'running' ? (
@@ -223,9 +236,14 @@ function ToolCallRow({ call }: { call: ToolCall }) {
           </code>
         )}
         {arg && (kind === 'file') && fileName && (
-          <span className="min-w-0 truncate font-mono text-[10px] text-[#3b82f6]/80 flex-1" title={fileName}>
+          <button
+            type="button"
+            onClick={openFile}
+            title={fileName}
+            className="min-w-0 truncate font-mono text-[10px] text-[#3b82f6] hover:text-[#60a5fa] hover:underline flex-1 text-left cursor-pointer"
+          >
             {shortPath(fileName)}
-          </span>
+          </button>
         )}
         {arg && (kind === 'search' || kind === 'generic') && (
           <span className="min-w-0 truncate font-mono text-[11px] text-[#9ca3af] flex-1" title={arg}>

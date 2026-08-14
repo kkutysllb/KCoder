@@ -608,8 +608,9 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => ({ tabEdited: { ...state.tabEdited, [path]: content } })),
   toggleFilePreview: () =>
     set((state) => {
-      // 有当前路径 → 关闭整栏（保留 tabs）；否则用 lastFilePreviewPath 打开
-      if (state.activeTab) return { activeTab: state.activeTab }
+      // 当前可见（有 activeTab）→ 隐藏：清 activeTab，保留 openTabs 以便再打开
+      if (state.activeTab) return { activeTab: null, filePreviewPath: null }
+      // 当前隐藏 → 用 lastFilePreviewPath 恢复显示
       if (state.lastFilePreviewPath) {
         const p = state.lastFilePreviewPath
         return {
