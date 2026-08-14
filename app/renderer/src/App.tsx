@@ -370,8 +370,12 @@ export default function App() {
           </div>
         )}
 
-        {/* 内层内容区 — 不再压缩；ChatFeed 在此满宽，滚动条始终在窗口最右端 */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        {/* 内层内容区 — 浮动面板展开时整列左移（容器级 paddingRight），
+            而非让消息内部加内边距（那样会压窄文字）。滚动条随列左移，面板落在右侧留白区。 */}
+        <div
+          className="flex-1 flex flex-col overflow-hidden transition-[padding] duration-200 ease-out"
+          style={{ paddingRight: panelOpen ? 360 : 0 }}
+        >
           {hasMessages ? (
             <ChatPanel />
           ) : (

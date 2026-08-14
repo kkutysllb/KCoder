@@ -271,7 +271,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
   const [loadingThreads, setLoadingThreads] = useState(false)
   // 已尝试自动注册的 workspace 路径（防重复请求）
   const autoRegisteredRef = useRef<Set<string>>(new Set())
-  const { enginePort, engineStatus, threadId, setThreadId, setWorkspacePath, clearMessages } = useAppStore()
+  const { enginePort, engineStatus, threadId, setThreadId, setWorkspacePath, clearMessages, setPanelOpen } = useAppStore()
   const { t } = useI18n()
 
   // 加载会话列表
@@ -361,12 +361,15 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
     loadThreads()
   }, [loadThreads])
 
-  // 切换到某个会话
+  // 切换到某个会话。编码任务（有 workspace）默认展开浮动面板（Git/计划/进度），
+  // 普通对话（无 workspace）默认收起——面板的 Git 段对普通对话无意义。
+  // 用户仍可手动 toggle 覆盖。
   const selectThread = useCallback((id: string, workspace?: string) => {
     setThreadId(id)
     if (workspace) setWorkspacePath(workspace)
+    setPanelOpen(!!workspace)
     onSelectThread?.(id)
-  }, [setThreadId, setWorkspacePath, onSelectThread])
+  }, [setThreadId, setWorkspacePath, setPanelOpen, onSelectThread])
 
   // 新建会话 — 清空当前消息（窄条上的目录/分支/模型选择保留在 store 中）
   const handleNewChat = useCallback(() => {

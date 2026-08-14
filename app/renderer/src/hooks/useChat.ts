@@ -387,6 +387,8 @@ export function useChat() {
           })
           currentThreadId = thread.id
           setThreadId(currentThreadId)
+          // 编码任务（绑定 workspace）默认展开浮动面板；普通对话（无 workspace）收起
+          useAppStore.getState().setPanelOpen(!!workspacePath)
         } catch (error) {
           console.error('Failed to create thread:', error)
           setEngineStatus('error')

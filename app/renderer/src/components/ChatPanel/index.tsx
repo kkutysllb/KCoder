@@ -14,11 +14,8 @@ export function ChatPanel() {
   const composerRef = useRef<HTMLDivElement>(null)
   const selectedModel = useAppStore((s) => s.selectedModel)
   const branches = useAppStore((s) => s.branches)
-  // 浮动面板宽度（含 right-3 间距 + 余量）——面板展开时 ChatFeed 消息容器
-  // 和 Composer 宽度都需扣掉这部分，避免内容被 InfoPanel 遮住。ChatFeed
-  // 容器本身仍满宽（滚动条始终在窗口最右端）。
-  const panelOpen = useAppStore((s) => s.panelOpen)
-  const PANEL_INSET = 380 // 面板宽度 356 + right-3 + 视觉缓冲 ≈ 380
+  // 浮动面板展开时，整列由 App.tsx 容器级 paddingRight 左移让位；
+  // 这里 Composer / ChatFeed 不再各自扣宽度（避免压窄文字）。
   const [atBottom, setAtBottom] = useAtBottomState()
   const { t } = useI18n()
 
@@ -89,7 +86,6 @@ export function ChatPanel() {
         onClarifyPick={handleClarifyPick}
         onAtBottomChange={setAtBottom}
         bottomInset={composerInset}
-        panelOpen={panelOpen}
         emptySlot={<WelcomeScreen onSend={sendMessage} disabled={isGenerating} />}
       />
 
@@ -105,7 +101,7 @@ export function ChatPanel() {
           className="absolute left-1/2 -translate-x-1/2 z-10"
           style={{
             bottom: 44,
-            width: `min(900px, calc(100% - 32px${panelOpen ? ` - ${PANEL_INSET}px` : ''}))`
+            width: `min(900px, calc(100% - 32px))`
           }}
         >
           {/* 回到底部浮动按钮：悬浮在 composer 正上方（KStock 设计） */}
