@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from .local_store import load_json, resolve_local_dir, save_json
@@ -139,14 +139,23 @@ async def list_projects(request: Request) -> dict[str, Any]:
 
 @router.post("/projects")
 async def create_project(
-    req: CreateProjectRequest, request: Request
+    req: CreateProjectRequest,
+    request: Request,
+    silent_missing: bool = Query(False),
 ) -> dict[str, Any]:
     """注册项目（upsert by path）：path 已注册则返回已有条目。
 
     name 缺省取目录 basename；description 可选。
+
+    ``silent_missing=true``（前端侧边栏自动注册专用）：目录不存在时返回
+    200 + skipped 而非 400——死路径线程是历史残留，不该在开发者面板刷红。
+    用户显式注册仍走严格路径（400）。
     """
     normalized = _normalize_path(req.path)
     if not Path(normalized).exists():
+        if silent_missing:
+            logger.info("create_project: skipped missing dir %s (silent_missing)", normalized)
+            return {"skipped": True, "path": normalized, "reason": "missing"}
         raise HTTPException(
             status_code=400, detail=f"Directory does not exist: {normalized}"
         )

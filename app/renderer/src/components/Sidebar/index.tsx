@@ -225,21 +225,25 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
 
       // 老数据兜底：workspace 非空但未注册项目的任务 → 自动注册项目。
       // 保证「项目」分区永不丢数据（幂等 upsert，后端按 path 去重）。
+      // 归档线程跳过（隐藏历史不需要重新注册）；死路径走 silentMissing，
+      // 后端 200 skipped，不在开发者面板刷 400。
       const registeredPaths = new Set(projectsList.map((p) => normPath(p.path)))
       for (const thread of sorted) {
+        if (thread.archived) continue
         const ws = thread.workspace?.trim()
         if (!ws || registeredPaths.has(normPath(ws))) continue
         if (autoRegisteredRef.current.has(ws)) continue
         autoRegisteredRef.current.add(ws)
         try {
-          const entry = await api.createProject(ws)
+          const entry = await api.createProject(ws, undefined, { silentMissing: true })
+          if ('skipped' in entry) continue
+          const registered = entry as ProjectEntry
           projectsList = [
-            ...projectsList.filter((p) => p.id !== entry.id),
-            entry
+            ...projectsList.filter((p) => p.id !== registered.id),
+            registered
           ]
         } catch (error) {
-          // 死路径静默跳过：目录已被删除（项目/数据空间已清理）的残留线程
-          // 不再尝试注册，避免每次启动刷 400 报错。
+          // 兜底：非 200 的失败按「目录已删」静默跳过，其余才报错
           if (error instanceof Error && error.message.includes('Directory does not exist')) {
             console.warn('[KCoder] Skip auto-register (directory gone):', ws)
           } else {
@@ -392,7 +396,9 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
     if (!picked) return
     try {
       const api = getEngineAPI(enginePort)
-      const entry = await api.createProject(picked)
+      // 对话框选择的目录必然存在（且未带 silentMissing，缺失会 400），
+      // 因此这里返回值一定是 ProjectEntry。
+      const entry = (await api.createProject(picked)) as ProjectEntry
       setProjects((prev) => [...prev.filter((p) => p.id !== entry.id), entry])
       // 切换 workspace = 开启新会话（thread 的 workspace 创建时绑定，不可改）
       if (picked !== workspacePath) {

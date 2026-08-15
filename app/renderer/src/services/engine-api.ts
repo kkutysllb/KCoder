@@ -1645,8 +1645,15 @@ data: <full EngineStreamEvent JSON>
   }
 
   // 注册项目（upsert by path） — POST /v1/projects
-  async createProject(path: string, name?: string): Promise<ProjectEntry> {
-    const response = await fetch(`${this.baseUrl}/v1/projects`, {
+  // silentMissing=true（自动注册专用）：目录不存在时后端返回 200 skipped，
+  // 不在开发者面板刷 400。
+  async createProject(
+    path: string,
+    name?: string,
+    options?: { silentMissing?: boolean }
+  ): Promise<ProjectEntry | { skipped: true; path: string; reason: string }> {
+    const query = options?.silentMissing ? '?silent_missing=true' : ''
+    const response = await fetch(`${this.baseUrl}/v1/projects${query}`, {
       method: 'POST',
       headers: { ...this.headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ path, name })
