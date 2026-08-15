@@ -1987,6 +1987,113 @@ async def _ls_tool_async(runtime: Runtime, description: str, path: str) -> str:
 ls_tool.coroutine = _ls_tool_async
 
 
+# repo_map 工具：递归生成仓库/目录结构树（噪声目录已被 list_dir 排除），
+# 深度与条目数双上限，避免把 node_modules 级别的大树灌进上下文。
+_REPO_MAP_DEFAULT_MAX_DEPTH = 4
+_REPO_MAP_MIN_MAX_DEPTH = 1
+_REPO_MAP_MAX_MAX_DEPTH = 8
+_REPO_MAP_MAX_ENTRIES = 400
+
+
+def _build_repo_tree_lines(entries: list[str], root: str) -> list[str]:
+    """Turn flat absolute container paths into indented tree lines.
+
+    ``entries`` are the sorted container paths returned by ``sandbox.list_dir``
+    (directories end with ``/``). ``root`` is the requested container path.
+    Entries whose prefix does not match the root are skipped; because
+    ``list_dir`` returns every intermediate directory it enters, plain
+    depth-based indentation reconstructs a correct tree without any
+    child-parent bookkeeping.
+    """
+    root = root.rstrip("/")
+    prefix = root + "/"
+    lines: list[str] = []
+    for entry in entries:
+        is_dir = entry.endswith("/")
+        normalized = entry.rstrip("/")
+        if not normalized.startswith(prefix):
+            continue
+        rel = normalized[len(prefix) :]
+        if not rel:
+            continue
+        depth = rel.count("/")
+        name = rel.rsplit("/", 1)[-1]
+        suffix = "/" if is_dir else ""
+        lines.append("  " * depth + name + suffix)
+    return lines
+
+
+@tool("repo_map", parse_docstring=True)
+def repo_map_tool(runtime: Runtime, description: str, path: str, max_depth: int = _REPO_MAP_DEFAULT_MAX_DEPTH) -> str:
+    """Build a tree map of a repository or directory to understand its overall structure.
+
+    Use this at the START of repository-level tasks instead of repeated `ls`
+    calls: it prints the whole directory tree at once (noise directories like
+    node_modules/.git/__pycache__/dist are excluded automatically). Follow up
+    with `read_file` on concrete files, or `ls`/`glob` on subtrees when the
+    output is truncated.
+
+    Args:
+        description: Explain why you are mapping this directory in short words. ALWAYS PROVIDE THIS PARAMETER FIRST.
+        path: The **absolute** path to the root directory to map (usually the workspace root).
+        max_depth: Maximum directory depth to traverse (default 4, range 1-8). Increase for deep-nested projects.
+    """
+    try:
+        user_id = resolve_runtime_user_id(runtime)
+        # Block access to disabled skill directories (same gate as ls)
+        if _is_disabled_skill_path(path, user_id=user_id):
+            skill_name = _extract_skill_name_from_skills_path(path) or "unknown"
+            return f"Error: Skill '{skill_name}' is disabled. Access to its files is blocked. Enable the skill in settings before using it."
+        sandbox = ensure_sandbox_initialized(runtime)
+        ensure_thread_directories_exist(runtime)
+        requested_path = path
+        thread_data = None
+        if is_local_sandbox(runtime):
+            thread_data = get_thread_data(runtime)
+            validate_local_tool_path(path, thread_data, read_only=True)
+            if _is_skills_path(path) or _is_acp_workspace_path(path):
+                pass
+            elif not _is_custom_mount_path(path):
+                assert thread_data is not None  # validate_local_tool_path already raised otherwise
+                path = _resolve_and_validate_user_data_path(path, thread_data)
+        try:
+            depth = max(_REPO_MAP_MIN_MAX_DEPTH, min(int(max_depth), _REPO_MAP_MAX_MAX_DEPTH))
+        except (TypeError, ValueError):
+            depth = _REPO_MAP_DEFAULT_MAX_DEPTH
+        entries = sandbox.list_dir(path, max_depth=depth)
+        if not entries:
+            return "(empty)"
+        entries = _drop_disabled_skill_paths(entries, user_id=user_id)
+        if not entries:
+            return "(empty)"
+        lines = _build_repo_tree_lines(entries, requested_path)
+        output = "\n".join(lines)
+        if thread_data is not None:
+            output = mask_local_paths_in_output(output, thread_data)
+        if len(lines) > _REPO_MAP_MAX_ENTRIES:
+            hidden = len(lines) - _REPO_MAP_MAX_ENTRIES
+            output = "\n".join(lines[:_REPO_MAP_MAX_ENTRIES])
+            output += f"\n... [{hidden} more entries hidden. Use ls/glob on subtrees to explore them] ..."
+        return f"{requested_path}/ ({len(lines)} entries, max depth {depth})\n\n{output}"
+    except SandboxError as e:
+        return f"Error: {e}"
+    except FileNotFoundError:
+        return f"Error: Directory not found: {requested_path}"
+    except PermissionError:
+        return f"Error: Permission denied: {requested_path}"
+    except Exception as e:
+        return f"Error: Unexpected error building repo map: {_sanitize_error(e, runtime)}"
+
+
+async def _repo_map_tool_async(runtime: Runtime, description: str, path: str, max_depth: int = _REPO_MAP_DEFAULT_MAX_DEPTH) -> str:
+    return await _run_sync_tool_after_async_sandbox_init(
+        _tool_sync_func(repo_map_tool), runtime, description, path, max_depth
+    )
+
+
+repo_map_tool.coroutine = _repo_map_tool_async
+
+
 @tool("glob", parse_docstring=True)
 def glob_tool(
     runtime: Runtime,

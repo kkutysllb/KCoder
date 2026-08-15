@@ -48,6 +48,9 @@ tools:
   - name: ls
     group: file:read
     use: qilin.sandbox.tools:ls_tool
+  - name: repo_map
+    group: file:read
+    use: qilin.sandbox.tools:repo_map_tool
   - name: read_file
     group: file:read
     use: qilin.sandbox.tools:read_file_tool
