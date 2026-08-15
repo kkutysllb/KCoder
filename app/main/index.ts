@@ -194,10 +194,23 @@ app.on('window-all-closed', () => {
   }
 })
 
-// Graceful shutdown
-app.on('before-quit', async () => {
-  console.log('[KCoder] Shutting down engine...')
-  destroyTray()
-  killAllTerminals()
-  await stopEngine()
+// Graceful shutdown。
+// Electron 的 before-quit 里 await 并不会阻塞退出流程（事件不等待 async
+// 完成），需 preventDefault + 收尾完成后再手动 app.quit() 的标准模式，
+// 否则 stopEngine 的组杀来不及执行 → sidecar 孤儿堆积（内存溢出元凶）。
+let engineShutdownDone = false
+app.on('before-quit', (event) => {
+  if (engineShutdownDone) return
+  event.preventDefault()
+  engineShutdownDone = true
+  void (async () => {
+    try {
+      console.log('[KCoder] Shutting down engine...')
+      destroyTray()
+      killAllTerminals()
+      await stopEngine()
+    } finally {
+      app.quit()
+    }
+  })()
 })

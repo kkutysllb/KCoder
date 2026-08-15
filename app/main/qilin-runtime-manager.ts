@@ -19,7 +19,7 @@
  * 子进程加载。
  */
 
-import { spawn, type ChildProcess } from 'child_process'
+import { spawn, execSync, type ChildProcess } from 'child_process'
 import { app } from 'electron'
 import { createWriteStream, existsSync, mkdirSync, type WriteStream } from 'fs'
 import { homedir } from 'os'
@@ -144,6 +144,9 @@ export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: nu
     return { port: _running.gatewayPort }
   }
 
+  // 自愈：清掉崩溃/强退残留的孤儿 sidecar（多套并存 = 内存溢出元凶）
+  killOrphanSidecars()
+
   // 打开调试日志（每次启动覆盖）；dev 模式写到仓库根 logs/，打包模式落到数据根 logs/
   const repoRoot = app.isPackaged
     ? (config.dataDir || resolveAppDataDir())
@@ -224,7 +227,11 @@ export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: nu
   const langgraphChild = spawn(pythonPath, langgraphArgs, {
     cwd: runtimeDir,
     env: sidecarEnv,
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    // 独立进程组：langgraph dev 是多进程架构（parent + worker 同组监听同端口），
+    // child.kill() 只发信号给 parent，worker 变孤儿继续吃内存/端口。建组后
+    // killChild 用 -pid 杀整组。
+    detached: true
   })
 
   forwardLogs(langgraphChild, 'QiLin')
@@ -249,7 +256,8 @@ export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: nu
       QILIN_SERVICE_URL: `http://127.0.0.1:${langgraphPort}`,
       QILIN_EXTENSIONS_CONFIG_PATH: join(runtimeDir, 'extensions_config.json')
     },
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true
   })
 
   forwardLogs(gatewayChild, 'Gateway')
@@ -369,10 +377,24 @@ function killChild(child: ChildProcess, label: string): Promise<void> {
       resolve()
       return
     }
+    // 杀整个进程组（spawn 时 detached: true 建组）：langgraph dev 的 worker、
+    // gateway 的子线程都会随组终止。负 pid = 组内全部进程。
+    const killGroup = (signal: NodeJS.Signals) => {
+      try {
+        if (child.pid) process.kill(-child.pid, signal)
+      } catch {
+        // 组已不存在（进程自己退了）→ 只杀 parent 兜底
+        try {
+          child.kill(signal)
+        } catch {
+          /* 已退出 */
+        }
+      }
+    }
     const killTimer = setTimeout(() => {
       if (!child.killed) {
-        console.warn(`[KCoder] ${label} did not exit on SIGTERM; sending SIGKILL`)
-        child.kill('SIGKILL')
+        console.warn(`[KCoder] ${label} did not exit on SIGTERM; sending SIGKILL to group`)
+        killGroup('SIGKILL')
       }
       resolve()
     }, 3000)
@@ -382,8 +404,45 @@ function killChild(child: ChildProcess, label: string): Promise<void> {
       resolve()
     })
 
-    child.kill('SIGTERM')
+    killGroup('SIGTERM')
   })
+}
+
+/**
+ * 启动前清理孤儿 sidecar（自愈）。
+ *
+ * Electron 崩溃 / 强杀（Cmd+Q 之外的退出路径）不会执行 before-quit 的
+ * stopEngine，残留的 langgraph worker / gateway 会以随机端口共存堆积——
+ * 每套 ~3 个 Python 进程数百 MB，多套并存即内存溢出 + 持续 IO 发烫
+ * （实测复现：单日堆积 3 套）。启动时按命令行特征扫杀，本次要启动的
+ * 子进程尚未 spawn，不会误伤。
+ */
+function killOrphanSidecars(): void {
+  if (process.platform !== 'darwin' && process.platform !== 'linux') return
+  try {
+    const out = execSync(
+      "pgrep -f 'langgraph_cli dev|kcoder_gateway.main' 2>/dev/null || true",
+      { encoding: 'utf-8', timeout: 5000 }
+    )
+    const pids = out
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l && Number(l) !== process.pid)
+    for (const pid of pids) {
+      try {
+        process.kill(-Number(pid), 'SIGKILL') // 先按组杀（worker 同组）
+      } catch {
+        try {
+          process.kill(Number(pid), 'SIGKILL')
+        } catch {
+          /* 已退出 */
+        }
+      }
+      console.warn(`[KCoder] killed orphan sidecar pid=${pid}`)
+    }
+  } catch {
+    // pgrep 不存在等 — 静默（清理是尽力而为）
+  }
 }
 
 /** 当前 sidecar 是否在运行（gateway + langgraph dev 都未退出）。 */
