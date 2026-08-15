@@ -15,6 +15,7 @@ import remarkGfm from 'remark-gfm'
 import type { ChatMessage, HumanInputPayload, ToolCall, TurnSegment } from '../../lib/chatMessage'
 import { isInternalOnlyText, sanitizeAssistantText, isLikelyCorruptText } from '../../lib/chatMessage'
 import { CodeBlock } from '../CodeBlock'
+import { MermaidDiagram } from '../MermaidDiagram'
 import { ToolActivitySummary, ToolCallRow } from './ToolActivitySummary'
 import { useAppStore } from '../../stores/app-store'
 import { useI18n } from '../../i18n'
@@ -641,6 +642,10 @@ export function AssistantTurn({
         const match = /language-(\w+)/.exec(className || '')
         const codeString = String(children).replace(/\n$/, '')
         if (match) {
+          // mermaid 围栏 → 图表渲染（LLM 语法幻觉时组件内部回退源码 + 提示）
+          if (match[1].toLowerCase() === 'mermaid') {
+            return <MermaidDiagram code={codeString} />
+          }
           return <CodeBlock language={match[1]} code={codeString} />
         }
         return <code className="" {...props}>{children}</code>
