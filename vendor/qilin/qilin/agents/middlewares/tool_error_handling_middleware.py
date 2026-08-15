@@ -468,6 +468,20 @@ def build_subagent_runtime_middlewares(
 
     middlewares.extend(load_configured_extension_middlewares(app_config))
 
+    # KCoder local patch: PermissionMiddleware + ToolRetryMiddleware —— 与 lead
+    # agent 同款挂载。此前二者只挂在主循环，task 委派的子代理执行的工具绕过
+    # 权限四模式拦截（plan-mode 下子代理可直接写文件；confirm 审批可被绕过）。
+    # 顺序与 lead 一致：Permission 在前，Retry 在后（BLOCKED/审批拦截不是
+    # Error: 失败，不会被误重试）。均按 configurable.permission_mode 读取，
+    # 子代理继承 run 级权限上下文。
+    from qilin.agents.middlewares.permission_middleware import PermissionMiddleware
+
+    middlewares.append(PermissionMiddleware())
+
+    from qilin.agents.middlewares.tool_retry_middleware import ToolRetryMiddleware
+
+    middlewares.append(ToolRetryMiddleware())
+
     # Same provider safety-termination guard the lead agent uses — subagents
     # are equally exposed to truncated tool_calls returned with
     # finish_reason=content_filter (and friends), and the bad call would then
