@@ -69,6 +69,15 @@
 
 ---
 
+## 缺陷修复（主线外热修）
+
+### 历史任务重启后「工作区是空的」澄清卡（workspace 绑定丢失）
+
+- **现象**：重启引擎后继续历史任务，agent 看到 `/mnt/user-data/workspace` 为空（qlib_quantitative / chan_theory_v2 都不存在），弹出澄清卡要源文件——但上下文（种子消息）还在。
+- **根因**：`start_turn` 的 thread-log 兜底只挂在 `get_thread` **异常**分支。重启后第一次恢复运行时 `if_not_exists="create"` 在 LangGraph 侧重建了**空元数据**线程，之后 `get_thread` 成功但 `meta.workspace` 为空 → 兜底不触发 → sandbox 映射到默认空目录。
+- **修复**（`_resolve_workspace`）：workspace 解析改为「langgraph meta → thread-log 兜底」无条件二级回退；恢复成功后**异步写回** langgraph 元数据自愈（后续 turn 直接命中）。单测覆盖 4 场景（空元数据线程 / 线程丢失 / 直接命中 / 两处皆空）。
+- **验证**：py_compile ✅ + 单测 ✅；已核对用户实际 thread-log（`01a0045e…`，workspace=`/Users/libing/kk_Projects/kk_Stock/KChan`，目录在盘存在）→ 运行时 ⏳（重启 gateway 后重发消息验证）。
+
 ## 待运行时验收清单（当前）
 
 1. 重启引擎（langgraph dev）加载新工具/提示词；重启前端加载新卡片。
@@ -80,7 +89,6 @@
 7. `logs/kcoder-debug.log` grep：`permission|custom event|subagent|no active turn|delivery`。
 
 ## 已知取舍 / 待办
-
 - repo_map 未做 per-turn 缓存：扫描 <50ms，无状态实现更稳；如需再议。
 - security_scan 为启发式扫描：注释/文档字样会误报，卡片已注明需人工甄别。
 - **上下文压缩未接线**：`context_compaction.py` spike 存在但未接入 → Phase C1（最高优先级提案）。

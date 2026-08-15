@@ -393,6 +393,72 @@ async def _safe_update_title(client: Any, thread_id: str, title: str) -> None:
         logger.warning("Failed to auto-update title for thread %s", thread_id, exc_info=True)
 
 
+async def _safe_update_metadata(client: Any, thread_id: str, metadata: dict[str, Any]) -> None:
+    """后台安全更新 thread 元数据，失败仅记日志（不阻断 turn）."""
+    try:
+        await client.update_thread_metadata(thread_id, metadata)
+        logger.info(
+            "Auto-updated metadata for thread %s: %s",
+            thread_id,
+            sorted(metadata),
+        )
+    except Exception:
+        logger.warning(
+            "Failed to auto-update metadata for thread %s", thread_id, exc_info=True
+        )
+
+
+async def _resolve_workspace(client: Any, thread_id: str) -> tuple[str | None, str]:
+    """解析 turn 的 workspace 绑定，返回 (workspace_path, current_title).
+
+    解析顺序：LangGraph thread metadata → thread-log 元数据兜底。
+
+    兜底不依赖 get_thread 抛异常：重启后第一次恢复运行时
+    ``if_not_exists="create"`` 会在 LangGraph 侧重建一个**空元数据**线程，
+    此后 get_thread 成功但 meta.workspace 为空——若只在异常分支兜底，
+    sandbox 会把 /mnt/user-data/workspace 映射到默认空目录，agent 找不到
+    项目（历史任务重启后「工作区是空的」澄清卡 bug 的根因）。
+    """
+    workspace_path: str | None = None
+    current_title = "New Chat"
+    try:
+        thread = await client.get_thread(thread_id)
+        meta = _get_metadata(thread)
+        workspace_path = meta.get("workspace", "") or None
+        current_title = meta.get("title", "New Chat")
+    except Exception:
+        # 线程在 LangGraph 侧丢失（重启后 checkpoint 丢）——继续走兜底。
+        logger.debug(
+            "thread metadata fetch failed for %s (langgraph thread lost?)",
+            thread_id,
+            exc_info=True,
+        )
+
+    if not workspace_path:
+        try:
+            logged = thread_log.load_thread(thread_id)
+            recovered = ((logged or {}).get("meta") or {}).get("workspace") or None
+            if recovered:
+                workspace_path = recovered
+                logger.info(
+                    "start_turn: workspace recovered from thread_log: %s", recovered
+                )
+                # 自愈：把恢复的 workspace 写回 LangGraph 元数据，后续 turn
+                # 直接命中，不再依赖兜底（线程不存在时写回失败仅记日志）。
+                asyncio.create_task(
+                    _safe_update_metadata(client, thread_id, {"workspace": recovered})
+                )
+            else:
+                logger.info(
+                    "start_turn: no workspace for thread %s (langgraph meta and thread_log both empty)",
+                    thread_id,
+                )
+        except Exception:
+            logger.warning("thread_log meta fallback failed", exc_info=True)
+
+    return workspace_path, current_title
+
+
 # ────────────────────────────────────────────────────────────────
 # 端点 4: POST /v1/threads/{id}/turns — 发消息（异步启动）
 # ────────────────────────────────────────────────────────────────
@@ -440,33 +506,13 @@ async def start_turn(
     user_id = current_user.id if current_user else None
 
     # 读取 thread metadata：提取 workspace_path 和自动更新 title
-    workspace_path: str | None = None
-    try:
-        thread = await client.get_thread(thread_id)
-        meta = _get_metadata(thread)
-        workspace_path = meta.get("workspace", "") or None
-        current_title = meta.get("title", "New Chat")
-        if current_title == "New Chat" and req.prompt.strip():
-            new_title = _generate_title_from_prompt(req.prompt)
-            if new_title != "New Chat":
-                asyncio.create_task(
-                    _safe_update_title(client, thread_id, new_title)
-                )
-    except Exception:
-        logger.debug("title auto-update check failed", exc_info=True)
-        # 线程在 LangGraph 侧丢失（重启后 checkpoint 丢，run 侧 if_not_exists=create
-        # 重建的是空线程）→ 用 thread-log 元数据兜底恢复 workspace 绑定，否则
-        # sandbox 把 /mnt/user-data/workspace 映射到默认空目录，agent 找不到项目。
-        try:
-            logged = thread_log.load_thread(thread_id)
-            meta = (logged or {}).get("meta") or {}
-            workspace_path = meta.get("workspace") or None
-            if workspace_path:
-                logger.info(
-                    "start_turn: workspace recovered from thread_log: %s", workspace_path
-                )
-        except Exception:
-            logger.warning("thread_log meta fallback failed", exc_info=True)
+    workspace_path, current_title = await _resolve_workspace(client, thread_id)
+    if current_title == "New Chat" and req.prompt.strip():
+        new_title = _generate_title_from_prompt(req.prompt)
+        if new_title != "New Chat":
+            asyncio.create_task(
+                _safe_update_title(client, thread_id, new_title)
+            )
 
     # 注入附件内容：把附件文本拼成 <user_attachments> 块 prepend 到 prompt，
     # 让 agent 真正读到用户上传的文件（修复 stub 时代"上传假成功、agent 读不到"）。
