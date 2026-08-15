@@ -1,38 +1,46 @@
 // Monaco Editor 初始化：配置 Web Worker + 指向本地 monaco。
 //
-// 用 Vite 官方推荐的 `new Worker(new URL(..., import.meta.url))` 模式
-// （比 `?worker` 导入在 build 时更可靠），并把 @monaco-editor/react 的
-// loader 指向本地安装的 monaco-editor（Electron 离线，不走 CDN）。
-// 导入本模块即完成副作用配置；CodeEditor 挂载前 import 一次即可。
+// 用 Vite 官方的 `?worker` 导入（dev/build 都由 Vite 重写为真实 worker
+// bundle）。此前用 `new Worker(new URL('monaco-editor/esm/...', import.meta.url))`，
+// URL 解析到不存在的 `src/lib/monaco-editor/...` → dev server SPA 回退返回
+// HTML → worker 报 "Unexpected token '<'" 并退化为主线程运行。
+//
+// 并把 @monaco-editor/react 的 loader 指向本地安装的 monaco-editor
+// （Electron 离线，不走 CDN）。导入本模块即完成副作用配置；
+// CodeEditor 挂载前 import 一次即可。
 
 import * as monaco from 'monaco-editor'
 import { loader } from '@monaco-editor/react'
+// monaco-editor 的 package.json exports 映射为 "./*" / "./*.js" →
+// "./esm/vs/*.js"，worker 路径不能带 esm/vs 前缀，且需保留 .js 后缀
+// 命中 "./*.js" 模式（否则 build 时 Rollup 解析失败）。
+import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker'
+import JsonWorker from 'monaco-editor/language/json/json.worker.js?worker'
+import CssWorker from 'monaco-editor/language/css/css.worker.js?worker'
+import HtmlWorker from 'monaco-editor/language/html/html.worker.js?worker'
+import TsWorker from 'monaco-editor/language/typescript/ts.worker.js?worker'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const globalSelf = self as any
-
-const mk = (rel: string) =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  new (globalSelf.Worker as any)(new URL(rel, import.meta.url))
 
 globalSelf.MonacoEnvironment = {
   getWorker(_workerId: string, label: string) {
     switch (label) {
       case 'json':
-        return mk('monaco-editor/esm/vs/language/json/json.worker.js')
+        return new JsonWorker()
       case 'css':
       case 'scss':
       case 'less':
-        return mk('monaco-editor/esm/vs/language/css/css.worker.js')
+        return new CssWorker()
       case 'html':
       case 'handlebars':
       case 'razor':
-        return mk('monaco-editor/esm/vs/language/html/html.worker.js')
+        return new HtmlWorker()
       case 'typescript':
       case 'javascript':
-        return mk('monaco-editor/esm/vs/language/typescript/ts.worker.js')
+        return new TsWorker()
       default:
-        return mk('monaco-editor/esm/vs/editor/editor.worker.js')
+        return new EditorWorker()
     }
   },
 }

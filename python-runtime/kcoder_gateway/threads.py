@@ -918,10 +918,12 @@ async def compact_thread(thread_id: str) -> dict[str, Any]:
 async def read_thread_file(
     thread_id: str, path: str, request: Request
 ) -> PlainTextResponse:
-    """GET /v1/threads/:id/file?path=/mnt/user-data/outputs/report.md
+    """GET /v1/threads/:id/file?path=... — 读取 thread 输出/工作区文件内容。
 
-    读取 thread outputs 目录下的文件内容，返回纯文本。
-    仅允许访问 /mnt/user-data/outputs/ 下的文件（安全边界）。
+    支持两类虚拟路径（均带目录边界校验）：
+    - ``/mnt/user-data/outputs/**`` → thread 的 outputs 目录；
+    - ``/mnt/user-data/workspace/**`` → thread 绑定的工作区——agent 消息里
+      引用的项目文件链接（此前只支持 outputs，点 workspace 链接 404）。
     """
     client = _get_client(request)
 
@@ -929,7 +931,7 @@ async def read_thread_file(
     # 会造成双重编码；FastAPI 只解一层），这里统一解码后再匹配虚拟路径。
     path = urllib.parse.unquote(path)
 
-    # 从 thread state 获取 outputs_path
+    # 从 thread state 获取 outputs_path / workspace_path
     try:
         state = await client.get_thread_state(thread_id)
     except Exception as exc:
@@ -937,8 +939,37 @@ async def read_thread_file(
 
     values = state.get("values", {}) if isinstance(state, dict) else {}
     thread_data = values.get("thread_data", {}) if isinstance(values, dict) else {}
-    outputs_path = thread_data.get("outputs_path", "") if isinstance(thread_data, dict) else ""
+    if not isinstance(thread_data, dict):
+        thread_data = {}
+    outputs_path = thread_data.get("outputs_path", "")
+    workspace_path = thread_data.get("workspace_path") or None
 
+    # ── workspace 分支 ──
+    VIRTUAL_WORKSPACE_PREFIX = "/mnt/user-data/workspace"
+    if path.startswith(VIRTUAL_WORKSPACE_PREFIX + "/"):
+        if not workspace_path:
+            # 重启后 state 丢失 → thread-log 兜底恢复 workspace 绑定
+            workspace_path, _ = await _resolve_workspace(client, thread_id)
+        if not workspace_path:
+            raise HTTPException(status_code=404, detail="Thread workspace not available")
+        base_dir = Path(workspace_path).resolve()
+        actual_path = base_dir / path[len(VIRTUAL_WORKSPACE_PREFIX):].lstrip("/")
+        try:
+            actual_path = actual_path.resolve()
+            actual_path.relative_to(base_dir)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=403, detail="Access denied: path outside workspace") from exc
+        if not actual_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {path}")
+        if not actual_path.is_file():
+            raise HTTPException(status_code=400, detail="Path is not a file")
+        try:
+            content = actual_path.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to read file: {exc}") from exc
+        return PlainTextResponse(content=content, media_type="text/plain; charset=utf-8")
+
+    # ── outputs 分支（原有逻辑） ──
     if not outputs_path:
         raise HTTPException(status_code=404, detail="Thread outputs directory not found")
 

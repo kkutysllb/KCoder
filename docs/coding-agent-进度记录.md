@@ -112,6 +112,13 @@
 
 ## 缺陷修复（主线外热修）
 
+### 工作区文件预览 404 + Monaco worker 加载失败（`98df8e9`）
+
+- **现象**：agent 消息里的 `/mnt/user-data/workspace/...` 项目文件链接点击预览一律 404；开发者面板同时报 Monaco worker "Unexpected token '<'"（worker 退化主线程）。
+- **根因**：① `GET /threads/:id/file` 只支持 outputs 虚拟路径，workspace 路径落进 outputs 分支按 basename 找文件 → 404；② monacoSetup 用 `new URL('monaco-editor/esm/...', import.meta.url)` 解析到不存在的 `src/lib/monaco-editor/...` → dev server SPA 回退 HTML。
+- **修复**：① file 端点新增 workspace 分支（thread_data.workspace_path，state 丢失走 thread-log 兜底；目录边界校验 403/404/400）；② monacoSetup 改 Vite `?worker` 导入（exports 映射 `./*.js` → 去 esm/vs 前缀 + 保留 .js 后缀），dev 加载真实 worker、生产 build 通过。
+- **验证**：py_compile ✅ + 5 场景单测 ✅（workspace 读取/越界 403/不存在 404/thread-log 兜底/outputs 回归）+ `pnpm build` ✅ + tsc ✅ → 运行时 ⏳。
+
 ### 删除项目后重启仍残留记录 + createProject 400 / todos 404
 
 - **现象**：本地目录与项目数据空间都删了，重启后前端仍列出该项目的历史线程，启动时对死路径自动注册 `POST /v1/projects 400`，选中线程 `GET /todos 404`（`GET /goal` 同类，共多个 404）。第一轮只静默 console.error 无效——浏览器网络层照样显示红色 400/404。
