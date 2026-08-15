@@ -456,6 +456,9 @@ function CorruptTextNotice({ text }: { text: string }) {
   )
 }
 
+// 文件操作豁免折叠的判定（读/写/编辑/创建/补丁）
+const FILE_OP_RE = /read|write|edit|str_replace|multiedit|create_file|save_file|patch|update_file/i
+
 /**
  * 连续工具段分组渲染：正文段直接渲染；连续 ≥3 个工具段折叠为一行汇总
  * （「N 个工具调用 · 摘要」），点击展开扁平行明细。组内有运行中调用时
@@ -497,7 +500,16 @@ function ToolSegments({
         }
       } else {
         const call = callById[seg.callId]
-        if (call) curToolCalls.push(call)
+        if (!call) continue
+        // 文件操作（读/写/编辑）豁免折叠：单元素组直接平铺——用户需要
+        // 在正文层面看到 agent 读了什么、改了什么（编辑行带 +N -M 徽标）。
+        // 仅搜索/杂项类连续 >=3 时聚合折叠。
+        if (FILE_OP_RE.test(call.name)) {
+          flushTools()
+          out.push({ kind: 'tools', calls: [call], key: `g${out.length}` })
+        } else {
+          curToolCalls.push(call)
+        }
       }
     }
     flushTools()
