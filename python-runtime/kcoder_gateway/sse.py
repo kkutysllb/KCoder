@@ -748,6 +748,20 @@ class RunRegistry:
     def remove(self, thread_id: str) -> None:
         self._runs.pop(thread_id, None)
 
+    def remove_if_current(self, run: ActiveRun) -> bool:
+        """仅当当前注册的 run 就是 ``run`` 时才移除（按对象身份检查）。
+
+        打断重发（steer / stop + 立即重发）的竞态：旧 consume 任务的
+        ``finally`` 在被 cancel 后仍会异步收尾（落盘用量、推哨兵都带
+        await），此时新 turn 可能已经注册。若 finally 按 thread_id 移除，
+        会把新 run 误删 → 新 SSE 连接拿到「No active turn」。按对象身份
+        移除可消除该竞态：旧 run 的清理永远不波及新 run。
+        """
+        if self._runs.get(run.thread_id) is run:
+            self._runs.pop(run.thread_id, None)
+            return True
+        return False
+
 
 # ────────────────────────────────────────────────────────────────
 # 后台流消费
@@ -1023,7 +1037,9 @@ async def consume_langgraph_stream(
                 )
         # 哨兵：通知 SSE 端点关闭
         await q.put(None)
-        registry.remove(run.thread_id)
+        # 仅移除「仍是当前注册 run」的自己：steer 打断后本 finally 的收尾
+        # 可能晚于新 turn 注册，按 thread_id 移除会误删新 run（No active turn）。
+        registry.remove_if_current(run)
         logger.debug("Run cleaned up: thread=%s turn=%s", run.thread_id, run.turn_id)
 
 

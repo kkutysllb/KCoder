@@ -804,7 +804,8 @@ async def interrupt_turn(thread_id: str, turn_id: str, request: Request) -> dict
     流程：
       1. 先向 event_queue 推 turn_aborted + None 哨兵（前端据此正常收尾，
          不会把流关闭误判为「掉线重连」）。
-      2. 取消后台消费任务（其 finally 会再推 None + registry.remove，幂等）。
+      2. 取消后台消费任务（其 finally 会再推 None + registry.remove_if_current
+         身份校验清理，幂等，且不会误删 steer 已注册的新 run）。
       3. 取消 LangGraph run（若 run_id 已从 metadata 事件捕获）。
       4. 立即从 registry 移除，避免残留占用同 thread 的下一个新 turn。
     """
@@ -832,7 +833,9 @@ async def interrupt_turn(thread_id: str, turn_id: str, request: Request) -> dict
         client = _get_client(request)
         await client.cancel_run(thread_id, run.run_id)
 
-    registry.remove(thread_id)
+    # 只移除「仍是当前注册 run」的自己：cancel_run 的 await 期间，steer 的
+    # 新 turn 可能已注册，按 thread_id 移除会把新 run 误删（No active turn）。
+    registry.remove_if_current(run)
     logger.info(
         "interrupt: cancelled thread=%s turn=%s run=%s",
         thread_id, turn_id, run.run_id,

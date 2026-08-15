@@ -71,6 +71,13 @@
 
 ## 缺陷修复（主线外热修）
 
+### 追加（steer）后出现「No active turn」
+
+- **现象**：运行中对 turn 追加指令（方案 A 打断重发）后，前端报 `No active turn`，新 turn 流没连上。
+- **根因**：registry 清理按 `thread_id` 而非 run 身份。旧 consume 任务被 cancel 后，其 `finally` 仍会异步收尾（落盘用量、推哨兵都是 await），此时新 turn 已注册 → 旧 finally 的 `registry.remove(thread_id)` 把**新 run** 误删；`interrupt_turn` 里 `await cancel_run` 期间同样存在该窗口。
+- **修复**：`RunRegistry.remove_if_current(run)`（对象身份校验，仅移除仍是当前注册的自己）；consume finally 与 interrupt_turn 两处调用点全部切换。单测覆盖：旧 run 迟到清理不误删 / interrupt await 窗口 / 正常清理 / 旧 `remove` 语义兼容。
+- **验证**：py_compile ✅ + 单测 ✅ → 运行时 ⏳（重启 gateway 后追加一次验证）。
+
 ### 历史任务重启后「工作区是空的」澄清卡（workspace 绑定丢失）
 
 - **现象**：重启引擎后继续历史任务，agent 看到 `/mnt/user-data/workspace` 为空（qlib_quantitative / chan_theory_v2 都不存在），弹出澄清卡要源文件——但上下文（种子消息）还在。
