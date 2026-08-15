@@ -7,6 +7,7 @@ import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from functools import lru_cache
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from qilin.config.agents_config import load_agent_soul
@@ -39,7 +40,7 @@ _ENABLED_SKILLS_BY_CONFIG_CACHE_MAXSIZE = 256
 _ENABLED_SKILLS_REFRESH_WAIT_TIMEOUT_SECONDS = 5.0
 _enabled_skills_lock = threading.Lock()
 _enabled_skills_cache: list[Skill] | None = None
-_enabled_skills_by_config_cache: "OrderedDict[tuple[int, str], tuple[object, list[Skill]]]" = OrderedDict()  # noqa: UP037
+_enabled_skills_by_config_cache: "OrderedDict[tuple[int, str], tuple[object, list[Skill], tuple[tuple[str, int], ...] | None]]" = OrderedDict()  # noqa: UP037
 _enabled_skills_refresh_active = False
 _enabled_skills_refresh_version = 0
 _enabled_skills_refresh_event = threading.Event()
@@ -169,6 +170,37 @@ def get_cached_enabled_skills() -> list[Skill]:
     return []
 
 
+def _skills_dir_fingerprint(app_config: AppConfig, user_id: str | None) -> tuple[tuple[str, int], ...] | None:
+    """技能目录指纹（Phase D1b：跨进程安装热生效检测）。
+
+    gateway 进程安装技能只写文件系统，无法跨进程失效引擎进程的缓存；缓存
+    命中时用指纹检测外部变更。指纹 = 顶层各目录的 (名称, mtime_ns)：新技能
+    目录落在 ``public/``（或 custom/）内部，会改变所属类目目录的 mtime。
+    任何异常返回 None（视为无变更，安全降级）。
+    """
+    try:
+        storage = (
+            get_or_new_user_skill_storage(user_id, app_config=app_config)
+            if user_id
+            else get_or_new_skill_storage(app_config=app_config)
+        )
+        root = getattr(storage, "_host_root", None)
+        if not root:
+            return None
+        root_path = Path(root)
+        if not root_path.is_dir():
+            return None
+        entries: list[tuple[str, int]] = []
+        for p in root_path.iterdir():
+            if p.is_dir():
+                entries.append((p.name, p.stat().st_mtime_ns))
+        entries.sort(key=lambda e: e[0])
+        return tuple(entries)
+    except Exception:
+        logger.debug("skills fingerprint failed", exc_info=True)
+        return None
+
+
 def get_enabled_skills_for_config(app_config: AppConfig | None = None, user_id: str | None = None) -> list[Skill]:
     """Return enabled skills using the caller's config source and user scope.
 
@@ -188,21 +220,24 @@ def get_enabled_skills_for_config(app_config: AppConfig | None = None, user_id: 
     with _enabled_skills_lock:
         cached = _enabled_skills_by_config_cache.get(cache_key)
         if cached is not None:
-            cached_config, cached_skills = cached
+            cached_config, cached_skills, cached_fingerprint = cached
             if cached_config is app_config:
-                # LRU touch: move the entry to the end so it survives the
-                # next eviction cycle.
-                _enabled_skills_by_config_cache.move_to_end(cache_key)
-                return list(cached_skills)
+                # Phase D1b：目录指纹变化（外部进程安装了新技能）→ 缓存失效重扫
+                if _skills_dir_fingerprint(app_config, user_id) == cached_fingerprint:
+                    # LRU touch: move the entry to the end so it survives the
+                    # next eviction cycle.
+                    _enabled_skills_by_config_cache.move_to_end(cache_key)
+                    return list(cached_skills)
         load_version = _enabled_skills_refresh_version
 
     if user_id:
         skills = list(get_or_new_user_skill_storage(user_id, app_config=app_config).load_skills(enabled_only=True))
     else:
         skills = list(get_or_new_skill_storage(app_config=app_config).load_skills(enabled_only=True))
+    fingerprint = _skills_dir_fingerprint(app_config, user_id)
     with _enabled_skills_lock:
         if _enabled_skills_refresh_version == load_version:
-            _enabled_skills_by_config_cache[cache_key] = (app_config, skills)
+            _enabled_skills_by_config_cache[cache_key] = (app_config, skills, fingerprint)
             # Evict the least-recently-used entries when we exceed the cap.
             # The cap is intentionally small (256) so a long-running process
             # cannot leak one entry per distinct (config, user) pair seen.
@@ -613,7 +648,7 @@ After making code changes (write_file / str_replace / edit), you MUST verify you
    - Go project → `go test ./...`
    - Otherwise → the language's build/typecheck command (e.g. `python -m py_compile <changed file>`)
 2. **Run at least one verification command** after each batch of edits.
-3. **If a check fails**: read the error output, fix the code, and re-run the SAME check until it passes (red → green loop).
+3. **If a check fails**: READ the error output first, understand the root cause, then fix the code and re-run the SAME check until it passes (red → green loop). Never edit blindly — each fix must target a message in the failure output.
 4. **Report verification honestly**: in your final message, state which commands you ran and their results. If the project has no tests and no build/typecheck command, say so explicitly — never claim verification you did not perform.
 </verification>
 
@@ -1100,10 +1135,16 @@ def apply_prompt_template(
 
     # Gate the "Skill First" instruction on the deferred discovery path:
     # legacy mode uses tool-agnostic wording; deferred mode references describe_skill.
+    # Phase D1a：开工即检查——结合 repo_map/dep_map 的仓库上下文判断相关技能。
     skill_first_reminder = (
-        "- Skill First: For complex tasks, call describe_skill(name) to check if a matching skill exists, then read_file to load it.\n"
+        "- Skill First: At the START of a complex task, check for a matching skill — "
+        "call describe_skill(name) (guess candidates from the task type; consult "
+        "repo_map/dep_map output when the task touches a repository), then read_file "
+        "its SKILL.md before doing the work.\n"
         if skill_names is not None
-        else "- Skill First: Always load the relevant skill before starting **complex** tasks.\n"
+        else "- Skill First: At the START of a complex task, check for a matching skill "
+        "(consult repo_map/dep_map output when the task touches a repository), then "
+        "read its SKILL.md before doing the work.\n"
     )
 
     memory_tool_section = _build_memory_tool_section(app_config=app_config)
@@ -1154,9 +1195,16 @@ def apply_prompt_template(
                 "single-line fixes) and say \"review skipped (trivial)\" in your summary."
             )
             parts.append(
+                "- If the workspace is a git repository: at the START of a non-trivial "
+                "task create a branch `kcoder/<task-slug>` (git checkout -b), and at "
+                "delivery commit your changes with a conventional message "
+                "(git add -A && git commit -m '...'). NEVER push or touch remote refs."
+            )
+            parts.append(
                 "- When everything passes, call `present_delivery(title, summary, changes, "
                 "tests_run, review_notes, changelog_entry)` to produce the PR-style "
-                "delivery card (copyable PR description + changelog entry)."
+                "delivery card (copyable PR description + changelog entry). Include in "
+                "review_notes any failures you hit during the task and how you fixed them."
             )
             parts.append("</delivery_gate>")
             delivery_gate_section = "\n".join(parts)

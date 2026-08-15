@@ -69,6 +69,18 @@
 
 ---
 
+## Phase D：技能与场景完善
+
+### D1+D2+D3 — 技能深接 / 错误自愈 / 交付增强（一次落地）
+
+- **内容**：
+  - D1 技能深接：skill-first 提醒强化（开工即检查，结合 repo_map/dep_map 上下文）；**跨进程技能安装热生效**——引擎技能缓存增加目录 mtime 指纹，gateway 安装后缓存命中检测到指纹变化即重扫（实测：新技能目录出现 → 下一次 turn 可用，缓存命中不重扫）。
+  - D2 错误自愈：新增 `ToolRetryMiddleware`（只读工具「Error:」瞬态失败同参自动重试一次；mutating 绝不重试防重复副作用；BLOCKED 审批拦截不误重试；sync/async 双路径）；<verification> 强化「失败必须读输出再改」。
+  - D3 交付增强：changelog 追加去重（先读现有、相似跳过）；PR 描述模板化（标题/概述/变更/验证 checklist/审查）；交付门新增 git 仓库内开工建分支 `kcoder/<slug>` + 交付 commit，**NEVER push**（推送永不自动化）。
+- **验证**：py_compile ✅ + 单测 ✅（重试四场景 / 技能指纹热生效+缓存命中不重扫 / 提示词断言全项）+ 前端 tsc ✅ → 运行时 ⏳。
+
+---
+
 ## Phase C：上下文压缩 + 长任务可靠性
 
 ### C2 — SSE 可靠性：事件 seq + Last-Event-ID 重放 + 迟到订阅重放

@@ -792,11 +792,12 @@ export function useChat() {
     await sendMessage(`[计划未批准] 用户拒绝了计划「${title}」（id: ${planId}）。请说明调整方向或重新分析后再次调用 present_plan 提交新计划。`)
   }, [sendMessage])
 
-  /** 交付卡「追加到 CHANGELOG」：让 agent 把条目写入项目根 CHANGELOG.md。 */
+  /** 交付卡「追加到 CHANGELOG」：让 agent 把条目写入项目根 CHANGELOG.md（去重）。 */
   const writeChangelog = useCallback(async (entry: string) => {
     const instruction =
       '请把下面这条变更记录追加到项目根的 CHANGELOG.md 的 [Unreleased] 小节（' +
-      '文件不存在则创建，格式为 "- <条目>"）：\n\n' +
+      '文件不存在则创建，格式为 "- <条目>"）。先 read_file 检查现有内容：若已存在' +
+      '内容相同或高度相似的条目，跳过不重复追加，直接说明「已存在，跳过」。\n\n' +
       entry +
       '\n\n写入后确认内容正确并简短说明结果。'
     await sendMessage(instruction)

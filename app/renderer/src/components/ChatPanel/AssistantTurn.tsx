@@ -331,6 +331,11 @@ function DeliveryCard({
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   const prText = useMemo(() => {
+    // PR 描述模板（Phase D3）：标题/概述/变更/验证清单/审查结论
+    const verificationItems = delivery.tests
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
     const parts = [
       `# ${delivery.title}`,
       '',
@@ -339,8 +344,8 @@ function DeliveryCard({
       '## Changes',
       ...delivery.changes.map((c) => `- ${c}`),
       '',
-      '## Tests',
-      delivery.tests
+      '## Verification',
+      ...(verificationItems.length > 0 ? verificationItems.map((v) => `- [ ] ${v}`) : ['(none)'])
     ]
     if (delivery.review) parts.push('', '## Review', delivery.review)
     return parts.join('\n')

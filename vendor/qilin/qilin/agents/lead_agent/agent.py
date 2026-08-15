@@ -447,6 +447,13 @@ def build_middlewares(
 
     middlewares.append(PermissionMiddleware())
 
+    # KCoder local patch (Phase D2): 只读工具瞬态失败自动重试一次。位于
+    # PermissionMiddleware 之后——审批拦截/拒绝返回的 Command/BLOCKED 消息
+    # 不是 Error: 失败，不会被误重试。
+    from qilin.agents.middlewares.tool_retry_middleware import ToolRetryMiddleware
+
+    middlewares.append(ToolRetryMiddleware())
+
     # Add TokenUsageMiddleware when token_usage tracking is enabled
     if resolved_app_config.token_usage.enabled:
         middlewares.append(TokenUsageMiddleware())
