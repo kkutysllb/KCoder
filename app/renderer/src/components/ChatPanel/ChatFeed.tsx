@@ -187,7 +187,9 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
     return (
       <div
         className="flex-1 overflow-y-auto"
-        style={{ paddingBottom: bottomInset }}
+        // scrollbar-gutter: stable 常驻预留滚动条位，避免内容变高导致滚动条
+        // 出现/消失时 max-w 内容左右晃动（子代理步骤 5s 增长时尤其明显）。
+        style={{ paddingBottom: bottomInset, scrollbarGutter: 'stable' }}
         ref={scrollRef}
         onScroll={handleScroll}
       >

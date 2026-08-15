@@ -126,6 +126,13 @@ def translate_event(event_type: str, data: Any, run: ActiveRun) -> list[dict[str
             run.run_id = run_id
         events.append({"kind": "turn_started", "turnId": run.turn_id, "runId": run_id})
 
+    elif event_type == "custom":
+        # 子代理事件（task_tool 的 aemit_custom_event，stream_mode 含 "custom"）：
+        # task_started / task_running / task_completed / task_failed →
+        # subagent_started / subagent_step / subagent_completed / subagent_failed。
+        # 前端 SubagentGroup 按 taskId 分组渲染子代理执行树。
+        events.extend(_translate_custom_event(data))
+
     elif event_type == "messages" or event_type.startswith("messages/"):
         # messages/metadata 只含 graph run 元数据，不是真正的消息体，跳过
         if event_type == "messages/metadata":
@@ -157,6 +164,149 @@ def translate_event(event_type: str, data: Any, run: ActiveRun) -> list[dict[str
         )
 
     return events
+
+
+def _translate_custom_event(data: Any) -> list[dict[str, Any]]:
+    """翻译 task_tool 的自定义事件（子代理执行状态）为 KCoder subagent_* 事件。
+
+    task_tool 通过 ``aemit_custom_event`` 直接 writer(payload)，payload 原样出现在
+    ``event: custom`` 的 data 里（type 字段区分：task_started / task_running /
+    task_completed / task_failed）。task_id = 委派时的 tool_call_id，前端按它把
+    子代理与 task 工具调用关联、分组渲染。
+    """
+    if not isinstance(data, dict):
+        return []
+    ev_type = data.get("type")
+    task_id = str(data.get("task_id", ""))
+    # 诊断日志：确认 custom 事件到达 gateway 的时间（判断缓冲发生在哪一层）
+    logger.info(
+        "custom event: type=%s task=%s index=%s",
+        ev_type,
+        task_id,
+        data.get("message_index"),
+    )
+    if not task_id:
+        return []
+
+    if ev_type == "task_started":
+        return [
+            {
+                "kind": "subagent_started",
+                "taskId": task_id,
+                "description": data.get("description"),
+                "modelName": data.get("model_name"),
+            }
+        ]
+
+    if ev_type == "task_running":
+        message = data.get("message")
+        text = ""
+        tool_calls: list[dict[str, Any]] = []
+        if isinstance(message, dict):
+            text = _extract_text(message.get("content", ""))
+            for tc in message.get("tool_calls") or []:
+                if isinstance(tc, dict):
+                    tool_calls.append(
+                        {
+                            "id": str(tc.get("id", "")),
+                            "name": str(tc.get("name", "")),
+                            "args": tc.get("args"),
+                        }
+                    )
+        elif isinstance(message, str):
+            text = message
+        return [
+            {
+                "kind": "subagent_step",
+                "taskId": task_id,
+                "index": int(data.get("message_index") or 0),
+                "text": text,
+                "toolCalls": tool_calls,
+            }
+        ]
+
+    if ev_type == "task_completed":
+        return [
+            {
+                "kind": "subagent_completed",
+                "taskId": task_id,
+                "result": data.get("result"),
+            }
+        ]
+
+    if ev_type == "task_failed":
+        return [
+            {
+                "kind": "subagent_failed",
+                "taskId": task_id,
+                "error": data.get("error"),
+            }
+        ]
+
+    return []
+
+
+def _tool_call_args_payload(name: str, tc_args: Any) -> dict[str, Any] | None:
+    """提取特殊工具调用的关键 args（供前端展示/面板使用；大 payload 不进事件流）。
+
+    - present_files → filepaths（产物链接）
+    - 文件工具（read/write/edit 等）→ path（工具行显示文件名）
+    - task → subagent_type + description（InfoPanel「智能体」段）
+    其它工具返回 None。
+    """
+    if not isinstance(tc_args, dict):
+        return None
+    if name == "present_files":
+        filepaths = tc_args.get("filepaths") or []
+        if isinstance(filepaths, list) and filepaths:
+            return {"filepaths": filepaths}
+        return None
+    if name in _FILE_PATH_TOOLS:
+        for key in ("path", "file_path", "filePath", "file", "filename"):
+            v = tc_args.get(key)
+            if isinstance(v, str) and v:
+                return {"path": v}
+        return None
+    if name == "task":
+        subagent_type = tc_args.get("subagent_type") or ""
+        description = tc_args.get("description") or ""
+        payload: dict[str, Any] = {}
+        if subagent_type:
+            payload["subagent_type"] = subagent_type
+        if description:
+            payload["description"] = description
+        return payload or None
+    return None
+
+
+def _seed_messages_from_thread_log(
+    logged: dict[str, Any] | None, max_msgs: int = 60
+) -> list[dict[str, str]]:
+    """把 thread-log 的历史 items 转成 (role, content) 种子消息（空线程回灌上下文用）。
+
+    只取 user_message / assistant_text（跳过 tool_result 等中间态）；按 id 去重
+    （thread-log 每个 turn 存累积 items）；保留最近 max_msgs 条，避免上下文过长。
+    """
+    if not logged:
+        return []
+    seen_ids: set[str] = set()
+    msgs: list[dict[str, str]] = []
+    for turn in logged.get("turns") or []:
+        for item in turn.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            iid = str(item.get("id", ""))
+            if iid and iid in seen_ids:
+                continue
+            if iid:
+                seen_ids.add(iid)
+            kind = item.get("kind") or ""
+            text = item.get("text") or ""
+            if kind == "user_message" and text:
+                msgs.append({"role": "user", "content": text})
+            elif kind == "assistant_text" and text:
+                msgs.append({"role": "assistant", "content": text})
+    return msgs[-max_msgs:] if len(msgs) > max_msgs else msgs
 
 
 def _translate_messages_event(
@@ -265,10 +415,25 @@ def _translate_single_message(
                 name = tc.get("name") or ""
                 call_id = tc.get("id") or ""
                 if call_id and name:
-                    # 幂等：messages/partial 帧重复携带累积 tool_calls，
-                    # 同一 call_id 只发一次 tool_call_started（否则前端
-                    # 会出现重复 key 与重复行）。
+                    # 特殊工具的关键 args（前端展示/面板用；大 payload 不进事件流）
+                    payload = _tool_call_args_payload(name, tc.get("args"))
                     if call_id in run.tool_call_ids_seen:
+                        # 已发过 tool_call_started：LLM 流式 args 时首个 partial 可能
+                        # 缺字段（如 task 的 subagent_type 后到），后续帧补全 → 发
+                        # tool_call_args_updated 让前端合并（否则 InfoPanel 丢子代理名）。
+                        prev = run.tool_call_args_seen.get(call_id) or {}
+                        new_fields = {
+                            k: v for k, v in (payload or {}).items() if v and not prev.get(k)
+                        }
+                        if new_fields:
+                            run.tool_call_args_seen[call_id] = {**prev, **new_fields}
+                            events.append(
+                                {
+                                    "kind": "tool_call_args_updated",
+                                    "callId": call_id,
+                                    "args": new_fields,
+                                }
+                            )
                         continue
                     run.tool_call_ids_seen.add(call_id)
                     tc_event: dict[str, Any] = {
@@ -276,47 +441,13 @@ def _translate_single_message(
                         "callId": call_id,
                         "toolName": name,
                     }
-                    # present_files: extract file paths from args so the
-                    # frontend can render artifact links immediately, even
-                    # though the state-level artifacts list isn't streamed.
-                    if name == "present_files":
-                        tc_args = tc.get("args") or {}
-                        if isinstance(tc_args, dict):
-                            filepaths = tc_args.get("filepaths") or []
-                            if isinstance(filepaths, list) and filepaths:
-                                tc_event["args"] = {"filepaths": filepaths}
-                    # 文件操作工具（read/write/edit 等）：提取路径字段随事件下发，
-                    # 前端工具行展示具体文件名（点击在右侧预览栏打开）。
-                    # 只传路径类字段——content/diff 等大 payload 不进事件流。
-                    elif name in _FILE_PATH_TOOLS:
-                        tc_args = tc.get("args") or {}
-                        if isinstance(tc_args, dict):
-                            path_val = None
-                            for key in ("path", "file_path", "filePath", "file", "filename"):
-                                v = tc_args.get(key)
-                                if isinstance(v, str) and v:
-                                    path_val = v
-                                    break
-                            if path_val:
-                                tc_event["args"] = {"path": path_val}
-                    # task: 子代理委托工具（QiLin 用 `task` 工具把工作委派给
-                    # subagent）。提取 subagent_type + description，让前端
-                    # InfoPanel「智能体」段能动态展示「本次任务实际调用了哪些
-                    # 子代理」（而非展示全部内置配置）。
-                    elif name == "task":
-                        tc_args = tc.get("args") or {}
-                        if isinstance(tc_args, dict):
-                            subagent_type = tc_args.get("subagent_type") or ""
-                            description = tc_args.get("description") or ""
-                            if subagent_type or description:
-                                tc_event["args"] = {
-                                    "subagent_type": subagent_type,
-                                    "description": description,
-                                }
+                    if payload:
+                        run.tool_call_args_seen[call_id] = payload
+                        tc_event["args"] = payload
                     # write_todos: QiLin TodoMiddleware 的待办工具（is_plan_mode
                     # 启用）。args.todos 是完整的新列表（整体替换语义），翻译成
                     # todos_updated 事件 → 前端 InfoPanel「进度」段实时更新。
-                    elif name == "write_todos":
+                    if name == "write_todos":
                         tc_args = tc.get("args") or {}
                         if isinstance(tc_args, dict):
                             raw_todos = tc_args.get("todos")
@@ -497,6 +628,8 @@ class ActiveRun:
     # 已发送过 tool_call_started 的 call_id（partial 帧重复携带累积
     # tool_calls，只发一次避免前端重复 key）。
     tool_call_ids_seen: set[str] = field(default_factory=set)
+    # 每个 call_id 已随事件下发的 args（后续帧补全缺失字段 → tool_call_args_updated）
+    tool_call_args_seen: dict[str, dict[str, Any]] = field(default_factory=dict)
     # LangGraph run id（从 metadata 事件捕获，用于 runs 表主键）
     run_id: str | None = None
     # 按模型聚合的 token 用量（桶字段对齐 RunRow.token_usage_by_model）
@@ -684,7 +817,29 @@ async def consume_langgraph_stream(
                 },
             }
         )
-        input_data = {"messages": [{"role": "user", "content": prompt}]}
+        # 线程重建后（run 侧 if_not_exists=create）state 为空 → 用 thread-log
+        # 历史回灌上下文，否则 agent 丢失之前的对话记忆（workspace 路径、任务
+        # 背景等），表现为「重新澄清、找不到项目」。
+        input_messages: list[dict[str, str]] = []
+        try:
+            state = await client.get_thread_state(run.thread_id)
+            values = thread_log.extract_state_values(state)
+            existing = values.get("messages") if isinstance(values, dict) else []
+        except Exception:
+            existing = []
+        if not existing:
+            seed = _seed_messages_from_thread_log(
+                thread_log.load_thread(run.thread_id)
+            )
+            if seed:
+                input_messages.extend(seed)
+                logger.info(
+                    "consume: seeded %d history messages for empty thread %s",
+                    len(seed),
+                    run.thread_id,
+                )
+        input_messages.append({"role": "user", "content": prompt})
+        input_data = {"messages": input_messages}
         # 把 user_id / model_name / 推理参数放入 configurable，QiLin 据此隔离用户数据 / 选模型
         configurable: dict[str, Any] = {}
         if user_id:

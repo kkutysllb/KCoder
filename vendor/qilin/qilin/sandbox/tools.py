@@ -1872,6 +1872,52 @@ async def _bash_tool_async(runtime: Runtime, description: str, command: str) -> 
 bash_tool.coroutine = _bash_tool_async
 
 
+# 测试框架探测脚本：run_tests 未指定 command 时的默认验证命令。
+# 按工作区根目录的 manifest 识别框架并回退；找不到时提示改用显式命令。
+_RUN_TESTS_DETECT_SCRIPT = """
+if [ -f package.json ]; then
+  if command -v pnpm >/dev/null 2>&1; then pnpm test 2>&1; else npm test 2>&1; fi
+elif [ -f go.mod ]; then
+  go test ./... 2>&1
+elif [ -f pyproject.toml ] || [ -f setup.py ] || [ -f tox.ini ] || [ -d tests ] || [ -d test ]; then
+  python -m pytest -q 2>&1 || python -m unittest discover 2>&1
+elif [ -f requirements.txt ]; then
+  python -m unittest discover 2>&1
+else
+  echo "[run_tests] No test framework detected (no package.json / go.mod / pytest markers). Run an explicit verification command instead."
+fi
+""".strip()
+
+
+@tool("run_tests", parse_docstring=True)
+def run_tests_tool(runtime: Runtime, description: str, command: str | None = None) -> str:
+    """Run the project's test suite or a verification command.
+
+    When `command` is omitted, auto-detects the test framework from the workspace
+    root (package.json → pnpm/npm test, go.mod → go test ./..., pytest markers →
+    python -m pytest) and runs it. Prefer this tool over raw `bash` for
+    verification so your testing intent is explicit and the framework is picked
+    automatically.
+
+    Args:
+        description: Explain why you are running tests in short words. ALWAYS PROVIDE THIS PARAMETER FIRST.
+        command: Optional explicit verification command to run instead of auto-detection (e.g. "pnpm typecheck", "python -m pytest tests/test_foo.py").
+    """
+    resolved = command if command and command.strip() else _RUN_TESTS_DETECT_SCRIPT
+    return bash_tool(runtime, description, resolved)
+
+
+async def _run_tests_tool_async(
+    runtime: Runtime, description: str, command: str | None = None
+) -> str:
+    return await _run_sync_tool_after_async_sandbox_init(
+        _tool_sync_func(run_tests_tool), runtime, description, command
+    )
+
+
+run_tests_tool.coroutine = _run_tests_tool_async
+
+
 @tool("ls", parse_docstring=True)
 def ls_tool(runtime: Runtime, description: str, path: str) -> str:
     """List the contents of a directory up to 2 levels deep in tree format.

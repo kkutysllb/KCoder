@@ -16,6 +16,7 @@ import type {
   ChatMessage,
   FileChangesPayload,
   ReasoningBlock,
+  SubagentTask,
   ToolCall,
   TurnSegment,
   TurnStatus
@@ -46,12 +47,17 @@ export type SseEventKind =
   | 'assistant_reasoning_delta'
   | 'tool_call_started'
   | 'tool_call_finished'
+  | 'tool_call_args_updated'
   | 'item_created'
   | 'item_updated'
   | 'item_completed'
   | 'usage'
   | 'approval_requested'
   | 'user_input_requested'
+  | 'subagent_started'
+  | 'subagent_step'
+  | 'subagent_completed'
+  | 'subagent_failed'
   | 'compaction_started'
   | 'compaction_completed'
   | 'turn_completed'
@@ -146,6 +152,17 @@ export function reduceSseEvent(
       return { ...state, toolCalls }
     }
 
+    // ── 工具调用 args 补全（LLM 流式 args 时首个 partial 缺字段，后续帧补发） ──
+    case 'tool_call_args_updated': {
+      const callId = (data?.callId as string) ?? ''
+      const args = data?.args as Record<string, unknown> | undefined
+      if (!callId || !args) return state
+      const toolCalls = (state.toolCalls ?? []).map((c) =>
+        c.id === callId ? { ...c, args: { ...(c.args ?? {}), ...args } } : c
+      )
+      return { ...state, toolCalls }
+    }
+
     // ── item 事件（携带完整 TurnItem，兼容旧协议） ──────────────
     case 'item_created':
     case 'item_updated':
@@ -173,6 +190,66 @@ export function reduceSseEvent(
     case 'approval_requested':
     case 'user_input_requested':
       return { ...state, status: 'needs_input' as TurnStatus, isStreaming: false }
+
+    // ── 子代理执行状态（task_tool 委派，taskId = task 工具调用的 callId） ──
+    case 'subagent_started': {
+      const taskId = (data?.taskId as string) ?? ''
+      if (!taskId) return state
+      // 幂等：同 taskId 已存在则跳过（custom 事件可能重发）
+      if ((state.subagents ?? []).some((t) => t.taskId === taskId)) return state
+      const task: SubagentTask = {
+        taskId,
+        description: (data?.description as string) ?? undefined,
+        model: (data?.modelName as string) ?? undefined,
+        status: 'running',
+        steps: []
+      }
+      return { ...state, subagents: [...(state.subagents ?? []), task] }
+    }
+
+    case 'subagent_step': {
+      const taskId = (data?.taskId as string) ?? ''
+      const index = (data?.index as number) ?? 0
+      if (!taskId) return state
+      const subs = state.subagents ?? []
+      if (!subs.some((t) => t.taskId === taskId)) return state
+      return {
+        ...state,
+        subagents: subs.map((t) => {
+          if (t.taskId !== taskId) return t
+          // 幂等：同 index 已存在则跳过
+          if (t.steps.some((s) => s.index === index)) return t
+          return {
+            ...t,
+            steps: [
+              ...t.steps,
+              {
+                index,
+                text: (data?.text as string) ?? undefined,
+                toolCalls: (data?.toolCalls as ToolCall[]) ?? undefined
+              }
+            ]
+          }
+        })
+      }
+    }
+
+    case 'subagent_completed':
+    case 'subagent_failed': {
+      const taskId = (data?.taskId as string) ?? ''
+      if (!taskId) return state
+      const nextStatus = kind === 'subagent_completed' ? 'completed' : 'failed'
+      return {
+        ...state,
+        subagents: (state.subagents ?? []).map((t) => {
+          if (t.taskId !== taskId) return t
+          // 单调转移：只在 running → 终态；已终态不再回退，避免 custom 事件
+          // 重发/乱序导致状态徽章「运行中↔已完成」来回闪。
+          if (t.status !== 'running') return t
+          return { ...t, status: nextStatus as SubagentTask['status'] }
+        })
+      }
+    }
 
     // ── compaction ────────────────────────────────────────────────
     case 'compaction_started':

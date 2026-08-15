@@ -134,6 +134,7 @@ function shortPath(p: string): string {
 // 工具名 → 中文标签 i18n key（按工具语义归类，匹配 exact + 子串）。
 const TOOL_LABEL_RULES: Array<{ test: RegExp; key: string }> = [
   { test: /^(bash|execute_bash|run_command|shell|exec|terminal|powershell|cmd|zsh|sh)$/, key: 'tool.bash' },
+  { test: /^(run_tests|run_tests_tool)$/, key: 'tool.runTests' },
   { test: /^(read|read_file|readfile|view|view_file|cat|get_file|read_file_tool)$/, key: 'tool.read' },
   { test: /^(write|write_file|writefile|create_file|save_file|new_file)$/, key: 'tool.write' },
   { test: /^(multiedit|multi_edit)$/, key: 'tool.multiedit' },

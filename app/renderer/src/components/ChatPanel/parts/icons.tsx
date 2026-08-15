@@ -144,6 +144,7 @@ export function toolIconFor(toolName: string): ({ className }: IconProps) => JSX
     name === 'bash' ||
     name === 'sh' ||
     name === 'shell' ||
+    name === 'run_tests' ||
     name.startsWith('run_command') ||
     name.startsWith('exec') ||
     name.startsWith('terminal')

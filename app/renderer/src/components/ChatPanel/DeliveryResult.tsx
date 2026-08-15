@@ -4,7 +4,7 @@
 // （复制摘要、提交 commit）+ 文件清单（复用 FileChangeCard，含 diff 查看 + 逐文件撤销）。
 // 仅在 turn 完成（非流式）且有文件变更时渲染。
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ChatMessage } from '../../lib/chatMessage'
 import { FileChangeCard } from './FileChangeCard'
 import { useAppStore } from '../../stores/app-store'
@@ -27,6 +27,21 @@ export function DeliveryResult({ msg }: DeliveryResultProps) {
   if (!changes) return null
   const summary = changes.summary
   const totalFiles = summary.created + summary.modified + summary.deleted + summary.symlink_created
+
+  // 验证状态：本 turn 最后一次完成的 run_tests 工具调用（输出前 200 字）。
+  // 失败标记优先；出现 passed 且无失败标记才算通过；否则未知（中性）。
+  const verification = useMemo(() => {
+    const calls = (msg.toolCalls ?? []).filter(
+      (c) => c.name === 'run_tests' && c.status === 'completed'
+    )
+    if (calls.length === 0) return null
+    const last = calls[calls.length - 1]
+    const text = (last.summary ?? last.output ?? '').trim().slice(0, 200)
+    if (!text) return null
+    const failed = /FAILED|Traceback|AssertionError|npm ERR|error:\s|exit code [1-9]/i.test(text)
+    const passed = !failed && /passed|\bOK\b|成功/i.test(text)
+    return { text, passed, failed }
+  }, [msg.toolCalls])
 
   const copySummary = async () => {
     const lines = [
@@ -116,6 +131,16 @@ export function DeliveryResult({ msg }: DeliveryResultProps) {
           <span className="ml-1 opacity-70">
             (↑{msg.usage.promptTokens.toLocaleString()} ↓{msg.usage.completionTokens.toLocaleString()})
           </span>
+        </div>
+      )}
+
+      {/* 验证状态（run_tests 工具调用结果） */}
+      {verification && (
+        <div className="px-3.5 pb-1 text-[10px] text-text-muted">
+          <span className={verification.failed ? 'text-danger' : verification.passed ? 'text-success' : ''}>
+            {verification.failed ? '✗' : verification.passed ? '✓' : '·'}
+          </span>{' '}
+          {t('delivery.verification')}：{verification.text}
         </div>
       )}
 

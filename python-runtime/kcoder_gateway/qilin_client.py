@@ -155,7 +155,15 @@ class QiLinClient:
         body: dict[str, Any] = {
             "assistant_id": assistant_id,
             "input": input_data,
-            "stream_mode": ["messages"],
+            # "messages" 流式 AI 文本/工具调用；"custom" 携带子代理事件
+            # （task_started / task_running / task_completed / task_failed），
+            # gateway 翻译为 subagent_* 事件 → 前端 SubagentGroup 渲染。
+            "stream_mode": ["messages", "custom"],
+            # langgraph dev 重启后 checkpoint 可能丢（thread 记录消失）。
+            # if_not_exists=create 让 run 在 thread 不存在时自动重建，否则
+            # /runs/stream 被拒绝 → gateway 任务立即失败 → 前端收到
+            # "No active turn"（历史任务重启后无法继续对话）。
+            "if_not_exists": "create",
         }
         if config:
             body["config"] = config

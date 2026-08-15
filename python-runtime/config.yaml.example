@@ -68,6 +68,9 @@ tools:
   - name: bash
     group: bash
     use: qilin.sandbox.tools:bash_tool
+  - name: run_tests
+    group: bash
+    use: qilin.sandbox.tools:run_tests_tool
   - name: web_search
     group: web
     use: qilin.community.ddg_search.tools:web_search_tool

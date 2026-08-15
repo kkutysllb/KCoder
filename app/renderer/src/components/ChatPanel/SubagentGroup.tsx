@@ -33,7 +33,7 @@ export function SubagentGroup({ task, showToolCalls = true }: SubagentGroupProps
         onClick={() => setExpanded((e) => !e)}
       >
         {/* 状态点 */}
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors duration-300 ${
           task.status === 'running' ? 'bg-blue-400 animate-pulse' :
           task.status === 'completed' ? 'bg-green-400' :
           task.status === 'failed' ? 'bg-red-400' :
@@ -51,7 +51,7 @@ export function SubagentGroup({ task, showToolCalls = true }: SubagentGroupProps
           <span className="text-[10px] text-text-muted shrink-0">{stepCount} 步</span>
         )}
         {/* 状态徽章 */}
-        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${status.cls}`}>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 transition-colors duration-300 ${status.cls}`}>
           {status.label}
         </span>
         {/* 折叠箭头 */}

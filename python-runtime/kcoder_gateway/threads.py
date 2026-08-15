@@ -454,6 +454,19 @@ async def start_turn(
                 )
     except Exception:
         logger.debug("title auto-update check failed", exc_info=True)
+        # 线程在 LangGraph 侧丢失（重启后 checkpoint 丢，run 侧 if_not_exists=create
+        # 重建的是空线程）→ 用 thread-log 元数据兜底恢复 workspace 绑定，否则
+        # sandbox 把 /mnt/user-data/workspace 映射到默认空目录，agent 找不到项目。
+        try:
+            logged = thread_log.load_thread(thread_id)
+            meta = (logged or {}).get("meta") or {}
+            workspace_path = meta.get("workspace") or None
+            if workspace_path:
+                logger.info(
+                    "start_turn: workspace recovered from thread_log: %s", workspace_path
+                )
+        except Exception:
+            logger.warning("thread_log meta fallback failed", exc_info=True)
 
     # 注入附件内容：把附件文本拼成 <user_attachments> 块 prepend 到 prompt，
     # 让 agent 真正读到用户上传的文件（修复 stub 时代"上传假成功、agent 读不到"）。
@@ -602,12 +615,24 @@ async def get_thread(thread_id: str, request: Request) -> dict[str, Any]:
         # 网关自有的 thread-log（sse.py 每个 turn 结束时落盘）。
         logged = thread_log.log_turns(thread_id)
         if logged:
-            turns = [
-                {"id": t.get("id") or f"turn-{i}", "items": t.get("items") or []}
-                for i, t in enumerate(logged)
-            ]
+            # thread-log 每个 turn 存的是「当时累积的 state 消息」，跨 turn
+            # 会重复携带同 id 的 items。这里按 id 去重、合并成单 turn，
+            # 否则前端 loadThread 会渲染出重复消息（重复 React key）。
+            seen_ids: set[str] = set()
+            merged_items: list[dict[str, Any]] = []
+            for t in logged:
+                for item in t.get("items") or []:
+                    iid = str(item.get("id", ""))
+                    if iid and iid in seen_ids:
+                        continue
+                    if iid:
+                        seen_ids.add(iid)
+                    merged_items.append(item)
+            if merged_items:
+                turns = [{"id": "turn-0", "items": merged_items}]
             logger.info(
-                "get_thread %s: state empty, thread_log fallback turns=%d", thread_id, len(turns)
+                "get_thread %s: state empty, thread_log fallback turns=%d items=%d (deduped)",
+                thread_id, len(logged), len(merged_items),
             )
     base["turns"] = turns
     return base
