@@ -90,6 +90,16 @@
 
 ## 缺陷修复（主线外热修）
 
+### 删除项目后重启仍残留记录 + createProject 400 / todos 404
+
+- **现象**：本地目录与项目数据空间都删了，重启后前端仍列出该项目的历史线程，启动时对死路径自动注册 `POST /v1/projects 400`，选中线程 `GET /todos 404`。
+- **根因**：删除项目（delete_project）只归档了 langgraph 侧线程；KCoder 的 thread-log 兜底（`~/.kcoder/thread-log/`）仍持有这些线程且无 archived 标记——重启后 list_threads 把它们合并回来，前端自动注册对已删目录的 workspace 发 createProject → 400。
+- **修复**：
+  1. `delete_project` 级联：thread-log 中 workspace 匹配的条目一并标记 archived（`archivedLogEntries` 计数返回）。
+  2. `list_threads` 合并时对 thread-log 条目做**死路径软过滤**（workspace 目录不存在则跳过，不改存储，目录恢复后自动重新出现）——当前已有的残留线程重启后即被隐藏，无需迁移。
+  3. 前端自动注册兜底：engine-api 透传 400 detail，侧边栏对「Directory does not exist」静默跳过（console.warn），不再刷错。
+- **验证**：py_compile ✅ + 单测 ✅（死路径过滤 / 删除级联只归档匹配 workspace）+ 前端 tsc ✅ → 运行时 ⏳（重启后残留应消失）。
+
 ### 追加（steer）后出现「No active turn」
 
 - **现象**：运行中对 turn 追加指令（方案 A 打断重发）后，前端报 `No active turn`，新 turn 流没连上。

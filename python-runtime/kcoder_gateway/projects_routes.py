@@ -220,10 +220,29 @@ async def delete_project(project_id: str, request: Request) -> dict[str, Any]:
     except Exception:
         logger.exception("Failed to search threads on project delete")
 
+    # thread-log 兜底数据同样归档：langgraph 重启丢 checkpoint 后，list_threads
+    # 会用 thread-log 合并回线程。若只归档 langgraph 侧，删除项目后其任务仍会
+    # 残留出现——且 workspace 目录已删，前端自动注册会对死路径 400、选中线程
+    # 的 todos 404。这里把 thread-log 侧一并标记 archived。
+    archived_log_count = 0
+    try:
+        from . import thread_log
+
+        for logged in thread_log.list_logged_threads():
+            tid = logged.get("threadId") or ""
+            if not tid:
+                continue
+            logged_ws = ((logged.get("meta") or {}).get("workspace")) or ""
+            if logged_ws and logged_ws == entry["path"]:
+                thread_log.save_thread_meta(tid, {"archived": True})
+                archived_log_count += 1
+    except Exception:
+        logger.warning("Failed to archive thread-log entries on project delete", exc_info=True)
+
     projects = [p for p in projects if p.get("id") != project_id]
     _save_projects(request, projects)
     logger.info(
-        "Deleted project %s (%s), archived %d tasks",
-        project_id, entry.get("path"), archived_count,
+        "Deleted project %s (%s), archived %d tasks (+%d thread-log)",
+        project_id, entry.get("path"), archived_count, archived_log_count,
     )
-    return {"deleted": True, "archivedThreads": archived_count}
+    return {"deleted": True, "archivedThreads": archived_count, "archivedLogEntries": archived_log_count}

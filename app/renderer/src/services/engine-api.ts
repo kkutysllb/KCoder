@@ -1652,7 +1652,16 @@ data: <full EngineStreamEvent JSON>
       body: JSON.stringify({ path, name })
     })
     if (!response.ok) {
-      throw new Error(`Failed to create project: ${response.statusText}`)
+      // 透传 FastAPI detail（如 "Directory does not exist: ..."），
+      // 让调用方（侧边栏自动注册）能区分「目录已删」并静默跳过。
+      let detail = response.statusText
+      try {
+        const body = (await response.json()) as { detail?: unknown }
+        if (typeof body?.detail === 'string' && body.detail) detail = body.detail
+      } catch {
+        /* 非 JSON 响应，保留 statusText */
+      }
+      throw new Error(`Failed to create project: ${detail}`)
     }
     return response.json()
   }

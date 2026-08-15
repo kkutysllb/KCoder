@@ -261,6 +261,14 @@ async def list_threads(request: Request, limit: int = 200, include_archived: boo
             if not tid or tid in seen_ids:
                 continue
             meta = entry.get("meta") or {}
+            # 死路径软过滤：workspace 目录已不存在（项目/目录已删除）的
+            # thread-log 线程不再出现在侧边栏——否则删除项目后重启仍残留，
+            # 前端自动注册对死路径 400、选中线程 todos 404。软过滤不改存储：
+            # 目录恢复（如外接盘重挂）后线程自然重新出现。
+            ws = meta.get("workspace") or ""
+            if ws and not Path(ws).is_dir():
+                logger.info("thread_log merge: skipping dead-workspace thread %s (%s)", tid, ws)
+                continue
             first_turn_at = meta.get("createdAt") or entry.get("savedAt") or ""
             summaries.append(
                 {

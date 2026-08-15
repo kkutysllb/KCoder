@@ -238,7 +238,13 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
             entry
           ]
         } catch (error) {
-          console.error('[KCoder] Failed to auto-register project:', ws, error)
+          // 死路径静默跳过：目录已被删除（项目/数据空间已清理）的残留线程
+          // 不再尝试注册，避免每次启动刷 400 报错。
+          if (error instanceof Error && error.message.includes('Directory does not exist')) {
+            console.warn('[KCoder] Skip auto-register (directory gone):', ws)
+          } else {
+            console.error('[KCoder] Failed to auto-register project:', ws, error)
+          }
         }
       }
       setProjects(projectsList)
