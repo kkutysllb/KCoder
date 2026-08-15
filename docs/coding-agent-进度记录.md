@@ -1,0 +1,94 @@
+# KCoder Coding Agent 主线进度记录
+
+> 与《[coding-agent-改造计划.md](./coding-agent-改造计划.md)》配套。每完成一个里程碑追加一条；「用户运行时验收」未通过之前保持 ⏳，不得标记完成。
+>
+> 验证状态图例：`冒烟 ✅` = 引擎 py_compile/注册表/提示词断言 + 前端 tsc + 真实仓库工具实测；`运行时 ⏳` = 等用户重启引擎/前端走场景；`运行时 ✅` = 用户确认。
+
+---
+
+## Phase A：控制面地基
+
+### 545b890 — 前端打磨 + 控制面地基（审批/停止/追加）
+
+- **内容**：
+  - 执行审批卡落地：`<approval_request>` 检测（`output ?? summary` + 容忍截断）、批准/拒绝按钮、approved_ops 一次性放行链路。
+  - 停止按钮（interrupt）与 queue 模式（运行中输入入队 + 「立即执行」）。
+  - 浅色主题可见性修复（sidebar `text-white` → `text-text-primary`）；Tailwind 透明度 bug 根治（颜色改为 RGB 三元组 + `rgb(var(--x)/<alpha-value>)`）。
+  - 澄清卡 option 渲染修复（不再渲染对象原文）。
+- **验证**：typecheck ✅；运行时 ✅（后续按此提交的用户反馈迭代）。
+- **遗留**：审批卡不弹（M1）→ 1c80443 修复。
+
+### 1c80443 — 验证闭环 + 子代理委派回传 + 重启恢复兜底
+
+- **内容**（14 files，+418/−52）：
+  - `run_tests` 工具（自动探测 package.json/go.mod/pytest）+ 提示词 `<verification>` 段 + 交付验证行。
+  - 子代理回传：gateway `_translate_custom_event`（task_* → subagent_started/step/completed/failed）+ `tool_call_args_updated`（补齐 atlas 等延迟出现的 subagent_type）+ 前端 SubagentGroup（状态单调、横向不跳）。
+  - 重启恢复：`stream_mode=["messages","custom"]` + `if_not_exists="create"`；thread-log 种子消息（60 条上限、id 去重）；workspace 从 thread-log meta 兜底。
+  - 控制面实装：`interrupt_turn`/`steer_turn` 真打断（cancel_run + turn_aborted + registry 清理）。
+  - 审批 id 改按 path/command 身份哈希（修复重复审批循环）；approval 卡检测兼容 `summary`。
+- **验证**：冒烟 ✅；运行时 ⏳（重启后复验：审批卡、子代理卡片、重启恢复、run_tests 验证行）。
+
+---
+
+## Phase B：coding 核心能力四件套
+
+### 0452fbb — repo_map 工具（① 仓库索引第一步）
+
+- **内容**：递归目录树（缩进格式）；复用 list_dir 的 IGNORE_PATTERNS 噪声排除（node_modules/.git/.venv/dist 等）；深度钳制 1–8（默认 4）；条目上限 400，超限尾部提示下钻；走 ls_tool 同款路径解析/禁用技能过滤/掩码。
+- **验证**：冒烟 ✅（KCoder 仓库实测 510 条目@depth4 / 1247@depth8，无噪声泄漏）；运行时 ⏳。
+
+### 5d9afa1 — dep_map 工具 + glob 花括号支持（① 依赖索引）
+
+- **内容**：单次 grep 扫 import/require 按文件聚合（py/js/ts/jsx/tsx/go/rs）；行首锚定防注释误报；Go import 块裸包名兼容；预算 2000 行（可调 200–5000）/文件 150/每文件 12 行；`search.path_matches` 增加 `{py,js}` 花括号 alternation（纯增量，glob/grep 同步受益）。
+- **验证**：冒烟 ✅（KCoder 仓库 2000 匹配、224 文件聚合正常）；运行时 ⏳。
+
+### a8b4450 — plan-mode 计划批准门（②）
+
+- **内容**：
+  - 引擎 `present_plan` 内建工具：结构化提交计划（title/overview/steps/verification），输出 `<plan_request id status="awaiting_approval">`；id=(title,steps) 稳定哈希。
+  - PermissionMiddleware：plan-mode 拒绝文案指引 present_plan；README 白名单加入。
+  - lead agent 提示词：plan-mode 注入只读约束 + present_plan 出口。
+  - 前端 PlanApprovalCard：批准 → 切 `auto-edit` + 携带计划发起执行 turn；拒绝 → 保持 plan-mode 反馈；present_plan 工具调用不再重复展示。
+- **验证**：引擎冒烟 ✅ + 前端 tsc ✅ + 解析逻辑 node 单测 ✅（含截断/无 verification 边界）；运行时 ⏳。
+
+### 76a2ae5 — 交付门 review/security 子代理入主线 + security_scan 工具（③）
+
+- **内容**：
+  - `<delivery_gate>` 提示词：非平凡变更交付前自动派发 `marcus`（审查）/`sandra`（安全）子代理，严重发现必修；仅当 subagent_enabled 且注册表存在对应类型时注入；提醒预留子代理预算。
+  - `security_scan` 确定性启发式扫描：硬编码密钥 / 命令执行 / shell=True / XSS 汇 / SQL 拼接 / 反序列化 / 私钥 / 明文 HTTP，按类聚合输出 + 误报提示；code-execution 模式带 lookbehind 排除 `obj.exec(` 方法调用误报。
+  - PermissionMiddleware 只读白名单加入 repo_map/dep_map/security_scan。
+- **验证**：冒烟 ✅（KCoder 仓库实测 58 findings/7 类，含 config.yaml 真实 api_key；误报已压）；运行时 ⏳。
+
+### 5142119 — present_delivery 交付卡（④ PR/changelog）
+
+- **内容**：
+  - 引擎 `present_delivery` 内建工具：title/summary/changes/tests/review/changelog → `<delivery id>` 块；id=(title,changes) 稳定哈希。
+  - 交付门提示词收尾：验证+审查通过后调用 present_delivery。
+  - 前端 DeliveryCard：变更清单/测试/审查结论/changelog + 「复制 PR 描述」+「追加到 CHANGELOG」（useChat `writeChangelog` 让 agent 写入项目根 CHANGELOG.md）；present_delivery 调用不重复展示。
+- **验证**：引擎冒烟 ✅ + 前端 tsc ✅ + 解析 node 单测 ✅；运行时 ⏳。
+
+---
+
+## 待运行时验收清单（当前）
+
+1. 重启引擎（langgraph dev）加载新工具/提示词；重启前端加载新卡片。
+2. plan-mode 全链路：需求 → 计划卡 → 「批准并执行」→ 自动切 auto-edit 按计划执行。
+3. 交付门：完成后自动派发 marcus/sandra（SubagentGroup 可见）+ security_scan 调用。
+4. present_delivery 交付卡：复制 PR 描述 / 追加 CHANGELOG。
+5. repo_map / dep_map 在新线程实际使用一次。
+6. 复验 Phase A 遗留：审批卡、run_tests 验证行、子代理卡片、重启恢复（thread-log 种子）。
+7. `logs/kcoder-debug.log` grep：`permission|custom event|subagent|no active turn|delivery`。
+
+## 已知取舍 / 待办
+
+- repo_map 未做 per-turn 缓存：扫描 <50ms，无状态实现更稳；如需再议。
+- security_scan 为启发式扫描：注释/文档字样会误报，卡片已注明需人工甄别。
+- **上下文压缩未接线**：`context_compaction.py` spike 存在但未接入 → Phase C1（最高优先级提案）。
+- `docs/` 曾整体 gitignore → 本次修正为 `docs/*` + `!docs/coding-agent-*.md`，计划/进度纳入版本控制。
+- `python-runtime/config.yaml` 含真实 api_key（审计 P0-1）：主线范围外，但每轮提醒轮换。
+
+## 未决事项
+
+- [ ] Phase C 范围确认（C1 压缩接线是否立即开工；C2/C3 可靠性是否纳入本轮）。
+- [ ] Phase A 遗留的运行时复验结果登记（见上方清单第 6 条）。
+- [ ] 是否需要 repo_map per-turn 缓存 / security_scan 增加 .env 等额外文件类型（当前被 walker 忽略）。
