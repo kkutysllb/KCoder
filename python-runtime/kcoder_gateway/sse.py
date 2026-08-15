@@ -37,12 +37,25 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
 from .qilin_client import QiLinClient
 from .workspace_changes_tracker import WorkspaceChangesTracker
+from . import thread_log
 
 logger = logging.getLogger("kcoder_gateway.sse")
+
+# 文件操作工具白名单：tool_call_started 事件随带 path（前端工具行显示文件名，
+# 点击在右侧预览栏打开）。只传路径，content 等大 payload 不进事件流。
+_FILE_PATH_TOOLS = frozenset(
+    {
+        "read", "read_file", "readfile", "view", "view_file", "cat", "get_file",
+        "write", "write_file", "writefile", "create_file", "save_file", "new_file",
+        "edit", "edit_file", "str_replace", "str_replace_editor", "replace",
+        "patch", "update_file", "multiedit", "multi_edit",
+    }
+)
 
 # 模块级单例：threads.py 的 GET /threads/{id}/changes 端点共享同一实例
 workspace_tracker = WorkspaceChangesTracker()
@@ -272,6 +285,71 @@ def _translate_single_message(
                             filepaths = tc_args.get("filepaths") or []
                             if isinstance(filepaths, list) and filepaths:
                                 tc_event["args"] = {"filepaths": filepaths}
+                    # 文件操作工具（read/write/edit 等）：提取路径字段随事件下发，
+                    # 前端工具行展示具体文件名（点击在右侧预览栏打开）。
+                    # 只传路径类字段——content/diff 等大 payload 不进事件流。
+                    elif name in _FILE_PATH_TOOLS:
+                        tc_args = tc.get("args") or {}
+                        if isinstance(tc_args, dict):
+                            path_val = None
+                            for key in ("path", "file_path", "filePath", "file", "filename"):
+                                v = tc_args.get(key)
+                                if isinstance(v, str) and v:
+                                    path_val = v
+                                    break
+                            if path_val:
+                                tc_event["args"] = {"path": path_val}
+                    # task: 子代理委托工具（QiLin 用 `task` 工具把工作委派给
+                    # subagent）。提取 subagent_type + description，让前端
+                    # InfoPanel「智能体」段能动态展示「本次任务实际调用了哪些
+                    # 子代理」（而非展示全部内置配置）。
+                    elif name == "task":
+                        tc_args = tc.get("args") or {}
+                        if isinstance(tc_args, dict):
+                            subagent_type = tc_args.get("subagent_type") or ""
+                            description = tc_args.get("description") or ""
+                            if subagent_type or description:
+                                tc_event["args"] = {
+                                    "subagent_type": subagent_type,
+                                    "description": description,
+                                }
+                    # write_todos: QiLin TodoMiddleware 的待办工具（is_plan_mode
+                    # 启用）。args.todos 是完整的新列表（整体替换语义），翻译成
+                    # todos_updated 事件 → 前端 InfoPanel「进度」段实时更新。
+                    elif name == "write_todos":
+                        tc_args = tc.get("args") or {}
+                        if isinstance(tc_args, dict):
+                            raw_todos = tc_args.get("todos")
+                            if isinstance(raw_todos, list):
+                                now = datetime.now(timezone.utc).isoformat()
+                                items = []
+                                for idx, td in enumerate(raw_todos):
+                                    if not isinstance(td, dict):
+                                        continue
+                                    status = td.get("status") or "pending"
+                                    if status not in ("pending", "in_progress", "completed"):
+                                        status = "pending"
+                                    items.append(
+                                        {
+                                            "id": f"todo-{idx}",
+                                            "content": str(td.get("content") or ""),
+                                            "status": status,
+                                            "createdAt": now,
+                                            "updatedAt": now,
+                                        }
+                                    )
+                                # tool_call_started 之外追加 todos_updated（前端
+                                # 消费两种事件：工具行展示 + 进度面板更新）
+                                events.append(
+                                    {
+                                        "kind": "todos_updated",
+                                        "todos": {
+                                            "threadId": run.thread_id,
+                                            "items": items,
+                                            "updatedAt": now,
+                                        },
+                                    }
+                                )
                     events.append(tc_event)
 
         for tcc in (msg.get("tool_call_chunks") or []):
@@ -555,6 +633,9 @@ async def consume_langgraph_stream(
     subagent_enabled: bool = False,
     reasoning_mode: str | None = None,
     workspace_path: str | None = None,
+    is_plan_mode: bool = True,
+    permission_mode: str | None = None,
+    approved_ops: list[str] | None = None,
 ) -> None:
     """后台任务：消费 LangGraph SSE 流 → 翻译 → 推入 event_queue.
 
@@ -574,12 +655,35 @@ async def consume_langgraph_stream(
     ``workspace_path``（可选）注入到 ``configurable.workspace_path``，
     让 QiLin sandbox provider 将 /mnt/user-data/workspace 映射到用户选择的
     真实项目目录（而非默认的内部空目录）。
+    ``is_plan_mode``（默认 True）注入到 ``configurable.is_plan_mode``，
+    QiLin 据此启用 TodoMiddleware（write_todos 工具）——前端 InfoPanel
+    「进度」段依赖它产生的 todos 数据。
     """
     q = run.event_queue
     got_end = False
     run_error: str | None = None
+    # 累计本轮全部已翻译事件——turn 结束时若 LangGraph state 读不出
+    # （dev 重启丢 checkpoint 等），用它重建历史并落盘（thread_log 兜底）。
+    accumulated_events: list[dict[str, Any]] = []
 
     try:
+        # turn 开始即广播 goal（前端 InfoPanel「计划」段）：目标 = 本轮
+        # 用户指令。下一轮 turn 会以新 goal 覆盖。
+        now = datetime.now(timezone.utc).isoformat()
+        await q.put(
+            {
+                "kind": "goal_updated",
+                "goal": {
+                    "threadId": run.thread_id,
+                    "objective": prompt,
+                    "status": "active",
+                    "tokensUsed": 0,
+                    "timeUsedSeconds": 0,
+                    "createdAt": now,
+                    "updatedAt": now,
+                },
+            }
+        )
         input_data = {"messages": [{"role": "user", "content": prompt}]}
         # 把 user_id / model_name / 推理参数放入 configurable，QiLin 据此隔离用户数据 / 选模型
         configurable: dict[str, Any] = {}
@@ -589,6 +693,12 @@ async def consume_langgraph_stream(
             configurable["model_name"] = model_name
         if subagent_enabled:
             configurable["subagent_enabled"] = subagent_enabled
+        if is_plan_mode:
+            configurable["is_plan_mode"] = is_plan_mode
+        if permission_mode:
+            configurable["permission_mode"] = permission_mode
+        if approved_ops:
+            configurable["approved_ops"] = approved_ops
         if reasoning_mode == "off":
             configurable["thinking_enabled"] = False
         elif reasoning_mode in ("low", "medium", "high"):
@@ -618,6 +728,7 @@ async def consume_langgraph_stream(
                 if event_type is None and event_data is None:
                     continue
                 for ev in translate_event(event_type or "", event_data, run):
+                    accumulated_events.append(ev)
                     if ev.get("kind") == "turn_completed":
                         # run 结束：计算本轮 workspace 变更并附加到 turn_completed
                         changes = await workspace_tracker.compute_changes(
@@ -626,6 +737,24 @@ async def consume_langgraph_stream(
                         if changes:
                             ev["fileChanges"] = changes
                     await q.put(ev)
+                    if ev.get("kind") == "turn_completed":
+                        # 本轮目标完成 → 前端「计划」段状态翻转为 complete
+                        # （下一轮 turn 开始会以新 goal 覆盖）
+                        done_now = datetime.now(timezone.utc).isoformat()
+                        await q.put(
+                            {
+                                "kind": "goal_updated",
+                                "goal": {
+                                    "threadId": run.thread_id,
+                                    "objective": prompt,
+                                    "status": "complete",
+                                    "tokensUsed": 0,
+                                    "timeUsedSeconds": 0,
+                                    "createdAt": done_now,
+                                    "updatedAt": done_now,
+                                },
+                            }
+                        )
                 if event_type == "end":
                     got_end = True
 
@@ -660,6 +789,32 @@ async def consume_langgraph_stream(
             if changes:
                 completed_event["fileChanges"] = changes
             await q.put(completed_event)
+
+        # ── turn 历史落盘（thread_log 兜底）──────────────────────────
+        # langgraph dev 的 checkpoint 在重启/版本变化后可能读不出（thread 列表
+        # 还在但 values 为空 → 前端「点击历史任务 → 新任务页」）。每个 turn
+        # 结束时把 items 落盘到 KCoder 自有存储；state 读不出时用本轮累计的
+        # SSE 事件重建。get_thread 在 state 为空时回退读取。
+        try:
+            state = await client.get_thread_state(run.thread_id)
+            values = thread_log.extract_state_values(state)
+            messages = values.get("messages") or []
+            items = thread_log.messages_to_items(messages)
+        except Exception:
+            logger.debug("thread_log: state fetch failed", exc_info=True)
+            items = []
+        if not items:
+            items = thread_log.items_from_sse_events(
+                run.turn_id, prompt, accumulated_events
+            )
+        if items:
+            ev_goal, ev_todos = thread_log.goal_and_todos_from_events(
+                accumulated_events
+            )
+            thread_log.append_turn(
+                run.thread_id, run.turn_id, prompt, items,
+                goal=ev_goal, todos=ev_todos,
+            )
 
     except asyncio.CancelledError:
         logger.info("LangGraph stream cancelled for thread %s", run.thread_id)

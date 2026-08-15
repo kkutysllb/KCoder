@@ -57,7 +57,7 @@ export function ExecutionView() {
         </div>
         <p className="text-[11px] text-text-muted mt-1.5 leading-relaxed">{decision.reason}</p>
         {decision.fallbackReason && (
-          <p className="text-[11px] text-[#f59e0b] mt-1 leading-relaxed">⚠ {decision.fallbackReason}</p>
+          <p className="text-[11px] text-amber mt-1 leading-relaxed">⚠ {decision.fallbackReason}</p>
         )}
       </div>
 
@@ -130,9 +130,9 @@ function DagGraph({
       <div
         key={node.key}
         className={`relative rounded-lg border px-3 py-2 transition-all ${
-          isActive ? 'border-[#3b82f6] bg-[#3b82f6]/10 shadow-lg shadow-[#3b82f6]/20' :
-          node.status === 'completed' ? 'border-[#22c55e]/40 bg-[#22c55e]/5' :
-          node.status === 'failed' ? 'border-[#ef4444]/40 bg-[#ef4444]/5' :
+          isActive ? 'border-info bg-info/10 shadow-lg shadow-info/20' :
+          node.status === 'completed' ? 'border-success/40 bg-success/5' :
+          node.status === 'failed' ? 'border-danger/40 bg-danger/5' :
           'border-border-custom bg-bg-input'
         }`}
       >
@@ -141,9 +141,9 @@ function DagGraph({
           <span className="text-xs font-medium text-text-primary">{node.name}</span>
           {isActive && (
             <span className="ml-auto flex gap-0.5">
-              <span className="w-1 h-1 rounded-full bg-[#3b82f6] animate-bounce [animation-delay:-0.3s]" />
-              <span className="w-1 h-1 rounded-full bg-[#3b82f6] animate-bounce [animation-delay:-0.15s]" />
-              <span className="w-1 h-1 rounded-full bg-[#3b82f6] animate-bounce" />
+              <span className="w-1 h-1 rounded-full bg-info animate-bounce [animation-delay:-0.3s]" />
+              <span className="w-1 h-1 rounded-full bg-info animate-bounce [animation-delay:-0.15s]" />
+              <span className="w-1 h-1 rounded-full bg-info animate-bounce" />
             </span>
           )}
         </div>
@@ -325,7 +325,7 @@ function GovernancePanel({ inspection }: { inspection: GraphRunInspection }) {
               <button
                 onClick={() => handleCircuit('report_only')}
                 disabled={busy}
-                className="text-[10px] px-2 py-1 rounded bg-[#f59e0b]/10 text-[#f59e0b] hover:bg-[#f59e0b]/20 disabled:opacity-50 transition-colors"
+                className="text-[10px] px-2 py-1 rounded bg-amber/10 text-amber hover:bg-amber/20 disabled:opacity-50 transition-colors"
               >
                 {t('governance.reportOnly')}
               </button>
@@ -343,7 +343,7 @@ function GovernancePanel({ inspection }: { inspection: GraphRunInspection }) {
               <button
                 onClick={() => handleCircuit('running')}
                 disabled={busy}
-                className="text-[10px] px-2 py-1 rounded bg-[#22c55e]/10 text-[#22c55e] hover:bg-[#22c55e]/20 disabled:opacity-50 transition-colors"
+                className="text-[10px] px-2 py-1 rounded bg-success/10 text-success hover:bg-success/20 disabled:opacity-50 transition-colors"
               >
                 {t('governance.resume')}
               </button>
@@ -351,14 +351,14 @@ function GovernancePanel({ inspection }: { inspection: GraphRunInspection }) {
             <button
               onClick={() => handleCircuit('retired')}
               disabled={busy}
-              className="text-[10px] px-2 py-1 rounded bg-[#ef4444]/10 text-[#ef4444] hover:bg-[#ef4444]/20 disabled:opacity-50 transition-colors ml-auto"
+              className="text-[10px] px-2 py-1 rounded bg-danger/10 text-danger hover:bg-danger/20 disabled:opacity-50 transition-colors ml-auto"
             >
               {t('governance.retire')}
             </button>
             <button
               onClick={handleCancel}
               disabled={busy}
-              className="text-[10px] px-2 py-1 rounded bg-[#ef4444]/10 text-[#ef4444] hover:bg-[#ef4444]/20 disabled:opacity-50 transition-colors"
+              className="text-[10px] px-2 py-1 rounded bg-danger/10 text-danger hover:bg-danger/20 disabled:opacity-50 transition-colors"
             >
               {t('governance.cancel')}
             </button>
@@ -370,10 +370,10 @@ function GovernancePanel({ inspection }: { inspection: GraphRunInspection }) {
 }
 
 function CircuitBadge({ state }: { state: CircuitState }) {
-  const cls = state === 'running' ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/30'
-    : state === 'report_only' ? 'bg-[#f59e0b]/10 text-[#f59e0b] border-[#f59e0b]/30'
-    : state === 'paused' ? 'bg-[#8b8b90]/10 text-[#8b8b90] border-[#8b8b90]/30'
-    : 'bg-[#ef4444]/10 text-[#ef4444] border-[#ef4444]/30'
+  const cls = state === 'running' ? 'bg-success/10 text-success border-success/30'
+    : state === 'report_only' ? 'bg-amber/10 text-amber border-amber/30'
+    : state === 'paused' ? 'bg-muted-icon/10 text-muted-icon border-muted-icon/30'
+    : 'bg-danger/10 text-danger border-danger/30'
   return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${cls}`}>{state}</span>
 }
 
@@ -397,10 +397,10 @@ function BranchLanes({ branches }: { branches: Record<string, BranchProjection> 
           <div
             key={branch.branchId}
             className={`rounded-lg border px-3 py-2 ${
-              branch.status === 'running' ? 'border-[#3b82f6]/40 bg-[#3b82f6]/5' :
-              branch.status === 'completed' ? 'border-[#22c55e]/40 bg-[#22c55e]/5' :
-              branch.status === 'failed' ? 'border-[#ef4444]/40 bg-[#ef4444]/5' :
-              branch.status === 'aborted' ? 'border-[#f59e0b]/40 bg-[#f59e0b]/5' :
+              branch.status === 'running' ? 'border-info/40 bg-info/5' :
+              branch.status === 'completed' ? 'border-success/40 bg-success/5' :
+              branch.status === 'failed' ? 'border-danger/40 bg-danger/5' :
+              branch.status === 'aborted' ? 'border-amber/40 bg-amber/5' :
               'border-border-custom bg-bg-input'
             }`}
           >
@@ -420,12 +420,12 @@ function BranchLanes({ branches }: { branches: Record<string, BranchProjection> 
             {/* Late result / fail_fast markers */}
             <div className="flex gap-2 mt-1">
               {branch.lateResult && (
-                <span className="text-[9px] text-[#f59e0b]" title={t('execution.lateResult')}>
+                <span className="text-[9px] text-amber" title={t('execution.lateResult')}>
                   ◆ {t('execution.lateResult')}
                 </span>
               )}
               {branch.failFastCancelled && (
-                <span className="text-[9px] text-[#ef4444]" title={t('execution.failFast')}>
+                <span className="text-[9px] text-danger" title={t('execution.failFast')}>
                   ✕ {t('execution.failFast')}
                 </span>
               )}
@@ -448,10 +448,10 @@ function BranchLanes({ branches }: { branches: Record<string, BranchProjection> 
 }
 
 function BranchStatusDot({ status }: { status: BranchStatus }) {
-  const cls = status === 'running' || status === 'suspended' ? 'bg-[#3b82f6] animate-pulse'
-    : status === 'completed' ? 'bg-[#22c55e]'
-    : status === 'failed' ? 'bg-[#ef4444]'
-    : status === 'aborted' ? 'bg-[#f59e0b]'
+  const cls = status === 'running' || status === 'suspended' ? 'bg-info animate-pulse'
+    : status === 'completed' ? 'bg-success'
+    : status === 'failed' ? 'bg-danger'
+    : status === 'aborted' ? 'bg-amber'
     : 'bg-gray-500'
   return <span className={`w-2 h-2 rounded-full ${cls} shrink-0`} />
 }
@@ -466,10 +466,10 @@ function BranchStatusBadge({ status }: { status: BranchStatus }) {
     failed: t('execution.branch.failed'),
     aborted: t('execution.branch.aborted')
   }
-  const cls = status === 'running' || status === 'suspended' ? 'text-[#3b82f6]'
-    : status === 'completed' ? 'text-[#22c55e]'
-    : status === 'failed' ? 'text-[#ef4444]'
-    : status === 'aborted' ? 'text-[#f59e0b]'
+  const cls = status === 'running' || status === 'suspended' ? 'text-info'
+    : status === 'completed' ? 'text-success'
+    : status === 'failed' ? 'text-danger'
+    : status === 'aborted' ? 'text-amber'
     : 'text-text-muted'
   return <span className={`text-[10px] font-medium ${cls}`}>{map[status]}</span>
 }
@@ -495,14 +495,14 @@ function RoiPanel({ roi }: { roi: RoiSnapshot }) {
   return (
     <div className="group relative">
       {/* —— 收起态窄条（始终可见）—— */}
-      <div className="flex items-center gap-3 rounded-lg border border-border-subtle bg-bg-surface px-3 h-7 cursor-default transition-colors group-hover:border-[#3b82f6]/30">
+      <div className="flex items-center gap-3 rounded-lg border border-border-subtle bg-bg-surface px-3 h-7 cursor-default transition-colors group-hover:border-info/30">
         <span className="text-[10px] font-medium text-text-muted uppercase tracking-wide shrink-0">{t('execution.roi')}</span>
         {/* 关键数字横排 */}
         <div className="flex items-center gap-3 text-[10px] font-mono">
           <span className="text-text-muted">{t('execution.cost')} <span className="text-text-primary">{fmtNum(roi.incurredCost)}</span></span>
           <span className="text-text-muted">{t('execution.value')} <span className="text-text-primary">{fmtNum(roi.businessValue)}</span></span>
           {roi.roiRatio != null && (
-            <span className={roiRatio >= 1 ? 'text-[#22c55e]' : 'text-[#ef4444]'}>
+            <span className={roiRatio >= 1 ? 'text-success' : 'text-danger'}>
               ROI {roiRatio.toFixed(2)}
             </span>
           )}
@@ -571,7 +571,7 @@ function RoiPanel({ roi }: { roi: RoiSnapshot }) {
  */
 function RoiMiniBar({ ratio }: { ratio: number }) {
   const pct = Math.min(100, Math.max(0, ratio * 50)) // ratio=2.0 → 100%, ratio=1.0 → 50%, ratio=0 → 0%
-  const color = ratio >= 1 ? 'bg-[#22c55e]' : 'bg-[#ef4444]'
+  const color = ratio >= 1 ? 'bg-success' : 'bg-danger'
   return (
     <div className="flex-1 h-1 rounded-full bg-bg-hover overflow-hidden">
       <div className={`h-full ${color} transition-all`} style={{ width: `${pct}%` }} />
@@ -591,14 +591,14 @@ function EfficiencyBar({ logical, physical, suppressed }: { logical: number; phy
   return (
     <div>
       <div className="flex h-2 rounded-full overflow-hidden bg-bg-hover">
-        <div className="bg-[#22c55e]" style={{ width: `${logicalPct}%` }} title={`Logical: ${logical}`} />
-        {suppressedPct > 0 && <div className="bg-[#f59e0b]" style={{ width: `${suppressedPct}%` }} title={`Suppressed: ${suppressed}`} />}
-        {wastePct > 0 && <div className="bg-[#ef4444]/40" style={{ width: `${wastePct}%` }} title={`Waste: ${physical - logical - suppressed}`} />}
+        <div className="bg-success" style={{ width: `${logicalPct}%` }} title={`Logical: ${logical}`} />
+        {suppressedPct > 0 && <div className="bg-amber" style={{ width: `${suppressedPct}%` }} title={`Suppressed: ${suppressed}`} />}
+        {wastePct > 0 && <div className="bg-danger/40" style={{ width: `${wastePct}%` }} title={`Waste: ${physical - logical - suppressed}`} />}
       </div>
       <div className="flex gap-3 mt-1 text-[9px] text-text-muted">
-        <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#22c55e]" />{logical}</span>
+        <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-success" />{logical}</span>
         <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-bg-hover border border-border-custom" />{physical}</span>
-        {suppressed > 0 && <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b]" />{suppressed}</span>}
+        {suppressed > 0 && <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber" />{suppressed}</span>}
       </div>
     </div>
   )
@@ -618,11 +618,11 @@ function BranchRoiRow({ branchId, snap, maxCost }: { branchId: string; snap: Bra
         <span className="font-mono text-text-secondary truncate w-24 shrink-0">{branchId}</span>
         {/* cost bar (red, left→right) + value bar (green, right→left, overlaid) */}
         <div className="flex-1 h-1.5 rounded-full bg-bg-hover overflow-hidden relative">
-          <div className="absolute inset-y-0 left-0 bg-[#ef4444]/40" style={{ width: `${costPct}%` }} />
-          <div className="absolute inset-y-0 left-0 bg-[#22c55e]/60" style={{ width: `${Math.min(costPct, valuePct)}%` }} />
+          <div className="absolute inset-y-0 left-0 bg-danger/40" style={{ width: `${costPct}%` }} />
+          <div className="absolute inset-y-0 left-0 bg-success/60" style={{ width: `${Math.min(costPct, valuePct)}%` }} />
         </div>
         {ratio != null && (
-          <span className={`font-mono shrink-0 ${ratio >= 1 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>{ratio.toFixed(2)}</span>
+          <span className={`font-mono shrink-0 ${ratio >= 1 ? 'text-success' : 'text-danger'}`}>{ratio.toFixed(2)}</span>
         )}
       </div>
       <div className="flex gap-3 text-[9px] text-text-muted pl-[6.5rem]">
@@ -642,8 +642,8 @@ function RoiMetric({
   value: string
   highlight?: 'positive' | 'negative'
 }) {
-  const cls = highlight === 'positive' ? 'text-[#22c55e]'
-    : highlight === 'negative' ? 'text-[#ef4444]'
+  const cls = highlight === 'positive' ? 'text-success'
+    : highlight === 'negative' ? 'text-danger'
     : 'text-text-primary'
   return (
     <div className="rounded-md bg-bg-input px-2 py-1.5">
@@ -713,17 +713,17 @@ function AgentDetailCard({ agent }: { agent: AgentExecutionView }) {
 // ============ 辅助组件 ============
 
 function StatusDot({ status, small }: { status: ExecutionStatus; small?: boolean }) {
-  const cls = status === 'running' ? 'bg-[#3b82f6] animate-pulse'
-    : status === 'completed' ? 'bg-[#22c55e]'
-    : status === 'failed' ? 'bg-[#ef4444]'
-    : status === 'aborted' ? 'bg-[#f59e0b]'
+  const cls = status === 'running' ? 'bg-info animate-pulse'
+    : status === 'completed' ? 'bg-success'
+    : status === 'failed' ? 'bg-danger'
+    : status === 'aborted' ? 'bg-amber'
     : 'bg-gray-500'
   const size = small ? 'w-1.5 h-1.5' : 'w-2 h-2'
   return <span className={`${size} rounded-full ${cls} shrink-0`} />
 }
 
 function HandoffStatusBadge({ status }: { status: ExecutionStatus }) {
-  const cls = status === 'completed' ? 'text-[#22c55e]' : status === 'failed' ? 'text-[#ef4444]' : 'text-text-muted'
+  const cls = status === 'completed' ? 'text-success' : status === 'failed' ? 'text-danger' : 'text-text-muted'
   return <span className={`text-[10px] ${cls}`}>{status}</span>
 }
 
@@ -740,7 +740,7 @@ function DownArrow({ label }: { label?: string }) {
 
 function ManagerIcon() {
   return (
-    <svg className="w-3.5 h-3.5 shrink-0 text-[#3b82f6]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className="w-3.5 h-3.5 shrink-0 text-info" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25h4.5M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25h-4.5m4.5 0h1.5m-1.5 0v-2.625a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H9.75v.75h.75v-.75zm0 0V9m0 0H9.75M10.5 9h.75" />
     </svg>
   )
@@ -748,7 +748,7 @@ function ManagerIcon() {
 
 function SpecialistIcon() {
   return (
-    <svg className="w-3.5 h-3.5 shrink-0 text-[#8b8b90]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className="w-3.5 h-3.5 shrink-0 text-muted-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-23.369A2.499 2.499 0 0015.75 6c0 .466.151.897.407 1.248m-5.108-3.369a2.499 2.499 0 00-3.357 3.357M6.75 12a4.5 4.5 0 118.881 1.052" />
     </svg>
   )

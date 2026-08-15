@@ -13,7 +13,7 @@ import { useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage, HumanInputPayload, ToolCall } from '../../lib/chatMessage'
-import { isInternalOnlyText, sanitizeAssistantText } from '../../lib/chatMessage'
+import { isInternalOnlyText, sanitizeAssistantText, isLikelyCorruptText } from '../../lib/chatMessage'
 import { CodeBlock } from '../CodeBlock'
 import { ToolActivitySummary, ToolCallRow } from './ToolActivitySummary'
 import { useAppStore } from '../../stores/app-store'
@@ -38,6 +38,10 @@ interface AssistantTurnProps {
   onRegenerate?: (assistantMessageId: string) => void
   /** branches 状态（并行分支投影）。 */
   branches?: Record<string, unknown>
+  /** 执行审批：批准被拦截的操作（confirm-before-change 模式）。 */
+  onApprove?: (opId: string, toolName: string) => void
+  /** 执行审批：拒绝被拦截的操作。 */
+  onReject?: (opId: string, toolName: string) => void
 }
 
 /**
@@ -68,6 +72,107 @@ function detectClarification(msg: ChatMessage): {
   }
 }
 
+// ── 执行审批（confirm-before-change 模式）───────────────────────────────
+//
+// 引擎 PermissionMiddleware 在 mutating 工具执行前中断 turn，ToolMessage
+// 内容携带 <approval_request id="..." tool="...">…</approval_request>。
+// 前端检测该标记渲染审批卡：批准 → onApprove（approvedOps 随下轮放行一次）；
+// 拒绝 → onReject（模型停止/改道）。
+// 引擎 PermissionMiddleware 把 <approval_request> 块写在 ToolMessage.content 里。
+// gateway 实时流的 tool_call_finished 只写 summary（截断到 500 字），历史加载才写
+// output；且 500 字截断可能砍掉 </approval_request> 闭合标签。因此：
+//   1) 检测同时查 output 与 summary；
+//   2) 正则以「闭合标签或字符串结尾」收尾，容忍截断（id/tool 总在开头，不受影响）。
+const APPROVAL_RE = /<approval_request id="([^"]+)" tool="([^"]+)">([\s\S]*?)(?:<\/approval_request>|$)/
+
+function detectApproval(msg: ChatMessage): {
+  opId: string
+  toolName: string
+  argsPreview: string
+} | null {
+  for (const call of msg.toolCalls ?? []) {
+    if (call.status !== 'completed') continue
+    const raw = call.output ?? call.summary ?? ''
+    if (!raw) continue
+    const m = APPROVAL_RE.exec(String(raw))
+    if (m) {
+      return {
+        opId: m[1],
+        toolName: m[2],
+        argsPreview: m[3].trim().slice(0, 1200)
+      }
+    }
+  }
+  return null
+}
+
+function ApprovalCard({
+  opId,
+  toolName,
+  argsPreview,
+  onApprove,
+  onReject
+}: {
+  opId: string
+  toolName: string
+  argsPreview: string
+  onApprove: (opId: string, toolName: string) => void
+  onReject: (opId: string, toolName: string) => void
+}) {
+  const { t } = useI18n()
+  return (
+    <div className="my-2 rounded-lg border border-info/40 bg-info/5 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-info">
+        <span aria-hidden>🛂</span>
+        <span>{t('approval.title')}</span>
+        <span className="ml-1 rounded bg-info/15 px-1.5 py-0.5 font-mono text-[10px]">{toolName}</span>
+      </div>
+      <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-black/25 p-2 font-mono text-[11px] text-text-secondary">
+        {argsPreview}
+      </pre>
+      <div className="mt-2 flex gap-2">
+        <button
+          onClick={() => onApprove(opId, toolName)}
+          className="rounded-md bg-info px-3 py-1.5 text-xs font-medium text-white hover:bg-[#2563eb] transition-colors"
+        >
+          {t('approval.approve')}
+        </button>
+        <button
+          onClick={() => onReject(opId, toolName)}
+          className="rounded-md border border-border-custom px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover transition-colors"
+        >
+          {t('approval.reject')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 兜底折叠：当一段正文被判定为已损坏（替换字符占比过高，通常是模型 echo 了
+ * 二进制 / 非文本文件内容）时，渲染此提示而非把乱码当 markdown 渲染。
+ * 提供 <details> 展开查看原始（已清洗）内容，兼顾兜底与可追溯。
+ */
+function CorruptTextNotice({ text }: { text: string }) {
+  const { t } = useI18n()
+  return (
+    <div className="my-1 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-400/90">
+      <div className="flex items-center gap-1.5">
+        <span aria-hidden>⚠️</span>
+        <span>{t('chat.corruptContent')}</span>
+      </div>
+      <details className="mt-1 text-text-muted">
+        <summary className="cursor-pointer select-none text-[11px] hover:text-text-secondary">
+          {t('chat.corruptShowRaw')}
+        </summary>
+        <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-black/20 p-2 font-mono text-[11px] text-text-muted">
+          {text.slice(0, 2000)}
+        </pre>
+      </details>
+    </div>
+  )
+}
+
 export function AssistantTurn({
   msg,
   isStreaming,
@@ -75,7 +180,9 @@ export function AssistantTurn({
   showReasoning = true,
   showToolCalls = true,
   onClarifyPick,
-  onRegenerate
+  onRegenerate,
+  onApprove,
+  onReject
 }: AssistantTurnProps) {
   const streaming = isStreaming ?? msg.status === 'streaming'
 
@@ -95,6 +202,9 @@ export function AssistantTurn({
     () => detectClarification(msg),
     [msg]
   )
+
+  // 执行审批检测（confirm-before-change 模式的 <approval_request> 拦截标记）
+  const approval = useMemo(() => detectApproval(msg), [msg])
   const visibleToolCalls = useMemo(
     () => msg.toolCalls?.filter((c) => c.name !== 'ask_clarification') ?? [],
     [msg.toolCalls]
@@ -193,7 +303,7 @@ export function AssistantTurn({
             有 segments 时分阶段渲染（正文段→工具卡片→正文段…）；
             无 segments（历史消息）回退到「聚合工具摘要 + 整段正文」。 */}
         {msg.segments && msg.segments.length > 0 ? (
-          <div className="space-y-3">
+          <div className="space-y-1.5 [&>div.turn-text]:!my-0.5">
             {msg.segments.map((seg, i) => {
               if (seg.type === 'text') {
                 const segText = sanitizeAssistantText(seg.text)
@@ -201,12 +311,16 @@ export function AssistantTurn({
                 const isLast = i === msg.segments!.length - 1
                 return (
                   <div key={`t-${i}`} className="turn-text markdown-body">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                      {segText}
-                    </ReactMarkdown>
+                    {isLikelyCorruptText(segText) ? (
+                      <CorruptTextNotice text={segText} />
+                    ) : (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                        {segText}
+                      </ReactMarkdown>
+                    )}
                     {streaming && isLast && (
                       <span className="inline-block ml-1 align-middle" aria-hidden="true">
-                        <span className="inline-block w-1.5 h-3 bg-[#3b82f6] animate-pulse" />
+                        <span className="inline-block w-1.5 h-3 bg-info animate-pulse" />
                       </span>
                     )}
                   </div>
@@ -222,7 +336,7 @@ export function AssistantTurn({
             {showToolCalls && (
               <ToolActivitySummary calls={visibleToolCalls} streaming={streaming} />
             )}
-            {hasInteractiveClarification && clarifyPayload && onClarifyPick ? (
+            {hasInteractiveClarification && !approval && clarifyPayload && onClarifyPick ? (
               <ClarificationCard
                 payload={clarifyPayload}
                 onPick={(text) => onClarifyPick(text, clarifyPayload.question)}
@@ -230,12 +344,16 @@ export function AssistantTurn({
             ) : (
               displayText && (
                 <div className="turn-text markdown-body">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                    {displayText}
-                  </ReactMarkdown>
+                  {isLikelyCorruptText(displayText) ? (
+                    <CorruptTextNotice text={displayText} />
+                  ) : (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                      {displayText}
+                    </ReactMarkdown>
+                  )}
                   {streaming && (
                     <span className="inline-block ml-1 align-middle" aria-hidden="true">
-                      <span className="inline-block w-1.5 h-3 bg-[#3b82f6] animate-pulse" />
+                      <span className="inline-block w-1.5 h-3 bg-info animate-pulse" />
                     </span>
                   )}
                 </div>
@@ -245,7 +363,7 @@ export function AssistantTurn({
         )}
 
         {/* 交错模式下澄清卡片置于内容之后 */}
-        {msg.segments && msg.segments.length > 0 && hasInteractiveClarification && clarifyPayload && onClarifyPick && (
+        {msg.segments && msg.segments.length > 0 && hasInteractiveClarification && !approval && clarifyPayload && onClarifyPick && (
           <ClarificationCard
             payload={clarifyPayload}
             onPick={(text) => onClarifyPick(text, clarifyPayload.question)}
@@ -254,6 +372,17 @@ export function AssistantTurn({
 
         {/* 产出文件 */}
         <ArtifactBar msg={msg} />
+
+        {/* 执行审批卡（confirm-before-change：引擎拦截 mutating 工具并暂停 turn） */}
+        {!streaming && approval && onApprove && onReject && (
+          <ApprovalCard
+            opId={approval.opId}
+            toolName={approval.toolName}
+            argsPreview={approval.argsPreview}
+            onApprove={onApprove}
+            onReject={onReject}
+          />
+        )}
 
         {/* 交付结果（turn 完成且有文件变更时收尾）：✓已完成 + 统计 + 复制/提交 + 文件清单 */}
         {!streaming && msg.fileChanges && msg.fileChanges.files.length > 0 && (

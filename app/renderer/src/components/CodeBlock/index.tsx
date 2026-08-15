@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { highlight } from '../../lib/highlighter'
+import { stripUnprintable } from '../../lib/chatMessage'
+import { useI18n } from '../../i18n'
 
 interface CodeBlockProps {
   language: string
@@ -7,25 +9,30 @@ interface CodeBlockProps {
 }
 
 export function CodeBlock({ language, code }: CodeBlockProps) {
+  const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   const [html, setHtml] = useState<string | null>(null)
+
+  // 产品层兜底：剥离控制字符 / 非打印字符，避免二进制或编码内容破坏代码块
+  // 布局、行号对齐或 Shiki 高亮（模型 echo 非文本文件时常见）。
+  const safeCode = useMemo(() => stripUnprintable(code), [code])
 
   // 异步高亮：完成前 / 失败时回退纯文本，不闪烁不崩溃
   useEffect(() => {
     let cancelled = false
     setHtml(null)
-    highlight(code, language).then((result) => {
+    highlight(safeCode, language).then((result) => {
       if (!cancelled && result) setHtml(result)
     })
     return () => {
       cancelled = true
     }
-  }, [code, language])
+  }, [safeCode, language])
 
-  const lineCount = useMemo(() => code.split('\n').length, [code])
+  const lineCount = useMemo(() => safeCode.split('\n').length, [safeCode])
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(code)
+    await navigator.clipboard.writeText(safeCode)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -39,14 +46,14 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
           onClick={handleCopy}
           className="rounded px-2 py-1 text-xs text-text-muted transition-colors hover:bg-bg-active hover:text-text-secondary"
         >
-          {copied ? '已复制' : '复制'}
+          {copied ? t('code.copied') : t('code.copy')}
         </button>
       </div>
 
       {/* Code content：行号列 + 高亮代码 */}
       <div className="flex overflow-x-auto bg-bg-surface">
         {lineCount > 1 && (
-          <div className="shrink-0 select-none border-r border-[rgba(255,255,255,0.06)] bg-[rgba(0,0,0,0.15)] px-3 py-4 text-right font-mono text-[13px] leading-[1.7] text-text-muted/50">
+          <div className="shrink-0 select-none border-r border-border-subtle bg-[rgba(0,0,0,0.15)] px-3 py-4 text-right font-mono text-[13px] leading-[1.7] text-text-muted/50">
             {Array.from({ length: lineCount }, (_, i) => (
               <div key={i}>{i + 1}</div>
             ))}
@@ -60,7 +67,7 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
           />
         ) : (
           <pre className="flex-1 overflow-x-auto px-4 py-4 font-mono text-[13px] leading-[1.7]">
-            <code className="text-text-primary">{code}</code>
+            <code className="text-text-primary">{safeCode}</code>
           </pre>
         )}
       </div>

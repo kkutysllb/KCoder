@@ -244,7 +244,7 @@ function CommandCard({
                 {command.skillId}
               </span>
             ) : (
-              <span className="px-1.5 py-px rounded text-[10px] font-medium bg-[#3b82f6]/10 text-[#3b82f6] border border-[#3b82f6]/30">
+              <span className="px-1.5 py-px rounded text-[10px] font-medium bg-info/10 text-info border border-info/30">
                 .md
               </span>
             )}
@@ -279,7 +279,7 @@ function CommandCard({
             </button>
             <button
               onClick={onDelete}
-              className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
               title={t('settings.commands.delete')}
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -403,7 +403,7 @@ function CommandEditorModal({
           </div>
         </div>
 
-        {err && <p className="mt-3 text-xs text-[#ef4444]">{err}</p>}
+        {err && <p className="mt-3 text-xs text-danger">{err}</p>}
 
         <div className="mt-5 flex justify-end gap-3">
           <button

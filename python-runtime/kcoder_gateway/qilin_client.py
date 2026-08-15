@@ -180,6 +180,24 @@ class QiLinClient:
                 if chunk:
                     yield chunk
 
+    async def cancel_run(self, thread_id: str, run_id: str) -> bool:
+        """POST /threads/{id}/runs/{run_id}/cancel → 取消正在运行的 run.
+
+        用于 interrupt/steer：取消后 LangGraph 停止执行，stream 端会 emit
+        ``end``（或连接关闭）。run_id 由 sse.py 在 metadata 事件里捕获。
+        返回是否成功（404/409 视为已结束，不抛异常）。
+        """
+        if not run_id:
+            return False
+        try:
+            r = await self._client.post(
+                f"/threads/{thread_id}/runs/{run_id}/cancel"
+            )
+            return r.status_code in (200, 204)
+        except httpx.HTTPError as exc:
+            logger.warning("cancel_run failed: %s", exc)
+            return False
+
     async def get_thread_state(self, thread_id: str) -> dict[str, Any]:
         """GET /threads/{id}/state → thread 的完整 state（含 messages 历史）.
 

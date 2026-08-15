@@ -47,6 +47,8 @@ interface KcoderBridge {
   terminal: TerminalApi
   dialog: {
     openFolder: (options?: OpenDialogOptions) => Promise<string | null>
+    /** 在 Finder/资源管理器中显示路径（目录打开，文件定位高亮）。 */
+    showInFolder?: (targetPath: string) => Promise<void>
   }
   models: ModelsBridge
   /** Trigger config.yaml re-sync of sub_agents.json → custom_agents. */

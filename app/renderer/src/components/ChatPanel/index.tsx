@@ -9,7 +9,7 @@ import { getGeneralPref } from '../../lib/generalPrefs'
 import { StatusBar } from '../StatusBar'
 
 export function ChatPanel() {
-  const { messages_v2, isGenerating, sendMessage, editAndResend, regenerate, stopGeneration, steer } = useChat()
+  const { messages_v2, isGenerating, sendMessage, editAndResend, regenerate, stopGeneration, steer, executeQueuedNow, approveOperation, rejectOperation } = useChat()
   const feedRef = useRef<ChatFeedHandle>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const selectedModel = useAppStore((s) => s.selectedModel)
@@ -49,17 +49,19 @@ export function ChatPanel() {
     sendMessage(text)
   }, [sendMessage])
 
-  // queue 交互模式：用户在 turn 运行中输入的消息入队，turn 完成后自动发送
+  // queue 交互模式：用户在 turn 运行中输入的消息入队，turn 完成后自动发送。
+  // 插入「已排队」通知消息（queued 标记），前端渲染成带「立即执行」按钮的卡片。
   const handleQueue = useCallback((text: string) => {
     useAppStore.getState().enqueueMessage(text)
     useAppStore.getState().addChatMessage({
       id: crypto.randomUUID(),
       role: 'system',
       createdAt: Date.now(),
-      content: t('chat.queued'),
+      content: text,
+      queued: true,
       status: 'done'
     })
-  }, [t])
+  }, [])
 
   // 可编辑的 user message IDs：每条 user 消息后紧跟一个已完成（或不存在）
   // 的 assistant turn——只要下一条 assistant turn 不是 streaming 就允许编辑。
@@ -88,6 +90,9 @@ export function ChatPanel() {
         onEditResend={editAndResend}
         onRegenerate={regenerate}
         onClarifyPick={handleClarifyPick}
+        onApprove={approveOperation}
+        onReject={rejectOperation}
+        onExecuteQueued={executeQueuedNow}
         onAtBottomChange={setAtBottom}
         bottomInset={composerInset}
         emptySlot={<WelcomeScreen onSend={sendMessage} disabled={isGenerating} />}
@@ -129,6 +134,7 @@ export function ChatPanel() {
             onStop={stopGeneration}
             onSteer={steer}
             onQueue={handleQueue}
+            showDirBar={false}
           />
         </div>
       )}

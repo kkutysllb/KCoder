@@ -779,7 +779,7 @@ function AgentPresetCard({
         {/* Avatar */}
         <div className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center mt-0.5 transition-colors text-xs font-bold ${
           installed
-            ? 'bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e]'
+            ? 'bg-success/10 border border-success/30 text-success'
             : 'border border-[#52525b] bg-bg-hover text-text-muted'
         }`}>
           {preset.name.slice(0, 2).toUpperCase()}
@@ -796,7 +796,7 @@ function AgentPresetCard({
       <button
         onClick={onToggle}
         className={`relative rounded-full transition-colors duration-200 shrink-0 ${
-          installed ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'
+          installed ? 'bg-border-strong' : 'bg-bg-active'
         }`}
         style={{ width: 48, height: 28 }}
         title={installed ? t('settings.agents.disable') : t('settings.agents.enable')}

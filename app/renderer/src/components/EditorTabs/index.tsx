@@ -34,9 +34,9 @@ export function EditorTabs() {
                 : 'text-text-muted hover:bg-bg-hover hover:text-text-secondary'
             }`}
           >
-            {isActive && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#3b82f6]" />}
+            {isActive && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-info" />}
             <span className="max-w-[140px] truncate font-mono">{name}</span>
-            {dirty && <span className="text-[#f59e0b]">●</span>}
+            {dirty && <span className="text-amber">●</span>}
             <button
               onClick={(e) => {
                 e.stopPropagation()

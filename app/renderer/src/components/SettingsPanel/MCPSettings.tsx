@@ -482,19 +482,19 @@ function ServerCard({
             </span>
             {/* Status badge */}
             {server.status === 'plugin-disabled' && (
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#eab308]/10 text-[#eab308] border border-[#eab308]/30">
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-warning/10 text-warning border border-warning/30">
                 {t('settings.mcp.status.pluginDisabled')}
               </span>
             )}
             {server.status === 'connected' && server.enabled && (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#22c55e]/10 text-[#22c55e] border border-[#22c55e]/30">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e]" />
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-success/10 text-success border border-success/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-success" />
                 {t('settings.mcp.status.connected')}
               </span>
             )}
             {server.status === 'error' && (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#ef4444]/10 text-[#ef4444] border border-[#ef4444]/30">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444]" />
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-danger/10 text-danger border border-danger/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-danger" />
                 {t('settings.mcp.status.error')}
               </span>
             )}
@@ -516,7 +516,7 @@ function ServerCard({
             )}
           </div>
           {server.lastError && (
-            <p className="text-[11px] text-[#ef4444] mt-1 truncate">{server.lastError}</p>
+            <p className="text-[11px] text-danger mt-1 truncate">{server.lastError}</p>
           )}
         </div>
 
@@ -529,7 +529,7 @@ function ServerCard({
               {/* Enable/disable toggle */}
               <button
                 onClick={onToggle}
-                className={`relative rounded-full transition-colors duration-200 ${server.enabled ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'}`}
+                className={`relative rounded-full transition-colors duration-200 ${server.enabled ? 'bg-border-strong' : 'bg-bg-active'}`}
                 style={{ width: 48, height: 28 }}
                 title={server.enabled ? t('settings.mcp.disable') : t('settings.mcp.enable')}
               >
@@ -549,7 +549,7 @@ function ServerCard({
               </button>
               <button
                 onClick={onDelete}
-                className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
                 title={t('settings.mcp.delete')}
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -763,7 +763,7 @@ function ServerEditorModal({
           </div>
         </div>
 
-        {err && <p className="mt-3 text-xs text-[#ef4444]">{err}</p>}
+        {err && <p className="mt-3 text-xs text-danger">{err}</p>}
 
         <div className="mt-5 flex justify-end gap-3">
           <button

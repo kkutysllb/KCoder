@@ -17,6 +17,7 @@ import {
 } from 'react'
 import type { ChatMessage } from '../../lib/chatMessage'
 import { useAppStore } from '../../stores/app-store'
+import { useI18n } from '../../i18n'
 import { UserBubble } from './UserBubble'
 import { AssistantTurn } from './AssistantTurn'
 
@@ -43,6 +44,12 @@ interface ChatFeedProps {
   onAtBottomChange?: (atBottom: boolean) => void
   /** ask_clarification 选项被选中时回调。 */
   onClarifyPick?: (text: string, question?: string) => void
+  /** 执行审批：批准被拦截的操作（confirm-before-change 模式）。 */
+  onApprove?: (opId: string, toolName: string) => void
+  /** 执行审批：拒绝被拦截的操作。 */
+  onReject?: (opId: string, toolName: string) => void
+  /** queue 模式下「立即执行」：出队最早一条并引导（打断当前 turn + 重发）。 */
+  onExecuteQueued?: () => void
   /** 重新生成指定 assistant 回复（截断到其前一条 user 消息并重发）。 */
   onRegenerate?: (assistantMessageId: string) => void
   /** 可编辑的 user message IDs（由父级根据已完成 assistant turn 计算）。 */
@@ -63,6 +70,27 @@ interface ChatFeedProps {
 /** 距底部多少像素内算"贴底"（小于此阈值时启用流式跟随）。 */
 const STICK_THRESHOLD_PX = 80
 
+/** queue 模式下「已排队」通知卡片：显示原文 + 「立即执行」按钮（引导最早一条）。 */
+function QueuedNoticeCard({ content, onExecute }: { content: string; onExecute?: () => void }) {
+  const { t } = useI18n()
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-border-custom bg-bg-surface/50 px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="text-[11px] font-medium text-amber-400/90">{t('chat.queued')}</div>
+        <div className="mt-0.5 truncate text-xs text-text-secondary" title={content}>{content}</div>
+      </div>
+      {onExecute && (
+        <button
+          onClick={onExecute}
+          className="shrink-0 rounded-md bg-info px-3 py-1 text-xs font-medium text-white hover:bg-[#2563eb] transition-colors"
+        >
+          {t('chat.executeNow')}
+        </button>
+      )}
+    </div>
+  )
+}
+
 export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
   function ChatFeed({
     streamingId,
@@ -73,6 +101,9 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
     emptySlot,
     onAtBottomChange,
     onClarifyPick,
+    onApprove,
+    onReject,
+    onExecuteQueued,
     onRegenerate,
     editableUserMessageIds,
     editDisabled = false,
@@ -175,6 +206,8 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
                 editDisabled={editDisabled}
                 onEditResend={onEditResend}
               />
+            ) : m.queued ? (
+              <QueuedNoticeCard key={m.id} content={m.content ?? ''} onExecute={onExecuteQueued} />
             ) : (
               <AssistantTurn
                 key={m.id}
@@ -186,6 +219,8 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
                 onClarifyPick={onClarifyPick}
                 onRegenerate={onRegenerate}
                 branches={branches}
+                onApprove={onApprove}
+                onReject={onReject}
               />
             )
           )}

@@ -45,6 +45,7 @@ from .sse import (
 )
 from .qilin_client import QiLinClient
 from .projects_routes import ensure_project
+from . import thread_log
 
 logger = logging.getLogger("kcoder_gateway.threads")
 
@@ -71,6 +72,16 @@ class StartTurnRequest(BaseModel):
     subagent_enabled: bool = False
     # 推理深度：auto / off / low / medium / high（auto 不传，让 QiLin 用默认）
     reasoning_mode: str | None = None
+    # 计划模式：启用 QiLin TodoMiddleware（write_todos 工具）——InfoPanel
+    # 「进度」段依赖它产生 todos 数据。默认 True（编码任务均受益）。
+    is_plan_mode: bool = True
+    # 执行权限模式（KCoder 运行权限）：plan-mode / auto-edit / full-access /
+    # confirm-before-change。引擎 PermissionMiddleware 在每个 mutating 工具
+    # 执行前按模式拦截。默认 auto-edit（编辑放行 + 危险命令拒绝）。
+    permission_mode: str | None = None
+    # 已批准操作 id 列表（confirm-before-change 模式审批通过后由前端带回），
+    # 命中 (tool,args) 稳定 hash 的工具调用放行一次。
+    approved_ops: list[str] | None = None
 
 
 # ────────────────────────────────────────────────────────────────
@@ -194,6 +205,21 @@ async def create_thread(req: CreateThreadRequest, request: Request) -> dict[str,
             )
 
     thread = await client.create_thread(metadata=metadata)
+
+    # 同步落一份元数据到 KCoder 自有 thread-log：langgraph dev 多实例/重启
+    # 会清空其存储（线程列表直接消失 → 侧边栏全空）。list_threads 会用
+    # 日志合并回这些线程，点开后走 get_thread 的日志回退读消息。
+    thread_log.save_thread_meta(
+        thread.get("thread_id", ""),
+        {
+            "title": metadata["title"],
+            "workspace": metadata["workspace"],
+            "model": metadata.get("model"),
+            "mode": metadata.get("mode"),
+            "workModeId": metadata["workModeId"],
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+        },
+    )
     return _to_thread_response(thread)
 
 
@@ -216,10 +242,41 @@ async def list_threads(request: Request, limit: int = 200, include_archived: boo
     try:
         threads = await client.search_threads(limit=limit)
     except Exception as exc:
-        logger.exception("Failed to search threads")
-        raise HTTPException(status_code=502, detail=f"Upstream error: {exc}") from exc
+        # langgraph 不可达：不直接 502——thread-log 合并仍能给出已知线程
+        #（侧边栏在引擎重启间隙保持可用）。
+        logger.warning("Failed to search threads, falling back to thread_log: %s", exc)
+        threads = []
 
     summaries = [_to_thread_summary(t) for t in threads]
+
+    # 合并 KCoder 自有 thread-log 里的线程（langgraph 存储被清空时补回）：
+    # langgraph 列表缺失的线程，用日志元数据 + 首条 prompt 合成 ThreadSummary。
+    try:
+        seen_ids = {s.get("id") for s in summaries}
+        for entry in thread_log.list_logged_threads():
+            tid = entry.get("threadId") or ""
+            if not tid or tid in seen_ids:
+                continue
+            meta = entry.get("meta") or {}
+            first_turn_at = meta.get("createdAt") or entry.get("savedAt") or ""
+            summaries.append(
+                {
+                    "id": tid,
+                    "title": meta.get("title")
+                    or (str(entry.get("prompt") or "")[:40] or "New Chat"),
+                    "workspace": meta.get("workspace", ""),
+                    "model": meta.get("model"),
+                    "mode": meta.get("mode"),
+                    "workModeId": meta.get("workModeId", "coding"),
+                    "status": "idle",
+                    "createdAt": first_turn_at,
+                    "updatedAt": entry.get("savedAt") or first_turn_at,
+                    "archived": bool(meta.get("archived", False)),
+                }
+            )
+    except Exception:
+        logger.warning("thread_log merge in list_threads failed", exc_info=True)
+
     if not include_archived:
         summaries = [s for s in summaries if not s.get("archived")]
     return {"threads": summaries}
@@ -232,12 +289,28 @@ async def list_threads(request: Request, limit: int = 200, include_archived: boo
 
 @router.delete("/threads/{thread_id}")
 async def delete_thread(thread_id: str, request: Request) -> dict[str, Any]:
-    """删除 thread. renderer 期望返回 {deleted: bool}."""
+    """删除 thread. renderer 期望返回 {deleted: bool}.
+
+    langgraph dev 的 checkpoint 在多实例/重启下会丢——thread 可能只在本地
+    thread-log（兜底）里、LangGraph state 已 404。因此：
+      1. 先删本地 thread-log；
+      2. 再删 LangGraph（best-effort，404 视为已删、不再视为失败）。
+    只要本地日志已删，即返回 deleted:true，避免「列表可见却删不掉」。
+    """
     client = _get_client(request)
 
-    ok = await client.delete_thread(thread_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail=f"Thread not found: {thread_id}")
+    # 1. 删除本地兜底日志（幂等）
+    thread_log.delete_thread(thread_id)
+
+    # 2. 删除 LangGraph thread（best-effort；404 说明 state 已丢，不算失败）
+    try:
+        await client.delete_thread(thread_id)
+    except Exception:
+        logger.warning(
+            "delete_thread: LangGraph delete failed for %s (non-fatal)", thread_id,
+            exc_info=True,
+        )
+
     return {"deleted": True}
 
 
@@ -404,6 +477,9 @@ async def start_turn(
             subagent_enabled=req.subagent_enabled,
             reasoning_mode=req.reasoning_mode,
             workspace_path=workspace_path,
+            is_plan_mode=req.is_plan_mode,
+            permission_mode=req.permission_mode,
+            approved_ops=req.approved_ops,
         )
     )
 
@@ -476,22 +552,32 @@ async def get_thread(thread_id: str, request: Request) -> dict[str, Any]:
     """
     client = _get_client(request)
 
+    thread: dict[str, Any] = {}
+    state: dict[str, Any] = {}
     try:
         thread = await client.get_thread(thread_id)
         state = await client.get_thread_state(thread_id)
     except Exception as exc:
-        logger.exception("Failed to get thread %s", thread_id)
-        raise HTTPException(status_code=502, detail=f"Upstream error: {exc}") from exc
+        # langgraph 不可达/线程丢失：不 502——落到下方 thread-log 回退，
+        # 用日志元数据 + 已落盘 turns 兜底（引擎重启间隙历史仍可看）。
+        logger.warning("get_thread upstream miss for %s, using thread_log: %s", thread_id, exc)
+
+    if not thread:
+        # 用日志元数据合成 thread 基本结构（列表/标题/workspace 归属）
+        logged = thread_log.load_thread(thread_id)
+        meta = (logged or {}).get("meta") or {}
+        if not meta:
+            raise HTTPException(status_code=404, detail="thread not found")
+        thread = {
+            "thread_id": thread_id,
+            "created_at": meta.get("createdAt"),
+            "updated_at": meta.get("savedAt"),
+            "metadata": meta,
+        }
 
     # 从 state 提取消息列表。兼容不同 langgraph-api 版本的 state 响应结构：
     # 多数版本 {"values": {...}}，部分用 {"channel_values": {...}}，极少数直接是 values。
-    values = {}
-    if isinstance(state, dict):
-        values = state.get("values")
-        if not isinstance(values, dict):
-            values = state.get("channel_values")
-        if not isinstance(values, dict):
-            values = state  # 兜底：state 本身即 values
+    values = thread_log.extract_state_values(state)
     messages = values.get("messages", []) if isinstance(values, dict) else []
 
     # 将 LangChain messages 翻译成 KCoder item 结构
@@ -510,7 +596,20 @@ async def get_thread(thread_id: str, request: Request) -> dict[str, Any]:
     )
 
     base = _to_thread_response(thread)
-    base["turns"] = [{"id": "turn-0", "items": items}] if items else []
+    turns: list[dict[str, Any]] = [{"id": "turn-0", "items": items}] if items else []
+    if not turns:
+        # 兜底：langgraph dev 重启后 state 可能读不出（values 空）→ 回退到
+        # 网关自有的 thread-log（sse.py 每个 turn 结束时落盘）。
+        logged = thread_log.log_turns(thread_id)
+        if logged:
+            turns = [
+                {"id": t.get("id") or f"turn-{i}", "items": t.get("items") or []}
+                for i, t in enumerate(logged)
+            ]
+            logger.info(
+                "get_thread %s: state empty, thread_log fallback turns=%d", thread_id, len(turns)
+            )
+    base["turns"] = turns
     return base
 
 
@@ -616,25 +715,57 @@ def _extract_text(content: Any) -> str:
 
 
 @router.post("/threads/{thread_id}/turns/{turn_id}/steer")
-async def steer_turn(thread_id: str, turn_id: str) -> dict[str, Any]:
-    """POST /v1/threads/:id/turns/:turnId/steer → stub no-op.
+async def steer_turn(thread_id: str, turn_id: str, request: Request) -> dict[str, Any]:
+    """POST /v1/threads/:id/turns/:turnId/steer → 方案 A「打断重发」的打断半边。
 
-    renderer 的 steerTurn 期望 void（只检查 response.ok）。QiLin 的
-    LangGraph stream 尚不支持 mid-run 指令注入，后续阶段再实现。
+    前端 steer 流程：先调 stopGeneration（→ interruptTurn，即本端点打断当前
+    run），再以 steer 文本 sendMessage 发起新 turn。因此本端点只负责中断当前
+    run；真正的新 turn 由前端随后发起（复用 sendMessage 的订阅通道）。
     """
-    logger.info("steer stub: thread=%s turn=%s (no-op)", thread_id, turn_id)
-    return {"ok": True}
+    logger.info("steer: interrupt current run (方案 A) thread=%s turn=%s", thread_id, turn_id)
+    return await interrupt_turn(thread_id, turn_id, request)
 
 
 @router.post("/threads/{thread_id}/turns/{turn_id}/interrupt")
-async def interrupt_turn(thread_id: str, turn_id: str) -> dict[str, Any]:
-    """POST /v1/threads/:id/turns/:turnId/interrupt → stub ack.
+async def interrupt_turn(thread_id: str, turn_id: str, request: Request) -> dict[str, Any]:
+    """POST /v1/threads/:id/turns/:turnId/interrupt → 真实中断。
 
-    renderer 的 interruptTurn 期望返回 { status: string }。我们返回
-    ``interrupted`` — 后台 SSE stream 会在 task 完成或 renderer 停止
-    读取后自然关闭。完整的 cancel + discard 逻辑留待后续阶段。
+    流程：
+      1. 先向 event_queue 推 turn_aborted + None 哨兵（前端据此正常收尾，
+         不会把流关闭误判为「掉线重连」）。
+      2. 取消后台消费任务（其 finally 会再推 None + registry.remove，幂等）。
+      3. 取消 LangGraph run（若 run_id 已从 metadata 事件捕获）。
+      4. 立即从 registry 移除，避免残留占用同 thread 的下一个新 turn。
     """
-    logger.info("interrupt stub: thread=%s turn=%s", thread_id, turn_id)
+    registry = _get_registry(request)
+    run = registry.get(thread_id)
+
+    if run is None or run.turn_id != turn_id:
+        # 无活跃 run（或已结束/已被替换）——幂等 ack，前端 stopGeneration 只关心 ok
+        logger.info("interrupt: no active run for thread=%s turn=%s", thread_id, turn_id)
+        return {"status": "interrupted"}
+
+    try:
+        run.event_queue.put_nowait(
+            {"kind": "turn_aborted", "turnId": turn_id, "threadId": thread_id}
+        )
+        # None 哨兵让 sse_event_generator 停止（与 consume 任务的 finally 语义一致）
+        run.event_queue.put_nowait(None)
+    except Exception:  # pragma: no cover - queue 满等极端情况
+        logger.warning("interrupt: failed to push abort events", exc_info=True)
+
+    if run.task and not run.task.done():
+        run.task.cancel()
+
+    if run.run_id:
+        client = _get_client(request)
+        await client.cancel_run(thread_id, run.run_id)
+
+    registry.remove(thread_id)
+    logger.info(
+        "interrupt: cancelled thread=%s turn=%s run=%s",
+        thread_id, turn_id, run.run_id,
+    )
     return {"status": "interrupted"}
 
 
@@ -731,4 +862,136 @@ async def get_thread_changes(
     return {
         "threadId": thread_id,
         "changes": workspace_tracker.history(thread_id),
+    }
+
+
+# ────────────────────────────────────────────────────────────────
+# Thread Goal / Todos — InfoPanel「计划 / 进度」段的数据源
+# ────────────────────────────────────────────────────────────────
+
+
+def _extract_state_values(state: dict[str, Any]) -> dict[str, Any]:
+    """从 LangGraph thread state 提取 values（委托 thread_log 的共享实现）。"""
+    return thread_log.extract_state_values(state)
+
+
+def _first_human_text(values: dict[str, Any]) -> str:
+    """提取 thread 中第一条用户消息文本（作为 goal objective 的兜底来源）。"""
+    for msg in values.get("messages") or []:
+        if not isinstance(msg, dict):
+            continue
+        if msg.get("type") == "human" or msg.get("role") == "user":
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                # 剥掉附件注入块，只留用户原始指令
+                text = content.split("<user_attachments>")[0].strip()
+                if text:
+                    return text[:2000]
+    return ""
+
+
+@router.get("/threads/{thread_id}/goal")
+async def get_thread_goal(thread_id: str, request: Request) -> dict[str, Any]:
+    """GET /v1/threads/:id/goal — thread goal（InfoPanel「计划」段）。
+
+    objective 优先取最后一条用户消息（当前任务目标），兜底第一条；
+    无任何用户消息时返回 404（前端显示「暂无目标」）。
+    """
+    client = _get_client(request)
+    try:
+        state = await client.get_thread_state(thread_id)
+    except Exception:
+        logger.debug("goal: get_thread_state failed for %s", thread_id, exc_info=True)
+        raise HTTPException(status_code=404, detail="thread state not available")
+
+    values = _extract_state_values(state)
+    objective = ""
+    # 最后一条用户消息 = 当前正在执行的任务目标
+    humans = [
+        m for m in (values.get("messages") or [])
+        if isinstance(m, dict) and (m.get("type") == "human" or m.get("role") == "user")
+    ]
+    if humans:
+        content = humans[-1].get("content")
+        if isinstance(content, str) and content.strip():
+            objective = content.split("<user_attachments>")[0].strip()[:2000]
+    if not objective:
+        objective = _first_human_text(values)
+    if not objective:
+        # state 读不出（dev 重启丢 checkpoint 等）→ 回退 thread-log：
+        # 优先最新 goal_updated 落盘值，其次最新 turn 的 prompt。
+        logged_goal = thread_log.latest_goal(thread_id)
+        if logged_goal and logged_goal.get("objective"):
+            return logged_goal
+        for turn in reversed(thread_log.log_turns(thread_id)):
+            if turn.get("prompt"):
+                return {
+                    "threadId": thread_id,
+                    "objective": str(turn["prompt"]).split("<user_attachments>")[0][:2000],
+                    "status": "active",
+                    "tokensUsed": 0,
+                    "timeUsedSeconds": 0,
+                    "createdAt": turn.get("savedAt") or datetime.now(timezone.utc).isoformat(),
+                    "updatedAt": turn.get("savedAt") or datetime.now(timezone.utc).isoformat(),
+                }
+        raise HTTPException(status_code=404, detail="no goal yet")
+
+    now = datetime.now(timezone.utc).isoformat()
+    return {
+        "threadId": thread_id,
+        "objective": objective,
+        "status": "active",
+        "tokensUsed": 0,
+        "timeUsedSeconds": 0,
+        "createdAt": now,
+        "updatedAt": now,
+    }
+
+
+@router.get("/threads/{thread_id}/todos")
+async def get_thread_todos(thread_id: str, request: Request) -> dict[str, Any]:
+    """GET /v1/threads/:id/todos — thread todos（InfoPanel「进度」段）。
+
+    数据来自 QiLin TodoMiddleware 写入的 graph state ``todos`` 通道
+    （write_todos 工具整体替换语义，reducer 保留最后非 None 值）。
+    无 todos（未启用计划模式 / 未产生待办）返回 404。
+    """
+    client = _get_client(request)
+    try:
+        state = await client.get_thread_state(thread_id)
+    except Exception:
+        logger.debug("todos: get_thread_state failed for %s", thread_id, exc_info=True)
+        raise HTTPException(status_code=404, detail="thread state not available")
+
+    values = _extract_state_values(state)
+    raw_todos = values.get("todos")
+    if not isinstance(raw_todos, list) or not raw_todos:
+        # state 读不出（dev 重启丢 checkpoint 等）→ 回退 thread-log：
+        # 最新一次 todos_updated 的落盘值。
+        logged = thread_log.latest_todos(thread_id)
+        if logged and logged.get("items"):
+            return logged
+        raise HTTPException(status_code=404, detail="no todos")
+
+    now = datetime.now(timezone.utc).isoformat()
+    items = []
+    for idx, td in enumerate(raw_todos):
+        if not isinstance(td, dict):
+            continue
+        status = td.get("status") or "pending"
+        if status not in ("pending", "in_progress", "completed"):
+            status = "pending"
+        items.append(
+            {
+                "id": str(td.get("id") or f"todo-{idx}"),
+                "content": str(td.get("content") or ""),
+                "status": status,
+                "createdAt": now,
+                "updatedAt": now,
+            }
+        )
+    return {
+        "threadId": thread_id,
+        "items": items,
+        "updatedAt": now,
     }

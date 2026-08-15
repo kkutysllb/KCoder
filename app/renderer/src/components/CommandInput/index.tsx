@@ -1,18 +1,20 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useI18n } from '../../i18n'
 import { useAppStore } from '../../stores/app-store'
-import { getEngineAPI, type ModelEntry, type BranchListResponse } from '../../services/engine-api'
+import { getEngineAPI, type ModelEntry, type BranchListResponse, type ProjectEntry } from '../../services/engine-api'
 import { getGeneralPref } from '../../lib/generalPrefs'
 
 // Agent permission modes - maps to engine approvalPolicy/sandboxMode.
 // NOTE: confirm-before-change / plan-mode 依赖后端审批中断（QiLin interrupts），
-// 当前引擎未发射 approval 事件，这两个模式暂不可用（标记 enabled:false）。
-// 真实人机协作走 ask_clarification → ClarificationCard（已可用）。审批中断
-// 打通后把对应 enabled 改回 true。
+// 四种执行权限模式（引擎 PermissionMiddleware 按 configurable.permission_mode 拦截）。
+// 全部启用：plan-mode=只读分析 / auto-edit=默认（编辑放行+危险命令拒绝）/
+// confirm-before-change=变更前审批（Command 中断 + 前端审批卡）/
+// full-access=完全放行。
 const PERMISSION_MODES = [
-  { id: 'confirm-before-change', labelKey: 'perm.confirmBeforeChange', descKey: 'perm.confirmBeforeChange.desc', enabled: false },
+  { id: 'plan-mode', labelKey: 'perm.planMode', descKey: 'perm.planMode.desc', enabled: true },
   { id: 'auto-edit', labelKey: 'perm.autoEdit', descKey: 'perm.autoEdit.desc', enabled: true },
-  { id: 'plan-mode', labelKey: 'perm.planMode', descKey: 'perm.planMode.desc', enabled: false },
+  { id: 'confirm-before-change', labelKey: 'perm.confirmBeforeChange', descKey: 'perm.confirmBeforeChange.desc', enabled: true },
   { id: 'full-access', labelKey: 'perm.fullAccess', descKey: 'perm.fullAccess.desc', enabled: true },
 ] as const
 
@@ -48,6 +50,60 @@ function PermIcon({ id, className }: { id: PermissionMode; className?: string })
   }
 }
 
+/**
+ * 菜单 Portal：渲染到 document.body + fixed 定位。
+ * 输入卡片祖先链上有 overflow-hidden（新任务页圆角裁剪）和
+ * backdrop-filter（会变成 fixed 的 containing block），菜单用
+ * absolute 定位会被裁掉/错位——Portal 从根上绕开。
+ */
+function MenuPortal({
+  anchorRef,
+  open,
+  align = 'left',
+  width,
+  children,
+}: {
+  anchorRef: React.RefObject<HTMLElement | null>
+  open: boolean
+  align?: 'left' | 'right'
+  width: number
+  children: React.ReactNode
+}) {
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const compute = () => {
+      const el = anchorRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const left =
+        align === 'right' ? Math.max(8, r.right - width) : Math.max(8, Math.min(r.left, window.innerWidth - width - 8))
+      // 菜单整体位于 anchor 上方（等价原 bottom-full + mb-2），
+      // 具体由 translateY(-100%) 完成，top 取 anchor 顶 - 8px。
+      setPos({ left, top: Math.max(8, r.top - 8) })
+    }
+    compute()
+    window.addEventListener('resize', compute)
+    window.addEventListener('scroll', compute, true)
+    return () => {
+      window.removeEventListener('resize', compute)
+      window.removeEventListener('scroll', compute, true)
+    }
+  }, [open, anchorRef, align, width])
+
+  if (!open || !pos) return null
+  return createPortal(
+    <div
+      className="k-menu-portal fixed z-[9999] rounded-xl bg-bg-hover border border-border-strong shadow-2xl py-1.5 max-h-72 overflow-y-auto"
+      style={{ left: pos.left, top: pos.top, width, transform: 'translateY(-100%)' }}
+    >
+      {children}
+    </div>,
+    document.body
+  )
+}
+
 /** 目录/分支选择器（输入框上方窄条） */
 function DirectoryBranchBar() {
   const { t } = useI18n()
@@ -56,21 +112,22 @@ function DirectoryBranchBar() {
     workspacePath, setWorkspacePath,
     selectedBranch, setSelectedBranch,
     selectedModel, setSelectedModel,
-    pendingNewBranch, setPendingNewBranch
+    pendingNewBranch, setPendingNewBranch,
+    clearMessages, setPanelOpen
   } = useAppStore()
 
   const [models, setModels] = useState<ModelEntry[]>([])
   const [branches, setBranches] = useState<BranchListResponse | null>(null)
   const [isGitRepo, setIsGitRepo] = useState(false)
   const [loadingDir, setLoadingDir] = useState(false)
+  const [projects, setProjects] = useState<ProjectEntry[]>([])
 
+  const [showDirMenu, setShowDirMenu] = useState(false)
   const [showBranchMenu, setShowBranchMenu] = useState(false)
   const [showModelMenu, setShowModelMenu] = useState(false)
-  const [showNewBranchInput, setShowNewBranchInput] = useState(false)
-  const [newBranchValue, setNewBranchValue] = useState('')
+  const dirMenuRef = useRef<HTMLDivElement>(null)
   const branchMenuRef = useRef<HTMLDivElement>(null)
   const modelMenuRef = useRef<HTMLDivElement>(null)
-  const newBranchRef = useRef<HTMLInputElement>(null)
 
   // 加载模型列表（连接后）
   useEffect(() => {
@@ -118,23 +175,64 @@ function DirectoryBranchBar() {
     }
   }, [enginePort, setSelectedBranch, setPendingNewBranch])
 
+  // 打开目录下拉菜单时加载已注册项目（最近使用的目录）
+  useEffect(() => {
+    if (!showDirMenu || engineStatus !== 'connected') return
+    getEngineAPI(enginePort)
+      .listProjects()
+      .then((res) => setProjects(res.projects))
+      .catch((e) => console.error('[CommandInput] Failed to load projects:', e))
+  }, [showDirMenu, enginePort, engineStatus])
+
+  // 切换到指定项目（下拉菜单选中项）。与 handleBrowse 同语义：
+  // 切换 = 开新会话（thread 的 workspace 创建时绑定，不可改）。
+  // path 为空串 = 「无项目」普通对话（thread 不绑定 workspace）。
+  const handlePickProject = useCallback(async (path: string) => {
+    setShowDirMenu(false)
+    const next = path || null
+    if (next === workspacePath) return
+    clearMessages()
+    setPanelOpen(false)
+    setWorkspacePath(next)
+    if (next) await loadDirectoryInfo(next)
+    else {
+      // 无项目：清掉分支态（分支 chip 随 workspacePath 消失）
+      setBranches(null)
+      setIsGitRepo(false)
+      setSelectedBranch(null)
+      setPendingNewBranch(null)
+    }
+  }, [workspacePath, clearMessages, setPanelOpen, setWorkspacePath, loadDirectoryInfo, setBranches, setIsGitRepo, setSelectedBranch, setPendingNewBranch])
+
   // 打开文件夹选择器
   const handleBrowse = useCallback(async () => {
+    setShowDirMenu(false)
     const picked = await window.kcoder?.dialog?.openFolder()
     if (!picked) return
+    // 切换到不同项目 = 开启新会话。thread 的 workspace 在创建时绑定（PATCH 不
+    // 允许修改），且旧线程携带旧项目的完整对话历史；若沿用旧 threadId，新消息
+    // 会发进旧线程，agent 将基于旧 workspace + 旧历史作答（表现为"答非所问"）。
+    if (picked !== workspacePath) {
+      clearMessages() // 重置 messages_v2 / threadId / 分支草稿等会话态
+      setPanelOpen(false) // 新会话从干净布局开始；下一条编码消息会自动重开面板
+    }
     setWorkspacePath(picked)
-    setShowNewBranchInput(false)
-    setNewBranchValue('')
     await loadDirectoryInfo(picked)
-  }, [setWorkspacePath, loadDirectoryInfo])
+  }, [workspacePath, clearMessages, setPanelOpen, setWorkspacePath, loadDirectoryInfo])
 
-  // 关闭菜单（点击外部）
+  // 关闭菜单（点击外部）。菜单内容渲染在 body 下的 Portal 里（绕开输入卡片
+  // 的 overflow 裁剪），因此除了 anchor 容器，还要放行 Portal 内部的点击。
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (branchMenuRef.current && !branchMenuRef.current.contains(e.target as Node)) {
+      const target = e.target as HTMLElement
+      if (target.closest('.k-menu-portal')) return
+      if (dirMenuRef.current && !dirMenuRef.current.contains(target)) {
+        setShowDirMenu(false)
+      }
+      if (branchMenuRef.current && !branchMenuRef.current.contains(target)) {
         setShowBranchMenu(false)
       }
-      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(target)) {
         setShowModelMenu(false)
       }
     }
@@ -142,45 +240,140 @@ function DirectoryBranchBar() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  // 新建分支输入框聚焦
-  useEffect(() => {
-    if (showNewBranchInput) newBranchRef.current?.focus()
-  }, [showNewBranchInput])
+  // 分支搜索/创建（菜单内输入框）：过滤列表；输入不存在的分支名 → 创建项
+  const [branchSearch, setBranchSearch] = useState('')
+  const branchSearchRef = useRef<HTMLInputElement>(null)
 
-  const confirmNewBranch = useCallback(() => {
-    const name = newBranchValue.trim()
-    if (!name) {
-      setShowNewBranchInput(false)
-      return
+  // 菜单打开时聚焦搜索框并清空上次搜索
+  useEffect(() => {
+    if (showBranchMenu) {
+      setBranchSearch('')
+      // Portal 渲染在 body 下，等一帧再聚焦
+      requestAnimationFrame(() => branchSearchRef.current?.focus())
     }
+  }, [showBranchMenu])
+
+  /** 搜索关键字精确匹配的分支不存在 → 以此名创建（发首条消息时 checkout -b）。 */
+  const createBranchFromSearch = useCallback(() => {
+    const name = branchSearch.trim()
+    if (!name) return
     setPendingNewBranch(name)
     setSelectedBranch(name)
-    setShowNewBranchInput(false)
     setShowBranchMenu(false)
-  }, [newBranchValue, setPendingNewBranch, setSelectedBranch])
+  }, [branchSearch, setPendingNewBranch, setSelectedBranch])
 
   const branchLabel = pendingNewBranch
     ? `${pendingNewBranch}+`
     : (selectedBranch || (isGitRepo ? t('newtask.branch.createExisting') : '—'))
 
+  // 搜索过滤后的分支列表（大小写不敏感子串匹配）
+  const filteredBranches = useMemo(() => {
+    const all = branches?.branches ?? []
+    const q = branchSearch.trim().toLowerCase()
+    if (!q) return all
+    return all.filter((b) => b.toLowerCase().includes(q))
+  }, [branches, branchSearch])
+
   return (
     <div className="composer-dirbar">
-      {/* 项目目录选择器 */}
-      <button
-        className="composer-chip"
-        onClick={handleBrowse}
-        title={workspacePath || t('newtask.directory.placeholder')}
-      >
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-        </svg>
-        <span className="max-w-[140px] truncate">
-          {workspacePath ? workspacePath.split('/').pop() : t('newtask.directory')}
-        </span>
-        <svg className="w-3 h-3 caret" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+      {/* 项目目录选择器：点击弹下拉（最近项目 + 选择目录），不再直接弹系统选择器 */}
+      <div className="relative" ref={dirMenuRef}>
+        <button
+          className="composer-chip"
+          onClick={() => setShowDirMenu((v) => !v)}
+          title={workspacePath || t('newtask.directory.placeholder')}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+          </svg>
+          <span className="max-w-[140px] truncate">
+            {workspacePath ? workspacePath.split('/').pop() : t('newtask.directory')}
+          </span>
+          <svg className="w-3 h-3 caret" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        <MenuPortal anchorRef={dirMenuRef} open={showDirMenu} width={288}>
+            {/* 分组标题：项目 */}
+            <div className="px-4 pt-1.5 pb-1 text-[11px] text-muted-icon">{t('sidebar.project')}</div>
+            {projects.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => handlePickProject(p.path)}
+                className={`w-full flex items-center gap-2 px-4 py-2 text-left text-[13px] transition-colors ${
+                  p.path === workspacePath ? 'bg-bg-active text-text-primary' : 'text-text-secondary hover:bg-bg-hover'
+                }`}
+              >
+                <svg className="w-3.5 h-3.5 shrink-0 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                </svg>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{p.name}</span>
+                  <span className="block truncate text-[10px] text-text-muted">{p.path}</span>
+                </span>
+                {p.path === workspacePath && (
+                  <svg className="w-4 h-4 shrink-0 text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+            ))}
+            {projects.length === 0 && (
+              <div className="px-4 py-2 text-xs text-text-muted">{t('newtask.directory.noProjects')}</div>
+            )}
+            {/* 无项目：普通对话（thread 不绑定 workspace，不进项目分组） */}
+            <button
+              onClick={() => handlePickProject('')}
+              className={`w-full flex items-center gap-2 px-4 py-2 text-left text-[13px] transition-colors ${
+                !workspacePath ? 'bg-bg-active text-text-primary' : 'text-text-secondary hover:bg-bg-hover'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5 shrink-0 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{t('newtask.directory.noProject')}</span>
+                <span className="block truncate text-[10px] text-text-muted">{t('newtask.directory.noProjectDesc')}</span>
+              </span>
+              {!workspacePath && (
+                <svg className="w-4 h-4 shrink-0 text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </button>
+            {/* 选择目录（系统文件夹选择器） */}
+            <div className="my-1 border-t border-border-strong" />
+            <button
+              onClick={() => {
+                setShowDirMenu(false)
+                handleBrowse()
+              }}
+              className="w-full flex items-center gap-2 px-4 py-2 text-left text-[13px] text-text-secondary hover:bg-bg-hover transition-colors"
+            >
+              <svg className="w-3.5 h-3.5 shrink-0 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+              </svg>
+              <span>{t('newtask.directory.pick')}</span>
+            </button>
+            {/* 在 Finder 中显示当前目录（需已选目录） */}
+            {workspacePath && (
+              <button
+                onClick={() => {
+                  setShowDirMenu(false)
+                  window.kcoder?.dialog?.showInFolder?.(workspacePath)
+                }}
+                className="w-full flex items-center gap-2 px-4 py-2 text-left text-[13px] text-text-secondary hover:bg-bg-hover transition-colors"
+              >
+                <svg className="w-3.5 h-3.5 shrink-0 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 12l2 2 4-4" />
+                </svg>
+                <span>{t('newtask.directory.reveal')}</span>
+              </button>
+            )}
+        </MenuPortal>
+      </div>
 
       {/* 仓库分支选择器 */}
       {workspacePath && (
@@ -199,28 +392,74 @@ function DirectoryBranchBar() {
             </svg>
           </button>
 
-          {showBranchMenu && (
-            <div className="absolute bottom-full left-0 mb-2 w-56 rounded-xl bg-[#2a2a2e] border border-[#3a3a3e] shadow-2xl py-1.5 z-50 max-h-64 overflow-y-auto">
+          <MenuPortal anchorRef={branchMenuRef} open={showBranchMenu} width={256}>
+              {/* 搜索 / 创建分支 */}
+              <div className="px-2.5 pt-1.5 pb-1 sticky top-0 bg-bg-hover">
+                <input
+                  ref={branchSearchRef}
+                  type="text"
+                  value={branchSearch}
+                  onChange={(e) => setBranchSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    e.stopPropagation()
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      // 回车：列表有匹配 → 切换第一个；无精确匹配 → 创建
+                      if (filteredBranches.length > 0 && filteredBranches.some((b) => b === branchSearch.trim())) {
+                        setSelectedBranch(branchSearch.trim())
+                        setPendingNewBranch(null)
+                        setShowBranchMenu(false)
+                      } else if (branchSearch.trim()) {
+                        createBranchFromSearch()
+                      } else if (filteredBranches.length > 0) {
+                        // 空搜索回车：保持当前分支
+                        setShowBranchMenu(false)
+                      }
+                    }
+                    if (e.key === 'Escape') setShowBranchMenu(false)
+                  }}
+                  placeholder={t('newtask.branch.searchOrCreate')}
+                  className="w-full bg-bg-surface border border-border-strong focus:border-[#4a4a4e] text-text-primary placeholder-text-muted rounded-md px-2.5 py-1.5 text-xs outline-none transition-colors"
+                />
+              </div>
+
               {!isGitRepo && branches === null && (
                 <div className="px-4 py-2 text-xs text-text-muted">{t('newtask.branch.none')}</div>
               )}
-              {branches?.branches.map((b) => (
+              {isGitRepo && filteredBranches.length === 0 && branchSearch.trim() && (
+                <div className="px-4 py-1.5 text-xs text-text-muted">{t('newtask.branch.noMatch')}</div>
+              )}
+              {filteredBranches.map((b) => (
                 <button
                   key={b}
-                  onClick={() => {
-                    setSelectedBranch(b)
-                    setPendingNewBranch(null)
-                    setShowBranchMenu(false)
+                  onClick={async () => {
+                    // 检出已有分支（真实 git checkout）。脏工作区会被网关 409 拒绝，
+                    // 错误信息直接提示用户先提交/撤销。
+                    if (!workspacePath || b === branches?.current) {
+                      setSelectedBranch(b)
+                      setPendingNewBranch(null)
+                      setShowBranchMenu(false)
+                      return
+                    }
+                    try {
+                      await getEngineAPI(enginePort).checkoutBranch(workspacePath, b)
+                      setSelectedBranch(b)
+                      setPendingNewBranch(null)
+                      setShowBranchMenu(false)
+                      await loadDirectoryInfo(workspacePath)
+                    } catch (e) {
+                      alert(`${t('newtask.branch.switchFailed')}: ${e instanceof Error ? e.message : e}`)
+                    }
                   }}
                   className={`w-full flex items-center gap-2 px-4 py-2 text-left text-[13px] transition-colors ${
-                    selectedBranch === b && !pendingNewBranch ? 'bg-[#333338] text-text-primary' : 'text-[#c0c0c5] hover:bg-[#303034]'
+                    selectedBranch === b && !pendingNewBranch ? 'bg-bg-active text-text-primary' : 'text-text-secondary hover:bg-bg-hover'
                   }`}
                 >
                   <svg className="w-3.5 h-3.5 shrink-0 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 3v12m0 0l-3-3m3 3l3-3" />
                   </svg>
                   <span className="truncate flex-1">{b}</span>
-                  {b === branches.current && <span className="text-[10px] text-[#8a8a8f]">HEAD</span>}
+                  {b === branches?.current && <span className="text-[10px] text-muted-icon">HEAD</span>}
                   {selectedBranch === b && !pendingNewBranch && (
                     <svg className="w-4 h-4 shrink-0 text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -228,50 +467,24 @@ function DirectoryBranchBar() {
                   )}
                 </button>
               ))}
-              {/* 新建分支 */}
-              <div className="my-1 border-t border-[#3a3a3e]" />
-              {showNewBranchInput ? (
-                <div className="px-3 py-2 space-y-2">
-                  <input
-                    ref={newBranchRef}
-                    type="text"
-                    value={newBranchValue}
-                    onChange={(e) => setNewBranchValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') { e.preventDefault(); confirmNewBranch() }
-                      if (e.key === 'Escape') { setShowNewBranchInput(false); setNewBranchValue('') }
-                    }}
-                    placeholder={t('newtask.branch.placeholder')}
-                    className="w-full bg-bg-input text-text-primary placeholder-text-muted rounded-md px-2 py-1.5 text-xs outline-none"
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={confirmNewBranch}
-                      className="flex-1 px-2 py-1 rounded-md bg-white text-black text-xs font-medium hover:bg-gray-200"
-                    >
-                      {t('common.confirm')}
-                    </button>
-                    <button
-                      onClick={() => { setShowNewBranchInput(false); setNewBranchValue('') }}
-                      className="px-2 py-1 rounded-md text-text-secondary hover:bg-[#303034] text-xs"
-                    >
-                      {t('newtask.cancel')}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowNewBranchInput(true)}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-left text-[13px] text-[#c0c0c5] hover:bg-[#303034] transition-colors"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
-                  </svg>
-                  <span>{t('newtask.branch.new')}</span>
-                </button>
+              {/* 搜索词不是已有分支 → 创建项（发首条消息时 checkout -b） */}
+              {branchSearch.trim() && !filteredBranches.some((b) => b === branchSearch.trim()) && (
+                <>
+                  <div className="my-1 border-t border-border-strong" />
+                  <button
+                    onClick={createBranchFromSearch}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-left text-[13px] text-info hover:bg-bg-hover transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span className="truncate">
+                      {t('newtask.branch.create')} <span className="font-mono">"{branchSearch.trim()}"</span>
+                    </span>
+                  </button>
+                </>
               )}
-            </div>
-          )}
+          </MenuPortal>
         </div>
       )}
     </div>
@@ -289,8 +502,12 @@ interface CommandInputProps {
   onSteer?: (text: string) => void
   /** Queue a message for after the current turn finishes (queue mode). */
   onQueue?: (text: string) => void
-  permission?: PermissionMode
-  onPermissionChange?: (mode: PermissionMode) => void
+  /**
+   * 是否显示顶部「目录 + 分支」窄条（任务创建参数）。默认 true（新任务页）。
+   * 历史任务传 false：thread 的 workspace/分支创建时已绑定，任务中途展示
+   * 选择器暗示可切换，概念混乱且易误触（切换 = 开新会话）。
+   */
+  showDirBar?: boolean
 }
 
 export function CommandInput({
@@ -300,8 +517,7 @@ export function CommandInput({
   onStop,
   onSteer,
   onQueue,
-  permission = 'full-access',
-  onPermissionChange
+  showDirBar = true
 }: CommandInputProps) {
   const [input, setInput] = useState('')
   const [showPermMenu, setShowPermMenu] = useState(false)
@@ -392,10 +608,12 @@ export function CommandInput({
     })
   }, [input, mention.start])
 
-  // Close permission menu on outside click
+  // Close permission menu on outside click（Portal 内容放行，见 DirectoryBranchBar 注释）
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (permMenuRef.current && !permMenuRef.current.contains(e.target as Node)) {
+      const target = e.target as HTMLElement
+      if (target.closest('.k-menu-portal')) return
+      if (permMenuRef.current && !permMenuRef.current.contains(target)) {
         setShowPermMenu(false)
       }
     }
@@ -403,12 +621,16 @@ export function CommandInput({
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const currentPerm = PERMISSION_MODES.find((p) => p.id === permission) ?? PERMISSION_MODES[3]
+  // 执行权限：store 单源（新任务页/任务页共用，sendMessage 透传给引擎）
+  const permission = useAppStore((s) => s.permissionMode)
+  const setPermissionMode = useAppStore((s) => s.setPermissionMode)
+
+  const currentPerm = PERMISSION_MODES.find((p) => p.id === permission) ?? PERMISSION_MODES[1]
 
   const handlePermSelect = useCallback((id: PermissionMode) => {
-    onPermissionChange?.(id)
+    setPermissionMode(id)
     setShowPermMenu(false)
-  }, [onPermissionChange])
+  }, [setPermissionMode])
 
   // Auto-focus on mount
   useEffect(() => {
@@ -552,8 +774,8 @@ export function CommandInput({
   return (
     <div className="flex flex-col gap-1 w-full">
     <div className="composer-card">
-      {/* Top row: project directory + branch selectors（窄条） */}
-      <DirectoryBranchBar />
+      {/* Top row: project directory + branch selectors（窄条，仅新任务页） */}
+      {showDirBar && <DirectoryBranchBar />}
 
         {/* Pending attachments preview */}
         {pendingFiles.length > 0 && (
@@ -566,7 +788,7 @@ export function CommandInput({
                 <span className="truncate max-w-32">{f.name}</span>
                 <button
                   onClick={() => setPendingFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                  className="text-text-muted hover:text-[#ef4444] transition-colors shrink-0"
+                  className="text-text-muted hover:text-danger transition-colors shrink-0"
                 >
                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -581,12 +803,12 @@ export function CommandInput({
         {mentionedFiles.length > 0 && (
           <div className="px-4 pt-2 flex flex-wrap gap-1.5">
             {mentionedFiles.map((f, i) => (
-              <span key={i} className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#3b82f6]/10 text-[11px] text-[#60a5fa] border border-[#3b82f6]/30">
-                <span className="text-[#60a5fa]">@</span>
+              <span key={i} className="flex items-center gap-1 px-2 py-1 rounded-md bg-info/10 text-[11px] text-info border border-info/30">
+                <span className="text-info">@</span>
                 <span className="truncate max-w-40 font-mono">{f}</span>
                 <button
                   onClick={() => setMentionedFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                  className="text-[#60a5fa]/60 hover:text-[#ef4444] transition-colors shrink-0"
+                  className="text-info/60 hover:text-danger transition-colors shrink-0"
                 >
                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -621,17 +843,16 @@ export function CommandInput({
             placeholder={isGenerating ? t('chat.steer.placeholder') : t('input.placeholder')}
             disabled={disabled && !isGenerating}
             rows={1}
-            className={`command-input resize-none ${isGenerating ? 'placeholder-[#60a5fa]' : ''}`}
+            className={`command-input resize-none ${isGenerating ? 'placeholder-info' : ''}`}
           />
-          {/* @-mention 文件选择器 */}
-          {mention.active && mentionResults.length > 0 && (
-            <div className="absolute bottom-full left-4 mb-1 max-h-[260px] w-[320px] overflow-y-auto rounded-lg border border-[#3a3a3e] bg-[#1d1d21] shadow-2xl py-1 z-50">
+          {/* @-mention 文件选择器（Portal 渲染，避免被输入卡片 overflow 裁剪） */}
+          <MenuPortal anchorRef={textareaRef} open={mention.active && mentionResults.length > 0} width={320}>
               {mentionResults.map((f, i) => (
                 <button
                   key={f}
                   onMouseEnter={() => setMentionIdx(i)}
                   onClick={() => insertMention(f)}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${i === mentionIdx ? 'bg-[#2e2e34] text-text-primary' : 'text-text-secondary'}`}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${i === mentionIdx ? 'bg-bg-active text-text-primary' : 'text-text-secondary'}`}
                 >
                   <svg className="w-3 h-3 shrink-0 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -639,8 +860,7 @@ export function CommandInput({
                   <span className="truncate font-mono">{f}</span>
                 </button>
               ))}
-            </div>
-          )}
+          </MenuPortal>
         </div>
 
         {/* Bottom toolbar: actions + model selector + send */}
@@ -689,8 +909,7 @@ export function CommandInput({
               </button>
 
               {/* Permission mode dropdown menu */}
-              {showPermMenu && (
-                <div className="absolute bottom-full left-0 mb-2 w-[240px] rounded-xl bg-[#2a2a2e] border border-[#3a3a3e] shadow-2xl py-1.5 z-50">
+              <MenuPortal anchorRef={permMenuRef} open={showPermMenu} width={240}>
                   {PERMISSION_MODES.map((mode) => {
                     const disabled = !mode.enabled
                     return (
@@ -702,8 +921,8 @@ export function CommandInput({
                         disabled
                           ? 'opacity-40 cursor-not-allowed'
                           : permission === mode.id
-                            ? 'bg-[#333338]'
-                            : 'hover:bg-[#303034]'
+                            ? 'bg-bg-active'
+                            : 'hover:bg-bg-hover'
                       }`}
                     >
                       <PermIcon id={mode.id} className="w-5 h-5 shrink-0 text-text-primary" />
@@ -711,10 +930,10 @@ export function CommandInput({
                         <span className="block text-[13px] font-medium text-text-primary leading-tight">
                           {t(mode.labelKey)}
                           {disabled && (
-                            <span className="ml-1.5 align-middle text-[10px] font-normal text-[#8b8b90] border border-[#4a4a4e] rounded px-1 py-px">{t('perm.comingSoon')}</span>
+                            <span className="ml-1.5 align-middle text-[10px] font-normal text-muted-icon border border-[#4a4a4e] rounded px-1 py-px">{t('perm.comingSoon')}</span>
                           )}
                         </span>
-                        <span className="block text-xs text-[#8b8b90] mt-0.5 leading-tight">{t(mode.descKey)}</span>
+                        <span className="block text-xs text-muted-icon mt-0.5 leading-tight">{t(mode.descKey)}</span>
                       </span>
                       {permission === mode.id && !disabled && (
                         <svg className="w-4 h-4 shrink-0 text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -724,8 +943,7 @@ export function CommandInput({
                     </button>
                     )
                   })}
-                </div>
-              )}
+              </MenuPortal>
             </div>
           </div>
 
@@ -749,8 +967,7 @@ export function CommandInput({
                 </svg>
               </button>
 
-              {showModelMenu && (
-                <div className="absolute bottom-full right-0 mb-2 w-56 rounded-xl bg-[#2a2a2e] border border-[#3a3a3e] shadow-2xl py-1.5 z-50 max-h-64 overflow-y-auto">
+              <MenuPortal anchorRef={modelMenuRef} open={showModelMenu} align="right" width={224}>
                   {models.length === 0 && (
                     <div className="px-4 py-2 text-xs text-text-muted">{t('newtask.model.none')}</div>
                   )}
@@ -759,11 +976,11 @@ export function CommandInput({
                       key={m.name}
                       onClick={() => { setSelectedModel(m.name); setShowModelMenu(false) }}
                       className={`w-full flex items-center gap-2 px-4 py-2 text-left text-[13px] transition-colors ${
-                        selectedModel === m.name ? 'bg-[#333338] text-text-primary' : 'text-[#c0c0c5] hover:bg-[#303034]'
+                        selectedModel === m.name ? 'bg-bg-active text-text-primary' : 'text-text-secondary hover:bg-bg-hover'
                       }`}
                     >
                       <span className="truncate flex-1">{m.display_name || m.name}</span>
-                      {m.active && <span className="text-[#10b981] text-xs">★</span>}
+                      {m.active && <span className="text-teal text-xs">★</span>}
                       {selectedModel === m.name && (
                         <svg className="w-4 h-4 shrink-0 text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -771,8 +988,7 @@ export function CommandInput({
                       )}
                     </button>
                   ))}
-                </div>
-              )}
+              </MenuPortal>
             </div>
 
             {/* Send / Stop button */}
@@ -887,7 +1103,7 @@ function RoiMiniStrip() {
         {/* 运行中脉冲指示灯 */}
         <span
           className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-            isGenerating ? 'bg-[#22c55e] animate-pulse' : 'bg-text-muted/40'
+            isGenerating ? 'bg-success animate-pulse' : 'bg-text-muted/40'
           }`}
         />
         {/* 摘要数字 */}
@@ -899,8 +1115,8 @@ function RoiMiniStrip() {
         </div>
         {/* 微型 token 比例条 */}
         <div className="flex-1 h-1 rounded-full bg-bg-hover overflow-hidden flex">
-          <div className="bg-[#3b82f6]/60" style={{ width: `${promptPct}%` }} title={`Prompt: ${formatTokens(sessionUsage.promptTokens)}`} />
-          <div className="bg-[#22c55e]/60" style={{ width: `${completionPct}%` }} title={`Completion: ${formatTokens(sessionUsage.completionTokens)}`} />
+          <div className="bg-info/60" style={{ width: `${promptPct}%` }} title={`Prompt: ${formatTokens(sessionUsage.promptTokens)}`} />
+          <div className="bg-success/60" style={{ width: `${completionPct}%` }} title={`Completion: ${formatTokens(sessionUsage.completionTokens)}`} />
         </div>
         {/* hover 展开箭头（向上） */}
         <svg className="w-2.5 h-2.5 text-text-muted transition-transform group-hover:-rotate-180 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -916,11 +1132,11 @@ function RoiMiniStrip() {
           <div className="space-y-1">
             <div className="flex justify-between text-[11px]">
               <span className="text-text-muted">{t('roi.prompt')}</span>
-              <span className="font-mono text-[#3b82f6]">↓{formatTokens(sessionUsage.promptTokens)}</span>
+              <span className="font-mono text-info">↓{formatTokens(sessionUsage.promptTokens)}</span>
             </div>
             <div className="flex justify-between text-[11px]">
               <span className="text-text-muted">{t('roi.completion')}</span>
-              <span className="font-mono text-[#22c55e]">↑{formatTokens(sessionUsage.completionTokens)}</span>
+              <span className="font-mono text-success">↑{formatTokens(sessionUsage.completionTokens)}</span>
             </div>
             <div className="flex justify-between text-[11px]">
               <span className="text-text-muted">{t('roi.avgPerRun')}</span>
@@ -964,22 +1180,22 @@ function RoiMiniStrip() {
           <div className="border-t border-border-subtle pt-2">
             <div className="flex items-center gap-2 h-1.5 rounded-full overflow-hidden bg-bg-hover">
               {completedTurns > 0 && (
-                <div className="bg-[#22c55e]/70" style={{ width: `${(completedTurns / sessionUsage.runs) * 100}%` }} title={`Done: ${completedTurns}`} />
+                <div className="bg-success/70" style={{ width: `${(completedTurns / sessionUsage.runs) * 100}%` }} title={`Done: ${completedTurns}`} />
               )}
               {failedTurns > 0 && (
-                <div className="bg-[#ef4444]/70" style={{ width: `${(failedTurns / sessionUsage.runs) * 100}%` }} title={`Error: ${failedTurns}`} />
+                <div className="bg-danger/70" style={{ width: `${(failedTurns / sessionUsage.runs) * 100}%` }} title={`Error: ${failedTurns}`} />
               )}
               {isGenerating && (
-                <div className="bg-[#3b82f6]/70 animate-pulse" style={{ width: '100%' }} title="Running" />
+                <div className="bg-info/70 animate-pulse" style={{ width: '100%' }} title="Running" />
               )}
             </div>
             <div className="flex gap-3 mt-1 text-[9px] text-text-muted">
-              <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#22c55e]/70" />{completedTurns}</span>
+              <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-success/70" />{completedTurns}</span>
               {failedTurns > 0 && (
-                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#ef4444]/70" />{failedTurns}</span>
+                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-danger/70" />{failedTurns}</span>
               )}
               {isGenerating && (
-                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#3b82f6]/70 animate-pulse" />1</span>
+                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-info/70 animate-pulse" />1</span>
               )}
             </div>
           </div>

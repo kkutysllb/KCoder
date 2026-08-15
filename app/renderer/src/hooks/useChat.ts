@@ -66,6 +66,13 @@ function notifyTurnCompletion(): void {
 export function useChat() {
   // sendMessage 的自引用 ref（queue 模式递归发送用，避免 useCallback 循环依赖）
   const sendMessageRef = useRef<((text: string, attachmentIds?: string[]) => Promise<void>) | null>(null)
+  // 已批准的操作 id（confirm-before-change 审批卡点「批准」后暂存，
+  // 随下一条消息（批准指令）发给网关一次性放行对应 (tool,args) 调用）
+  const approvedOpsRef = useRef<string[]>([])
+  // turn 序号：打断重发（steer / approve 重发）会并发存在多个 turn 的
+  // finally 清理逻辑，用单调递增序号保证只有「最新」turn 才执行收尾
+  // （setGenerating(false) / 通知 / 清批准 id），避免旧 turn 踩掉新 turn。
+  const turnSeqRef = useRef(0)
 
   const {
     enginePort,
@@ -325,7 +332,12 @@ export function useChat() {
   // Send a message
   const sendMessage = useCallback(
     async (content: string, attachmentIds?: string[]) => {
-      if (!content.trim() || isGenerating) return
+      // 读 store 的实时 isGenerating（而非闭包旧值）：steer/approve 在
+      // stopGeneration 后紧接着 sendMessage 时，闭包里的 isGenerating 还是 true。
+      if (!content.trim() || useAppStore.getState().isGenerating) return
+      // 递增 turn 序号：本 turn 的 finally 只在本序号仍是最新时才执行收尾。
+      turnSeqRef.current += 1
+      const seq = turnSeqRef.current
 
       const api = getEngineAPI(enginePort)
 
@@ -385,6 +397,8 @@ export function useChat() {
           })
           currentThreadId = thread.id
           setThreadId(currentThreadId)
+          // 新线程已创建 → 触发侧边栏历史列表刷新（否则新任务要到重启才出现）
+          useAppStore.getState().bumpThreadListVersion()
           // 编码任务（绑定 workspace）默认展开浮动面板；普通对话（无 workspace）收起
           useAppStore.getState().setPanelOpen(!!workspacePath)
         } catch (error) {
@@ -414,7 +428,12 @@ export function useChat() {
         // turn completes — this makes the stop button functional.
         const turnId = await api.sendMessage(currentThreadId, finalContent, (event: SSEEvent) => {
           handleSseEvent(assistantMessageId, event)
-        }, attachmentIds, useAppStore.getState().selectedModel ?? undefined, useAppStore.getState().reasoningMode || undefined)
+        }, attachmentIds, useAppStore.getState().selectedModel ?? undefined, useAppStore.getState().reasoningMode || undefined, {
+          // 执行权限模式（引擎 PermissionMiddleware 拦截）；审批通过的操作 id
+          // 随本轮放行（一次性）
+          permissionMode: useAppStore.getState().permissionMode,
+          approvedOps: approvedOpsRef.current.length > 0 ? [...approvedOpsRef.current] : undefined
+        })
 
         // 立即设置 activeTurnId — 停止按钮和 steer 依赖它
         useAppStore.getState().setActiveTurnId(turnId)
@@ -425,7 +444,16 @@ export function useChat() {
         console.error('Failed to send message:', error)
         turnUpdate(assistantMessageId, 'error', { message: '无法连接到引擎，请检查引擎状态后重试。' })
       } finally {
+        // 只有「最新」turn 才执行收尾：打断重发（steer/approve）会短暂并存
+        // 旧 turn（待 turn_aborted 收尾）与新 turn，旧 turn 的 finally 不得
+        // 清掉新 turn 的 isGenerating / 批准 id / 触发通知。
+        if (turnSeqRef.current !== seq) return
+
+        // 本轮已消费的批准 id 清空（一次性放行语义）
+        approvedOpsRef.current = []
         setGenerating(false)
+        // turn 完成 → 触发侧边栏刷新（更新标题 / updatedAt / 排序）
+        useAppStore.getState().bumpThreadListVersion()
         // 任务完成通知（窗口失焦时触发桌面通知 + 提示音）
         notifyTurnCompletion()
 
@@ -442,7 +470,7 @@ export function useChat() {
         }
       }
     },
-    [enginePort, threadId, isGenerating, addChatMessage, setThreadId, setGenerating, setEngineStatus, handleSseEvent]
+    [enginePort, threadId, addChatMessage, setThreadId, setGenerating, setEngineStatus, handleSseEvent]
   )
 
   // 加载历史会话
@@ -691,17 +719,22 @@ export function useChat() {
     setGenerating(false)
   }, [enginePort, setGenerating])
 
-  // 追加指令到正在运行的 turn（steer）
+  // 追加指令到正在运行的 turn（steer）。
+  // 方案 A「打断重发」：先中断当前 turn，再以 steer 文本发起新 turn。
+  // 复用 stopGeneration（后端 cancel + turn_aborted）+ sendMessage（新 turn 订阅）。
   const steer = useCallback(async (text: string) => {
     const state = useAppStore.getState()
     if (!state.threadId || !state.activeTurnId || !text.trim()) return
-    const api = getEngineAPI(enginePort)
-    try {
-      await api.steerTurn(state.threadId, state.activeTurnId, text.trim())
-    } catch (e) {
-      console.error('[useChat] Failed to steer turn:', e)
-    }
-  }, [enginePort])
+    await stopGeneration()
+    await sendMessage(text)
+  }, [stopGeneration, sendMessage])
+
+  // queue 模式下「立即执行」：出队最早一条并立即引导（打断当前 turn + 重发该条）。
+  const executeQueuedNow = useCallback(async () => {
+    const text = useAppStore.getState().dequeueMessage()
+    if (!text) return
+    await steer(text)
+  }, [steer])
 
   // 手动压缩上下文
   const compactContext = useCallback(async (opts?: { reason?: string; budgetTokens?: number }) => {
@@ -718,6 +751,22 @@ export function useChat() {
   // 绑定 sendMessage 到 ref（queue 模式递归发送用）
   sendMessageRef.current = sendMessage
 
+  /**
+   * 审批通过（confirm-before-change 模式的审批卡「批准」）。
+   * 把批准 id 存入 ref（随下一条消息发给网关一次性放行），再以批准指令
+   * 发起新 turn —— 模型会重新发起同一 (tool,args)，hash 匹配即放行。
+   */
+  const approveOperation = useCallback(async (opId: string, toolName: string) => {
+    if (approvedOpsRef.current.includes(opId)) return
+    approvedOpsRef.current = [...approvedOpsRef.current, opId]
+    await sendMessage(`[已批准] 请继续执行刚才被暂停的操作（审批 id: ${opId}，工具: ${toolName}）。`)
+  }, [sendMessage])
+
+  /** 审批拒绝：发普通拒绝指令，模型停止/改道。 */
+  const rejectOperation = useCallback(async (opId: string, toolName: string) => {
+    await sendMessage(`[已拒绝] 用户拒绝了刚才的操作（审批 id: ${opId}，工具: ${toolName}）。请停止该操作，如需替代方案先说明。`)
+  }, [sendMessage])
+
     return {
     messages_v2,
     isGenerating,
@@ -727,13 +776,16 @@ export function useChat() {
     regenerate,
     stopGeneration,
     steer,
+    executeQueuedNow,
     compactContext,
     newChat,
     loadThread,
     checkConnection,
     resolveApproval,
     submitUserInput,
-    cancelUserInput
+    cancelUserInput,
+    approveOperation,
+    rejectOperation
   }
 }
 

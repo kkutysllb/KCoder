@@ -144,14 +144,14 @@ export function RemoteSettings() {
                       {connStatus === 'testing' ? t('settings.remote.testing') : t('settings.remote.test')}
                     </button>
                     {connStatus === 'connected' && (
-                      <span className="flex items-center gap-1.5 text-xs text-[#22c55e]">
-                        <span className="w-2 h-2 rounded-full bg-[#22c55e]" />
+                      <span className="flex items-center gap-1.5 text-xs text-success">
+                        <span className="w-2 h-2 rounded-full bg-success" />
                         {t('settings.remote.connected')}
                       </span>
                     )}
                     {connStatus === 'error' && (
-                      <span className="flex items-center gap-1.5 text-xs text-[#ef4444]">
-                        <span className="w-2 h-2 rounded-full bg-[#ef4444]" />
+                      <span className="flex items-center gap-1.5 text-xs text-danger">
+                        <span className="w-2 h-2 rounded-full bg-danger" />
                         {t('settings.remote.connError')}
                       </span>
                     )}
@@ -233,7 +233,7 @@ export function RemoteSettings() {
                       <div className="space-y-1.5">
                         {sessions.map((s) => (
                           <div key={s.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-bg-hover/50 border border-border-custom">
-                            <span className="w-2 h-2 rounded-full bg-[#22c55e] shrink-0" />
+                            <span className="w-2 h-2 rounded-full bg-success shrink-0" />
                             <span className="text-xs text-text-primary font-medium">{s.device}</span>
                             <span className="text-[11px] text-text-muted font-mono">{s.ip}</span>
                             <span className="px-1.5 py-px rounded text-[10px] bg-bg-hover text-text-muted border border-border-custom">
@@ -324,7 +324,7 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
   return (
     <button
       onClick={() => onChange(!checked)}
-      className={`relative shrink-0 rounded-full transition-colors duration-200 ${checked ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'}`}
+      className={`relative shrink-0 rounded-full transition-colors duration-200 ${checked ? 'bg-border-strong' : 'bg-bg-active'}`}
       style={{ width: 48, height: 28 }}
     >
       <span

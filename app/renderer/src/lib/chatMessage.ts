@@ -82,7 +82,8 @@ export interface ClarificationFormField {
   label?: string
   type: 'text' | 'textarea' | 'number' | 'select' | 'multi_select' | 'checkbox' | 'date'
   required?: boolean
-  options?: string[]
+  /** select/multi_select 的选项（引擎归一化为 {id,label,value}，见 clarification_middleware）。 */
+  options?: ClarificationOption[]
   placeholder?: string
 }
 
@@ -163,6 +164,8 @@ export interface ChatMessage {
 
   // ── user / system 消息正文 ──
   content?: string
+  /** 是否为「已排队」通知（queue 交互模式下，用户生成中输入被入队时插入的提示）。 */
+  queued?: boolean
 
   // ── assistant turn 流式累积字段 ──
   /** AI 正文（markdown，流式增量拼接到此字段）。 */
@@ -239,13 +242,47 @@ export function isEditableUserMessage(msg: ChatMessage): boolean {
 
 const INTERNAL_BLOCK_RE = /<(memory|reminder|scratchpad|system_reminder)>[\s\S]*?<\/\1>/gi
 
+// 控制字符 / 非打印字符：C0（保留 \t \n \r）、DEL、C1 控制字符。
+// 这些字符在浏览器中无法正常渲染，会导致 markdown 正文「乱码」、布局错乱
+// （典型场景：模型 echo 了二进制 / 编译产物 / 非文本文件内容）。
+const UNPRINTABLE_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g
+
+// 连续的替换字符（U+FFFD）—— UTF-8 解码失败 / 损坏字节的产物，成串出现即「乱码」。
+const REPLACEMENT_RUN_RE = /\uFFFD{3,}/g
+
+// 判定「内容已损坏」的阈值：替换字符占非空白字符的比例超过此值、且文本足够长，
+// 则视为模型输出了无法显示的内容（如二进制文件），渲染层应兜底折叠而非渲染乱码。
+const CORRUPT_MIN_LEN = 24
+const CORRUPT_RATIO = 0.4
+
+/** 移除控制字符 / 非打印字符（保留 \t \n \r）。 */
+export function stripUnprintable(text: string): string {
+  return text.replace(UNPRINTABLE_RE, '')
+}
+
 /**
- * 剥掉 assistant text 中所有内部消息块（<memory> 等）。
+ * 净化 assistant 正文：剥掉 <memory> 等内部块 + 移除控制字符 + 折叠替换字符。
+ * 纯清洗，不改变正常文本语义；供存储与渲染层共用。
  * @returns 净化后的 text；如果净化后为空返回 ''
  */
 export function sanitizeAssistantText(text: string | undefined | null): string {
   if (!text) return ''
-  return text.replace(INTERNAL_BLOCK_RE, '').trim()
+  let out = text.replace(INTERNAL_BLOCK_RE, '')
+  out = stripUnprintable(out)
+  out = out.replace(REPLACEMENT_RUN_RE, '\uFFFD')
+  return out.trim()
+}
+
+/**
+ * 判断文本是否「已损坏」（替换字符占比过高）。供渲染层决定是否兜底折叠，
+ * 避免把大段乱码当正常 markdown 渲染给用户（模型 echo 二进制内容时常见）。
+ */
+export function isLikelyCorruptText(text: string | undefined | null): boolean {
+  if (!text) return false
+  const stripped = text.replace(/\s/g, '')
+  if (stripped.length < CORRUPT_MIN_LEN) return false
+  const fffd = text.match(/\uFFFD/g)?.length ?? 0
+  return fffd / stripped.length > CORRUPT_RATIO
 }
 
 /**

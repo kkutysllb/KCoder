@@ -407,6 +407,13 @@ def build_middlewares(
     if todo_list_middleware is not None:
         middlewares.append(todo_list_middleware)
 
+    # KCoder local patch: PermissionMiddleware — enforce the run's permission
+    # mode (plan-mode / auto-edit / confirm-before-change / full-access) before
+    # every mutating tool executes. Reads configurable.permission_mode.
+    from qilin.agents.middlewares.permission_middleware import PermissionMiddleware
+
+    middlewares.append(PermissionMiddleware())
+
     # Add TokenUsageMiddleware when token_usage tracking is enabled
     if resolved_app_config.token_usage.enabled:
         middlewares.append(TokenUsageMiddleware())
@@ -669,6 +676,7 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
 
     requested_model_name: str | None = cfg.get("model_name") or cfg.get("model")
     is_plan_mode = cfg.get("is_plan_mode", False)
+    permission_mode = cfg.get("permission_mode")
     subagent_enabled = cfg.get("subagent_enabled", False)
     max_concurrent_subagents = cfg.get("max_concurrent_subagents", 3)
     max_total_subagents = cfg.get("max_total_subagents", _default_max_total_subagents(resolved_app_config))
@@ -844,6 +852,7 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
                 user_id=resolved_user_id,
                 skill_names=skill_setup.skill_names or None,
                 mcp_tools=final_tools,
+                permission_mode=permission_mode,
             ),
             state_schema=get_thread_state_schema(mode),
         )
@@ -929,6 +938,7 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
                 user_id=resolved_user_id,
                 skill_names=skill_setup.skill_names or None,
                 mcp_tools=final_tools,
+                permission_mode=permission_mode,
         ),
         state_schema=get_thread_state_schema(mode),
     )

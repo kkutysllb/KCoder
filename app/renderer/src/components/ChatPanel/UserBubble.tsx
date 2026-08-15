@@ -60,7 +60,7 @@ export function UserBubble({ msg, canEdit = false, editDisabled = false, onEditR
   if (editing) {
     return (
       <div className="flex flex-col items-end gap-2 group">
-        <div className="w-full max-w-[80%] rounded-xl border border-[#3b82f6]/40 bg-[#1e2a3a] overflow-hidden">
+        <div className="w-full max-w-[80%] rounded-xl border border-info/40 bg-[#1e2a3a] overflow-hidden">
           <textarea
             aria-label="编辑用户消息"
             value={editText}
@@ -94,13 +94,13 @@ export function UserBubble({ msg, canEdit = false, editDisabled = false, onEditR
               type="button"
               onClick={() => void handleSubmit()}
               disabled={submitting || !editText.trim() || !onEditResend}
-              className="px-3 py-1 rounded-md text-xs font-medium bg-[#3b82f6] text-white hover:bg-[#2563eb] transition-colors disabled:opacity-50"
+              className="px-3 py-1 rounded-md text-xs font-medium bg-info text-white hover:bg-[#2563eb] transition-colors disabled:opacity-50"
             >
               {submitting ? '准备中' : '重新发送'}
             </button>
           </div>
         </div>
-        {error && <p className="text-xs text-[#ef4444] px-2" role="alert">{error}</p>}
+        {error && <p className="text-xs text-danger px-2" role="alert">{error}</p>}
       </div>
     )
   }
@@ -146,7 +146,7 @@ export function UserBubble({ msg, canEdit = false, editDisabled = false, onEditR
           </svg>
         </button>
       </div>
-      {error && <p className="text-xs text-[#ef4444] px-2" role="alert">{error}</p>}
+      {error && <p className="text-xs text-danger px-2" role="alert">{error}</p>}
     </div>
   )
 }

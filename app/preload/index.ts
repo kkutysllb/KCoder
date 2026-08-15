@@ -91,7 +91,10 @@ contextBridge.exposeInMainWorld('kcoder', {
     openFolder: (options?: OpenDialogOptions) =>
       ipcRenderer.invoke('dialog:openFolder', options) as Promise<string | null>,
     openFile: (options?: OpenDialogOptions) =>
-      ipcRenderer.invoke('dialog:openFile', options) as Promise<string | null>
+      ipcRenderer.invoke('dialog:openFile', options) as Promise<string | null>,
+    /** 在 Finder/资源管理器中显示路径（目录打开，文件定位高亮）。 */
+    showInFolder: (targetPath: string) =>
+      ipcRenderer.invoke('dialog:showInFolder', targetPath) as Promise<void>
   },
 
   // Sub-agents config: trigger config.yaml re-sync after CRUD in Settings.
@@ -139,6 +142,7 @@ declare global {
       dialog: {
         openFolder: (options?: OpenDialogOptions) => Promise<string | null>
         openFile: (options?: OpenDialogOptions) => Promise<string | null>
+        showInFolder: (targetPath: string) => Promise<void>
       }
       syncSubAgents: () => Promise<void>
     }

@@ -307,7 +307,7 @@ function SkillRow({
         disabled={toggling}
         className={`relative shrink-0 rounded-full transition-colors duration-200 ${
           toggling ? 'opacity-50' : ''
-        } ${skill.enabled ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'}`}
+        } ${skill.enabled ? 'bg-border-strong' : 'bg-bg-active'}`}
         style={{ width: 48, height: 28 }}
       >
         <span
@@ -320,7 +320,7 @@ function SkillRow({
       {skill.deletable && (
         <button
           onClick={onDelete}
-          className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors"
+          className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
           title={t('settings.skills.delete')}
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -453,18 +453,18 @@ function InstallSkillModal({ onClose, onInstalled }: { onClose: () => void; onIn
           {/* Installing spinner */}
           {installing && (
             <div className="flex items-center gap-2 text-sm text-text-secondary">
-              <span className="w-4 h-4 border-2 border-[#3b82f6] border-t-transparent rounded-full animate-spin" />
+              <span className="w-4 h-4 border-2 border-info border-t-transparent rounded-full animate-spin" />
               <span>{t('settings.skills.install.installing')}</span>
             </div>
           )}
 
           {/* Success message */}
           {success && (
-            <div className="text-sm text-[#22c55e]">✓ {t('settings.skills.install.success')}</div>
+            <div className="text-sm text-success">✓ {t('settings.skills.install.success')}</div>
           )}
 
           {/* Error message */}
-          {err && <p className="text-xs text-[#ef4444]">{err}</p>}
+          {err && <p className="text-xs text-danger">{err}</p>}
         </div>
 
         {/* Footer buttons */}

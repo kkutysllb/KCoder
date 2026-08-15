@@ -943,8 +943,12 @@ export class EngineAPI {
     onEvent: (event: SSEEvent) => void,
     attachmentIds?: string[],
     model?: string,
-    reasoningMode?: 'auto' | 'off' | 'low' | 'medium' | 'high'
+    reasoningMode?: 'auto' | 'off' | 'low' | 'medium' | 'high',
+    options?: { subagentEnabled?: boolean; isPlanMode?: boolean; permissionMode?: string; approvedOps?: string[] }
   ): Promise<string> {
+    // 默认启用子代理（task 工具 → InfoPanel「智能体」段）与计划模式
+    // （write_todos 工具 → InfoPanel「进度」段）。可经 options 关闭。
+    const { subagentEnabled = true, isPlanMode = true, permissionMode, approvedOps } = options ?? {}
     const turnResponse = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns`, {
       method: 'POST',
       headers: this.headers,
@@ -952,7 +956,11 @@ export class EngineAPI {
         prompt: content,
         ...(attachmentIds && attachmentIds.length > 0 ? { attachmentIds } : {}),
         ...(model ? { model_name: model } : {}),
-        ...(reasoningMode && reasoningMode !== 'auto' ? { reasoning_mode: reasoningMode } : {})
+        ...(reasoningMode && reasoningMode !== 'auto' ? { reasoning_mode: reasoningMode } : {}),
+        subagent_enabled: subagentEnabled,
+        is_plan_mode: isPlanMode,
+        ...(permissionMode ? { permission_mode: permissionMode } : {}),
+        ...(approvedOps && approvedOps.length > 0 ? { approved_ops: approvedOps } : {})
       })
     })
 
@@ -1723,6 +1731,21 @@ data: <full EngineStreamEvent JSON>
       const detail = await response.json().catch(() => ({}))
       const msg = typeof detail?.detail === 'string' ? detail.detail : response.statusText
       throw new Error(`Failed to create branch: ${msg}`)
+    }
+    return response.json()
+  }
+
+  /** 检出已有分支（git checkout <name>）。工作区有未提交变更时网关返回 409。 */
+  async checkoutBranch(path: string, name: string): Promise<{ path: string; branch: string }> {
+    const response = await fetch(`${this.baseUrl}/v1/workspace/branch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.headers },
+      body: JSON.stringify({ path, name, create: false })
+    })
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}))
+      const msg = typeof detail?.detail === 'string' ? detail.detail : response.statusText
+      throw new Error(`Failed to checkout branch: ${msg}`)
     }
     return response.json()
   }

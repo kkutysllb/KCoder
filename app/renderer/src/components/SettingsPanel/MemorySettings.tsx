@@ -298,7 +298,7 @@ export function MemorySettings() {
           </div>
 
           {error && (
-            <div className="px-3 py-2 rounded-lg bg-[#ef4444]/10 text-[#ef4444] text-xs mb-3">{error}</div>
+            <div className="px-3 py-2 rounded-lg bg-danger/10 text-danger text-xs mb-3">{error}</div>
           )}
 
           {/* Create form */}
@@ -321,7 +321,7 @@ export function MemorySettings() {
                   key={memory.id}
                   className={`rounded-lg border p-3 transition-colors ${
                     memory.deletedAt ? 'border-border-subtle opacity-40' :
-                    memory.disabledAt ? 'border-[#f59e0b]/30 bg-[#f59e0b]/5' :
+                    memory.disabledAt ? 'border-amber/30 bg-amber/5' :
                     'border-border-custom bg-bg-input'
                   }`}
                 >
@@ -332,7 +332,7 @@ export function MemorySettings() {
                         value={editContent}
                         onChange={(e) => setEditContent(e.target.value)}
                         rows={3}
-                        className="w-full px-3 py-2 rounded-lg text-sm bg-bg-hover border border-border-custom text-text-primary outline-none focus:border-[#3b82f6] resize-none"
+                        className="w-full px-3 py-2 rounded-lg text-sm bg-bg-hover border border-border-custom text-text-primary outline-none focus:border-info resize-none"
                       />
                       <div className="flex justify-end gap-2">
                         <button onClick={() => setEditingId(null)} className="px-3 py-1 rounded text-xs text-text-muted hover:bg-bg-hover">{t('common.cancel')}</button>
@@ -351,10 +351,10 @@ export function MemorySettings() {
                               <span className="text-[10px] text-text-muted">{Math.round(memory.confidence * 100)}%</span>
                             )}
                             {memory.tags.map((tag) => (
-                              <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-[#3b82f6]/10 text-[#3b82f6]">#{tag}</span>
+                              <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-info/10 text-info">#{tag}</span>
                             ))}
-                            {memory.disabledAt && <span className="text-[10px] text-[#f59e0b]">{t('settings.memory.disabledBadge')}</span>}
-                            {memory.deletedAt && <span className="text-[10px] text-[#ef4444]">{t('settings.memory.deletedBadge')}</span>}
+                            {memory.disabledAt && <span className="text-[10px] text-amber">{t('settings.memory.disabledBadge')}</span>}
+                            {memory.deletedAt && <span className="text-[10px] text-danger">{t('settings.memory.deletedBadge')}</span>}
                           </div>
                         </div>
                         {/* Actions */}
@@ -372,7 +372,7 @@ export function MemorySettings() {
                             <button
                               onClick={() => handleToggleDisable(memory)}
                               title={memory.disabledAt ? t('settings.memory.enable') : t('settings.memory.disable')}
-                              className="p-1 rounded text-text-muted hover:text-[#f59e0b] hover:bg-bg-hover transition-colors"
+                              className="p-1 rounded text-text-muted hover:text-amber hover:bg-bg-hover transition-colors"
                             >
                               {memory.disabledAt ? (
                                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -388,7 +388,7 @@ export function MemorySettings() {
                             <button
                               onClick={() => handleDelete(memory.id)}
                               title={t('common.delete')}
-                              className="p-1 rounded text-text-muted hover:text-[#ef4444] hover:bg-bg-hover transition-colors"
+                              className="p-1 rounded text-text-muted hover:text-danger hover:bg-bg-hover transition-colors"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
@@ -430,7 +430,7 @@ function CreateMemoryForm({ onSubmit, onCancel }: { onSubmit: (content: string, 
         onChange={(e) => setContent(e.target.value)}
         placeholder={t('settings.memory.create.placeholder')}
         rows={3}
-        className="w-full px-3 py-2 rounded-lg text-sm bg-bg-hover border border-border-custom text-text-primary placeholder-text-muted outline-none focus:border-[#3b82f6] resize-none"
+        className="w-full px-3 py-2 rounded-lg text-sm bg-bg-hover border border-border-custom text-text-primary placeholder-text-muted outline-none focus:border-info resize-none"
       />
       <div className="flex items-center gap-3">
         <select
@@ -447,7 +447,7 @@ function CreateMemoryForm({ onSubmit, onCancel }: { onSubmit: (content: string, 
           value={tagsInput}
           onChange={(e) => setTagsInput(e.target.value)}
           placeholder={t('settings.memory.create.tags')}
-          className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-bg-hover border border-border-custom text-text-primary placeholder-text-muted outline-none focus:border-[#3b82f6]"
+          className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-bg-hover border border-border-custom text-text-primary placeholder-text-muted outline-none focus:border-info"
         />
       </div>
       <div className="flex justify-end gap-2">

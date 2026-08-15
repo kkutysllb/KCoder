@@ -245,8 +245,8 @@ class KCoderDataSpace:
     def _merge_runtime_config(self, template_cfg: dict[str, Any], template_path: Path) -> None:
         """runtime.yaml 已存在时增量合并产品级段。
 
-        - tools 段：直接用模板覆盖（产品级定义权威）
-        - 其他段（models/memory/sandbox/database/subagents/...）：保留用户配置
+        - tools / memory 段：直接用模板覆盖（产品级定义权威）
+        - 其他段（models/sandbox/database/subagents/...）：保留用户配置
         - skills.path 指向不存在目录时回退到内置技能包
 
         ``template_path`` 用于计算技能回退路径（相对 CWD → 绝对路径）。
@@ -303,6 +303,15 @@ class KCoderDataSpace:
             existing_db["backend"] = "sqlite"
             existing_db["sqlite_dir"] = str(self.qilin_data_dir)
             existing["database"] = existing_db
+            changed = True
+
+        # 5) memory 段：产品级覆盖（模板权威）。存量配置里 enabled:true 会让
+        # QiLin 把用户级跨线程记忆注入每个新线程——旧任务的项目总结被模型误当
+        # "本会话早期"上下文，新任务答非所问。KCoder 的 thread 是项目作用域
+        # 任务，跨线程记忆默认关闭（详见 config.yaml memory 段注释）。
+        template_memory = template_cfg.get("memory")
+        if template_memory and existing.get("memory") != template_memory:
+            existing["memory"] = template_memory
             changed = True
 
         if changed:

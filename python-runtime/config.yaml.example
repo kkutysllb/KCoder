@@ -112,14 +112,16 @@ skills:
     enabled: true
 
 # ─── 记忆 ───
+# ─── 记忆 ───
+# 产品级决策：KCoder 默认关闭 QiLin 的用户级跨线程记忆。
+# thread 是项目作用域任务，而 memory 是用户级（跨线程共享）：注入会让新线程
+# 携带旧任务的项目总结，模型误当"本会话早期"上下文 → 新任务答非所问。
 # 后端 manager_class=qilinmem 已验证可用（create/get/delete 全通）。
-# mode=middleware：每回合后 MemoryMiddleware 自动总结存入记忆库；
-# injection_enabled=true：记忆自动注入系统提示词上下文。
 # Settings > Memory 面板的 CRUD 走 gateway memory_routes.py → QiLin MemoryManager。
 memory:
-  enabled: true
+  enabled: false
   mode: middleware
-  injection_enabled: true
+  injection_enabled: false
   manager_class: qilinmem
 
 # ─── 网络与 Web 工具 ───

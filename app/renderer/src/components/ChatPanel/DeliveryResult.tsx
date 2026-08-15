@@ -66,10 +66,10 @@ export function DeliveryResult({ msg }: DeliveryResultProps) {
   }
 
   return (
-    <div className="my-3 overflow-hidden rounded-xl border border-[#22c55e]/30 bg-[#22c55e]/[0.04]">
+    <div className="my-3 overflow-hidden rounded-xl border border-success/30 bg-success/[0.04]">
       {/* 头部：✓ 已完成 + 统计 + 动作 */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3.5 py-2.5">
-        <span className="flex items-center gap-1.5 text-[13px] font-medium text-[#22c55e]">
+        <span className="flex items-center gap-1.5 text-[13px] font-medium text-success">
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
@@ -79,8 +79,8 @@ export function DeliveryResult({ msg }: DeliveryResultProps) {
           {t('delivery.filesChanged', { n: totalFiles })}
         </span>
         <span className="font-mono text-xs tabular-nums">
-          <span className="text-[#22c55e]">+{summary.additions}</span>{' '}
-          <span className="text-[#ef4444]">-{summary.deletions}</span>
+          <span className="text-success">+{summary.additions}</span>{' '}
+          <span className="text-danger">-{summary.deletions}</span>
         </span>
 
         <div className="ml-auto flex items-center gap-1.5">
@@ -99,7 +99,7 @@ export function DeliveryResult({ msg }: DeliveryResultProps) {
             type="button"
             onClick={onCommit}
             disabled={committing}
-            className="flex items-center gap-1 rounded-md bg-[#22c55e]/90 px-2 py-1 text-[11px] text-white transition-colors hover:bg-[#22c55e] disabled:opacity-50"
+            className="flex items-center gap-1 rounded-md bg-success/90 px-2 py-1 text-[11px] text-white transition-colors hover:bg-success disabled:opacity-50"
           >
             <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
@@ -120,7 +120,7 @@ export function DeliveryResult({ msg }: DeliveryResultProps) {
       )}
 
       {/* 文件清单（含 diff 查看 + 逐文件撤销） */}
-      <div className="border-t border-[#22c55e]/20">
+      <div className="border-t border-success/20">
         <FileChangeCard changes={changes} />
       </div>
     </div>

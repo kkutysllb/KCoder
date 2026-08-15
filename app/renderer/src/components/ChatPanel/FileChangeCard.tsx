@@ -1,11 +1,10 @@
 // FileChangeCard — 单轮 turn 的 workspace 文件变更卡片。
 //
 // 收起态：`+23 -5 · 3 files`；展开态：文件列表（状态色点 + 路径 + 每文件
-// +/- 数），点击文件弹出 DiffViewer 查看行级差异。
+// +/- 数），点击文件在右侧 FilePreviewPanel 展示（与工具调用文件名一致）。
 
 import { useState } from 'react'
 import type { FileChangesPayload, FileChange } from '../../lib/chatMessage'
-import { DiffViewer } from './DiffViewer'
 import { useAppStore } from '../../stores/app-store'
 import { getEngineAPI } from '../../services/engine-api'
 import { useI18n } from '../../i18n'
@@ -15,19 +14,19 @@ interface FileChangeCardProps {
 }
 
 const STATUS_DOT: Record<FileChange['status'], string> = {
-  created: 'bg-[#22c55e]',
-  modified: 'bg-[#eab308]',
-  deleted: 'bg-[#ef4444]',
-  symlink_created: 'bg-[#3b82f6]'
+  created: 'bg-success',
+  modified: 'bg-warning',
+  deleted: 'bg-danger',
+  symlink_created: 'bg-info'
 }
 
 export function FileChangeCard({ changes }: FileChangeCardProps) {
   const [expanded, setExpanded] = useState(false)
-  const [selected, setSelected] = useState<FileChange | null>(null)
   const [revertedPaths, setRevertedPaths] = useState<Set<string>>(new Set())
   const [reverting, setReverting] = useState<string | null>(null)
   const enginePort = useAppStore((s) => s.enginePort)
   const workspacePath = useAppStore((s) => s.workspacePath)
+  const openFilePreview = useAppStore((s) => s.openFilePreview)
   const { t } = useI18n()
 
   const { summary, files } = changes
@@ -54,6 +53,17 @@ export function FileChangeCard({ changes }: FileChangeCardProps) {
     }
   }
 
+  // 点击文件 → 在右侧 FilePreviewPanel 打开（绝对路径优先；相对路径拼接
+  // workspacePath，与工具调用文件名解析保持一致）。
+  const handleOpenFile = (file: FileChange) => {
+    const resolved = file.path.startsWith('/')
+      ? file.path
+      : workspacePath
+        ? `${workspacePath}/${file.path}`.replace(/\/+/g, '/')
+        : file.path
+    openFilePreview(resolved)
+  }
+
   const hasAdd = summary.additions > 0
   const hasDel = summary.deletions > 0
 
@@ -78,8 +88,8 @@ export function FileChangeCard({ changes }: FileChangeCardProps) {
           />
         </svg>
         <span className="flex items-center gap-2 font-mono text-xs tabular-nums">
-          {hasAdd && <span className="text-[#22c55e]">+{summary.additions}</span>}
-          {hasDel && <span className="text-[#ef4444]">-{summary.deletions}</span>}
+          {hasAdd && <span className="text-success">+{summary.additions}</span>}
+          {hasDel && <span className="text-danger">-{summary.deletions}</span>}
           <span className="text-text-secondary">· {totalFiles} files</span>
           {summary.truncated && (
             <span className="text-[10px] text-text-muted" title="部分文件未纳入统计">
@@ -110,18 +120,18 @@ export function FileChangeCard({ changes }: FileChangeCardProps) {
                 className={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[file.status] ?? 'bg-gray-500'}`}
               />
               <button
-                onClick={() => setSelected(file)}
-                className="min-w-0 flex-1 truncate font-mono text-xs text-text-primary text-left"
+                onClick={() => handleOpenFile(file)}
+                className="min-w-0 flex-1 truncate font-mono text-xs text-left text-text-primary hover:text-accent-blue hover:underline"
                 title={file.path}
               >
                 {file.path}
               </button>
               <span className="shrink-0 font-mono text-[11px] tabular-nums">
                 {file.additions > 0 && (
-                  <span className="text-[#22c55e]">+{file.additions}</span>
+                  <span className="text-success">+{file.additions}</span>
                 )}
                 {file.deletions > 0 && (
-                  <span className="ml-1 text-[#ef4444]">-{file.deletions}</span>
+                  <span className="ml-1 text-danger">-{file.deletions}</span>
                 )}
               </span>
               {/* 撤销更改（reject）— 仅 git 工作区有此能力 */}
@@ -130,7 +140,7 @@ export function FileChangeCard({ changes }: FileChangeCardProps) {
                   onClick={(e) => handleRevert(e, file)}
                   disabled={reverting === file.path}
                   title={t('changes.revertTitle')}
-                  className="shrink-0 rounded p-1 text-text-muted opacity-0 group-hover:opacity-100 hover:text-[#ef4444] disabled:opacity-50 transition-all"
+                  className="shrink-0 rounded p-1 text-text-muted opacity-0 group-hover:opacity-100 hover:text-danger disabled:opacity-50 transition-all"
                 >
                   {reverting === file.path ? (
                     <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -151,9 +161,6 @@ export function FileChangeCard({ changes }: FileChangeCardProps) {
           )}
         </div>
       )}
-
-      {/* diff 弹窗 */}
-      {selected && <DiffViewer change={selected} onClose={() => setSelected(null)} />}
     </div>
   )
 }

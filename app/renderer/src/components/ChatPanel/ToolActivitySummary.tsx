@@ -10,6 +10,7 @@
 
 import { useState, useEffect } from 'react'
 import type { ToolCall } from '../../lib/chatMessage'
+import { stripUnprintable } from '../../lib/chatMessage'
 import { useI18n } from '../../i18n'
 import { useAppStore } from '../../stores/app-store'
 import { highlight } from '../../lib/highlighter'
@@ -72,8 +73,10 @@ export function ToolActivitySummary({ calls, streaming }: ToolActivitySummaryPro
 
       {expanded && (
         <div className="mt-2 space-y-1.5">
-          {calls.map((call) => (
-            <ToolCallRow key={call.id} call={call} />
+          {calls.map((call, i) => (
+            // call.id 可能是 LangChain 的 lc_run-<uuid>，历史里偶发重复（如
+            // 子代理重试复用同一 run id），加索引保证 key 唯一，避免 React 重复 key 告警。
+            <ToolCallRow key={`${i}-${call.id}`} call={call} />
           ))}
         </div>
       )}
@@ -138,7 +141,7 @@ const TOOL_LABEL_RULES: Array<{ test: RegExp; key: string }> = [
   { test: /^(grep|search|search_files|rg|content_search)$/, key: 'tool.search' },
   { test: /^(glob|find|find_files|list_files|list|ls)$/, key: 'tool.glob' },
   { test: /^(task|delegate_task|delegate|dispatch_agent)$/, key: 'tool.task' },
-  { test: /^(todo_write|todowrite|update_todos)$/, key: 'tool.todo' },
+  { test: /^(todo_write|todowrite|update_todos|write_todos)$/, key: 'tool.todo' },
 ]
 
 /** 工具友好名：命中规则 → 中文化；否则保留原名（MCP 工具等）。 */
@@ -234,30 +237,57 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
       </svg>
     ) : (
-      <svg className="w-3 h-3 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <svg className="w-3 h-3 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
       </svg>
     )
 
+  // 分类图标（颜色区分工具类型，一眼可辨；紧凑尺寸）
+  const kindIcon =
+    kind === 'terminal' ? (
+      <svg className="w-3 h-3 shrink-0 text-[#c9a227]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 7l4 4-4 4M12 17h7" />
+        <rect x="2.5" y="4.5" width="19" height="15" rx="2.5" strokeWidth={1.5} />
+      </svg>
+    ) : kind === 'file' ? (
+      <svg className="w-3 h-3 shrink-0 text-info" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+      </svg>
+    ) : kind === 'search' ? (
+      <svg className="w-3 h-3 shrink-0 text-[#a78bfa]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <circle cx="11" cy="11" r="7" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4-4" />
+      </svg>
+    ) : (
+      <svg className="w-3 h-3 shrink-0 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    )
+
+  // 状态 → 左侧强调条 + 边框色
+  const accentCls =
+    call.status === 'running'
+      ? 'border-blue-500/40 border-l-blue-400/80'
+      : call.status === 'failed'
+        ? 'border-red-500/30 border-l-red-400/70'
+        : 'border-border-custom border-l-transparent hover:border-l-border-custom'
+
   return (
-    <div className="rounded-md bg-bg-hover/50 text-xs overflow-hidden">
-      {/* 头部：图标 + 工具名（中文）+ 主参数 + 耗时；有详情时点击展开/折叠 */}
+    <div
+      className={`rounded-md border border-l-2 bg-bg-surface/70 overflow-hidden transition-colors text-[11px] ${accentCls} ${
+        call.status === 'running' ? 'shadow-[0_0_0_1px_rgba(59,130,246,0.08)]' : ''
+      }`}
+    >
+      {/* 头部：分类图标 + 工具名（中文）+ 主参数 + 耗时 + 编辑统计；点击展开/折叠 */}
       <div
-        className={`flex items-center gap-2 px-2 py-1.5 ${hasDetails ? 'cursor-pointer hover:bg-bg-hover' : ''}`}
+        className={`flex items-center gap-1.5 px-2 py-1 min-h-[26px] ${hasDetails ? 'cursor-pointer hover:bg-bg-hover/50' : ''}`}
         onClick={hasDetails ? () => setOpen((o) => !o) : undefined}
       >
-        {hasDetails && (
-          <svg
-            className={`w-3 h-3 shrink-0 text-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
-            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        )}
-        <span className="shrink-0">{statusIcon}</span>
-        <span className="text-text-primary shrink-0">{displayName}</span>
+        {kindIcon}
+        <span className="text-text-secondary shrink-0">{displayName}</span>
         {arg && (kind === 'terminal') && (
-          <code className="min-w-0 truncate font-mono text-[11px] text-[#9ca3af] flex-1" title={arg}>
+          <code className="min-w-0 truncate font-mono text-[10px] text-[#9ca3af] flex-1" title={arg}>
             <span className="text-[#6b7280]">$ </span>{arg}
           </code>
         )}
@@ -266,27 +296,36 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
             type="button"
             onClick={openFile}
             title={fileName}
-            className="min-w-0 truncate font-mono text-[10px] text-[#3b82f6] hover:text-[#60a5fa] hover:underline flex-1 text-left cursor-pointer"
+            className="min-w-0 truncate font-mono text-[10px] text-info hover:text-[#93c5fd] hover:underline flex-1 text-left cursor-pointer"
           >
             {shortPath(fileName)}
           </button>
         )}
         {arg && (kind === 'search' || kind === 'generic') && (
-          <span className="min-w-0 truncate font-mono text-[11px] text-[#9ca3af] flex-1" title={arg}>
+          <span className="min-w-0 truncate font-mono text-[10px] text-[#9ca3af] flex-1" title={arg}>
             {arg}
           </span>
         )}
+        {/* 编辑类工具的增删统计 +N -M（紧凑徽标） */}
+        {editStats && (
+          <span className="shrink-0 rounded bg-black/30 px-1 py-px font-mono text-[10px] tabular-nums leading-none">
+            <span className="text-success">+{editStats.add}</span>{' '}
+            <span className="text-danger">-{editStats.del}</span>
+          </span>
+        )}
         {call.startedAt && call.endedAt && (
-          <span className="text-[10px] text-text-muted shrink-0">
+          <span className="text-[10px] text-text-muted shrink-0 tabular-nums">
             {formatMs(call.endedAt - call.startedAt)}
           </span>
         )}
-        {/* 编辑类工具的增删统计 +N -M */}
-        {editStats && (
-          <span className="shrink-0 font-mono text-[10px] tabular-nums">
-            <span className="text-[#22c55e]">+{editStats.add}</span>{' '}
-            <span className="text-[#ef4444]">-{editStats.del}</span>
-          </span>
+        <span className="shrink-0">{statusIcon}</span>
+        {hasDetails && (
+          <svg
+            className={`w-2.5 h-2.5 shrink-0 text-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
         )}
       </div>
 
@@ -294,7 +333,9 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
       {open && (
         <>
           {call.summary && (
-            <p className="px-2 pb-1.5 text-text-muted line-clamp-2">{call.summary}</p>
+            <p className="border-t border-border-custom/60 px-2 py-1 text-[10px] leading-relaxed text-text-muted line-clamp-2">
+              {call.summary}
+            </p>
           )}
           {call.output && (
             <ToolOutput text={call.output} isError={!!call.isError} language={outLang} />
@@ -310,11 +351,13 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
  *  性能保护截断并提示。横向超宽也可滚动。 */
 function ToolOutput({ text, isError, language }: { text: string; isError: boolean; language: string }) {
   const { t } = useI18n()
-  // 仅对极长输出做性能保护（避免渲染数万行）；常规输出全部可滚动查看
+  // 仅对极长输出做性能保护（避免渲染数万行）；常规输出全部可滚动查看。
+  // 另剥离控制字符兜底：read_file 读到二进制 / 非文本文件时避免乱码破坏布局。
   const PERF_CAP = 400
-  const lines = text.split('\n')
+  const cleanText = stripUnprintable(text)
+  const lines = cleanText.split('\n')
   const tooLong = lines.length > PERF_CAP
-  const shown = tooLong ? lines.slice(0, PERF_CAP).join('\n') : text
+  const shown = tooLong ? lines.slice(0, PERF_CAP).join('\n') : cleanText
   const [html, setHtml] = useState<string | null>(null)
 
   useEffect(() => {
@@ -333,12 +376,12 @@ function ToolOutput({ text, isError, language }: { text: string; isError: boolea
   }, [shown, language, isError])
 
   return (
-    <div className="mx-1.5 mb-1.5 overflow-hidden rounded-lg border border-border-custom bg-[#0d0d10]">
+    <div className="border-t border-border-custom/60 bg-bg-surface">
       <div className="max-h-[360px] overflow-auto">
         {isError || !html ? (
           <pre
             className={`px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre ${
-              isError ? 'text-red-400/90 bg-red-500/5' : 'text-[#c0c0c5]'
+              isError ? 'text-red-400/90 bg-red-500/5' : 'text-text-secondary'
             }`}
           >
             {shown}

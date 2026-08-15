@@ -137,7 +137,7 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
           title={decodedPath}
         >
           {fileName}
-          {dirty && <span className="ml-1 text-[#f59e0b]">●</span>}
+          {dirty && <span className="ml-1 text-amber">●</span>}
         </span>
         {saveMsg && <span className="shrink-0 text-[10px] text-text-muted">{saveMsg}</span>}
         {editable && (
@@ -147,7 +147,7 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
             title="保存 (Ctrl/Cmd+S)"
             className={`shrink-0 rounded px-2 py-1 text-xs transition-colors ${
               dirty && !saving
-                ? 'bg-[#3b82f6] text-white hover:bg-[#2563eb]'
+                ? 'bg-info text-white hover:bg-[#2563eb]'
                 : 'text-text-muted cursor-default'
             }`}
           >

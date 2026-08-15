@@ -8,101 +8,25 @@ import {
   type ThreadSummary
 } from '../../services/engine-api'
 import { getGeneralPref } from '../../lib/generalPrefs'
-
-// Icons as components
-const Icons = {
-  NewTask: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
-    </svg>
-  ),
-  Search: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-    </svg>
-  ),
-  Clock: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  ),
-  Skills: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-    </svg>
-  ),
-  Folder: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-    </svg>
-  ),
-  Hash: () => (
-    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18" />
-    </svg>
-  ),
-  ChevronDown: () => (
-    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-    </svg>
-  ),
-  Back: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
-    </svg>
-  ),
-  Forward: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
-    </svg>
-  ),
-  PanelLeftClose: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 5.25h16.5a.75.75 0 01.75.75v12a.75.75 0 01-.75.75H3.75a.75.75 0 01-.75-.75V6a.75.75 0 01.75-.75zM14 9l-3 3 3 3" />
-    </svg>
-  ),
-  SortUpDown: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" />
-    </svg>
-  ),
-  ArchiveBox: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
-    </svg>
-  ),
-  Check: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-    </svg>
-  ),
-  ChatBubble: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-    </svg>
-  ),
-  Plus: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
-    </svg>
-  ),
-  Settings: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  ),
-  Device: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 18h.01M8 21h8a1 1 0 001-1V4a1 1 0 00-1-1H8a1 1 0 00-1 1v16a1 1 0 001 1z" />
-    </svg>
-  ),
-  Logout: () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-    </svg>
-  )
-}
+import {
+  IconArchiveBox,
+  IconBolt,
+  IconChatBubble,
+  IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
+  IconClock,
+  IconDevice,
+  IconFolder,
+  IconLogout,
+  IconPanelLeftClose,
+  IconPencil,
+  IconPlus,
+  IconSearch,
+  IconSettings,
+  IconSortUpDown,
+  IconTrash
+} from '../icons'
 
 interface SidebarProps {
   onOpenSettings?: (tab?: string) => void
@@ -121,20 +45,24 @@ const MAX_SIDEBAR_WIDTH = 420
 /** 项目下默认展示的最近任务数，超出部分折叠到「更多」 */
 const DEFAULT_VISIBLE_TASKS = 5
 
-/** 相对时间格式化（"刚刚"/"5分钟前"/"2小时前"/"3天前"） */
-function formatRelativeTime(iso: string): string {
+/** 相对时间格式化（"刚刚"/"5分钟前"/"2小时前"/"3天前"，走 i18n） */
+function formatRelativeTime(
+  iso: string,
+  t: (key: string, params?: Record<string, string | number>) => string,
+  locale: string
+): string {
   if (!iso) return ''
   const ts = Date.parse(iso)
   if (!Number.isFinite(ts)) return ''
   const diff = Date.now() - ts
   const min = Math.floor(diff / 60000)
-  if (min < 1) return '刚刚'
-  if (min < 60) return `${min}分钟前`
+  if (min < 1) return t('time.justNow')
+  if (min < 60) return t('time.minutesAgo', { n: min })
   const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}小时前`
+  if (hr < 24) return t('time.hoursAgo', { n: hr })
   const day = Math.floor(hr / 24)
-  if (day < 30) return `${day}天前`
-  return new Date(ts).toLocaleDateString('zh-CN')
+  if (day < 30) return t('time.daysAgo', { n: day })
+  return new Date(ts).toLocaleDateString(locale === 'en' ? 'en-US' : 'zh-CN')
 }
 
 /** 归档保留时长转毫秒 */
@@ -166,8 +94,8 @@ function ThreadRow({
   onArchive: (e: React.MouseEvent) => void
   onDelete: (e: React.MouseEvent) => void
 }) {
-  const { t } = useI18n()
-  const time = formatRelativeTime(thread.updatedAt)
+  const { t, locale } = useI18n()
+  const time = formatRelativeTime(thread.updatedAt, t, locale)
   // 标题展示：New Chat → 新对话；空 title → 未命名会话
   const displayTitle = !thread.title
     ? t('sidebar.untitled')
@@ -185,22 +113,18 @@ function ThreadRow({
       {/* Archive toggle — visible on hover */}
       <button
         onClick={onArchive}
-        className="hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-text-muted hover:text-[#10b981] hover:bg-[#10b981]/10 transition-colors shrink-0"
+        className="hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-text-muted hover:text-teal hover:bg-teal/10 transition-colors shrink-0"
         title={thread.archived ? t('sidebar.unarchive') : t('sidebar.archive')}
       >
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
-        </svg>
+        <IconArchiveBox className="w-3.5 h-3.5" />
       </button>
       {/* Delete button — visible on hover */}
       <button
         onClick={onDelete}
-        className="hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-text-muted hover:text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors shrink-0"
+        className="hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-text-muted hover:text-danger hover:bg-danger/10 transition-colors shrink-0"
         title={t('sidebar.delete')}
       >
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-        </svg>
+        <IconTrash className="w-3.5 h-3.5" />
       </button>
     </div>
   )
@@ -222,35 +146,35 @@ function SortMenu({
 }) {
   const { t } = useI18n()
 
-  const itemCls = 'flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-[#e5e5e8] hover:bg-[#3a3a3f] transition-colors'
+  const itemCls = 'flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-text-primary hover:bg-bg-active transition-colors'
 
   return (
     <>
       {/* Click-outside backdrop */}
       <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="absolute right-0 top-full mt-1 z-50 w-52 rounded-lg border border-[#3a3a3f] bg-[#2b2b30] p-1.5 shadow-2xl">
-        <div className="px-2 pt-1.5 pb-1 text-xs text-[#8a8a8f]">{t('sidebar.view')}</div>
+      <div className="absolute right-0 top-full mt-1 z-50 w-52 rounded-lg border border-border-strong bg-bg-hover p-1.5 shadow-2xl">
+        <div className="px-2 pt-1.5 pb-1 text-xs text-muted-icon">{t('sidebar.view')}</div>
         <button className={itemCls} onClick={() => onViewMode('project')}>
-          <span className="text-[#8a8a8f]"><Icons.Folder /></span>
+          <span className="text-muted-icon"><IconFolder /></span>
           <span>{t('sidebar.viewByProject')}</span>
-          {viewMode === 'project' && <span className="ml-auto text-[#10b981]"><Icons.Check /></span>}
+          {viewMode === 'project' && <span className="ml-auto text-teal"><IconCheck /></span>}
         </button>
         <button className={itemCls} onClick={() => onViewMode('timeline')}>
-          <span className="text-[#8a8a8f]"><Icons.Clock /></span>
+          <span className="text-muted-icon"><IconClock /></span>
           <span>{t('sidebar.timeline')}</span>
-          {viewMode === 'timeline' && <span className="ml-auto text-[#10b981]"><Icons.Check /></span>}
+          {viewMode === 'timeline' && <span className="ml-auto text-teal"><IconCheck /></span>}
         </button>
-        <div className="my-1.5 border-t border-[#3a3a3f]" />
-        <div className="px-2 pb-1 text-xs text-[#8a8a8f]">{t('sidebar.sortBy')}</div>
+        <div className="my-1.5 border-t border-border-strong" />
+        <div className="px-2 pb-1 text-xs text-muted-icon">{t('sidebar.sortBy')}</div>
         <button className={itemCls} onClick={() => onSortBy('updated')}>
-          <span className="text-[#8a8a8f]"><Icons.ChatBubble /></span>
+          <span className="text-muted-icon"><IconChatBubble /></span>
           <span>{t('sidebar.sortByUpdated')}</span>
-          {sortBy === 'updated' && <span className="ml-auto text-[#10b981]"><Icons.Check /></span>}
+          {sortBy === 'updated' && <span className="ml-auto text-teal"><IconCheck /></span>}
         </button>
         <button className={itemCls} onClick={() => onSortBy('created')}>
-          <span className="text-[#8a8a8f]"><Icons.Plus /></span>
+          <span className="text-muted-icon"><IconPlus /></span>
           <span>{t('sidebar.sortByCreated')}</span>
-          {sortBy === 'created' && <span className="ml-auto text-[#10b981]"><Icons.Check /></span>}
+          {sortBy === 'created' && <span className="ml-auto text-teal"><IconCheck /></span>}
         </button>
       </div>
     </>
@@ -271,7 +195,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
   const [loadingThreads, setLoadingThreads] = useState(false)
   // 已尝试自动注册的 workspace 路径（防重复请求）
   const autoRegisteredRef = useRef<Set<string>>(new Set())
-  const { enginePort, engineStatus, threadId, setThreadId, setWorkspacePath, clearMessages, setPanelOpen } = useAppStore()
+  const { enginePort, engineStatus, threadId, workspacePath, setThreadId, setWorkspacePath, clearMessages, setPanelOpen, threadListVersion } = useAppStore()
   const { t } = useI18n()
 
   // 加载会话列表
@@ -359,7 +283,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
 
   useEffect(() => {
     loadThreads()
-  }, [loadThreads])
+  }, [loadThreads, threadListVersion])
 
   // 切换到某个会话。编码任务（有 workspace）默认展开浮动面板（Git/计划/进度），
   // 普通对话（无 workspace）默认收起——面板的 Git 段对普通对话无意义。
@@ -376,6 +300,21 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
     clearMessages()
     setThreadId(null)
   }, [clearMessages, setThreadId])
+
+  // 在指定项目下新建任务：绑定该项目 workspace 并开启全新会话。
+  // thread 的 workspace 在创建时绑定，首条消息发送后即归入该项目分组。
+  const handleNewTaskInProject = useCallback((project: ProjectEntry, groupKey: string) => {
+    clearMessages() // 重置 threadId/messages 等，下一条消息创建新线程
+    setPanelOpen(false) // 新任务从干净布局开始；首条消息会自动展开浮动面板
+    setWorkspacePath(project.path)
+    // 展开该项目分组，便于看到即将出现的新任务
+    setCollapsedProjects((prev) => {
+      if (!prev.has(groupKey)) return prev
+      const next = new Set(prev)
+      next.delete(groupKey)
+      return next
+    })
+  }, [clearMessages, setPanelOpen, setWorkspacePath])
 
   // 删除会话 — 调引擎 DELETE /v1/threads/:id（递归删除线程目录全部数据）
   const handleDeleteThread = useCallback(async (id: string, e: React.MouseEvent) => {
@@ -439,7 +378,9 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
     })
   }, [])
 
-  // 新建项目 — 打开文件夹选择器并注册
+  // 新建项目 — 打开文件夹选择器并注册（入口：输入框目录选择器之外的后备）。
+  // 注册成功后同时将其选为当前 workspace：否则 store 仍指向旧项目（或为空），
+  // 下一条消息会创建绑定旧 workspace 的线程，agent 将分析错项目。
   const handleAddProject = useCallback(async () => {
     const picked = await window.kcoder?.dialog?.openFolder()
     if (!picked) return
@@ -447,11 +388,17 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
       const api = getEngineAPI(enginePort)
       const entry = await api.createProject(picked)
       setProjects((prev) => [...prev.filter((p) => p.id !== entry.id), entry])
+      // 切换 workspace = 开启新会话（thread 的 workspace 创建时绑定，不可改）
+      if (picked !== workspacePath) {
+        clearMessages()
+        setPanelOpen(false)
+        setWorkspacePath(picked)
+      }
     } catch (error) {
       console.error('[KCoder] Failed to add project:', error)
       alert(t('sidebar.addProjectFailed'))
     }
-  }, [enginePort, t])
+  }, [enginePort, workspacePath, clearMessages, setPanelOpen, setWorkspacePath, t])
 
   // 重命名项目
   const handleRenameProject = useCallback(async (project: ProjectEntry) => {
@@ -530,14 +477,14 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
     >
       {/* Top bar - leave space for real macOS traffic lights (hiddenInset at x:16,y:16) */}
       <div className="drag-region h-12 flex items-center px-3">
-        <div className="no-drag flex items-center gap-0.5 ml-20 text-[#8a8a8f]">
+        <div className="no-drag flex items-center gap-0.5 ml-20 text-muted-icon">
           {/* 历史导航后退（保留为导航按钮，不复用为折叠） */}
           <button
             className="p-1 rounded-md hover:text-text-primary hover:bg-bg-hover transition-colors"
             onClick={() => window.history.back()}
             title={t('sidebar.back')}
           >
-            <Icons.Back />
+            <IconChevronLeft />
           </button>
           {/* 历史导航前进 */}
           <button
@@ -545,7 +492,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
             onClick={() => window.history.forward()}
             title={t('sidebar.forward')}
           >
-            <Icons.Forward />
+            <IconChevronRight />
           </button>
           {/* 分隔 */}
           <div className="w-px h-3.5 bg-border-custom mx-0.5" />
@@ -555,7 +502,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
             onClick={onToggleCollapse}
             title={t('sidebar.collapse')}
           >
-            <Icons.PanelLeftClose />
+            <IconPanelLeftClose />
           </button>
         </div>
       </div>
@@ -569,19 +516,19 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
       {/* Navigation items */}
       <div className="px-3 py-2 space-y-0.5">
         <button className="sidebar-item w-full" onClick={handleNewChat}>
-          <Icons.NewTask />
+          <IconPlus />
           <span>{t('sidebar.newTask')}</span>
         </button>
-        <button className="sidebar-item w-full">
-          <Icons.Search />
+        <button className="sidebar-item w-full cursor-not-allowed opacity-45" disabled title={t('common.comingSoon')}>
+          <IconSearch />
           <span>{t('sidebar.search')}</span>
         </button>
-        <button className="sidebar-item w-full">
-          <Icons.Clock />
+        <button className="sidebar-item w-full cursor-not-allowed opacity-45" disabled title={t('common.comingSoon')}>
+          <IconClock />
           <span>{t('sidebar.scheduledTasks')}</span>
         </button>
         <button className="sidebar-item w-full" onClick={() => onOpenSettings?.('skills')}>
-          <Icons.Skills />
+          <IconBolt />
           <span>{t('sidebar.skills')}</span>
         </button>
       </div>
@@ -593,11 +540,11 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
             <button
               onClick={() => setShowSortMenu(v => !v)}
               className={`p-1.5 rounded-md transition-colors ${
-                showSortMenu ? 'text-white bg-bg-hover' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
+                showSortMenu ? 'text-text-primary bg-bg-hover' : 'text-muted-icon hover:text-text-primary hover:bg-bg-hover'
               }`}
               title={t('sidebar.sort')}
             >
-              <Icons.SortUpDown />
+              <IconSortUpDown />
             </button>
             {showSortMenu && (
               <SortMenu
@@ -612,35 +559,30 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
           <button
             onClick={() => setShowArchived(v => !v)}
             className={`p-1.5 rounded-md transition-colors ${
-              showArchived ? 'text-white bg-bg-hover' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
+              showArchived ? 'text-text-primary bg-bg-hover' : 'text-muted-icon hover:text-text-primary hover:bg-bg-hover'
             }`}
             title={t('sidebar.archive')}
           >
-            <Icons.ArchiveBox />
+            <IconArchiveBox />
           </button>
         </div>
       </div>
 
-      {/* Section: 项目（一等实体分组，下挂任务） */}
-      <div className="px-4 pt-1 pb-1 flex items-center justify-between">
+      {/* Section: 项目（一等实体分组，下挂任务）。
+          不放「添加项目」＋按钮——与项目行 hover 的「＋新建任务」视觉重复；
+          添加项目的入口是输入框窄条的目录选择器（发消息时自动注册项目）。 */}
+      <div className="px-4 pt-1 pb-1 flex items-center">
         <span className="text-[13px] font-medium text-text-primary">{t('sidebar.project')}</span>
-        <button
-          onClick={handleAddProject}
-          className="p-1 rounded-md text-text-muted hover:text-white hover:bg-bg-hover transition-colors"
-          title={t('sidebar.addProject')}
-        >
-          <Icons.Plus />
-        </button>
       </div>
 
       {/* 项目/会话列表（双分区：任务归项目，普通对话归会话） */}
       <div className="flex-1 overflow-y-auto px-3 pb-4">
         {loadingThreads && threads.length === 0 && (
-          <div className="px-2 py-4 text-xs text-text-muted text-center">加载中…</div>
+          <div className="px-2 py-4 text-xs text-text-muted text-center">{t('sidebar.loading')}</div>
         )}
         {!loadingThreads && threads.length === 0 && (
           <div className="px-2 py-4 text-xs text-text-muted text-center">
-            {engineStatus === 'connected' ? '暂无会话，点击「新建任务」开始' : '引擎未连接'}
+            {engineStatus === 'connected' ? t('sidebar.empty') : t('sidebar.engineOffline')}
           </div>
         )}
 
@@ -659,29 +601,32 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
                   onClick={() => toggleProjectCollapse(key)}
                   title={project?.path}
                 >
-                  <Icons.Folder />
+                  <IconFolder />
                   <span className="truncate">{projectName}</span>
                   <span className="text-[10px] opacity-60 shrink-0">{taskList.length}</span>
                 </button>
                 {project && (
                   <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
                     <button
+                      onClick={() => handleNewTaskInProject(project, key)}
+                      className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover/60 transition-colors"
+                      title={t('sidebar.newTask')}
+                    >
+                      <IconPlus />
+                    </button>
+                    <button
                       onClick={() => handleRenameProject(project)}
-                      className="p-1 rounded text-text-muted hover:text-white hover:bg-bg-hover/60 transition-colors"
+                      className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover/60 transition-colors"
                       title={t('sidebar.renameProject')}
                     >
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-                      </svg>
+                      <IconPencil className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => handleDeleteProject(project)}
-                      className="p-1 rounded text-text-muted hover:text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors"
+                      className="p-1 rounded text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
                       title={t('sidebar.deleteProject')}
                     >
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                      </svg>
+                      <IconTrash className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 )}
@@ -720,12 +665,10 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
           <span className="text-[13px] font-medium text-text-primary">{t('sidebar.chats')}</span>
           <button
             onClick={() => setChatsCollapsed(v => !v)}
-            className="p-1 rounded-md text-text-muted hover:text-white hover:bg-bg-hover transition-colors"
+            className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
             title={t('sidebar.collapse')}
           >
-            <svg className={`w-3.5 h-3.5 transition-transform ${chatsCollapsed ? '' : 'rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
+            <IconChevronRight className={`w-3.5 h-3.5 transition-transform ${chatsCollapsed ? '' : 'rotate-90'}`} strokeWidth={2} />
           </button>
         </div>
         {!chatsCollapsed && (
@@ -756,7 +699,7 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
                 {user.email.split('@')[0]}
               </span>
               {user.is_admin && (
-                <span className="text-[10px] px-1 py-0.5 rounded bg-[#3b82f6]/15 text-[#3b82f6]">{t('auth.badge.admin')}</span>
+                <span className="text-[10px] px-1 py-0.5 rounded bg-info/15 text-info">{t('auth.badge.admin')}</span>
               )}
               <div className="ml-auto flex items-center gap-2 text-text-muted">
                 <button
@@ -764,10 +707,10 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
                   title={t('auth.logout')}
                   onClick={onLogout}
                 >
-                  <Icons.Logout />
+                  <IconLogout />
                 </button>
                 <button className="hover:text-text-secondary transition-colors" onClick={() => onOpenSettings?.()}>
-                  <Icons.Settings />
+                  <IconSettings />
                 </button>
               </div>
             </>
@@ -785,10 +728,10 @@ export function Sidebar({ onOpenSettings, onToggleCollapse, user, onOpenAuth, on
               </button>
               <div className="ml-auto flex items-center gap-2 text-text-muted">
                 <button className="hover:text-text-secondary transition-colors">
-                  <Icons.Device />
+                  <IconDevice />
                 </button>
                 <button className="hover:text-text-secondary transition-colors" onClick={() => onOpenSettings?.()}>
-                  <Icons.Settings />
+                  <IconSettings />
                 </button>
               </div>
             </>

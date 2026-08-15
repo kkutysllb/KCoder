@@ -17,7 +17,8 @@ import { CommandPalette, type CommandItem } from './components/CommandPalette'
 import { useChat } from './hooks/useChat'
 import { useAuth } from './hooks/useAuth'
 import { getEngineAPI } from './services/engine-api'
-import { I18nProvider, useI18n } from './i18n'
+import { useI18n } from './i18n'
+import { IconChanges, IconChevronRight, IconFilePreview, IconFolder, IconInfo, IconTerminal, IconX } from './components/icons'
 
 const SIDEBAR_MIN = 200
 const SIDEBAR_MAX = 420
@@ -30,17 +31,10 @@ function TerminalToggleButton({ active, onToggle }: { active: boolean; onToggle:
       onClick={onToggle}
       title={t('terminal.toggle')}
       className={`p-1.5 rounded-md transition-colors ${
-        active ? 'text-white bg-bg-hover' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
+        active ? 'text-text-primary bg-bg-hover' : 'text-muted-icon hover:text-text-primary hover:bg-bg-hover'
       }`}
     >
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={1.5}
-          d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"
-        />
-      </svg>
+      <IconTerminal className="w-4 h-4" />
     </button>
   )
 }
@@ -54,18 +48,17 @@ function PanelToggleButton() {
       onClick={() => setPanelOpen(!panelOpen)}
       title={t('panel.toggle')}
       className={`p-1.5 rounded-md transition-colors ${
-        panelOpen ? 'text-white bg-bg-hover' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
+        panelOpen ? 'text-text-primary bg-bg-hover' : 'text-muted-icon hover:text-text-primary hover:bg-bg-hover'
       }`}
     >
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-      </svg>
+      <IconInfo className="w-4 h-4" />
     </button>
   )
 }
 
 /** 文件变更面板开关按钮（badge 显示未读变更文件数） */
 function ChangePanelToggleButton() {
+  const { t } = useI18n()
   const { changePanelOpen, setChangePanelOpen, unreadChangeCount, clearUnreadChanges } =
     useAppStore()
   return (
@@ -75,19 +68,16 @@ function ChangePanelToggleButton() {
         setChangePanelOpen(next)
         if (next) clearUnreadChanges()
       }}
-      title="文件变更面板"
+      title={t('app.changesPanel')}
       className={`relative p-1.5 rounded-md transition-colors ${
         changePanelOpen
-          ? 'text-white bg-bg-hover'
-          : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
+          ? 'text-text-primary bg-bg-hover'
+          : 'text-muted-icon hover:text-text-primary hover:bg-bg-hover'
       }`}
     >
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 12.25l4.5-4.5 4.5 4.5M12 7.75v9.5" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 4.5h15" opacity={0.4} />
-      </svg>
+      <IconChanges className="w-4 h-4" />
       {unreadChangeCount > 0 && (
-        <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[#3b82f6] px-0.5 text-[9px] font-medium leading-none text-white">
+        <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-info px-0.5 text-[9px] font-medium leading-none text-white">
           {unreadChangeCount > 99 ? '99+' : unreadChangeCount}
         </span>
       )}
@@ -113,9 +103,7 @@ function FileTreePanel({
       <div className="flex items-center justify-between px-3 py-2 border-b border-border-custom">
         <span className="text-xs font-medium text-text-secondary">{t('files.title')}</span>
         <button onClick={onClose} className="text-text-muted hover:text-text-primary">
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <IconX className="w-3.5 h-3.5" strokeWidth={2} />
         </button>
       </div>
       <div className="px-2 py-1.5 border-b border-border-custom">
@@ -123,7 +111,7 @@ function FileTreePanel({
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           placeholder={t('files.searchPlaceholder')}
-          className="w-full rounded bg-bg-hover px-2 py-1 text-xs text-text-primary placeholder:text-text-muted outline-none focus:ring-1 focus:ring-[#3b82f6]"
+          className="w-full rounded bg-bg-hover px-2 py-1 text-xs text-text-primary placeholder:text-text-muted outline-none focus:ring-1 focus:ring-info"
         />
       </div>
       <div className="flex-1 overflow-y-auto">
@@ -195,17 +183,11 @@ function FilePreviewToggleButton() {
       title={t('statusbar.toggleFilePreview')}
       className={`p-1.5 rounded-md transition-colors ${
         active
-          ? 'text-white bg-bg-hover'
-          : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'
-      } disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[#8a8a8f]`}
+          ? 'text-text-primary bg-bg-hover'
+          : 'text-muted-icon hover:text-text-primary hover:bg-bg-hover'
+      } disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-icon`}
     >
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M3.75 3.75v16.5a.75.75 0 00.75.75H19.5a.75.75 0 00.75-.75V3.75a.75.75 0 00-.75-.75H4.5a.75.75 0 00-.75.75zM14.25 3.75v16.5"
-        />
-      </svg>
+      <IconFilePreview className="w-4 h-4" />
     </button>
   )
 }
@@ -222,6 +204,7 @@ export default function App() {
   const [terminalMounted, setTerminalMounted] = useState(false)
   const [showFileTree, setShowFileTree] = useState(false)
   const [fileSearchQuery, setFileSearchQuery] = useState('')
+  const { t } = useI18n()
 
   useEffect(() => {
     // Apply saved theme on startup + sync general prefs to main process (proxy/cert)
@@ -297,7 +280,7 @@ export default function App() {
   }
 
   return (
-    <I18nProvider>
+    <>
     {auth.checking ? (
       <div className="flex h-full items-center justify-center bg-[#080b10]">
         <div className="flex flex-col items-center gap-4 text-[#8fa1b3]">
@@ -326,7 +309,7 @@ export default function App() {
             minWidth={SIDEBAR_MIN}
             maxWidth={SIDEBAR_MAX}
             onResize={setSidebarWidth}
-            label="拖拽调整侧栏宽度"
+            label={t('app.dragResizeSidebar')}
             style={{ left: sidebarWidth }}
           />
         </div>
@@ -341,12 +324,10 @@ export default function App() {
           <PanelToggleButton />
           <button
             onClick={() => setShowFileTree((v) => !v)}
-            title="文件浏览器"
-            className={`p-1.5 rounded-md transition-colors ${showFileTree ? 'text-white bg-bg-hover' : 'text-[#8a8a8f] hover:text-white hover:bg-bg-hover'}`}
+            title={t('app.fileBrowser')}
+            className={`p-1.5 rounded-md transition-colors ${showFileTree ? 'text-text-primary bg-bg-hover' : 'text-muted-icon hover:text-text-primary hover:bg-bg-hover'}`}
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-            </svg>
+            <IconFolder className="w-4 h-4" />
           </button>
           <ChangePanelToggleButton />
           <div className="w-px h-4 bg-border-custom mx-0.5" />
@@ -359,13 +340,11 @@ export default function App() {
         {sidebarCollapsed && (
           <div className="drag-region h-12 flex items-center px-3 shrink-0">
             <button
-              className="no-drag ml-20 p-1 rounded-md text-[#8a8a8f] hover:text-text-primary hover:bg-bg-hover transition-colors"
+              className="no-drag ml-20 p-1 rounded-md text-muted-icon hover:text-text-primary hover:bg-bg-hover transition-colors"
               onClick={() => setSidebarCollapsed(false)}
-              title="展开侧边栏"
+              title={t('app.expandSidebar')}
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
-              </svg>
+              <IconChevronRight className="w-4 h-4" />
             </button>
           </div>
         )}
@@ -443,6 +422,6 @@ export default function App() {
       />
     </div>
     )}
-    </I18nProvider>
+    </>
   )
 }

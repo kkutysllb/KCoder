@@ -21,7 +21,7 @@
 
 import { spawn, type ChildProcess } from 'child_process'
 import { app } from 'electron'
-import { existsSync, mkdirSync } from 'fs'
+import { createWriteStream, existsSync, mkdirSync, type WriteStream } from 'fs'
 import { homedir } from 'os'
 import { join, resolve } from 'path'
 
@@ -68,6 +68,18 @@ interface RunningHandle {
 }
 
 let _running: RunningHandle | null = null
+
+// 开发调试日志：sidecar 的 stdout/stderr 同时写进 <repo>/logs/kcoder-debug.log，
+// 每次 startQiLin 覆盖（flags:'w' 截断），便于在终端之外快速翻找诊断信息。
+let _debugLogStream: WriteStream | null = null
+
+function openDebugLog(repoRoot: string): WriteStream {
+  const logDir = join(repoRoot, 'logs')
+  mkdirSync(logDir, { recursive: true })
+  const stream = createWriteStream(join(logDir, 'kcoder-debug.log'), { flags: 'w' })
+  stream.write(`=== KCoder debug log — ${new Date().toISOString()} ===\n`)
+  return stream
+}
 
 /**
  * 定位 Python 解释器。优先级：
@@ -131,6 +143,14 @@ export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: nu
     console.warn('[KCoder] QiLin sidecar already running on port', _running.gatewayPort)
     return { port: _running.gatewayPort }
   }
+
+  // 打开调试日志（每次启动覆盖）；dev 模式写到仓库根 logs/，打包模式落到数据根 logs/
+  const repoRoot = app.isPackaged
+    ? (config.dataDir || resolveAppDataDir())
+    : resolve(__dirname, '..', '..', '..')
+  _debugLogStream?.end()
+  _debugLogStream = openDebugLog(repoRoot)
+  console.log(`[KCoder] Debug log: ${join(repoRoot, 'logs', 'kcoder-debug.log')}`)
 
   const runtimeDir = resolveRuntimeDir(config)
   if (!existsSync(runtimeDir)) {
@@ -250,21 +270,30 @@ export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: nu
   return { port: gatewayPort }
 }
 
-/** 转发子进程 stdout/stderr 到主进程日志（加前缀便于区分）。 */
+/** 转发子进程 stdout/stderr 到主进程日志 + 调试日志文件（加前缀便于区分）。 */
 function forwardLogs(child: ChildProcess, prefix: string): void {
+  const toFile = (line: string): void => {
+    _debugLogStream?.write(line + '\n')
+  }
   child.stdout?.on('data', (chunk: Buffer) => {
     chunk
       .toString('utf8')
       .split('\n')
       .filter(Boolean)
-      .forEach((line) => console.log(`[${prefix}] ${line}`))
+      .forEach((line) => {
+        console.log(`[${prefix}] ${line}`)
+        toFile(`[${prefix}] ${line}`)
+      })
   })
   child.stderr?.on('data', (chunk: Buffer) => {
     chunk
       .toString('utf8')
       .split('\n')
       .filter(Boolean)
-      .forEach((line) => console.error(`[${prefix}!] ${line}`))
+      .forEach((line) => {
+        console.error(`[${prefix}!] ${line}`)
+        toFile(`[${prefix}!] ${line}`)
+      })
   })
 }
 
@@ -324,6 +353,8 @@ export async function stopQiLin(): Promise<void> {
   await killChild(langgraphChild, 'langgraph dev')
 
   _running = null
+  _debugLogStream?.end()
+  _debugLogStream = null
 }
 
 /** SIGTERM 一个子进程，3s 兜底 SIGKILL。 */

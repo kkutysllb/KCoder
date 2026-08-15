@@ -114,7 +114,7 @@ export function PluginsSettings() {
             <div>
               <div className="flex items-center gap-2.5">
                 <h1 className="text-lg font-semibold text-text-primary">{t('settings.plugins.title')}</h1>
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-[#3b82f6] text-white">
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-info text-white">
                   {t('settings.plugins.beta')}
                 </span>
               </div>
@@ -307,7 +307,7 @@ function PluginCard({
         {/* Toggle: gray track + white knob (matches General page reference) */}
         <button
           onClick={onToggle}
-          className={`relative shrink-0 rounded-full transition-colors duration-200 ${plugin.enabled ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'}`}
+          className={`relative shrink-0 rounded-full transition-colors duration-200 ${plugin.enabled ? 'bg-border-strong' : 'bg-bg-active'}`}
           style={{ width: 48, height: 28 }}
           title={plugin.enabled ? t('settings.plugins.disable') : t('settings.plugins.enable')}
         >

@@ -294,7 +294,7 @@ function FormFieldInput({
           >
             {!isMulti && <option value="">— 请选择 —</option>}
             {options.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
+              <option key={opt.id ?? opt.value} value={opt.value}>{opt.label ?? opt.value}</option>
             ))}
           </select>
         </label>

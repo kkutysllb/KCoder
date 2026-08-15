@@ -47,12 +47,20 @@ interface AppState {
   pendingNewBranch: string | null
   /** 模型配置变更计数器（设置页保存后递增，触发聊天框刷新模型列表） */
   modelVersion: number
+  /** 线程列表版本号（新建线程 / turn 完成后递增，触发侧边栏刷新历史列表） */
+  threadListVersion: number
   /** 侧边栏宽度（拖拽持久化） */
   sidebarWidth: number
   /** 设置面板左侧 nav 宽度（拖拽持久化） */
   settingsNavWidth: number
   /** 推理深度（每次 turn 生效）：auto=默认 / off=关闭思考 / low|medium|high=显式强度 */
   reasoningMode: 'auto' | 'off' | 'low' | 'medium' | 'high'
+  /**
+   * 执行权限模式（每次 turn 生效，引擎 PermissionMiddleware 拦截）：
+   * plan-mode=只读分析 / auto-edit=编辑放行+危险命令拒绝（默认）/
+   * confirm-before-change=变更前审批 / full-access=完全放行
+   */
+  permissionMode: 'plan-mode' | 'auto-edit' | 'confirm-before-change' | 'full-access'
 
   // 交互请求（审批 + 结构化输入）— 后端发 SSE 事件，前端需用户响应
   //
@@ -123,8 +131,11 @@ interface AppState {
   setSelectedBranch: (branch: string | null) => void
   setSelectedModel: (model: string | null) => void
   bumpModelVersion: () => void
+  /** 递增线程列表版本号（触发侧边栏重新加载历史列表） */
+  bumpThreadListVersion: () => void
   setPendingNewBranch: (branch: string | null) => void
   setReasoningMode: (mode: 'auto' | 'off' | 'low' | 'medium' | 'high') => void
+  setPermissionMode: (mode: 'plan-mode' | 'auto-edit' | 'confirm-before-change' | 'full-access') => void
   setSidebarWidth: (width: number) => void
   setSettingsNavWidth: (width: number) => void
   setPendingApproval: (approval: ApprovalRequest | null) => void
@@ -192,7 +203,9 @@ export const useAppStore = create<AppState>((set) => ({
   selectedBranch: null,
   selectedModel: null,
   modelVersion: 0,
+  threadListVersion: 0,
   reasoningMode: 'auto',
+  permissionMode: 'auto-edit',
   sidebarWidth: 240,
   settingsNavWidth: 200,
   pendingNewBranch: null,
@@ -248,8 +261,10 @@ export const useAppStore = create<AppState>((set) => ({
   setSelectedBranch: (branch) => set({ selectedBranch: branch }),
   setSelectedModel: (model) => set({ selectedModel: model }),
   bumpModelVersion: () => set((state) => ({ modelVersion: state.modelVersion + 1 })),
+  bumpThreadListVersion: () => set((state) => ({ threadListVersion: state.threadListVersion + 1 })),
   setPendingNewBranch: (branch) => set({ pendingNewBranch: branch }),
   setReasoningMode: (mode) => set({ reasoningMode: mode }),
+  setPermissionMode: (mode) => set({ permissionMode: mode }),
   setSidebarWidth: (width) => set({ sidebarWidth: width }),
   setSettingsNavWidth: (width) => set({ settingsNavWidth: width }),
 

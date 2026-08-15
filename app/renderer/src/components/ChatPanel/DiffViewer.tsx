@@ -151,10 +151,10 @@ function statusText(status: FileChange['status']): string {
 }
 
 const STATUS_STYLE: Record<FileChange['status'], { badge: string; dot: string }> = {
-  created: { badge: 'text-[#22c55e] bg-[#22c55e]/10', dot: 'bg-[#22c55e]' },
-  modified: { badge: 'text-[#eab308] bg-[#eab308]/10', dot: 'bg-[#eab308]' },
-  deleted: { badge: 'text-[#ef4444] bg-[#ef4444]/10', dot: 'bg-[#ef4444]' },
-  symlink_created: { badge: 'text-[#3b82f6] bg-[#3b82f6]/10', dot: 'bg-[#3b82f6]' }
+  created: { badge: 'text-success bg-success/10', dot: 'bg-success' },
+  modified: { badge: 'text-warning bg-warning/10', dot: 'bg-warning' },
+  deleted: { badge: 'text-danger bg-danger/10', dot: 'bg-danger' },
+  symlink_created: { badge: 'text-info bg-info/10', dot: 'bg-info' }
 }
 
 // ── 行渲染 ─────────────────────────────────────────────────────
@@ -162,13 +162,13 @@ const STATUS_STYLE: Record<FileChange['status'], { badge: string; dot: string }>
 function lineClass(type: DiffLineType): string {
   switch (type) {
     case 'add':
-      return 'bg-[rgba(34,197,94,0.12)] text-[#7ee2a8]'
+      return 'bg-success/10 text-diff-add-text'
     case 'del':
-      return 'bg-[rgba(239,68,68,0.12)] text-[#fca5a5]'
+      return 'bg-danger/10 text-diff-del-text'
     case 'hunk':
-      return 'bg-[rgba(59,130,246,0.15)] text-[#93c5fd]'
+      return 'bg-info/15 text-diff-hunk-text'
     case 'header':
-      return 'bg-[rgba(255,255,255,0.04)] text-text-muted'
+      return 'bg-bg-hover/30 text-text-muted'
     case 'meta':
       return 'text-text-muted/60 italic'
     default:
@@ -237,8 +237,8 @@ export function DiffViewer({ change, onClose }: DiffViewerProps) {
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2 font-mono text-[11px] tabular-nums">
-          {change.additions > 0 && <span className="text-[#22c55e]">+{change.additions}</span>}
-          {change.deletions > 0 && <span className="text-[#ef4444]">-{change.deletions}</span>}
+          {change.additions > 0 && <span className="text-success">+{change.additions}</span>}
+          {change.deletions > 0 && <span className="text-danger">-{change.deletions}</span>}
           {change.diff_truncated && (
             <span className="text-[10px] text-text-muted" title="差异被截断">
               truncated
@@ -266,7 +266,7 @@ export function DiffViewer({ change, onClose }: DiffViewerProps) {
                   <button
                     key={`fold-${block.start}`}
                     onClick={() => toggleBlock(blockIdx)}
-                    className="block w-full cursor-pointer bg-[rgba(255,255,255,0.03)] px-3 py-1 text-center font-sans text-[11px] text-[#3b82f6] hover:bg-[rgba(59,130,246,0.08)]"
+                    className="block w-full cursor-pointer bg-bg-hover/20 px-3 py-1 text-center font-sans text-[11px] text-info hover:bg-info/10"
                   >
                     {isExpanded
                       ? '▲ 收起'

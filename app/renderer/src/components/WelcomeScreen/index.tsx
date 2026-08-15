@@ -60,7 +60,7 @@ export function WelcomeScreen({ onSend, disabled }: WelcomeScreenProps) {
             key={tip.text}
             onClick={() => onSend(tip.text)}
             disabled={disabled}
-            className="group flex flex-col gap-2 rounded-xl border border-border-custom bg-bg-surface/30 px-3.5 py-3 text-left transition-all hover:border-[#3b82f6]/40 hover:bg-bg-hover disabled:opacity-50"
+            className="group flex flex-col gap-2 rounded-xl border border-border-custom bg-bg-surface/30 px-3.5 py-3 text-left transition-all hover:border-info/40 hover:bg-bg-hover disabled:opacity-50"
           >
             <TipIcon name={tip.icon} />
             <span className="text-xs leading-snug text-text-secondary group-hover:text-text-primary">
@@ -74,7 +74,7 @@ export function WelcomeScreen({ onSend, disabled }: WelcomeScreenProps) {
 }
 
 function TipIcon({ name }: { name: string }) {
-  const cls = 'h-4 w-4 text-[#60a5fa]'
+  const cls = 'h-4 w-4 text-info'
   if (name === 'arch') {
     return (
       <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>

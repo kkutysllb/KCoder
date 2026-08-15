@@ -115,7 +115,7 @@ export function RuntimeConfigCard({
         ))}
       </div>
       {error && (
-        <div className="px-3 py-2 rounded-lg bg-[#ef4444]/10 text-[#ef4444] text-xs">{error}</div>
+        <div className="px-3 py-2 rounded-lg bg-danger/10 text-danger text-xs">{error}</div>
       )}
       {showSavedHint && (
         <div className="px-3 py-1.5 rounded-lg bg-green-500/10 text-green-500 text-[11px]">

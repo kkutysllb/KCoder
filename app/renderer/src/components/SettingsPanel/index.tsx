@@ -251,7 +251,7 @@ export function SettingsPanel({ isOpen, initialNav, onClose }: SettingsPanelProp
         {/* Engine status */}
         <div className="px-4 py-3 border-t border-border-custom">
           <div className="flex items-center gap-2 text-xs text-text-muted">
-            <span className={`w-2 h-2 rounded-full ${engineStatus === 'connected' ? 'bg-[#22c55e]' : 'bg-[#ef4444]'}`} />
+            <span className={`w-2 h-2 rounded-full ${engineStatus === 'connected' ? 'bg-success' : 'bg-danger'}`} />
             {t('settings.engine')}{engineStatus === 'connected' ? t('settings.engineConnected') : t('settings.engineDisconnected')} · :{enginePort}
           </div>
         </div>
@@ -365,7 +365,7 @@ function ModelSettings({
       </div>
 
       {/* 配置注入提示条：保存后自动写入引擎 config.yaml，新对话生效 */}
-      <div className="mx-8 mb-2 px-3 py-1.5 rounded-lg bg-[#22c55e]/10 border border-[#22c55e]/20 text-xs text-[#86efac]">
+      <div className="mx-8 mb-2 px-3 py-1.5 rounded-lg bg-success/10 border border-success/20 text-xs text-[#86efac]">
         {t('settings.model.injectActive')}
       </div>
 
@@ -378,8 +378,8 @@ function ModelSettings({
               <>
                 {/* 激活模型徽章 */}
                 {active && (
-                  <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[#22c55e]/10 border border-[#22c55e]/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e]" />
+                  <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-success/10 border border-success/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-success" />
                     <span className="text-xs text-[#86efac] font-medium">{active.display_name || active.name}</span>
                     <span className="text-[10px] text-[#86efac]/60 font-mono">{active.model}</span>
                   </div>
@@ -425,7 +425,7 @@ function ModelSettings({
                       >
                         <ProviderIcon name={preset.displayName} />
                         <span className="flex-1 text-left truncate">{preset.displayName}</span>
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${rt.enabled ? 'bg-[#22c55e]' : 'bg-[#3f3f46]'}`} />
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${rt.enabled ? 'bg-success' : 'bg-[#3f3f46]'}`} />
                       </button>
                     )
                   })}
@@ -531,7 +531,7 @@ function ProviderDetail({
         <h2 className="text-base font-semibold text-text-primary">{preset.displayName}</h2>
         {patched && (
           <span
-            className="px-2 py-0.5 rounded text-[11px] font-medium bg-[#3b82f6]/10 text-[#3b82f6] border border-[#3b82f6]/30"
+            className="px-2 py-0.5 rounded text-[11px] font-medium bg-info/10 text-info border border-info/30"
             title={preset.notes}
           >
             {t('settings.model.patched')}
@@ -540,7 +540,7 @@ function ProviderDetail({
         <span
           className={`px-2 py-0.5 rounded text-xs font-medium ${
             runtime.enabled
-              ? 'bg-[#22c55e]/10 text-[#22c55e] border border-[#22c55e]/20'
+              ? 'bg-success/10 text-success border border-success/20'
               : 'bg-[#3f3f46]/30 text-text-muted border border-border-strong'
           }`}
         >
@@ -565,7 +565,7 @@ function ProviderDetail({
           onClick={() => hasModel && onToggle(runtime.presetId)}
           disabled={!hasModel}
           className={`relative rounded-full transition-colors duration-200 ${
-            runtime.enabled ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'
+            runtime.enabled ? 'bg-border-strong' : 'bg-bg-active'
           } ${!hasModel ? 'cursor-not-allowed' : 'cursor-pointer'}`}
           style={{ width: 48, height: 28 }}
         >
@@ -613,7 +613,7 @@ function ProviderDetail({
         <button
           onClick={handleDiscover}
           disabled={discovering}
-          className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-[13px] font-medium bg-[#3b82f6] text-white hover:bg-[#2563eb] disabled:opacity-50 transition-colors"
+          className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-[13px] font-medium bg-info text-white hover:bg-[#2563eb] disabled:opacity-50 transition-colors"
         >
           {discovering ? (
             <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">
@@ -628,7 +628,7 @@ function ProviderDetail({
           {discovering ? t('settings.model.discover.loading') : t('settings.model.discover.button')}
         </button>
         {discoverError && (
-          <p className="text-xs text-[#ef4444]">{discoverError}</p>
+          <p className="text-xs text-danger">{discoverError}</p>
         )}
       </div>
 
@@ -643,7 +643,7 @@ function ProviderDetail({
                 onClick={() => onSelectModel(runtime.presetId, modelId)}
                 className={`px-2.5 py-1 rounded-lg text-xs font-mono border transition-colors ${
                   runtime.selectedModel === modelId
-                    ? 'bg-[#3b82f6]/10 text-[#3b82f6] border-[#3b82f6]/40'
+                    ? 'bg-info/10 text-info border-info/40'
                     : 'bg-bg-hover text-text-secondary border-border-custom hover:text-text-primary hover:border-border-strong'
                 }`}
               >
@@ -666,14 +666,14 @@ function ProviderDetail({
                 key={m.id}
                 className={`flex items-center justify-between px-3 py-1.5 rounded-lg border transition-colors ${
                   runtime.selectedModel === m.id
-                    ? 'bg-[#3b82f6]/10 border-[#3b82f6]/40'
+                    ? 'bg-info/10 border-info/40'
                     : 'bg-bg-hover border-border-custom'
                 }`}
               >
                 <span className="text-sm text-text-primary font-mono truncate">{m.id}</span>
                 <button
                   onClick={() => onSelectModel(runtime.presetId, m.id)}
-                  className="shrink-0 ml-2 px-2 py-0.5 rounded text-[11px] font-medium bg-[#3b82f6]/10 text-[#3b82f6] border border-[#3b82f6]/30 hover:bg-[#3b82f6]/20 transition-colors"
+                  className="shrink-0 ml-2 px-2 py-0.5 rounded text-[11px] font-medium bg-info/10 text-info border border-info/30 hover:bg-info/20 transition-colors"
                 >
                   {runtime.selectedModel === m.id ? t('settings.model.discover.selected') : t('settings.model.discover.add')}
                 </button>
@@ -724,7 +724,7 @@ function ProviderDetail({
           <button
             onClick={() => onToggleThinking(runtime.presetId, !runtime.thinkingEnabled)}
             className={`relative rounded-full transition-colors duration-200 cursor-pointer ${
-              runtime.thinkingEnabled ? 'bg-[#4d4d57]' : 'bg-[#3a3a42]'
+              runtime.thinkingEnabled ? 'bg-border-strong' : 'bg-bg-active'
             }`}
             style={{ width: 48, height: 28 }}
           >
@@ -796,7 +796,7 @@ function CapabilityBadge({ label, supported }: { label: string; supported: boole
     <div className="flex items-center gap-2.5 rounded-lg bg-bg-hover border border-border-custom px-3 py-2.5">
       <div className="min-w-0 flex-1">
         <p className="text-[10px] text-text-muted uppercase tracking-wide">{label}</p>
-        <p className={`text-xs font-medium ${supported ? 'text-[#22c55e]' : 'text-text-muted'}`}>
+        <p className={`text-xs font-medium ${supported ? 'text-success' : 'text-text-muted'}`}>
           {supported ? '✓' : '—'}
         </p>
       </div>
@@ -1118,8 +1118,8 @@ function GeneralSettings() {
           <h2 className="text-sm font-semibold text-text-primary">{t('settings.general.engineConfig')}</h2>
 
           {/* database 重启提示 */}
-          <div className="flex items-start gap-2 rounded-lg border border-[#f59e0b]/30 bg-[#f59e0b]/5 px-3 py-2.5">
-            <svg className="w-4 h-4 text-[#f59e0b] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <div className="flex items-start gap-2 rounded-lg border border-amber/30 bg-amber/5 px-3 py-2.5">
+            <svg className="w-4 h-4 text-amber shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
             </svg>
             <p className="text-[11px] text-text-secondary leading-relaxed">{t('settings.general.dbRestartHint')}</p>
@@ -1287,7 +1287,7 @@ function ToggleControl({ checked, onChange }: { checked: boolean; onChange: (v: 
         onChange={(e) => onChange(e.target.checked)}
       />
       <div
-        className="rounded-full bg-[#3a3a42] peer-checked:bg-[#4d4d57] transition-colors duration-200"
+        className="rounded-full bg-bg-active peer-checked:bg-border-strong transition-colors duration-200"
         style={{ width: 48, height: 28 }}
       />
       <div
@@ -1487,7 +1487,7 @@ function CodePreviewSettings() {
                     max={24}
                     value={prefs.fontSize}
                     onChange={(e) => update('fontSize', parseInt(e.target.value, 10))}
-                    className="w-32 accent-[#3b82f6]"
+                    className="w-32 accent-info"
                   />
                   <span className="text-sm text-text-primary w-6 text-right">{prefs.fontSize}</span>
                 </div>
@@ -1672,7 +1672,7 @@ function ProviderIcon({ name, size = 'sm' }: { name: string; size?: 'sm' | 'lg' 
     BigModel: 'bg-[#4f8ef7]',
     DeepSeek: 'bg-[#6366f1]',
     MiniMax: 'bg-[#8b5cf6]',
-    vLLM: 'bg-[#f59e0b]',
+    vLLM: 'bg-amber',
     GPT: 'bg-[#10a37f]',
     Claude: 'bg-[#d97706]',
   }

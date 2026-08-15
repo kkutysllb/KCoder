@@ -183,24 +183,53 @@ class BranchCreateRequest(BaseModel):
     """POST /v1/workspace/branch 请求体。"""
 
     path: str = Field(..., description="工作区绝对路径")
-    name: str = Field(..., min_length=1, description="新分支名")
+    name: str = Field(..., min_length=1, description="目标分支名")
     base: str | None = Field(default=None, description="起点（分支名/commit），默认当前 HEAD")
+    create: bool = Field(
+        default=True,
+        description="True=创建并检出新分支（checkout -b）；False=检出已有分支（checkout）",
+    )
 
 
 @router.post("/branch")
 async def create_branch(req: BranchCreateRequest) -> dict[str, Any]:
-    """POST /v1/workspace/branch → 创建并检出新分支（git checkout -b）.
+    """POST /v1/workspace/branch → 创建新分支或检出已有分支.
 
-    返回 ``{ path, branch, created }``。分支已存在时返回 409；git 不可用或
-    非 git 仓库返回 400。失败信息附在 ``detail``。
+    - ``create=True``（默认）：``git checkout -b name [base]``。分支已存在返回 409。
+    - ``create=False``：``git checkout name``（检出已有分支）。工作区有未提交
+      变更时返回 409（避免变更被悄悄带到另一分支）；分支不存在返回 404。
+
+    返回 ``{ path, branch, created }``。git 不可用或非 git 仓库返回 400。
+    失败信息附在 ``detail``。
     """
     cwd = _resolve_repo_or_400(req.path)
     # 先校验分支名是否已存在（git check-ref-format + rev-parse）
     ok_existing, _ = _run_git(cwd, "rev-parse", "--verify", f"refs/heads/{req.name}")
     if ok_existing:
+        if req.create:
+            raise HTTPException(
+                status_code=409,
+                detail=f"branch already exists: {req.name!r}",
+            )
+        # 检出已有分支：脏工作区保护——未提交变更会被悄悄带到目标分支，
+        # 产品层要求先提交/撤销再切换。
+        ok_dirty, dirty = _run_git(cwd, "status", "--porcelain")
+        if ok_dirty and dirty:
+            raise HTTPException(
+                status_code=409,
+                detail="workspace has uncommitted changes; commit or revert before switching branches",
+            )
+        ok, out = _run_git(cwd, "checkout", req.name)
+        if not ok:
+            raise HTTPException(
+                status_code=400,
+                detail=f"failed to checkout branch {req.name!r}: {out or 'git error'}",
+            )
+        return {"path": cwd, "branch": req.name, "created": False}
+    if not req.create:
         raise HTTPException(
-            status_code=409,
-            detail=f"branch already exists: {req.name!r}",
+            status_code=404,
+            detail=f"branch not found: {req.name!r}",
         )
     args = ["checkout", "-b", req.name]
     if req.base:

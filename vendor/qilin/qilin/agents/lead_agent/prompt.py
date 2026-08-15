@@ -603,6 +603,7 @@ User: "staging"
 You: "Deploying to staging..." [proceed]
 </clarification_system>
 
+{permission_mode_section}
 {skills_section}
 {memory_tool_section}
 
@@ -1030,6 +1031,7 @@ def apply_prompt_template(
     mcp_tools: list | None = None,
     user_id: str | None = None,
     skill_names: frozenset[str] | None = None,
+    permission_mode: str | None = None,
 ) -> str:
     # Include subagent section only if enabled (from runtime parameter)
     n = clamp_subagent_concurrency(max_concurrent_subagents)
@@ -1090,6 +1092,28 @@ def apply_prompt_template(
 
     memory_tool_section = _build_memory_tool_section(app_config=app_config)
 
+    # 权限模式说明：confirm-before-change 下，文件改动/命令由系统自动弹审批卡，
+    # 模型不应再为「确认变更」调用 ask_clarification（否则会出现审批卡+澄清卡
+    # 两个重叠的确认 UI）。仅在该模式下注入这段，其它模式保持原提示词不变。
+    permission_mode_section = (
+        "<permission_mode>\n"
+        "This run is in **confirm-before-change** mode: file modifications and shell "
+        "commands will NOT run immediately. The system automatically pauses and asks "
+        "the user for approval (an interactive approval dialog) before each mutating "
+        "tool call. Therefore:\n"
+        "- Do NOT call `ask_clarification` merely to confirm a change (e.g. \"should I "
+        "create/edit/delete this file?\" or \"should I run this command?\"). The approval "
+        "dialog already handles that confirmation.\n"
+        "- Just call the tool directly (e.g. `write_file`, `bash`); the system will "
+        "pause and surface the approval prompt to the user automatically.\n"
+        "- Only use `ask_clarification` for genuinely missing information, ambiguous "
+        "requirements, or approach choices — not for risk/change confirmation, which "
+        "the approval flow already covers.\n"
+        "</permission_mode>"
+        if permission_mode == "confirm-before-change"
+        else ""
+    )
+
     # Build and return the fully static system prompt.
     # Memory and current date are injected per-turn via DynamicContextMiddleware
     # as a <system-reminder> in the first HumanMessage, keeping this prompt
@@ -1108,4 +1132,5 @@ def apply_prompt_template(
         skill_first_reminder=skill_first_reminder,
         subagent_thinking=subagent_thinking,
         acp_section=acp_and_mounts_section,
+        permission_mode_section=permission_mode_section,
     )

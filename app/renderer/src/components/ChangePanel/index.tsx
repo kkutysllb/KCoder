@@ -6,6 +6,7 @@
 
 import { useState } from 'react'
 import { useAppStore } from '../../stores/app-store'
+import { useI18n } from '../../i18n'
 import type { FileChangesPayload, FileChange } from '../../lib/chatMessage'
 import { DiffViewer } from '../ChatPanel/DiffViewer'
 
@@ -16,13 +17,14 @@ interface ChangeEntry {
 }
 
 const STATUS_DOT: Record<FileChange['status'], string> = {
-  created: 'bg-[#22c55e]',
-  modified: 'bg-[#eab308]',
-  deleted: 'bg-[#ef4444]',
-  symlink_created: 'bg-[#3b82f6]'
+  created: 'bg-success',
+  modified: 'bg-warning',
+  deleted: 'bg-danger',
+  symlink_created: 'bg-info'
 }
 
 export function ChangePanel() {
+  const { t } = useI18n()
   const { changePanelOpen, setChangePanelOpen, messages_v2 } = useAppStore()
 
   if (!changePanelOpen) return null
@@ -33,16 +35,16 @@ export function ChangePanel() {
     .reverse()
 
   return (
-    <aside className="fixed top-12 right-3 z-50 flex w-[440px] max-h-[calc(100vh-60px)] flex-col overflow-hidden rounded-xl border border-[rgba(255,255,255,0.13)] bg-[rgba(30,33,36,0.94)] shadow-2xl backdrop-blur-md">
+    <aside className="fixed top-12 right-3 z-50 flex w-[440px] max-h-[calc(100vh-60px)] flex-col overflow-hidden rounded-xl border border-float-border bg-float-bg shadow-2xl backdrop-blur-md">
       {/* 头部 */}
       <div className="flex shrink-0 items-center justify-between px-4 pt-3 pb-2">
         <h2 className="text-[11px] font-medium uppercase tracking-wider text-text-muted">
-          文件变更
+          {t('changes.title')}
         </h2>
         <button
           onClick={() => setChangePanelOpen(false)}
           className="rounded p-1 text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary"
-          title="关闭"
+          title={t('common.close')}
         >
           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -54,9 +56,9 @@ export function ChangePanel() {
       <div className="flex-1 overflow-y-auto px-3 pb-3">
         {entries.length === 0 ? (
           <div className="px-2 py-8 text-center text-xs text-text-muted">
-            暂无文件变更记录
+            {t('changes.empty')}
             <p className="mt-1 text-[11px] text-text-muted/60">
-              让 agent 修改 workspace 文件后，每轮变更会出现在这里
+              {t('changes.emptyHint')}
             </p>
           </div>
         ) : (
@@ -74,18 +76,19 @@ export function ChangePanel() {
 // ─── 单轮变更分组 ───────────────────────────────────────────────
 
 function ChangeEntryItem({ entry }: { entry: ChangeEntry }) {
+  const { t, locale } = useI18n()
   const [expanded, setExpanded] = useState(false)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
 
   const { summary, files } = entry.changes
-  const time = new Date(entry.createdAt).toLocaleTimeString('zh-CN', {
+  const time = new Date(entry.createdAt).toLocaleTimeString(locale === 'en' ? 'en-US' : 'zh-CN', {
     hour: '2-digit',
     minute: '2-digit'
   })
   const selected = files.find((f) => f.path === selectedPath) ?? null
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[rgba(255,255,255,0.08)]">
+    <div className="overflow-hidden rounded-lg border border-border-subtle">
       {/* 组头：时间 + 统计 */}
       <button
         onClick={() => setExpanded((v) => !v)}
@@ -94,12 +97,12 @@ function ChangeEntryItem({ entry }: { entry: ChangeEntry }) {
         <span className="text-[10px] text-text-muted">{time}</span>
         <span className="flex items-center gap-1.5 font-mono text-[11px] tabular-nums">
           {summary.additions > 0 && (
-            <span className="text-[#22c55e]">+{summary.additions}</span>
+            <span className="text-success">+{summary.additions}</span>
           )}
           {summary.deletions > 0 && (
-            <span className="text-[#ef4444]">-{summary.deletions}</span>
+            <span className="text-danger">-{summary.deletions}</span>
           )}
-          <span className="text-text-secondary">· {files.length} files</span>
+          <span className="text-text-secondary">· {t('changes.fileCount', { n: files.length })}</span>
         </span>
         <svg
           className={`ml-auto h-3 w-3 text-text-muted transition-transform ${expanded ? 'rotate-180' : ''}`}
@@ -113,7 +116,7 @@ function ChangeEntryItem({ entry }: { entry: ChangeEntry }) {
       </button>
 
       {expanded && (
-        <div className="border-t border-[rgba(255,255,255,0.06)]">
+        <div className="border-t border-border-subtle">
           {files.map((file) => (
             <div key={file.path}>
               <button
@@ -130,10 +133,10 @@ function ChangeEntryItem({ entry }: { entry: ChangeEntry }) {
                 </span>
                 <span className="shrink-0 font-mono text-[10px] tabular-nums">
                   {file.additions > 0 && (
-                    <span className="text-[#22c55e]">+{file.additions}</span>
+                    <span className="text-success">+{file.additions}</span>
                   )}
                   {file.deletions > 0 && (
-                    <span className="ml-1 text-[#ef4444]">-{file.deletions}</span>
+                    <span className="ml-1 text-danger">-{file.deletions}</span>
                   )}
                 </span>
               </button>

@@ -113,7 +113,7 @@ export function AuthModal({ isOpen, onClose, auth, enginePort }: AuthModalProps)
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder={t('auth.email.placeholder')}
                 autoFocus
-                className="w-full px-3 py-2 rounded-lg bg-bg-primary border border-border-custom text-sm text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:border-[#3b82f6] transition-colors"
+                className="w-full px-3 py-2 rounded-lg bg-bg-primary border border-border-custom text-sm text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:border-info transition-colors"
               />
             </div>
 
@@ -125,7 +125,7 @@ export function AuthModal({ isOpen, onClose, auth, enginePort }: AuthModalProps)
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={t('auth.password.placeholder')}
-                className="w-full px-3 py-2 rounded-lg bg-bg-primary border border-border-custom text-sm text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:border-[#3b82f6] transition-colors"
+                className="w-full px-3 py-2 rounded-lg bg-bg-primary border border-border-custom text-sm text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:border-info transition-colors"
               />
             </div>
 
@@ -138,7 +138,7 @@ export function AuthModal({ isOpen, onClose, auth, enginePort }: AuthModalProps)
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
                   placeholder={t('auth.confirm.placeholder')}
-                  className="w-full px-3 py-2 rounded-lg bg-bg-primary border border-border-custom text-sm text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:border-[#3b82f6] transition-colors"
+                  className="w-full px-3 py-2 rounded-lg bg-bg-primary border border-border-custom text-sm text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:border-info transition-colors"
                 />
               </div>
             )}
@@ -152,7 +152,7 @@ export function AuthModal({ isOpen, onClose, auth, enginePort }: AuthModalProps)
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2 rounded-lg bg-[#3b82f6] hover:bg-[#2563eb] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+              className="w-full py-2 rounded-lg bg-info hover:bg-[#2563eb] disabled:opacity-50 text-white text-sm font-medium transition-colors"
             >
               {loading ? t('auth.submitting') : t(submitKey)}
             </button>
@@ -163,7 +163,7 @@ export function AuthModal({ isOpen, onClose, auth, enginePort }: AuthModalProps)
         {!detecting && mode !== 'initialize' && (
           <div className="mt-4 text-center">
             <button
-              className="text-xs text-text-muted hover:text-[#3b82f6] transition-colors"
+              className="text-xs text-text-muted hover:text-info transition-colors"
               onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null) }}
             >
               {mode === 'login' ? t('auth.switch.toRegister') : t('auth.switch.toLogin')}

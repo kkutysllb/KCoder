@@ -118,7 +118,7 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
       onClick={() => setOpen(false)}
     >
       <div
-        className="w-[min(560px,92vw)] rounded-xl bg-[#1d1d21] border border-[#34343a] shadow-2xl overflow-hidden"
+        className="w-[min(560px,92vw)] rounded-xl bg-bg-surface border border-border-custom shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <input
@@ -130,7 +130,7 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
           }}
           onKeyDown={onKeyDown}
           placeholder={t('commandPalette.placeholder')}
-          className="w-full bg-transparent px-4 py-3.5 text-sm text-text-primary placeholder:text-text-muted outline-none border-b border-[#34343a]"
+          className="w-full bg-transparent px-4 py-3.5 text-sm text-text-primary placeholder:text-text-muted outline-none border-b border-border-custom"
         />
         <div ref={listRef} className="max-h-[50vh] overflow-y-auto py-1.5">
           {flat.length === 0 && (
@@ -155,7 +155,7 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
                     onMouseEnter={() => setActive(idx)}
                     onClick={() => run(c)}
                     className={`w-full flex items-center gap-3 px-4 py-2 text-left transition-colors ${
-                      isActive ? 'bg-[#2e2e34] text-text-primary' : 'text-text-secondary'
+                      isActive ? 'bg-bg-active text-text-primary' : 'text-text-secondary'
                     } ${c.disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
                   >
                     {c.icon && <span className="shrink-0 w-4 h-4 flex items-center justify-center text-text-muted">{c.icon}</span>}
@@ -169,7 +169,7 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
             </div>
           ))}
         </div>
-        <div className="px-4 py-2 border-t border-[#34343a] flex items-center gap-3 text-[10px] text-text-muted">
+        <div className="px-4 py-2 border-t border-border-custom flex items-center gap-3 text-[10px] text-text-muted">
           <span>↑↓ {t('commandPalette.navigate')}</span>
           <span>↵ {t('commandPalette.select')}</span>
           <span>esc {t('commandPalette.close')}</span>

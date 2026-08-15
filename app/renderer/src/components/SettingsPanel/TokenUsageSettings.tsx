@@ -285,7 +285,7 @@ function TokenBudgetForm({
       </div>
 
       {error && (
-        <div className="px-3 py-2 rounded-lg bg-[#ef4444]/10 text-[#ef4444] text-xs">{error}</div>
+        <div className="px-3 py-2 rounded-lg bg-danger/10 text-danger text-xs">{error}</div>
       )}
 
       <div className="flex justify-end gap-2 pt-1">
@@ -436,7 +436,7 @@ const MODEL_COLORS = [
 const CALLER_CONFIG = [
   { key: 'lead_agent' as const, color: '#8b5cf6', bg: 'bg-[#8b5cf6]/10', text: 'text-[#8b5cf6]' },
   { key: 'subagent' as const, color: '#06b6d4', bg: 'bg-[#06b6d4]/10', text: 'text-[#06b6d4]' },
-  { key: 'middleware' as const, color: '#f59e0b', bg: 'bg-[#f59e0b]/10', text: 'text-[#f59e0b]' }
+  { key: 'middleware' as const, color: '#f59e0b', bg: 'bg-amber/10', text: 'text-amber' }
 ]
 
 function fmtNum(n: number): string {
@@ -544,8 +544,8 @@ function CacheHitSection({
   return (
     <div className="rounded-xl border border-border-custom bg-bg-surface p-4 space-y-3">
       <h3 className="flex items-center gap-2 text-[13px] font-semibold text-text-primary">
-        <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[#10b981]/10">
-          <svg className="w-3.5 h-3.5 text-[#10b981]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <span className="flex h-6 w-6 items-center justify-center rounded-md bg-teal/10">
+          <svg className="w-3.5 h-3.5 text-teal" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
           </svg>
         </span>
@@ -554,10 +554,10 @@ function CacheHitSection({
 
       {/* 汇总行 */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <StatBox label={t('settings.tokenUsage.cacheHitTokens')} value={fmtNum(totalCacheRead)} tone="text-[#10b981]" />
+        <StatBox label={t('settings.tokenUsage.cacheHitTokens')} value={fmtNum(totalCacheRead)} tone="text-teal" />
         <StatBox label={t('settings.tokenUsage.cacheHitRate')} value={`${hitRate.toFixed(1)}%`} />
         <StatBox label={t('settings.tokenUsage.cacheMiss')} value={fmtNum(cacheMiss)} />
-        <StatBox label={t('settings.tokenUsage.cacheSavedHint')} value={fmtNum(totalCacheRead)} tone="text-[#10b981]" />
+        <StatBox label={t('settings.tokenUsage.cacheSavedHint')} value={fmtNum(totalCacheRead)} tone="text-teal" />
       </div>
 
       {/* 命中率进度条 */}
@@ -568,7 +568,7 @@ function CacheHitSection({
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-bg-hover">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-[#10b981] to-[#14b8a6] transition-all"
+            className="h-full rounded-full bg-gradient-to-r from-teal to-[#14b8a6] transition-all"
             style={{ width: `${Math.min(hitRate, 100)}%` }}
           />
         </div>
@@ -670,7 +670,7 @@ function ModelSection({
           <span className="hidden sm:inline">{t('settings.tokenUsage.input')}: <span className="font-mono font-medium text-text-primary">{fmtNum(inputTokens)}</span></span>
           <span className="hidden sm:inline">{t('settings.tokenUsage.output')}: <span className="font-mono font-medium text-text-primary">{fmtNum(outputTokens)}</span></span>
           {cacheReadTokens > 0 && (
-            <span className="hidden sm:inline text-[#10b981]">
+            <span className="hidden sm:inline text-teal">
               {t('settings.tokenUsage.cacheHit')}: <span className="font-mono font-medium">{fmtNum(cacheReadTokens)}</span>
               <span className="text-text-muted ml-0.5">({fmtPct(cacheReadTokens, inputTokens)})</span>
             </span>
@@ -915,8 +915,8 @@ function TokenUsageDashboard({ engineConnected, enginePort }: { engineConnected:
       <div className="rounded-xl border border-border-custom bg-bg-surface p-4">
         <DashboardHeader onRefresh={load} refreshing={refreshing} />
         <div className="flex flex-col items-center justify-center py-10">
-          <div className="mb-3 rounded-full bg-[#ef4444]/10 p-3">
-            <svg className="w-5 h-5 text-[#ef4444]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <div className="mb-3 rounded-full bg-danger/10 p-3">
+            <svg className="w-5 h-5 text-danger" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
           </div>
@@ -924,7 +924,7 @@ function TokenUsageDashboard({ engineConnected, enginePort }: { engineConnected:
           <button
             type="button"
             onClick={() => void load()}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#ef4444]/10 px-3 py-1.5 text-xs font-medium text-[#ef4444] transition-colors hover:bg-[#ef4444]/20"
+            className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger/20"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
@@ -1015,7 +1015,7 @@ function TokenUsageDashboard({ engineConnected, enginePort }: { engineConnected:
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
             </svg>
           }
-          accent="bg-[#f59e0b]/10"
+          accent="bg-amber/10"
         />
         <SummaryCard
           label={t('settings.tokenUsage.total')}
@@ -1025,7 +1025,7 @@ function TokenUsageDashboard({ engineConnected, enginePort }: { engineConnected:
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           }
-          accent="bg-[#10b981]/10"
+          accent="bg-teal/10"
         />
       </div>
 
