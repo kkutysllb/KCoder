@@ -229,66 +229,34 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
 
   const statusIcon =
     call.status === 'running' ? (
-      <svg className="w-3 h-3 animate-spin text-blue-400" viewBox="0 0 24 24" fill="none">
+      <svg className="w-2.5 h-2.5 animate-spin text-blue-400" viewBox="0 0 24 24" fill="none">
         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
       </svg>
     ) : call.status === 'failed' ? (
-      <svg className="w-3 h-3 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <svg className="w-2.5 h-2.5 text-red-400/90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
       </svg>
     ) : (
-      <svg className="w-3 h-3 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <svg className="w-2.5 h-2.5 text-[#6b7280]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
       </svg>
     )
 
-  // 分类图标（颜色区分工具类型，一眼可辨；紧凑尺寸）
-  const kindIcon =
-    kind === 'terminal' ? (
-      <svg className="w-3 h-3 shrink-0 text-[#c9a227]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M5 7l4 4-4 4M12 17h7" />
-        <rect x="2.5" y="4.5" width="19" height="15" rx="2.5" strokeWidth={1.5} />
-      </svg>
-    ) : kind === 'file' ? (
-      <svg className="w-3 h-3 shrink-0 text-info" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-      </svg>
-    ) : kind === 'search' ? (
-      <svg className="w-3 h-3 shrink-0 text-[#a78bfa]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <circle cx="11" cy="11" r="7" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4-4" />
-      </svg>
-    ) : (
-      <svg className="w-3 h-3 shrink-0 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    )
-
-  // 状态 → 左侧强调条 + 边框色
-  const accentCls =
-    call.status === 'running'
-      ? 'border-blue-500/40 border-l-blue-400/80'
-      : call.status === 'failed'
-        ? 'border-red-500/30 border-l-red-400/70'
-        : 'border-border-custom border-l-transparent hover:border-l-border-custom'
-
+  // Cursor 风格扁平行：无边框无背景，全灰小字；运行中行首蓝色 spinner。
   return (
-    <div
-      className={`rounded-md border border-l-2 bg-bg-surface/70 overflow-hidden transition-colors text-[11px] ${accentCls} ${
-        call.status === 'running' ? 'shadow-[0_0_0_1px_rgba(59,130,246,0.08)]' : ''
-      }`}
-    >
-      {/* 头部：分类图标 + 工具名（中文）+ 主参数 + 耗时 + 编辑统计；点击展开/折叠 */}
+    <div className="text-[11px] leading-[1.9] text-[#9ca3af]">
+      {/* 单行：状态图标 + 工具中文名 + 主参数（灰 mono）；点击展开/折叠 */}
       <div
-        className={`flex items-center gap-1.5 px-2 py-1 min-h-[26px] ${hasDetails ? 'cursor-pointer hover:bg-bg-hover/50' : ''}`}
+        className={`group/row flex items-center gap-1.5 min-h-[22px] ${hasDetails ? 'cursor-pointer' : ''}`}
         onClick={hasDetails ? () => setOpen((o) => !o) : undefined}
       >
-        {kindIcon}
-        <span className="text-text-secondary shrink-0">{displayName}</span>
+        <span className="shrink-0 w-3 flex justify-center" aria-hidden>
+          {statusIcon}
+        </span>
+        <span className="shrink-0">{displayName}</span>
         {arg && (kind === 'terminal') && (
-          <code className="min-w-0 truncate font-mono text-[10px] text-[#9ca3af] flex-1" title={arg}>
+          <code className="min-w-0 truncate font-mono text-[10px] flex-1" title={arg}>
             <span className="text-[#6b7280]">$ </span>{arg}
           </code>
         )}
@@ -297,32 +265,31 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
             type="button"
             onClick={openFile}
             title={fileName}
-            className="min-w-0 truncate font-mono text-[10px] text-info hover:text-[#93c5fd] hover:underline flex-1 text-left cursor-pointer"
+            className="min-w-0 truncate font-mono text-[10px] hover:text-text-primary hover:underline flex-1 text-left cursor-pointer"
           >
             {shortPath(fileName)}
           </button>
         )}
         {arg && (kind === 'search' || kind === 'generic') && (
-          <span className="min-w-0 truncate font-mono text-[10px] text-[#9ca3af] flex-1" title={arg}>
+          <span className="min-w-0 truncate font-mono text-[10px] flex-1" title={arg}>
             {arg}
           </span>
         )}
-        {/* 编辑类工具的增删统计 +N -M（紧凑徽标） */}
+        {/* 编辑类工具的增删统计 +N -M */}
         {editStats && (
-          <span className="shrink-0 rounded bg-black/30 px-1 py-px font-mono text-[10px] tabular-nums leading-none">
+          <span className="shrink-0 font-mono text-[10px] tabular-nums">
             <span className="text-success">+{editStats.add}</span>{' '}
             <span className="text-danger">-{editStats.del}</span>
           </span>
         )}
         {call.startedAt && call.endedAt && (
-          <span className="text-[10px] text-text-muted shrink-0 tabular-nums">
+          <span className="text-[10px] text-[#6b7280] shrink-0 tabular-nums">
             {formatMs(call.endedAt - call.startedAt)}
           </span>
         )}
-        <span className="shrink-0">{statusIcon}</span>
         {hasDetails && (
           <svg
-            className={`w-2.5 h-2.5 shrink-0 text-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
+            className={`w-2.5 h-2.5 shrink-0 text-[#6b7280] opacity-0 group-hover/row:opacity-100 transition-all ${open ? 'rotate-90 !opacity-100' : ''}`}
             fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
           >
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -330,18 +297,18 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
         )}
       </div>
 
-      {/* 内部信息（摘要 + 输出）默认折叠，点击头部展开 */}
+      {/* 内部信息（摘要 + 输出）：展开时左缩进 + 顶部细分隔 */}
       {open && (
-        <>
+        <div className="ml-4">
           {call.summary && (
-            <p className="border-t border-border-custom/60 px-2 py-1 text-[10px] leading-relaxed text-text-muted line-clamp-2">
+            <p className="py-0.5 text-[10px] leading-relaxed text-[#9ca3af] line-clamp-2">
               {call.summary}
             </p>
           )}
           {call.output && (
             <ToolOutput text={call.output} isError={!!call.isError} language={outLang} />
           )}
-        </>
+        </div>
       )}
     </div>
   )
@@ -377,7 +344,7 @@ function ToolOutput({ text, isError, language }: { text: string; isError: boolea
   }, [shown, language, isError])
 
   return (
-    <div className="border-t border-border-custom/60 bg-bg-surface">
+    <div className="my-1 rounded-md border border-border-custom/50 bg-bg-surface overflow-hidden">
       <div className="max-h-[360px] overflow-auto">
         {isError || !html ? (
           <pre
