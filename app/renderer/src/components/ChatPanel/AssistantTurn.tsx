@@ -426,11 +426,9 @@ function DeliveryCard({
  */
 function StreamingCursor() {
   return (
-    <span
-      className="kc-stream-cursor ml-1 inline-flex h-[15px] w-[15px] items-center justify-center rounded-[4px] bg-gradient-to-br from-[#3b82f6] to-[#60a5fa]"
-      aria-hidden
-    >
-      <span className="text-[9px] font-black leading-none tracking-tighter text-white">K</span>
+    <span className="kc-stream-cursor ml-1.5 inline-flex h-[14px] w-[14px] items-center justify-center rounded-[4px] bg-gradient-to-br from-[#3b82f6] to-[#60a5fa]" aria-hidden>
+      <span className="kc-cursor-ring" />
+      <span className="relative text-[8.5px] font-black leading-none tracking-tighter text-white">K</span>
     </span>
   )
 }

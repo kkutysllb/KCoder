@@ -567,16 +567,27 @@ body.sidebar-resizing {
 /* ── KCoder 品牌流式光标（agent 输出追加动画）─────────────────────
    迷你 K 徽标：蓝渐变圆角方块 + 白色 K，呼吸光晕 + 轻缩放。
    替代原先的蓝色矩形 blink（难看且不明显）。 */
-@keyframes kc-cursor-glow {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
-    transform: scale(1);
-  }
-  50% {
-    box-shadow: 0 0 9px 2px rgba(59, 130, 246, 0.65);
-    transform: scale(1.1);
-  }
+@keyframes kc-cursor-spin {
+  to { transform: rotate(360deg); }
 }
+/* 品牌环流式光标：K 徽标静止居中，外围渐变光弧持续旋转（处理中语义
+   最强），徽标本体带静态柔光。环用 conic-gradient + radial mask 生成。 */
 .kc-stream-cursor {
-  animation: kc-cursor-glow 1.5s ease-in-out infinite;
+  position: relative;
+  box-shadow: 0 0 6px 1px rgba(59, 130, 246, 0.45);
+}
+.kc-stream-cursor .kc-cursor-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  background: conic-gradient(
+    from 0deg,
+    rgba(59, 130, 246, 0) 0deg,
+    rgba(96, 165, 250, 0.95) 130deg,
+    #3b82f6 190deg,
+    rgba(59, 130, 246, 0) 310deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+  animation: kc-cursor-spin 0.9s linear infinite;
 }
