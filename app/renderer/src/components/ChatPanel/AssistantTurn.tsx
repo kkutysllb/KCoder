@@ -12,7 +12,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { ChatMessage, HumanInputPayload, ToolCall } from '../../lib/chatMessage'
+import type { ChatMessage, HumanInputPayload, ToolCall, TurnSegment } from '../../lib/chatMessage'
 import { isInternalOnlyText, sanitizeAssistantText, isLikelyCorruptText } from '../../lib/chatMessage'
 import { CodeBlock } from '../CodeBlock'
 import { ToolActivitySummary, ToolCallRow } from './ToolActivitySummary'
@@ -443,6 +443,113 @@ function CorruptTextNotice({ text }: { text: string }) {
   )
 }
 
+/**
+ * 连续工具段分组渲染：正文段直接渲染；连续 ≥3 个工具段折叠为一行汇总
+ * （「N 个工具调用 · 摘要」），点击展开扁平行明细。组内有运行中调用时
+ * 强制展开（保实时感）；历史/失败混合状态在汇总行标注。
+ */
+function ToolSegments({
+  segments,
+  callById,
+  streaming,
+  renderText,
+}: {
+  segments: TurnSegment[]
+  callById: Record<string, ToolCall>
+  streaming: boolean
+  renderText: (text: string, key: string, isLast: boolean) => React.ReactNode
+}) {
+  const { t } = useI18n()
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  // 分组：把 segments 切成 text / tool-run 的交替序列
+  const groups = useMemo(() => {
+    const out: Array<
+      | { kind: 'text'; text: string; key: string; isLast: boolean }
+      | { kind: 'tools'; calls: ToolCall[]; key: string }
+    > = []
+    let curToolCalls: ToolCall[] = []
+    const flushTools = () => {
+      if (curToolCalls.length > 0) {
+        out.push({ kind: 'tools', calls: curToolCalls, key: `g${out.length}` })
+        curToolCalls = []
+      }
+    }
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i]
+      if (seg.type === 'text') {
+        flushTools()
+        const segText = sanitizeAssistantText(seg.text)
+        if (segText) {
+          out.push({ kind: 'text', text: segText, key: `t${i}`, isLast: i === segments.length - 1 })
+        }
+      } else {
+        const call = callById[seg.callId]
+        if (call) curToolCalls.push(call)
+      }
+    }
+    flushTools()
+    return out
+  }, [segments, callById])
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  return (
+    <>
+      {groups.map((g) => {
+        if (g.kind === 'text') {
+          return renderText(g.text, g.key, g.isLast)
+        }
+        const hasRunning = g.calls.some((c) => c.status === 'running')
+        const expanded = hasRunning || expandedGroups.has(g.key)
+        if (expanded) {
+          return (
+            <div key={g.key} className="space-y-0.5 my-0.5">
+              {g.calls.length >= 3 && !hasRunning && (
+                <button
+                  onClick={() => toggleGroup(g.key)}
+                  className="text-[11px] text-[#6b7280] hover:text-text-secondary transition-colors"
+                >
+                  {t('tools.collapseGroup', { n: g.calls.length })}
+                </button>
+              )}
+              {g.calls.map((c) => (
+                <ToolCallRow key={c.id} call={c} />
+              ))}
+            </div>
+          )
+        }
+        // 折叠态：一行汇总
+        const running = g.calls.filter((c) => c.status === 'running').length
+        const failed = g.calls.filter((c) => c.status === 'failed').length
+        const fileCount = g.calls.filter((c) => /read|write|edit|str_replace|multiedit|create/i.test(c.name)).length
+        return (
+          <button
+            key={g.key}
+            onClick={() => toggleGroup(g.key)}
+            className="flex items-center gap-1.5 py-0.5 text-[11px] text-[#9ca3af] hover:text-text-secondary transition-colors group/g"
+          >
+            <svg className="w-2.5 h-2.5 text-[#6b7280]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+            <span>
+              {t('tools.ranTools', { n: g.calls.length })}
+              {fileCount > 0 && ` · ${t('tools.touchedFiles', { n: fileCount })}`}
+              {failed > 0 && ` · ${t('tools.failedCount', { n: failed })}`}
+            </span>
+          </button>
+        )
+      })}
+    </>
+  )
+}
+
 export function AssistantTurn({
   msg,
   isStreaming,
@@ -581,35 +688,32 @@ export function AssistantTurn({
 
         {/* 4. 正文 ↔ 工具调用按执行顺序交错展示（Cursor/Cline 风格）。
             有 segments 时分阶段渲染（正文段→工具卡片→正文段…）；
-            无 segments（历史消息）回退到「聚合工具摘要 + 整段正文」。 */}
+            无 segments（历史消息）回退到「聚合工具摘要 + 整段正文」。
+            连续 ≥3 个工具段折叠为一行汇总（阅读节奏），点击展开明细；
+            有运行中的调用时组保持展开（保实时感）。 */}
         {msg.segments && msg.segments.length > 0 ? (
           <div className="space-y-1.5 [&>div.turn-text]:!my-0.5">
-            {msg.segments.map((seg, i) => {
-              if (seg.type === 'text') {
-                const segText = sanitizeAssistantText(seg.text)
-                if (!segText) return null
-                const isLast = i === msg.segments!.length - 1
-                return (
-                  <div key={`t-${i}`} className="turn-text markdown-body">
-                    {isLikelyCorruptText(segText) ? (
-                      <CorruptTextNotice text={segText} />
-                    ) : (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                        {segText}
-                      </ReactMarkdown>
-                    )}
-                    {streaming && isLast && (
-                      <span className="inline-block ml-1 align-middle" aria-hidden="true">
-                        <span className="inline-block w-1.5 h-3 bg-info animate-pulse" />
-                      </span>
-                    )}
-                  </div>
-                )
-              }
-              const call = callById[seg.callId]
-              if (!call) return null
-              return <ToolCallRow key={`c-${seg.callId}`} call={call} />
-            })}
+            <ToolSegments
+              segments={msg.segments}
+              callById={callById}
+              streaming={streaming}
+              renderText={(segText, key, isLast) => (
+                <div key={key} className="turn-text markdown-body">
+                  {isLikelyCorruptText(segText) ? (
+                    <CorruptTextNotice text={segText} />
+                  ) : (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                      {segText}
+                    </ReactMarkdown>
+                  )}
+                  {streaming && isLast && (
+                    <span className="inline-block ml-1 align-middle" aria-hidden="true">
+                      <span className="inline-block w-1.5 h-3 bg-info animate-pulse" />
+                    </span>
+                  )}
+                </div>
+              )}
+            />
           </div>
         ) : (
           <>
