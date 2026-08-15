@@ -212,6 +212,11 @@ export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: nu
     '127.0.0.1',
     '--no-browser',
     '--allow-blocking', // make_lead_agent 含同步阻塞调用（os.getcwd 等）；dev 模式必需
+    // 关闭热重载：dev 的 watcher 盯整个 CWD（含 .langgraph_api/*.pckl checkpoint
+    // 存储），每次 run 写 pckl 都触发 "changes detected" → 重载循环 → 新 run
+    // 全部卡 pending、SSE 流静默（前端表现为永久停止状态）。KCoder 的引擎代码
+    // 改动走重启生效，不需要热重载。
+    '--no-reload',
     '--config',
     join(runtimeDir, 'langgraph.json')
   ]
