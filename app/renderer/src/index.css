@@ -563,3 +563,20 @@ body.sidebar-resizing {
     opacity: 1;
   }
 }
+
+/* ── KCoder 品牌流式光标（agent 输出追加动画）─────────────────────
+   迷你 K 徽标：蓝渐变圆角方块 + 白色 K，呼吸光晕 + 轻缩放。
+   替代原先的蓝色矩形 blink（难看且不明显）。 */
+@keyframes kc-cursor-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 9px 2px rgba(59, 130, 246, 0.65);
+    transform: scale(1.1);
+  }
+}
+.kc-stream-cursor {
+  animation: kc-cursor-glow 1.5s ease-in-out infinite;
+}

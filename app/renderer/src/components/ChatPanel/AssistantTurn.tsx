@@ -420,6 +420,22 @@ function DeliveryCard({
 }
 
 /**
+ * KCoder 品牌流式光标：agent 输出追加中的行尾动画。
+ * 迷你 K 徽标（蓝渐变 + 白 K）带呼吸光晕——品牌一致、动静明显，
+ * 替代原蓝色矩形 blink。
+ */
+function StreamingCursor() {
+  return (
+    <span
+      className="kc-stream-cursor ml-1 inline-flex h-[15px] w-[15px] items-center justify-center rounded-[4px] bg-gradient-to-br from-[#3b82f6] to-[#60a5fa]"
+      aria-hidden
+    >
+      <span className="text-[9px] font-black leading-none tracking-tighter text-white">K</span>
+    </span>
+  )
+}
+
+/**
  * 兜底折叠：当一段正文被判定为已损坏（替换字符占比过高，通常是模型 echo 了
  * 二进制 / 非文本文件内容）时，渲染此提示而非把乱码当 markdown 渲染。
  * 提供 <details> 展开查看原始（已清洗）内容，兼顾兜底与可追溯。
@@ -721,7 +737,7 @@ export function AssistantTurn({
                   )}
                   {streaming && isLast && (
                     <span className="inline-block ml-1 align-middle" aria-hidden="true">
-                      <span className="inline-block w-1.5 h-3 bg-info animate-pulse" />
+                      <StreamingCursor />
                     </span>
                   )}
                 </div>
@@ -750,7 +766,7 @@ export function AssistantTurn({
                   )}
                   {streaming && (
                     <span className="inline-block ml-1 align-middle" aria-hidden="true">
-                      <span className="inline-block w-1.5 h-3 bg-info animate-pulse" />
+                      <StreamingCursor />
                     </span>
                   )}
                 </div>
