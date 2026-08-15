@@ -54,6 +54,9 @@ tools:
   - name: dep_map
     group: file:read
     use: qilin.sandbox.tools:dep_map_tool
+  - name: security_scan
+    group: file:read
+    use: qilin.sandbox.tools:security_scan_tool
   - name: read_file
     group: file:read
     use: qilin.sandbox.tools:read_file_tool

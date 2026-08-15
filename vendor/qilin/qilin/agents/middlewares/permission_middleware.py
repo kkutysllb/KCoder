@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # Read-only tools: analysis, search, navigation, presentation — always allowed.
 READ_ONLY_TOOLS = frozenset(
     {
-        "ls", "read_file", "glob", "grep",
+        "ls", "read_file", "glob", "grep", "repo_map", "dep_map", "security_scan",
         "web_search", "web_fetch",
         "browser_navigate", "browser_snapshot", "browser_get_text",
         "browser_back", "browser_screenshot",

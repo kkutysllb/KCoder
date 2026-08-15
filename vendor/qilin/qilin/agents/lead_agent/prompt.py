@@ -617,6 +617,8 @@ After making code changes (write_file / str_replace / edit), you MUST verify you
 4. **Report verification honestly**: in your final message, state which commands you ran and their results. If the project has no tests and no build/typecheck command, say so explicitly — never claim verification you did not perform.
 </verification>
 
+{delivery_gate_section}
+
 {permission_mode_section}
 {skills_section}
 {memory_tool_section}
@@ -1106,6 +1108,54 @@ def apply_prompt_template(
 
     memory_tool_section = _build_memory_tool_section(app_config=app_config)
 
+    # 交付门（Phase B ③）：非平凡变更在交付前自动派发 review / security 子代理
+    # 复查。仅当子代理启用且注册表里存在对应 subagent_type 时注入——若注册表
+    # 缺失，提示词引用不存在类型会让 task 调用直接报错。
+    delivery_gate_section = ""
+    if subagent_enabled:
+        review_available = False
+        security_available = False
+        try:
+            from qilin.subagents.registry import get_subagent_config
+
+            review_available = get_subagent_config("marcus", app_config=app_config) is not None
+            security_available = get_subagent_config("sandra", app_config=app_config) is not None
+        except Exception:
+            logger.debug("delivery_gate: subagent registry unavailable", exc_info=True)
+        if review_available or security_available:
+            parts: list[str] = ["<delivery_gate>"]
+            parts.append(
+                "**REVIEW BEFORE DELIVERING NON-TRIVIAL CHANGES:** after the verification "
+                "in <verification> passes, run a review pass before your final summary. "
+                "Reserve at least one `task` slot for this — do not spend the whole "
+                "subagent budget on implementation."
+            )
+            if review_available:
+                parts.append(
+                    "- Dispatch `task` with subagent_type=\"marcus\" to review your changes: "
+                    "correctness (logic errors, edge cases, races, null handling), "
+                    "maintainability (naming, complexity, duplication), and test coverage. "
+                    "Tell it exactly which files you changed."
+                )
+            if security_available:
+                parts.append(
+                    "- If the change touches authentication, secrets, user input, network, "
+                    "file paths or command execution: first run the `security_scan` tool "
+                    "(deterministic heuristic grep) and fix confirmed findings, then ALSO "
+                    "dispatch `task` with subagent_type=\"sandra\" to audit security: "
+                    "injection, XSS, authz bypass, secret leakage, dangerous shell constructs."
+                )
+            parts.append(
+                "- Fix every 严重 (critical/high) finding before reporting completion; "
+                "mention 建议 (advisory) findings you deliberately left unfixed."
+            )
+            parts.append(
+                "- Skip the review only for trivial changes (comments, formatting, "
+                "single-line fixes) and say \"review skipped (trivial)\" in your summary."
+            )
+            parts.append("</delivery_gate>")
+            delivery_gate_section = "\n".join(parts)
+
     # 权限模式说明：confirm-before-change 下，文件改动/命令由系统自动弹审批卡，
     # 模型不应再为「确认变更」调用 ask_clarification（否则会出现审批卡+澄清卡
     # 两个重叠的确认 UI）。仅在该模式下注入这段，其它模式保持原提示词不变。
@@ -1166,4 +1216,5 @@ def apply_prompt_template(
         subagent_thinking=subagent_thinking,
         acp_section=acp_and_mounts_section,
         permission_mode_section=permission_mode_section,
+        delivery_gate_section=delivery_gate_section,
     )

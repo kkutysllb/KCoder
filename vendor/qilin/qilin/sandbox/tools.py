@@ -2217,6 +2217,120 @@ async def _dep_map_tool_async(runtime: Runtime, description: str, path: str, max
 dep_map_tool.coroutine = _dep_map_tool_async
 
 
+# security_scan 工具：确定性启发式安全扫描（交付门的第一道防线）。
+# 与 sandra 子代理（LLM 审计）互补：grep 模式快速、可复现、零幻觉，
+# 覆盖硬编码密钥/命令执行/shell=True/XSS 汇/SQL 拼接/反序列化/私钥/明文 HTTP。
+# 启发式会有误报，输出结尾注明需要人工甄别。
+_SECURITY_SCAN_GLOB = "**/*.{py,js,ts,tsx,jsx,go,rs,json,yaml,yml,tf,sh}"
+_SECURITY_SCAN_MAX_PER_CATEGORY = 15
+_SECURITY_SCAN_DISPLAY_PER_CATEGORY = 12
+
+_SECURITY_SCAN_PATTERNS: list[tuple[str, str]] = [
+    ("hardcoded secrets", r"(api[_-]?key|secret|token|passwd|password)\s*[:=]\s*[\"'][A-Za-z0-9_\-./+]{8,}[\"']"),
+    # (?<![\w.]) 排除 obj.exec( 这类方法调用误报（\bexec 会命中 regex.exec）
+    ("code execution", r"(?<![\w.])(?:eval|exec|execSync|execFileSync|spawnSync|spawn|os\.system|subprocess\.(?:call|run|Popen|check_output))\s*\("),
+    ("shell=True", r"shell\s*=\s*True"),
+    ("XSS sinks", r"\b(innerHTML|outerHTML|dangerouslySetInnerHTML|document\.write|insertAdjacentHTML)\b"),
+    ("SQL injection heuristics", r"""f["'][^"']*\b(SELECT|INSERT|UPDATE|DELETE)\b|\+\s*["'][^"']*\b(SELECT|INSERT|UPDATE|DELETE)\b|(SELECT|INSERT|UPDATE|DELETE)\b[^"']*["']\s*\+"""),
+    ("deserialization", r"\b(pickle\.loads?|yaml\.load\s*\(|marshal\.loads?)\b"),
+    ("private keys", r"-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    ("plain http", r"http://(?!localhost|127\.0\.0\.1)"),
+]
+
+
+def _format_security_scan_results(groups: dict[str, list[GrepMatch]], requested_path: str) -> str:
+    total = sum(len(matches) for matches in groups.values())
+    if total == 0:
+        return f"{requested_path}/ — heuristic scan clean: no patterns matched (0 findings)"
+    lines = [f"# security_scan: {requested_path}/ ({total} findings across {len(groups)} categories)"]
+    for category, matches in groups.items():
+        lines.append(f"\n[{category}] {len(matches)}")
+        for match in matches[:_SECURITY_SCAN_DISPLAY_PER_CATEGORY]:
+            lines.append(f"  {match.path}:{match.line_number}  {match.line}")
+        if len(matches) > _SECURITY_SCAN_DISPLAY_PER_CATEGORY:
+            lines.append(f"  ... (+{len(matches) - _SECURITY_SCAN_DISPLAY_PER_CATEGORY} more)")
+    lines.append("\nHeuristic scan — verify each finding before fixing; false positives are expected in comments, strings and docs.")
+    return "\n".join(lines)
+
+
+@tool("security_scan", parse_docstring=True)
+def security_scan_tool(runtime: Runtime, description: str, path: str) -> str:
+    """Scan source files for common security anti-patterns (heuristic, deterministic).
+
+    Greps the workspace for hardcoded secrets, shell/command execution,
+    shell=True, XSS sinks, SQL string concatenation, unsafe deserialization,
+    private keys and plain-http URLs. Run this before delivering changes that
+    touch auth, secrets, user input, network, file paths or command execution.
+    Review every reported line — some matches are benign (docs, comments).
+
+    Args:
+        description: Explain why you are scanning in short words. ALWAYS PROVIDE THIS PARAMETER FIRST.
+        path: The **absolute** root directory to scan (usually the workspace root).
+    """
+    try:
+        user_id = resolve_runtime_user_id(runtime)
+        if _is_disabled_skill_path(path, user_id=user_id):
+            skill_name = _extract_skill_name_from_skills_path(path) or "unknown"
+            return f"Error: Skill '{skill_name}' is disabled. Access to its files is blocked. Enable the skill in settings before using it."
+        sandbox = ensure_sandbox_initialized(runtime)
+        ensure_thread_directories_exist(runtime)
+        requested_path = path
+        thread_data = None
+        if is_local_sandbox(runtime):
+            thread_data = get_thread_data(runtime)
+            if thread_data is None:
+                raise SandboxRuntimeError("Thread data not available for local sandbox")
+            path = _resolve_local_read_path(path, thread_data)
+        groups: dict[str, list[GrepMatch]] = {}
+        for category, pattern in _SECURITY_SCAN_PATTERNS:
+            try:
+                matches, _truncated = sandbox.grep(
+                    path,
+                    pattern,
+                    glob=_SECURITY_SCAN_GLOB,
+                    literal=False,
+                    case_sensitive=False,
+                    max_results=_SECURITY_SCAN_MAX_PER_CATEGORY,
+                )
+            except re.error:
+                continue
+            if not matches:
+                continue
+            if thread_data is not None:
+                matches = [
+                    GrepMatch(
+                        path=mask_local_paths_in_output(match.path, thread_data),
+                        line_number=match.line_number,
+                        line=match.line,
+                    )
+                    for match in matches
+                ]
+            allowed = set(_drop_disabled_skill_paths([match.path for match in matches], user_id=user_id))
+            matches = [match for match in matches if match.path in allowed]
+            if matches:
+                groups[category] = matches
+        return _format_security_scan_results(groups, requested_path)
+    except SandboxError as e:
+        return f"Error: {e}"
+    except FileNotFoundError:
+        return f"Error: Directory not found: {requested_path}"
+    except NotADirectoryError:
+        return f"Error: Path is not a directory: {requested_path}"
+    except PermissionError:
+        return f"Error: Permission denied: {requested_path}"
+    except Exception as e:
+        return f"Error: Unexpected error running security scan: {_sanitize_error(e, runtime)}"
+
+
+async def _security_scan_tool_async(runtime: Runtime, description: str, path: str) -> str:
+    return await _run_sync_tool_after_async_sandbox_init(
+        _tool_sync_func(security_scan_tool), runtime, description, path
+    )
+
+
+security_scan_tool.coroutine = _security_scan_tool_async
+
+
 @tool("glob", parse_docstring=True)
 def glob_tool(
     runtime: Runtime,
