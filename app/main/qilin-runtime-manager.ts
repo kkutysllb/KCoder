@@ -414,8 +414,12 @@ function killChild(child: ChildProcess, label: string): Promise<void> {
  * Electron 崩溃 / 强杀（Cmd+Q 之外的退出路径）不会执行 before-quit 的
  * stopEngine，残留的 langgraph worker / gateway 会以随机端口共存堆积——
  * 每套 ~3 个 Python 进程数百 MB，多套并存即内存溢出 + 持续 IO 发烫
- * （实测复现：单日堆积 3 套）。启动时按命令行特征扫杀，本次要启动的
- * 子进程尚未 spawn，不会误伤。
+ * （实测复现：单日堆积 3 套）。
+ *
+ * 判据（防误杀，实测踩坑：只按命令行匹配会把**另一个活实例**的引擎
+ * 当孤儿杀掉——旧窗口随即「无法连接引擎」）：只杀「父进程已死」的真
+ * 孤儿（ppid=1 = 被 launchd 收养）。正常引擎的父进程是本 Electron 或
+ * 上一实例退出前的进程链，未退出的实例引擎不满足 ppid=1，不会被杀。
  */
 function killOrphanSidecars(): void {
   if (process.platform !== 'darwin' && process.platform !== 'linux') return
@@ -428,17 +432,30 @@ function killOrphanSidecars(): void {
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => l && Number(l) !== process.pid)
-    for (const pid of pids) {
+    for (const pidStr of pids) {
+      const pid = Number(pidStr)
+      // 真孤儿判据：父进程是 launchd（ppid=1）。父进程活着的 = 别的活实例
+      // 的引擎（多窗口/切换瞬间），跳过不杀。
+      let ppid = 0
       try {
-        process.kill(-Number(pid), 'SIGKILL') // 先按组杀（worker 同组）
+        ppid = Number(execSync(`ps -o ppid= -p ${pid}`, { encoding: 'utf-8' }).trim())
+      } catch {
+        continue // 进程已消失
+      }
+      if (ppid !== 1) {
+        console.log(`[KCoder] sidecar pid=${pid} still has parent (ppid=${ppid}), skip orphan cleanup`)
+        continue
+      }
+      try {
+        process.kill(-pid, 'SIGKILL') // 组杀（worker 同组）
       } catch {
         try {
-          process.kill(Number(pid), 'SIGKILL')
+          process.kill(pid, 'SIGKILL')
         } catch {
           /* 已退出 */
         }
       }
-      console.warn(`[KCoder] killed orphan sidecar pid=${pid}`)
+      console.warn(`[KCoder] killed orphan sidecar pid=${pid} (ppid=1)`)
     }
   } catch {
     // pgrep 不存在等 — 静默（清理是尽力而为）
