@@ -166,3 +166,14 @@
 - [ ] Phase C 范围确认（C1 压缩接线是否立即开工；C2/C3 可靠性是否纳入本轮）。
 - [ ] Phase A 遗留的运行时复验结果登记（见上方清单第 6 条）。
 - [ ] 是否需要 repo_map per-turn 缓存 / security_scan 增加 .env 等额外文件类型（当前被 walker 忽略）。
+
+---
+
+## 基线加固收尾（2026-08-15 晚）
+
+### 子代理权限覆盖缺口 + 单测入库
+
+- **子代理权限**：`build_subagent_runtime_middlewares` 挂载 PermissionMiddleware + ToolRetryMiddleware（与 lead 同序）。此前只挂主循环，task 委派的子代理执行的工具绕过权限四模式（plan-mode 下子代理可直接写文件）。
+- **单测入库** `python-runtime/tests/`（26 用例）：permission 决策表/执行前拦截/approved_ops；retry 四场景；_translate_tool_message 双信号；SSE seq 重放/steer 竞态/最近缓存有界。此前各 commit 声称的单测均为会话内临时运行、零沉淀。
+- **验证**：`pytest tests` 26 passed；子代理中间件链实测含双件；agent import OK。vendor 存量测试失败与本次无关（缺 pytest-asyncio）。
+- **遗留**：运行时验收清单（7 项）仍未执行；config.yaml 真实 api_key（P0）仍在。
