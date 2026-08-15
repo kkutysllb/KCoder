@@ -510,7 +510,7 @@ function ToolSegments({
         const expanded = hasRunning || expandedGroups.has(g.key)
         if (expanded) {
           return (
-            <div key={g.key} className="space-y-0.5 my-0.5">
+            <div key={g.key} className="space-y-1.5 my-1">
               {g.calls.length >= 3 && !hasRunning && (
                 <button
                   onClick={() => toggleGroup(g.key)}
@@ -700,7 +700,7 @@ export function AssistantTurn({
             连续 ≥3 个工具段折叠为一行汇总（阅读节奏），点击展开明细；
             有运行中的调用时组保持展开（保实时感）。 */}
         {msg.segments && msg.segments.length > 0 ? (
-          <div className="space-y-1.5 [&>div.turn-text]:!my-0.5">
+          <div className="space-y-3">
             <ToolSegments
               segments={msg.segments}
               callById={callById}

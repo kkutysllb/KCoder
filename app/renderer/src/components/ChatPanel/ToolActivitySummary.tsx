@@ -245,10 +245,10 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
 
   // Cursor 风格扁平行：无边框无背景，全灰小字；运行中行首蓝色 spinner。
   return (
-    <div className="text-[11px] leading-[1.9] text-[#9ca3af]">
+    <div className="text-[11px] text-[#9ca3af]">
       {/* 单行：状态图标 + 工具中文名 + 主参数（灰 mono）；点击展开/折叠 */}
       <div
-        className={`group/row flex items-center gap-1.5 min-h-[22px] ${hasDetails ? 'cursor-pointer' : ''}`}
+        className={`group/row flex items-center gap-1.5 py-1 min-h-[28px] ${hasDetails ? 'cursor-pointer' : ''}`}
         onClick={hasDetails ? () => setOpen((o) => !o) : undefined}
       >
         <span className="shrink-0 w-3 flex justify-center" aria-hidden>
