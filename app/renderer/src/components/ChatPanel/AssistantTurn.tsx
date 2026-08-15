@@ -673,6 +673,19 @@ export function AssistantTurn({
           <DeliveryCard delivery={delivery} onChangelogWrite={onDeliveryChangelog} />
         )}
 
+        {/* 上下文压缩提示（compaction_completed 事件，manual/auto 压缩通用） */}
+        {!streaming && msg.compaction && (msg.compaction.removedCount ?? 0) > 0 && (
+          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-text-muted">
+            <span aria-hidden>📦</span>
+            <span>
+              {t('compact.done', {
+                removed: msg.compaction.removedCount ?? 0,
+                preserved: msg.compaction.preservedCount ?? 0
+              })}
+            </span>
+          </div>
+        )}
+
         {/* 交付结果（turn 完成且有文件变更时收尾）：✓已完成 + 统计 + 复制/提交 + 文件清单 */}
         {!streaming && msg.fileChanges && msg.fileChanges.files.length > 0 && (
           <DeliveryResult msg={msg} />

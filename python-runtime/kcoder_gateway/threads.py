@@ -82,6 +82,9 @@ class StartTurnRequest(BaseModel):
     # 已批准操作 id 列表（confirm-before-change 模式审批通过后由前端带回），
     # 命中 (tool,args) 稳定 hash 的工具调用放行一次。
     approved_ops: list[str] | None = None
+    # 手动压缩 turn：前端「压缩上下文」按钮发起，引擎 SummarizationMiddleware
+    # 绕过自动阈值强制压缩（configurable.force_compact）。
+    force_compact: bool = False
 
 
 # ────────────────────────────────────────────────────────────────
@@ -539,6 +542,7 @@ async def start_turn(
             is_plan_mode=req.is_plan_mode,
             permission_mode=req.permission_mode,
             approved_ops=req.approved_ops,
+            force_compact=req.force_compact,
         )
     )
 

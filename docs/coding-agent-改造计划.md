@@ -49,7 +49,7 @@
 |---|---|---|
 | A | 控制面地基（审批 / 停止 / 追加） | ✅ 完成（已存档） |
 | B | coding 核心能力四件套（索引 / 计划门 / 审查安全门 / 交付） | ✅ 完成，⏳ 待用户运行时验收（已存档） |
-| C | 上下文压缩 + 长任务可靠性 | 🔨 提案中（见 §5，待用户确认） |
+| C | 上下文压缩 + 长任务可靠性 | 🔨 进行中（C1 已落地待验收；C2 部分随热修完成；C3 待定） |
 | D | 技能与场景完善 | 📋 草案占位（见 §6） |
 | 关联长线 | 审计路线图 阶段一（安全止血）~ 阶段五（产品能力/质量体系） | 参考背景，不在主线内 |
 
@@ -78,19 +78,20 @@
 
 **落地提交**：`0452fbb`、`5d9afa1`、`a8b4450`、`76a2ae5`、`5142119`（详见进度记录）。
 
-## 5. 阶段 C：上下文压缩 + 长任务可靠性（🔨 提案，待确认）
+## 5. 阶段 C：上下文压缩 + 长任务可靠性（🔨 进行中）
 
-**背景**：`vendor/qilin/qilin/agents/context_compaction.py` 已有 spike 但未接线；审计 7.1/7.2/7.4 指出 SSE 重放、turn 建连竞态、工具失败状态失真等可靠性缺口。
+**背景**：QiLin 已有完整的 SummarizationMiddleware（自动压缩 + keep 策略 + before_summarization 钩子）；KCoder 侧此前未接线（gateway compact 端点是 stub，运行配置 trigger 为空）。
 
 **提案范围（按优先级）**：
 
-- C1 **上下文压缩接线**：明确触发条件（token 阈值 / 轮数）、压缩产物（摘要 + 关键事实 + 保留最近 N 轮）、SSE 事件（前端 compactContext 按钮已存在）、与 thread-log 的衔接。← 最高优先级
-- C2 **SSE / 长任务可靠性**：持久 event id 与 `Last-Event-ID` 重放、turn 与 SSE 建连竞态修复（“no active turn”残余路径）、registry 清理按 run identity。
-- C3 **失败状态如实传递**：ToolMessage 错误 → 前端 tool_call_failed 的严格映射，避免“失败显示为成功”。
+- C1 **上下文压缩接线** ✅ 已实现（待运行时验收）：
+  - 自动压缩：运行配置 `summarization.enabled: true`，trigger = 40 条消息，keep = 最近 20 条；
+  - 手动压缩：前端「压缩」按钮 = 强制压缩 turn（`configurable.force_compact`），引擎绕过自动阈值压缩；
+  - 可见性：引擎压缩时向 custom 流发 `context_compacted` 事件 → gateway 翻译为 `compaction_completed` SSE → 前端 turn 内渲染「上下文已压缩：移除 N 条」提示。
+- C2 **SSE / 长任务可靠性**：registry 按 run 身份清理 ✅ 已随热修完成（`aef79c4`）；**持久 event id 与 `Last-Event-ID` 重放**、turn 与 SSE 建连竞态残余路径 → 待确认是否纳入本轮。
+- C3 **失败状态如实传递**：ToolMessage 错误 → 前端 tool_call_failed 的严格映射 → 待确认是否纳入本轮。
 
-**每项完成标准**：见各自验收场景（长对话压缩后不丢任务目标；断线重连后事件不丢不重；失败工具在前端明确标红）。
-
-**确认项**：C1 是否立即开工；C2/C3 是否纳入本轮（涉及 gateway 改动面较大）。
+**确认项**：C2 剩余部分 / C3 是否本轮继续（涉及 gateway 改动面较大）。
 
 ## 6. 阶段 D：技能与场景完善（📋 草案占位）
 

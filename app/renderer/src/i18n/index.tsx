@@ -370,6 +370,7 @@ const zhCN: Dict = {
   'delivery.copyPr': '复制 PR 描述',
   'delivery.writeChangelog': '追加到 CHANGELOG',
   'delivery.review': '审查结论',
+  'compact.done': '上下文已压缩：移除 {removed} 条历史消息，保留最近 {preserved} 条',
 
   // NewTask — 输入框上方窄条（目录/分支/模型选择）
   'newtask.directory': '项目目录',
@@ -1207,6 +1208,7 @@ const en: Dict = {
   'delivery.copyPr': 'Copy PR description',
   'delivery.writeChangelog': 'Append to CHANGELOG',
   'delivery.review': 'Review notes',
+  'compact.done': 'Context compacted: removed {removed} history messages, keeping the last {preserved}',
 
   // NewTask — inline bar above input (directory/branch/model selection)
   'newtask.directory': 'Project Directory',

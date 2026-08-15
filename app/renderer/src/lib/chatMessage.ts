@@ -186,6 +186,8 @@ export interface ChatMessage {
   fileChanges?: FileChangesPayload
   /** reasoning 耗时（ms），完成后由 reducer 填充。 */
   thinkingMs?: number
+  /** 上下文压缩结果（compaction_completed 事件携带；渲染压缩提示）。 */
+  compaction?: { removedCount?: number; preservedCount?: number }
 
   // ── 生命周期 ──
   /** 引擎 pipeline_stage（前端推断兜底）。 */

@@ -69,6 +69,19 @@
 
 ---
 
+## Phase C：上下文压缩 + 长任务可靠性
+
+### C1 — 上下文压缩接线（自动 + 手动 + 前端可见）
+
+- **内容**：
+  - 自动压缩：运行配置启用 SummarizationMiddleware（trigger=40 条消息 / keep=最近 20 条）；此前 `trigger: null` 导致中间件存在但永不触发。
+  - 手动压缩：前端「压缩」按钮改为**强制压缩 turn**——`configurable.force_compact` 注入，中间件 `_config_force_compact` 绕过自动阈值（`_determine_cutoff_index` 仍守卫短历史）。
+  - 可见性：引擎压缩时 `before_summarization` 钩子向 custom 流发 `context_compacted` 事件 → gateway `_translate_custom_event` 翻译为 `compaction_completed` SSE（携带 removed/preserved 计数）→ 前端 turnReducer 记入 `msg.compaction`，AssistantTurn 渲染「📦 上下文已压缩」提示。
+  - 配置落三处：config.yaml / config.yaml.example / ~/.kcoder/config/qilin.runtime.yaml（trigger 由 null → 40 条）。
+- **验证**：引擎 py_compile + 中间件工厂/钩子/事件负载单测 ✅ + gateway 翻译单测 ✅ + 前端 tsc ✅；运行时 ⏳（长对话触发自动压缩 / 手动按钮 / 提示卡）。
+
+---
+
 ## 缺陷修复（主线外热修）
 
 ### 追加（steer）后出现「No active turn」

@@ -185,6 +185,18 @@ def _translate_custom_event(data: Any) -> list[dict[str, Any]]:
         task_id,
         data.get("message_index"),
     )
+
+    # 上下文压缩事件（SummarizationMiddleware 的 before_summarization 钩子发出，
+    # 无 task_id，必须先于 task_id 守卫处理）。
+    if ev_type == "context_compacted":
+        return [
+            {
+                "kind": "compaction_completed",
+                "removedCount": int(data.get("removed_count") or 0),
+                "preservedCount": int(data.get("preserved_count") or 0),
+            }
+        ]
+
     if not task_id:
         return []
 
@@ -783,6 +795,7 @@ async def consume_langgraph_stream(
     is_plan_mode: bool = True,
     permission_mode: str | None = None,
     approved_ops: list[str] | None = None,
+    force_compact: bool = False,
 ) -> None:
     """后台任务：消费 LangGraph SSE 流 → 翻译 → 推入 event_queue.
 
@@ -875,6 +888,10 @@ async def consume_langgraph_stream(
             configurable["reasoning_effort"] = reasoning_mode
         if workspace_path:
             configurable["workspace_path"] = workspace_path
+        if force_compact:
+            # 手动压缩 turn：SummarizationMiddleware 在 abefore_model 阶段
+            # 绕过自动阈值强制压缩，并以 context_compacted custom 事件回报结果。
+            configurable["force_compact"] = True
         run_config: dict[str, Any] | None = (
             {"configurable": configurable} if configurable else None
         )

@@ -136,6 +136,20 @@ memory:
   injection_enabled: false
   manager_class: qilinmem
 
+# ─── 上下文压缩（Phase C1）──
+# QiLin SummarizationMiddleware：长对话自动压缩 + 前端「压缩」按钮手动强制压缩。
+# 压缩发生时引擎向 custom 流发 context_compacted 事件 → gateway 翻译为
+# compaction_completed SSE → 前端展示「上下文已压缩」提示。
+summarization:
+  enabled: true
+  # 超过 40 条消息自动压缩（老消息摘要进 summary_text，保留最近 keep 条）。
+  trigger:
+    - type: messages
+      value: 40
+  keep:
+    type: messages
+    value: 20
+
 # ─── 网络与 Web 工具 ───
 # 全局代理与 web 工具默认值。Settings > Web 工具面板的读写走 gateway
 # runtime_config_routes.py → config.yaml network 段（热重载）。

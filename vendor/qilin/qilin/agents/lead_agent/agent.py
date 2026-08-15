@@ -48,6 +48,7 @@ from qilin.agents.middlewares.safety_finish_reason_middleware import (
 from qilin.agents.middlewares.subagent_limit_middleware import SubagentLimitMiddleware
 from qilin.agents.middlewares.summarization_middleware import (
     QiLinSummarizationMiddleware,
+    SummarizationEvent,
     create_summarization_middleware,
 )
 from qilin.agents.middlewares.terminal_response_middleware import (
@@ -163,8 +164,40 @@ def _create_summarization_middleware(*, app_config: AppConfig | None = None, run
     ``run_model_name`` is the resolved run model; it is the source of truth for
     ``model_name: null`` summarization and the explicit-summary-model fallback, so a
     custom agent's model is used instead of ``config.models[0]``.
+
+    KCoder 补丁：注册 context_compacted 钩子——压缩发生时向 LangGraph custom 流
+    发送事件，gateway 翻译成 compaction_completed SSE，前端展示压缩提示。
     """
-    return create_summarization_middleware(app_config=app_config, run_model_name=run_model_name)
+    middleware = create_summarization_middleware(app_config=app_config, run_model_name=run_model_name)
+    if middleware is not None:
+        middleware._before_summarization_hooks.append(_emit_context_compacted_event)
+    return middleware
+
+
+def _emit_context_compacted_event(event: SummarizationEvent) -> None:
+    """KCoder 可见性钩子：压缩完成前广播 context_compacted custom 事件。
+
+    钩子仅在摘要已生成、消息尚未移除时触发（见 summarization_middleware 的
+    _fire_hooks 调用点），因此事件携带的 removed/preserved 数量就是本次压缩
+    的真实结果。writer 缺失（非 custom 流式模式）或任何异常都静默降级，
+    不阻断压缩本身。
+    """
+    try:
+        from langgraph.config import get_stream_writer
+
+        from qilin.utils.custom_events import emit_custom_event
+
+        writer = get_stream_writer()
+        emit_custom_event(
+            {
+                "type": "context_compacted",
+                "removed_count": len(event.messages_to_summarize),
+                "preserved_count": len(event.preserved_messages),
+            },
+            writer=writer,
+        )
+    except Exception:
+        logger.warning("context_compacted custom event emit failed", exc_info=True)
 
 
 def _create_todo_list_middleware(is_plan_mode: bool) -> TodoMiddleware | None:

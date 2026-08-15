@@ -552,8 +552,25 @@ class QiLinSummarizationMiddleware(SummarizationMiddleware):
             total_tokens=total_tokens,
         )
 
+    @staticmethod
+    def _config_force_compact() -> bool:
+        """Read the KCoder manual-compact flag from the run config.
+
+        The KCoder gateway starts a dedicated compaction turn with
+        ``configurable.force_compact=True`` (instead of reaching into the
+        checkpointer from another process). ``force=True`` bypasses the
+        automatic trigger threshold; ``_determine_cutoff_index`` still
+        guards against compacting an already-short history (returns None).
+        """
+        try:
+            config = get_config()
+        except RuntimeError:
+            return False
+        configurable = (config or {}).get("configurable") or {}
+        return bool(configurable.get("force_compact") if isinstance(configurable, dict) else False)
+
     def _maybe_summarize(self, state: AgentState, runtime: Runtime) -> dict | None:
-        result = self.compact_state(state, runtime, force=False)
+        result = self.compact_state(state, runtime, force=self._config_force_compact())
         if result is None:
             return None
         return {
@@ -565,7 +582,7 @@ class QiLinSummarizationMiddleware(SummarizationMiddleware):
         }
 
     async def _amaybe_summarize(self, state: AgentState, runtime: Runtime) -> dict | None:
-        result = await self.acompact_state(state, runtime, force=False)
+        result = await self.acompact_state(state, runtime, force=self._config_force_compact())
         if result is None:
             return None
         return {

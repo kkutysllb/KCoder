@@ -253,8 +253,17 @@ export function reduceSseEvent(
 
     // ── compaction ────────────────────────────────────────────────
     case 'compaction_started':
-    case 'compaction_completed':
-      return { ...state, status: 'compacted' as TurnStatus }
+    case 'compaction_completed': {
+      // completed 事件携带移除/保留条数，写入 compaction 字段供渲染提示
+      const compaction =
+        kind === 'compaction_completed'
+          ? {
+              removedCount: (data?.removedCount as number) ?? 0,
+              preservedCount: (data?.preservedCount as number) ?? 0
+            }
+          : state.compaction
+      return { ...state, status: 'compacted' as TurnStatus, compaction }
+    }
 
     // ── turn 结束 ────────────────────────────────────────────────
     case 'turn_completed': {

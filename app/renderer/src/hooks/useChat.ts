@@ -336,7 +336,7 @@ export function useChat() {
 
   // Send a message
   const sendMessage = useCallback(
-    async (content: string, attachmentIds?: string[]) => {
+    async (content: string, attachmentIds?: string[], options?: { forceCompact?: boolean }) => {
       // 读 store 的实时 isGenerating（而非闭包旧值）：steer/approve 在
       // stopGeneration 后紧接着 sendMessage 时，闭包里的 isGenerating 还是 true。
       if (!content.trim() || useAppStore.getState().isGenerating) return
@@ -437,7 +437,9 @@ export function useChat() {
           // 执行权限模式（引擎 PermissionMiddleware 拦截）；审批通过的操作 id
           // 随本轮放行（一次性）
           permissionMode: useAppStore.getState().permissionMode,
-          approvedOps: approvedOpsRef.current.length > 0 ? [...approvedOpsRef.current] : undefined
+          approvedOps: approvedOpsRef.current.length > 0 ? [...approvedOpsRef.current] : undefined,
+          // 手动压缩 turn：引擎绕过自动阈值强制压缩
+          forceCompact: options?.forceCompact
         })
 
         // 立即设置 activeTurnId — 停止按钮和 steer 依赖它
@@ -742,16 +744,17 @@ export function useChat() {
   }, [steer])
 
   // 手动压缩上下文
+  /**
+   * 手动压缩上下文：以「强制压缩 turn」实现——发送系统指令 + forceCompact，
+   * 引擎 SummarizationMiddleware 绕过自动阈值压缩，custom 事件回传
+   * compaction_completed（前端渲染压缩提示）。运行中不打断（先停止再压缩）。
+   */
   const compactContext = useCallback(async (opts?: { reason?: string; budgetTokens?: number }) => {
-    const state = useAppStore.getState()
-    if (!state.threadId) return
-    const api = getEngineAPI(enginePort)
-    try {
-      await api.compactThread(state.threadId, opts)
-    } catch (e) {
-      console.error('[useChat] Failed to compact context:', e)
-    }
-  }, [enginePort])
+    if (useAppStore.getState().isGenerating) return
+    const prompt =
+      '[系统指令] 压缩当前对话上下文。请只简短确认压缩结果（移除了多少条历史消息、保留了最近多少条），不要调用任何工具、不要开始新任务。'
+    await sendMessage(prompt, undefined, { forceCompact: true })
+  }, [sendMessage])
 
   // 绑定 sendMessage 到 ref（queue 模式递归发送用）
   sendMessageRef.current = sendMessage

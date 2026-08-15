@@ -944,11 +944,11 @@ export class EngineAPI {
     attachmentIds?: string[],
     model?: string,
     reasoningMode?: 'auto' | 'off' | 'low' | 'medium' | 'high',
-    options?: { subagentEnabled?: boolean; isPlanMode?: boolean; permissionMode?: string; approvedOps?: string[] }
+    options?: { subagentEnabled?: boolean; isPlanMode?: boolean; permissionMode?: string; approvedOps?: string[]; forceCompact?: boolean }
   ): Promise<string> {
     // 默认启用子代理（task 工具 → InfoPanel「智能体」段）与计划模式
     // （write_todos 工具 → InfoPanel「进度」段）。可经 options 关闭。
-    const { subagentEnabled = true, isPlanMode = true, permissionMode, approvedOps } = options ?? {}
+    const { subagentEnabled = true, isPlanMode = true, permissionMode, approvedOps, forceCompact } = options ?? {}
     const turnResponse = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns`, {
       method: 'POST',
       headers: this.headers,
@@ -960,7 +960,8 @@ export class EngineAPI {
         subagent_enabled: subagentEnabled,
         is_plan_mode: isPlanMode,
         ...(permissionMode ? { permission_mode: permissionMode } : {}),
-        ...(approvedOps && approvedOps.length > 0 ? { approved_ops: approvedOps } : {})
+        ...(approvedOps && approvedOps.length > 0 ? { approved_ops: approvedOps } : {}),
+        ...(forceCompact ? { force_compact: true } : {})
       })
     })
 
