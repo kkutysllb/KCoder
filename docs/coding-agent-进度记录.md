@@ -92,13 +92,14 @@
 
 ### 删除项目后重启仍残留记录 + createProject 400 / todos 404
 
-- **现象**：本地目录与项目数据空间都删了，重启后前端仍列出该项目的历史线程，启动时对死路径自动注册 `POST /v1/projects 400`，选中线程 `GET /todos 404`。
-- **根因**：删除项目（delete_project）只归档了 langgraph 侧线程；KCoder 的 thread-log 兜底（`~/.kcoder/thread-log/`）仍持有这些线程且无 archived 标记——重启后 list_threads 把它们合并回来，前端自动注册对已删目录的 workspace 发 createProject → 400。
-- **修复**：
+- **现象**：本地目录与项目数据空间都删了，重启后前端仍列出该项目的历史线程，启动时对死路径自动注册 `POST /v1/projects 400`，选中线程 `GET /todos 404`（`GET /goal` 同类，共多个 404）。第一轮只静默 console.error 无效——浏览器网络层照样显示红色 400/404。
+- **根因**：① 删除项目（delete_project）只归档了 langgraph 侧线程，thread-log 兜底仍持有且无 archived 标记；② 侧边栏以 `includeArchived: true` 拉线程，归档线程也参与自动注册；③ goal/todos 端点对 langgraph 侧丢失的 thread-log 恢复线程一律 404。
+- **修复（三个提交）**：
   1. `delete_project` 级联：thread-log 中 workspace 匹配的条目一并标记 archived（`archivedLogEntries` 计数返回）。
   2. `list_threads` 合并时对 thread-log 条目做**死路径软过滤**（workspace 目录不存在则跳过，不改存储，目录恢复后自动重新出现）——当前已有的残留线程重启后即被隐藏，无需迁移。
-  3. 前端自动注册兜底（两轮）：先透传 400 detail + 「Directory does not exist」静默跳过；后改为**源头消除 400**——侧边栏以 `includeArchived: true` 拉取线程，归档线程不再参与自动注册，且自动注册改走 `POST /projects?silent_missing=true`（后端对缺失目录返回 200 skipped 而非 400），开发者面板不再出现红色网络错误。显式注册（目录选择器/新建项目）仍走严格 400。
-- **验证**：py_compile ✅ + 单测 ✅（死路径过滤 / 删除级联只归档匹配 workspace / silent_missing 三态）+ 前端 tsc ✅ → 运行时 ⏳（重启后残留应消失，控制台无 400）。
+  3. 前端自动注册兜底（两轮）：先透传 400 detail + 「Directory does not exist」静默跳过；后改为**源头消除 400**——自动注册跳过 archived 线程且改走 `POST /projects?silent_missing=true`（缺失目录返回 200 skipped 而非 400），开发者面板不再出现红色网络错误。显式注册（目录选择器/新建项目）仍走严格 400。
+  4. goal/todos 端点重构：thread 存在（langgraph 或 thread-log 恢复）→ 200 + null（无数据）；仅 thread 完全不存在才 404。顺带修复响应形状与 engine-api 读取对齐（`{"goal": ...}` / `{"todos": ...}` 包装；此前裸对象导致 `data.goal`/`data.todos` 恒为 null，InfoPanel 计划/进度段永远显示「暂无」）。
+- **验证**：py_compile ✅ + 单测 ✅（死路径过滤 / 删除级联只归档匹配 workspace / silent_missing 三态 / goal+todos 8 场景）+ 前端 tsc ✅ → 运行时 ⏳（重启后控制台无 400/404，InfoPanel 计划/进度段开始有内容）。
 
 ### 追加（steer）后出现「No active turn」
 

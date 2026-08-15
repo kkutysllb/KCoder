@@ -976,62 +976,92 @@ def _first_human_text(values: dict[str, Any]) -> str:
     return ""
 
 
+def _thread_known(thread_id: str) -> bool:
+    """thread 是否「存在」：langgraph 丢失时以 thread-log 判断。
+
+    用于 goal/todos 等 langgraph 状态端点：thread-log 恢复的历史线程
+    （数据空间重建后 langgraph 侧缺失）应返回 200 + null 数据，而不是
+    404——否则前端每次选中都在开发者面板刷红色错误。
+    """
+    try:
+        return thread_log.load_thread(thread_id) is not None
+    except Exception:
+        return False
+
+
 @router.get("/threads/{thread_id}/goal")
 async def get_thread_goal(thread_id: str, request: Request) -> dict[str, Any]:
     """GET /v1/threads/:id/goal — thread goal（InfoPanel「计划」段）。
 
-    objective 优先取最后一条用户消息（当前任务目标），兜底第一条；
-    无任何用户消息时返回 404（前端显示「暂无目标」）。
+    响应统一为 ``{"goal": <goal|null>}``（与 engine-api ``data.goal`` 读取对齐）：
+    - thread 存在（langgraph 或 thread-log 恢复）但无目标 → 200 {"goal": null}；
+    - thread 完全不存在 → 404。
     """
     client = _get_client(request)
+    values: dict[str, Any] = {}
+    state_ok = True
     try:
         state = await client.get_thread_state(thread_id)
+        values = _extract_state_values(state)
     except Exception:
+        state_ok = False
         logger.debug("goal: get_thread_state failed for %s", thread_id, exc_info=True)
-        raise HTTPException(status_code=404, detail="thread state not available")
 
-    values = _extract_state_values(state)
-    objective = ""
-    # 最后一条用户消息 = 当前正在执行的任务目标
-    humans = [
-        m for m in (values.get("messages") or [])
-        if isinstance(m, dict) and (m.get("type") == "human" or m.get("role") == "user")
-    ]
-    if humans:
-        content = humans[-1].get("content")
-        if isinstance(content, str) and content.strip():
-            objective = content.split("<user_attachments>")[0].strip()[:2000]
-    if not objective:
-        objective = _first_human_text(values)
-    if not objective:
-        # state 读不出（dev 重启丢 checkpoint 等）→ 回退 thread-log：
-        # 优先最新 goal_updated 落盘值，其次最新 turn 的 prompt。
-        logged_goal = thread_log.latest_goal(thread_id)
-        if logged_goal and logged_goal.get("objective"):
-            return logged_goal
-        for turn in reversed(thread_log.log_turns(thread_id)):
-            if turn.get("prompt"):
-                return {
-                    "threadId": thread_id,
-                    "objective": str(turn["prompt"]).split("<user_attachments>")[0][:2000],
-                    "status": "active",
-                    "tokensUsed": 0,
-                    "timeUsedSeconds": 0,
-                    "createdAt": turn.get("savedAt") or datetime.now(timezone.utc).isoformat(),
-                    "updatedAt": turn.get("savedAt") or datetime.now(timezone.utc).isoformat(),
-                }
-        raise HTTPException(status_code=404, detail="no goal yet")
+    goal: dict[str, Any] | None = None
+    if state_ok:
+        # 最后一条用户消息 = 当前正在执行的任务目标
+        humans = [
+            m for m in (values.get("messages") or [])
+            if isinstance(m, dict) and (m.get("type") == "human" or m.get("role") == "user")
+        ]
+        objective = ""
+        if humans:
+            content = humans[-1].get("content")
+            if isinstance(content, str) and content.strip():
+                objective = content.split("<user_attachments>")[0].strip()[:2000]
+        if not objective:
+            objective = _first_human_text(values)
+        if objective:
+            now = datetime.now(timezone.utc).isoformat()
+            goal = {
+                "threadId": thread_id,
+                "objective": objective,
+                "status": "active",
+                "tokensUsed": 0,
+                "timeUsedSeconds": 0,
+                "createdAt": now,
+                "updatedAt": now,
+            }
 
-    now = datetime.now(timezone.utc).isoformat()
-    return {
-        "threadId": thread_id,
-        "objective": objective,
-        "status": "active",
-        "tokensUsed": 0,
-        "timeUsedSeconds": 0,
-        "createdAt": now,
-        "updatedAt": now,
-    }
+    # thread-log 兜底：state 读不出（dev 重启丢 checkpoint / 数据空间重建）
+    # 或 state 无用户消息时，用落盘的 goal_updated / 最近 turn prompt 恢复。
+    if goal is None:
+        try:
+            logged_goal = thread_log.latest_goal(thread_id)
+            if logged_goal and logged_goal.get("objective"):
+                goal = logged_goal
+            else:
+                for turn in reversed(thread_log.log_turns(thread_id)):
+                    if turn.get("prompt"):
+                        goal = {
+                            "threadId": thread_id,
+                            "objective": str(turn["prompt"]).split("<user_attachments>")[0][:2000],
+                            "status": "active",
+                            "tokensUsed": 0,
+                            "timeUsedSeconds": 0,
+                            "createdAt": turn.get("savedAt") or datetime.now(timezone.utc).isoformat(),
+                            "updatedAt": turn.get("savedAt") or datetime.now(timezone.utc).isoformat(),
+                        }
+                        break
+        except Exception:
+            logger.warning("goal: thread_log fallback failed for %s", thread_id, exc_info=True)
+
+    if goal is not None:
+        return {"goal": goal}
+    if state_ok or _thread_known(thread_id):
+        # thread 存在但确实没有目标：200 + null（前端显示「暂无目标」，不刷 404）
+        return {"goal": None}
+    raise HTTPException(status_code=404, detail="thread not found")
 
 
 @router.get("/threads/{thread_id}/todos")
@@ -1040,44 +1070,57 @@ async def get_thread_todos(thread_id: str, request: Request) -> dict[str, Any]:
 
     数据来自 QiLin TodoMiddleware 写入的 graph state ``todos`` 通道
     （write_todos 工具整体替换语义，reducer 保留最后非 None 值）。
-    无 todos（未启用计划模式 / 未产生待办）返回 404。
+    响应统一为 ``{"todos": <todos|null>}``（与 engine-api ``data.todos``
+    读取对齐）；thread 存在但无 todos → 200 {"todos": null}，只有 thread
+    完全不存在才 404。
     """
     client = _get_client(request)
+    values: dict[str, Any] = {}
+    state_ok = True
     try:
         state = await client.get_thread_state(thread_id)
+        values = _extract_state_values(state)
     except Exception:
+        state_ok = False
         logger.debug("todos: get_thread_state failed for %s", thread_id, exc_info=True)
-        raise HTTPException(status_code=404, detail="thread state not available")
 
-    values = _extract_state_values(state)
+    todos: dict[str, Any] | None = None
     raw_todos = values.get("todos")
-    if not isinstance(raw_todos, list) or not raw_todos:
-        # state 读不出（dev 重启丢 checkpoint 等）→ 回退 thread-log：
-        # 最新一次 todos_updated 的落盘值。
-        logged = thread_log.latest_todos(thread_id)
-        if logged and logged.get("items"):
-            return logged
-        raise HTTPException(status_code=404, detail="no todos")
+    if isinstance(raw_todos, list) and raw_todos:
+        now = datetime.now(timezone.utc).isoformat()
+        items = []
+        for idx, td in enumerate(raw_todos):
+            if not isinstance(td, dict):
+                continue
+            status = td.get("status") or "pending"
+            if status not in ("pending", "in_progress", "completed"):
+                status = "pending"
+            items.append(
+                {
+                    "id": str(td.get("id") or f"todo-{idx}"),
+                    "content": str(td.get("content") or ""),
+                    "status": status,
+                    "createdAt": now,
+                    "updatedAt": now,
+                }
+            )
+        todos = {
+            "threadId": thread_id,
+            "items": items,
+            "updatedAt": now,
+        }
 
-    now = datetime.now(timezone.utc).isoformat()
-    items = []
-    for idx, td in enumerate(raw_todos):
-        if not isinstance(td, dict):
-            continue
-        status = td.get("status") or "pending"
-        if status not in ("pending", "in_progress", "completed"):
-            status = "pending"
-        items.append(
-            {
-                "id": str(td.get("id") or f"todo-{idx}"),
-                "content": str(td.get("content") or ""),
-                "status": status,
-                "createdAt": now,
-                "updatedAt": now,
-            }
-        )
-    return {
-        "threadId": thread_id,
-        "items": items,
-        "updatedAt": now,
-    }
+    # state 读不出 / 无 todos → 回退 thread-log：最新一次 todos_updated 落盘值。
+    if todos is None:
+        try:
+            logged = thread_log.latest_todos(thread_id)
+            if logged and logged.get("items"):
+                todos = logged
+        except Exception:
+            logger.warning("todos: thread_log fallback failed for %s", thread_id, exc_info=True)
+
+    if todos is not None:
+        return {"todos": todos}
+    if state_ok or _thread_known(thread_id):
+        return {"todos": None}
+    raise HTTPException(status_code=404, detail="thread not found")
