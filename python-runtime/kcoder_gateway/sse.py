@@ -1027,21 +1027,51 @@ async def consume_langgraph_stream(
                     got_end = True
 
         if not got_end:
-            logger.warning(
-                "LangGraph stream ended without 'end' event (thread=%s) — synthesizing turn_completed",
-                run.thread_id,
-            )
-            completed_event: dict[str, Any] = {
-                "kind": "turn_completed",
-                "turnId": run.turn_id,
-                "threadId": run.thread_id,
-            }
-            changes = await workspace_tracker.compute_changes(
-                run.turn_id, run.thread_id, workspace_path
-            )
-            if changes:
-                completed_event["fileChanges"] = changes
-            await q.put(completed_event)
+            # ── 终态诚实化（防线3）：流未正常结束时分流 ──────────────────
+            # 此前一律合成 turn_completed —— 把失败伪装成成功，前端显示
+            # 「完成」但内容缺失，或 UI 挂在等待里。现在：
+            #   run_error 非空（流中断/引擎崩溃/模型连接失败）→ turn_failed
+            #   携带错误分类；否则才合成 turn_completed。
+            if run_error:
+                err_text = str(run_error)
+                lowered = err_text.lower()
+                if (
+                    "connection" in lowered
+                    or "apiconnection" in lowered
+                    or "remoteprotocol" in lowered
+                    or "timeout" in lowered
+                ):
+                    reason = "模型服务连接失败（网络/代理/服务商不可达），请检查后重试"
+                else:
+                    reason = "引擎执行流中断"
+                logger.warning(
+                    "LangGraph stream failed (thread=%s, error=%s) — synthesizing turn_failed: %s",
+                    run.thread_id, err_text[:200], reason,
+                )
+                failed_event: dict[str, Any] = {
+                    "kind": "turn_failed",
+                    "turnId": run.turn_id,
+                    "threadId": run.thread_id,
+                    "message": reason,
+                    "error": err_text[:500],
+                }
+                await q.put(failed_event)
+            else:
+                logger.warning(
+                    "LangGraph stream ended without 'end' event (thread=%s) — synthesizing turn_completed",
+                    run.thread_id,
+                )
+                completed_event: dict[str, Any] = {
+                    "kind": "turn_completed",
+                    "turnId": run.turn_id,
+                    "threadId": run.thread_id,
+                }
+                changes = await workspace_tracker.compute_changes(
+                    run.turn_id, run.thread_id, workspace_path
+                )
+                if changes:
+                    completed_event["fileChanges"] = changes
+                await q.put(completed_event)
 
         # ── turn 历史落盘（thread_log 兜底）──────────────────────────
         # langgraph dev 的 checkpoint 在重启/版本变化后可能读不出（thread 列表
@@ -1175,7 +1205,14 @@ async def sse_event_generator(
                 except asyncio.QueueEmpty:
                     break
             else:
-                event = await run.event_queue.get()
+                # 心跳（执行层防线2a）：15s 无事件发 SSE comment 帧。前端
+                # EventSource 自动忽略 comment，但连接保活（代理/中间层不断
+                # 空闲连接），且前端看门狗据此区分「连接活着没输出」与「死连」。
+                try:
+                    event = await asyncio.wait_for(run.event_queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield b": ping\n\n"
+                    continue
             if event is None:
                 break
             seq, event = _next_event(run, event)

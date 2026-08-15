@@ -501,6 +501,28 @@ async def start_turn(
     turn_id = str(uuid.uuid4())
     user_message_id = str(uuid.uuid4())
 
+    # ── 执行层防线1：排毒僵尸 run ──────────────────────────────────
+    # langgraph dev 的 in-memory 队列是黑盒：run 卡在 running/pending 状态
+    # 但 worker 已放弃（LLM 重试挂起 / 流中断未清理）时，multitask_strategy
+    # =enqueue 会把本 turn 永久排在毒队列后面（实测 pending 等待 322s 且
+    # worker active=0）。发新 run 前主动 cancel 该 thread 上所有遗留 run，
+    # 让队列每次从干净状态开始。失败不阻断（尽力排毒）。
+    try:
+        stale = [
+            r for r in await client.list_thread_runs(thread_id)
+            if str(r.get("status", "")) in ("running", "pending")
+        ]
+        for r in stale:
+            rid = str(r.get("run_id", ""))
+            if rid:
+                await client.cancel_run(thread_id, rid)
+                logger.info("drained stale run %s (status=%s) before new turn", rid[:8], r.get("status"))
+        if stale:
+            # 给 langgraph 一个短窗口让取消生效，避免新 run 立刻 enqueue
+            await asyncio.sleep(0.5)
+    except Exception:
+        logger.debug("stale-run drain failed (non-blocking)", exc_info=True)
+
     run = ActiveRun(
         thread_id=thread_id,
         turn_id=turn_id,

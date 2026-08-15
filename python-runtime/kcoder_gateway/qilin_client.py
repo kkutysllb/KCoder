@@ -216,3 +216,20 @@ class QiLinClient:
             return {"values": {"messages": []}}
         r.raise_for_status()
         return r.json()
+
+    async def list_thread_runs(self, thread_id: str) -> list[dict[str, Any]]:
+        """GET /threads/{id}/runs → 该 thread 的 run 列表（run_id/status/created_at）.
+
+        执行层排毒用：start_turn 前查僵尸 run（status 停在 running/pending
+        但 worker 已放弃的），主动 cancel，防止 multitask_strategy=enqueue
+        把新 run 永久排在毒队列后面。失败返回空列表（不阻断）。
+        """
+        try:
+            r = await self._client.get(f"/threads/{thread_id}/runs")
+            if r.status_code != 200:
+                return []
+            data = r.json()
+            return data if isinstance(data, list) else []
+        except httpx.HTTPError:
+            logger.warning("list_thread_runs failed for %s", thread_id, exc_info=True)
+            return []

@@ -434,7 +434,27 @@ export function useChat() {
         // execution plane. sendMessage now returns turnId immediately (SSE
         // subscription is fire-and-forget), so activeTurnId is set BEFORE the
         // turn completes — this makes the stop button functional.
+        // ── 执行层防线2b：turn 看门狗 ──────────────────────────────
+        // langgraph 队列/流任一环节黑盒卡死（僵尸 run 排队、引擎进程死亡、
+        // 模型连接挂起）时，SSE 永远等不到终止事件 → isGenerating 永久卡死。
+        // 看门狗：240s 无任何事件 → 判死，标 error、解除 await、解锁 UI。
+        // 正常长工具（构建/测试）一般 <4 分钟；误杀可重发，卡死不可接受。
+        const WATCHDOG_MS = 240_000
+        let lastActivity = Date.now()
+        const watchdogTimer = setInterval(() => {
+          if (turnSeqRef.current !== seq) {
+            clearInterval(watchdogTimer)
+            return
+          }
+          if (Date.now() - lastActivity > WATCHDOG_MS) {
+            clearInterval(watchdogTimer)
+            turnUpdate(assistantMessageId, 'error', { message: t('chat.turnUnresponsive') })
+            api.abortCurrentTurnWait()
+          }
+        }, 10_000)
+
         const turnId = await api.sendMessage(currentThreadId, finalContent, (event: SSEEvent) => {
+          lastActivity = Date.now() // 任何事件刷新看门狗
           handleSseEvent(assistantMessageId, event)
         }, attachmentIds, useAppStore.getState().selectedModel ?? undefined, useAppStore.getState().reasoningMode || undefined, {
           // 执行权限模式（引擎 PermissionMiddleware 拦截）；审批通过的操作 id
@@ -450,6 +470,7 @@ export function useChat() {
 
         // 等待 turn 完成 — subscribeToThread 的 promise 在收到终端事件时 resolve
         await api.waitForTurnCompletion()
+        clearInterval(watchdogTimer)
       } catch (error) {
         console.error('Failed to send message:', error)
         turnUpdate(assistantMessageId, 'error', { message: '无法连接到引擎，请检查引擎状态后重试。' })

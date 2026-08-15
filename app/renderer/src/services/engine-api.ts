@@ -749,6 +749,10 @@ export class EngineAPI {
   // (turn_completed/turn_failed/turn_aborted). Set by sendMessage, awaited
   // by waitForTurnCompletion.
   private turnCompletion: Promise<void> = Promise.resolve()
+  // 当前 turn SSE 的外部中断句柄（看门狗用）：abort 连接 + 提前 resolve
+  // turnCompletion，解除 sendMessage 的 await，防止 UI 永久 isGenerating。
+  private turnAbortController: AbortController | null = null
+  private turnExternalResolve: (() => void) | null = null
   // Authenticated user id — required for product-side model management.
   // The engine stores model profiles per user and resolves them at request
   // time via thread.ownerUserId, so the id here MUST match the logged-in
@@ -990,6 +994,22 @@ export class EngineAPI {
     await this.turnCompletion
   }
 
+  /**
+   * 外部中断当前 turn 的等待（执行层防线2b：看门狗）。
+   * abort SSE 连接并提前 resolve turnCompletion —— useChat 的 await 随即
+   * 解除、finally 正常收尾（isGenerating 回落），UI 不再永久卡死。
+   * 不向引擎发 interrupt（调用方决定是否另调 interruptTurn）。
+   */
+  abortCurrentTurnWait(): void {
+    try {
+      this.turnAbortController?.abort()
+    } catch {
+      /* 已中断 */
+    }
+    this.turnExternalResolve?.()
+    this.turnExternalResolve = null
+  }
+
   // 订阅线程事件流。
   //
   // We use fetch + ReadableStream rather than EventSource because EventSource
@@ -1006,6 +1026,9 @@ export class EngineAPI {
   ): Promise<void> {
     const url = `${this.baseUrl}/v1/threads/${threadId}/events`
     const controller = new AbortController()
+    // 供 abortCurrentTurn() 外部中断：看门狗判定 turn 黑盒卡死时提前解除
+    // waitForTurnCompletion 的 await（否则 UI 永久 isGenerating）。
+    this.turnAbortController = controller
 
     // Reconnect tuning: unexpected stream drops (network blip, gateway/langgraph
     // restart) are retried with exponential backoff. A "terminal" SSE event
@@ -1022,9 +1045,11 @@ export class EngineAPI {
       const finish = () => {
         if (resolved) return
         resolved = true
+        this.turnExternalResolve = null
         controller.abort()
         resolve()
       }
+      this.turnExternalResolve = finish
 
       // 事件 seq 去重（Phase C2）：重连补发与实时流可能重叠，按 eventId
       // 单调递增跳过已处理事件，保证文本增量等幂等消费（不重复、不乱序）。
