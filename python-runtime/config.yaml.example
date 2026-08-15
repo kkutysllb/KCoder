@@ -51,6 +51,9 @@ tools:
   - name: repo_map
     group: file:read
     use: qilin.sandbox.tools:repo_map_tool
+  - name: dep_map
+    group: file:read
+    use: qilin.sandbox.tools:dep_map_tool
   - name: read_file
     group: file:read
     use: qilin.sandbox.tools:read_file_tool

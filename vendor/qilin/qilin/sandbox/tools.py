@@ -2094,6 +2094,129 @@ async def _repo_map_tool_async(runtime: Runtime, description: str, path: str, ma
 repo_map_tool.coroutine = _repo_map_tool_async
 
 
+# dep_map 工具：一次 grep 扫出源码文件的 import/require 语句，按文件聚合成
+# 依赖映射，帮助模型快速理解模块间引用关系（repo_map 的姊妹工具）。
+# 匹配行锚定行首，避免注释/文档里出现 "from"/"use" 造成误报；
+# 引号开头的裸行用于捕捉 Go import 块内的包名条目。
+_DEP_IMPORT_PATTERN = r"^\s*(?:import\s|from\s|use\s|mod\s|require\s*\(|export\s.*\bfrom\b|\"[^\"]+\"\s*$)"
+_DEP_SOURCE_GLOB = "**/*.{py,js,ts,jsx,tsx,go,rs}"
+_DEP_DEFAULT_MAX_RESULTS = 2000
+_DEP_MIN_MAX_RESULTS = 200
+_DEP_MAX_MAX_RESULTS = 5000
+_DEP_MAX_FILES = 150
+_DEP_MAX_LINES_PER_FILE = 12
+
+
+def _format_dep_map_output(matches: list[GrepMatch], requested_path: str, truncated: bool) -> str:
+    """Aggregate grep matches into a per-file dependency listing.
+
+    Files are sorted by path for stable output; each file shows up to
+    ``_DEP_MAX_LINES_PER_FILE`` import lines and at most ``_DEP_MAX_FILES``
+    files appear, with truncation notes for both budgets.
+    """
+    groups: dict[str, list[str]] = {}
+    for match in matches:
+        groups.setdefault(match.path, []).append(match.line.strip())
+    lines_out: list[str] = []
+    files_total = len(groups)
+    for idx, (file_path, imports) in enumerate(sorted(groups.items())):
+        if idx >= _DEP_MAX_FILES:
+            hidden_files = files_total - _DEP_MAX_FILES
+            lines_out.append(f"... [{hidden_files} more files with imports hidden. Run dep_map on a subdirectory] ...")
+            break
+        shown = imports[:_DEP_MAX_LINES_PER_FILE]
+        note = f" ({len(imports)} imports"
+        if len(shown) < len(imports):
+            note += f", showing first {len(shown)}"
+        note += ")"
+        lines_out.append(f"{file_path}{note}")
+        lines_out.extend(f"  {line}" for line in shown)
+    if not lines_out:
+        return "(no import statements found)"
+    output = "\n".join(lines_out)
+    if truncated:
+        output += "\n... [grep budget exhausted; some imports omitted. Narrow the search path] ..."
+    return f"{requested_path}/ ({files_total} files with imports)\n\n{output}"
+
+
+@tool("dep_map", parse_docstring=True)
+def dep_map_tool(runtime: Runtime, description: str, path: str, max_results: int = _DEP_DEFAULT_MAX_RESULTS) -> str:
+    """Scan source files for import/require statements and print a per-file dependency map.
+
+    Use this together with `repo_map` to understand how modules in a project
+    depend on each other: one call lists every file that imports something
+    (Python/JS/TS/JSX/TSX/Go/Rust), grouped by file with the actual import
+    lines. Follow up with `read_file` on the files you care about.
+
+    Args:
+        description: Explain why you are mapping dependencies in short words. ALWAYS PROVIDE THIS PARAMETER FIRST.
+        path: The **absolute** root directory to scan (usually the workspace root).
+        max_results: Maximum import lines to collect across all files (default 2000, range 200-5000).
+    """
+    try:
+        user_id = resolve_runtime_user_id(runtime)
+        # Block access to disabled skill directories
+        if _is_disabled_skill_path(path, user_id=user_id):
+            skill_name = _extract_skill_name_from_skills_path(path) or "unknown"
+            return f"Error: Skill '{skill_name}' is disabled. Access to its files is blocked. Enable the skill in settings before using it."
+        sandbox = ensure_sandbox_initialized(runtime)
+        ensure_thread_directories_exist(runtime)
+        requested_path = path
+        try:
+            effective_max_results = max(_DEP_MIN_MAX_RESULTS, min(int(max_results), _DEP_MAX_MAX_RESULTS))
+        except (TypeError, ValueError):
+            effective_max_results = _DEP_DEFAULT_MAX_RESULTS
+        thread_data = None
+        if is_local_sandbox(runtime):
+            thread_data = get_thread_data(runtime)
+            if thread_data is None:
+                raise SandboxRuntimeError("Thread data not available for local sandbox")
+            path = _resolve_local_read_path(path, thread_data)
+        matches, truncated = sandbox.grep(
+            path,
+            _DEP_IMPORT_PATTERN,
+            glob=_DEP_SOURCE_GLOB,
+            literal=False,
+            case_sensitive=False,
+            max_results=effective_max_results,
+        )
+        if thread_data is not None:
+            matches = [
+                GrepMatch(
+                    path=mask_local_paths_in_output(match.path, thread_data),
+                    line_number=match.line_number,
+                    line=match.line,
+                )
+                for match in matches
+            ]
+        # Same descend-gate as grep: a root above a disabled skill must not
+        # surface its import lines.
+        allowed = set(_drop_disabled_skill_paths([match.path for match in matches], user_id=user_id))
+        matches = [match for match in matches if match.path in allowed]
+        return _format_dep_map_output(matches, requested_path, truncated)
+    except SandboxError as e:
+        return f"Error: {e}"
+    except FileNotFoundError:
+        return f"Error: Directory not found: {requested_path}"
+    except NotADirectoryError:
+        return f"Error: Path is not a directory: {requested_path}"
+    except re.error as e:
+        return f"Error: Invalid import pattern: {e}"
+    except PermissionError:
+        return f"Error: Permission denied: {requested_path}"
+    except Exception as e:
+        return f"Error: Unexpected error building dependency map: {_sanitize_error(e, runtime)}"
+
+
+async def _dep_map_tool_async(runtime: Runtime, description: str, path: str, max_results: int = _DEP_DEFAULT_MAX_RESULTS) -> str:
+    return await _run_sync_tool_after_async_sandbox_init(
+        _tool_sync_func(dep_map_tool), runtime, description, path, max_results
+    )
+
+
+dep_map_tool.coroutine = _dep_map_tool_async
+
+
 @tool("glob", parse_docstring=True)
 def glob_tool(
     runtime: Runtime,

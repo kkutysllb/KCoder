@@ -90,12 +90,35 @@ def should_ignore_path(path: str) -> bool:
     return any(should_ignore_name(segment) for segment in path.replace("\\", "/").split("/") if segment)
 
 
+_BRACE_PATTERN_RE = re.compile(r"\{([^{}]+)\}")
+
+
+def _expand_braces(pattern: str) -> list[str]:
+    """Expand POSIX-style brace alternations like ``*.{py,js,ts}``.
+
+    Only flat alternations are supported (no nesting); patterns without
+    braces are returned unchanged. ``PurePath.match`` (and therefore
+    ``path_matches``) does not understand braces, so each expanded
+    candidate is matched separately.
+    """
+    match = _BRACE_PATTERN_RE.search(pattern)
+    if match is None:
+        return [pattern]
+    options = [opt for opt in match.group(1).split(",") if opt]
+    expanded: list[str] = []
+    for opt in options:
+        expanded.extend(_expand_braces(pattern[: match.start()] + opt + pattern[match.end() :]))
+    return expanded
+
+
 def path_matches(pattern: str, rel_path: str) -> bool:
     path = PurePosixPath(rel_path)
-    if path.match(pattern):
-        return True
-    if pattern.startswith("**/"):
-        return path.match(pattern[3:])
+    for candidate in _expand_braces(pattern):
+        if path.match(candidate):
+            return True
+        if candidate.startswith("**/"):
+            if path.match(candidate[3:]):
+                return True
     return False
 
 
