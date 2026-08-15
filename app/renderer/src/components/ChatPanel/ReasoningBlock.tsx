@@ -48,7 +48,7 @@ export function ReasoningBlock({ reasoning, streaming, thinkingMs }: ReasoningBl
         </svg>
       </button>
       {expanded && (
-        <div className="mt-2 pl-4 border-l-2 border-white/[0.08] prose prose-invert prose-xs max-w-none opacity-80">
+        <div className="mt-2 pl-4 border-l-2 border-white/[0.08] max-w-none opacity-80 text-[11.5px] italic leading-[2] text-text-muted [&_p]:my-1.5 [&_code]:not-italic">
           {reasoning.text ? (
             <ReactMarkdown>{reasoning.text}</ReactMarkdown>
           ) : inProgress ? (
