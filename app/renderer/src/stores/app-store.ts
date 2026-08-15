@@ -440,6 +440,16 @@ export const useAppStore = create<AppState>((set) => ({
           filePreviewPath: p
         }
       }
+      // 从未预览过文件 → 默认打开 workspace 的 README（面板可用入口）；
+      // 无 workspace 时无动作（按钮保持可点，等有上下文后生效）
+      if (state.workspacePath) {
+        const p = `${state.workspacePath}/README.md`
+        return {
+          openTabs: state.openTabs.includes(p) ? state.openTabs : [...state.openTabs, p],
+          activeTab: p,
+          filePreviewPath: p
+        }
+      }
       return {}
     }),
   setThreadGoal: (goal) => set({ threadGoal: goal }),

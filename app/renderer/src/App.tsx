@@ -173,19 +173,17 @@ function FilePreviewToggleButton() {
   const filePreviewPath = useAppStore((s) => s.filePreviewPath)
   const lastFilePreviewPath = useAppStore((s) => s.lastFilePreviewPath)
   const toggleFilePreview = useAppStore((s) => s.toggleFilePreview)
-  // 从未预览过文件 → 按钮禁用（无路径可 toggle 打开）
-  const disabled = !filePreviewPath && !lastFilePreviewPath
+  // 永远可点：无历史路径时 toggle 会兜底打开 workspace README
   const active = !!filePreviewPath
   return (
     <button
       onClick={toggleFilePreview}
-      disabled={disabled}
       title={t('statusbar.toggleFilePreview')}
       className={`p-1.5 rounded-md transition-colors ${
         active
           ? 'text-text-primary bg-bg-hover'
           : 'text-muted-icon hover:text-text-primary hover:bg-bg-hover'
-      } disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-icon`}
+      }`}
     >
       <IconFilePreview className="w-4 h-4" />
     </button>

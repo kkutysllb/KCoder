@@ -154,6 +154,19 @@ export function FilePreviewPanel({ path, onClose }: FilePreviewPanelProps) {
             {saving ? t('editor.saving') : t('editor.save')}
           </button>
         )}
+        {/* 折叠面板（保留 tabs，可从右上按钮再展开） */}
+        <button
+          onClick={() => useAppStore.getState().toggleFilePreview()}
+          className="shrink-0 rounded p-1 text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary"
+          title={t('files.collapsePanel')}
+          aria-label="Collapse panel"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 4v16" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 9.5L13 12l-2.5 2.5" />
+          </svg>
+        </button>
         <button
           onClick={onClose}
           className="shrink-0 rounded p-1 text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary"
