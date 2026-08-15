@@ -36,6 +36,7 @@ import asyncio
 import json
 import logging
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
@@ -628,6 +629,10 @@ def _extract_reasoning_text(msg: dict[str, Any]) -> str:
 # ActiveRun 管理
 # ────────────────────────────────────────────────────────────────
 
+# SSE 事件缓冲上限（Phase C2）：重连补发只覆盖最近 N 个事件；超出上限的
+# 最旧事件丢弃（前端按 seq 去重，最多出现少量丢失而非重复）。
+_EVENT_BUFFER_MAX = 1000
+
 
 @dataclass
 class ActiveRun:
@@ -648,6 +653,15 @@ class ActiveRun:
         default_factory=asyncio.Queue
     )
     task: asyncio.Task[None] | None = None
+    # ── SSE 可靠性（Phase C2）──
+    # 每个已分发事件分配单调递增 seq（同时写进 JSON payload 的 eventId），
+    # 事件同时存入有界缓冲。断线重连时（Last-Event-ID）从缓冲补发 seq
+    # 之后的事件；run 结束后缓冲随 ActiveRun 进入 registry 最近缓存，
+    # 供「turn 在 SSE 建连前就结束」的迟到订阅重放。
+    event_seq: int = 0
+    event_buffer: deque[tuple[int, dict[str, Any]]] = field(
+        default_factory=lambda: deque(maxlen=_EVENT_BUFFER_MAX)
+    )
     # 按 message id 追踪 AI 文本累积量。langgraph_api 的 messages/partial
     # 发送的是【累积后完整消息】（见 stream.py: messages[msg.id] += msg），
     # 所以必须做前缀 diff 才能得到真正的增量，否则会层层重复。
@@ -761,10 +775,17 @@ class RunRegistry:
     """按 thread_id 索引的 ActiveRun 注册表.
 
     同一时间一个 thread 只允许一个 ActiveRun。新 run 注册时旧的会被取消。
+
+    Phase C2：结束的 run 移入 ``_recent``（有界）——迟到订阅 / 断线重连的
+    客户端仍能从其事件缓冲重放整轮事件（消除「turn 在 SSE 建连前结束」
+    的 No active turn 竞态）。
     """
+
+    _RECENT_MAX = 20
 
     def __init__(self) -> None:
         self._runs: dict[str, ActiveRun] = {}
+        self._recent: dict[str, ActiveRun] = {}
 
     def register(self, run: ActiveRun) -> None:
         old = self._runs.get(run.thread_id)
@@ -774,6 +795,9 @@ class RunRegistry:
 
     def get(self, thread_id: str) -> ActiveRun | None:
         return self._runs.get(thread_id)
+
+    def get_recent(self, thread_id: str) -> ActiveRun | None:
+        return self._recent.get(thread_id)
 
     def remove(self, thread_id: str) -> None:
         self._runs.pop(thread_id, None)
@@ -786,11 +810,21 @@ class RunRegistry:
         await），此时新 turn 可能已经注册。若 finally 按 thread_id 移除，
         会把新 run 误删 → 新 SSE 连接拿到「No active turn」。按对象身份
         移除可消除该竞态：旧 run 的清理永远不波及新 run。
+
+        移除的 run 进入最近缓存（其事件缓冲仍可被重放）。
         """
         if self._runs.get(run.thread_id) is run:
             self._runs.pop(run.thread_id, None)
+            self._stash_recent(run)
             return True
         return False
+
+    def _stash_recent(self, run: ActiveRun) -> None:
+        self._recent[run.thread_id] = run
+        if len(self._recent) <= self._RECENT_MAX:
+            return
+        oldest = next(iter(self._recent))
+        del self._recent[oldest]
 
 
 # ────────────────────────────────────────────────────────────────
@@ -1083,20 +1117,84 @@ async def consume_langgraph_stream(
 # ────────────────────────────────────────────────────────────────
 
 
+def _sse_frame(seq: int, event: dict[str, Any]) -> bytes:
+    """编码单帧 SSE：``id: {seq}`` + ``data: {...}``（eventId 亦在 JSON 内）。"""
+    return f"id: {seq}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n".encode("utf-8")
+
+
+def _next_event(run: ActiveRun, event: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """分配 seq、写入 payload eventId 并加入重放缓冲。"""
+    run.event_seq += 1
+    event["eventId"] = run.event_seq
+    run.event_buffer.append((run.event_seq, event))
+    return run.event_seq, event
+
+
 async def sse_event_generator(
     run: ActiveRun,
+    *,
+    last_event_id: int | None = None,
 ) -> AsyncIterator[bytes]:
     """为 GET /v1/threads/:id/events 提供异步字节生成器.
 
-    从 run.event_queue 读取翻译后的 KCoder 事件，yield 为 SSE 帧。
-    读到 None 哨兵时停止。
+    从 run.event_queue 读取翻译后的 KCoder 事件，yield 为 SSE 帧
+    （带 ``id: {seq}``）。读到 None 哨兵时停止。
+
+    ``last_event_id``（断线重连时客户端携带）：先补发缓冲中 seq 大于
+    该值的事件，再继续读队列（缓冲=已被旧连接消费的事件，队列=未消费，
+    两者无重叠；前端按 seq 去重兜底）。
     """
     try:
+        if last_event_id is not None:
+            for seq, event in run.event_buffer:
+                if seq <= last_event_id:
+                    continue
+                yield _sse_frame(seq, event)
         while True:
-            event = await run.event_queue.get()
+            if run.task is not None and run.task.done():
+                # consume 任务已结束（None 哨兵已入队）：队列中剩余的照发，
+                # 已空则直接收尾——若哨兵已被前一连接消费，阻塞 get() 会让
+                # 重连连接悬挂到客户端超时。
+                try:
+                    event = run.event_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            else:
+                event = await run.event_queue.get()
             if event is None:
                 break
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n".encode("utf-8")
+            seq, event = _next_event(run, event)
+            yield _sse_frame(seq, event)
     except asyncio.CancelledError:
         logger.debug("SSE client disconnected (thread=%s)", run.thread_id)
+        raise
+
+
+async def sse_replay_generator(
+    run: ActiveRun,
+    *,
+    last_event_id: int | None = None,
+) -> AsyncIterator[bytes]:
+    """重放一个已结束 run 的完整事件历史（最近缓存路径）。
+
+    供两类迟到订阅使用：turn 在 SSE 建连前就结束（无 last_event_id → 全量
+    重放），以及断线重连（last_event_id → 只补发其后的）。重放 = 缓冲 +
+    队列中尚未被消费的剩余事件（打断路径的 turn_aborted 哨兵序列）。
+    """
+    try:
+        for seq, event in run.event_buffer:
+            if last_event_id is not None and seq <= last_event_id:
+                continue
+            yield _sse_frame(seq, event)
+        while True:
+            try:
+                event = run.event_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if event is None:
+                break
+            seq, event = _next_event(run, event)
+            yield _sse_frame(seq, event)
+    except asyncio.CancelledError:
+        logger.debug("SSE replay disconnected (thread=%s)", run.thread_id)
         raise

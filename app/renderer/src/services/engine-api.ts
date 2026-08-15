@@ -1026,12 +1026,21 @@ export class EngineAPI {
         resolve()
       }
 
+      // 事件 seq 去重（Phase C2）：重连补发与实时流可能重叠，按 eventId
+      // 单调递增跳过已处理事件，保证文本增量等幂等消费（不重复、不乱序）。
+      let lastSeq = -1
+
       const dispatch = (raw: string) => {
         if (!raw) return
         try {
           const data = JSON.parse(raw) as Record<string, unknown>
           const kind = (data.kind as string) || 'message'
           if (data.eventId) lastEventId = String(data.eventId)
+          const seq = typeof data.eventId === 'number' ? data.eventId : Number(data.eventId)
+          if (Number.isFinite(seq) && seq >= 0) {
+            if (seq <= lastSeq) return // 重放重叠事件，跳过
+            lastSeq = seq
+          }
           onEvent({ kind, data })
           // Terminate once the current turn reaches a terminal state.
           if (

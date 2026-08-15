@@ -40,6 +40,7 @@ from .sse import (
     RunRegistry,
     consume_langgraph_stream,
     sse_event_generator,
+    sse_replay_generator,
     workspace_tracker,
     _extract_reasoning_text,
 )
@@ -573,6 +574,27 @@ async def start_turn(
 # ────────────────────────────────────────────────────────────────
 
 
+def _parse_last_event_id(request: Request) -> int | None:
+    """解析断线重连断点：``Last-Event-ID`` 头优先，其次 ``lastEventId`` query。
+
+    非法/缺失返回 None（= 全量实时，不做补发）。
+    """
+    raw = (
+        request.headers.get("Last-Event-ID")
+        or request.headers.get("last-event-id")
+        or ""
+    )
+    if not raw:
+        raw = str(request.query_params.get("lastEventId") or "")
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
 @router.get("/threads/{thread_id}/events")
 async def stream_events(thread_id: str, request: Request) -> StreamingResponse:
     """SSE 事件流 — 转发 ActiveRun 中的翻译事件到 renderer.
@@ -580,15 +602,36 @@ async def stream_events(thread_id: str, request: Request) -> StreamingResponse:
     renderer 用 fetch + ReadableStream 消费（非 EventSource，因为需要
     Authorization header）。每帧格式::
 
-        data: {"kind": "assistant_text_delta", "delta": "..."}\n\n
+        id: 12
+        data: {"kind": "assistant_text_delta", "eventId": 12, "delta": "..."}
 
     终端事件（turn_completed/turn_failed/turn_aborted）后流自动关闭。
+
+    Phase C2 可靠性：
+    - 每事件带单调 seq（``id:`` 行 + payload.eventId）；
+    - 断线重连携带 ``Last-Event-ID`` 头 / ``lastEventId`` query → 从该 seq
+      之后补发（缓冲 + 队列剩余）；
+    - run 已结束（registry 最近缓存）→ 重放整轮事件——短 turn 在 SSE
+      建连前结束也能拿到完整历史，不再返回「No active turn」。
     """
     registry = _get_registry(request)
+    last_event_id = _parse_last_event_id(request)
     run = registry.get(thread_id)
 
     if run is None:
-        # 没有活跃的 turn — 返回一个 turn_failed 让 renderer 关闭连接
+        recent = registry.get_recent(thread_id)
+        if recent is not None:
+            logger.info(
+                "SSE replay for finished turn: thread=%s turn=%s lastEventId=%s",
+                thread_id, recent.turn_id, last_event_id,
+            )
+            return StreamingResponse(
+                sse_replay_generator(recent, last_event_id=last_event_id),
+                media_type="text/event-stream",
+            )
+
+        # 没有活跃 turn、也没有最近结束的 run — 返回一个 turn_failed 让
+        # renderer 关闭连接
         async def _no_active_run() -> bytes:
             yield (
                 f"data: {json.dumps({'kind': 'turn_failed', 'turnId': '', 'threadId': thread_id, 'message': 'No active turn'})}\n\n".encode()
@@ -599,7 +642,7 @@ async def stream_events(thread_id: str, request: Request) -> StreamingResponse:
         )
 
     return StreamingResponse(
-        sse_event_generator(run),
+        sse_event_generator(run, last_event_id=last_event_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
