@@ -25,7 +25,6 @@ import { SubagentGroup } from './SubagentGroup'
 import { ClarificationCard } from './ClarificationCard'
 import { ArtifactBar } from './ArtifactBar'
 import { DeliveryResult } from './DeliveryResult'
-import { StreamingDots } from './parts/icons'
 
 interface AssistantTurnProps {
   msg: ChatMessage
@@ -826,10 +825,10 @@ export function AssistantTurn({
           <DeliveryResult msg={msg} />
         )}
 
-        {/* 空内容 streaming 占位 */}
+        {/* 空内容 streaming 占位（品牌 K 旋转光标，与正文流式光标同一视觉） */}
         {!hasContent && streaming && (
           <div className="flex items-center gap-2 pt-1 text-text-muted">
-            <StreamingDots />
+            <StreamingCursor />
             <span className="text-xs">正在启动…</span>
           </div>
         )}
