@@ -772,6 +772,23 @@ export function useChat() {
     await sendMessage(`[已拒绝] 用户拒绝了刚才的操作（审批 id: ${opId}，工具: ${toolName}）。请停止该操作，如需替代方案先说明。`)
   }, [sendMessage])
 
+  /**
+   * 计划批准（plan-mode 的 present_plan 出口）。
+   * 1) 把权限模式切到 auto-edit（计划级信任代替逐操作审批）；
+   * 2) 以「批准指令 + 计划原文」发起新 turn —— 新 turn 的 configurable 携带
+   *    permission_mode=auto-edit，模型按计划执行。
+   */
+  const approvePlan = useCallback(async (planId: string, title: string, planText: string) => {
+    useAppStore.getState().setPermissionMode('auto-edit')
+    const prompt = `<approved_plan id="${planId}">\n${planText}\n</approved_plan>\n\n用户已批准该计划，现在进入执行阶段。请严格按照计划逐步实现，并完成 Verification 中的验证。`
+    await sendMessage(prompt)
+  }, [sendMessage])
+
+  /** 计划拒绝：保持在 plan-mode，告知模型调整计划后重新 present_plan。 */
+  const rejectPlan = useCallback(async (planId: string, title: string) => {
+    await sendMessage(`[计划未批准] 用户拒绝了计划「${title}」（id: ${planId}）。请说明调整方向或重新分析后再次调用 present_plan 提交新计划。`)
+  }, [sendMessage])
+
     return {
     messages_v2,
     isGenerating,
@@ -790,7 +807,9 @@ export function useChat() {
     submitUserInput,
     cancelUserInput,
     approveOperation,
-    rejectOperation
+    rejectOperation,
+    approvePlan,
+    rejectPlan
   }
 }
 

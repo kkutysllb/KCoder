@@ -1109,24 +1109,43 @@ def apply_prompt_template(
     # 权限模式说明：confirm-before-change 下，文件改动/命令由系统自动弹审批卡，
     # 模型不应再为「确认变更」调用 ask_clarification（否则会出现审批卡+澄清卡
     # 两个重叠的确认 UI）。仅在该模式下注入这段，其它模式保持原提示词不变。
-    permission_mode_section = (
-        "<permission_mode>\n"
-        "This run is in **confirm-before-change** mode: file modifications and shell "
-        "commands will NOT run immediately. The system automatically pauses and asks "
-        "the user for approval (an interactive approval dialog) before each mutating "
-        "tool call. Therefore:\n"
-        "- Do NOT call `ask_clarification` merely to confirm a change (e.g. \"should I "
-        "create/edit/delete this file?\" or \"should I run this command?\"). The approval "
-        "dialog already handles that confirmation.\n"
-        "- Just call the tool directly (e.g. `write_file`, `bash`); the system will "
-        "pause and surface the approval prompt to the user automatically.\n"
-        "- Only use `ask_clarification` for genuinely missing information, ambiguous "
-        "requirements, or approach choices — not for risk/change confirmation, which "
-        "the approval flow already covers.\n"
-        "</permission_mode>"
-        if permission_mode == "confirm-before-change"
-        else ""
-    )
+    # plan-mode 下注入 read-only 约束 + present_plan 出口，形成「计划批准门」。
+    if permission_mode == "plan-mode":
+        permission_mode_section = (
+            "<permission_mode>\n"
+            "This run is in **plan-mode**: READ-ONLY analysis. File modifications and "
+            "shell commands are BLOCKED by the system — do not call write_file, "
+            "str_replace, bash or task, and do not waste turns retrying them.\n"
+            "- Analyze with read-only tools: repo_map (structure), dep_map (module "
+            "dependencies), read_file, grep, glob, ls.\n"
+            "- When your analysis is complete, call `present_plan` with:\n"
+            "  - title: short, concrete plan title;\n"
+            "  - overview: 2-4 sentences on what will be done and why this approach;\n"
+            "  - steps: an ordered list of concrete implementation steps;\n"
+            "  - verification: how the result will be verified (tests/commands).\n"
+            "- After calling present_plan, STOP. Do not implement anything until the "
+            "user approves the plan and an execution turn starts.\n"
+            "</permission_mode>"
+        )
+    elif permission_mode == "confirm-before-change":
+        permission_mode_section = (
+            "<permission_mode>\n"
+            "This run is in **confirm-before-change** mode: file modifications and shell "
+            "commands will NOT run immediately. The system automatically pauses and asks "
+            "the user for approval (an interactive approval dialog) before each mutating "
+            "tool call. Therefore:\n"
+            "- Do NOT call `ask_clarification` merely to confirm a change (e.g. \"should I "
+            "create/edit/delete this file?\" or \"should I run this command?\"). The approval "
+            "dialog already handles that confirmation.\n"
+            "- Just call the tool directly (e.g. `write_file`, `bash`); the system will "
+            "pause and surface the approval prompt to the user automatically.\n"
+            "- Only use `ask_clarification` for genuinely missing information, ambiguous "
+            "requirements, or approach choices — not for risk/change confirmation, which "
+            "the approval flow already covers.\n"
+            "</permission_mode>"
+        )
+    else:
+        permission_mode_section = ""
 
     # Build and return the fully static system prompt.
     # Memory and current date are injected per-turn via DynamicContextMiddleware

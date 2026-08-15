@@ -43,7 +43,7 @@ READ_ONLY_TOOLS = frozenset(
         "web_search", "web_fetch",
         "browser_navigate", "browser_snapshot", "browser_get_text",
         "browser_back", "browser_screenshot",
-        "present_files", "ask_clarification", "review_skill_package",
+        "present_files", "present_plan", "ask_clarification", "review_skill_package",
         "list_uploaded_files", "view_image", "tool_search",
     }
 )
@@ -196,8 +196,10 @@ class PermissionMiddleware(AgentMiddleware[PermissionMiddlewareState]):
             content = (
                 "BLOCKED by permission mode 'plan-mode': this run is read-only analysis. "
                 "Do not attempt to modify files or run state-changing commands. "
-                "Continue with read-only tools (read_file / grep / glob / ls) and produce "
-                "a written implementation plan for the user instead."
+                "Continue with read-only tools (repo_map / dep_map / read_file / grep / "
+                "glob / ls) to analyze the codebase, then call "
+                "`present_plan(title, overview, steps, verification)` to submit your "
+                "implementation plan for user approval."
             )
         else:  # deny_dangerous
             content = (

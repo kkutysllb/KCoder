@@ -48,6 +48,10 @@ interface ChatFeedProps {
   onApprove?: (opId: string, toolName: string) => void
   /** 执行审批：拒绝被拦截的操作。 */
   onReject?: (opId: string, toolName: string) => void
+  /** 计划批准：批准 present_plan 提交的计划并进入执行阶段。 */
+  onPlanApprove?: (planId: string, title: string, planText: string) => void
+  /** 计划批准：拒绝/要求修改计划。 */
+  onPlanReject?: (planId: string, title: string) => void
   /** queue 模式下「立即执行」：出队最早一条并引导（打断当前 turn + 重发）。 */
   onExecuteQueued?: () => void
   /** 重新生成指定 assistant 回复（截断到其前一条 user 消息并重发）。 */
@@ -103,6 +107,8 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
     onClarifyPick,
     onApprove,
     onReject,
+    onPlanApprove,
+    onPlanReject,
     onExecuteQueued,
     onRegenerate,
     editableUserMessageIds,
@@ -223,6 +229,8 @@ export const ChatFeed = forwardRef<ChatFeedHandle, ChatFeedProps>(
                 branches={branches}
                 onApprove={onApprove}
                 onReject={onReject}
+                onPlanApprove={onPlanApprove}
+                onPlanReject={onPlanReject}
               />
             )
           )}

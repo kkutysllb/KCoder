@@ -10,6 +10,7 @@ from qilin.tools.builtins import (
     ask_clarification_tool,
     list_uploaded_files,
     present_file_tool,
+    present_plan_tool,
     review_skill_package,
     task_tool,
     view_image_tool,
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 BUILTIN_TOOLS = [
     present_file_tool,
+    present_plan_tool,
     ask_clarification_tool,
     review_skill_package,
 ]

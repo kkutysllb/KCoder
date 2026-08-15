@@ -42,6 +42,10 @@ interface AssistantTurnProps {
   onApprove?: (opId: string, toolName: string) => void
   /** 执行审批：拒绝被拦截的操作。 */
   onReject?: (opId: string, toolName: string) => void
+  /** 计划批准：批准 present_plan 提交的计划并进入执行阶段。 */
+  onPlanApprove?: (planId: string, title: string, planText: string) => void
+  /** 计划批准：拒绝/要求修改计划。 */
+  onPlanReject?: (planId: string, title: string) => void
 }
 
 /**
@@ -148,6 +152,115 @@ function ApprovalCard({
   )
 }
 
+// ── 计划批准（plan-mode 的 present_plan 出口）──────────────────────────
+//
+// 引擎 present_plan 工具把 <plan_request id="..." status="awaiting_approval">
+// …</plan_request> 写在 ToolMessage.content 里。前端检测该标记渲染计划批准卡：
+// 批准 → onPlanApprove（切换 auto-edit + 携带计划发起执行 turn）；
+// 拒绝 → onPlanReject（告知模型调整计划）。
+// 与 approval_request 相同的截断容错：查 output ?? summary，闭合标签可缺失。
+const PLAN_RE = /<plan_request id="([^"]+)" status="[^"]*">([\s\S]*?)(?:<\/plan_request>|$)/
+
+interface PlanPayload {
+  planId: string
+  title: string
+  overview: string
+  steps: string[]
+  verification: string
+  planText: string
+}
+
+function detectPlan(msg: ChatMessage): PlanPayload | null {
+  for (const call of msg.toolCalls ?? []) {
+    if (call.name !== 'present_plan' || call.status !== 'completed') continue
+    const raw = call.output ?? call.summary ?? ''
+    if (!raw) continue
+    const m = PLAN_RE.exec(String(raw))
+    if (!m) continue
+    const inner = m[2].trim()
+    // 轻解析：Title: 行 → overview 段 → Steps: 编号列表 → Verification: 段。
+    // 用换行边界定位（引擎输出固定为 "Steps:\n" / "Verification:\n" 开头的新行）。
+    const titleMatch = /^Title:\s*(.+)$/m.exec(inner)
+    const title = titleMatch?.[1]?.trim() || 'Untitled plan'
+    const stepsIdx = inner.indexOf('\nSteps:\n')
+    const stepsVerifIdx = inner.indexOf('\nVerification:\n')
+    let overview = inner.replace(/^Title:\s*.+$/m, '').trim()
+    let steps: string[] = []
+    let verification = ''
+    if (stepsIdx >= 0) {
+      overview = inner.slice(0, stepsIdx).replace(/^Title:\s*.+$/m, '').trim()
+      const stepsEnd = stepsVerifIdx > stepsIdx ? stepsVerifIdx : inner.length
+      const stepsText = inner.slice(stepsIdx + '\nSteps:\n'.length, stepsEnd).trim()
+      steps = stepsText
+        .split('\n')
+        .map((s) => s.replace(/^\d+\.\s*/, '').trim())
+        .filter(Boolean)
+      if (stepsVerifIdx > stepsIdx) {
+        verification = inner.slice(stepsVerifIdx + '\nVerification:\n'.length).trim()
+      }
+    }
+    return { planId: m[1], title, overview, steps, verification, planText: inner }
+  }
+  return null
+}
+
+function PlanApprovalCard({
+  plan,
+  onApprove,
+  onReject
+}: {
+  plan: PlanPayload
+  onApprove: (planId: string, title: string, planText: string) => void
+  onReject: (planId: string, title: string) => void
+}) {
+  const { t } = useI18n()
+  return (
+    <div className="my-2 rounded-lg border border-success/40 bg-success/5 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-success">
+        <span aria-hidden>📋</span>
+        <span>{t('plan.title')}</span>
+        <span className="ml-1 rounded bg-success/15 px-1.5 py-0.5 font-mono text-[10px]">{plan.planId}</span>
+      </div>
+      <div className="mt-1.5 text-xs font-semibold text-text-primary">{plan.title}</div>
+      {plan.overview && (
+        <p className="mt-1 text-xs text-text-secondary whitespace-pre-wrap">{plan.overview}</p>
+      )}
+      {plan.steps.length > 0 && (
+        <ol className="mt-1.5 space-y-0.5 text-xs text-text-secondary">
+          {plan.steps.slice(0, 12).map((step, i) => (
+            <li key={i} className="flex gap-1.5">
+              <span className="text-text-muted shrink-0">{i + 1}.</span>
+              <span>{step}</span>
+            </li>
+          ))}
+          {plan.steps.length > 12 && (
+            <li className="text-text-muted">…（共 {plan.steps.length} 步，展示前 12 步）</li>
+          )}
+        </ol>
+      )}
+      {plan.verification && (
+        <pre className="mt-1.5 rounded bg-black/25 px-2 py-1 font-mono text-[11px] text-text-muted whitespace-pre-wrap break-all">
+          ✓ {plan.verification}
+        </pre>
+      )}
+      <div className="mt-2 flex gap-2">
+        <button
+          onClick={() => onApprove(plan.planId, plan.title, plan.planText)}
+          className="rounded-md bg-success px-3 py-1.5 text-xs font-medium text-white hover:bg-[#16a34a] transition-colors"
+        >
+          {t('plan.approve')}
+        </button>
+        <button
+          onClick={() => onReject(plan.planId, plan.title)}
+          className="rounded-md border border-border-custom px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover transition-colors"
+        >
+          {t('plan.reject')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /**
  * 兜底折叠：当一段正文被判定为已损坏（替换字符占比过高，通常是模型 echo 了
  * 二进制 / 非文本文件内容）时，渲染此提示而非把乱码当 markdown 渲染。
@@ -182,7 +295,9 @@ export function AssistantTurn({
   onClarifyPick,
   onRegenerate,
   onApprove,
-  onReject
+  onReject,
+  onPlanApprove,
+  onPlanReject
 }: AssistantTurnProps) {
   const streaming = isStreaming ?? msg.status === 'streaming'
 
@@ -205,8 +320,10 @@ export function AssistantTurn({
 
   // 执行审批检测（confirm-before-change 模式的 <approval_request> 拦截标记）
   const approval = useMemo(() => detectApproval(msg), [msg])
+  // 计划批准检测（plan-mode 的 present_plan 出口）
+  const plan = useMemo(() => detectPlan(msg), [msg])
   const visibleToolCalls = useMemo(
-    () => msg.toolCalls?.filter((c) => c.name !== 'ask_clarification') ?? [],
+    () => msg.toolCalls?.filter((c) => c.name !== 'ask_clarification' && c.name !== 'present_plan') ?? [],
     [msg.toolCalls]
   )
   // callId → ToolCall 映射（交错渲染时按 segment.callId 查找）
@@ -381,6 +498,15 @@ export function AssistantTurn({
             argsPreview={approval.argsPreview}
             onApprove={onApprove}
             onReject={onReject}
+          />
+        )}
+
+        {/* 计划批准卡（plan-mode：present_plan 提交计划，批准后进入执行阶段） */}
+        {!streaming && plan && onPlanApprove && onPlanReject && (
+          <PlanApprovalCard
+            plan={plan}
+            onApprove={onPlanApprove}
+            onReject={onPlanReject}
           />
         )}
 

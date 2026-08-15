@@ -363,6 +363,9 @@ const zhCN: Dict = {
   'approval.title': '执行审批 — 此操作已被权限模式拦截，等待你的决定',
   'approval.approve': '批准执行',
   'approval.reject': '拒绝',
+  'plan.title': '计划批准 — 计划模式产出，等待你的决定',
+  'plan.approve': '批准并执行',
+  'plan.reject': '拒绝',
 
   // NewTask — 输入框上方窄条（目录/分支/模型选择）
   'newtask.directory': '项目目录',
@@ -1193,6 +1196,9 @@ const en: Dict = {
   'approval.title': 'Execution approval — blocked by permission mode, awaiting your decision',
   'approval.approve': 'Approve',
   'approval.reject': 'Reject',
+  'plan.title': 'Plan approval — produced in plan-mode, awaiting your decision',
+  'plan.approve': 'Approve & Execute',
+  'plan.reject': 'Reject',
 
   // NewTask — inline bar above input (directory/branch/model selection)
   'newtask.directory': 'Project Directory',
