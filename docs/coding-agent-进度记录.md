@@ -80,6 +80,12 @@
   - 配置落三处：config.yaml / config.yaml.example / ~/.kcoder/config/qilin.runtime.yaml（trigger 由 null → 40 条）。
 - **验证**：引擎 py_compile + 中间件工厂/钩子/事件负载单测 ✅ + gateway 翻译单测 ✅ + 前端 tsc ✅；运行时 ⏳（长对话触发自动压缩 / 手动按钮 / 提示卡）。
 
+### C3 — 工具失败状态如实传递
+
+- **现象（审计 7.2）**：gateway 的 tool_call_finished 恒发 `isError: False`，工具执行失败在前端显示为成功。
+- **修复**：抽出 `_translate_tool_message`：langgraph 序列化的 `status: "error"`（工具抛出）或 KCoder 沙箱工具的 `Error:` 前缀契约（受控失败）→ `isError: True`。前端 isError 链路（turnReducer → ToolCall.isError → ToolOutput 红字）此前已就绪，无需改动。
+- **验证**：py_compile ✅ + 6 场景单测 ✅（成功/status=error/Error: 前缀/无 call_id/artifact 透传/审批拦截不误标）→ 运行时 ⏳。
+
 ---
 
 ## 缺陷修复（主线外热修）

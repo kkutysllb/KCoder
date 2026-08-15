@@ -89,9 +89,9 @@
   - 手动压缩：前端「压缩」按钮 = 强制压缩 turn（`configurable.force_compact`），引擎绕过自动阈值压缩；
   - 可见性：引擎压缩时向 custom 流发 `context_compacted` 事件 → gateway 翻译为 `compaction_completed` SSE → 前端 turn 内渲染「上下文已压缩：移除 N 条」提示。
 - C2 **SSE / 长任务可靠性**：registry 按 run 身份清理 ✅ 已随热修完成（`aef79c4`）；**持久 event id 与 `Last-Event-ID` 重放**、turn 与 SSE 建连竞态残余路径 → 待确认是否纳入本轮。
-- C3 **失败状态如实传递**：ToolMessage 错误 → 前端 tool_call_failed 的严格映射 → 待确认是否纳入本轮。
+- C3 **失败状态如实传递** ✅ 已实现（待运行时验收）：gateway `_translate_tool_message` 按 langgraph `status: "error"` 与 KCoder 沙箱工具 `Error:` 前缀契约标红工具失败（此前 isError 恒为 False，失败显示为成功）；前端 isError 链路（turnReducer → ToolOutput 红字）此前已就绪。
 
-**确认项**：C2 剩余部分 / C3 是否本轮继续（涉及 gateway 改动面较大）。
+**确认项**：C2 剩余部分（SSE event id / Last-Event-ID 重放）是否本轮继续（涉及 gateway 订阅契约与前端断线恢复，改动面较大）。
 
 ## 6. 阶段 D：技能与场景完善（📋 草案占位）
 
