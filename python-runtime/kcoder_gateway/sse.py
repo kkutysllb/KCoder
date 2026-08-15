@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
@@ -832,6 +833,20 @@ class RunRegistry:
 # ────────────────────────────────────────────────────────────────
 
 
+def _goal_objective(prompt: str) -> str:
+    """turn 指令 → InfoPanel「计划」段展示用的目标摘要。
+
+    批准计划等结构化指令（<approved_plan> 全文几百行）不适合作为面板
+    全文展示：剥掉结构化块取剩余首行；整条都是结构化块时取块内标题。
+    普通指令超长截断到 200 字符。
+    """
+    if "<approved_plan" in prompt:
+        m = re.search(r"Title:\s*(.+)", prompt)
+        title = m.group(1).strip() if m else ""
+        return f"执行计划：{title}"[:200] if title else "执行计划"
+    return prompt.split("\n")[0].strip()[:200]
+
+
 async def consume_langgraph_stream(
     client: QiLinClient,
     registry: RunRegistry,
@@ -887,7 +902,7 @@ async def consume_langgraph_stream(
                 "kind": "goal_updated",
                 "goal": {
                     "threadId": run.thread_id,
-                    "objective": prompt,
+                    "objective": _goal_objective(prompt),
                     "status": "active",
                     "tokensUsed": 0,
                     "timeUsedSeconds": 0,
@@ -984,7 +999,7 @@ async def consume_langgraph_stream(
                                 "kind": "goal_updated",
                                 "goal": {
                                     "threadId": run.thread_id,
-                                    "objective": prompt,
+                                    "objective": _goal_objective(prompt),
                                     "status": "complete",
                                     "tokensUsed": 0,
                                     "timeUsedSeconds": 0,

@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react'
 import { useAppStore } from '../stores/app-store'
+import { useI18n } from '../i18n'
 import {
   getEngineAPI,
   type SSEEvent,
@@ -64,6 +65,7 @@ function notifyTurnCompletion(): void {
 }
 
 export function useChat() {
+  const { t } = useI18n()
   // sendMessage 的自引用 ref（queue 模式递归发送用，避免 useCallback 循环依赖）
   const sendMessageRef = useRef<((text: string, attachmentIds?: string[]) => Promise<void>) | null>(null)
   // 已批准的操作 id（confirm-before-change 审批卡点「批准」后暂存，
@@ -336,7 +338,7 @@ export function useChat() {
 
   // Send a message
   const sendMessage = useCallback(
-    async (content: string, attachmentIds?: string[], options?: { forceCompact?: boolean }) => {
+    async (content: string, attachmentIds?: string[], options?: { forceCompact?: boolean; displayContent?: string }) => {
       // 读 store 的实时 isGenerating（而非闭包旧值）：steer/approve 在
       // stopGeneration 后紧接着 sendMessage 时，闭包里的 isGenerating 还是 true。
       if (!content.trim() || useAppStore.getState().isGenerating) return
@@ -374,7 +376,8 @@ export function useChat() {
         id: `user-${Date.now()}`,
         role: 'user',
         createdAt: Date.now(),
-        content: content.trim()
+        // 显示与发送分离：批准计划等场景发送完整上下文但用户消息保持简洁
+        content: (options?.displayContent ?? content).trim()
       }
       addChatMessage(userMessage)
 
@@ -784,8 +787,11 @@ export function useChat() {
   const approvePlan = useCallback(async (planId: string, title: string, planText: string) => {
     useAppStore.getState().setPermissionMode('auto-edit')
     const prompt = `<approved_plan id="${planId}">\n${planText}\n</approved_plan>\n\n用户已批准该计划，现在进入执行阶段。请严格按照计划逐步实现，并完成 Verification 中的验证。`
-    await sendMessage(prompt)
-  }, [sendMessage])
+    // 完整计划只发给引擎；聊天气泡显示一句话（避免巨型用户消息）
+    await sendMessage(prompt, undefined, {
+      displayContent: `✓ ${t('plan.approvedSent', { title })}`
+    })
+  }, [sendMessage, t])
 
   /** 计划拒绝：保持在 plan-mode，告知模型调整计划后重新 present_plan。 */
   const rejectPlan = useCallback(async (planId: string, title: string) => {
