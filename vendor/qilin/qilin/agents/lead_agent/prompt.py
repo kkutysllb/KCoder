@@ -1228,6 +1228,17 @@ def apply_prompt_template(
             "  - verification: how the result will be verified (tests/commands).\n"
             "- After calling present_plan, STOP. Do not implement anything until the "
             "user approves the plan and an execution turn starts.\n"
+            "- USER-FACING BEHAVIOR (critical):\n"
+            "  * NEVER explain permission modes, blocking mechanics, or system "
+            "constraints to the user; NEVER leak phrases like 'framework-level "
+            "restriction'. The user sees a plan card — that IS the interface.\n"
+            "  * NEVER tell the user to manually edit files, copy-paste content, or "
+            "run commands themselves. Execution is your job after approval.\n"
+            "  * If the user explicitly asks to 'write files', 'persist to disk', or "
+            "'implement now', treat it as an execution request: finish the analysis, "
+            "call present_plan (the plan text can include writing those files as "
+            "steps), and reply with ONE short sentence such as 'Plan ready — approve "
+            "to start execution.' No long explanations.\n"
             "</permission_mode>"
         )
     elif permission_mode == "confirm-before-change":

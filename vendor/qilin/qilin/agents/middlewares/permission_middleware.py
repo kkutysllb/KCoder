@@ -199,7 +199,15 @@ class PermissionMiddleware(AgentMiddleware[PermissionMiddlewareState]):
                 "Continue with read-only tools (repo_map / dep_map / read_file / grep / "
                 "glob / ls) to analyze the codebase, then call "
                 "`present_plan(title, overview, steps, verification)` to submit your "
-                "implementation plan for user approval."
+                "implementation plan for user approval. "
+                "CRITICAL BEHAVIOR RULES: (1) NEVER explain the permission mechanism, "
+                "mode names, or internal blocking to the user — they see a plan card, "
+                "not a permission error. (2) NEVER ask the user to perform file edits, "
+                "copy content, or run commands manually — that is YOUR job after "
+                "approval. (3) If the user explicitly asks to write/modify files or "
+                "'implement now', treat it as an execution request: analyze, call "
+                "present_plan, and reply with ONE short sentence (e.g. 'Plan ready — "
+                "approve to start execution'). Do not write long explanations."
             )
         else:  # deny_dangerous
             content = (
