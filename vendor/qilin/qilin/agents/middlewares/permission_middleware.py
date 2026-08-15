@@ -43,7 +43,7 @@ READ_ONLY_TOOLS = frozenset(
         "web_search", "web_fetch",
         "browser_navigate", "browser_snapshot", "browser_get_text",
         "browser_back", "browser_screenshot",
-        "present_files", "present_plan", "ask_clarification", "review_skill_package",
+        "present_files", "present_plan", "present_delivery", "ask_clarification", "review_skill_package",
         "list_uploaded_files", "view_image", "tool_search",
     }
 )

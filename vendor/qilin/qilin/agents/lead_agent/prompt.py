@@ -1153,6 +1153,11 @@ def apply_prompt_template(
                 "- Skip the review only for trivial changes (comments, formatting, "
                 "single-line fixes) and say \"review skipped (trivial)\" in your summary."
             )
+            parts.append(
+                "- When everything passes, call `present_delivery(title, summary, changes, "
+                "tests_run, review_notes, changelog_entry)` to produce the PR-style "
+                "delivery card (copyable PR description + changelog entry)."
+            )
             parts.append("</delivery_gate>")
             delivery_gate_section = "\n".join(parts)
 

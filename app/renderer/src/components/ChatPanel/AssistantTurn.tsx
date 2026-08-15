@@ -9,7 +9,7 @@
 //   6. ClarificationCard（如有交互式澄清，替换 fallback 正文）
 //   7. 错误信息
 
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage, HumanInputPayload, ToolCall } from '../../lib/chatMessage'
@@ -46,6 +46,8 @@ interface AssistantTurnProps {
   onPlanApprove?: (planId: string, title: string, planText: string) => void
   /** 计划批准：拒绝/要求修改计划。 */
   onPlanReject?: (planId: string, title: string) => void
+  /** 交付卡：把 changelog 条目写入项目 CHANGELOG（交给 agent 执行）。 */
+  onDeliveryChangelog?: (entry: string) => void
 }
 
 /**
@@ -261,6 +263,156 @@ function PlanApprovalCard({
   )
 }
 
+// ── 交付卡（present_delivery：PR 描述 + changelog 条目）────────────────
+//
+// 引擎 present_delivery 工具把 <delivery id="...">…</delivery> 写在
+// ToolMessage.content 里。前端渲染交付卡：复制 PR 描述 / 追加 CHANGELOG。
+// 解析与 plan_request 相同的截断容错（查 output ?? summary）。
+const DELIVERY_RE = /<delivery id="([^"]+)">([\s\S]*?)(?:<\/delivery>|$)/
+
+interface DeliveryPayload {
+  deliveryId: string
+  title: string
+  summary: string
+  changes: string[]
+  tests: string
+  review: string
+  changelog: string
+}
+
+function detectDelivery(msg: ChatMessage): DeliveryPayload | null {
+  for (const call of msg.toolCalls ?? []) {
+    if (call.name !== 'present_delivery' || call.status !== 'completed') continue
+    const raw = call.output ?? call.summary ?? ''
+    if (!raw) continue
+    const m = DELIVERY_RE.exec(String(raw))
+    if (!m) continue
+    const inner = m[2].trim()
+    const titleMatch = /^Title:\s*(.+)$/m.exec(inner)
+    const title = titleMatch?.[1]?.trim() || 'Untitled change'
+    const offChanges = inner.indexOf('\nChanges:\n')
+    const offTests = inner.indexOf('\nTests:\n')
+    const offReview = inner.indexOf('\nReview:\n')
+    const offChangelog = inner.indexOf('\nChangelog:\n')
+    const summaryEnd = offChanges >= 0 ? offChanges : inner.length
+    const summary = inner.slice(0, summaryEnd).replace(/^Title:\s*.+$/m, '').trim()
+    const changesText =
+      offChanges >= 0
+        ? inner.slice(
+            offChanges + '\nChanges:\n'.length,
+            [offTests, offReview, offChangelog, inner.length].filter((o) => o > offChanges).sort((a, b) => a - b)[0] ?? inner.length
+          )
+        : ''
+    const changes = changesText
+      .trim()
+      .split('\n')
+      .map((s) => s.replace(/^-\s*/, '').trim())
+      .filter(Boolean)
+    const sliceSection = (off: number, header: string, nextOffs: number[]) => {
+      if (off < 0) return ''
+      const end = nextOffs.filter((o) => o > off).sort((a, b) => a - b)[0] ?? inner.length
+      return inner.slice(off + header.length, end).trim()
+    }
+    const tests = sliceSection(offTests, '\nTests:\n', [offReview, offChangelog])
+    const review = sliceSection(offReview, '\nReview:\n', [offChangelog])
+    const changelog = sliceSection(offChangelog, '\nChangelog:\n', [])
+    return { deliveryId: m[1], title, summary, changes, tests, review, changelog }
+  }
+  return null
+}
+
+function DeliveryCard({
+  delivery,
+  onChangelogWrite
+}: {
+  delivery: DeliveryPayload
+  onChangelogWrite: (entry: string) => void
+}) {
+  const { t } = useI18n()
+  const [copied, setCopied] = useState(false)
+  const prText = useMemo(() => {
+    const parts = [
+      `# ${delivery.title}`,
+      '',
+      delivery.summary,
+      '',
+      '## Changes',
+      ...delivery.changes.map((c) => `- ${c}`),
+      '',
+      '## Tests',
+      delivery.tests
+    ]
+    if (delivery.review) parts.push('', '## Review', delivery.review)
+    return parts.join('\n')
+  }, [delivery])
+
+  const copyPr = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(prText)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      /* clipboard unavailable — ignore */
+    }
+  }, [prText])
+
+  return (
+    <div className="my-2 rounded-lg border border-accent/40 bg-accent/5 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-accent">
+        <span aria-hidden>📦</span>
+        <span>{t('delivery.title')}</span>
+        <span className="ml-1 rounded bg-accent/15 px-1.5 py-0.5 font-mono text-[10px]">{delivery.deliveryId}</span>
+      </div>
+      <div className="mt-1.5 text-xs font-semibold text-text-primary">{delivery.title}</div>
+      {delivery.summary && (
+        <p className="mt-1 text-xs text-text-secondary whitespace-pre-wrap">{delivery.summary}</p>
+      )}
+      {delivery.changes.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5 text-xs text-text-secondary">
+          {delivery.changes.slice(0, 12).map((change, i) => (
+            <li key={i} className="flex gap-1.5">
+              <span className="text-text-muted shrink-0">•</span>
+              <span>{change}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {delivery.tests && (
+        <pre className="mt-1.5 rounded bg-black/25 px-2 py-1 font-mono text-[11px] text-text-muted whitespace-pre-wrap break-all">
+          ✓ {delivery.tests}
+        </pre>
+      )}
+      {delivery.review && (
+        <p className="mt-1.5 text-xs text-text-muted whitespace-pre-wrap">
+          <span className="font-medium text-text-secondary">{t('delivery.review')}: </span>
+          {delivery.review}
+        </p>
+      )}
+      {delivery.changelog && (
+        <pre className="mt-1.5 rounded bg-black/25 px-2 py-1 font-mono text-[11px] text-text-muted whitespace-pre-wrap break-all">
+          {delivery.changelog}
+        </pre>
+      )}
+      <div className="mt-2 flex gap-2">
+        <button
+          onClick={copyPr}
+          className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90 transition-colors"
+        >
+          {copied ? t('delivery.copied') : t('delivery.copyPr')}
+        </button>
+        {delivery.changelog && (
+          <button
+            onClick={() => onChangelogWrite(delivery.changelog)}
+            className="rounded-md border border-border-custom px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover transition-colors"
+          >
+            {t('delivery.writeChangelog')}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /**
  * 兜底折叠：当一段正文被判定为已损坏（替换字符占比过高，通常是模型 echo 了
  * 二进制 / 非文本文件内容）时，渲染此提示而非把乱码当 markdown 渲染。
@@ -297,7 +449,8 @@ export function AssistantTurn({
   onApprove,
   onReject,
   onPlanApprove,
-  onPlanReject
+  onPlanReject,
+  onDeliveryChangelog
 }: AssistantTurnProps) {
   const streaming = isStreaming ?? msg.status === 'streaming'
 
@@ -322,8 +475,13 @@ export function AssistantTurn({
   const approval = useMemo(() => detectApproval(msg), [msg])
   // 计划批准检测（plan-mode 的 present_plan 出口）
   const plan = useMemo(() => detectPlan(msg), [msg])
+  // 交付卡检测（present_delivery 的 PR/changelog 交付）
+  const delivery = useMemo(() => detectDelivery(msg), [msg])
   const visibleToolCalls = useMemo(
-    () => msg.toolCalls?.filter((c) => c.name !== 'ask_clarification' && c.name !== 'present_plan') ?? [],
+    () =>
+      msg.toolCalls?.filter(
+        (c) => c.name !== 'ask_clarification' && c.name !== 'present_plan' && c.name !== 'present_delivery'
+      ) ?? [],
     [msg.toolCalls]
   )
   // callId → ToolCall 映射（交错渲染时按 segment.callId 查找）
@@ -508,6 +666,11 @@ export function AssistantTurn({
             onApprove={onPlanApprove}
             onReject={onPlanReject}
           />
+        )}
+
+        {/* 交付卡（present_delivery：PR 描述 + changelog 条目） */}
+        {!streaming && delivery && onDeliveryChangelog && (
+          <DeliveryCard delivery={delivery} onChangelogWrite={onDeliveryChangelog} />
         )}
 
         {/* 交付结果（turn 完成且有文件变更时收尾）：✓已完成 + 统计 + 复制/提交 + 文件清单 */}

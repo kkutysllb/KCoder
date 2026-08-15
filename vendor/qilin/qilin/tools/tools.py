@@ -9,6 +9,7 @@ from qilin.sandbox.security import is_host_bash_allowed
 from qilin.tools.builtins import (
     ask_clarification_tool,
     list_uploaded_files,
+    present_delivery_tool,
     present_file_tool,
     present_plan_tool,
     review_skill_package,
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 BUILTIN_TOOLS = [
     present_file_tool,
+    present_delivery_tool,
     present_plan_tool,
     ask_clarification_tool,
     review_skill_package,

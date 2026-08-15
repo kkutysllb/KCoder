@@ -366,6 +366,10 @@ const zhCN: Dict = {
   'plan.title': '计划批准 — 计划模式产出，等待你的决定',
   'plan.approve': '批准并执行',
   'plan.reject': '拒绝',
+  'delivery.title': '交付 — PR 描述与变更日志',
+  'delivery.copyPr': '复制 PR 描述',
+  'delivery.writeChangelog': '追加到 CHANGELOG',
+  'delivery.review': '审查结论',
 
   // NewTask — 输入框上方窄条（目录/分支/模型选择）
   'newtask.directory': '项目目录',
@@ -1199,6 +1203,10 @@ const en: Dict = {
   'plan.title': 'Plan approval — produced in plan-mode, awaiting your decision',
   'plan.approve': 'Approve & Execute',
   'plan.reject': 'Reject',
+  'delivery.title': 'Delivery — PR description & changelog',
+  'delivery.copyPr': 'Copy PR description',
+  'delivery.writeChangelog': 'Append to CHANGELOG',
+  'delivery.review': 'Review notes',
 
   // NewTask — inline bar above input (directory/branch/model selection)
   'newtask.directory': 'Project Directory',
