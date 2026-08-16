@@ -58,22 +58,24 @@ export function useAuth(enginePort: number): AuthState {
     const stored = loadStoredAuth()
     const api = getEngineAPI(urlPort)
 
-    if (!stored) {
-      setChecking(false)
-      return
+    // 2026-08 重构：引擎 gateway auth-disabled 模式下 /api/v1/auth/me 无鉴权
+    // 直接返回默认用户——无 stored token 也尝试 authMe，成功则跳过登录页
+    // （桌面单用户）；真启用 auth 时 me 会 401，自然回落登录流程。
+    if (stored) {
+      api.setAuthToken(stored.token)
     }
 
-    api.setAuthToken(stored.token)
     api.authMe()
       .then((me) => {
         setUser(me)
         // The user id drives per-user model profile storage, so keep it in
         // sync with the API instance whenever the authenticated user changes.
         api.setUserId(me.id)
-        persistAuth({ token: stored.token, user: me })
+        if (stored) persistAuth({ token: stored.token, user: me })
+        else persistAuth({ token: '', user: me })
       })
       .catch(() => {
-        // Token expired or revoked — fall back to runtime token
+        // Token expired or revoked / auth required — fall back to login page
         api.setAuthToken(null)
         api.setUserId(null)
         persistAuth(null)

@@ -120,6 +120,28 @@ def _ensure_runtime_config(data_root: Path) -> Path:
     return runtime_cfg
 
 
+def _configure_gateway_security() -> None:
+    """注入桌面端渲染层的 CORS origin 白名单（GATEWAY_CORS_ORIGINS）。
+
+    dev 态：Vite dev server（electron-vite 默认 http://localhost:5173）直连
+    gateway，需把渲染层 origin 加入白名单（引擎 CORSMiddleware 与
+    CSRFMiddleware 的 origin 白名单均读该环境变量）。
+    打包态：渲染层 origin 为 app:// 或 file://，需主进程同源代理
+    （KStock 方案），届时无需 CORS。
+    """
+    dev_origins = [
+        "http://localhost:5173",   # electron-vite dev server（默认端口）
+        "http://127.0.0.1:5173",
+    ]
+    existing = os.environ.get("GATEWAY_CORS_ORIGINS", "").strip()
+    if existing:
+        configured = {o.strip() for o in existing.split(",") if o.strip()}
+        merged = list(configured) + [o for o in dev_origins if o not in configured]
+        os.environ["GATEWAY_CORS_ORIGINS"] = ",".join(merged)
+    else:
+        os.environ["GATEWAY_CORS_ORIGINS"] = ",".join(dev_origins)
+
+
 def main() -> None:
     data_root = _resolve_data_root()
     runtime_cfg = _ensure_runtime_config(data_root)
@@ -131,6 +153,7 @@ def main() -> None:
     # 桌面单用户产品：先关闭内置 auth（Phase 2 再评估接入）
     os.environ.setdefault("QILIN_AUTH_DISABLED", "1")
 
+    _configure_gateway_security()
     _apply_vendor_extensions_config_compat_shim()
 
     host = os.environ.get("KCODER_GATEWAY_HOST", "127.0.0.1")
