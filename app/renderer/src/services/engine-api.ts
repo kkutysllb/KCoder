@@ -2334,15 +2334,25 @@ data: <full EngineStreamEvent JSON>
   // 读热重载后的生效值，写 config.yaml。覆盖 memory / summarization / title 三段。
   // PUT 后 QiLin signature 检测自动热重载（1-2s 内生效）。
 
+  /** 兜底缺失段：YAML 只包含实际存在的段（如当前无 uploads），但前端类型声明为必填 */
+  private normalizeRuntimeConfig(data: Record<string, unknown>): RuntimeConfig {
+    const out: Record<string, unknown> = {}
+    const sections = ['memory', 'summarization', 'title', 'sandbox', 'database', 'uploads', 'network'] as const
+    for (const s of sections) out[s] = data[s] ?? {}
+    out.token_usage = data.token_usage ?? {}
+    out.token_budget = data.token_budget ?? {}
+    return {
+      ...(out as unknown as RuntimeConfig),
+      tokenUsage: (data.token_usage ?? {}) as TokenUsageConfig,
+      tokenBudget: (data.token_budget ?? {}) as TokenBudgetConfig
+    }
+  }
+
   /** 读取三段运行时配置生效值。2026-08 重构：主进程 IPC（product_services.py） */
   async getRuntimeConfig(): Promise<RuntimeConfig> {
     if (window.kcoder?.local?.runtimeConfig) {
       const data = (await window.kcoder.local.runtimeConfig.get()) as Record<string, unknown>
-      return {
-        ...(data as unknown as RuntimeConfig),
-        tokenUsage: (data.token_usage ?? {}) as TokenUsageConfig,
-        tokenBudget: (data.token_budget ?? {}) as TokenBudgetConfig
-      } as RuntimeConfig
+      return this.normalizeRuntimeConfig(data)
     }
     const response = await this.request(`/api/runtime-config`, {
       headers: this.headers
@@ -2351,11 +2361,7 @@ data: <full EngineStreamEvent JSON>
     const data = (await response.json()) as Record<string, unknown>
     // 后端段名为 snake_case（token_usage / token_budget），前端类型为 camelCase。
     // 其他段（memory / sandbox / network 等）为单字段名，无需映射。
-    return {
-      ...(data as unknown as RuntimeConfig),
-      tokenUsage: (data.token_usage ?? {}) as TokenUsageConfig,
-      tokenBudget: (data.token_budget ?? {}) as TokenBudgetConfig
-    } as RuntimeConfig
+    return this.normalizeRuntimeConfig(data)
   }
 
   /** 写单段配置到 config.yaml。2026-08 重构：主进程 IPC（PyYAML 安全合并） */

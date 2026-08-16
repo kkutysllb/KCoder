@@ -916,15 +916,15 @@ function GeneralSettings() {
     [enginePort]
   )
 
-  // uploads MB↔bytes 转换
+  // uploads MB↔bytes 转换（引擎当前可能无 uploads 段 → 归一化后为 {}，此处再兜默认值）
   const uploadsInitialValue = useMemo(() => {
     if (!runtimeCfg) return {}
-    const u = runtimeCfg.uploads
+    const u = runtimeCfg.uploads ?? {}
     return {
-      max_files: u.max_files,
-      max_file_size: +(u.max_file_size / BYTES_PER_MB).toFixed(2),
-      max_total_size: +(u.max_total_size / BYTES_PER_MB).toFixed(2),
-      auto_convert_documents: u.auto_convert_documents,
+      max_files: u.max_files ?? 10,
+      max_file_size: u.max_file_size ? +(u.max_file_size / BYTES_PER_MB).toFixed(2) : 20,
+      max_total_size: u.max_total_size ? +(u.max_total_size / BYTES_PER_MB).toFixed(2) : 100,
+      auto_convert_documents: u.auto_convert_documents ?? false,
     }
   }, [runtimeCfg])
 
