@@ -217,6 +217,43 @@ class QiLinClient:
         r.raise_for_status()
         return r.json()
 
+    async def run_compact_wait(
+        self,
+        thread_id: str,
+        assistant_id: str,
+        *,
+        timeout: float = 120.0,
+        workspace_path: str | None = None,
+    ) -> dict[str, Any]:
+        """POST /threads/{id}/runs/wait → 静默强制压缩 run（阻塞至完成）。
+
+        手动压缩专用：不发 SSE、不进 registry、前端不渲染 turn——网关
+        持有连接直到引擎完成（SummarizationMiddleware 按 force_compact
+        绕过阈值压缩后 turn 自然结束）。返回 run 结果（压缩细节在 state）。
+        """
+        configurable: dict[str, Any] = {"force_compact": True}
+        if workspace_path:
+            configurable["workspace_path"] = workspace_path
+        r = await self._client.post(
+            f"/threads/{thread_id}/runs/wait",
+            json={
+                "assistant_id": assistant_id,
+                "input": {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": "[系统指令] 压缩当前对话上下文。只简短确认，不调用工具，不开始新任务。",
+                        }
+                    ]
+                },
+                "config": {"configurable": configurable},
+                "stream_mode": ["values"],
+            },
+            timeout=timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
     async def list_thread_runs(self, thread_id: str) -> list[dict[str, Any]]:
         """GET /threads/{id}/runs → 该 thread 的 run 列表（run_id/status/created_at）.
 

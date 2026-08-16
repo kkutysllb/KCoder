@@ -773,12 +773,40 @@ export function useChat() {
    * 引擎 SummarizationMiddleware 绕过自动阈值压缩，custom 事件回传
    * compaction_completed（前端渲染压缩提示）。运行中不打断（先停止再压缩）。
    */
-  const compactContext = useCallback(async (opts?: { reason?: string; budgetTokens?: number }) => {
+  const compactContext = useCallback(async () => {
     if (useAppStore.getState().isGenerating) return
-    const prompt =
-      '[系统指令] 压缩当前对话上下文。请只简短确认压缩结果（移除了多少条历史消息、保留了最近多少条），不要调用任何工具、不要开始新任务。'
-    await sendMessage(prompt, undefined, { forceCompact: true })
-  }, [sendMessage])
+    const tid = useAppStore.getState().threadId
+    if (!tid) return
+    const api = getEngineAPI(enginePort)
+    // 静默压缩：不产生 user 气泡 / assistant turn —— 网关 runs/wait 持有
+    // 连接至引擎压缩完成，本地只插一条轻量系统提示。
+    useAppStore.getState().addChatMessage({
+      id: `compact-${Date.now()}`,
+      role: 'system',
+      createdAt: Date.now(),
+      content: t('chat.compacting'),
+      status: 'done'
+    })
+    try {
+      await api.compactThread(tid)
+      useAppStore.getState().addChatMessage({
+        id: `compact-done-${Date.now()}`,
+        role: 'system',
+        createdAt: Date.now(),
+        content: '📦 ' + t('chat.compactDone'),
+        status: 'done'
+      })
+    } catch (e) {
+      console.error('[compact] failed:', e)
+      useAppStore.getState().addChatMessage({
+        id: `compact-fail-${Date.now()}`,
+        role: 'system',
+        createdAt: Date.now(),
+        content: t('chat.compactFailed'),
+        status: 'error'
+      })
+    }
+  }, [enginePort, t])
 
   // 绑定 sendMessage 到 ref（queue 模式递归发送用）
   sendMessageRef.current = sendMessage

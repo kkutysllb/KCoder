@@ -921,14 +921,27 @@ async def interrupt_turn(thread_id: str, turn_id: str, request: Request) -> dict
 
 
 @router.post("/threads/{thread_id}/compact")
-async def compact_thread(thread_id: str) -> dict[str, Any]:
-    """POST /v1/threads/:id/compact → stub no-op.
+async def compact_thread(thread_id: str, request: Request) -> dict[str, Any]:
+    """POST /v1/threads/:id/compact → 静默强制压缩（runs/wait，不产生聊天 turn）。
 
-    renderer 的 compactThread 期望返回 { replacedTokens, summary }。
-    QiLin 的上下文压缩由 agent graph 内部管理，手动触发返回 no-op。
+    手动压缩此前以「sendMessage + forceCompact」实现——会在聊天流渲染
+    user 气泡 + assistant turn（用户反馈：像触发了任务，不必要）。现改为
+    网关持有 runs/wait 连接直到引擎压缩完成，前端只收到 200 + 本地提示。
     """
-    logger.info("compact stub: thread=%s (no-op)", thread_id)
-    return {"replacedTokens": 0, "summary": ""}
+    client = _get_client(request)
+    assistant_id = _get_assistant_id(request)
+    if not assistant_id:
+        raise HTTPException(status_code=503, detail="assistant not ready")
+    try:
+        workspace_path, _ = await _resolve_workspace(client, thread_id)
+        await client.run_compact_wait(
+            thread_id, assistant_id, workspace_path=workspace_path
+        )
+        logger.info("compact: thread=%s done", thread_id)
+        return {"replacedTokens": 0, "summary": ""}
+    except Exception as exc:
+        logger.warning("compact failed for %s: %s", thread_id, exc)
+        raise HTTPException(status_code=502, detail=f"compact failed: {exc}") from exc
 
 
 # ────────────────────────────────────────────────────────────────
