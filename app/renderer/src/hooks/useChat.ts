@@ -127,7 +127,11 @@ export function useChat() {
    */
   const turnUpdate = useCallback(
     (assistantMessageId: string, kind: SseEventKind, data: Record<string, unknown> | undefined) => {
-      const isTerminal = kind === 'turn_completed' || kind === 'turn_failed'
+      // error 也是终态语义：必须立即落地（不走 rAF 批处理）——窗口后台时
+      // rAF 挂起，看门狗/断连的 error 会永不渲染，用户看到「一直转圈无进展
+      // + 停止按钮变发送 + 无任何提示」（isGenerating 已因 abort 回落，但
+      // 消息仍停在 streaming 状态）。
+      const isTerminal = kind === 'turn_completed' || kind === 'turn_failed' || kind === 'error'
 
       // 取 reducer 输入状态：优先用同一消息的 in-flight 状态（连续 delta 时不读 store 旧值）
       let base: Partial<ChatMessage>
