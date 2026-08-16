@@ -1083,7 +1083,13 @@ export class EngineAPI {
         assistant_id: this.assistantId || 'lead_agent',
         input: { messages: inputMessages },
         stream_mode: ['messages-tuple', 'custom'],
-        config: { configurable },
+        config: {
+          // 引擎默认 recursion_limit=100（LangGraph 超步上限），复杂任务
+          // （子代理/长工具链）容易触顶报 GraphRecursionError；显式提升，
+          // 引擎会 clamp 到 AppConfig.max_recursion_limit（默认 1000）。
+          recursion_limit: 300,
+          configurable
+        }
       })
     })
 
