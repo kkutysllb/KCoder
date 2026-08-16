@@ -142,10 +142,11 @@ memory:
 # compaction_completed SSE → 前端展示「上下文已压缩」提示。
 summarization:
   enabled: true
-  # 超过 40 条消息自动压缩（老消息摘要进 summary_text，保留最近 keep 条）。
+  # 上下文超过 360K token 自动压缩（编码任务长历时多轮交互常态；
+# 老消息摘要进 summary_text，保留最近 keep=20 条）。
   trigger:
-    - type: messages
-      value: 40
+    - type: tokens
+      value: 360000
   keep:
     type: messages
     value: 20
