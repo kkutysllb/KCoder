@@ -1053,7 +1053,7 @@ function fmtK(tokens: number): string {
   return tokens >= 1000 ? `${Math.round(tokens / 1000)}K` : String(tokens)
 }
 
-function ContextCompactButton({ onCompact, disabled }: { onCompact: () => void; disabled: boolean }) {
+function ContextCompactButton({ onCompact, disabled }: { onCompact: () => void; disabled?: boolean }) {
   const { t } = useI18n()
   const messagesV2 = useAppStore((s) => s.messages_v2)
   const usedTokens = useMemo(() => {
