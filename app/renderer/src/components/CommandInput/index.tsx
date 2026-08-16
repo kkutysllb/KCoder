@@ -952,19 +952,9 @@ export function CommandInput({
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
-            {/* 手动压缩上下文（长任务历史摘要；运行中禁用） */}
+            {/* 上下文用量 + 手动压缩（hover 弹面板，Claude Code 风格 gauge） */}
             {onCompact && (
-              <button
-                type="button"
-                onClick={onCompact}
-                disabled={isGenerating}
-                title={t('input.compactContext')}
-                className="p-1.5 rounded-md text-muted-icon hover:text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:hover:text-muted-icon disabled:hover:bg-transparent"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 9V6a2 2 0 012-2h3M20 9V6a2 2 0 00-2-2h-3M4 15v3a2 2 0 002 2h3M20 15v3a2 2 0 01-2 2h-3M9 12h6" />
-                </svg>
-              </button>
+              <ContextCompactButton onCompact={onCompact} disabled={isGenerating} />
             )}
             {/* 推理深度选择器（参考 KStock ReasoningModePicker） */}
             <ReasoningModePicker
@@ -1051,6 +1041,85 @@ export function CommandInput({
  * - auto / off：所有模型可用
  * - low / medium / high：仅模型 supports_thinking && supports_reasoning_effort 时可用
  */
+/**
+ * 上下文用量按钮（Claude Code 风格）：gauge 圆环图标，hover 弹出面板
+ * 展示剩余上下文（百分比 / 已用 tokens / 进度条 / 自动压缩阈值 /
+ * 「立即压缩」）。已用 tokens 取最新 assistant turn 的 usage.promptTokens
+ * （本轮总输入 = 当前上下文规模的最佳近似）；满刻度 = 压缩阈值 360K。
+ */
+const COMPACT_THRESHOLD_TOKENS = 360_000
+
+function fmtK(tokens: number): string {
+  return tokens >= 1000 ? `${Math.round(tokens / 1000)}K` : String(tokens)
+}
+
+function ContextCompactButton({ onCompact, disabled }: { onCompact: () => void; disabled: boolean }) {
+  const { t } = useI18n()
+  const messagesV2 = useAppStore((s) => s.messages_v2)
+  const usedTokens = useMemo(() => {
+    for (let i = messagesV2.length - 1; i >= 0; i--) {
+      const u = messagesV2[i].usage
+      if (u && u.promptTokens > 0) return u.promptTokens
+    }
+    return 0
+  }, [messagesV2])
+  const pct = Math.min(100, Math.round((usedTokens / COMPACT_THRESHOLD_TOKENS) * 100))
+  const warn = pct >= 80
+
+  return (
+    <div className="relative group/ctx">
+      <button
+        type="button"
+        disabled={disabled}
+        title={t('input.compactContext')}
+        className="p-1.5 rounded-md text-muted-icon hover:text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:hover:text-muted-icon disabled:hover:bg-transparent"
+      >
+        {/* gauge 仪表环：按用量画弧 */}
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth={2} opacity={0.25} />
+          <circle
+            cx="12" cy="12" r="8.5"
+            stroke={warn ? '#f59e0b' : '#3b82f6'}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeDasharray={`${(pct / 100) * 53.4} 53.4`}
+            transform="rotate(-90 12 12)"
+          />
+        </svg>
+      </button>
+
+      {/* hover 面板 */}
+      <div className="pointer-events-none absolute bottom-full right-0 mb-2 w-64 rounded-xl border border-[#3a3a3e] bg-[#2a2a2e] p-3.5 opacity-0 shadow-2xl transition-opacity group-hover/ctx:pointer-events-auto group-hover/ctx:opacity-100 z-50">
+        <div className="text-[11px] text-text-muted">{t('ctx.remainingTitle')}</div>
+        <div className="mt-1.5 flex items-baseline gap-2">
+          <span className={`text-2xl font-semibold tabular-nums ${warn ? 'text-amber-400' : 'text-text-primary'}`}>{pct}%</span>
+          <span className="font-mono text-[11px] text-text-muted">
+            {fmtK(usedTokens)} / {fmtK(COMPACT_THRESHOLD_TOKENS)} tokens
+          </span>
+        </div>
+        {/* 进度条 */}
+        <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-black/40">
+          <div
+            className={`h-full rounded-full transition-all ${warn ? 'bg-amber-400' : 'bg-[#3b82f6]'}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <div className="mt-2 text-[10.5px] text-text-muted">
+          {t('ctx.autoCompactAt', { threshold: fmtK(COMPACT_THRESHOLD_TOKENS) })}
+        </div>
+        <button
+          type="button"
+          onClick={onCompact}
+          disabled={disabled}
+          className="mt-3 w-full rounded-md border border-[#4a4a4e] bg-bg-hover/60 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-[#3b82f6] hover:text-white disabled:opacity-40"
+        >
+          {t('ctx.compactNow')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function ReasoningModePicker({
   model,
   value,
