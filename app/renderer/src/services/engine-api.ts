@@ -8,6 +8,11 @@ import type {
   BranchRoiSnapshot,
   RoiSnapshot
 } from './contracts'
+import {
+  createEventContext,
+  translateEvent,
+  type EventTranslationContext
+} from './engineEvents'
 
 export interface ThreadResponse {
   id: string
@@ -754,6 +759,9 @@ export class EngineAPI {
   private baseUrl: string
   private token: string
   private authToken: string | null = null
+  // 引擎 gateway 的默认 assistant（app.gateway 为 'lead_agent'）；
+  // 启动时经 /api/assistants/search 解析，失败回退 'lead_agent'。
+  private assistantId: string | null = null
   // The promise that resolves when the current turn's SSE stream ends
   // (turn_completed/turn_failed/turn_aborted). Set by sendMessage, awaited
   // by waitForTurnCompletion.
@@ -837,7 +845,7 @@ export class EngineAPI {
   // New engine consolidated all auth under /v1/auth/* (the /api/v1 prefix is gone).
 
   async getSetupStatus(): Promise<AuthSetupStatus> {
-    const response = await fetch(`${this.baseUrl}/v1/auth/setup-status`, {
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/setup-status`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -847,7 +855,7 @@ export class EngineAPI {
   }
 
   async authInitialize(email: string, password: string): Promise<AuthSessionResponse> {
-    const response = await fetch(`${this.baseUrl}/v1/auth/initialize`, {
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/initialize`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ email, password })
@@ -860,7 +868,7 @@ export class EngineAPI {
   }
 
   async authLogin(email: string, password: string): Promise<AuthSessionResponse> {
-    const response = await fetch(`${this.baseUrl}/v1/auth/login`, {
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/login`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ email, password })
@@ -873,7 +881,7 @@ export class EngineAPI {
   }
 
   async authRegister(email: string, password: string): Promise<AuthSessionResponse> {
-    const response = await fetch(`${this.baseUrl}/v1/auth/register`, {
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/register`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ email, password })
@@ -886,7 +894,7 @@ export class EngineAPI {
   }
 
   async authMe(): Promise<AuthUser> {
-    const response = await fetch(`${this.baseUrl}/v1/auth/me`, {
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/me`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -897,7 +905,7 @@ export class EngineAPI {
   }
 
   async authLogout(): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/v1/auth/logout`, {
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/logout`, {
       method: 'POST',
       headers: this.headers
     })
@@ -907,7 +915,7 @@ export class EngineAPI {
   }
 
   async authChangePassword(currentPassword: string, newPassword: string): Promise<AuthSessionResponse> {
-    const response = await fetch(`${this.baseUrl}/v1/auth/change-password`, {
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/change-password`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
@@ -930,11 +938,15 @@ export class EngineAPI {
     // KCoder is a coding app: pin the work mode to 'coding' unless the caller
     // overrides it. The engine defaults new threads to 'office' when the field
     // is omitted, which would mount the wrong skill set for this product.
-    const body = { workModeId: 'coding', ...(payload ?? {}) }
-    const response = await fetch(`${this.baseUrl}/v1/threads`, {
+    // 2026-08 重构：引擎 gateway 的线程元数据放 metadata（app.gateway 协议）。
+    const metadata: Record<string, unknown> = { workModeId: 'coding', ...(payload ?? {}) }
+    if (metadata.mode) {
+      metadata.mode = metadata.mode
+    }
+    const response = await fetch(`${this.baseUrl}/api/threads`, {
       method: 'POST',
       headers: this.headers,
-      body: JSON.stringify(body)
+      body: JSON.stringify({ metadata })
     })
 
     if (!response.ok) {
@@ -942,7 +954,18 @@ export class EngineAPI {
       throw new Error(`Failed to create thread: ${text}`)
     }
 
-    return response.json()
+    // 引擎返回 thread_id（LangGraph 风格），归一化到 ThreadResponse.id
+    const data = (await response.json()) as Record<string, unknown>
+    return {
+      id: String(data.thread_id ?? data.id ?? ''),
+      createdAt: String(data.created_at ?? data.createdAt ?? new Date().toISOString()),
+      title: (data.metadata as Record<string, unknown> | undefined)?.title as string | undefined,
+      workspace: (data.metadata as Record<string, unknown> | undefined)?.workspace as string | undefined,
+      model: (data.metadata as Record<string, unknown> | undefined)?.model as string | undefined,
+      mode: (data.metadata as Record<string, unknown> | undefined)?.mode as 'agent' | 'plan' | undefined,
+      workModeId: (data.metadata as Record<string, unknown> | undefined)?.workModeId as string | undefined,
+      ...data
+    } as unknown as ThreadResponse
   }
 
   // Send a message and get streaming response. Returns the turnId for execution polling.
@@ -959,38 +982,54 @@ export class EngineAPI {
     reasoningMode?: 'auto' | 'off' | 'low' | 'medium' | 'high',
     options?: { subagentEnabled?: boolean; isPlanMode?: boolean; permissionMode?: string; approvedOps?: string[]; forceCompact?: boolean; connectionLostMessage?: string }
   ): Promise<string> {
-    // 默认启用子代理（task 工具 → InfoPanel「智能体」段）与计划模式
-    // （write_todos 工具 → InfoPanel「进度」段）。可经 options 关闭。
+    // 2026-08 重构：引擎自带 gateway（app.gateway）协议。
+    // 先 POST /api/threads/{id}/runs 创建后台 run（立即返回 run_id），
+    // 再 GET /api/threads/{id}/runs/{run_id}/stream 订阅实时 SSE——
+    // 返回的 runId 即 turnId（停止按钮/中断用）。配置经 config.configurable
+    // 注入（is_plan_mode/subagent_enabled/permission_mode/model_name 等）。
     const { subagentEnabled = true, isPlanMode = true, permissionMode, approvedOps, forceCompact, connectionLostMessage } = options ?? {}
-    const turnResponse = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns`, {
+    const configurable: Record<string, unknown> = {}
+    if (model) configurable.model_name = model
+    if (reasoningMode === 'off') configurable.thinking_enabled = false
+    else if (reasoningMode && reasoningMode !== 'auto') {
+      configurable.thinking_enabled = true
+      configurable.reasoning_effort = reasoningMode
+    }
+    if (subagentEnabled !== undefined) configurable.subagent_enabled = subagentEnabled
+    if (isPlanMode !== undefined) configurable.is_plan_mode = isPlanMode
+    if (permissionMode) configurable.permission_mode = permissionMode
+    if (approvedOps && approvedOps.length > 0) configurable.approved_ops = approvedOps
+    if (forceCompact) configurable.force_compact = true
+
+    const inputMessages: Array<Record<string, unknown>> = [
+      { role: 'user', content },
+      ...(attachmentIds && attachmentIds.length > 0
+        ? attachmentIds.map((id) => ({ role: 'user', content: `[附件:${id}]` }))
+        : []),
+    ]
+
+    const runResponse = await fetch(`${this.baseUrl}/api/threads/${threadId}/runs`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({
-        prompt: content,
-        ...(attachmentIds && attachmentIds.length > 0 ? { attachmentIds } : {}),
-        ...(model ? { model_name: model } : {}),
-        ...(reasoningMode && reasoningMode !== 'auto' ? { reasoning_mode: reasoningMode } : {}),
-        subagent_enabled: subagentEnabled,
-        is_plan_mode: isPlanMode,
-        ...(permissionMode ? { permission_mode: permissionMode } : {}),
-        ...(approvedOps && approvedOps.length > 0 ? { approved_ops: approvedOps } : {}),
-        ...(forceCompact ? { force_compact: true } : {})
+        assistant_id: this.assistantId || 'lead_agent',
+        input: { messages: inputMessages },
+        stream_mode: ['messages-tuple', 'custom'],
+        config: { configurable },
       })
     })
 
-    if (!turnResponse.ok) {
-      const text = await turnResponse.text().catch(() => turnResponse.statusText)
+    if (!runResponse.ok) {
+      const text = await runResponse.text().catch(() => runResponse.statusText)
       throw new Error(`Failed to send message: ${text}`)
     }
 
-    const turn: TurnResponse = await turnResponse.json()
+    const run: { run_id: string } = await runResponse.json()
+    const runId = run.run_id
 
-    // 订阅线程级 SSE 事件流（后端路径是 /v1/threads/:id/events，不是 /turns/:turnId/events）
-    // 不 await — SSE 订阅是 fire-and-forget，让调用方立即拿到 turnId（用于设置 activeTurnId、
-    // 停止按钮等）。如果 await，turnId 直到 turn 完成才返回，activeTurnId 在运行期间永远为 null。
-    // 存储 promise 供 waitForTurnCompletion 使用。
-    this.turnCompletion = this.subscribeToThread(threadId, turn.turnId, onEvent, connectionLostMessage)
-    return turn.turnId
+    // 订阅 run 实时 SSE 流（fire-and-forget，调用方立即拿到 runId）
+    this.turnCompletion = this.subscribeToThread(threadId, runId, onEvent, connectionLostMessage)
+    return runId
   }
 
   /**
@@ -1030,22 +1069,28 @@ export class EngineAPI {
   // the SSE frames manually from the stream.
   private subscribeToThread(
     threadId: string,
-    turnId: string,
+    runId: string,
     onEvent: (event: SSEEvent) => void,
     connectionLostMessage?: string
   ): Promise<void> {
-    const url = `${this.baseUrl}/v1/threads/${threadId}/events`
+    // 2026-08 重构：订阅引擎 gateway 的 run 实时流
+    // GET /api/threads/{id}/runs/{run_id}/stream（join 语义：run 运行中
+    // 接实时流，已结束重放历史）。turnId 参数即 run_id。
+    const url = `${this.baseUrl}/api/threads/${threadId}/runs/${runId}/stream`
     const controller = new AbortController()
     // 供 abortCurrentTurn() 外部中断：看门狗判定 turn 黑盒卡死时提前解除
     // waitForTurnCompletion 的 await（否则 UI 永久 isGenerating）。
     this.turnAbortController = controller
 
-    // Reconnect tuning: unexpected stream drops (network blip, gateway/langgraph
-    // restart) are retried with exponential backoff. A "terminal" SSE event
+    // Reconnect tuning: unexpected stream drops (network blip, gateway restart)
+    // are retried with exponential backoff. A "terminal" SSE event
     // (turn_completed/failed/aborted) or an explicit caller abort stops retries.
     const MAX_RETRIES = 8
     const BASE_DELAY_MS = 1000
     const MAX_DELAY_MS = 30_000
+
+    // 引擎原生帧 → KCoder kind 的翻译上下文（前缀 diff / usage 去重）
+    const eventCtx: EventTranslationContext = createEventContext(threadId, runId)
 
     return new Promise<void>((resolve) => {
       let resolved = false
@@ -1083,33 +1128,32 @@ export class EngineAPI {
       // 单调递增跳过已处理事件，保证文本增量等幂等消费（不重复、不乱序）。
       let lastSeq = -1
 
-      const dispatch = (raw: string) => {
-        if (!raw) return
+      // 翻译一帧引擎 SSE（event: xxx + data: {...}）为 KCoder kind 事件。
+      // 引擎 gateway 事件是 LangGraph Platform 格式（metadata / messages
+      // tuple / custom / end），经 engineEvents.translateEvent 翻译。
+      const dispatchFrame = (eventType: string, raw: string) => {
+        let data: unknown = null
         try {
-          const data = JSON.parse(raw) as Record<string, unknown>
-          const kind = (data.kind as string) || 'message'
-          if (data.eventId) lastEventId = String(data.eventId)
-          const seq = typeof data.eventId === 'number' ? data.eventId : Number(data.eventId)
-          if (Number.isFinite(seq) && seq >= 0) {
-            if (seq <= lastSeq) return // 重放重叠事件，跳过
-            lastSeq = seq
+          data = JSON.parse(raw)
+        } catch {
+          data = raw
+        }
+        try {
+          const events = translateEvent(eventType, data, eventCtx)
+          for (const ev of events) {
+            onEvent({ kind: ev.kind, data: ev as unknown as Record<string, unknown> })
           }
-          onEvent({ kind, data })
           // Terminate once the current turn reaches a terminal state.
-          if (
-            kind === 'turn_completed' ||
-            kind === 'turn_failed' ||
-            kind === 'turn_aborted'
-          ) {
-            const eventTurnId = data.turnId as string | undefined
-            if (!eventTurnId || eventTurnId === turnId) {
-              terminal = true
-              terminalReached = true
-              finish()
-            }
+          const terminalKind = events.find(
+            (ev) => ev.kind === 'turn_completed' || ev.kind === 'turn_failed' || ev.kind === 'turn_aborted'
+          )
+          if (terminalKind) {
+            terminal = true
+            terminalReached = true
+            finish()
           }
         } catch (e) {
-          console.error('[KCoder] Failed to parse SSE event:', e)
+          console.error('[KCoder] Failed to translate engine event:', e)
         }
       }
 
@@ -1132,9 +1176,8 @@ export class EngineAPI {
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
-        // SSE frames are separated by a blank line. Each frame has `event:`
-        // and `data:` lines; we only need the data payload (it carries the
-        // full `kind` field, so the `event:` line is redundant).
+        // 引擎 gateway SSE 帧：`event: <type>` + `data: <json>`（LangGraph
+        // Platform 协议）。逐帧解析后交给 dispatchFrame 翻译。
         while (true) {
           const { value, done } = await reader.read()
           if (done) break
@@ -1144,16 +1187,18 @@ export class EngineAPI {
           const frames = buffer.split('\n\n')
           buffer = frames.pop() ?? ''
           for (const frame of frames) {
-            const dataLines = frame
-              .split('\n')
-              .filter((l) => l.startsWith('data:'))
-              .map((l) => l.slice(5).replace(/^ /, ''))
+            let eventType = 'message'
+            const dataLines: string[] = []
+            for (const line of frame.split('\n')) {
+              const l = line.replace(/\r$/, '')
+              if (l.startsWith('event:')) eventType = l.slice(6).trim()
+              else if (l.startsWith('data:')) dataLines.push(l.slice(5).replace(/^ /, ''))
+            }
             if (dataLines.length > 0) {
-              dispatch(dataLines.join('\n'))
+              dispatchFrame(eventType, dataLines.join('\n'))
             } else if (frame.trim().startsWith(':')) {
-              // SSE comment 帧（gateway 的 `: ping` 心跳）。无 data 载荷，
-              // 不 dispatch 业务事件；仅以 heartbeat 事件通知上层——看门狗
-              // 据此区分「连接活着但引擎静默」与「死连」。
+              // SSE comment 帧（`: ping` 心跳）：仅通知上层刷新连接活性，
+              // 看门狗据此区分「连接活着但引擎静默」与「死连」。
               onEvent({ kind: 'heartbeat', data: {} })
             }
           }
@@ -1233,7 +1278,7 @@ export class EngineAPI {
    * starting a new turn. POST /v1/threads/:id/turns/:turnId/steer { text }
    */
   async steerTurn(threadId: string, turnId: string, text: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns/${turnId}/steer`, {
+    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/turns/${turnId}/steer`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ text })
@@ -1249,17 +1294,18 @@ export class EngineAPI {
    * generated items (keeps the user prompt).
    * POST /v1/threads/:id/turns/:turnId/interrupt { discard? }
    */
-  async interruptTurn(threadId: string, turnId: string, discard?: boolean): Promise<{ status: string }> {
-    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns/${turnId}/interrupt`, {
+  async interruptTurn(threadId: string, runId: string, _discard?: boolean): Promise<{ status: string }> {
+    // 2026-08 重构：引擎 gateway 用 POST /api/threads/{id}/runs/{run_id}/cancel
+    // 取消 run（turnId 参数即 run_id）。
+    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/runs/${runId}/cancel`, {
       method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify({ ...(discard != null ? { discard } : {}) })
+      headers: this.headers
     })
     if (!response.ok) {
       const detail = await response.text().catch(() => response.statusText)
-      throw new Error(`Failed to interrupt turn: ${detail}`)
+      throw new Error(`Failed to cancel run: ${detail}`)
     }
-    return response.json()
+    return { status: 'cancelled' }
   }
 
   /**
@@ -1267,7 +1313,7 @@ export class EngineAPI {
    * token budget. POST /v1/threads/:id/compact { reason?, budgetTokens? }
    */
   async compactThread(threadId: string, opts?: { reason?: string; budgetTokens?: number }): Promise<{ replacedTokens: number; summary: string }> {
-    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}/compact`, {
+    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/compact`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({
@@ -1299,7 +1345,7 @@ export class EngineAPI {
    * as "projection not available yet" rather than an error.
    */
   async getRunTimeline(runId: string): Promise<RunTimelineView | null> {
-    const response = await fetch(`${this.baseUrl}/v1/runtime/evented-v2/runs/${encodeURIComponent(runId)}/timeline`, {
+    const response = await fetch(`${this.baseUrl}/api/runtime/evented-v2/runs/${encodeURIComponent(runId)}/timeline`, {
       headers: this.headers
     })
     if (response.status === 404) return null
@@ -1314,7 +1360,7 @@ export class EngineAPI {
    */
   async ackEngineStream(streamId: string, subscriberId: string, throughSeq: number): Promise<void> {
     try {
-      await fetch(`${this.baseUrl}/v1/engine/streams/${encodeURIComponent(streamId)}/ack`, {
+      await fetch(`${this.baseUrl}/api/engine/streams/${encodeURIComponent(streamId)}/ack`, {
         method: 'POST',
         headers: this.headers,
         body: JSON.stringify({ subscriberId, throughSeq })
@@ -1363,7 +1409,7 @@ data: <full EngineStreamEvent JSON>
     const params = new URLSearchParams()
     params.set('subscriber_id', `kcoder-${Math.random().toString(36).slice(2, 10)}`)
     if (options?.afterSeq != null) params.set('after_seq', String(options.afterSeq))
-    const url = `${this.baseUrl}/v1/engine/streams/${encodeURIComponent(streamId)}/subscribe?${params.toString()}`
+    const url = `${this.baseUrl}/api/engine/streams/${encodeURIComponent(streamId)}/subscribe?${params.toString()}`
 
     return new Promise<void>((resolve) => {
       let resolved = false
@@ -1557,7 +1603,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Inspect a governed graph run — status, circuit state, active nodes, budgets. */
   async inspectGraphRun(runId: string): Promise<GraphRunInspection | null> {
-    const response = await fetch(`${this.baseUrl}/v1/engine/runs/${encodeURIComponent(runId)}/inspect`, {
+    const response = await fetch(`${this.baseUrl}/api/engine/runs/${encodeURIComponent(runId)}/inspect`, {
       headers: this.headers
     })
     if (response.status === 404) return null
@@ -1568,7 +1614,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Set the circuit state of a governed graph run (running/report_only/paused/retired). */
   async setGraphCircuit(runId: string, state: CircuitState): Promise<{ runId: string; circuitState: CircuitState }> {
-    const response = await fetch(`${this.baseUrl}/v1/engine/runs/${encodeURIComponent(runId)}/circuit`, {
+    const response = await fetch(`${this.baseUrl}/api/engine/runs/${encodeURIComponent(runId)}/circuit`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ state })
@@ -1582,7 +1628,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Cancel a governed graph run. */
   async cancelGraphRun(runId: string): Promise<{ runId: string; cancelled: boolean }> {
-    const response = await fetch(`${this.baseUrl}/v1/engine/runs/${encodeURIComponent(runId)}/cancel`, {
+    const response = await fetch(`${this.baseUrl}/api/engine/runs/${encodeURIComponent(runId)}/cancel`, {
       method: 'POST',
       headers: this.headers
     })
@@ -1595,7 +1641,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Resolve a governed graph checkpoint (approval decision). */
   async resolveCheckpoint(checkpointId: string, decision: 'allow' | 'deny', opts?: { token?: string; resolutionToken?: string; graphRevision?: number }): Promise<{ checkpointId: string; resolved: boolean }> {
-    const response = await fetch(`${this.baseUrl}/v1/engine/checkpoints/${encodeURIComponent(checkpointId)}/resolve`, {
+    const response = await fetch(`${this.baseUrl}/api/engine/checkpoints/${encodeURIComponent(checkpointId)}/resolve`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ decision, ...(opts ?? {}) })
@@ -1610,7 +1656,7 @@ data: <full EngineStreamEvent JSON>
   // ============ Thread Goal / Todos API ============
 
   async getThreadGoal(threadId: string): Promise<ThreadGoal | null> {
-    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}/goal`, {
+    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/goal`, {
       headers: this.headers
     })
     if (response.status === 404) return null
@@ -1620,7 +1666,7 @@ data: <full EngineStreamEvent JSON>
   }
 
   async getThreadTodos(threadId: string): Promise<ThreadTodoList | null> {
-    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}/todos`, {
+    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/todos`, {
       headers: this.headers
     })
     if (response.status === 404) return null
@@ -1631,7 +1677,7 @@ data: <full EngineStreamEvent JSON>
 
   // Resolve an approval — POST /v1/approvals/:id
   async decideApproval(approvalId: string, decision: 'allow' | 'deny', reason?: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/v1/approvals/${encodeURIComponent(approvalId)}`, {
+    const response = await fetch(`${this.baseUrl}/api/approvals/${encodeURIComponent(approvalId)}`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ decision, ...(reason ? { reason } : {}) })
@@ -1645,7 +1691,7 @@ data: <full EngineStreamEvent JSON>
 
   // Resolve a user-input request — POST /v1/user-inputs/:id
   async resolveUserInput(inputId: string, answers: Array<{ id: string; label: string; value: string }>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/v1/user-inputs/${encodeURIComponent(inputId)}`, {
+    const response = await fetch(`${this.baseUrl}/api/user-inputs/${encodeURIComponent(inputId)}`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ answers })
@@ -1659,7 +1705,7 @@ data: <full EngineStreamEvent JSON>
 
   // Cancel a user-input request — POST /v1/user-inputs/:id { cancelled: true }
   async cancelUserInput(inputId: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/v1/user-inputs/${encodeURIComponent(inputId)}`, {
+    const response = await fetch(`${this.baseUrl}/api/user-inputs/${encodeURIComponent(inputId)}`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ cancelled: true })
@@ -1670,23 +1716,38 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
 
-  // 列出会话 — GET /v1/threads
-  async listThreads(opts?: { includeArchived?: boolean }): Promise<{ threads: ThreadSummary[] }> {
-    const params = new URLSearchParams({ limit: '200' })
-    if (opts?.includeArchived) params.set('include_archived', 'true')
-    const response = await fetch(`${this.baseUrl}/v1/threads?${params}`, {
-      headers: this.headers
+  // 列出会话 — POST /api/threads/search（2026-08 重构：引擎 gateway 协议）
+  async listThreads(_opts?: { includeArchived?: boolean }): Promise<{ threads: ThreadSummary[] }> {
+    const response = await fetch(`${this.baseUrl}/api/threads/search`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({})
     })
     if (!response.ok) {
       throw new Error(`Failed to list threads: ${response.statusText}`)
     }
-    return response.json()
+    const data = (await response.json()) as Array<Record<string, unknown>>
+    // 引擎返回 thread_id + metadata（LangGraph 风格），归一化到 ThreadSummary
+    const threads: ThreadSummary[] = data.map((t) => {
+      const meta = (t.metadata ?? {}) as Record<string, unknown>
+      return {
+        id: String(t.thread_id ?? t.id ?? ''),
+        title: String(meta.title ?? ''),
+        updatedAt: String(t.updated_at ?? meta.updated_at ?? ''),
+        createdAt: String(t.created_at ?? meta.created_at ?? ''),
+        workspace: meta.workspace as string | undefined,
+        model: meta.model as string | undefined,
+        archived: Boolean(meta.archived),
+        ...(t as object),
+      } as unknown as ThreadSummary
+    })
+    return { threads }
   }
 
   // 重命名会话标题 — PATCH /v1/threads/:id
   // 后端只允许更新 title（workspace 等绑定字段不可改）。
   async updateThreadTitle(threadId: string, title: string): Promise<ThreadSummary> {
-    const response = await fetch(`${this.baseUrl}/v1/threads/${encodeURIComponent(threadId)}`, {
+    const response = await fetch(`${this.baseUrl}/api/threads/${encodeURIComponent(threadId)}`, {
       method: 'PATCH',
       headers: { ...this.headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ title })
@@ -1703,7 +1764,7 @@ data: <full EngineStreamEvent JSON>
     threadId: string,
     opts: { title?: string; archived?: boolean }
   ): Promise<ThreadSummary> {
-    const response = await fetch(`${this.baseUrl}/v1/threads/${encodeURIComponent(threadId)}`, {
+    const response = await fetch(`${this.baseUrl}/api/threads/${encodeURIComponent(threadId)}`, {
       method: 'PATCH',
       headers: { ...this.headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(opts)
@@ -1718,7 +1779,7 @@ data: <full EngineStreamEvent JSON>
 
   // 列出已注册项目 — GET /v1/projects
   async listProjects(): Promise<{ projects: ProjectEntry[] }> {
-    const response = await fetch(`${this.baseUrl}/v1/projects`, { headers: this.headers })
+    const response = await fetch(`${this.baseUrl}/api/projects`, { headers: this.headers })
     if (!response.ok) {
       throw new Error(`Failed to list projects: ${response.statusText}`)
     }
@@ -1734,7 +1795,7 @@ data: <full EngineStreamEvent JSON>
     options?: { silentMissing?: boolean }
   ): Promise<ProjectEntry | { skipped: true; path: string; reason: string }> {
     const query = options?.silentMissing ? '?silent_missing=true' : ''
-    const response = await fetch(`${this.baseUrl}/v1/projects${query}`, {
+    const response = await fetch(`${this.baseUrl}/api/projects${query}`, {
       method: 'POST',
       headers: { ...this.headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ path, name })
@@ -1760,7 +1821,7 @@ data: <full EngineStreamEvent JSON>
     patch: { name?: string; description?: string }
   ): Promise<ProjectEntry> {
     const response = await fetch(
-      `${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}`,
+      `${this.baseUrl}/api/projects/${encodeURIComponent(projectId)}`,
       {
         method: 'PATCH',
         headers: { ...this.headers, 'Content-Type': 'application/json' },
@@ -1778,7 +1839,7 @@ data: <full EngineStreamEvent JSON>
     projectId: string
   ): Promise<{ deleted: boolean; archivedThreads?: number }> {
     const response = await fetch(
-      `${this.baseUrl}/v1/projects/${encodeURIComponent(projectId)}`,
+      `${this.baseUrl}/api/projects/${encodeURIComponent(projectId)}`,
       { method: 'DELETE', headers: this.headers }
     )
     if (!response.ok) {
@@ -1792,7 +1853,7 @@ data: <full EngineStreamEvent JSON>
   // 查询工作区状态（git 分支/脏标记） — GET /v1/workspace/status?path=
   async getWorkspaceStatus(path: string): Promise<WorkspaceStatus> {
     const response = await fetch(
-      `${this.baseUrl}/v1/workspace/status?path=${encodeURIComponent(path)}`,
+      `${this.baseUrl}/api/workspace/status?path=${encodeURIComponent(path)}`,
       { headers: this.headers }
     )
     if (!response.ok) {
@@ -1820,7 +1881,7 @@ data: <full EngineStreamEvent JSON>
   // 后端执行 `git checkout -b <name> [base]`，返回 { path, branch, created }。
   // 分支已存在 → 409；非 git 仓库 → 400。
   async createBranch(path: string, name: string, base?: string): Promise<{ path: string; branch: string }> {
-    const response = await fetch(`${this.baseUrl}/v1/workspace/branch`, {
+    const response = await fetch(`${this.baseUrl}/api/workspace/branch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
       body: JSON.stringify({ path, name, ...(base ? { base } : {}) })
@@ -1835,7 +1896,7 @@ data: <full EngineStreamEvent JSON>
 
   /** 检出已有分支（git checkout <name>）。工作区有未提交变更时网关返回 409。 */
   async checkoutBranch(path: string, name: string): Promise<{ path: string; branch: string }> {
-    const response = await fetch(`${this.baseUrl}/v1/workspace/branch`, {
+    const response = await fetch(`${this.baseUrl}/api/workspace/branch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
       body: JSON.stringify({ path, name, create: false })
@@ -1853,7 +1914,7 @@ data: <full EngineStreamEvent JSON>
    * 后端会执行 `git add -A` + `git commit -m <message>`，返回结构化结果。
    */
   async commitWorkspace(path: string, message: string): Promise<CommitResult> {
-    const response = await fetch(`${this.baseUrl}/v1/workspace/commit`, {
+    const response = await fetch(`${this.baseUrl}/api/workspace/commit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
       body: JSON.stringify({ path, message })
@@ -1870,7 +1931,7 @@ data: <full EngineStreamEvent JSON>
    * 推送当前分支到远端。POST /v1/workspace/push { path, remote?, branch? }
    */
   async pushWorkspace(path: string, opts?: { remote?: string; branch?: string }): Promise<CommitResult> {
-    const response = await fetch(`${this.baseUrl}/v1/workspace/push`, {
+    const response = await fetch(`${this.baseUrl}/api/workspace/push`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
       body: JSON.stringify({ path, ...(opts ?? {}) })
@@ -1894,21 +1955,21 @@ data: <full EngineStreamEvent JSON>
 
   /** GET /v1/workspace/tree?path= → 单层目录条目（文件树懒展开用）。 */
   async workspaceTree(path: string): Promise<{ path: string; entries: WorkspaceTreeEntry[]; truncated: boolean }> {
-    const r = await fetch(`${this.baseUrl}/v1/workspace/tree?path=${encodeURIComponent(path)}`, { headers: this.headers })
+    const r = await fetch(`${this.baseUrl}/api/workspace/tree?path=${encodeURIComponent(path)}`, { headers: this.headers })
     if (!r.ok) throw new Error(`workspace tree failed: ${r.status}`)
     return r.json()
   }
 
   /** GET /v1/workspace/files?path= → 扁平文件清单（rg --files，@-mention/快速打开用）。 */
   async workspaceFiles(path: string): Promise<{ path: string; files: string[]; truncated: boolean }> {
-    const r = await fetch(`${this.baseUrl}/v1/workspace/files?path=${encodeURIComponent(path)}`, { headers: this.headers })
+    const r = await fetch(`${this.baseUrl}/api/workspace/files?path=${encodeURIComponent(path)}`, { headers: this.headers })
     if (!r.ok) throw new Error(`workspace files failed: ${r.status}`)
     return r.json()
   }
 
   /** GET /v1/workspace/file?path= → 读取文本文件内容。 */
   async readWorkspaceFile(path: string): Promise<{ path: string; content: string; size: number; truncated: boolean }> {
-    const r = await fetch(`${this.baseUrl}/v1/workspace/file?path=${encodeURIComponent(path)}`, { headers: this.headers })
+    const r = await fetch(`${this.baseUrl}/api/workspace/file?path=${encodeURIComponent(path)}`, { headers: this.headers })
     if (!r.ok) {
       const detail = await r.json().catch(() => ({}))
       throw new Error(typeof detail?.detail === 'string' ? detail.detail : `read failed: ${r.status}`)
@@ -1918,7 +1979,7 @@ data: <full EngineStreamEvent JSON>
 
   /** PUT /v1/workspace/file → 写入文本文件（编辑器保存）。 */
   async writeWorkspaceFile(path: string, content: string): Promise<{ path: string; saved: boolean; size: number }> {
-    const r = await fetch(`${this.baseUrl}/v1/workspace/file`, {
+    const r = await fetch(`${this.baseUrl}/api/workspace/file`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...this.headers },
       body: JSON.stringify({ path, content })
@@ -1936,7 +1997,7 @@ data: <full EngineStreamEvent JSON>
     path: string,
     status: string
   ): Promise<{ reverted: boolean; action: string }> {
-    const r = await fetch(`${this.baseUrl}/v1/workspace/revert`, {
+    const r = await fetch(`${this.baseUrl}/api/workspace/revert`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
       body: JSON.stringify({ workspace, path, status })
@@ -1954,7 +2015,7 @@ data: <full EngineStreamEvent JSON>
     query: string,
     opts?: { glob?: string; maxResults?: number }
   ): Promise<{ results: SearchHit[]; truncated: boolean; engine: string }> {
-    const r = await fetch(`${this.baseUrl}/v1/workspace/search`, {
+    const r = await fetch(`${this.baseUrl}/api/workspace/search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
       body: JSON.stringify({ path, query, ...(opts?.glob ? { glob: opts.glob } : {}), ...(opts?.maxResults ? { maxResults: opts.maxResults } : {}) })
@@ -1970,7 +2031,7 @@ data: <full EngineStreamEvent JSON>
 
   // Get thread history
   async getThread(threadId: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}`, {
+    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}`, {
       headers: this.headers
     })
 
@@ -1982,13 +2043,28 @@ data: <full EngineStreamEvent JSON>
   }
 
   /**
+   * 获取线程全部消息（历史加载数据源，2026-08 重构）。
+   * GET /api/threads/{id}/messages → 引擎事件行（content 内嵌 LangChain 消息）。
+   */
+  async listThreadMessages(threadId: string): Promise<Array<Record<string, unknown>>> {
+    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/messages`, {
+      headers: this.headers
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to get thread messages: ${response.statusText}`)
+    }
+    const data = (await response.json()) as unknown
+    return Array.isArray(data) ? (data as Array<Record<string, unknown>>) : []
+  }
+
+  /**
    * Delete a thread and ALL its data. The engine's HybridThreadStore.delete
    * recursively removes the entire thread directory (dataDir/threads/<id>/),
    * including tool-output, uploads, turn state, session items, etc.
    * DELETE /v1/threads/:id
    */
   async deleteThread(threadId: string): Promise<boolean> {
-    const response = await fetch(`${this.baseUrl}/v1/threads/${threadId}`, {
+    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}`, {
       method: 'DELETE',
       headers: this.headers
     })
@@ -2013,7 +2089,7 @@ data: <full EngineStreamEvent JSON>
    */
   async uploadAttachment(file: File, opts?: { threadId?: string; workspace?: string }): Promise<AttachmentMetadata> {
     const dataBase64 = await fileToBase64(file)
-    const response = await fetch(`${this.baseUrl}/v1/attachments`, {
+    const response = await fetch(`${this.baseUrl}/api/attachments`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({
@@ -2034,7 +2110,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Get attachment metadata. GET /v1/attachments/:id */
   async getAttachment(id: string): Promise<AttachmentMetadata | null> {
-    const response = await fetch(`${this.baseUrl}/v1/attachments/${encodeURIComponent(id)}`, {
+    const response = await fetch(`${this.baseUrl}/api/attachments/${encodeURIComponent(id)}`, {
       headers: this.headers
     })
     if (response.status === 404) return null
@@ -2055,7 +2131,7 @@ data: <full EngineStreamEvent JSON>
     if (opts?.workspace) params.set('workspace', opts.workspace)
     if (opts?.includeDeleted) params.set('include_deleted', 'true')
     const qs = params.toString()
-    const response = await fetch(`${this.baseUrl}/v1/memory${qs ? `?${qs}` : ''}`, {
+    const response = await fetch(`${this.baseUrl}/api/memory${qs ? `?${qs}` : ''}`, {
       headers: this.headers
     })
     if (!response.ok) throw new Error(`Failed to list memories: ${response.statusText}`)
@@ -2068,7 +2144,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Create a memory. POST /v1/memory { content, scope?, tags?, confidence?, workspace? } */
   async createMemory(payload: { content: string; scope?: 'user' | 'workspace' | 'project' | 'task'; tags?: string[]; confidence?: number; workspace?: string; threadId?: string }): Promise<MemoryRecord> {
-    const response = await fetch(`${this.baseUrl}/v1/memory`, {
+    const response = await fetch(`${this.baseUrl}/api/memory`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify(payload)
@@ -2085,7 +2161,7 @@ data: <full EngineStreamEvent JSON>
   async updateMemory(id: string, patch: { content?: string; tags?: string[]; confidence?: number; disabled?: boolean; threadId?: string }): Promise<MemoryRecord> {
     const qs = patch.threadId ? `?threadId=${encodeURIComponent(patch.threadId)}` : ''
     const { threadId, ...body } = patch
-    const response = await fetch(`${this.baseUrl}/v1/memory/${encodeURIComponent(id)}${qs}`, {
+    const response = await fetch(`${this.baseUrl}/api/memory/${encodeURIComponent(id)}${qs}`, {
       method: 'PATCH',
       headers: this.headers,
       body: JSON.stringify(body)
@@ -2100,7 +2176,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Delete a memory (soft delete — tombstone). DELETE /v1/memory/:id */
   async deleteMemory(id: string, threadId?: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/v1/memory/${encodeURIComponent(id)}${threadId ? `?threadId=${encodeURIComponent(threadId)}` : ''}`, {
+    const response = await fetch(`${this.baseUrl}/api/memory/${encodeURIComponent(id)}${threadId ? `?threadId=${encodeURIComponent(threadId)}` : ''}`, {
       method: 'DELETE',
       headers: this.headers
     })
@@ -2109,7 +2185,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Memory diagnostics. GET /v1/memory/diagnostics */
   async memoryDiagnostics(): Promise<{ enabled: boolean; activeCount: number; tombstoneCount: number }> {
-    const response = await fetch(`${this.baseUrl}/v1/memory/diagnostics`, {
+    const response = await fetch(`${this.baseUrl}/api/memory/diagnostics`, {
       headers: this.headers
     })
     if (!response.ok) throw new Error(`Failed to get memory diagnostics: ${response.statusText}`)
@@ -2123,7 +2199,7 @@ data: <full EngineStreamEvent JSON>
 
   /** 读取三段运行时配置生效值。 GET /v1/runtime-config */
   async getRuntimeConfig(): Promise<RuntimeConfig> {
-    const response = await fetch(`${this.baseUrl}/v1/runtime-config`, {
+    const response = await fetch(`${this.baseUrl}/api/runtime-config`, {
       headers: this.headers
     })
     if (!response.ok) throw new Error(`Failed to get runtime config: ${response.statusText}`)
@@ -2142,7 +2218,7 @@ data: <full EngineStreamEvent JSON>
     section: S,
     value: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
-    const response = await fetch(`${this.baseUrl}/v1/runtime-config/${section}`, {
+    const response = await fetch(`${this.baseUrl}/api/runtime-config/${section}`, {
       method: 'PUT',
       headers: { ...this.headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(value)
@@ -2166,7 +2242,7 @@ data: <full EngineStreamEvent JSON>
       params.set('month', String(filter.month))
     }
     const qs = params.toString()
-    const response = await fetch(`${this.baseUrl}/v1/token-usage/stats${qs ? `?${qs}` : ''}`, {
+    const response = await fetch(`${this.baseUrl}/api/token-usage/stats${qs ? `?${qs}` : ''}`, {
       headers: this.headers
     })
     if (!response.ok) throw new Error(`Failed to get token usage stats: ${response.statusText}`)
@@ -2180,7 +2256,7 @@ data: <full EngineStreamEvent JSON>
       params.set('year', String(filter.year))
       params.set('month', String(filter.month))
     }
-    const response = await fetch(`${this.baseUrl}/v1/token-usage/timeseries?${params.toString()}`, {
+    const response = await fetch(`${this.baseUrl}/api/token-usage/timeseries?${params.toString()}`, {
       headers: this.headers
     })
     if (!response.ok) throw new Error(`Failed to get token usage timeseries: ${response.statusText}`)
@@ -2275,7 +2351,7 @@ data: <full EngineStreamEvent JSON>
 
   // List all skills — GET /v1/skills
   async listSkills(): Promise<SkillEntry[]> {
-    const response = await fetch(`${this.baseUrl}/v1/skills`, {
+    const response = await fetch(`${this.baseUrl}/api/skills`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -2287,7 +2363,7 @@ data: <full EngineStreamEvent JSON>
 
   // Toggle skill enabled state — PUT /v1/skills/{name}/enabled
   async toggleSkill(name: string, enabled: boolean): Promise<SkillEntry> {
-    const response = await fetch(`${this.baseUrl}/v1/skills/${encodeURIComponent(name)}/enabled`, {
+    const response = await fetch(`${this.baseUrl}/api/skills/${encodeURIComponent(name)}/enabled`, {
       method: 'PUT',
       headers: this.headers,
       body: JSON.stringify({ enabled })
@@ -2301,7 +2377,7 @@ data: <full EngineStreamEvent JSON>
 
   // Delete a custom skill — DELETE /v1/skills/{name}
   async deleteSkill(name: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/v1/skills/${encodeURIComponent(name)}`, {
+    const response = await fetch(`${this.baseUrl}/api/skills/${encodeURIComponent(name)}`, {
       method: 'DELETE',
       headers: this.headers
     })
@@ -2313,7 +2389,7 @@ data: <full EngineStreamEvent JSON>
 
   // Install a .skill ZIP archive — POST /v1/skills/install-from-file
   async installSkillFromFile(filePath: string): Promise<{ success: boolean; skill_name: string }> {
-    const response = await fetch(`${this.baseUrl}/v1/skills/install-from-file`, {
+    const response = await fetch(`${this.baseUrl}/api/skills/install-from-file`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ path: filePath })
@@ -2327,7 +2403,7 @@ data: <full EngineStreamEvent JSON>
 
   // Install from npm/GitHub/local path — POST /v1/skills/install-from-npm
   async installSkillFromNpm(source: string): Promise<{ success: boolean; skill_name: string }> {
-    const response = await fetch(`${this.baseUrl}/v1/skills/install-from-npm`, {
+    const response = await fetch(`${this.baseUrl}/api/skills/install-from-npm`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ source })
@@ -2349,7 +2425,7 @@ data: <full EngineStreamEvent JSON>
   // state rather than crashing.
 
   async listSubAgents(): Promise<{ settings: Record<string, unknown>; subAgents: SubAgentEntry[] }> {
-    const response = await fetch(`${this.baseUrl}/v1/sub-agents`, {
+    const response = await fetch(`${this.baseUrl}/api/sub-agents`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -2362,7 +2438,7 @@ data: <full EngineStreamEvent JSON>
     }
   }
   async updateSubAgentSettings(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const response = await fetch(`${this.baseUrl}/v1/sub-agents/settings`, {
+    const response = await fetch(`${this.baseUrl}/api/sub-agents/settings`, {
       method: 'PUT',
       headers: this.headers,
       body: JSON.stringify(payload)
@@ -2373,7 +2449,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async createSubAgent(payload: Omit<SubAgentEntry, 'type' | 'source'>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/v1/sub-agents`, {
+    const response = await fetch(`${this.baseUrl}/api/sub-agents`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify(payload)
@@ -2384,7 +2460,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async updateSubAgent(id: string, payload: Partial<SubAgentEntry>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/v1/sub-agents/${encodeURIComponent(id)}`, {
+    const response = await fetch(`${this.baseUrl}/api/sub-agents/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: this.headers,
       body: JSON.stringify(payload)
@@ -2395,7 +2471,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async deleteSubAgent(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/v1/sub-agents/${encodeURIComponent(id)}`, {
+    const response = await fetch(`${this.baseUrl}/api/sub-agents/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: this.headers
     })
@@ -2404,7 +2480,7 @@ data: <full EngineStreamEvent JSON>
     }
   }
   async cloneSubAgent(id: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/v1/sub-agents/${encodeURIComponent(id)}/clone`, {
+    const response = await fetch(`${this.baseUrl}/api/sub-agents/${encodeURIComponent(id)}/clone`, {
       method: 'POST',
       headers: this.headers
     })
@@ -2415,7 +2491,7 @@ data: <full EngineStreamEvent JSON>
   }
 
   async getMcpConfig(): Promise<McpConfigResponse> {
-    const response = await fetch(`${this.baseUrl}/v1/mcp/config`, {
+    const response = await fetch(`${this.baseUrl}/api/mcp/config`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -2429,7 +2505,7 @@ data: <full EngineStreamEvent JSON>
     }
   }
   async saveMcpConfig(config: { mcp_servers: Record<string, McpServerConfigEntry> }): Promise<McpConfigResponse> {
-    const response = await fetch(`${this.baseUrl}/v1/mcp/config`, {
+    const response = await fetch(`${this.baseUrl}/api/mcp/config`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ mcp_servers: config.mcp_servers })
@@ -2446,7 +2522,7 @@ data: <full EngineStreamEvent JSON>
   }
 
   async listPlugins(): Promise<PluginEntry[]> {
-    const response = await fetch(`${this.baseUrl}/v1/plugins`, {
+    const response = await fetch(`${this.baseUrl}/api/plugins`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -2456,7 +2532,7 @@ data: <full EngineStreamEvent JSON>
     return (data.plugins ?? []) as PluginEntry[]
   }
   async togglePlugin(id: string, enabled: boolean): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/v1/plugins/${encodeURIComponent(id)}/toggle`, {
+    const response = await fetch(`${this.baseUrl}/api/plugins/${encodeURIComponent(id)}/toggle`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ enabled })
@@ -2467,7 +2543,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async getPluginDiscover(): Promise<{ plugins: DiscoverPlugin[] }> {
-    const response = await fetch(`${this.baseUrl}/v1/plugins/discover`, {
+    const response = await fetch(`${this.baseUrl}/api/plugins/discover`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -2476,7 +2552,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async installPlugin(id: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/v1/plugins/${encodeURIComponent(id)}/install`, {
+    const response = await fetch(`${this.baseUrl}/api/plugins/${encodeURIComponent(id)}/install`, {
       method: 'POST',
       headers: this.headers
     })
@@ -2486,7 +2562,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async checkPluginUpdates(): Promise<{ updates: Array<{ id: string; latest: string }> }> {
-    const response = await fetch(`${this.baseUrl}/v1/plugins/check-updates`, {
+    const response = await fetch(`${this.baseUrl}/api/plugins/check-updates`, {
       method: 'POST',
       headers: this.headers
     })
@@ -2497,7 +2573,7 @@ data: <full EngineStreamEvent JSON>
   }
 
   async listCommands(): Promise<CommandEntry[]> {
-    const response = await fetch(`${this.baseUrl}/v1/commands`, {
+    const response = await fetch(`${this.baseUrl}/api/commands`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -2514,7 +2590,7 @@ data: <full EngineStreamEvent JSON>
     return commands.find((c) => c.id === commandId) ?? null
   }
   async createCommand(payload: Omit<CommandEntry, 'source'>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/v1/commands`, {
+    const response = await fetch(`${this.baseUrl}/api/commands`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify(payload)
@@ -2525,7 +2601,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async updateCommand(id: string, payload: Partial<CommandEntry>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/v1/commands/${encodeURIComponent(id)}`, {
+    const response = await fetch(`${this.baseUrl}/api/commands/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: this.headers,
       body: JSON.stringify(payload)
@@ -2536,7 +2612,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async deleteCommand(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/v1/commands/${encodeURIComponent(id)}`, {
+    const response = await fetch(`${this.baseUrl}/api/commands/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: this.headers
     })

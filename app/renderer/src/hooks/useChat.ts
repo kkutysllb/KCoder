@@ -11,6 +11,7 @@ import { reduceSseEvent, type SseEventKind } from '../lib/turnReducer'
 import type { ChatMessage, ToolCall } from '../lib/chatMessage'
 import { isInternalOnlyText, sanitizeAssistantText } from '../lib/chatMessage'
 import { getGeneralPrefs } from '../lib/generalPrefs'
+import { engineHistoryToItems } from '../services/engineEvents'
 
 /**
  * 任务完成时播放短促提示音（Web Audio API，无外部资源依赖）。
@@ -545,15 +546,19 @@ export function useChat() {
     async (loadThreadId: string) => {
       const api = getEngineAPI(enginePort)
       try {
-        const thread = (await api.getThread(loadThreadId)) as {
-          turns?: Array<{ items?: Array<Record<string, unknown>> }>
-        }
-        console.log('[loadThread]', loadThreadId, 'turns=', thread.turns?.length, 'items=', thread.turns?.[0]?.items?.length, thread)
+        // 2026-08 重构：引擎自带 gateway 协议——线程元信息 + 消息事件行，
+        // 经 engineHistoryToItems 翻译成 KCoder TurnItem 后按原逻辑重建。
+        const [thread, messageRows] = await Promise.all([
+          api.getThread(loadThreadId),
+          api.listThreadMessages(loadThreadId)
+        ])
+        const items = engineHistoryToItems(messageRows)
+        console.log('[loadThread]', loadThreadId, 'messages=', items.length, thread)
         clearMessages()
         setThreadId(loadThreadId)
 
         const genId = () => `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-        const itemTs = (item: Record<string, unknown>) =>
+        const itemTs = (item: { createdAt?: string }) =>
           Date.parse((item.createdAt as string) ?? '') || Date.now()
 
         // 重建 turn-based 消息列表。LangGraph 的扁平 message 列表里，一次用户提问对应
@@ -575,8 +580,7 @@ export function useChat() {
           curAssistant = null
         }
 
-        for (const turn of thread.turns ?? []) {
-          for (const item of turn.items ?? []) {
+        for (const item of items) {
             const role = (item.role as string) ?? ''
             const kind = (item.kind as string) ?? ''
 
@@ -674,7 +678,6 @@ export function useChat() {
               }
               continue
             }
-          }
         }
         flushAssistant()
 

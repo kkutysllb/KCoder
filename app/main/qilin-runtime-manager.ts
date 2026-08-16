@@ -3,20 +3,21 @@
  *
  * 职责：
  *   1. 定位 Python 3.12+ 解释器（系统 python3 / venv python / 用户配置）
- *   2. spawn `langgraph dev` 子进程（QiLin service，内部端口）
- *   3. spawn `python -m kcoder_gateway.main` 子进程（gateway，renderer-facing 端口）
- *   4. 轮询 /ok + /health 直到两个进程就绪（或超时）
- *   5. 暴露 stopQiLin() 优雅关闭两个子进程（SIGTERM → SIGKILL 兜底）
+ *   2. spawn `python run_gateway.py`（引擎自带 gateway：app.gateway 单进程，
+ *      auth / threads / runs / memory / skills / mcp 全部能力）
+ *   3. 轮询 /health 直到就绪（或超时）
+ *   4. 暴露 stopQiLin() 优雅关闭子进程（SIGTERM → SIGKILL 兜底）
  *
- * 架构：renderer → gateway (config.port) → langgraph dev (config.port+1)
- *   - gateway 端口是对外暴露的（renderer 调 /v1/*）
- *   - langgraph dev 端口是内部的（gateway 代理到它）
+ * 架构：renderer → engine gateway (config.port)
  *
- * 历史：原 QiongQi 时代的 engine-host 在主进程内直接启动引擎；新方案
- * 改为 spawn 两个独立的 Python 子进程。KCoder renderer 完全无感。
+ * 2026-08 重构：删除自研 kcoder_gateway 翻译层与 langgraph dev 平台，
+ * 前端直连引擎自带生产级 gateway（vendor/qilin/app/gateway）。
+ * 历史：原 QiongQi 时代 engine-host 直接启动引擎；v0.2 曾用双进程
+ * （langgraph dev + 自研 gateway），因平台适配层的复杂度与稳定性问题
+ * 重构为单进程。
  *
- * 本文件不依赖 QiLin 引擎仓库的任何代码；QiLin 仅以 pip 依赖形式被 langgraph dev
- * 子进程加载。
+ * 本文件不依赖 QiLin 引擎仓库的任何代码；引擎仅以 pip 依赖 + venv
+ * 形式被 run_gateway.py 子进程加载。
  */
 
 import { spawn, execSync, type ChildProcess } from 'child_process'
@@ -31,7 +32,7 @@ export interface QiLinRuntimeConfig {
   pythonPath?: string
   /** python-runtime/ 目录绝对路径；未指定时用 <repo>/python-runtime。 */
   runtimeDir?: string
-  /** Gateway 监听端口（renderer-facing，127.0.0.1）。langgraph dev 用 port+1。 */
+  /** 引擎 gateway 监听端口（renderer-facing，127.0.0.1）。 */
   port: number
   /**
    * 用户数据根目录（v0.2 起统一 ~/.kcoder）。引擎数据 / 配置 / 日志都落在其下。
@@ -60,10 +61,8 @@ export function resolveAppDataDir(): string {
 }
 
 interface RunningHandle {
-  langgraphChild: ChildProcess
-  gatewayChild: ChildProcess
-  gatewayPort: number // renderer-facing（= config.port）
-  langgraphPort: number // 内部（= config.port + 1）
+  child: ChildProcess
+  port: number // renderer-facing（= config.port）
   startedAt: number
 }
 
@@ -132,16 +131,16 @@ export function resolveRuntimeDir(config?: Partial<QiLinRuntimeConfig>): string 
 }
 
 /**
- * 启动 QiLin sidecar（langgraph dev + gateway 两个子进程）。
+ * 启动 QiLin sidecar（引擎自带 gateway 单进程）。
  *
- * 架构：renderer → gateway (config.port) → langgraph dev (config.port+1)
+ * 架构：renderer → engine gateway (config.port)
  *
  * @returns gateway 监听端口（renderer-facing）
  */
 export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: number }> {
   if (_running) {
-    console.warn('[KCoder] QiLin sidecar already running on port', _running.gatewayPort)
-    return { port: _running.gatewayPort }
+    console.warn('[KCoder] QiLin sidecar already running on port', _running.port)
+    return { port: _running.port }
   }
 
   // 自愈：清掉崩溃/强退残留的孤儿 sidecar（多套并存 = 内存溢出元凶）
@@ -163,12 +162,11 @@ export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: nu
   config.runtimeDir = runtimeDir
 
   // ── v0.2: 用户数据空间统一根 ~/.kcoder ────────────────────────────
-  // 建立六大子目录（config/runtime/product/cache/logs/backups），并把数据根
-  // 通过 KCODER_APP_DATA_DIR 环境变量传给 sidecar。sidecar 内部的
-  // KCoderDataSpace 模块负责生成 qilin.runtime.yaml + 迁移 v0.1 散落数据。
+  // 数据根通过 KCODER_APP_DATA_DIR 传给 run_gateway.py，由它生成/使用
+  // qilin.runtime.yaml（缺则从仓库模板生成，sqlite 落数据根）。
   const appDataDir = config.dataDir || resolveAppDataDir()
   const subDirs = ['config', 'runtime', 'runtime/qilin', 'runtime/qilin/data',
-                   'runtime/langgraph_api', 'product', 'cache', 'logs', 'backups']
+                   'product', 'cache', 'logs', 'backups']
   for (const sub of subDirs) {
     mkdirSync(join(appDataDir, sub), { recursive: true })
   }
@@ -176,95 +174,33 @@ export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: nu
 
   const pythonPath = resolvePython(config)
   const gatewayPort = config.port
-  const langgraphPort = config.port + 1 // 内部端口
   const timeoutMs = config.startupTimeoutMs || 60000
 
   console.log(
-    `[KCoder] Starting QiLin sidecar: python=${pythonPath}, ` +
-      `gateway=${gatewayPort}, langgraph=${langgraphPort}, runtimeDir=${runtimeDir}`
+    `[KCoder] Starting QiLin engine gateway: python=${pythonPath}, port=${gatewayPort}, runtimeDir=${runtimeDir}`
   )
 
-  // sidecar 子进程共享的数据根 / QiLin 配置路径环境变量
-  // 注意：QILIN_CONFIG_PATH 最终指向 <appDataDir>/config/qilin.runtime.yaml，
-  // 该文件由 sidecar 的 KCoderDataSpace 在首次启动时生成。这里检查：
-  //   - 已存在 → 直接用（langgraph dev + gateway 都读它）
-  //   - 不存在 → 让 sidecar 自己生成；langgraph dev 首次启动用仓库内 config.yaml
-  //     作为 fallback，gateway 启动后 KCoderDataSpace 会生成 runtime.yaml 供下次使用
   const sidecarEnv: NodeJS.ProcessEnv = { ...process.env }
-  const runtimeConfigPath = join(appDataDir, 'config', 'qilin.runtime.yaml')
-  if (existsSync(runtimeConfigPath)) {
-    sidecarEnv.QILIN_CONFIG_PATH = runtimeConfigPath
-    console.log(`[KCoder] Using existing runtime config: ${runtimeConfigPath}`)
-  } else {
-    // 首次启动：langgraph dev 用仓库内 config.yaml，gateway 启动后会生成
-    // runtime.yaml 供下次使用
-    sidecarEnv.QILIN_CONFIG_PATH = join(runtimeDir, 'config.yaml')
-    console.log(`[KCoder] First run: using template config, will generate runtime.yaml`)
-  }
   sidecarEnv.KCODER_APP_DATA_DIR = appDataDir
-  sidecarEnv.QILIN_HOME = join(appDataDir, 'runtime', 'qilin')
+  sidecarEnv.KCODER_GATEWAY_PORT = String(gatewayPort)
+  sidecarEnv.KCODER_GATEWAY_HOST = '127.0.0.1'
+  sidecarEnv.QILIN_EXTENSIONS_CONFIG_PATH = join(runtimeDir, 'extensions_config.json')
+  // run_gateway.py 内部解析 QILIN_CONFIG_PATH（数据根 config）与 QILIN_HOME
 
-  // ── 1. 启动 langgraph dev（QiLin service，内部端口）
-  const langgraphArgs = [
-    '-m',
-    'langgraph_cli',
-    'dev',
-    '--port',
-    String(langgraphPort),
-    '--host',
-    '127.0.0.1',
-    '--no-browser',
-    '--allow-blocking', // make_lead_agent 含同步阻塞调用（os.getcwd 等）；dev 模式必需
-    // 关闭热重载：dev 的 watcher 盯整个 CWD（含 .langgraph_api/*.pckl checkpoint
-    // 存储），每次 run 写 pckl 都触发 "changes detected" → 重载循环 → 新 run
-    // 全部卡 pending、SSE 流静默（前端表现为永久停止状态）。KCoder 的引擎代码
-    // 改动走重启生效，不需要热重载。
-    '--no-reload',
-    '--config',
-    join(runtimeDir, 'langgraph.json')
-  ]
-
-  const langgraphChild = spawn(pythonPath, langgraphArgs, {
+  // ── 启动引擎 gateway（单进程，run_gateway.py 入口）──
+  const child = spawn(pythonPath, [join(runtimeDir, 'run_gateway.py')], {
     cwd: runtimeDir,
     env: sidecarEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
-    // 独立进程组：langgraph dev 是多进程架构（parent + worker 同组监听同端口），
-    // child.kill() 只发信号给 parent，worker 变孤儿继续吃内存/端口。建组后
-    // killChild 用 -pid 杀整组。
+    // 独立进程组：uvicorn worker 与 parent 同组，killChild 用 -pid 杀整组。
     detached: true
   })
 
-  forwardLogs(langgraphChild, 'QiLin')
+  forwardLogs(child, 'QiLin')
 
-  langgraphChild.on('exit', (code, signal) => {
-    console.log(`[KCoder] langgraph dev exited (code=${code}, signal=${signal})`)
-    if (_running?.langgraphChild === langgraphChild) {
-      _running = null
-    }
-  })
-
-  await waitForOk(langgraphPort, timeoutMs)
-  console.log(`[KCoder] QiLin service healthy on internal port ${langgraphPort}`)
-
-  // ── 2. 启动 gateway（renderer-facing 端口）
-  const gatewayChild = spawn(pythonPath, ['-m', 'kcoder_gateway.main'], {
-    cwd: runtimeDir,
-    env: {
-      ...sidecarEnv,
-      KCODER_GATEWAY_PORT: String(gatewayPort),
-      KCODER_GATEWAY_HOST: '127.0.0.1',
-      QILIN_SERVICE_URL: `http://127.0.0.1:${langgraphPort}`,
-      QILIN_EXTENSIONS_CONFIG_PATH: join(runtimeDir, 'extensions_config.json')
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true
-  })
-
-  forwardLogs(gatewayChild, 'Gateway')
-
-  gatewayChild.on('exit', (code, signal) => {
-    console.log(`[KCoder] gateway exited (code=${code}, signal=${signal})`)
-    if (_running?.gatewayChild === gatewayChild) {
+  child.on('exit', (code, signal) => {
+    console.log(`[KCoder] engine gateway exited (code=${code}, signal=${signal})`)
+    if (_running?.child === child) {
       _running = null
     }
   })
@@ -272,14 +208,12 @@ export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: nu
   await waitForHealth(gatewayPort, timeoutMs)
 
   _running = {
-    langgraphChild,
-    gatewayChild,
-    gatewayPort,
-    langgraphPort,
+    child,
+    port: gatewayPort,
     startedAt: Date.now()
   }
 
-  console.log(`[KCoder] QiLin sidecar healthy on port ${gatewayPort} (gateway)`)
+  console.log(`[KCoder] QiLin engine gateway healthy on port ${gatewayPort}`)
   return { port: gatewayPort }
 }
 
@@ -313,19 +247,9 @@ function forwardLogs(child: ChildProcess, prefix: string): void {
 /** 轮询 GET /health（gateway 端点）直到 200 或超时。 */
 async function waitForHealth(port: number, timeoutMs: number): Promise<void> {
   return waitForHttp(`http://127.0.0.1:${port}/health`, (data: unknown) => {
-    return typeof data === 'object' && data !== null && (data as { status?: string }).status === 'ok'
-  }, timeoutMs, 'gateway /health')
-}
-
-/** 轮询 GET /ok（LangGraph Platform 标准端点）直到 200 或超时。 */
-async function waitForOk(port: number, timeoutMs: number): Promise<void> {
-  return waitForHttp(
-    `http://127.0.0.1:${port}/ok`,
-    (data: unknown) =>
-      typeof data === 'object' && data !== null && (data as { ok?: boolean }).ok === true,
-    timeoutMs,
-    'langgraph /ok'
-  )
+    const status = (data as { status?: string } | null)?.status ?? ''
+    return status === 'ok' || status === 'healthy'
+  }, timeoutMs, 'engine gateway /health')
 }
 
 /** 通用 HTTP 健康检查轮询。 */
@@ -355,15 +279,13 @@ async function waitForHttp(
   throw new Error(`[KCoder] ${label} failed to become healthy within ${timeoutMs}ms`)
 }
 
-/** 优雅停止 QiLin sidecar（gateway + langgraph dev）。SIGTERM 3s 兜底 SIGKILL。 */
+/** 优雅停止 QiLin sidecar（单进程）。SIGTERM 3s 兜底 SIGKILL。 */
 export async function stopQiLin(): Promise<void> {
   if (!_running) return
-  const { gatewayChild, langgraphChild, gatewayPort } = _running
-  console.log(`[KCoder] Stopping QiLin sidecar on port ${gatewayPort}`)
+  const { child, port } = _running
+  console.log(`[KCoder] Stopping QiLin sidecar on port ${port}`)
 
-  // 先停 gateway（停止接受新请求），再停 langgraph dev
-  await killChild(gatewayChild, 'gateway')
-  await killChild(langgraphChild, 'langgraph dev')
+  await killChild(child, 'engine gateway')
 
   _running = null
   _debugLogStream?.end()
@@ -412,9 +334,8 @@ function killChild(child: ChildProcess, label: string): Promise<void> {
  * 启动前清理孤儿 sidecar（自愈）。
  *
  * Electron 崩溃 / 强杀（Cmd+Q 之外的退出路径）不会执行 before-quit 的
- * stopEngine，残留的 langgraph worker / gateway 会以随机端口共存堆积——
- * 每套 ~3 个 Python 进程数百 MB，多套并存即内存溢出 + 持续 IO 发烫
- * （实测复现：单日堆积 3 套）。
+ * stopEngine，残留的 engine gateway 会以随机端口共存堆积——
+ * 每套 1 个 Python 进程数百 MB，多套并存即内存溢出 + 持续 IO 发烫。
  *
  * 判据（防误杀，实测踩坑：只按命令行匹配会把**另一个活实例**的引擎
  * 当孤儿杀掉——旧窗口随即「无法连接引擎」）：只杀「父进程已死」的真
@@ -425,7 +346,7 @@ function killOrphanSidecars(): void {
   if (process.platform !== 'darwin' && process.platform !== 'linux') return
   try {
     const out = execSync(
-      "pgrep -f 'langgraph_cli dev|kcoder_gateway.main' 2>/dev/null || true",
+      "pgrep -f 'run_gateway.py|app.gateway' 2>/dev/null || true",
       { encoding: 'utf-8', timeout: 5000 }
     )
     const pids = out
@@ -462,12 +383,12 @@ function killOrphanSidecars(): void {
   }
 }
 
-/** 当前 sidecar 是否在运行（gateway + langgraph dev 都未退出）。 */
+/** 当前 sidecar 是否在运行（engine gateway 未退出）。 */
 export function isQiLinRunning(): boolean {
-  return _running !== null && !_running.gatewayChild.killed && !_running.langgraphChild.killed
+  return _running !== null && !_running.child.killed
 }
 
-/** 当前 sidecar 的 gateway 端口（未运行返回 0）。 */
+/** 当前 sidecar 的端口（未运行返回 0）。 */
 export function getQiLinPort(): number {
-  return _running?.gatewayPort ?? 0
+  return _running?.port ?? 0
 }
