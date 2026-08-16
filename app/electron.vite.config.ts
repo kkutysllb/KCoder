@@ -31,6 +31,13 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, 'renderer'),
+    server: {
+      // 2026-08 重构：dev 前端固定 127.0.0.1——与引擎 gateway 同站
+      // （SameSite=Lax 的 session/csrf cookie 才能跨端口携带；
+      // localhost:5173 与 127.0.0.1:19188 是跨站，cookie 会被浏览器拒绝）
+      host: '127.0.0.1',
+      port: 5173
+    },
     build: {
       rollupOptions: {
         input: {
