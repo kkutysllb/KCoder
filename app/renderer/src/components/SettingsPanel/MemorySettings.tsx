@@ -37,7 +37,7 @@ const MEMORY_FIELDS: FieldDef[] = [
     key: 'manager_class',
     label: '后端选择器',
     type: 'string',
-    hint: 'qilinmem / noop 或点分路径'
+    hint: 'deermem（默认）/ mem0 / noop 或点分导入路径'
   }
 ]
 

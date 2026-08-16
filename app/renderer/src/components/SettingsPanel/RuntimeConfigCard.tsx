@@ -43,6 +43,51 @@ export function normalizeContextSize(val: unknown): ContextSize {
   return { type: 'messages', value: 20 }
 }
 
+// ============ 嵌套路径 helper（字段 key 支持 "a.b.c" 点号路径） ============
+
+/** 读嵌套路径值（无点号时等价于普通索引）。 */
+export function getNested(obj: Record<string, unknown>, path: string): unknown {
+  return path.split('.').reduce<unknown>(
+    (acc, k) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[k] : undefined),
+    obj
+  )
+}
+
+/** 写嵌套路径值（浅拷贝路径上各层，不修改原对象）。 */
+export function setNested(obj: Record<string, unknown>, path: string, value: unknown): Record<string, unknown> {
+  const parts = path.split('.')
+  const last = parts.pop()!
+  const root: Record<string, unknown> = { ...obj }
+  let cur = root
+  for (const p of parts) {
+    const next = (cur[p] && typeof cur[p] === 'object' ? cur[p] : {}) as Record<string, unknown>
+    cur[p] = next
+    cur = next
+  }
+  cur[last] = value
+  return root
+}
+
+/** 把对象里的扁平点号 key（如 "checkpoint_delta.snapshot_frequency"）展开为嵌套结构。 */
+export function expandNestedKeys(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...obj }
+  for (const key of Object.keys(out)) {
+    if (!key.includes('.')) continue
+    const value = out[key]
+    delete out[key]
+    const parts = key.split('.')
+    const last = parts.pop()!
+    let cur = out
+    for (const p of parts) {
+      const next = (cur[p] && typeof cur[p] === 'object' ? cur[p] : {}) as Record<string, unknown>
+      cur[p] = next
+      cur = next
+    }
+    cur[last] = value
+  }
+  return out
+}
+
 // ============ RuntimeConfigCard ============
 
 export function RuntimeConfigCard({
@@ -75,7 +120,12 @@ export function RuntimeConfigCard({
   const dirty = useMemo(() => !deepEqual(formValue, initialValue), [formValue, initialValue])
 
   const setField = (key: string, value: unknown): void => {
-    setFormValue((prev) => ({ ...prev, [key]: value }))
+    setFormValue((prev) => {
+      if (!key.includes('.')) return { ...prev, [key]: value }
+      // 先移除历史遗留的扁平 key，再写嵌套路径
+      const { [key]: _legacy, ...rest } = prev
+      return setNested(rest, key, value)
+    })
     setError(null)
     setShowSavedHint(false)
   }
@@ -84,7 +134,7 @@ export function RuntimeConfigCard({
     setError(null)
     setShowSavedHint(false)
     try {
-      await onSave(formValue)
+      await onSave(expandNestedKeys(formValue))
       setShowSavedHint(true)
       setTimeout(() => setShowSavedHint(false), 2500)
     } catch (e) {
@@ -109,7 +159,7 @@ export function RuntimeConfigCard({
           <FieldRow
             key={field.key}
             field={field}
-            value={formValue[field.key]}
+            value={getNested(formValue, field.key)}
             onChange={(v) => setField(field.key, v)}
           />
         ))}

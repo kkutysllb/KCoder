@@ -916,15 +916,16 @@ function GeneralSettings() {
     [enginePort]
   )
 
-  // uploads MB↔bytes 转换（引擎当前可能无 uploads 段 → 归一化后为 {}，此处再兜默认值）
+  // uploads MB↔bytes 转换（引擎 YAML 可能无 uploads 段 → 归一化后为 {}，兜底值与引擎 gateway 默认一致：10 / 50MiB / 100MiB）
   const uploadsInitialValue = useMemo(() => {
     if (!runtimeCfg) return {}
     const u = runtimeCfg.uploads ?? {}
     return {
       max_files: u.max_files ?? 10,
-      max_file_size: u.max_file_size ? +(u.max_file_size / BYTES_PER_MB).toFixed(2) : 20,
+      max_file_size: u.max_file_size ? +(u.max_file_size / BYTES_PER_MB).toFixed(2) : 50,
       max_total_size: u.max_total_size ? +(u.max_total_size / BYTES_PER_MB).toFixed(2) : 100,
       auto_convert_documents: u.auto_convert_documents ?? false,
+      pdf_converter: u.pdf_converter ?? 'auto',
     }
   }, [runtimeCfg])
 
@@ -934,6 +935,9 @@ function GeneralSettings() {
       max_file_size: Math.max(1, Math.round((Number(value.max_file_size) || 1) * BYTES_PER_MB)),
       max_total_size: Math.max(1, Math.round((Number(value.max_total_size) || 1) * BYTES_PER_MB)),
       auto_convert_documents: Boolean(value.auto_convert_documents),
+      pdf_converter: ['auto', 'pymupdf4llm', 'markitdown'].includes(String(value.pdf_converter))
+        ? value.pdf_converter
+        : 'auto',
     }
     await handleSaveSection('uploads', payload)
   }, [handleSaveSection])
@@ -1198,16 +1202,28 @@ const DATABASE_FIELDS: FieldDef[] = [
       { value: 'delta', label: 'delta（DeltaChannel 增量）' }
     ]
   },
+  { key: 'checkpoint_delta.snapshot_frequency', label: 'Delta 快照频率', type: 'number', min: 1, max: 100, step: 1, hint: 'delta 模式下每 N 次步写入一个完整消息快照（越高 checkpoint 越小，重启生效，默认 10）' },
   { key: 'pool_size', label: '连接池大小', type: 'number', min: 1, step: 1, hint: 'postgres ORM 连接池' },
   { key: 'pool_recycle', label: '连接回收秒数', type: 'number', min: 1, step: 1, hint: 'postgres 连接闲置回收' },
   { key: 'command_timeout', label: '命令超时（秒）', type: 'number', min: 1, step: 1, hint: 'postgres 命令超时' }
 ]
 
 const UPLOADS_FIELDS: FieldDef[] = [
-  { key: 'max_files', label: '文件数量上限', type: 'number', min: 1, max: 100, step: 1, hint: '单个会话允许的最大附件数量（1-100）' },
-  { key: 'max_file_size', label: '单文件上限（MB）', type: 'number', min: 1, step: 1, hint: '单个附件的最大体积，单位 MB' },
-  { key: 'max_total_size', label: '总量上限（MB）', type: 'number', min: 1, step: 1, hint: '单个会话所有附件合计的最大体积，单位 MB' },
-  { key: 'auto_convert_documents', label: '自动转换文档', type: 'boolean', hint: '上传时自动把 PDF/docx/pptx/xlsx 等转成 markdown' }
+  { key: 'max_files', label: '文件数量上限', type: 'number', min: 1, max: 100, step: 1, hint: '单个会话允许的最大附件数量（1-100，引擎默认 10）' },
+  { key: 'max_file_size', label: '单文件上限（MB）', type: 'number', min: 1, step: 1, hint: '单个附件的最大体积，单位 MB（引擎默认 50）' },
+  { key: 'max_total_size', label: '总量上限（MB）', type: 'number', min: 1, step: 1, hint: '单个会话所有附件合计的最大体积，单位 MB（引擎默认 100）' },
+  { key: 'auto_convert_documents', label: '自动转换文档', type: 'boolean', hint: '上传时自动把 PDF/docx/pptx/xlsx 等转成 markdown（默认关闭，宿主机解析有风险）' },
+  {
+    key: 'pdf_converter',
+    label: 'PDF 转换器',
+    type: 'select',
+    hint: 'auto 优先 pymupdf4llm、图片型/加密 PDF 回退 MarkItDown（推荐）',
+    options: [
+      { value: 'auto', label: 'auto（pymupdf4llm 优先，回退 MarkItDown）' },
+      { value: 'pymupdf4llm', label: 'pymupdf4llm（需安装依赖）' },
+      { value: 'markitdown', label: 'markitdown（原始行为，无额外依赖）' }
+    ]
+  }
 ]
 function SettingRow({ title, desc, children }: { title: string; desc: string; children: ReactNode }) {
   return (

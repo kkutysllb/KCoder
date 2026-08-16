@@ -280,12 +280,14 @@ export interface DatabaseConfig {
   [key: string]: unknown
 }
 
-/** 附件上传配置（size 字段以字节存储）。 */
+/** 附件上传配置（size 字段以字节存储；对齐 config.example.yaml uploads 段）。 */
 export interface UploadsConfig {
   max_files: number
   max_file_size: number
   max_total_size: number
   auto_convert_documents: boolean
+  /** PDF→Markdown 转换器：auto（默认，pymupdf4llm 优先回退 MarkItDown）/ pymupdf4llm / markitdown */
+  pdf_converter: 'auto' | 'pymupdf4llm' | 'markitdown'
   [key: string]: unknown
 }
 
