@@ -508,6 +508,8 @@ interface CommandInputProps {
    * 选择器暗示可切换，概念混乱且易误触（切换 = 开新会话）。
    */
   showDirBar?: boolean
+  /** 手动压缩上下文（强制压缩 turn；任务页低频操作）。 */
+  onCompact?: () => void
 }
 
 export function CommandInput({
@@ -517,7 +519,8 @@ export function CommandInput({
   onStop,
   onSteer,
   onQueue,
-  showDirBar = true
+  showDirBar = true,
+  onCompact
 }: CommandInputProps) {
   const [input, setInput] = useState('')
   const [showPermMenu, setShowPermMenu] = useState(false)
