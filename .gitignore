@@ -53,6 +53,7 @@ python-runtime/.env
 # docs：整体忽略（设计稿/生成物），但主线计划与进度记录必须入库防漂移
 docs/*
 !docs/coding-agent-*.md
+!docs/agent-interrupt-diagnosis.md
 python-runtime/config.yaml
 .workbuddy
 python-runtime/.kcoder_jwt_secret

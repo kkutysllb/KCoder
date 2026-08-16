@@ -1130,6 +1130,11 @@ export class EngineAPI {
               .map((l) => l.slice(5).replace(/^ /, ''))
             if (dataLines.length > 0) {
               dispatch(dataLines.join('\n'))
+            } else if (frame.trim().startsWith(':')) {
+              // SSE comment 帧（gateway 的 `: ping` 心跳）。无 data 载荷，
+              // 不 dispatch 业务事件；仅以 heartbeat 事件通知上层——看门狗
+              // 据此区分「连接活着但引擎静默」与「死连」。
+              onEvent({ kind: 'heartbeat', data: {} })
             }
           }
         }

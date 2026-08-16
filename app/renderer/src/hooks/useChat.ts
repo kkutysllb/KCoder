@@ -434,28 +434,55 @@ export function useChat() {
         // execution plane. sendMessage now returns turnId immediately (SSE
         // subscription is fire-and-forget), so activeTurnId is set BEFORE the
         // turn completes — this makes the stop button functional.
-        // ── 执行层防线2b：turn 看门狗 ──────────────────────────────
+        // ── 执行层防线2b：turn 看门狗（双活性）────────────────────────
         // langgraph 队列/流任一环节黑盒卡死（僵尸 run 排队、引擎进程死亡、
         // 模型连接挂起）时，SSE 永远等不到终止事件 → isGenerating 永久卡死。
-        // 看门狗：240s 无任何事件 → 判死，标 error、解除 await、解锁 UI。
-        // 正常长工具（构建/测试）一般 <4 分钟；误杀可重发，卡死不可接受。
-        const WATCHDOG_MS = 240_000
-        let lastActivity = Date.now()
+        // 双看门狗：
+        //   a. 连接活性（WATCHDOG_FRAME_MS）：240s 无任何帧（含 gateway 心跳
+        //      `: ping`，engine-api 已转为 heartbeat 事件）→ 连接死/网关挂了。
+        //   b. 业务活性（WATCHDOG_EVENT_MS）：12 分钟无任何业务事件但连接还
+        //      活着 → run 疑似卡死（长工具由 bash_command_timeout=600s 兜底，
+        //      正常业务事件间隔不会超过 ~10 分钟，12 分钟留足余量）。
+        // 触发时：解除前端等待（abortCurrentTurnWait）+ 真正 interruptTurn
+        // 取消引擎侧 run——不再「假终止」（旧实现只解锁 UI，run 在后台继续
+        // 跑，直到用户重发消息才被队列排毒杀掉）。
+        const WATCHDOG_FRAME_MS = 240_000
+        const WATCHDOG_EVENT_MS = 720_000
+        let lastFrame = Date.now() // 任何帧（含心跳）
+        let lastEvent = Date.now() // 业务事件
         const watchdogTimer = setInterval(() => {
           if (turnSeqRef.current !== seq) {
             clearInterval(watchdogTimer)
             return
           }
-          if (Date.now() - lastActivity > WATCHDOG_MS) {
+          const now = Date.now()
+          const connDead = now - lastFrame > WATCHDOG_FRAME_MS
+          const runStalled = now - lastEvent > WATCHDOG_EVENT_MS
+          if (connDead || runStalled) {
             clearInterval(watchdogTimer)
             turnUpdate(assistantMessageId, 'error', { message: t('chat.turnUnresponsive') })
             api.abortCurrentTurnWait()
+            // 真取消：引擎侧 interrupt（旧实现只解除前端等待，run 在后台
+            // 继续执行——「已自动终止」名不副实，直到重发消息才被队列排毒
+            // 杀掉）。fire-and-forget，失败不阻断 UI 解锁。
+            const st = useAppStore.getState()
+            if (st.threadId && st.activeTurnId) {
+              api.interruptTurn(st.threadId, st.activeTurnId).catch((e) => {
+                console.error('[KCoder] watchdog interruptTurn failed:', e)
+              })
+            }
           }
         }, 10_000)
 
         const turnId = await api.sendMessage(currentThreadId, finalContent, (event: SSEEvent) => {
-          lastActivity = Date.now() // 任何事件刷新看门狗
-          handleSseEvent(assistantMessageId, event)
+          // 心跳只刷新连接活性；业务事件同时刷新连接+业务活性
+          if (event.kind === 'heartbeat') {
+            lastFrame = Date.now()
+          } else {
+            lastFrame = Date.now()
+            lastEvent = Date.now()
+            handleSseEvent(assistantMessageId, event)
+          }
         }, attachmentIds, useAppStore.getState().selectedModel ?? undefined, useAppStore.getState().reasoningMode || undefined, {
           // 执行权限模式（引擎 PermissionMiddleware 拦截）；审批通过的操作 id
           // 随本轮放行（一次性）

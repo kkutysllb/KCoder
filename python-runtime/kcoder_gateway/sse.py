@@ -934,6 +934,9 @@ async def consume_langgraph_stream(
     q = run.event_queue
     got_end = False
     run_error: str | None = None
+    # 流结束但无 end 事件时的 run 真实状态（终态诚实化校验结果；
+    # finally 落盘用量也要用它，故在 try 外初始化）。
+    run_status: str | None = None
     run.workspace_path = workspace_path
     # 累计本轮全部已翻译事件——turn 结束时若 LangGraph state 读不出
     # （dev 重启丢 checkpoint 等），用它重建历史并落盘（thread_log 兜底）。
@@ -1073,11 +1076,33 @@ async def consume_langgraph_stream(
                     got_end = True
 
         if not got_end:
-            # ── 终态诚实化（防线3）：流未正常结束时分流 ──────────────────
-            # 此前一律合成 turn_completed —— 把失败伪装成成功，前端显示
-            # 「完成」但内容缺失，或 UI 挂在等待里。现在：
-            #   run_error 非空（流中断/引擎崩溃/模型连接失败）→ turn_failed
-            #   携带错误分类；否则才合成 turn_completed。
+            # ── 终态诚实化（防线3）+ 真实状态校验 ──────────────────────
+            # 此前：run_error 非空 → turn_failed；否则无脑合成 turn_completed。
+            # 但「流结束但无 end 事件」≠「run 结束」：langgraph dev 的
+            # /runs/stream 可能提前关流（连接超时/网关重启/cancel 时序），
+            # run 仍在后台 worker 执行——把「还在跑」伪装成「完成」正是
+            # 三层状态错位的源头之一。合成终态前查 run 真实状态。
+            # 注意 langgraph dev 的 run status 值域与 platform 文档不完全
+            # 一致：实测 dev 返回 'success'（platform 文档写 'completed'），
+            # 两值都视为完成。
+            if not run_error and run.run_id:
+                try:
+                    for r in await client.list_thread_runs(run.thread_id):
+                        if str(r.get("run_id", "")) == run.run_id:
+                            run_status = str(r.get("status", "")) or None
+                            break
+                    if run_status is None:
+                        logger.warning(
+                            "终态校验未匹配到 run（runs 列表可能为空或 run_id 不一致）: thread=%s run=%s",
+                            run.thread_id, run.run_id,
+                        )
+                except Exception:
+                    logger.warning(
+                        "终态校验失败（list_thread_runs 异常），按原逻辑合成: thread=%s run=%s",
+                        run.thread_id, run.run_id,
+                        exc_info=True,
+                    )
+
             if run_error:
                 err_text = str(run_error)
                 lowered = err_text.lower()
@@ -1102,12 +1127,60 @@ async def consume_langgraph_stream(
                     "error": err_text[:500],
                 }
                 await q.put(failed_event)
-            else:
+            elif run_status in ("completed", "success"):
+                # run 真完成但流没发 end（langgraph dev 常见）→ 合成完成，
+                # 现在有依据而非盲猜。
                 logger.warning(
-                    "LangGraph stream ended without 'end' event (thread=%s) — synthesizing turn_completed",
+                    "LangGraph stream ended without 'end' event (thread=%s, run_status=completed) — synthesizing turn_completed",
                     run.thread_id,
                 )
                 completed_event: dict[str, Any] = {
+                    "kind": "turn_completed",
+                    "turnId": run.turn_id,
+                    "threadId": run.thread_id,
+                }
+                changes = await workspace_tracker.compute_changes(
+                    run.turn_id, run.thread_id, workspace_path
+                )
+                if changes:
+                    completed_event["fileChanges"] = changes
+                await q.put(completed_event)
+            elif run_status in ("error", "cancelled", "interrupted"):
+                # run 真实终态是失败/取消 → 如实上报，不再伪装完成。
+                reason = f"引擎执行已终止（run 状态: {run_status}）"
+                logger.warning(
+                    "LangGraph stream ended without 'end' event (thread=%s, run_status=%s) — synthesizing turn_failed",
+                    run.thread_id, run_status,
+                )
+                await q.put({
+                    "kind": "turn_failed",
+                    "turnId": run.turn_id,
+                    "threadId": run.thread_id,
+                    "message": reason,
+                    "error": f"run_status={run_status}",
+                })
+            elif run_status in ("running", "pending"):
+                # run 还在后台执行但流已断 → 诚实告知，不伪装完成；前端
+                # 看门狗已改为触发时真正 interruptTurn，用户重试即可。
+                reason = "引擎仍在后台执行，但事件流已中断（连接丢失）。已尝试取消该任务，请重试。"
+                logger.warning(
+                    "LangGraph stream dropped while run still %s (thread=%s, run=%s) — synthesizing turn_failed",
+                    run_status, run.thread_id, run.run_id,
+                )
+                await q.put({
+                    "kind": "turn_failed",
+                    "turnId": run.turn_id,
+                    "threadId": run.thread_id,
+                    "message": reason,
+                    "error": f"run_status={run_status}",
+                })
+            else:
+                # 查不到 run 状态（runs 接口异常/run_id 未捕获）→ 维持旧行为。
+                logger.warning(
+                    "LangGraph stream ended without 'end' event (thread=%s, run_status=unknown) — synthesizing turn_completed",
+                    run.thread_id,
+                )
+                completed_event = {
                     "kind": "turn_completed",
                     "turnId": run.turn_id,
                     "threadId": run.thread_id,
@@ -1178,12 +1251,22 @@ async def consume_langgraph_stream(
                 from .token_usage_routes import persist_run_usage
 
                 run_id = run.run_id or f"gateway-{uuid.uuid4().hex[:12]}"
+                # status 诚实化：langgraph dev 的流经常不发 `end` 事件（run
+                # 其实成功完成），旧逻辑 `"success" if got_end else "error"`
+                # 导致 runs 表所有 run 都标 error、预算统计失真。改为基于
+                # 真实 run 状态：got_end 或 run_status=completed → success；
+                # 其余如实落 run_status（error/cancelled/interrupted/running）。
+                persist_status = (
+                    "success"
+                    if (got_end or run_status in ("completed", "success"))
+                    else (run_status or "error")
+                )
                 await persist_run_usage(
                     run_id=run_id,
                     thread_id=run.thread_id,
                     assistant_id=assistant_id,
                     user_id=user_id,
-                    status="success" if got_end else "error",
+                    status=persist_status,
                     usage_by_model=run.usage_by_model,
                     llm_call_count=len(run.ai_message_ids),
                     model_name=model_name,
