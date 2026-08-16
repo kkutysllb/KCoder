@@ -82,6 +82,14 @@ interface KcoderBridge {
   models: ModelsBridge
   /** Trigger config.yaml re-sync of sub_agents.json → custom_agents. */
   syncSubAgents: () => Promise<void>
+  /** sub_agents.json CRUD（主进程读写 + 注入 config.yaml custom_agents）。 */
+  subAgents: {
+    list: () => Promise<{ settings: Record<string, unknown>; subAgents: unknown[] }>
+    create: (payload: unknown) => Promise<unknown>
+    delete: (id: string) => Promise<void>
+    updateSettings: (settings: unknown) => Promise<void>
+    sync: () => Promise<void>
+  }
   local: LocalServicesBridge
 }
 

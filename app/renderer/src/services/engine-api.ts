@@ -2515,7 +2515,10 @@ data: <full EngineStreamEvent JSON>
   //   POST   /v1/skills/install-from-file  — install .skill archive
   //   POST   /v1/skills/install-from-npm   — install from npm/GitHub/local
 
-  // List all skills — GET /v1/skills
+  // List all skills — GET /api/skills
+  // 引擎 SkillResponse 只有 name/description/license/category/enabled/editable，
+  // 这里映射为前端 SkillEntry 全字段（否则 skill.id=undefined 导致 React key 警告、
+  // builtin/deletable 语义错乱）。
   async listSkills(): Promise<SkillEntry[]> {
     const response = await this.request(`/api/skills`, {
       headers: this.headers
@@ -2524,7 +2527,28 @@ data: <full EngineStreamEvent JSON>
       throw new Error(`Failed to list skills: ${response.statusText}`)
     }
     const data = await response.json()
-    return (data.skills ?? []) as SkillEntry[]
+    const raw = (data.skills ?? []) as Array<Record<string, unknown>>
+    return raw.map((s) => ({
+      id: String(s.name ?? ''),
+      name: String(s.name ?? ''),
+      description: String(s.description ?? ''),
+      version: String(s.version ?? ''),
+      root: String(s.root ?? ''),
+      category: String(s.category ?? ''),
+      family: String(s.family ?? ''),
+      license: String(s.license ?? ''),
+      enabled: Boolean(s.enabled),
+      registered: s.registered != null ? Boolean(s.registered) : Boolean(s.enabled),
+      status: (s.status as SkillEntry['status']) ?? (s.enabled ? 'registered' : 'disabled'),
+      // 引擎无 builtin 字段：category=custom 为自定义技能，其余（public/legacy）视为内置
+      builtin: s.builtin != null ? Boolean(s.builtin) : String(s.category ?? '') !== 'custom',
+      editable: Boolean(s.editable),
+      deletable: Boolean(s.editable),
+      legacy: Boolean(s.legacy),
+      commands: Array.isArray(s.commands) ? (s.commands as SkillEntry['commands']) : [],
+      contributions: (s.contributions ?? {}) as Record<string, unknown>,
+      permissions: (s.permissions ?? {}) as Record<string, unknown>
+    }))
   }
 
   // Toggle skill enabled state — PUT /v1/skills/{name}/enabled
@@ -2583,61 +2607,45 @@ data: <full EngineStreamEvent JSON>
 
   // ============ Sub-Agents / MCP / Plugins / Commands / Remote API ============
   //
-  // These features were "reserved, pending backend" in the KWorks era and
-  // the new engine does not expose them over HTTP. We keep the method
-  // surface so the Settings UI compiles, but they return empty data (reads)
-  // or reject (writes) instead of hitting endpoints that no longer exist.
-  // Each Settings panel already tolerates failures, so the UI shows empty
-  // state rather than crashing.
+  // Sub-agents 是产品层概念：引擎无 /api/sub-agents HTTP 语义，CRUD 走主进程
+  // IPC（sub_agents.json → sub-agent-injector → config.yaml custom_agents 热重载）。
+  // MCP 走引擎网关；Plugins / Commands 引擎无对应语义，保持空降级。
 
   async listSubAgents(): Promise<{ settings: Record<string, unknown>; subAgents: SubAgentEntry[] }> {
-    // 2026-08 重构：引擎无 sub-agents HTTP 语义——本地降级为空
+    if (window.kcoder?.subAgents) {
+      const data = await window.kcoder.subAgents.list()
+      return {
+        settings: data.settings ?? {},
+        subAgents: (data.subAgents ?? []) as SubAgentEntry[]
+      }
+    }
+    // 无 preload（非 Electron 环境）时降级为空
     return { settings: {}, subAgents: [] }
   }
-  async updateSubAgentSettings(_payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    // 2026-08 重构：引擎无 sub-agents HTTP 语义——本地降级
+  async updateSubAgentSettings(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (window.kcoder?.subAgents) {
+      await window.kcoder.subAgents.updateSettings(payload)
+    }
     return {}
   }
   async createSubAgent(payload: Omit<SubAgentEntry, 'type' | 'source'>): Promise<unknown> {
-    const response = await this.request(`/api/sub-agents`, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify(payload)
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to create sub-agent: ${response.statusText}`)
+    if (!window.kcoder?.subAgents) {
+      throw new Error('Sub-agent API unavailable outside Electron')
     }
-    return response.json()
+    return window.kcoder.subAgents.create(payload)
   }
-  async updateSubAgent(id: string, payload: Partial<SubAgentEntry>): Promise<unknown> {
-    const response = await this.request(`/api/sub-agents/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      headers: this.headers,
-      body: JSON.stringify(payload)
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to update sub-agent: ${response.statusText}`)
-    }
-    return response.json()
+  async updateSubAgent(_id: string, _payload: Partial<SubAgentEntry>): Promise<unknown> {
+    // 引擎无单条更新语义；设置页当前用删除+重建，保持方法签名以兼容
+    throw new Error('Sub-agent update is not supported; delete and re-create instead')
   }
   async deleteSubAgent(id: string): Promise<void> {
-    const response = await this.request(`/api/sub-agents/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to delete sub-agent: ${response.statusText}`)
+    if (!window.kcoder?.subAgents) {
+      throw new Error('Sub-agent API unavailable outside Electron')
     }
+    await window.kcoder.subAgents.delete(id)
   }
-  async cloneSubAgent(id: string): Promise<unknown> {
-    const response = await this.request(`/api/sub-agents/${encodeURIComponent(id)}/clone`, {
-      method: 'POST',
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to clone sub-agent: ${response.statusText}`)
-    }
-    return response.json()
+  async cloneSubAgent(_id: string): Promise<unknown> {
+    throw new Error('Sub-agent clone is not supported')
   }
 
   async getMcpConfig(): Promise<McpConfigResponse> {

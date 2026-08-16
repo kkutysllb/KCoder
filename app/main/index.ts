@@ -15,7 +15,15 @@ import {
   discoverModels,
   type ModelProfileInput
 } from './models'
-import { syncSubAgents } from './sub-agent-injector'
+import {
+  syncSubAgents,
+  readSubAgentsStore,
+  writeSubAgentsStore,
+  storeToSubAgentEntries,
+  type SubAgentEntry,
+  type SubAgentSettings,
+  type SubAgentsStore
+} from './sub-agent-injector'
 import {
   initLocalServices,
   getRuntimeConfig,
@@ -110,13 +118,66 @@ function setupEngineIPC(): void {
 }
 
 /**
- * Register sub-agents config sync IPC handler.
+ * Register sub-agents IPC handlers（sub_agents.json CRUD + config.yaml 注入）。
  *
- * Renderer triggers this after sub-agent CRUD in Settings; main process
- * re-reads sub_agents.json and injects custom_agents into config.yaml.
+ * Renderer 在 Settings > Sub-agents 中增删改后触发；主进程读写
+ * `<dataDir>/product/kcoder_local/sub_agents.json` 并注入 config.yaml
+ * `subagents.custom_agents:`（QiLin 热重载生效）。
  */
 function setupSubAgentsIPC(): void {
   const dataDir = getEngineDataDir()
+
+  /** 读 store → 写回 → 注入 config.yaml（CRUD 公共尾部） */
+  const commit = async (mutate: (store: SubAgentsStore) => void): Promise<SubAgentsStore> => {
+    const store = await readSubAgentsStore(dataDir)
+    mutate(store)
+    await writeSubAgentsStore(dataDir, store)
+    await syncSubAgents(dataDir)
+    return store
+  }
+
+  ipcMain.handle('sub-agents:list', async (): Promise<{ settings: Record<string, unknown>; subAgents: unknown[] }> => {
+    const store = await readSubAgentsStore(dataDir)
+    return {
+      settings: { ...(store.settings ?? {}) },
+      subAgents: storeToSubAgentEntries(store)
+    }
+  })
+
+  ipcMain.handle('sub-agents:create', async (_e, payload: unknown) => {
+    const entry = (payload ?? {}) as Record<string, unknown>
+    const id = String(entry.id ?? '').trim()
+    if (!id) throw new Error('Sub-agent id is required')
+    const store = await commit((s) => {
+      const agents = s.agents ?? []
+      const idx = agents.findIndex((a) => a.id === id)
+      const next: SubAgentEntry = {
+        id,
+        description: String(entry.description ?? ''),
+        content: String(entry.content ?? ''),
+        tools: Array.isArray(entry.tools) ? (entry.tools as string[]) : [],
+        inheritMode: entry.inheritMode === 'custom' ? 'custom' : 'default'
+      }
+      if (idx >= 0) agents[idx] = next
+      else agents.push(next)
+      s.agents = agents
+    })
+    return storeToSubAgentEntries(store).find((a) => a.id === id) ?? null
+  })
+
+  ipcMain.handle('sub-agents:delete', async (_e, id: unknown) => {
+    await commit((s) => {
+      s.agents = (s.agents ?? []).filter((a) => a.id !== String(id ?? ''))
+    })
+  })
+
+  ipcMain.handle('sub-agents:update-settings', async (_e, settings: unknown) => {
+    const next = (settings ?? {}) as Partial<SubAgentSettings> & Record<string, unknown>
+    await commit((s) => {
+      s.settings = next as SubAgentSettings
+    })
+  })
+
   ipcMain.handle('sub-agents:sync', async () => {
     try {
       await syncSubAgents(dataDir)

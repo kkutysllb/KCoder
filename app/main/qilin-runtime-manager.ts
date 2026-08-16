@@ -185,7 +185,13 @@ export async function startQiLin(config: QiLinRuntimeConfig): Promise<{ port: nu
   sidecarEnv.KCODER_GATEWAY_PORT = String(gatewayPort)
   sidecarEnv.KCODER_GATEWAY_HOST = '127.0.0.1'
   sidecarEnv.QILIN_EXTENSIONS_CONFIG_PATH = join(runtimeDir, 'extensions_config.json')
-  // run_gateway.py 内部解析 QILIN_CONFIG_PATH（数据根 config）与 QILIN_HOME
+  // run_gateway.py 内部解析 QILIN_CONFIG_PATH（数据根 config）与 QILIN_HOME。
+  // 主进程同步设置：qilin-config-injector（models/subagents 注入）在主进程运行，
+  // resolveConfigYamlPath 优先读该 env——不设置会回退写 python-runtime/config.yaml
+  // 模板，而引擎实际加载的是数据根 config/qilin.runtime.yaml，注入将永不生效。
+  const runtimeConfigPath = join(appDataDir, 'config', 'qilin.runtime.yaml')
+  sidecarEnv.QILIN_CONFIG_PATH = runtimeConfigPath
+  process.env.QILIN_CONFIG_PATH = runtimeConfigPath
 
   // ── 启动引擎 gateway（单进程，run_gateway.py 入口）──
   const child = spawn(pythonPath, [join(runtimeDir, 'run_gateway.py')], {

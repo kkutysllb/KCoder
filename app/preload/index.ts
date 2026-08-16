@@ -97,9 +97,17 @@ contextBridge.exposeInMainWorld('kcoder', {
       ipcRenderer.invoke('dialog:showInFolder', targetPath) as Promise<void>
   },
 
-  // Sub-agents config: trigger config.yaml re-sync after CRUD in Settings.
-  // Main process reads sub_agents.json and injects custom_agents into config.yaml.
+  // Sub-agents: sub_agents.json CRUD + config.yaml re-sync（主进程读写并注入 custom_agents）。
   syncSubAgents: () => ipcRenderer.invoke('sub-agents:sync') as Promise<void>,
+  subAgents: {
+    list: () =>
+      ipcRenderer.invoke('sub-agents:list') as Promise<{ settings: Record<string, unknown>; subAgents: unknown[] }>,
+    create: (payload: unknown) => ipcRenderer.invoke('sub-agents:create', payload) as Promise<unknown>,
+    delete: (id: string) => ipcRenderer.invoke('sub-agents:delete', id) as Promise<void>,
+    updateSettings: (settings: unknown) =>
+      ipcRenderer.invoke('sub-agents:update-settings', settings) as Promise<void>,
+    sync: () => ipcRenderer.invoke('sub-agents:sync') as Promise<void>
+  },
 
   // 产品级本地服务（2026-08 重构）：runtime-config / token-usage / workspace git。
   // 自研 gateway 删除后由主进程 + python-runtime/product_services.py 提供。
@@ -186,6 +194,13 @@ declare global {
         showInFolder: (targetPath: string) => Promise<void>
       }
       syncSubAgents: () => Promise<void>
+      subAgents: {
+        list: () => Promise<{ settings: Record<string, unknown>; subAgents: unknown[] }>
+        create: (payload: unknown) => Promise<unknown>
+        delete: (id: string) => Promise<void>
+        updateSettings: (settings: unknown) => Promise<void>
+        sync: () => Promise<void>
+      }
       local: {
         runtimeConfig: {
           get: (section?: string) => Promise<unknown>

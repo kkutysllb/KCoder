@@ -34,7 +34,7 @@ import { join } from 'node:path'
 import { resolveConfigYamlPath, atomicWrite } from './qilin-config-injector'
 
 /** sub_agents.json 单条记录（仅声明本模块用到的字段）。 */
-interface SubAgentEntry {
+export interface SubAgentEntry {
   id: string
   description?: string
   content?: string
@@ -43,14 +43,14 @@ interface SubAgentEntry {
 }
 
 /** sub_agents.json 全局参数段。 */
-interface SubAgentSettings {
+export interface SubAgentSettings {
   timeout_seconds?: number
   max_turns?: number | null
   max_total_per_run?: number
 }
 
 /** sub_agents.json 完整存储格式。 */
-interface SubAgentsStore {
+export interface SubAgentsStore {
   settings?: SubAgentSettings
   agents?: SubAgentEntry[]
   // 兼容旧 key
@@ -227,4 +227,49 @@ export async function syncSubAgents(dataDir: string): Promise<void> {
   const original = await readFile(configPath, 'utf8')
   const updated = replaceCustomAgentsSection(original, fullBlock)
   await atomicWrite(configPath, updated)
+}
+
+// ============ sub_agents.json CRUD（renderer 经 IPC 调用） ============
+
+/** sub_agents.json 存储路径（v0.2 数据根优先，v0.1 回退）。 */
+export function subAgentsJsonPath(dataDir: string): string {
+  return join(dataDir, 'product', 'kcoder_local', 'sub_agents.json')
+}
+
+/** 读取完整 store；文件不存在返回空 store，兼容旧格式（裸数组 / {subAgents}）。 */
+export async function readSubAgentsStore(dataDir: string): Promise<SubAgentsStore> {
+  const v02 = subAgentsJsonPath(dataDir)
+  const v01 = join(dataDir, 'kcoder_local', 'sub_agents.json')
+  const jsonPath = existsSync(v02) ? v02 : v01
+  try {
+    const raw = await readFile(jsonPath, 'utf8')
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return { settings: {}, agents: parsed as SubAgentEntry[] }
+    }
+    if (parsed && typeof parsed === 'object') {
+      const store = parsed as SubAgentsStore
+      return { settings: store.settings ?? {}, agents: store.agents ?? store.subAgents ?? [] }
+    }
+    return { settings: {}, agents: [] }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { settings: {}, agents: [] }
+    }
+    throw err
+  }
+}
+
+/** 原子写 store（v0.2 路径；mkdir -p）。 */
+export async function writeSubAgentsStore(dataDir: string, store: SubAgentsStore): Promise<void> {
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  const { dirname } = await import('node:path')
+  const path = subAgentsJsonPath(dataDir)
+  await mkdir(dirname(path), { recursive: true })
+  await atomicWrite(path, JSON.stringify({ settings: store.settings ?? {}, agents: store.agents ?? [] }, null, 2))
+}
+
+/** 读取 store 的 JSON 版本（返回给 renderer 展示用，字段与原 SubAgentEntry 兼容）。 */
+export function storeToSubAgentEntries(store: SubAgentsStore): SubAgentEntry[] {
+  return (store.agents ?? []).filter((a) => a && a.id)
 }
