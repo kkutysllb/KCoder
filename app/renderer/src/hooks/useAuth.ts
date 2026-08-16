@@ -61,27 +61,42 @@ export function useAuth(enginePort: number): AuthState {
     // 2026-08 重构：引擎 gateway auth-disabled 模式下 /api/v1/auth/me 无鉴权
     // 直接返回默认用户——无 stored token 也尝试 authMe，成功则跳过登录页
     // （桌面单用户）；真启用 auth 时 me 会 401，自然回落登录流程。
+    // 引擎首次启动（全新环境建库/迁移）可能慢于 renderer，authMe 加重试。
     if (stored) {
       api.setAuthToken(stored.token)
     }
 
-    api.authMe()
-      .then((me) => {
-        setUser(me)
-        // The user id drives per-user model profile storage, so keep it in
-        // sync with the API instance whenever the authenticated user changes.
-        api.setUserId(me.id)
-        if (stored) persistAuth({ token: stored.token, user: me })
-        else persistAuth({ token: '', user: me })
-      })
-      .catch(() => {
-        // Token expired or revoked / auth required — fall back to login page
-        api.setAuthToken(null)
-        api.setUserId(null)
-        persistAuth(null)
-        setUser(null)
-      })
-      .finally(() => setChecking(false))
+    let attempts = 0
+    let settled = false
+    const tryAuth = (): void => {
+      api.authMe()
+        .then((me) => {
+          settled = true
+          setUser(me)
+          // The user id drives per-user model profile storage, so keep it in
+          // sync with the API instance whenever the authenticated user changes.
+          api.setUserId(me.id)
+          if (stored) persistAuth({ token: stored.token, user: me })
+          else persistAuth({ token: '', user: me })
+        })
+        .catch(() => {
+          if (attempts++ < 20) {
+            // 引擎首次启动可能慢于 renderer：重试期间保持 checking（loading 屏）
+            setTimeout(tryAuth, 500)
+            return
+          }
+          // Token expired or revoked / auth required — fall back to login page
+          settled = true
+          api.setAuthToken(null)
+          api.setUserId(null)
+          persistAuth(null)
+          setUser(null)
+        })
+        .finally(() => {
+          if (settled) setChecking(false)
+        })
+    }
+    tryAuth()
   }, [urlPort])
 
   const applySession = useCallback((token: string, sessionUser: AuthUser) => {

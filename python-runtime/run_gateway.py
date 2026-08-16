@@ -152,6 +152,18 @@ def main() -> None:
     os.environ.setdefault("QILIN_EXTENSIONS_CONFIG_PATH", str(REPO_ROOT / "extensions_config.json"))
     # 桌面单用户产品：先关闭内置 auth（Phase 2 再评估接入）
     os.environ.setdefault("QILIN_AUTH_DISABLED", "1")
+    # JWT secret：持久化到数据根（跨重启稳定；消除引擎启动警告，
+    # 未来启用 auth 时直接可用）
+    jwt_secret_path = data_root / "config" / ".jwt_secret"
+    if "AUTH_JWT_SECRET" not in os.environ:
+        if jwt_secret_path.exists():
+            os.environ["AUTH_JWT_SECRET"] = jwt_secret_path.read_text(encoding="utf-8").strip()
+        else:
+            import secrets
+            secret = secrets.token_urlsafe(32)
+            jwt_secret_path.parent.mkdir(parents=True, exist_ok=True)
+            jwt_secret_path.write_text(secret, encoding="utf-8")
+            os.environ["AUTH_JWT_SECRET"] = secret
 
     _configure_gateway_security()
     _apply_vendor_extensions_config_compat_shim()
