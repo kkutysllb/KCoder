@@ -48,6 +48,23 @@ from . import thread_log
 
 logger = logging.getLogger("kcoder_gateway.sse")
 
+
+def _to_real_path(run: "ActiveRun", path: str) -> str:
+    """虚拟沙箱路径 → 真实工作区路径。
+
+    引擎工具的 args.path 是沙箱虚拟路径（``/mnt/user-data/workspace/...``），
+    原样下发导致前端展示/预览/diff 全部错位。转换为真实绝对路径：
+    剥掉虚拟前缀后拼到本任务的 workspace（run.workspace_path）；非虚拟
+    路径原样返回。
+    """
+    if not path.startswith("/mnt/user-data/workspace/"):
+        return path
+    rel = path[len("/mnt/user-data/workspace/"):]
+    ws = run.workspace_path
+    if not ws:
+        return path  # 无 workspace 上下文，保底原样（前端有回退逻辑）
+    return f"{ws.rstrip('/')}/{rel}"
+
 # 文件操作工具白名单：tool_call_started 事件随带 path（前端工具行显示文件名，
 # 点击在右侧预览栏打开）。只传路径，content 等大 payload 不进事件流。
 _FILE_PATH_TOOLS = frozenset(
@@ -306,7 +323,7 @@ def _translate_tool_message(msg: dict[str, Any]) -> dict[str, Any] | None:
     return event
 
 
-def _tool_call_args_payload(name: str, tc_args: Any) -> dict[str, Any] | None:
+def _tool_call_args_payload(name: str, tc_args: Any, run: "ActiveRun") -> dict[str, Any] | None:
     """提取特殊工具调用的关键 args（供前端展示/面板使用；大 payload 不进事件流）。
 
     - present_files → filepaths（产物链接）
@@ -322,11 +339,36 @@ def _tool_call_args_payload(name: str, tc_args: Any) -> dict[str, Any] | None:
             return {"filepaths": filepaths}
         return None
     if name in _FILE_PATH_TOOLS:
+        payload: dict[str, Any] = {}
         for key in ("path", "file_path", "filePath", "file", "filename"):
             v = tc_args.get(key)
             if isinstance(v, str) and v:
-                return {"path": v}
-        return None
+                payload["path"] = _to_real_path(run, v)
+                break
+        # 编辑载荷（+N -M 统计与 diff 展示）：str_replace/edit 的 old/new；
+        # write 的 content 行数。截断防爆流。
+        _CAP = 4000
+        old_s = tc_args.get("old_string") or tc_args.get("oldStr")
+        new_s = tc_args.get("new_string") or tc_args.get("newStr")
+        if isinstance(old_s, str):
+            payload["old_string"] = old_s[:_CAP]
+        if isinstance(new_s, str):
+            payload["new_string"] = new_s[:_CAP]
+        content = tc_args.get("content")
+        if isinstance(content, str):
+            payload["contentLines"] = content.count("\n") + 1
+        edits = tc_args.get("edits")
+        if isinstance(edits, list):
+            add = del_ = 0
+            for e in edits:
+                if isinstance(e, dict):
+                    o = e.get("old_string") or ""
+                    n = e.get("new_string") or ""
+                    if isinstance(o, str) and isinstance(n, str):
+                        del_ += len([l for l in o.split("\n") if l.strip()])
+                        add += len([l for l in n.split("\n") if l.strip()])
+            payload["editStats"] = {"add": add, "del": del_}
+        return payload or None
     if name == "task":
         subagent_type = tc_args.get("subagent_type") or ""
         description = tc_args.get("description") or ""
@@ -476,7 +518,7 @@ def _translate_single_message(
                 call_id = tc.get("id") or ""
                 if call_id and name:
                     # 特殊工具的关键 args（前端展示/面板用；大 payload 不进事件流）
-                    payload = _tool_call_args_payload(name, tc.get("args"))
+                    payload = _tool_call_args_payload(name, tc.get("args"), run)
                     if call_id in run.tool_call_ids_seen:
                         # 已发过 tool_call_started：LLM 流式 args 时首个 partial 可能
                         # 缺字段（如 task 的 subagent_type 后到），后续帧补全 → 发
@@ -650,6 +692,9 @@ class ActiveRun:
     thread_id: str
     turn_id: str
     user_message_id: str
+    # 本任务的 workspace 绝对路径（start_turn 解析）：工具 args 的虚拟沙箱
+    # 路径（/mnt/user-data/workspace/...）转真实路径用。
+    workspace_path: str | None = None
     event_queue: asyncio.Queue[dict[str, Any] | None] = field(
         default_factory=asyncio.Queue
     )
@@ -889,6 +934,7 @@ async def consume_langgraph_stream(
     q = run.event_queue
     got_end = False
     run_error: str | None = None
+    run.workspace_path = workspace_path
     # 累计本轮全部已翻译事件——turn 结束时若 LangGraph state 读不出
     # （dev 重启丢 checkpoint 等），用它重建历史并落盘（thread_log 兜底）。
     accumulated_events: list[dict[str, Any]] = []

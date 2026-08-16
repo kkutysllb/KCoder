@@ -194,7 +194,45 @@ function computeEditStats(call: ToolCall): { add: number; del: number } | null {
       add: newS.split('\n').filter((l) => l.trim()).length,
     }
   }
+  // multiedit：网关聚合好的统计直取
+  const es = call.args?.editStats as { add?: number; del?: number } | undefined
+  if (es && typeof es.add === 'number') return { add: es.add, del: es.del ?? 0 }
+  // write_file：content 行数（新建/全量写）
+  const cl = call.args?.contentLines
+  if (typeof cl === 'number') return { add: cl, del: 0 }
   return null
+}
+
+/** 编辑工具的 diff 数据（str_replace 的 old/new，用于展开态行级展示）。 */
+function editDiffParts(call: ToolCall): { old: string; new: string } | null {
+  const o = call.args?.old_string ?? call.args?.oldString
+  const n = call.args?.new_string ?? call.args?.newString
+  if (typeof o === 'string' && typeof n === 'string' && (o || n)) return { old: o, new: n }
+  return null
+}
+
+/** 行级 diff 视图（红删绿增，上限 60 行防溢出）。 */
+function EditDiffView({ old: oldS, new: newS }: { old: string; new: string }) {
+  const oldLines = oldS.split('\n')
+  const newLines = newS.split('\n')
+  const rows: Array<{ sign: '-' | '+'; text: string }> = [
+    ...oldLines.map((l) => ({ sign: '-' as const, text: l })),
+    ...newLines.map((l) => ({ sign: '+' as const, text: l })),
+  ].slice(0, 60)
+  return (
+    <div className="my-1 overflow-x-auto rounded-md border border-border-custom/50 bg-[#0d0d10] font-mono text-[10.5px] leading-[1.6]">
+      {rows.map((r, i) => (
+        <div
+          key={i}
+          className={`px-2 whitespace-pre ${
+            r.sign === '-' ? 'bg-[#ef4444]/10 text-[#f87171]' : 'bg-[#22c55e]/10 text-[#86efac]'
+          }`}
+        >
+          {r.sign} {r.text}
+        </div>
+      ))}
+    </div>
+  )
 }
 
 /** 单个工具调用行（展开视图）— 头部默认折叠内部信息，点击展开。 */
@@ -226,6 +264,7 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
   // 编辑类工具的增删统计（+N -M 徽标）
   const isEditTool = /edit|str_replace|replace|patch|write|create|multiedit|multi_edit/.test(call.name.toLowerCase())
   const editStats = isEditTool && kind === 'file' ? computeEditStats(call) : null
+  const editDiff = isEditTool && kind === 'file' ? editDiffParts(call) : null
 
   const statusIcon =
     call.status === 'running' ? (
@@ -300,6 +339,7 @@ export function ToolCallRow({ call }: { call: ToolCall }) {
       {/* 内部信息（摘要 + 输出）：展开时左缩进 + 顶部细分隔 */}
       {open && (
         <div className="ml-4">
+          {editDiff && <EditDiffView old={editDiff.old} new={editDiff.new} />}
           {call.summary && (
             <p className="py-0.5 text-[10px] leading-relaxed text-[#9ca3af] line-clamp-2">
               {call.summary}
