@@ -755,6 +755,24 @@ export interface ProjectEntry {
   updated_at: string
 }
 
+/**
+ * 提取 FastAPI 错误响应的可读消息。
+ * 422 detail 可能是字符串或 value_error 数组（{msg, loc, type}）。
+ */
+function extractApiError(body: unknown): string {
+  if (typeof body !== 'object' || body === null) return ''
+  const detail = (body as { detail?: unknown }).detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0]
+    if (typeof first === 'object' && first !== null) {
+      const msg = (first as { msg?: unknown }).msg
+      if (typeof msg === 'string') return msg
+    }
+  }
+  return ''
+}
+
 export class EngineAPI {
   private baseUrl: string
   private token: string
@@ -861,8 +879,7 @@ export class EngineAPI {
       body: JSON.stringify({ email, password })
     })
     if (!response.ok) {
-      const detail = await response.json().catch(() => ({}))
-      throw new Error((detail as { detail?: string }).detail || `Initialize failed: ${response.statusText}`)
+      throw new Error(extractApiError(await response.json().catch(() => ({}))) || `Initialize failed: ${response.statusText}`)
     }
     return response.json()
   }
@@ -887,8 +904,7 @@ export class EngineAPI {
       body: JSON.stringify({ email, password })
     })
     if (!response.ok) {
-      const detail = await response.json().catch(() => ({}))
-      throw new Error((detail as { detail?: string }).detail || `Registration failed: ${response.statusText}`)
+      throw new Error(extractApiError(await response.json().catch(() => ({}))) || `Registration failed: ${response.statusText}`)
     }
     return response.json()
   }
@@ -1779,11 +1795,8 @@ data: <full EngineStreamEvent JSON>
 
   // 列出已注册项目 — GET /v1/projects
   async listProjects(): Promise<{ projects: ProjectEntry[] }> {
-    const response = await fetch(`${this.baseUrl}/api/projects`, { headers: this.headers })
-    if (!response.ok) {
-      throw new Error(`Failed to list projects: ${response.statusText}`)
-    }
-    return response.json()
+    // 2026-08 重构：引擎无 projects 语义——本地降级为空（主进程 JSON 后续接入）
+    return { projects: [] }
   }
 
   // 注册项目（upsert by path） — POST /v1/projects
@@ -2521,28 +2534,12 @@ data: <full EngineStreamEvent JSON>
   // state rather than crashing.
 
   async listSubAgents(): Promise<{ settings: Record<string, unknown>; subAgents: SubAgentEntry[] }> {
-    const response = await fetch(`${this.baseUrl}/api/sub-agents`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to list sub-agents: ${response.statusText}`)
-    }
-    const data = await response.json()
-    return {
-      settings: (data.settings ?? {}) as Record<string, unknown>,
-      subAgents: (data.subAgents ?? []) as SubAgentEntry[],
-    }
+    // 2026-08 重构：引擎无 sub-agents HTTP 语义——本地降级为空
+    return { settings: {}, subAgents: [] }
   }
-  async updateSubAgentSettings(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const response = await fetch(`${this.baseUrl}/api/sub-agents/settings`, {
-      method: 'PUT',
-      headers: this.headers,
-      body: JSON.stringify(payload)
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to update sub-agent settings: ${response.statusText}`)
-    }
-    return response.json()
+  async updateSubAgentSettings(_payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    // 2026-08 重构：引擎无 sub-agents HTTP 语义——本地降级
+    return {}
   }
   async createSubAgent(payload: Omit<SubAgentEntry, 'type' | 'source'>): Promise<unknown> {
     const response = await fetch(`${this.baseUrl}/api/sub-agents`, {
@@ -2618,14 +2615,8 @@ data: <full EngineStreamEvent JSON>
   }
 
   async listPlugins(): Promise<PluginEntry[]> {
-    const response = await fetch(`${this.baseUrl}/api/plugins`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to list plugins: ${response.statusText}`)
-    }
-    const data = await response.json()
-    return (data.plugins ?? []) as PluginEntry[]
+    // 2026-08 重构：引擎无 plugins 语义——本地降级为空
+    return []
   }
   async togglePlugin(id: string, enabled: boolean): Promise<unknown> {
     const response = await fetch(`${this.baseUrl}/api/plugins/${encodeURIComponent(id)}/toggle`, {
@@ -2669,14 +2660,8 @@ data: <full EngineStreamEvent JSON>
   }
 
   async listCommands(): Promise<CommandEntry[]> {
-    const response = await fetch(`${this.baseUrl}/api/commands`, {
-      headers: this.headers
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to list commands: ${response.statusText}`)
-    }
-    const data = await response.json()
-    return (data.commands ?? []) as CommandEntry[]
+    // 2026-08 重构：引擎无 commands 语义——本地降级为空
+    return []
   }
 
   // 单条查询（后端无 GET /v1/commands/:id 端点，list 后前端 find）。
