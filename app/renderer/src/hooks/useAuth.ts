@@ -103,7 +103,9 @@ export function useAuth(enginePort: number): AuthState {
   // cookie 会话：登录/注册/初始化成功后 authMe 拿真实用户
   const applySession = useCallback(async (): Promise<void> => {
     const api = getEngineAPI(enginePort)
+    console.log('[Auth] applySession: calling authMe')
     const me = await api.authMe()
+    console.log('[Auth] applySession: authMe OK', me)
     api.setUserId(me.id)
     persistAuth({ token: '', user: me })
     setUser(me)
@@ -111,19 +113,25 @@ export function useAuth(enginePort: number): AuthState {
 
   const login = useCallback(async (email: string, password: string) => {
     const api = getEngineAPI(enginePort)
+    console.log('[Auth] login: calling authLogin')
     await api.authLogin(email, password)
+    console.log('[Auth] login: authLogin OK')
     await applySession()
   }, [enginePort, applySession])
 
   const register = useCallback(async (email: string, password: string) => {
     const api = getEngineAPI(enginePort)
+    console.log('[Auth] register: calling authRegister')
     await api.authRegister(email, password)
+    console.log('[Auth] register: authRegister OK')
     await applySession()
   }, [enginePort, applySession])
 
   const initialize = useCallback(async (email: string, password: string) => {
     const api = getEngineAPI(enginePort)
+    console.log('[Auth] initialize: calling authInitialize')
     await api.authInitialize(email, password)
+    console.log('[Auth] initialize: authInitialize OK')
     await applySession()
   }, [enginePort, applySession])
 

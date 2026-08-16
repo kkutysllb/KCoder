@@ -198,6 +198,8 @@ export function AuthExperience({ auth, enginePort }: AuthExperienceProps) {
       else if (view === 'register') await auth.register(email.trim(), password)
       else await auth.login(email.trim(), password)
     } catch (reason) {
+      // 诊断：完整错误对象（含 stack）打到 devtools，UI 只显示 message
+      console.error('[Auth] submit failed:', reason)
       setError(reason instanceof Error ? reason.message : t('auth.error.unknown'))
     } finally {
       setLoading(false)
