@@ -11,8 +11,8 @@
  */
 
 import { execFileSync, execFile } from 'child_process'
-import { join } from 'path'
-import { existsSync } from 'fs'
+import { join, relative, extname } from 'path'
+import { existsSync, readdirSync, statSync, readFileSync, writeFileSync } from 'fs'
 
 let runtimeDir = ''
 let dataDir = ''
@@ -156,4 +156,134 @@ export function gitLog(repo: string, n = 10): unknown {
 
 export function repoExists(repo: string): boolean {
   return existsSync(join(repo, '.git'))
+}
+
+// ── 工作区文件浏览（语义对齐旧 workspace_routes：真实绝对路径）──
+
+const HIDDEN_DIRS = new Set(['node_modules', '.git', '.venv', 'dist', 'out', 'build', '__pycache__', '.pytest_cache', '.DS_Store'])
+const TREE_MAX_ENTRIES = 500
+const FILE_MAX_CHARS = 500_000
+const FILES_MAX = 5000
+
+function safeJoin(base: string, name: string): string {
+  const p = join(base, name)
+  if (!p.startsWith(base)) throw new Error('path escapes workspace')
+  return p
+}
+
+export function workspaceTree(path: string): unknown {
+  if (!existsSync(path) || !statSync(path).isDirectory()) {
+    return { error: `not a directory: ${path}` }
+  }
+  const entries: Array<{ name: string; type: 'dir' | 'file'; size?: number }> = []
+  let truncated = false
+  let names: string[]
+  try {
+    names = readdirSync(path).sort()
+  } catch (e) {
+    return { error: `cannot list: ${(e as Error).message}` }
+  }
+  for (const name of names) {
+    if (HIDDEN_DIRS.has(name) || name.startsWith('.git')) continue
+    const full = safeJoin(path, name)
+    let isDir: boolean
+    try {
+      isDir = statSync(full).isDirectory()
+    } catch {
+      continue
+    }
+    const entry: { name: string; type: 'dir' | 'file'; size?: number } = { name, type: isDir ? 'dir' : 'file' }
+    if (!isDir) {
+      try {
+        entry.size = statSync(full).size
+      } catch {
+        /* ignore */
+      }
+    }
+    entries.push(entry)
+    if (entries.length >= TREE_MAX_ENTRIES) {
+      truncated = true
+      break
+    }
+  }
+  return { path, entries, truncated }
+}
+
+/** 扁平文件清单（跳过隐藏目录；rg --files 语义）。 */
+export function workspaceFiles(root: string): unknown {
+  if (!existsSync(root) || !statSync(root).isDirectory()) {
+    return { error: `not a directory: ${root}` }
+  }
+  const files: string[] = []
+  const walk = (dir: string, depth: number): void => {
+    if (files.length >= FILES_MAX) return
+    let names: string[]
+    try {
+      names = readdirSync(dir)
+    } catch {
+      return
+    }
+    for (const name of names) {
+      if (HIDDEN_DIRS.has(name) || name.startsWith('.git') || name === '.DS_Store') continue
+      const full = safeJoin(dir, name)
+      let st
+      try {
+        st = statSync(full)
+      } catch {
+        continue
+      }
+      if (st.isDirectory()) {
+        if (depth < 8) walk(full, depth + 1)
+      } else if (st.isFile()) {
+        files.push(relative(root, full))
+        if (files.length >= FILES_MAX) return
+      }
+    }
+  }
+  walk(root, 0)
+  return { path: root, files, truncated: files.length >= FILES_MAX }
+}
+
+export function workspaceReadFile(path: string): unknown {
+  if (!existsSync(path) || !statSync(path).isFile()) {
+    return { error: `file does not exist: ${path}` }
+  }
+  const size = statSync(path).size
+  let content: string
+  try {
+    content = readFileSync(path, 'utf-8')
+  } catch {
+    return { error: `cannot read (binary or locked): ${path}` }
+  }
+  const truncated = content.length > FILE_MAX_CHARS
+  if (truncated) content = content.slice(0, FILE_MAX_CHARS) + '\n…[truncated]'
+  return { path, content, size, truncated }
+}
+
+export function workspaceWriteFile(path: string, content: string): unknown {
+  try {
+    writeFileSync(path, content, 'utf-8')
+    return { path, saved: true, size: content.length }
+  } catch (e) {
+    return { error: `write failed: ${(e as Error).message}` }
+  }
+}
+
+export function workspaceFileType(path: string): unknown {
+  if (!existsSync(path)) return { error: `not found: ${path}` }
+  return { path, ext: extname(path), size: statSync(path).size }
+}
+
+export function workspaceRevertFile(workspace: string, path: string, status: string): unknown {
+  const rel = relative(workspace, path)
+  try {
+    if (status === '??' || status === 'A') {
+      execFileSync('git', ['rm', '-f', '--ignore-unmatch', rel], { cwd: workspace, timeout: 15000, encoding: 'utf-8' })
+    } else {
+      execFileSync('git', ['checkout', '--', rel], { cwd: workspace, timeout: 15000, encoding: 'utf-8' })
+    }
+    return { reverted: true, action: status === '??' || status === 'A' ? 'deleted' : 'restored' }
+  } catch (e) {
+    return { reverted: false, error: (e as { stderr?: string }).stderr?.trim() || 'revert failed' }
+  }
 }

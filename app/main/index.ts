@@ -28,7 +28,13 @@ import {
   gitPush,
   gitBranchList,
   gitLog,
-  repoExists
+  repoExists,
+  workspaceTree,
+  workspaceFiles,
+  workspaceReadFile,
+  workspaceWriteFile,
+  workspaceFileType,
+  workspaceRevertFile
 } from './local-services'
 
 let mainWindow: BrowserWindow | null = null
@@ -55,6 +61,14 @@ function setupLocalServicesIPC(): void {
   ipcMain.handle('local:git-branches', (_e, repo: string) => gitBranchList(repo))
   ipcMain.handle('local:git-log', (_e, repo: string, n?: number) => gitLog(repo, n))
   ipcMain.handle('local:repo-exists', (_e, repo: string) => repoExists(repo))
+  ipcMain.handle('local:ws-tree', (_e, path: string) => workspaceTree(path))
+  ipcMain.handle('local:ws-files', (_e, path: string) => workspaceFiles(path))
+  ipcMain.handle('local:ws-read', (_e, path: string) => workspaceReadFile(path))
+  ipcMain.handle('local:ws-write', (_e, path: string, content: string) =>
+    workspaceWriteFile(path, content))
+  ipcMain.handle('local:ws-type', (_e, path: string) => workspaceFileType(path))
+  ipcMain.handle('local:ws-revert', (_e, workspace: string, path: string, status: string) =>
+    workspaceRevertFile(workspace, path, status))
 }
 
 /**

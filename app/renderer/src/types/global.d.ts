@@ -51,6 +51,14 @@ interface LocalServicesBridge {
     log: (repo: string, n?: number) => Promise<unknown>
     repoExists: (repo: string) => Promise<boolean>
   }
+  fs: {
+    tree: (path: string) => Promise<unknown>
+    files: (path: string) => Promise<unknown>
+    read: (path: string) => Promise<unknown>
+    write: (path: string, content: string) => Promise<unknown>
+    fileType: (path: string) => Promise<unknown>
+    revert: (workspace: string, path: string, status: string) => Promise<unknown>
+  }
 }
 
 interface KcoderBridge {

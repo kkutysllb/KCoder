@@ -129,6 +129,16 @@ contextBridge.exposeInMainWorld('kcoder', {
         ipcRenderer.invoke('local:git-log', repo, n) as Promise<unknown>,
       repoExists: (repo: string) =>
         ipcRenderer.invoke('local:repo-exists', repo) as Promise<boolean>
+    },
+    fs: {
+      tree: (path: string) => ipcRenderer.invoke('local:ws-tree', path) as Promise<unknown>,
+      files: (path: string) => ipcRenderer.invoke('local:ws-files', path) as Promise<unknown>,
+      read: (path: string) => ipcRenderer.invoke('local:ws-read', path) as Promise<unknown>,
+      write: (path: string, content: string) =>
+        ipcRenderer.invoke('local:ws-write', path, content) as Promise<unknown>,
+      fileType: (path: string) => ipcRenderer.invoke('local:ws-type', path) as Promise<unknown>,
+      revert: (workspace: string, path: string, status: string) =>
+        ipcRenderer.invoke('local:ws-revert', workspace, path, status) as Promise<unknown>
     }
   }
 })
@@ -193,6 +203,14 @@ declare global {
           branches: (repo: string) => Promise<unknown>
           log: (repo: string, n?: number) => Promise<unknown>
           repoExists: (repo: string) => Promise<boolean>
+        }
+        fs: {
+          tree: (path: string) => Promise<unknown>
+          files: (path: string) => Promise<unknown>
+          read: (path: string) => Promise<unknown>
+          write: (path: string, content: string) => Promise<unknown>
+          fileType: (path: string) => Promise<unknown>
+          revert: (workspace: string, path: string, status: string) => Promise<unknown>
         }
       }
     }

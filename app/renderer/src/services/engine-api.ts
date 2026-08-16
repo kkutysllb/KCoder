@@ -1850,8 +1850,26 @@ data: <full EngineStreamEvent JSON>
 
   // ============ Workspace / Git API ============
 
-  // 查询工作区状态（git 分支/脏标记） — GET /v1/workspace/status?path=
+  // 查询工作区状态（git 分支/脏标记） — 2026-08 重构：主进程 git IPC
   async getWorkspaceStatus(path: string): Promise<WorkspaceStatus> {
+    if (window.kcoder?.local?.git) {
+      const data = (await window.kcoder.local.git.status(path)) as Record<string, unknown>
+      if (data.error) throw new Error(String(data.error))
+      const changes = ((data.changes ?? []) as Array<Record<string, unknown>>).map((c) => ({
+        path: String(c.path ?? ''),
+        status: String(c.status ?? 'M')
+      }))
+      return {
+        path,
+        exists: true,
+        isGitRepository: true,
+        branch: String(data.branch ?? ''),
+        headSha: null,
+        isDirty: Boolean(data.dirty),
+        fileChangeCount: changes.length,
+        checkedAt: new Date().toISOString()
+      } as WorkspaceStatus
+    }
     const response = await fetch(
       `${this.baseUrl}/api/workspace/status?path=${encodeURIComponent(path)}`,
       { headers: this.headers }
@@ -1880,11 +1898,17 @@ data: <full EngineStreamEvent JSON>
   // 在指定目录新建并检出分支。POST /v1/workspace/branch { path, name, base? }
   // 后端执行 `git checkout -b <name> [base]`，返回 { path, branch, created }。
   // 分支已存在 → 409；非 git 仓库 → 400。
-  async createBranch(path: string, name: string, base?: string): Promise<{ path: string; branch: string }> {
+  async createBranch(path: string, name: string, _base?: string): Promise<{ path: string; branch: string }> {
+    // 2026-08 重构：主进程 git IPC（git checkout -b）
+    if (window.kcoder?.local?.git) {
+      const data = (await window.kcoder.local.git.createBranch(path, name)) as Record<string, unknown>
+      if (data.error) throw new Error(`Failed to create branch: ${String(data.error)}`)
+      return { path, branch: name }
+    }
     const response = await fetch(`${this.baseUrl}/api/workspace/branch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
-      body: JSON.stringify({ path, name, ...(base ? { base } : {}) })
+      body: JSON.stringify({ path, name, ...(_base ? { base: _base } : {}) })
     })
     if (!response.ok) {
       const detail = await response.json().catch(() => ({}))
@@ -1914,6 +1938,12 @@ data: <full EngineStreamEvent JSON>
    * 后端会执行 `git add -A` + `git commit -m <message>`，返回结构化结果。
    */
   async commitWorkspace(path: string, message: string): Promise<CommitResult> {
+    // 2026-08 重构：主进程 git IPC（git add -A + commit）
+    if (window.kcoder?.local?.git) {
+      const data = (await window.kcoder.local.git.commit(path, message)) as Record<string, unknown>
+      if (data.ok) return { success: true, output: String(data.stdout ?? ''), headSha: undefined }
+      return { success: false, error: String(data.error ?? 'commit failed'), output: '' }
+    }
     const response = await fetch(`${this.baseUrl}/api/workspace/commit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
@@ -1931,6 +1961,12 @@ data: <full EngineStreamEvent JSON>
    * 推送当前分支到远端。POST /v1/workspace/push { path, remote?, branch? }
    */
   async pushWorkspace(path: string, opts?: { remote?: string; branch?: string }): Promise<CommitResult> {
+    // 2026-08 重构：主进程 git IPC（git push，remote/branch 缺省）
+    if (window.kcoder?.local?.git) {
+      const data = (await window.kcoder.local.git.push(path)) as Record<string, unknown>
+      if (data.ok) return { success: true, output: String(data.stdout ?? ''), headSha: undefined }
+      return { success: false, error: String(data.error ?? 'push failed'), output: '' }
+    }
     const response = await fetch(`${this.baseUrl}/api/workspace/push`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
@@ -1955,20 +1991,49 @@ data: <full EngineStreamEvent JSON>
 
   /** GET /v1/workspace/tree?path= → 单层目录条目（文件树懒展开用）。 */
   async workspaceTree(path: string): Promise<{ path: string; entries: WorkspaceTreeEntry[]; truncated: boolean }> {
+    // 2026-08 重构：主进程 fs IPC（语义对齐旧 workspace_routes）
+    if (window.kcoder?.local?.fs) {
+      const data = (await window.kcoder.local.fs.tree(path)) as Record<string, unknown>
+      if (data.error) throw new Error(String(data.error))
+      return {
+        path: String(data.path ?? path),
+        entries: (data.entries ?? []) as WorkspaceTreeEntry[],
+        truncated: Boolean(data.truncated)
+      }
+    }
     const r = await fetch(`${this.baseUrl}/api/workspace/tree?path=${encodeURIComponent(path)}`, { headers: this.headers })
     if (!r.ok) throw new Error(`workspace tree failed: ${r.status}`)
     return r.json()
   }
 
-  /** GET /v1/workspace/files?path= → 扁平文件清单（rg --files，@-mention/快速打开用）。 */
+  /** 2026-08 重构：主进程 fs IPC。 */
   async workspaceFiles(path: string): Promise<{ path: string; files: string[]; truncated: boolean }> {
+    if (window.kcoder?.local?.fs) {
+      const data = (await window.kcoder.local.fs.files(path)) as Record<string, unknown>
+      if (data.error) throw new Error(String(data.error))
+      return {
+        path: String(data.path ?? path),
+        files: (data.files ?? []) as string[],
+        truncated: Boolean(data.truncated)
+      }
+    }
     const r = await fetch(`${this.baseUrl}/api/workspace/files?path=${encodeURIComponent(path)}`, { headers: this.headers })
     if (!r.ok) throw new Error(`workspace files failed: ${r.status}`)
     return r.json()
   }
 
-  /** GET /v1/workspace/file?path= → 读取文本文件内容。 */
+  /** 2026-08 重构：主进程 fs IPC。 */
   async readWorkspaceFile(path: string): Promise<{ path: string; content: string; size: number; truncated: boolean }> {
+    if (window.kcoder?.local?.fs) {
+      const data = (await window.kcoder.local.fs.read(path)) as Record<string, unknown>
+      if (data.error) throw new Error(String(data.error))
+      return {
+        path: String(data.path ?? path),
+        content: String(data.content ?? ''),
+        size: Number(data.size ?? 0),
+        truncated: Boolean(data.truncated)
+      }
+    }
     const r = await fetch(`${this.baseUrl}/api/workspace/file?path=${encodeURIComponent(path)}`, { headers: this.headers })
     if (!r.ok) {
       const detail = await r.json().catch(() => ({}))
@@ -1977,8 +2042,13 @@ data: <full EngineStreamEvent JSON>
     return r.json()
   }
 
-  /** PUT /v1/workspace/file → 写入文本文件（编辑器保存）。 */
+  /** 2026-08 重构：主进程 fs IPC。 */
   async writeWorkspaceFile(path: string, content: string): Promise<{ path: string; saved: boolean; size: number }> {
+    if (window.kcoder?.local?.fs) {
+      const data = (await window.kcoder.local.fs.write(path, content)) as Record<string, unknown>
+      if (data.error) throw new Error(String(data.error))
+      return { path: String(data.path ?? path), saved: Boolean(data.saved), size: Number(data.size ?? 0) }
+    }
     const r = await fetch(`${this.baseUrl}/api/workspace/file`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...this.headers },
@@ -1991,12 +2061,17 @@ data: <full EngineStreamEvent JSON>
     return r.json()
   }
 
-  /** POST /v1/workspace/revert → 撤销 agent 对单文件的更改（git restore / 删除）。 */
+  /** 2026-08 重构：主进程 git IPC。 */
   async revertWorkspaceFile(
     workspace: string,
     path: string,
     status: string
   ): Promise<{ reverted: boolean; action: string }> {
+    if (window.kcoder?.local?.fs) {
+      const data = (await window.kcoder.local.fs.revert(workspace, path, status)) as Record<string, unknown>
+      if (data.error) throw new Error(String(data.error))
+      return { reverted: Boolean(data.reverted), action: String(data.action ?? '') }
+    }
     const r = await fetch(`${this.baseUrl}/api/workspace/revert`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
