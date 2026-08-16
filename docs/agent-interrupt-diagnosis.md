@@ -208,3 +208,50 @@ UI 无提示 → 用户看到「没有提示，直接停住」（isGenerating �
   长任务每 ~100 轮压缩一次，200 轮极端 run 预计省 ~45% input tokens
 - 长工具可见性（可选增强）：bash 工具执行期间推 `tool_progress` 事件，前端显示进度
 
+
+---
+
+## 八、产品层重构（2026-08-16，架构级根治）
+
+### 背景
+
+KStock 实证引擎自带生产级 gateway（vendor/qilin/app/gateway，22 个路由模块：
+auth/threads/runs/thread_runs/memory/skills/mcp/models/…，SSE 协议与 LangGraph
+Platform 对齐）。自研 kcoder_gateway（8300 行）是重复造轮子；langgraph dev
+平台化引入的问题（终态猜测/幽灵恢复/配置分裂/多进程竞态）全部随重构根除。
+
+### 新架构
+
+```
+Electron renderer → 引擎自带 gateway（app.gateway，单 Python 进程）
+                  → 引擎（同进程：delta checkpoint / 预算清零 / 子代理 300s）
+主进程 IPC      → product_services.py（runtime-config/token-usage）
+                → fs/git 本地服务（文件树/提交/推送）
+```
+
+### 已删除（-10,062 行）
+
+kcoder_gateway 全部 40 文件（sse.py 1381 行 / threads.py 1250 行 /
+workspace_routes.py / thread_log.py / qilin_client.py / auth / stubs…）、
+langgraph.json、网关测试。
+
+### 已落地（3 个 commit）
+
+| commit | 内容 |
+|---|---|
+| `ab5abab` | Phase 1：run_gateway.py 单进程入口；主进程单进程 spawn；前端 engine-api 协议重构（/api 前缀、POST /runs + GET /runs/{id}/stream、cancel、search、messages 历史）；engineEvents.ts 翻译层（translate_event TS 移植 + history→items）；loadThread 适配 |
+| `0d7b7a6` | Phase 3：product_services.py（runtime-config PyYAML 读写 + token-usage runs 表聚合）；local-services.ts IPC；window.kcoder.local.{runtimeConfig,tokenUsage,git} |
+| `68cb9eb` | Phase 3b：workspace 文件树 fs 服务（tree/files/read/write/revert）+ git 全链路（status/branch/commit/push）主进程本地化 |
+
+### 验证
+
+- 协议全链路真实调用通过：create→run→stream（metadata/messages/end）→runs→messages→cancel
+- 引擎心跳（`: heartbeat`）确认存在，前端看门狗兼容
+- delta checkpoint / 预算清零 / 子代理 300s 在引擎 gateway 下实测生效
+- token-usage 真实聚合（3043 万 tokens/41 runs/564 calls）
+- tsc 全过
+
+### 已知降级（低频，UI 空状态不崩溃）
+
+- 附件上传（引擎 multipart/thread 作用域 vs 旧 base64 JSON——待映射）
+- commands/plugins/projects/sub-agents/memory（引擎无对应产品语义，前端空实现）
