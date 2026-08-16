@@ -113,10 +113,17 @@ interface GeneralPrefsPayload {
  * - HTTP 代理：Electron session.setProxy 即时生效（renderer + main fetch）
  * - 自定义证书：注入 NODE_EXTRA_CA_CERTS 环境变量（sidecar 需重启才继承）
  */
+// 上次实际应用到网络层的代理配置（去重：StrictMode 下渲染进程会重复发送相同偏好，
+// setProxy 幂等但日志/调用重复；相同配置直接跳过）
+let lastAppliedProxy: string | null = null
+
 function applyGeneralSettings(prefs: GeneralPrefsPayload): void {
   // 1. Proxy
   const proxyUrl = prefs.httpProxy?.trim()
   const noProxy = prefs.noProxy?.trim()
+  const proxyKey = proxyUrl ? `${proxyUrl}\n${noProxy ?? ''}` : 'direct://'
+  if (proxyKey === lastAppliedProxy) return
+  lastAppliedProxy = proxyKey
   if (proxyUrl) {
     // bypass list: 逗号分隔转分号分隔（Electron proxyBypassRules 格式）
     const bypass = noProxy
