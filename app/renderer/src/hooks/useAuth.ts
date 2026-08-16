@@ -53,19 +53,12 @@ export function useAuth(enginePort: number): AuthState {
     return parseInt(params.get('enginePort') || String(enginePort), 10)
   }, [enginePort])
 
-  // Verify stored token on startup
+  // Verify session on startup（2026-08 重构：引擎 cookie 会话）
   useEffect(() => {
-    const stored = loadStoredAuth()
     const api = getEngineAPI(urlPort)
 
-    // 2026-08 重构：引擎 gateway auth-disabled 模式下 /api/v1/auth/me 无鉴权
-    // 直接返回默认用户——无 stored token 也尝试 authMe，成功则跳过登录页
-    // （桌面单用户）；真启用 auth 时 me 会 401，自然回落登录流程。
-    // 引擎首次启动（全新环境建库/迁移）可能慢于 renderer，authMe 加重试。
-    if (stored) {
-      api.setAuthToken(stored.token)
-    }
-
+    // 未注册用户 → 401 → 登录页（landing）；引擎首次启动慢 → 网络错误重试；
+    // 已登录（session cookie）→ authMe 返回真实用户 → 主界面。
     let attempts = 0
     let settled = false
     const tryAuth = (): void => {
@@ -76,16 +69,24 @@ export function useAuth(enginePort: number): AuthState {
           // The user id drives per-user model profile storage, so keep it in
           // sync with the API instance whenever the authenticated user changes.
           api.setUserId(me.id)
-          if (stored) persistAuth({ token: stored.token, user: me })
-          else persistAuth({ token: '', user: me })
+          persistAuth({ token: '', user: me })
         })
-        .catch(() => {
+        .catch((err: unknown) => {
+          const status = (err as { status?: number }).status
+          if (status === 401) {
+            // 未认证（未登录/会话失效）→ 立即 landing 页，不重试
+            settled = true
+            api.setAuthToken(null)
+            api.setUserId(null)
+            persistAuth(null)
+            setUser(null)
+            return
+          }
           if (attempts++ < 20) {
-            // 引擎首次启动可能慢于 renderer：重试期间保持 checking（loading 屏）
+            // 网络错误/引擎未就绪：重试期间保持 checking（loading 屏）
             setTimeout(tryAuth, 500)
             return
           }
-          // Token expired or revoked / auth required — fall back to login page
           settled = true
           api.setAuthToken(null)
           api.setUserId(null)
@@ -99,30 +100,31 @@ export function useAuth(enginePort: number): AuthState {
     tryAuth()
   }, [urlPort])
 
-  const applySession = useCallback((token: string, sessionUser: AuthUser) => {
+  // cookie 会话：登录/注册/初始化成功后 authMe 拿真实用户
+  const applySession = useCallback(async (): Promise<void> => {
     const api = getEngineAPI(enginePort)
-    api.setAuthToken(token)
-    api.setUserId(sessionUser.id)
-    persistAuth({ token, user: sessionUser })
-    setUser(sessionUser)
+    const me = await api.authMe()
+    api.setUserId(me.id)
+    persistAuth({ token: '', user: me })
+    setUser(me)
   }, [enginePort])
 
   const login = useCallback(async (email: string, password: string) => {
     const api = getEngineAPI(enginePort)
-    const session = await api.authLogin(email, password)
-    applySession(session.access_token, session.user)
+    await api.authLogin(email, password)
+    await applySession()
   }, [enginePort, applySession])
 
   const register = useCallback(async (email: string, password: string) => {
     const api = getEngineAPI(enginePort)
-    const session = await api.authRegister(email, password)
-    applySession(session.access_token, session.user)
+    await api.authRegister(email, password)
+    await applySession()
   }, [enginePort, applySession])
 
   const initialize = useCallback(async (email: string, password: string) => {
     const api = getEngineAPI(enginePort)
-    const session = await api.authInitialize(email, password)
-    applySession(session.access_token, session.user)
+    await api.authInitialize(email, password)
+    await applySession()
   }, [enginePort, applySession])
 
   const logout = useCallback(async () => {

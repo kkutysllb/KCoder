@@ -150,8 +150,8 @@ def main() -> None:
     os.environ.setdefault("QILIN_HOME", str(data_root / "runtime" / "qilin"))
     os.environ.setdefault("KCODER_APP_DATA_DIR", str(data_root))
     os.environ.setdefault("QILIN_EXTENSIONS_CONFIG_PATH", str(REPO_ROOT / "extensions_config.json"))
-    # 桌面单用户产品：先关闭内置 auth（Phase 2 再评估接入）
-    os.environ.setdefault("QILIN_AUTH_DISABLED", "1")
+    # 产品要求：真实登录注册（未注册用户停在 landing 页），不启用 auth-disabled
+    os.environ.pop("QILIN_AUTH_DISABLED", None)
     # JWT secret：持久化到数据根（跨重启稳定；消除引擎启动警告，
     # 未来启用 auth 时直接可用）
     jwt_secret_path = data_root / "config" / ".jwt_secret"

@@ -757,7 +757,8 @@ export interface ProjectEntry {
 
 /**
  * 提取 FastAPI 错误响应的可读消息。
- * 422 detail 可能是字符串或 value_error 数组（{msg, loc, type}）。
+ * 支持：字符串 detail、value_error 数组、AuthErrorResponse 对象
+ * （{code, message}，引擎 auth 端点的错误格式）。
  */
 function extractApiError(body: unknown): string {
   if (typeof body !== 'object' || body === null) return ''
@@ -769,6 +770,10 @@ function extractApiError(body: unknown): string {
       const msg = (first as { msg?: unknown }).msg
       if (typeof msg === 'string') return msg
     }
+  }
+  if (typeof detail === 'object' && detail !== null) {
+    const message = (detail as { message?: unknown }).message
+    if (typeof message === 'string') return message
   }
   return ''
 }
@@ -847,10 +852,39 @@ export class EngineAPI {
     return headers
   }
 
+  /**
+   * 统一请求入口（2026-08 重构：引擎 cookie 会话 + CSRF double-submit）。
+   * - credentials: 'include'：跨源（localhost:5173 → 127.0.0.1）携带
+   *   session cookie 与 csrf_token cookie
+   * - 写方法自动带 X-CSRF-Token（引擎 CSRFMiddleware 校验，auth 端点豁免）
+   */
+  private request(path: string, init: RequestInit = {}): Promise<Response> {
+    const method = (init.method ?? 'GET').toUpperCase()
+    const extraHeaders: Record<string, string> = {}
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      const csrf = this.csrfToken()
+      if (csrf) extraHeaders['X-CSRF-Token'] = csrf
+    }
+    return this.request(`${path}`, {
+      ...init,
+      credentials: 'include',
+      headers: { ...this.headers, ...extraHeaders, ...(init.headers as Record<string, string> | undefined) }
+    })
+  }
+
+  private csrfToken(): string {
+    try {
+      const m = document.cookie.match(/(?:^|; )csrf_token=([^;]+)/)
+      return m ? decodeURIComponent(m[1]) : ''
+    } catch {
+      return ''
+    }
+  }
+
   // Health check
   async health(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/health`, {
+      const response = await this.request(`/health`, {
         headers: this.headers
       })
       return response.ok
@@ -863,7 +897,7 @@ export class EngineAPI {
   // New engine consolidated all auth under /v1/auth/* (the /api/v1 prefix is gone).
 
   async getSetupStatus(): Promise<AuthSetupStatus> {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/setup-status`, {
+    const response = await this.request(`/api/v1/auth/setup-status`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -873,7 +907,7 @@ export class EngineAPI {
   }
 
   async authInitialize(email: string, password: string): Promise<AuthSessionResponse> {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/initialize`, {
+    const response = await this.request(`/api/v1/auth/initialize`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ email, password })
@@ -885,20 +919,28 @@ export class EngineAPI {
   }
 
   async authLogin(email: string, password: string): Promise<AuthSessionResponse> {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/login`, {
+    // 2026-08 重构：引擎 /api/v1/auth/login/local（OAuth2 form-data），
+    // token 存 HttpOnly session cookie（credentials: 'include' 携带）。
+    const form = new URLSearchParams()
+    form.set('username', email)
+    form.set('password', password)
+    form.set('remember_me', 'true')
+    const response = await fetch(`${this.baseUrl}/api/v1/auth/login/local`, {
       method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify({ email, password })
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form.toString(),
+      credentials: 'include'
     })
     if (!response.ok) {
       const detail = await response.json().catch(() => ({}))
-      throw new Error((detail as { detail?: string }).detail || `Login failed: ${response.statusText}`)
+      throw new Error(extractApiError(detail) || `Login failed: ${response.statusText}`)
     }
-    return response.json()
+    // token 在 HttpOnly cookie 里；登录后需 authMe 获取用户
+    return { access_token: '', token_type: 'bearer', expires_in: 0, user: {} as AuthUser }
   }
 
   async authRegister(email: string, password: string): Promise<AuthSessionResponse> {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/register`, {
+    const response = await this.request(`/api/v1/auth/register`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ email, password })
@@ -910,9 +952,13 @@ export class EngineAPI {
   }
 
   async authMe(): Promise<AuthUser> {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/me`, {
-      headers: this.headers
-    })
+    const response = await this.request(`/api/v1/auth/me`)
+    if (response.status === 401) {
+      // 未认证：抛带状态错误，useAuth 据此立即落登录页（vs 网络错误重试）
+      const err = new Error('NOT_AUTHENTICATED') as Error & { status?: number }
+      err.status = 401
+      throw err
+    }
     if (!response.ok) {
       throw new Error(`Not authenticated: ${response.statusText}`)
     }
@@ -921,7 +967,7 @@ export class EngineAPI {
   }
 
   async authLogout(): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/logout`, {
+    const response = await this.request(`/api/v1/auth/logout`, {
       method: 'POST',
       headers: this.headers
     })
@@ -931,7 +977,7 @@ export class EngineAPI {
   }
 
   async authChangePassword(currentPassword: string, newPassword: string): Promise<AuthSessionResponse> {
-    const response = await fetch(`${this.baseUrl}/api/v1/auth/change-password`, {
+    const response = await this.request(`/api/v1/auth/change-password`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
@@ -959,7 +1005,7 @@ export class EngineAPI {
     if (metadata.mode) {
       metadata.mode = metadata.mode
     }
-    const response = await fetch(`${this.baseUrl}/api/threads`, {
+    const response = await this.request(`/api/threads`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ metadata })
@@ -1024,7 +1070,7 @@ export class EngineAPI {
         : []),
     ]
 
-    const runResponse = await fetch(`${this.baseUrl}/api/threads/${threadId}/runs`, {
+    const runResponse = await this.request(`/api/threads/${threadId}/runs`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({
@@ -1184,7 +1230,8 @@ export class EngineAPI {
         const response = await fetch(url, {
           method: 'GET',
           headers,
-          signal: controller.signal
+          signal: controller.signal,
+          credentials: 'include'
         })
         if (!response.ok || !response.body) {
           throw new Error(`SSE stream failed: ${response.status}`)
@@ -1294,7 +1341,7 @@ export class EngineAPI {
    * starting a new turn. POST /v1/threads/:id/turns/:turnId/steer { text }
    */
   async steerTurn(threadId: string, turnId: string, text: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/turns/${turnId}/steer`, {
+    const response = await this.request(`/api/threads/${threadId}/turns/${turnId}/steer`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ text })
@@ -1313,7 +1360,7 @@ export class EngineAPI {
   async interruptTurn(threadId: string, runId: string, _discard?: boolean): Promise<{ status: string }> {
     // 2026-08 重构：引擎 gateway 用 POST /api/threads/{id}/runs/{run_id}/cancel
     // 取消 run（turnId 参数即 run_id）。
-    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/runs/${runId}/cancel`, {
+    const response = await this.request(`/api/threads/${threadId}/runs/${runId}/cancel`, {
       method: 'POST',
       headers: this.headers
     })
@@ -1329,7 +1376,7 @@ export class EngineAPI {
    * token budget. POST /v1/threads/:id/compact { reason?, budgetTokens? }
    */
   async compactThread(threadId: string, opts?: { reason?: string; budgetTokens?: number }): Promise<{ replacedTokens: number; summary: string }> {
-    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/compact`, {
+    const response = await this.request(`/api/threads/${threadId}/compact`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({
@@ -1361,7 +1408,7 @@ export class EngineAPI {
    * as "projection not available yet" rather than an error.
    */
   async getRunTimeline(runId: string): Promise<RunTimelineView | null> {
-    const response = await fetch(`${this.baseUrl}/api/runtime/evented-v2/runs/${encodeURIComponent(runId)}/timeline`, {
+    const response = await this.request(`/api/runtime/evented-v2/runs/${encodeURIComponent(runId)}/timeline`, {
       headers: this.headers
     })
     if (response.status === 404) return null
@@ -1376,7 +1423,7 @@ export class EngineAPI {
    */
   async ackEngineStream(streamId: string, subscriberId: string, throughSeq: number): Promise<void> {
     try {
-      await fetch(`${this.baseUrl}/api/engine/streams/${encodeURIComponent(streamId)}/ack`, {
+      await this.request(`/api/engine/streams/${encodeURIComponent(streamId)}/ack`, {
         method: 'POST',
         headers: this.headers,
         body: JSON.stringify({ subscriberId, throughSeq })
@@ -1441,7 +1488,8 @@ data: <full EngineStreamEvent JSON>
           const response = await fetch(url, {
             method: 'GET',
             headers: { ...this.headers, Accept: 'text/event-stream' },
-            signal: controller.signal
+            signal: controller.signal,
+            credentials: 'include'
           })
           if (!response.ok || !response.body) {
             console.warn(`[KCoder] engine stream failed: ${response.status}`)
@@ -1619,7 +1667,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Inspect a governed graph run — status, circuit state, active nodes, budgets. */
   async inspectGraphRun(runId: string): Promise<GraphRunInspection | null> {
-    const response = await fetch(`${this.baseUrl}/api/engine/runs/${encodeURIComponent(runId)}/inspect`, {
+    const response = await this.request(`/api/engine/runs/${encodeURIComponent(runId)}/inspect`, {
       headers: this.headers
     })
     if (response.status === 404) return null
@@ -1630,7 +1678,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Set the circuit state of a governed graph run (running/report_only/paused/retired). */
   async setGraphCircuit(runId: string, state: CircuitState): Promise<{ runId: string; circuitState: CircuitState }> {
-    const response = await fetch(`${this.baseUrl}/api/engine/runs/${encodeURIComponent(runId)}/circuit`, {
+    const response = await this.request(`/api/engine/runs/${encodeURIComponent(runId)}/circuit`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ state })
@@ -1644,7 +1692,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Cancel a governed graph run. */
   async cancelGraphRun(runId: string): Promise<{ runId: string; cancelled: boolean }> {
-    const response = await fetch(`${this.baseUrl}/api/engine/runs/${encodeURIComponent(runId)}/cancel`, {
+    const response = await this.request(`/api/engine/runs/${encodeURIComponent(runId)}/cancel`, {
       method: 'POST',
       headers: this.headers
     })
@@ -1657,7 +1705,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Resolve a governed graph checkpoint (approval decision). */
   async resolveCheckpoint(checkpointId: string, decision: 'allow' | 'deny', opts?: { token?: string; resolutionToken?: string; graphRevision?: number }): Promise<{ checkpointId: string; resolved: boolean }> {
-    const response = await fetch(`${this.baseUrl}/api/engine/checkpoints/${encodeURIComponent(checkpointId)}/resolve`, {
+    const response = await this.request(`/api/engine/checkpoints/${encodeURIComponent(checkpointId)}/resolve`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ decision, ...(opts ?? {}) })
@@ -1672,7 +1720,7 @@ data: <full EngineStreamEvent JSON>
   // ============ Thread Goal / Todos API ============
 
   async getThreadGoal(threadId: string): Promise<ThreadGoal | null> {
-    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/goal`, {
+    const response = await this.request(`/api/threads/${threadId}/goal`, {
       headers: this.headers
     })
     if (response.status === 404) return null
@@ -1682,7 +1730,7 @@ data: <full EngineStreamEvent JSON>
   }
 
   async getThreadTodos(threadId: string): Promise<ThreadTodoList | null> {
-    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/todos`, {
+    const response = await this.request(`/api/threads/${threadId}/todos`, {
       headers: this.headers
     })
     if (response.status === 404) return null
@@ -1693,7 +1741,7 @@ data: <full EngineStreamEvent JSON>
 
   // Resolve an approval — POST /v1/approvals/:id
   async decideApproval(approvalId: string, decision: 'allow' | 'deny', reason?: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/approvals/${encodeURIComponent(approvalId)}`, {
+    const response = await this.request(`/api/approvals/${encodeURIComponent(approvalId)}`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ decision, ...(reason ? { reason } : {}) })
@@ -1707,7 +1755,7 @@ data: <full EngineStreamEvent JSON>
 
   // Resolve a user-input request — POST /v1/user-inputs/:id
   async resolveUserInput(inputId: string, answers: Array<{ id: string; label: string; value: string }>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/user-inputs/${encodeURIComponent(inputId)}`, {
+    const response = await this.request(`/api/user-inputs/${encodeURIComponent(inputId)}`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ answers })
@@ -1721,7 +1769,7 @@ data: <full EngineStreamEvent JSON>
 
   // Cancel a user-input request — POST /v1/user-inputs/:id { cancelled: true }
   async cancelUserInput(inputId: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/user-inputs/${encodeURIComponent(inputId)}`, {
+    const response = await this.request(`/api/user-inputs/${encodeURIComponent(inputId)}`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ cancelled: true })
@@ -1734,7 +1782,7 @@ data: <full EngineStreamEvent JSON>
 
   // 列出会话 — POST /api/threads/search（2026-08 重构：引擎 gateway 协议）
   async listThreads(_opts?: { includeArchived?: boolean }): Promise<{ threads: ThreadSummary[] }> {
-    const response = await fetch(`${this.baseUrl}/api/threads/search`, {
+    const response = await this.request(`/api/threads/search`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({})
@@ -1763,7 +1811,7 @@ data: <full EngineStreamEvent JSON>
   // 重命名会话标题 — PATCH /v1/threads/:id
   // 后端只允许更新 title（workspace 等绑定字段不可改）。
   async updateThreadTitle(threadId: string, title: string): Promise<ThreadSummary> {
-    const response = await fetch(`${this.baseUrl}/api/threads/${encodeURIComponent(threadId)}`, {
+    const response = await this.request(`/api/threads/${encodeURIComponent(threadId)}`, {
       method: 'PATCH',
       headers: { ...this.headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ title })
@@ -1780,7 +1828,7 @@ data: <full EngineStreamEvent JSON>
     threadId: string,
     opts: { title?: string; archived?: boolean }
   ): Promise<ThreadSummary> {
-    const response = await fetch(`${this.baseUrl}/api/threads/${encodeURIComponent(threadId)}`, {
+    const response = await this.request(`/api/threads/${encodeURIComponent(threadId)}`, {
       method: 'PATCH',
       headers: { ...this.headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(opts)
@@ -1808,7 +1856,7 @@ data: <full EngineStreamEvent JSON>
     options?: { silentMissing?: boolean }
   ): Promise<ProjectEntry | { skipped: true; path: string; reason: string }> {
     const query = options?.silentMissing ? '?silent_missing=true' : ''
-    const response = await fetch(`${this.baseUrl}/api/projects${query}`, {
+    const response = await this.request(`/api/projects${query}`, {
       method: 'POST',
       headers: { ...this.headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ path, name })
@@ -1833,11 +1881,11 @@ data: <full EngineStreamEvent JSON>
     projectId: string,
     patch: { name?: string; description?: string }
   ): Promise<ProjectEntry> {
-    const response = await fetch(
-      `${this.baseUrl}/api/projects/${encodeURIComponent(projectId)}`,
+    const response = await this.request(
+      `/api/projects/${encodeURIComponent(projectId)}`,
       {
         method: 'PATCH',
-        headers: { ...this.headers, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch)
       }
     )
@@ -1851,9 +1899,9 @@ data: <full EngineStreamEvent JSON>
   async deleteProject(
     projectId: string
   ): Promise<{ deleted: boolean; archivedThreads?: number }> {
-    const response = await fetch(
-      `${this.baseUrl}/api/projects/${encodeURIComponent(projectId)}`,
-      { method: 'DELETE', headers: this.headers }
+    const response = await this.request(
+      `/api/projects/${encodeURIComponent(projectId)}`,
+      { method: 'DELETE' }
     )
     if (!response.ok) {
       throw new Error(`Failed to delete project: ${response.statusText}`)
@@ -1883,9 +1931,9 @@ data: <full EngineStreamEvent JSON>
         checkedAt: new Date().toISOString()
       } as WorkspaceStatus
     }
-    const response = await fetch(
-      `${this.baseUrl}/api/workspace/status?path=${encodeURIComponent(path)}`,
-      { headers: this.headers }
+    const response = await this.request(
+      `/api/workspace/status?path=${encodeURIComponent(path)}`,
+      { headers: {} }
     )
     if (!response.ok) {
       throw new Error(`Failed to get workspace status: ${response.statusText}`)
@@ -1918,7 +1966,7 @@ data: <full EngineStreamEvent JSON>
       if (data.error) throw new Error(`Failed to create branch: ${String(data.error)}`)
       return { path, branch: name }
     }
-    const response = await fetch(`${this.baseUrl}/api/workspace/branch`, {
+    const response = await this.request(`/api/workspace/branch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
       body: JSON.stringify({ path, name, ...(_base ? { base: _base } : {}) })
@@ -1933,7 +1981,7 @@ data: <full EngineStreamEvent JSON>
 
   /** 检出已有分支（git checkout <name>）。工作区有未提交变更时网关返回 409。 */
   async checkoutBranch(path: string, name: string): Promise<{ path: string; branch: string }> {
-    const response = await fetch(`${this.baseUrl}/api/workspace/branch`, {
+    const response = await this.request(`/api/workspace/branch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
       body: JSON.stringify({ path, name, create: false })
@@ -1957,7 +2005,7 @@ data: <full EngineStreamEvent JSON>
       if (data.ok) return { success: true, output: String(data.stdout ?? ''), headSha: undefined }
       return { success: false, error: String(data.error ?? 'commit failed'), output: '' }
     }
-    const response = await fetch(`${this.baseUrl}/api/workspace/commit`, {
+    const response = await this.request(`/api/workspace/commit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
       body: JSON.stringify({ path, message })
@@ -1980,7 +2028,7 @@ data: <full EngineStreamEvent JSON>
       if (data.ok) return { success: true, output: String(data.stdout ?? ''), headSha: undefined }
       return { success: false, error: String(data.error ?? 'push failed'), output: '' }
     }
-    const response = await fetch(`${this.baseUrl}/api/workspace/push`, {
+    const response = await this.request(`/api/workspace/push`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
       body: JSON.stringify({ path, ...(opts ?? {}) })
@@ -2014,7 +2062,7 @@ data: <full EngineStreamEvent JSON>
         truncated: Boolean(data.truncated)
       }
     }
-    const r = await fetch(`${this.baseUrl}/api/workspace/tree?path=${encodeURIComponent(path)}`, { headers: this.headers })
+    const r = await this.request(`/api/workspace/tree?path=${encodeURIComponent(path)}`, { headers: this.headers })
     if (!r.ok) throw new Error(`workspace tree failed: ${r.status}`)
     return r.json()
   }
@@ -2030,7 +2078,7 @@ data: <full EngineStreamEvent JSON>
         truncated: Boolean(data.truncated)
       }
     }
-    const r = await fetch(`${this.baseUrl}/api/workspace/files?path=${encodeURIComponent(path)}`, { headers: this.headers })
+    const r = await this.request(`/api/workspace/files?path=${encodeURIComponent(path)}`, { headers: this.headers })
     if (!r.ok) throw new Error(`workspace files failed: ${r.status}`)
     return r.json()
   }
@@ -2047,7 +2095,7 @@ data: <full EngineStreamEvent JSON>
         truncated: Boolean(data.truncated)
       }
     }
-    const r = await fetch(`${this.baseUrl}/api/workspace/file?path=${encodeURIComponent(path)}`, { headers: this.headers })
+    const r = await this.request(`/api/workspace/file?path=${encodeURIComponent(path)}`, { headers: this.headers })
     if (!r.ok) {
       const detail = await r.json().catch(() => ({}))
       throw new Error(typeof detail?.detail === 'string' ? detail.detail : `read failed: ${r.status}`)
@@ -2062,7 +2110,7 @@ data: <full EngineStreamEvent JSON>
       if (data.error) throw new Error(String(data.error))
       return { path: String(data.path ?? path), saved: Boolean(data.saved), size: Number(data.size ?? 0) }
     }
-    const r = await fetch(`${this.baseUrl}/api/workspace/file`, {
+    const r = await this.request(`/api/workspace/file`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...this.headers },
       body: JSON.stringify({ path, content })
@@ -2085,7 +2133,7 @@ data: <full EngineStreamEvent JSON>
       if (data.error) throw new Error(String(data.error))
       return { reverted: Boolean(data.reverted), action: String(data.action ?? '') }
     }
-    const r = await fetch(`${this.baseUrl}/api/workspace/revert`, {
+    const r = await this.request(`/api/workspace/revert`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
       body: JSON.stringify({ workspace, path, status })
@@ -2103,7 +2151,7 @@ data: <full EngineStreamEvent JSON>
     query: string,
     opts?: { glob?: string; maxResults?: number }
   ): Promise<{ results: SearchHit[]; truncated: boolean; engine: string }> {
-    const r = await fetch(`${this.baseUrl}/api/workspace/search`, {
+    const r = await this.request(`/api/workspace/search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.headers },
       body: JSON.stringify({ path, query, ...(opts?.glob ? { glob: opts.glob } : {}), ...(opts?.maxResults ? { maxResults: opts.maxResults } : {}) })
@@ -2119,7 +2167,7 @@ data: <full EngineStreamEvent JSON>
 
   // Get thread history
   async getThread(threadId: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}`, {
+    const response = await this.request(`/api/threads/${threadId}`, {
       headers: this.headers
     })
 
@@ -2135,7 +2183,7 @@ data: <full EngineStreamEvent JSON>
    * GET /api/threads/{id}/messages → 引擎事件行（content 内嵌 LangChain 消息）。
    */
   async listThreadMessages(threadId: string): Promise<Array<Record<string, unknown>>> {
-    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/messages`, {
+    const response = await this.request(`/api/threads/${threadId}/messages`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -2152,7 +2200,7 @@ data: <full EngineStreamEvent JSON>
    * DELETE /v1/threads/:id
    */
   async deleteThread(threadId: string): Promise<boolean> {
-    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}`, {
+    const response = await this.request(`/api/threads/${threadId}`, {
       method: 'DELETE',
       headers: this.headers
     })
@@ -2177,7 +2225,7 @@ data: <full EngineStreamEvent JSON>
    */
   async uploadAttachment(file: File, opts?: { threadId?: string; workspace?: string }): Promise<AttachmentMetadata> {
     const dataBase64 = await fileToBase64(file)
-    const response = await fetch(`${this.baseUrl}/api/attachments`, {
+    const response = await this.request(`/api/attachments`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({
@@ -2198,7 +2246,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Get attachment metadata. GET /v1/attachments/:id */
   async getAttachment(id: string): Promise<AttachmentMetadata | null> {
-    const response = await fetch(`${this.baseUrl}/api/attachments/${encodeURIComponent(id)}`, {
+    const response = await this.request(`/api/attachments/${encodeURIComponent(id)}`, {
       headers: this.headers
     })
     if (response.status === 404) return null
@@ -2219,7 +2267,7 @@ data: <full EngineStreamEvent JSON>
     if (opts?.workspace) params.set('workspace', opts.workspace)
     if (opts?.includeDeleted) params.set('include_deleted', 'true')
     const qs = params.toString()
-    const response = await fetch(`${this.baseUrl}/api/memory${qs ? `?${qs}` : ''}`, {
+    const response = await this.request(`/api/memory${qs ? `?${qs}` : ''}`, {
       headers: this.headers
     })
     if (!response.ok) throw new Error(`Failed to list memories: ${response.statusText}`)
@@ -2232,7 +2280,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Create a memory. POST /v1/memory { content, scope?, tags?, confidence?, workspace? } */
   async createMemory(payload: { content: string; scope?: 'user' | 'workspace' | 'project' | 'task'; tags?: string[]; confidence?: number; workspace?: string; threadId?: string }): Promise<MemoryRecord> {
-    const response = await fetch(`${this.baseUrl}/api/memory`, {
+    const response = await this.request(`/api/memory`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify(payload)
@@ -2249,7 +2297,7 @@ data: <full EngineStreamEvent JSON>
   async updateMemory(id: string, patch: { content?: string; tags?: string[]; confidence?: number; disabled?: boolean; threadId?: string }): Promise<MemoryRecord> {
     const qs = patch.threadId ? `?threadId=${encodeURIComponent(patch.threadId)}` : ''
     const { threadId, ...body } = patch
-    const response = await fetch(`${this.baseUrl}/api/memory/${encodeURIComponent(id)}${qs}`, {
+    const response = await this.request(`/api/memory/${encodeURIComponent(id)}${qs}`, {
       method: 'PATCH',
       headers: this.headers,
       body: JSON.stringify(body)
@@ -2264,7 +2312,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Delete a memory (soft delete — tombstone). DELETE /v1/memory/:id */
   async deleteMemory(id: string, threadId?: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/memory/${encodeURIComponent(id)}${threadId ? `?threadId=${encodeURIComponent(threadId)}` : ''}`, {
+    const response = await this.request(`/api/memory/${encodeURIComponent(id)}${threadId ? `?threadId=${encodeURIComponent(threadId)}` : ''}`, {
       method: 'DELETE',
       headers: this.headers
     })
@@ -2273,7 +2321,7 @@ data: <full EngineStreamEvent JSON>
 
   /** Memory diagnostics. GET /v1/memory/diagnostics */
   async memoryDiagnostics(): Promise<{ enabled: boolean; activeCount: number; tombstoneCount: number }> {
-    const response = await fetch(`${this.baseUrl}/api/memory/diagnostics`, {
+    const response = await this.request(`/api/memory/diagnostics`, {
       headers: this.headers
     })
     if (!response.ok) throw new Error(`Failed to get memory diagnostics: ${response.statusText}`)
@@ -2295,7 +2343,7 @@ data: <full EngineStreamEvent JSON>
         tokenBudget: (data.token_budget ?? {}) as TokenBudgetConfig
       } as RuntimeConfig
     }
-    const response = await fetch(`${this.baseUrl}/api/runtime-config`, {
+    const response = await this.request(`/api/runtime-config`, {
       headers: this.headers
     })
     if (!response.ok) throw new Error(`Failed to get runtime config: ${response.statusText}`)
@@ -2318,7 +2366,7 @@ data: <full EngineStreamEvent JSON>
       const result = await window.kcoder.local.runtimeConfig.set(section, value)
       return result as Record<string, unknown>
     }
-    const response = await fetch(`${this.baseUrl}/api/runtime-config/${section}`, {
+    const response = await this.request(`/api/runtime-config/${section}`, {
       method: 'PUT',
       headers: { ...this.headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(value)
@@ -2347,7 +2395,7 @@ data: <full EngineStreamEvent JSON>
       params.set('month', String(filter.month))
     }
     const qs = params.toString()
-    const response = await fetch(`${this.baseUrl}/api/token-usage/stats${qs ? `?${qs}` : ''}`, {
+    const response = await this.request(`/api/token-usage/stats${qs ? `?${qs}` : ''}`, {
       headers: this.headers
     })
     if (!response.ok) throw new Error(`Failed to get token usage stats: ${response.statusText}`)
@@ -2365,7 +2413,7 @@ data: <full EngineStreamEvent JSON>
       params.set('year', String(filter.year))
       params.set('month', String(filter.month))
     }
-    const response = await fetch(`${this.baseUrl}/api/token-usage/timeseries?${params.toString()}`, {
+    const response = await this.request(`/api/token-usage/timeseries?${params.toString()}`, {
       headers: this.headers
     })
     if (!response.ok) throw new Error(`Failed to get token usage timeseries: ${response.statusText}`)
@@ -2460,7 +2508,7 @@ data: <full EngineStreamEvent JSON>
 
   // List all skills — GET /v1/skills
   async listSkills(): Promise<SkillEntry[]> {
-    const response = await fetch(`${this.baseUrl}/api/skills`, {
+    const response = await this.request(`/api/skills`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -2472,7 +2520,7 @@ data: <full EngineStreamEvent JSON>
 
   // Toggle skill enabled state — PUT /v1/skills/{name}/enabled
   async toggleSkill(name: string, enabled: boolean): Promise<SkillEntry> {
-    const response = await fetch(`${this.baseUrl}/api/skills/${encodeURIComponent(name)}/enabled`, {
+    const response = await this.request(`/api/skills/${encodeURIComponent(name)}/enabled`, {
       method: 'PUT',
       headers: this.headers,
       body: JSON.stringify({ enabled })
@@ -2486,7 +2534,7 @@ data: <full EngineStreamEvent JSON>
 
   // Delete a custom skill — DELETE /v1/skills/{name}
   async deleteSkill(name: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/skills/${encodeURIComponent(name)}`, {
+    const response = await this.request(`/api/skills/${encodeURIComponent(name)}`, {
       method: 'DELETE',
       headers: this.headers
     })
@@ -2498,7 +2546,7 @@ data: <full EngineStreamEvent JSON>
 
   // Install a .skill ZIP archive — POST /v1/skills/install-from-file
   async installSkillFromFile(filePath: string): Promise<{ success: boolean; skill_name: string }> {
-    const response = await fetch(`${this.baseUrl}/api/skills/install-from-file`, {
+    const response = await this.request(`/api/skills/install-from-file`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ path: filePath })
@@ -2512,7 +2560,7 @@ data: <full EngineStreamEvent JSON>
 
   // Install from npm/GitHub/local path — POST /v1/skills/install-from-npm
   async installSkillFromNpm(source: string): Promise<{ success: boolean; skill_name: string }> {
-    const response = await fetch(`${this.baseUrl}/api/skills/install-from-npm`, {
+    const response = await this.request(`/api/skills/install-from-npm`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ source })
@@ -2542,7 +2590,7 @@ data: <full EngineStreamEvent JSON>
     return {}
   }
   async createSubAgent(payload: Omit<SubAgentEntry, 'type' | 'source'>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/sub-agents`, {
+    const response = await this.request(`/api/sub-agents`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify(payload)
@@ -2553,7 +2601,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async updateSubAgent(id: string, payload: Partial<SubAgentEntry>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/sub-agents/${encodeURIComponent(id)}`, {
+    const response = await this.request(`/api/sub-agents/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: this.headers,
       body: JSON.stringify(payload)
@@ -2564,7 +2612,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async deleteSubAgent(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/sub-agents/${encodeURIComponent(id)}`, {
+    const response = await this.request(`/api/sub-agents/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: this.headers
     })
@@ -2573,7 +2621,7 @@ data: <full EngineStreamEvent JSON>
     }
   }
   async cloneSubAgent(id: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/sub-agents/${encodeURIComponent(id)}/clone`, {
+    const response = await this.request(`/api/sub-agents/${encodeURIComponent(id)}/clone`, {
       method: 'POST',
       headers: this.headers
     })
@@ -2584,7 +2632,7 @@ data: <full EngineStreamEvent JSON>
   }
 
   async getMcpConfig(): Promise<McpConfigResponse> {
-    const response = await fetch(`${this.baseUrl}/api/mcp/config`, {
+    const response = await this.request(`/api/mcp/config`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -2598,7 +2646,7 @@ data: <full EngineStreamEvent JSON>
     }
   }
   async saveMcpConfig(config: { mcp_servers: Record<string, McpServerConfigEntry> }): Promise<McpConfigResponse> {
-    const response = await fetch(`${this.baseUrl}/api/mcp/config`, {
+    const response = await this.request(`/api/mcp/config`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ mcp_servers: config.mcp_servers })
@@ -2619,7 +2667,7 @@ data: <full EngineStreamEvent JSON>
     return []
   }
   async togglePlugin(id: string, enabled: boolean): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/plugins/${encodeURIComponent(id)}/toggle`, {
+    const response = await this.request(`/api/plugins/${encodeURIComponent(id)}/toggle`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({ enabled })
@@ -2630,7 +2678,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async getPluginDiscover(): Promise<{ plugins: DiscoverPlugin[] }> {
-    const response = await fetch(`${this.baseUrl}/api/plugins/discover`, {
+    const response = await this.request(`/api/plugins/discover`, {
       headers: this.headers
     })
     if (!response.ok) {
@@ -2639,7 +2687,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async installPlugin(id: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/plugins/${encodeURIComponent(id)}/install`, {
+    const response = await this.request(`/api/plugins/${encodeURIComponent(id)}/install`, {
       method: 'POST',
       headers: this.headers
     })
@@ -2649,7 +2697,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async checkPluginUpdates(): Promise<{ updates: Array<{ id: string; latest: string }> }> {
-    const response = await fetch(`${this.baseUrl}/api/plugins/check-updates`, {
+    const response = await this.request(`/api/plugins/check-updates`, {
       method: 'POST',
       headers: this.headers
     })
@@ -2671,7 +2719,7 @@ data: <full EngineStreamEvent JSON>
     return commands.find((c) => c.id === commandId) ?? null
   }
   async createCommand(payload: Omit<CommandEntry, 'source'>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/commands`, {
+    const response = await this.request(`/api/commands`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify(payload)
@@ -2682,7 +2730,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async updateCommand(id: string, payload: Partial<CommandEntry>): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}/api/commands/${encodeURIComponent(id)}`, {
+    const response = await this.request(`/api/commands/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: this.headers,
       body: JSON.stringify(payload)
@@ -2693,7 +2741,7 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
   async deleteCommand(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/commands/${encodeURIComponent(id)}`, {
+    const response = await this.request(`/api/commands/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: this.headers
     })
