@@ -558,9 +558,20 @@ async def start_turn(
 
             block = build_attachments_block(request, req.attachmentIds)
             if block:
-                effective_prompt = f"{block}\n\n{req.prompt}"
+                effective_prompt = f"{block}\n\n{effective_prompt}"
         except Exception:
             logger.debug("attachments injection failed", exc_info=True)
+
+    # 任务记忆注入（thread 作用域）：只注入本 thread 的用户管理记忆条目，
+    # 跨任务零污染。块由 task_memory 生成，空记忆不注入。
+    try:
+        from . import task_memory as _task_memory
+
+        mem_block = _task_memory.build_task_memory_block(thread_id)
+        if mem_block:
+            effective_prompt = f"{mem_block}\n\n{effective_prompt}"
+    except Exception:
+        logger.debug("task memory injection failed", exc_info=True)
 
     # 启动后台消费任务
     run.task = asyncio.create_task(

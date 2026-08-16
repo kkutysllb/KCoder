@@ -28,6 +28,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from . import task_memory
 
 logger = logging.getLogger("kcoder_gateway.memory")
 
@@ -44,6 +45,8 @@ class CreateMemoryRequest(BaseModel):
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     workspace: str | None = None
     project: str | None = None
+    # scope='task' 时必填：任务（thread）级记忆的归属线程
+    threadId: str | None = None
 
 
 class UpdateMemoryRequest(BaseModel):
@@ -133,8 +136,21 @@ async def list_memories(
     request: Request,
     workspace: str | None = Query(default=None),
     include_deleted: bool = Query(default=False),
+    threadId: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    """GET /v1/memory → { memories: [...] }."""
+    """GET /v1/memory → { memories: [...], taskThreads?: [...] }.
+
+    ``threadId`` 指定时只返回该任务的任务级记忆；否则返回用户级记忆 +
+    有任务记忆的线程概要（``taskThreads``，供设置面板选择器）。
+    """
+    if threadId:
+        entries = task_memory.list_entries(threadId)
+        return {
+            "memories": [
+                {**e, "scope": "task", "threadId": threadId} for e in entries
+            ]
+        }
+    task_threads = task_memory.list_threads_with_memory()
     manager = _get_manager()
     if manager is None:
         return {"memories": []}
@@ -156,13 +172,19 @@ async def list_memories(
         # QiLin has no workspace field on facts; filter to those whose content
         # or source references the workspace (best-effort).
         records = [r for r in records if workspace in (r.get("sourceThreadId") or "")]
-    return {"memories": records}
+    return {"memories": records, "taskThreads": task_threads}
 
 
 @router.post("")
 @router.post("/")
 async def create_memory(request: Request, payload: CreateMemoryRequest) -> dict[str, Any]:
     """POST /v1/memory → { memory: {...} }."""
+    # 任务级记忆：KCoder 产品层存储（thread 作用域，不依赖 QiLin enabled）
+    if payload.scope == "task":
+        if not payload.threadId:
+            raise HTTPException(status_code=400, detail="threadId required for scope='task'")
+        entry = task_memory.create_entry(payload.threadId, payload.content, payload.tags)
+        return {"memory": {**entry, "scope": "task", "threadId": payload.threadId}}
     manager = _get_manager()
     if manager is None:
         raise HTTPException(status_code=503, detail="Memory backend unavailable")
@@ -207,8 +229,13 @@ async def create_memory(request: Request, payload: CreateMemoryRequest) -> dict[
 
 
 @router.patch("/{memory_id}")
-async def update_memory(request: Request, memory_id: str, payload: UpdateMemoryRequest) -> dict[str, Any]:
-    """PATCH /v1/memory/:id → { memory: {...} }."""
+async def update_memory(request: Request, memory_id: str, payload: UpdateMemoryRequest, threadId: str | None = Query(default=None)) -> dict[str, Any]:
+    """PATCH /v1/memory/:id → { memory: {...} }。``threadId`` 指定时走任务记忆。"""
+    if threadId:
+        entry = task_memory.update_entry(threadId, memory_id, payload.content, payload.tags)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="task memory not found")
+        return {"memory": {**entry, "scope": "task", "threadId": threadId}}
     manager = _get_manager()
     if manager is None:
         raise HTTPException(status_code=503, detail="Memory backend unavailable")
@@ -236,8 +263,12 @@ async def update_memory(request: Request, memory_id: str, payload: UpdateMemoryR
 
 
 @router.delete("/{memory_id}")
-async def delete_memory(request: Request, memory_id: str) -> dict[str, Any]:
-    """DELETE /v1/memory/:id → { deleted: true }."""
+async def delete_memory(request: Request, memory_id: str, threadId: str | None = Query(default=None)) -> dict[str, Any]:
+    """DELETE /v1/memory/:id → { deleted: true }。``threadId`` 指定时走任务记忆。"""
+    if threadId:
+        if not task_memory.delete_entry(threadId, memory_id):
+            raise HTTPException(status_code=404, detail="task memory not found")
+        return {"deleted": True}
     manager = _get_manager()
     if manager is None:
         raise HTTPException(status_code=503, detail="Memory backend unavailable")

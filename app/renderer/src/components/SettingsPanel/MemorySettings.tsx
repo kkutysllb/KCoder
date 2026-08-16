@@ -4,6 +4,7 @@ import { useI18n } from '../../i18n'
 import {
   getEngineAPI,
   type MemoryRecord,
+  type TaskMemoryThread,
   type RuntimeConfig,
   type RuntimeConfigSection
 } from '../../services/engine-api'
@@ -90,6 +91,9 @@ export function MemorySettings() {
   const { t } = useI18n()
   const { enginePort, engineStatus, workspacePath } = useAppStore()
   const [memories, setMemories] = useState<MemoryRecord[]>([])
+  const [taskMemories, setTaskMemories] = useState<MemoryRecord[]>([])
+  const [taskThreads, setTaskThreads] = useState<TaskMemoryThread[]>([])
+  const [selectedTaskThread, setSelectedTaskThread] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
@@ -168,23 +172,37 @@ export function MemorySettings() {
     setError(null)
     try {
       const api = getEngineAPI(enginePort)
-      const list = await api.listMemories({ ...(workspacePath ? { workspace: workspacePath } : {}) })
+      const { memories: list, taskThreads } = await api.listMemories({ ...(workspacePath ? { workspace: workspacePath } : {}) })
       setMemories(list)
+      setTaskThreads(taskThreads)
+      // 任务记忆：加载选中线程（或第一个有记忆的线程）
+      const tid = selectedTaskThread || taskThreads[0]?.threadId
+      if (tid) {
+        const taskList = await api.listMemories({ threadId: tid })
+        setTaskMemories(taskList.memories)
+        if (!selectedTaskThread) setSelectedTaskThread(tid)
+      } else {
+        setTaskMemories([])
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }
-  }, [enginePort, engineStatus, workspacePath])
+  }, [enginePort, engineStatus, workspacePath, selectedTaskThread])
 
   useEffect(() => {
     loadMemories()
   }, [loadMemories])
 
-  const handleCreate = async (content: string, scope: 'user' | 'workspace' | 'project', tags: string[]): Promise<void> => {
+  const handleCreate = async (content: string, scope: 'user' | 'workspace' | 'project' | 'task', tags: string[], threadId?: string): Promise<void> => {
     try {
       const api = getEngineAPI(enginePort)
-      await api.createMemory({ content, scope, tags, ...(workspacePath ? { workspace: workspacePath } : {}) })
+      await api.createMemory({
+        content, scope, tags,
+        ...(scope === 'task' && threadId ? { threadId } : {}),
+        ...(scope !== 'task' && workspacePath ? { workspace: workspacePath } : {})
+      })
       setShowCreate(false)
       await loadMemories()
     } catch (e) {
@@ -195,7 +213,8 @@ export function MemorySettings() {
   const handleUpdate = async (id: string): Promise<void> => {
     try {
       const api = getEngineAPI(enginePort)
-      await api.updateMemory(id, { content: editContent })
+      const tid = memories.find((m) => m.id === id)?.threadId ?? taskMemories.find((m) => m.id === id)?.threadId
+      await api.updateMemory(id, { content: editContent, ...(tid ? { threadId: tid } : {}) })
       setEditingId(null)
       await loadMemories()
     } catch (e) {
@@ -206,7 +225,8 @@ export function MemorySettings() {
   const handleDelete = async (id: string): Promise<void> => {
     try {
       const api = getEngineAPI(enginePort)
-      await api.deleteMemory(id)
+      const tidDel = memories.find((m) => m.id === id)?.threadId ?? taskMemories.find((m) => m.id === id)?.threadId
+      await api.deleteMemory(id, tidDel)
       await loadMemories()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -290,6 +310,67 @@ export function MemorySettings() {
 
           {factsExpanded && (
             <>
+          {/* 任务记忆（thread 作用域）：切换任务的记忆选择器 + 列表 */}
+          <div className="rounded-xl border border-border-custom bg-bg-surface/50 p-3 mb-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs font-medium text-text-primary">
+                {t('settings.memory.taskSection')}
+                <span className="ml-1.5 text-[10px] font-normal text-text-muted">{t('settings.memory.taskHint')}</span>
+              </div>
+              {taskThreads.length > 0 && (
+                <select
+                  value={selectedTaskThread}
+                  onChange={(e) => setSelectedTaskThread(e.target.value)}
+                  className="max-w-[280px] rounded-md bg-bg-input border border-border-custom px-2 py-1 text-[11px] text-text-primary outline-none"
+                >
+                  {taskThreads.map((tt) => (
+                    <option key={tt.threadId} value={tt.threadId}>
+                      {tt.threadId.slice(0, 8)}… ({tt.count})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <div className="mt-2 space-y-1.5">
+              {taskMemories.length === 0 ? (
+                <div className="py-3 text-center text-[11px] text-text-muted">{t('settings.memory.taskEmpty')}</div>
+              ) : (
+                taskMemories.map((m) => (
+                  <div key={m.id} className="flex items-start gap-2 rounded-lg border border-border-custom bg-bg-input px-3 py-2">
+                    <span className="mt-0.5 text-[9px] px-1.5 py-0.5 rounded bg-info/15 text-info shrink-0">{t('settings.memory.taskScopeLabel')}</span>
+                    <div className="min-w-0 flex-1">
+                      {editingId === m.id ? (
+                        <div className="space-y-1.5">
+                          <textarea
+                            value={editContent}
+                            onChange={(e) => setEditContent(e.target.value)}
+                            rows={2}
+                            className="w-full px-2 py-1.5 rounded text-xs bg-bg-hover border border-border-custom text-text-primary outline-none focus:border-info resize-none"
+                          />
+                          <div className="flex justify-end gap-1.5">
+                            <button onClick={() => setEditingId(null)} className="px-2 py-0.5 rounded text-[11px] text-text-muted hover:bg-bg-hover">{t('common.cancel')}</button>
+                            <button onClick={() => handleUpdate(m.id)} className="px-2 py-0.5 rounded text-[11px] bg-white text-black hover:bg-gray-200">{t('common.save')}</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="text-xs text-text-primary break-words">{m.content}</p>
+                          <div className="mt-1 flex items-center gap-2 text-[10px] text-text-muted">
+                            {m.tags?.map((tag) => (
+                              <span key={tag} className="px-1 py-px rounded bg-bg-hover">#{tag}</span>
+                            ))}
+                            <button onClick={() => { setEditingId(m.id); setEditContent(m.content) }} className="hover:text-text-primary">{t('common.edit')}</button>
+                            <button onClick={() => handleDelete(m.id)} className="hover:text-danger">{t('common.delete')}</button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
           {/* Stats */}
           <div className="flex gap-3 text-xs text-text-muted mb-3">
             <span>{t('settings.memory.total')}: {memories.length}</span>
@@ -306,6 +387,7 @@ export function MemorySettings() {
             <CreateMemoryForm
               onSubmit={handleCreate}
               onCancel={() => setShowCreate(false)}
+              taskThreads={taskThreads}
             />
           )}
 
@@ -411,16 +493,17 @@ export function MemorySettings() {
   )
 }
 
-function CreateMemoryForm({ onSubmit, onCancel }: { onSubmit: (content: string, scope: 'user' | 'workspace' | 'project', tags: string[]) => void; onCancel: () => void }) {
+function CreateMemoryForm({ onSubmit, onCancel, taskThreads }: { onSubmit: (content: string, scope: 'user' | 'workspace' | 'project' | 'task', tags: string[], threadId?: string) => void; onCancel: () => void; taskThreads: TaskMemoryThread[] }) {
   const { t } = useI18n()
   const [content, setContent] = useState('')
-  const [scope, setScope] = useState<'user' | 'workspace' | 'project'>('workspace')
+  const [scope, setScope] = useState<'user' | 'workspace' | 'project' | 'task'>('workspace')
+  const [threadId, setThreadId] = useState('')
   const [tagsInput, setTagsInput] = useState('')
 
   const handleSubmit = (): void => {
     if (!content.trim()) return
     const tags = tagsInput.split(',').map((s) => s.trim()).filter(Boolean)
-    onSubmit(content.trim(), scope, tags)
+    onSubmit(content.trim(), scope, tags, scope === 'task' ? (threadId.trim() || taskThreads[0]?.threadId) : undefined)
   }
 
   return (
@@ -441,7 +524,35 @@ function CreateMemoryForm({ onSubmit, onCancel }: { onSubmit: (content: string, 
           <option value="user">user</option>
           <option value="workspace">workspace</option>
           <option value="project">project</option>
-        </select>
+          <option value="task">{t('settings.memory.scopeTask')}</option>
+</select>
+
+            {scope === 'task' && (
+              <div>
+                <label className="text-[11px] text-text-muted">{t('settings.memory.taskPick')}</label>
+                {taskThreads.length > 0 ? (
+                  <select
+                    value={threadId}
+                    onChange={(e) => setThreadId(e.target.value)}
+                    className="mt-1 w-full px-3 py-2 rounded-lg text-xs bg-bg-input border border-border-custom text-text-primary outline-none"
+                  >
+                    <option value="">{taskThreads[0] ? `${taskThreads[0].threadId.slice(0, 8)}…` : ''}</option>
+                    {taskThreads.map((tt) => (
+                      <option key={tt.threadId} value={tt.threadId}>
+                        {tt.threadId.slice(0, 8)}… ({tt.count})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={threadId}
+                    onChange={(e) => setThreadId(e.target.value)}
+                    placeholder={t('settings.memory.taskIdPlaceholder')}
+                    className="mt-1 w-full px-3 py-2 rounded-lg text-xs bg-bg-input border border-border-custom text-text-primary outline-none"
+                  />
+                )}
+              </div>
+            )}
         <input
           type="text"
           value={tagsInput}

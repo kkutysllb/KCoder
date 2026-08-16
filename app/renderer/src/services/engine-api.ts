@@ -185,21 +185,30 @@ export interface AttachmentMetadata {
 
 // ============ Memory types ============
 
-/** MemoryRecord — a persistent knowledge entry (legacy scope: user/workspace/project). */
+/** MemoryRecord — a persistent knowledge entry (scope: user/workspace/project/task)。 */
 export interface MemoryRecord {
   id: string
   content: string
-  scope: 'user' | 'workspace' | 'project'
+  scope: 'user' | 'workspace' | 'project' | 'task'
   tags: string[]
   confidence: number
   workspace?: string
   project?: string
+  /** scope='task'：所属任务（thread）id。 */
+  threadId?: string
   sourceThreadId?: string
   ownerUserId?: string
   createdAt: string
   updatedAt: string
   disabledAt?: string
   deletedAt?: string
+}
+
+/** 有任务记忆的线程概要（设置面板选择器）。 */
+export interface TaskMemoryThread {
+  threadId: string
+  count: number
+  updatedAt?: string
 }
 
 // ============ Runtime config types ============
@@ -2003,7 +2012,7 @@ data: <full EngineStreamEvent JSON>
   // to user/workspace and injected into context at turn time.
 
   /** List memories. GET /v1/memory?workspace=&include_deleted= */
-  async listMemories(opts?: { workspace?: string; includeDeleted?: boolean }): Promise<MemoryRecord[]> {
+  async listMemories(opts?: { workspace?: string; includeDeleted?: boolean; threadId?: string }): Promise<{ memories: MemoryRecord[]; taskThreads: TaskMemoryThread[] }> {
     const params = new URLSearchParams()
     if (opts?.workspace) params.set('workspace', opts.workspace)
     if (opts?.includeDeleted) params.set('include_deleted', 'true')
@@ -2013,11 +2022,14 @@ data: <full EngineStreamEvent JSON>
     })
     if (!response.ok) throw new Error(`Failed to list memories: ${response.statusText}`)
     const data = await response.json()
-    return (data.memories ?? []) as MemoryRecord[]
+    return {
+      memories: (data.memories ?? []) as MemoryRecord[],
+      taskThreads: (data.taskThreads ?? []) as TaskMemoryThread[]
+    }
   }
 
   /** Create a memory. POST /v1/memory { content, scope?, tags?, confidence?, workspace? } */
-  async createMemory(payload: { content: string; scope?: 'user' | 'workspace' | 'project'; tags?: string[]; confidence?: number; workspace?: string }): Promise<MemoryRecord> {
+  async createMemory(payload: { content: string; scope?: 'user' | 'workspace' | 'project' | 'task'; tags?: string[]; confidence?: number; workspace?: string; threadId?: string }): Promise<MemoryRecord> {
     const response = await fetch(`${this.baseUrl}/v1/memory`, {
       method: 'POST',
       headers: this.headers,
@@ -2032,11 +2044,13 @@ data: <full EngineStreamEvent JSON>
   }
 
   /** Update a memory. PATCH /v1/memory/:id { content?, tags?, confidence?, disabled? } */
-  async updateMemory(id: string, patch: { content?: string; tags?: string[]; confidence?: number; disabled?: boolean }): Promise<MemoryRecord> {
-    const response = await fetch(`${this.baseUrl}/v1/memory/${encodeURIComponent(id)}`, {
+  async updateMemory(id: string, patch: { content?: string; tags?: string[]; confidence?: number; disabled?: boolean; threadId?: string }): Promise<MemoryRecord> {
+    const qs = patch.threadId ? `?threadId=${encodeURIComponent(patch.threadId)}` : ''
+    const { threadId, ...body } = patch
+    const response = await fetch(`${this.baseUrl}/v1/memory/${encodeURIComponent(id)}${qs}`, {
       method: 'PATCH',
       headers: this.headers,
-      body: JSON.stringify(patch)
+      body: JSON.stringify(body)
     })
     if (!response.ok) {
       const detail = await response.text().catch(() => response.statusText)
@@ -2047,8 +2061,8 @@ data: <full EngineStreamEvent JSON>
   }
 
   /** Delete a memory (soft delete — tombstone). DELETE /v1/memory/:id */
-  async deleteMemory(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/v1/memory/${encodeURIComponent(id)}`, {
+  async deleteMemory(id: string, threadId?: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/v1/memory/${encodeURIComponent(id)}${threadId ? `?threadId=${encodeURIComponent(threadId)}` : ''}`, {
       method: 'DELETE',
       headers: this.headers
     })
