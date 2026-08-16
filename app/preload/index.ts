@@ -99,7 +99,38 @@ contextBridge.exposeInMainWorld('kcoder', {
 
   // Sub-agents config: trigger config.yaml re-sync after CRUD in Settings.
   // Main process reads sub_agents.json and injects custom_agents into config.yaml.
-  syncSubAgents: () => ipcRenderer.invoke('sub-agents:sync') as Promise<void>
+  syncSubAgents: () => ipcRenderer.invoke('sub-agents:sync') as Promise<void>,
+
+  // 产品级本地服务（2026-08 重构）：runtime-config / token-usage / workspace git。
+  // 自研 gateway 删除后由主进程 + python-runtime/product_services.py 提供。
+  local: {
+    runtimeConfig: {
+      get: (section?: string) =>
+        ipcRenderer.invoke('local:runtime-config-get', section) as Promise<unknown>,
+      set: (section: string, value: Record<string, unknown>) =>
+        ipcRenderer.invoke('local:runtime-config-set', section, value) as Promise<unknown>
+    },
+    tokenUsage: {
+      stats: (year?: number, month?: number) =>
+        ipcRenderer.invoke('local:token-usage-stats', year, month) as Promise<unknown>,
+      timeseries: (days?: number) =>
+        ipcRenderer.invoke('local:token-usage-timeseries', days) as Promise<unknown>
+    },
+    git: {
+      status: (repo: string) => ipcRenderer.invoke('local:git-status', repo) as Promise<unknown>,
+      createBranch: (repo: string, name: string) =>
+        ipcRenderer.invoke('local:git-branch-create', repo, name) as Promise<unknown>,
+      commit: (repo: string, message: string) =>
+        ipcRenderer.invoke('local:git-commit', repo, message) as Promise<unknown>,
+      push: (repo: string) => ipcRenderer.invoke('local:git-push', repo) as Promise<unknown>,
+      branches: (repo: string) =>
+        ipcRenderer.invoke('local:git-branches', repo) as Promise<unknown>,
+      log: (repo: string, n?: number) =>
+        ipcRenderer.invoke('local:git-log', repo, n) as Promise<unknown>,
+      repoExists: (repo: string) =>
+        ipcRenderer.invoke('local:repo-exists', repo) as Promise<boolean>
+    }
+  }
 })
 
 // Type declaration for the exposed API
@@ -145,6 +176,25 @@ declare global {
         showInFolder: (targetPath: string) => Promise<void>
       }
       syncSubAgents: () => Promise<void>
+      local: {
+        runtimeConfig: {
+          get: (section?: string) => Promise<unknown>
+          set: (section: string, value: Record<string, unknown>) => Promise<unknown>
+        }
+        tokenUsage: {
+          stats: (year?: number, month?: number) => Promise<unknown>
+          timeseries: (days?: number) => Promise<unknown>
+        }
+        git: {
+          status: (repo: string) => Promise<unknown>
+          createBranch: (repo: string, name: string) => Promise<unknown>
+          commit: (repo: string, message: string) => Promise<unknown>
+          push: (repo: string) => Promise<unknown>
+          branches: (repo: string) => Promise<unknown>
+          log: (repo: string, n?: number) => Promise<unknown>
+          repoExists: (repo: string) => Promise<boolean>
+        }
+      }
     }
   }
 }

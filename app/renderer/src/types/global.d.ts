@@ -32,6 +32,27 @@ interface ModelsBridge {
   discover: (input: unknown) => Promise<unknown>
 }
 
+/** 产品级本地服务（2026-08 重构：主进程 IPC + product_services.py）。 */
+interface LocalServicesBridge {
+  runtimeConfig: {
+    get: (section?: string) => Promise<unknown>
+    set: (section: string, value: Record<string, unknown>) => Promise<unknown>
+  }
+  tokenUsage: {
+    stats: (year?: number, month?: number) => Promise<unknown>
+    timeseries: (days?: number) => Promise<unknown>
+  }
+  git: {
+    status: (repo: string) => Promise<unknown>
+    createBranch: (repo: string, name: string) => Promise<unknown>
+    commit: (repo: string, message: string) => Promise<unknown>
+    push: (repo: string) => Promise<unknown>
+    branches: (repo: string) => Promise<unknown>
+    log: (repo: string, n?: number) => Promise<unknown>
+    repoExists: (repo: string) => Promise<boolean>
+  }
+}
+
 interface KcoderBridge {
   platform: NodeJS.Platform
   window: {
@@ -53,6 +74,7 @@ interface KcoderBridge {
   models: ModelsBridge
   /** Trigger config.yaml re-sync of sub_agents.json → custom_agents. */
   syncSubAgents: () => Promise<void>
+  local: LocalServicesBridge
 }
 
 declare global {

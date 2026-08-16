@@ -2197,8 +2197,16 @@ data: <full EngineStreamEvent JSON>
   // 读热重载后的生效值，写 config.yaml。覆盖 memory / summarization / title 三段。
   // PUT 后 QiLin signature 检测自动热重载（1-2s 内生效）。
 
-  /** 读取三段运行时配置生效值。 GET /v1/runtime-config */
+  /** 读取三段运行时配置生效值。2026-08 重构：主进程 IPC（product_services.py） */
   async getRuntimeConfig(): Promise<RuntimeConfig> {
+    if (window.kcoder?.local?.runtimeConfig) {
+      const data = (await window.kcoder.local.runtimeConfig.get()) as Record<string, unknown>
+      return {
+        ...(data as unknown as RuntimeConfig),
+        tokenUsage: (data.token_usage ?? {}) as TokenUsageConfig,
+        tokenBudget: (data.token_budget ?? {}) as TokenBudgetConfig
+      } as RuntimeConfig
+    }
     const response = await fetch(`${this.baseUrl}/api/runtime-config`, {
       headers: this.headers
     })
@@ -2213,11 +2221,15 @@ data: <full EngineStreamEvent JSON>
     } as RuntimeConfig
   }
 
-  /** 写单段配置到 config.yaml。 PUT /v1/runtime-config/{section} */
+  /** 写单段配置到 config.yaml。2026-08 重构：主进程 IPC（PyYAML 安全合并） */
   async updateRuntimeConfigSection<S extends RuntimeConfigSection>(
     section: S,
     value: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
+    if (window.kcoder?.local?.runtimeConfig) {
+      const result = await window.kcoder.local.runtimeConfig.set(section, value)
+      return result as Record<string, unknown>
+    }
     const response = await fetch(`${this.baseUrl}/api/runtime-config/${section}`, {
       method: 'PUT',
       headers: { ...this.headers, 'Content-Type': 'application/json' },
@@ -2236,6 +2248,11 @@ data: <full EngineStreamEvent JSON>
 
   /** 全局 token 用量统计。 GET /v1/token-usage/stats?year=&month= */
   async getTokenUsageStats(filter?: MonthFilter): Promise<TokenUsageStats> {
+    // 2026-08 重构：主进程 IPC（product_services.py 聚合 runs 表）
+    if (window.kcoder?.local?.tokenUsage) {
+      const data = await window.kcoder.local.tokenUsage.stats(filter?.year, filter?.month)
+      return data as TokenUsageStats
+    }
     const params = new URLSearchParams()
     if (filter) {
       params.set('year', String(filter.year))
@@ -2249,8 +2266,12 @@ data: <full EngineStreamEvent JSON>
     return response.json()
   }
 
-  /** 按天×模型 token 用量时间序列。 GET /v1/token-usage/timeseries */
+  /** 按天×模型 token 用量时间序列。2026-08 重构：主进程 IPC */
   async getTokenUsageTimeseries(days = 30, filter?: MonthFilter): Promise<TokenUsageTimeseriesItem[]> {
+    if (window.kcoder?.local?.tokenUsage) {
+      const data = await window.kcoder.local.tokenUsage.timeseries(days)
+      return (data as TokenUsageTimeseriesItem[]) ?? []
+    }
     const params = new URLSearchParams({ days: String(days) })
     if (filter) {
       params.set('year', String(filter.year))

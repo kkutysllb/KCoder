@@ -16,8 +16,46 @@ import {
   type ModelProfileInput
 } from './models'
 import { syncSubAgents } from './sub-agent-injector'
+import {
+  initLocalServices,
+  getRuntimeConfig,
+  updateRuntimeConfigSection,
+  getTokenUsageStats,
+  getTokenUsageTimeseries,
+  gitStatus,
+  gitCreateBranch,
+  gitCommit,
+  gitPush,
+  gitBranchList,
+  gitLog,
+  repoExists
+} from './local-services'
 
 let mainWindow: BrowserWindow | null = null
+
+/**
+ * 产品级本地服务 IPC（2026-08 重构）：
+ * runtime-config / token-usage / workspace git 由主进程提供。
+ */
+function setupLocalServicesIPC(): void {
+  ipcMain.handle('local:runtime-config-get', (_e, section?: string) =>
+    getRuntimeConfig(section))
+  ipcMain.handle('local:runtime-config-set', (_e, section: string, value: Record<string, unknown>) =>
+    updateRuntimeConfigSection(section, value))
+  ipcMain.handle('local:token-usage-stats', (_e, year?: number, month?: number) =>
+    getTokenUsageStats(year, month))
+  ipcMain.handle('local:token-usage-timeseries', (_e, days?: number) =>
+    getTokenUsageTimeseries(days))
+  ipcMain.handle('local:git-status', (_e, repo: string) => gitStatus(repo))
+  ipcMain.handle('local:git-branch-create', (_e, repo: string, name: string) =>
+    gitCreateBranch(repo, name))
+  ipcMain.handle('local:git-commit', (_e, repo: string, message: string) =>
+    gitCommit(repo, message))
+  ipcMain.handle('local:git-push', (_e, repo: string) => gitPush(repo))
+  ipcMain.handle('local:git-branches', (_e, repo: string) => gitBranchList(repo))
+  ipcMain.handle('local:git-log', (_e, repo: string, n?: number) => gitLog(repo, n))
+  ipcMain.handle('local:repo-exists', (_e, repo: string) => repoExists(repo))
+}
 
 /**
  * Register product-side model management IPC handlers.
@@ -79,6 +117,15 @@ async function bootstrap(): Promise<void> {
   console.log('[KCoder] Starting engine...')
   await startEngine()
   console.log(`[KCoder] Engine started on port ${getEnginePort()}`)
+
+  // 本地服务初始化（product_services.py 依赖 python-runtime 与数据根）
+  initLocalServices({
+    runtimeDir: join(__dirname, '..', '..', '..', 'python-runtime'),
+    dataDir: getEngineDataDir()
+  })
+
+  // Register product-local services IPC（runtime-config/token-usage/git）
+  setupLocalServicesIPC()
 
   // Register model management IPC (after engine dataDir is known)
   setupModelIPC()
