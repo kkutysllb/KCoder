@@ -163,6 +163,25 @@ UI 无提示 → 用户看到「没有提示，直接停住」（isGenerating �
 - 只提示一次（`lostNotified` 去重）；正常终态与用户主动中止（AbortError）不提示
 - 看门狗仍随后兜底判死（240s 后 interruptTurn 真取消），两级提示递进
 
+### 修正（2026-08-16 实测）：10 分钟 safety timeout 误报「连接中断」
+
+**现象**：用户实测长任务（grep 工具执行 612s + LLM 时间）时收到「与引擎的连接
+已中断，任务可能仍在后台执行」提示，任务"自己停止"——但引擎 run 实际正常
+（17 分钟后 `Background run succeeded`，日志实证）。
+
+**根因**：engine-api 的 10 分钟 safety timeout（600s）≤ 长工具上限
+（bash_command_timeout=600s）+ LLM 延迟 → **正常长工具必触发 timeout**；
+且 timeout 不代表连接断（SSE 心跳一直正常），提示在 timeout 路径被误触发，
+文案误导。
+
+**修复**（层级必须满足 工具超时 < 看门狗 < safety timeout）：
+- engine-api：safety timeout 10min → **15min（900s）**，且**静默**（不提示——
+  它不代表连接断；看门狗会先触发并给出正确判定+真取消）
+- useChat：业务活性看门狗 720s → **840s（14 分钟）**（> 600s 工具超时 + 余量）
+- 重连放弃路径的「连接中断」提示保留（该路径语义正确）
+
+**验证**：tsc 通过。日志实证：长工具静默 612s 不再触发任何误报；run 正常完成。
+
 ### 中断路径全景（全链路）
 
 | # | 中断路径 | 状态 |

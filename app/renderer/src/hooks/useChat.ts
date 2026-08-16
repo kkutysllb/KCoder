@@ -440,14 +440,16 @@ export function useChat() {
         // 双看门狗：
         //   a. 连接活性（WATCHDOG_FRAME_MS）：240s 无任何帧（含 gateway 心跳
         //      `: ping`，engine-api 已转为 heartbeat 事件）→ 连接死/网关挂了。
-        //   b. 业务活性（WATCHDOG_EVENT_MS）：12 分钟无任何业务事件但连接还
-        //      活着 → run 疑似卡死（长工具由 bash_command_timeout=600s 兜底，
-        //      正常业务事件间隔不会超过 ~10 分钟，12 分钟留足余量）。
+        //   b. 业务活性（WATCHDOG_EVENT_MS）：14 分钟无任何业务事件但连接还
+        //      活着 → run 疑似卡死。层级必须满足：长工具超时
+        //      （bash_command_timeout=600s）< 看门狗 < engine-api 的 15 分钟
+        //      safety timeout（否则长工具/慢模型响应会先被误杀——实测 grep
+        //      工具执行 612s + LLM 时间曾触发 10min timeout 误报「连接中断」）。
         // 触发时：解除前端等待（abortCurrentTurnWait）+ 真正 interruptTurn
         // 取消引擎侧 run——不再「假终止」（旧实现只解锁 UI，run 在后台继续
         // 跑，直到用户重发消息才被队列排毒杀掉）。
         const WATCHDOG_FRAME_MS = 240_000
-        const WATCHDOG_EVENT_MS = 720_000
+        const WATCHDOG_EVENT_MS = 840_000
         let lastFrame = Date.now() // 任何帧（含心跳）
         let lastEvent = Date.now() // 业务事件
         const watchdogTimer = setInterval(() => {

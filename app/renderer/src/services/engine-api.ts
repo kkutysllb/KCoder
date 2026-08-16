@@ -1214,11 +1214,15 @@ export class EngineAPI {
         finish()
       })
 
-      // Safety timeout (10 minutes) in case the turn-terminal event is missed.
-      setTimeout(() => {
-        notifyConnectionLost()
-        finish()
-      }, 10 * 60 * 1000)
+      // Safety timeout: last-resort guard in case the turn-terminal event is
+      // missed. MUST be longer than the watchdog's business-activity window
+      // (useChat WATCHDOG_EVENT_MS = 840s) AND longer than a legitimate long
+      // tool call (bash_command_timeout = 600s + model latency), otherwise a
+      // normally-running long tool trips it. It is deliberately SILENT: unlike
+      // the reconnect-giveup path, this does NOT mean the connection is lost —
+      // the engine may be healthily mid-tool — so no "connection lost" notice.
+      // (The watchdog fires first with the correct verdict + engine cancel.)
+      setTimeout(finish, 15 * 60 * 1000)
     })
   }
 
