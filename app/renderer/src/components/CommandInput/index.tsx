@@ -897,6 +897,21 @@ export function CommandInput({
                 </svg>
               )}
             </button>
+
+            {/* 手动压缩上下文（长任务历史摘要；运行中禁用） */}
+            {onCompact && (
+              <button
+                type="button"
+                onClick={onCompact}
+                disabled={isGenerating}
+                title={t('input.compactContext')}
+                className="text-text-muted hover:text-text-primary transition-colors disabled:opacity-40 disabled:hover:text-text-muted"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 9V6a2 2 0 012-2h3M20 9V6a2 2 0 00-2-2h-3M4 15v3a2 2 0 002 2h3M20 15v3a2 2 0 01-2 2h-3M9 12h6" />
+                </svg>
+              </button>
+            )}
             <div className="relative" ref={permMenuRef}>
               <button
                 className="composer-chip"

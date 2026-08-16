@@ -9,7 +9,7 @@ import { getGeneralPref } from '../../lib/generalPrefs'
 import { StatusBar } from '../StatusBar'
 
 export function ChatPanel() {
-  const { messages_v2, isGenerating, sendMessage, editAndResend, regenerate, stopGeneration, steer, executeQueuedNow, approveOperation, rejectOperation, approvePlan, rejectPlan, writeChangelog } = useChat()
+  const { messages_v2, isGenerating, sendMessage, editAndResend, regenerate, stopGeneration, steer, executeQueuedNow, approveOperation, rejectOperation, approvePlan, rejectPlan, writeChangelog, compactContext } = useChat()
   const feedRef = useRef<ChatFeedHandle>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const selectedModel = useAppStore((s) => s.selectedModel)
@@ -138,6 +138,7 @@ export function ChatPanel() {
             onSteer={steer}
             onQueue={handleQueue}
             showDirBar={false}
+            onCompact={compactContext}
           />
         </div>
       )}
