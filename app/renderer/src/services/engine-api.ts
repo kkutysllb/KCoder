@@ -1192,11 +1192,35 @@ export class EngineAPI {
       const finish = () => {
         if (resolved) return
         resolved = true
+        if (safetyTimer) clearTimeout(safetyTimer)
         this.turnExternalResolve = null
         controller.abort()
         resolve()
       }
       this.turnExternalResolve = finish
+
+      // Safety timeout: last-resort guard in case the turn-terminal event is
+      // missed. MUST be longer than the watchdog's business-activity window
+      // (useChat WATCHDOG_EVENT_MS = 840s) AND longer than a legitimate long
+      // tool call (bash_command_timeout = 600s + model latency), otherwise a
+      // normally-running long tool trips it. It is deliberately SILENT: unlike
+      // the reconnect-giveup path, this does NOT mean the connection is lost —
+      // the engine may be healthily mid-tool — so no "connection lost" notice.
+      // (The watchdog fires first with the correct verdict + engine cancel.)
+      //
+      // 滑动窗口：只在「连续 15 分钟无任何业务事件」时触发（每收到一帧业务
+      // 事件重置计时）。历史实现按 turn 总时长 15min 一次计时，正常推进的
+      // 长任务（多轮子代理/长工具链，每轮都有事件但总时长超 15min）会被
+      // 误杀：finish → controller.abort() → SSE 断开 → 引擎 on_disconnect=
+      // cancel 取消仍在正常执行的 run（实测：run 21:52:49 开始，22:07:49
+      // 恰好 15min 整点被 interrupted）。心跳帧（`: ping`）不重置——它只
+      // 证明连接活着，不证明业务推进；业务事件的判定见 dispatchFrame。
+      let safetyTimer: ReturnType<typeof setTimeout> | null = null
+      const armSafety = () => {
+        if (safetyTimer) clearTimeout(safetyTimer)
+        safetyTimer = setTimeout(finish, 15 * 60 * 1000)
+      }
+      armSafety()
 
       // 事件 seq 去重（Phase C2）：重连补发与实时流可能重叠，按 eventId
       // 单调递增跳过已处理事件，保证文本增量等幂等消费（不重复、不乱序）。
@@ -1217,6 +1241,8 @@ export class EngineAPI {
           for (const ev of events) {
             onEvent({ kind: ev.kind, data: ev as unknown as Record<string, unknown> })
           }
+          // 业务事件到达 → 重置 safety timeout 滑动窗口（心跳帧不走本函数）
+          armSafety()
           // Terminate once the current turn reaches a terminal state.
           const terminalKind = events.find(
             (ev) => ev.kind === 'turn_completed' || ev.kind === 'turn_failed' || ev.kind === 'turn_aborted'
@@ -1333,16 +1359,6 @@ export class EngineAPI {
         notifyConnectionLost()
         finish()
       })
-
-      // Safety timeout: last-resort guard in case the turn-terminal event is
-      // missed. MUST be longer than the watchdog's business-activity window
-      // (useChat WATCHDOG_EVENT_MS = 840s) AND longer than a legitimate long
-      // tool call (bash_command_timeout = 600s + model latency), otherwise a
-      // normally-running long tool trips it. It is deliberately SILENT: unlike
-      // the reconnect-giveup path, this does NOT mean the connection is lost —
-      // the engine may be healthily mid-tool — so no "connection lost" notice.
-      // (The watchdog fires first with the correct verdict + engine cancel.)
-      setTimeout(finish, 15 * 60 * 1000)
     })
   }
 
