@@ -865,7 +865,8 @@ export class EngineAPI {
       const csrf = this.csrfToken()
       if (csrf) extraHeaders['X-CSRF-Token'] = csrf
     }
-    return this.request(`${path}`, {
+    // 注意：此处必须是全局 fetch——批量替换曾误伤本行导致无限递归
+    return fetch(`${this.baseUrl}${path}`, {
       ...init,
       credentials: 'include',
       headers: { ...this.headers, ...extraHeaders, ...(init.headers as Record<string, string> | undefined) }
