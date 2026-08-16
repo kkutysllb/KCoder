@@ -814,6 +814,10 @@ def _message_to_item(msg: dict[str, Any]) -> dict[str, Any] | None:
         reasoning = _extract_reasoning_text(msg)
         if reasoning:
             item["reasoning"] = reasoning
+        # token 用量（历史恢复上下文统计用，见 thread_log.usage_from_msg）
+        usage = thread_log.usage_from_msg(msg)
+        if usage:
+            item["usage"] = usage
         # 附带工具调用（如果有）
         tool_calls = msg.get("tool_calls") or []
         if tool_calls:

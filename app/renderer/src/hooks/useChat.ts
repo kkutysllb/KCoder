@@ -592,6 +592,19 @@ export function useChat() {
                 }
               }
 
+              // token 用量（历史恢复：state/thread-log 翻译带出，上下文统计不再清零）
+              const rawUsage = item.usage as { promptTokens?: number; completionTokens?: number; totalTokens?: number } | undefined
+              if (rawUsage && (rawUsage.promptTokens ?? 0) > 0) {
+                cur = {
+                  ...cur,
+                  usage: {
+                    promptTokens: rawUsage.promptTokens ?? 0,
+                    completionTokens: rawUsage.completionTokens ?? 0,
+                    totalTokens: rawUsage.totalTokens ?? 0
+                  }
+                }
+              }
+
               // 工具调用（后端字段名 toolName）
               const rawToolCalls = (item.toolCalls as Array<Record<string, unknown>>) ?? []
               if (rawToolCalls.length > 0) {

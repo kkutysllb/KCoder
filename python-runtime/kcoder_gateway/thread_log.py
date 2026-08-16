@@ -240,6 +240,28 @@ def _extract_reasoning(msg: dict[str, Any]) -> str:
     return ""
 
 
+def usage_from_msg(msg: dict[str, Any]) -> dict[str, Any] | None:
+    """从 LangChain AI 消息提取 token 用量（KCoder 前端格式）。
+
+    ``usage_metadata`` 是 langchain-core 标准（引擎 adapter 写入）；
+    OpenAI 兼容的 ``additional_kwargs.usage`` 兜底。历史链路（state 翻译
+    / thread-log 落盘）恢复消息时用它还原上下文统计——此前 usage 只存在
+    于实时 SSE 流，任务切换再切回后统计清零。
+    """
+    im = msg.get("usage_metadata")
+    if isinstance(im, dict):
+        inp, out, tot = int(im.get("input_tokens") or 0), int(im.get("output_tokens") or 0), int(im.get("total_tokens") or 0)
+        if tot > 0 or inp > 0 or out > 0:
+            return {"promptTokens": inp, "completionTokens": out, "totalTokens": tot or inp + out}
+    ak = msg.get("additional_kwargs") or {}
+    u = ak.get("usage")
+    if isinstance(u, dict):
+        inp, out = int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
+        if inp > 0 or out > 0:
+            return {"promptTokens": inp, "completionTokens": out, "totalTokens": int(u.get("total_tokens") or inp + out)}
+    return None
+
+
 def message_to_item(msg: dict[str, Any]) -> dict[str, Any] | None:
     """单条 LangChain message dict → KCoder TurnItem（与实时 SSE 语义对齐）。"""
     if not isinstance(msg, dict):
@@ -274,6 +296,9 @@ def message_to_item(msg: dict[str, Any]) -> dict[str, Any] | None:
         reasoning = _extract_reasoning(msg)
         if reasoning:
             item["reasoning"] = reasoning
+        usage = usage_from_msg(msg)
+        if usage:
+            item["usage"] = usage
         tool_calls = msg.get("tool_calls") or []
         if tool_calls:
             item["toolCalls"] = [
@@ -324,10 +349,15 @@ def items_from_sse_events(
     """
     text_parts: list[str] = []
     tools: dict[str, dict[str, Any]] = {}
+    usage: dict[str, Any] | None = None
 
     for ev in events:
         kind = ev.get("kind")
-        if kind == "assistant_text_delta":
+        if kind == "usage":
+            u = ev.get("usage")
+            if isinstance(u, dict):
+                usage = u
+        elif kind == "assistant_text_delta":
             text_parts.append(str(ev.get("delta") or ""))
         elif kind == "tool_call_started":
             call_id = str(ev.get("callId") or "")
@@ -354,6 +384,8 @@ def items_from_sse_events(
         "role": "assistant",
         "text": "".join(text_parts),
     }
+    if usage:
+        assistant["usage"] = usage
     if tools:
         assistant["toolCalls"] = [
             {
