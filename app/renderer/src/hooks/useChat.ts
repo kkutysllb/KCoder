@@ -489,7 +489,10 @@ export function useChat() {
           permissionMode: useAppStore.getState().permissionMode,
           approvedOps: approvedOpsRef.current.length > 0 ? [...approvedOpsRef.current] : undefined,
           // 手动压缩 turn：引擎绕过自动阈值强制压缩
-          forceCompact: options?.forceCompact
+          forceCompact: options?.forceCompact,
+          // 静默结束提示（防线2c）：SSE 重连放弃 / 10 分钟兜底时主动上报，
+          // 不再「没有提示直接停住」
+          connectionLostMessage: t('chat.connectionLost')
         })
 
         // 立即设置 activeTurnId — 停止按钮和 steer 依赖它

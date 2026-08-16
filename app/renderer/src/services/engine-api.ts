@@ -957,11 +957,11 @@ export class EngineAPI {
     attachmentIds?: string[],
     model?: string,
     reasoningMode?: 'auto' | 'off' | 'low' | 'medium' | 'high',
-    options?: { subagentEnabled?: boolean; isPlanMode?: boolean; permissionMode?: string; approvedOps?: string[]; forceCompact?: boolean }
+    options?: { subagentEnabled?: boolean; isPlanMode?: boolean; permissionMode?: string; approvedOps?: string[]; forceCompact?: boolean; connectionLostMessage?: string }
   ): Promise<string> {
     // 默认启用子代理（task 工具 → InfoPanel「智能体」段）与计划模式
     // （write_todos 工具 → InfoPanel「进度」段）。可经 options 关闭。
-    const { subagentEnabled = true, isPlanMode = true, permissionMode, approvedOps, forceCompact } = options ?? {}
+    const { subagentEnabled = true, isPlanMode = true, permissionMode, approvedOps, forceCompact, connectionLostMessage } = options ?? {}
     const turnResponse = await fetch(`${this.baseUrl}/v1/threads/${threadId}/turns`, {
       method: 'POST',
       headers: this.headers,
@@ -989,7 +989,7 @@ export class EngineAPI {
     // 不 await — SSE 订阅是 fire-and-forget，让调用方立即拿到 turnId（用于设置 activeTurnId、
     // 停止按钮等）。如果 await，turnId 直到 turn 完成才返回，activeTurnId 在运行期间永远为 null。
     // 存储 promise 供 waitForTurnCompletion 使用。
-    this.turnCompletion = this.subscribeToThread(threadId, turn.turnId, onEvent)
+    this.turnCompletion = this.subscribeToThread(threadId, turn.turnId, onEvent, connectionLostMessage)
     return turn.turnId
   }
 
@@ -1031,7 +1031,8 @@ export class EngineAPI {
   private subscribeToThread(
     threadId: string,
     turnId: string,
-    onEvent: (event: SSEEvent) => void
+    onEvent: (event: SSEEvent) => void,
+    connectionLostMessage?: string
   ): Promise<void> {
     const url = `${this.baseUrl}/v1/threads/${threadId}/events`
     const controller = new AbortController()
@@ -1050,6 +1051,24 @@ export class EngineAPI {
       let resolved = false
       let terminal = false // turn reached a terminal state → success, no retry
       let lastEventId = '' // best-effort resume hint (backend may ignore)
+
+      // 静默结束提示（执行层防线2c）：重连放弃 / 流异常 / 10 分钟兜底
+      // 这些路径此前只写 console，UI 无任何提示 → 用户看到「没有提示，直接
+      // 停住」（isGenerating 悬挂到看门狗 240s 才报错）。现在主动发 error
+      // 事件（带文案，由调用方注入 i18n），并保证只提示一次、正常终态与
+      // 用户主动中止（AbortError）不提示。
+      let terminalReached = false
+      let lostNotified = false
+      const notifyConnectionLost = () => {
+        if (lostNotified || terminalReached || controller.signal.aborted) return
+        if (!connectionLostMessage) return
+        lostNotified = true
+        try {
+          onEvent({ kind: 'error', data: { message: connectionLostMessage } })
+        } catch (e) {
+          console.error('[KCoder] failed to notify connection lost:', e)
+        }
+      }
 
       const finish = () => {
         if (resolved) return
@@ -1085,6 +1104,7 @@ export class EngineAPI {
             const eventTurnId = data.turnId as string | undefined
             if (!eventTurnId || eventTurnId === turnId) {
               terminal = true
+              terminalReached = true
               finish()
             }
           }
@@ -1165,6 +1185,7 @@ export class EngineAPI {
             if (controller.signal.aborted) break
             if (retries >= MAX_RETRIES) {
               console.error('[KCoder] SSE stream ended without terminal event; giving up after retries')
+              notifyConnectionLost()
               break
             }
           } catch (e) {
@@ -1173,6 +1194,7 @@ export class EngineAPI {
             if (controller.signal.aborted) break
             if (retries >= MAX_RETRIES) {
               console.error('[KCoder] SSE stream error; giving up after retries:', e)
+              notifyConnectionLost()
               break
             }
             console.warn(`[KCoder] SSE stream dropped (attempt ${retries + 1}), reconnecting...`, e)
@@ -1186,10 +1208,17 @@ export class EngineAPI {
         if ((e as Error).name !== 'AbortError') {
           console.error('[KCoder] SSE reconnect loop error:', e)
         }
-      }).finally(() => finish())
+      }).finally(() => {
+        // 兜底：重连循环异常退出且非正常终态/非用户中止 → 仍要提示
+        notifyConnectionLost()
+        finish()
+      })
 
       // Safety timeout (10 minutes) in case the turn-terminal event is missed.
-      setTimeout(finish, 10 * 60 * 1000)
+      setTimeout(() => {
+        notifyConnectionLost()
+        finish()
+      }, 10 * 60 * 1000)
     })
   }
 
