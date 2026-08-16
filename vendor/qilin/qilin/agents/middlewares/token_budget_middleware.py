@@ -51,9 +51,14 @@ from qilin.config.token_budget_config import TokenBudgetConfig
 logger = logging.getLogger(__name__)
 
 _BUDGET_WARNING_MSG = (
-    "[TOKEN BUDGET WARNING] You have used {used:,} of your {budget:,} {reason} token budget ({percent:.0f}%). Wrap up your current work and produce a final answer. Avoid starting new tool calls unless absolutely necessary."
+    "[TOKEN BUDGET WARNING] You have used {used:,} of your {budget:,} {reason} token budget ({percent:.0f}%). The window will auto-reset when the limit is reached — continue the current task normally."
 )
-_BUDGET_EXCEEDED_MSG = "[TOKEN BUDGET EXCEEDED] The {reason} token usage ({used:,}) has exceeded the safety limit ({budget:,}). Producing final answer with results collected so far."
+# 产品原则（KCoder）：预算打满 ≠ 中断任务。窗口耗尽时自动清零、注入
+# 续跑提示，run 继续执行直到任务真正完成——绝不剥离工具调用强制收尾
+# （长任务半途而废的成本远高于 token 成本）。
+_BUDGET_RESET_MSG = (
+    "[TOKEN BUDGET RESET] The {reason} token usage ({used:,}) reached the window limit ({budget:,}) and the budget was automatically reset. Do NOT wrap up — continue executing the current task until it is truly complete."
+)
 
 
 @dataclass
@@ -94,13 +99,14 @@ class TokenBudgetMiddleware(AgentMiddleware[AgentState]):
             self._stop_reason.clear()
 
     def consume_stop_reason(self, run_id: str | None) -> str | None:
-        """Pop and return the stop reason the hard-stop set for this run.
+        """Pop and return the stop reason set for this run.
 
-        Returns ``"token_capped"`` when the budget hard-stop fired during the
-        run, otherwise ``None``. The executor calls this after the run returns
-        to decide whether a completed subagent was actually budget-capped
-        (and should carry ``stop_reason=token_capped`` to the lead). Popping
-        keeps the dict from accumulating across runs on a reused instance.
+        Returns ``"token_budget_reset"`` when the budget window was exhausted
+        and auto-reset mid-run (task continues), otherwise ``None``. The
+        executor calls this after the run returns to decide whether a completed
+        subagent crossed a budget window (and should carry
+        ``stop_reason=token_budget_reset`` to the lead). Popping keeps the dict
+        from accumulating across runs on a reused instance.
         """
         with self._lock:
             return self._stop_reason.pop(run_id, None)
@@ -155,38 +161,6 @@ class TokenBudgetMiddleware(AgentMiddleware[AgentState]):
     @override
     async def aafter_agent(self, state: AgentState, runtime: Runtime) -> None:
         self.after_agent(state, runtime)
-
-    @staticmethod
-    def _append_text(content: str | list[dict | None] | None, stop_msg: str) -> str | list[dict | str]:
-        """Append a stop message to an AIMessage.content field."""
-        if content is None:
-            return stop_msg
-        if isinstance(content, str):
-            if content:
-                return f"{content}\n\n{stop_msg}"
-            return f"\n\n{stop_msg}"
-        if isinstance(content, list):
-            new_content = list(content)
-            new_content.append({"type": "text", "text": f"\n\n{stop_msg}"})
-            return new_content
-        return f"{content}\n\n{stop_msg}"
-
-    def _build_hard_stop_update(self, msg: AIMessage, stop_msg: str) -> dict[str, Any]:
-        """Build the state update dictionary for a hard stop."""
-        updated_content = self._append_text(msg.content, stop_msg)
-        kwargs = dict(msg.additional_kwargs) if msg.additional_kwargs else {}
-        if "tool_calls" in kwargs:
-            del kwargs["tool_calls"]
-        if "function_call" in kwargs:
-            del kwargs["function_call"]
-
-        response_metadata = dict(getattr(msg, "response_metadata", {}) or {})
-
-        if response_metadata.get("finish_reason") == "tool_calls":
-            response_metadata["finish_reason"] = "stop"
-
-        stopped_msg = msg.model_copy(update={"content": updated_content, "tool_calls": [], "additional_kwargs": kwargs, "response_metadata": response_metadata})
-        return {"messages": [stopped_msg]}
 
     def _apply(self, state: AgentState, runtime: Runtime) -> dict | None:
         if not self._config.enabled:
@@ -249,19 +223,31 @@ class TokenBudgetMiddleware(AgentMiddleware[AgentState]):
                     trigger_budget = limit
 
             if highest_fraction >= self._config.hard_stop_threshold:
-                logger.warning("Token budget hard stop triggered for run %s: %s limit exceeded", run_id, trigger_reason)
-                # Record the stop reason so the executor can surface
-                # ``stop_reason=token_capped`` to the lead after the run
-                # returns (the hard stop itself does not raise). See
-                # ``consume_stop_reason``.
-                self._stop_reason[run_id] = "token_capped"
+                # 产品原则：预算窗口耗尽 ≠ 中断任务。清零累计用量并注入
+                # 续跑提示，run 继续执行直到任务真正完成（不再剥离
+                # tool_calls 强制收尾——长任务半途而废不可接受）。
+                # 注意：_seen_messages 必须保留（已计入的旧消息不能重复
+                # 计入新窗口，否则会立即再次耗尽形成重置死循环）；仅重置
+                # 累计值与 warning 标记。
+                logger.warning(
+                    "Token budget window exhausted for run %s: %s limit exceeded — auto-resetting budget, task continues",
+                    run_id, trigger_reason,
+                )
+                self._stop_reason[run_id] = "token_budget_reset"
                 # Also write to runtime.context so the lead worker can read it
                 # without needing a reference to this middleware instance (#4176).
                 ctx = getattr(runtime, "context", None)
                 if isinstance(ctx, dict):
-                    ctx["stop_reason"] = "token_capped"
-                stop_text = _BUDGET_EXCEEDED_MSG.format(reason=trigger_reason, used=trigger_used, budget=trigger_budget)
-                return self._build_hard_stop_update(last_msg, stop_text)
+                    ctx["stop_reason"] = "token_budget_reset"
+                # 注意：本函数入口已持有 self._lock（不可重入），直接改字段
+                self._cumulative_usage[run_id] = TokenUsage()
+                self._warned[run_id] = False
+                reset_text = _BUDGET_RESET_MSG.format(
+                    reason=trigger_reason, used=trigger_used, budget=trigger_budget
+                )
+                warnings = self._pending_warnings.setdefault(run_id, [])
+                warnings.append(reset_text)
+                return None
 
             if highest_fraction >= self._config.warn_threshold and not self._warned.get(run_id, False):
                 self._warned[run_id] = True
