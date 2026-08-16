@@ -108,6 +108,16 @@ contextBridge.exposeInMainWorld('kcoder', {
       ipcRenderer.invoke('sub-agents:update-settings', settings) as Promise<void>,
     sync: () => ipcRenderer.invoke('sub-agents:sync') as Promise<void>
   },
+  // 项目注册表（产品层，主进程 projects.json）
+  projects: {
+    list: () => ipcRenderer.invoke('projects:list') as Promise<{ projects: unknown[] }>,
+    create: (path: string, name?: string, options?: { silentMissing?: boolean }) =>
+      ipcRenderer.invoke('projects:create', path, name, options) as Promise<unknown>,
+    update: (projectId: string, patch: unknown) =>
+      ipcRenderer.invoke('projects:update', projectId, patch) as Promise<unknown>,
+    delete: (projectId: string) =>
+      ipcRenderer.invoke('projects:delete', projectId) as Promise<unknown>
+  },
 
   // 产品级本地服务（2026-08 重构）：runtime-config / token-usage / workspace git。
   // 自研 gateway 删除后由主进程 + python-runtime/product_services.py 提供。
@@ -200,6 +210,12 @@ declare global {
         delete: (id: string) => Promise<void>
         updateSettings: (settings: unknown) => Promise<void>
         sync: () => Promise<void>
+      }
+      projects: {
+        list: () => Promise<{ projects: unknown[] }>
+        create: (path: string, name?: string, options?: { silentMissing?: boolean }) => Promise<unknown>
+        update: (projectId: string, patch: unknown) => Promise<unknown>
+        delete: (projectId: string) => Promise<unknown>
       }
       local: {
         runtimeConfig: {

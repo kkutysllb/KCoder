@@ -24,6 +24,7 @@ import {
   type SubAgentSettings,
   type SubAgentsStore
 } from './sub-agent-injector'
+import { listProjects, createProject, updateProject, deleteProject } from './project-store'
 import {
   initLocalServices,
   getRuntimeConfig,
@@ -187,6 +188,44 @@ function setupSubAgentsIPC(): void {
   })
 }
 
+/**
+ * Register projects IPC handlers（产品层项目注册表，引擎无 /api/projects 语义）。
+ */
+function setupProjectsIPC(): void {
+  const dataDir = getEngineDataDir()
+
+  ipcMain.handle('projects:list', async () => {
+    const projects = await listProjects(dataDir)
+    return { projects }
+  })
+
+  ipcMain.handle('projects:create', async (_e, path: unknown, name: unknown, options: unknown) => {
+    const opts = (options ?? {}) as { silentMissing?: boolean }
+    const result = await createProject(
+      dataDir,
+      String(path ?? ''),
+      typeof name === 'string' ? name : undefined,
+      opts.silentMissing === true
+    )
+    if (result.skipped) {
+      return { skipped: true, path: String(path ?? ''), reason: result.reason ?? 'skipped' }
+    }
+    return result.entry
+  })
+
+  ipcMain.handle('projects:update', async (_e, projectId: unknown, patch: unknown) => {
+    return updateProject(
+      dataDir,
+      String(projectId ?? ''),
+      (patch ?? {}) as { name?: string; description?: string }
+    )
+  })
+
+  ipcMain.handle('projects:delete', async (_e, projectId: unknown) => {
+    return deleteProject(dataDir, String(projectId ?? ''))
+  })
+}
+
 async function bootstrap(): Promise<void> {
   // Start the QiongQi engine
   console.log('[KCoder] Starting engine...')
@@ -207,6 +246,9 @@ async function bootstrap(): Promise<void> {
 
   // Register sub-agents config sync IPC (after engine dataDir is known)
   setupSubAgentsIPC()
+
+  // Register projects registry IPC (产品层项目注册表)
+  setupProjectsIPC()
 
   // Register engine restart IPC (设置页重启按钮)
   setupEngineIPC()

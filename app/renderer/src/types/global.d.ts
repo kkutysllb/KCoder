@@ -90,6 +90,13 @@ interface KcoderBridge {
     updateSettings: (settings: unknown) => Promise<void>
     sync: () => Promise<void>
   }
+  /** 项目注册表（主进程 projects.json，引擎无 /api/projects 语义）。 */
+  projects: {
+    list: () => Promise<{ projects: unknown[] }>
+    create: (path: string, name?: string, options?: { silentMissing?: boolean }) => Promise<unknown>
+    update: (projectId: string, patch: unknown) => Promise<unknown>
+    delete: (projectId: string) => Promise<unknown>
+  }
   local: LocalServicesBridge
 }
 

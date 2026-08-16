@@ -499,7 +499,9 @@ export function useChat() {
           forceCompact: options?.forceCompact,
           // 静默结束提示（防线2c）：SSE 重连放弃 / 10 分钟兜底时主动上报，
           // 不再「没有提示直接停住」
-          connectionLostMessage: t('chat.connectionLost')
+          connectionLostMessage: t('chat.connectionLost'),
+          // 用户选择的项目目录 → configurable.workspace_path → 沙箱 workspace 映射
+          workspacePath: useAppStore.getState().workspacePath ?? undefined
         })
 
         // 立即设置 activeTurnId — 停止按钮和 steer 依赖它

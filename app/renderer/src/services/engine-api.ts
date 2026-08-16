@@ -1045,14 +1045,14 @@ export class EngineAPI {
     attachmentIds?: string[],
     model?: string,
     reasoningMode?: 'auto' | 'off' | 'low' | 'medium' | 'high',
-    options?: { subagentEnabled?: boolean; isPlanMode?: boolean; permissionMode?: string; approvedOps?: string[]; forceCompact?: boolean; connectionLostMessage?: string }
+    options?: { subagentEnabled?: boolean; isPlanMode?: boolean; permissionMode?: string; approvedOps?: string[]; forceCompact?: boolean; connectionLostMessage?: string; workspacePath?: string }
   ): Promise<string> {
     // 2026-08 重构：引擎自带 gateway（app.gateway）协议。
     // 先 POST /api/threads/{id}/runs 创建后台 run（立即返回 run_id），
     // 再 GET /api/threads/{id}/runs/{run_id}/stream 订阅实时 SSE——
     // 返回的 runId 即 turnId（停止按钮/中断用）。配置经 config.configurable
     // 注入（is_plan_mode/subagent_enabled/permission_mode/model_name 等）。
-    const { subagentEnabled = true, isPlanMode = true, permissionMode, approvedOps, forceCompact, connectionLostMessage } = options ?? {}
+    const { subagentEnabled = true, isPlanMode = true, permissionMode, approvedOps, forceCompact, connectionLostMessage, workspacePath } = options ?? {}
     const configurable: Record<string, unknown> = {}
     if (model) configurable.model_name = model
     if (reasoningMode === 'off') configurable.thinking_enabled = false
@@ -1065,6 +1065,9 @@ export class EngineAPI {
     if (permissionMode) configurable.permission_mode = permissionMode
     if (approvedOps && approvedOps.length > 0) configurable.approved_ops = approvedOps
     if (forceCompact) configurable.force_compact = true
+    // 用户选择的项目目录 → 引擎 thread_data_middleware 读 configurable.workspace_path，
+    // 把沙箱 /mnt/user-data/workspace 映射到该目录（agent 直接操作真实代码库）。
+    if (workspacePath) configurable.workspace_path = workspacePath
 
     const inputMessages: Array<Record<string, unknown>> = [
       { role: 'user', content },
@@ -1843,73 +1846,55 @@ data: <full EngineStreamEvent JSON>
   }
 
   // ============ Project API ============
+  //
+  // 项目注册表是产品层概念（引擎无 /api/projects HTTP 路由）：CRUD 走主进程
+  // IPC（projects.json），目录存在性 / git 探测在主进程完成。
 
-  // 列出已注册项目 — GET /v1/projects
+  // 列出已注册项目
   async listProjects(): Promise<{ projects: ProjectEntry[] }> {
-    // 2026-08 重构：引擎无 projects 语义——本地降级为空（主进程 JSON 后续接入）
+    if (window.kcoder?.projects) {
+      const data = await window.kcoder.projects.list()
+      return { projects: (data.projects ?? []) as ProjectEntry[] }
+    }
     return { projects: [] }
   }
 
-  // 注册项目（upsert by path） — POST /v1/projects
-  // silentMissing=true（自动注册专用）：目录不存在时后端返回 200 skipped，
+  // 注册项目（upsert by path）
+  // silentMissing=true（自动注册专用）：目录不存在时返回 200 skipped，
   // 不在开发者面板刷 400。
   async createProject(
     path: string,
     name?: string,
     options?: { silentMissing?: boolean }
   ): Promise<ProjectEntry | { skipped: true; path: string; reason: string }> {
-    const query = options?.silentMissing ? '?silent_missing=true' : ''
-    const response = await this.request(`/api/projects${query}`, {
-      method: 'POST',
-      headers: { ...this.headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, name })
-    })
-    if (!response.ok) {
-      // 透传 FastAPI detail（如 "Directory does not exist: ..."），
-      // 让调用方（侧边栏自动注册）能区分「目录已删」并静默跳过。
-      let detail = response.statusText
-      try {
-        const body = (await response.json()) as { detail?: unknown }
-        if (typeof body?.detail === 'string' && body.detail) detail = body.detail
-      } catch {
-        /* 非 JSON 响应，保留 statusText */
-      }
-      throw new Error(`Failed to create project: ${detail}`)
+    if (!window.kcoder?.projects) {
+      throw new Error('Project API unavailable outside Electron')
     }
-    return response.json()
+    const result = await window.kcoder.projects.create(path, name, options) as
+      | ProjectEntry
+      | { skipped: true; path: string; reason: string }
+    return result
   }
 
-  // 重命名/更新项目 — PATCH /v1/projects/:id
+  // 重命名/更新项目
   async updateProject(
     projectId: string,
     patch: { name?: string; description?: string }
   ): Promise<ProjectEntry> {
-    const response = await this.request(
-      `/api/projects/${encodeURIComponent(projectId)}`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch)
-      }
-    )
-    if (!response.ok) {
-      throw new Error(`Failed to update project: ${response.statusText}`)
+    if (!window.kcoder?.projects) {
+      throw new Error('Project API unavailable outside Electron')
     }
-    return response.json()
+    return window.kcoder.projects.update(projectId, patch) as Promise<ProjectEntry>
   }
 
-  // 注销项目（其下任务自动归档） — DELETE /v1/projects/:id
+  // 注销项目（其下任务由引擎端线程归档）
   async deleteProject(
     projectId: string
   ): Promise<{ deleted: boolean; archivedThreads?: number }> {
-    const response = await this.request(
-      `/api/projects/${encodeURIComponent(projectId)}`,
-      { method: 'DELETE' }
-    )
-    if (!response.ok) {
-      throw new Error(`Failed to delete project: ${response.statusText}`)
+    if (!window.kcoder?.projects) {
+      throw new Error('Project API unavailable outside Electron')
     }
-    return response.json()
+    return window.kcoder.projects.delete(projectId) as Promise<{ deleted: boolean; archivedThreads?: number }>
   }
 
   // ============ Workspace / Git API ============
