@@ -123,18 +123,24 @@ def cmd_token_usage_stats(args: list[str]) -> None:
     by_model: dict[str, dict] = {}
     for _, _, model, inp, out, t, calls, _st in rows:
         key = model or "unknown"
-        m = by_model.setdefault(key, {"run_count": 0, "llm_call_count": 0,
+        m = by_model.setdefault(key, {"runs": 0, "llm_call_count": 0,
                                       "input_tokens": 0, "output_tokens": 0,
-                                      "total_tokens": 0})
-        m["run_count"] += 1
+                                      "tokens": 0, "cache_read_tokens": 0})
+        m["runs"] += 1
         m["llm_call_count"] += calls or 0
         m["input_tokens"] += inp or 0
         m["output_tokens"] += out or 0
-        m["total_tokens"] += t or 0
+        m["tokens"] += t or 0
+    # 字段契约对齐前端 TokenUsageStats（runs 表无 caller/cache_read 列 → 恒 0/空）
     _emit({
-        "total_tokens": total, "input_tokens": total_input,
-        "output_tokens": total_output, "run_count": runs,
-        "llm_call_count": llm_calls, "by_model": by_model,
+        "total_tokens": total,
+        "total_input_tokens": total_input,
+        "total_output_tokens": total_output,
+        "total_runs": runs,
+        "total_llm_call_count": llm_calls,
+        "total_cache_read_tokens": 0,
+        "by_model": by_model,
+        "by_caller": {},
     })
 
 
@@ -161,7 +167,14 @@ def cmd_token_usage_timeseries(args: list[str]) -> None:
         m["input_tokens"] += inp or 0
         m["output_tokens"] += out or 0
         m["total_tokens"] += t or 0
-    _emit([{"date": day, "by_model": models} for day, models in sorted(by_day.items())])
+    # 扁平结构对齐前端 TokenUsageTimeseriesItem（{date, model_name, ...}）
+    _emit([
+        {"date": day, "model_name": model, "run_count": m["run_count"],
+         "llm_call_count": m["llm_call_count"], "total_tokens": m["total_tokens"],
+         "input_tokens": m["input_tokens"], "output_tokens": m["output_tokens"]}
+        for day, models in sorted(by_day.items())
+        for model, m in sorted(models.items())
+    ])
 
 
 def _emit(obj) -> None:

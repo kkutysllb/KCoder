@@ -1070,9 +1070,9 @@ function TokenUsageDashboard({ engineConnected, enginePort }: { engineConnected:
         </h3>
         <div className="grid grid-cols-3 gap-2">
           {CALLER_CONFIG.map((cfg) => {
-            const tokens = stats.by_caller[cfg.key]
+            const tokens = stats.by_caller[cfg.key] ?? 0
             const callerTotal = Math.max(
-              stats.by_caller.lead_agent + stats.by_caller.subagent + stats.by_caller.middleware,
+              (stats.by_caller.lead_agent ?? 0) + (stats.by_caller.subagent ?? 0) + (stats.by_caller.middleware ?? 0),
               1
             )
             const pct = Math.max((tokens / callerTotal) * 100, 2)

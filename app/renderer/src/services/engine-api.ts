@@ -2393,40 +2393,96 @@ data: <full EngineStreamEvent JSON>
 
   /** 全局 token 用量统计。 GET /v1/token-usage/stats?year=&month= */
   async getTokenUsageStats(filter?: MonthFilter): Promise<TokenUsageStats> {
+    let data: Partial<TokenUsageStats>
     // 2026-08 重构：主进程 IPC（product_services.py 聚合 runs 表）
     if (window.kcoder?.local?.tokenUsage) {
-      const data = await window.kcoder.local.tokenUsage.stats(filter?.year, filter?.month)
-      return data as TokenUsageStats
+      data = (await window.kcoder.local.tokenUsage.stats(filter?.year, filter?.month)) as Partial<TokenUsageStats>
+    } else {
+      const params = new URLSearchParams()
+      if (filter) {
+        params.set('year', String(filter.year))
+        params.set('month', String(filter.month))
+      }
+      const qs = params.toString()
+      const response = await this.request(`/api/token-usage/stats${qs ? `?${qs}` : ''}`, {
+        headers: this.headers
+      })
+      if (!response.ok) throw new Error(`Failed to get token usage stats: ${response.statusText}`)
+      data = (await response.json()) as Partial<TokenUsageStats>
     }
-    const params = new URLSearchParams()
-    if (filter) {
-      params.set('year', String(filter.year))
-      params.set('month', String(filter.month))
+    return this.normalizeTokenUsageStats(data)
+  }
+
+  /** 缺失字段兜底为 0/空，避免 Dashboard 渲染崩溃（旧数据/字段名漂移）。 */
+  private normalizeTokenUsageStats(data: Partial<TokenUsageStats>): TokenUsageStats {
+    const byModel: Record<string, TokenUsageModelBreakdown> = {}
+    for (const [k, v] of Object.entries(data.by_model ?? {})) {
+      const m = (v ?? {}) as Partial<TokenUsageModelBreakdown>
+      byModel[k] = {
+        tokens: m.tokens ?? 0,
+        runs: m.runs ?? 0,
+        llm_call_count: m.llm_call_count ?? 0,
+        input_tokens: m.input_tokens ?? 0,
+        output_tokens: m.output_tokens ?? 0,
+        cache_read_tokens: m.cache_read_tokens ?? 0
+      }
     }
-    const qs = params.toString()
-    const response = await this.request(`/api/token-usage/stats${qs ? `?${qs}` : ''}`, {
-      headers: this.headers
-    })
-    if (!response.ok) throw new Error(`Failed to get token usage stats: ${response.statusText}`)
-    return response.json()
+    const bc = (data.by_caller ?? {}) as Partial<TokenUsageCallerBreakdown>
+    return {
+      total_tokens: data.total_tokens ?? 0,
+      total_input_tokens: data.total_input_tokens ?? 0,
+      total_output_tokens: data.total_output_tokens ?? 0,
+      total_runs: data.total_runs ?? 0,
+      total_llm_call_count: data.total_llm_call_count ?? 0,
+      total_cache_read_tokens: data.total_cache_read_tokens ?? 0,
+      by_model: byModel,
+      by_caller: {
+        lead_agent: bc.lead_agent ?? 0,
+        subagent: bc.subagent ?? 0,
+        middleware: bc.middleware ?? 0
+      }
+    }
   }
 
   /** 按天×模型 token 用量时间序列。2026-08 重构：主进程 IPC */
   async getTokenUsageTimeseries(days = 30, filter?: MonthFilter): Promise<TokenUsageTimeseriesItem[]> {
+    let data: unknown
     if (window.kcoder?.local?.tokenUsage) {
-      const data = await window.kcoder.local.tokenUsage.timeseries(days)
-      return (data as TokenUsageTimeseriesItem[]) ?? []
+      data = await window.kcoder.local.tokenUsage.timeseries(days)
+    } else {
+      const params = new URLSearchParams({ days: String(days) })
+      if (filter) {
+        params.set('year', String(filter.year))
+        params.set('month', String(filter.month))
+      }
+      const response = await this.request(`/api/token-usage/timeseries?${params.toString()}`, {
+        headers: this.headers
+      })
+      if (!response.ok) throw new Error(`Failed to get token usage timeseries: ${response.statusText}`)
+      data = await response.json()
     }
-    const params = new URLSearchParams({ days: String(days) })
-    if (filter) {
-      params.set('year', String(filter.year))
-      params.set('month', String(filter.month))
+    // 扁平化：兼容新契约 [{date, model_name, ...}] 与旧结构 [{date, by_model: {model: {...}}}]
+    const items = Array.isArray(data) ? data : []
+    const out: TokenUsageTimeseriesItem[] = []
+    for (const it of items as Array<Record<string, unknown>>) {
+      const date = String(it.date ?? '')
+      if (!date) continue
+      const byModel = (it.by_model ?? {}) as Record<string, Record<string, unknown>>
+      const models = Object.keys(byModel).length > 0 ? byModel : { [String(it.model_name ?? '')]: it }
+      for (const [model, m] of Object.entries(models)) {
+        const mm = m ?? {}
+        out.push({
+          date,
+          model_name: model,
+          run_count: Number(mm.run_count ?? 0),
+          llm_call_count: Number(mm.llm_call_count ?? 0),
+          total_tokens: Number(mm.total_tokens ?? 0),
+          input_tokens: Number(mm.input_tokens ?? 0),
+          output_tokens: Number(mm.output_tokens ?? 0)
+        })
+      }
     }
-    const response = await this.request(`/api/token-usage/timeseries?${params.toString()}`, {
-      headers: this.headers
-    })
-    if (!response.ok) throw new Error(`Failed to get token usage timeseries: ${response.statusText}`)
-    return response.json()
+    return out
   }
 
   // ============ Models API (product-side, over IPC) ============
