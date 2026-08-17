@@ -25,7 +25,9 @@
  *   文本节点，组件卸载时 removeChild 拖错崩树（同 replaceWith 坑）；
  *   observer 需加 characterData 监听自愈 React 重设文案。
  * - 标题：拦截 document.title setter 做字符串替换（快照早于注入的
- *   original 旧名也会在每次赋值时被改写），注入后立即替换当前值。
+ *   original 旧名也会在每次赋值时被改写），注入后立即替换当前值；
+ *   注：UI 内有组件渲染 document.title（状态栏 span），源头替换即可。
+ *   accessor 位置随 Chromium 版本在原型链上浮动，需逐层查（见内注）。
  *
  * React 重渲染可能重建节点 → MutationObserver 自愈；侧边栏异步挂载
  * → 短轮询等待（同 update-injector 模式）。
@@ -61,11 +63,22 @@ const INJECT_JS = `(() => {
   const TAGLINE_EN = ${JSON.stringify(TAGLINE_EN)}
 
   // ---- 标题品牌替换：拦截 setter + 立即改写当前值 ----
+  // 坑（2026-08-17 CDP 实测）：title 的原生 accessor 不一定在第一层原型
+  // ——本机 Electron 在 Document.prototype，HTMLDocument.prototype 上
+  // 无 own descriptor，只查一层拿到 undefined → 拦截静默不生效，React
+  // 后续每次赋值都是旧名（首次验证被“立即替换当前值”的一次性效果
+  // 骗过，末验证持续拦截）。必须沿原型链逐层找到再拦。
   if (!window.__dshBrandTitleHooked) {
     window.__dshBrandTitleHooked = true
-    const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'title')
+    const rewrite = (v) => (typeof v === 'string' && v.includes(UP) ? v.split(UP).join(DOWN) : v)
+    let proto = document
+    let desc = null
+    while (proto !== null) {
+      desc = Object.getOwnPropertyDescriptor(proto, 'title')
+      if (desc !== undefined) break
+      proto = Object.getPrototypeOf(proto)
+    }
     if (desc?.set) {
-      const rewrite = (v) => (typeof v === 'string' && v.includes(UP) ? v.split(UP).join(DOWN) : v)
       const { get, set } = desc
       Object.defineProperty(document, 'title', {
         configurable: true,
