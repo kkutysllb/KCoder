@@ -96,6 +96,11 @@ cmd_build() {
 
   # 3) 物化上游运行时（开箱即用的核心）：pnpm deploy 生产闭包
   #    + peer/平台二进制补齐（materialize-peers，deploy 的盲区）
+  #    基线断言：物化产物必须来自钉版基线（upstream/BASELINE）——
+  #    手动同步上游后忘更新基线文件时在此拦下，未验证代码不进产物。
+  BASELINE_SHA="$(grep -vE '^[[:space:]]*(#|$)' "$ROOT/upstream/BASELINE" | head -1 | tr -d '[:space:]')"
+  [[ "$(git -C "$UPSTREAM" rev-parse HEAD)" == "$BASELINE_SHA" ]] \
+    || die "上游克隆 HEAD 不在基线 ${BASELINE_SHA:0:7} 上（先 bash scripts/setup.sh 钉版，或更新 upstream/BASELINE）"
   say "物化上游运行时（deploy --prod + peer 补齐）→ staging/kcoder-runtime …"
   rm -rf "$STAGING"
   pnpm --dir "$UPSTREAM" --filter=@deepseek-ai/dsh deploy --prod --legacy "$STAGING"

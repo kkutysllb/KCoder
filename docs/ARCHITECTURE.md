@@ -90,6 +90,12 @@ Electron 主进程 (desktop/main/)
    3080，低位端口不在临时段）永不撞车；实际端口从就绪行解析。
    websocket/mux 复用同一 HTTP server，全进程仅此一个监听；桌面壳
    自身（Electron/pty/更新器）零监听端口。
+5. **上游基线钉版**：产品基于固定上游提交开发（`upstream/BASELINE`，
+   当前 = 0.1.0-rc.5）。上游 RC 迭代期契约会破坏性变化（rc.7 把
+   `settings.plugin.item` slot 从 list 改 keyed，旧插件启动即挂），
+   绝不浮动跟 master。`setup.sh` 克隆后 reset 到基线；`release.sh`
+   build 断言 HEAD 命中基线后才物化运行时；升级 = 改 BASELINE →
+   `setup.sh` → 全量回归 → 提交（详见该文件头注释）。
 
 ## 4. 主进程模块导览（desktop/main/）
 

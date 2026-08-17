@@ -1,0 +1,18 @@
+# 上游基线钉版（KCoder 产品基线，勿浮动）
+#
+# deepseek-harness 的固定提交（全仓 0.1.0-rc.5，2026-08-13）。
+# setup.sh / release.sh 均以此为准：克隆后 reset 到该提交；release.sh
+# build 断言克隆 HEAD 必须命中它——未验证的上游代码绝不进打包运行时。
+#
+# 为什么钉版：上游 RC 迭代期契约会破坏性变化——rc.7 把 client slot
+# `settings.plugin.item` 从 list（注册要 options.id）改成 keyed（要
+# options.key），按旧契约注册的第三方插件（dsh-vision-router ≤1.4.5）
+# 启动即 "keyed slot requires options.key" 整体加载失败。浮动克隆
+# master 的 CI 曾在上游发版当天把 rc.7 混进 dmg。
+#
+# 升级基线的正确姿势：
+#   1. 改本文件为新提交 SHA
+#   2. bash scripts/setup.sh        # fetch + reset + install + build
+#   3. 全量回归（重点：第三方插件加载、Web UI 冒烟、打包链 smoke）
+#   4. 提交本文件
+47f943859bef60e4160492346772ded9b24f765a

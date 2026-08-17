@@ -38,3 +38,10 @@ say "pnpm run build …"
 pnpm run build
 
 say "同步完成：$(git rev-parse --short HEAD)。重启 KCoder 即可加载新构建。"
+
+# 基线提醒：同步 = 预览/试验新上游；正式升级必须更新 upstream/BASELINE
+# （release.sh build 会断言 HEAD 命中基线，不更新就发不出包）。
+BASELINE_SHA="$(grep -vE '^[[:space:]]*(#|$)' "$ROOT/upstream/BASELINE" | head -1 | tr -d '[:space:]')"
+if [[ -n "$BASELINE_SHA" && "$(git rev-parse HEAD)" != "$BASELINE_SHA" ]]; then
+  say "注意：HEAD 已离开钉版基线 ${BASELINE_SHA:0:7}——dev 可继续用新上游；要发布须更新 upstream/BASELINE 并回归（见该文件头注释）。"
+fi

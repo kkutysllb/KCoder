@@ -26,6 +26,23 @@ fi
 [[ -d "$UPSTREAM/.git" ]] || die "上游克隆不存在：$UPSTREAM（重试不带 --skip-clone）"
 
 cd "$UPSTREAM"
+
+# 基线钉版：克隆/构建必须落在 upstream/BASELINE 指定的提交上。
+# 不钉版的教训：CI 浮动克隆 master，上游发 rc.7 当天（slot 契约
+# list→keyed 破坏性变化）就混进了打包运行时，第三方插件启动即挂。
+# 升级基线 = 改 BASELINE 文件后重跑本脚本（详见该文件头注释）。
+BASELINE_SHA="$(grep -vE '^[[:space:]]*(#|$)' "$ROOT/upstream/BASELINE" | head -1 | tr -d '[:space:]')"
+[[ -n "$BASELINE_SHA" ]] || die "upstream/BASELINE 缺少提交 SHA"
+git cat-file -e "${BASELINE_SHA}^{commit}" 2>/dev/null || {
+  say "本地缺失基线对象，fetch ${BASELINE_SHA:0:7} …"
+  git fetch origin "$BASELINE_SHA" || die "拉取基线提交失败（检查 upstream/BASELINE 是否写错）"
+}
+if [[ "$(git rev-parse HEAD)" != "$BASELINE_SHA" ]]; then
+  [[ -z "$(git status --porcelain)" ]] || die "上游工作树不干净，无法钉版（先恢复 pristine，见 upstream/README.md）"
+  say "钉版到基线 ${BASELINE_SHA:0:7}（当前 HEAD $(git rev-parse --short HEAD)）…"
+  git reset --hard "$BASELINE_SHA"
+fi
+
 say "安装依赖（pnpm install）…"
 pnpm install
 
