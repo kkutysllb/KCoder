@@ -23,7 +23,13 @@
  *   自愈跟随）；预览徽章（“预览版”/"Preview"）为上游装饰，直接藏起。
  *   文本替换只改文本节点 .data——改 textContent 会移除 React 持有的
  *   文本节点，组件卸载时 removeChild 拖错崩树（同 replaceWith 坑）；
- *   observer 需加 characterData 监听自愈 React 重设文案。
+ *   observer 需加 characterData 监听自愈 React 重设文案；
+ * - 回合运行态文案（ChatView 的 turnStatus，role=status）：
+ *   “Deep diving…” → “KCoder…”。同款只改文本节点 nodeValue——
+ *   上游微光动画（background-clip:text + shimmer）作用在容器与
+ *   文本本体上，节点不动则动画/时钟 span/reduced-motion 全原样；
+ *   类名子串匹配会同时命中 _turnStatusClock（含前缀），靠首文本
+ *   节点精确等值护身，遍历全部匹配逐一判定。
  * - 标题：拦截 document.title setter 做字符串替换（快照早于注入的
  *   original 旧名也会在每次赋值时被改写），注入后立即替换当前值；
  *   注：UI 内有组件渲染 document.title（状态栏 span），源头替换即可。
@@ -137,6 +143,18 @@ const INJECT_JS = `(() => {
     svg.insertAdjacentElement('afterend', img)
   }
 
+  // ---- turnStatus：回合运行态文案 Deep diving... → KCoder... ----
+  //（首文本节点精确等值才改：turnStatusClock 也含 _turnStatus 子串，
+  //  误命中不致误改；回合结束卸载、重挂恢复原文 → observer 自愈）
+  const swapTurnStatus = () => {
+    for (const el of document.querySelectorAll('[class*="_turnStatus"]')) {
+      const node = el.firstChild
+      if (node?.nodeType === Node.TEXT_NODE && node.nodeValue === 'Deep diving...') {
+        node.nodeValue = 'KCoder...'
+      }
+    }
+  }
+
   // ---- hero：新会话空状态页的鲸鱼/文案/预览徽章 ----
   const swapHero = () => {
     // 鲸鱼 logo（EmptyHero_fish_<hash>；railFish 含大写 F 不会误匹配）
@@ -175,6 +193,7 @@ const INJECT_JS = `(() => {
     swapBrand()
     swapRail()
     swapHero()
+    swapTurnStatus()
   }
   apply()
   // 侧边栏异步挂载（插件树加载中）：短轮询，最长 60s

@@ -132,10 +132,15 @@ export function themeBackgroundColor(pref: 'system' | 'light' | 'dark' = getSett
  * 自绘标题栏（页面上下文）：替代系统标题栏（WCO 覆盖条在 macOS 不渲染
  * 标题且双击缩放失效，故齐弃）。VS Code 同款方案：
  * - `-webkit-app-region: drag` 拖拽区 → 原生拖动与双击缩放；
- * - 靠左显示 document.title（上游 DocumentTitle 投射“会话标题 — 产品名”），
+ * - 靠左显示「工作区 / 会话标题」：主文本是 document.title（上游
+ *   DocumentTitle 投射“会话标题 — 产品名”）；工作区前缀由预览抽屉
+ *   注入器探测（workspace.list RPC + 会话配对）写入 --dsh-ws-name，
+ *   apply() 读取拼接（preview-panel 与本脚本互不依赖，变量通道同
+ *   --dsh-sidebar-w；style 变化会触发既有 observer 重渲染），
  *   起排在中间会话列左缘（侧边栏右边线 + 12px，探测 sidebarCol 实时
  *   广播为 --dsh-sidebar-w，拖宽/折叠动画平滑跟随；侧边栏收起时保底
- *   红绿灯区 78px）；max-width 自适应避让：右侧取按钮带（96px）与
+ *   红绿灯区 78px）；max-width 自适应避让：右侧取按钮带（134px =
+ *   四枚 26px 图标按钮：终端 12/预览 44/轨迹 76/日志 108px 序）与
  *   文件预览抽屉宽度（--dsh-preview-inset，抽屉是全高 WebContentsView、
  *   打开时盖住标题栏右段）之大者，长标题省略号截断不钻抽屉底下；
  * - 背景直接解析上游 token `--dsw-specific-sidebar-fill`（body 计算值），
@@ -164,13 +169,21 @@ const SHELL_TITLEBAR_JS = `(() => {
     'font:500 13px -apple-system,"PingFang SC","Segoe UI",sans-serif',
     'user-select:none',
   ].join(';')
+  // 双段结构：工作区前缀（弱化色，含 " / " 分隔）+ 标题主体（省略号
+  // 打在标题尾部；工作区自身过长独立截断）。flex 子项内 ellipsis 需
+  // min-width:0；label 自身改 flex 容器后单行省略号下沉到子 span
   const label = document.createElement('span')
   label.style.cssText = [
     'flex:0 1 auto',
     'margin-left:max(78px, var(--dsh-sidebar-w, 0px) + 12px)',
-    'max-width:calc(100% - max(78px, var(--dsh-sidebar-w, 0px) + 12px) - max(96px, var(--dsh-preview-inset, 0px)))',
-    'overflow:hidden', 'text-overflow:ellipsis', 'white-space:nowrap',
+    'max-width:calc(100% - max(78px, var(--dsh-sidebar-w, 0px) + 12px) - max(134px, var(--dsh-preview-inset, 0px)))',
+    'display:flex', 'min-width:0', 'white-space:nowrap',
   ].join(';')
+  const wsTag = document.createElement('span')
+  wsTag.style.cssText = 'flex:none;max-width:170px;overflow:hidden;text-overflow:ellipsis;font-weight:400'
+  const ttlTag = document.createElement('span')
+  ttlTag.style.cssText = 'flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis'
+  label.append(wsTag, ttlTag)
   bar.append(label)
 
   /* 侧边栏右边线探测：标题起排跟随（与终端/预览面板的 sidebarCol
@@ -195,8 +208,11 @@ const SHELL_TITLEBAR_JS = `(() => {
       || document.documentElement.style.colorScheme === 'dark'
     bar.style.background = color || (dark ? '#1B1B1C' : '#F9FAFB')
     label.style.color = dark ? 'rgba(232,234,237,.9)' : 'rgba(26,29,33,.75)'
-    const t = (document.title || '').trim()
-    label.textContent = t || 'DeepSeek Harness'
+    wsTag.style.color = dark ? 'rgba(232,234,237,.45)' : 'rgba(26,29,33,.42)'
+    let ws = ''
+    try { ws = getComputedStyle(document.documentElement).getPropertyValue('--dsh-ws-name').trim() } catch {}
+    wsTag.textContent = ws !== '' ? ws + ' / ' : ''
+    ttlTag.textContent = (document.title || '').trim() || 'KCoder'
   }
   const mount = () => {
     document.body.append(bar)

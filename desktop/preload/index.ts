@@ -45,6 +45,9 @@ const bridge: DesktopBridge = {
   previewHide: () => ipcRenderer.invoke('preview:hide'),
   previewPanelResize: (dx) => ipcRenderer.invoke('preview:panel-resize', dx),
   previewOpenEditor: (path) => ipcRenderer.invoke('preview:open-editor', path),
+  previewMode: () => ipcRenderer.invoke('preview:mode'),
+  previewSetMode: (mode) => ipcRenderer.invoke('preview:set-mode', mode),
+  trajectoryFetch: () => ipcRenderer.invoke('trajectory:fetch'),
   preferencesGet: () => ipcRenderer.invoke('preferences:get'),
   preferencesSet: (patch) => ipcRenderer.invoke('preferences:set', patch),
   onDshStateChanged: (cb) => {
@@ -91,6 +94,16 @@ const bridge: DesktopBridge = {
     const listener = (): void => cb()
     ipcRenderer.on('preview:refresh', listener)
     return () => ipcRenderer.removeListener('preview:refresh', listener)
+  },
+  onPreviewMode: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, m: Parameters<typeof cb>[0]): void => cb(m)
+    ipcRenderer.on('preview:mode-changed', listener)
+    return () => ipcRenderer.removeListener('preview:mode-changed', listener)
+  },
+  onTrajectoryUpdate: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, s: Parameters<typeof cb>[0]): void => cb(s)
+    ipcRenderer.on('trajectory:update', listener)
+    return () => ipcRenderer.removeListener('trajectory:update', listener)
   },
 }
 

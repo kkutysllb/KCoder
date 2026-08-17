@@ -28,7 +28,7 @@ import { WebContentsView, type BrowserWindow } from 'electron'
 import { consoleMessageText } from './console-channel'
 import { getSettings, saveSettings } from './store'
 import { fileActivity } from './file-activity'
-import type { PreviewEntry } from '@shared/ipc-contract'
+import type { PreviewEntry, PreviewMode, TrajectorySnapshot } from '@shared/ipc-contract'
 
 /** console 通道前缀（与注入脚本约定）。 */
 const PREVIEW_PREFIX = '__dsh_preview__:'
@@ -46,10 +46,12 @@ const PRELOAD = join(__dirname, '../preload/index.js')
 
 /**
  * 页面注入脚本（上游 shell 页面上下文）：
- * 1. 标题栏预览按钮（终端按钮右侧，点击 → 解析当前工作区 → 上报 toggle）；
+ * 1. 标题栏预览/轨迹两枚按钮（终端按钮左侧，点击 → 解析当前工作区
+ *    → 上报 toggle / toggle-trajectory）；
  * 2. 侧边栏宽度探针（ResizeObserver + rAF 节流 → 上报宽度）；
- * 3. 工作区探针（选中会话变化 → debounce → 解析工作区 → 上报缓存，
- *    主进程转喂 file-activity 作相对路径解析基准）；
+ * 3. 工作区/会话探针（选中会话变化 → debounce → 解析工作区 → 上报
+ *    缓存，主进程转喂 file-activity：路径作相对路径解析基准，会话
+ *    id+标题作轨迹时间线跟随目标）；
  * 4. 内容区右侧让位 padding 的设置/清除入口（__dshPreviewPad(W)）。
  */
 const PAGE_JS = `(() => {
@@ -88,6 +90,22 @@ const PAGE_JS = `(() => {
     }
     return null
   }
+  /* 选中会话的 id+标题（轨迹时间线跟随目标；标题可能为空） */
+  const probeSessionInfo = () => {
+    const rows = document.querySelectorAll('[role="treeitem"][aria-selected="true"]')
+    for (const el of rows) {
+      const fiberKey = Object.keys(el).find(k => k.startsWith('__reactFiber$'))
+      let fiber = fiberKey !== undefined ? el[fiberKey] : null
+      while (fiber != null) {
+        const node = fiber.memoizedProps != null ? fiber.memoizedProps.node : null
+        if (node != null && typeof node.id === 'string') {
+          return { id: node.id, title: typeof node.title === 'string' ? node.title : '' }
+        }
+        fiber = fiber.return
+      }
+    }
+    return null
+  }
   let rpcSeq = 0
   const resolveWorkspace = async () => {
     const res = await fetch('/api/workspace.list', {
@@ -119,7 +137,20 @@ const PAGE_JS = `(() => {
   let debounce = 0
   const reportWorkspace = () => {
     resolveWorkspace()
-      .then(ws => { report(ws == null ? { workspace: null } : { workspace: ws.path, workspaceTitle: ws.title }) })
+      .then(ws => {
+        const s = probeSessionInfo()
+        // 工作区名写 CSS 变量：自绘标题栏拼接「工作区 / 标题」前缀
+        //（--dsh-sidebar-w 同款跨注入器通道；style 属性变化会触发
+        // 标题栏既有 observer 重渲染；title 空时兜底 path 尾段）
+        const segs = ws == null ? [] : ws.path.split('/').filter(Boolean)
+        const name = ws != null && ws.title !== '' ? ws.title
+          : segs.length > 0 ? segs[segs.length - 1] : ''
+        document.documentElement.style.setProperty('--dsh-ws-name', name)
+        const msg = ws == null ? { workspace: null } : { workspace: ws.path, workspaceTitle: ws.title }
+        if (s != null) { msg.session = s.id; msg.sessionTitle = s.title }
+        else msg.session = null
+        report(msg)
+      })
       .catch(() => {})
   }
   const watchSelection = () => {
@@ -173,41 +204,60 @@ const PAGE_JS = `(() => {
     } catch { return origFetch(input, init) }
   }
 
-  /* ---- 标题栏按钮（宿主由 theme-watcher 注入；在终端按钮右侧） ---- */
+  /* ---- 标题栏按钮（宿主由 theme-watcher 注入；在终端按钮左侧） ---- */
   const BTN_ID = '__dsh_desktop_preview_btn'
+  const TRAJ_BTN_ID = '__dsh_desktop_trajectory_btn'
+  const BTN_BASE = 'all:unset;box-sizing:border-box;position:absolute;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;cursor:pointer;color:rgba(26,29,33,.65);-webkit-app-region:no-drag;transition:background .15s ease'
   const style = document.createElement('style')
   style.id = '__dsh_desktop_preview_style'
   style.textContent = [
-    '#' + BTN_ID + '{all:unset;box-sizing:border-box;position:absolute;right:44px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;cursor:pointer;color:rgba(26,29,33,.65);-webkit-app-region:no-drag;transition:background .15s ease}',
-    'body[data-ds-dark-theme] #' + BTN_ID + '{color:rgba(232,234,237,.8)}',
-    '#' + BTN_ID + ':hover{background:color-mix(in srgb,currentColor 10%,transparent)}',
-    '#' + BTN_ID + ':active{background:color-mix(in srgb,currentColor 18%,transparent)}',
-    '#' + BTN_ID + '[data-open="1"]{background:color-mix(in srgb,currentColor 14%,transparent)}',
+    '#' + BTN_ID + '{' + BTN_BASE + ';right:44px}',
+    '#' + TRAJ_BTN_ID + '{' + BTN_BASE + ';right:76px}',
+    'body[data-ds-dark-theme] #' + BTN_ID + ',body[data-ds-dark-theme] #' + TRAJ_BTN_ID + '{color:rgba(232,234,237,.8)}',
+    '#' + BTN_ID + ':hover,#' + TRAJ_BTN_ID + ':hover{background:color-mix(in srgb,currentColor 10%,transparent)}',
+    '#' + BTN_ID + ':active,#' + TRAJ_BTN_ID + ':active{background:color-mix(in srgb,currentColor 18%,transparent)}',
+    '#' + BTN_ID + '[data-open="1"],#' + TRAJ_BTN_ID + '[data-open="1"]{background:color-mix(in srgb,currentColor 14%,transparent)}',
+    '#' + TRAJ_BTN_ID + ':disabled{opacity:.45;cursor:default}',
   ].join('')
   document.head.append(style)
-  const injectBtn = () => {
-    if (document.getElementById(BTN_ID)) return 'present'
-    const host = bar()
-    if (host == null) return 'absent'
+  const mkBtn = (id, title, svgInner) => {
     const btn = document.createElement('button')
     btn.type = 'button'
-    btn.id = BTN_ID
-    btn.title = '切换文件预览抽屉'
-    btn.setAttribute('aria-label', '切换文件预览抽屉')
+    btn.id = id
+    btn.title = title
+    btn.setAttribute('aria-label', title)
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     svg.setAttribute('viewBox', '0 0 16 16')
     svg.setAttribute('width', '15')
     svg.setAttribute('height', '15')
     svg.setAttribute('fill', 'none')
-    svg.innerHTML = '<rect x="2" y="2.5" width="12" height="11" rx="1.75" stroke="currentColor" stroke-width="1.2"/><path d="M9.5 2.5v11" stroke="currentColor" stroke-width="1.2"/><path d="M4.2 5.9h3.1M4.2 8.6h3.1M4.2 11.3h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>'
+    svg.innerHTML = svgInner
     btn.append(svg)
-    btn.onclick = () => {
-      resolveWorkspace()
-        .then(ws => report(ws == null ? { action: 'toggle' } : { action: 'toggle', path: ws.path }))
-        .catch(() => report({ action: 'toggle' }))
+    return btn
+  }
+  const injectBtn = () => {
+    const host = bar()
+    if (host == null) return 'absent'
+    let injected = false
+    if (document.getElementById(BTN_ID) == null) {
+      const btn = mkBtn(BTN_ID, '切换文件预览抽屉',
+        '<rect x="2" y="2.5" width="12" height="11" rx="1.75" stroke="currentColor" stroke-width="1.2"/><path d="M9.5 2.5v11" stroke="currentColor" stroke-width="1.2"/><path d="M4.2 5.9h3.1M4.2 8.6h3.1M4.2 11.3h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>')
+      btn.onclick = () => {
+        resolveWorkspace()
+          .then(ws => report(ws == null ? { action: 'toggle' } : { action: 'toggle', path: ws.path }))
+          .catch(() => report({ action: 'toggle' }))
+      }
+      host.append(btn)
+      injected = true
     }
-    host.append(btn)
-    return 'injected'
+    if (document.getElementById(TRAJ_BTN_ID) == null) {
+      const btn = mkBtn(TRAJ_BTN_ID, '会话轨迹（时间线）',
+        '<circle cx="3.5" cy="4" r="1.2" fill="currentColor"/><path d="M6.3 4h6.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="3.5" cy="8" r="1.2" fill="currentColor"/><path d="M6.3 8h6.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="3.5" cy="12" r="1.2" fill="currentColor"/><path d="M6.3 12h6.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>')
+      btn.onclick = () => { report({ action: 'toggle-trajectory' }) }
+      host.append(btn)
+      injected = true
+    }
+    return injected ? 'injected' : 'present'
   }
   let tries = 0
   const poll = setInterval(() => {
@@ -320,6 +370,8 @@ class PreviewPanel {
   private win: BrowserWindow | null = null
   private view: WebContentsView | null = null
   private visible = false
+  /** 抽屉展示模式（文件活动流 / 会话轨迹时间线；状态栏两枚按钮切换）。 */
+  private mode: PreviewMode = 'files'
   private panelW = clampW(getSettings().previewWidth ?? PANEL_DEFAULT_W)
   private sidebarW = 0
   /** 布局联动回调（windows.ts 接线：通知终端面板重排，避免循环依赖）。 */
@@ -348,19 +400,34 @@ class PreviewPanel {
         // 工作区缓存：file-activity 的相对路径解析基准
         const ws = payload.workspace
         fileActivity.setWorkspace(typeof ws === 'string' && ws !== '' ? ws : null)
-        return
+      }
+      // 会话跟随（同一探针上报）：轨迹时间线的目标会话 + 标题
+      if (typeof payload.session === 'string' || payload.session === null) {
+        const title = typeof payload.sessionTitle === 'string' ? payload.sessionTitle : ''
+        fileActivity.setTrajectorySession(
+          typeof payload.session === 'string' && payload.session !== '' ? payload.session : null,
+          title,
+        )
       }
       if (payload.action === 'toggle') {
         if (typeof payload.path === 'string' && payload.path !== '') fileActivity.setWorkspace(payload.path)
-        this.toggle()
+        // 文件模式语义：已在文件模式展示 → 收起；否则切到文件模式并展示
+        if (this.visible && this.mode === 'files') this.hide()
+        else this.setMode('files')
+        return
+      }
+      if (payload.action === 'toggle-trajectory') {
+        // 轨迹模式语义：已在轨迹模式展示 → 收起；否则切到轨迹模式并展示
+        if (this.visible && this.mode === 'trajectory') this.hide()
+        else this.setMode('trajectory')
         return
       }
       if (payload.action === 'open') {
-        // 正文文件链接接管：在预览抽屉中打开（无路径则忽略）
+        // 正文文件链接接管：在预览抽屉中打开（无路径则忽略）——强制回文件模式
         const path = typeof payload.path === 'string' ? payload.path : null
         if (path !== null && path !== '') {
           const entry = fileActivity.open(path)
-          this.show()
+          this.setMode('files')
           this.forwardActivity(entry, true)
         }
         return
@@ -414,6 +481,24 @@ class PreviewPanel {
     else this.show()
   }
 
+  /** 当前展示模式（preview:mode 拉取）。 */
+  getMode(): PreviewMode {
+    return this.mode
+  }
+
+  /**
+   * 切换模式（show=true 时同时展示抽屉；抽屉内切换传 false，
+   * 只切内容区不动开合）。切完同步视图与两枚标题栏按钮态。
+   */
+  setMode(mode: PreviewMode, show = true): void {
+    this.mode = mode
+    if (show) this.show()
+    else {
+      this.pushMode()
+      this.syncButtonState()
+    }
+  }
+
   show(): void {
     const win = this.win
     if (win === null || win.isDestroyed()) return
@@ -435,6 +520,7 @@ class PreviewPanel {
     }
     this.view.setVisible(true)
     this.layout()
+    this.pushMode()
     this.syncButtonState()
     this.onLayoutChange?.()
   }
@@ -473,6 +559,18 @@ class PreviewPanel {
     if (wc !== undefined && !wc.isDestroyed()) wc.send('preview:activity', entry, focus)
   }
 
+  /** 轨迹时间线更新 → 面板视图（file-activity 订阅转发；ipc.ts 接线）。 */
+  forwardTrajectory(snapshot: TrajectorySnapshot): void {
+    const wc = this.view?.webContents
+    if (wc !== undefined && !wc.isDestroyed()) wc.send('trajectory:update', snapshot)
+  }
+
+  /** 模式同步到面板视图（切模式/重展时；视图初始自带拉取）。 */
+  private pushMode(): void {
+    const wc = this.view?.webContents
+    if (wc !== undefined && !wc.isDestroyed()) wc.send('preview:mode-changed', this.mode)
+  }
+
   /** 正文文件徽章：向 shell 页面推送 edit 增删行数（页面脚本补 +n/−n）。 */
   pushFileStat(path: string, added: number, removed: number): void {
     const wc = this.win?.webContents
@@ -495,12 +593,19 @@ class PreviewPanel {
     if (this.visible) this.layout()
   }
 
-  /** 同步标题栏按钮的开合态（页面导航后/面板切换时）。 */
+  /** 同步标题栏两枚按钮的开合态（页面导航后/面板切换时）。 */
   syncButtonState(): void {
     const wc = this.win?.webContents
     if (wc === undefined || wc.isDestroyed()) return
+    const files = this.visible && this.mode === 'files'
+    const traj = this.visible && this.mode === 'trajectory'
     wc.executeJavaScript(
-      `(() => { const b = document.getElementById('__dsh_desktop_preview_btn'); if (b) b.setAttribute('data-open', ${this.visible ? '"1"' : '"0"'}) })()`,
+      `(() => {
+        const p = document.getElementById('__dsh_desktop_preview_btn');
+        if (p) p.setAttribute('data-open', ${files ? '"1"' : '"0"'})
+        const t = document.getElementById('__dsh_desktop_trajectory_btn');
+        if (t) t.setAttribute('data-open', ${traj ? '"1"' : '"0"'})
+      })()`,
       true,
     ).catch(() => {})
   }

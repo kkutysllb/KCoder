@@ -150,6 +150,12 @@ export function registerIpc(): void {
     if (typeof path !== 'string' || path === '') return { ok: false, error: '无效路径' }
     return openInEditor(path)
   })
+  ipcMain.handle('preview:mode', () => previewPanel.getMode())
+  ipcMain.handle('preview:set-mode', (_event, mode: unknown) => {
+    // 抽屉内切换（不强制展示）：非法值兜底回文件模式
+    previewPanel.setMode(mode === 'trajectory' ? 'trajectory' : 'files', false)
+  })
+  ipcMain.handle('trajectory:fetch', () => fileActivity.trajectorySnapshot())
   // 活动流转发（面板视图按需消费；隐藏时视图仍在，重开即回）；
   // edit 活动同时推给 shell 页面补正文文件链接的 +n/−n 徽章。
   // 分桶后带桶键：其他工作区的后台活动不进当前视图/正文（防互串）
@@ -159,6 +165,10 @@ export function registerIpc(): void {
     if (entry.kind === 'edit') {
       previewPanel.pushFileStat(entry.path, entry.added, entry.removed)
     }
+  })
+  // 轨迹时间线转发（预览抽屉的轨迹模式；视图隐藏时同样接收，重开即新鲜）
+  fileActivity.on('trajectory', (snapshot) => {
+    previewPanel.forwardTrajectory(snapshot)
   })
 
   /* ---- 偏好设置（样式档位/托盘保活；写后即时生效） ---- */

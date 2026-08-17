@@ -199,6 +199,44 @@ export interface PreviewFileContent {
   error: string | null
 }
 
+/* ---------- 会话轨迹（预览抽屉的轨迹模式） ---------- */
+
+/** 预览抽屉的展示模式：files = 文件活动流；trajectory = 会话轨迹时间线。 */
+export type PreviewMode = 'files' | 'trajectory'
+
+/** 轨迹时间线一行（当前会话的消息/工具事件摘要）。 */
+export interface TrajectoryRow {
+  /** 会话事件序号（升序排列基准）。 */
+  seq: number
+  /** 事件时间（Unix 毫秒）。 */
+  at: number
+  /** 所属轮次（turn/start 的 turn 号）。 */
+  turn: number
+  /** user = 用户消息；assistant = 助手消息；tool = 工具调用。 */
+  kind: 'user' | 'assistant' | 'tool'
+  /** user/assistant 的文本摘录（text 块拼接截断；纯图片/纯工具调用时 null）。 */
+  text: string | null
+  /** kind=tool 时的调用信息（其他 kind 为 null）。 */
+  tool: {
+    callId: string
+    name: string
+    /** running = 进行中；ok = 完成；error = 失败。 */
+    status: 'running' | 'ok' | 'error'
+    /** 耗时毫秒（完成后有值）。 */
+    ms: number | null
+  } | null
+}
+
+/** trajectory:fetch 的结果（当前会话的完整时间线快照）。 */
+export interface TrajectorySnapshot {
+  /** 当前跟随的会话（无选中会话时 null）。 */
+  sessionId: string | null
+  /** 会话标题（侧边栏树节点标题，可能为空串）。 */
+  title: string
+  /** 时间线行（seq 升序，上限截断丢最老）。 */
+  rows: TrajectoryRow[]
+}
+
 /* ---------- preload 暴露面 ---------- */
 
 /** preload 通过 contextBridge 暴露的 `window.dshDesktop`。 */
@@ -254,9 +292,20 @@ export interface DesktopBridge {
   previewPanelResize(dx: number): Promise<number>
   /** 用外部代码编辑器打开当前预览文件（探测 code/cursor/zed…）。 */
   previewOpenEditor(path: string): Promise<{ ok: boolean; error: string | null }>
+  /** 抽屉当前模式（轨迹/文件，随状态栏按钮切换）。 */
+  previewMode(): Promise<PreviewMode>
+  /** 抽屉内切换模式（不强制展示抽屉）。 */
+  previewSetMode(mode: PreviewMode): Promise<void>
   onPreviewActivity(cb: (e: PreviewEntry, focus: boolean) => void): () => void
   /** 工作区切换通知（活动已换桶，视图应重拉 previewEntries）。 */
   onPreviewRefresh(cb: () => void): () => void
+  /** 模式切换通知（状态栏按钮触发；视图跟随切换内容区）。 */
+  onPreviewMode(cb: (m: PreviewMode) => void): () => void
+  /* 会话轨迹（预览抽屉的轨迹模式数据源） */
+  /** 当前会话的轨迹时间线快照。 */
+  trajectoryFetch(): Promise<TrajectorySnapshot>
+  /** 时间线更新推送（新事件到达/会话切换）。 */
+  onTrajectoryUpdate(cb: (s: TrajectorySnapshot) => void): () => void
   /* 偏好设置（样式定制/托盘保活；样式变更后主进程自动重注入 shell 窗口） */
   preferencesGet(): Promise<Preferences>
   preferencesSet(patch: Partial<Preferences>): Promise<Preferences>

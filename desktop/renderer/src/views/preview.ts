@@ -1,7 +1,10 @@
 /**
  * 文件预览视图（#/preview，承载于 shell 窗口右侧的 WebContentsView）：
- * agent 读/编辑文件的活动流 + 内容预览（codex 预览面板同款）。
+ * agent 读/编辑文件的活动流 + 内容预览（codex 预览面板同款），
+ * 双模式展示——文件（活动流）/ 轨迹（当前会话的消息与工具时间线）。
  *
+ * - 模式：主进程 previewPanel.mode（状态栏两枚按钮切换，抽屉头也有
+ *   文件/轨迹两枚 chip 同步切换）；onPreviewMode 跟随；
  * - 活动数据：IPC preview:entries / preview:activity（主进程
  *   file-activity 聚合，同文件取最新，按工作区分桶——切换工作区时
  *   preview:refresh 通知重拉）；内容按需 preview:read-file
@@ -9,6 +12,9 @@
  * - read 条目 → 文件当前内容（整段高亮后按行拆分，行号列）；
  *   edit 条目 → 行级 diff（上游 applied hunk：oldText/newText），
  *   可切"查看当前文件"；diff 行取对应侧的整段高亮行（颜色不失真）；
+ * - 轨迹数据：trajectory:fetch / trajectory:update（当前会话的
+ *   user/assistant/tool 事件摘要，回合分组；新事件实时追加，
+ *   用户停在底部时自动跟随滚动）；
  * - 高亮：highlight.js common 集；语言来自上游 read 视图提示或扩展名
  *   推断，未知语言降级纯文本；
  * - 主题：prefers-color-scheme 双套 token（theme-watcher 已把
@@ -21,7 +27,7 @@
 
 import hljs from 'highlight.js/lib/common'
 import { bridge } from '../bridge'
-import type { PreviewEntry } from '@shared/ipc-contract'
+import type { PreviewEntry, PreviewMode, TrajectoryRow, TrajectorySnapshot } from '@shared/ipc-contract'
 
 /** 视图内样式（独立于 app.css：此页是预览抽屉专用布局）。 */
 const PAGE_CSS = `
@@ -79,6 +85,48 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .hljs-built_in, .hljs-class .hljs-title { color: #FFA657; }
 .hljs-attr, .hljs-property { color: #79C0FF; }
 .hljs-meta { color: #8B949E; }
+}
+/* 轨迹时间线（抽屉的轨迹模式；语义色块：问=蓝 / 答=紫 / 工具=状态色；
+   非等宽字体，覆盖 .pv-body 的 mono；左侧色条用 inset box-shadow
+   （border 全行 1px 占位恒定，不挤内容） */
+.tj-list { flex: 1; min-height: 0; overflow-y: auto; background: var(--pv-bg); padding: 4px 10px 16px; font-family: -apple-system, "PingFang SC", "Segoe UI", sans-serif; }
+/* 回合分隔：前圆点 + 文字 + 渐隐线 */
+.tj-turn { display: flex; align-items: center; gap: 7px; margin: 16px 0 7px; color: var(--pv-muted); font-size: 10px; letter-spacing: .5px; user-select: none; }
+.tj-turn::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--pv-muted); flex: none; }
+.tj-turn::after { content: ''; flex: 1; height: 1px; background: linear-gradient(to right, var(--pv-border), transparent); }
+.tj-turn.tj-first { margin-top: 2px; }
+/* 行基座（1px 透明边框占位，语义色覆盖） */
+.tj-row { display: flex; gap: 8px; padding: 6px 9px; border-radius: 9px; align-items: flex-start; margin-bottom: 4px; border: 1px solid transparent; }
+/* 问（用户消息）：蓝色块 */
+.tj-user { background: color-mix(in srgb, #2F6FED 7%, transparent); border-color: color-mix(in srgb, #2F6FED 16%, transparent); box-shadow: inset 3px 0 0 #2F6FED; }
+/* 答（助手消息）：紫色块 */
+.tj-assistant { background: color-mix(in srgb, #8250DF 5%, transparent); border-color: color-mix(in srgb, #8250DF 12%, transparent); box-shadow: inset 3px 0 0 #8250DF; }
+/* 标签徽章：实心语义色 */
+.tj-tag { flex: none; margin-top: 1px; padding: 0 6px; border-radius: 5px; font-size: 9px; font-weight: 600; line-height: 16px; user-select: none; }
+.tj-user .tj-tag { background: #2F6FED; color: #FFF; }
+.tj-assistant .tj-tag { background: #8250DF; color: #FFF; }
+.tj-text { flex: 1; min-width: 0; font-size: 12px; line-height: 1.55; color: var(--pv-fg); white-space: pre-wrap; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.tj-assistant .tj-text { opacity: .82; }
+/* 工具行：紧凑卡片，运行/失败行级着色（data-s 同步在行上） */
+.tj-tool { font-family: Menlo, Monaco, "DejaVu Sans Mono", monospace; font-size: 11px; align-items: center; color: var(--pv-fg); padding: 4px 9px; margin-bottom: 3px; background: color-mix(in srgb, var(--pv-fg) 2.5%, transparent); border-color: var(--pv-border); }
+.tj-row.tj-tool:hover { background: color-mix(in srgb, var(--pv-fg) 5%, transparent); }
+.tj-row.tj-tool[data-s="running"] { border-color: color-mix(in srgb, #D29922 35%, transparent); }
+.tj-row.tj-tool[data-s="error"] { background: color-mix(in srgb, var(--pv-del-fg) 6%, transparent); border-color: color-mix(in srgb, var(--pv-del-fg) 22%, transparent); }
+.tj-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--pv-muted); }
+.tj-dot[data-s="running"] { background: #D29922; animation: tj-pulse 1.1s ease-in-out infinite; }
+.tj-dot[data-s="ok"] { background: var(--pv-add-fg); }
+.tj-dot[data-s="error"] { background: var(--pv-del-fg); }
+@keyframes tj-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+.tj-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.tj-ms { margin-left: auto; flex: none; padding: 0 5px; border-radius: 4px; background: color-mix(in srgb, var(--pv-fg) 5%, transparent); color: var(--pv-muted); font-size: 10px; line-height: 16px; }
+@media (prefers-color-scheme: dark) {
+.tj-user { background: color-mix(in srgb, #7C9BFF 8%, transparent); border-color: color-mix(in srgb, #7C9BFF 18%, transparent); box-shadow: inset 3px 0 0 #7C9BFF; }
+.tj-assistant { background: color-mix(in srgb, #D2A8FF 6%, transparent); border-color: color-mix(in srgb, #D2A8FF 14%, transparent); box-shadow: inset 3px 0 0 #D2A8FF; }
+.tj-user .tj-tag { background: #7C9BFF; color: #151517; }
+.tj-assistant .tj-tag { background: #D2A8FF; color: #151517; }
+.tj-tool { background: color-mix(in srgb, #FFF 3%, transparent); }
+.tj-row.tj-tool:hover { background: color-mix(in srgb, #FFF 6%, transparent); }
+.tj-ms { background: color-mix(in srgb, #FFF 6%, transparent); }
 }
 `
 
@@ -238,6 +286,11 @@ export async function mountPreview(root: HTMLElement): Promise<void> {
   header.className = 'pv-header'
   const title = document.createElement('div')
   title.className = 'pv-title'
+  // 模式切换（按钮显示目标模式名；主进程是模式的唯一真源）
+  const modeTabBtn = document.createElement('button')
+  modeTabBtn.className = 'pv-btn'
+  modeTabBtn.type = 'button'
+  modeTabBtn.onclick = () => { void bridge.previewSetMode(pvMode === 'files' ? 'trajectory' : 'files') }
   const modeBtn = document.createElement('button')
   modeBtn.className = 'pv-btn'
   modeBtn.type = 'button'
@@ -253,13 +306,17 @@ export async function mountPreview(root: HTMLElement): Promise<void> {
   collapseBtn.title = '折叠预览面板'
   collapseBtn.setAttribute('aria-label', '折叠预览面板')
   collapseBtn.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-  header.append(title, modeBtn, editorBtn, collapseBtn)
+  header.append(modeTabBtn, title, modeBtn, editorBtn, collapseBtn)
 
   const files = document.createElement('div')
   files.className = 'pv-files'
   const body = document.createElement('div')
   body.className = 'pv-body'
-  main.append(header, files, body)
+  // 轨迹时间线容器（与文件两区互斥展示，renderMode 切换）
+  const tjList = document.createElement('div')
+  tjList.className = 'tj-list'
+  tjList.style.display = 'none'
+  main.append(header, files, body, tjList)
   root.append(grip, main)
 
   /* ---- 状态 ---- */
@@ -267,6 +324,10 @@ export async function mountPreview(root: HTMLElement): Promise<void> {
   /** edit 条目的视图模式（read 条目恒 file）。 */
   let mode: 'diff' | 'file' = 'diff'
   let loadSeq = 0
+  /** 抽屉展示模式（主进程唯一真源，onPreviewMode 跟随）。 */
+  let pvMode: PreviewMode = 'files'
+  /** 轨迹快照（轨迹模式渲染源；文件模式下只更新数据不渲染）。 */
+  let trajState: TrajectorySnapshot | null = null
 
   editorBtn.onclick = () => {
     if (selected === null) return
@@ -459,13 +520,103 @@ export async function mountPreview(root: HTMLElement): Promise<void> {
     }
   }
 
+  /** 轨迹时间线渲染（回合分组；用户停在底部时新内容自动跟随滚动）。 */
+  const renderTrajectory = (): void => {
+    const snap = trajState
+    title.textContent = snap !== null && snap.title !== '' ? snap.title : '会话轨迹'
+    title.title = ''
+    const follow = tjList.scrollHeight - tjList.scrollTop - tjList.clientHeight < 40
+    tjList.replaceChildren()
+    if (snap === null || snap.rows.length === 0) {
+      const empty = document.createElement('div')
+      empty.className = 'pv-empty'
+      empty.textContent = snap === null ? '加载会话轨迹…' : '等待会话消息…'
+      tjList.append(empty)
+      return
+    }
+    let lastTurn: number | null = null
+    let first = true
+    for (const row of snap.rows) {
+      if (row.turn !== lastTurn) {
+        lastTurn = row.turn
+        const sep = document.createElement('div')
+        sep.className = first ? 'tj-turn tj-first' : 'tj-turn'
+        sep.textContent = `回合 ${String(row.turn)}`
+        tjList.append(sep)
+        first = false
+      }
+      const el = document.createElement('div')
+      if (row.kind === 'tool') {
+        el.className = 'tj-row tj-tool'
+        // 状态同步在行上（CSS 行级着色：running 描边 / error 淡红底）
+        el.dataset.s = row.tool?.status ?? 'ok'
+        const dot = document.createElement('span')
+        dot.className = 'tj-dot'
+        dot.dataset.s = row.tool?.status ?? 'ok'
+        const name = document.createElement('span')
+        name.className = 'tj-name'
+        const label = row.tool !== null && row.tool.name !== ''
+          ? (row.text !== null && row.text !== '' ? `${row.tool.name} · ${row.text}` : row.tool.name)
+          : (row.text ?? '')
+        name.textContent = label
+        el.title = label
+        el.append(dot, name)
+        if (row.tool !== null && row.tool.ms !== null) {
+          const ms = document.createElement('span')
+          ms.className = 'tj-ms'
+          ms.textContent = `${String(row.tool.ms)}ms`
+          el.append(ms)
+        }
+      } else {
+        el.className = row.kind === 'user' ? 'tj-row tj-user' : 'tj-row tj-assistant'
+        const tag = document.createElement('span')
+        tag.className = 'tj-tag'
+        tag.textContent = row.kind === 'user' ? '问' : '答'
+        const text = document.createElement('span')
+        text.className = 'tj-text'
+        text.textContent = row.text ?? ''
+        el.title = row.text ?? ''
+        el.append(tag, text)
+      }
+      tjList.append(el)
+    }
+    if (follow) tjList.scrollTop = tjList.scrollHeight
+  }
+
+  /** 模式切换渲染（两套内容区互斥显隐 + 各自首渲）。 */
+  const renderMode = (): void => {
+    const isFiles = pvMode === 'files'
+    modeTabBtn.textContent = isFiles ? '轨迹' : '文件'
+    files.style.display = isFiles ? '' : 'none'
+    body.style.display = isFiles ? '' : 'none'
+    tjList.style.display = isFiles ? 'none' : ''
+    editorBtn.style.display = isFiles ? '' : 'none'
+    if (isFiles) render()
+    else renderTrajectory()
+  }
+
   collapseBtn.onclick = () => { void bridge.previewHide() }
 
   /* ---- 初始列表 + 活动流（跟随刷新：同文件新事件即重渲） ---- */
   const initial = await bridge.previewEntries()
   entries.push(...initial)
   selected = entries.length > 0 ? entries[0].path : null
-  render()
+  // 双模式：初始拉取当前模式并渲染对应内容区；轨迹快照预取一份
+  // （文件模式下只存数据，切模式即有内容可渲）
+  pvMode = await bridge.previewMode()
+  void bridge.trajectoryFetch().then(snap => {
+    trajState = snap
+    if (pvMode === 'trajectory') renderTrajectory()
+  })
+  renderMode()
+  bridge.onPreviewMode(m => {
+    pvMode = m
+    renderMode()
+  })
+  bridge.onTrajectoryUpdate(snap => {
+    trajState = snap
+    if (pvMode === 'trajectory') renderTrajectory()
+  })
 
   // 工作区切换：主进程已换桶，重拉列表（选中文件仍在新列表则保留）
   bridge.onPreviewRefresh(async () => {
@@ -476,6 +627,8 @@ export async function mountPreview(root: HTMLElement): Promise<void> {
       selected = fresh.length > 0 ? fresh[0].path : null
       mode = 'diff'
     }
+    // 轨迹模式：仅更新数据（隐藏的文件区不重渲，切回时统一渲染）
+    if (pvMode !== 'files') return
     render()
   })
 
@@ -483,12 +636,15 @@ export async function mountPreview(root: HTMLElement): Promise<void> {
     const wasSelected = entry.path === selected
     upsert(entry)
     if (focus) {
-      // 正文链接接管 / 主进程请求选中：直接展示该文件
+      // 正文链接接管 / 主进程请求选中：直接展示该文件（接管时主进程
+      // 已先切回文件模式并推模式事件；此处兜底更新选中即可）
       selected = entry.path
       mode = 'diff'
-      render()
+      if (pvMode === 'files') render()
       return
     }
+    // 轨迹模式：仅更新数据（同上，切回时统一渲染）
+    if (pvMode !== 'files') return
     if (!wasSelected) {
       renderFiles()
       return

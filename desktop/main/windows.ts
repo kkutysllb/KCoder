@@ -18,6 +18,7 @@ import { attachUpdateInjector } from './update-injector'
 import { attachBrandInjector } from './brand-injector'
 import { attachThemeWatcher, themeBackgroundColor } from './theme-watcher'
 import { attachStyleOverlay } from './style-overlay'
+import { attachWorkspaceHeader } from './workspace-header'
 import { attachStatsHover } from './stats-hover'
 import { attachPicker } from './attach-picker'
 import { attachSessionLogInjector } from './session-log-export'
@@ -107,6 +108,9 @@ export function showShellWindow(dshUrl: string): void {
     attachThemeWatcher(shellWindow)
     // 消息样式覆盖层：排版 token/气泡/代码块微调（零侵入，token 改名静默失效）
     attachStyleOverlay(shellWindow)
+    // workspace 顶栏收纳：会话标题/标签/日志按钮迁至状态栏与抽屉，
+    // 上游头部隐藏 + 轨迹视图兜底回对话（零侵入，类改名静默失效）
+    attachWorkspaceHeader(shellWindow)
     // 会话统计图表面板：hover 输入框下方缩略条 → 底部弹出自绘图表
     //（零侵入：拦截该行 hover 压制上游文本 Tooltip）
     attachStatsHover(shellWindow)

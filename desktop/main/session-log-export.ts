@@ -1,7 +1,10 @@
 /**
- * 会话日志导出注入器：在 shell 窗口（上游 Web UI）侧边栏设置面板的
- * 导航列追加「会话日志」行——上游 Session Header「Session log」下载的
- * 设置页入口化。
+ * 会话日志导出注入器，两个入口共用同一导出链路：
+ * - 状态栏按钮（宿主 __dsh_desktop_titlebar，right:108px，在预览/
+ *   轨迹按钮左侧）——workspace 顶栏收纳（上游按钮随 headerUtilities
+ *   隐藏）后的常驻快捷入口；
+ * - 设置面板导航列的「会话日志」行——上游 Session Header「Session
+ *   log」下载的设置页入口化（保留）。
  *
  * 上游契约（零侵入、只读）：
  * - 设置面板：SettingsRoot.tsx 的 overlay > panel[role="dialog"] >
@@ -52,14 +55,11 @@ const PAGE_JS = `(() => {
     return s.title !== '' ? s.title : s.id.slice(0, 12)
   }
 
-  /* 导出：HEAD 预检 + anchor 下载（上游 controller.run 同款） */
-  const exportSession = async (session, label) => {
+  /* 导出：HEAD 预检 + anchor 下载（上游 controller.run 同款）；结果经
+     onDone(ok, text) 回调——设置行写 span、状态栏按钮换图标 */
+  const exportSession = async (session, onDone) => {
     const url = '/api/session.export?sessionId=' + encodeURIComponent(session.id)
       + '&includeDescendants=true'
-    const restore = (text, ms) => {
-      label.textContent = text
-      setTimeout(() => refresh(), ms)
-    }
     try {
       const resp = await fetch(url, { method: 'HEAD' })
       if (!resp.ok) throw new Error('HTTP ' + resp.status)
@@ -67,9 +67,9 @@ const PAGE_JS = `(() => {
       a.href = url
       a.download = 'dsh-session-' + String(session.id).replace(/[^A-Za-z0-9_-]/g, '_') + '.zip'
       a.click()
-      restore('已开始下载 ✓', 2000)
+      onDone(true, '已开始下载 ✓')
     } catch (e) {
-      restore('导出失败：' + (e && e.message ? e.message : String(e)), 3000)
+      onDone(false, '导出失败：' + (e && e.message ? e.message : String(e)))
     }
   }
 
@@ -126,7 +126,10 @@ const PAGE_JS = `(() => {
       if (btn.disabled || current == null) return
       span.textContent = '正在导出…'
       btn.disabled = true
-      void exportSession(current, span)
+      void exportSession(current, (ok, text) => {
+        span.textContent = text
+        setTimeout(() => refresh(), ok ? 2000 : 3000)
+      })
     })
     list.append(btn)
     refresh()
@@ -134,10 +137,65 @@ const PAGE_JS = `(() => {
     return true
   }
 
-  // 面板每次打开重新挂载：body 级监听，navList 出现即注入
-  const panel = new MutationObserver(() => { injectRow() })
+  /* ---- 状态栏按钮（宿主 __dsh_desktop_titlebar，theme-watcher 注入；
+     点击时实时探测会话（非模态，随时可切），导出结果换图标反馈 ---- */
+  const BAR_BTN_ID = '__dsh_desktop_sessionlog_btn'
+  const BAR_TITLE = '导出会话日志（session.jsonl + 子会话与附件）'
+  const ICON_DL = '<path d="M8 1.5a.6.6 0 0 1 .6.6v5.2l1.9-1.9a.6.6 0 1 1 .85.85L8.42 9.2a.6.6 0 0 1-.85 0L5.05 6.68a.6.6 0 1 1 .85-.85l1.5 1.5V2.1a.6.6 0 0 1 .6-.6Z" fill="currentColor"/><path d="M2.8 11.4a.6.6 0 0 1 .6.6v.5c0 .5.4.9.9.9h7.4c.5 0 .9-.4.9-.9v-.5a.6.6 0 1 1 1.2 0v.5a2.1 2.1 0 0 1-2.1 2.1H4.3a2.1 2.1 0 0 1-2.1-2.1v-.5a.6.6 0 0 1 .6-.6Z" fill="currentColor"/>'
+  const ICON_OK = '<path d="M3.4 8.6l2.9 2.9 6.3-6.3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+  const ICON_ERR = '<path d="M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>'
+  const injectBarBtn = () => {
+    if (document.getElementById('__dsh_desktop_sessionlog_style') === null) {
+      const st = document.createElement('style')
+      st.id = '__dsh_desktop_sessionlog_style'
+      // 与 preview-panel 状态栏按钮同款基底样式（right 序：终端 12/
+      // 预览 44/轨迹 76/日志 108px）；标题避让带同步见 theme-watcher
+      st.textContent = [
+        '#' + BAR_BTN_ID + '{all:unset;box-sizing:border-box;position:absolute;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;cursor:pointer;color:rgba(26,29,33,.65);-webkit-app-region:no-drag;transition:background .15s ease;right:108px}',
+        'body[data-ds-dark-theme] #' + BAR_BTN_ID + '{color:rgba(232,234,237,.8)}',
+        '#' + BAR_BTN_ID + ':hover{background:color-mix(in srgb,currentColor 10%,transparent)}',
+        '#' + BAR_BTN_ID + ':active{background:color-mix(in srgb,currentColor 18%,transparent)}',
+        '#' + BAR_BTN_ID + ':disabled{opacity:.45;cursor:default}',
+      ].join('')
+      document.head.append(st)
+    }
+    const host = document.getElementById('__dsh_desktop_titlebar')
+    if (host === null || document.getElementById(BAR_BTN_ID) !== null) return
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.id = BAR_BTN_ID
+    btn.title = BAR_TITLE
+    btn.setAttribute('aria-label', BAR_TITLE)
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('viewBox', '0 0 16 16')
+    svg.setAttribute('width', '15')
+    svg.setAttribute('height', '15')
+    svg.innerHTML = ICON_DL
+    btn.append(svg)
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return
+      const s = probeSession()
+      if (s === null) return
+      btn.disabled = true
+      void exportSession(s, (ok, text) => {
+        svg.innerHTML = ok ? ICON_OK : ICON_ERR
+        btn.title = text
+        setTimeout(() => {
+          svg.innerHTML = ICON_DL
+          btn.title = BAR_TITLE
+          btn.disabled = false
+        }, ok ? 2000 : 3000)
+      })
+    })
+    host.append(btn)
+  }
+
+  // 面板每次打开重新挂载：body 级监听，navList/标题栏出现即注入
+  //（标题栏由 theme-watcher 注入，与本脚本时序不定，观察器兜住）
+  const panel = new MutationObserver(() => { injectRow(); injectBarBtn() })
   panel.observe(document.body, { childList: true, subtree: true })
   injectRow()
+  injectBarBtn()
 })()`
 
 /**
