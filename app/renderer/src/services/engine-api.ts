@@ -1085,9 +1085,12 @@ export class EngineAPI {
         stream_mode: ['messages-tuple', 'custom'],
         config: {
           // 引擎默认 recursion_limit=100（LangGraph 超步上限），复杂任务
-          // （子代理/长工具链）容易触顶报 GraphRecursionError；显式提升，
-          // 引擎会 clamp 到 AppConfig.max_recursion_limit（默认 1000）。
-          recursion_limit: 300,
+          // （子代理/长工具链/反复调试循环）容易触顶报 GraphRecursionError；
+          // 显式提到引擎 clamp 上限（AppConfig.max_recursion_limit 默认
+          // 1000，runtime yaml 未配置即用此值）。实测：调试任务 18 轮
+          // LLM+工具交互即消耗 300 步，300 仍会误杀正常推进的任务；
+          // 真卡死由 840s 业务 watchdog 与 15min 滑动 safety timeout 兜底。
+          recursion_limit: 1000,
           configurable
         }
       })
