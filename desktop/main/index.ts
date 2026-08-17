@@ -21,7 +21,7 @@ import { initUpdater } from './updater'
 import { applyNativeTheme, currentThemePref } from './theme-watcher'
 import { getSettings } from './store'
 import { homedir } from 'node:os'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 // 引擎用户数据目录：独立于同机 dsh-desktop / dsh CLI 的 ~/.dsh——两产品
@@ -32,6 +32,21 @@ if (process.env.DSH_HOME === undefined) {
   process.env.DSH_HOME = join(homedir(), '.kcoder')
 }
 mkdirSync(process.env.DSH_HOME, { recursive: true })
+
+// npm registry 透传：GUI 应用不经 shell 启动，引擎进程拿不到用户 npm
+// 配置；插件（如 dsh-vision-router）的更新检查读 npm_config_registry，
+// 缺省时直连 registry.npmjs.org——国内网络/代理环境下间歇超时即报
+//「更新检查失败：unknown」。从 ~/.npmrc 读镜像源预置给引擎（pnpm
+// 安装本身会自行读 npmrc，这里只为进程内 fetch）。未配置则不干预。
+if (process.env.npm_config_registry === undefined) {
+  try {
+    const npmrc = readFileSync(join(homedir(), '.npmrc'), 'utf8')
+    const m = /^registry\s*=\s*(\S+)/m.exec(npmrc)
+    if (m !== null) process.env.npm_config_registry = m[1]
+  } catch {
+    // 无 ~/.npmrc：不干预，维持默认官方源
+  }
+}
 
 /** splash 窗口引用（切到 shell 后关闭）。 */
 let bootstrap: Electron.BrowserWindow | null = null
