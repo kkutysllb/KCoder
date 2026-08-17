@@ -21,13 +21,13 @@ export function mountPlugins(root: HTMLElement): void {
   const refreshButton = document.createElement('button')
   refreshButton.textContent = '刷新'
   const restartButton = document.createElement('button')
-  restartButton.textContent = '重启 dsh 使插件生效'
+  restartButton.textContent = '重启引擎使插件生效'
 
   root.append(
     el('div', 'page', [
       el('div', 'page-header', [
         el('h1', '', '插件'),
-        el('div', 'sub', '一切皆插件：profile 是启动时组装的插件树；安装/卸载后需重启 dsh。'),
+        el('div', 'sub', '一切皆插件：profile 是启动时组装的插件树；安装/卸载后需重启引擎。'),
       ]),
       el('div', 'page-body', [
         el('div', 'card', [
@@ -117,7 +117,7 @@ export function mountPlugins(root: HTMLElement): void {
   async function run(label: string, action: () => Promise<PluginCommandResult>): Promise<void> {
     output.textContent = `⏳ ${label}…\n`
     const result = await action()
-    output.textContent += `${result.output}\n${result.ok ? '✅ 完成（重启 dsh 后生效）' : '❌ 失败'}\n`
+    output.textContent += `${result.output}\n${result.ok ? '✅ 完成（重启引擎后生效）' : '❌ 失败'}\n`
   }
 
   void renderInstalled()
@@ -128,7 +128,7 @@ export function mountPlugins(root: HTMLElement): void {
     void renderCommunity()
   })
   restartButton.addEventListener('click', () => {
-    output.textContent += '⏳ 正在重启 dsh…\n'
+    output.textContent += '⏳ 正在重启引擎…\n'
     void bridge.dshRestart().then((status) => {
       output.textContent += status.state === 'restarting' ? '已触发重启，就绪后自动打开主界面\n' : '重启请求已发出\n'
     })

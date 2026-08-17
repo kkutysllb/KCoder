@@ -14,7 +14,7 @@ export function mountDiagnostics(root: HTMLElement): void {
   log.className = 'log'
   const restartButton = document.createElement('button')
   restartButton.className = 'primary'
-  restartButton.textContent = '重启 dsh'
+  restartButton.textContent = '重启引擎'
 
   /* ---- 应用更新卡片 ---- */
   const updateText = document.createElement('div')
@@ -28,7 +28,7 @@ export function mountDiagnostics(root: HTMLElement): void {
     el('div', 'page', [
       el('div', 'page-header', [
         el('h1', '', '诊断'),
-        el('div', 'sub', 'dsh 侧车进程的运行状态与输出。'),
+        el('div', 'sub', 'KCoder 引擎进程的运行状态与输出。'),
       ]),
       el('div', 'page-body', [
         el('div', 'card', [el('h2', '', '状态'), statusText, el('div', 'row', [restartButton])]),

@@ -92,8 +92,12 @@ export class DshManager extends EventEmitter {
     this.command = command
     this.setValues({ state: 'starting', error: null, source: command.source })
 
-    // --port 0：由 OS 分配端口，避免与用户自起的 `dsh web`(3080) 冲突；
-    // 实际端口从就绪行解析。DSH_WEB_URL 等环境由 dsh 自行管理。
+    // --port 0：由 OS 从临时端口段随机分配，避免与用户自起的 `dsh web`(3080)
+    // 及同机 DSH-Desktop 的侧车（同样 --port 0，各自拿不同的随机端口）冲突；
+    // 临时段（macOS 49152-65535）与 3080 等低位固定端口天然不相交，内核
+    // 保证两个 --port 0 监听永不撞车。实际端口从就绪行解析。DSH_WEB_URL
+    // 等环境由 dsh 自行管理。websocket/mux 复用同一 HTTP server 的 upgrade，
+    // 全进程仅此一个监听。
     const args = [...command.baseArgs, 'web', '--port', '0']
     this.appendLog('stdout', `$ ${command.describe}\n$ ${command.command} ${args.join(' ')}`)
     const child = spawn(command.command, args, {

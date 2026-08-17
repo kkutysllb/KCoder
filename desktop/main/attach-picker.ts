@@ -23,6 +23,11 @@
  * 后 onClick 永不触发，localStorage 强制归位 attachment（注入时 +
  * 每次拦截时双写；已加载会话的闭包残留靠下次整页加载归位）。
  *
+ * 按钮瘦身：删除「附件/路径」文字只留图标（胶囊里图标即语义，
+ * 文字占位）。改文本节点 .data（不动 DOM 结构，React 卸载
+ * removeChild 不受影响）；React 重渲染重设文案 → observer 自愈。
+ * 拦截匹配集同步纳入瘦身后的 label（'📎'/'📄'，防自毁失配穿透）。
+ *
  * 已知小瑕疵：fast path 的 queued 不带 isDir，对话框选中的文件夹在
  * 消息里显示为普通文件卡（agent 拿到的路径不受影响）；拖入文件夹仍
  * 生成 [附件·目录] 卡片。
@@ -52,11 +57,32 @@ const PAGE_JS = `(() => {
   // 闭包内的 currentMode 已定（点击被拦后不再变化），下次整页加载归位
   forceAttachment()
 
+  /* 按钮瘦身：文本节点里删「附件/路径」字样，只留 📎/📄 图标。
+     按钮按 title 前缀识别（插件原始两态均以「拖拽/粘贴 →」开头，
+     拦截后改写的 title 以前缀「选择文件作为附件」开头）。只改
+     .data 不动结构（React 崩树坑）；幂等——已瘦身则不写，observer
+     自愈不会自触发循环。 */
+  const slimButton = () => {
+    for (const btn of document.querySelectorAll(
+      'button[title^="拖拽/粘贴 →"], button[title^="选择文件作为附件"]')) {
+      for (const n of btn.childNodes) {
+        if (n.nodeType === Node.TEXT_NODE && /附件|路径/.test(n.nodeValue)) {
+          n.nodeValue = n.nodeValue.replace(/\s*(附件|路径)/g, '')
+        }
+      }
+    }
+  }
+  slimButton()
+  // 插件异步加载 + React 重渲染重设文案：两种时机都自愈
+  new MutationObserver(slimButton).observe(document.body, {
+    childList: true, subtree: true, characterData: true,
+  })
+
   /* 拦截插件的模式切换按钮：点击不再切模式，而是上报主进程开文件
      对话框。识别三重匹配：原始两态 title（「拖拽/粘贴 →」开头）、
-     我们改写后的 title、按钮文本（📎 附件 / 📄 路径）。改写 title
-     会让后续点击失配穿透（首版踩坑：第二次点击 React onClick 执行、
-     模式被切成「路径」），必须把改写后的值也纳入匹配。 */
+     我们改写后的 title、按钮文本（原始 📎 附件 / 📄 路径，及瘦身
+     后的裸 📎 / 📄——改写值不入匹配集会失配穿透，首版踩坑：第二次
+     点击 React onClick 执行、模式被切成「路径」）。 */
   document.addEventListener('click', (e) => {
     const btn = e.target instanceof Element ? e.target.closest('button') : null
     if (btn === null) return
@@ -64,7 +90,8 @@ const PAGE_JS = `(() => {
     const label = (btn.textContent || '').trim()
     if (!title.startsWith('拖拽/粘贴 →')
       && !title.startsWith('选择文件作为附件')
-      && label !== '📎 附件' && label !== '📄 路径') return
+      && label !== '📎 附件' && label !== '📄 路径'
+      && label !== '📎' && label !== '📄') return
     e.preventDefault()
     e.stopPropagation()
     btn.setAttribute('title', '选择文件作为附件（也可直接拖入/粘贴）')

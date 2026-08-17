@@ -20,6 +20,18 @@ import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-cont
 import { initUpdater } from './updater'
 import { applyNativeTheme, currentThemePref } from './theme-watcher'
 import { getSettings } from './store'
+import { homedir } from 'node:os'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+
+// 引擎用户数据目录：独立于同机 dsh-desktop / dsh CLI 的 ~/.dsh——两产品
+// 并存时会话/凭据/插件会互串，KCoder 落自己的 ~/.kcoder。必须在任何
+// spawn dsh / dshHome() 之前设置：侧车与 dsh CLI 转发都继承主进程 env。
+// 用户显式设置了 DSH_HOME 时尊重之（排障/有意共享数据的场景）。
+if (process.env.DSH_HOME === undefined) {
+  process.env.DSH_HOME = join(homedir(), '.kcoder')
+}
+mkdirSync(process.env.DSH_HOME, { recursive: true })
 
 /** splash 窗口引用（切到 shell 后关闭）。 */
 let bootstrap: Electron.BrowserWindow | null = null
@@ -52,7 +64,7 @@ app.whenReady().then(() => {
   dshManager.on('state-changed', onStateChanged)
 
   // 上游未就绪时先打开 setup（仍会尝试 PATH dsh / DSH_BIN）；
-  // 打包态以内置运行时为准（resources/dsh-runtime.tar.gz 首启解压），
+  // 打包态以内置运行时为准（resources/kcoder-runtime.tar.gz 首启解压），
   // 不依赖本地克隆
   if (bundledRuntimeArchive() === null && (!upstreamCloned() || !upstreamBuilt())) {
     bootstrap?.close()

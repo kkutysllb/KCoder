@@ -29,11 +29,11 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const upstream = join(root, 'deepseek-harness')
-const staging = join(root, 'staging', 'dsh-runtime')
+const staging = join(root, 'staging', 'kcoder-runtime')
 const topNM = join(staging, 'node_modules')
 
 if (!existsSync(join(staging, 'lib', 'bin.js'))) {
-  console.error('[materialize] staging/dsh-runtime 不存在，先运行 pnpm deploy')
+  console.error('[materialize] staging/kcoder-runtime 不存在，先运行 pnpm deploy')
   process.exit(1)
 }
 
@@ -403,7 +403,7 @@ function tarHeader(name, size, mtimeMs, typeflag = '0') {
 const octal = (v, digits) => v.toString(8).padStart(digits, '0')
 const pad = (size) => Buffer.alloc((512 - (size % 512)) % 512)
 
-const tarPath = join(root, 'staging', 'dsh-runtime.tar.gz')
+const tarPath = join(root, 'staging', 'kcoder-runtime.tar.gz')
 rmSync(tarPath, { force: true })
 {
   const gz = createGzip({ level: 6 })
@@ -431,7 +431,7 @@ let tarSize = 0
 try {
   tarSize = Math.round(statSync(tarPath).size / 1024 / 1024)
 } catch { /* 仅展示 */ }
-console.log(`[materialize] 归档：${tarFiles.length} 个文件 → dsh-runtime.tar.gz（${tarSize} MB）`)
+console.log(`[materialize] 归档：${tarFiles.length} 个文件 → kcoder-runtime.tar.gz（${tarSize} MB）`)
 // 自检：补完后再扫一轮，非 optional 的依赖引用必须全部可达
 for (const pj of stagingManifests()) {
   let pkg

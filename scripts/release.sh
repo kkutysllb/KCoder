@@ -29,7 +29,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UPSTREAM="$ROOT/deepseek-harness"
-STAGING="$ROOT/staging/dsh-runtime"
+STAGING="$ROOT/staging/kcoder-runtime"
 DIST="$ROOT/dist"
 APP_NAME="KCoder.app"
 
@@ -96,13 +96,13 @@ cmd_build() {
 
   # 3) 物化上游运行时（开箱即用的核心）：pnpm deploy 生产闭包
   #    + peer/平台二进制补齐（materialize-peers，deploy 的盲区）
-  say "物化上游运行时（deploy --prod + peer 补齐）→ staging/dsh-runtime …"
+  say "物化上游运行时（deploy --prod + peer 补齐）→ staging/kcoder-runtime …"
   rm -rf "$STAGING"
   pnpm --dir "$UPSTREAM" --filter=@deepseek-ai/dsh deploy --prod --legacy "$STAGING"
   [[ -f "$STAGING/lib/bin.js" ]] || die "物化失败：缺 lib/bin.js"
   node "$ROOT/scripts/materialize-peers.mjs"
-  [[ -f "$ROOT/staging/dsh-runtime.tar.gz" ]] || die "物化失败：缺 staging/dsh-runtime.tar.gz"
-  ok "运行时就绪（$(du -sh "$STAGING" | cut -f1) → tar.gz $(du -h "$ROOT/staging/dsh-runtime.tar.gz" | cut -f1)）"
+  [[ -f "$ROOT/staging/kcoder-runtime.tar.gz" ]] || die "物化失败：缺 staging/kcoder-runtime.tar.gz"
+  ok "运行时就绪（$(du -sh "$STAGING" | cut -f1) → tar.gz $(du -h "$ROOT/staging/kcoder-runtime.tar.gz" | cut -f1)）"
 
   # 4) 运行时冒烟：真实起 Web 服务（就绪行 + 首页 200），
   #    不过全关的检查绝不进入下一步
@@ -138,11 +138,11 @@ cmd_verify() {
   [[ -n "$app" ]] || die "校验失败：dist 下未找到 $APP_NAME"
 
   local res="$app/Contents/Resources"
-  local tarball="$res/dsh-runtime.tar.gz"
+  local tarball="$res/kcoder-runtime.tar.gz"
 
   # 1) 开箱即用核心：运行时归档存在（单文件分发，首启解压到 userData）
-  [[ -f "$tarball" ]] || die "校验失败：包内缺 dsh-runtime.tar.gz（开箱即用被破坏）"
-  ok "内置运行时：dsh-runtime.tar.gz（$(du -h "$tarball" | cut -f1)）"
+  [[ -f "$tarball" ]] || die "校验失败：包内缺 kcoder-runtime.tar.gz（开箱即用被破坏）"
+  ok "内置运行时：kcoder-runtime.tar.gz（$(du -h "$tarball" | cut -f1)）"
 
   # 2) 解压 + 真实起服冒烟（模拟首启解压，包内运行时全链路验收）；
   #    macOS 上另跑 Electron node 形态——真机 GUI 启动时 PATH 无系统

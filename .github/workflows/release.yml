@@ -48,7 +48,7 @@ jobs:
         timeout-minutes: 40
         run: bash scripts/setup.sh
       - name: 物化上游运行时（开箱即用的核心）
-        # pnpm deploy 生产依赖闭包 → staging/dsh-runtime，
+        # pnpm deploy 生产依赖闭包 → staging/kcoder-runtime，
         # 再用 materialize-peers 补齐 deploy 的盲区（peer 声明 +
         # optionalDependencies 里的平台二进制）；目标必须用绝对路径。
         # macOS 上还会签名运行时内全部 Mach-O 二进制（公证硬要求：
@@ -58,12 +58,12 @@ jobs:
           CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PWD }}
         run: |
-          pnpm --dir deepseek-harness --filter=@deepseek-ai/dsh deploy --prod --legacy "$PWD/staging/dsh-runtime"
-          test -f staging/dsh-runtime/lib/bin.js
+          pnpm --dir deepseek-harness --filter=@deepseek-ai/dsh deploy --prod --legacy "$PWD/staging/kcoder-runtime"
+          test -f staging/kcoder-runtime/lib/bin.js
           node scripts/materialize-peers.mjs
       - name: 运行时冒烟（真实起服，禁止打包坏运行时）
         timeout-minutes: 5
-        run: node scripts/smoke-runtime.mjs --dir "$PWD/staging/dsh-runtime"
+        run: node scripts/smoke-runtime.mjs --dir "$PWD/staging/kcoder-runtime"
       - name: 构建安装包（electron-builder）
         timeout-minutes: 60
         env:
@@ -124,7 +124,7 @@ jobs:
           set -euo pipefail
           APP_BUNDLE="$(find dist -maxdepth 3 -name 'KCoder.app' -type d | head -1)"
           XDIR="$(mktemp -d)"
-          tar -xzf "$APP_BUNDLE/Contents/Resources/dsh-runtime.tar.gz" -C "$XDIR"
+          tar -xzf "$APP_BUNDLE/Contents/Resources/kcoder-runtime.tar.gz" -C "$XDIR"
           node scripts/smoke-runtime.mjs --dir "$XDIR" --exec "$APP_BUNDLE/Contents/MacOS/KCoder"
           rm -rf "$XDIR"
       - name: 收集安装包

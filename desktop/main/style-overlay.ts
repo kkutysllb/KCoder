@@ -24,7 +24,8 @@
  *
  * 上游相关样式：ui-theme/src/styles/gradient-shadow-text.css（排版
  * token）、ui-conversation MessageItem/AssistantMarkdown.module.css
- * （气泡/正文）、ui-primitives markdown/CodeBlock.module.css（代码块）、
+ * （气泡/正文）、ChatView.module.css toBottomSlot（跳到底部按钮居中）、
+ * ui-primitives markdown/CodeBlock.module.css（代码块）、
  * ui-trajectory（轨迹页：作用域锚 data-conversation-composer-overlay）。
  *
  * @module desktop/main/style-overlay
@@ -214,6 +215,15 @@ ${bubbleText}}`)
 
   // ---- 深色主题：气泡与背景（900）对比拉开一档 ----
   sections.push('body[data-ds-dark-theme] { --dsw-specific-bubble: var(--dsw-static-neutral-bluish-800); }')
+
+  // ---- 「跳到底部」浮动按钮：右缘对齐改输入框中心锚定
+  //（ChatView.toBottomSlot 原为 justify-content:flex-end + padding-right
+  //  缩进到内容列右缘 = 输入框右上角；内容列在滚动容器里居中，改
+  //  居中即与输入框同心；垂直本就随 composer 高度浮动在输入框上方）
+  sections.push(`[class*="toBottomSlot"] {
+  justify-content: center !important;
+  padding-right: 0 !important;
+}`)
 
   // ---- 轨迹页精致打磨（跟随 enabled 总开关，不跟 density 档位） ----
   sections.push(TRAJECTORY_CSS)

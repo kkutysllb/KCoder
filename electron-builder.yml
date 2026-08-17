@@ -11,9 +11,9 @@ extraResources:
   # 瘦身）以单文件 tar.gz 随包分发，首启解压到 userData（见
   # dsh-contract.ts ensureBundledRuntime）。不走散文件目录：electron-
   # builder 复制/签名数万文件会撞 macOS EMFILE。由 scripts/release.sh
-  # build 物化到 staging/dsh-runtime.tar.gz。
-  - from: staging/dsh-runtime.tar.gz
-    to: dsh-runtime.tar.gz
+  # build 物化到 staging/kcoder-runtime.tar.gz。
+  - from: staging/kcoder-runtime.tar.gz
+    to: kcoder-runtime.tar.gz
   # scripts 与 assets（官方图标）随应用分发，供首次引导与托盘使用
   - from: scripts
     to: scripts

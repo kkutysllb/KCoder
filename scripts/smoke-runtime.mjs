@@ -2,8 +2,8 @@
 /**
  * 运行时真实起服冒烟（打包前后的统一验收）。
  *
- * 在目标目录（默认 staging/dsh-runtime，或 --dir 指定打包后的
- * resources/dsh-runtime）真实启动 `bin.js web --port 0`，等待就绪行
+ * 在目标目录（默认 staging/kcoder-runtime，或 --dir 指定打包后的
+ * resources/kcoder-runtime）真实启动 `bin.js web --port 0`，等待就绪行
  * `dsh web: http://127.0.0.1:<port>`，再 GET / 要求 HTTP 200。
  * 任何一步失败即非零退出——禁止坏运行时进入安装包或被放行。
  *
@@ -24,7 +24,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 const args = process.argv.slice(2)
-let dir = resolve(import.meta.dirname, '..', 'staging', 'dsh-runtime')
+let dir = resolve(import.meta.dirname, '..', 'staging', 'kcoder-runtime')
 let exec = process.execPath
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--dir') {

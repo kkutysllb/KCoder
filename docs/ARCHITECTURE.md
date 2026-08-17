@@ -20,6 +20,10 @@ KCoder 经历了三个时代，当前是第三时代：
 为基线整仓拷贝——它是已发布、验证过的 deepseek-harness 桌面壳。KCoder 在此之上
 做产品化定制，**两仓库从此独立演进、双线维护**。
 
+**基线增量同步**：DSH-Desktop v0.1.5 的通用能力（`f29f852..65026a8` 中三个功能
+提交）已于同日手动移植同步——会话日志导出、样式定制迁入上游设置面板、跳到底部
+按钮居中。KCoder 功能面与基线 v0.1.5 一致；版本轴仍独立（KCoder 自 0.1.0 起）。
+
 ## 2. 重建变更明细（`ecc2ced`，412 文件 +12790/−44131）
 
 ### 删除
@@ -52,10 +56,11 @@ KCoder 经历了三个时代，当前是第三时代：
 | 图标 | DeepSeek 官方鲸鱼 | KCoder 自有品牌 |
 | 欢迎屏 | dsh 产品落地页（约 1900 行 CSS） | WelcomeScreen 移植版（app.css 2243→367 行） |
 
-**保留不动的引擎层命名**（是上游机制名，不是品牌）：`dsh-runtime`、
-`dsh-contract.ts`、`DshManager`、`dsh web` 就绪行、`~/.dsh`、`window.dshDesktop`
-桥、`DSH_BIN`/`DSH_HOME` 环境变量。**不要**把这些也"品牌化"——它们是与上游
-对齐的契约词汇。
+**保留不动的引擎层命名**（是上游机制名，不是品牌）：`dsh-contract.ts`、
+`DshManager`、`dsh web` 就绪行、`window.dshDesktop`
+桥、`DSH_BIN`/`DSH_HOME` 环境变量、上游包名 `@deepseek-ai/dsh`。**不要**把这些
+也“品牌化”——它们是与上游对齐的契约词汇。（已品牌化的目录命名：打包链
+staging/包内归档/首启解压统一为 `kcoder-runtime`；引擎数据目录为 `~/.kcoder`。）
 
 ## 3. 当前架构总览
 
@@ -75,8 +80,16 @@ Electron 主进程 (desktop/main/)
 2. **上游 UI 零侵入**：桌面端能力（标题栏、主题、终端让位、统计悬浮、更新按钮、
    附件按钮改造）全部通过主进程注入叠加上去，不改上游一行代码。上游升级时注入
    仍可用（契约检查清单见 §7）。
-3. **数据共享**：会话/凭据/插件在 `~/.dsh`（`DSH_HOME` 可覆盖），与 `dsh` CLI
-   完全互通。KCoder 与 DSH-Desktop 若同时装，数据也是同一份。
+3. **数据隔离**：会话/凭据/插件在 `~/.kcoder`（主进程启动时预置
+   `DSH_HOME`，见 index.ts；用户显式设置 DSH_HOME 时从之）。与同机
+   dsh-desktop / 终端 `dsh` CLI 的 `~/.dsh` 完全隔离，两产品并存不互串；
+   代价是 CLI 里的凭据/会话不互通，KCoder 需自行配置。
+4. **端口不冲突**：侧车恒以 `dsh web --port 0` 启动（dsh-manager），
+   OS 从临时端口段（macOS 49152-65535）随机分配，内核保证与同机
+   DSH-Desktop 的侧车（同样 `--port 0`）及用户自起的 `dsh web`（默认
+   3080，低位端口不在临时段）永不撞车；实际端口从就绪行解析。
+   websocket/mux 复用同一 HTTP server，全进程仅此一个监听；桌面壳
+   自身（Electron/pty/更新器）零监听端口。
 
 ## 4. 主进程模块导览（desktop/main/）
 
@@ -86,13 +99,16 @@ Electron 主进程 (desktop/main/)
 | `dsh-contract.ts` | ★ 上游契约适配层：就绪行、bin 路径、DSH_HOME、Node 版本探测 | **升级上游时唯一必查** |
 | `dsh-manager.ts` | dsh 侧车生命周期：spawn/就绪解析/崩溃重启（指数退避×3）/优雅退出 | — |
 | `windows.ts` | shell 窗口与面板窗口创建；各注入器的接线点 | 各注入模块 |
-| `style-overlay.ts` | CSS 注入：标题栏、主题 token、轨迹页美化（锚点 `data-conversation-composer-overlay`） | §8 类名匹配策略 |
+| `style-overlay.ts` | CSS 注入：标题栏、主题 token、轨迹页美化（锚点 `data-conversation-composer-overlay`）、跳到底部按钮居中（`toBottomSlot`） | §8 类名匹配策略 |
 | `console-channel.ts` | console 通道：页面注入脚本 → 主进程 的上行通信约定（`__dsh_*:` 前缀） | 各注入模块 |
 | `terminal-panel.ts` + `pty-host.ts` | 内嵌终端（WebContentsView + node-pty），布局跟随注入（`sidebarCol/centerCol`） | — |
 | `preview-panel.ts` + `file-activity.ts` | 文件活动预览抽屉；mux 流消费按工作区分桶（sessionId→workspace 归属，来自 workspace.list RPC） | mux 流消费必须带归属维度 |
 | `plugins.ts` | 插件桥：profile 层叠清单 + GitHub `topic:dsh-plugin` 发现 + `dsh plugin` CLI 转发 | — |
 | `updater.ts` + `update-injector.ts` | electron-updater + 向上游 logoRow 注入安装按钮（`kcoder://install-update` 深链） | — |
+| `brand-injector.ts` | 品牌化：侧边栏展开/rail 鲸鱼换 KCoder 标（`assets/brand-k.png`）、新会话 hero 鲸鱼+slogan（中「所思，皆可成码」/英 "Think it, code it."，CJK 自适应；预览徽章藏起）、`document.title` 产品名替换（拦截 setter）。⚠ 只能藏起+旁插/改 .data，不能 replaceWith/改 textContent（React removeChild 崩树） | §8；“再生成品牌图”同源 |
 | `attach-picker.ts` | 附件按钮改造：拦截 drag-to-attachment 插件的模式按钮 → 原生文件对话框 → 合成 drop → 插件 fast path | §8 自毁坑 |
+| `session-log-export.ts` | 会话日志导出行：上游设置面板导航列注入「会话日志」行（fiber 探测当前会话 → `/api/session.export`，HEAD 预检 + anchor 下载） | fiber 探测契约（同 `terminal-panel.ts`） |
+| `style-settings.ts` | 样式定制设置行：上游设置面板通用区注入密度/列宽方块行（console 通道写回 → `refreshStyleOverlay` 即时生效） | §8 类名克隆 |
 | `stats-hover.ts` | 轨迹统计悬浮注入 | — |
 | `theme-watcher.ts` | 深浅色跟随（`body[data-ds-dark-theme]`） | — |
 | `upstream.ts` | 上游状态检测 + 同步流水线（fetch→脏检查→ff-only→install→build） | — |
@@ -185,18 +201,18 @@ grep -c -F "关键串" out/main/*.js
 
 | 想做什么 | 去哪里 |
 |---|---|
-| 改欢迎屏视觉/文案 | `renderer/src/views/landing.ts` + `app.css` `.welcome-*` 段 |
+| 改欢迎屏视觉/文案 | `renderer/src/views/landing.ts` + `app.css` `.landing-*` 段 |
 | 移植原项目组件 | 素材在 `assets/legacy/`（i18n 文案、CommandInput 等） |
 | 加/改 CSS 注入 | `main/style-overlay.ts`（注意锚点策略） |
 | 加面板页面 | `renderer/src/main.ts` 路由表 + `views/` 新文件 + `shared/ipc-contract.ts` + `main/ipc.ts` |
 | 升级上游 | `pnpm sync-upstream` → 查 §7 清单 → `scripts/verify-*.cjs` |
-| 重新生成图标 | `scripts/make-icons.cjs`（当前用 KCoder 自有图标，勿覆盖 `build/`） |
-| 托盘品牌化（技术债） | `assets/tray*.png` + `menu.ts`（当前沿用基线 DeepSeek 资产） |
+| 重新生成品牌图 | app 图标 `assets/icon.png`/`renderer kcoder.png` 是手动放置的自有品牌图（勿覆盖）；托盘/侧边栏图由它派生：`python3 scripts/make-tray-icons.py`（黑底 keying 取 K 形状 alpha → 包围盒裁剪 → 32px 托盘双产物 + 64px `brand-k.png` 供 brand-injector 嵌入） |
+| ⚠ 托盘图覆盖坑 | `pnpm icons`（make-icons.cjs 产上游鲸鱼图）会覆盖已品牌化的 `assets/tray*.png`——运行后需重跑 make-tray-icons.py |
 | 发布 | `package.json` 版本 → 提交 → tag push（CI 三平台，见根 README） |
 
 ## 11. Roadmap
 
-- [ ] 托盘图标品牌化
+- [x] 品牌化：托盘/侧边栏/新会话 hero/窗口标题（`make-tray-icons.py` + `brand-injector.ts`）
 - [ ] 全局快捷键唤起、deep link（`kcoder://`）
 - [ ] 面向 KCoder 产品定位的交互迭代（基于 `assets/legacy/` 逐步移植）
 - [ ] Windows / Linux 打包验证

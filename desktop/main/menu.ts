@@ -96,7 +96,7 @@ export function installMenu(): void {
         { role: 'unhide' },
         { type: 'separator' },
         {
-          label: '退出（同时停止 dsh）',
+          label: '退出（同时停止引擎）',
           accelerator: 'CmdOrCtrl+Q',
           click: () => app.quit(),
         },
@@ -264,7 +264,7 @@ export function installTray(): void {
     updateMenuItem(),
     { type: 'separator' },
     {
-      label: '退出（同时停止 dsh）',
+      label: '退出（同时停止引擎）',
       click: () => app.quit(),
     },
   ])
