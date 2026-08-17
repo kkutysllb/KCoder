@@ -19,6 +19,16 @@
  * 点击首个 tab 拉回对话（chat 恒为 order:0 首 tab）。display:none
  * 的元素仍可 click()——React 事件委托挂在 root，不依赖可见性。
  *
+ * 会话的 agent 预设标记（AgentPresetLabel：注册在 headerActions
+ * slot，仅配了预设的会话渲染——每会话必有，默认「标准模式」）也随
+ * 之不可见 → 同一观察器顺带读取写入 --dsh-agent-preset
+ * （--dsh-ws-name 同款跨注入器变量通道），自绘标题栏消费展示。
+ * 读取锚点用 slot 系统的 data-slot 属性（SlotOutlet 给每个 slot 包
+ * 的锚点容器，scoped-slots.tsx 的 <div data-slot={key}>，slot key
+ * 是语义标识比类名稳）；实测 DOM：容器内首 span 即 AgentPresetLabel
+ * 根（css.label 类）。其他注册方（SubagentCatalog/JobList）根是
+ * button 不在匹配面内；DOM 隐藏不影响读取。
+ *
  * 上游类/属性改名 → 选择器静默失效回原样（顶栏重现，不崩不错位）。
  *
  * @module desktop/main/workspace-header
@@ -48,13 +58,30 @@ const HEADER_JS = `(() => {
 /* _tabs 跨包撞名：仅收敛 titleRow 之后的兄弟（会话页标签行） */
 [class*="_titleRow"] ~ [class*="_tabs"] { display: none !important; }
 \`
-  /* 轨迹视图兜底：观察 DOM 变化（rAF 合并 + 点击冷却），轨迹视图
-     根节点存在即点回首 tab（chat）。观察器常驻——视图状态可在
-     会话切换/恢复时再次落入轨迹页 */
+  /* 轨迹视图兜底 + agent 预设标记外传：观察 DOM 变化（rAF 合并 +
+     点击冷却）；预设文本有变化才写变量（style 属性变化会触发标题栏
+     既有 observer 重渲染） */
   let queued = false
   let lastClick = 0
+  let lastPreset = null
+  const syncPreset = () => {
+    // 锚点 = slot 系统的 data-slot 容器（SlotOutlet 包的锚点 div，
+    // slot key 语义稳定；实测 headerActions 的直接子元素是它而非
+    // 组件根——「> span」因此永远落空）；容器内首 span 带 css.label
+    // 类，兜底容器首元素（label 类改名时读 entry 全文本）
+    const root = document.querySelector('[data-slot="conversation.session.header.actions"]')
+    let text = ''
+    if (root !== null) {
+      const el = root.querySelector('span[class*="_label"]') ?? root.firstElementChild
+      if (el !== null) text = el.textContent.trim()
+    }
+    if (text === lastPreset) return
+    lastPreset = text
+    document.documentElement.style.setProperty('--dsh-agent-preset', text)
+  }
   const ensureChat = () => {
     queued = false
+    syncPreset()
     if (document.querySelector('[data-conversation-composer-overlay]') === null) return
     const now = Date.now()
     if (now - lastClick < 300) return
@@ -69,7 +96,8 @@ const HEADER_JS = `(() => {
     requestAnimationFrame(ensureChat)
   }
   const start = () => {
-    new MutationObserver(onMutate).observe(document.body, { childList: true, subtree: true })
+    // characterData：React 重设预设文案只改文本节点 data
+    new MutationObserver(onMutate).observe(document.body, { childList: true, subtree: true, characterData: true })
     onMutate()
   }
   if (document.body !== null) start()

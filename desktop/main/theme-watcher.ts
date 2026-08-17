@@ -133,11 +133,13 @@ export function themeBackgroundColor(pref: 'system' | 'light' | 'dark' = getSett
  * 自绘标题栏（页面上下文）：替代系统标题栏（WCO 覆盖条在 macOS 不渲染
  * 标题且双击缩放失效，故齐弃）。VS Code 同款方案：
  * - `-webkit-app-region: drag` 拖拽区 → 原生拖动与双击缩放；
- * - 靠左显示「工作区 / 会话标题」：主文本是 document.title（上游
- *   DocumentTitle 投射“会话标题 — 产品名”）；工作区前缀由预览抽屉
- *   注入器探测（workspace.list RPC + 会话配对）写入 --dsh-ws-name，
- *   apply() 读取拼接（preview-panel 与本脚本互不依赖，变量通道同
- *   --dsh-sidebar-w；style 变化会触发既有 observer 重渲染），
+ * - 靠左显示「工作区 / 会话标题 〔预设〕」：主文本是 document.title
+ *   （上游 DocumentTitle 投射“会话标题 — 产品名”）；工作区前缀由预览
+ *   抽屉注入器探测（workspace.list RPC + 会话配对）写入 --dsh-ws-name，
+ *   agent 预设徽章读 --dsh-agent-preset（workspace-header 读取被收纳
+ *   的 AgentPresetLabel 文本写入）；两变量均由 apply() 读取拼接
+ *   （写入方与本脚本互不依赖，通道同 --dsh-sidebar-w；style 变化
+ *   会触发既有 observer 重渲染），
  *   起排在中间会话列左缘（侧边栏右边线 + 12px，探测 sidebarCol 实时
  *   广播为 --dsh-sidebar-w，拖宽/折叠动画平滑跟随；侧边栏收起时保底
  *   红绿灯区 78px）；max-width 自适应避让：右侧取按钮带（134px =
@@ -178,13 +180,19 @@ const SHELL_TITLEBAR_JS = `(() => {
     'flex:0 1 auto',
     'margin-left:max(78px, var(--dsh-sidebar-w, 0px) + 12px)',
     'max-width:calc(100% - max(78px, var(--dsh-sidebar-w, 0px) + 12px) - max(134px, var(--dsh-preview-inset, 0px)))',
-    'display:flex', 'min-width:0', 'white-space:nowrap',
+    'display:flex', 'align-items:center', 'min-width:0', 'white-space:nowrap',
   ].join(';')
   const wsTag = document.createElement('span')
   wsTag.style.cssText = 'flex:none;max-width:170px;overflow:hidden;text-overflow:ellipsis;font-weight:400'
   const ttlTag = document.createElement('span')
   ttlTag.style.cssText = 'flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis'
-  label.append(wsTag, ttlTag)
+  // agent 预设标记：小徽章（上游 AgentPresetLabel 本显示在会话标题旁，
+  // 随顶栏收纳迁到这里；workspace-header 读 headerActions 写变量）。
+  // inline-flex + line-height:1：文本 10px 但行盒继承 13px 字号的
+  // normal 行高，不压行盒则文本在徽章内偏上、徽章在标题行里偏移
+  const presetTag = document.createElement('span')
+  presetTag.style.cssText = 'flex:none;display:inline-flex;align-items:center;line-height:1;max-width:150px;overflow:hidden;text-overflow:ellipsis;margin-left:9px;padding:3px 8px;border-radius:99px;font-size:10px;font-weight:500;letter-spacing:.2px;background:color-mix(in srgb,currentColor 12%,transparent);opacity:.82;cursor:default'
+  label.append(wsTag, ttlTag, presetTag)
   bar.append(label)
 
   /* 侧边栏右边线探测：标题起排跟随（与终端/预览面板的 sidebarCol
@@ -214,6 +222,10 @@ const SHELL_TITLEBAR_JS = `(() => {
     try { ws = getComputedStyle(document.documentElement).getPropertyValue('--dsh-ws-name').trim() } catch {}
     wsTag.textContent = ws !== '' ? ws + ' / ' : ''
     ttlTag.textContent = (document.title || '').trim() || 'KCoder'
+    let preset = ''
+    try { preset = getComputedStyle(document.documentElement).getPropertyValue('--dsh-agent-preset').trim() } catch {}
+    presetTag.textContent = preset
+    presetTag.style.display = preset !== '' ? '' : 'none'
   }
   const mount = () => {
     document.body.append(bar)
