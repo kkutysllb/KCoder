@@ -23,7 +23,11 @@ export function createWindow(options: WindowOptions): BrowserWindow {
       preload: preloadPath,
       sandbox: false,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // 窗口后台化/最小化时保持渲染进程 rAF/setTimeout 正常调度——
+      // 否则流式正文的 rAF 批处理会挂起（任务继续跑但正文冻结，
+      // 重启后从历史加载才正常）。配合 useChat 的 setTimeout 兜底双保险。
+      backgroundThrottling: false
     }
   })
 

@@ -101,15 +101,26 @@ export function useChat() {
   // rAF 批处理：流式 delta 高频到达时，每帧合并为一次 store 写入，
   // 避免逐 token setState 导致整 feed 重渲染（长会话/高 token 速率下的卡顿源）。
   // pendingStateRef 线程化同一消息的 in-flight 状态，保证连续 delta 不读到 store 旧值。
+  //
+  // rAF 挂起兜底：Chromium/Electron 在窗口最小化/后台化（backgroundThrottling）
+  // 时暂停 rAF——任务继续跑（SSE 事件照常到达、reducer 照常更新 pending），
+  // 但 flush 永不执行，正文冻结在旧状态，重启后从历史加载才正常（消息一直在
+  // pending 缓存里）。setTimeout 在后台仍会执行（节流到 ~1s），作为兜底强制
+  // flush；前台高频 delta 时 rAF 先触发并取消兜底定时器，性能不受影响。
   const pendingStateRef = useRef<Partial<ChatMessage> | null>(null)
   const pendingIdRef = useRef<string | null>(null)
   const rafRef = useRef<number | null>(null)
+  const rafFallbackRef = useRef<number | null>(null)
 
   /** 立即落地 pending 状态到 store（清空缓冲）。 */
   const flushPending = useCallback(() => {
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
+    }
+    if (rafFallbackRef.current !== null) {
+      clearTimeout(rafFallbackRef.current)
+      rafFallbackRef.current = null
     }
     if (pendingStateRef.current) {
       applyTurnUpdate(pendingIdRef.current!, pendingStateRef.current)
@@ -152,14 +163,34 @@ export function useChat() {
         // 终端事件立即落地（不等下一帧，保证 turn 终态及时）
         flushPending()
       } else if (pendingStateRef.current && rafRef.current === null) {
-        // 安排下一帧合并 flush
+        // 安排下一帧合并 flush（rAF 优先保证前台性能）
         rafRef.current = requestAnimationFrame(() => {
           rafRef.current = null
+          if (rafFallbackRef.current !== null) {
+            clearTimeout(rafFallbackRef.current)
+            rafFallbackRef.current = null
+          }
           if (pendingStateRef.current) {
             applyTurnUpdate(pendingIdRef.current!, pendingStateRef.current)
             pendingStateRef.current = null
           }
         })
+        // rAF 兜底：窗口后台化/最小化时 Chromium 暂停 rAF（backgroundThrottling），
+        // pending 会无限堆积（正文冻结但任务继续跑）；setTimeout 后台仍执行
+        // （节流 ~1s），兜底强制落地。前台时 rAF 先触发并取消本定时器。
+        if (rafFallbackRef.current === null) {
+          rafFallbackRef.current = window.setTimeout(() => {
+            rafFallbackRef.current = null
+            if (rafRef.current !== null) {
+              cancelAnimationFrame(rafRef.current)
+              rafRef.current = null
+            }
+            if (pendingStateRef.current) {
+              applyTurnUpdate(pendingIdRef.current!, pendingStateRef.current)
+              pendingStateRef.current = null
+            }
+          }, 500)
+        }
       }
 
       // turn 完成且携带文件变更 → 累加未读变更数（状态栏 badge）
