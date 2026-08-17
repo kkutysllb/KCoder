@@ -1,0 +1,271 @@
+/**
+ * 上游 deepseek-harness 契约适配层。
+ *
+ * 上游处于 developer preview，bin 路径、就绪行格式、CLI flags、
+ * DSH_HOME 等约定都可能变化。本文件是桌面端对这些约定的**唯一**引用点：
+ * 升级上游后若行为不符，只需要修改这里。
+ *
+ * 契约依据（2026-08, upstream 0.1.0-rc.5）：
+ * - 就绪行：packages/bundle/web-app/src/index.ts `printUrl`
+ *   `dsh web: http://127.0.0.1:<port>`（loader 结算后打印，是就绪信号）
+ * - CLI：`dsh [--profile web] --host/--port/--trusted-host`；`web` 是
+ *   `--profile web` 的硬编码别名；`--port 0` 让 OS 分配端口
+ * - 构建产物 bin：apps/cli/package.json `bin.dsh = lib/bin.js`
+ * - 源码运行：根 package.json script `dsh = node --import tsx/esm apps/cli/src/bin.ts`
+ *   （SRC 回退模式，Web UI 仍需 `pnpm run build` 产物）
+ * - Harness home：packages/util/home-paths `DSH_HOME` 环境变量，默认 `~/.dsh`
+ * - 插件管理：apps/cli/src/plugin.ts `dsh plugin --profile <name> <pnpm args>`
+ *   （pnpm 转发器；声明 `dsh.bundle` 的依赖自动进入层叠）
+ * - Profile 清单：`$DSH_HOME/profiles/web/package.json` 的
+ *   `dsh.profile.bundles`（层叠顺序）与 `dsh.profile` 声明
+ *
+ * @module desktop/main/dsh-contract
+ */
+
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { satisfies } from 'semver'
+import { app } from 'electron'
+import type { DshSource } from '@shared/ipc-contract'
+
+/** 就绪行的解析规则：`dsh web: http://127.0.0.1:<port>`。 */
+export const READY_LINE_RE = /^dsh web: http:\/\/127\.0\.0\.1:(\d+)/
+
+/** 就绪等待上限（毫秒）：dsh 需等 loader 结算后才打印 URL。 */
+export const READY_TIMEOUT_MS = 60_000
+
+/** 崩溃自动重启次数上限。 */
+export const MAX_AUTO_RESTARTS = 3
+
+/** 上游克隆在本项目中的目录名（被 .gitignore 排除，绝不提交）。 */
+export const UPSTREAM_DIR_NAME = 'deepseek-harness'
+
+/** 桌面端工作区根（含 desktop/、scripts/、上游克隆）。 */
+export const PROJECT_ROOT = resolve(__dirname, '..', '..')
+
+/** 上游克隆的绝对路径。 */
+export const UPSTREAM_DIR = join(PROJECT_ROOT, UPSTREAM_DIR_NAME)
+
+/**
+ * 打包内置的上游运行时压缩包（extraResources/dsh-runtime.tar.gz）。
+ * 运行时以单文件随包分发（散文件会让 electron-builder 的复制/签名
+ * 撞 EMFILE），首启解压到 userData。开发态（未打包）返回 null。
+ */
+export function bundledRuntimeArchive(): string | null {
+  const base = process.resourcesPath
+  if (base === undefined) return null
+  const tar = join(base, 'dsh-runtime.tar.gz')
+  return existsSync(tar) ? tar : null
+}
+
+/** 已解压内置运行时的目标目录（userData 下，跨启动复用）。 */
+function bundledRuntimeExtractDir(): string {
+  return join(app.getPath('userData'), 'dsh-runtime')
+}
+
+let runtimeBusy = false
+
+/**
+ * 确保内置运行时可用（幂等）：tar 指纹（size+mtime）与上次一致时直接
+ * 复用解压目录；否则原子重新解压（临时目录解压后 rename 顶替）。
+ * 首次解压约数秒（同步，一次性）；打包态无 tar 返回 null。
+ */
+export function ensureBundledRuntime(): string | null {
+  const tar = bundledRuntimeArchive()
+  if (tar === null) return null
+  const dest = bundledRuntimeExtractDir()
+  const stampOf = (p: string) => {
+    const st = statSync(p)
+    return `${st.size}:${Math.trunc(st.mtimeMs)}`
+  }
+  if (existsSync(join(dest, BUNDLED_BIN))) {
+    try {
+      if (readFileSync(join(dest, '.runtime-stamp'), 'utf8') === stampOf(tar)) return dest
+    } catch { /* 指纹缺失，重新解压 */ }
+  }
+  if (runtimeBusy) return null
+  runtimeBusy = true
+  try {
+    const tmp = `${dest}.tmp-${process.pid}`
+    rmSync(tmp, { recursive: true, force: true })
+    mkdirSync(tmp, { recursive: true })
+    // macOS/Linux/Windows 10+ 均自带 tar（bsdtar 兼容 -xzf）；失败回退
+    // 到克隆/PATH 分支而非崩溃
+    const res = spawnSync('tar', ['-xzf', tar, '-C', tmp], { timeout: 180_000 })
+    const root = existsSync(join(tmp, BUNDLED_BIN)) ? tmp : join(tmp, 'dsh-runtime')
+    if (res.status !== 0 || !existsSync(join(root, BUNDLED_BIN))) {
+      console.error(`[dsh-contract] 内置运行时解压失败：${String(res.stderr)}`)
+      rmSync(tmp, { recursive: true, force: true })
+      return null
+    }
+    writeFileSync(join(root, '.runtime-stamp'), stampOf(tar))
+    rmSync(dest, { recursive: true, force: true })
+    renameSync(root, dest)
+    if (existsSync(tmp)) rmSync(tmp, { recursive: true, force: true })
+    return dest
+  } finally {
+    runtimeBusy = false
+  }
+}
+
+/**
+ * 解析 assets/ 下的资产路径（官方 DeepSeek 图标等）。
+ * 开发时在项目根 assets/；打包后在 extraResources 的 assets/ 下。
+ */
+export function resolveAsset(name: string): string {
+  const dev = join(PROJECT_ROOT, 'assets', name)
+  if (existsSync(dev)) return dev
+  return join(process.resourcesPath ?? PROJECT_ROOT, 'assets', name)
+}
+
+/** 构建后的 CLI bin（相对上游根）。 */
+export const UPSTREAM_BIN = join('apps', 'cli', 'lib', 'bin.js')
+
+/** 物化运行时内的 CLI bin（pnpm deploy 输出即 CLI 包根，无 apps/cli 层级）。 */
+export const BUNDLED_BIN = join('lib', 'bin.js')
+
+/** 上游 web profile 名称。 */
+export const WEB_PROFILE = 'web'
+
+/** dsh Harness home（与 CLI / Web 共享同一份数据）。 */
+export function dshHome(): string {
+  return process.env.DSH_HOME ?? join(homedir(), '.dsh')
+}
+
+/** 上游 package.json 的 engines.node 要求；克隆缺失时返回 null。 */
+export function upstreamNodeRange(): string | null {
+  try {
+    const manifest = JSON.parse(readFileSync(join(UPSTREAM_DIR, 'package.json'), 'utf8')) as {
+      engines?: { node?: string }
+    }
+    return manifest.engines?.node ?? null
+  } catch {
+    return null
+  }
+}
+
+/** 上游克隆是否存在（目录 + git 元数据）。 */
+export function upstreamCloned(): boolean {
+  return existsSync(join(UPSTREAM_DIR, '.git'))
+}
+
+/** 上游是否已完成 `pnpm run build`（以 CLI bin 产物为准）。 */
+export function upstreamBuilt(): boolean {
+  return existsSync(join(UPSTREAM_DIR, UPSTREAM_BIN))
+}
+
+/**
+ * 运行 dsh 用的 Node 解释器。
+ *
+ * 统一带 `--expose-internals`：web profile 的 HMR 服务需要 node internal
+ * ESM loader（vendor/loader 的 requireInternal）。系统 node 下可走
+ * node-addon-require-builtin 回退，但 Electron 内置 node 下回退不可用，
+ * 必须显式给 flag（v0.1.0 真机首启即挂在此处，本地冒烟因用系统 node
+ * 而漏过）。
+ *
+ * 优先系统 node（与用户构建上游时的版本一致），其版本必须满足上游
+ * engines.node；不满足时退回 Electron 内置 node（ELECTRON_RUN_AS_NODE）；
+ * 都不满足时返回 null（应引导用户修环境）。
+ */
+export function resolveRuntime(): { command: string; args: string[]; isElectron: boolean } | null {
+  const range = upstreamNodeRange()
+  const sysNode = spawnSync('node', ['--version'], { encoding: 'utf8', timeout: 5_000 })
+  const sysOk =
+    sysNode.status === 0 && typeof sysNode.stdout === 'string'
+    && (range === null || satisfies(sysNode.stdout.trim().slice(1), range))
+  if (sysOk) return { command: 'node', args: ['--expose-internals'], isElectron: false }
+  const electronVersion = `v${process.versions.node}`
+  if (range === null || satisfies(electronVersion.slice(1), range)) {
+    return { command: process.execPath, args: ['--expose-internals'], isElectron: true }
+  }
+  return null
+}
+
+/** 一条可执行的 dsh 命令描述。 */
+export interface DshCommand {
+  source: DshSource
+  /** 进程命令（解释器或可执行文件）。 */
+  command: string
+  /** command 之后、子命令之前的固定参数（如 bin 路径）。 */
+  baseArgs: string[]
+  /** 工作目录。 */
+  cwd: string
+  /** 需要注入的环境（ELECTRON_RUN_AS_NODE 等）。 */
+  env: NodeJS.ProcessEnv
+  /** 人类可读描述（诊断面板展示）。 */
+  describe: string
+}
+
+/**
+ * 解析启动 dsh 的命令，优先级：
+ * 1. `DSH_BIN` 环境变量（可执行文件或 `node script.js` 形式）
+ * 2. 打包内置运行时（resources/dsh-runtime.tar.gz 首启解压到
+ *    userData；系统 node 满足版本要求时用系统，否则用 Electron 内置 node）
+ * 3. 本地克隆的构建产物（`node apps/cli/lib/bin.js`，开发态）
+ * 4. PATH 中的 `dsh`
+ *
+ * @returns 命令描述；找不到任何可用来源时返回 null。
+ */
+export function resolveDshCommand(): DshCommand | null {
+  // 1) 显式环境变量：支持 "dsh" 或 "node /path/bin.js"
+  const envBin = process.env.DSH_BIN
+  if (envBin !== undefined && envBin !== '') {
+    const parts = envBin.split(/\s+/)
+    return {
+      source: 'env',
+      command: parts[0],
+      baseArgs: parts.slice(1),
+      cwd: UPSTREAM_DIR,
+      env: {},
+      describe: `$DSH_BIN: ${envBin}`,
+    }
+  }
+
+  // 2) 打包内置运行时（物化产物是纯 JS，不挑 node 小版本；
+  // 系统 node 缺失或不满足 range 时无条件用 Electron 内置 node）
+  const bundled = ensureBundledRuntime()
+  if (bundled !== null) {
+    const runtime = resolveRuntime()
+    const cmd = runtime ?? { command: process.execPath, args: ['--expose-internals'], isElectron: true }
+    return {
+      source: 'checkout',
+      command: cmd.command,
+      baseArgs: [...cmd.args, join(bundled, BUNDLED_BIN)],
+      cwd: bundled,
+      env: cmd.isElectron ? { ELECTRON_RUN_AS_NODE: '1' } : {},
+      describe: `内置运行时: ${cmd.isElectron ? 'Electron node' : '系统 node'} ${join(bundled, BUNDLED_BIN)}`,
+    }
+  }
+
+  // 3) 本地克隆的构建产物
+  if (upstreamCloned() && upstreamBuilt()) {
+    const runtime = resolveRuntime()
+    if (runtime !== null) {
+      return {
+        source: 'checkout',
+        command: runtime.command,
+        baseArgs: [...runtime.args, join(UPSTREAM_DIR, UPSTREAM_BIN)],
+        cwd: UPSTREAM_DIR,
+        env: runtime.isElectron ? { ELECTRON_RUN_AS_NODE: '1' } : {},
+        describe: `本地克隆: ${runtime.isElectron ? 'Electron node' : '系统 node'} ${join(UPSTREAM_DIR, UPSTREAM_BIN)}`,
+      }
+    }
+    return null
+  }
+
+  // 4) PATH 中的 dsh（用户全局安装了 @deepseek-ai/dsh 或自行链接）
+  const probe = spawnSync('dsh', ['--version'], { encoding: 'utf8', timeout: 10_000 })
+  if (probe.status === 0) {
+    return {
+      source: 'path',
+      command: 'dsh',
+      baseArgs: [],
+      cwd: UPSTREAM_DIR,
+      env: {},
+      describe: 'PATH 中的 dsh',
+    }
+  }
+  return null
+}

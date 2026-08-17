@@ -1,0 +1,201 @@
+diff --git a/packages/client/ui-primitives/src/markdown/parse.ts b/packages/client/ui-primitives/src/markdown/parse.ts
+index 50f8f179b9..0a345b5eb6 100644
+--- a/packages/client/ui-primitives/src/markdown/parse.ts
++++ b/packages/client/ui-primitives/src/markdown/parse.ts
+@@ -6,6 +6,12 @@
+  * plus the math extensions, so the arms differ only where TeX delimiters
+  * begin a math construct (a `$$` block is a paragraph while streaming and a
+  * math block once settled, by design).
++ *
++ * Both arms feed their source through {@link sanitizeModelMarkdown} first,
++ * a product-layer repair for model output that closes `**` or backticks on
++ * a later line; the fix is in the parser pipeline (not at the message
++ * boundary) so plain-text extraction and the streaming parser see the same
++ * post-repair text the renderer paints.
+  */
+ 
+ import type { Root } from 'mdast'
+@@ -16,6 +22,7 @@ import { gfm } from 'micromark-extension-gfm'
+ import { math } from 'micromark-extension-math'
+ import { cjkFriendlyStrong } from './cjkFriendlyStrong.ts'
+ import { mathCompatibility } from './mathCompatibility.ts'
++import { sanitizeModelMarkdown } from './modelSanitize.ts'
+ 
+ /**
+  * Parse GFM markdown (the streaming arm's grammar: no math, so incomplete
+@@ -24,7 +31,7 @@ import { mathCompatibility } from './mathCompatibility.ts'
+  * @returns The mdast root.
+  */
+ export function parseGfm(text: string): Root {
+-  return fromMarkdown(text, {
++  return fromMarkdown(sanitizeModelMarkdown(text), {
+     extensions: [gfm(), cjkFriendlyStrong()],
+     mdastExtensions: [gfmFromMarkdown()],
+   })
+@@ -37,7 +44,7 @@ export function parseGfm(text: string): Root {
+  * @returns The mdast root.
+  */
+ export function parseGfmWithMath(text: string): Root {
+-  return fromMarkdown(text, {
++  return fromMarkdown(sanitizeModelMarkdown(text), {
+     extensions: [gfm(), cjkFriendlyStrong(), mathCompatibility(), math()],
+     mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()],
+   })
+diff --git a/packages/client/ui-primitives/src/markdown/modelSanitize.ts b/packages/client/ui-primitives/src/markdown/modelSanitize.ts
+new file mode 100644
+index 0000000000..7924c5f614
+--- /dev/null
++++ b/packages/client/ui-primitives/src/markdown/modelSanitize.ts
+@@ -0,0 +1,73 @@
++/**
++ * Product-layer fallback for the two most common model-output markdown
++ * malformations. Both repairs are safe: a `**` emphasis that closes on a
++ * later line is invalid CommonMark anyway (the second `**` then renders as
++ * literal asterisks), and an inline code span that contains a literal
++ * newline cannot exist under the CommonMark grammar (the first newline ends
++ * the code span, the rest is text). Joining the broken fragments onto one
++ * line produces the same DOM as if the model had authored them on a single
++ * line, without touching any correct markdown.
++ *
++ * The fix is scoped to a single inter-line newline on each side — a
++ * pathological multi-newline split is left alone (the model almost never
++ * writes one, and a narrower rule keeps false positives down).
++ *
++ * Fenced code blocks (``` or ~~~) are skipped so a code sample that happens
++ * to contain `**foo\nbar**` keeps its original bytes. Indented (4-space)
++ * code blocks are not specially tracked; model output rarely uses them and
++ * the regex cannot match a 4-space-indented opener.
++ */
++export function sanitizeModelMarkdown(text: string): string {
++  if (!text.includes('\n')) return text
++  const lines = text.split('\n')
++  const out: string[] = []
++  let inFence = false
++  let fenceChar = ''
++  let fenceLen = 0
++  let outside: string[] = []
++
++  const flushOutside = (): void => {
++    if (outside.length === 0) return
++    out.push(sanitizeSegment(outside.join('\n')))
++    outside = []
++  }
++
++  for (const line of lines) {
++    const fenceMatch = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line)
++    if (fenceMatch !== null) {
++      const marker = fenceMatch[1]!
++      const ch = marker[0]!
++      const len = marker.length
++      if (!inFence) {
++        flushOutside()
++        out.push(line)
++        inFence = true
++        fenceChar = ch
++        fenceLen = len
++      } else if (ch === fenceChar && len >= fenceLen) {
++        out.push(line)
++        inFence = false
++        fenceChar = ''
++        fenceLen = 0
++      } else {
++        // Different fence char (or shorter same char) inside an open fence:
++        // belongs to the code sample.
++        out.push(line)
++      }
++    } else if (inFence) {
++      out.push(line)
++    } else {
++      outside.push(line)
++    }
++  }
++  flushOutside()
++  return out.join('\n')
++}
++
++function sanitizeSegment(text: string): string {
++  return text
++    // Strong emphasis split across exactly one line break: **foo\nbar** -> **foo bar**
++    .replace(/\*\*([^*\n]+)\n([^*\n]+)\*\*/g, '**$1 $2**')
++    // Inline code split across exactly one line break: `foo\nbar` -> `foo bar`
++    .replace(/`([^`\n]+)\n([^`\n]+)`/g, '`$1 $2`')
++}
+diff --git a/packages/client/ui-primitives/tests/markdown-model-sanitize.client.spec.ts b/packages/client/ui-primitives/tests/markdown-model-sanitize.client.spec.ts
+new file mode 100644
+index 0000000000..44e43c2cc0
+--- /dev/null
++++ b/packages/client/ui-primitives/tests/markdown-model-sanitize.client.spec.ts
+@@ -0,0 +1,73 @@
++// Product-layer fallback for the two most common model-output markdown
++// malformations: `**` strong emphasis or backtick code spans that close on
++// a later line. Both end up rendering as broken DOM (a stray strong open
++// loses its body across the break; an inline code with a literal newline
++// cannot even be a CommonMark code span). Joining the broken fragments
++// onto one line yields the same DOM as if the model had authored them on a
++// single line. Fenced code blocks are skipped so a code sample that happens
++// to contain `**foo\nbar**` keeps its original bytes.
++import { describe, expect, it } from 'vitest'
++import { sanitizeModelMarkdown } from '../src/markdown/modelSanitize.ts'
++
++describe('sanitizeModelMarkdown', () => {
++  it('passes text without newlines through unchanged', () => {
++    const text = '**foo** and `bar` and `**baz qux**`.'
++    expect(sanitizeModelMarkdown(text)).toBe(text)
++  })
++
++  it('joins strong emphasis split across exactly one line break', () => {
++    expect(sanitizeModelMarkdown('**foo\nbar**')).toBe('**foo bar**')
++  })
++
++  it('joins inline code split across exactly one line break', () => {
++    expect(sanitizeModelMarkdown('`foo\nbar`')).toBe('`foo bar`')
++  })
++
++  it('leaves multi-line emphasis alone (too pathological to guess)', () => {
++    const text = '**foo\nbar\nbaz**'
++    expect(sanitizeModelMarkdown(text)).toBe(text)
++  })
++
++  it('leaves emphasis with a blank line in between alone', () => {
++    const text = '**foo**\n\n**bar**'
++    expect(sanitizeModelMarkdown(text)).toBe(text)
++  })
++
++  it('leaves single-line emphasis alone', () => {
++    const text = 'a **strong** word and `inline` here'
++    expect(sanitizeModelMarkdown(text)).toBe(text)
++  })
++
++  it('joins one broken emphasis and leaves an unrelated correct emphasis alone', () => {
++    expect(sanitizeModelMarkdown('**correct** and **broken\nemphasis**')).toBe('**correct** and **broken emphasis**')
++  })
++
++  it('reaches the markdown inside a fenced code block but never rewrites it', () => {
++    const fenced = ['```', '**foo', 'bar**', '`baz', 'qux`', '```'].join('\n')
++    expect(sanitizeModelMarkdown(fenced)).toBe(fenced)
++  })
++
++  it('handles a leading fenced code block before broken markdown', () => {
++    const fenced = ['```js', 'const x = 1', '```', '', '**broken', 'emphasis**'].join('\n')
++    const expected = ['```js', 'const x = 1', '```', '', '**broken emphasis**'].join('\n')
++    expect(sanitizeModelMarkdown(fenced)).toBe(expected)
++  })
++
++  it('matches a tilde-fenced code block and skips its content', () => {
++    const fenced = ['~~~md', '**foo', 'bar**', '~~~', '', '`broken', 'code`'].join('\n')
++    const expected = ['~~~md', '**foo', 'bar**', '~~~', '', '`broken code`'].join('\n')
++    expect(sanitizeModelMarkdown(fenced)).toBe(expected)
++  })
++
++  it('does not treat a shorter same-char fence as a closer', () => {
++    const fenced = ['````', '**foo', 'bar**', '```', 'still inside', '````'].join('\n')
++    // The 3-backtick line is content inside the 4-backtick fence, not a close.
++    expect(sanitizeModelMarkdown(fenced)).toBe(fenced)
++  })
++
++  it('handles a closing fence that has the same char but is longer than the opener', () => {
++    const fenced = ['```', 'inside', '````', '**broken', 'emphasis**'].join('\n')
++    const expected = ['```', 'inside', '````', '**broken emphasis**'].join('\n')
++    expect(sanitizeModelMarkdown(fenced)).toBe(expected)
++  })
++})

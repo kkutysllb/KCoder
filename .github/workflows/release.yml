@@ -1,0 +1,165 @@
+name: Release
+
+# 一键发布：推 tag 全自动三平台构建并发布（KStock 同款模式）。
+# 本地只需：bash scripts/release.sh ship 0.1.0
+# workflow_dispatch 仅作手动补跑入口（如某平台失败后重试）。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要构建发布的 tag（如 v0.1.0，须已推送到远程）"
+        required: true
+
+# 创建 GitHub Release 需要 contents: write（GITHUB_TOKEN 默认只读）
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 构建 ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # GitHub 没有 linux-* runner 标签，Linux 公共 runner 只有 ubuntu-*
+        # （22.04 已在本项目验证全绿，且 glibc 更老对 deb 兼容性更好）
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # tag 触发时用 tag 本身；手动触发时用输入的 tag
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 安装桌面端依赖
+        run: pnpm install --frozen-lockfile
+      - name: 克隆并构建上游 deepseek-harness
+        # 上游克隆被 .gitignore 排除，CI 每次现拉现建（install + 三阶段 build）
+        timeout-minutes: 40
+        run: bash scripts/setup.sh
+      - name: 物化上游运行时（开箱即用的核心）
+        # pnpm deploy 生产依赖闭包 → staging/dsh-runtime，
+        # 再用 materialize-peers 补齐 deploy 的盲区（peer 声明 +
+        # optionalDependencies 里的平台二进制）；目标必须用绝对路径。
+        # macOS 上还会签名运行时内全部 Mach-O 二进制（公证硬要求：
+        # Apple 会解开嵌套归档逐个校验）；CI 钥匙串无证书，从 p12 导入。
+        timeout-minutes: 20
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PWD }}
+        run: |
+          pnpm --dir deepseek-harness --filter=@deepseek-ai/dsh deploy --prod --legacy "$PWD/staging/dsh-runtime"
+          test -f staging/dsh-runtime/lib/bin.js
+          node scripts/materialize-peers.mjs
+      - name: 运行时冒烟（真实起服，禁止打包坏运行时）
+        timeout-minutes: 5
+        run: node scripts/smoke-runtime.mjs --dir "$PWD/staging/dsh-runtime"
+      - name: 构建安装包（electron-builder）
+        timeout-minutes: 60
+        env:
+          # 无签名 secrets 时绝不自动发现本机签名身份；CSC_LINK 显式
+          # 提供时仍正常走 p12 签名。
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          # .app 外壳签名（electron-builder 原生读取）：
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PWD }}
+          # 关键：CSC_IDENTITY_AUTO_DISCOVERY=false 且 CSC_LINK 导入的
+          # 证书不会被自动发现——必须显式给身份名（不含
+          # "Developer ID Application:" 前缀）。值与钥匙串证书名一致。
+          CSC_NAME: "Bing Li (DHV5D72JNF)"
+          # notarization（electron-builder 三者齐全时自动公证）：
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -o pipefail
+          # 内置运行时 node_modules 文件数上万，macOS runner 默认 256 句柄
+          # 会在签名阶段撞 EMFILE： too many open files
+          ulimit -n 65536 || true
+          pnpm exec electron-vite build
+          pnpm exec electron-builder --publish never
+      - name: 校验 macOS 签名与公证（防静默发布损坏包）
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          APP_BUNDLE="$(find dist -maxdepth 3 -name 'KCoder.app' -type d | head -1)"
+          if [ -z "$APP_BUNDLE" ]; then
+            echo "::error::未找到 KCoder.app，无法校验签名"
+            exit 1
+          fi
+          echo "=== 签名身份 ==="
+          codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1 | grep -E "Signature|TeamIdentifier|Authority" || true
+          if codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1 | grep -q "Signature=adhoc"; then
+            echo "::error::产物是 adhoc 签名 —— MAC_CERTIFICATE secrets 未生效"
+            exit 1
+          fi
+          if codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1 | grep -q "TeamIdentifier=not set"; then
+            echo "::error::产物无 TeamIdentifier —— 证书未生效"
+            exit 1
+          fi
+          echo "=== Gatekeeper 评估 ==="
+          spctl -a -vv "$APP_BUNDLE" 2>&1 | tail -3
+          echo "=== 公证票据 ==="
+          xcrun stapler validate "$APP_BUNDLE" 2>&1 || {
+            echo "::error::产物未公证 —— APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID secrets 未生效"
+            exit 1
+          }
+          echo "macOS 产物签名与公证校验通过"
+      - name: Electron node 形态冒烟（真机启动路径）
+        # v0.1.0 真机首启 crash-loop 的教训：系统 node 冒烟绿但真机挂
+        # （GUI 启动 PATH 无系统 node，回退 Electron 内置 node 后 HMR 的
+        # internal loader 链路不同）。必须用打包产物主二进制实际起服。
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          APP_BUNDLE="$(find dist -maxdepth 3 -name 'KCoder.app' -type d | head -1)"
+          XDIR="$(mktemp -d)"
+          tar -xzf "$APP_BUNDLE/Contents/Resources/dsh-runtime.tar.gz" -C "$XDIR"
+          node scripts/smoke-runtime.mjs --dir "$XDIR" --exec "$APP_BUNDLE/Contents/MacOS/KCoder"
+          rm -rf "$XDIR"
+      - name: 收集安装包
+        run: |
+          mkdir -p dist-release
+          # electron-builder 产物在 dist/。按扩展名收集所有安装包 +
+          # updater 元数据，不依赖文件名前缀。blockmap 是 electron-updater
+          # 增量更新的元数据，latest*.yml 是自动更新的发现入口，必须随包分发。
+          find dist -maxdepth 1 -type f \
+            \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' \
+               -o -name '*.AppImage' -o -name '*.deb' \
+               -o -name '*.blockmap' -o -name 'latest*.yml' \) \
+            -exec cp {} dist-release/ \;
+          ls -lh dist-release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kcoder-${{ matrix.os }}
+          path: dist-release/**
+          if-no-files-found: error
+
+  publish:
+    name: 发布 GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-release
+          merge-multiple: true
+      - name: 列出安装包
+        run: ls -lh dist-release
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: dist-release/**
+          generate_release_notes: true

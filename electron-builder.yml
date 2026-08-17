@@ -1,0 +1,61 @@
+appId: com.kcoder.app
+productName: KCoder
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - "!**/*.map"
+extraResources:
+  # 开箱即用的核心：上游运行时（pnpm deploy + peer 补齐 + flatten +
+  # 瘦身）以单文件 tar.gz 随包分发，首启解压到 userData（见
+  # dsh-contract.ts ensureBundledRuntime）。不走散文件目录：electron-
+  # builder 复制/签名数万文件会撞 macOS EMFILE。由 scripts/release.sh
+  # build 物化到 staging/dsh-runtime.tar.gz。
+  - from: staging/dsh-runtime.tar.gz
+    to: dsh-runtime.tar.gz
+  # scripts 与 assets（官方图标）随应用分发，供首次引导与托盘使用
+  - from: scripts
+    to: scripts
+    filter: ["*.sh"]
+  - from: assets
+    to: assets
+    filter: ["*.png", "*.svg"]
+asarUnpack:
+  - "**/*.sh"
+  # 原生模块（node-pty 的 .node 二进制不能进 asar）
+  - "node_modules/node-pty/**"
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - zip
+  icon: build/icon.png
+  # 产物名固定无空格（productName 带空格时：builder 写 latest-mac.yml
+  # 把空格换 "-"，GitHub 上传 asset 把空格换 "."，三方不一致 → 自动
+  # 更新下载 404；v0.1.1/v0.1.2 均中招，靠手改 yml 急救过）。
+  # zip/dmg 同名异扩展，无冲突
+  artifactName: KCoder-${version}-${arch}.${ext}
+  minimumSystemVersion: '13.0'
+  # 正式发布的包必须公证（未公证的 Developer ID 应用会被用户机器的
+  # Gatekeeper 拦截）。凭据走 APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
+  # APPLE_TEAM_ID 环境变量——缺任一 electron-builder 会直接构建失败，
+  # 防止无公证包流出（scripts/release.sh build 会提前拦截并提示）。
+  notarize: true
+dmg:
+  title: KCoder ${version}
+linux:
+  target: [AppImage, deb]
+  category: Development
+  # 同 mac：无空格产物名（deb 内部包名仍来自 name 字段，不受影响）
+  artifactName: KCoder-${version}.${ext}
+win:
+  target: [nsis]
+  # 同 mac：无空格产物名（默认 " productName Setup " 带空格同样中招）
+  artifactName: KCoder-Setup-${version}.${ext}
+# 自动更新源：GitHub Releases（electron-updater 读取随包生成的 app-update.yml）
+publish:
+  provider: github
+  owner: kkutysllb
+  repo: KCoder
+  releaseType: release

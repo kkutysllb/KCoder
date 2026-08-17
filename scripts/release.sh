@@ -1,0 +1,377 @@
+#!/usr/bin/env bash
+# KCoder 本地打包发布脚本（手动操作，一切可控）。
+#
+# 打包产物开箱即用的核心：上游运行时（pnpm deploy 物化的生产依赖
+# 闭包，约 330MB）经 electron-builder extraResources 随包分发，
+# 安装后无需克隆/构建上游。
+#
+# 签名与公证（macOS）：
+# - 签名：本地钥匙串的 Developer ID 证书自动发现（无需配置）；
+# - 公证：设置环境变量后自动启用（三者缺一即跳过，仅签名）：
+#     export APPLE_ID=<apple id>
+#     export APPLE_APP_SPECIFIC_PASSWORD=<应用专用密码>
+#     export APPLE_TEAM_ID=<团队 id>
+#
+# 常用流程（一键，KStock 同款）：
+#   bash scripts/release.sh ship 0.2.0   # bump+提交+tag+推送，CI 全自动三平台发布
+#
+# 本地调试/应急（可选）：
+#   bash scripts/release.sh build        # 本地打包 + 校验（含公证，需凭据）
+#   bash scripts/release.sh release create v0.2.0 --publish  # 手动上传发布
+#
+# 出问题时：
+#   bash scripts/release.sh status            # 全局状态总览
+#   bash scripts/release.sh release delete v0.2.0 --with-tag
+#
+# 用法：bash scripts/release.sh <命令>（help 查看全部）
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+UPSTREAM="$ROOT/deepseek-harness"
+STAGING="$ROOT/staging/dsh-runtime"
+DIST="$ROOT/dist"
+APP_NAME="KCoder.app"
+
+say()  { printf '\033[1;34m[release]\033[0m %s\n' "$*"; }
+ok()   { printf '\033[1;32m[release]\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m[release]\033[0m %s\n' "$*" >&2; }
+die()  { printf '\033[1;31m[release] 错误：\033[0m %s\n' "$*" >&2; exit 1; }
+
+# 当前 package.json 版本。
+app_version() { node -p 'require(process.argv[1]).version' "$ROOT/package.json"; }
+
+# 规范化 tag：接受 v0.2.0 或 0.2.0，统一输出 v0.2.0。
+norm_tag() {
+  local t="${1#v}"
+  [[ "$t" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || die "非法版本号：${1}（示例：0.2.0）"
+  echo "v$t"
+}
+
+# 从 tag 提取裸版本（v0.2.0 → 0.2.0）。
+bare_version() { echo "${1#v}"; }
+
+# ─────────────────────────── status ───────────────────────────
+
+cmd_status() {
+  say "应用版本：$(app_version)"
+  if [[ -d "$UPSTREAM/.git" ]]; then
+    local bin="$UPSTREAM/apps/cli/lib/bin.js"
+    say "上游克隆：$([[ -f "$bin" ]] && echo "已构建" || echo "未构建（缺 ${bin}）") @ $(git -C "$UPSTREAM" rev-parse --short HEAD)"
+  else
+    say "上游克隆：缺失（开发态需要，打包前会自动准备）"
+  fi
+  say "运行时物化：$([[ -f "$STAGING/lib/bin.js" ]] && echo "就绪（$(du -sh "$STAGING" 2>/dev/null | cut -f1)）" || echo "未物化")"
+  if [[ -d "$DIST" && -n "$(ls -A "$DIST" 2>/dev/null)" ]]; then
+    say "打包产物（dist/）："
+    ls -lh "$DIST" | tail -n +2 | awk '{printf "    %s  %s\n", $5, $9}'
+  else
+    say "打包产物：无"
+  fi
+  say "本地 tag：$(git -C "$ROOT" tag -l | tr '\n' ' ')"
+  say "远程 tag：$(git -C "$ROOT" ls-remote --tags origin | awk -F/ '{print $NF}' | grep -v '\^{}' | tr '\n' ' ')"
+  if command -v gh >/dev/null 2>&1; then
+    say "GitHub Releases："
+    gh release list -R kkutysllb/KCoder 2>/dev/null | sed 's/^/    /' || warn "（无法读取，检查 gh 登录）"
+  fi
+}
+
+# ─────────────────────────── build ───────────────────────────
+
+cmd_build() {
+  command -v node >/dev/null 2>&1 || die "需要 node"
+  command -v pnpm >/dev/null 2>&1 || die "需要 pnpm"
+
+  # 1) 上游就绪（克隆 + 构建；已就绪则跳过）
+  if [[ ! -f "$UPSTREAM/apps/cli/lib/bin.js" ]]; then
+    say "上游未构建，执行 setup（克隆 + install + build）…"
+    bash "$ROOT/scripts/setup.sh"
+  else
+    ok "上游已构建，跳过 setup"
+  fi
+
+  # 2) 桌面端编译
+  say "编译桌面端（typecheck + build）…"
+  (cd "$ROOT" && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build)
+
+  # 3) 物化上游运行时（开箱即用的核心）：pnpm deploy 生产闭包
+  #    + peer/平台二进制补齐（materialize-peers，deploy 的盲区）
+  say "物化上游运行时（deploy --prod + peer 补齐）→ staging/dsh-runtime …"
+  rm -rf "$STAGING"
+  pnpm --dir "$UPSTREAM" --filter=@deepseek-ai/dsh deploy --prod --legacy "$STAGING"
+  [[ -f "$STAGING/lib/bin.js" ]] || die "物化失败：缺 lib/bin.js"
+  node "$ROOT/scripts/materialize-peers.mjs"
+  [[ -f "$ROOT/staging/dsh-runtime.tar.gz" ]] || die "物化失败：缺 staging/dsh-runtime.tar.gz"
+  ok "运行时就绪（$(du -sh "$STAGING" | cut -f1) → tar.gz $(du -h "$ROOT/staging/dsh-runtime.tar.gz" | cut -f1)）"
+
+  # 4) 运行时冒烟：真实起 Web 服务（就绪行 + 首页 200），
+  #    不过全关的检查绝不进入下一步
+  say "运行时冒烟（真实起服）…"
+  node "$ROOT/scripts/smoke-runtime.mjs" --dir "$STAGING"
+
+  # 5) electron-builder（本地签名自动发现；公证凭据齐则自动公证）
+  if [[ -n "${APPLE_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" && -n "${APPLE_TEAM_ID:-}" ]]; then
+    say "公证凭据齐全，构建将自动签名 + 公证"
+  else
+    die "公证凭据不全（需 APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID 环境变量）。未公证的包会被用户机器的 Gatekeeper 拦截，禁止打包：
+    export APPLE_ID=<apple id>
+    export APPLE_APP_SPECIFIC_PASSWORD=<应用专用密码>
+    export APPLE_TEAM_ID=DHV5D72JNF"
+  fi
+  say "electron-builder 打包…"
+  # 内置运行时 node_modules 文件数上万，macOS 默认 256 句柄会在签名阶段撞
+  # EMFILE: too many open files
+  ulimit -n 65536 2>/dev/null || true
+  rm -rf "$DIST"
+  (cd "$ROOT" && pnpm exec electron-vite build && pnpm exec electron-builder --publish never)
+
+  # 6) 产物校验（不过全关的检查绝不放出包）
+  cmd_verify
+  ok "打包完成：$DIST"
+}
+
+# ─────────────────────────── verify ───────────────────────────
+
+cmd_verify() {
+  local app
+  app="$(find "$DIST" -maxdepth 2 -name "$APP_NAME" -type d | head -1)"
+  [[ -n "$app" ]] || die "校验失败：dist 下未找到 $APP_NAME"
+
+  local res="$app/Contents/Resources"
+  local tarball="$res/dsh-runtime.tar.gz"
+
+  # 1) 开箱即用核心：运行时归档存在（单文件分发，首启解压到 userData）
+  [[ -f "$tarball" ]] || die "校验失败：包内缺 dsh-runtime.tar.gz（开箱即用被破坏）"
+  ok "内置运行时：dsh-runtime.tar.gz（$(du -h "$tarball" | cut -f1)）"
+
+  # 2) 解压 + 真实起服冒烟（模拟首启解压，包内运行时全链路验收）；
+  #    macOS 上另跑 Electron node 形态——真机 GUI 启动时 PATH 无系统
+  #    node，回退 Electron 内置 node（v0.1.0 曾挂：HMR 需 internal
+  #    loader），系统 node 冒烟覆盖不到该路径
+  local xdir; xdir="$(mktemp -d)"
+  tar -xzf "$tarball" -C "$xdir" \
+    || { rm -rf "$xdir"; die "校验失败：归档损坏无法解压"; }
+  [[ -f "$xdir/lib/bin.js" ]] \
+    || { rm -rf "$xdir"; die "校验失败：归档解压后缺 lib/bin.js"; }
+  node "$ROOT/scripts/smoke-runtime.mjs" --dir "$xdir" \
+    || { rm -rf "$xdir"; die "校验失败：包内运行时无法起服"; }
+  if [[ "$(uname)" == "Darwin" ]]; then
+    local bin="$app/Contents/MacOS/${APP_NAME%.app}"
+    [[ -x "$bin" ]] \
+      || { rm -rf "$xdir"; die "校验失败：app 内无主二进制（${bin}）"; }
+    node "$ROOT/scripts/smoke-runtime.mjs" --dir "$xdir" --exec "$bin" \
+      || { rm -rf "$xdir"; die "校验失败：Electron node 形态无法起服"; }
+    ok "Electron node 形态冒烟通过（真机启动路径）"
+  fi
+  rm -rf "$xdir"
+
+  # 3) macOS 签名（必须 Developer ID，拒绝 adhoc 坏包）
+  if [[ "$(uname)" == "Darwin" ]]; then
+    local sig
+    sig="$(codesign -dv --verbose=4 "$app" 2>&1 || true)"
+    if grep -q "Signature=adhoc" <<<"$sig"; then
+      die "校验失败：产物是 adhoc 签名（钥匙串无 Developer ID 证书？）"
+    fi
+    grep -q "TeamIdentifier" <<<"$sig" || die "校验失败：产物无 TeamIdentifier"
+    ok "签名：$(grep -m1 'Authority=' <<<"$sig" | sed 's/.*Authority=//')"
+    # 4) 公证票据（notarize: true 后必有票据，缺即坏包）
+    if [[ "$(uname)" == "Darwin" ]]; then
+      xcrun stapler validate "$app" >/dev/null 2>&1 \
+        || die "校验失败：产物未公证（stapler 无票据）"
+      ok "公证：票据有效"
+    fi
+  fi
+
+  # 5) 自动更新元数据（mac 需 zip + blockmap + latest-mac.yml）
+  local miss=0
+  for f in latest-mac.yml; do
+    [[ -f "$DIST/$f" ]] || { warn "缺 $DIST/${f}（自动更新发现入口）"; miss=1; }
+  done
+  if ls "$DIST"/*.zip >/dev/null 2>&1 && ls "$DIST"/*.blockmap >/dev/null 2>&1; then
+    ok "更新元数据：zip + blockmap 齐全"
+  else
+    warn "缺 zip/blockmap（自动更新增量包）"; miss=1
+  fi
+  [[ $miss -eq 0 ]] || warn "存在缺失项——若需自动更新请先解决"
+  ok "校验通过：$app"
+}
+
+# ─────────────────────────── bump ───────────────────────────
+
+cmd_bump() {
+  [[ $# -eq 1 ]] || die "用法：release.sh bump <version>（例：0.2.0）"
+  local v; v="$(bare_version "$(norm_tag "$1")")"
+  node -e '
+    const fs = require("fs")
+    const p = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
+    p.version = process.argv[2]
+    fs.writeFileSync(process.argv[1], JSON.stringify(p, null, 2) + "\n")
+  ' "$ROOT/package.json" "$v"
+  ok "版本已更新为 ${v}（记得提交：git add package.json && git commit）"
+}
+
+# ─────────────────────────── ship（一键发布） ───────────────────────────
+
+cmd_ship() {
+  [[ $# -eq 1 ]] || die "用法：release.sh ship <version>（例：0.1.0）"
+  local t; t="$(norm_tag "$1")"; local v; v="$(bare_version "$t")"
+
+  # 前置检查：不覆盖已有 tag；本地不落后远程
+  if git -C "$ROOT" rev-parse -q --verify "refs/tags/$t" >/dev/null; then
+    die "本地 tag $t 已存在（先 release.sh tag delete $v 或换版本号）"
+  fi
+  git -C "$ROOT" fetch origin --tags --quiet
+  if git -C "$ROOT" ls-remote --tags origin | grep -q "refs/tags/$t$"; then
+    die "远程 tag $t 已存在"
+  fi
+  git -C "$ROOT" fetch origin main --quiet
+  local behind
+  behind="$(git -C "$ROOT" rev-list --count HEAD..origin/main 2>/dev/null || echo 0)"
+  [[ "$behind" == "0" ]] || die "本地落后 origin/main ${behind} 个提交，先 git pull 再发布"
+
+  # 1) bump 版本
+  cmd_bump "$v" >/dev/null
+
+  # 2) 提交（版本号 + 工作区其他改动一并随发）
+  git -C "$ROOT" add -A
+  if git -C "$ROOT" diff --cached --quiet; then
+    warn "工作区无改动，仅打 tag（版本号未变？确认是否重复发布）"
+  else
+    git -C "$ROOT" commit -m "release: $v"
+    ok "已提交 release: $v"
+  fi
+
+  # 3) tag + 推送（tag 推送即触发 CI 三平台全自动构建发布）
+  git -C "$ROOT" tag "$t"
+  git -C "$ROOT" push origin main
+  git -C "$ROOT" push origin "$t"
+  ok "已推送 main + $t"
+  say "CI 正在三平台构建并自动发布（约 30-40 分钟）："
+  say "  进度：gh run list -R kkutysllb/KCoder --workflow=Release"
+  say "  页面：https://github.com/kkutysllb/KCoder/actions"
+  say "  发布：https://github.com/kkutysllb/KCoder/releases/tag/$t"
+}
+
+# ─────────────────────────── tag ───────────────────────────
+
+cmd_tag() {
+  [[ $# -ge 1 ]] || die "用法：release.sh tag <create|push|list|delete> ..."
+  local sub="$1"; shift
+  case "$sub" in
+    create)
+      [[ $# -eq 1 ]] || die "用法：release.sh tag create <version>"
+      local t; t="$(norm_tag "$1")"
+      git -C "$ROOT" rev-parse -q --verify "refs/tags/$t" >/dev/null \
+        && die "本地 tag $t 已存在"
+      git -C "$ROOT" tag "$t"
+      ok "已创建本地 tag ${t}（HEAD $(git -C "$ROOT" rev-parse --short HEAD)）"
+      ;;
+    push)
+      local t
+      if [[ $# -eq 1 ]]; then t="$(norm_tag "$1")";
+      else t="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null)" || die "无本地 tag"; fi
+      git -C "$ROOT" push origin "$t"
+      ok "已推送 ${t}（如需触发 CI 三平台构建即生效；不需要 CI 可忽略）"
+      ;;
+    list)
+      say "本地：$(git -C "$ROOT" tag -l | tr '\n' ' ')"
+      say "远程：$(git -C "$ROOT" ls-remote --tags origin | awk -F/ '{print $NF}' | grep -v '\^{}' | tr '\n' ' ')"
+      ;;
+    delete)
+      [[ $# -ge 1 ]] || die "用法：release.sh tag delete <version> [...]（本地+远程）"
+      for arg in "$@"; do
+        local t; t="$(norm_tag "$arg")"
+        git -C "$ROOT" tag -d "$t" 2>/dev/null && ok "已删本地 $t" || warn "本地无 $t"
+        git -C "$ROOT" push origin ":refs/tags/$t" 2>/dev/null && ok "已删远程 $t" || warn "远程无 $t"
+      done
+      ;;
+    *)
+      die "未知 tag 子命令：${sub}（create|push|list|delete）"
+      ;;
+  esac
+}
+
+# ─────────────────────────── release ───────────────────────────
+
+cmd_release() {
+  command -v gh >/dev/null 2>&1 || die "release 子命令需要 gh（brew install gh && gh auth login）"
+  [[ $# -ge 1 ]] || die "用法：release.sh release <create|list|publish|delete> ..."
+  local sub="$1"; shift
+  case "$sub" in
+    create)
+      [[ $# -ge 1 ]] || die "用法：release.sh release create <version> [--publish]"
+      local t; t="$(norm_tag "$1")"; local publish="${2:-}"
+      # 版本一致性：package.json 必须 == tag（防版本错位的事故重演）
+      local pv; pv="$(app_version)"
+      [[ "$pv" == "$(bare_version "$t")" ]] \
+        || die "版本错位：package.json=${pv}，tag=${t}。先 bash scripts/release.sh bump $(bare_version "$t") 并提交"
+      # tag 必须存在并指向已推送的提交
+      git -C "$ROOT" rev-parse -q --verify "refs/tags/$t" >/dev/null \
+        || die "本地无 ${t}，先：release.sh tag create $(bare_version "$t")"
+      git -C "$ROOT" ls-remote --tags origin | grep -q "refs/tags/$t$" \
+        || die "远程无 ${t}，先：release.sh tag push $t"
+      # 产物必须存在且新鲜（当天构建）
+      [[ -f "$DIST/latest-mac.yml" ]] || die "dist 无产物，先：release.sh build"
+      say "上传产物到 $t …"
+      local args=(--draft --title "$t" --generate-notes)
+      [[ "$publish" == "--publish" ]] && args=(--title "$t" --generate-notes)
+      (cd "$DIST" && gh release create "$t" -R kkutysllb/KCoder \
+        ./*.dmg ./*.zip ./*.blockmap ./latest*.yml "${args[@]}")
+      if [[ "$publish" == "--publish" ]]; then
+        ok "已正式发布 $t"
+      else
+        ok "已创建 draft ${t}（检查无误后：release.sh release publish ${t}）"
+      fi
+      ;;
+    list)
+      gh release list -R kkutysllb/KCoder
+      ;;
+    publish)
+      [[ $# -eq 1 ]] || die "用法：release.sh release publish <version>"
+      local t; t="$(norm_tag "$1")"
+      gh release edit "$t" -R kkutysllb/KCoder --draft=false
+      ok "$t 已正式发布"
+      ;;
+    delete)
+      [[ $# -ge 1 ]] || die "用法：release.sh release delete <version> [--with-tag]"
+      local t with_tag="${2:-}"
+      t="$(norm_tag "$1")"
+      if gh release view "$t" -R kkutysllb/KCoder >/dev/null 2>&1; then
+        if [[ "$with_tag" == "--with-tag" ]]; then
+          gh release delete "$t" -R kkutysllb/KCoder --yes --cleanup-tag
+          git -C "$ROOT" tag -d "$t" 2>/dev/null || true
+          ok "已删除 Release + 远程/本地 tag：$t"
+        else
+          gh release delete "$t" -R kkutysllb/KCoder --yes
+          ok "已删除 Release：${t}（tag 保留）"
+        fi
+      else
+        warn "Release $t 不存在"
+        [[ "$with_tag" == "--with-tag" ]] && cmd_tag delete "$t"
+      fi
+      ;;
+    *)
+      die "未知 release 子命令：${sub}（create|list|publish|delete）"
+      ;;
+  esac
+}
+
+# ─────────────────────────── 入口 ───────────────────────────
+
+main() {
+  [[ $# -ge 1 ]] || { sed -n '2,30p' "${BASH_SOURCE[0]}"; exit 1; }
+  local cmd="$1"; shift
+  case "$cmd" in
+    status)  cmd_status "$@" ;;
+    ship)    cmd_ship "$@" ;;
+    build)   cmd_build "$@" ;;
+    verify)  cmd_verify "$@" ;;
+    bump)    cmd_bump "$@" ;;
+    tag)     cmd_tag "$@" ;;
+    release) cmd_release "$@" ;;
+    help|-h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}" ;;
+    *) die "未知命令：${cmd}（可用：status ship build verify bump tag release help）" ;;
+  esac
+}
+
+main "$@"

@@ -1,0 +1,367 @@
+/* KCoder 桌面壳样式：跟随系统深浅色，克制、原生感。
+   深色底色取上游 design-platform token（neutral-bluish-900/850/750），
+   与主界面无缝。 */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f9fafb; /* dsw neutral-bluish-50 */
+  --panel: #ffffff;
+  --text: #1a1d21;
+  --muted: #5f6672;
+  --border: #dce0e6;
+  --accent: #2f6fed;
+  --accent-text: #ffffff;
+  --danger: #c23a3a;
+  --ok: #2e9e5b;
+  --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1b1c; /* dsw neutral-bluish-900（sidebar-fill） */
+    --panel: #2c2c2e; /* dsw neutral-bluish-850 */
+    --text: #e8eaed;
+    --muted: #9aa1ac;
+    --border: #43454a; /* dsw neutral-bluish-750 */
+    --accent: #5b8cff;
+    --danger: #e06c6c;
+    --ok: #52b788;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.55 -apple-system, 'PingFang SC', 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 22px;
+  gap: 14px;
+  overflow: hidden;
+}
+
+.page-header {
+  flex: none;
+}
+
+.page-header h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.page-header .sub {
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.page-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.card h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--muted);
+  text-transform: none;
+}
+
+button {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+button.danger {
+  color: var(--danger);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.grow {
+  flex: 1;
+}
+
+pre.log {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  min-height: 60px;
+  max-height: 340px;
+}
+
+pre.log .err {
+  color: var(--danger);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.badge.ok {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+
+.badge.warn {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+
+/* splash：KCoder 标志（kcoder.png） */
+.splash {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+.splash .logo {
+  width: 84px;
+  height: 84px;
+}
+
+.splash .status {
+  color: var(--muted);
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 欢迎屏（移植自 KCoder 原项目 WelcomeScreen） -------------------------- */
+
+.landing-root {
+  flex: 1;
+  overflow: hidden auto;
+}
+
+.welcome {
+  position: relative;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  overflow: hidden;
+}
+
+/* 柔和品牌光晕（替代原先沉重的巨型水印） */
+.welcome-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(60% 50% at 50% 38%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%);
+}
+
+.welcome-brand {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 26px;
+}
+
+.welcome-brand img {
+  border-radius: 16px;
+  box-shadow: 0 8px 30px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.welcome-brand h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.welcome-enter {
+  position: relative;
+  z-index: 1;
+  padding: 9px 28px;
+  border-radius: 12px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.welcome-enter:hover:not(:disabled) {
+  filter: brightness(1.08);
+  border-color: var(--accent);
+}
+
+.welcome-tip-title {
+  position: relative;
+  z-index: 1;
+  margin: 30px 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.welcome-tips {
+  position: relative;
+  z-index: 1;
+  width: min(672px, 100%);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .welcome-tips {
+    grid-template-columns: 1fr;
+  }
+}
+
+.welcome-tip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  text-align: left;
+  background: color-mix(in srgb, var(--panel) 30%, transparent);
+}
+
+.welcome-tip svg {
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+}
+
+.welcome-tip span {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.welcome-tip:hover:not(:disabled) {
+  background: var(--panel);
+}
+
+.welcome-tip:hover:not(:disabled) span {
+  color: var(--text);
+}
+
+.welcome-footer {
+  position: relative;
+  z-index: 1;
+  margin-top: 34px;
+  color: var(--muted);
+  font-size: 11.5px;
+  opacity: 0.8;
+}
