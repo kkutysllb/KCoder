@@ -2,6 +2,8 @@
 
 KCoder 桌面端：AI 编码工作台。基于 [DSH-Desktop](https://github.com/kkutysllb/DSH-Desktop) v0.1.4 基线构建，引擎为 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）——"一切皆插件"的开源 agent harness，运行时是由 profile 组装出的 Cordis 插件树。
 
+
+> 新接手本项目？先读 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：三代沿革、架构总览、模块导览、开发惯例与坑记。
 KCoder 遵循同一理念——**宿主与侧车（host & sidecar）关系，而不是 fork**：零修改复用上游的 Web UI、API 网关（Typert Remote + `/api` 桥）、会话持久化（`~/.dsh`）与插件生态（[`dsh-plugin` 社区](https://github.com/topics/dsh-plugin)），自己只负责进程托管、窗口、托盘、上游同步与插件管理的桌面化呈现。
 
 ```
