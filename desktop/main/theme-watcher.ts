@@ -29,10 +29,11 @@ const THEME_PREFIX = '__dsh_theme__:'
 
 /**
  * macOS 标题栏高度（Window Controls Overlay 覆盖条）。
- * 与上游侧边栏控件节奏对齐（36px 控制盒）；页面注入等高 padding 下移，
- * 保证上游 UI 不被覆盖条遮挡。
+ * 48px：容纳四枚 26px 图标按钮与标题的宽松状态栏；页面注入等高
+ * padding 下移，保证上游 UI 不被覆盖条遮挡（终端/预览面板 bounds
+ * 不消费此高度：终端贴底、预览全高，按钮 top:50% 自居中）。
  */
-export const SHELL_TITLEBAR_HEIGHT = 36
+export const SHELL_TITLEBAR_HEIGHT = 48
 
 /**
  * 注入脚本（页面上下文）：观察上游主题在 DOM 上的落点并上报。
