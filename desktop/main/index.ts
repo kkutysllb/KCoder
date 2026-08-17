@@ -21,8 +21,9 @@ import { initUpdater } from './updater'
 import { applyNativeTheme, currentThemePref } from './theme-watcher'
 import { getSettings } from './store'
 import { homedir } from 'node:os'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 
 // 引擎用户数据目录：独立于同机 dsh-desktop / dsh CLI 的 ~/.dsh——两产品
 // 并存时会话/凭据/插件会互串，KCoder 落自己的 ~/.kcoder。必须在任何
@@ -46,6 +47,44 @@ if (process.env.npm_config_registry === undefined) {
   } catch {
     // 无 ~/.npmrc：不干预，维持默认官方源
   }
+}
+
+// PATH 增强：GUI 应用不经用户 shell 启动，PATH 只有系统默认
+// （/usr/bin 等），插件管理链 dsh plugin → spawnSync('pnpm') 直接
+// ENOENT——「一键更新失败: pnpm not found on PATH」。上游无 pnpm
+// 路径定制口子，PATH 是唯一通道；且 brew 版 pnpm 的 shim 还要
+// PATH 上有 node。从 login shell 取用户完整 PATH（含 brew/pnpm/
+// node），超时/异常时常见 pnpm 安装位兜底；追加去重，不动原有顺序。
+{
+  const delim = process.platform === 'win32' ? ';' : ':'
+  const extra = new Set<string>()
+  if (process.platform !== 'win32') {
+    const sh = process.platform === 'darwin' && existsSync('/bin/zsh') ? '/bin/zsh' : '/bin/bash'
+    try {
+      const r = spawnSync(sh, ['-l', '-c', 'printf %s "$PATH"'], { timeout: 3000, encoding: 'utf8' })
+      if (r.status === 0 && typeof r.stdout === 'string') {
+        for (const dir of r.stdout.split(delim)) if (dir !== '') extra.add(dir)
+      }
+    } catch {
+      // 用户 shell 配置异常（rc 报错/超时）：走兜底
+    }
+  }
+  const home = homedir()
+  // 兑底：常见 pnpm 安装位（login shell 不可用时仍能找到 pnpm）
+  for (const dir of [
+    join(home, 'Library', 'pnpm'),         // pnpm 自装默认（macOS）
+    join(home, '.local', 'share', 'pnpm'), // pnpm 自装默认（Linux）
+    join(home, 'AppData', 'Local', 'pnpm'),// pnpm 自装默认（Windows）
+    '/opt/homebrew/bin',                   // Apple Silicon brew
+    '/usr/local/bin',                      // Intel brew / 手装
+  ]) {
+    const bin = process.platform === 'win32' ? join(dir, 'pnpm.cmd') : join(dir, 'pnpm')
+    if (existsSync(bin)) extra.add(dir)
+  }
+  const current = (process.env.PATH ?? '').split(delim).filter(d => d !== '')
+  const have = new Set(current)
+  const add = [...extra].filter(d => !have.has(d))
+  if (add.length > 0) process.env.PATH = [...current, ...add].join(delim)
 }
 
 /** splash 窗口引用（切到 shell 后关闭）。 */
