@@ -20,12 +20,14 @@
  */
 
 import { EventEmitter } from 'node:events'
-import { nativeTheme, type BrowserWindow } from 'electron'
+import { nativeTheme, shell, type BrowserWindow } from 'electron'
 import { consoleMessageText } from './console-channel'
 import { getSettings, saveSettings } from './store'
 
 /** console 通道前缀（与注入脚本约定）。 */
 const THEME_PREFIX = '__dsh_theme__:'
+/** 工作区按钮上行通道（打开工作区目录）。 */
+const WS_PREFIX = '__dsh_ws__:'
 
 /**
  * macOS 标题栏高度（Window Controls Overlay 覆盖条）。
@@ -89,11 +91,23 @@ export function attachThemeWatcher(win: BrowserWindow): void {
   const { webContents } = win
   const onConsole = (event: unknown, ...rest: unknown[]): void => {
     const message = consoleMessageText(event, rest)
-    if (!message.startsWith(THEME_PREFIX)) return
-    const value = message.slice(THEME_PREFIX.length)
-    if (value === 'dark' || value === 'light') {
-      applyNativeTheme(value)
-      applyShellChromeTheme(win, value)
+    if (message.startsWith(THEME_PREFIX)) {
+      const value = message.slice(THEME_PREFIX.length)
+      if (value === 'dark' || value === 'light') {
+        applyNativeTheme(value)
+        applyShellChromeTheme(win, value)
+      }
+      return
+    }
+    // 工作区按钮：打开工作区目录（Finder/资源管理器；路径来自预览
+    // 抽屉注入器写入的 --dsh-ws-path，非任意输入）
+    if (message.startsWith(WS_PREFIX)) {
+      try {
+        const payload = JSON.parse(message.slice(WS_PREFIX.length)) as { action?: unknown; path?: unknown }
+        if (payload.action === 'reveal' && typeof payload.path === 'string' && payload.path !== '') {
+          void shell.openPath(payload.path)
+        }
+      } catch { /* 非 JSON 忽略 */ }
     }
   }
   const onDidLoad = (): void => {
@@ -136,6 +150,8 @@ export function themeBackgroundColor(pref: 'system' | 'light' | 'dark' = getSett
  * - 靠左显示「工作区 / 会话标题 〔预设〕」：主文本是 document.title
  *   （上游 DocumentTitle 投射“会话标题 — 产品名”）；工作区前缀由预览
  *   抽屉注入器探测（workspace.list RPC + 会话配对）写入 --dsh-ws-name，
+ *   并做成实体按钮（文件夹图标，点击打开工作区目录；路径读
+ *   --dsh-ws-path，上报 __dsh_ws__ 通道由主进程 shell.openPath 执行），
  *   agent 预设徽章读 --dsh-agent-preset（workspace-header 读取被收纳
  *   的 AgentPresetLabel 文本写入）；两变量均由 apply() 读取拼接
  *   （写入方与本脚本互不依赖，通道同 --dsh-sidebar-w；style 变化
@@ -179,11 +195,33 @@ const SHELL_TITLEBAR_JS = `(() => {
   label.style.cssText = [
     'flex:0 1 auto',
     'margin-left:max(78px, var(--dsh-sidebar-w, 0px) + 12px)',
-    'max-width:calc(100% - max(78px, var(--dsh-sidebar-w, 0px) + 12px) - max(134px, var(--dsh-preview-inset, 0px)))',
+    'max-width:calc(100% - max(78px, var(--dsh-sidebar-w, 0px) + 12px) - max(134px, calc(var(--dsh-preview-inset, 0px) + var(--dsh-git-inset, 0px))))',
     'display:flex', 'align-items:center', 'min-width:0', 'white-space:nowrap',
   ].join(';')
-  const wsTag = document.createElement('span')
-  wsTag.style.cssText = 'flex:none;max-width:170px;overflow:hidden;text-overflow:ellipsis;font-weight:400'
+  // 工作区段：实体按钮（文件夹图标 + 名字；点击打开工作区目录）。
+  // no-drag 使拖拽区内的点击可达；hover 靠下方注入的 style 规则
+  const wsBtn = document.createElement('button')
+  wsBtn.id = '__dsh_ws_btn'
+  wsBtn.style.cssText = [
+    'all:unset', 'box-sizing:border-box', 'flex:none', 'display:inline-flex', 'align-items:center', 'gap:5px',
+    'max-width:240px', 'min-width:0', 'padding:3px 7px', 'border-radius:7px',
+    'cursor:pointer', '-webkit-app-region:no-drag',
+  ].join(';')
+  const wsIco = document.createElement('span')
+  wsIco.style.cssText = 'flex:none;display:inline-flex;width:16px;height:16px'
+  wsIco.innerHTML = '<svg viewBox="0 0 16 16" fill="none"><path d="M1.8 4.4c0-.7.6-1.3 1.3-1.3h2.8c.4 0 .8.2 1 .5l1 1.1h3.9c.7 0 1.3.6 1.3 1.3v5.6c0 .7-.6 1.3-1.3 1.3H3.1c-.7 0-1.3-.6-1.3-1.3V4.4Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>'
+  const wsName = document.createElement('span')
+  wsName.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:400;line-height:1;display:block'
+  wsBtn.append(wsIco, wsName)
+  const wsSep = document.createElement('span')
+  wsSep.style.cssText = 'flex:none;font-weight:400'
+  wsSep.textContent = ' / '
+  // 点击 → 上报主进程打开目录（路径在 apply() 从 --dsh-ws-path 刷进 dataset）
+  wsBtn.onclick = () => {
+    const p = wsBtn.dataset.path || ''
+    if (p === '') return
+    console.log('__dsh_ws__:' + JSON.stringify({ action: 'reveal', path: p }))
+  }
   const ttlTag = document.createElement('span')
   ttlTag.style.cssText = 'flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis'
   // agent 预设标记：小徽章（上游 AgentPresetLabel 本显示在会话标题旁，
@@ -192,8 +230,20 @@ const SHELL_TITLEBAR_JS = `(() => {
   // normal 行高，不压行盒则文本在徽章内偏上、徽章在标题行里偏移
   const presetTag = document.createElement('span')
   presetTag.style.cssText = 'flex:none;display:inline-flex;align-items:center;line-height:1;max-width:150px;overflow:hidden;text-overflow:ellipsis;margin-left:9px;padding:3px 8px;border-radius:99px;font-size:10px;font-weight:500;letter-spacing:.2px;background:color-mix(in srgb,currentColor 12%,transparent);opacity:.82;cursor:default'
-  label.append(wsTag, ttlTag, presetTag)
+  label.append(wsBtn, wsSep, ttlTag, presetTag)
   bar.append(label)
+
+  // 工作区按钮 hover/图标（cssText 设不了 :hover/后代选择器，注入规则）。
+  // svg 16px + display:block + translateY(.5px)：块化消除基线间隙，
+  // 微下移补字体字形光学中心偏下（flex 只对齐几何盒中心，
+  // 13px 字在行盒内视觉中心偏低，不补则图标显得略高）
+  const wsStyle = document.createElement('style')
+  wsStyle.textContent = [
+    '#__dsh_ws_btn{transition:background .12s ease}',
+    '#__dsh_ws_btn:hover{background:color-mix(in srgb,currentColor 10%,transparent)}',
+    '#__dsh_ws_btn svg{width:16px;height:16px;display:block;transform:translateY(.5px)}',
+  ].join('')
+  document.head.append(wsStyle)
 
   /* 侧边栏右边线探测：标题起排跟随（与终端/预览面板的 sidebarCol
      探针同款；SPA 首帧可能未挂，rAF 轮询等待）。宽度写为 CSS 变量，
@@ -217,10 +267,17 @@ const SHELL_TITLEBAR_JS = `(() => {
       || document.documentElement.style.colorScheme === 'dark'
     bar.style.background = color || (dark ? '#1B1B1C' : '#F9FAFB')
     label.style.color = dark ? 'rgba(232,234,237,.9)' : 'rgba(26,29,33,.75)'
-    wsTag.style.color = dark ? 'rgba(232,234,237,.45)' : 'rgba(26,29,33,.42)'
     let ws = ''
     try { ws = getComputedStyle(document.documentElement).getPropertyValue('--dsh-ws-name').trim() } catch {}
-    wsTag.textContent = ws !== '' ? ws + ' / ' : ''
+    let wsp = ''
+    try { wsp = getComputedStyle(document.documentElement).getPropertyValue('--dsh-ws-path').trim() } catch {}
+    wsName.textContent = ws
+    wsBtn.dataset.path = wsp
+    wsBtn.title = wsp !== '' ? '打开工作区目录：' + wsp : ''
+    // 恢复显示必须写回 inline-flex：置 '' 会清除 cssText 里的 display，
+    // 残留的 all:unset 把按钮打回 inline，文字掉到第二行
+    wsBtn.style.display = ws !== '' ? 'inline-flex' : 'none'
+    wsSep.style.display = ws !== '' ? '' : 'none'
     ttlTag.textContent = (document.title || '').trim() || 'KCoder'
     let preset = ''
     try { preset = getComputedStyle(document.documentElement).getPropertyValue('--dsh-agent-preset').trim() } catch {}

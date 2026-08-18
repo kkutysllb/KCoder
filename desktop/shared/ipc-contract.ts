@@ -237,6 +237,44 @@ export interface TrajectorySnapshot {
   rows: TrajectoryRow[]
 }
 
+/* ---------- git 环境面板 ---------- */
+
+/**
+ * git 工作区状态快照（主进程探测；随 `git:changed` 推送，也可
+ * `git:snapshot` 拉取）。非 git 仓库时 isRepo=false 其余字段归零。
+ */
+export interface GitSnapshot {
+  /** 当前工作区名（路径尾段；无工作区 null）。 */
+  workspace: string | null
+  isRepo: boolean
+  branch: string | null
+  /** 上游分支短名（origin/main；无则 null）。 */
+  upstream: string | null
+  ahead: number | null
+  behind: number | null
+  staged: number
+  changed: number
+  untracked: number
+  /** 相对 HEAD 的增/删行数（numstat 求和；不含 untracked）。 */
+  added: number
+  removed: number
+  /** 本地分支列表（字母序；当前分支靠 branch 字段高亮）。 */
+  branches: string[]
+  commits: Array<{ hash: string; subject: string; when: string; author: string }>
+  /** Fetch 进行中（按钮禁用态）。 */
+  fetching: boolean
+  /** 写操作（提交/推送/切分支/建分支）进行中，视图按钮禁用。 */
+  busy: boolean
+  error: string | null
+}
+
+/** git 写操作（commit/push/branch-create 等）的执行结果。 */
+export interface GitOpResult {
+  ok: boolean
+  /** 失败时的首行错误文案（git 原样输出）。 */
+  error: string | null
+}
+
 /* ---------- preload 暴露面 ---------- */
 
 /** preload 通过 contextBridge 暴露的 `window.dshDesktop`。 */
@@ -306,6 +344,25 @@ export interface DesktopBridge {
   trajectoryFetch(): Promise<TrajectorySnapshot>
   /** 时间线更新推送（新事件到达/会话切换）。 */
   onTrajectoryUpdate(cb: (s: TrajectorySnapshot) => void): () => void
+  /* git 环境面板（右侧停靠；探测与写操作都在主进程串行执行） */
+  /** 当前快照（面板初次挂载时拉取）。 */
+  gitSnapshot(): Promise<GitSnapshot>
+  /** 触发一次重探（视图内手动刷新）。 */
+  gitRefresh(): Promise<void>
+  /** git fetch（拉取上游，完成后快照会再推一次）。 */
+  gitFetch(): Promise<GitOpResult>
+  /** 提交全部变更（add -A + commit -m；message 视图/主进程双重非空校验）。 */
+  gitCommit(message: string): Promise<GitOpResult>
+  /** 推送（有上游直接 push，否则 push -u origin HEAD）。 */
+  gitPush(): Promise<GitOpResult>
+  /** 切换本地分支（checkout）。 */
+  gitBranchSwitch(name: string): Promise<GitOpResult>
+  /** 新建分支并切换（base 空 = 从当前 HEAD）。 */
+  gitBranchCreate(name: string, base: string | null): Promise<GitOpResult>
+  /** 关闭面板（用户在面板内点关闭；算手动关闭，本次任务不再自动展开）。 */
+  gitHide(): Promise<void>
+  /** 快照更新推送（探测完成/操作完成/开合）。 */
+  onGitSnapshot(cb: (s: GitSnapshot) => void): () => void
   /* 偏好设置（样式定制/托盘保活；样式变更后主进程自动重注入 shell 窗口） */
   preferencesGet(): Promise<Preferences>
   preferencesSet(patch: Partial<Preferences>): Promise<Preferences>

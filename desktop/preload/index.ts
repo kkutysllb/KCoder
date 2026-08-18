@@ -48,6 +48,14 @@ const bridge: DesktopBridge = {
   previewMode: () => ipcRenderer.invoke('preview:mode'),
   previewSetMode: (mode) => ipcRenderer.invoke('preview:set-mode', mode),
   trajectoryFetch: () => ipcRenderer.invoke('trajectory:fetch'),
+  gitSnapshot: () => ipcRenderer.invoke('git:snapshot'),
+  gitRefresh: () => ipcRenderer.invoke('git:refresh'),
+  gitFetch: () => ipcRenderer.invoke('git:fetch'),
+  gitCommit: (message) => ipcRenderer.invoke('git:commit', message),
+  gitPush: () => ipcRenderer.invoke('git:push'),
+  gitBranchSwitch: (name) => ipcRenderer.invoke('git:branch-switch', name),
+  gitBranchCreate: (name, base) => ipcRenderer.invoke('git:branch-create', name, base),
+  gitHide: () => ipcRenderer.invoke('git:hide'),
   preferencesGet: () => ipcRenderer.invoke('preferences:get'),
   preferencesSet: (patch) => ipcRenderer.invoke('preferences:set', patch),
   onDshStateChanged: (cb) => {
@@ -104,6 +112,11 @@ const bridge: DesktopBridge = {
     const listener = (_e: Electron.IpcRendererEvent, s: Parameters<typeof cb>[0]): void => cb(s)
     ipcRenderer.on('trajectory:update', listener)
     return () => ipcRenderer.removeListener('trajectory:update', listener)
+  },
+  onGitSnapshot: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, s: Parameters<typeof cb>[0]): void => cb(s)
+    ipcRenderer.on('git:changed', listener)
+    return () => ipcRenderer.removeListener('git:changed', listener)
   },
 }
 

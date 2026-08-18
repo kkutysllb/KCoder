@@ -146,6 +146,8 @@ const PAGE_JS = `(() => {
         const name = ws != null && ws.title !== '' ? ws.title
           : segs.length > 0 ? segs[segs.length - 1] : ''
         document.documentElement.style.setProperty('--dsh-ws-name', name)
+        // 完整路径同步写入：标题栏工作区按钮的点击目标（打开目录）
+        document.documentElement.style.setProperty('--dsh-ws-path', ws != null ? ws.path : '')
         const msg = ws == null ? { workspace: null } : { workspace: ws.path, workspaceTitle: ws.title }
         if (s != null) { msg.session = s.id; msg.sessionTitle = s.title }
         else msg.session = null
@@ -376,6 +378,8 @@ class PreviewPanel {
   private sidebarW = 0
   /** 布局联动回调（windows.ts 接线：通知终端面板重排，避免循环依赖）。 */
   onLayoutChange: (() => void) | null = null
+  /** 互斥钩子（windows.ts 接线：展示时收 git 面板；只在 show 触发，无环）。 */
+  onShow: (() => void) | null = null
 
   /** shell 窗口创建后接线（重复调用安全）。 */
   attach(win: BrowserWindow): void {
@@ -503,6 +507,9 @@ class PreviewPanel {
     const win = this.win
     if (win === null || win.isDestroyed()) return
     this.visible = true
+    // 互斥先行（git 面板）：其 pad(0) 清除先于本面板 pad(W) 设置，
+    // 后设者胜出，让位不会被误清
+    this.onShow?.()
     if (this.view === null) {
       this.view = new WebContentsView({
         webPreferences: {

@@ -25,6 +25,7 @@ import { attachSessionLogInjector } from './session-log-export'
 import { attachStyleSettingsInjector } from './style-settings'
 import { terminalPanel } from './terminal-panel'
 import { previewPanel } from './preview-panel'
+import { gitPanel } from './git-panel'
 import { getSettings, saveSettings } from './store'
 
 /** dev 模式下 renderer 的 vite 服务地址；生产为 out/renderer 静态文件。 */
@@ -129,8 +130,15 @@ export function showShellWindow(dshUrl: string): void {
     // 文件预览抽屉：右侧 agent 文件活动预览（mux 订阅 + 语法高亮/diff）
     if (process.platform === 'darwin') {
       previewPanel.attach(shellWindow)
+      // git 环境面板：标题栏按钮 → 右上浮动面板（主进程 git 探测，
+      // 工作区跟随 file-activity；按钮宿主同为自绘标题栏）
+      gitPanel.attach(shellWindow)
       // 开合/拖宽 → 终端面板收窄让位（回调注入避免循环依赖）
       previewPanel.onLayoutChange = () => terminalPanel.relayout()
+      // 右侧停靠互斥：任一面板展示时收起另一个（钩子只在 show 触发，
+      // 无环；互斥关闭不算手动关，git 面板保留任务期自动展开资格）
+      gitPanel.onShow = () => previewPanel.hide()
+      previewPanel.onShow = () => gitPanel.hideByConflict()
     }
     // 只允许停留在 dsh 回环地址；外链交给系统浏览器
     shellWindow.webContents.setWindowOpenHandler(({ url }) => {

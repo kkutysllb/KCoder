@@ -15,6 +15,7 @@ import { communityPlugins, installedPlugins, runPluginCommand } from './plugins'
 import { checkForUpdates, installUpdate, updateEvents, updateStatus } from './updater'
 import { terminalPanel, terminalTheme } from './terminal-panel'
 import { previewPanel, openInEditor } from './preview-panel'
+import { gitPanel } from './git-panel'
 import { fileActivity } from './file-activity'
 import { refreshStyleOverlay } from './style-overlay'
 import { getSettings, saveSettings } from './store'
@@ -156,6 +157,24 @@ export function registerIpc(): void {
     previewPanel.setMode(mode === 'trajectory' ? 'trajectory' : 'files', false)
   })
   ipcMain.handle('trajectory:fetch', () => fileActivity.trajectorySnapshot())
+
+  /* ---- git 环境面板（右侧停靠；探测与写操作主进程串行） ---- */
+  ipcMain.handle('git:snapshot', () => gitPanel.current())
+  ipcMain.handle('git:refresh', () => gitPanel.refresh())
+  ipcMain.handle('git:fetch', () => gitPanel.fetch())
+  ipcMain.handle('git:commit', (_event, message: unknown) =>
+    gitPanel.commit(typeof message === 'string' ? message : ''))
+  ipcMain.handle('git:push', () => gitPanel.push())
+  ipcMain.handle('git:branch-switch', (_event, name: unknown) =>
+    gitPanel.switchBranch(typeof name === 'string' ? name : ''))
+  ipcMain.handle('git:branch-create', (_event, name: unknown, base: unknown) =>
+    gitPanel.createBranch(
+      typeof name === 'string' ? name : '',
+      typeof base === 'string' && base !== '' ? base : null,
+    ))
+  ipcMain.handle('git:hide', () => {
+    gitPanel.hide(true)
+  })
   // 活动流转发（面板视图按需消费；隐藏时视图仍在，重开即回）；
   // edit 活动同时推给 shell 页面补正文文件链接的 +n/−n 徽章。
   // 分桶后带桶键：其他工作区的后台活动不进当前视图/正文（防互串）

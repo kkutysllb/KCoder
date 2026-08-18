@@ -31,10 +31,10 @@ import type { BrowserWindow } from 'electron'
 const PANEL_CSS = String.raw`
 #__dsh_stats_panel {
   position: fixed;
-  left: calc(50% - var(--dsh-preview-inset, 0px) / 2);
+  left: calc(50% - (var(--dsh-preview-inset, 0px) + var(--dsh-git-inset, 0px)) / 2);
   bottom: var(--dsh-terminal-inset, 0px);
   z-index: 2147483646;
-  width: min(560px, calc(92vw - var(--dsh-preview-inset, 0px))); box-sizing: border-box; padding: 10px 14px 8px;
+  width: min(560px, calc(92vw - (var(--dsh-preview-inset, 0px) + var(--dsh-git-inset, 0px)))); box-sizing: border-box; padding: 10px 14px 8px;
   border: 1px solid #DCE0E6; border-bottom: none; border-radius: 12px 12px 0 0;
   background: #FFFFFF; color: #1A1D21;
   box-shadow: 0 -10px 32px rgba(9, 16, 29, .14);
