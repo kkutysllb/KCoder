@@ -90,11 +90,17 @@ export function registerIpc(): void {
     return Promise.resolve()
   })
 
-  /* ---- 内嵌终端（面板视图 ↔ pty，多标签：全部动作常 id） ---- */
-  ipcMain.handle('terminal:tabs', () => terminalPanel.ptyHost().list())
-  ipcMain.handle('terminal:new', () => {
-    const ws = terminalPanel.currentWorkspace()
-    return terminalPanel.ptyHost().create(ws.path)
+  /* ---- 内嵌终端（面板视图 ↔ pty，多标签：每个工作区一份私有桶） ----
+   * 调用方工作区 = event.sender 所属 view 的 workspace（不是 currentWorkspace，
+   * 否则 B view 调用 close(id) 会被当作 A 桶操作；按 view 反查保证调用方只能
+   * 操作自己工作区桶内的 session）。 */
+  ipcMain.handle('terminal:tabs', (event) => {
+    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
+    return terminalPanel.ptyHost().list(bucket)
+  })
+  ipcMain.handle('terminal:new', (event) => {
+    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
+    return terminalPanel.ptyHost().create(bucket)
   })
   ipcMain.handle('terminal:write', (_event, id: number, data: string) => {
     terminalPanel.ptyHost().write(id, data)
@@ -102,15 +108,18 @@ export function registerIpc(): void {
   ipcMain.handle('terminal:resize', (_event, id: number, cols: number, rows: number) => {
     terminalPanel.ptyHost().resize(id, cols, rows)
   })
-  ipcMain.handle('terminal:restart', (_event, id: number) => {
-    const ws = terminalPanel.currentWorkspace()
-    return terminalPanel.ptyHost().restart(id, ws.path)
+  ipcMain.handle('terminal:restart', (event, id: number) => {
+    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
+    return terminalPanel.ptyHost().restart(id, bucket)
   })
-  ipcMain.handle('terminal:close', (_event, id: number) => {
-    return terminalPanel.ptyHost().close(id)
+  ipcMain.handle('terminal:close', (event, id: number) => {
+    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
+    return terminalPanel.ptyHost().close(id, bucket)
   })
-  ipcMain.handle('terminal:hide', () => {
-    terminalPanel.hide()
+  ipcMain.handle('terminal:hide', (event) => {
+    // 关闭"调用方所在工作区"的面板可见性，不影响其他工作区
+    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
+    terminalPanel.hide(bucket)
   })
   ipcMain.handle('terminal:theme', () => terminalTheme())
   ipcMain.handle('terminal:panel-resize', (_event, dy: number) => {

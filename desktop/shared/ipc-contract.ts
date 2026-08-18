@@ -409,4 +409,9 @@ export interface DesktopBridge {
   onTerminalData(cb: (chunk: string, id: number) => void): () => void
   onTerminalExit(cb: (id: number) => void): () => void
   onTerminalTheme(cb: (t: TerminalTheme) => void): () => void
+  /**
+   * 工作区切换后 PtyHost 被主进程重置并在新路径上重建首个标签，
+   * 渲染端应丢弃旧 tab 再 `terminalTabs()` 重拉，保证本地/远端一致。
+   */
+  onTerminalReset(cb: () => void): () => void
 }

@@ -276,6 +276,38 @@ export async function mountTerminal(root: HTMLElement): Promise<void> {
   bridge.onTerminalData((chunk, id) => { tabs.get(id)?.term.write(chunk) })
   bridge.onTerminalExit(id => markExited(id))
 
+  /**
+   * 按当前工作区桶做增量对齐（terminal:reset 触发）。
+   * 已存在的 tab（同 id）保留原 xterm 实例与 buffer，绝不清空重建——
+   * 多工作区私有语义：切走再切回时本视图原状恢复（历史输出、活动 tab
+   * 均不丢）。仅对差异做增删。
+   */
+  const resyncTabs = async (): Promise<void> => {
+    const fresh = await bridge.terminalTabs()
+    const freshIds = new Set(fresh.map(t => t.id))
+    // 本地有、远端没有的 tab → 进程已结束/被关闭，移除
+    for (const [kid, kst] of [...tabs]) {
+      if (!freshIds.has(kid)) {
+        kst.term.dispose()
+        kst.host.remove()
+        kst.el.remove()
+        tabs.delete(kid)
+      }
+    }
+    // 远端有、本地没有的 tab → 新建（含 ensureFirst 补齐的首个）
+    for (const tab of fresh) {
+      if (tabs.has(tab.id)) continue
+      const st = registerTab(tab)
+      if (activeId === -1 || tab.alive) activeId = st.id
+    }
+    // 活动 tab 已被移除 → 回退到当前桶第一个
+    if (activeId !== -1 && !tabs.has(activeId)) {
+      activeId = [...tabs.keys()][0] ?? -1
+    }
+    if (activeId !== -1) setActive(activeId)
+  }
+  bridge.onTerminalReset(() => { void resyncTabs() })
+
   /* ---- 尺寸：容器变化只 refit 活动标签（隐藏的激活时补） ---- */
   const refit = (): void => {
     if (termHost.clientWidth === 0 || termHost.clientHeight === 0) return

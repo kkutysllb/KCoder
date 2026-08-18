@@ -89,6 +89,11 @@ const bridge: DesktopBridge = {
     ipcRenderer.on('terminal:exit', listener)
     return () => ipcRenderer.removeListener('terminal:exit', listener)
   },
+  onTerminalReset: (cb) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('terminal:reset', listener)
+    return () => ipcRenderer.removeListener('terminal:reset', listener)
+  },
   onTerminalTheme: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, t: Parameters<typeof cb>[0]): void => cb(t)
     ipcRenderer.on('terminal:theme', listener)

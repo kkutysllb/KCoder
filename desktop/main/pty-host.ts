@@ -27,10 +27,10 @@ export interface TerminalTab {
   title: string
 }
 
-/** 事件面：data（pty → 终端，带标签 id）、exit（进程退出）。 */
+/** 事件面：data（pty → 终端，带标签 id + 工作区桶键）、exit（进程退出）。 */
 export interface PtyHostEvents {
-  data: (chunk: string, id: number) => void
-  exit: (id: number) => void
+  data: (chunk: string, id: number, bucket: string) => void
+  exit: (id: number, bucket: string) => void
 }
 
 /** 单个 pty 会话（一个 shell 进程 = 一个标签）。 */
@@ -38,13 +38,25 @@ interface Session {
   id: number
   pty: IPty | null
   cwd: string
+  /** 所属工作区桶键（冗余记一份，避免 data/exit 路由时反查 buckets）。 */
+  bucket: string
   exited: boolean
 }
 
-/** pty 会话宿主（多标签，由 terminal-panel 持有调用）。 */
+/** pty 会话宿主（多标签，按工作区隔离，由 terminal-panel 持有调用）。
+ *
+ * 会话模型（修正：每个工作区一份私有 sessions 池，避免工作区切换时
+ * 互相污染或被误杀）：
+ * - sessions = Map<workspacePath, Map<sessionId, Session>>：以工作区
+ *   绝对路径为桶键，每个工作区独立 id 空间；
+ * - 不同工作区可以同时持有各自的多 tab，互不干扰；
+ * - "当前工作区" = terminal-panel 跟踪的 workspacePath，list/create
+ *   等面板侧 API 都作用于该桶；切工作区后调 ensureFirst 在新桶里建
+ *   第一个标签，老桶里的进程继续存活（用户切回去还是它们的）。 */
 export class PtyHost {
   private readonly events = new EventEmitter()
-  private readonly sessions = new Map<number, Session>()
+  /** workspacePath → 该工作区的 session id → session。空串键 = 无工作区桶（兜底）。 */
+  private readonly buckets = new Map<string, Map<number, Session>>()
   private nextId = 1
   /** 最近一次 resize 的尺寸（新建标签沿用，避免先 80×24 再闪变）。 */
   private cols = 80
@@ -60,51 +72,81 @@ export class PtyHost {
     return this
   }
 
-  /** 全部标签快照（Map 迭代序即创建序）。 */
-  list(): TerminalTab[] {
-    return [...this.sessions.values()].map(tabOf)
+  /** 当前工作区桶键：缺省工作区用空串（兜底），避免 null/undefined 进 Map 不可见。 */
+  private bucketOf(cwd: string | null): string {
+    return cwd !== null ? cwd : ''
   }
 
-  /** 单个标签信息；不存在返回 null。 */
+  private bucket(cwd: string | null): Map<number, Session> {
+    const key = this.bucketOf(cwd)
+    let m = this.buckets.get(key)
+    if (m === undefined) { m = new Map(); this.buckets.set(key, m) }
+    return m
+  }
+
+  /** 当前工作区全部标签快照（Map 迭代序即创建序）。 */
+  list(cwd: string | null): TerminalTab[] {
+    const m = this.buckets.get(this.bucketOf(cwd))
+    return m === undefined ? [] : [...m.values()].map(tabOf)
+  }
+
+  /** 当前工作区里全部桶的标签快照（用于工作区切换时的清账/调试）。 */
+  listAll(): TerminalTab[] {
+    const out: TerminalTab[] = []
+    for (const m of this.buckets.values()) for (const s of m.values()) out.push(tabOf(s))
+    return out
+  }
+
+  /** 单个标签信息（按全局 id 查，因为 IPC handler 已用 id，不区分桶）。 */
   info(id: number): TerminalTab | null {
-    const s = this.sessions.get(id)
-    return s === undefined ? null : tabOf(s)
+    for (const m of this.buckets.values()) {
+      const s = m.get(id)
+      if (s !== undefined) return tabOf(s)
+    }
+    return null
   }
 
-  /** 新建标签（shell 进程立即启动，工作目录首选当前工作区）。 */
-  create(preferredCwd: string | null): TerminalTab {
-    const s: Session = { id: this.nextId++, pty: null, cwd: usableDir(preferredCwd) ?? homedir(), exited: false }
-    this.sessions.set(s.id, s)
+  /** 新建标签到指定工作区桶（shell 进程立即启动）。 */
+  create(cwd: string | null): TerminalTab {
+    const bucket = this.bucketOf(cwd)
+    const s: Session = { id: this.nextId++, pty: null, cwd: usableDir(cwd) ?? homedir(), bucket, exited: false }
+    this.bucket(bucket).set(s.id, s)
     this.spawn(s)
     return tabOf(s)
   }
 
-  /** 面板打开时确保至少有一个标签（无则新建；退出的保留退出现场）。 */
-  ensureFirst(preferredCwd: string | null): TerminalTab {
-    const first = this.sessions.values().next().value
+  /** 面板打开时确保指定工作区桶至少有一个标签（无则新建）。 */
+  ensureFirst(cwd: string | null): TerminalTab {
+    const m = this.bucket(cwd)
+    const first = m.values().next().value
     if (first !== undefined) return tabOf(first)
-    return this.create(preferredCwd)
+    return this.create(cwd)
   }
 
-  /** 销毁对应标签并以（可能已变化的）工作区目录重建。 */
+  /** 销毁对应标签（仅限 preferredCwd 桶内），并以（可能已变化的）工作区目录重建（同 id）。 */
   restart(id: number, preferredCwd: string | null): TerminalTab | null {
-    const s = this.sessions.get(id)
+    const bucket = this.bucketOf(preferredCwd)
+    const s = this.buckets.get(bucket)?.get(id)
     if (s === undefined) return null
     const cwd = usableDir(preferredCwd) ?? s.cwd ?? homedir()
     killPty(s)
     s.cwd = cwd
+    s.bucket = bucket
     s.exited = false
+    // 跨工作区重启：把 session 移到新桶（id 不变即可保持面板标签稳定）
+    for (const m of this.buckets.values()) m.delete(id)
+    this.bucket(bucket).set(id, s)
     this.spawn(s)
     return tabOf(s)
   }
 
   write(id: number, data: string): void {
-    this.sessions.get(id)?.pty?.write(data)
+    this.find(id)?.pty?.write(data)
   }
 
   resize(id: number, cols: number, rows: number): void {
-    const s = this.sessions.get(id)
-    if (s === undefined) return
+    const s = this.find(id)
+    if (s === null) return
     this.cols = cols
     this.rows = rows
     try { s.pty?.resize(cols, rows) } catch {
@@ -112,19 +154,30 @@ export class PtyHost {
     }
   }
 
-  /** 关闭单个标签（杀 shell），返回剩余标签。 */
-  close(id: number): TerminalTab[] {
-    const s = this.sessions.get(id)
-    if (s === undefined) return this.list()
+  /** 关闭单个标签（仅限 cwd 桶内：跨桶 id 一律不动，绝不影响其他工作区进程），返回当前工作区剩余标签。 */
+  close(id: number, cwd: string | null): TerminalTab[] {
+    const bucket = this.bucketOf(cwd)
+    const s = this.buckets.get(bucket)?.get(id)
+    if (s === undefined) return this.list(cwd)
     killPty(s)
-    this.sessions.delete(id)
-    return this.list()
+    this.buckets.get(bucket)?.delete(id)
+    return this.list(cwd)
   }
 
   /** 彻底销毁全部会话（应用退出/窗口关闭时调用）。 */
   dispose(): void {
-    for (const s of this.sessions.values()) killPty(s)
-    this.sessions.clear()
+    for (const m of this.buckets.values())
+      for (const s of m.values()) killPty(s)
+    this.buckets.clear()
+  }
+
+  /** 全局 id 定位 session（id 全局唯一，跨桶查找一次即可）。 */
+  private find(id: number): Session | null {
+    for (const m of this.buckets.values()) {
+      const s = m.get(id)
+      if (s !== undefined) return s
+    }
+    return null
   }
 
   private spawn(s: Session): void {
@@ -137,11 +190,11 @@ export class PtyHost {
       cols: this.cols,
       rows: this.rows,
     })
-    s.pty.onData(chunk => { this.events.emit('data', chunk, s.id) })
+    s.pty.onData(chunk => { this.events.emit('data', chunk, s.id, s.bucket) })
     s.pty.onExit(() => {
       s.exited = true
       s.pty = null
-      this.events.emit('exit', s.id)
+      this.events.emit('exit', s.id, s.bucket)
     })
   }
 }

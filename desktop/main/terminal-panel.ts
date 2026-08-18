@@ -2,12 +2,13 @@
  * 内嵌终端面板：主界面（右侧内容区）底部的真实终端，VS Code 同款。
  *
  * 构成：
- * - 面板本体是 WebContentsView（renderer 的 #/terminal 视图，xterm.js +
- *   preload），叠加在 shell 窗口底部——上游页面零修改；
- * - pty 见 pty-host（node-pty 单会话，面板关闭仅隐藏不杀进程）；
+ * - 每个工作区持有独立的 WebContentsView（renderer 的 #/terminal 视图，
+ *   xterm.js + preload），叠加在 shell 窗口底部——上游页面零修改；
+ * - 不同工作区的 view 同时挂载、互不污染；切工作区 = setVisible 切换，
+ *   view 实例与对应 PtyHost 桶 session 全程存活（不销毁、不 SIGTERM）；
  * - 布局：x = 侧边栏实时宽度（页面探针 ResizeObserver 上报，拖拽/收起
  *   动画期间持续跟随），y = 窗口底部，不侵占侧边栏；
- * - 让位：面板打开时给上游 AppFrame 的 centerCol/detailsCol 注入
+ * - 让位：当前可见 view 给上游 AppFrame 的 centerCol/detailsCol 注入
  *   padding-bottom（侧边栏全高不动），对话输入框上移不被遮挡。
  *
  * 上游契约（全部运行时探测）：
@@ -48,6 +49,9 @@ const RENDERER_URL = process.env.ELECTRON_RENDERER_URL
 
 /** 预加载脚本绝对路径（面板窗口同款：preload + contextIsolation）。 */
 const PRELOAD = join(__dirname, '../preload/index.js')
+
+/** 无工作区桶键（兜底：上游 workspace 探针尚未解析到时）。 */
+const NO_WORKSPACE_KEY = ''
 
 /**
  * 页面注入脚本（上游 shell 页面上下文）：
@@ -205,25 +209,66 @@ export function terminalTheme(pref: 'system' | 'light' | 'dark' = getSettings().
 }
 
 /**
+ * 单工作区的面板视图：独立的 WebContentsView + 独立的可见性 + 独立的
+ * 上游 padding 让位。每个工作区持久保留自己的视图（DOM 不丢、xterm
+ * buffer 不丢、PtyHost session 继续跑）；切工作区只是 setVisible 切换。
+ */
+interface WorkspaceView {
+  /** 工作区桶键（绝对路径，空串表示无工作区兜底桶）。 */
+  bucket: string
+  /** 视图唯一性 = bucket；用作 Map 键。 */
+  view: WebContentsView
+  /** 用户对该工作区面板的开合偏好（仅由用户 toggle 改变，切工作区不改）。 */
+  open: boolean
+  /** 真实显示状态（与 view.setVisible 同步；layout 的 pad 判断用这个）。 */
+  shown: boolean
+  /** 该 view 是否曾被首次打开过（懒挂载标记）。 */
+  loaded: boolean
+}
+
+/**
  * 终端面板管理器：每 shell 窗口一份（单窗口应用，字段单例即可）。
  * 供 ipc.ts 的 terminal:* handlers 与菜单/快捷键调用。
+ *
+ * 多工作区模型：
+ * - 每个工作区持有独立 WorkspaceView + PtyHost 桶，切工作区仅切换
+ *   setVisible 不销毁；
+ * - 当前工作区（activeBucket）= 探针缓存中最近一次解析到的路径；
+ *   仅用于决定哪个 view 在窗口里当前可见；
+ * - 切工作区时保持所有 view 挂载在 contentView 里（不 removeChildView），
+ *   仅 setVisible，避免视图销毁重建导致 DOM/buffer 丢失。
  */
 class TerminalPanel {
   private win: BrowserWindow | null = null
-  private view: WebContentsView | null = null
+  /** workspace 桶键 → 该工作区的视图与状态。bucket 为空串表示无工作区桶。 */
+  private readonly views = new Map<string, WorkspaceView>()
   private readonly pty = new PtyHost()
-  private visible = false
+  /** 探针缓存的最近工作区路径（用于决定"当前"可见的 view）。null = 未解析。 */
+  private activeBucket: string | null = null
+  private activeTitle = ''
+  /** 全局面板高度（用户拖拽，所有工作区共用一个值；切工作区无差别）。 */
   private panelH = clampH(getSettings().terminalHeight ?? PANEL_DEFAULT_H)
+  /** 侧栏宽度（所有工作区视图共用一个值，跟随上游）。 */
   private sidebarW = 0
-  private workspacePath: string | null = null
-  private workspaceTitle = ''
+
+  /** 构造：pty 事件路由（带 bucket 转发到对应 workspace view）。 */
+  constructor() {
+    this.pty.on('data', (chunk, _id, bucket) => {
+      const entry = this.views.get(bucket)
+      const wc = entry?.view.webContents
+      if (wc !== undefined && !wc.isDestroyed()) wc.send('terminal:data', chunk, _id)
+    })
+    this.pty.on('exit', (id, bucket) => {
+      const entry = this.views.get(bucket)
+      const wc = entry?.view.webContents
+      if (wc !== undefined && !wc.isDestroyed()) wc.send('terminal:exit', id)
+    })
+  }
 
   /** shell 窗口创建后接线：页面注入 + console/resize 事件（重复调用安全）。 */
   attach(win: BrowserWindow): void {
-    // 幂等：窗口重建（托盘保活再开）时先解绑旧监听，避免 pty 数据双发
+    // 幂等：窗口重建（托盘保活再开）时先解绑旧监听
     themeEvents.off('theme-changed', this.onThemeChanged)
-    this.pty.off('data', this.onPtyData)
-    this.pty.off('exit', this.onPtyExit)
     this.win = win
     const { webContents } = win
     const onConsole = (event: unknown, ...rest: unknown[]): void => {
@@ -239,13 +284,18 @@ class TerminalPanel {
       }
       const workspace = payload.workspace
       if (typeof workspace === 'string') {
-        this.workspacePath = workspace
-        this.workspaceTitle = typeof payload.workspaceTitle === 'string' ? payload.workspaceTitle : ''
+        // 探针报告当前工作区：仅切换"哪个 view 当前可见"，不动其他工作区
+        // 视图与 pty session（多任务并行：A 的长任务不应被切到 B 时影响）。
+        const prevBucket = this.activeBucket
+        this.activeBucket = workspace
+        this.activeTitle = typeof payload.workspaceTitle === 'string' ? payload.workspaceTitle : ''
+        // 兜底桶键：空串对应"无工作区"桶，确保新 view 可被找到
+        if (prevBucket !== this.activeBucket) this.switchVisible(this.activeBucket)
         return
       }
       if (payload.action === 'toggle') {
-        const path = typeof payload.path === 'string' ? payload.path : null
-        if (path !== null && path !== '') this.workspacePath = path
+        const path = typeof payload.path === 'string' && payload.path !== '' ? payload.path : null
+        if (path !== null) this.activeBucket = path
         this.toggle()
       }
     }
@@ -254,75 +304,98 @@ class TerminalPanel {
       webContents.executeJavaScript(PAGE_JS, true).catch(() => {
         // 页面跳转间隙执行失败属正常，下次加载会重试
       })
-      // 导航重载会清掉让位 padding 与探针状态；面板仍开着则恢复
-      if (this.visible) {
+      // 上游 padding 让位同步（当前 active 工作区 view 真实可见时）
+      const visibleEntry = this.currentEntry()
+      if (visibleEntry !== null && visibleEntry.shown) {
         webContents.executeJavaScript(padScript(this.panelH), true).catch(() => {})
-        this.syncButtonState()
       }
     }
     webContents.on('console-message', onConsole)
     webContents.on('did-finish-load', onDidLoad)
-    win.on('resize', () => { if (this.visible) this.layout() })
+    win.on('resize', () => { this.layout() })
     win.once('closed', () => {
       webContents.removeListener('console-message', onConsole)
       webContents.removeListener('did-finish-load', onDidLoad)
-      this.destroyView()
+      this.destroyAll()
       this.win = null
     })
-    // 主题切换 → 广播终端视图刷新配色；pty → 终端视图
+    // 主题切换 → 广播全部视图刷新配色
     themeEvents.on('theme-changed', this.onThemeChanged)
-    this.pty.on('data', this.onPtyData)
-    this.pty.on('exit', this.onPtyExit)
   }
 
-  /** 应用退出前彻底清理（杀 shell 进程）。 */
+  /** 应用退出前彻底清理（杀全部 shell 进程）。 */
   dispose(): void {
     themeEvents.off('theme-changed', this.onThemeChanged)
-    this.pty.off('data', this.onPtyData)
-    this.pty.off('exit', this.onPtyExit)
     this.pty.dispose()
-    this.destroyView()
+    this.destroyAll()
+  }
+
+  /** 当前可见视图（用于 IPC 调用方反查工作区）。 */
+  currentEntry(): WorkspaceView | null {
+    const bucket = this.activeBucket
+    if (bucket === null) return null
+    return this.views.get(bucket) ?? null
+  }
+
+  /**
+   * 查 view 对应工作区桶键（IPC handler 调用：按 event.sender.id 找
+   * 调用方所在 view，进而定位工作区，避免 B view 误操作 A 桶 session）。
+   * 返回 null 表示调用方不是任何已知 view（理论上不该发生）。
+   */
+  bucketOfWebContentsId(id: number): string | null {
+    for (const [bucket, entry] of this.views) {
+      if (entry.view.webContents.id === id) return bucket
+    }
+    return null
+  }
+
+  /** 所有已知工作区桶键（供 PtyHost/listAll 等使用）。 */
+  knownBuckets(): string[] {
+    return [...this.views.keys()]
   }
 
   toggle(): void {
-    if (this.visible) this.hide()
-    else this.show()
+    const bucket = this.activeBucket ?? NO_WORKSPACE_KEY
+    const entry = this.ensureEntry(bucket)
+    if (entry.open) this.hide(bucket)
+    else this.show(bucket)
   }
 
-  show(): void {
+  /** 显示指定工作区面板：若 view 未挂载则懒建挂载+loadURL。 */
+  show(bucket: string | null): void {
     const win = this.win
     if (win === null || win.isDestroyed()) return
-    this.visible = true
-    if (this.view === null) {
-      this.view = new WebContentsView({
-        webPreferences: {
-          preload: PRELOAD,
-          nodeIntegration: false,
-          contextIsolation: true,
-          sandbox: false,
-        },
-      })
-      win.contentView.addChildView(this.view)
-      const url = RENDERER_URL !== undefined
-        ? `${RENDERER_URL}/#/terminal`
-        : `${pathToFileURL(join(__dirname, '../renderer/index.html')).href}#/terminal`
-      void this.view.webContents.loadURL(url)
-    }
-    this.view.setVisible(true)
-    this.pty.ensureFirst(this.workspacePath)
+    const key = bucket ?? NO_WORKSPACE_KEY
+    const entry = this.ensureEntry(key)
+    entry.view.setVisible(true)
+    entry.open = true
+    entry.shown = true
+    this.pty.ensureFirst(key)
     this.layout()
     this.syncButtonState()
-    // 焦点给终端（打开即可打字）
-    this.view.webContents.focus()
+    // 首次 mount（loaded=false）时渲染端在 mount 阶段已 await terminalTabs
+    // 拉到当前桶 tabs，无需重发；非首次（例如切工作区后再点开同一工作区）
+    // 渲染端缓存的可能还是上一桶 tabs，发 reset 让其按当前桶重拉。
+    if (entry.loaded) entry.view.webContents.send('terminal:reset')
+    // 焦点给当前工作区终端视图
+    entry.view.webContents.focus()
   }
 
-  hide(): void {
-    this.visible = false
-    this.view?.setVisible(false)
-    this.pad(0)
-    this.syncButtonState()
-    // 焦点还给上游页面
-    this.win?.webContents.focus()
+  hide(bucket: string | null): void {
+    const key = bucket ?? NO_WORKSPACE_KEY
+    const entry = this.views.get(key)
+    if (entry === undefined) return
+    entry.view.setVisible(false)
+    entry.open = false
+    entry.shown = false
+    if (this.activeBucket === null || this.activeBucket === key) {
+      this.pad(0)
+      this.syncButtonState()
+      this.win?.webContents.focus()
+    } else {
+      // 隐藏的不是当前 active：仅同步自己，无需碰上游 padding
+      this.layout()
+    }
   }
 
   /** 面板高度拖拽（终端 header 上缘；dy 为向下拖正）。 */
@@ -331,7 +404,7 @@ class TerminalPanel {
     if (next === this.panelH) return
     this.panelH = next
     saveSettings({ terminalHeight: next })
-    if (this.visible) this.layout()
+    this.layout()
   }
 
   height(): number {
@@ -340,44 +413,44 @@ class TerminalPanel {
 
   /** 请求重排（预览抽屉开合/拖宽后由布局联动回调触发）。 */
   relayout(): void {
-    if (this.visible) this.layout()
+    this.layout()
   }
 
   ptyHost(): PtyHost {
     return this.pty
   }
 
-  /** 当前工作区路径（探针缓存；ipc restart 用）。 */
+  /** 当前工作区路径（探针缓存；向后兼容 API）。 */
   currentWorkspace(): { path: string | null; title: string } {
-    return { path: this.workspacePath, title: this.workspaceTitle }
+    return { path: this.activeBucket, title: this.activeTitle }
   }
 
   /** 同步标题栏按钮的开合态（页面导航后/面板切换时）。 */
   syncButtonState(): void {
     const wc = this.win?.webContents
     if (wc === undefined || wc.isDestroyed()) return
+    const open = [...this.views.values()].some(v => v.open)
     wc.executeJavaScript(
-      `(() => { const b = document.getElementById('__dsh_desktop_terminal_btn'); if (b) b.setAttribute('data-open', ${this.visible ? '"1"' : '"0"'}) })()`,
+      `(() => { const b = document.getElementById('__dsh_desktop_terminal_btn'); if (b) b.setAttribute('data-open', ${open ? '"1"' : '"0"'}) })()`,
       true,
     ).catch(() => {})
   }
 
-  /** 重算面板 bounds + 上游让位。 */
+  /** 重算所有真实可见 view 的 bounds + 上游让位（pad 判断用 shown，绝不用开合记忆）。 */
   private layout(): void {
     const win = this.win
-    const view = this.view
-    if (win === null || win.isDestroyed() || view === null || !this.visible) return
+    if (win === null || win.isDestroyed()) return
     const [contentW, contentH] = win.getContentSize()
     const x = Math.min(this.sidebarW, Math.max(contentW - 200, 0))
-    // 右侧预览抽屉可见时收窄终端宽度（预览全高在上层，避免右下角遮挡）
     const w = Math.max(contentW - x - previewPanel.visibleWidth(), 0)
-    view.setBounds({
-      x,
-      y: Math.max(contentH - this.panelH, 0),
-      width: w,
-      height: this.panelH,
-    })
-    this.pad(this.panelH)
+    const y = Math.max(contentH - this.panelH, 0)
+    let anyShown = false
+    for (const entry of this.views.values()) {
+      if (!entry.shown) continue
+      anyShown = true
+      entry.view.setBounds({ x, y, width: w, height: this.panelH })
+    }
+    this.pad(anyShown ? this.panelH : 0)
   }
 
   /** 上游内容区让位注入（面板高度变化时同步）。 */
@@ -386,29 +459,71 @@ class TerminalPanel {
   }
 
   private readonly onThemeChanged = (): void => {
-    if (this.view !== null && !this.view.webContents.isDestroyed()) {
-      this.view.webContents.send('terminal:theme', terminalTheme())
+    const theme = terminalTheme()
+    for (const entry of this.views.values()) {
+      if (!entry.view.webContents.isDestroyed()) entry.view.webContents.send('terminal:theme', theme)
     }
   }
 
-  private readonly onPtyData = (chunk: string, id: number): void => {
-    const wc = this.view?.webContents
-    if (wc !== undefined && !wc.isDestroyed()) wc.send('terminal:data', chunk, id)
+  /**
+   * 切工作区（active bucket 变化）时：恢复"目标工作区自己的"面板状态。
+   * - 每个工作区独立记忆自己的开合偏好（entry.open）；
+   * - 目标工作区若曾打开过面板（open=true）→ 恢复显示；没打开过 →
+   *   保持折叠（切工作区绝不自动展开没开过的工作区，也不偷偷 spawn）；
+   * - 其他工作区仅隐藏，open 记忆保留（切回时原状恢复，进程/buffer
+   *   全程不动）。所有 view 继续挂载在 contentView 不销毁。
+   */
+  private switchVisible(newBucket: string): void {
+    for (const [bucket, entry] of this.views) {
+      const shouldShow = bucket === newBucket && entry.open
+      entry.view.setVisible(shouldShow)
+      entry.shown = shouldShow
+    }
+    this.layout()
+    this.syncButtonState()
   }
 
-  private readonly onPtyExit = (id: number): void => {
-    const wc = this.view?.webContents
-    if (wc !== undefined && !wc.isDestroyed()) wc.send('terminal:exit', id)
-  }
-
-  private destroyView(): void {
+  /**
+   * 懒建指定工作区的视图（首次访问时挂载到 contentView、loadURL 渲染端）。
+   * 已经存在则直接返回。
+   */
+  private ensureEntry(bucket: string): WorkspaceView {
     const win = this.win
-    if (this.view !== null && win !== null && !win.isDestroyed()) {
-      win.contentView.removeChildView(this.view)
-      this.view.webContents.close()
+    if (win === null || win.isDestroyed()) throw new Error('TerminalPanel: window not attached')
+    let entry = this.views.get(bucket)
+    if (entry !== undefined) return entry
+    const view = new WebContentsView({
+      webPreferences: {
+        preload: PRELOAD,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: false,
+        // 多工作区并行：隐藏的 view 也持续接收 pty 数据写入 buffer
+        //（切回时历史完整，不被渲染进程节流中断）
+        backgroundThrottling: false,
+      },
+    })
+    win.contentView.addChildView(view)
+    view.setVisible(false)
+    const url = RENDERER_URL !== undefined
+      ? `${RENDERER_URL}/#/terminal`
+      : `${pathToFileURL(join(__dirname, '../renderer/index.html')).href}#/terminal`
+    void view.webContents.loadURL(url)
+    entry = { bucket, view, open: false, shown: false, loaded: false }
+    this.views.set(bucket, entry)
+    // 渲染端挂载完成后标记 loaded
+    view.webContents.once('did-finish-load', () => { entry!.loaded = true })
+    return entry
+  }
+
+  /** 销毁全部视图（窗口关闭/应用退出时调用）。 */
+  private destroyAll(): void {
+    const win = this.win
+    for (const entry of this.views.values()) {
+      if (win !== null && !win.isDestroyed()) win.contentView.removeChildView(entry.view)
+      entry.view.webContents.close()
     }
-    this.view = null
-    this.visible = false
+    this.views.clear()
   }
 }
 
