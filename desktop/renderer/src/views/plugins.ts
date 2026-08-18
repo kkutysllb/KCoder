@@ -85,15 +85,20 @@ export function mountPlugins(root: HTMLElement): void {
     thead.append(el('tr', '', [el('th', '', '仓库'), el('th', '', '说明'), el('th', '', '★'), el('th', '', '')]))
     communityTable.append(thead)
     const body = document.createElement('tbody')
-    const installed = new Set((await bridge.pluginsInstalled()).map((p) => p.name))
+    const installedNames = (await bridge.pluginsInstalled()).map((p) => p.name)
     for (const plugin of community) {
-      const name = plugin.fullName.includes('/') ? plugin.fullName : plugin.fullName
-      const isInstalled = installed.has(name)
+      // 社区发现给出 GitHub full_name（owner/repo），已装列表是 npm 包名
+      // （可能带 scope，如 @dsh-external/dsh-drag-to-attachment）。按最后一段
+      // （repo 名）匹配：ysr666/dsh-vision-router ↔ dsh-vision-router。
+      const repo = plugin.fullName.includes('/') ? plugin.fullName.split('/').pop()! : plugin.fullName
+      const matched = installedNames.find((n) => n === plugin.fullName || n.split('/').pop() === repo)
+      const isInstalled = matched !== undefined
       const actionButton = document.createElement('button')
       actionButton.textContent = isInstalled ? '更新' : '安装'
       if (isInstalled) actionButton.className = 'primary'
       actionButton.addEventListener('click', () => {
-        const pkg = plugin.fullName.includes('/') ? `github:${plugin.fullName}` : plugin.fullName
+        // 已装：用已装包名（npm spec）更新；未装：用 github spec 安装。
+        const pkg = matched ?? (plugin.fullName.includes('/') ? `github:${plugin.fullName}` : plugin.fullName)
         void run(`${actionButton.textContent} ${plugin.fullName}`, () =>
           isInstalled ? bridge.pluginUpdate(pkg) : bridge.pluginAdd(pkg),
         ).then(renderInstalled)

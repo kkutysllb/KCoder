@@ -13,7 +13,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { net } from 'electron'
 import { WEB_PROFILE, dshHome, resolveDshCommand } from './dsh-contract'
@@ -22,6 +22,27 @@ import type { CommunityPlugin, InstalledPlugin, PluginCommandResult } from '@sha
 
 /** 发行版模板内置层（KCoder 会物化注册自己的 skills bundle，UI 同样展示为内置）。 */
 const IN_BOX_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', KCODER_SKILLS_BUNDLE]
+
+/**
+ * dsh 宿主包缺失 peer（pnpm 安装期报警，运行时由
+ * `$DSH_HOME/profiles/node_modules` 回退目录（healProfilesModuleFallback）
+ * 提供）。在 profile 的 pnpm-workspace.yaml 里用 `peerDependencyRules.
+ * ignoreMissing` 声明，抑制 `WARN Issues with peer dependencies found`
+ * 这类误导性噪音——这些包本就不该装进 profile（会复制一份 cordis 实例）。
+ */
+const DS_HOST_PEER_FALLBACK = [
+  '@deepseek-ai/dsh-brand',
+  '@deepseek-ai/dsh-commands',
+  '@deepseek-ai/dsh-credentials',
+  '@deepseek-ai/dsh-home-paths',
+  '@deepseek-ai/dsh-invariants',
+  '@deepseek-ai/dsh-launch-environment',
+  '@deepseek-ai/dsh-llm',
+  '@deepseek-ai/dsh-session',
+  '@deepseek-ai/dsh-settings',
+  '@deepseek-ai/dsh-timeout',
+  '@deepseek-ai/dsh-tools',
+]
 
 /** profile 的 package.json 形状（仅取本模块关心的字段）。 */
 interface ProfileManifest {
@@ -62,6 +83,32 @@ export function installedPlugins(): InstalledPlugin[] {
 }
 
 /**
+ * 确保 profile 的 pnpm-workspace.yaml 带 peerDependencyRules.ignoreMissing。
+ * pnpm 默认把"未安装的 peer"当问题警告（用户侧表现为安装/更新时刷
+ * `WARN Issues with peer dependencies found`），但 dsh 的宿主 peer
+ * （cordis 与 @deepseek-ai/dsh-*）由 $DSH_HOME/profiles/node_modules
+ * 回退目录在运行时提供，并不缺失。声明 ignoreMissing 后 pnpm 不再报警，
+ * 且不改变解析行为（仅抑制检查）。文件由 app-boot initProfile 模板创建，
+ * 这里做幂等补写；非 dsh 管理的异常内容保留。
+ */
+function ensureProfilePeerRules(profileDirPath: string): void {
+  const workspacePath = join(profileDirPath, 'pnpm-workspace.yaml')
+  if (!existsSync(workspacePath)) return
+  try {
+    const current = readFileSync(workspacePath, 'utf8')
+    if (current.includes('peerDependencyRules:')) return
+    const block = [
+      'peerDependencyRules:',
+      '  ignoreMissing:',
+      ...DS_HOST_PEER_FALLBACK.map((p) => `    - '${p}'`),
+    ].join('\n')
+    writeFileSync(workspacePath, `${current.replace(/\n*$/, '\n')}${block}\n`)
+  } catch (error) {
+    console.error('[plugins] ensure profile peer rules failed:', error)
+  }
+}
+
+/**
  * 执行 `dsh plugin --profile web <args...>`，收集输出。
  * 插件变更属于 profile 组合，重启 dsh 侧车后生效（由 UI 提示）。
  */
@@ -72,6 +119,7 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
       resolve({ ok: false, output: '未找到可用的 dsh：请先完成上游初始化' })
       return
     }
+    ensureProfilePeerRules(profileDir())
     const full = [...command.baseArgs, 'plugin', '--profile', WEB_PROFILE, ...args]
     const child = spawn(command.command, full, {
       cwd: command.cwd,
