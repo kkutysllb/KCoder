@@ -1,0 +1,29 @@
+{
+  "skills": [
+    {
+      "dir": "planning-with-files",
+      "name": "planning-with-files",
+      "description": "File-based planning for complex or multi-step work. Maintains a living plan document under plans/ in the workspace, updated as work proceeds, so goals and progress survive context loss and stay reviewable by the user. Use when a task needs 5+ tool calls, spans multiple files or phases, when the user asks to plan, break down, or organize work, or when resuming unfinished work."
+    },
+    {
+      "dir": "task-decomposition",
+      "name": "task-decomposition",
+      "description": "Use this skill when breaking broad coding requests into Qiongqi tasks, task ids, staged work, implementation phases, or independent subtasks."
+    },
+    {
+      "dir": "writing-plans",
+      "name": "writing-plans",
+      "description": "Use when you have a spec or requirements for a multi-step task, before touching code"
+    },
+    {
+      "dir": "executing-plans",
+      "name": "executing-plans",
+      "description": "Use when you have a written implementation plan to execute in a separate session with review checkpoints"
+    },
+    {
+      "dir": "verification-before-completion",
+      "name": "verification-before-completion",
+      "description": "Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always"
+    }
+  ]
+}

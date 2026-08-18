@@ -14,6 +14,10 @@ extraResources:
   # build 物化到 staging/kcoder-runtime.tar.gz。
   - from: staging/kcoder-runtime.tar.gz
     to: kcoder-runtime.tar.gz
+  # KCoder 自有 dsh bundle（方法论技能包）：主进程启动时幂等物化到
+  # $DSH_HOME/profiles/web/node_modules 并注册层叠（kcoder-skills-bundle.ts）
+  - from: bundle/kcoder-skills
+    to: kcoder-skills
   # scripts 与 assets（官方图标）随应用分发，供首次引导与托盘使用
   - from: scripts
     to: scripts

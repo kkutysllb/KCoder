@@ -17,10 +17,11 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { net } from 'electron'
 import { WEB_PROFILE, dshHome, resolveDshCommand } from './dsh-contract'
+import { KCODER_SKILLS_BUNDLE } from './kcoder-skills-bundle'
 import type { CommunityPlugin, InstalledPlugin, PluginCommandResult } from '@shared/ipc-contract'
 
-/** 发行版模板内置层（profile 不列出，但 UI 需要展示）。 */
-const IN_BOX_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
+/** 发行版模板内置层（KCoder 会物化注册自己的 skills bundle，UI 同样展示为内置）。 */
+const IN_BOX_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', KCODER_SKILLS_BUNDLE]
 
 /** profile 的 package.json 形状（仅取本模块关心的字段）。 */
 interface ProfileManifest {
@@ -44,6 +45,8 @@ export function installedPlugins(): InstalledPlugin[] {
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ProfileManifest
     const bundles = manifest.dsh?.profile?.bundles ?? []
     for (const name of bundles) {
+      // KCoder 物化注册的 bundle 已在内置层展示，跳过避免重复
+      if (IN_BOX_BUNDLES.includes(name)) continue
       result.push({ name, layer: result.length, inBox: false })
     }
     // 依赖了但还没被 dsh 识别为 bundle 的包（安装中途态）也列出

@@ -17,6 +17,7 @@ import { terminalPanel } from './terminal-panel'
 import { previewPanel } from './preview-panel'
 import { fileActivity } from './file-activity'
 import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-contract'
+import { ensureKcoderSkillsBundle } from './kcoder-skills-bundle'
 import { initUpdater } from './updater'
 import { applyNativeTheme, currentThemePref } from './theme-watcher'
 import { getSettings } from './store'
@@ -124,6 +125,9 @@ app.whenReady().then(() => {
     bootstrap?.close()
     bootstrap = showBootstrap('setup')
   }
+  // KCoder 内置技能 bundle 物化进 web profile（幂等；dsh 读取 profile
+  // 清单在此之前完成注册）
+  ensureKcoderSkillsBundle()
   dshManager.start()
 
   app.on('activate', () => {
