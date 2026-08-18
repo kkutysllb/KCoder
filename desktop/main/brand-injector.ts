@@ -10,11 +10,12 @@
  *   组件在挂载时快照 original，投射 "会话标题 — DeepSeek Harness"。
  *
  * 替换策略（零侵入，仅 executeJavaScript）：
- * - 展开：SVG 藏起（display:none）+ 旁插 KCoder logo（brand-k.png，
- *   keying 派生）+ "KCoder" 字标（currentColor 随主题）；不动上游节点
- *   本身——React 卸载 BrandWordmark 时仍能 removeChild 原节点，
- *   不会抛 NotFoundError 崩树（replaceWith 方案已踩坑）；button 的
- *   新会话点击行为不受影响；
+ * - 展开：SVG 藏起（display:none）+ 旁插组合 Logo 图（brand-combo-
+ *   dark/light.png：K 图标 + "Coder" 字标已按 22px 等高、零间距渲染
+ *   成单张 PNG，深色主题白字 / 浅色主题深字，主题切换自动换版）；
+ *   不动上游节点本身——React 卸载 BrandWordmark 时仍能 removeChild
+ *   原节点，不会抛 NotFoundError 崩树（replaceWith 方案已踩坑）；
+ *   button 的新会话点击行为不受影响；
  * - rail：鲸鱼 SVG 同样藏起 + 旁插 logo img（复制 railFish 类名，
  *   hover 换图 CSS 继续生效）；
  * - 新会话空状态页（EmptyHero/HeroShell）：同把 34×25 鲸鱼换成 K
@@ -56,12 +57,23 @@ const TAGLINE_EN = 'Think it, code it.'
 /** logo 元素 id（页面内唯一标记，兼幂等检测）。 */
 const LOGO_ID = '__dsh_desktop_brand_logo'
 
-/** 模块级缓存：64px 透明 K（~3.4KB），读一次嵌入注入脚本。 */
+/** 模块级缓存：64px 透明 K（~3.4KB），读一次嵌入注入脚本（rail/hero 用）。 */
 const logoDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-k.png')).toString('base64')}`
+
+/**
+ * 组合 Logo：K 图标 + "Coder" 字标渲染为单张 PNG（Avenir Next Bold，
+ * 22px 等高、零间距紧贴），分深色主题（白字）/ 浅色主题（深字）两版。
+ * 展开态 brand 按钮内直接用这一张图替换上游 BrandWordmark，不再需要
+ * 独立的 word span 与间距 CSS。
+ */
+const logoComboDarkDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-combo-dark.png')).toString('base64')}`
+const logoComboLightDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-combo-light.png')).toString('base64')}`
 
 /** 注入脚本（页面上下文执行，幂等 + 自愈）。 */
 const INJECT_JS = `(() => {
   const DATA_URL = ${JSON.stringify(logoDataUrl)}
+  const DATA_DARK = ${JSON.stringify(logoComboDarkDataUrl)}
+  const DATA_LIGHT = ${JSON.stringify(logoComboLightDataUrl)}
   const UP = ${JSON.stringify(UPSTREAM_NAME)}
   const DOWN = ${JSON.stringify(BRAND_NAME)}
   const LOGO_ID = ${JSON.stringify(LOGO_ID)}
@@ -95,9 +107,30 @@ const INJECT_JS = `(() => {
     if (document.title.includes(UP)) document.title = document.title.split(UP).join(DOWN)
   }
 
-  // ---- 展开：brand 按钮内 wordmark SVG 藏起 + 旁插 logo/字标 ----
+  // ---- 全局样式（极简：仅隐藏 brand 内 SVG） ----
+  // 组合 Logo 已是单张图（K+Coder 紧贴），brand 按钮回归上游无边框
+  // 样式（上游 .brand 本身 border:none / background:transparent /
+  // padding:0），无需任何边框/hover/字标 CSS。唯一必须保留的是
+  // brand 内上游 BrandWordmark SVG 的隐藏——否则 React 重渲染重建
+  // 新 SVG 时（inline display:none 会被清掉），HARNESS 徽章 rect 会
+  // 以 currentColor 白底圆角矩形重新出现。CSS !important 兜底覆盖
+  // React 重建路径，选择器对新 SVG 持续生效。
+  const installStyles = () => {
+    if (document.getElementById(LOGO_ID + '_style') !== null) return
+    const el = document.createElement('style')
+    el.id = LOGO_ID + '_style'
+    el.textContent = [
+      '[class*="root"]:not([class*="collapsed"]) [class*="logoRow"] [class*="brand"] svg{',
+      '  display:none !important;',
+      '}',
+    ].join('')
+    document.head.appendChild(el)
+  }
+
+  // ---- 展开：brand 按钮内 wordmark SVG 藏起 + 旁插组合 Logo 图 ----
   // 不用 replaceWith：React 卸载时会 removeChild 它记录的旧 svg，
   // 节点被换走会抛 NotFoundError 崩整棵树（实测踩坑）。
+  // 组合 Logo 为单张 PNG（K + Coder 紧贴渲染），按主题选深/浅字色版。
   const swapBrand = () => {
     const btn = document.querySelector('[class*="logoRow"] button[class*="brand"]')
     if (btn === null || btn.querySelector('#' + LOGO_ID) !== null) return
@@ -105,24 +138,23 @@ const INJECT_JS = `(() => {
     if (svg === null) return
     const img = document.createElement('img')
     img.id = LOGO_ID
-    img.src = DATA_URL
+    img.src = document.body?.getAttribute('data-ds-dark-theme') !== null ? DATA_DARK : DATA_LIGHT
     img.alt = ''
-    // 高度对齐原 wordmark（24）；不设 display——brand 是 inline-flex，
-    // 且避免内联样式压过上游 CSS
+    // 组合图高度对齐原 wordmark（22）；brand 是 inline-flex + align-items
+    // center，img 自动垂直居中；不设 display——避免内联样式压过上游 CSS
     img.style.height = '22px'
     img.style.width = 'auto'
     img.style.flex = 'none'
-    img.style.marginRight = '7px'
-    const word = document.createElement('span')
-    word.textContent = DOWN
-    word.style.fontSize = '16px'
-    word.style.fontWeight = '650'
-    word.style.letterSpacing = '-0.2px'
-    word.style.whiteSpace = 'nowrap'
-    word.style.color = 'currentColor'
     svg.style.display = 'none'
-    svg.insertAdjacentElement('afterend', word)
     svg.insertAdjacentElement('afterend', img)
+  }
+
+  // ---- 主题切换：组合 Logo 换字色版（深色→白字版，浅色→深字版） ----
+  const syncLogoTheme = () => {
+    const img = document.getElementById(LOGO_ID)
+    if (img === null) return
+    const want = document.body?.getAttribute('data-ds-dark-theme') !== null ? DATA_DARK : DATA_LIGHT
+    if (img.getAttribute('src') !== want) img.setAttribute('src', want)
   }
 
   // ---- rail：鲸鱼 SVG 藏起 + 旁插 logo img（复制类名，hover 换图生效）----
@@ -190,7 +222,9 @@ const INJECT_JS = `(() => {
     if (railEl !== null && document.querySelector('[class*="collapsed"]') === null) {
       railEl.remove()
     }
+    installStyles()
     swapBrand()
+    syncLogoTheme()
     swapRail()
     swapHero()
     swapTurnStatus()
@@ -203,9 +237,16 @@ const INJECT_JS = `(() => {
     if (++n > 120) clearInterval(t)
   }, 500)
   // React 重渲染可能重建 logoRow/brand/railFish/hero：自愈重替换
-  //（characterData：React 重设 headline 文案时也能自愈改回）
+  //（characterData：React 重设 headline 文案时也能自愈改回；attributes：
+  //  主题切换 data-ds-dark-theme 时换组合 Logo 字色版）
   const mo = new MutationObserver(apply)
-  mo.observe(document.body, { childList: true, subtree: true, characterData: true })
+  mo.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ['data-ds-dark-theme'],
+  })
 })()`
 
 /**

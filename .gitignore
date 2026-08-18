@@ -27,3 +27,5 @@ app.asar.*.bak
 .DS_Store
 .idea/
 .vscode/
+.dsh-vision-router/
+.drops/
