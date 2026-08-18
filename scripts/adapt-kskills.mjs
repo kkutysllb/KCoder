@@ -112,8 +112,20 @@ const OPTIONAL_SKILLS = [
   'web-design-guidelines',
 ]
 
-/** office 批：整资源技能（源在 office/ 子目录），物化到 optional/。 */
-const OFFICE_SKILLS = ['docx', 'xlsx', 'pptx', 'pdf']
+/** office 批：整资源技能（源在 office/ 子目录），物化到 optional/。
+ * docx/xlsx/pptx/pdf 离线 Office+PDF 操作（scripts/*.py）；doc-coauthoring
+ * 结构化文档协作；slidev Markdown 开发者幻灯片；slack-gif-creator GIF
+ * 创作（core/*.py）；microsoft-foundry Azure azd 部署域（references）。 */
+const OFFICE_SKILLS = [
+  'docx',
+  'xlsx',
+  'pptx',
+  'pdf',
+  'doc-coauthoring',
+  'slidev',
+  'slack-gif-creator',
+  'microsoft-foundry',
+]
 
 /** 整拷时排除的文件（Claude 插件机制产物 / 系统杂 file）。 */
 const OFFICE_EXCLUDE = new Set(['install.sh', 'uninstall.sh', 'CHANGELOG.md', '.DS_Store'])
