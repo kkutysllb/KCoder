@@ -65,6 +65,12 @@ const AUTO_IDLE_MS = 60000
 const LOG_COUNT = 8
 /** 计划文档采集上限。 */
 const PLAN_MAX = 6
+/** untracked 文件行数计入上限：跳过 > 10MB 文件（防 readFile 爆内存。
+ * 实际场景里大型产物（venv/node_modules/构建输出）通常被 .gitignore 排除，
+ * 这里只兜底 .gitignore 漏配的漏网之鱼）。 */
+const UNTRACKED_MAX_SIZE = 10 * 1024 * 1024
+/** untracked 行数计算并发上限（Node fs API 本身有限流，这里设个软上限）。 */
+const UNTRACKED_CONCURRENCY = 16
 /** 计划文档扫描的约定位置（目录扫描一层；文件为根级单文件）。 */
 const PLAN_DIRS = ['plans', 'docs/plans', '.plans']
 const PLAN_FILES = ['plan.md', 'PLAN.md', 'docs/plan.md']
@@ -193,10 +199,18 @@ async function scanPlans(cwd: string): Promise<GitPlanFile[]> {
   }))
 }
 
-/** 探测一个工作区（四条只读命令 + 计划扫描并行；非 git 仓库返回 isRepo=false 快照）。 */
+/**
+ * 扫描一个工作区（五条只读命令 + 计划扫描并行；非 git 仓库返回 isRepo=false 快照）。
+ *
+ * untracked 行数统计：git diff HEAD --numstat 语义只看已跟踪文件变更，
+ * agent 一次创建 N 个新文件（目录、代码模板）会完全漏报——产品
+ * 体验上 “动了文件但计数为 0” 是断颈。这里 spawn 一次 ls-files 拿逾
+ * 踪清单，逐个统计行数（限制单文件大小 + 并发）加入 added。
+ * untracked 只有 added、没有 removed（概念上不存在）。
+ */
 async function probeGit(cwd: string): Promise<GitSnapshot> {
   const name = wsName(cwd)
-  const [status, log, numstat, branches, plans] = await Promise.all([
+  const [status, log, numstat, branches, plans, untrackedList] = await Promise.all([
     runGit(['status', '--porcelain=v1', '-b'], cwd, GIT_TIMEOUT_MS),
     runGit(['log', `-${LOG_COUNT}`, '--pretty=format:%h%x1f%s%x1f%ar%x1f%an'], cwd, GIT_TIMEOUT_MS),
     // 相对 HEAD 的全部已跟踪变更（staged + unstaged）；行数统计源
@@ -205,6 +219,9 @@ async function probeGit(cwd: string): Promise<GitSnapshot> {
     runGit(['branch', '--format=%(refname:short)'], cwd, GIT_TIMEOUT_MS),
     // 计划文档（约定位置扫描；失败不影响 git 态）
     scanPlans(cwd).catch(() => [] as GitPlanFile[]),
+    // untracked 文件清单（--exclude-standard 走 .gitignore，避免把
+    // venv/node_modules/build 产物算进去）
+    runGit(['ls-files', '--others', '--exclude-standard'], cwd, GIT_TIMEOUT_MS),
   ])
   if (!status.ok) {
     // not a git repository 是正常态（无 error 文案）；其余（git 缺失等）透出
@@ -245,6 +262,10 @@ async function probeGit(cwd: string): Promise<GitSnapshot> {
       if (m[1] !== '-') added += Number(m[1])
       if (m[2] !== '-') removed += Number(m[2])
     }
+  }
+  // untracked 逐文件行数求和（git diff HEAD 漏报的“全新文件”增补）
+  if (untrackedList.ok) {
+    added += await countUntrackedLines(cwd, untrackedList.out)
   }
   const commits = (log.ok ? log.out : '')
     .split('\n')
@@ -717,6 +738,34 @@ function emptySnapshot(): GitSnapshot {
 /** 失败结果构造。 */
 function miss(error: string | null): GitOpResult {
   return { ok: false, error }
+}
+
+/** 取逐文件行数（跳过目录/超限文件；utf8 readFile + \n 切分）。
+ * 设计妥协：二进制文件走 utf8 readFile 会拿到乱码串，split('\n').length
+ * 仍返回一个整数——工程上无害（用户看到 "这个二进制文件多了一行"，
+ * 不会造成业务误导，仅与 wc -l 语义取同数量级）。 */
+async function countUntrackedLines(cwd: string, list: string): Promise<number> {
+  const rels = list.split('\n').filter(l => l !== '')
+  if (rels.length === 0) return 0
+  let total = 0
+  let cursor = 0
+  const workers = Array.from({ length: Math.min(UNTRACKED_CONCURRENCY, rels.length) }, async () => {
+    while (cursor < rels.length) {
+      const i = cursor++
+      const rel = rels[i] ?? ''
+      const full = join(cwd, rel)
+      let st
+      try { st = await stat(full) } catch { continue }
+      if (!st.isFile() || st.size > UNTRACKED_MAX_SIZE) continue
+      let text
+      try { text = await readFile(full, 'utf8') } catch { continue }
+      // \n 字符数计行（与 wc -l / git numstat 一致：末尾无 \n 的
+      // “最后一例会去一”不计为额外一行，避免为 31 个文件多报 31 行）
+      total += text.split('\n').length - 1
+    }
+  })
+  await Promise.all(workers)
+  return total
 }
 
 /** 进程级单例（windows.ts 接线，ipc.ts 消费）。 */
