@@ -175,6 +175,12 @@ export function registerIpc(): void {
   ipcMain.handle('git:hide', () => {
     gitPanel.hide(true)
   })
+  ipcMain.handle('git:open-plan', (_event, path: unknown) => {
+    // 路径只信主进程探测收集的 plans 列表（非任意输入直接打开）
+    const target = typeof path === 'string' ? path : ''
+    const known = gitPanel.current().plans.some(p => p.path === target)
+    if (known) gitPanel.openPlan(target)
+  })
   // 活动流转发（面板视图按需消费；隐藏时视图仍在，重开即回）；
   // edit 活动同时推给 shell 页面补正文文件链接的 +n/−n 徽章。
   // 分桶后带桶键：其他工作区的后台活动不进当前视图/正文（防互串）

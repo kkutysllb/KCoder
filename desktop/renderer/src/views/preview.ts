@@ -86,6 +86,33 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .hljs-attr, .hljs-property { color: #79C0FF; }
 .hljs-meta { color: #8B949E; }
 }
+/* markdown 渲染视图（read 条目/“查看当前文件”的 .md 分流；计划文档
+   主战场）：文档型排版替代行号表格，代码块沿用 hljs token 色 */
+.pv-md { padding: 16px 18px 28px; font-family: -apple-system, "PingFang SC", "Segoe UI", sans-serif; font-size: 13px; line-height: 1.7; background: var(--pv-bg); color: var(--pv-fg); }
+.pv-md h1, .pv-md h2, .pv-md h3, .pv-md h4 { margin: 18px 0 8px; line-height: 1.35; }
+.pv-md h1 { font-size: 19px; padding-bottom: 6px; border-bottom: 1px solid var(--pv-border); }
+.pv-md h2 { font-size: 16px; padding-bottom: 5px; border-bottom: 1px solid var(--pv-border); }
+.pv-md h3 { font-size: 14px; }
+.pv-md h4 { font-size: 13px; color: var(--pv-muted); }
+.pv-md h1:first-child, .pv-md h2:first-child, .pv-md h3:first-child { margin-top: 2px; }
+.pv-md p { margin: 8px 0; }
+.pv-md ul, .pv-md ol { margin: 8px 0; padding-left: 22px; }
+.pv-md li { margin: 3px 0; }
+.pv-md li.pv-task { list-style: none; margin-left: -18px; }
+.pv-md .pv-box { display: inline-block; width: 13px; height: 13px; border-radius: 3.5px; border: 1.5px solid var(--pv-muted); margin-right: 7px; vertical-align: -2px; }
+.pv-md .pv-box[data-x="1"] { background: var(--pv-add-fg); border-color: var(--pv-add-fg); }
+.pv-md .pv-box[data-x="1"]::after { content: ''; display: inline-block; width: 3.5px; height: 7px; border-right: 1.8px solid #FFF; border-bottom: 1.8px solid #FFF; transform: rotate(40deg) translateY(-.5px); margin: 1px auto 0; }
+.pv-md blockquote { margin: 8px 0; padding: 2px 12px; border-left: 3px solid var(--pv-border); color: var(--pv-muted); background: var(--pv-code-bg); border-radius: 0 6px 6px 0; }
+.pv-md blockquote p { margin: 6px 0; }
+.pv-md code { font-family: Menlo, Monaco, "DejaVu Sans Mono", monospace; font-size: 11.5px; background: var(--pv-chip); border-radius: 4px; padding: 1.5px 5px; }
+.pv-md pre { margin: 10px 0; padding: 10px 12px; background: var(--pv-code-bg); border: 1px solid var(--pv-border); border-radius: 8px; overflow-x: auto; }
+.pv-md pre code { background: none; padding: 0; font-size: 11.5px; line-height: 1.6; }
+.pv-md hr { border: none; border-top: 1px solid var(--pv-border); margin: 14px 0; }
+.pv-md a { color: var(--pv-fg); text-decoration: underline; text-underline-offset: 2px; }
+.pv-md table { margin: 10px 0; border-collapse: collapse; font-size: 12px; }
+.pv-md th, .pv-md td { border: 1px solid var(--pv-border); padding: 5px 10px; text-align: left; }
+.pv-md th { background: var(--pv-header); font-weight: 600; }
+.pv-md strong { font-weight: 650; }
 /* 轨迹时间线（抽屉的轨迹模式；语义色块：问=蓝 / 答=紫 / 工具=状态色；
    非等宽字体，覆盖 .pv-body 的 mono；左侧色条用 inset box-shadow
    （border 全行 1px 占位恒定，不挤内容） */
@@ -201,7 +228,7 @@ function diffRows(oldText: string | null, newText: string): DiffRow[] {
 /* ---------- 高亮（整段 → 行拆分，跨行 span 由 DOM 重建闭合） ---------- */
 
 function escapeHtml(text: string): string {
-  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
 }
 
 /** 高亮 HTML → 每行独立合法 HTML（DOM 遍历，嵌套 span 逐行重建）。 */
@@ -263,6 +290,129 @@ function langOf(entry: PreviewEntry): string | null {
   const dot = entry.path.lastIndexOf('.')
   if (dot < 0) return null
   return EXT_LANG[entry.path.slice(dot + 1).toLowerCase()] ?? null
+}
+
+/* ---------- 轻量 markdown 渲染（.md 分流；手写保零依赖原则） ---------- */
+
+/** markdown 渲染行数上限（防御性；计划文档通常远小于此）。 */
+const MD_MAX_LINES = 3000
+
+/** 行内元素：先整体 escape 再注入标签（输入已不可携带 HTML）。 */
+function inlineMd(text: string): string {
+  let out = escapeHtml(text)
+  out = out.replace(/`([^`]+)`/g, '<code>$1</code>')
+  out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m0, t: string, u: string) => {
+    const url = u.replace(/&amp;/g, '&')
+    // 链接协议白名单：http(s)/锄点/相对——并防 javascript: 等注入
+    if (!/^(https?:\/\/|#|\/|\.\/)/.test(url)) return m0
+    return `<a href="${u}" target="_blank" rel="noreferrer">${t}</a>`
+  })
+  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  out = out.replace(/(^|[^*])\*([^*][^*]*?)\*/g, '$1<em>$2</em>')
+  out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>')
+  return out
+}
+
+/**
+ * markdown → HTML（块级状态机）：标题/段落/引用/无序有序任务列表/
+ * 围栏代码（hljs 高亮）/表格/水平线。所有文本经 escape，仅结构出标签。
+ */
+function renderMarkdown(src: string): { html: string; truncated: boolean } {
+  const lines = src.split('\n')
+  const capped = lines.length > MD_MAX_LINES
+  const out: string[] = []
+  let para: string[] = []
+  let quote: string[] = []
+  let list: { kind: 'ul' | 'ol'; items: string[] } | null = null
+  let code: { lang: string; buf: string[] } | null = null
+  const flushPara = (): void => {
+    if (para.length > 0) { out.push(`<p>${inlineMd(para.join(' '))}</p>`); para = [] }
+  }
+  const flushQuote = (): void => {
+    if (quote.length > 0) { out.push(`<blockquote><p>${inlineMd(quote.join(' '))}</p></blockquote>`); quote = [] }
+  }
+  const flushList = (): void => {
+    if (list !== null) {
+      out.push(`<${list.kind}>${list.items.join('')}</${list.kind}>`)
+      list = null
+    }
+  }
+  const flushAll = (): void => { flushPara(); flushQuote(); flushList() }
+  const n = capped ? MD_MAX_LINES : lines.length
+  for (let i = 0; i < n; i++) {
+    const raw = lines[i] ?? ''
+    const line = raw.replace(/\s+$/, '')
+    // 围栏代码块：内部原样（只 escape），有语言则 hljs
+    const fence = /^```(.*)$/.exec(line)
+    if (code !== null) {
+      if (fence !== null) {
+        const body = escapeHtml(code.buf.join('\n'))
+        const lang = code.lang.trim().toLowerCase()
+        const hl = lang !== '' && hljs.getLanguage(lang)
+          ? hljs.highlight(code.buf.join('\n'), { language: lang, ignoreIllegals: true }).value
+          : body
+        out.push(`<pre><code class="hljs">${hl}</code></pre>`)
+        code = null
+      } else code.buf.push(raw)
+      continue
+    }
+    if (fence !== null && (fence[1] ?? '').length <= 20) {
+      flushAll()
+      code = { lang: fence[1] ?? '', buf: [] }
+      continue
+    }
+    if (line === '') { flushAll(); continue }
+    const h = /^(#{1,6})\s+(.*)$/.exec(line)
+    if (h !== null) {
+      flushAll()
+      const lvl = (h[1] ?? '#').length
+      out.push(`<h${lvl}>${inlineMd(h[2] ?? '')}</h${lvl}>`)
+      continue
+    }
+    if (/^(---+|\*\*\*+)$/.test(line.replace(/\s/g, '')) && line.trim() !== '') {
+      flushAll(); out.push('<hr>'); continue
+    }
+    const q = /^>\s?(.*)$/.exec(line)
+    if (q !== null) { flushPara(); flushList(); quote.push(q[1] ?? ''); continue }
+    // 任务/无序/有序列表项
+    const t = /^[-*+]\s+\[([ xX])\]\s+(.*)$/.exec(line)
+    const u = /^[-*+]\s+(.*)$/.exec(line)
+    const o = /^(\d+)[.)]\s+(.*)$/.exec(line)
+    if (t !== null || u !== null || o !== null) {
+      flushPara(); flushQuote()
+      const kind = o !== null ? 'ol' : 'ul'
+      if (list === null || list.kind !== kind) { flushList(); list = { kind, items: [] } }
+      if (t !== null) {
+        const done = (t[1] ?? ' ') !== ' '
+        list.items.push(`<li class="pv-task"><span class="pv-box"${done ? ' data-x="1"' : ''}></span>${inlineMd(t[2] ?? '')}</li>`)
+      } else if (u !== null) {
+        list.items.push(`<li>${inlineMd(u[1] ?? '')}</li>`)
+      } else if (o !== null) {
+        list.items.push(`<li>${inlineMd(o[2] ?? '')}</li>`)
+      }
+      continue
+    }
+    // 表格：当前行含 | 且下一行是分隔行（|---|---|）
+    const next = (lines[i + 1] ?? '').trim()
+    if (line.includes('|') && /^\|?[\s:|-]+\|?[\s:|-]*$/.test(next) && next.includes('-')) {
+      flushAll()
+      const cells = (l: string): string[] => l.replace(/^\|/, '').replace(/\|$/, '').split('|')
+      const head = cells(line).map(c => `<th>${inlineMd(c.trim())}</th>`).join('')
+      let j = i + 2
+      const rows: string[] = []
+      while (j < n && (lines[j] ?? '').includes('|')) {
+        rows.push(`<tr>${cells(lines[j] ?? '').map(c => `<td>${inlineMd(c.trim())}</td>`).join('')}</tr>`)
+        j++
+      }
+      out.push(`<table><thead><tr>${head}</tr></thead><tbody>${rows.join('')}</tbody></table>`)
+      i = j - 1
+      continue
+    }
+    para.push(line.trim())
+  }
+  if (code !== null) out.push(`<pre><code class="hljs">${escapeHtml(code.buf.join('\n'))}</code></pre>`)
+  flushAll()
+  return { html: out.join('\n'), truncated: capped || lines.length > n }
 }
 
 function basename(path: string): string {
@@ -349,9 +499,29 @@ export async function mountPreview(root: HTMLElement): Promise<void> {
     body.append(empty)
   }
 
-  /** 代码视图（read / edit 的"查看当前文件"）。 */
+  /** 代码视图（read / edit 的“查看当前文件”；.md 分流到渲染视图）。 */
   const renderFile = async (entry: PreviewEntry, content: string, truncated: boolean): Promise<void> => {
-    const lines = highlightLines(content, langOf(entry))
+    const lang = langOf(entry)
+    if (lang === 'md' || lang === 'markdown') {
+      // markdown 渲染视图（计划文档主场景）：文档排版替代行号表格；
+      // innerHTML 安全——renderMarkdown 内部全量 escape，仅结构出标签
+      const md = renderMarkdown(content)
+      body.replaceChildren()
+      if (truncated || md.truncated) {
+        const note = document.createElement('div')
+        note.className = 'pv-note'
+        note.textContent = truncated
+          ? '文件较大（已按 1MB 截断）'
+          : `文档较长，仅渲染前 ${String(MD_MAX_LINES)} 行`
+        body.append(note)
+      }
+      const wrap = document.createElement('div')
+      wrap.className = 'pv-md'
+      wrap.innerHTML = md.html
+      body.append(wrap)
+      return
+    }
+    const lines = highlightLines(content, lang)
     const table = document.createElement('table')
     table.className = 'pv-table'
     const frag = document.createDocumentFragment()

@@ -239,6 +239,16 @@ export interface TrajectorySnapshot {
 
 /* ---------- git 环境面板 ---------- */
 
+/** 工作区里 agent 写下的计划文档（git 面板列出，点击进预览抽屉渲染）。 */
+export interface GitPlanFile {
+  /** 绝对路径。 */
+  path: string
+  /** 标题（文档首个 # 标题，缺省回退文件名）。 */
+  title: string
+  /** 相对修改时间（git 风格「3 hours ago」）。 */
+  when: string
+}
+
 /**
  * git 工作区状态快照（主进程探测；随 `git:changed` 推送，也可
  * `git:snapshot` 拉取）。非 git 仓库时 isRepo=false 其余字段归零。
@@ -260,6 +270,8 @@ export interface GitSnapshot {
   removed: number
   /** 本地分支列表（字母序；当前分支靠 branch 字段高亮）。 */
   branches: string[]
+  /** 工作区内的计划文档（mtime 降序，最多 6 个；可为空）。 */
+  plans: GitPlanFile[]
   commits: Array<{ hash: string; subject: string; when: string; author: string }>
   /** Fetch 进行中（按钮禁用态）。 */
   fetching: boolean
@@ -361,6 +373,8 @@ export interface DesktopBridge {
   gitBranchCreate(name: string, base: string | null): Promise<GitOpResult>
   /** 关闭面板（用户在面板内点关闭；算手动关闭，本次任务不再自动展开）。 */
   gitHide(): Promise<void>
+  /** 在预览抽屉中打开计划文档（git 面板收起、抽屉切文件模式渲染）。 */
+  gitOpenPlan(path: string): Promise<void>
   /** 快照更新推送（探测完成/操作完成/开合）。 */
   onGitSnapshot(cb: (s: GitSnapshot) => void): () => void
   /* 偏好设置（样式定制/托盘保活；样式变更后主进程自动重注入 shell 窗口） */

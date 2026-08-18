@@ -56,6 +56,7 @@ const bridge: DesktopBridge = {
   gitBranchSwitch: (name) => ipcRenderer.invoke('git:branch-switch', name),
   gitBranchCreate: (name, base) => ipcRenderer.invoke('git:branch-create', name, base),
   gitHide: () => ipcRenderer.invoke('git:hide'),
+  gitOpenPlan: (path) => ipcRenderer.invoke('git:open-plan', path),
   preferencesGet: () => ipcRenderer.invoke('preferences:get'),
   preferencesSet: (patch) => ipcRenderer.invoke('preferences:set', patch),
   onDshStateChanged: (cb) => {

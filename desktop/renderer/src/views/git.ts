@@ -75,6 +75,11 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: transparent;
 .gt-newrow input:focus { border-color: var(--gt-accent); }
 .gt-caps { margin: 14px 0 4px; font-size: 10px; color: var(--gt-muted); letter-spacing: .5px; user-select: none; }
 .gt-caps::after { content: ''; display: inline-block; width: 60px; height: 1px; background: linear-gradient(to right, var(--gt-border), transparent); vertical-align: middle; margin-left: 6px; }
+.gt-plan { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border-radius: 7px; cursor: pointer; }
+.gt-plan:hover { background: var(--gt-hover); }
+.gt-plan svg { width: 13px; height: 13px; flex: none; color: var(--gt-accent); display: block; }
+.gt-plan .t { flex: 1; min-width: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gt-plan .w { flex: none; font-size: 10px; color: var(--gt-muted); }
 .gt-commit { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px; border-radius: 6px; }
 .gt-commit:hover { background: var(--gt-hover); }
 .gt-commit .hash { flex: none; font: 500 11px/1.4 var(--gt-mono); color: var(--gt-accent); }
@@ -88,7 +93,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: transparent;
 /** 空/占位快照（挂载后第一次推送前）。 */
 const EMPTY: GitSnapshot = {
   workspace: null, isRepo: false, branch: null, upstream: null, ahead: null, behind: null,
-  staged: 0, changed: 0, untracked: 0, added: 0, removed: 0, branches: [], commits: [],
+  staged: 0, changed: 0, untracked: 0, added: 0, removed: 0, branches: [], plans: [], commits: [],
   fetching: false, busy: false, error: null,
 }
 
@@ -180,9 +185,13 @@ export function mountGit(app: HTMLDivElement): void {
   /* 最近提交（tab 无关常驻） */
   const caps = el('div', 'gt-caps', '最近提交')
   const commitList = el('div')
+  /* 任务计划（约定位置扫到的 agent 计划文档；点击 → 预览抽屉渲染） */
+  const planCaps = el('div', 'gt-caps', '任务计划')
+  const planList = el('div')
+  const planSvg = '<svg viewBox="0 0 16 16" fill="none"><path d="M3 2.2h10c.6 0 1 .4 1 1v9.6c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1V3.2c0-.6.4-1 1-1Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M4.5 5.5h7M4.5 8h7M4.5 10.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>'
   /* 空态 */
   const empty = el('div', 'gt-empty')
-  body.append(commitBox, branchBox, caps, commitList, empty)
+  body.append(commitBox, branchBox, planCaps, planList, caps, commitList, empty)
 
   const toast = el('div', 'gt-toast')
   card.append(header, status, tabs, body, toast)
@@ -284,6 +293,20 @@ export function mountGit(app: HTMLDivElement): void {
       branchList.append(row)
     }
     if (sorted.length === 0 && s.isRepo) branchList.append(el('div', 'gt-hint', '暂无本地分支'))
+    // 任务计划（无计划时整区隐藏）
+    planList.replaceChildren()
+    const hasPlans = s.isRepo && s.plans.length > 0
+    planCaps.style.display = hasPlans ? '' : 'none'
+    planList.style.display = hasPlans ? '' : 'none'
+    for (const p of s.plans) {
+      const row = el('button', 'gt-plan')
+      row.title = p.path
+      const ico = el('span')
+      ico.innerHTML = planSvg
+      row.append(ico, el('span', 't', p.title), el('span', 'w', p.when))
+      row.onclick = () => { void bridge.gitOpenPlan(p.path) }
+      planList.append(row)
+    }
     // 最近提交
     commitList.replaceChildren()
     for (const c of s.commits) {

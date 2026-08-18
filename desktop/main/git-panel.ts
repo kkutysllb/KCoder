@@ -35,12 +35,14 @@
  */
 
 import { execFile } from 'node:child_process'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { WebContentsView, type BrowserWindow } from 'electron'
 import { consoleMessageText } from './console-channel'
 import { fileActivity } from './file-activity'
-import type { GitOpResult, GitSnapshot } from '@shared/ipc-contract'
+import { previewPanel } from './preview-panel'
+import type { GitOpResult, GitPlanFile, GitSnapshot } from '@shared/ipc-contract'
 
 /** console 通道前缀（与注入脚本约定；v2 只剩按钮 toggle 上行）。 */
 const GIT_PREFIX = '__dsh_git__:'
@@ -61,6 +63,11 @@ const ACTIVITY_DEBOUNCE_MS = 2000
 const AUTO_IDLE_MS = 60000
 /** 最近提交条数。 */
 const LOG_COUNT = 8
+/** 计划文档采集上限。 */
+const PLAN_MAX = 6
+/** 计划文档扫描的约定位置（目录扫描一层；文件为根级单文件）。 */
+const PLAN_DIRS = ['plans', 'docs/plans', '.plans']
+const PLAN_FILES = ['plan.md', 'PLAN.md', 'docs/plan.md']
 /** 面板宽度（DIP；v2b 固定不做拖拽）。 */
 const PANEL_W = 360
 /** 卡片与窗口边缕的边距（右侧 + 顶部间隙）。 */
@@ -134,23 +141,77 @@ function parseBranchLine(line: string): { branch: string | null; upstream: strin
   return { branch: body.split(' ')[0] || null, upstream: null, ahead: null, behind: null }
 }
 
-/** 探测一个工作区（四条只读命令并行；非 git 仓库返回 isRepo=false 快照）。 */
+/** mtime → git 风格相对时间（plan 文档用；commits 走 git %ar）。 */
+function relTime(ms: number): string {
+  const s = Math.max(Math.floor((Date.now() - ms) / 1000), 0)
+  if (s < 60) return s === 1 ? '1 second ago' : `${s} seconds ago`
+  const m = Math.floor(s / 60)
+  if (m < 60) return m === 1 ? '1 minute ago' : `${m} minutes ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return h === 1 ? '1 hour ago' : `${h} hours ago`
+  const d = Math.floor(h / 24)
+  if (d < 31) return d === 1 ? '1 day ago' : `${d} days ago`
+  const mo = Math.floor(d / 31)
+  if (mo < 12) return mo === 1 ? '1 month ago' : `${mo} months ago`
+  const y = Math.floor(d / 365)
+  return y === 1 ? '1 year ago' : `${y} years ago`
+}
+
+/**
+ * 扫描工作区里的计划文档（agent 执行任务时写的 markdown 计划；
+ * 约定位置：plans/、docs/plans/、.plans/ 一层 + 根 plan.md）。
+ * 标题取文档首个 `# ` 行（读头 512B），缺省回退文件名。
+ */
+async function scanPlans(cwd: string): Promise<GitPlanFile[]> {
+  const found: Array<{ path: string; mtime: number; base: string }> = []
+  const push = async (dir: string, name: string): Promise<void> => {
+    const p = join(dir, name)
+    try {
+      const st = await stat(p)
+      if (st.isFile()) found.push({ path: p, mtime: st.mtimeMs, base: name })
+    } catch { /* 不存在跳过 */ }
+  }
+  for (const rel of PLAN_DIRS) {
+    const dir = join(cwd, rel)
+    let names: string[] = []
+    try { names = await readdir(dir) } catch { continue }
+    for (const n of names) {
+      if (n.toLowerCase().endsWith('.md')) await push(dir, n)
+    }
+  }
+  for (const rel of PLAN_FILES) await push(cwd, rel)
+  found.sort((a, b) => b.mtime - a.mtime)
+  const top = found.slice(0, PLAN_MAX)
+  return Promise.all(top.map(async f => {
+    let title = f.base.replace(/\.md$/i, '')
+    try {
+      const head = (await readFile(f.path, 'utf8')).slice(0, 512)
+      const m = /^#{1,3}\s+(.+)$/m.exec(head)
+      if (m !== null && (m[1] ?? '').trim() !== '') title = (m[1] ?? '').trim()
+    } catch { /* 不可读回退文件名 */ }
+    return { path: f.path, title, when: relTime(f.mtime) }
+  }))
+}
+
+/** 探测一个工作区（四条只读命令 + 计划扫描并行；非 git 仓库返回 isRepo=false 快照）。 */
 async function probeGit(cwd: string): Promise<GitSnapshot> {
   const name = wsName(cwd)
-  const [status, log, numstat, branches] = await Promise.all([
+  const [status, log, numstat, branches, plans] = await Promise.all([
     runGit(['status', '--porcelain=v1', '-b'], cwd, GIT_TIMEOUT_MS),
     runGit(['log', `-${LOG_COUNT}`, '--pretty=format:%h%x1f%s%x1f%ar%x1f%an'], cwd, GIT_TIMEOUT_MS),
     // 相对 HEAD 的全部已跟踪变更（staged + unstaged）；行数统计源
     runGit(['diff', 'HEAD', '--numstat'], cwd, GIT_TIMEOUT_MS),
     // 本地分支列表（detached HEAD 不在 refs/heads，天然不列出）
     runGit(['branch', '--format=%(refname:short)'], cwd, GIT_TIMEOUT_MS),
+    // 计划文档（约定位置扫描；失败不影响 git 态）
+    scanPlans(cwd).catch(() => [] as GitPlanFile[]),
   ])
   if (!status.ok) {
     // not a git repository 是正常态（无 error 文案）；其余（git 缺失等）透出
     const benign = status.err.includes('not a git repository')
     return {
       workspace: name, isRepo: false, branch: null, upstream: null, ahead: null, behind: null,
-      staged: 0, changed: 0, untracked: 0, added: 0, removed: 0, branches: [], commits: [],
+      staged: 0, changed: 0, untracked: 0, added: 0, removed: 0, branches: [], plans: [], commits: [],
       fetching: false, busy: false,
       error: benign ? null : firstLine(status.err),
     }
@@ -197,7 +258,7 @@ async function probeGit(cwd: string): Promise<GitSnapshot> {
     : []
   return {
     workspace: name, isRepo: true, branch, upstream, ahead, behind,
-    staged, changed, untracked, added, removed, branches: branchList, commits,
+    staged, changed, untracked, added, removed, branches: branchList, plans, commits,
     fetching: false, busy: false, error: null,
   }
 }
@@ -444,6 +505,18 @@ class GitPanel {
     this.hide(false)
   }
 
+  /**
+   * 在预览抽屉中打开计划文档（git 面板计划区点击）：预览抽屉切
+   * 文件模式并展示——setMode(show) 触发互斥钩子收起本面板，
+   * 抽屉内 markdown 走渲染视图（preview 视图按扩展名分流）。
+   */
+  openPlan(path: string): void {
+    if (path === '') return
+    const entry = fileActivity.open(path)
+    previewPanel.setMode('files')
+    previewPanel.forwardActivity(entry, true)
+  }
+
   /** 当前快照（git:snapshot 拉取；fetching/busy 合成）。 */
   current(): GitSnapshot {
     return { ...this.snapshot, fetching: this.fetching, busy: this.busy }
@@ -636,7 +709,7 @@ class GitPanel {
 function emptySnapshot(): GitSnapshot {
   return {
     workspace: null, isRepo: false, branch: null, upstream: null, ahead: null, behind: null,
-    staged: 0, changed: 0, untracked: 0, added: 0, removed: 0, branches: [], commits: [],
+    staged: 0, changed: 0, untracked: 0, added: 0, removed: 0, branches: [], plans: [], commits: [],
     fetching: false, busy: false, error: null,
   }
 }
