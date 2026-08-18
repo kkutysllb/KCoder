@@ -75,6 +75,11 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: transparent;
 .gt-newrow input:focus { border-color: var(--gt-accent); }
 .gt-caps { margin: 14px 0 4px; font-size: 10px; color: var(--gt-muted); letter-spacing: .5px; user-select: none; }
 .gt-caps::after { content: ''; display: inline-block; width: 60px; height: 1px; background: linear-gradient(to right, var(--gt-border), transparent); vertical-align: middle; margin-left: 6px; }
+.gt-caps.foldable { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.gt-caps.foldable::after { width: auto; flex: 1; max-width: 60px; }
+.gt-caps.foldable:hover { color: var(--gt-fg); }
+.gt-caret { flex: none; font-size: 9px; line-height: 1; transition: transform .15s ease; }
+.gt-caps[data-fold="1"] .gt-caret { transform: rotate(-90deg); }
 .gt-plan { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border-radius: 7px; cursor: pointer; }
 .gt-plan:hover { background: var(--gt-hover); }
 .gt-plan svg { width: 13px; height: 13px; flex: none; color: var(--gt-accent); display: block; }
@@ -182,9 +187,23 @@ export function mountGit(app: HTMLDivElement): void {
   newBtn.title = '从当前 HEAD 创建并切换'
   newRow.append(newInput, newBtn)
   branchBox.append(newRow)
-  /* 最近提交（tab 无关常驻） */
-  const caps = el('div', 'gt-caps', '最近提交')
+  /* 最近提交（tab 无关常驻；标题行整行可点折叠） */
+  const caps = el('div', 'gt-caps foldable')
+  caps.title = '折叠 / 展开提交历史'
+  caps.setAttribute('role', 'button')
+  caps.setAttribute('aria-expanded', 'true')
+  caps.append(el('span', 'gt-caret', '\u25BE'), document.createTextNode('最近提交'))
   const commitList = el('div')
+  let commitsFolded = false
+  const applyCommitsFold = (): void => {
+    caps.dataset.fold = commitsFolded ? '1' : '0'
+    caps.setAttribute('aria-expanded', commitsFolded ? 'false' : 'true')
+    commitList.style.display = commitsFolded ? 'none' : ''
+  }
+  caps.onclick = () => {
+    commitsFolded = !commitsFolded
+    applyCommitsFold()
+  }
   /* 任务计划（约定位置扫到的 agent 计划文档；点击 → 预览抽屉渲染） */
   const planCaps = el('div', 'gt-caps', '任务计划')
   const planList = el('div')
@@ -293,11 +312,9 @@ export function mountGit(app: HTMLDivElement): void {
       branchList.append(row)
     }
     if (sorted.length === 0 && s.isRepo) branchList.append(el('div', 'gt-hint', '暂无本地分支'))
-    // 任务计划（无计划时整区隐藏）
+    // 任务计划（无计划时整区隐藏；显隐统一收口到下方空态块）
     planList.replaceChildren()
     const hasPlans = s.isRepo && s.plans.length > 0
-    planCaps.style.display = hasPlans ? '' : 'none'
-    planList.style.display = hasPlans ? '' : 'none'
     for (const p of s.plans) {
       const row = el('button', 'gt-plan')
       row.title = p.path
@@ -326,17 +343,22 @@ export function mountGit(app: HTMLDivElement): void {
       empty.append(el('div', '', '等待工作区…'))
     } else if (!s.isRepo) {
       empty.append(el('div', '', `「${s.workspace}」不是 git 仓库`))
-    } else {
-      empty.style.display = 'none'
     }
+    // 分区显隐统一收口：空态时各区全部让位；恢复时按各自状态回位
+    //（caps 曾因恢复分支漏了它——首次空态后"最近提交"标题永久消失）
     const hasEmpty = empty.childNodes.length > 0
     empty.style.display = hasEmpty ? '' : 'none'
-    if (hasEmpty) {
-      commitBox.style.display = 'none'
-      branchBox.style.display = 'none'
-      caps.style.display = 'none'
-    } else {
+    commitBox.style.display = 'none'
+    branchBox.style.display = 'none'
+    planCaps.style.display = 'none'
+    planList.style.display = 'none'
+    caps.style.display = 'none'
+    if (!hasEmpty) {
       setTab(tab)
+      caps.style.display = ''
+      applyCommitsFold()
+      planCaps.style.display = hasPlans ? '' : 'none'
+      planList.style.display = hasPlans ? '' : 'none'
     }
   }
 

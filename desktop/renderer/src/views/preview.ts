@@ -88,12 +88,12 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 }
 /* markdown 渲染视图（read 条目/“查看当前文件”的 .md 分流；计划文档
    主战场）：文档型排版替代行号表格，代码块沿用 hljs token 色 */
-.pv-md { padding: 16px 18px 28px; font-family: -apple-system, "PingFang SC", "Segoe UI", sans-serif; font-size: 13px; line-height: 1.7; background: var(--pv-bg); color: var(--pv-fg); }
+.pv-md { padding: 16px 18px 28px; font-family: -apple-system, "PingFang SC", "Segoe UI", sans-serif; font-size: 14px; line-height: 22px; background: var(--pv-bg); color: var(--pv-fg); }
 .pv-md h1, .pv-md h2, .pv-md h3, .pv-md h4 { margin: 18px 0 8px; line-height: 1.35; }
-.pv-md h1 { font-size: 19px; padding-bottom: 6px; border-bottom: 1px solid var(--pv-border); }
-.pv-md h2 { font-size: 16px; padding-bottom: 5px; border-bottom: 1px solid var(--pv-border); }
-.pv-md h3 { font-size: 14px; }
-.pv-md h4 { font-size: 13px; color: var(--pv-muted); }
+.pv-md h1 { font-size: 21px; padding-bottom: 6px; border-bottom: 1px solid var(--pv-border); }
+.pv-md h2 { font-size: 19px; padding-bottom: 5px; border-bottom: 1px solid var(--pv-border); }
+.pv-md h3 { font-size: 17px; }
+.pv-md h4 { font-size: 15px; color: var(--pv-muted); }
 .pv-md h1:first-child, .pv-md h2:first-child, .pv-md h3:first-child { margin-top: 2px; }
 .pv-md p { margin: 8px 0; }
 .pv-md ul, .pv-md ol { margin: 8px 0; padding-left: 22px; }
@@ -104,15 +104,18 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .pv-md .pv-box[data-x="1"]::after { content: ''; display: inline-block; width: 3.5px; height: 7px; border-right: 1.8px solid #FFF; border-bottom: 1.8px solid #FFF; transform: rotate(40deg) translateY(-.5px); margin: 1px auto 0; }
 .pv-md blockquote { margin: 8px 0; padding: 2px 12px; border-left: 3px solid var(--pv-border); color: var(--pv-muted); background: var(--pv-code-bg); border-radius: 0 6px 6px 0; }
 .pv-md blockquote p { margin: 6px 0; }
-.pv-md code { font-family: Menlo, Monaco, "DejaVu Sans Mono", monospace; font-size: 11.5px; background: var(--pv-chip); border-radius: 4px; padding: 1.5px 5px; }
+.pv-md code { font-family: Menlo, Monaco, "DejaVu Sans Mono", monospace; font-size: 12px; background: var(--pv-chip); border-radius: 4px; padding: 1.5px 5px; }
 .pv-md pre { margin: 10px 0; padding: 10px 12px; background: var(--pv-code-bg); border: 1px solid var(--pv-border); border-radius: 8px; overflow-x: auto; }
-.pv-md pre code { background: none; padding: 0; font-size: 11.5px; line-height: 1.6; }
+.pv-md pre code { background: none; padding: 0; font-size: 12px; line-height: 1.65; }
 .pv-md hr { border: none; border-top: 1px solid var(--pv-border); margin: 14px 0; }
 .pv-md a { color: var(--pv-fg); text-decoration: underline; text-underline-offset: 2px; }
-.pv-md table { margin: 10px 0; border-collapse: collapse; font-size: 12px; }
+.pv-md table { margin: 10px 0; border-collapse: collapse; font-size: 13px; }
 .pv-md th, .pv-md td { border: 1px solid var(--pv-border); padding: 5px 10px; text-align: left; }
 .pv-md th { background: var(--pv-header); font-weight: 600; }
 .pv-md strong { font-weight: 650; }
+/* 兼容性兜底：未识别成标签的原文长串（URL/哈希等）不撑破抽屉 */
+.pv-md p, .pv-md li, .pv-md td, .pv-md th { overflow-wrap: break-word; }
+.pv-md img { max-width: 100%; border-radius: 6px; }
 /* 轨迹时间线（抽屉的轨迹模式；语义色块：问=蓝 / 答=紫 / 工具=状态色；
    非等宽字体，覆盖 .pv-body 的 mono；左侧色条用 inset box-shadow
    （border 全行 1px 占位恒定，不挤内容） */
@@ -301,12 +304,22 @@ const MD_MAX_LINES = 3000
 function inlineMd(text: string): string {
   let out = escapeHtml(text)
   out = out.replace(/`([^`]+)`/g, '<code>$1</code>')
+  // 图片先于链接（否则 ![alt](url) 被链接正则吃成 "!<a>" 破相）
+  out = out.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m0, alt: string, u: string) => {
+    if (!/^(https?:\/\/|\/|\.\/)/.test(u)) return m0
+    return `<img src="${u}" alt="${alt}" loading="lazy">`
+  })
   out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m0, t: string, u: string) => {
     const url = u.replace(/&amp;/g, '&')
     // 链接协议白名单：http(s)/锄点/相对——并防 javascript: 等注入
     if (!/^(https?:\/\/|#|\/|\.\/)/.test(url)) return m0
     return `<a href="${u}" target="_blank" rel="noreferrer">${t}</a>`
   })
+  // 裸链接自动成链：前导限空白/行首/括号——已生成的 href 属性与其后
+  // 的 URL 前是引号/尖括号，不会被二次包裹
+  out = out.replace(/(^|[\s（(])(https?:\/\/[^\s<>()）]+)/g,
+    '$1<a href="$2" target="_blank" rel="noreferrer">$2</a>')
+  out = out.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>')
   out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
   out = out.replace(/(^|[^*])\*([^*][^*]*?)\*/g, '$1<em>$2</em>')
   out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>')
@@ -367,6 +380,15 @@ function renderMarkdown(src: string): { html: string; truncated: boolean } {
       flushAll()
       const lvl = (h[1] ?? '#').length
       out.push(`<h${lvl}>${inlineMd(h[2] ?? '')}</h${lvl}>`)
+      continue
+    }
+    // setext 标题：段落文字 + 紧随的 ===/--- 下划线（先于 hr 判定，
+    // 否则标题下划线被吃成 hr、标题文字落回段落——典型"乱码"来源）
+    const sx = /^\s*(=+|-+)\s*$/.exec(line)
+    if (sx !== null && para.length > 0) {
+      const lvl = (sx[1] ?? '=')[0] === '=' ? 1 : 2
+      out.push(`<h${lvl}>${inlineMd(para.join(' '))}</h${lvl}>`)
+      para = []
       continue
     }
     if (/^(---+|\*\*\*+)$/.test(line.replace(/\s/g, '')) && line.trim() !== '') {
@@ -504,8 +526,20 @@ export async function mountPreview(root: HTMLElement): Promise<void> {
     const lang = langOf(entry)
     if (lang === 'md' || lang === 'markdown') {
       // markdown 渲染视图（计划文档主场景）：文档排版替代行号表格；
-      // innerHTML 安全——renderMarkdown 内部全量 escape，仅结构出标签
-      const md = renderMarkdown(content)
+      // innerHTML 安全——renderMarkdown 内部全量 escape，仅结构出标签。
+      // 产品兜底：渲染器异常时全量转义按纯文本展示（不白屏不破版）
+      let md: { html: string; truncated: boolean }
+      try {
+        md = renderMarkdown(content)
+      } catch {
+        const raw = document.createElement('div')
+        raw.className = 'pv-md'
+        const pre = document.createElement('pre')
+        pre.textContent = content
+        raw.append(pre)
+        body.replaceChildren(raw)
+        return
+      }
       body.replaceChildren()
       if (truncated || md.truncated) {
         const note = document.createElement('div')
