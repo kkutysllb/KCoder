@@ -29,7 +29,7 @@ export const KCODER_SKILLS_BUNDLE = '@kcoder/skills-bundle'
 const TEMPLATE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
 
 /** 分发的 bundle 源目录（开发态仓库内；打包态 extraResources）。 */
-function bundleSource(): string {
+export function bundleSource(): string {
   const packaged = join(process.resourcesPath ?? PROJECT_ROOT, 'kcoder-skills')
   if (existsSync(packaged)) return packaged
   return join(PROJECT_ROOT, 'bundle', 'kcoder-skills')

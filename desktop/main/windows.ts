@@ -23,6 +23,7 @@ import { attachStatsHover } from './stats-hover'
 import { attachPicker } from './attach-picker'
 import { attachSessionLogInjector } from './session-log-export'
 import { attachStyleSettingsInjector } from './style-settings'
+import { attachSkillsSettingsInjector } from './skills-settings'
 import { terminalPanel } from './terminal-panel'
 import { previewPanel } from './preview-panel'
 import { gitPanel } from './git-panel'
@@ -124,6 +125,9 @@ export function showShellWindow(dshUrl: string): void {
     // 样式设置：设置面板通用区注入密度/列宽方块行（console 通道写回，
     // 偏好设置面板只留桌面特有项）
     attachStyleSettingsInjector(shellWindow)
+    // 技能设置：设置面板导航列注入「技能」分区（三来源技能目录 +
+    // 行展开正文；console 通道拉目录/正文，白名单读取）
+    attachSkillsSettingsInjector(shellWindow)
     // 内嵌终端面板：底部真实终端（pty + xterm），页面探针/按钮注入
     // （按钮宿主是自绘标题栏，仅 darwin）
     if (process.platform === 'darwin') terminalPanel.attach(shellWindow)

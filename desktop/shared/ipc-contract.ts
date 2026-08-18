@@ -113,6 +113,27 @@ export interface PluginCommandResult {
   output: string
 }
 
+/* ---------- 技能 ---------- */
+
+/** 技能目录中的一个条目（枚举自文件系统，与插件页严格分开）。 */
+export interface SkillCatalogEntry {
+  /** kebab-case 技能名（`/name` 调用、模型目录匹配的键）。 */
+  name: string
+  /** 路由描述（模型匹配依据）。 */
+  description: string
+  /** 来源分区。 */
+  source: 'builtin' | 'project' | 'user' | 'shared'
+  /** SKILL.md 绝对路径（正文读取白名单键）。 */
+  path: string
+}
+
+/** 技能面板的一个来源分区。 */
+export interface SkillCatalogGroup {
+  id: 'builtin' | 'project' | 'user'
+  title: string
+  entries: SkillCatalogEntry[]
+}
+
 /* ---------- 应用自动更新 ---------- */
 
 /**
