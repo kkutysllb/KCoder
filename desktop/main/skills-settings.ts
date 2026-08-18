@@ -17,16 +17,18 @@
  *
  * 通信（console 通道，同 style-settings / attach-picker）：
  * - 页面 → 主进程：console.log('__dsh_skills__:' + JSON 载荷)
- *   {op:'cat'} 请求目录 / {op:'body', path} 请求正文；
+ *   {op:'cat'} 请求目录 / {op:'body', path} 请求正文 /
+ *   {op:'enable', path} 启用 optional 技能（拷到用户目录）；
  * - 主进程 → 页面：executeJavaScript 调 window.__dshSkillsSync(groups)
- *   / window.__dshSkillsBody(path, text)（白名单读取）。
+ *   / window.__dshSkillsBody(path, text) / window.__dshSkillsEnabled(path, ok)
+ *   （正文/启用均白名单）.
  *
  * @module desktop/main/skills-settings
  */
 
 import type { BrowserWindow } from 'electron'
 import { consoleMessageText } from './console-channel'
-import { listSkills, readSkillBody } from './skills-catalog'
+import { enableOptionalSkill, listSkills, readSkillBody } from './skills-catalog'
 
 /** console 通道前缀。 */
 const PREFIX = '__dsh_skills__:'
@@ -134,11 +136,12 @@ const PAGE_JS = `(() => {
 
   // ── 目录数据 → DOM ─────────────────────────────────────────────
   var SUBS = {
-    builtin: '随 KCoder 分发的方法论技能（@kcoder/skills-bundle，随版本更新）。',
+    builtin: '随 KCoder 分发并已注册生效的方法论技能（@kcoder/skills-bundle，随版本更新）。',
     project: '当前工作区 .dsh/skills 与 .agents/skills 目录（优先级最高，可覆盖同名内置技能）。',
-    user: '用户级技能目录：$DSH_HOME/skills 与 ~/.agents/skills（后者为跨工具共享目录，Claude Code 等同样读取）。'
+    user: '用户级技能目录：$DSH_HOME/skills 与 ~/.agents/skills（后者为跨工具共享目录，Claude Code 等同样读取）。',
+    optional: '随包分发但未启用的长尾技能（不占会话上下文）。点行尾「启用」按钮装到用户目录；新开会话后 agent 可用。'
   }
-  var BADGE = { builtin: 'KCoder', project: '工作区', user: '用户', shared: '共享目录' }
+  var BADGE = { builtin: 'KCoder', project: '工作区', user: '用户', shared: '共享目录', optional: '未启用' }
 
   function send(payload) { console.log(PREFIX + JSON.stringify(payload)) }
 
@@ -154,6 +157,23 @@ const PAGE_JS = `(() => {
     var name = document.createElement('span'); name.className = 'dsk-name'; name.textContent = e.name
     var desc = document.createElement('span'); desc.className = 'dsk-desc'; desc.textContent = e.description
     row.append(x, badge, name, desc)
+    // optional 行尾「启用」按钮：主进程代拷到 ~/.kcoder/skills/<name>/，
+    // 免手动命令行（cp -R 目标不存在时的分叉坑）；成功后目录整体刷新，
+    // 该行跳到用户全局区
+    if (e.source === 'optional') {
+      var btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'dsk-enable'
+      btn.textContent = '\u542F\u7528'
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation()
+        if (btn.disabled) return
+        btn.disabled = true
+        btn.textContent = '\u542F\u7528\u4E2D\u2026'
+        send({ op: 'enable', path: e.path })
+      })
+      row.append(btn)
+    }
     var body = document.createElement('div')
     body.className = 'dsk-body'
     row.addEventListener('click', function () {
@@ -207,6 +227,18 @@ const PAGE_JS = `(() => {
   window.__dshSkillsSync = function (data) {
     groups = Array.isArray(data) ? data : []
     render()
+  }
+
+  /** 主进程 → 页面：启用应答（失败提示回按钮；成功路径无需处理——
+     目录刷新后该行已跳到用户区，按钮随行重建）。 */
+  window.__dshSkillsEnabled = function (path, ok) {
+    if (ok) return
+    var row = document.querySelector('#' + SEC_ID + ' .dsk-row[data-path=' + JSON.stringify(path) + ']')
+    var btn = row !== null ? row.querySelector('.dsk-enable') : null
+    if (btn !== null) {
+      btn.disabled = false
+      btn.textContent = '\u5931\u8D25\uFF0C\u91CD\u8BD5'
+    }
   }
 
   /** 主进程 → 页面：正文应答（按 data-path 找行）。 */
@@ -305,6 +337,9 @@ const PAGE_JS = `(() => {
         '.dsk-badge.kc { background: var(--dsw-alias-brand-primary, #2f6fed); color: var(--dsw-alias-label-primary-inverted, #fff); }',
         '.dsk-row .dsk-name { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--dsw-alias-label-primary, #222); }',
         '.dsk-row .dsk-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--dsw-alias-label-secondary, #888); }',
+        '.dsk-enable { flex: none; margin-left: 8px; font-size: 11px; line-height: 1; padding: 5px 10px; border: 1px solid var(--dsw-alias-border-l3, #c8c8cc); border-radius: 6px; background: var(--dsw-alias-bg-layer-2, #f6f7f8); color: var(--dsw-alias-label-secondary, #666); cursor: pointer; }',
+        '.dsk-enable:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,.12)); color: var(--dsw-alias-label-primary, #222); }',
+        '.dsk-enable:disabled { opacity: .55; cursor: default; }',
         '.dsk-row.on + .dsk-body { display: block; }',
         '.dsk-body { display: none; margin: 2px 12px 14px; border: 1px solid var(--dsw-alias-border-l2, #e2e2e4); border-radius: 10px; padding: 6px 18px 16px; max-height: 420px; overflow: auto; }',
         '.dsk-md { font-size: 13px; line-height: 1.7; color: var(--dsw-alias-label-primary, #222); }',
@@ -412,6 +447,15 @@ export function attachSkillsSettingsInjector(win: BrowserWindow): void {
         `window.__dshSkillsBody && window.__dshSkillsBody(${JSON.stringify(payload.path)}, ${JSON.stringify(text)})`,
         true,
       ).catch(() => {})
+      return
+    }
+    if (payload.op === 'enable' && typeof payload.path === 'string') {
+      const ok = enableOptionalSkill(payload.path)
+      void webContents.executeJavaScript(
+        `window.__dshSkillsEnabled && window.__dshSkillsEnabled(${JSON.stringify(payload.path)}, ${JSON.stringify(ok)})`,
+        true,
+      ).catch(() => {})
+      if (ok) push() // 目录刷新：该行跳到用户全局区
     }
   }
 

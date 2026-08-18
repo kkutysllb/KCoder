@@ -4,8 +4,10 @@
  * 按来源分区，与插件页严格分开（插件=引擎组成层；技能=提示词能力包，
  * 模型按 description 匹配加载或用户 `/name` 调用）：
  *
- * - builtin：@kcoder/skills-bundle 随包分发的 5 个方法论技能
- *   （读 bundle 源的 skills/manifest.json，不依赖 dsh 是否已物化）
+ * - builtin：@kcoder/skills-bundle 随包分发的核心批（读 bundle 源的
+ *   skills/manifest.json，不依赖 dsh 是否已物化）
+ * - optional：bundle 的 skills/optional/ 长尾批（随包但不注册，
+ *   零目录税；拷到 ~/.kcoder/skills/<name>/ 即启用）
  * - project：当前工作区 `.dsh/skills` / `.agents/skills`（dsh rank 100/200）
  * - user：`$DSH_HOME/skills`（rank 400）与 `~/.agents/skills`（rank 500，
  *   agents.md 生态跨工具共享目录——Claude Code 等同样读取）
@@ -18,9 +20,9 @@
  * @module desktop/main/skills-catalog
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { dshHome } from './dsh-contract'
 import { bundleSource } from './kcoder-skills-bundle'
 import { fileActivity } from './file-activity'
@@ -28,6 +30,9 @@ import type { SkillCatalogEntry, SkillCatalogGroup } from '@shared/ipc-contract'
 
 /** 最近一次枚举命中的 SKILL.md 绝对路径集合（read 白名单）。 */
 let knownPaths = new Set<string>()
+
+/** 最近一次枚举的 optional 条目路径集合（enable 白名单）。 */
+let optionalPaths = new Set<string>()
 
 /** 行级解析 frontmatter 的 name/description（标量或 >- 折叠块）。 */
 function parseNameDescription(raw: string): { name: string; description: string } {
@@ -110,7 +115,6 @@ export function listSkills(): SkillCatalogGroup[] {
   } catch {
     // bundle 源缺失（异常环境）：内置区空态
   }
-
   // 2) 工作区项目技能（file-activity 的 activeKey 是桌面端跟踪用户
   //    所开工作区的既有真相点，与 git 面板扫描 plans 同源）
   const ws = fileActivity.activeKey()
@@ -123,12 +127,23 @@ export function listSkills(): SkillCatalogGroup[] {
   scanRoot(join(dshHome(), 'skills'), 'user', entries)
   scanRoot(join(homedir(), '.agents', 'skills'), 'shared', entries)
 
-  knownPaths = new Set([...builtin, ...entries].map((e) => e.path))
+  // 4) 可选批最后扫（要拿生效层做基准）：bundle 的 optional/ 目录
+  //    随包但不进 manifest，拷到用户/工作区才被 dsh 发现；启用是复制
+  //    不是移动，源目录残留——已装到生效层的同名条目剔除，
+  //    否则刷新后「未启用」区原地残留同一技能造成两区重复显示
+  const active = new Set(entries.map((e) => e.name))
+  const optional: SkillCatalogEntry[] = []
+  scanRoot(join(bundleSource(), 'skills', 'optional'), 'optional', optional)
+  const enabledOptional = optional.filter((e) => !active.has(e.name))
+
+  knownPaths = new Set([...builtin, ...enabledOptional, ...entries].map((e) => e.path))
+  optionalPaths = new Set(enabledOptional.map((e) => e.path))
 
   const groups: SkillCatalogGroup[] = [
-    { id: 'builtin', title: 'KCoder 内置', entries: builtin },
+    { id: 'builtin', title: 'KCoder 内置（已启用）', entries: builtin },
     { id: 'project', title: '工作区项目技能', entries: entries.filter((e) => e.source === 'project') },
     { id: 'user', title: '用户全局技能', entries: entries.filter((e) => e.source === 'user' || e.source === 'shared') },
+    { id: 'optional', title: '未启用（随包可选）', entries: enabledOptional },
   ]
   return groups
 }
@@ -145,5 +160,25 @@ export function readSkillBody(path: string): string | null {
     return end === -1 ? raw : raw.slice(end + 5).replace(/^\n+/, '')
   } catch {
     return null
+  }
+}
+
+/**
+ * 启用一个 optional 技能：拷到 $DSH_HOME/skills/<name>/（用户全局）。
+ * 白名单：只放行枚举到的 optional 条目（页面按钮点出来的路径）。
+ * 目标已存在时先删再拷（cpSync 对已存在目录会把源拷进里面，
+ * 同 shell cp -R 分叉坑）；父目录 mkdir -p 兜住首次启用。
+ */
+export function enableOptionalSkill(path: string): boolean {
+  if (!optionalPaths.has(path)) return false
+  const src = dirname(path)
+  const target = join(dshHome(), 'skills', basename(src))
+  try {
+    rmSync(target, { recursive: true, force: true })
+    mkdirSync(dirname(target), { recursive: true })
+    cpSync(src, target, { recursive: true })
+    return true
+  } catch {
+    return false
   }
 }

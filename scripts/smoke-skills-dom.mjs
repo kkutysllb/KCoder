@@ -69,6 +69,9 @@ const groups = [
     { name: 'user-skill-y', description: '用户测试技能', source: 'user', path: '/tmp/c/SKILL.md' },
     { name: 'shared-skill-z', description: '共享目录测试技能', source: 'shared', path: '/tmp/d/SKILL.md' },
   ] },
+  { id: 'optional', title: '未启用（随包可选）', entries: [
+    { name: 'database', description: 'schema/migrations/SQL/ORM 技能', source: 'optional', path: '/tmp/opt/database/SKILL.md' },
+  ] },
 ]
 
 async function runScenario(win, label, vars) {
@@ -86,6 +89,37 @@ async function runScenario(win, label, vars) {
     true,
   )
   await new Promise((r) => setTimeout(r, 300))
+  // 启用按钮交互：点击 database 行尾「启用」→ 模拟主进程应答成功 + 目录刷新
+  //（database 跳到用户区，optional 区空）；同时验证按钮 stopPropagation 不触发展开
+  const enableProbe = await win.webContents.executeJavaScript(
+    `(() => {
+      const row = document.querySelector('.dsk-row[data-path="/tmp/opt/database/SKILL.md"]')
+      if (row === null) return 'ROW MISSING'
+      const btn = row.querySelector('.dsk-enable')
+      if (btn === null) return 'BTN MISSING'
+      btn.click()
+      return JSON.stringify({ btnText: btn.textContent, rowExpanded: row.classList.contains('on'), btnDisabled: btn.disabled })
+    })()`,
+    true,
+  )
+  // 点击前快照在 click 前不可得（同一脚本），断言以点击后防重复态为准
+  await win.webContents.executeJavaScript(
+    `window.__dshSkillsEnabled(${JSON.stringify('/tmp/opt/database/SKILL.md')}, true)`,
+    true,
+  )
+  const refreshed = JSON.parse(JSON.stringify(groups))
+  refreshed[2].entries.push({ name: 'database', description: 'schema/migrations/SQL/ORM 技能', source: 'user', path: '/tmp/user-enabled/database/SKILL.md' })
+  refreshed[3].entries = []
+  await win.webContents.executeJavaScript(`window.__dshSkillsSync(${JSON.stringify(refreshed)})`, true)
+  await new Promise((r) => setTimeout(r, 200))
+  const jumpProbe = await win.webContents.executeJavaScript(
+    `(() => {
+      const userRows = Array.from(document.querySelectorAll('.dsk-row')).filter(r => r.textContent.includes('database'))
+      const enableBtns = document.querySelectorAll('.dsk-enable').length
+      return JSON.stringify({ userRowText: userRows.map(r => r.className), remainingEnableBtns: enableBtns })
+    })()`,
+    true,
+  )
   const probe = await win.webContents.executeJavaScript(
     `(() => {
       const kc = document.querySelector('.dsk-badge.kc')
@@ -102,13 +136,19 @@ async function runScenario(win, label, vars) {
   const result = JSON.parse(probe)
   // 断言：徽章文字非空；深色下 kc 徽章文字必须是深灰（真实变量）而非回退白
   const fails = []
-  if (result.rows !== 8) fails.push(`rows=${result.rows} 应为 8`)
+  if (result.rows !== 9) fails.push(`rows=${result.rows} 应为 9`)
   if (!result.kcBadge || result.kcBadge.text !== 'KCoder') fails.push('kc 徽章文字缺失')
   if (!result.plainBadge || result.plainBadge.text === '') fails.push('普通徽章文字缺失')
+  const en = JSON.parse(enableProbe)
+  if (en.btnText !== '启用中…') fails.push(`按钮文字=${en.btnText} 应为「启用中…」（防重复点击态）`)
+  if (en.btnDisabled !== true) fails.push('点击后按钮未禁用')
+  if (en.rowExpanded === true) fails.push('按钮点击触发了行展开（stopPropagation 失效）')
+  const jp = JSON.parse(jumpProbe)
+  if (jp.remainingEnableBtns !== 0) fails.push(`刷新后残留 ${jp.remainingEnableBtns} 个启用按钮`)
   if (vars === DARK_VARS) {
     if (result.kcBadge && result.kcBadge.color === 'rgb(255, 255, 255)') fails.push('深色主题 kc 徽章落回退 #fff（白底白字隐形，变量名又坏了）')
   }
-  console.log(`[${label}]`, fails.length === 0 ? 'PASS' : 'FAIL: ' + fails.join('; '), '|', probe)
+  console.log(`[${label}]`, fails.length === 0 ? 'PASS' : 'FAIL: ' + fails.join('; '), '|', probe, '| enable:', enableProbe, '| jump:', jumpProbe)
   const img = await win.webContents.capturePage()
   const slug = label === 'dark' ? 'dark' : 'light'
   writeFileSync(`out/skills-badge-${slug}.png`, img.toPNG())

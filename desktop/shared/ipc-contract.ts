@@ -121,15 +121,15 @@ export interface SkillCatalogEntry {
   name: string
   /** 路由描述（模型匹配依据）。 */
   description: string
-  /** 来源分区。 */
-  source: 'builtin' | 'project' | 'user' | 'shared'
+  /** 来源分区（optional = 随包分发但未注册，拷到用户目录即启用）。 */
+  source: 'builtin' | 'project' | 'user' | 'shared' | 'optional'
   /** SKILL.md 绝对路径（正文读取白名单键）。 */
   path: string
 }
 
 /** 技能面板的一个来源分区。 */
 export interface SkillCatalogGroup {
-  id: 'builtin' | 'project' | 'user'
+  id: 'builtin' | 'project' | 'user' | 'optional'
   title: string
   entries: SkillCatalogEntry[]
 }

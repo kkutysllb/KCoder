@@ -1,15 +1,26 @@
 #!/usr/bin/env node
 /**
- * KSkills → kcoder-skills bundle 适配脚本。
+ * KSkills → kcoder-skills bundle 适配脚本（两档分发）。
  *
- * 从本地 KSkills 仓库（默认 ~/kk_Projects/KSkills）选取知识型技能，做
- * dsh 兼容清洗后物化到 bundle/kcoder-skills/skills/，并重生成 manifest.json。
+ * 从本地 KSkills 仓库（默认 ~/kk_Projects/KSkills）选取知识型技能，
+ * dsh 兼容清洗后物化到 bundle/kcoder-skills/skills/：
+ *
+ * - 核心批 → skills/<name>/，进 manifest.json（entry.js 注册生效，
+ *   目录常驻会话上下文）
+ * - 可选批 → skills/optional/<name>/，不进 manifest（不注册、零目录税；
+ *   技能面板「未启用」分区展示，拷到 ~/.kcoder/skills/<name>/ 即启用）
+ *
+ * 批次划分：核心 = 高频通用场景（实现/调试/评审/架构/类型/前端…）；
+ * 可选 = 长尾域（特定后端/运维/文档/流程）；排除 = 语言变体、Claude/
+ * Vercel/创作生态专属、QiongQi 专属工作流、浅重叠中文轻量批。
  *
  * 处理规则：
  * - frontmatter 仅保留 name / description（展平为单行——entry.js 端不解析
  *   YAML，元数据走 manifest.json 单一事实源）
- * - 正文剥离 Claude Code 生态残留：powershell 代码块、含 Claude Code /
+ * - 正文剥 Claude Code 生态残留：powershell 代码块、含 Claude Code /
  *   ${CLAUDE_PLUGIN_ROOT} / ~/.claude 引用的整行
+ * - QiongQi 工具名映射到 dsh 真实工具：search_code→grep、
+ *   find_files→glob、read_file_lines→read（web_search 同名）
  * - 计划落点约定对齐：docs/superpowers/plans/ → plans/（git 面板扫描约定）
  *
  * 注意：planning-with-files 不在本脚本清单内——它是耦合 KCoder 单文件
@@ -25,18 +36,86 @@ import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
-/** 机械清洗的技能清单（planning-with-files 为手写改编版，不在列）。 */
-const ADAPTED_SKILLS = [
+/** 机械清洗的核心批（进 manifest，注册生效）。 */
+const CORE_SKILLS = [
+  // ④ 自研英文方法论批（计划/评审/子代理/git 流）
+  'test-driven-development',
+  'subagent-driven-development',
+  'dispatching-parallel-agents',
+  'using-git-worktrees',
+  'brainstorming',
+  'requesting-code-review',
+  'receiving-code-review',
+  'finishing-a-development-branch',
+  'webapp-testing',
+  // ⑤ 自研工程短批（高频通用域）
+  'implement',
+  'refactor',
+  'debug',
+  'test-writer',
+  'architecture',
+  'api-design',
+  'technical-design',
+  'codebase-analysis',
+  'diff-analysis',
+  'requirements-analysis',
+  'typescript',
+  'frontend-engineering',
+  'react-nextjs',
+  'error-handling',
+  'performance',
+  'security-hardening',
+  'release-engineering',
+]
+
+/** 可选批（物化到 skills/optional/，不进 manifest 不注册）。 */
+const OPTIONAL_SKILLS = [
+  // 特定技术域
+  'database',
+  'migration',
+  'fastapi-backend',
+  'state-management',
+  'ui-polish',
+  'web-accessibility',
+  'vertical-slice-development',
+  // 构建/运维链
+  'ci-cd',
+  'deployment',
+  'rollback-recovery',
+  'build-system',
+  'dependency-upgrade',
+  'environment-setup',
+  'project-scaffolding',
+  'patch-authoring',
+  'observability',
+  // 流程/文档域
+  'product-spec',
+  'qa-test-plan',
+  'acceptance-criteria',
+  'handoff-docs',
+  'docs',
+  'internal-comms',
+  'workflow-automation',
+  'operations-runbook',
+  'context-management',
+  'project-delivery-workflow',
+  'pr-review-advanced',
+  // 轻量工具型（与 dsh 原生工具契合，按需启用）
+  'todo',
+  'web',
+  'goal',
+  'frontend-design',
+  'web-design-guidelines',
+]
+
+/** manifest 中的固定顺序（手写版 + 旧清洗批 + 核心批）。 */
+const MANIFEST_ORDER = [
+  'planning-with-files',
   'task-decomposition',
   'writing-plans',
   'executing-plans',
   'verification-before-completion',
-]
-
-/** manifest 中的固定顺序（含手写版）。 */
-const MANIFEST_ORDER = [
-  'planning-with-files',
-  ...ADAPTED_SKILLS,
+  ...CORE_SKILLS,
 ]
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)))
@@ -87,6 +166,13 @@ function flattenDescription(text) {
 
 // ── 正文清洗 ────────────────────────────────────────────────────────────────
 
+/** QiongQi 工具名 → dsh 真实工具名（docs/tool-catalog.md 对照）。 */
+const TOOL_NAME_MAP = {
+  search_code: 'grep',
+  find_files: 'glob',
+  read_file_lines: 'read',
+}
+
 function cleanBody(body) {
   // 1) 整块删除 powershell 代码围栏（含 fence 行之间全部内容）
   let out = body.replace(/```powershell[\s\S]*?```\n?/g, '')
@@ -96,16 +182,20 @@ function cleanBody(body) {
     .filter((line) =>
       !/claude[_ ]?code|CLAUDE_PLUGIN_ROOT|~\/\.claude|\$HOME\/\.claude|superpowers:/i.test(line))
     .join('\n')
-  // 3) 计划落点约定对齐（KCoder git 面板扫描 plans/ 一层目录）
+  // 3) QiongQi 工具名映射（反引号包裹与裸文本两种形态）
+  for (const [from, to] of Object.entries(TOOL_NAME_MAP)) {
+    out = out.replaceAll(`\`${from}\``, `\`${to}\``).replaceAll(from, to)
+  }
+  // 4) 计划落点约定对齐（KCoder git 面板扫描 plans/ 一层目录）
   out = out.replaceAll('docs/superpowers/plans/', 'plans/')
-  // 4) 压掉 3+ 连续空行（删块残留）
+  // 5) 压掉 3+ 连续空行（删块残留）
   out = out.replace(/\n{3,}/g, '\n\n')
   return out.trimEnd() + '\n'
 }
 
 // ── 适配产出 ────────────────────────────────────────────────────────────────
 
-function adaptSkill(name) {
+function adaptSkill(name, subdir = '') {
   const srcPath = join(SRC, 'coding', name, 'SKILL.md')
   if (!existsSync(srcPath)) throw new Error(`KSkills 源缺失: ${srcPath}`)
   const { fields, body } = parseFrontmatter(readFileSync(srcPath, 'utf8'))
@@ -113,14 +203,14 @@ function adaptSkill(name) {
   const description = flattenDescription(fields.description ?? '')
   if (description === '') throw new Error(`${name}: description 为空`)
   const cleaned = cleanBody(body)
-  const destDir = join(OUT, name)
+  const destDir = join(OUT, subdir, name)
   rmSync(destDir, { recursive: true, force: true })
   mkdirSync(destDir, { recursive: true })
   writeFileSync(
     join(destDir, 'SKILL.md'),
     `---\nname: ${name}\ndescription: ${description}\n---\n\n${cleaned}`,
   )
-  console.log(`  ✓ ${name} (${cleaned.split('\n').length} 行正文)`)
+  console.log(`  ✓ ${subdir ? 'optional/' : ''}${name} (${cleaned.split('\n').length} 行正文)`)
 }
 
 // ── manifest 重生成（覆盖手写版） ───────────────────────────────────────────
@@ -145,6 +235,10 @@ if (!existsSync(SRC)) {
   process.exit(1)
 }
 mkdirSync(OUT, { recursive: true })
-for (const name of ADAPTED_SKILLS) adaptSkill(name)
+console.log('核心批（进 manifest，注册生效）:')
+for (const name of ['task-decomposition', 'writing-plans', 'executing-plans', 'verification-before-completion']) adaptSkill(name)
+for (const name of CORE_SKILLS) adaptSkill(name)
+console.log('可选批（skills/optional/，不注册）:')
+for (const name of OPTIONAL_SKILLS) adaptSkill(name, 'optional')
 regenerateManifest()
-console.log('完成。')
+console.log(`完成：核心 ${MANIFEST_ORDER.length} + 可选 ${OPTIONAL_SKILLS.length} = ${MANIFEST_ORDER.length + OPTIONAL_SKILLS.length} 技能。`)
