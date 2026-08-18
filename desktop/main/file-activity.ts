@@ -9,11 +9,15 @@
  *   补全耗时与终态。
  *
  * 上游契约（packages/host/apiproxy/src/api/events.ts + core/tools
- * presentation.ts + core/session/src/types.ts，全部运行时消费，零修改）：
+ * presentation.ts + core/session/src/types.ts + client/connection
+ * websocket-downlink.ts，全部运行时消费，零修改）：
  * - mux 流：`ws://127.0.0.1:<port>/api/events.mux`，连上即推、客户端
  *   只读（发消息是协议违规）；Node WebSocket 客户端不带 Origin 头，
  *   走 loopback 受信分支，无需 token；
- * - 帧：`{type:'session/event', sessionId, event, view?}`；SessionEvent
+ * - WS 下行线每帧包 ServerRequest 信封（websocket-downlink 的
+ *   serverRequest()）：`{type:'server-request', rpcId, method, payload}`，
+ *   业务帧在 payload——method === 'session/event' 时 payload 形状 =
+ *   {type:'session/event', sessionId, event, view?}；SessionEvent
  *   形状 = {type, seq, time, data}；
  * - 文件活动只关心 `event.type === 'tool/result'` 且 `view.for === 'result'`：
  *   - `view.view.card === 'read'`：ReadResultView（path/lines/lang/
@@ -123,7 +127,15 @@ function countChanges(oldText: string | null, newText: string): { added: number;
   return { added: b.length - common, removed: a.length - common }
 }
 
-/** mux 帧的最小形状（只声明消费的字段；event = SessionEvent 外壳）。 */
+/** WS 下行线的 ServerRequest 信封（业务帧在 payload）。 */
+interface MuxEnvelope {
+  type: string
+  rpcId?: string
+  method?: string
+  payload?: MuxFrame
+}
+
+/** mux 业务帧的最小形状（只声明消费的字段；event = SessionEvent 外壳）。 */
 interface MuxFrame {
   type: string
   sessionId?: string
@@ -437,9 +449,14 @@ class FileActivity extends EventEmitter {
     socket.onopen = () => { /* 连上即推，无订阅握手 */ }
     socket.onmessage = (event: MessageEvent) => {
       if (typeof event.data !== 'string') return
-      let frame: MuxFrame
-      try { frame = JSON.parse(event.data) as MuxFrame } catch { return }
-      this.consume(frame)
+      let envelope: MuxEnvelope
+      try { envelope = JSON.parse(event.data) as MuxEnvelope } catch { return }
+      // ServerRequest 信封解包：只认 session/event 业务帧（其余 method
+      // 忽略；历史版本误把信封当业务帧解析，实时活动全部丢弃）
+      if (envelope.type !== 'server-request'
+        || envelope.method !== 'session/event'
+        || envelope.payload === undefined) return
+      this.consume(envelope.payload)
     }
     socket.onclose = () => {
       if (this.ws === socket) this.ws = null
