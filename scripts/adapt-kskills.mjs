@@ -9,6 +9,10 @@
  *   目录常驻会话上下文）
  * - 可选批 → skills/optional/<name>/，不进 manifest（不注册、零目录税；
  *   技能面板「未启用」分区展示，拷到 ~/.kcoder/skills/<name>/ 即启用）
+ * - office 批 → 源在 KSkills/office/ 的「知识+脚本」型技能（docx/
+ *   xlsx/pptx/pdf），整资源物化到 skills/optional/：SKILL.md 清洗 +
+ *   scripts/references/LICENSE 原样拷贝（启用后 agent 可直接执行
+ *   scripts/*.py，离线纯本地，替代云端 LLM 驱动的 officecli 插件）
  *
  * 批次划分：核心 = 高频通用场景（实现/调试/评审/架构/类型/前端…）；
  * 可选 = 长尾域（特定后端/运维/文档/流程）；排除 = 语言变体、Claude/
@@ -31,8 +35,8 @@
  *   node scripts/adapt-kskills.mjs [--src /path/to/KSkills]
  */
 
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, cpSync, readdirSync } from 'node:fs'
+import { join, resolve, basename } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
@@ -107,6 +111,12 @@ const OPTIONAL_SKILLS = [
   'frontend-design',
   'web-design-guidelines',
 ]
+
+/** office 批：整资源技能（源在 office/ 子目录），物化到 optional/。 */
+const OFFICE_SKILLS = ['docx', 'xlsx', 'pptx', 'pdf']
+
+/** 整拷时排除的文件（Claude 插件机制产物 / 系统杂 file）。 */
+const OFFICE_EXCLUDE = new Set(['install.sh', 'uninstall.sh', 'CHANGELOG.md', '.DS_Store'])
 
 /** manifest 中的固定顺序（手写版 + 旧清洗批 + 核心批）。 */
 const MANIFEST_ORDER = [
@@ -213,6 +223,31 @@ function adaptSkill(name, subdir = '') {
   console.log(`  ✓ ${subdir ? 'optional/' : ''}${name} (${cleaned.split('\n').length} 行正文)`)
 }
 
+/** office 批适配：SKILL.md 清洗 + 其余资源整拷（scripts/references/LICENSE）。 */
+function adaptOfficeSkill(name) {
+  const srcDir = join(SRC, 'office', name)
+  const srcPath = join(srcDir, 'SKILL.md')
+  if (!existsSync(srcPath)) throw new Error(`KSkills 源缺失: ${srcPath}`)
+  const { fields, body } = parseFrontmatter(readFileSync(srcPath, 'utf8'))
+  if (fields.name !== name) throw new Error(`name 不一致: ${fields.name} vs ${name}`)
+  const description = flattenDescription(fields.description ?? '')
+  if (description === '') throw new Error(`${name}: description 为空`)
+  const cleaned = cleanBody(body)
+  const destDir = join(OUT, 'optional', name)
+  rmSync(destDir, { recursive: true, force: true })
+  mkdirSync(destDir, { recursive: true })
+  cpSync(srcDir, destDir, {
+    recursive: true,
+    filter: (src) => !OFFICE_EXCLUDE.has(basename(src)),
+  })
+  writeFileSync(
+    join(destDir, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: ${description}\n---\n\n${cleaned}`,
+  )
+  const files = readdirSync(destDir, { recursive: true }).length
+  console.log(`  ✓ optional/${name} (${cleaned.split('\n').length} 行正文 + ${files} 个资源文件)`)
+}
+
 // ── manifest 重生成（覆盖手写版） ───────────────────────────────────────────
 
 function regenerateManifest() {
@@ -240,5 +275,7 @@ for (const name of ['task-decomposition', 'writing-plans', 'executing-plans', 'v
 for (const name of CORE_SKILLS) adaptSkill(name)
 console.log('可选批（skills/optional/，不注册）:')
 for (const name of OPTIONAL_SKILLS) adaptSkill(name, 'optional')
+console.log('office 批（整资源，物化到 skills/optional/，不注册）:')
+for (const name of OFFICE_SKILLS) adaptOfficeSkill(name)
 regenerateManifest()
-console.log(`完成：核心 ${MANIFEST_ORDER.length} + 可选 ${OPTIONAL_SKILLS.length} = ${MANIFEST_ORDER.length + OPTIONAL_SKILLS.length} 技能。`)
+console.log(`完成：核心 ${MANIFEST_ORDER.length} + 可选 ${OPTIONAL_SKILLS.length + OFFICE_SKILLS.length} = ${MANIFEST_ORDER.length + OPTIONAL_SKILLS.length + OFFICE_SKILLS.length} 技能。`)
