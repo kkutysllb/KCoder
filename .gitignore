@@ -29,3 +29,4 @@ app.asar.*.bak
 .vscode/
 .dsh-vision-router/
 .drops/
+.patches/discussion-body.md
