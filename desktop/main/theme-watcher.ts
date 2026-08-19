@@ -204,7 +204,7 @@ const SHELL_TITLEBAR_JS = `(() => {
   bar.id = ID_BAR
   bar.style.cssText = [
     'position:fixed', 'top:0', 'left:0', 'right:0', 'height:' + H + 'px',
-    'padding-right:' + TP.padRight + 'px',
+    'padding-right:${TP.padRight}px',
     'z-index:2147483647',
     '-webkit-app-region:drag',
     'display:flex', 'align-items:center', 'justify-content:flex-start',
@@ -217,8 +217,8 @@ const SHELL_TITLEBAR_JS = `(() => {
   const label = document.createElement('span')
   label.style.cssText = [
     'flex:0 1 auto',
-    'margin-left:max(' + TP.leftPad + 'px, var(--dsh-sidebar-w, 0px) + 12px)',
-    'max-width:calc(100% - max(' + TP.leftPad + 'px, var(--dsh-sidebar-w, 0px) + 12px) - max(' + (134 + TP.padRight) + 'px, calc(var(--dsh-preview-inset, 0px) + var(--dsh-git-inset, 0px))))',
+    'margin-left:max(${TP.leftPad}px, var(--dsh-sidebar-w, 0px) + 12px)',
+    'max-width:calc(100% - max(${TP.leftPad}px, var(--dsh-sidebar-w, 0px) + 12px) - max(${134 + TP.padRight}px, calc(var(--dsh-preview-inset, 0px) + var(--dsh-git-inset, 0px))))',
     'display:flex', 'align-items:center', 'min-width:0', 'white-space:nowrap',
   ].join(';')
   // 工作区段：实体按钮（文件夹图标 + 名字；点击打开工作区目录）。
