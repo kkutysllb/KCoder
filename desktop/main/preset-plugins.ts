@@ -31,7 +31,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { WEB_PROFILE, dshHome, runPnpm } from './dsh-contract'
-import { ensureProfilePatches } from './profile-patches'
+import { ensureProfilePatches, healLog } from './profile-patches'
 
 /** 预置插件：bundle 名 → 依赖 spec（键顺序即层叠顺序，对齐 mac 开发机）。 */
 export const PRESET_PLUGINS: Record<string, string> = {
@@ -104,6 +104,7 @@ export function ensurePresetPlugins(): void {
       if (!existsSync(workspacePath)) writeFileSync(workspacePath, PROFILE_PNPM_WORKSPACE)
       if (!existsSync(patchLayerPath)) writeFileSync(patchLayerPath, PROFILE_PATCH_TEMPLATE)
       console.log('[preset-plugins] 预写 profile 骨架并预置插件清单')
+      healLog('[preset] 预写 profile 骨架并预置插件清单')
     }
     // 骨架分支已重建清单，此后 manifest 必非 null
     const m = manifest as Record<string, unknown>
@@ -117,6 +118,7 @@ export function ensurePresetPlugins(): void {
       m['dependencies'] = deps
       writeFileSync(manifestPath, `${JSON.stringify(m, undefined, 2)}\n`)
       console.log(`[preset-plugins] 已补写依赖声明: ${missingDeps.join(', ')}`)
+      healLog(`[preset] 已补写依赖声明: ${missingDeps.join(', ')}`)
     }
 
     // 3) 安装：任何预置包缺席 → pnpm install（先确保 patch 声明就位——
@@ -128,12 +130,19 @@ export function ensurePresetPlugins(): void {
     if (needInstall) {
       ensureProfilePatches()
       console.log('[preset-plugins] 预置插件缺失，执行 pnpm install …')
+      healLog(`[preset] 预置插件缺失（${presetNames.filter((p) => !installed(p)).join(', ')}），执行 pnpm install …`)
       const r = runPnpm(['install'], profileDir, 600_000)
+      healLog(
+        `[preset] pnpm install exit=${String(r.status)}` +
+          (r.status !== 0 ? ` stderr=${(r.stderr ?? '').slice(0, 800)}` : ''),
+      )
       if (r.status !== 0) {
         console.error('[preset-plugins] pnpm install 失败（下次启动重试）:', r.stderr?.slice(0, 2000) ?? r.error)
       } else {
         ensureProfilePatches()
       }
+    } else {
+      healLog('[preset] 预置插件均已安装')
     }
 
     // 4) bundles 声明对账（dsh 启动的唯一消费口）：已装未声明 → 补
@@ -159,8 +168,12 @@ export function ensurePresetPlugins(): void {
       console.log(
         `[preset-plugins] bundles 对账（补声明: ${undeclared.join(', ') || '无'}，摘除未装: ${ghost.join(', ') || '无'}）`,
       )
+      healLog(
+        `[preset] bundles 对账（补声明: ${undeclared.join(', ') || '无'}，摘除未装: ${ghost.join(', ') || '无'}）`,
+      )
     }
   } catch (error) {
     console.error('[preset-plugins] 物化失败:', error)
+    healLog(`[preset] 物化异常：${String(error)}`)
   }
 }

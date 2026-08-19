@@ -17,9 +17,16 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { net } from 'electron'
 import { WEB_PROFILE, dshHome, resolveDshCommand } from './dsh-contract'
+import { ensureProfilePatches } from './profile-patches'
 import { KCODER_SKILLS_BUNDLE } from './kcoder-skills-bundle'
 import { PRESET_PLUGINS } from './preset-plugins'
-import type { CommunityPlugin, CommunityQueryResult, InstalledPlugin, PluginCommandResult } from '@shared/ipc-contract'
+import type {
+  CommunityPlugin,
+  CommunityQueryResult,
+  InstalledPlugin,
+  LatestVersions,
+  PluginCommandResult,
+} from '@shared/ipc-contract'
 
 /** 发行版模板内置层 + KCoder 物化注册层（预置第三方插件与技能 bundle，UI 均展示为内置且禁卸载）。 */
 const IN_BOX_BUNDLES = [
@@ -69,13 +76,31 @@ function profileDir(profile = WEB_PROFILE): string {
   return join(dshHome(), 'profiles', profile)
 }
 
+/** 读 node_modules 内包实体的 version（缺失/损坏返回 null；本地物化层无实体）。 */
+function installedVersion(dir: string, name: string): string | null {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(join(dir, 'node_modules', name, 'package.json'), 'utf8'),
+    ) as { version?: unknown }
+    return typeof pkg.version === 'string' ? pkg.version : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * 已安装的 bundle 层（内置层在前，用户层按 dsh.profile.bundles 顺序）。
  * profile 尚未初始化时返回内置层（首次 `dsh web` 启动时由模板创建）。
  */
 export function installedPlugins(): InstalledPlugin[] {
-  const result: InstalledPlugin[] = IN_BOX_BUNDLES.map((name, i) => ({ name, layer: i, inBox: true }))
-  const manifestPath = join(profileDir(), 'package.json')
+  const dir = profileDir()
+  const result: InstalledPlugin[] = IN_BOX_BUNDLES.map((name, i) => ({
+    name,
+    layer: i,
+    inBox: true,
+    version: installedVersion(dir, name),
+  }))
+  const manifestPath = join(dir, 'package.json')
   if (!existsSync(manifestPath)) return result
   try {
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ProfileManifest
@@ -83,17 +108,39 @@ export function installedPlugins(): InstalledPlugin[] {
     for (const name of bundles) {
       // KCoder 物化注册的 bundle 已在内置层展示，跳过避免重复
       if (IN_BOX_BUNDLES.includes(name)) continue
-      result.push({ name, layer: result.length, inBox: false })
+      result.push({ name, layer: result.length, inBox: false, version: installedVersion(dir, name) })
     }
     // 依赖了但还没被 dsh 识别为 bundle 的包（安装中途态）也列出
     for (const name of Object.keys(manifest.dependencies ?? {})) {
       if (!result.some((p) => p.name === name)) {
-        result.push({ name, layer: result.length, inBox: false })
+        result.push({ name, layer: result.length, inBox: false, version: installedVersion(dir, name) })
       }
     }
   } catch (error) {
     console.error('[plugins] read profile manifest failed:', error)
   }
+  return result
+}
+
+/**
+ * 批量查 npm registry dist-tags（包名 → latest）。UI 的“有新版本”判定
+ * 必须基于 registry 实际 latest，而不是恒显“更新”文案——pnpm update 遵守
+ * manifest 范围，而 0.x 包的 ^ 只含 patch 级，按范围判定会让用户永远看
+ * 到“提示要更新”却点不出任何变化（v0.2.0 mac 的感知缺陷）。单包 10s
+ * 超时，失败/非 200/解析异常的包不进结果（UI 显示“已最新”兑底）。
+ */
+export async function latestVersions(names: string[]): Promise<LatestVersions> {
+  const unique = [...new Set(names)].filter((n) => n !== '' && !n.startsWith('file:'))
+  const result: LatestVersions = {}
+  await Promise.allSettled(
+    unique.map(async (name) => {
+      const url = `https://registry.npmjs.org/-/package/${encodeURIComponent(name)}/dist-tags`
+      const response = await net.fetch(url, { signal: AbortSignal.timeout(10_000) })
+      if (!response.ok) return
+      const body = JSON.parse((await response.text()) as string) as { latest?: unknown }
+      if (typeof body.latest === 'string') result[name] = body.latest
+    }),
+  )
   return result
 }
 
@@ -153,6 +200,15 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
       resolve({ ok: false, output: [...lines, `无法执行: ${String(error)}`].join('\n') })
     })
     child.on('exit', (code) => {
+      if (code === 0) {
+        // 变更成功后立即校验补丁仍生效：pnpm 重装会重放 name-only 补丁，
+        // 但静默失败时插件裸装（v0.1.9 Windows 现场）——锄点兑底在此接管
+        try {
+          ensureProfilePatches()
+        } catch {
+          // ensureProfilePatches 内部已兜底全部异常，此处防御性忽略
+        }
+      }
       resolve({ ok: code === 0, output: lines.slice(-80).join('\n') })
     })
   })

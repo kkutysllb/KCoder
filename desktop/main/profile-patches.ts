@@ -24,9 +24,30 @@
  * @module desktop/main/profile-patches
  */
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROJECT_ROOT, WEB_PROFILE, dshHome, runPnpm } from './dsh-contract'
+
+/**
+ * 插件自愈日志（~/.kcoder/logs/plugins-heal.log）：GUI 打包态看不到主
+ * 进程 console，Windows 现场自愈链是否执行/在哪一步失败完全黑盒
+ * （v0.2.0 的教训）。超 1MB 轮转为 .old；写失败不影响主流程。
+ */
+export function healLog(message: string): void {
+  try {
+    const dir = join(dshHome(), 'logs')
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, 'plugins-heal.log')
+    try {
+      if (statSync(file).size > 1_048_576) renameSync(file, `${file}.old`)
+    } catch {
+      // 首次写入无旧文件
+    }
+    appendFileSync(file, `${new Date().toISOString()} ${message}\n`)
+  } catch {
+    // 日志失败不影响自愈主流程
+  }
+}
 
 /** 分发的 patch 源目录（开发态仓库内；打包态 extraResources）。 */
 function patchSource(): string {
@@ -37,7 +58,11 @@ function patchSource(): string {
 
 /** 源目录内全部 patch 文件（`pkg@version.patch` 命名，可多包多版本）。 */
 function patchFiles(source: string): string[] {
-  return readdirSync(source).filter((f) => f.endsWith('.patch'))
+  try {
+    return readdirSync(source).filter((f) => f.endsWith('.patch'))
+  } catch {
+    return [] // 源缺失/不可读：物化跳过，但锄点注入规则静态、仍可执行
+  }
 }
 
 /**
@@ -119,6 +144,7 @@ function enforcePatchFallbacks(profileDir: string): void {
     const hits = text.split(rule.anchor).length - 1
     if (hits !== 1) {
       console.warn(`[profile-patches] 兑底注入跳过（锄点 ${hits} 处命中）：${rule.pkg}/${rule.file}`)
+      healLog(`[patches] 兑底注入跳过（锄点 ${hits} 处命中）：${rule.pkg}/${rule.file}`)
       continue
     }
     const next = rule.replace !== undefined
@@ -127,8 +153,10 @@ function enforcePatchFallbacks(profileDir: string): void {
     try {
       writeFileSync(file, next)
       console.log(`[profile-patches] 已兑底注入：${rule.pkg}/${rule.file}`)
+      healLog(`[patches] 已兑底注入：${rule.pkg}/${rule.file}`)
     } catch (error) {
       console.warn(`[profile-patches] 兑底注入写入失败（${rule.pkg}/${rule.file}）：`, error)
+      healLog(`[patches] 兑底注入写入失败（${rule.pkg}/${rule.file}）：${String(error)}`)
     }
   }
 }
@@ -185,6 +213,12 @@ ${entries}
 }
 
 /**
+ * files 不可用（patch 源缺失）时的全量校验哨兵：`@x.patch` 尾巴的唯一
+ * 用途是喂给 patchApplied 的包名提取器，覆盖 PATCH_MARKS 全部包。
+ */
+const KNOWN_PATCH_SENTINELS = ['dsh-plugin-genui@x.patch', 'dsh-context@x.patch']
+
+/**
  * 幂等物化（dsh 启动前调用）：patch 文件 + 声明就位；插件已装但补丁
  * 未生效时跑一次 pnpm install 应用（PATH 增强在 index.ts 入口完成）。
  */
@@ -192,13 +226,25 @@ export function ensureProfilePatches(): void {
   try {
     const source = patchSource()
     const files = patchFiles(source)
-    if (files.length === 0) {
-      console.warn('[profile-patches] patch 源缺失，跳过物化:', source)
-      return
-    }
     const profileDir = join(dshHome(), 'profiles', WEB_PROFILE)
+    // 早退仅限「profile 未初始化」（node_modules 必空，注入也无对象）；
+    // 其余前置失败（patch 源缺失、声明写入失败）只降级不中断——锄点
+    // 注入规则是静态的，不依赖 patch 文件在场，任何一步都应尽量修到底
+    // （v0.2.0 的教训：早退 return 会把裸装现场留到引擎启动报错）。
     if (!existsSync(join(profileDir, 'pnpm-workspace.yaml'))) {
       console.warn('[profile-patches] profile 尚未初始化（pnpm-workspace.yaml 缺失），跳过')
+      healLog('[patches] profile 尚未初始化（pnpm-workspace.yaml 缺失），跳过')
+      return
+    }
+    if (files.length === 0) {
+      console.warn('[profile-patches] patch 源缺失，跳过物化:', source)
+      healLog(`[patches] patch 源缺失，跳过物化（仅锄点注入可用）: ${source}`)
+      enforcePatchFallbacks(profileDir)
+      healLog(
+        patchApplied(profileDir, KNOWN_PATCH_SENTINELS)
+          ? '[patches] 源缺失但锄点注入后 marks 全部在位'
+          : '[patches] 源缺失且 marks 仍有缺失（下次启动重试）',
+      )
       return
     }
     // 1) patch 文件物化（幂等：直接覆盖，文件小且内容稳定）。
@@ -214,28 +260,52 @@ export function ensureProfilePatches(): void {
       if (lf !== raw) {
         writeFileSync(dest, lf)
         console.warn(`[profile-patches] ${f} 行尾已归一化为 LF（源疑似 CRLF）`)
+        healLog(`[patches] ${f} 行尾已归一化为 LF（源疑似 CRLF）`)
       }
     }
     // 2) patchedDependencies 声明（幂等）
     if (!ensurePatchDeclared(profileDir, files)) {
-      console.warn('[profile-patches] 声明写入失败（缺 nodeLinker: hoisted 锚点），跳过')
+      console.warn('[profile-patches] 声明写入失败（缺 nodeLinker: hoisted 锚点）')
+      healLog('[patches] 声明写入失败（缺 nodeLinker: hoisted 锚点），降级继续')
+    }
+    // 3) 生效校验与修复：插件已装但补丁未生效时，**锄点注入优先**
+    //    （纯字节操作：无平台差异、无 pnpm 依赖、毫秒级完成）——
+    //    v0.2.0 的教训：install 重放在 Windows 现场可能慢/失败/静默
+    //    跳过（spawnSync 还会阻塞主进程至多 10 分钟），作为兑底而非
+    //    首选。注入没全中（版本漂移致锄点失配）才回退 install 重放，
+    //    让 pnpm 重新解包应用 name-only 补丁。
+    //    插件未装则声明就位即可（后续安装时 pnpm 自动应用）。
+    if (patchApplied(profileDir, files)) {
+      healLog('[patches] 补丁全部生效，无需自愈')
       return
     }
-    // 3) 生效校验：插件已装但补丁未生效 → 一次性 install 应用；
-    //    插件未装则声明就位即可（后续 dsh plugin install 时 pnpm 自动应用）。
-    //    pnpm 经 dsh-contract.runPnpm（vendor 实体优先 + win32 shell）。
-    //    install 重试后仍未生效（patch 机制静默失败）→ 锄点注入兑底
-    if (patchApplied(profileDir, files)) return
-    console.log('[profile-patches] 插件已装但补丁未生效，执行 pnpm install 应用补丁 …')
+    console.warn('[profile-patches] 补丁未生效，优先锄点注入修复 …')
+    healLog('[patches] 补丁未生效，优先锄点注入修复 …')
+    enforcePatchFallbacks(profileDir)
+    if (patchApplied(profileDir, files)) {
+      healLog('[patches] 锄点注入后补丁全部生效（未跑 install）')
+      return
+    }
+    healLog('[patches] 注入后仍有 mark 缺失，回退 pnpm install 重放 …')
     const r = runPnpm(['install'], profileDir, 600_000)
+    healLog(
+      `[patches] pnpm install exit=${String(r.status)}` +
+        (r.status !== 0 ? ` stderr=${(r.stderr ?? '').slice(0, 800)}` : ''),
+    )
     if (r.status !== 0) {
       console.error('[profile-patches] pnpm install 失败:', r.stderr?.slice(0, 2000) ?? r.error)
     }
     if (!patchApplied(profileDir, files)) {
-      console.warn('[profile-patches] pnpm patch 未生效，执行锄点兑底注入 …')
+      healLog('[patches] install 后仍未生效，最后一次锄点注入 …')
       enforcePatchFallbacks(profileDir)
     }
+    healLog(
+      patchApplied(profileDir, files)
+        ? '[patches] 自愈完成：补丁全部生效'
+        : '[patches] 自愈失败：仍有 mark 缺失（插件可能裸装报错）',
+    )
   } catch (error) {
     console.error('[profile-patches] 物化失败:', error)
+    healLog(`[patches] 物化异常：${String(error)}`)
   }
 }

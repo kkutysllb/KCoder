@@ -11,7 +11,7 @@ import { BrowserWindow, clipboard, ipcMain, shell } from 'electron'
 import { getShellWindow, showShellWindow } from './windows'
 import { dshManager } from './dsh-manager'
 import { progressEvents, setupUpstream, syncUpstream, upstreamStatus } from './upstream'
-import { communityPlugins, installedPlugins, runPluginCommand } from './plugins'
+import { communityPlugins, installedPlugins, latestVersions, runPluginCommand } from './plugins'
 import { checkForUpdates, installUpdate, updateEvents, updateStatus } from './updater'
 import { terminalPanel, terminalTheme } from './terminal-panel'
 import { previewPanel, openInEditor } from './preview-panel'
@@ -63,6 +63,7 @@ export function registerIpc(): void {
 
   /* ---- 插件 ---- */
   ipcMain.handle('plugins:installed', () => installedPlugins())
+  ipcMain.handle('plugins:latest', (_event, names: string[]) => latestVersions(names))
   ipcMain.handle('plugins:community', (_event, query?: string, page?: number) => communityPlugins(query, page))
   ipcMain.handle('plugins:add', (_event, pkg: string) => runPluginCommand(['add', pkg]))
   ipcMain.handle('plugins:remove', (_event, pkg: string) => runPluginCommand(['remove', pkg]))

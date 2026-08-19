@@ -95,6 +95,8 @@ export interface InstalledPlugin {
   layer: number
   /** 是否随发行版模板内置（不可卸载）。 */
   inBox: boolean
+  /** 实装版本（node_modules 内 package.json；内置层无实体为 null）。 */
+  version: string | null
 }
 
 /** GitHub dsh-plugin 社区插件条目。 */
@@ -124,6 +126,9 @@ export interface PluginCommandResult {
   /** 合并后的命令输出（尾部若干行）。 */
   output: string
 }
+
+/** 已装用户插件 → npm registry 最新版（查询失败的包不进结果）。 */
+export type LatestVersions = Record<string, string>
 
 /* ---------- 技能 ---------- */
 
@@ -329,6 +334,8 @@ export interface DesktopBridge {
   dshLogs(): Promise<DshLogLine[]>
   upstreamStatus(): Promise<UpstreamStatus>
   pluginsInstalled(): Promise<InstalledPlugin[]>
+  /** 批量查 npm registry 最新版（包名 → latest；离线/失败返回空对象）。 */
+  pluginsLatest(names: string[]): Promise<LatestVersions>
   /**
    * 社区插件查询（GitHub topic `dsh-plugin`，按 ★ 倒序）。
    * @param query 关键词（空 = 全量榜单；服务端过滤，可搜到榜单外的插件）

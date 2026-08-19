@@ -19,6 +19,7 @@ const bridge: DesktopBridge = {
   upstreamSync: () => ipcRenderer.invoke('upstream:sync'),
   upstreamSetup: () => ipcRenderer.invoke('upstream:setup'),
   pluginsInstalled: () => ipcRenderer.invoke('plugins:installed'),
+  pluginsLatest: (names) => ipcRenderer.invoke('plugins:latest', names),
   pluginsCommunity: (query, page) => ipcRenderer.invoke('plugins:community', query, page),
   pluginAdd: (pkg) => ipcRenderer.invoke('plugins:add', pkg),
   pluginRemove: (pkg) => ipcRenderer.invoke('plugins:remove', pkg),
