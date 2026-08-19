@@ -9,13 +9,16 @@
  *
  * - profile 清单（package.json）不存在时预写完整骨架（对齐上游
  *   initProfile 模板：package.json + pnpm-workspace.yaml + cordis.patch.yml；
- *   上游只在清单缺失时写模板，预写不会被覆盖），bundles 层叠 =
- *   模板内置层 + 三个预置插件
- * - 已存在时补写缺失的 dependencies 条目与 bundles 项（锚点插在
- *   dsh-web-app / @kcoder/skills-bundle 之后，与 mac 开发机层叠一致）
- * - dependencies 有新增或 node_modules 缺包时跑一次 pnpm install
- *   （先确保 patch 声明就位——name-only 补丁在安装时自动应用；离线
- *   失败不抛，下次启动幂等重试）
+ *   上游只在清单缺失时写模板，预写不会被覆盖）
+ * - dependencies 补写缺失条目（可先行——dsh 只消费 bundles 层叠，不查
+ *   dependencies）
+ * - 安装经 dsh-contract.runPnpm（vendor 实体优先，普通用户机器无 pnpm）
+ *
+ * 原子性（v0.1.7 Windows 引擎起不来的教训）：dsh 启动对
+ * dsh.profile.bundles 逐项 resolveBundleDir，声明了而 node_modules 缺包
+ * 即崩溃。因此 bundles 声明严格跟随安装实态对账——装上才补声明，
+ * 装不上摘除幽灵声明（含旧版写入的坏状态自愈），dsh 裸起（无预置
+ * 插件但不崩），下次启动幂等重试。
  *
  * 版本策略：genui/context 用 ^（缺陷补丁跟随上游 minor/patch），
  * vision-router 精确锁定（keyed slot 契约适配版，防破坏性变更混入）。
@@ -24,9 +27,8 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
-import { WEB_PROFILE, dshHome } from './dsh-contract'
+import { WEB_PROFILE, dshHome, runPnpm } from './dsh-contract'
 import { ensureProfilePatches } from './profile-patches'
 
 /** 预置插件：bundle 名 → 依赖 spec（键顺序即层叠顺序，对齐 mac 开发机）。 */
@@ -72,7 +74,7 @@ function bundlesOf(manifest: Record<string, unknown>): string[] {
 
 /**
  * 幂等物化 + 注册（dsh 启动前调用）。任何失败只记日志不抛——预置插件
- * 缺席时 dsh 仍可正常启动，下次启动幂等重试。
+ * 缺席时 dsh 裸起仍可用，下次启动幂等重试。
  */
 export function ensurePresetPlugins(): void {
   try {
@@ -80,9 +82,12 @@ export function ensurePresetPlugins(): void {
     const manifestPath = join(profileDir, 'package.json')
     const workspacePath = join(profileDir, 'pnpm-workspace.yaml')
     const patchLayerPath = join(profileDir, 'cordis.patch.yml')
+    const installed = (p: string): boolean => existsSync(join(profileDir, 'node_modules', p))
+    const presetNames = Object.keys(PRESET_PLUGINS)
 
     // 1) 骨架：清单不存在 → 预写完整模板（上游 initProfile 只在缺失时写，
-    //    预写不会被模板覆盖）；依赖直接含预置插件，bundles 含预置层
+    //    预写不会被模板覆盖）。bundles 只含模板内置层——预置插件的声明
+    //    严格后置于安装成功（见第 4 步对账，防“声明了但没装上”让 dsh 崩）
     let manifest = readJson(manifestPath)
     const fresh = manifest === null
     if (fresh) {
@@ -91,7 +96,7 @@ export function ensurePresetPlugins(): void {
         name: `dsh-profile-${WEB_PROFILE}`,
         private: true,
         dependencies: { ...PRESET_PLUGINS },
-        dsh: { profile: { bundles: [...TEMPLATE_BUNDLES, ...Object.keys(PRESET_PLUGINS)] } },
+        dsh: { profile: { bundles: [...TEMPLATE_BUNDLES] } },
       }
       writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
       if (!existsSync(workspacePath)) writeFileSync(workspacePath, PROFILE_PNPM_WORKSPACE)
@@ -101,44 +106,53 @@ export function ensurePresetPlugins(): void {
     // 骨架分支已重建清单，此后 manifest 必非 null
     const m = manifest as Record<string, unknown>
 
-    // 2) 补写：dependencies 缺项 + bundles 缺失项（幂等）
+    // 2) 补写 dependencies 缺项（可先行——dsh 不查 dependencies，
+    //    只查 bundles 层叠解析）
     const deps = (m['dependencies'] as Record<string, unknown> | undefined) ?? ({} as Record<string, unknown>)
-    const bundles = bundlesOf(m)
-    const presetNames = Object.keys(PRESET_PLUGINS)
     const missingDeps = presetNames.filter((p) => !(p in deps))
-    const missingBundles = presetNames.filter((p) => !bundles.includes(p))
-    if (!fresh && (missingDeps.length > 0 || missingBundles.length > 0)) {
+    if (missingDeps.length > 0) {
       for (const p of missingDeps) deps[p] = PRESET_PLUGINS[p]
-      // 锚点：dsh-web-app / @kcoder/skills-bundle 之后（分发层顺序）
-      let anchor = bundles.indexOf('@kcoder/skills-bundle')
-      if (anchor === -1) anchor = bundles.indexOf(TEMPLATE_BUNDLES[1])
+      m['dependencies'] = deps
+      writeFileSync(manifestPath, `${JSON.stringify(m, undefined, 2)}\n`)
+      console.log(`[preset-plugins] 已补写依赖声明: ${missingDeps.join(', ')}`)
+    }
+
+    // 3) 安装：任何预置包缺席 → pnpm install（先确保 patch 声明就位——
+    //    name-only 补丁在安装时自动应用）。含幽灵态自愈：旧版本声明了
+    //    bundles 但装包失败，这里重装后由第 4 步对账落地声明
+    const needInstall = presetNames.some((p) => !installed(p))
+    if (needInstall) {
+      ensureProfilePatches()
+      console.log('[preset-plugins] 预置插件缺失，执行 pnpm install …')
+      const r = runPnpm(['install'], profileDir, 600_000)
+      if (r.status !== 0) {
+        console.error('[preset-plugins] pnpm install 失败（下次启动重试）:', r.stderr?.slice(0, 2000) ?? r.error)
+      }
+    }
+
+    // 4) bundles 声明对账（dsh 启动的唯一消费口）：已装未声明 → 补
+    //    （锚点 dsh-web-app / @kcoder/skills-bundle 之后，与 mac 开发机
+    //    层叠一致）；已声明未装（install 失败/半装）→ 摘除，防 dsh 启动
+    //    崩溃，下次启动重试重装
+    const bundles = bundlesOf(m)
+    const ghost = presetNames.filter((p) => bundles.includes(p) && !installed(p))
+    const undeclared = presetNames.filter((p) => !bundles.includes(p) && installed(p))
+    if (ghost.length > 0 || undeclared.length > 0) {
+      const kept = bundles.filter((p) => !ghost.includes(p))
+      let anchor = kept.indexOf('@kcoder/skills-bundle')
+      if (anchor === -1) anchor = kept.indexOf(TEMPLATE_BUNDLES[1])
       let offset = 0
-      for (const p of missingBundles) {
-        bundles.splice(anchor + 1 + offset, 0, p)
+      for (const p of undeclared) {
+        kept.splice(anchor + 1 + offset, 0, p)
         offset += 1
       }
       const dsh = (m['dsh'] ?? {}) as { profile?: Record<string, unknown> }
       const profile = (dsh.profile ?? {}) as Record<string, unknown>
-      m['dependencies'] = deps
-      m['dsh'] = { ...dsh, profile: { ...profile, bundles } }
+      m['dsh'] = { ...dsh, profile: { ...profile, bundles: kept } }
       writeFileSync(manifestPath, `${JSON.stringify(m, undefined, 2)}\n`)
       console.log(
-        `[preset-plugins] 已补写预置插件（依赖: ${missingDeps.join(', ') || '无'}，bundle: ${missingBundles.join(', ') || '无'}）`,
+        `[preset-plugins] bundles 对账（补声明: ${undeclared.join(', ') || '无'}，摘除未装: ${ghost.join(', ') || '无'}）`,
       )
-    }
-
-    // 3) 安装：依赖有新增或 node_modules 缺包 → pnpm install（先确保
-    //    patch 声明就位——name-only 补丁在安装时自动应用）
-    const needInstall =
-      fresh ||
-      missingDeps.length > 0 ||
-      presetNames.some((p) => !existsSync(join(profileDir, 'node_modules', p)))
-    if (!needInstall) return
-    ensureProfilePatches()
-    console.log('[preset-plugins] 预置插件缺失，执行 pnpm install …')
-    const r = spawnSync('pnpm', ['install'], { cwd: profileDir, encoding: 'utf8', timeout: 600_000 })
-    if (r.status !== 0) {
-      console.error('[preset-plugins] pnpm install 失败（下次启动重试）:', r.stderr?.slice(0, 2000) ?? r.error)
     }
   } catch (error) {
     console.error('[preset-plugins] 物化失败:', error)

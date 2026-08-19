@@ -18,7 +18,7 @@
  *
  * @module scripts/smoke-runtime
  */
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -38,6 +38,30 @@ for (let i = 0; i < args.length; i++) {
 if (!existsSync(join(dir, 'lib', 'bin.js'))) {
   console.error(`[smoke] ${dir} 下无 lib/bin.js`)
   process.exit(2)
+}
+
+// vendored pnpm 必须随运行时分发：预置插件/补丁物化链（桌面端
+// runPnpm）依赖它，普通用户机器没有 pnpm。缺了即坏包——禁止放行。
+{
+  const entry = join(dir, 'tools', 'pnpm', 'bin', 'pnpm.mjs')
+  if (!existsSync(entry)) {
+    console.error(`[smoke] ${dir} 下缺 tools/pnpm/bin/pnpm.mjs（预置插件安装链退回 PATH pnpm，普通用户机器不可用）`)
+    process.exit(2)
+  }
+  // Electron 二进制形态需 RUN_AS_NODE（与起服 spawn 同款 env 处理）
+  const v = spawnSync(exec, [entry, '--version'], {
+    encoding: 'utf8',
+    timeout: 60_000,
+    env: {
+      ...process.env,
+      ...(exec !== process.execPath ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
+    },
+  })
+  if (v.status !== 0 || !String(v.stdout).trim().startsWith('11.')) {
+    console.error(`[smoke] vendored pnpm 不可执行（exit=${v.status}，stdout=${String(v.stdout).trim()}，stderr=${String(v.stderr).trim().slice(0, 300)}）`)
+    process.exit(2)
+  }
+  console.log(`[smoke] vendored pnpm ${String(v.stdout).trim()} 可执行`)
 }
 
 const home = mkdtempSync(join(tmpdir(), 'dsh-smoke-'))

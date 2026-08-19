@@ -266,6 +266,48 @@ flatten(topNM)
 rmSync(join(topNM, '.pnpm'), { recursive: true, force: true })
 console.log(`[materialize] flatten：${flattened} 个 symlink→实体，已删 .pnpm`)
 
+// vendor pnpm：运行时不带包管理器，而预置插件/补丁物化链（桌面端
+// preset-plugins / profile-patches 的 runPnpm）在普通用户机器上没有
+// pnpm 可用（GUI 应用不经 shell 启动，Windows 用户通常也没装；PATH
+// 增强救不了没装）。pnpm npm 包零外部依赖（协作包自带在
+// dist/node_modules），解释器直跑 bin/pnpm.mjs 即可。版本对齐上游
+// packageManager 字段（pnpm@11.7.0）。
+{
+  const PNPM_VERSION = '11.7.0'
+  const dest = join(staging, 'tools', 'pnpm')
+  if (!existsSync(join(dest, 'bin', 'pnpm.mjs'))) {
+    console.log(`[materialize] vendor pnpm@${PNPM_VERSION} → tools/pnpm …`)
+    const fb = join(root, 'staging', '.pnpm-vendor')
+    rmSync(fb, { recursive: true, force: true })
+    mkdirSync(fb, { recursive: true })
+    writeFileSync(join(fb, 'package.json'), JSON.stringify({
+      name: 'kcoder-pnpm-vendor',
+      private: true,
+      dependencies: { pnpm: PNPM_VERSION },
+    }, null, 2))
+    try {
+      // 独立 cache：与 registry 兑底同理，避开全局 ~/.npm 历史权限问题
+      execSync('npm install --omit=dev --omit=optional --no-audit --no-fund --no-package-lock --cache .npm-cache', {
+        cwd: fb,
+        stdio: 'inherit',
+        // Windows 上 npm 是 cmd 脚本，必须 shell
+        shell: process.platform === 'win32',
+      })
+    } catch (err) {
+      console.error(`[materialize] pnpm vendor 安装失败：${String(err?.message ?? err)}`)
+      process.exit(1)
+    }
+    const src = join(fb, 'node_modules', 'pnpm')
+    if (!existsSync(join(src, 'bin', 'pnpm.mjs'))) {
+      console.error('[materialize] pnpm vendor 失败：产物缺 bin/pnpm.mjs')
+      process.exit(1)
+    }
+    mkdirSync(join(staging, 'tools'), { recursive: true })
+    cpSync(src, dest, { recursive: true })
+    rmSync(fb, { recursive: true, force: true })
+  }
+}
+
 // 瘦身：sourcemap（*.map）与类型声明（*.d.ts）是运行时死重（合计约
 // 1.4 万文件），删除后包体更小、签名/解压更快
 let pruned = 0

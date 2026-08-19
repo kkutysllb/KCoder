@@ -25,9 +25,8 @@
  */
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
-import { PROJECT_ROOT, WEB_PROFILE, dshHome } from './dsh-contract'
+import { PROJECT_ROOT, WEB_PROFILE, dshHome, runPnpm } from './dsh-contract'
 
 /** 分发的 patch 源目录（开发态仓库内；打包态 extraResources）。 */
 function patchSource(): string {
@@ -132,10 +131,11 @@ export function ensureProfilePatches(): void {
       return
     }
     // 3) 生效校验：插件已装但补丁未生效 → 一次性 install 应用；
-    //    插件未装则声明就位即可（后续 dsh plugin install 时 pnpm 自动应用）
+    //    插件未装则声明就位即可（后续 dsh plugin install 时 pnpm 自动应用）。
+    //    pnpm 经 dsh-contract.runPnpm（vendor 实体优先 + win32 shell）
     if (patchApplied(profileDir, files)) return
     console.log('[profile-patches] 插件已装但补丁未生效，执行 pnpm install 应用补丁 …')
-    const r = spawnSync('pnpm', ['install'], { cwd: profileDir, encoding: 'utf8', timeout: 600_000 })
+    const r = runPnpm(['install'], profileDir, 600_000)
     if (r.status !== 0) {
       console.error('[profile-patches] pnpm install 失败:', r.stderr?.slice(0, 2000) ?? r.error)
     }

@@ -24,7 +24,7 @@
  * @module desktop/main/dsh-contract
  */
 
-import { spawnSync } from 'node:child_process'
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -134,6 +134,51 @@ export const WEB_PROFILE = 'web'
 /** dsh Harness home（KCoder 默认 `~/.kcoder`，见 index.ts 预置；用户显式设置 DSH_HOME 时从之）。 */
 export function dshHome(): string {
   return process.env.DSH_HOME ?? join(homedir(), '.kcoder')
+}
+
+/**
+ * 运行时内 vendor 的 pnpm 入口（tools/pnpm/bin/pnpm.mjs；
+ * materialize-peers 物化，版本对齐上游 packageManager）。pnpm npm 包
+ * 零外部依赖（协作包自带在 dist/node_modules），解释器直跑入口即可。
+ * 开发态/未物化返回 null。
+ */
+export function vendoredPnpmEntry(): string | null {
+  const bundled = ensureBundledRuntime()
+  if (bundled !== null) {
+    const entry = join(bundled, 'tools', 'pnpm', 'bin', 'pnpm.mjs')
+    if (existsSync(entry)) return entry
+  }
+  return null
+}
+
+/**
+ * 在指定目录跑 pnpm（预置插件/补丁物化链的统一入口）：
+ * - 打包态优先 vendor 实体——普通用户机器没有 pnpm（GUI 应用不经
+ *   shell 启动，PATH 增强也救不了没装的），用与 dsh 同款解释器直跑；
+ * - 开发态回退 PATH 上的 pnpm；Windows 上 npm shim 是 .cmd，
+ *   CVE-2024-27980 加固后 spawn 必须带 shell（上游 plugin.ts 同款处理）。
+ */
+export function runPnpm(
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+): SpawnSyncReturns<string> {
+  const entry = vendoredPnpmEntry()
+  if (entry !== null) {
+    const runtime = resolveRuntime() ?? { command: process.execPath, args: [], isElectron: true }
+    return spawnSync(runtime.command, [...runtime.args, entry, ...args], {
+      cwd,
+      encoding: 'utf8',
+      timeout: timeoutMs,
+      env: runtime.isElectron ? { ...process.env, ELECTRON_RUN_AS_NODE: '1' } : process.env,
+    })
+  }
+  return spawnSync('pnpm', args, {
+    cwd,
+    encoding: 'utf8',
+    timeout: timeoutMs,
+    shell: process.platform === 'win32',
+  })
 }
 
 /** 上游 package.json 的 engines.node 要求；克隆缺失时返回 null。 */
