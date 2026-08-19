@@ -18,6 +18,7 @@ import { previewPanel } from './preview-panel'
 import { fileActivity } from './file-activity'
 import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-contract'
 import { ensureKcoderSkillsBundle } from './kcoder-skills-bundle'
+import { ensureBuiltinMcpServers } from './mcp-builtin'
 import { ensureProfilePatches } from './profile-patches'
 import { ensurePresetPlugins } from './preset-plugins'
 import { initUpdater } from './updater'
@@ -130,6 +131,8 @@ app.whenReady().then(() => {
   // KCoder 内置技能 bundle 物化进 web profile（幂等；dsh 读取 profile
   // 清单在此之前完成注册）
   ensureKcoderSkillsBundle()
+  // 内置 MCP 服务器物化（幂等；首次启动写入全部条目，升级时只追加新增项）
+  ensureBuiltinMcpServers()
   // 上游插件缺陷补丁物化（幂等；跨平台——Windows 无 launchd，随包分发
   // 的唯一通道；插件已装但补丁未生效时触发一次 pnpm install）
   ensureProfilePatches()

@@ -24,6 +24,7 @@ import { attachPicker } from './attach-picker'
 import { attachSessionLogInjector } from './session-log-export'
 import { attachStyleSettingsInjector } from './style-settings'
 import { attachSkillsSettingsInjector } from './skills-settings'
+import { attachMcpSettingsInjector } from './mcp-settings'
 import { attachPanelMenu } from './panel-menu'
 import { terminalPanel } from './terminal-panel'
 import { previewPanel } from './preview-panel'
@@ -145,6 +146,9 @@ export function showShellWindow(dshUrl: string): void {
     // 技能设置：设置面板导航列注入「技能」分区（三来源技能目录 +
     // 行展开正文；console 通道拉目录/正文，白名单读取）
     attachSkillsSettingsInjector(shellWindow)
+    // MCP 服务器：设置面板导航列注入「MCP 服务器」分区（列表 + 行内
+    // 编辑表单；console 通道 CRUD mcp-store，保存后上游 HMR 热加载）
+    attachMcpSettingsInjector(shellWindow)
     // 内嵌终端面板：底部真实终端（pty + xterm），页面探针/按钮注入
     // （按钮宿主是自绘标题栏，darwin/win32 注入；pty-host 平台无关）
     terminalPanel.attach(shellWindow)

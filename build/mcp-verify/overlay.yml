@@ -1,0 +1,11 @@
+# MCP 桥接验证 overlay（--patch 叠加，不进用户 profile）
+# patch 语义（cordis-plugin-include.applyEntryPatches）：
+#   insert + 无 id = 顶层 entry list 追加；这正是新增 mcp-client 实例的官方通道
+- insert:
+    - id: mcp-verify
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: verify
+        transport: stdio
+        command: node
+        args: ['/Users/libing/kk_Projects/KCoder/build/mcp-verify/server.js']
