@@ -13,8 +13,11 @@
  */
 
 import { EventEmitter } from 'node:events'
+import { homedir } from 'node:os'
+import { createWriteStream, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { app } from 'electron'
-import { autoUpdater } from 'electron-updater'
+import { autoUpdater, type Logger } from 'electron-updater'
 import { dshManager } from './dsh-manager'
 import type { UpdateState, UpdateStatus } from '@shared/ipc-contract'
 
@@ -45,12 +48,39 @@ function setState(next: UpdateState, patch: Partial<{ version: string | null; pr
   updateEvents.emit('state-changed', updateStatus())
 }
 
+/* ---------- 更新日志：electron-updater 内部事件落盘（排查有据） ---------- */
+
+let updaterLogStream: ReturnType<typeof createWriteStream> | null = null
+
+function updaterLog(level: 'info' | 'warn' | 'error' | 'debug', message?: unknown): void {
+  try {
+    if (updaterLogStream === null) {
+      // 首次写日志时才解析 DSH_HOME：index.ts 在 import 阶段即设置该
+      // 环境变量，但模块体执行先于其后的赋值语句，不可在此处读
+      const logDir = join(process.env.DSH_HOME ?? join(homedir(), '.kcoder'), 'logs')
+      mkdirSync(logDir, { recursive: true })
+      updaterLogStream = createWriteStream(join(logDir, 'updater.log'), { flags: 'a' })
+    }
+    const text = typeof message === 'string' ? message : JSON.stringify(message) ?? String(message)
+    updaterLogStream.write(`[${new Date().toISOString()}] [${level}] ${text}\n`)
+  } catch {
+    // 日志失败不阻塞更新链路
+  }
+}
+
 /* ---------- electron-updater 事件 → 状态机 ---------- */
 
 function wireAutoUpdater(): void {
   autoUpdater.autoDownload = true // 检测到即后台静默下载
   autoUpdater.autoInstallOnAppQuit = true // 用户忽略按钮时，退出顺手升级
-  autoUpdater.logger = null
+  // 不设 null：electron-updater 默认 console 直出会污染主进程 stdout，
+  // 而 null 又让生产事故零日志（此前排查全靠 ShipIt 日志）——改落盘
+  autoUpdater.logger = {
+    info: (m?: unknown) => updaterLog('info', m),
+    warn: (m?: unknown) => updaterLog('warn', m),
+    error: (m?: unknown) => updaterLog('error', m),
+    debug: (m: string) => updaterLog('debug', m),
+  } satisfies Logger
 
   autoUpdater.on('checking-for-update', () => setState('checking'))
   autoUpdater.on('update-available', (info) => {
@@ -102,8 +132,15 @@ export async function installUpdate(): Promise<UpdateStatus> {
   } catch {
     // 安装优先：即使侧车关停异常也不阻塞升级
   }
-  // isSilent=false 在 Windows 显示安装向导；macOS 直接替换重启
-  autoUpdater.quitAndInstall(false, true)
+  try {
+    // isSilent=false 在 Windows 显示安装向导；macOS 直接替换重启
+    autoUpdater.quitAndInstall(false, true)
+  } catch (err) {
+    // quitAndInstall 异常（Squirrel 桥缺失等）：回到 error 态而非
+    // unhandled rejection——否则界面永远停在 installing，进程也不退
+    setState('error', { error: `退出安装失败：${err instanceof Error ? err.message : String(err)}` })
+    return updateStatus()
+  }
   return updateStatus()
 }
 

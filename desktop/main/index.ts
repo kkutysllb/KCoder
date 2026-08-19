@@ -8,7 +8,7 @@
  * @module desktop/main
  */
 
-import { app } from 'electron'
+import { app, autoUpdater } from 'electron'
 import { dshManager } from './dsh-manager'
 import { registerIpc } from './ipc'
 import { installMenu, installTray, wireMenuRefresh } from './menu'
@@ -160,6 +160,16 @@ if (!gotLock) {
 }
 
 /* ---------- 退出序列：优雅关停 dsh，绝不留孤儿进程 ---------- */
+// 更新安装链路：quitAndInstall 会先关窗口、再 app.quit()——关窗阶段
+// before-quit 尚未触发，托盘保活的 close 拦截（hide）会挡住关窗，
+// app.quit() 永不执行 → 进程不退（现象：点击安装按钮后 app 卡死，
+// 必须手动退出才触发 ShipIt 安装）。before-quit-for-update 恰在关窗
+// 前发出（原生 autoUpdater 事件，Electron 文档钦定用于该场景），
+// 此处置位退出标志放行。
+autoUpdater.on('before-quit-for-update', () => {
+  markQuitting()
+})
+
 app.on('before-quit', (event) => {
   markQuitting() // 首位置位：主窗口 close 拦截放行，退出不被托盘保活挡死
   terminalPanel.dispose() // 杀内嵌终端 shell（SIGTERM 发出即离开）
