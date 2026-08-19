@@ -23,8 +23,10 @@
  *   点击行为不受影响（徽章 pointer-events:none）；
  * - rail：鲸鱼 SVG 同样藏起 + 旁插 logo img（复制 railFish 类名，
  *   hover 换图 CSS 继续生效）；
- * - 新会话空状态页（EmptyHero/HeroShell）：同把 34×25 鲸鱼换成 K
- *   logo；headline 换为产品 slogan（中文「所思，皆可成码」/英文
+ * - 新会话空状态页（EmptyHero/HeroShell）：同把 34×25 鲸鱼换成
+ *   侧边栏新样式（K+Coder 组合 Logo + 版本徽章上标，headline 首列
+ *   改 auto 撑开，slogan 文字随列右移）；headline 换为产品 slogan
+ *   （中文「所思，皆可成码」/英文
  *   "Think it, code it."，按当前文案是否含 CJK 自适应，语言切换
  *   自愈跟随）；预览徽章（“预览版”/"Preview"）为上游装饰，直接藏起。
  *   文本替换只改文本节点 .data——改 textContent 会移除 React 持有的
@@ -71,17 +73,27 @@ const logoDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-k.
 /**
  * 组合 Logo：K 图标 + "Coder" 字标渲染为单张 PNG（Avenir Next Bold，
  * 22px 等高、零间距紧贴），分深色主题（白字）/ 浅色主题（深字）两版。
- * 展开态 brand 按钮内直接用这一张图替换上游 BrandWordmark，不再需要
- * 独立的 word span 与间距 CSS。
+ * hero（新会话空态页）用这一张；展开态侧边栏用 K + coder 两张分体
+ * （徽章需精确锚在 "Coder" 字标右上角，见 coderDataUrl）。
  */
 const logoComboDarkDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-combo-dark.png')).toString('base64')}`
 const logoComboLightDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-combo-light.png')).toString('base64')}`
+
+/**
+ * "Coder" 字标单独裁剪版（从组合 PNG 的 x=88px@4x 起裁，即 K 框之后）。
+ * 侧边栏徽章锚这个元素——锚整张组合图时徽章（~66px 宽）会横跨到
+ * K 图标上方，观感像「K 右上角」；分体后徽章完全落在字标上方。
+ */
+const coderDarkDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-coder-dark.png')).toString('base64')}`
+const coderLightDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-coder-light.png')).toString('base64')}`
 
 /** 注入脚本（页面上下文执行，幂等 + 自愈）。 */
 const INJECT_JS = `(() => {
   const DATA_URL = ${JSON.stringify(logoDataUrl)}
   const DATA_DARK = ${JSON.stringify(logoComboDarkDataUrl)}
   const DATA_LIGHT = ${JSON.stringify(logoComboLightDataUrl)}
+  const CODER_DARK = ${JSON.stringify(coderDarkDataUrl)}
+  const CODER_LIGHT = ${JSON.stringify(coderLightDataUrl)}
   const UP = ${JSON.stringify(UPSTREAM_NAME)}
   const DOWN = ${JSON.stringify(BRAND_NAME)}
   const LOGO_ID = ${JSON.stringify(LOGO_ID)}
@@ -132,21 +144,48 @@ const INJECT_JS = `(() => {
       '[class*="root"]:not([class*="collapsed"]) [class*="logoRow"] [class*="brand"] svg{',
       '  display:none !important;',
       '}',
+      // hero headline 首列从固定 34px 改 auto：组合 Logo（K+Coder，宽约
+      // 140px）替换鲸鱼后需撑开首列，否则溢出盖住 slogan 文字；
+      // div 精确匹配 headline 容器（headlineText/previewBadge 均为 span）
+      'div[class*="headline"]{',
+      '  grid-template-columns: auto auto auto;',
+      '}',
     ].join('')
     document.head.appendChild(el)
   }
 
-  // ---- 展开：brand 按钮内 wordmark SVG 藏起 + 旁插 wrapper（logo 图 + 版本徽章）----
+  // ---- 版本徽章工厂（仅侧边栏展开态；hero 不带徽章） ----
+  // 上标形态：absolute 挂 coderWrap 右上角，右缘对齐 "Coder" 字标末尾，
+  // 顶部落在 coderWrap 顶部的徽章区内（字标沉底腾出的 12px）。不拦点击。
+  const badgeEl = (id) => {
+    const ver = document.createElement('span')
+    ver.id = id
+    ver.textContent = VER_TEXT
+    ver.style.position = 'absolute'
+    ver.style.top = '0px'
+    ver.style.right = '0px'
+    ver.style.fontSize = '9px'
+    ver.style.lineHeight = '1'
+    ver.style.padding = '2.5px 5px'
+    ver.style.borderRadius = '4px'
+    ver.style.background = 'var(--dsw-alias-bg-layer-2, rgba(128,128,128,.12))'
+    ver.style.color = 'var(--dsw-alias-label-tertiary, #999)'
+    ver.style.border = '1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.2))'
+    ver.style.whiteSpace = 'nowrap'
+    ver.style.pointerEvents = 'none'
+    return ver
+  }
+
+  // ---- 展开：brand 按钮内 wordmark SVG 藏起 + 旁插分体 wrapper ----
   // 不用 replaceWith：React 卸载时会 removeChild 它记录的旧 svg，
   // 节点被换走会抛 NotFoundError 崩整棵树（实测踩坑）。
-  // 组合 Logo 为单张 PNG（K 图标 + "Coder" 字标紧贴渲染），按主题选
-  // 深/浅字色版。
-  // wrapper（自持 span）：徽章的定位锚——brand 是 flex:1 撑满整行且
-  // overflow:hidden，锚按钮会把徽章推到行尾；锚 wrapper 且右缘对齐
-  // "Coder" 字标末尾。徽章为上标形态（同上游 HARNESS 徽章样式）：
-  // wrapper 加高到 34px，logo 图沉底，顶部 12px 作徽章区——徽章悬浮
-  // 在字标右上角上方而非压在文字上；brand 高度随 wrapper 撑开，
-  // top:0 的徽章在 overflow:hidden 边界内不被裁（负偏移方案必被裁）。
+  // 分体结构（K 图标 + coderWrap）：徽章须精确落在 "Coder" 字标右上
+  // 角——锚整张组合图时 ~66px 宽的徽章会横跨到 K 图标上方（观感像
+  // 「K 右上角」），分体后徽章完全落在字标上方。wrap 加高 34px
+  // （K/字标 22px 沉底 + 顶部 12px 徽章区），brand 高度随内容撑开，
+  // top:0 的徽章在 overflow:hidden 裁剪边界内不被裁（负偏移必被裁）。
+  // coderWrap 同高 34px 且字标沉底：徽章 absolute 锚它，top:0 才落在
+  // 字标上方的徽章区（coderWrap 只剩内容高 22px 的话会压在字标上）。
   const swapBrand = () => {
     const btn = document.querySelector('[class*="logoRow"] button[class*="brand"]')
     if (btn === null) return
@@ -155,53 +194,53 @@ const INJECT_JS = `(() => {
       if (svg !== null) {
         const wrap = document.createElement('span')
         wrap.id = LOGO_ID + '_wrap'
-        wrap.style.position = 'relative'
         wrap.style.display = 'inline-flex'
         wrap.style.alignItems = 'flex-end'
         wrap.style.flex = 'none'
-        // 上标区：logo 图沉底，顶部 12px 留给版本徽章（悬浮在 "Coder"
-        // 字标右上角）；brand 高度随 wrapper 撑到 34px，仍在 60px 的
-        // logoRow 内垂直居中，徽章不越 overflow:hidden 边界
         wrap.style.height = '34px'
-        const img = document.createElement('img')
-        img.id = LOGO_ID
-        img.src = document.body?.getAttribute('data-ds-dark-theme') !== null ? DATA_DARK : DATA_LIGHT
-        img.alt = ''
-        // 组合图高度对齐原 wordmark（22）；wrapper align-items:flex-end
-        // 使图沉底；不设 display——避免内联样式压过上游 CSS
-        img.style.height = '22px'
-        img.style.width = 'auto'
-        img.style.flex = 'none'
-        // 版本徽章：悬浮在 "Coder" 字标右上角的上标（右缘对齐字标
-        // 末尾，顶部在徽章区内），不拦新会话点击
-        const ver = document.createElement('span')
-        ver.id = LOGO_ID + '_ver'
-        ver.textContent = VER_TEXT
-        ver.style.position = 'absolute'
-        ver.style.top = '0px'
-        ver.style.right = '0px'
-        ver.style.fontSize = '9px'
-        ver.style.lineHeight = '1'
-        ver.style.padding = '2.5px 5px'
-        ver.style.borderRadius = '4px'
-        ver.style.background = 'var(--dsw-alias-bg-layer-2, rgba(128,128,128,.12))'
-        ver.style.color = 'var(--dsw-alias-label-tertiary, #999)'
-        ver.style.border = '1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.2))'
-        ver.style.whiteSpace = 'nowrap'
-        ver.style.pointerEvents = 'none'
-        wrap.append(img, ver)
+        const k = document.createElement('img')
+        k.id = LOGO_ID
+        k.src = DATA_URL
+        k.alt = ''
+        k.style.height = '22px'
+        k.style.width = '22px'
+        k.style.flex = 'none'
+        const coderWrap = document.createElement('span')
+        coderWrap.id = LOGO_ID + '_coder'
+        coderWrap.style.position = 'relative'
+        coderWrap.style.display = 'inline-flex'
+        coderWrap.style.alignItems = 'flex-end'
+        coderWrap.style.flex = 'none'
+        coderWrap.style.height = '34px'
+        const coder = document.createElement('img')
+        coder.id = LOGO_ID + '_coder_img'
+        coder.src = document.body?.getAttribute('data-ds-dark-theme') !== null ? CODER_DARK : CODER_LIGHT
+        coder.alt = ''
+        coder.style.height = '22px'
+        coder.style.width = 'auto'
+        coder.style.flex = 'none'
+        coderWrap.append(coder, badgeEl(LOGO_ID + '_ver'))
+        wrap.append(k, coderWrap)
         svg.style.display = 'none'
         svg.insertAdjacentElement('afterend', wrap)
       }
     }
   }
 
-  // ---- 主题切换：组合 Logo 换字色版（深色→白字版，浅色→深字版） ----
+  // ---- 主题切换：Logo 换字色版（深色→白字版，浅色→深字版） ----
+  // 侧边栏 coder 分体图与 hero 组合图各自同步换版
   const syncLogoTheme = () => {
-    const img = document.getElementById(LOGO_ID)
-    if (img === null) return
-    const want = document.body?.getAttribute('data-ds-dark-theme') !== null ? DATA_DARK : DATA_LIGHT
-    if (img.getAttribute('src') !== want) img.setAttribute('src', want)
+    const dark = document.body?.getAttribute('data-ds-dark-theme') !== null
+    const coder = document.getElementById(LOGO_ID + '_coder_img')
+    if (coder !== null) {
+      const want = dark ? CODER_DARK : CODER_LIGHT
+      if (coder.getAttribute('src') !== want) coder.setAttribute('src', want)
+    }
+    const hero = document.getElementById(LOGO_ID + '_hero')
+    if (hero !== null) {
+      const want = dark ? DATA_DARK : DATA_LIGHT
+      if (hero.getAttribute('src') !== want) hero.setAttribute('src', want)
+    }
   }
 
   // ---- rail：鲸鱼 SVG 藏起 + 旁插 logo img（复制类名，hover 换图生效）----
@@ -236,15 +275,17 @@ const INJECT_JS = `(() => {
 
   // ---- hero：新会话空状态页的鲸鱼/文案/预览徽章 ----
   const swapHero = () => {
-    // 鲸鱼 logo（EmptyHero_fish_<hash>；railFish 含大写 F 不会误匹配）
+    // 鲸鱼 logo → 组合 Logo（K+Coder 一体图，不带版本徽章；EmptyHero_
+    // fish_<hash>；railFish 含大写 F 不会误匹配）。headline 首列已改
+    // auto（installStyles），组合图撑开首列后 slogan 文字随列右移不被覆盖
     const svg = document.querySelector('svg[class*="fish"]')
     if (svg !== null && svg.nextElementSibling?.id !== LOGO_ID + '_hero') {
       const img = document.createElement('img')
       img.id = LOGO_ID + '_hero'
-      img.src = DATA_URL
+      img.src = document.body?.getAttribute('data-ds-dark-theme') !== null ? DATA_DARK : DATA_LIGHT
       img.alt = ''
       img.style.height = '26px'
-      img.style.width = '26px'
+      img.style.width = 'auto'
       img.style.flex = 'none'
       svg.style.display = 'none'
       svg.insertAdjacentElement('afterend', img)
