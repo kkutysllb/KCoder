@@ -13,11 +13,12 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { net } from 'electron'
-import { WEB_PROFILE, dshHome, resolveDshCommand } from './dsh-contract'
-import { ensureProfilePatches } from './profile-patches'
+import { WEB_PROFILE, dshHome, resolveDshCommand, vendoredPnpmEntry } from './dsh-contract'
+import { ensureProfilePatches, healLog } from './profile-patches'
 import { KCODER_SKILLS_BUNDLE } from './kcoder-skills-bundle'
 import { PRESET_PLUGINS } from './preset-plugins'
 import type {
@@ -132,16 +133,84 @@ export function installedPlugins(): InstalledPlugin[] {
 export async function latestVersions(names: string[]): Promise<LatestVersions> {
   const unique = [...new Set(names)].filter((n) => n !== '' && !n.startsWith('file:'))
   const result: LatestVersions = {}
+  const started = Date.now()
+  const failed: string[] = []
   await Promise.allSettled(
     unique.map(async (name) => {
       const url = `https://registry.npmjs.org/-/package/${encodeURIComponent(name)}/dist-tags`
-      const response = await net.fetch(url, { signal: AbortSignal.timeout(10_000) })
-      if (!response.ok) return
-      const body = JSON.parse((await response.text()) as string) as { latest?: unknown }
-      if (typeof body.latest === 'string') result[name] = body.latest
+      try {
+        const response = await net.fetch(url, { signal: AbortSignal.timeout(10_000) })
+        if (!response.ok) return
+        const body = JSON.parse((await response.text()) as string) as { latest?: unknown }
+        if (typeof body.latest === 'string') result[name] = body.latest
+      } catch {
+        failed.push(name) // 网络受限：UI 兑底显示已最新（假阴性），落盘留痕
+      }
     }),
   )
+  healLog(
+    `[latest] ${String(Object.keys(result).length)}/${String(unique.length)} 命中 耗时${String(Date.now() - started)}ms`
+    + (failed.length === 0 ? '' : ` 失败=[${failed.join(',')}]`),
+  )
   return result
+}
+
+/**
+ * pnpm 实际使用的 registry 线索（诊断假成功：镜像源 latest 落后时
+ * `update --latest` 在范围内空转成功，而 UI 查官方源仍提示更新）。
+ * GUI 进程 env 基本无 npm_config_registry，主要是用户 ~/.npmrc。
+ */
+function registryHints(): string {
+  const parts: string[] = []
+  const envRegistry = process.env.npm_config_registry
+  if (envRegistry !== undefined && envRegistry !== '') parts.push(`env=${envRegistry}`)
+  try {
+    const npmrc = readFileSync(join(homedir(), '.npmrc'), 'utf8')
+    const matched = /^registry\s*=\s*(\S+)/m.exec(npmrc)
+    if (matched !== null) parts.push(`npmrc=${matched[1]}`)
+  } catch {
+    // 无 ~/.npmrc = 默认官方源
+  }
+  return parts.length === 0 ? '默认 npmjs.org' : parts.join(' ')
+}
+
+/**
+ * win32 物化 vendored pnpm 的 cmd shim（$DSH_HOME/bin/pnpm.cmd），返回
+ * 其目录。上游 dsh plugin 写死 `spawnSync('pnpm', shell:win32)` 找 PATH
+ * 上的系统 pnpm——GUI 进程 PATH 不可控（可能没有 pnpm），且与 KCoder
+ * 自身 install/heal 链的 vendored pnpm 分叉（版本/行为/registry 均不可控，
+ * v0.2.1 Windows 更新仍提示更新疑点链）。前置 PATH 后 dsh 统一走
+ * vendored（ELECTRON_RUN_AS_NODE 同款直跑模式）。非 win32 / 未物化返回
+ * null，mac 行为不变（已验证）。
+ */
+function ensurePnpmShim(): string | null {
+  if (process.platform !== 'win32') return null
+  const entry = vendoredPnpmEntry()
+  if (entry === null) return null
+  const dir = join(dshHome(), 'bin')
+  const file = join(dir, 'pnpm.cmd')
+  const content = [
+    '@echo off',
+    'setlocal',
+    'set "ELECTRON_RUN_AS_NODE=1"',
+    `"${process.execPath}" "${entry}" %*`,
+    'endlocal & exit /b %ERRORLEVEL%',
+    '',
+  ].join('\r\n')
+  try {
+    mkdirSync(dir, { recursive: true })
+    let unchanged = false
+    try {
+      unchanged = readFileSync(file, 'utf8') === content
+    } catch {
+      // 首次物化无旧文件
+    }
+    if (!unchanged) writeFileSync(file, content)
+    return dir
+  } catch (error) {
+    console.error('[plugins] ensure pnpm shim failed:', error)
+    return null
+  }
 }
 
 /**
@@ -182,10 +251,20 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
       return
     }
     ensureProfilePeerRules(profileDir())
+    const shimDir = ensurePnpmShim()
+    const env: NodeJS.ProcessEnv = { ...process.env, ...command.env }
+    if (shimDir !== null) env.PATH = `${shimDir};${process.env.PATH ?? ''}`
+    const pkg = args[args.length - 1] ?? ''
+    const tracking = args[0] === 'update'
+    const before = tracking ? installedVersion(profileDir(), pkg) : null
+    healLog(
+      `[plugin-cmd] dsh plugin ${args.join(' ')}（${command.describe}；pnpm ${shimDir !== null ? 'vendored shim' : 'PATH 系统源'}；registry ${registryHints()}）`,
+    )
+    if (tracking) healLog(`[plugin-cmd] ${pkg} 更新前实装 ${before ?? '未知'}`)
     const full = [...command.baseArgs, 'plugin', '--profile', WEB_PROFILE, ...args]
     const child = spawn(command.command, full, {
       cwd: command.cwd,
-      env: { ...process.env, ...command.env },
+      env,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     const lines: string[] = []
@@ -208,6 +287,20 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
         } catch {
           // ensureProfilePatches 内部已兜底全部异常，此处防御性忽略
         }
+      }
+      if (tracking) {
+        // 前后实装对比：假成功（exit 0 但版本未变，如镜像源 latest 落后
+        // 空转）当场现形，不再需要用户转述 UI 一次性输出
+        const after = installedVersion(profileDir(), pkg)
+        healLog(
+          `[plugin-cmd] ${pkg} exit=${String(code)} 实装 ${before ?? '未知'} → ${after ?? '未知'}`
+          + (before !== null && after !== null && before === after ? '（版本未变！）' : ''),
+        )
+      } else {
+        healLog(`[plugin-cmd] dsh plugin ${args.join(' ')} exit=${String(code)}`)
+      }
+      if (code !== 0) {
+        healLog(`[plugin-cmd] 失败输出尾: ${lines.slice(-15).join(' | ').slice(0, 800)}`)
       }
       resolve({ ok: code === 0, output: lines.slice(-80).join('\n') })
     })

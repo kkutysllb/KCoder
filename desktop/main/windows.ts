@@ -24,6 +24,7 @@ import { attachPicker } from './attach-picker'
 import { attachSessionLogInjector } from './session-log-export'
 import { attachStyleSettingsInjector } from './style-settings'
 import { attachSkillsSettingsInjector } from './skills-settings'
+import { attachPanelMenu } from './panel-menu'
 import { terminalPanel } from './terminal-panel'
 import { previewPanel } from './preview-panel'
 import { gitPanel } from './git-panel'
@@ -152,6 +153,10 @@ export function showShellWindow(dshUrl: string): void {
     // git 环境面板：标题栏按钮 → 右上浮动面板（主进程 git 探测，
     // 工作区跟随 file-activity；按钮宿主同为自绘标题栏）
     gitPanel.attach(shellWindow)
+    // win32 面板收纳菜单：原生控制按钮区盖住右侧四枚面板按钮，
+    // 五钮收进一枚下拉菜单（点击转发原按钮，状态实时克隆；
+    // 其他平台 no-op 不注入）
+    attachPanelMenu(shellWindow)
     // 开合/拖宽 → 终端面板收窄让位（回调注入避免循环依赖）
     previewPanel.onLayoutChange = () => terminalPanel.relayout()
     // 右侧停靠互斥：任一面板展示时收起另一个（钩子只在 show 触发，
