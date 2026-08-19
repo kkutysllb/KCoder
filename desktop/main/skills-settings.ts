@@ -232,20 +232,28 @@ const PAGE_JS = `(() => {
       var grp = MEDIA[m]
       var card = document.createElement('div')
       card.className = 'dsk-mg'
-      var hasVal = false
+      var filledInGroup = 0
       for (var k = 0; k < grp.fields.length; k++) {
-        if ((mediaVals[grp.fields[k].key] || '') !== '') { hasVal = true; break }
+        if ((mediaVals[grp.fields[k].key] || '') !== '') filledInGroup++
       }
-      if (hasVal) card.classList.add('on')
+      if (filledInGroup > 0) card.classList.add('on')
       var head = document.createElement('div')
       head.className = 'dsk-mg-h'
       var hx = document.createElement('span'); hx.className = 'dsk-x'; hx.textContent = '\u25B8'
       var ht = document.createElement('span'); ht.className = 'dsk-mg-t'; ht.textContent = grp.title
-      var hn = document.createElement('span'); hn.className = 'dsk-mg-n'; hn.textContent = grp.note
-      head.append(hx, ht, hn)
+      head.append(hx, ht)
+      if (filledInGroup > 0) {
+        var cnt = document.createElement('span'); cnt.className = 'dsk-mg-cnt'
+        cnt.textContent = '\u5df2\u914d\u7f6e ' + filledInGroup
+        head.appendChild(cnt)
+      }
       head.addEventListener('click', function () { this.parentElement.classList.toggle('on') })
       var body = document.createElement('div')
       body.className = 'dsk-mg-b'
+      var hnote = document.createElement('div')
+      hnote.className = 'dsk-mg-note'
+      hnote.textContent = grp.note
+      body.appendChild(hnote)
       for (var j = 0; j < grp.fields.length; j++) {
         var f = grp.fields[j]
         var row = document.createElement('label')
@@ -476,12 +484,15 @@ const PAGE_JS = `(() => {
         '.dsk-mg { margin: 0 0 10px; border: 1px solid var(--dsw-alias-border-l2, #e2e2e4); border-radius: 10px; overflow: hidden; }',
         '.dsk-mg-h { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; user-select: none; }',
         '.dsk-mg-h:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,.08)); }',
-        '.dsk-mg-t { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary, #222); }',
-        '.dsk-mg-n { font-size: 11px; color: var(--dsw-alias-label-tertiary, #999); }',
+        // 卡头单行稳定：标题不压缩不换行（内容区实际仅 ~525px，标题+说明同行会互相挤压折成多行）；
+        // 说明文字（note）移展开体首行，右侧换「已配置」徽标
+        '.dsk-mg-t { flex: none; font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--dsw-alias-label-primary, #222); }',
+        '.dsk-mg-cnt { flex: none; margin-left: auto; font-size: 10px; line-height: 1; padding: 3px 7px; border-radius: 5px; background: var(--dsw-alias-bg-layer-2, #eee); color: var(--dsw-alias-label-secondary, #666); }',
         '.dsk-mg-h .dsk-x { font-size: 10px; color: var(--dsw-alias-label-tertiary, #999); transition: transform .12s ease; }',
         '.dsk-mg.on .dsk-mg-h .dsk-x { transform: rotate(90deg); }',
         '.dsk-mg-b { display: none; padding: 4px 12px 12px; border-top: 1px solid var(--dsw-alias-border-l2, #e2e2e4); }',
         '.dsk-mg.on .dsk-mg-b { display: block; }',
+        '.dsk-mg-note { font-size: 11px; line-height: 1.55; color: var(--dsw-alias-label-tertiary, #999); margin: 8px 0 4px; }',
         '.dsk-mf { display: flex; align-items: center; gap: 8px; margin: 7px 0; }',
         '.dsk-mf-l { flex: none; width: 118px; font-size: 12px; color: var(--dsw-alias-label-secondary, #888); text-align: right; }',
         '.dsk-mf-i { flex: 1; min-width: 0; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 5px 9px; border: 1px solid var(--dsw-alias-border-l3, #c8c8cc); border-radius: 6px; background: var(--dsw-alias-bg-layer-1, #fff); color: var(--dsw-alias-label-primary, #222); outline: none; }',

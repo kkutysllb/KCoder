@@ -47,15 +47,16 @@ const html = (vars) => `<!doctype html><html><head><meta charset="utf-8"><style>
   .nv { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: none; background: none; border-radius: 8px; cursor: pointer; color: inherit; }
   .nv.on { background: rgba(255,255,255,.1); font-weight: 600; }
 </style></head><body>
-<div role="dialog" aria-modal="true" style="display:flex;width:960px;height:600px;background:#1c1d1f;border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.5)">
-  <nav style="width:200px;background:#17181a;padding:16px 10px;flex:none;color:#e8eaed">
-    <div style="font-weight:600;margin:0 8px 10px">设置</div>
+<div role="dialog" aria-modal="true" style="display:flex;width:800px;height:600px;background:#1c1d1f;border-radius:24px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.5)">
+  <nav style="width:188px;flex:none;background:#17181a;padding:22px 12px 0;color:#e8eaed">
+    <div style="font-weight:500;margin:0 12px 10px;font-size:16px;line-height:24px">设置</div>
     <div>
       <button type="button" class="nv on" aria-current="true"><svg width="16" height="16"><circle cx="8" cy="8" r="7" fill="#888"/></svg><span>通用</span></button>
       <button type="button" class="nv"><svg width="16" height="16"><circle cx="8" cy="8" r="7" fill="#888"/></svg><span>模型</span></button>
     </div>
   </nav>
-  <div style="flex:1;padding:20px;overflow:auto;color:#e8eaed">
+  <!-- 对齐真实几何：panel 800 / nav 188 / options padding 0 24px 24px → 内容宽 564px -->
+  <div style="flex:1;min-width:0;padding:0 24px 24px;overflow-y:auto;color:#e8eaed">
     <div class="options"><div data-slot="settings.section"><div style="color:#555">原生分区内容占位</div></div></div>
   </div>
 </div>
@@ -141,6 +142,12 @@ async function runScenario(win, label, vars) {
       const secretInp = document.querySelector('.dsk-mf-i[data-key="GEMINI_API_KEY"]')
       const openGroups = Array.from(document.querySelectorAll('.dsk-mg')).filter(g => g.classList.contains('on')).length
       const filledGemini = secretInp === null ? null : secretInp.value
+      // 布局回归：真实 800px 对话框几何（内容区 ~525px）下卡头必须单行（≤36px 含 padding），
+      // 说明在展开体（.dsk-mg-note），已配置组头右侧有徽标
+      const headHs = Array.from(document.querySelectorAll('.dsk-mg-h')).map(h => +h.getBoundingClientRect().height.toFixed(1))
+      const maxHeadH = Math.max.apply(null, headHs)
+      const cntBadges = Array.from(document.querySelectorAll('.dsk-mg-cnt')).map(b => b.textContent)
+      const notes = document.querySelectorAll('.dsk-mg-note').length
       return JSON.stringify({
         nav: ${JSON.stringify(label)}, click: ${JSON.stringify(clicked)},
         rows: document.querySelectorAll('.dsk-row').length,
@@ -148,7 +155,7 @@ async function runScenario(win, label, vars) {
         mediaGroups: document.querySelectorAll('.dsk-mg').length,
         mediaInputs: document.querySelectorAll('.dsk-mf-i').length,
         mediaTitle, secretType: secretInp === null ? null : secretInp.type,
-        filledGemini, openGroups,
+        filledGemini, openGroups, maxHeadH, cntBadges, notes,
       })
     })()`,
     true,
@@ -172,6 +179,11 @@ async function runScenario(win, label, vars) {
   if (result.secretType !== 'password') fails.push(`密钥字段 type=${result.secretType} 应为 password`)
   if (result.filledGemini !== 'sk-img-x') fails.push('已存值未回填输入框')
   if (result.openGroups !== 1) fails.push(`含已存值组默认展开数=${result.openGroups} 应为 1`)
+  if (result.maxHeadH > 36) fails.push(`卡头换行错乱：最高 ${result.maxHeadH}px 应 ≤36px（单行）`)
+  if (result.notes !== 6) fails.push(`展开体说明条=${result.notes} 应为 6`)
+  if (!Array.isArray(result.cntBadges) || result.cntBadges.length !== 1 || !result.cntBadges[0].includes('已配置 2')) {
+    fails.push(`已配置组徽标异常: ${JSON.stringify(result.cntBadges)}`)
+  }
   // 保存链路：点击保存 → console 载荷 op=media-save（含新输入值）→ 应答回推按钮复位
   const mediaPayload = new Promise((resolve) => {
     win.webContents.once('console-message', (_e, _level, message) => resolve(message))
