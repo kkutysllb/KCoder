@@ -34,8 +34,29 @@ const WS_PREFIX = '__dsh_ws__:'
  * 48px：容纳四枚 26px 图标按钮与标题的宽松状态栏；页面注入等高
  * padding 下移，保证上游 UI 不被覆盖条遮挡（终端/预览面板 bounds
  * 不消费此高度：终端贴底、预览全高，按钮 top:50% 自居中）。
+ * Windows 同高（titleBarOverlay 控制按钮区高 48px）。
  */
 export const SHELL_TITLEBAR_HEIGHT = 48
+
+/**
+ * 自绘标题栏的平台差异（注入脚本插值用）：
+ * - leftPad：左侧保底（macOS 红绿灯区 78px；Windows 无红绿灯，12px）
+ * - padRight：右侧让位给窗口控制按钮（macOS 原生红绿灯在左，0；
+ *   Windows 用 titleBarOverlay 原生控制按钮，右段 138px 被系统占用，
+ *   标题栏整体加 padding-right 后，面板按钮的 right 定位值不用改）
+ */
+const TITLEBAR_PLATFORM = {
+  darwin: { leftPad: 78, padRight: 0 },
+  win32: { leftPad: 12, padRight: 138 },
+} as const
+
+/** Windows 控制按钮 overlay 的符号色（随主题在 applyShellChromeTheme 更新）。 */
+export function overlaySymbolColor(dark: boolean): string {
+  return dark ? '#C9CDD4' : '#57606A'
+}
+
+/** 当前平台的自绘标题栏参数（linux 等无自绘标题栏，回退 darwin 值不注入）。 */
+const TP = TITLEBAR_PLATFORM[process.platform as keyof typeof TITLEBAR_PLATFORM] ?? TITLEBAR_PLATFORM.darwin
 
 /**
  * 注入脚本（页面上下文）：观察上游主题在 DOM 上的落点并上报。
@@ -112,10 +133,10 @@ export function attachThemeWatcher(win: BrowserWindow): void {
   }
   const onDidLoad = (): void => {
     if (win.isDestroyed()) return
-    // 自绘标题栏 + 页面下移仅 darwin（titleBarStyle:'hidden' 只在 mac
-    // 启用，其余平台保留系统标题栏，注入会造成双标题栏）；
+    // 自绘标题栏 + 页面下移仅 darwin/win32（titleBarStyle:'hidden' 只在
+    // 这两平台启用，Linux 保留系统标题栏，注入会造成双标题栏）；
     // 上游 html/body/#root 均 height:100%，padding 下移不溢出
-    if (process.platform === 'darwin') {
+    if (process.platform === 'darwin' || process.platform === 'win32') {
       webContents.executeJavaScript(SHELL_TITLEBAR_JS, true).catch(() => {})
     }
     webContents.executeJavaScript(WATCH_JS, true).catch(() => {
@@ -158,8 +179,9 @@ export function themeBackgroundColor(pref: 'system' | 'light' | 'dark' = getSett
  *   会触发既有 observer 重渲染），
  *   起排在中间会话列左缘（侧边栏右边线 + 12px，探测 sidebarCol 实时
  *   广播为 --dsh-sidebar-w，拖宽/折叠动画平滑跟随；侧边栏收起时保底
- *   红绿灯区 78px）；max-width 自适应避让：右侧取按钮带（134px =
- *   四枚 26px 图标按钮：终端 12/预览 44/轨迹 76/日志 108px 序）与
+ *   左侧让位区）；max-width 自适应避让：右侧取按钮带（134px =
+ *   四枚 26px 图标按钮：终端 12/预览 44/轨迹 76/日志 108px 序，Windows
+ *   另加 padRight 让位原生控制按钮区）与
  *   文件预览抽屉宽度（--dsh-preview-inset，抽屉是全高 WebContentsView、
  *   打开时盖住标题栏右段）之大者，长标题省略号截断不钻抽屉底下；
  * - 背景直接解析上游 token `--dsw-specific-sidebar-fill`（body 计算值），
@@ -182,6 +204,7 @@ const SHELL_TITLEBAR_JS = `(() => {
   bar.id = ID_BAR
   bar.style.cssText = [
     'position:fixed', 'top:0', 'left:0', 'right:0', 'height:' + H + 'px',
+    'padding-right:' + TP.padRight + 'px',
     'z-index:2147483647',
     '-webkit-app-region:drag',
     'display:flex', 'align-items:center', 'justify-content:flex-start',
@@ -194,8 +217,8 @@ const SHELL_TITLEBAR_JS = `(() => {
   const label = document.createElement('span')
   label.style.cssText = [
     'flex:0 1 auto',
-    'margin-left:max(78px, var(--dsh-sidebar-w, 0px) + 12px)',
-    'max-width:calc(100% - max(78px, var(--dsh-sidebar-w, 0px) + 12px) - max(134px, calc(var(--dsh-preview-inset, 0px) + var(--dsh-git-inset, 0px))))',
+    'margin-left:max(' + TP.leftPad + 'px, var(--dsh-sidebar-w, 0px) + 12px)',
+    'max-width:calc(100% - max(' + TP.leftPad + 'px, var(--dsh-sidebar-w, 0px) + 12px) - max(' + (134 + TP.padRight) + 'px, calc(var(--dsh-preview-inset, 0px) + var(--dsh-git-inset, 0px))))',
     'display:flex', 'align-items:center', 'min-width:0', 'white-space:nowrap',
   ].join(';')
   // 工作区段：实体按钮（文件夹图标 + 名字；点击打开工作区目录）。
@@ -309,4 +332,14 @@ const SHELL_TITLEBAR_JS = `(() => {
 export function applyShellChromeTheme(win: BrowserWindow, pref: 'system' | 'light' | 'dark'): void {
   if (win.isDestroyed()) return
   win.setBackgroundColor(themeBackgroundColor(pref))
+  // Windows：titleBarOverlay 原生控制按钮区（最小化/最大化/关闭）随
+  // 主题同步底色与符号色（创建时经 options 预置，主题切换后这里刷新）
+  if (process.platform === 'win32') {
+    const dark = pref === 'system' ? nativeTheme.shouldUseDarkColors : pref === 'dark'
+    win.setTitleBarOverlay({
+      color: themeBackgroundColor(pref),
+      symbolColor: overlaySymbolColor(dark),
+      height: SHELL_TITLEBAR_HEIGHT,
+    })
+  }
 }

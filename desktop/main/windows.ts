@@ -10,13 +10,13 @@
 
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { BrowserWindow, shell } from 'electron'
+import { BrowserWindow, nativeTheme, shell } from 'electron'
 import { resolveAsset } from './dsh-contract'
 import { dshManager } from './dsh-manager'
 import { installUpdate } from './updater'
 import { attachUpdateInjector } from './update-injector'
 import { attachBrandInjector } from './brand-injector'
-import { attachThemeWatcher, themeBackgroundColor } from './theme-watcher'
+import { attachThemeWatcher, overlaySymbolColor, SHELL_TITLEBAR_HEIGHT, themeBackgroundColor } from './theme-watcher'
 import { attachStyleOverlay } from './style-overlay'
 import { attachWorkspaceHeader } from './workspace-header'
 import { attachStatsHover } from './stats-hover'
@@ -69,13 +69,26 @@ export function showShellWindow(dshUrl: string): void {
       title: 'KCoder',
       // 按上次已知主题设底色，页面加载期间不白闪/黑闪
       backgroundColor: themeBackgroundColor(),
-      // macOS：隐藏系统标题栏但保留红绿灯（'hidden'）；标题栏由
+      // macOS/Windows：隐藏系统标题栏（macOS 保留红绿灯；Windows 用
+      // titleBarOverlay 原生控制按钮——绘制在窗口最上层，不被面板
+      // WebContentsView 遮挡，自绘按钮做不到这点）。标题栏本体由
       // theme-watcher 注入自绘拖拽区（VS Code 同款）：颜色直接解析
-      // 上游 token 随主题实时变化，双击缩放/拖拽原生可用，标题显示
+      // 上游 token 随主题实时变化，拖拽移动原生可用，标题显示
       // document.title（上游 DocumentTitle 投射会话任务标题）。
-      // 注：不用 WCO 覆盖条——它在 macOS 不渲染标题且双击缩放失效。
-      ...(process.platform === 'darwin'
-        ? { titleBarStyle: 'hidden' as const }
+      // 注：macOS 不用 WCO 覆盖条——它在 macOS 不渲染标题且双击缩放失效。
+      ...(process.platform === 'darwin' || process.platform === 'win32'
+        ? {
+            titleBarStyle: 'hidden' as const,
+            ...(process.platform === 'win32'
+              ? {
+                  titleBarOverlay: {
+                    color: themeBackgroundColor(),
+                    symbolColor: overlaySymbolColor(nativeTheme.shouldUseDarkColors),
+                    height: SHELL_TITLEBAR_HEIGHT,
+                  },
+                }
+              : {}),
+          }
         : {}),
       // 官方 DeepSeek 图标（macOS 用 Dock 图标，此项服务 Linux/Windows）
       icon: resolveAsset('icon.png'),
@@ -90,6 +103,9 @@ export function showShellWindow(dshUrl: string): void {
       shellWindow?.maximize()
       shellWindow?.show()
     })
+    // Windows：应用菜单（menu.ts 全局设置）会占一行窗口内菜单栏，与
+    // 自绘标题栏叠出双栏；隐藏（Alt 临时唤出菜单属系统行为，保留）
+    if (process.platform === 'win32') shellWindow.setMenuBarVisibility(false)
     shellWindow.on('resized', persistBounds)
     shellWindow.on('moved', persistBounds)
     // 托盘保活：关主窗口 = 隐藏（dsh 继续跑，SPA 状态保留，重新
@@ -129,21 +145,19 @@ export function showShellWindow(dshUrl: string): void {
     // 行展开正文；console 通道拉目录/正文，白名单读取）
     attachSkillsSettingsInjector(shellWindow)
     // 内嵌终端面板：底部真实终端（pty + xterm），页面探针/按钮注入
-    // （按钮宿主是自绘标题栏，仅 darwin）
-    if (process.platform === 'darwin') terminalPanel.attach(shellWindow)
+    // （按钮宿主是自绘标题栏，darwin/win32 注入；pty-host 平台无关）
+    terminalPanel.attach(shellWindow)
     // 文件预览抽屉：右侧 agent 文件活动预览（mux 订阅 + 语法高亮/diff）
-    if (process.platform === 'darwin') {
-      previewPanel.attach(shellWindow)
-      // git 环境面板：标题栏按钮 → 右上浮动面板（主进程 git 探测，
-      // 工作区跟随 file-activity；按钮宿主同为自绘标题栏）
-      gitPanel.attach(shellWindow)
-      // 开合/拖宽 → 终端面板收窄让位（回调注入避免循环依赖）
-      previewPanel.onLayoutChange = () => terminalPanel.relayout()
-      // 右侧停靠互斥：任一面板展示时收起另一个（钩子只在 show 触发，
-      // 无环；互斥关闭不算手动关，git 面板保留任务期自动展开资格）
-      gitPanel.onShow = () => previewPanel.hide()
-      previewPanel.onShow = () => gitPanel.hideByConflict()
-    }
+    previewPanel.attach(shellWindow)
+    // git 环境面板：标题栏按钮 → 右上浮动面板（主进程 git 探测，
+    // 工作区跟随 file-activity；按钮宿主同为自绘标题栏）
+    gitPanel.attach(shellWindow)
+    // 开合/拖宽 → 终端面板收窄让位（回调注入避免循环依赖）
+    previewPanel.onLayoutChange = () => terminalPanel.relayout()
+    // 右侧停靠互斥：任一面板展示时收起另一个（钩子只在 show 触发，
+    // 无环；互斥关闭不算手动关，git 面板保留任务期自动展开资格）
+    gitPanel.onShow = () => previewPanel.hide()
+    previewPanel.onShow = () => gitPanel.hideByConflict()
     // 只允许停留在 dsh 回环地址；外链交给系统浏览器
     shellWindow.webContents.setWindowOpenHandler(({ url }) => {
       if (url.startsWith('kcoder:')) return { action: 'deny' }

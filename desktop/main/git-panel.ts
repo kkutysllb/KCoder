@@ -6,7 +6,7 @@
  * 无法点击收起），且嵌入感过重。浮动卡片：顶部让出标题栏
  * （y = {@link PANEL_TOP}），四周留边距，页面内圆角+阴影。
  *
- * - 入口按钮：自绘标题栏（theme-watcher 注入宿主，仅 darwin），完整
+ * - 入口按钮：自绘标题栏（theme-watcher 注入宿主，darwin/win32），完整
  *   序列：终端 12 / 预览 44 / 轨迹 76 / 日志 108 / git 140；徽章显
  *   示相对 HEAD 的 +N −N 行数（numstat 求和，agent 连续编辑也反映）；
  * - 面板：透明背景 WebContentsView，bounds 为右侧浮动矩形（不盖
