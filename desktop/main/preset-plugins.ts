@@ -20,8 +20,10 @@
  * 装不上摘除幽灵声明（含旧版写入的坏状态自愈），dsh 裸起（无预置
  * 插件但不崩），下次启动幂等重试。
  *
- * 版本策略：genui/context 用 ^（缺陷补丁跟随上游 minor/patch），
- * vision-router 精确锁定（keyed slot 契约适配版，防破坏性变更混入）。
+ * 版本策略：预置 spec 锁定开箱已验证 patch 兼容的版本线（^ 对 0.x 仅
+ * patch 级跟随，minor 升级不自动跟进）；用户主动“更新”经插件管理
+ * update --latest 升线。vision-router 精确锁定（keyed slot 契约适配版，
+ * 防破坏性变更混入）。
  *
  * @module desktop/main/preset-plugins
  */
@@ -119,7 +121,9 @@ export function ensurePresetPlugins(): void {
 
     // 3) 安装：任何预置包缺席 → pnpm install（先确保 patch 声明就位——
     //    name-only 补丁在安装时自动应用）。含幽灵态自愈：旧版本声明了
-    //    bundles 但装包失败，这里重装后由第 4 步对账落地声明
+    //    bundles 但装包失败，这里重装后由第 4 步对账落地声明。
+    //    install 成功后二调 ensureProfilePatches：补丁未生效时（如
+    //    v0.1.9 Windows CRLF patch 现场）重装应用 + 锄点注入兑底
     const needInstall = presetNames.some((p) => !installed(p))
     if (needInstall) {
       ensureProfilePatches()
@@ -127,6 +131,8 @@ export function ensurePresetPlugins(): void {
       const r = runPnpm(['install'], profileDir, 600_000)
       if (r.status !== 0) {
         console.error('[preset-plugins] pnpm install 失败（下次启动重试）:', r.stderr?.slice(0, 2000) ?? r.error)
+      } else {
+        ensureProfilePatches()
       }
     }
 

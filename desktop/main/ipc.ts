@@ -66,7 +66,10 @@ export function registerIpc(): void {
   ipcMain.handle('plugins:community', (_event, query?: string, page?: number) => communityPlugins(query, page))
   ipcMain.handle('plugins:add', (_event, pkg: string) => runPluginCommand(['add', pkg]))
   ipcMain.handle('plugins:remove', (_event, pkg: string) => runPluginCommand(['remove', pkg]))
-  ipcMain.handle('plugins:update', (_event, pkg: string) => runPluginCommand(['update', pkg]))
+  // --latest 必须显式：pnpm update 遵守 package.json 范围，而 0.x 包的
+  // ^ 只允许 patch 级（^0.12.2 不含 0.13.0）——不加会在范围内空转
+  // 成功，版本纹丝不动（v0.1.9 mac 点击“更新”显示成功但仍提示更新的根因）
+  ipcMain.handle('plugins:update', (_event, pkg: string) => runPluginCommand(['update', '--latest', pkg]))
 
   /* ---- 应用自动更新 ---- */
   ipcMain.handle('update:status', () => updateStatus())

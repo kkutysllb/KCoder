@@ -1,0 +1,6 @@
+# unified diff patch 必须字节保真：GitHub Windows runner 的 Git 默认
+# core.autocrlf=true，checkout 时把文本文件转成 CRLF，打进安装包的
+# CRLF patch 无法应用到 LF 的 npm 包文件（pnpm 静默跳过 → 插件裸装 →
+# v0.1.9 Windows "keyed slot requires options.key" 加载失败的根因）。
+# -text 禁止对该类文件做任何行尾转换/归一化，三平台 checkout 字节一致。
+*.patch -text

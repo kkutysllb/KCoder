@@ -36,6 +36,7 @@ const PATCH_MARKS = {
   'dsh-plugin-genui': [
     ['lib/client.js', 'key: "genui-design"'],
     ['lib/index.js', 'ctx.settings.register("genui-design"'],
+    ['lib/index.js', '"agents",\n\t"settings"'],
   ],
   'dsh-context': [['lib/index.js', 'delete st.pendingShadowedSeqs']],
 }

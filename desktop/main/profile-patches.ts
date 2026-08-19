@@ -49,9 +49,88 @@ const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
   'dsh-plugin-genui': [
     ['lib/client.js', 'key: "genui-design"'],
     ['lib/index.js', 'ctx.settings.register("genui-design"'],
+    // inject 数组的 "settings"（ctx.settings 可用的必要条件，缺失时
+    // register 反而会造成新的运行时错误）
+    ['lib/index.js', '"agents",\n\t"settings"'],
   ],
   // 修复版用 delete 清理投影状态；原版为置 undefined（缓存残留根因）
   'dsh-context': [['lib/index.js', 'delete st.pendingShadowedSeqs']],
+}
+
+/**
+ * mark 缺失时的锄点注入兑底（与 patch 内容等价；pnpm patch 机制在任何
+ * 平台/版本下静默失败时的第三层保险——锄不中或多处命中则跳过留警告，
+ * 绝不盲改）。锄点基于当前锁定版本（genui 0.12.2 唯一版）的产物字节。
+ */
+interface PatchFallback {
+  pkg: string
+  file: string
+  /** 生效特征（已含则跳过，幂等） */
+  mark: string
+  /** 锄子串（须在文件中恰好出现一次） */
+  anchor: string
+  /** 锄后插入（含前导换行）；或整段替换 */
+  inject?: string
+  replace?: string
+}
+
+const PATCH_FALLBACKS: PatchFallback[] = [
+  {
+    pkg: 'dsh-plugin-genui', file: 'lib/client.js',
+    mark: 'key: "genui-design"',
+    anchor: 'name: "settings.plugin.item",',
+    inject: '\n\t\t\tkey: "genui-design",',
+  },
+  {
+    pkg: 'dsh-plugin-genui', file: 'lib/index.js',
+    mark: 'ctx.settings.register("genui-design"',
+    anchor: 'async function apply(ctx, config) {',
+    inject: '\n\tctx.settings.register("genui-design", z.object({}), { applies: "live" });',
+  },
+  {
+    pkg: 'dsh-plugin-genui', file: 'lib/index.js',
+    mark: '"agents",\n\t"settings"',
+    anchor: '"webServer",\n\t"agents"',
+    replace: '"webServer",\n\t"agents",\n\t"settings"',
+  },
+  {
+    pkg: 'dsh-context', file: 'lib/index.js',
+    mark: 'delete st.pendingShadowedSeqs',
+    anchor: 'st.pendingShadowedSeqs = void 0;',
+    replace: 'delete st.pendingShadowedSeqs;',
+  },
+]
+
+/**
+ * 锄点注入兑底：逐规则校验 mark，缺失且锄唯一命中时直接改写
+ * node_modules 内的产物文件（hoisted 实体文件，pnpm 不校验内容）。
+ * 任何不确定（锄 0 处/多 处/读写失败）都跳过——宁可裸装报错也不盲改。
+ */
+function enforcePatchFallbacks(profileDir: string): void {
+  for (const rule of PATCH_FALLBACKS) {
+    const file = join(profileDir, 'node_modules', rule.pkg, rule.file)
+    let text: string
+    try {
+      text = readFileSync(file, 'utf8')
+    } catch {
+      continue // 插件未装/文件缺失：不适用
+    }
+    if (text.includes(rule.mark)) continue
+    const hits = text.split(rule.anchor).length - 1
+    if (hits !== 1) {
+      console.warn(`[profile-patches] 兑底注入跳过（锄点 ${hits} 处命中）：${rule.pkg}/${rule.file}`)
+      continue
+    }
+    const next = rule.replace !== undefined
+      ? text.replace(rule.anchor, rule.replace)
+      : text.replace(rule.anchor, rule.anchor + (rule.inject ?? ''))
+    try {
+      writeFileSync(file, next)
+      console.log(`[profile-patches] 已兑底注入：${rule.pkg}/${rule.file}`)
+    } catch (error) {
+      console.warn(`[profile-patches] 兑底注入写入失败（${rule.pkg}/${rule.file}）：`, error)
+    }
+  }
 }
 
 /**
@@ -122,9 +201,21 @@ export function ensureProfilePatches(): void {
       console.warn('[profile-patches] profile 尚未初始化（pnpm-workspace.yaml 缺失），跳过')
       return
     }
-    // 1) patch 文件物化（幂等：直接覆盖，文件小且内容稳定）
+    // 1) patch 文件物化（幂等：直接覆盖，文件小且内容稳定）。
+    //    落盘后行尾归一化为 LF：Windows CI 的 git autocrlf 可能把源转成
+    //    CRLF，而 npm 包文件是 LF，CRLF patch 无法应用（v0.1.9 Windows
+    //    插件加载失败根因的兑底；根治靠 .gitattributes）
     mkdirSync(join(profileDir, 'patches'), { recursive: true })
-    for (const f of files) copyFileSync(join(source, f), join(profileDir, 'patches', f))
+    for (const f of files) {
+      const dest = join(profileDir, 'patches', f)
+      copyFileSync(join(source, f), dest)
+      const raw = readFileSync(dest, 'utf8')
+      const lf = raw.replace(/\r\n/g, '\n')
+      if (lf !== raw) {
+        writeFileSync(dest, lf)
+        console.warn(`[profile-patches] ${f} 行尾已归一化为 LF（源疑似 CRLF）`)
+      }
+    }
     // 2) patchedDependencies 声明（幂等）
     if (!ensurePatchDeclared(profileDir, files)) {
       console.warn('[profile-patches] 声明写入失败（缺 nodeLinker: hoisted 锚点），跳过')
@@ -132,12 +223,17 @@ export function ensureProfilePatches(): void {
     }
     // 3) 生效校验：插件已装但补丁未生效 → 一次性 install 应用；
     //    插件未装则声明就位即可（后续 dsh plugin install 时 pnpm 自动应用）。
-    //    pnpm 经 dsh-contract.runPnpm（vendor 实体优先 + win32 shell）
+    //    pnpm 经 dsh-contract.runPnpm（vendor 实体优先 + win32 shell）。
+    //    install 重试后仍未生效（patch 机制静默失败）→ 锄点注入兑底
     if (patchApplied(profileDir, files)) return
     console.log('[profile-patches] 插件已装但补丁未生效，执行 pnpm install 应用补丁 …')
     const r = runPnpm(['install'], profileDir, 600_000)
     if (r.status !== 0) {
       console.error('[profile-patches] pnpm install 失败:', r.stderr?.slice(0, 2000) ?? r.error)
+    }
+    if (!patchApplied(profileDir, files)) {
+      console.warn('[profile-patches] pnpm patch 未生效，执行锄点兑底注入 …')
+      enforcePatchFallbacks(profileDir)
     }
   } catch (error) {
     console.error('[profile-patches] 物化失败:', error)
