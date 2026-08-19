@@ -31,15 +31,24 @@ const IN_BOX_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', KCO
  * 这类误导性噪音——这些包本就不该装进 profile（会复制一份 cordis 实例）。
  */
 const DS_HOST_PEER_FALLBACK = [
+  '@deepseek-ai/dsh-agent',
   '@deepseek-ai/dsh-brand',
+  '@deepseek-ai/dsh-client-locale',
+  '@deepseek-ai/dsh-client-runtime',
+  '@deepseek-ai/dsh-client-ui-conversation',
+  '@deepseek-ai/dsh-client-ui-slots',
+  '@deepseek-ai/dsh-client-ui-tool',
   '@deepseek-ai/dsh-commands',
   '@deepseek-ai/dsh-credentials',
   '@deepseek-ai/dsh-home-paths',
+  '@deepseek-ai/dsh-host-webserver',
   '@deepseek-ai/dsh-invariants',
   '@deepseek-ai/dsh-launch-environment',
   '@deepseek-ai/dsh-llm',
+  '@deepseek-ai/dsh-mcp-client',
   '@deepseek-ai/dsh-session',
   '@deepseek-ai/dsh-settings',
+  '@deepseek-ai/dsh-system-prompt',
   '@deepseek-ai/dsh-timeout',
   '@deepseek-ai/dsh-tools',
 ]
