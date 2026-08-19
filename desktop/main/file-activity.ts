@@ -433,7 +433,8 @@ class FileActivity extends EventEmitter {
         // HistoryEntry.view 与 mux 帧同构（ToolEventView：for + view.card）
         if (e?.view?.for !== 'result' || e.view.view === undefined) continue
         const entry = this.entryFromCard(e.view.view, wsKey)
-        if (entry !== null) this.record(entry, wsKey)
+        // replay=true：历史回放只进列表，不触发 git 面板自动展开
+        if (entry !== null) this.record(entry, wsKey, true)
       }
     } catch {
       // dsh 重启间隙 / 响应非 JSON 等：静默，下次会话打开重试
@@ -618,13 +619,14 @@ class FileActivity extends EventEmitter {
     return null
   }
 
-  /** 入列（同文件聚合、上限淘汰）+ 通知监听方（带桶键供过滤）。 */
-  private record(entry: PreviewEntry, wsKey: string): void {
+  /** 入列（同文件聚合、上限淘汰）+ 通知监听方（带桶键供过滤；replay=
+   * 历史回放——git 面板不因其自动展开，预览列表照常消费）。 */
+  private record(entry: PreviewEntry, wsKey: string, replay = false): void {
     const bucket = this.bucketOf(wsKey)
     bucket.delete(entry.path)
     bucket.set(entry.path, entry)
     this.trim(bucket)
-    this.emit('activity', entry, wsKey)
+    this.emit('activity', entry, wsKey, replay)
   }
 
   /** 桶懒建（工作区数量级小，无回收）。 */

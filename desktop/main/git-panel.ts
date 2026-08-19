@@ -22,8 +22,10 @@
  * - 写操作：commit（add -A + commit）/ push（有上游直接推，无则
  *   -u origin HEAD）/ checkout / branch+checkout。git 自身是安全
  *   网（脏工作区 checkout 会被拒），错误首行透出到面板 toast；
- * - 自动展开：agent 文件活动（file-activity）且面板关着且未被手动
- *   抑制 → show；用户手动关闭置 autoSuppressed，活动静默
+ * - 自动展开：agent 文件活动（file-activity，仅当前工作区的实时
+ *   活动——历史回放/后台工作区不算）且面板关着且未被手动抑制且
+ *   当前工作区是 git 仓库（非 git 工作区没有可展示的环境信息，
+ *   弹出即空壳）→ show；用户手动关闭置 autoSuppressed，活动静默
  *   {@link AUTO_IDLE_MS} 后解除（下次任务重新自动展开）；
  * - 通道：上行 console `__dsh_git__:`（仅按钮 toggle）；面板视图 ↔
  *   主进程走 IPC git:*（契约见 shared/ipc-contract）。
@@ -35,6 +37,7 @@
  */
 
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -437,9 +440,12 @@ class GitPanel {
       this.onSubagents(subagentMonitor.records())
     }
     fileActivity.on('workspace-changed', onWsChanged)
-    // agent 文件活动：debounce 重探 + 自动展开 + 静默解除抑制
-    const onActivity = (): void => {
+    // agent 文件活动：debounce 重探 + 自动展开 + 静默解除抑制；
+    // 只认当前工作区的实时活动——历史会话回放（replay）与后台工作区
+    // 的活动不是「agent 在本工作区执行任务」，不构成自动展开理由
+    const onActivity = (_entry: unknown, wsKey: string, replay: boolean): void => {
       if (win.isDestroyed()) return
+      if (wsKey !== fileActivity.activeKey() || replay) return
       if (this.probeDebounce !== null) clearTimeout(this.probeDebounce)
       this.probeDebounce = setTimeout(() => {
         this.probeDebounce = null
@@ -450,7 +456,7 @@ class GitPanel {
         this.idleTimer = null
         this.autoSuppressed = false
       }, AUTO_IDLE_MS)
-      if (!this.visible && !this.autoSuppressed) this.show()
+      if (!this.visible && !this.autoSuppressed && this.workspaceIsRepo()) this.show()
     }
     fileActivity.on('activity', onActivity)
     // 子代理监控：清单/轨迹变化 → 过滤推送（订阅常驻，轮询随开合启停）
@@ -476,6 +482,18 @@ class GitPanel {
     this.stopPoll()
     this.destroyView()
     subagentMonitor.stop()
+  }
+
+  /**
+   * 自动展开门槛：当前工作区得是 git 仓库。快照已证（探测完成）
+   * 或根级 .git 在场（探测未完成时的即时判定；嵌在父仓里的工作区
+   * 无自身 .git，等首次探测后同样放行）。无工作区 → false。
+   */
+  private workspaceIsRepo(): boolean {
+    const ws = this.workspace
+    if (ws === null || ws === '') return false
+    if (this.snapshot.isRepo) return true
+    return existsSync(join(ws, '.git'))
   }
 
   toggle(): void {
