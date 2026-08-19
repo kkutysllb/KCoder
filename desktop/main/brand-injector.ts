@@ -10,12 +10,16 @@
  *   组件在挂载时快照 original，投射 "会话标题 — DeepSeek Harness"。
  *
  * 替换策略（零侵入，仅 executeJavaScript）：
- * - 展开：SVG 藏起（display:none）+ 旁插组合 Logo 图（brand-combo-
- *   dark/light.png：K 图标 + "Coder" 字标已按 22px 等高、零间距渲染
- *   成单张 PNG，深色主题白字 / 浅色主题深字，主题切换自动换版）；
- *   不动上游节点本身——React 卸载 BrandWordmark 时仍能 removeChild
- *   原节点，不会抛 NotFoundError 崩树（replaceWith 方案已踩坑）；
- *   button 的新会话点击行为不受影响；
+ * - 展开：SVG 藏起（display:none）+ 旁插 wrapper（自持 span，
+ *   position:relative 锚点）内含组合 Logo 图（brand-combo-dark/light.
+ *   png：K 图标 + "Coder" 字标已按 22px 等高、零间距渲染成单张 PNG，
+ *   深色主题白字 / 浅色主题深字，主题切换自动换版）与版本徽章
+ *   （「桌面版 v<app.getVersion()>」，右上角角标；brand 是 flex:1
+ *   撑满整行且 overflow:hidden，锚在按钮上会偏到行尾且被裁，
+ *   故锚在自己的 wrapper 上紧贴图片）；不动上游节点本身——React
+ *   卸载 BrandWordmark 时仍能 removeChild 原节点，不会抛
+ *   NotFoundError 崩树（replaceWith 方案已踩坑）；button 的新会话
+ *   点击行为不受影响（徽章 pointer-events:none）；
  * - rail：鲸鱼 SVG 同样藏起 + 旁插 logo img（复制 railFish 类名，
  *   hover 换图 CSS 继续生效）；
  * - 新会话空状态页（EmptyHero/HeroShell）：同把 34×25 鲸鱼换成 K
@@ -43,7 +47,7 @@
  */
 
 import { readFileSync } from 'node:fs'
-import type { BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 import { resolveAsset } from './dsh-contract'
 
 /** 上游产品名 → 桌面品牌名（标题替换）。 */
@@ -56,6 +60,9 @@ const TAGLINE_EN = 'Think it, code it.'
 
 /** logo 元素 id（页面内唯一标记，兼幂等检测）。 */
 const LOGO_ID = '__dsh_desktop_brand_logo'
+
+/** 桌面版号（dev 态读 package.json，打包态为构建版本；随构建自动更新）。 */
+const APP_VERSION = app.getVersion()
 
 /** 模块级缓存：64px 透明 K（~3.4KB），读一次嵌入注入脚本（rail/hero 用）。 */
 const logoDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-k.png')).toString('base64')}`
@@ -79,6 +86,7 @@ const INJECT_JS = `(() => {
   const LOGO_ID = ${JSON.stringify(LOGO_ID)}
   const TAGLINE_ZH = ${JSON.stringify(TAGLINE_ZH)}
   const TAGLINE_EN = ${JSON.stringify(TAGLINE_EN)}
+  const VER_TEXT = '桌面版 v' + ${JSON.stringify(APP_VERSION)}
 
   // ---- 标题品牌替换：拦截 setter + 立即改写当前值 ----
   // 坑（2026-08-17 CDP 实测）：title 的原生 accessor 不一定在第一层原型
@@ -127,26 +135,57 @@ const INJECT_JS = `(() => {
     document.head.appendChild(el)
   }
 
-  // ---- 展开：brand 按钮内 wordmark SVG 藏起 + 旁插组合 Logo 图 ----
+  // ---- 展开：brand 按钮内 wordmark SVG 藏起 + 旁插 wrapper（logo 图 + 版本徽章）----
   // 不用 replaceWith：React 卸载时会 removeChild 它记录的旧 svg，
   // 节点被换走会抛 NotFoundError 崩整棵树（实测踩坑）。
   // 组合 Logo 为单张 PNG（K + Coder 紧贴渲染），按主题选深/浅字色版。
+  // wrapper（自持 span）：徽章的定位锚——brand 是 flex:1 撑满整行且
+  // overflow:hidden，锚按钮会把徽章推到行尾并裁剪；锚 wrapper 才紧贴
+  // logo 图片右上角。brand 高度由内容撑开（上游即 22px），徽章不能
+  // 向上负偏移（会被 overflow:hidden 裁掉）——top:0 贴 logo 上沿，
+  // 仅向右微突（右侧是 flex:1 的空余空间，不裁）。
   const swapBrand = () => {
     const btn = document.querySelector('[class*="logoRow"] button[class*="brand"]')
-    if (btn === null || btn.querySelector('#' + LOGO_ID) !== null) return
-    const svg = btn.querySelector('svg')
-    if (svg === null) return
-    const img = document.createElement('img')
-    img.id = LOGO_ID
-    img.src = document.body?.getAttribute('data-ds-dark-theme') !== null ? DATA_DARK : DATA_LIGHT
-    img.alt = ''
-    // 组合图高度对齐原 wordmark（22）；brand 是 inline-flex + align-items
-    // center，img 自动垂直居中；不设 display——避免内联样式压过上游 CSS
-    img.style.height = '22px'
-    img.style.width = 'auto'
-    img.style.flex = 'none'
-    svg.style.display = 'none'
-    svg.insertAdjacentElement('afterend', img)
+    if (btn === null) return
+    if (btn.querySelector('#' + LOGO_ID) === null) {
+      const svg = btn.querySelector('svg')
+      if (svg !== null) {
+        const wrap = document.createElement('span')
+        wrap.id = LOGO_ID + '_wrap'
+        wrap.style.position = 'relative'
+        wrap.style.display = 'inline-flex'
+        wrap.style.alignItems = 'center'
+        wrap.style.flex = 'none'
+        const img = document.createElement('img')
+        img.id = LOGO_ID
+        img.src = document.body?.getAttribute('data-ds-dark-theme') !== null ? DATA_DARK : DATA_LIGHT
+        img.alt = ''
+        // 组合图高度对齐原 wordmark（22）；brand 是 inline-flex + align-items
+        // center，wrapper 自动垂直居中；不设 display——避免内联样式压过上游 CSS
+        img.style.height = '22px'
+        img.style.width = 'auto'
+        img.style.flex = 'none'
+        // 版本徽章：logo 右上角角标，不拦新会话点击
+        const ver = document.createElement('span')
+        ver.id = LOGO_ID + '_ver'
+        ver.textContent = VER_TEXT
+        ver.style.position = 'absolute'
+        ver.style.top = '0px'
+        ver.style.right = '-5px'
+        ver.style.fontSize = '9px'
+        ver.style.lineHeight = '1'
+        ver.style.padding = '2.5px 5px'
+        ver.style.borderRadius = '4px'
+        ver.style.background = 'var(--dsw-alias-bg-layer-2, rgba(128,128,128,.12))'
+        ver.style.color = 'var(--dsw-alias-label-tertiary, #999)'
+        ver.style.border = '1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.2))'
+        ver.style.whiteSpace = 'nowrap'
+        ver.style.pointerEvents = 'none'
+        wrap.append(img, ver)
+        svg.style.display = 'none'
+        svg.insertAdjacentElement('afterend', wrap)
+      }
+    }
   }
 
   // ---- 主题切换：组合 Logo 换字色版（深色→白字版，浅色→深字版） ----
