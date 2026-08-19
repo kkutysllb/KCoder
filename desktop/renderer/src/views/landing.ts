@@ -91,12 +91,12 @@ export function mountLanding(root: HTMLElement): void {
                 <div class="agent-state"><span></span>Ready to build</div>
               </aside>
               <div class="preview-editor">
-                <div class="preview-editor-heading"><span>Connect authentication</span><b>Ready</b></div>
+                <div class="preview-editor-heading"><span>Connect authentication</span><b data-ready-badge>Ready</b></div>
                 <div class="preview-editor-sub">3 files · local engine · last run just now</div>
-                <pre><span class="code-line code-line-1"><span class="line-number">12</span> <span class="syntax-keyword">async function</span> <span class="syntax-fn">signIn</span>(email, password) {'{'}</span>
-<span class="code-line code-line-2"><span class="line-number">13</span> <span class="line-add">+  const session = await engine.authLogin(...)</span></span>
-<span class="code-line code-line-3"><span class="line-number">14</span> <span class="line-add">+  persistSession(session.access_token)</span><span class="typing-caret" aria-hidden="true"></span></span>
-<span class="code-line code-line-4"><span class="line-number">15</span> {'}'}</span></pre>
+                <pre><span class="code-line" style="--row: 0"><span class="line-number">12</span><span class="code-text"><span class="syntax-keyword">async function</span> <span class="syntax-fn">signIn</span>(email, password) {'{'}<span class="row-caret" aria-hidden="true"></span></span></span>
+<span class="code-line" style="--row: 1"><span class="line-number">13</span><span class="code-text line-add">+  const session = await engine.authLogin(...)<span class="row-caret" aria-hidden="true"></span></span></span>
+<span class="code-line" style="--row: 2"><span class="line-number">14</span><span class="code-text line-add">+  persistSession(session.access_token)<span class="row-caret" aria-hidden="true"></span></span></span>
+<span class="code-line" style="--row: 3"><span class="line-number">15</span><span class="code-text">{'}'}<span class="row-caret" aria-hidden="true"></span></span></span></pre>
                 <div class="preview-result"><span>✓</span> Engine session connected</div>
               </div>
             </div>

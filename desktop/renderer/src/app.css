@@ -595,8 +595,23 @@ code {
 }
 
 .preview-editor {
+  position: relative;
   min-width: 0;
+  overflow: hidden;
   padding: 22px 24px;
+}
+
+/* 扫光带：一道随打字期掠过，第二道随结果弹入（更亮）；
+   pointer-events 关平防挡输入（装饰层） */
+.preview-editor::after {
+  content: '';
+  position: absolute;
+  inset: -30% -60%;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 42%,
+    color-mix(in srgb, var(--accent) 7%, transparent) 50%, transparent 58%);
+  transform: translateX(-70%);
+  animation: editor-sheen 10s linear infinite;
 }
 
 .preview-editor-heading {
@@ -615,7 +630,7 @@ code {
   background: color-mix(in srgb, var(--ok) 12%, transparent);
   font-size: 9px;
   font-weight: 600;
-  animation: ready-pulse 2.4s ease-in-out infinite;
+  animation: ready-flash 10s linear infinite;
 }
 
 .preview-editor-sub {
@@ -634,31 +649,68 @@ code {
   white-space: pre;
 }
 
+/* 「agent 写代码」循环叙事（周期 10s，--row 错相 0.6s/行）：
+   行号先亮 → 正文 clip-path 打字展开 + 活动行高亮跟随 + 行尾光标 →
+   diff 行文字流光 → 全部完成后结果行回弹 + READY 徽标同步强闪 →
+   瀑瀑淡出重开。各动画共用周期，相位用 animation-delay 错开 */
 .code-line {
   display: block;
-  opacity: 1;
-  animation: code-line-cycle 4.8s ease-in-out infinite;
+  border-radius: 3px;
+  animation: row-glow 10s linear infinite;
+  animation-delay: calc(var(--row) * .6s);
 }
 
-.code-line-1 { animation-delay: 0ms; }
-.code-line-2 { animation-delay: 260ms; }
-.code-line-3 { animation-delay: 520ms; }
-.code-line-4 { animation-delay: 780ms; }
+.code-text {
+  display: inline;
+  animation: type-in 10s linear infinite;
+  animation-delay: calc(var(--row) * .6s);
+  animation-fill-mode: both;
+}
 
-.typing-caret {
+.line-number {
+  display: inline-block;
+  width: 22px;
+  color: color-mix(in srgb, var(--muted) 55%, transparent);
+  animation: num-in 10s linear infinite;
+  animation-delay: calc(var(--row) * .6s - .15s);
+  animation-fill-mode: both;
+}
+
+/* diff 行正文：绿色底 + 流光扫字（typing 完成后掠过一次） */
+.code-text.line-add {
+  background: linear-gradient(100deg, var(--ok) 12%,
+    color-mix(in srgb, var(--ok) 72%, #a7f3d0) 50%, var(--ok) 88%);
+  background-size: 240% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: type-in 10s linear infinite, diff-shimmer 10s linear infinite;
+  animation-delay: calc(var(--row) * .6s), calc(var(--row) * .6s);
+  animation-fill-mode: both, both;
+}
+
+/* 行尾光标：stage 控制出现窗口（随行打字），blink 用背景色细闪
+   （两个动画分属 opacity / background-color，不冲突） */
+.row-caret {
   display: inline-block;
   width: 1px;
   height: 11px;
   margin-left: 2px;
   vertical-align: -2px;
   background: var(--accent);
-  animation: caret-blink 1s steps(2, start) infinite;
+  animation: caret-stage 10s linear infinite, caret-blink 1s steps(2, start) infinite;
+  animation-delay: calc(var(--row) * .6s), 0s;
+  animation-fill-mode: both, none;
 }
 
-.line-number { display: inline-block; width: 22px; color: color-mix(in srgb, var(--muted) 55%, transparent); }
+.code-text.line-add .row-caret {
+  background: var(--ok);
+  -webkit-text-fill-color: initial;
+}
+
 .syntax-keyword { color: #b18cff; }
 .syntax-fn { color: #6db4ff; }
-.line-add { color: var(--ok); }
 
 .preview-result {
   display: flex;
@@ -668,11 +720,18 @@ code {
   border-top: 1px solid var(--border);
   color: var(--muted);
   font-size: 10px;
-  opacity: 1;
-  animation: result-cycle 4.8s ease-in-out infinite;
+  opacity: 0;
+  animation: result-pop 10s linear infinite;
+  animation-fill-mode: both;
 }
 
-.preview-result span { color: var(--ok); }
+.preview-result span {
+  color: var(--ok);
+  font-weight: 700;
+  display: inline-block;
+  animation: check-pop 10s linear infinite;
+  animation-fill-mode: both;
+}
 
 .preview-composer {
   display: flex;
@@ -709,25 +768,99 @@ code {
 
 .caption-line { width: 28px; height: 1px; background: var(--accent); }
 
-@keyframes code-line-cycle {
-  0%, 12% { opacity: .38; transform: translateY(4px); }
-  22%, 68% { opacity: 1; transform: translateY(0); }
-  80%, 100% { opacity: .58; transform: translateY(2px); }
+/* 正文打字展开：clip 从右向左剪开（打字机），行首微亮提前预热 */
+@keyframes type-in {
+  0% { clip-path: inset(0 100% 0 0); opacity: 0; }
+  1.5% { opacity: .8; }
+  6% { clip-path: inset(0 0 0 0); opacity: 1; }
+  80% { clip-path: inset(0 0 0 0); opacity: 1; }
+  86%, 100% { clip-path: inset(0 100% 0 0); opacity: 0; }
 }
 
-@keyframes result-cycle {
-  0%, 55% { opacity: .52; transform: translateY(2px); }
-  68%, 88% { opacity: 1; transform: translateY(0); }
-  100% { opacity: .52; transform: translateY(2px); }
+@keyframes num-in {
+  0% { opacity: 0; }
+  3% { opacity: 1; }
+  84% { opacity: 1; }
+  88%, 100% { opacity: 0; }
 }
 
-@keyframes ready-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 0%, transparent); }
-  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 12%, transparent); }
+/* 活动行高亮：随打字起亮、写完留驻片刻后熄灭（编辑器“当前行”语义） */
+@keyframes row-glow {
+  0%, 1.5% { background: transparent; box-shadow: none; }
+  4% {
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  7% {
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  13%, 100% { background: transparent; box-shadow: none; }
+}
+
+/* 光标出现窗口：行打字中可见，写完多留片刻即退场 */
+@keyframes caret-stage {
+  0% { opacity: 0; }
+  2% { opacity: 1; }
+  10% { opacity: 1; }
+  13%, 100% { opacity: 0; }
 }
 
 @keyframes caret-blink {
-  50% { opacity: 0; }
+  50% { background-color: transparent; }
+}
+
+/* diff 行流光：typing 完成后高亮带从右向左扫过一遍（背景渐变
+   background-clip:text 的 position 驱动，静态时回到纯绿） */
+@keyframes diff-shimmer {
+  0%, 26% { background-position: 100% 0; }
+  40% { background-position: -20% 0; }
+  82% { background-position: -20% 0; }
+  100% { background-position: 100% 0; }
+}
+
+/* 结果行回弹：代码全部写完后弹入（多点模拟回弹曲线） */
+@keyframes result-pop {
+  0%, 32% { opacity: 0; transform: translateY(3px) scale(.98); }
+  34% { opacity: 1; transform: translateY(-1px) scale(1.015); }
+  36% { opacity: 1; transform: translateY(0) scale(1); }
+  82% { opacity: 1; transform: translateY(0) scale(1); }
+  88%, 100% { opacity: 0; transform: translateY(2px) scale(.99); }
+}
+
+@keyframes check-pop {
+  0%, 32% { opacity: 0; transform: scale(.4) rotate(-30deg); }
+  36% { opacity: 1; transform: scale(1.25) rotate(6deg); }
+  39% { opacity: 1; transform: scale(1) rotate(0deg); }
+  82% { opacity: 1; transform: scale(1) rotate(0deg); }
+  88%, 100% { opacity: 0; transform: scale(.6); }
+}
+
+/* READY 徽标：静息微呼吸，结果弹入时同步强闪一次 */
+@keyframes ready-flash {
+  0%, 31% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 0%, transparent); transform: scale(1); }
+  33.5% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--ok) 26%, transparent);
+    transform: scale(1.14);
+  }
+  38% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 0%, transparent);
+    transform: scale(1);
+  }
+  60% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 9%, transparent); }
+  82% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 0%, transparent); }
+  88%, 100% { opacity: .35; }
+}
+
+/* 扫光带：打字期扫一道，结果弹入时再扫一道（同一元素两段位移） */
+@keyframes editor-sheen {
+  0%, 16% { transform: translateX(-70%); opacity: 0; }
+  19% { opacity: 1; }
+  30% { transform: translateX(70%); opacity: 0; }
+  31% { transform: translateX(-70%); opacity: 0; }
+  33% { opacity: 1; }
+  43% { transform: translateX(70%); opacity: 0; }
+  100% { transform: translateX(70%); opacity: 0; }
 }
 
 @keyframes agent-pulse {
@@ -736,12 +869,22 @@ code {
 
 @media (prefers-reduced-motion: reduce) {
   .code-line,
+  .code-text,
+  .line-number,
   .preview-result,
-  .typing-caret,
-  .agent-state span,
-  .preview-editor-heading b {
+  .preview-result span,
+  .preview-editor-heading b,
+  .preview-editor::after,
+  .agent-state span {
     animation: none;
     opacity: 1;
+    clip-path: none;
+  }
+  .row-caret { animation: none; opacity: 0; }
+  .code-text.line-add {
+    background: none;
+    color: var(--ok);
+    -webkit-text-fill-color: var(--ok);
   }
 }
 
