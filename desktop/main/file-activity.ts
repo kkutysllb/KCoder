@@ -135,8 +135,8 @@ interface MuxEnvelope {
   payload?: MuxFrame
 }
 
-/** mux 业务帧的最小形状（只声明消费的字段；event = SessionEvent 外壳）。 */
-interface MuxFrame {
+/** mux 业务帧的最小形状（只声明消费的字段；event = SessionEvent 外壳）。子代理监控也消费（onFrame）。 */
+export interface MuxFrame {
   type: string
   sessionId?: string
   event?: { type?: string; seq?: number; time?: number; data?: unknown }
@@ -148,8 +148,8 @@ const TRAJ_EVENT_TYPES: ReadonlySet<string> = new Set([
   'user/message', 'assistant/message', 'tool/call', 'tool/result',
 ])
 
-/** 从消息 content 块里拼文本摘录（text 块拼接；纯图片/纯工具调用为 null）。 */
-function textOfBlocks(content: unknown): string | null {
+/** 从消息 content 块里拼文本摘录（text 块拼接；纯图片/纯工具调用为 null）。子代理监控同用。 */
+export function textOfBlocks(content: unknown): string | null {
   if (!Array.isArray(content)) return null
   let text = ''
   for (const block of content) {
@@ -206,6 +206,11 @@ class FileActivity extends EventEmitter {
     if (next === this.activeWorkspace) return
     this.activeWorkspace = next
     this.emit('workspace-changed', next)
+  }
+
+  /** mux 帧观察口（subagent-monitor 消费子会话事件；只读，勿改帧）。 */
+  onFrame(cb: (frame: MuxFrame) => void): void {
+    this.on('frame', cb)
   }
 
   /** 当前工作区桶键（无工作区时空串，桶仍可用但不常展示）。 */
@@ -491,6 +496,7 @@ class FileActivity extends EventEmitter {
 
   private consume(frame: MuxFrame): void {
     if (frame.type !== 'session/event') return
+    this.emit('frame', frame)
     // 轨迹：当前会话的消息/工具事件（先于文件活动的 view 过滤）
     if (this.trajSession !== null && frame.sessionId === this.trajSession
       && frame.event !== undefined && this.trajEvent(frame.event)) {

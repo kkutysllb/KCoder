@@ -325,6 +325,28 @@ export interface GitOpResult {
   error: string | null
 }
 
+/** 子代理监控条目（subagent 子会话的聚合视图，git 面板展示）。 */
+export interface SubagentEntry {
+  /** 子会话 id。 */
+  id: string
+  /** 父会话 id（发起 subagent 工具调用的会话）。 */
+  parentId: string | null
+  /** 工作区显示名（cwd 尾段；跨工作区条目标注用，无 cwd 时 null）。 */
+  ws: string | null
+  /** 子代理名（agentPreset；缺省「子代理」）。 */
+  label: string
+  /** 任务描述（首条 user 消息摘录；未观察到时空串）。 */
+  task: string
+  /** 是否仍在运行（session.list 的 running，轮询刷新）。 */
+  running: boolean
+  /** 工具调用次数（tool/call 计数）。 */
+  toolCalls: number
+  /** 最后活动时间（Unix 毫秒；0 = 未观察到）。 */
+  lastAt: number
+  /** 执行轨迹（seq 升序，最多 N 行，与轨迹抽屉同构）。 */
+  rows: TrajectoryRow[]
+}
+
 /* ---------- preload 暴露面 ---------- */
 
 /** preload 通过 contextBridge 暴露的 `window.dshDesktop`。 */
@@ -420,6 +442,11 @@ export interface DesktopBridge {
   gitHide(): Promise<void>
   /** 在预览抽屉中打开计划文档（git 面板收起、抽屉切文件模式渲染）。 */
   gitOpenPlan(path: string): Promise<void>
+  /* 子代理监控（subagent 子会话聚合；随面板打开启停轮询） */
+  /** 当前工作区的子代理条目（面板初次挂载时拉取）。 */
+  gitSubagents(): Promise<SubagentEntry[]>
+  /** 子代理条目更新推送（轮询发现变化/mux 实时事件）。 */
+  onGitSubagents(cb: (list: SubagentEntry[]) => void): () => void
   /** 快照更新推送（探测完成/操作完成/开合）。 */
   onGitSnapshot(cb: (s: GitSnapshot) => void): () => void
   /* 偏好设置（样式定制/托盘保活；样式变更后主进程自动重注入 shell 窗口） */

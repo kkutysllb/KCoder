@@ -58,6 +58,7 @@ const bridge: DesktopBridge = {
   gitBranchCreate: (name, base) => ipcRenderer.invoke('git:branch-create', name, base),
   gitHide: () => ipcRenderer.invoke('git:hide'),
   gitOpenPlan: (path) => ipcRenderer.invoke('git:open-plan', path),
+  gitSubagents: () => ipcRenderer.invoke('git:subagents'),
   preferencesGet: () => ipcRenderer.invoke('preferences:get'),
   preferencesSet: (patch) => ipcRenderer.invoke('preferences:set', patch),
   onDshStateChanged: (cb) => {
@@ -124,6 +125,11 @@ const bridge: DesktopBridge = {
     const listener = (_e: Electron.IpcRendererEvent, s: Parameters<typeof cb>[0]): void => cb(s)
     ipcRenderer.on('git:changed', listener)
     return () => ipcRenderer.removeListener('git:changed', listener)
+  },
+  onGitSubagents: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, list: Parameters<typeof cb>[0]): void => cb(list)
+    ipcRenderer.on('subagents:changed', listener)
+    return () => ipcRenderer.removeListener('subagents:changed', listener)
   },
 }
 

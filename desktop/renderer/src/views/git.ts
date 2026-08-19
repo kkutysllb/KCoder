@@ -16,7 +16,7 @@
  */
 
 import { bridge } from '../bridge'
-import type { GitSnapshot } from '@shared/ipc-contract'
+import type { GitSnapshot, SubagentEntry, TrajectoryRow } from '@shared/ipc-contract'
 
 /** 视图内样式（独立于 app.css；页面透明，卡片承色）。 */
 const PAGE_CSS = `
@@ -93,6 +93,29 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: transparent;
 .gt-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 100%; color: var(--gt-muted); font-size: 12px; text-align: center; padding: 0 20px; }
 .gt-toast { position: fixed; left: 10px; right: 10px; bottom: 10px; padding: 8px 12px; border-radius: 8px; background: color-mix(in srgb, var(--gt-del) 12%, var(--gt-bg)); border: 1px solid color-mix(in srgb, var(--gt-del) 35%, transparent); color: var(--gt-del); font-size: 11px; display: none; }
 .gt-toast[data-show="1"] { display: block; }
+/* 子代理监控（状态点 running 呼吸灯；行点击展开轨迹） */
+.gt-sub { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border-radius: 7px; cursor: pointer; }
+.gt-sub:hover { background: var(--gt-hover); }
+.gt-sub .st { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--gt-chip); box-shadow: 0 0 0 2px var(--gt-chip) inset; }
+.gt-sub[data-run="1"] .st { background: var(--gt-accent); animation: gt-pulse 1.6s ease-in-out infinite; }
+@keyframes gt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.gt-sub .lb { flex: none; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 12px; }
+.gt-sub .tk { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--gt-muted); }
+.gt-sub .tk:empty::before { content: '（任务待观察）'; }
+.gt-sub .at { flex: none; max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9.5px; color: var(--gt-accent); opacity: .85; }
+.gt-sub .tc { flex: none; font: 500 10px/1.2 var(--gt-mono); color: var(--gt-muted); font-variant-numeric: tabular-nums; }
+.gt-sub .tc b { color: var(--gt-fg); }
+.gt-sub-traj { margin: 2px 0 6px 4px; padding-left: 10px; border-left: 1px solid var(--gt-border); display: flex; flex-direction: column; gap: 1px; }
+.gt-tr { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--gt-muted); padding: 1px 2px; border-radius: 4px; }
+.gt-tr .ic { flex: none; font: 650 9px/1.6 var(--gt-mono); letter-spacing: .3px; }
+.gt-tr[data-k="user"] .ic { color: var(--gt-accent); }
+.gt-tr[data-k="tool"] .ic { color: var(--gt-muted); }
+.gt-tr[data-k="assistant"] .ic { color: var(--gt-add); }
+.gt-tr .tx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gt-tr[data-k="tool"] .tx { font-family: var(--gt-mono); font-size: 10.5px; }
+.gt-tr[data-ok="err"] .tx { color: var(--gt-del); }
+.gt-tr .ms { flex: none; font: 500 9.5px/1.6 var(--gt-mono); opacity: .8; }
+.gt-tr[data-ok="run"] .ms { color: var(--gt-accent); }
 `
 
 /** 空/占位快照（挂载后第一次推送前）。 */
@@ -204,13 +227,30 @@ export function mountGit(app: HTMLDivElement): void {
     commitsFolded = !commitsFolded
     applyCommitsFold()
   }
+  /* 子代理监控（subagent 子会话聚合；行点击展开执行轨迹） */
+  const subCaps = el('div', 'gt-caps foldable')
+  subCaps.title = '折叠 / 展开子代理'
+  subCaps.setAttribute('role', 'button')
+  subCaps.setAttribute('aria-expanded', 'true')
+  subCaps.append(el('span', 'gt-caret', '\u25BE'), document.createTextNode('子代理'))
+  const subList = el('div')
+  let subsFolded = false
+  const applySubsFold = (): void => {
+    subCaps.dataset.fold = subsFolded ? '1' : '0'
+    subCaps.setAttribute('aria-expanded', subsFolded ? 'false' : 'true')
+    subList.style.display = subsFolded ? 'none' : ''
+  }
+  subCaps.onclick = () => {
+    subsFolded = !subsFolded
+    applySubsFold()
+  }
   /* 任务计划（约定位置扫到的 agent 计划文档；点击 → 预览抽屉渲染） */
   const planCaps = el('div', 'gt-caps', '任务计划')
   const planList = el('div')
   const planSvg = '<svg viewBox="0 0 16 16" fill="none"><path d="M3 2.2h10c.6 0 1 .4 1 1v9.6c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1V3.2c0-.6.4-1 1-1Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M4.5 5.5h7M4.5 8h7M4.5 10.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>'
   /* 空态 */
   const empty = el('div', 'gt-empty')
-  body.append(commitBox, branchBox, planCaps, planList, caps, commitList, empty)
+  body.append(commitBox, branchBox, subCaps, subList, planCaps, planList, caps, commitList, empty)
 
   const toast = el('div', 'gt-toast')
   card.append(header, status, tabs, body, toast)
@@ -266,6 +306,73 @@ export function mountGit(app: HTMLDivElement): void {
   })
 
   /* ---- 渲染 ---- */
+  let subs: SubagentEntry[] = []
+  const subsOpen = new Set<string>()
+  const renderSubs = (): void => {
+    subList.replaceChildren()
+    for (const s of subs) {
+      const row = el('button', 'gt-sub')
+      if (s.running) row.dataset.run = '1'
+      row.title = s.running ? '运行中 · 点击展开/收起轨迹' : '已结束 · 点击展开/收起轨迹'
+      row.append(el('span', 'st'))
+      row.append(el('span', 'lb', s.label))
+      row.append(el('span', 'tk', s.task))
+      // 跨工作区后台子代理（running 不随主代理切任务中断）：标注归属
+      if (s.ws !== null && s.ws !== snap.workspace) row.append(el('span', 'at', '@' + s.ws))
+      const tc = el('span', 'tc')
+      const b = el('b', '', String(s.toolCalls))
+      tc.append(b, document.createTextNode(' 工具'))
+      row.append(tc)
+      subList.append(row)
+      if (!subsOpen.has(s.id)) {
+        row.onclick = () => {
+          subsOpen.add(s.id)
+          renderSubs()
+        }
+        continue
+      }
+      // 展开态：行点击收起；轨迹列表随行（最近活动在底部，自动滚入视野）
+      row.onclick = () => {
+        subsOpen.delete(s.id)
+        renderSubs()
+      }
+      const traj = el('div', 'gt-sub-traj')
+      for (const r of s.rows.slice(-24)) {
+        traj.append(trajRow(r))
+      }
+      if (s.rows.length === 0) traj.append(el('div', 'gt-hint', '未观察到事件（等待轮询/实时流）'))
+      subList.append(traj)
+    }
+    // 面板骨架的空态让位收口读取 subs（render 内）；空态恢复也走 render
+    if (snap.workspace === null || snap.error !== null) return
+    subCaps.style.display = subs.length > 0 && !hasEmptyState() ? '' : 'none'
+    applySubsFold()
+  }
+  const trajRow = (r: TrajectoryRow): HTMLElement => {
+    const div = el('div', 'gt-tr')
+    div.dataset.k = r.kind
+    const ic = el('span', 'ic', r.kind === 'user' ? 'USR' : r.kind === 'assistant' ? 'AI' : 'TOOL')
+    div.append(ic)
+    const tx = el('span', 'tx')
+    if (r.kind === 'tool' && r.tool !== null) {
+      tx.textContent = r.tool.name !== '' ? r.tool.name : '调用'
+      if (r.tool.status === 'running') { div.dataset.ok = 'run'; div.append(el('span', 'ms', '…')) }
+      else {
+        div.dataset.ok = r.tool.status === 'error' ? 'err' : 'ok'
+        if (r.tool.ms !== null) div.append(el('span', 'ms', r.tool.ms >= 1000 ? (r.tool.ms / 1000).toFixed(1) + 's' : r.tool.ms + 'ms'))
+      }
+    } else {
+      tx.textContent = r.text ?? ''
+      if (tx.textContent === '') return div
+    }
+    div.insertBefore(tx, div.children[1] ?? null)
+    return div
+  }
+  const hasEmptyState = (): boolean => {
+    // 与 render() 的空态判定同源（错误/无工作区时子代理区一并让位）
+    return snap.error !== null || snap.workspace === null
+  }
+
   const render = (s: GitSnapshot): void => {
     snap = s
     const lock = s.busy || s.fetching || !s.isRepo
@@ -350,6 +457,8 @@ export function mountGit(app: HTMLDivElement): void {
     empty.style.display = hasEmpty ? '' : 'none'
     commitBox.style.display = 'none'
     branchBox.style.display = 'none'
+    subCaps.style.display = 'none'
+    subList.style.display = 'none'
     planCaps.style.display = 'none'
     planList.style.display = 'none'
     caps.style.display = 'none'
@@ -357,6 +466,11 @@ export function mountGit(app: HTMLDivElement): void {
       setTab(tab)
       caps.style.display = ''
       applyCommitsFold()
+      // 子代理区独立渲染/推送，仅跟随空态让位（不依赖 git 探测结果）
+      if (subs.length > 0) {
+        subCaps.style.display = ''
+        applySubsFold()
+      }
       planCaps.style.display = hasPlans ? '' : 'none'
       planList.style.display = hasPlans ? '' : 'none'
     }
@@ -365,4 +479,12 @@ export function mountGit(app: HTMLDivElement): void {
   /* ---- 数据接线 ---- */
   void bridge.gitSnapshot().then(render)
   bridge.onGitSnapshot(render)
+  void bridge.gitSubagents().then(list => {
+    subs = list
+    renderSubs()
+  })
+  bridge.onGitSubagents(list => {
+    subs = list
+    renderSubs()
+  })
 }

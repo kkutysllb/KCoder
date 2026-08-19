@@ -42,8 +42,8 @@ import { WebContentsView, type BrowserWindow } from 'electron'
 import { consoleMessageText } from './console-channel'
 import { fileActivity } from './file-activity'
 import { previewPanel } from './preview-panel'
-import type { GitOpResult, GitPlanFile, GitSnapshot } from '@shared/ipc-contract'
-
+import { subagentMonitor, toEntry, type SubagentRecord } from './subagent-monitor'
+import type { GitOpResult, GitPlanFile, GitSnapshot, SubagentEntry } from '@shared/ipc-contract'
 /** console 通道前缀（与注入脚本约定；v2 只剩按钮 toggle 上行）。 */
 const GIT_PREFIX = '__dsh_git__:'
 
@@ -394,6 +394,19 @@ class GitPanel {
   private autoSuppressed = false
   /** 布局互斥钩子（windows.ts 接线：show 时收预览抽屉，防环只在此触发）。 */
   onShow: (() => void) | null = null
+  /** 子代理监控推送（attach 订阅；运行中跨工作区也展示——后台子代理
+   * 不随主代理切任务而中断；已结束的只随当前工作区活跃父会话展示，
+   * 同项目老会话的完成条目退场防残留）。 */
+  private readonly onSubagents = (records: SubagentRecord[]): void => {
+    const wc = this.view?.webContents
+    if (wc === undefined || wc.isDestroyed() || !this.visible) return
+    const ws = this.workspace
+    const active = ws !== null && ws !== '' ? subagentMonitor.activeParentId(ws) : null
+    wc.send('subagents:changed', records
+      .filter(r => r.running || ws === null || ws === ''
+        || (r.cwd === ws && r.parentId === active))
+      .map(toEntry))
+  }
 
   /** shell 窗口创建后接线（重复调用安全）。 */
   attach(win: BrowserWindow): void {
@@ -442,12 +455,15 @@ class GitPanel {
       if (!this.visible && !this.autoSuppressed) this.show()
     }
     fileActivity.on('activity', onActivity)
+    // 子代理监控：清单/轨迹变化 → 过滤推送（订阅常驻，轮询随开合启停）
+    subagentMonitor.on('changed', this.onSubagents)
     win.on('resize', () => { if (this.visible) this.layout() })
     win.once('closed', () => {
       webContents.removeListener('console-message', onConsole)
       webContents.removeListener('did-finish-load', onDidLoad)
       fileActivity.removeListener('workspace-changed', onWsChanged)
       fileActivity.removeListener('activity', onActivity)
+      subagentMonitor.removeListener('changed', this.onSubagents)
       this.stopPoll()
       this.destroyView()
       this.win = null
@@ -461,6 +477,7 @@ class GitPanel {
   dispose(): void {
     this.stopPoll()
     this.destroyView()
+    subagentMonitor.stop()
   }
 
   toggle(): void {
@@ -503,6 +520,9 @@ class GitPanel {
     this.view.setVisible(true)
     this.layout()
     this.startPoll()
+    // 子代理轮询随面板开合启停（mux 观察与记录常驻，重开不丢轨迹）
+    subagentMonitor.start()
+    this.onSubagents(subagentMonitor.records())
     this.broadcast()
   }
 
@@ -515,6 +535,7 @@ class GitPanel {
     this.view?.setVisible(false)
     this.pad(0)
     this.stopPoll()
+    subagentMonitor.stop()
     if (manual) this.autoSuppressed = true
     this.syncBadge()
     // 焦点还给上游页面
@@ -541,6 +562,16 @@ class GitPanel {
   /** 当前快照（git:snapshot 拉取；fetching/busy 合成）。 */
   current(): GitSnapshot {
     return { ...this.snapshot, fetching: this.fetching, busy: this.busy }
+  }
+
+  /** 当前工作区的子代理条目（subagents 初拉；与推送同源过滤）。 */
+  subagents(): SubagentEntry[] {
+    const ws = this.workspace
+    const active = ws !== null && ws !== '' ? subagentMonitor.activeParentId(ws) : null
+    return subagentMonitor.records()
+      .filter(r => r.running || ws === null || ws === ''
+        || (r.cwd === ws && r.parentId === active))
+      .map(toEntry)
   }
 
   /** 触发一次重探（git:refresh）。 */
