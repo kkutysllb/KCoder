@@ -1,7 +1,7 @@
 {
   "name": "@kcoder/skills-bundle",
-  "version": "0.3.0",
-  "description": "KCoder in-box dsh bundle: methodology skill packs adapted from the KSkills repository, registered as runtime skills for every agent session.",
+  "version": "0.4.0",
+  "description": "KCoder in-box dsh bundle: methodology + multimedia + research skill packs adapted from the KSkills repository, registered as runtime skills for every agent session.",
   "license": "MIT",
   "type": "module",
   "main": "entry.js",

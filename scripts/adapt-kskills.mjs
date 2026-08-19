@@ -35,8 +35,8 @@
  *   node scripts/adapt-kskills.mjs [--src /path/to/KSkills]
  */
 
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, cpSync, readdirSync } from 'node:fs'
-import { join, resolve, basename } from 'node:path'
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, cpSync, readdirSync, statSync } from 'node:fs'
+import { join, resolve, basename, extname } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
@@ -130,7 +130,22 @@ const OFFICE_SKILLS = [
 /** 整拷时排除的文件（Claude 插件机制产物 / 系统杂 file）。 */
 const OFFICE_EXCLUDE = new Set(['install.sh', 'uninstall.sh', 'CHANGELOG.md', '.DS_Store'])
 
-/** manifest 中的固定顺序（手写版 + 旧清洗批 + 核心批）。 */
+/** media 批：多媒体生成技能（源在 media/ 子目录），整资源物化并进
+ * manifest（内置注册生效，开箱即用）。脚本调用的多模态模型凭据
+ * 由桌面端「设置 → 技能 → 多媒体模型」统一配置，dsh 启动时从
+ * $DSH_HOME/media-models.env 注入进程环境（见 media-models.ts）。 */
+const MEDIA_SKILLS = [
+  'image-generation',
+  'video-generation',
+  'music-generation',
+  'podcast-generation',
+  'comic',
+]
+
+/** research 批：研究方法论（knowledge-only，源在 research/ 子目录）。 */
+const RESEARCH_SKILLS = ['deep-research']
+
+/** manifest 中的固定顺序（手写版 + 旧清洗批 + 核心批 + 多媒体/研究批）。 */
 const MANIFEST_ORDER = [
   'planning-with-files',
   'task-decomposition',
@@ -138,6 +153,8 @@ const MANIFEST_ORDER = [
   'executing-plans',
   'verification-before-completion',
   ...CORE_SKILLS,
+  ...MEDIA_SKILLS,
+  ...RESEARCH_SKILLS,
 ]
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)))
@@ -217,6 +234,60 @@ function cleanBody(body) {
 
 // ── 适配产出 ────────────────────────────────────────────────────────────────
 
+/** bundle 物化后的技能根（$DSH_HOME 由 KCoder 主进程预置并随 dsh
+ * 进程传给 agent 的 bash，双引号内可展开；resourceBase 同指此处）。 */
+const BUNDLE_SKILLS = '$DSH_HOME/profiles/web/node_modules/@kcoder/skills-bundle/skills'
+
+/** media 技能正文头部的环境说明（桌面端统一配置，免手动 export）。 */
+const MEDIA_ENV_NOTE = [
+  '> **KCoder 桌面端**：本技能依赖的多模态模型凭据（API Key / Base URL /',
+  '> 模型名）由桌面端统一配置并注入进程环境——在「设置 → 技能 → 多媒体',
+  '> 模型」分区填写即可，无需手动 export。脚本按内置优先级选择已配置',
+  '> 的 provider；均未配置时按各脚本自带的默认值与报错引导处理。',
+  '',
+].join('\n')
+
+/** 多媒体技能正文本地化：云端沙箱路径 → 本地物化路径，并清掉云端
+ * 专属的工具引用行。在通用 cleanBody 之后应用。 */
+function cleanMediaBody(name, body) {
+  let out = body
+    .split('\n')
+    .filter((line) =>
+      // 云端专属指令：present_files 工具 / 检查 /mnt/user-data 目录的提示
+      !/present_files|check the folder under/.test(line))
+    .join('\n')
+  out = out.replaceAll(`/mnt/skills/public/${name}/`, `${BUNDLE_SKILLS}/${name}/`)
+  out = out.replaceAll('/mnt/skills/public/', `${BUNDLE_SKILLS}/`)
+  out = out.replaceAll('/mnt/user-data/workspace/', './')
+  out = out.replaceAll('/mnt/user-data/outputs/', './outputs/')
+  out = out.replaceAll('/mnt/user-data/', './')
+  return out.replace(/\n{3,}/g, '\n\n').trimEnd() + '\n'
+}
+
+/** media 技能的文本资源（templates/ 等）同样做云端路径本地化。
+ * 只处理小体积文本类型（SKILL.md 已在正文清洗里覆盖）。 */
+const LOCALIZE_EXTS = new Set(['.md', '.json', '.txt', '.yaml', '.yml'])
+
+function localizeMediaAssets(name, destDir) {
+  for (const rel of readdirSync(destDir, { recursive: true })) {
+    const p = join(destDir, String(rel))
+    const st = statSync(p)
+    if (!st.isFile() || st.size > 512 * 1024) continue
+    if (!LOCALIZE_EXTS.has(extname(p))) continue
+    const text = readFileSync(p, 'utf8')
+    const next = text
+      .replaceAll(`/mnt/skills/public/${name}/`, `${BUNDLE_SKILLS}/${name}/`)
+      .replaceAll('/mnt/skills/public/', `${BUNDLE_SKILLS}/`)
+      .replaceAll('/mnt/user-data/workspace/', './')
+      .replaceAll('/mnt/user-data/outputs/', './outputs/')
+      .replaceAll('/mnt/user-data/', './')
+    if (next !== text) {
+      writeFileSync(p, next)
+      console.log(`    \u00b7 ${rel} \u8def\u5f84\u672c\u5730\u5316`)
+    }
+  }
+}
+
 function adaptSkill(name, subdir = '') {
   const srcPath = join(SRC, 'coding', name, 'SKILL.md')
   if (!existsSync(srcPath)) throw new Error(`KSkills 源缺失: ${srcPath}`)
@@ -235,17 +306,19 @@ function adaptSkill(name, subdir = '') {
   console.log(`  ✓ ${subdir ? 'optional/' : ''}${name} (${cleaned.split('\n').length} 行正文)`)
 }
 
-/** office 批适配：SKILL.md 清洗 + 其余资源整拷（scripts/references/LICENSE）。 */
-function adaptOfficeSkill(name) {
-  const srcDir = join(SRC, 'office', name)
+/** 整资源技能适配（源在子目录的批次）：SKILL.md 清洗 + 其余资源整拷
+ * （scripts/references/templates/LICENSE）。manifest=true 物化到 skills/
+ * 根（进 manifest，注册生效）；false 物化到 optional/（随包不注册）。 */
+function adaptResourceSkill(name, srcSub, { manifest = false, clean = 'plain', note = '' } = {}) {
+  const srcDir = join(SRC, srcSub, name)
   const srcPath = join(srcDir, 'SKILL.md')
   if (!existsSync(srcPath)) throw new Error(`KSkills 源缺失: ${srcPath}`)
   const { fields, body } = parseFrontmatter(readFileSync(srcPath, 'utf8'))
   if (fields.name !== name) throw new Error(`name 不一致: ${fields.name} vs ${name}`)
   const description = flattenDescription(fields.description ?? '')
   if (description === '') throw new Error(`${name}: description 为空`)
-  const cleaned = cleanBody(body)
-  const destDir = join(OUT, 'optional', name)
+  const cleaned = clean === 'media' ? cleanMediaBody(name, cleanBody(body)) : cleanBody(body)
+  const destDir = join(OUT, manifest ? '' : 'optional', name)
   rmSync(destDir, { recursive: true, force: true })
   mkdirSync(destDir, { recursive: true })
   cpSync(srcDir, destDir, {
@@ -254,10 +327,11 @@ function adaptOfficeSkill(name) {
   })
   writeFileSync(
     join(destDir, 'SKILL.md'),
-    `---\nname: ${name}\ndescription: ${description}\n---\n\n${cleaned}`,
+    `---\nname: ${name}\ndescription: ${description}\n---\n\n${note}${cleaned}`,
   )
   const files = readdirSync(destDir, { recursive: true }).length
-  console.log(`  ✓ optional/${name} (${cleaned.split('\n').length} 行正文 + ${files} 个资源文件)`)
+  if (clean === 'media') localizeMediaAssets(name, destDir)
+  console.log(`  ✓ ${manifest ? '' : 'optional/'}${name} (${cleaned.split('\n').length} 行正文 + ${files} 个资源文件)`)
 }
 
 // ── manifest 重生成（覆盖手写版） ───────────────────────────────────────────
@@ -288,6 +362,10 @@ for (const name of CORE_SKILLS) adaptSkill(name)
 console.log('可选批（skills/optional/，不注册）:')
 for (const name of OPTIONAL_SKILLS) adaptSkill(name, 'optional')
 console.log('office 批（整资源，物化到 skills/optional/，不注册）:')
-for (const name of OFFICE_SKILLS) adaptOfficeSkill(name)
+for (const name of OFFICE_SKILLS) adaptResourceSkill(name, 'office')
+console.log('media 批（整资源，进 manifest，内置注册）:')
+for (const name of MEDIA_SKILLS) adaptResourceSkill(name, 'media', { manifest: true, clean: 'media', note: MEDIA_ENV_NOTE })
+console.log('research 批（knowledge-only，进 manifest，内置注册）:')
+for (const name of RESEARCH_SKILLS) adaptResourceSkill(name, 'research', { manifest: true })
 regenerateManifest()
 console.log(`完成：核心 ${MANIFEST_ORDER.length} + 可选 ${OPTIONAL_SKILLS.length + OFFICE_SKILLS.length} = ${MANIFEST_ORDER.length + OPTIONAL_SKILLS.length + OFFICE_SKILLS.length} 技能。`)

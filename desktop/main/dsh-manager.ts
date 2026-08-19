@@ -22,6 +22,7 @@ import {
   type DshCommand,
 } from './dsh-contract'
 import type { DshLogLine, DshState, DshStatus } from '@shared/ipc-contract'
+import { mediaSpawnEnv } from './media-models'
 
 /** 日志环形缓冲容量（诊断面板展示尾部）。 */
 const LOG_RING_SIZE = 500
@@ -102,7 +103,9 @@ export class DshManager extends EventEmitter {
     this.appendLog('stdout', `$ ${command.describe}\n$ ${command.command} ${args.join(' ')}`)
     const child = spawn(command.command, args, {
       cwd: command.cwd,
-      env: { ...process.env, ...command.env },
+      // mediaSpawnEnv：多媒体技能模型凭据（$DSH_HOME/media-models.env，
+      // 设置→技能→多媒体模型维护），随侧车传给 agent 的工具子进程
+      env: { ...process.env, ...command.env, ...mediaSpawnEnv() },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     this.child = child

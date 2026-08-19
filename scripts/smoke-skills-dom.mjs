@@ -18,6 +18,13 @@ const decl = 'const PAGE_JS = ' + BT
 const from = src.indexOf(decl) + decl.length
 const tail = src.indexOf('\n})()' + BT, from)
 const endTick = src.indexOf(BT, tail + 1)
+// PAGE_JS 插值 ${JSON.stringify(MEDIA_MODEL_GROUPS)} 在 eval 作用域求值：
+// 从 media-models.ts 抠真实字段表（纯数据可 eval；不含函数/类型）
+const mts = readFileSync('desktop/main/media-models.ts', 'utf8')
+const mAnchor = 'export const MEDIA_MODEL_GROUPS: readonly MediaModelGroup[] = '
+const mStart = mts.indexOf(mAnchor) + mAnchor.length
+const mEnd = mts.indexOf('\n]', mStart) + 2
+const MEDIA_MODEL_GROUPS = eval(mts.slice(mStart, mEnd))
 const pageJs = eval(BT + src.slice(from, endTick) + BT)
 
 // 上游深色主题真实值（design-platform.css :root[data-theme=dark] 块）
@@ -83,6 +90,11 @@ async function runScenario(win, label, vars) {
   await win.webContents.executeJavaScript(pageJs, true)
   await new Promise((r) => setTimeout(r, 400))
   await win.webContents.executeJavaScript(`window.__dshSkillsSync(${JSON.stringify(groups)})`, true)
+  // 多媒体模型已存值推送（image-seedream 组两项 → 默认展开 + 计数）
+  await win.webContents.executeJavaScript(
+    `window.__dshSkillsMediaValues(${JSON.stringify({ GEMINI_API_KEY: 'sk-img-x', GEMINI_MODEL: 'doubao-seedream-5-0-260128' })})`,
+    true,
+  )
   await new Promise((r) => setTimeout(r, 200))
   const clicked = await win.webContents.executeJavaScript(
     `(() => { const b = document.getElementById('__dsh_desktop_skills_nav'); if (!b) return 'NAV MISSING'; b.click(); return 'ok' })()`,
@@ -125,10 +137,18 @@ async function runScenario(win, label, vars) {
       const kc = document.querySelector('.dsk-badge.kc')
       const plain = document.querySelector('.dsk-badge:not(.kc)')
       const info = (b) => b === null ? null : { text: b.textContent, color: getComputedStyle(b).color, bg: getComputedStyle(b).backgroundColor }
+      const mediaTitle = Array.from(document.querySelectorAll('.dsk-gtitle')).map(t => t.textContent).find(t => t.includes('\u591a\u5a92\u4f53\u6a21\u578b')) || ''
+      const secretInp = document.querySelector('.dsk-mf-i[data-key="GEMINI_API_KEY"]')
+      const openGroups = Array.from(document.querySelectorAll('.dsk-mg')).filter(g => g.classList.contains('on')).length
+      const filledGemini = secretInp === null ? null : secretInp.value
       return JSON.stringify({
         nav: ${JSON.stringify(label)}, click: ${JSON.stringify(clicked)},
         rows: document.querySelectorAll('.dsk-row').length,
         kcBadge: info(kc), plainBadge: info(plain),
+        mediaGroups: document.querySelectorAll('.dsk-mg').length,
+        mediaInputs: document.querySelectorAll('.dsk-mf-i').length,
+        mediaTitle, secretType: secretInp === null ? null : secretInp.type,
+        filledGemini, openGroups,
       })
     })()`,
     true,
@@ -145,6 +165,47 @@ async function runScenario(win, label, vars) {
   if (en.rowExpanded === true) fails.push('按钮点击触发了行展开（stopPropagation 失效）')
   const jp = JSON.parse(jumpProbe)
   if (jp.remainingEnableBtns !== 0) fails.push(`刷新后残留 ${jp.remainingEnableBtns} 个启用按钮`)
+  // 多媒体模型配置区：渲染/回填/密码型/默认展开
+  if (result.mediaGroups !== 6) fails.push(`多媒体分组=${result.mediaGroups} 应为 6`)
+  if (result.mediaInputs !== 21) fails.push(`多媒体输入框=${result.mediaInputs} 应为 21`)
+  if (!result.mediaTitle.includes('已配置 2 项')) fails.push(`配置计数标题异常: ${result.mediaTitle}`)
+  if (result.secretType !== 'password') fails.push(`密钥字段 type=${result.secretType} 应为 password`)
+  if (result.filledGemini !== 'sk-img-x') fails.push('已存值未回填输入框')
+  if (result.openGroups !== 1) fails.push(`含已存值组默认展开数=${result.openGroups} 应为 1`)
+  // 保存链路：点击保存 → console 载荷 op=media-save（含新输入值）→ 应答回推按钮复位
+  const mediaPayload = new Promise((resolve) => {
+    win.webContents.once('console-message', (_e, _level, message) => resolve(message))
+  })
+  await win.webContents.executeJavaScript(
+    `(() => {
+      const inp = document.querySelector('.dsk-mf-i[data-key="MINIMAX_API_KEY"]')
+      if (inp !== null) inp.value = 'mm-smoke-999'
+      const btn = document.getElementById('dsk-media-save')
+      if (btn === null) return 'SAVE BTN MISSING'
+      btn.click()
+      return 'ok'
+    })()`,
+    true,
+  )
+  const sentMsg = await Promise.race([mediaPayload, new Promise((r) => setTimeout(() => r('TIMEOUT'), 1500))])
+  if (!sentMsg.startsWith('__dsh_skills__:')) fails.push(`保存未发 console 载荷: ${String(sentMsg).slice(0, 40)}`)
+  else {
+    const sent = JSON.parse(sentMsg.slice('__dsh_skills__:'.length))
+    if (sent.op !== 'media-save') fails.push(`载荷 op=${sent.op} 应为 media-save`)
+    if (sent.values?.MINIMAX_API_KEY !== 'mm-smoke-999') fails.push('新输入值未随载荷上送')
+    if (sent.values?.GEMINI_API_KEY !== 'sk-img-x') fails.push('已存值未随载荷上送')
+  }
+  await win.webContents.executeJavaScript(`window.__dshSkillsMediaSaved(true)`, true)
+  const saveProbe = JSON.parse(await win.webContents.executeJavaScript(
+    `(() => JSON.stringify({
+      btnDisabled: (document.getElementById('dsk-media-save') || {}).disabled,
+      btnText: (document.getElementById('dsk-media-save') || {}).textContent,
+      tip: (document.getElementById('dsk-media-ok') || {}).textContent,
+    }))()`,
+    true,
+  ))
+  if (saveProbe.btnDisabled !== false || saveProbe.btnText !== '保存') fails.push(`保存应答后按钮未复位: ${JSON.stringify(saveProbe)}`)
+  if (!saveProbe.tip.includes('已保存')) fails.push(`保存提示异常: ${saveProbe.tip}`)
   if (vars === DARK_VARS) {
     if (result.kcBadge && result.kcBadge.color === 'rgb(255, 255, 255)') fails.push('深色主题 kc 徽章落回退 #fff（白底白字隐形，变量名又坏了）')
   }

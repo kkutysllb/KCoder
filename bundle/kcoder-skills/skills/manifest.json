@@ -154,6 +154,36 @@
       "dir": "release-engineering",
       "name": "release-engineering",
       "description": "Use this skill for versioning, changelogs, release notes, packaging, deployment readiness, rollback planning, and release risk checks."
+    },
+    {
+      "dir": "image-generation",
+      "name": "image-generation",
+      "description": "Use this skill when the user requests to generate, create, imagine, or visualize images including characters, scenes, products, or any visual content. Supports structured prompts and reference images for guided generation."
+    },
+    {
+      "dir": "video-generation",
+      "name": "video-generation",
+      "description": "Use this skill when the user requests to generate, create, or imagine videos. Supports structured prompts and reference image for guided generation."
+    },
+    {
+      "dir": "music-generation",
+      "name": "music-generation",
+      "description": "Generate music and songs using MiniMax Music-2.6, Music-Cover, and Lyrics Generation APIs. Supports text-to-music, cover/remix, lyrics writing, and full song creation."
+    },
+    {
+      "dir": "podcast-generation",
+      "name": "podcast-generation",
+      "description": "Use this skill when the user requests to generate, create, or produce podcasts from text content. Converts written content into a two-host conversational podcast audio format with natural dialogue."
+    },
+    {
+      "dir": "comic",
+      "name": "comic",
+      "description": "知识漫画创作器——将知识、教育、传记、教程类文本内容转化为多页叙事型漫画。支持 5 种艺术风格 × 7 种色调 × 7 种布局的自由组合，自动根据内容信号选择最佳视觉方案。触发词：知识漫画、教育漫画、传记漫画、教程漫画、科普漫画、Logicomix 风格、baoyu-comic、把这段内容画成漫画。"
+    },
+    {
+      "dir": "deep-research",
+      "name": "deep-research",
+      "description": "Use this skill instead of WebSearch for ANY question requiring web research. Trigger on queries like \"what is X\", \"explain X\", \"compare X and Y\", \"research X\", or before content generation tasks. Provides systematic multi-angle research methodology instead of single superficial searches. Use this proactively when the user's question needs online information."
     }
   ]
 }
