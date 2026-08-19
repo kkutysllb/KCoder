@@ -14,9 +14,10 @@
  *   position:relative 锚点）内含组合 Logo 图（brand-combo-dark/light.
  *   png：K 图标 + "Coder" 字标已按 22px 等高、零间距渲染成单张 PNG，
  *   深色主题白字 / 浅色主题深字，主题切换自动换版）与版本徽章
- *   （「桌面版 v<app.getVersion()>」，右上角角标；brand 是 flex:1
- *   撑满整行且 overflow:hidden，锚在按钮上会偏到行尾且被裁，
- *   故锚在自己的 wrapper 上紧贴图片）；不动上游节点本身——React
+ *   （「桌面版 v<app.getVersion()>」，上标形态悬浮在 "Coder" 字标右
+ *   上角，同上游 HARNESS 徽章样式；wrapper 加高 34px、logo 沉底、
+ *   顶部 12px 徽章区——brand 是 flex:1 撑满整行且 overflow:hidden，
+ *   负偏移会被裁，用加高 wrapper 撑开边界替代）；不动上游节点本身——React
  *   卸载 BrandWordmark 时仍能 removeChild 原节点，不会抛
  *   NotFoundError 崩树（replaceWith 方案已踩坑）；button 的新会话
  *   点击行为不受影响（徽章 pointer-events:none）；
@@ -138,12 +139,14 @@ const INJECT_JS = `(() => {
   // ---- 展开：brand 按钮内 wordmark SVG 藏起 + 旁插 wrapper（logo 图 + 版本徽章）----
   // 不用 replaceWith：React 卸载时会 removeChild 它记录的旧 svg，
   // 节点被换走会抛 NotFoundError 崩整棵树（实测踩坑）。
-  // 组合 Logo 为单张 PNG（K + Coder 紧贴渲染），按主题选深/浅字色版。
+  // 组合 Logo 为单张 PNG（K 图标 + "Coder" 字标紧贴渲染），按主题选
+  // 深/浅字色版。
   // wrapper（自持 span）：徽章的定位锚——brand 是 flex:1 撑满整行且
-  // overflow:hidden，锚按钮会把徽章推到行尾并裁剪；锚 wrapper 才紧贴
-  // logo 图片右上角。brand 高度由内容撑开（上游即 22px），徽章不能
-  // 向上负偏移（会被 overflow:hidden 裁掉）——top:0 贴 logo 上沿，
-  // 仅向右微突（右侧是 flex:1 的空余空间，不裁）。
+  // overflow:hidden，锚按钮会把徽章推到行尾；锚 wrapper 且右缘对齐
+  // "Coder" 字标末尾。徽章为上标形态（同上游 HARNESS 徽章样式）：
+  // wrapper 加高到 34px，logo 图沉底，顶部 12px 作徽章区——徽章悬浮
+  // 在字标右上角上方而非压在文字上；brand 高度随 wrapper 撑开，
+  // top:0 的徽章在 overflow:hidden 边界内不被裁（负偏移方案必被裁）。
   const swapBrand = () => {
     const btn = document.querySelector('[class*="logoRow"] button[class*="brand"]')
     if (btn === null) return
@@ -154,24 +157,29 @@ const INJECT_JS = `(() => {
         wrap.id = LOGO_ID + '_wrap'
         wrap.style.position = 'relative'
         wrap.style.display = 'inline-flex'
-        wrap.style.alignItems = 'center'
+        wrap.style.alignItems = 'flex-end'
         wrap.style.flex = 'none'
+        // 上标区：logo 图沉底，顶部 12px 留给版本徽章（悬浮在 "Coder"
+        // 字标右上角）；brand 高度随 wrapper 撑到 34px，仍在 60px 的
+        // logoRow 内垂直居中，徽章不越 overflow:hidden 边界
+        wrap.style.height = '34px'
         const img = document.createElement('img')
         img.id = LOGO_ID
         img.src = document.body?.getAttribute('data-ds-dark-theme') !== null ? DATA_DARK : DATA_LIGHT
         img.alt = ''
-        // 组合图高度对齐原 wordmark（22）；brand 是 inline-flex + align-items
-        // center，wrapper 自动垂直居中；不设 display——避免内联样式压过上游 CSS
+        // 组合图高度对齐原 wordmark（22）；wrapper align-items:flex-end
+        // 使图沉底；不设 display——避免内联样式压过上游 CSS
         img.style.height = '22px'
         img.style.width = 'auto'
         img.style.flex = 'none'
-        // 版本徽章：logo 右上角角标，不拦新会话点击
+        // 版本徽章：悬浮在 "Coder" 字标右上角的上标（右缘对齐字标
+        // 末尾，顶部在徽章区内），不拦新会话点击
         const ver = document.createElement('span')
         ver.id = LOGO_ID + '_ver'
         ver.textContent = VER_TEXT
         ver.style.position = 'absolute'
         ver.style.top = '0px'
-        ver.style.right = '-5px'
+        ver.style.right = '0px'
         ver.style.fontSize = '9px'
         ver.style.lineHeight = '1'
         ver.style.padding = '2.5px 5px'

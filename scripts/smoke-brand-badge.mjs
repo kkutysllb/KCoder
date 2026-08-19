@@ -122,12 +122,17 @@ async function runScenario(win, label, vars, dark) {
   if (!inside(probe.rects.row, probe.rects.ver)) fails.push(`徽章被 logoRow overflow:hidden 裁剪 rects=${JSON.stringify(probe.rects)}`)
   if (!inside(probe.rects.btn, probe.rects.ver)) fails.push(`徽章被 brand overflow:hidden 裁剪 rects=${JSON.stringify(probe.rects)}`)
 
-  // 角标位置：右上角紧贴（贴齐 logo 上沿（brand overflow:hidden 不许负偏移）、
-  // 向右突出 ≤8px 且 >1px）
+  // 角标位置：上标形态悬浮在 "Coder" 字标右上角——徽章顶高于 logo 上沿
+  // 8~16px（顶部徽章区），底部最多轻压字标 6px，右缘与字标末尾对齐（±2px）
   const dTop = probe.rects.img.top - probe.rects.ver.top
+  const overlap = probe.rects.ver.bottom - probe.rects.img.top
   const dRight = probe.rects.ver.right - probe.rects.img.right
-  if (dTop < -0.5 || dTop > 1) fails.push(`上沿偏差=${dTop.toFixed(1)} 应贴齐（0±1px）`)
-  if (dRight < 1 || dRight > 8) fails.push(`右突出=${dRight.toFixed(1)} 应在 1~8px`)
+  if (dTop < 8 || dTop > 16) fails.push(`徽章顶高于 logo=${dTop.toFixed(1)} 应在 8~16px`)
+  if (overlap < -0.5 || overlap > 6) fails.push(`压入字标=${overlap.toFixed(1)} 应 ≤6px`)
+  if (dRight < -0.5 || dRight > 2) fails.push(`右缘偏差=${dRight.toFixed(1)} 应对齐（±2px）`)
+  // wrapper 加高后 brand 边框盒随内容撑到 ~34px（徽章不被裁的前置）
+  const btnH = probe.rects.btn.height
+  if (btnH < 32 || btnH > 36) fails.push(`brand 高=${btnH} 应在 32~36px`)
 
   console.log(`[${label}]`, fails.length === 0 ? 'PASS' : 'FAIL: ' + fails.join('; '))
   const img = await win.webContents.capturePage()
