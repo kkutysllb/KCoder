@@ -15,13 +15,17 @@
  * 4. 溯源不到的非 optional 依赖，从 npm registry 兜底安装（实测 CI
  *    Windows 上游 pnpm install 会少装个别纯 JS 包，如
  *    @opentelemetry/exporter-logs-otlp-http —— 不能赌上游 .pnpm 恰好全）；
- *    optional 缺失（非当前平台的二进制）跳过并提示。
+ *    optional 缺失（非当前平台的二进制）跳过并提示；
+ * 5. flatten 后版本仲裁：顶层同名槽位只能容一个版本，多版本需求
+ *    （ajv@6 vs ^8）按 npm 语义在引用方包内嵌套放置精确版本
+ *    （权威源：上游 .pnpm 虚拟目录里 pnpm 已解析好的邻居）。
  *
  * 跨平台（node:fs + npm），CI 三平台与本地 scripts/release.sh build 共用。
  *
  * @module scripts/materialize-peers
  */
 import { execSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { closeSync, cpSync, createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { createGzip } from 'node:zlib'
@@ -70,9 +74,8 @@ function scanWorkspace() {
   return map
 }
 
-/** 复制一个包实体到 staging/node_modules/<name>。 */
-function placePkg(srcDir, name, fromWorkspace) {
-  const dest = join(topNM, name)
+/** 复制一个包实体到指定目录（顶层或引用方包内的嵌套 node_modules）。 */
+function placePkg(srcDir, dest, fromWorkspace) {
   if (existsSync(dest)) return false
   const pkg = JSON.parse(readFileSync(join(srcDir, 'package.json'), 'utf8'))
   mkdirSync(dest, { recursive: true })
@@ -188,7 +191,7 @@ while (changed) {
           }
           continue
         }
-        if (placePkg(src, name, wsSrc !== undefined)) {
+        if (placePkg(src, join(topNM, name), wsSrc !== undefined)) {
           placed.push(name)
           changed = true
         }
@@ -265,6 +268,134 @@ const flatten = (dir) => {
 flatten(topNM)
 rmSync(join(topNM, '.pnpm'), { recursive: true, force: true })
 console.log(`[materialize] flatten：${flattened} 个 symlink→实体，已删 .pnpm`)
+
+// —— 版本仲裁（flatten 后）——
+// flatten 只保证「名字可达」不保证「版本正确」：多个包对同名依赖
+// 要求不同大版本时（如顶层 ajv@6 vs ajv-formats/@modelcontextprotocol/sdk
+// 要 ^8），顶层槽位只有一个，输家静默断链——0.2.3 MCP 功能加载
+// ajv-formats → ajv/dist/compile/codegen MODULE_NOT_FOUND、引擎起不来
+// 即此因（开发态 pnpm 嵌套解析正常，只在打包产物炸，冒烟难拦）。
+// 按 npm 语义给版本不满足的引用方嵌套放置精确版本；权威来源是
+// 上游 .pnpm 虚拟目录——pnpm install 时已为每个包实例解析好邻居版本。
+const pnpmStore = join(upstream, 'node_modules', '.pnpm')
+/** semver 是传递依赖，pnpm 顶层解析不到；从 .pnpm 实体或 staging 加载（API 稳定，任意版本可用）。 */
+function loadSemver() {
+  const candidates = []
+  if (existsSync(pnpmStore)) {
+    for (const e of readdirSync(pnpmStore)) {
+      if (e.startsWith('semver@')) candidates.push(join(pnpmStore, e, 'node_modules', 'semver'))
+    }
+  }
+  candidates.push(join(topNM, 'semver'))
+  for (const dir of candidates) {
+    if (!existsSync(join(dir, 'package.json'))) continue
+    try { return createRequire(join(dir, 'package.json'))('semver') } catch { /* 尝试下一个 */ }
+  }
+  return null
+}
+const semver = loadSemver()
+if (semver === null) console.warn('[materialize] semver 不可用，版本仲裁降级为存在性检查')
+/** dir 处包版本是否满足 range；非 semver 语义（workspace:/git/url…）存在即满足。 */
+function depSatisfies(dir, range) {
+  if (semver === null) return true
+  let ver
+  try { ver = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).version } catch { return false }
+  if (typeof ver !== 'string') return false
+  try {
+    if (semver.validRange(range) === null) return true
+    return semver.satisfies(ver, range, { loose: true })
+  } catch { return false }
+}
+/** 上游 .pnpm 虚拟目录：<pkg@ver> 实例旁已解析好的 <depName> 即权威版本。 */
+function findVirtualSibling(pkgName, pkgVer, depName, range) {
+  if (!existsSync(pnpmStore)) return null
+  const prefix = pkgName.replace('/', '+') + '@' + pkgVer
+  for (const e of readdirSync(pnpmStore)) {
+    if (!e.startsWith(prefix)) continue
+    const nm = join(pnpmStore, e, 'node_modules')
+    try {
+      if (JSON.parse(readFileSync(join(nm, pkgName, 'package.json'), 'utf8')).version !== pkgVer) continue
+    } catch { continue }
+    const cand = join(nm, depName)
+    if (existsSync(join(cand, 'package.json')) && depSatisfies(cand, range)) return cand
+  }
+  return null
+}
+/** 上游 .pnpm 里任一满足 range 的 <name> 实体。 */
+function findExternalSatisfying(name, range) {
+  if (!existsSync(pnpmStore)) return null
+  const prefix = name.replace('/', '+') + '@'
+  for (const e of readdirSync(pnpmStore)) {
+    if (!e.startsWith(prefix)) continue
+    const dir = join(pnpmStore, e, 'node_modules', name)
+    if (existsSync(join(dir, 'package.json')) && depSatisfies(dir, range)) return dir
+  }
+  return null
+}
+/** staging 实体包 manifests（含嵌套 node_modules 内的，flatten 后全是实体目录）。 */
+function* realManifests(dir) {
+  let entries
+  try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return }
+  for (const e of entries) {
+    if (!e.isDirectory() || e.name === '.pnpm' || e.name.startsWith('.')) continue
+    if (e.name.startsWith('@')) {
+      for (const sub of readdirSync(join(dir, e.name), { withFileTypes: true })) {
+        if (!sub.isDirectory()) continue
+        const pd = join(dir, e.name, sub.name)
+        if (existsSync(join(pd, 'package.json'))) { yield join(pd, 'package.json'); yield* realManifests(join(pd, 'node_modules')) }
+      }
+    } else {
+      const pd = join(dir, e.name)
+      if (existsSync(join(pd, 'package.json'))) { yield join(pd, 'package.json'); yield* realManifests(join(pd, 'node_modules')) }
+    }
+  }
+}
+{
+  const nestedPlaced = []
+  const unresolved = []
+  let passChanged = true
+  while (passChanged) {
+    passChanged = false
+    for (const pj of realManifests(topNM)) {
+      let pkg
+      try { pkg = JSON.parse(readFileSync(pj, 'utf8')) } catch { continue }
+      if (typeof pkg.name !== 'string' || typeof pkg.version !== 'string') continue
+      const pkgDir = dirname(pj)
+      const meta = pkg.peerDependenciesMeta ?? {}
+      for (const [kind, section] of [
+        ['dep', pkg.dependencies ?? {}],
+        ['peer', pkg.peerDependencies ?? {}],
+        ['opt', pkg.optionalDependencies ?? {}],
+      ]) {
+        for (const [name, range] of Object.entries(section)) {
+          const optional = kind === 'opt' || (kind === 'peer' && meta[name]?.optional === true)
+          const local = join(pkgDir, 'node_modules', name)
+          const top = join(topNM, name)
+          // 解析顺序同 npm：包内嵌套优先，其次顶层；满足即通过
+          if (existsSync(join(local, 'package.json'))) {
+            if (depSatisfies(local, range)) continue
+            rmSync(local, { recursive: true, force: true }) // 嵌套版本陈旧，重放
+          } else if (existsSync(join(top, 'package.json')) && depSatisfies(top, range)) continue
+          const wsSrc = ws.get(name)
+          let src = findVirtualSibling(pkg.name, pkg.version, name, range) ?? findExternalSatisfying(name, range)
+          if (src === null && wsSrc !== undefined && depSatisfies(wsSrc, range)) src = wsSrc
+          if (src === null) {
+            if (!optional && !unresolved.includes(`${pkg.name} → ${name}@${range}`)) unresolved.push(`${pkg.name} → ${name}@${range}`)
+            continue
+          }
+          placePkg(src, local, wsSrc !== undefined && src === wsSrc)
+          nestedPlaced.push(`${pkg.name} → ${name}`)
+          passChanged = true
+        }
+      }
+    }
+  }
+  if (nestedPlaced.length > 0) console.log(`[materialize] 版本仲裁：${nestedPlaced.length} 处嵌套放置（${nestedPlaced.join('、')}）`)
+  if (unresolved.length > 0) {
+    console.error(`[materialize] 版本仲裁未解决（上游 .pnpm 溯源不到满足版本）：${unresolved.join('；')}`)
+    process.exit(1)
+  }
+}
 
 // vendor pnpm：运行时不带包管理器，而预置插件/补丁物化链（桌面端
 // preset-plugins / profile-patches 的 runPnpm）在普通用户机器上没有
@@ -474,26 +605,36 @@ try {
   tarSize = Math.round(statSync(tarPath).size / 1024 / 1024)
 } catch { /* 仅展示 */ }
 console.log(`[materialize] 归档：${tarFiles.length} 个文件 → kcoder-runtime.tar.gz（${tarSize} MB）`)
-// 自检：补完后再扫一轮，非 optional 的依赖引用必须全部可达
-for (const pj of stagingManifests()) {
-  let pkg
-  try {
-    pkg = JSON.parse(readFileSync(pj, 'utf8'))
-  } catch {
-    continue
-  }
-  const meta = pkg.peerDependenciesMeta ?? {}
-  for (const [kind, section] of [
-    ['dep', pkg.dependencies ?? {}],
-    ['peer', pkg.peerDependencies ?? {}],
-  ]) {
-    for (const name of Object.keys(section)) {
-      if (kind === 'peer' && meta[name]?.optional === true) continue
-      if (!existsSync(join(topNM, name))) {
-        console.error(`[materialize] 自检失败：${name} 仍不可达（被 ${pj} ${kind} 引用）`)
-        process.exit(1)
+// 自检：补完后再扫一轮，非 optional 的依赖引用必须全部「可达且版本满足」
+// （0.2.3 事故旧自检只查存在性，ajv@6 占顶层槽位照样通过）
+{
+  const problems = []
+  for (const pj of realManifests(topNM)) {
+    let pkg
+    try { pkg = JSON.parse(readFileSync(pj, 'utf8')) } catch { continue }
+    const pkgDir = dirname(pj)
+    const meta = pkg.peerDependenciesMeta ?? {}
+    for (const [kind, section] of [
+      ['dep', pkg.dependencies ?? {}],
+      ['peer', pkg.peerDependencies ?? {}],
+    ]) {
+      for (const [name, range] of Object.entries(section)) {
+        if (kind === 'peer' && meta[name]?.optional === true) continue
+        const local = join(pkgDir, 'node_modules', name)
+        const top = join(topNM, name)
+        const resolved = existsSync(join(local, 'package.json')) ? local : (existsSync(join(top, 'package.json')) ? top : null)
+        if (resolved === null) problems.push(`${name} 不可达（被 ${pj} ${kind} 引用）`)
+        else if (!depSatisfies(resolved, range)) {
+          let ver
+          try { ver = JSON.parse(readFileSync(join(resolved, 'package.json'), 'utf8')).version } catch { ver = '?' }
+          problems.push(`${name}@${ver} 不满足 ${range}（被 ${pj} ${kind} 引用）`)
+        }
       }
     }
   }
+  if (problems.length > 0) {
+    console.error(`[materialize] 自检失败（${problems.length} 处）：\n  ${problems.join('\n  ')}`)
+    process.exit(1)
+  }
 }
-console.log('[materialize] 自检通过：所有非可选依赖可达')
+console.log('[materialize] 自检通过：所有非可选依赖可达且版本满足')
