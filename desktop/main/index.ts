@@ -18,6 +18,8 @@ import { previewPanel } from './preview-panel'
 import { fileActivity } from './file-activity'
 import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-contract'
 import { ensureKcoderSkillsBundle } from './kcoder-skills-bundle'
+import { ensureProfilePatches } from './profile-patches'
+import { ensurePresetPlugins } from './preset-plugins'
 import { initUpdater } from './updater'
 import { applyNativeTheme, currentThemePref } from './theme-watcher'
 import { getSettings } from './store'
@@ -128,6 +130,12 @@ app.whenReady().then(() => {
   // KCoder 内置技能 bundle 物化进 web profile（幂等；dsh 读取 profile
   // 清单在此之前完成注册）
   ensureKcoderSkillsBundle()
+  // 上游插件缺陷补丁物化（幂等；跨平台——Windows 无 launchd，随包分发
+  // 的唯一通道；插件已装但补丁未生效时触发一次 pnpm install）
+  ensureProfilePatches()
+  // 预置第三方插件物化（幂等；Windows 全新安装 profile 为空模板，开箱
+  // 即预置 vision-router / genui / context，含缺陷补丁自动应用）
+  ensurePresetPlugins()
   dshManager.start()
 
   app.on('activate', () => {

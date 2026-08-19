@@ -23,6 +23,52 @@ export function mountPlugins(root: HTMLElement): void {
   const restartButton = document.createElement('button')
   restartButton.textContent = '重启引擎使插件生效'
 
+  // 已安装：客户端过滤（列表已在本机）；社区：服务端搜索（防抖后重置翻页）
+  let installedQuery = ''
+  let communityQuery = ''
+  let communityItems: CommunityPlugin[] = []
+  let communityTotal = 0
+  let communityPage = 1
+  let communityLoading = false
+  let communityTouched = false // 首查完成前显示“加载中”，不显示空态
+  let communityDirty = false // 加载期间有新查询：结束后自动重查
+  let communityTimer: ReturnType<typeof setTimeout> | undefined
+
+  const installedSearch = document.createElement('input')
+  installedSearch.type = 'search'
+  installedSearch.placeholder = '搜索已安装插件…'
+  installedSearch.addEventListener('input', () => {
+    installedQuery = installedSearch.value.trim().toLowerCase()
+    void renderInstalled()
+  })
+
+  const communitySearch = document.createElement('input')
+  communitySearch.type = 'search'
+  communitySearch.placeholder = '搜索插件（仓库名 / 说明）…'
+  const searchCommunity = (): void => {
+    const next = communitySearch.value.trim()
+    if (next === communityQuery) return
+    communityQuery = next
+    void loadCommunity(true)
+  }
+  communitySearch.addEventListener('input', () => {
+    if (communityTimer !== undefined) clearTimeout(communityTimer)
+    communityTimer = setTimeout(searchCommunity, 400)
+  })
+  communitySearch.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return
+    if (communityTimer !== undefined) clearTimeout(communityTimer)
+    searchCommunity()
+  })
+
+  // 结果统计（共 N 个 · 已显示 M 个）与「加载更多」翻页
+  const communityMeta = document.createElement('div')
+  communityMeta.className = 'sub'
+  const loadMoreButton = document.createElement('button')
+  loadMoreButton.textContent = '加载更多'
+  loadMoreButton.hidden = true
+  loadMoreButton.addEventListener('click', () => void loadCommunity(false))
+
   root.append(
     el('div', 'page', [
       el('div', 'page-header', [
@@ -32,11 +78,16 @@ export function mountPlugins(root: HTMLElement): void {
       el('div', 'page-body', [
         el('div', 'card', [
           el('h2', '', '已安装（层叠顺序，自下而上）'),
+          installedSearch,
           installedTable,
         ]),
         el('div', 'card', [
           el('h2', '', '社区插件（GitHub topic: dsh-plugin）'),
+          el('div', 'sub', '按 ★ 倒序；搜索直接查询 GitHub，可找到榜单之外的插件（如 genui / context）。'),
+          communitySearch,
+          communityMeta,
           communityTable,
+          loadMoreButton,
         ]),
         el('div', 'card', [
           el('h2', '', '操作'),
@@ -49,12 +100,19 @@ export function mountPlugins(root: HTMLElement): void {
 
   const renderInstalled = async (): Promise<void> => {
     const installed: InstalledPlugin[] = await bridge.pluginsInstalled()
+    const filtered =
+      installedQuery === ''
+        ? installed
+        : installed.filter((p) => p.name.toLowerCase().includes(installedQuery))
     installedTable.replaceChildren()
     const thead = document.createElement('thead')
     thead.append(el('tr', '', [el('th', '', '层'), el('th', '', '插件'), el('th', '', '来源'), el('th', '', '')]))
     installedTable.append(thead)
     const body = document.createElement('tbody')
-    for (const plugin of installed) {
+    if (filtered.length === 0) {
+      body.append(el('tr', '', [el('td', '', '无匹配（换个关键词，或点击下方“刷新”）')]))
+    }
+    for (const plugin of filtered) {
       const removeButton = document.createElement('button')
       removeButton.textContent = '卸载'
       removeButton.className = 'danger'
@@ -74,11 +132,52 @@ export function mountPlugins(root: HTMLElement): void {
     installedTable.append(body)
   }
 
+  /** 社区查询：reset 重置到第 1 页替换列表；否则翻页追加（按 fullName 去重）。 */
+  const loadCommunity = async (reset: boolean): Promise<void> => {
+    if (communityLoading) {
+      communityDirty = true // 加载中收到新查询：本次结束后自动重查
+      return
+    }
+    communityLoading = true
+    communityTouched = true
+    if (reset) communityItems = []
+    const page = reset ? 1 : communityPage + 1
+    try {
+      const result = await bridge.pluginsCommunity(communityQuery, page)
+      communityPage = result.page
+      communityTotal = result.totalCount
+      if (reset) {
+        communityItems = result.items
+      } else {
+        const seen = new Set(communityItems.map((p) => p.fullName))
+        communityItems = [...communityItems, ...result.items.filter((p) => !seen.has(p.fullName))]
+      }
+    } catch {
+      // IPC 异常兑底（正常失败已由主进程吞掉并返回空页/缓存页）
+    } finally {
+      communityLoading = false
+      void renderCommunity()
+      if (communityDirty) {
+        communityDirty = false
+        void loadCommunity(true)
+      }
+    }
+  }
+
   const renderCommunity = async (): Promise<void> => {
-    const community: CommunityPlugin[] = await bridge.pluginsCommunity()
     communityTable.replaceChildren()
-    if (community.length === 0) {
-      communityTable.append(el('tr', '', [el('td', '', '暂无结果（网络受限或社区尚无 dsh-plugin 仓库）')]))
+    if (!communityTouched) {
+      communityTable.append(el('tr', '', [el('td', '', '加载中…')]))
+      return
+    }
+    if (communityItems.length === 0) {
+      communityTable.append(el('tr', '', [
+        el('td', '', communityQuery === ''
+          ? '暂无结果（网络受限或社区尚无 dsh-plugin 仓库），可稍后点击下方“刷新”'
+          : `没有匹配「${communityQuery}」的仓库，换个关键词试试`),
+      ]))
+      communityMeta.textContent = ''
+      loadMoreButton.hidden = true
       return
     }
     const thead = document.createElement('thead')
@@ -86,7 +185,7 @@ export function mountPlugins(root: HTMLElement): void {
     communityTable.append(thead)
     const body = document.createElement('tbody')
     const installedNames = (await bridge.pluginsInstalled()).map((p) => p.name)
-    for (const plugin of community) {
+    for (const plugin of communityItems) {
       // 社区发现给出 GitHub full_name（owner/repo），已装列表是 npm 包名
       // （可能带 scope，如 @dsh-external/dsh-drag-to-attachment）。按最后一段
       // （repo 名）匹配：ysr666/dsh-vision-router ↔ dsh-vision-router。
@@ -117,6 +216,12 @@ export function mountPlugins(root: HTMLElement): void {
       )
     }
     communityTable.append(body)
+    communityMeta.textContent =
+      `共 ${communityTotal} 个${communityQuery === '' ? '候选' : '匹配'}仓库 · 已显示 ${communityItems.length} 个（按 ★ 倒序）`
+    const more = communityItems.length < communityTotal
+    loadMoreButton.hidden = !more
+    loadMoreButton.disabled = communityLoading
+    loadMoreButton.textContent = communityLoading ? '加载中…' : '加载更多'
   }
 
   async function run(label: string, action: () => Promise<PluginCommandResult>): Promise<void> {
@@ -126,11 +231,11 @@ export function mountPlugins(root: HTMLElement): void {
   }
 
   void renderInstalled()
-  void renderCommunity()
+  void loadCommunity(true)
 
   refreshButton.addEventListener('click', () => {
     void renderInstalled()
-    void renderCommunity()
+    void loadCommunity(true)
   })
   restartButton.addEventListener('click', () => {
     output.textContent += '⏳ 正在重启引擎…\n'

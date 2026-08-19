@@ -18,10 +18,16 @@ import { join } from 'node:path'
 import { net } from 'electron'
 import { WEB_PROFILE, dshHome, resolveDshCommand } from './dsh-contract'
 import { KCODER_SKILLS_BUNDLE } from './kcoder-skills-bundle'
-import type { CommunityPlugin, InstalledPlugin, PluginCommandResult } from '@shared/ipc-contract'
+import { PRESET_PLUGINS } from './preset-plugins'
+import type { CommunityPlugin, CommunityQueryResult, InstalledPlugin, PluginCommandResult } from '@shared/ipc-contract'
 
-/** 发行版模板内置层（KCoder 会物化注册自己的 skills bundle，UI 同样展示为内置）。 */
-const IN_BOX_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', KCODER_SKILLS_BUNDLE]
+/** 发行版模板内置层 + KCoder 物化注册层（预置第三方插件与技能 bundle，UI 均展示为内置且禁卸载）。 */
+const IN_BOX_BUNDLES = [
+  '@deepseek-ai/dsh-base',
+  '@deepseek-ai/dsh-web-app',
+  KCODER_SKILLS_BUNDLE,
+  ...Object.keys(PRESET_PLUGINS),
+]
 
 /**
  * dsh 宿主包缺失 peer（pnpm 安装期报警，运行时由
@@ -154,9 +160,11 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
 
 /* ---------- 社区发现 ---------- */
 
-/** 内存缓存（GitHub Search API 未认证限额 10 次/分钟）。 */
-let communityCache: { at: number; items: CommunityPlugin[] } | null = null
+/** 内存缓存（GitHub Search API 未认证限额 10 次/分钟；按 查询词|页码 分桶）。 */
+const communityCache = new Map<string, { at: number; items: CommunityPlugin[]; totalCount: number }>()
 const CACHE_TTL_MS = 5 * 60_000
+/** 缓存桶上限（防长时间使用后内存膨胀；超出丢最老）。 */
+const CACHE_MAX_KEYS = 24
 
 interface GitHubSearchResponse {
   total_count: number
@@ -169,15 +177,28 @@ interface GitHubSearchResponse {
   }>
 }
 
+/** 搜索词净化：GitHub 查询语法里的引号/冒号/括号会改语义，一律剔除。 */
+function sanitizeQuery(query: string): string {
+  return query.replace(/["'():+\\/<>]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
 /**
- * 发现社区插件（GitHub topic `dsh-plugin`，按更新时间排序）。
- * 使用 Electron net（尊重系统代理）。
+ * 发现社区插件（GitHub topic `dsh-plugin`，按 ★ 倒序；未认证 API
+ * 单页上限 100 条）。query 非空时走服务端搜索（`in:name,description`），
+ * 可命中榜单 100 名之外的插件（如 genui）；page 用于「加载更多」翻页。
+ * 使用 Electron net（尊重系统代理）。失败时返回已缓存页，无缓存则空。
  */
-export async function communityPlugins(): Promise<CommunityPlugin[]> {
-  if (communityCache !== null && Date.now() - communityCache.at < CACHE_TTL_MS) {
-    return communityCache.items
+export async function communityPlugins(query = '', page = 1): Promise<CommunityQueryResult> {
+  const key = `${sanitizeQuery(query)}|${page}`
+  const cached = communityCache.get(key)
+  if (cached !== undefined && Date.now() - cached.at < CACHE_TTL_MS) {
+    return { items: cached.items, totalCount: cached.totalCount, page }
   }
-  const url = 'https://api.github.com/search/repositories?q=topic:dsh-plugin&sort=updated&order=desc&per_page=50'
+  const q = sanitizeQuery(query)
+  const qualifiers = `topic:dsh-plugin${q === '' ? '' : ` ${q} in:name,description`}`
+  const url =
+    `https://api.github.com/search/repositories?q=${encodeURIComponent(qualifiers)}` +
+    `&sort=stars&order=desc&per_page=100&page=${page}`
   try {
     const response = await net.fetch(url, {
       headers: { accept: 'application/vnd.github+json', 'user-agent': 'kcoder' },
@@ -185,17 +206,29 @@ export async function communityPlugins(): Promise<CommunityPlugin[]> {
     })
     if (!response.ok) throw new Error(`HTTP ${String(response.status)}`)
     const body = JSON.parse((await response.text()) as string) as GitHubSearchResponse
-    const items = body.items.map((item) => ({
-      fullName: item.full_name,
-      description: item.description ?? '',
-      stars: item.stargazers_count,
-      updatedAt: item.updated_at,
-      url: item.html_url,
-    }))
-    communityCache = { at: Date.now(), items }
-    return items
+    // 显式再排一次：Search API 的 sort=stars 不保证返回顺序严格单调
+    const items = body.items
+      .map((item) => ({
+        fullName: item.full_name,
+        description: item.description ?? '',
+        stars: item.stargazers_count,
+        updatedAt: item.updated_at,
+        url: item.html_url,
+      }))
+      .sort((a, b) => b.stars - a.stars)
+    communityCache.set(key, { at: Date.now(), items, totalCount: body.total_count })
+    if (communityCache.size > CACHE_MAX_KEYS) {
+      let oldestKey: string | null = null
+      let oldestAt = Number.POSITIVE_INFINITY
+      for (const [k, v] of communityCache) {
+        if (v.at < oldestAt) { oldestAt = v.at; oldestKey = k }
+      }
+      if (oldestKey !== null) communityCache.delete(oldestKey)
+    }
+    return { items, totalCount: body.total_count, page }
   } catch (error) {
     console.error('[plugins] community discovery failed:', error)
-    return communityCache?.items ?? []
+    if (cached !== undefined) return { items: cached.items, totalCount: cached.totalCount, page }
+    return { items: [], totalCount: 0, page }
   }
 }

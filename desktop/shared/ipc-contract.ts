@@ -106,6 +106,18 @@ export interface CommunityPlugin {
   url: string
 }
 
+/**
+ * 社区插件的一次查询结果（GitHub Search API 单页上限 100 条；
+ * 服务端按 ★ 倒序，页码用于「加载更多」翻页）。
+ */
+export interface CommunityQueryResult {
+  items: CommunityPlugin[]
+  /** 匹配仓库总数（全量分页口径，非本页条数）。 */
+  totalCount: number
+  /** 本次返回的页码（1 起；请求失败时沿用已缓存页）。 */
+  page: number
+}
+
 /** 一次插件命令（add/remove/update）的执行结果。 */
 export interface PluginCommandResult {
   ok: boolean
@@ -317,7 +329,12 @@ export interface DesktopBridge {
   dshLogs(): Promise<DshLogLine[]>
   upstreamStatus(): Promise<UpstreamStatus>
   pluginsInstalled(): Promise<InstalledPlugin[]>
-  pluginsCommunity(): Promise<CommunityPlugin[]>
+  /**
+   * 社区插件查询（GitHub topic `dsh-plugin`，按 ★ 倒序）。
+   * @param query 关键词（空 = 全量榜单；服务端过滤，可搜到榜单外的插件）
+   * @param page 页码（1 起；默认列表与搜索各自分页）
+   */
+  pluginsCommunity(query?: string, page?: number): Promise<CommunityQueryResult>
   /* 动作 */
   dshStart(): Promise<DshStatus>
   dshRestart(): Promise<DshStatus>

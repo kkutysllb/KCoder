@@ -14,6 +14,7 @@ UPSTREAM_REPO="https://github.com/deepseek-ai/deepseek-harness.git"
 
 say() { printf '\033[1;34m[setup]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[setup] 错误：\033[0m %s\n' "$*" >&2; exit 1; }
+warn() { printf '\033[1;33m[setup] 警告：\033[0m %s\n' "$*" >&2; }
 
 command -v git >/dev/null 2>&1 || die "需要 git"
 command -v node >/dev/null 2>&1 || die "需要 Node.js（上游要求 ^22.19.0 || >=24.0.0）"
@@ -42,6 +43,20 @@ if [[ "$(git rev-parse HEAD)" != "$BASELINE_SHA" ]]; then
   say "钉版到基线 ${BASELINE_SHA:0:7}（当前 HEAD $(git rev-parse --short HEAD)）…"
   git reset --hard "$BASELINE_SHA"
 fi
+
+# 基线钉版后：应用上游补丁存档（upstream/*.patch，如 markdown-sanitize /
+# projection-cache-isolate）。补丁 = 已本地验证但暂未推上游的修复；CI 与
+# 本地构建共用本脚本，保证运行时产物含修复。不可应用（基线已含/上下文
+# 漂移）时跳过并警告——不静默失败，后续运行时冒烟会兜底验证。
+for p in "$ROOT"/upstream/*.patch; do
+  [[ -f "$p" ]] || continue
+  if git apply --check "$p" 2>/dev/null; then
+    say "应用上游补丁 $(basename "$p") …"
+    git apply "$p"
+  else
+    warn "跳过上游补丁 $(basename "$p")（不可应用：基线已含修复或上下文漂移）"
+  fi
+done
 
 say "安装依赖（pnpm install）…"
 pnpm install

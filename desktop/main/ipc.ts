@@ -63,7 +63,7 @@ export function registerIpc(): void {
 
   /* ---- 插件 ---- */
   ipcMain.handle('plugins:installed', () => installedPlugins())
-  ipcMain.handle('plugins:community', () => communityPlugins())
+  ipcMain.handle('plugins:community', (_event, query?: string, page?: number) => communityPlugins(query, page))
   ipcMain.handle('plugins:add', (_event, pkg: string) => runPluginCommand(['add', pkg]))
   ipcMain.handle('plugins:remove', (_event, pkg: string) => runPluginCommand(['remove', pkg]))
   ipcMain.handle('plugins:update', (_event, pkg: string) => runPluginCommand(['update', pkg]))

@@ -55,8 +55,12 @@ jobs:
         # Apple 会解开嵌套归档逐个校验）；CI 钥匙串无证书，从 p12 导入。
         timeout-minutes: 20
         env:
-          CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PWD }}
+          # 仅 macOS 需要给运行时内 Mach-O 二进制签名（公证硬要求：Apple
+          # 会解开嵌套归档逐个校验）。其他平台无 Mach-O，注入证书反而会
+          # 污染后续产物（曾因全局 CSC_LINK 导致 Windows Setup exe 被
+          # macOS 证书签名）。空字符串与未设置等价。
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.MAC_CERTIFICATE || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.MAC_CERTIFICATE_PWD || '' }}
         run: |
           pnpm --dir deepseek-harness --filter=@deepseek-ai/dsh deploy --prod --legacy "$PWD/staging/kcoder-runtime"
           test -f staging/kcoder-runtime/lib/bin.js
@@ -64,7 +68,10 @@ jobs:
       - name: 运行时冒烟（真实起服，禁止打包坏运行时）
         timeout-minutes: 5
         run: node scripts/smoke-runtime.mjs --dir "$PWD/staging/kcoder-runtime"
-      - name: 构建安装包（electron-builder）
+      - name: 构建桌面端产物（electron-vite build）
+        run: pnpm exec electron-vite build
+      - name: 打包安装包（macOS 签名 + 公证）
+        if: runner.os == 'macOS'
         timeout-minutes: 60
         env:
           # 无签名 secrets 时绝不自动发现本机签名身份；CSC_LINK 显式
@@ -86,8 +93,18 @@ jobs:
           # 内置运行时 node_modules 文件数上万，macOS runner 默认 256 句柄
           # 会在签名阶段撞 EMFILE： too many open files
           ulimit -n 65536 || true
-          pnpm exec electron-vite build
           pnpm exec electron-builder --publish never
+      - name: 打包安装包（Windows/Linux 无签名）
+        if: runner.os != 'macOS'
+        timeout-minutes: 60
+        # 关键：不注入任何签名环境变量。曾把 macOS 证书（CSC_LINK）全局
+        # 注入到所有平台，导致 Windows Setup exe 被 Apple Developer ID
+        # 证书签名——证书链在 Windows 不可信（Authenticode NotValid），
+        # electron-updater 校验 Status!=0 拒绝更新；且 app-update.yml 被
+        # 写入 mac 证书 CN 作 publisherName（双重失败）。win/linux 无
+        # 证书时不签名：app-update.yml 无 publisherName → electron-updater
+        # 对 win 包自动跳过签名校验（NsisUpdater.verifySignature 空配置放行）。
+        run: pnpm exec electron-builder --publish never
       - name: 校验 macOS 签名与公证（防静默发布损坏包）
         if: runner.os == 'macOS'
         run: |
