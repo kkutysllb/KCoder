@@ -3,8 +3,8 @@
  * 结构（忠实还原 .logoRow/.brand 的 overflow:hidden + flex:1、
  * headline 的 34px 固定首列等关键样式）→ 注入 brand-injector 的
  * INJECT_JS → 断言：侧边栏分体结构（K 图标 + "Coder" 字标）的
- * 版本徽章上标精确落在字标右上角（不横跨 K 图标）、不被
- * overflow:hidden 裁剪、pointer-events 不拦新会话点击、文本随
+ * 版本徽章为行内上标——排在字标右侧、不遮任何字母（横向零重叠）、
+ * 不被 overflow:hidden 裁剪、pointer-events 不拦新会话点击、文本随
  * package.json 版本；hero 换组合 Logo 且无徽章 + slogan 改写
  * + 双主题截图。
  *
@@ -100,7 +100,6 @@ async function runScenario(win, label, vars, dark) {
     const row = document.querySelector('.logoRow')
     const wrap = document.getElementById(ID + '_wrap')
     const k = document.getElementById(ID)
-    const coderWrap = document.getElementById(ID + '_coder')
     const coder = document.getElementById(ID + '_coder_img')
     const ver = document.getElementById(ID + '_ver')
     const svg = btn?.querySelector('svg')
@@ -119,8 +118,8 @@ async function runScenario(win, label, vars, dark) {
     const out = {
       wrapInBtn: wrap !== null && btn.contains(wrap),
       kInWrap: k !== null && wrap !== null && wrap.contains(k),
-      coderInWrap: coder !== null && coderWrap !== null && coderWrap.contains(coder),
-      verInCoderWrap: ver !== null && coderWrap !== null && coderWrap.contains(ver),
+      coderInWrap: coder !== null && wrap !== null && wrap.contains(coder),
+      verInWrap: ver !== null && wrap !== null && wrap.contains(ver),
       svgHidden: svg !== null && getComputedStyle(svg).display === 'none',
       verText: ver?.textContent ?? null,
       verCount: document.querySelectorAll('#' + ID + '_ver').length,
@@ -141,7 +140,7 @@ async function runScenario(win, label, vars, dark) {
   const fails = []
   if (!probe.wrapInBtn) fails.push('wrapper 不在 brand 按钮内')
   if (!probe.kInWrap || !probe.coderInWrap) fails.push('K 图标/字标不在 wrapper 内')
-  if (!probe.verInCoderWrap) fails.push('徽章不在 coderWrap 内（未锚在字标上）')
+  if (!probe.verInWrap) fails.push('徽章不是 wrap 的 flex 子项（行内流失效）')
   if (!probe.svgHidden) fails.push('侧边栏 wordmark 未隐藏')
   if (probe.verText !== `桌面版 v${version}`) fails.push(`徽章文本=${probe.verText} 应为 桌面版 v${version}`)
   if (Math.round(probe.rects.k.height) !== 22) fails.push(`K 高=${probe.rects.k.height} 应为 22`)
@@ -156,22 +155,23 @@ async function runScenario(win, label, vars, dark) {
   if (!inside(probe.rects.row, probe.rects.ver)) fails.push(`徽章被 logoRow overflow:hidden 裁剪 rects=${JSON.stringify(probe.rects)}`)
   if (!inside(probe.rects.btn, probe.rects.ver)) fails.push(`徽章被 brand overflow:hidden 裁剪 rects=${JSON.stringify(probe.rects)}`)
 
-  // 徽章位置：上标紧贴 "Coder" 字标右上角——徽章顶略高于字标顶
-  // 0~6px（紧贴不悬空），底部轻压字标 4~10px（视觉上像字标的右上角
-  // 小标签而非横跨字标顶部），右缘与字标末尾对齐（±2px）；左缘不
-  // 得越过字标左缘（更不得横跨到 K 图标上方）
-  const { k, coder, ver } = probe.rects
-  const dTop = coder.top - ver.top
-  const overlap = ver.bottom - coder.top
-  const dRight = coder.right - ver.right
-  if (dTop < 0 || dTop > 6) fails.push(`徽章顶高于字标=${dTop.toFixed(1)} 应在 0~6px（紧贴字标顶部）`)
-  if (overlap < 4 || overlap > 10) fails.push(`压入字标=${overlap.toFixed(1)} 应在 4~10px（轻压字标右上角）`)
-  if (dRight < -0.5 || dRight > 2) fails.push(`右缘偏差=${dRight.toFixed(1)} 应对齐（±2px）`)
-  if (ver.left < coder.left - 2) fails.push(`徽章左缘越过字标左缘 ${(coder.left - ver.left).toFixed(1)}px（横跨到 K 图标方向）`)
-  if (ver.left < k.right - 2) fails.push('徽章横跨到 K 图标上方')
-  // wrapper 加高后 brand 边框盒随内容撑到 ~34px（徽章不被裁的前置）
+  // 徽章位置：行内上标——排在 "Coder" 字标右侧，横向与字标零重叠
+  // （不遮任何字母，硬保证：徽章左缘在字标右缘之外且留 3~10px 间隙，
+  // 更不得横跨到 K 图标方向）；垂直方向徽章顶与字标顶齐平（±3px）、
+  // 徽章底垂在字标上半（≤15px，深了像下标）；右缘离 brand 边界留余量
+  const { k, coder, ver, btn } = probe.rects
+  const gap = ver.left - coder.right
+  const dTop = ver.top - coder.top
+  const hang = ver.bottom - coder.top
+  if (gap < 3 || gap > 10) fails.push(`字标-徽章间隙=${gap.toFixed(1)} 应在 3~10px`)
+  if (dTop < -3 || dTop > 3) fails.push(`徽章顶偏离字标顶=${dTop.toFixed(1)} 应在 ±3px（上标齐平）`)
+  if (hang > 15) fails.push(`徽章底垂至字标顶以下 ${hang.toFixed(1)}px（应 ≤15px，字标上半）`)
+  if (ver.left < coder.right - 0.5) fails.push('徽章与字标横向重叠（遮字母）')
+  if (ver.left < k.right - 2) fails.push('徽章横跨到 K 图标方向')
+  if (ver.right > btn.right - 4) fails.push(`徽章右缘贴 brand 边界（余量 ${(btn.right - ver.right).toFixed(1)}px < 4px）`)
+  // wrapper 回归内容高（K/字标 22px 沉底同高，徽章行内不再需要顶部余量）
   const btnH = probe.rects.btn.height
-  if (btnH < 32 || btnH > 36) fails.push(`brand 高=${btnH} 应在 32~36px`)
+  if (btnH < 20 || btnH > 24) fails.push(`brand 高=${btnH} 应在 20~24px`)
 
   // hero：组合 Logo 按主题换版 + slogan 改写 + 预览徽章/鲸鱼隐藏；
   // 不带版本徽章（全页仅侧边栏 1 个）；headline 首列 auto 不覆盖文字

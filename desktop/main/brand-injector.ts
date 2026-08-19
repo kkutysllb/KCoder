@@ -13,14 +13,15 @@
  * - 展开：SVG 藏起（display:none）+ 旁插 wrapper（自持 span，
  *   inline-flex 锚点）内含 K 图标 + "Coder" 字标分体（见
  *   brand-k.png / brand-coder-dark/light.png）与版本徽章（「桌面版
- *   v<app.getVersion()>」，上标形态 absolute 挂 coderWrap 右上角内
- *   侧、top:9px right:0 紧贴 "Coder" 字标顶部 + 右缘对齐字标末尾；
- *   coderWrap 用 inline-flex + align-items:flex-end 撑开 34px 高度
- *   让字标沉底，宽度严格 = coder 字标显示宽度，徽章左缘距 K 图标
- *   右缘 ~13px 不溢出；wrapper 加高 34px（K/字标 22px 沉底 + 顶部
- *   12px 徽章区）、brand 是 flex:1 撑满整行且 overflow:hidden，正
- *   偏移不被裁、负偏移必被裁故徽章锚 cWrap 内而非外）；不动上游节
- *   点本身——React 卸载 BrandWordmark 时仍能 removeChild 原节点，
+ *   v<app.getVersion()>」行内上标小标签：wrap 的末尾 flex 子项，
+ *   排在字标右侧 margin-left:5px，align-self:flex-start +
+ *   margin-top:1px 让徽章顶与字标字形顶齐平——字标 PNG 上下零内
+ *   边距、字形满高 22px，absolute 上标方案要么横压字标顶部（top:9
+ *   盖住字母上半 ~9px）要么悬空整段距离（top:0），行内排在右侧
+ *   两者兼治：不遮字母也不悬空；行内流无负偏移，brand 的
+ *   overflow:hidden 永不裁徽章；SIDEBAR_MIN 264px 下 brand 可用
+ *   ~224px > 内容 ~160px，不溢出）；不动上游节点本身——React
+ *   卸载 BrandWordmark 时仍能 removeChild 原节点，
  *   不会抛 NotFoundError 崩树（replaceWith 方案已踩坑）；button
  *   的新会话点击行为不受影响（徽章 pointer-events:none）；
  * - rail：鲸鱼 SVG 同样藏起 + 旁插 logo img（复制 railFish 类名，
@@ -76,15 +77,15 @@ const logoDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-k.
  * 组合 Logo：K 图标 + "Coder" 字标渲染为单张 PNG（Avenir Next Bold，
  * 22px 等高、零间距紧贴），分深色主题（白字）/ 浅色主题（深字）两版。
  * hero（新会话空态页）用这一张；展开态侧边栏用 K + coder 两张分体
- * （徽章需精确锚在 "Coder" 字标右上角，见 coderDataUrl）。
+ * （徽章行内紧跟字标之后，分体让字标保持独立资产、随主题单独换版）。
  */
 const logoComboDarkDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-combo-dark.png')).toString('base64')}`
 const logoComboLightDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-combo-light.png')).toString('base64')}`
 
 /**
  * "Coder" 字标单独裁剪版（从组合 PNG 的 x=88px@4x 起裁，即 K 框之后）。
- * 侧边栏徽章锚这个元素——锚整张组合图时徽章（~66px 宽）会横跨到
- * K 图标上方，观感像「K 右上角」；分体后徽章完全落在字标上方。
+ * 侧边栏展开态的分体字标：徽章作为行内项紧跟其右缘，与 K 图标无关；
+ * 深浅主题各一版（白字/深字），syncLogoTheme 单独换版。
  */
 const coderDarkDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-coder-dark.png')).toString('base64')}`
 const coderLightDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-coder-light.png')).toString('base64')}`
@@ -157,18 +158,21 @@ const INJECT_JS = `(() => {
   }
 
   // ---- 版本徽章工厂（仅侧边栏展开态；hero 不带徽章） ----
-  // 上标形态：absolute 锚 coderWrap（top:9px right:0），徽章顶略高于
-  // "Coder" 字标顶、底部轻压字标 ~3px → 视觉上像字标的"右上角小标签"
-  // 紧贴字标右上角（旧 top:0 方案让徽章落在 wrap 顶部 → 距字标 12px
-  // 悬空，宽度 ≈ 字标宽度 → 视觉上"飘在 logo 整体上方"，用户反馈位
-  // 置不对；新方案：top:9 让徽章紧贴字标顶部且不遮挡字标过多）。不拦点击。
+  // 行内上标形态：徽章是 wrap 的末尾 flex 子项，排在 "Coder" 字标右
+  // 侧（margin-left:5px），align-self:flex-start + margin-top:1px 与
+  // 字标字形顶齐平（字标 PNG 上下零内边距、字形满高 22px，徽章 12px
+  // 高悬于字标右上的上标位）。旧 absolute 方案两个坑：top:9 横压字标
+  // 顶部 ~9px（字母上半被盖，用户反馈位置不对）、top:0 则距字形 12px
+  // 悬空；行内排在右侧不遮字母也不悬空，且行内流无负偏移、绝不被
+  // brand/logoRow 的 overflow:hidden 裁剪。不拦点击。
   const badgeEl = (id) => {
     const ver = document.createElement('span')
     ver.id = id
     ver.textContent = VER_TEXT
-    ver.style.position = 'absolute'
-    ver.style.top = '9px'
-    ver.style.right = '0'
+    ver.style.alignSelf = 'flex-start'
+    ver.style.marginTop = '1px'
+    ver.style.marginLeft = '5px'
+    ver.style.flex = 'none'
     ver.style.fontSize = '8px'
     ver.style.lineHeight = '1'
     ver.style.padding = '1px 4px'
@@ -184,13 +188,13 @@ const INJECT_JS = `(() => {
   // ---- 展开：brand 按钮内 wordmark SVG 藏起 + 旁插分体 wrapper ----
   // 不用 replaceWith：React 卸载时会 removeChild 它记录的旧 svg，
   // 节点被换走会抛 NotFoundError 崩整棵树（实测踩坑）。
-  // 分体结构（K 图标 + coderWrap + 徽章）：cWrap 用 inline-flex +
-  // align-items:flex-end 让 coder 字标沉底、cWrap 高度 34px（满 wrap
-  // 高度）、宽度 = coder 字标显示宽度；徽章 absolute top:9px right:0
-  // 锚 cWrap 右上角内 → 顶部紧贴 "Coder" 字标顶部、右缘对齐字标末
-  // 尾，左缘距 K 图标右缘 ~13px 不溢出。wrap 加高 34px（K/字标 22px
-  // 沉底 + 顶部 12px 徽章区），brand 高度随内容撑开，徽章完全在
-  // overflow:hidden 边界内不被裁。
+  // 分体结构（K 图标 + coder 字标 + 行内徽章）：wrap 用 inline-flex +
+  // align-items:flex-end，高度随内容 = 22px（K/字标同高沉底）；徽章
+  // 是 wrap 末尾 flex 子项（align-self:flex-start + margin-top:1px，
+  // 见 badgeEl），排在字标右侧、顶与字形顶齐平，不遮任何字母。
+  // 行内流无负偏移，brand（flex:1 + overflow:hidden）永不裁徽章；
+  // SIDEBAR_MIN 264px 下 brand 可用 ~224px > K 22 + 字标 71 + 间隙 5
+  // + 徽章 ~62 ≈ 160px，不溢出不换行。
   const swapBrand = () => {
     const btn = document.querySelector('[class*="logoRow"] button[class*="brand"]')
     if (btn === null) return
@@ -202,7 +206,6 @@ const INJECT_JS = `(() => {
         wrap.style.display = 'inline-flex'
         wrap.style.alignItems = 'flex-end'
         wrap.style.flex = 'none'
-        wrap.style.height = '34px'
         const k = document.createElement('img')
         k.id = LOGO_ID
         k.src = DATA_URL
@@ -210,13 +213,6 @@ const INJECT_JS = `(() => {
         k.style.height = '22px'
         k.style.width = '22px'
         k.style.flex = 'none'
-        const coderWrap = document.createElement('span')
-        coderWrap.id = LOGO_ID + '_coder'
-        coderWrap.style.position = 'relative'
-        coderWrap.style.display = 'inline-flex'
-        coderWrap.style.alignItems = 'flex-end'
-        coderWrap.style.flex = 'none'
-        coderWrap.style.height = '34px'
         const coder = document.createElement('img')
         coder.id = LOGO_ID + '_coder_img'
         coder.src = document.body?.getAttribute('data-ds-dark-theme') !== null ? CODER_DARK : CODER_LIGHT
@@ -224,8 +220,7 @@ const INJECT_JS = `(() => {
         coder.style.height = '22px'
         coder.style.width = 'auto'
         coder.style.flex = 'none'
-        coderWrap.append(coder, badgeEl(LOGO_ID + '_ver'))
-        wrap.append(k, coderWrap)
+        wrap.append(k, coder, badgeEl(LOGO_ID + '_ver'))
         svg.style.display = 'none'
         svg.insertAdjacentElement('afterend', wrap)
       }
