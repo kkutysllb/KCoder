@@ -11,21 +11,23 @@
  *
  * 替换策略（零侵入，仅 executeJavaScript）：
  * - 展开：SVG 藏起（display:none）+ 旁插 wrapper（自持 span，
- *   position:relative 锚点）内含组合 Logo 图（brand-combo-dark/light.
- *   png：K 图标 + "Coder" 字标已按 22px 等高、零间距渲染成单张 PNG，
- *   深色主题白字 / 浅色主题深字，主题切换自动换版）与版本徽章
- *   （「桌面版 v<app.getVersion()>」，上标形态悬浮在 "Coder" 字标右
- *   上角，同上游 HARNESS 徽章样式；wrapper 加高 34px、logo 沉底、
- *   顶部 12px 徽章区——brand 是 flex:1 撑满整行且 overflow:hidden，
- *   负偏移会被裁，用加高 wrapper 撑开边界替代）；不动上游节点本身——React
- *   卸载 BrandWordmark 时仍能 removeChild 原节点，不会抛
- *   NotFoundError 崩树（replaceWith 方案已踩坑）；button 的新会话
- *   点击行为不受影响（徽章 pointer-events:none）；
+ *   inline-flex 锚点）内含 K 图标 + "Coder" 字标分体（见
+ *   brand-k.png / brand-coder-dark/light.png）与版本徽章（「桌面版
+ *   v<app.getVersion()>」，上标形态 absolute 挂 coderWrap 右上角内
+ *   侧、top:9px right:0 紧贴 "Coder" 字标顶部 + 右缘对齐字标末尾；
+ *   coderWrap 用 inline-flex + align-items:flex-end 撑开 34px 高度
+ *   让字标沉底，宽度严格 = coder 字标显示宽度，徽章左缘距 K 图标
+ *   右缘 ~13px 不溢出；wrapper 加高 34px（K/字标 22px 沉底 + 顶部
+ *   12px 徽章区）、brand 是 flex:1 撑满整行且 overflow:hidden，正
+ *   偏移不被裁、负偏移必被裁故徽章锚 cWrap 内而非外）；不动上游节
+ *   点本身——React 卸载 BrandWordmark 时仍能 removeChild 原节点，
+ *   不会抛 NotFoundError 崩树（replaceWith 方案已踩坑）；button
+ *   的新会话点击行为不受影响（徽章 pointer-events:none）；
  * - rail：鲸鱼 SVG 同样藏起 + 旁插 logo img（复制 railFish 类名，
  *   hover 换图 CSS 继续生效）；
  * - 新会话空状态页（EmptyHero/HeroShell）：同把 34×25 鲸鱼换成
- *   侧边栏新样式（K+Coder 组合 Logo + 版本徽章上标，headline 首列
- *   改 auto 撑开，slogan 文字随列右移）；headline 换为产品 slogan
+ *   K+Coder 组合 Logo（不带版本徽章，headline 首列改 auto 撑开，
+ *   slogan 文字随列右移）；headline 换为产品 slogan
  *   （中文「所思，皆可成码」/英文
  *   "Think it, code it."，按当前文案是否含 CJK 自适应，语言切换
  *   自愈跟随）；预览徽章（“预览版”/"Preview"）为上游装饰，直接藏起。
@@ -155,19 +157,22 @@ const INJECT_JS = `(() => {
   }
 
   // ---- 版本徽章工厂（仅侧边栏展开态；hero 不带徽章） ----
-  // 上标形态：absolute 挂 coderWrap 右上角，右缘对齐 "Coder" 字标末尾，
-  // 顶部落在 coderWrap 顶部的徽章区内（字标沉底腾出的 12px）。不拦点击。
+  // 上标形态：absolute 锚 coderWrap（top:9px right:0），徽章顶略高于
+  // "Coder" 字标顶、底部轻压字标 ~3px → 视觉上像字标的"右上角小标签"
+  // 紧贴字标右上角（旧 top:0 方案让徽章落在 wrap 顶部 → 距字标 12px
+  // 悬空，宽度 ≈ 字标宽度 → 视觉上"飘在 logo 整体上方"，用户反馈位
+  // 置不对；新方案：top:9 让徽章紧贴字标顶部且不遮挡字标过多）。不拦点击。
   const badgeEl = (id) => {
     const ver = document.createElement('span')
     ver.id = id
     ver.textContent = VER_TEXT
     ver.style.position = 'absolute'
-    ver.style.top = '0px'
-    ver.style.right = '0px'
-    ver.style.fontSize = '9px'
+    ver.style.top = '9px'
+    ver.style.right = '0'
+    ver.style.fontSize = '8px'
     ver.style.lineHeight = '1'
-    ver.style.padding = '2.5px 5px'
-    ver.style.borderRadius = '4px'
+    ver.style.padding = '1px 4px'
+    ver.style.borderRadius = '3px'
     ver.style.background = 'var(--dsw-alias-bg-layer-2, rgba(128,128,128,.12))'
     ver.style.color = 'var(--dsw-alias-label-tertiary, #999)'
     ver.style.border = '1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.2))'
@@ -179,13 +184,13 @@ const INJECT_JS = `(() => {
   // ---- 展开：brand 按钮内 wordmark SVG 藏起 + 旁插分体 wrapper ----
   // 不用 replaceWith：React 卸载时会 removeChild 它记录的旧 svg，
   // 节点被换走会抛 NotFoundError 崩整棵树（实测踩坑）。
-  // 分体结构（K 图标 + coderWrap）：徽章须精确落在 "Coder" 字标右上
-  // 角——锚整张组合图时 ~66px 宽的徽章会横跨到 K 图标上方（观感像
-  // 「K 右上角」），分体后徽章完全落在字标上方。wrap 加高 34px
-  // （K/字标 22px 沉底 + 顶部 12px 徽章区），brand 高度随内容撑开，
-  // top:0 的徽章在 overflow:hidden 裁剪边界内不被裁（负偏移必被裁）。
-  // coderWrap 同高 34px 且字标沉底：徽章 absolute 锚它，top:0 才落在
-  // 字标上方的徽章区（coderWrap 只剩内容高 22px 的话会压在字标上）。
+  // 分体结构（K 图标 + coderWrap + 徽章）：cWrap 用 inline-flex +
+  // align-items:flex-end 让 coder 字标沉底、cWrap 高度 34px（满 wrap
+  // 高度）、宽度 = coder 字标显示宽度；徽章 absolute top:9px right:0
+  // 锚 cWrap 右上角内 → 顶部紧贴 "Coder" 字标顶部、右缘对齐字标末
+  // 尾，左缘距 K 图标右缘 ~13px 不溢出。wrap 加高 34px（K/字标 22px
+  // 沉底 + 顶部 12px 徽章区），brand 高度随内容撑开，徽章完全在
+  // overflow:hidden 边界内不被裁。
   const swapBrand = () => {
     const btn = document.querySelector('[class*="logoRow"] button[class*="brand"]')
     if (btn === null) return

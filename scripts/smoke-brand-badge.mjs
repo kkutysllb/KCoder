@@ -156,15 +156,16 @@ async function runScenario(win, label, vars, dark) {
   if (!inside(probe.rects.row, probe.rects.ver)) fails.push(`徽章被 logoRow overflow:hidden 裁剪 rects=${JSON.stringify(probe.rects)}`)
   if (!inside(probe.rects.btn, probe.rects.ver)) fails.push(`徽章被 brand overflow:hidden 裁剪 rects=${JSON.stringify(probe.rects)}`)
 
-  // 徽章位置：上标精确落在 "Coder" 字标右上角——徽章顶高于字标顶
-  // 8~16px（顶部徽章区），底部最多轻压字标 6px，右缘与字标末尾对齐
-  //（±2px）；左缘不得越过字标左缘（更不得横跨到 K 图标上方）
+  // 徽章位置：上标紧贴 "Coder" 字标右上角——徽章顶略高于字标顶
+  // 0~6px（紧贴不悬空），底部轻压字标 4~10px（视觉上像字标的右上角
+  // 小标签而非横跨字标顶部），右缘与字标末尾对齐（±2px）；左缘不
+  // 得越过字标左缘（更不得横跨到 K 图标上方）
   const { k, coder, ver } = probe.rects
   const dTop = coder.top - ver.top
   const overlap = ver.bottom - coder.top
   const dRight = coder.right - ver.right
-  if (dTop < 8 || dTop > 16) fails.push(`徽章顶高于字标=${dTop.toFixed(1)} 应在 8~16px`)
-  if (overlap < -0.5 || overlap > 6) fails.push(`压入字标=${overlap.toFixed(1)} 应 ≤6px`)
+  if (dTop < 0 || dTop > 6) fails.push(`徽章顶高于字标=${dTop.toFixed(1)} 应在 0~6px（紧贴字标顶部）`)
+  if (overlap < 4 || overlap > 10) fails.push(`压入字标=${overlap.toFixed(1)} 应在 4~10px（轻压字标右上角）`)
   if (dRight < -0.5 || dRight > 2) fails.push(`右缘偏差=${dRight.toFixed(1)} 应对齐（±2px）`)
   if (ver.left < coder.left - 2) fails.push(`徽章左缘越过字标左缘 ${(coder.left - ver.left).toFixed(1)}px（横跨到 K 图标方向）`)
   if (ver.left < k.right - 2) fails.push('徽章横跨到 K 图标上方')
