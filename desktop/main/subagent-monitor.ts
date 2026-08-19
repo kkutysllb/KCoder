@@ -363,6 +363,22 @@ function wsTail(cwd: string | null): string | null {
   return segs.length > 0 ? (segs[segs.length - 1] ?? null) : null
 }
 
+/**
+ * 面板侧过滤（初拉与推送同源）：严格按工作区——B 工作区条目（含
+ * 运行中）不进 A 工作区的 git 面板（旧「运行中跨工作区也展示」设计
+ * 在主代理切任务后串台，2026-08-19 反馈修正）；本工作区运行中的仍
+ * 展示（不随父会话锚点退场），已结束的只随活跃父会话展示（同项目
+ * 老会话完成条目退场防残留）；面板无工作区（null/''）时显示全部。
+ */
+export function filterForWorkspace(
+  records: SubagentRecord[],
+  ws: string | null,
+  active: string | null,
+): SubagentRecord[] {
+  return records.filter(r => ws === null || ws === ''
+    || (r.cwd === ws && (r.running || r.parentId === active)))
+}
+
 /** 面板侧过滤后映射为契约形状。 */
 export function toEntry(rec: SubagentRecord): SubagentEntry {
   return {

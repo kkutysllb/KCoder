@@ -317,7 +317,8 @@ export function mountGit(app: HTMLDivElement): void {
       row.append(el('span', 'st'))
       row.append(el('span', 'lb', s.label))
       row.append(el('span', 'tk', s.task))
-      // 跨工作区后台子代理（running 不随主代理切任务中断）：标注归属
+      // 无工作区态（主进程此时显示全部条目）时标注归属；有工作区时
+      // 已严格过滤为本工作区条目（含运行中，不跨区展示），条件恒假
       if (s.ws !== null && s.ws !== snap.workspace) row.append(el('span', 'at', '@' + s.ws))
       const tc = el('span', 'tc')
       const b = el('b', '', String(s.toolCalls))

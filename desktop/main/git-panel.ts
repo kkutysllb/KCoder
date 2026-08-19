@@ -42,7 +42,7 @@ import { WebContentsView, type BrowserWindow } from 'electron'
 import { consoleMessageText } from './console-channel'
 import { fileActivity } from './file-activity'
 import { previewPanel } from './preview-panel'
-import { subagentMonitor, toEntry, type SubagentRecord } from './subagent-monitor'
+import { subagentMonitor, toEntry, filterForWorkspace, type SubagentRecord } from './subagent-monitor'
 import type { GitOpResult, GitPlanFile, GitSnapshot, SubagentEntry } from '@shared/ipc-contract'
 /** console 通道前缀（与注入脚本约定；v2 只剩按钮 toggle 上行）。 */
 const GIT_PREFIX = '__dsh_git__:'
@@ -394,18 +394,14 @@ class GitPanel {
   private autoSuppressed = false
   /** 布局互斥钩子（windows.ts 接线：show 时收预览抽屉，防环只在此触发）。 */
   onShow: (() => void) | null = null
-  /** 子代理监控推送（attach 订阅；运行中跨工作区也展示——后台子代理
-   * 不随主代理切任务而中断；已结束的只随当前工作区活跃父会话展示，
-   * 同项目老会话的完成条目退场防残留）。 */
+  /** 子代理监控推送（attach 订阅；严格按当前工作区过滤，运行中也不
+   * 跨区——过滤语义详见 filterForWorkspace）。 */
   private readonly onSubagents = (records: SubagentRecord[]): void => {
     const wc = this.view?.webContents
     if (wc === undefined || wc.isDestroyed() || !this.visible) return
     const ws = this.workspace
     const active = ws !== null && ws !== '' ? subagentMonitor.activeParentId(ws) : null
-    wc.send('subagents:changed', records
-      .filter(r => r.running || ws === null || ws === ''
-        || (r.cwd === ws && r.parentId === active))
-      .map(toEntry))
+    wc.send('subagents:changed', filterForWorkspace(records, ws, active).map(toEntry))
   }
 
   /** shell 窗口创建后接线（重复调用安全）。 */
@@ -431,12 +427,14 @@ class GitPanel {
     }
     webContents.on('console-message', onConsole)
     webContents.on('did-finish-load', onDidLoad)
-    // 工作区切换：清快照重探（徽章跟随新工作区）
+    // 工作区切换：清快照重探（徽章跟随新工作区）+ 子代理列表按新
+    // 工作区即时重推（不等 monitor 下次变化，旧工作区条目立即退场）
     const onWsChanged = (ws: string | null): void => {
       if (win.isDestroyed()) return
       this.workspace = ws
       this.snapshot = emptySnapshot()
       void this.probe()
+      this.onSubagents(subagentMonitor.records())
     }
     fileActivity.on('workspace-changed', onWsChanged)
     // agent 文件活动：debounce 重探 + 自动展开 + 静默解除抑制
@@ -568,10 +566,7 @@ class GitPanel {
   subagents(): SubagentEntry[] {
     const ws = this.workspace
     const active = ws !== null && ws !== '' ? subagentMonitor.activeParentId(ws) : null
-    return subagentMonitor.records()
-      .filter(r => r.running || ws === null || ws === ''
-        || (r.cwd === ws && r.parentId === active))
-      .map(toEntry)
+    return filterForWorkspace(subagentMonitor.records(), ws, active).map(toEntry)
   }
 
   /** 触发一次重探（git:refresh）。 */
