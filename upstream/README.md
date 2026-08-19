@@ -4,16 +4,19 @@
 runtime 物化直接取其工作区文件，任何未提交改动都会随打包混入产物，
 破坏"产物 = 纯上游"的承诺。
 
-有价值但暂未推上游的改动以 patch 形式存档于此。推上游的正确路径：
-fork deepseek-ai/deepseek-harness → 新分支 → `git apply <patch>` →
-提交 → PR。上游合并后随正常升级流水线回到本仓库。
+有价值但不进上游的改动以 patch 形式存档于此（上游仓库不对外开放
+PR，无合并通道）。长期维护载体是我们 fork（kkutysllb/deepseek-
+harness）上的 `fix/*` 分支——patch 与分支一一对应、双向同步：
+分支是可追溯的提交历史（作者/动机/上游 lint 与测试门），patch 是
+KCoder 仓库内的随包分发形态（setup.sh 钉版后 apply，CI 与本地共用）。
+改动一个修复时两边都要更新（分支重建提交 → format-patch 覆盖归档）。
 
 ## 补丁清单
 
 | Patch | 内容 | 状态 |
 |---|---|---|
-| `0001-markdown-model-sanitize.patch` | 模型输出 markdown 修复：跨行 `**` 强调 与跨行行内 code（不合法 CommonMark，渲染成字面星号/断码）在解析管线合并回单行；fence 代码块跳过；含 73 行实现 + 73 行测试 | 待推上游 |
-| `upstream-projection-cache-isolate.patch` | session-projection-cache 非 JSON 投影单元逐单元隔离而非整条记录失败（对应 fork 分支 fix/session-projection-cache-per-unit-isolation 的 commit 5bef8cf；该修复为 dsh-context 插件缓存失败 bug 的引擎层根因） | 待推上游（fork 分支已有，归档防分支存活性依赖） |
+| `0001-markdown-model-sanitize.patch` | 模型输出 markdown 修复：跨行 `**` 强调 与跨行行内 code（不合法 CommonMark，渲染成字面星号/断码）在解析管线合并回单行；fence 代码块跳过；含 73 行实现 + 73 行测试 | fork 分支 `fix/markdown-model-sanitize`（625720a，含上游 lint 合规收敛：non-null assertion 改判空） |
+| `upstream-projection-cache-isolate.patch` | session-projection-cache 非 JSON 投影单元逐单元隔离而非整条记录失败（该修复为 dsh-context 插件缓存失败 bug 的引擎层根因） | fork 分支 `fix/session-projection-cache-per-unit-isolation`（5bef8cf）；0.2.3 产物未含此修复（归档前所发），0.2.4 起包含 |
 
 ## 应用方法
 

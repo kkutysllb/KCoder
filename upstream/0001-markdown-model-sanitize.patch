@@ -1,5 +1,104 @@
+From 625720aff58e60afa567ec9e99cf3cac535bc1e2 Mon Sep 17 00:00:00 2001
+From: kkutysllb <46704313+kkutysllb@users.noreply.github.com>
+Date: Wed, 19 Aug 2026 20:30:16 +0800
+Subject: [PATCH] fix(markdown): merge cross-line emphasis and inline code to
+ single line
+
+Model output sometimes emits non-CommonMark cross-line ** emphasis and
+inline code spans, which rendered as literal asterisks or broken code.
+The parse pipeline now merges them back onto one line; fenced code
+blocks are skipped. Carried by KCoder as upstream/0001 patch since the
+upstream repo does not accept external PRs; this fork branch is the
+long-term maintenance home.
+---
+ .../src/markdown/modelSanitize.ts             | 73 +++++++++++++++++++
+ .../ui-primitives/src/markdown/parse.ts       | 11 ++-
+ .../markdown-model-sanitize.client.spec.ts    | 73 +++++++++++++++++++
+ 3 files changed, 155 insertions(+), 2 deletions(-)
+ create mode 100644 packages/client/ui-primitives/src/markdown/modelSanitize.ts
+ create mode 100644 packages/client/ui-primitives/tests/markdown-model-sanitize.client.spec.ts
+
+diff --git a/packages/client/ui-primitives/src/markdown/modelSanitize.ts b/packages/client/ui-primitives/src/markdown/modelSanitize.ts
+new file mode 100644
+index 0000000..c435e1f
+--- /dev/null
++++ b/packages/client/ui-primitives/src/markdown/modelSanitize.ts
+@@ -0,0 +1,73 @@
++/**
++ * Product-layer fallback for the two most common model-output markdown
++ * malformations. Both repairs are safe: a `**` emphasis that closes on a
++ * later line is invalid CommonMark anyway (the second `**` then renders as
++ * literal asterisks), and an inline code span that contains a literal
++ * newline cannot exist under the CommonMark grammar (the first newline ends
++ * the code span, the rest is text). Joining the broken fragments onto one
++ * line produces the same DOM as if the model had authored them on a single
++ * line, without touching any correct markdown.
++ *
++ * The fix is scoped to a single inter-line newline on each side — a
++ * pathological multi-newline split is left alone (the model almost never
++ * writes one, and a narrower rule keeps false positives down).
++ *
++ * Fenced code blocks (``` or ~~~) are skipped so a code sample that happens
++ * to contain `**foo\nbar**` keeps its original bytes. Indented (4-space)
++ * code blocks are not specially tracked; model output rarely uses them and
++ * the regex cannot match a 4-space-indented opener.
++ */
++export function sanitizeModelMarkdown(text: string): string {
++  if (!text.includes('\n')) return text
++  const lines = text.split('\n')
++  const out: string[] = []
++  let inFence = false
++  let fenceChar = ''
++  let fenceLen = 0
++  let outside: string[] = []
++
++  const flushOutside = (): void => {
++    if (outside.length === 0) return
++    out.push(sanitizeSegment(outside.join('\n')))
++    outside = []
++  }
++
++  for (const line of lines) {
++    const fenceMatch = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line)
++    const marker = fenceMatch?.[1] ?? ''
++    if (marker !== '') {
++      const ch = marker[0] ?? '`'
++      const len = marker.length
++      if (!inFence) {
++        flushOutside()
++        out.push(line)
++        inFence = true
++        fenceChar = ch
++        fenceLen = len
++      } else if (ch === fenceChar && len >= fenceLen) {
++        out.push(line)
++        inFence = false
++        fenceChar = ''
++        fenceLen = 0
++      } else {
++        // Different fence char (or shorter same char) inside an open fence:
++        // belongs to the code sample.
++        out.push(line)
++      }
++    } else if (inFence) {
++      out.push(line)
++    } else {
++      outside.push(line)
++    }
++  }
++  flushOutside()
++  return out.join('\n')
++}
++
++function sanitizeSegment(text: string): string {
++  return text
++    // Strong emphasis split across exactly one line break: **foo\nbar** -> **foo bar**
++    .replace(/\*\*([^*\n]+)\n([^*\n]+)\*\*/g, '**$1 $2**')
++    // Inline code split across exactly one line break: `foo\nbar` -> `foo bar`
++    .replace(/`([^`\n]+)\n([^`\n]+)`/g, '`$1 $2`')
++}
 diff --git a/packages/client/ui-primitives/src/markdown/parse.ts b/packages/client/ui-primitives/src/markdown/parse.ts
-index 50f8f179b9..0a345b5eb6 100644
+index 50f8f17..0a345b5 100644
 --- a/packages/client/ui-primitives/src/markdown/parse.ts
 +++ b/packages/client/ui-primitives/src/markdown/parse.ts
 @@ -6,6 +6,12 @@
@@ -41,88 +140,9 @@ index 50f8f179b9..0a345b5eb6 100644
      extensions: [gfm(), cjkFriendlyStrong(), mathCompatibility(), math()],
      mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()],
    })
-diff --git a/packages/client/ui-primitives/src/markdown/modelSanitize.ts b/packages/client/ui-primitives/src/markdown/modelSanitize.ts
-new file mode 100644
-index 0000000000..7924c5f614
---- /dev/null
-+++ b/packages/client/ui-primitives/src/markdown/modelSanitize.ts
-@@ -0,0 +1,73 @@
-+/**
-+ * Product-layer fallback for the two most common model-output markdown
-+ * malformations. Both repairs are safe: a `**` emphasis that closes on a
-+ * later line is invalid CommonMark anyway (the second `**` then renders as
-+ * literal asterisks), and an inline code span that contains a literal
-+ * newline cannot exist under the CommonMark grammar (the first newline ends
-+ * the code span, the rest is text). Joining the broken fragments onto one
-+ * line produces the same DOM as if the model had authored them on a single
-+ * line, without touching any correct markdown.
-+ *
-+ * The fix is scoped to a single inter-line newline on each side — a
-+ * pathological multi-newline split is left alone (the model almost never
-+ * writes one, and a narrower rule keeps false positives down).
-+ *
-+ * Fenced code blocks (``` or ~~~) are skipped so a code sample that happens
-+ * to contain `**foo\nbar**` keeps its original bytes. Indented (4-space)
-+ * code blocks are not specially tracked; model output rarely uses them and
-+ * the regex cannot match a 4-space-indented opener.
-+ */
-+export function sanitizeModelMarkdown(text: string): string {
-+  if (!text.includes('\n')) return text
-+  const lines = text.split('\n')
-+  const out: string[] = []
-+  let inFence = false
-+  let fenceChar = ''
-+  let fenceLen = 0
-+  let outside: string[] = []
-+
-+  const flushOutside = (): void => {
-+    if (outside.length === 0) return
-+    out.push(sanitizeSegment(outside.join('\n')))
-+    outside = []
-+  }
-+
-+  for (const line of lines) {
-+    const fenceMatch = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line)
-+    if (fenceMatch !== null) {
-+      const marker = fenceMatch[1]!
-+      const ch = marker[0]!
-+      const len = marker.length
-+      if (!inFence) {
-+        flushOutside()
-+        out.push(line)
-+        inFence = true
-+        fenceChar = ch
-+        fenceLen = len
-+      } else if (ch === fenceChar && len >= fenceLen) {
-+        out.push(line)
-+        inFence = false
-+        fenceChar = ''
-+        fenceLen = 0
-+      } else {
-+        // Different fence char (or shorter same char) inside an open fence:
-+        // belongs to the code sample.
-+        out.push(line)
-+      }
-+    } else if (inFence) {
-+      out.push(line)
-+    } else {
-+      outside.push(line)
-+    }
-+  }
-+  flushOutside()
-+  return out.join('\n')
-+}
-+
-+function sanitizeSegment(text: string): string {
-+  return text
-+    // Strong emphasis split across exactly one line break: **foo\nbar** -> **foo bar**
-+    .replace(/\*\*([^*\n]+)\n([^*\n]+)\*\*/g, '**$1 $2**')
-+    // Inline code split across exactly one line break: `foo\nbar` -> `foo bar`
-+    .replace(/`([^`\n]+)\n([^`\n]+)`/g, '`$1 $2`')
-+}
 diff --git a/packages/client/ui-primitives/tests/markdown-model-sanitize.client.spec.ts b/packages/client/ui-primitives/tests/markdown-model-sanitize.client.spec.ts
 new file mode 100644
-index 0000000000..44e43c2cc0
+index 0000000..44e43c2
 --- /dev/null
 +++ b/packages/client/ui-primitives/tests/markdown-model-sanitize.client.spec.ts
 @@ -0,0 +1,73 @@
@@ -199,3 +219,6 @@ index 0000000000..44e43c2cc0
 +    expect(sanitizeModelMarkdown(fenced)).toBe(expected)
 +  })
 +})
+-- 
+2.50.1 (Apple Git-155)
+
