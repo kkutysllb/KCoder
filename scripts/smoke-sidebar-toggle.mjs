@@ -42,14 +42,21 @@ const pageJs = src.slice(from, endTick + 5).replaceAll('${PLACEHOLDER}', '78')
 // data-ds-dark-theme（fixture 冒烟以深色为主，浅色仅截图对照）
 const html = (dark) => `<!doctype html><html><head><meta charset="utf-8"><style>
   body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: ${dark ? '#17181a' : '#fff'}; padding-top: 48px; height: 100vh; box-sizing: border-box; }
-  #bar { position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 2147483647; -webkit-app-region: drag; display: flex; align-items: center; justify-content: flex-start; }
+  #__dsh_desktop_titlebar { position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 2147483647; -webkit-app-region: drag; display: flex; align-items: center; justify-content: flex-start; }
   #ttl { flex: 0 1 auto; margin-left: max(calc(78px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px); max-width: calc(100% - max(calc(78px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px) - 134px); display: flex; align-items: center; min-width: 0; white-space: nowrap; color: ${dark ? 'rgba(232,234,237,.9)' : 'rgba(26,29,33,.75)'}; }
+  /* macOS 红绿灯模拟（系统绘制，capturePage 不可见）：三颗 12px 圆、
+     间距 8px；默认按修复后位置——垂直居中于 48px bar（trafficLightPosition
+     y:18 → 圆 y18-30），与迁移按钮（top:50%）对齐 */
+  .tl { position: absolute; left: 12px; top: 18px; width: 12px; height: 12px; border-radius: 50%; }
+  .tl.r { background: #ff5f57; }
+  .tl.y { background: #febc2e; left: 32px; }
+  .tl.g { background: #28c840; left: 52px; }
   .side { width: 256px; height: 600px; border-right: 1px solid rgba(128,128,128,.15); }
   .logoRow { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 8px; height: 60px; padding: 8px 0 8px 4px; box-sizing: border-box; overflow: hidden; }
   .brand { flex: 1; min-width: 0; display: inline-flex; align-items: center; overflow: hidden; padding: 0; border: none; background: transparent; color: ${dark ? '#e8eaed' : '#1a1d21'}; cursor: pointer; }
   .iconButton { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: none; border-radius: 50%; padding: 0; background: transparent; color: ${dark ? '#e8eaed' : '#1a1d21'}; cursor: pointer; }
 </style></head><body${dark ? ' data-ds-dark-theme=""' : ''}>
-<div id="bar"><span id="ttl">KCoder / DSH Local Build</span></div>
+<div id="__dsh_desktop_titlebar"><i class="tl r"></i><i class="tl y"></i><i class="tl g"></i><span id="ttl">KCoder / DSH Local Build</span></div>
 <div class="side">
   <div class="logoRow">
     <button type="button" class="brand" aria-label="新会话">
@@ -143,6 +150,11 @@ async function runScenario(win, label, dark) {
     const row = document.querySelector('.logoRow')
     row.querySelector('button.brand')?.remove()
     const t = row.querySelector('button[class*="toggle"]')
+    if (btn === null || t === null) return JSON.stringify({
+      hidden: t !== null && getComputedStyle(t).display === 'none',
+      aria: btn !== null ? btn.getAttribute('aria-label') : null,
+      iconSynced: false, lastIsPanel: false,
+    })
     const rail = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     rail.setAttribute('width', '18'); rail.setAttribute('height', '18')
     rail.setAttribute('class', 'railMark')
@@ -171,13 +183,19 @@ async function runScenario(win, label, dark) {
   return fails.length === 0
 }
 
+// 注意：不要在 Electron 主进程 ESM 顶层 await app.whenReady() ——
+// module evaluation 未完成会阻塞主进程启动序列，与 whenReady 互等死锁。
+// 必须用 whenReady().then() 链。另：用户可能正运行 KCoder 应用，把
+// userData 指到临时目录，避免与其 profile 争用。
+app.setPath('userData', mkdtempSync(join(tmpdir(), 'kcoder-toggle-smoke-')))
 console.error('[toggle-smoke] boot')
-await app.whenReady()
-console.error('[toggle-smoke] app ready')
-const win = new BrowserWindow({ width: 480, height: 720, show: false })
-const results = []
-for (const [label, dark] of [['dark', true], ['light', false]]) {
-  results.push(await runScenario(win, label, dark))
-}
-console.log(results.every(Boolean) ? 'ALL PASS' : 'FAILED')
-app.exit(results.every(Boolean) ? 0 : 1)
+app.whenReady().then(async () => {
+  console.error('[toggle-smoke] app ready')
+  const win = new BrowserWindow({ width: 480, height: 720, show: false })
+  const results = []
+  for (const [label, dark] of [['dark', true], ['light', false]]) {
+    results.push(await runScenario(win, label, dark))
+  }
+  console.log(results.every(Boolean) ? 'ALL PASS' : 'FAILED')
+  app.exit(results.every(Boolean) ? 0 : 1)
+})

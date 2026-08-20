@@ -82,15 +82,22 @@ export function showShellWindow(dshUrl: string): void {
       ...(process.platform === 'darwin' || process.platform === 'win32'
         ? {
             titleBarStyle: 'hidden' as const,
-            ...(process.platform === 'win32'
+            ...(process.platform === 'darwin'
               ? {
+                  // macOS hidden 模式红绿灯默认按系统标题栏高度（~28px）
+                  // 定位，落在自绘 48px bar 的上半部（中心 ~y10-15）；
+                  // 显式下移到 bar 中心（y18-30，灯高 ~12-14px → 中心
+                  // ~y24-25），与迁移的折叠按钮（top:50% 居中于 bar）
+                  // 垂直对齐——用户反馈"折叠按钮位置不对"即两者不同高。
+                  trafficLightPosition: { x: 12, y: 18 },
+                }
+              : {
                   titleBarOverlay: {
                     color: themeBackgroundColor(),
                     symbolColor: overlaySymbolColor(nativeTheme.shouldUseDarkColors),
                     height: SHELL_TITLEBAR_HEIGHT,
                   },
-                }
-              : {}),
+                }),
           }
         : {}),
       // 官方 DeepSeek 图标（macOS 用 Dock 图标，此项服务 Linux/Windows）
