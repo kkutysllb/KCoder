@@ -179,7 +179,10 @@ export function themeBackgroundColor(pref: 'system' | 'light' | 'dark' = getSett
  *   会触发既有 observer 重渲染），
  *   起排在中间会话列左缘（侧边栏右边线 + 12px，探测 sidebarCol 实时
  *   广播为 --dsh-sidebar-w，拖宽/折叠动画平滑跟随；侧边栏收起时保底
- *   左侧让位区）；max-width 自适应避让：右侧取按钮带（134px =
+ *   左侧让位区）；--dsh-titlebar-extra-left（折叠按钮迁移注入器
+ *   sidebar-toggle 设置 = 按钮宽 26 + 间距 8）叠加上最小让位，收起态
+ *   标题不与红绿灯右侧的折叠按钮重叠）；max-width 自适应避让：右侧取
+ *   按钮带（134px =
  *   四枚 26px 图标按钮：终端 12/预览 44/轨迹 76/日志 108px 序，Windows
  *   另加 padRight 让位原生控制按钮区）与
  *   文件预览抽屉宽度（--dsh-preview-inset，抽屉是全高 WebContentsView、
@@ -217,8 +220,8 @@ const SHELL_TITLEBAR_JS = `(() => {
   const label = document.createElement('span')
   label.style.cssText = [
     'flex:0 1 auto',
-    'margin-left:max(${TP.leftPad}px, var(--dsh-sidebar-w, 0px) + 12px)',
-    'max-width:calc(100% - max(${TP.leftPad}px, var(--dsh-sidebar-w, 0px) + 12px) - max(${134 + TP.padRight}px, calc(var(--dsh-preview-inset, 0px) + var(--dsh-git-inset, 0px))))',
+    'margin-left:max(calc(${TP.leftPad}px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px)',
+    'max-width:calc(100% - max(calc(${TP.leftPad}px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px) - max(${134 + TP.padRight}px, calc(var(--dsh-preview-inset, 0px) + var(--dsh-git-inset, 0px))))',
     'display:flex', 'align-items:center', 'min-width:0', 'white-space:nowrap',
   ].join(';')
   // 工作区段：实体按钮（文件夹图标 + 名字；点击打开工作区目录）。

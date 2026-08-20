@@ -17,6 +17,7 @@ import { installUpdate } from './updater'
 import { attachUpdateInjector } from './update-injector'
 import { attachBrandInjector } from './brand-injector'
 import { attachThemeWatcher, overlaySymbolColor, SHELL_TITLEBAR_HEIGHT, themeBackgroundColor } from './theme-watcher'
+import { attachSidebarToggle } from './sidebar-toggle'
 import { attachStyleOverlay } from './style-overlay'
 import { attachWorkspaceHeader } from './workspace-header'
 import { attachStatsHover } from './stats-hover'
@@ -126,6 +127,10 @@ export function showShellWindow(dshUrl: string): void {
     attachBrandInjector(shellWindow)
     // 主题跟随：上游 UI 主题切换 → 原生标题栏/菜单栏自适应（零侵入）
     attachThemeWatcher(shellWindow)
+    // 侧边栏折叠按钮迁移：logoRow 内 toggle 隐藏 → 标题栏红绿灯右侧
+    // 注入代理按钮（点击转发上游 toggle.click()，图标随状态克隆；
+    // 宿主=自绘标题栏，故注册在 attachThemeWatcher 之后）
+    attachSidebarToggle(shellWindow)
     // 消息样式覆盖层：排版 token/气泡/代码块微调（零侵入，token 改名静默失效）
     attachStyleOverlay(shellWindow)
     // workspace 顶栏收纳：会话标题/标签/日志按钮迁至状态栏与抽屉，
