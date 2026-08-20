@@ -111,7 +111,7 @@ Electron 主进程 (desktop/main/)
 | `style-overlay.ts` | CSS 注入：标题栏、主题 token、轨迹页美化（锚点 `data-conversation-composer-overlay`）、跳到底部按钮居中（`toBottomSlot`） | §8 类名匹配策略 |
 | `console-channel.ts` | console 通道：页面注入脚本 → 主进程 的上行通信约定（`__dsh_*:` 前缀） | 各注入模块 |
 | `sidebar-cluster.ts` | better-sidebar 开关簇收纳：插件开关簇隐藏，状态栏右侧两枚代理按钮（点击转发插件真实按钮，disabled/图标/label 实时同步） | §8 点击转发 |
-| `sidebar-compat.ts` | better-sidebar 布局垫片：插件底面板挤压锚（data-pane）在 rc.8 缺失，按 centerCol 类名 + conversation 槽位壳复刻 margin-bottom 挤压，终端/Git 底面板占位而非盖住输入框 | §7 布局列契约 |
+| `sidebar-compat.ts` | better-sidebar 布局双垫片：①底面板挤压锚（data-pane）在 rc.8 缺失，按 centerCol 类名 + conversation 槽位壳复刻 margin-bottom 挤压（终端/Git 底面板占位而非盖住输入框）；②拖高时 --dsh-sidebar-width 未按 panelOpen 门控致侧栏关闭态横向压缩 #root，用 body[data-dsh-sidebar-collapsed] 门控宽度挤压 | §7 布局列契约 |
 | `workspace-probe.ts` + `file-activity.ts` | 页面级存续功能（预览/Git 面板删除后迁出）：工作区探针（workspace.list → 标题栏工作区名/按钮 + fileActivity 工作区基准）、正文文件徽章（类型 + edit 增删行数）、历史会话补拉拦截；file-activity 为 mux 流按工作区分桶的聚合存储（sessionId→workspace 归属） | mux 流消费必须带归属维度 |
 | `plugins.ts` | 插件桥：profile 层叠清单 + GitHub `topic:dsh-plugin` 发现 + `dsh plugin` CLI 转发 | — |
 | `updater.ts` + `update-injector.ts` | electron-updater + 向上游 logoRow 注入安装按钮（`kcoder://install-update` 深链） | — |

@@ -112,6 +112,11 @@ export function showShellWindow(dshUrl: string): void {
       shellWindow?.maximize()
       shellWindow?.show()
     })
+    // 注入器体系：每个注入器各自在 webContents 挂 did-finish-load /
+    // did-stop-loading 监听（十余条，随窗口销毁一同释放），超出
+    // EventEmitter 默认上限 10 会刷 MaxListenersExceededWarning——
+    // 这里统一抬高上限（0 = 不设限），消除噪音
+    shellWindow.webContents.setMaxListeners(0)
     // Windows：应用菜单（menu.ts 全局设置）会占一行窗口内菜单栏，与
     // 自绘标题栏叠出双栏；隐藏（Alt 临时唤出菜单属系统行为，保留）
     if (process.platform === 'win32') shellWindow.setMenuBarVisibility(false)

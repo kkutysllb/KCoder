@@ -43,6 +43,27 @@
  *   12/44；自研终端与四状态栏面板同日删除）。底面板“占位而非覆盖”
  *   的挤压锚在 rc.8 缺失，由 sidebar-compat.ts 垫片补齐。
  *
+ * @tt-a1i/archify-dsh（2026-08-20 预置）：架构图 agent skill——把
+ * 代码库/系统描述变成自包含交互 HTML 技术图（架构/工作流/时序/
+ * 数据流/生命周期五型，类型化 JSON IR + 确定性校验管线）。本体
+ * tt-a1i/archify v2.15.0（MIT，14.5K★）的官方 DSH 包装，community
+ * opt-in，无遥测。纯技能 bundle：零依赖零 peer、无原生构建、无
+ * settings——除声明外无任何物化项。锁精确 0.1.0（包装层唯一版本，
+ * 按 rc.6 发布；同 vision-router 惯例防后续版本破坏性变更混入）。
+ * 调用：会话内 “Use the archify skill to map this repository's
+ * runtime architecture.”；产物单文件 HTML 可在 better-sidebar
+ * 预览面板直接打开。
+ *
+ * @dsh-external/dsh-drag-to-attachment（2026-08-20 预置）：附件上传
+ * 宿主插件——输入框 📎 按钮由它注入 conversation.input.left 槽位，
+ * attach-picker.ts 把其模式切换按钮改造成原生文件选择入口（点击开
+ * 对话框→合成 drop→fast path 入队）。原为用户态安装：2026-08-20
+ * 用户数据目录统一 ~/.dsh 后 profile 全新物化，用户态安装不随迁，
+ * 附件按钮作为输入框产品功能随之消失（实测）——收归预置根治。
+ * GitHub 源无 semver，锁 tag v1.0.3（与 profile-patches.ts 的
+ * rc.8 return 补丁三层链精确对齐）；升级走显式改预置。无额外物化
+ * 项（补丁链由 ensureProfilePatches 按需自愈，genui 同款）。
+ *
  * @module desktop/main/preset-plugins
  */
 
@@ -57,6 +78,8 @@ export const PRESET_PLUGINS: Record<string, string> = {
   'dsh-vision-router': '1.6.1',
   'dsh-context': '^0.12.1',
   'dsh-better-sidebar': '^0.14.0',
+  '@tt-a1i/archify-dsh': '0.1.0',
+  '@dsh-external/dsh-drag-to-attachment': 'github:djt889/dsh-drag-to-attachment#v1.0.3',
 }
 
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */
@@ -172,6 +195,20 @@ export function ensurePresetPlugins(): void {
     }
     // 骨架分支已重建清单，此后 manifest 必非 null
     const m = manifest as Record<string, unknown>
+
+    // 1.5) 非 fresh 但 pnpm-workspace.yaml 丢失（手动清理/部分删除的
+    //      非常规态）：幂等补写上游同款模板。不补则三处连锁卡死——
+    //      ensureProfilePatches 以它判 profile 已初始化（早退连锄点
+    //      兜底都跳过，2026-08-20 实测现场）、ensureProfilePeerRules
+    //      同判、ensurePnpmBuildAllowlist 同判；且丢失态下 pnpm 按
+    //      默认 symlink 布局安装，偏离上游 hoisted 模板。上游
+    //      initProfile 本就是缺失才补的同款幂等设计，此处对非 fresh
+    //      路径补齐同一行为
+    if (!fresh && !existsSync(workspacePath)) {
+      writeFileSync(workspacePath, PROFILE_PNPM_WORKSPACE)
+      console.log('[preset-plugins] pnpm-workspace.yaml 丢失，已补写上游同款模板')
+      healLog('[preset] pnpm-workspace.yaml 丢失，已补写上游同款模板')
+    }
 
     // 2) 补写 dependencies 缺项（可先行——dsh 不查 dependencies，
     //    只查 bundles 层叠解析）

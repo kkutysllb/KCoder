@@ -22,6 +22,11 @@
  * （同属性同值，胜者任意）；centerCol 类名若被上游改名（§7 契约），
  * 垫片静默失效回到插件原状，需随契约清单同步。
  *
+ * 第二垫片（宽度挤压门控）：底面板拖高的 move 处理器把
+ * --dsh-sidebar-width 写成右侧栏持久化宽度（不按 panelOpen 门控），
+ * 侧栏关闭时拖高会横向压缩主区域——用插件自维的
+ * body[data-dsh-sidebar-collapsed] 把宽度挤压限定在面板开启态。
+ *
  * @module desktop/main/sidebar-compat
  */
 
@@ -41,6 +46,18 @@ body[data-dsh-sidebar-dragging] #root [class*="centerCol"]:has(> [data-slot="con
 }
 @media (prefers-reduced-motion: reduce) {
   #root [class*="centerCol"]:has(> [data-slot="conversation"]) { transition: none; }
+}
+
+/* 宽度挤压门控：底面板拖高的 move 处理器把 --dsh-sidebar-width 写成右侧栏
+   持久化宽度（state.width，不按 panelOpen 门控，v0.14.0），侧栏关闭时拖高
+   会横向压缩 #root，松手后才由 layout-push effect 复位。插件在 body 上
+   维护 data-dsh-sidebar-collapsed（面板关闭必在，其 layout.css 的 header
+   padding 规则同锚）——用它把宽度挤压限定在面板开启态；选择器特异性
+   (1,1,1) > 插件 #root (1,0,0)，无需 !important，面板开启时本规则不生效、
+   插件原规则照常。 */
+body[data-dsh-sidebar-collapsed] #root {
+  margin-right: 0;
+  width: 100%;
 }
 `
 
