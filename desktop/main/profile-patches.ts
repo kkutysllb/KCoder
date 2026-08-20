@@ -10,7 +10,9 @@
  *   → machine 卡 submitting → 输入框 readOnly + 草稿保留（发带附件/图片
  *   后输入框锁死的根因）。补丁补一行 return 对齐原版契约。
  * - dsh-plugin-genui：卡片注册漏传 key + node half 不注册 settings
- *   namespace 两个上游缺陷（npm 最新版同样存在）
+ *   namespace 两个上游缺陷（npm 最新版同样存在）。插件已不预置
+ *   （2026-08-20 起由用户经插件市场自行安装），补丁仍分发：自装副本
+ *   由声明跟随 deps + 自愈链继续覆盖
  * - dsh-context：node half 缓存失败缺陷（projection 状态残留），修复版
  *   与 npm 原版快照分别归档于 .patches/dsh-context-fix（应用版）与
  *   .patches/dsh-context（原版），patch 由此生成
@@ -200,15 +202,69 @@ function patchApplied(profileDir: string, files: string[]): boolean {
   return true
 }
 
-/** 幂等声明 patchedDependencies（name-only），缺失条目逐条补写。返回是否就位。 */
+/**
+ * 幂等声明 patchedDependencies（name-only），声明严格跟随 profile
+ * dependencies 实态（依赖图真相）：
+ * - 包在 manifest dependencies 而未声明 → 补写（未装但已声明依赖也算
+ *   ——install 时进依赖图，补丁须先就位；用户自装 genui 后下次启动
+ *   在此补声明，marks 校验未过则锄点注入/重装自愈）
+ * - 包已声明但不在 dependencies（预置撤除后残留/用户卸载）→ 摘除该行
+ *   ——pnpm 对未使用的补丁声明直接 ERR_PNPM_UNUSED_PATCH（exit 1），
+ *   残留声明会让 profile 任何 install 整体失败（genui 撤预置的教训：
+ *   fresh 机不再装它，声明必须同步收缩）；摘除范围仅限本模块分发的包，
+ *   用户手动声明的其它补丁不动
+ * 返回声明操作是否执行到位（yaml 缺锚点等失败降级继续）。
+ */
 function ensurePatchDeclared(profileDir: string, names: string[]): boolean {
   const yamlPath = join(profileDir, 'pnpm-workspace.yaml')
   if (!existsSync(yamlPath)) return false
   let yaml = readFileSync(yamlPath, 'utf8')
+  let changed = false
+  let deps: ReadonlySet<string> | undefined
+  try {
+    const manifest = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8')) as { dependencies?: Record<string, unknown> }
+    deps = new Set(Object.keys(manifest.dependencies ?? {}))
+  } catch {
+    // manifest 缺失/损坏：无法判定实态，不增不删（后续 install 也会因
+    // manifest 崩，修复它不归本模块）
+  }
+  if (deps !== undefined) {
+    for (const n of names) {
+      const pkg = pkgNameOf(n)
+      if (deps.has(pkg)) continue
+      const key = pkg.replace(/[.*+?^${}()|[\]\\]/g, (ch) => `\\${ch}`)
+      // 行形态兼容历史写入：裸键（dsh-plugin-genui）与带引号 scoped 键
+      const next = yaml.replace(
+        new RegExp(String.raw`^  (?:'${key}'|${key}): patches/[^\n]*\n?`, 'gm'),
+        '',
+      )
+      if (next !== yaml) {
+        yaml = next
+        changed = true
+        console.log(`[profile-patches] 已摘除未用补丁声明（包不在 dependencies）：${pkg}`)
+        healLog(`[patches] 已摘除未用补丁声明（包不在 dependencies）：${pkg}`)
+      }
+    }
+  }
+  // 只发生摘除（deps 不可判/无缺项）时也要落盘，否则摘除丢失；
+  // 全部摘完时连块头带注释一起移除，防空块让 pnpm yaml 解析歧义
+  const emptyBlock = changed && yaml.match(/: patches\//) === null
+  if (deps === undefined || emptyBlock) {
+    if (emptyBlock) {
+      yaml = yaml
+        .replace(/^patchedDependencies:\n(?:[ \t].*\n?)*/m, '')
+        .replace(/\n{2,}/, '\n')
+    }
+    if (changed) writeFileSync(yamlPath, yaml)
+    return true
+  }
   const missing = names.filter(
-    (n) => !yaml.includes(`\n  ${yamlKeyOf(pkgNameOf(n))}: patches/`),
+    (n) => deps.has(pkgNameOf(n)) && !yaml.includes(`\n  ${yamlKeyOf(pkgNameOf(n))}: patches/`),
   )
-  if (missing.length === 0) return true
+  if (missing.length === 0) {
+    if (changed) writeFileSync(yamlPath, yaml)
+    return true
+  }
   const entries = missing.map((n) => `  ${yamlKeyOf(pkgNameOf(n))}: patches/${n}`).join('\n')
   const m = yaml.match(/^patchedDependencies:\n(?:[ \t].*\n?)*/m)
   if (m) {
@@ -217,7 +273,11 @@ function ensurePatchDeclared(profileDir: string, names: string[]): boolean {
     yaml = yaml.replace(m[0], `${m[0]}${entries}\n`)
   } else {
     const anchor = 'nodeLinker: hoisted\n'
-    if (!yaml.includes(anchor)) return false
+    if (!yaml.includes(anchor)) {
+      // 缺锚点无法补写：仅落盘已有的摘除
+      if (changed) writeFileSync(yamlPath, yaml)
+      return false
+    }
     // 声明块逐 patch 生成：name-only（不锁版本）→ 上游任意版本都尝试应用
     yaml = yaml.replace(
       anchor,

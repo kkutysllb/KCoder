@@ -1,8 +1,7 @@
 /**
- * 预置第三方插件（dsh-vision-router / dsh-plugin-genui / dsh-context）的
- * 开箱物化。
+ * 预置第三方插件（dsh-vision-router / dsh-context）的开箱物化。
  *
- * 这三个插件是 KCoder 发行物的一部分：Windows 全新安装后 profile 是
+ * 这两个插件是 KCoder 发行物的一部分：Windows 全新安装后 profile 是
  * 上游空模板（只有 dsh-base / dsh-web-app 内置层），第三方插件不会自动
  * 出现（mac 开发机上它们存在于用户 profile，属用户数据不随包分发）。
  * 本模块在 dsh 启动前幂等物化：
@@ -25,6 +24,10 @@
  * update --latest 升线。vision-router 精确锁定（keyed slot 契约适配版，
  * 防破坏性变更混入）。
  *
+ * dsh-plugin-genui 已不再预置（2026-08-20 起由用户经插件市场自行安装）。
+ * 它的两个上游缺陷补丁仍随包分发：用户自装后 ensureProfilePatches 会
+ * 补声明并自愈（锄点注入兑底，见 profile-patches.ts）。
+ *
  * @module desktop/main/preset-plugins
  */
 
@@ -37,7 +40,6 @@ import { ensureProfilePatches, healLog } from './profile-patches'
 export const PRESET_PLUGINS: Record<string, string> = {
   'dsh-vision-router': '1.6.1',
   'dsh-context': '^0.12.1',
-  'dsh-plugin-genui': '^0.12.2',
 }
 
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */

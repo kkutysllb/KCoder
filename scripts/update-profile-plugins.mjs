@@ -9,7 +9,8 @@
  *   带附件/图片发送后输入框永久锁死。补丁补一行 return（github 源插件，
  *   不在 npm，update 模式自动跳过）
  * - dsh-plugin-genui：卡片注册漏传 key + node half 不注册 settings
- *   namespace 两个上游缺陷（npm 最新版同样存在）
+ *   namespace 两个上游缺陷（npm 最新版同样存在）。插件已不预置
+ *   （由用户经插件市场自行安装），补丁仍分发：自装后 --sync 补声明应用
  * - dsh-context：node half 缓存失败缺陷（projection 状态残留），修复版
  *   与 npm 原版快照归档于 .patches/dsh-context-fix 与 .patches/dsh-context
  *
@@ -111,13 +112,40 @@ function patchApplied() {
   return missing
 }
 
-/** 幂等声明 patchedDependencies（name-only），缺失条目逐条补写。 */
+/** 幂等声明 patchedDependencies（name-only），声明跟随 dependencies 实态
+ *  （与 desktop/main/profile-patches.ts 的 ensurePatchDeclared 同规则）：
+ *  包不在 deps 时不声明且摘除已有声明——pnpm 对未用补丁声明报
+ *  ERR_PNPM_UNUSED_PATCH（exit 1），残留声明会让 profile install 整体失败。 */
 function ensurePatchDeclared() {
   if (!existsSync(WORKSPACE_YAML)) die(`profile workspace 不存在：${WORKSPACE_YAML}`)
   let yaml = readFileSync(WORKSPACE_YAML, 'utf8')
-  const missing = PATCHES.filter((f) => !yaml.includes(`\n  ${yamlKeyOf(pkgNameOf(f))}: patches/`))
+  let deps
+  try {
+    deps = new Set(Object.keys(JSON.parse(readFileSync(join(PROFILE, 'package.json'), 'utf8')).dependencies ?? {}))
+  } catch {
+    die(`profile package.json 不可读：${join(PROFILE, 'package.json')}`)
+  }
+  let changed = false
+  for (const f of PATCHES) {
+    const pkg = pkgNameOf(f)
+    if (deps.has(pkg)) continue
+    const key = pkg.replace(/[.*+?^${}()|[\]\\]/g, (ch) => `\\${ch}`)
+    const next = yaml.replace(new RegExp(`^  (?:'${key}'|${key}): patches/[^\\n]*\\n?`, 'gm'), '')
+    if (next !== yaml) {
+      yaml = next
+      changed = true
+      say(`已摘除未用补丁声明（包不在 dependencies）：${pkg}`)
+    }
+  }
+  const missing = PATCHES.filter(
+    (f) => deps.has(pkgNameOf(f)) && !yaml.includes(`\n  ${yamlKeyOf(pkgNameOf(f))}: patches/`),
+  )
+  if (missing.length === 0 && !changed) {
+    say('patchedDependencies 已同步（跟随 dependencies 实态），跳过写入')
+    return
+  }
   if (missing.length === 0) {
-    say('patchedDependencies 已全部声明（name-only），跳过写入')
+    writeFileSync(WORKSPACE_YAML, yaml)
     return
   }
   const entries = missing.map((f) => `  ${yamlKeyOf(pkgNameOf(f))}: patches/${f}`).join('\n')
@@ -155,12 +183,16 @@ function syncPatch() {
 function updatePlugin() {
   for (const pkg of PATCHES.map(pkgNameOf)) {
     const current = localVersion(pkg)
-    const latest = latestVersion(pkg)
-    if (latest === undefined) {
-      say(`${pkg}：本地 v${current ?? '未安装'}，不在 npm（github 源），跳过 update`)
+    if (current === undefined) {
+      say(`${pkg}：未安装（不在 dependencies），跳过 update`)
       continue
     }
-    say(`${pkg}：本地 v${current ?? '未安装'} → npm 上游 v${latest}`)
+    const latest = latestVersion(pkg)
+    if (latest === undefined) {
+      say(`${pkg}：本地 v${current}，不在 npm（github 源），跳过 update`)
+      continue
+    }
+    say(`${pkg}：本地 v${current} → npm 上游 v${latest}`)
     if (current === latest) {
       say(`${pkg} 已是最新版本，无需更新`)
       continue

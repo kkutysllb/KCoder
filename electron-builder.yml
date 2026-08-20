@@ -18,9 +18,10 @@ extraResources:
   # $DSH_HOME/profiles/web/node_modules 并注册层叠（kcoder-skills-bundle.ts）
   - from: bundle/kcoder-skills
     to: kcoder-skills
-  # 上游插件缺陷补丁（dsh-plugin-genui 双缺陷修复）：主进程启动时幂等
-  # 物化进 $DSH_HOME/profiles/web（patches/ + patchedDependencies 声明，
-  # 见 profile-patches.ts）。Windows 无 launchd，随包分发是唯一通道
+  # 上游插件缺陷补丁（genui 双缺陷 / dsh-context 缓存 / drag-to-attachment
+  # 漏 return）：主进程启动时幂等物化进 $DSH_HOME/profiles/web
+  # （patches/ + patchedDependencies 声明跟随 deps 实态，见
+  # profile-patches.ts）。Windows 无 launchd，随包分发是唯一通道
   - from: profiles/web/patches
     to: profile-patches
   # scripts 与 assets（官方图标）随应用分发，供首次引导与托盘使用
