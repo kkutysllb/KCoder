@@ -1,0 +1,12 @@
+diff --git a/lib/client.js b/lib/client.js
+index cb6bf08..25d0e3f 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -1468,6 +1468,7 @@ window.__ModuleLoader__.load({
+         if (!result.ok) throw new Error('conversation.send failed: ' + result.error.code + ': ' + result.error.message)
+         if (hasImages && typeof this.releaseDraftImages === 'function') this.releaseDraftImages(attachments)
+         clearFiles()
++        return { kind: 'success' }
+       }
+     }
+ 

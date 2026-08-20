@@ -2,6 +2,13 @@
  * 上游插件缺陷补丁（profiles/web/patches）的跨平台物化。
  *
  * 已覆盖：
+ * - @dsh-external/dsh-drag-to-attachment：wrap 的 sendSession 附件分支
+ *   发送成功后无 return（resolve undefined）。rc.7 时代 defaultSink 是
+ *   fire-and-forget（void），无返回值无害；rc.8 把提交事务硬化为消费
+ *   `Promise<SubmitOutcome>`（settleSubmit 读 outcome.kind），undefined
+ *   直接 TypeError 且 then 回调内抛出无人接 → submit-settled 永不派发
+ *   → machine 卡 submitting → 输入框 readOnly + 草稿保留（发带附件/图片
+ *   后输入框锁死的根因）。补丁补一行 return 对齐原版契约。
  * - dsh-plugin-genui：卡片注册漏传 key + node half 不注册 settings
  *   namespace 两个上游缺陷（npm 最新版同样存在）
  * - dsh-context：node half 缓存失败缺陷（projection 状态残留），修复版
@@ -71,6 +78,11 @@ function patchFiles(source: string): string[] {
  * 补丁时同步更新）。
  */
 const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
+  // 修复特征：附件分支的 return（原版 1.0.3 无此串；clearFiles 组合锚定
+  // 防上游未来自己加同款串时误判）
+  '@dsh-external/dsh-drag-to-attachment': [
+    ['lib/client.js', "clearFiles()\n        return { kind: 'success' }"],
+  ],
   'dsh-plugin-genui': [
     ['lib/client.js', 'key: "genui-design"'],
     ['lib/index.js', 'ctx.settings.register("genui-design"'],
@@ -124,6 +136,14 @@ const PATCH_FALLBACKS: PatchFallback[] = [
     anchor: 'st.pendingShadowedSeqs = void 0;',
     replace: 'delete st.pendingShadowedSeqs;',
   },
+  {
+    // rc.8 提交事务硬化后 wrap 的附件分支必须返回 SubmitOutcome，
+    // 否则 settleSubmit 读 undefined.kind 炸 → 输入框永久锁死
+    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
+    mark: "clearFiles()\n        return { kind: 'success' }",
+    anchor: "this.releaseDraftImages(attachments)\n        clearFiles()",
+    inject: "\n        return { kind: 'success' }",
+  },
 ]
 
 /**
@@ -167,7 +187,7 @@ function enforcePatchFallbacks(profileDir: string): void {
  */
 function patchApplied(profileDir: string, files: string[]): boolean {
   for (const f of files) {
-    const pkg = f.replace(/@[^@]+\.patch$/, '')
+    const pkg = pkgNameOf(f)
     const marks = PATCH_MARKS[pkg]
     if (!marks) continue
     const modDir = join(profileDir, 'node_modules', pkg)
@@ -186,10 +206,10 @@ function ensurePatchDeclared(profileDir: string, names: string[]): boolean {
   if (!existsSync(yamlPath)) return false
   let yaml = readFileSync(yamlPath, 'utf8')
   const missing = names.filter(
-    (n) => !yaml.includes(`\n  ${n.replace(/@[^@]+\.patch$/, '')}: patches/`),
+    (n) => !yaml.includes(`\n  ${yamlKeyOf(pkgNameOf(n))}: patches/`),
   )
   if (missing.length === 0) return true
-  const entries = missing.map((n) => `  ${n.replace(/@[^@]+\.patch$/, '')}: patches/${n}`).join('\n')
+  const entries = missing.map((n) => `  ${yamlKeyOf(pkgNameOf(n))}: patches/${n}`).join('\n')
   const m = yaml.match(/^patchedDependencies:\n(?:[ \t].*\n?)*/m)
   if (m) {
     // 已有块（如旧版仅 genui）：新条目追加到块尾（replace 避免 m[0]
@@ -216,7 +236,29 @@ ${entries}
  * files 不可用（patch 源缺失）时的全量校验哨兵：`@x.patch` 尾巴的唯一
  * 用途是喂给 patchApplied 的包名提取器，覆盖 PATCH_MARKS 全部包。
  */
-const KNOWN_PATCH_SENTINELS = ['dsh-plugin-genui@x.patch', 'dsh-context@x.patch']
+const KNOWN_PATCH_SENTINELS = [
+  'dsh-plugin-genui@x.patch',
+  'dsh-context@x.patch',
+  '@dsh-external__dsh-drag-to-attachment@x.patch',
+]
+
+/**
+ * 从 patch 文件名提取包名：剥 `@version.patch` 尾巴；scoped 包用 pnpm
+ * 惯例的 `@scope__name` 双下划线形态（带 `/` 的文件名会破坏非递归
+ * readdir 物化链），首个 `__` 还原为 `/`。非 scoped 名不含 `__` 不受影响。
+ */
+function pkgNameOf(patchFile: string): string {
+  return patchFile.replace(/@[^@]+\.patch$/, '').replace(/^(@[^/]*?)__/, '$1/')
+}
+
+/**
+ * YAML 声明键：`@` 是 YAML 保留指示符，scoped 包名必须单引号包裹，
+ * 否则 pnpm 的 yaml 解析器拒解析（install 整体失败）。声明与检查两处
+ * 用同一形态，避免误判未声明而重复追加。
+ */
+function yamlKeyOf(pkg: string): string {
+  return pkg.startsWith('@') ? `'${pkg}'` : pkg
+}
 
 /**
  * 幂等物化（dsh 启动前调用）：patch 文件 + 声明就位；插件已装但补丁
