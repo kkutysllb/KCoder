@@ -1,4 +1,4 @@
-From 625720aff58e60afa567ec9e99cf3cac535bc1e2 Mon Sep 17 00:00:00 2001
+From 2f326185ea8460061ac53990b2f82335b516bf34 Mon Sep 17 00:00:00 2001
 From: kkutysllb <46704313+kkutysllb@users.noreply.github.com>
 Date: Wed, 19 Aug 2026 20:30:16 +0800
 Subject: [PATCH] fix(markdown): merge cross-line emphasis and inline code to
@@ -20,7 +20,7 @@ long-term maintenance home.
 
 diff --git a/packages/client/ui-primitives/src/markdown/modelSanitize.ts b/packages/client/ui-primitives/src/markdown/modelSanitize.ts
 new file mode 100644
-index 0000000..c435e1f
+index 0000000000..c435e1f9fc
 --- /dev/null
 +++ b/packages/client/ui-primitives/src/markdown/modelSanitize.ts
 @@ -0,0 +1,73 @@
@@ -98,7 +98,7 @@ index 0000000..c435e1f
 +    .replace(/`([^`\n]+)\n([^`\n]+)`/g, '`$1 $2`')
 +}
 diff --git a/packages/client/ui-primitives/src/markdown/parse.ts b/packages/client/ui-primitives/src/markdown/parse.ts
-index 50f8f17..0a345b5 100644
+index 50f8f179b9..0a345b5eb6 100644
 --- a/packages/client/ui-primitives/src/markdown/parse.ts
 +++ b/packages/client/ui-primitives/src/markdown/parse.ts
 @@ -6,6 +6,12 @@
@@ -142,7 +142,7 @@ index 50f8f17..0a345b5 100644
    })
 diff --git a/packages/client/ui-primitives/tests/markdown-model-sanitize.client.spec.ts b/packages/client/ui-primitives/tests/markdown-model-sanitize.client.spec.ts
 new file mode 100644
-index 0000000..44e43c2
+index 0000000000..44e43c2cc0
 --- /dev/null
 +++ b/packages/client/ui-primitives/tests/markdown-model-sanitize.client.spec.ts
 @@ -0,0 +1,73 @@

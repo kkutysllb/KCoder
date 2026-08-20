@@ -66,7 +66,10 @@ if (!existsSync(join(dir, 'lib', 'bin.js'))) {
 
 const home = mkdtempSync(join(tmpdir(), 'dsh-smoke-'))
 const isElectron = exec !== process.execPath
-const child = spawn(exec, ['--expose-internals', 'lib/bin.js', 'web', '--port', '0'], {
+// --no-open：上游 rc.8 起 `dsh web` 默认把就绪 URL 交给系统默认浏览器
+//——冒烟在 CI/后台跑，弹浏览器既是副作用也可能因无浏览器而拖慢/失败；
+//与桌面端 dsh-manager 同款参数（版本门由物化基线保证 ≥ rc.8）
+const child = spawn(exec, ['--expose-internals', 'lib/bin.js', 'web', '--port', '0', '--no-open'], {
   cwd: dir,
   env: {
     ...process.env,

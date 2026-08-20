@@ -1,4 +1,4 @@
-From 5bef8cf9b75fa98778b228fd254496ae1e9d3ecd Mon Sep 17 00:00:00 2001
+From edce8e5696144b6affb5a292aaedbbab2c502dad Mon Sep 17 00:00:00 2001
 From: kkutysllb <46704313+kkutysllb@users.noreply.github.com>
 Date: Wed, 19 Aug 2026 00:47:55 +0800
 Subject: [PATCH] fix(session): isolate non-JSON projection units instead of
@@ -44,7 +44,7 @@ snapshot, the full host session.list cold path serves the title).
 
 diff --git a/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.i18n.yaml b/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.i18n.yaml
 new file mode 100644
-index 0000000..f2e35f4
+index 0000000000..f2e35f4fc0
 --- /dev/null
 +++ b/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.i18n.yaml
 @@ -0,0 +1,6 @@
@@ -56,7 +56,7 @@ index 0000000..f2e35f4
 +2026-08-19-projection-cache-isolates-non-json-units.zh.md: 47abd4b42ac12788cc8a12b7df1a9e88609cd9f5
 diff --git a/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.md b/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.md
 new file mode 100644
-index 0000000..8b815f0
+index 0000000000..8b815f0c0a
 --- /dev/null
 +++ b/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.md
 @@ -0,0 +1,33 @@
@@ -95,7 +95,7 @@ index 0000000..8b815f0
 +`SessionProjectionCache` no longer fails loud on a non-JSON unit — it drops that unit's row and persists the rest, so a single broken unit (e.g. a third-party plugin's `contextTimeline`) can no longer silently stop title caching for every session. The per-unit warning keeps the diagnostic value the old throw provided, now scoped to the offending key. A dropped key reads as not-yet-available and refolds from the log on the next fuller read; an all-bad checkpoint keeps the previous record. Existing cache rows are unaffected (per-unit pass only shrinks future writes), and previously lost title rows heal on the next write of that session.
 diff --git a/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.zh.md b/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.zh.md
 new file mode 100644
-index 0000000..47abd4b
+index 0000000000..47abd4b42a
 --- /dev/null
 +++ b/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.zh.md
 @@ -0,0 +1,33 @@
@@ -133,7 +133,7 @@ index 0000000..47abd4b
 +
 +`SessionProjectionCache` 不再对非 JSON 单元 fail-loud——它剔除该单元的行并保留其余，因此单个损坏单元（例如第三方插件的 `contextTimeline`）不再能静默停掉所有会话的 title 缓存。逐单元警告保留了旧抛错的诊断价值，现在只针对违规的 key。被剔除的 key 读取时按"尚不可用"处理，并在下一次更完整的读取时从日志重新折叠；全坏检查点保留上一条记录。既有缓存行不受影响（逐单元处理只会收缩未来的写入），先前丢失的 title 行会在该会话下一次写入时自愈。
 diff --git a/packages/session/session-projection-cache/README.i18n.yaml b/packages/session/session-projection-cache/README.i18n.yaml
-index 618533d..1808736 100644
+index 618533d282..180873628c 100644
 --- a/packages/session/session-projection-cache/README.i18n.yaml
 +++ b/packages/session/session-projection-cache/README.i18n.yaml
 @@ -2,5 +2,5 @@
@@ -145,7 +145,7 @@ index 618533d..1808736 100644
 +README.md: c9cf20150cc89987a2761fc648453537c6e78075
 +README.zh.md: 0462d2814d7386fa8dac769e999ca6c5de253c31
 diff --git a/packages/session/session-projection-cache/README.md b/packages/session/session-projection-cache/README.md
-index 5d4ad07..c9cf201 100644
+index 5d4ad07fab..c9cf20150c 100644
 --- a/packages/session/session-projection-cache/README.md
 +++ b/packages/session/session-projection-cache/README.md
 @@ -8,7 +8,7 @@ A stored row `(key → {ver, seq, val})` is a fold shortcut, never an authority:
@@ -158,7 +158,7 @@ index 5d4ad07..c9cf201 100644
  - **The log leads, the cache follows.** A live checkpoint flushes the session's buffered events durably BEFORE the cache row lands, so a crash can leave the cache behind the log (a longer tail replay) but never ahead of it.
  
 diff --git a/packages/session/session-projection-cache/README.zh.md b/packages/session/session-projection-cache/README.zh.md
-index 5e38ee9..0462d28 100644
+index 5e38ee98b0..0462d2814d 100644
 --- a/packages/session/session-projection-cache/README.zh.md
 +++ b/packages/session/session-projection-cache/README.zh.md
 @@ -8,7 +8,7 @@
@@ -171,7 +171,7 @@ index 5e38ee9..0462d28 100644
  - **日志领先，缓存跟随。** 活会话检查点先把缓冲事件持久 flush，缓存行才落地，因此崩溃只会让缓存落后于日志（更长的尾部回放），绝不领先于它。
  
 diff --git a/packages/session/session-projection-cache/src/index.ts b/packages/session/session-projection-cache/src/index.ts
-index 66ad637..7c394cc 100644
+index 66ad637402..7c394cc880 100644
 --- a/packages/session/session-projection-cache/src/index.ts
 +++ b/packages/session/session-projection-cache/src/index.ts
 @@ -262,13 +262,28 @@ export class SessionProjectionCache extends Service {
@@ -209,7 +209,7 @@ index 66ad637..7c394cc 100644
  
    /** Fail-soft {@link put}: cache writes must never fail their caller's read or event path. */
 diff --git a/packages/session/session-projection-cache/tests/cache.spec.ts b/packages/session/session-projection-cache/tests/cache.spec.ts
-index 6395ed7..201610b 100644
+index 6395ed7d0f..201610b1e5 100644
 --- a/packages/session/session-projection-cache/tests/cache.spec.ts
 +++ b/packages/session/session-projection-cache/tests/cache.spec.ts
 @@ -167,13 +167,15 @@ describe('SessionProjectionCache write policy', () => {
