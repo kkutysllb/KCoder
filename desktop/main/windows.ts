@@ -19,6 +19,7 @@ import { attachBrandInjector } from './brand-injector'
 import { attachThemeWatcher, overlaySymbolColor, SHELL_TITLEBAR_HEIGHT, themeBackgroundColor } from './theme-watcher'
 import { attachSidebarToggle } from './sidebar-toggle'
 import { attachSidebarCluster } from './sidebar-cluster'
+import { attachSidebarCompat } from './sidebar-compat'
 import { attachStyleOverlay } from './style-overlay'
 import { attachWorkspaceHeader } from './workspace-header'
 import { attachStatsHover } from './stats-hover'
@@ -140,6 +141,10 @@ export function showShellWindow(dshUrl: string): void {
     // 代理按钮（点击转发插件真实按钮，disabled/图标/label 实时同步；
     // 宿主=自绘状态栏，故注册在 attachThemeWatcher 之后）
     attachSidebarCluster(shellWindow)
+    // better-sidebar 布局垫片：插件底面板挤压锚（data-dsh-frame/
+    // data-pane）在 rc.8 不存在，终端/Git 底面板会盖住输入框；
+    // 按 rc.8 结构复刻 margin-bottom 挤压（见 sidebar-compat.ts）
+    attachSidebarCompat(shellWindow)
     // 消息样式覆盖层：排版 token/气泡/代码块微调（零侵入，token 改名静默失效）
     attachStyleOverlay(shellWindow)
     // workspace 顶栏收纳：会话标题/标签/日志按钮迁至状态栏与抽屉，

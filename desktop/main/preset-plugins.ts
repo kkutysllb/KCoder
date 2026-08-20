@@ -40,7 +40,8 @@
  *   自动探测只认 win32 advanced 标题栏，mac 需手动开；实测
  *   2026-08-20）。开关簇不下移：由 sidebar-cluster.ts 注入器隐藏
  *   并在状态栏右侧代理接管（状态栏右侧仅剩两枚代理按钮，right 序
- *   12/44；自研终端与四状态栏面板同日删除）。
+ *   12/44；自研终端与四状态栏面板同日删除）。底面板“占位而非覆盖”
+ *   的挤压锚在 rc.8 缺失，由 sidebar-compat.ts 垫片补齐。
  *
  * @module desktop/main/preset-plugins
  */
