@@ -21,4 +21,4 @@
 #   2. bash scripts/setup.sh        # fetch + reset + install + build
 #   3. 全量回归（重点：第三方插件加载、Web UI 冒烟、打包链 smoke）
 #   4. 提交本文件
-99f6f02fecdb7dff40c3fbc9470f5907c29f74ca
+141eb6fef83422698aef7a981029e843e8161534

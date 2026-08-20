@@ -28,7 +28,7 @@ import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { satisfies } from 'semver'
+import { satisfies, gte, valid } from 'semver'
 import { app } from 'electron'
 import type { DshSource } from '@shared/ipc-contract'
 
@@ -237,12 +237,34 @@ export interface DshCommand {
   command: string
   /** command 之后、子命令之前的固定参数（如 bin 路径）。 */
   baseArgs: string[]
+  /** `web` 子命令是否支持 `--no-open`（上游 ≥ 0.1.0-rc.8）。rc.8 起
+   *  `dsh web` 默认把就绪 URL 交给系统默认浏览器；宿主侧车必须传
+   *  `--no-open` 抑制（Electron shell 窗口自己加载该 URL）。旧版的
+   *  commander 把未知 option 当错误退出——传了会直接炸启动，且旧版
+   *  本无自动开浏览器行为，不传即正确。版本未知时保守不传。 */
+  webNoOpen: boolean
   /** 工作目录。 */
   cwd: string
   /** 需要注入的环境（ELECTRON_RUN_AS_NODE 等）。 */
   env: NodeJS.ProcessEnv
   /** 人类可读描述（诊断面板展示）。 */
   describe: string
+}
+
+/** 目录内 dsh 仓的版本号（monorepo 根 package.json 的 version）；读不到/非 semver 返回 null。 */
+function upstreamVersionIn(dir: string): string | null {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { version?: unknown }
+    return typeof manifest.version === 'string' ? valid(manifest.version) : null
+  } catch {
+    return null
+  }
+}
+
+/** `--version` 输出（首行形如 `0.1.0-rc.8`）解析出的 semver；失败返回 null。 */
+function parseVersionOutput(stdout: string): string | null {
+  const first = stdout.split('\n', 1)[0]?.trim() ?? ''
+  return valid(first)
 }
 
 /**
@@ -260,10 +282,18 @@ export function resolveDshCommand(): DshCommand | null {
   const envBin = process.env.DSH_BIN
   if (envBin !== undefined && envBin !== '') {
     const parts = envBin.split(/\s+/)
+    // --version 探测一次（与 PATH 分支同款）：DSH_BIN 可指向任意版本
+    //（含 rc.7 及更早），--no-open 门必须按实际版本判定
+    const probe = spawnSync(parts[0], [...parts.slice(1), '--version'], {
+      encoding: 'utf8',
+      timeout: 10_000,
+    })
+    const version = probe.status === 0 ? parseVersionOutput(probe.stdout) : null
     return {
       source: 'env',
       command: parts[0],
       baseArgs: parts.slice(1),
+      webNoOpen: version !== null && gte(version, '0.1.0-rc.8'),
       cwd: UPSTREAM_DIR,
       env: {},
       describe: `$DSH_BIN: ${envBin}`,
@@ -271,29 +301,33 @@ export function resolveDshCommand(): DshCommand | null {
   }
 
   // 2) 打包内置运行时（物化产物是纯 JS，不挑 node 小版本；
-  // 系统 node 缺失或不满足 range 时无条件用 Electron 内置 node）
+  //    系统 node 缺失或不满足 range 时无条件用 Electron 内置 node）
   const bundled = ensureBundledRuntime()
   if (bundled !== null) {
     const runtime = resolveRuntime()
     const cmd = runtime ?? { command: process.execPath, args: ['--expose-internals'], isElectron: true }
+    const version = upstreamVersionIn(bundled)
     return {
       source: 'checkout',
       command: cmd.command,
       baseArgs: [...cmd.args, join(bundled, BUNDLED_BIN)],
+      webNoOpen: version !== null && gte(version, '0.1.0-rc.8'),
       cwd: bundled,
       env: cmd.isElectron ? { ELECTRON_RUN_AS_NODE: '1' } : {},
       describe: `内置运行时: ${cmd.isElectron ? 'Electron node' : '系统 node'} ${join(bundled, BUNDLED_BIN)}`,
     }
   }
 
-  // 3) 本地克隆的构建产物
+  // 3) 本地克隆的构建产物（版本随仓库基线走，读根 package.json 零成本）
   if (upstreamCloned() && upstreamBuilt()) {
     const runtime = resolveRuntime()
     if (runtime !== null) {
+      const version = upstreamVersionIn(UPSTREAM_DIR)
       return {
         source: 'checkout',
         command: runtime.command,
         baseArgs: [...runtime.args, join(UPSTREAM_DIR, UPSTREAM_BIN)],
+        webNoOpen: version !== null && gte(version, '0.1.0-rc.8'),
         cwd: UPSTREAM_DIR,
         env: runtime.isElectron ? { ELECTRON_RUN_AS_NODE: '1' } : {},
         describe: `本地克隆: ${runtime.isElectron ? 'Electron node' : '系统 node'} ${join(UPSTREAM_DIR, UPSTREAM_BIN)}`,
@@ -302,13 +336,16 @@ export function resolveDshCommand(): DshCommand | null {
     return null
   }
 
-  // 4) PATH 中的 dsh（用户全局安装了 @deepseek-ai/dsh 或自行链接）
+  // 4) PATH 中的 dsh（用户全局安装了 @deepseek-ai/dsh 或自行链接；
+  //    存在性探测顺手的 --version stdout 决定 --no-open 门）
   const probe = spawnSync('dsh', ['--version'], { encoding: 'utf8', timeout: 10_000 })
   if (probe.status === 0) {
+    const version = parseVersionOutput(probe.stdout)
     return {
       source: 'path',
       command: 'dsh',
       baseArgs: [],
+      webNoOpen: version !== null && gte(version, '0.1.0-rc.8'),
       cwd: UPSTREAM_DIR,
       env: {},
       describe: 'PATH 中的 dsh',

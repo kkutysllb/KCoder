@@ -99,7 +99,11 @@ export class DshManager extends EventEmitter {
     // 保证两个 --port 0 监听永不撞车。实际端口从就绪行解析。DSH_WEB_URL
     // 等环境由 dsh 自行管理。websocket/mux 复用同一 HTTP server 的 upgrade，
     // 全进程仅此一个监听。
-    const args = [...command.baseArgs, 'web', '--port', '0']
+    // --no-open：上游 rc.8 起 `dsh web` 默认把就绪 URL 交给系统默认浏览器
+    //（SSH 环境除外）——宿主侧车由 Electron shell 窗口加载该 URL，绝不能
+    // 再弹一个系统浏览器窗口。旧版 dsh 把该参数当未知 option 报错退出，
+    // 版本门在 resolveDshCommand（webNoOpen，按来源读版本）判定。
+    const args = [...command.baseArgs, 'web', '--port', '0', ...(command.webNoOpen ? ['--no-open'] : [])]
     this.appendLog('stdout', `$ ${command.describe}\n$ ${command.command} ${args.join(' ')}`)
     const child = spawn(command.command, args, {
       cwd: command.cwd,
