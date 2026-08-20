@@ -14,7 +14,6 @@ import { app, Menu, Tray, nativeImage, shell, type MenuItemConstructorOptions } 
 import { dshManager } from './dsh-manager'
 import { resolveAsset } from './dsh-contract'
 import { checkForUpdates, installUpdate, updateEvents, updateStatus } from './updater'
-import { terminalPanel } from './terminal-panel'
 import { getShellWindow, openPanel, showShellWindow } from './windows'
 import type { UpdateStatus } from '@shared/ipc-contract'
 
@@ -154,15 +153,6 @@ export function installMenu(): void {
           label: '偏好设置…',
           accelerator: 'CmdOrCtrl+,',
           click: () => openPanel('preferences', '偏好设置 · KCoder'),
-        },
-        {
-          label: '切换内嵌终端',
-          accelerator: 'Control+`',
-          click: () => {
-            const w = getShellWindow()
-            if (w !== null && !w.isDestroyed()) w.show()
-            terminalPanel.toggle()
-          },
         },
         { type: 'separator' },
         {

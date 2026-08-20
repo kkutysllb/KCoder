@@ -27,10 +27,6 @@ export interface DesktopSettings {
   keepRunningInTray: boolean
   /** 上游 Web UI 最后已知的渲染主题（用于启动时预置原生外观，避免闪烁）。 */
   lastTheme: 'system' | 'light' | 'dark'
-  /** 内嵌终端面板高度（拖拽调节后记住）。 */
-  terminalHeight: number | null
-  /** 文件预览抽屉宽度（拖拽调节后记住）。 */
-  previewWidth: number | null
   /** 界面样式定制（预设档位，见 style-overlay）。 */
   style: StyleSettings
 }
@@ -39,8 +35,6 @@ const DEFAULTS: DesktopSettings = {
   windowBounds: null,
   keepRunningInTray: true,
   lastTheme: 'system',
-  terminalHeight: null,
-  previewWidth: null,
   style: DEFAULT_STYLE,
 }
 

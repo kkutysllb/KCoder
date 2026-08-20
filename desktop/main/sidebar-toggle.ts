@@ -34,7 +34,7 @@
  *    取侧边栏宽度），收起态/探针失效时标题退到按钮右侧不重叠。
  *
  * 宿主时序不保证：bar 由 theme-watcher 注入（同 did-finish-load，
- * 本注入器注册在其后），轮询等待 bar 存在（与 terminal-panel 同款）。
+ * 本注入器注册在其后），轮询等待 bar 存在（与 sidebar-cluster 同款）。
  *
  * @module desktop/main/sidebar-toggle
  */
@@ -96,7 +96,7 @@ const PAGE_JS = `(() => {
 
   // 兜底样式：仅隐藏展开态的上游 toggle（React 重建的按钮不带 inline
   // display，靠 :has() 兜底；收起态含 railMark 的不命中）+ 注入按钮
-  // 外观（与 terminal-panel 按钮同款，三个按钮共享）
+  // 外观（与 sidebar-cluster 代理按钮同款，三个按钮共享）
   const BTN_CSS = '#' + [BTN_ID, PREV_ID, NEXT_ID].join(',#')
   const style = document.createElement('style')
   style.id = '__dsh_desktop_toggle_style'

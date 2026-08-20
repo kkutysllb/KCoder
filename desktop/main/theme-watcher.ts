@@ -31,9 +31,9 @@ const WS_PREFIX = '__dsh_ws__:'
 
 /**
  * macOS 标题栏高度（Window Controls Overlay 覆盖条）。
- * 48px：容纳四枚 26px 图标按钮与标题的宽松状态栏；页面注入等高
- * padding 下移，保证上游 UI 不被覆盖条遮挡（终端/预览面板 bounds
- * 不消费此高度：终端贴底、预览全高，按钮 top:50% 自居中）。
+ * 48px：容纳六枚 26px 图标按钮与标题的宽松状态栏；页面注入等高
+ * padding 下移，保证上游 UI 不被覆盖条遮挡（预览面板 bounds 不
+ * 消费此高度：预览全高，按钮 top:50% 自居中）。
  * Windows 同高（titleBarOverlay 控制按钮区高 48px）。
  */
 export const SHELL_TITLEBAR_HEIGHT = 48
@@ -120,8 +120,8 @@ export function attachThemeWatcher(win: BrowserWindow): void {
       }
       return
     }
-    // 工作区按钮：打开工作区目录（Finder/资源管理器；路径来自预览
-    // 抽屉注入器写入的 --dsh-ws-path，非任意输入）
+    // 工作区按钮：打开工作区目录（Finder/资源管理器；路径来自
+    // workspace-probe 写入的 --dsh-ws-path，非任意输入）
     if (message.startsWith(WS_PREFIX)) {
       try {
         const payload = JSON.parse(message.slice(WS_PREFIX.length)) as { action?: unknown; path?: unknown }
@@ -169,24 +169,21 @@ export function themeBackgroundColor(pref: 'system' | 'light' | 'dark' = getSett
  * 标题且双击缩放失效，故齐弃）。VS Code 同款方案：
  * - `-webkit-app-region: drag` 拖拽区 → 原生拖动与双击缩放；
  * - 靠左显示「工作区 / 会话标题 〔预设〕」：主文本是 document.title
- *   （上游 DocumentTitle 投射“会话标题 — 产品名”）；工作区前缀由预览
- *   抽屉注入器探测（workspace.list RPC + 会话配对）写入 --dsh-ws-name，
- *   并做成实体按钮（文件夹图标，点击打开工作区目录；路径读
- *   --dsh-ws-path，上报 __dsh_ws__ 通道由主进程 shell.openPath 执行），
- *   agent 预设徽章读 --dsh-agent-preset（workspace-header 读取被收纳
- *   的 AgentPresetLabel 文本写入）；两变量均由 apply() 读取拼接
- *   （写入方与本脚本互不依赖，通道同 --dsh-sidebar-w；style 变化
- *   会触发既有 observer 重渲染），
+ *   （上游 DocumentTitle 投射“会话标题 — 产品名”）；工作区前缀由
+ *   workspace-probe 探测（workspace.list RPC + 会话配对）写入
+ *   --dsh-ws-name，并做成实体按钮（文件夹图标，点击打开工作区目录；
+ *   路径读 --dsh-ws-path，上报 __dsh_ws__ 通道由主进程 shell.openPath
+ *   执行），agent 预设徽章读 --dsh-agent-preset（workspace-header
+ *   读取被收纳的 AgentPresetLabel 文本写入）；两变量均由 apply()
+ *   读取拼接（写入方与本脚本互不依赖，通道同 --dsh-sidebar-w；
+ *   style 变化会触发既有 observer 重渲染），
  *   起排在中间会话列左缘（侧边栏右边线 + 12px，探测 sidebarCol 实时
  *   广播为 --dsh-sidebar-w，拖宽/折叠动画平滑跟随；侧边栏收起时保底
  *   左侧让位区）；--dsh-titlebar-extra-left（折叠按钮迁移注入器
  *   sidebar-toggle 设置 = 按钮宽 26 + 间距 8）叠加上最小让位，收起态
  *   标题不与红绿灯右侧的折叠按钮重叠）；max-width 自适应避让：右侧取
- *   按钮带（134px =
- *   四枚 26px 图标按钮：终端 12/预览 44/轨迹 76/日志 108px 序，Windows
- *   另加 padRight 让位原生控制按钮区）与
- *   文件预览抽屉宽度（--dsh-preview-inset，抽屉是全高 WebContentsView、
- *   打开时盖住标题栏右段）之大者，长标题省略号截断不钻抽屉底下；
+ *   按钮带（70px = 两枚 26px 代理按钮：侧栏面板 12/底部面板 44px 序，
+ *   Windows 另加 padRight 让位原生控制按钮区），长标题省略号截断；
  * - 背景直接解析上游 token `--dsw-specific-sidebar-fill`（body 计算值），
  *   随上游主题切换实时正确，无需主进程回传；
  * - body 注入等高 padding，上游 UI 下移不被遮挡；
@@ -221,7 +218,7 @@ const SHELL_TITLEBAR_JS = `(() => {
   label.style.cssText = [
     'flex:0 1 auto',
     'margin-left:max(calc(${TP.leftPad}px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px)',
-    'max-width:calc(100% - max(calc(${TP.leftPad}px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px) - max(${134 + TP.padRight}px, calc(var(--dsh-preview-inset, 0px) + var(--dsh-git-inset, 0px))))',
+    'max-width:calc(100% - max(calc(${TP.leftPad}px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px) - ${70 + TP.padRight}px)',
     'display:flex', 'align-items:center', 'min-width:0', 'white-space:nowrap',
   ].join(';')
   // 工作区段：实体按钮（文件夹图标 + 名字；点击打开工作区目录）。

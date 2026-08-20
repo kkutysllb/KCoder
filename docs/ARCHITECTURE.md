@@ -43,6 +43,8 @@ KCoder 经历了三个时代，当前是第三时代：
 
 上游侧车管理、面板体系（设置/诊断/同步/插件/偏好）、内嵌终端（node-pty）、
 文件活动预览抽屉、插件桥、自动更新、发布流水线（GitHub Actions 三平台）。
+（内嵌终端与状态栏四面板——文件预览/会话轨迹/日志导出/Git——已于
+2026-08-20 删除，功能由预置插件 dsh-better-sidebar 承接。）
 
 ### 品牌替换矩阵（品牌层换了，引擎层没换）
 
@@ -60,7 +62,8 @@ KCoder 经历了三个时代，当前是第三时代：
 `DshManager`、`dsh web` 就绪行、`window.dshDesktop`
 桥、`DSH_BIN`/`DSH_HOME` 环境变量、上游包名 `@deepseek-ai/dsh`。**不要**把这些
 也“品牌化”——它们是与上游对齐的契约词汇。（已品牌化的目录命名：打包链
-staging/包内归档/首启解压统一为 `kcoder-runtime`；引擎数据目录为 `~/.kcoder`。）
+staging/包内归档/首启解压统一为 `kcoder-runtime`；引擎数据目录与上游共享
+默认 `~/.dsh`，不另行品牌化。）
 
 ## 3. 当前架构总览
 
@@ -77,13 +80,13 @@ Electron 主进程 (desktop/main/)
 
 1. **`deepseek-harness/` 是纯克隆**：绝不修改、绝不提交其中任何文件（.gitignore
    已排除）。对上游的一切定制走官方扩展点（插件 / profile / patch）。
-2. **上游 UI 零侵入**：桌面端能力（标题栏、主题、终端让位、统计悬浮、更新按钮、
+2. **上游 UI 零侵入**：桌面端能力（标题栏、主题、面板让位、统计悬浮、更新按钮、
    附件按钮改造）全部通过主进程注入叠加上去，不改上游一行代码。上游升级时注入
    仍可用（契约检查清单见 §7）。
-3. **数据隔离**：会话/凭据/插件在 `~/.kcoder`（主进程启动时预置
-   `DSH_HOME`，见 index.ts；用户显式设置 DSH_HOME 时从之）。与同机
-   dsh-desktop / 终端 `dsh` CLI 的 `~/.dsh` 完全隔离，两产品并存不互串；
-   代价是 CLI 里的凭据/会话不互通，KCoder 需自行配置。
+3. **数据统一**：会话/凭据/插件在 `~/.dsh`（上游默认，不预置
+   `DSH_HOME`，见 index.ts；用户显式设置 DSH_HOME 时从之）。与
+   dsh CLI / `npx dsh web` / 插件市场完全同一套数据，安装与更新
+   全链互通。
 4. **端口不冲突**：侧车恒以 `dsh web --port 0` 启动（dsh-manager），
    OS 从临时端口段（macOS 49152-65535）随机分配，内核保证与同机
    DSH-Desktop 的侧车（同样 `--port 0`）及用户自起的 `dsh web`（默认
@@ -107,21 +110,20 @@ Electron 主进程 (desktop/main/)
 | `windows.ts` | shell 窗口与面板窗口创建；各注入器的接线点 | 各注入模块 |
 | `style-overlay.ts` | CSS 注入：标题栏、主题 token、轨迹页美化（锚点 `data-conversation-composer-overlay`）、跳到底部按钮居中（`toBottomSlot`） | §8 类名匹配策略 |
 | `console-channel.ts` | console 通道：页面注入脚本 → 主进程 的上行通信约定（`__dsh_*:` 前缀） | 各注入模块 |
-| `terminal-panel.ts` + `pty-host.ts` | 内嵌终端（WebContentsView + node-pty），布局跟随注入（`sidebarCol/centerCol`） | — |
-| `preview-panel.ts` + `file-activity.ts` | 文件活动预览抽屉；mux 流消费按工作区分桶（sessionId→workspace 归属，来自 workspace.list RPC） | mux 流消费必须带归属维度 |
+| `sidebar-cluster.ts` | better-sidebar 开关簇收纳：插件开关簇隐藏，状态栏右侧两枚代理按钮（点击转发插件真实按钮，disabled/图标/label 实时同步） | §8 点击转发 |
+| `workspace-probe.ts` + `file-activity.ts` | 页面级存续功能（预览/Git 面板删除后迁出）：工作区探针（workspace.list → 标题栏工作区名/按钮 + fileActivity 工作区基准）、正文文件徽章（类型 + edit 增删行数）、历史会话补拉拦截；file-activity 为 mux 流按工作区分桶的聚合存储（sessionId→workspace 归属） | mux 流消费必须带归属维度 |
 | `plugins.ts` | 插件桥：profile 层叠清单 + GitHub `topic:dsh-plugin` 发现 + `dsh plugin` CLI 转发 | — |
 | `updater.ts` + `update-injector.ts` | electron-updater + 向上游 logoRow 注入安装按钮（`kcoder://install-update` 深链） | — |
 | `brand-injector.ts` | 品牌化：侧边栏展开/rail 鲸鱼换 KCoder 标（`assets/brand-k.png`）、新会话 hero 鲸鱼+slogan（中「所思，皆可成码」/英 "Think it, code it."，CJK 自适应；预览徽章藏起）、`document.title` 产品名替换（拦截 setter）。⚠ 只能藏起+旁插/改 .data，不能 replaceWith/改 textContent（React removeChild 崩树） | §8；“再生成品牌图”同源 |
 | `attach-picker.ts` | 附件按钮改造：拦截 drag-to-attachment 插件的模式按钮 → 原生文件对话框 → 合成 drop → 插件 fast path | §8 自毁坑 |
-| `session-log-export.ts` | 会话日志导出行：上游设置面板导航列注入「会话日志」行（fiber 探测当前会话 → `/api/session.export`，HEAD 预检 + anchor 下载） | fiber 探测契约（同 `terminal-panel.ts`） |
 | `style-settings.ts` | 样式定制设置行：上游设置面板通用区注入密度/列宽方块行（console 通道写回 → `refreshStyleOverlay` 即时生效） | §8 类名克隆 |
-| `stats-hover.ts` | 轨迹统计悬浮注入 | — |
+| `stats-hover.ts` | 会话统计图表面板：hover 输入框下方 StatsLine 缩略条 → 视口底部弹出自绘图表 | — |
 | `theme-watcher.ts` | 深浅色跟随（`body[data-ds-dark-theme]`） | — |
 | `upstream.ts` | 上游状态检测 + 同步流水线（fetch→脏检查→ff-only→install→build） | — |
 | `menu.ts` / `ipc.ts` / `store.ts` | 菜单与托盘 / IPC 分发 / 持久化 | — |
 
 渲染端（`desktop/renderer/src/views/`）：`landing`（KCoder 欢迎屏）、`splash`、
-`setup`、`diagnostics`、`sync`、`plugins`、`terminal`、`preview`、`preferences`，
+`setup`、`diagnostics`、`sync`、`plugins`、`preferences`，
 hash 路由，无框架，纯 TS + 手写 DOM。
 
 ## 5. 上游克隆的特殊性（重建时踩过）
@@ -161,7 +163,7 @@ KCoder 的 `deepseek-harness/` 原是 submodule，重建时已**扶正为独立�
 | `dsh plugin --profile web …` CLI 形态 / `dsh.profile.bundles` 层叠 | `plugins.ts` |
 | 侧边栏 `logoRow`/`collapsed`、布局列 `sidebarCol/centerCol/detailsCol`、会话行 fiber `props.node.id` | 各注入模块（`scripts/verify-inject.cjs` 可自动化验证） |
 | 主题落点 `body[data-ds-dark-theme]` / sidebar-fill token | `theme-watcher.ts`、`style-overlay.ts`（`scripts/verify-theme.cjs`） |
-| workspace RPC `POST /api/workspace.list`（sessionIds 归属） | `file-activity.ts` |
+| workspace RPC `POST /api/workspace.list`（sessionIds 归属） | `workspace-probe.ts`（页面侧探针）、`file-activity.ts`（主进程归属映射） |
 
 ## 8. 开发惯例与经验坑（基线会话沉淀，务必继承）
 

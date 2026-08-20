@@ -264,7 +264,7 @@ export function refreshStyleOverlay(win: BrowserWindow): void {
  */
 export function attachStyleOverlay(win: BrowserWindow): void {
   // 先捕获：closed 时窗口已销毁，再访问 win.webContents getter 会抛
-  // "Object has been destroyed"（terminal-panel 同款防御）
+  // "Object has been destroyed"（sidebar-cluster 同款防御）
   const { webContents } = win
   const onDidLoad = (): void => {
     if (win.isDestroyed()) return

@@ -23,7 +23,8 @@ extraResources:
   # （patches/ + patchedDependencies 声明跟随 deps 实态，见
   # profile-patches.ts）。Windows 无 launchd，随包分发是唯一通道。
   # better-sidebar 预置无需补丁（npm 原生兼容），额外物化见
-  # preset-plugins.ts（node-pty 构建许可 + titleBarCompat 避让）
+  # preset-plugins.ts（node-pty 构建许可 + 面板顶部避让；开关簇由
+  # sidebar-cluster.ts 状态栏代理接管）
   - from: profiles/web/patches
     to: profile-patches
   # scripts 与 assets（官方图标）随应用分发，供首次引导与托盘使用
@@ -35,8 +36,6 @@ extraResources:
     filter: ["*.png", "*.svg"]
 asarUnpack:
   - "**/*.sh"
-  # 原生模块（node-pty 的 .node 二进制不能进 asar）
-  - "node_modules/node-pty/**"
 mac:
   category: public.app-category.developer-tools
   target:

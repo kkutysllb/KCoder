@@ -18,18 +18,16 @@ import { attachUpdateInjector } from './update-injector'
 import { attachBrandInjector } from './brand-injector'
 import { attachThemeWatcher, overlaySymbolColor, SHELL_TITLEBAR_HEIGHT, themeBackgroundColor } from './theme-watcher'
 import { attachSidebarToggle } from './sidebar-toggle'
+import { attachSidebarCluster } from './sidebar-cluster'
 import { attachStyleOverlay } from './style-overlay'
 import { attachWorkspaceHeader } from './workspace-header'
 import { attachStatsHover } from './stats-hover'
 import { attachPicker } from './attach-picker'
-import { attachSessionLogInjector } from './session-log-export'
+import { attachWorkspaceProbe } from './workspace-probe'
 import { attachStyleSettingsInjector } from './style-settings'
 import { attachSkillsSettingsInjector } from './skills-settings'
 import { attachMcpSettingsInjector } from './mcp-settings'
 import { attachPanelMenu } from './panel-menu'
-import { terminalPanel } from './terminal-panel'
-import { previewPanel } from './preview-panel'
-import { gitPanel } from './git-panel'
 import { getSettings, saveSettings } from './store'
 
 /** dev 模式下 renderer 的 vite 服务地址；生产为 out/renderer 静态文件。 */
@@ -138,6 +136,10 @@ export function showShellWindow(dshUrl: string): void {
     // 注入代理按钮（点击转发上游 toggle.click()，图标随状态克隆；
     // 宿主=自绘标题栏，故注册在 attachThemeWatcher 之后）
     attachSidebarToggle(shellWindow)
+    // better-sidebar 开关簇收纳：插件右上开关簇隐藏 → 状态栏注入两枚
+    // 代理按钮（点击转发插件真实按钮，disabled/图标/label 实时同步；
+    // 宿主=自绘状态栏，故注册在 attachThemeWatcher 之后）
+    attachSidebarCluster(shellWindow)
     // 消息样式覆盖层：排版 token/气泡/代码块微调（零侵入，token 改名静默失效）
     attachStyleOverlay(shellWindow)
     // workspace 顶栏收纳：会话标题/标签/日志按钮迁至状态栏与抽屉，
@@ -149,9 +151,10 @@ export function showShellWindow(dshUrl: string): void {
     // 附件选择器：drag-to-attachment 插件的模式切换按钮 → 点击改为
     // 打开原生文件对话框（真实路径经插件 fast path 直接入队）
     attachPicker(shellWindow)
-    // 会话日志导出：设置面板导航列注入「会话日志」行（fiber 探测当前
-    // 会话 → 上游 /api/session.export 下载；Electron 默认弹保存对话框）
-    attachSessionLogInjector(shellWindow)
+    // 工作区探针：选中会话 → workspace.list 解析 → 标题栏工作区名/按钮
+    // + file-activity 工作区基准；附带正文文件徽章（类型徽章 + edit
+    // 增删行数）与历史会话补拉拦截（预览/Git 面板删除后独立存续）
+    attachWorkspaceProbe(shellWindow)
     // 样式设置：设置面板通用区注入密度/列宽方块行（console 通道写回，
     // 偏好设置面板只留桌面特有项）
     attachStyleSettingsInjector(shellWindow)
@@ -161,24 +164,10 @@ export function showShellWindow(dshUrl: string): void {
     // MCP 服务器：设置面板导航列注入「MCP 服务器」分区（列表 + 行内
     // 编辑表单；console 通道 CRUD mcp-store，保存后上游 HMR 热加载）
     attachMcpSettingsInjector(shellWindow)
-    // 内嵌终端面板：底部真实终端（pty + xterm），页面探针/按钮注入
-    // （按钮宿主是自绘标题栏，darwin/win32 注入；pty-host 平台无关）
-    terminalPanel.attach(shellWindow)
-    // 文件预览抽屉：右侧 agent 文件活动预览（mux 订阅 + 语法高亮/diff）
-    previewPanel.attach(shellWindow)
-    // git 环境面板：标题栏按钮 → 右上浮动面板（主进程 git 探测，
-    // 工作区跟随 file-activity；按钮宿主同为自绘标题栏）
-    gitPanel.attach(shellWindow)
-    // win32 面板收纳菜单：原生控制按钮区盖住右侧四枚面板按钮，
-    // 五钮收进一枚下拉菜单（点击转发原按钮，状态实时克隆；
+    // win32 面板收纳菜单：原生控制按钮区盖住右侧面板按钮，
+    // 两枚代理按钮收进一枚下拉菜单（点击转发原按钮，状态实时克隆；
     // 其他平台 no-op 不注入）
     attachPanelMenu(shellWindow)
-    // 开合/拖宽 → 终端面板收窄让位（回调注入避免循环依赖）
-    previewPanel.onLayoutChange = () => terminalPanel.relayout()
-    // 右侧停靠互斥：任一面板展示时收起另一个（钩子只在 show 触发，
-    // 无环；互斥关闭不算手动关，git 面板保留任务期自动展开资格）
-    gitPanel.onShow = () => previewPanel.hide()
-    previewPanel.onShow = () => gitPanel.hideByConflict()
     // 只允许停留在 dsh 回环地址；外链交给系统浏览器
     shellWindow.webContents.setWindowOpenHandler(({ url }) => {
       if (url.startsWith('kcoder:')) return { action: 'deny' }

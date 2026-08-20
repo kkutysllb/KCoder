@@ -1,19 +1,18 @@
 /**
- * win32 面板收纳菜单：五枚浮动面板按钮收进标题栏下拉菜单。
+ * win32 面板收纳菜单：两枚代理按钮收进标题栏下拉菜单。
  *
- * 背景（Windows titleBarOverlay 遮挡缺陷）：五枚面板按钮以
- * `position:absolute; right:12/44/76/108/140px` 挂在自绘标题栏内——
- * absolute 定位基于包含块 padding box（≈窗口右缘），标题栏为避让
- * 原生控制按钮区（titleBarOverlay 右侧 138px，绘制在窗口层最顶）
- * 加的 padding-right:138px 对 absolute 子元素无效 → 终端/预览/轨迹/
- * 日志四钮落在原生按钮区内被盖（git 140 贴边勉强可见）。
+ * 背景（Windows titleBarOverlay 遮挡缺陷）：两枚代理按钮
+ * （sidebar-cluster 注入，`position:absolute; right:12/44px`）挂在
+ * 自绘标题栏内——absolute 定位基于包含块 padding box（≈窗口右缘），
+ * 标题栏为避让原生控制按钮区（titleBarOverlay 右侧 138px，绘制在
+ * 窗口层最顶）加的 padding-right:138px 对 absolute 子元素无效 →
+ * 两枚代理全部落在原生按钮区内被盖。
  *
- * 方案：win32 下五钮 display:none，由一枚菜单按钮（right:150px，
+ * 方案：win32 下两钮 display:none，由一枚菜单按钮（right:150px，
  * 原生区左侧安全位）下拉收纳。菜单项点击转发 .click() 到原按钮——
  * 原生 onclick 不依赖可见性，display:none 照常触发（workspace-header
- * 的 tab 兜底同款事实）；菜单项图标与开关态实时克隆自原按钮
- * （svg/data-open/data-on/disabled/.dim/.bdg），面板模块零改动。
- * macOS/Linux 不注入本模块，五钮平铺现状不变。
+ * 的 tab 兑底同款事实）；菜单项图标与开关态实时克隆自原按钮
+ * （svg/disabled）。macOS/Linux 不注入本模块，两钮平铺现状不变。
  *
  * @module desktop/main/panel-menu
  */
@@ -25,11 +24,8 @@ const MENU_JS = `(() => {
   if (window.__dshPanelMenuWired) return
   window.__dshPanelMenuWired = true
   const PANELS = [
-    { id: '__dsh_desktop_terminal_btn', label: '内嵌终端' },
-    { id: '__dsh_desktop_preview_btn', label: '文件预览' },
-    { id: '__dsh_desktop_trajectory_btn', label: '会话轨迹' },
-    { id: '__dsh_desktop_sessionlog_btn', label: '会话日志' },
-    { id: '__dsh_desktop_git_btn', label: 'Git 面板' },
+    { id: '__dsh_desktop_sidebar_panel_btn', label: '侧边栏' },
+    { id: '__dsh_desktop_sidebar_bottom_btn', label: '侧栏底部面板' },
   ]
   const BTN = '__dsh_desktop_panel_menu_btn'
   const POP = '__dsh_desktop_panel_menu_pop'
@@ -42,16 +38,14 @@ const MENU_JS = `(() => {
     document.head.append(styleEl)
   }
   styleEl.textContent = [
-    /* 五枚原按钮整体让位（本脚本仅 win32 注入，不影响其他平台） */
+    /* 两枚原按钮整体让位（本脚本仅 win32 注入，不影响其他平台） */
     PANELS.map((p) => '#' + p.id).join(',') + '{display:none !important}',
-    /* 菜单按钮：与五按钮同款视觉，right:150px 在原生按钮区左侧 */
+    /* 菜单按钮：与代理按钮同款视觉，right:150px 在原生按钮区左侧 */
     '#' + BTN + '{all:unset;box-sizing:border-box;position:absolute;right:150px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;cursor:pointer;color:rgba(26,29,33,.65);-webkit-app-region:no-drag;transition:background .15s ease}',
     'body[data-ds-dark-theme] #' + BTN + '{color:rgba(232,234,237,.8)}',
     '#' + BTN + ':hover{background:color-mix(in srgb,currentColor 10%,transparent)}',
     '#' + BTN + ':active{background:color-mix(in srgb,currentColor 18%,transparent)}',
     '#' + BTN + '[data-open="1"]{background:color-mix(in srgb,currentColor 14%,transparent)}',
-    /* git 变更红点（同步原 git 按钮 .bdg 徽标） */
-    '#' + BTN + ' .dot{position:absolute;top:1px;right:0;min-width:13px;height:13px;padding:0 3px;border-radius:7px;background:#CF222E;color:#FFF;font:600 8.5px/13px -apple-system,"PingFang SC",sans-serif;text-align:center}',
     /* 下拉面板：按钮正下方，右缘对齐按钮右缘 */
     '#' + POP + '{position:fixed;top:52px;right:150px;z-index:2147483647;min-width:190px;padding:5px;border-radius:11px;box-shadow:0 8px 28px rgba(9,12,16,.18),0 0 0 1px rgba(9,12,16,.07);display:none}',
     '#' + POP + '[data-show="1"]{display:block}',
@@ -83,22 +77,7 @@ const MENU_JS = `(() => {
     attributes: true, attributeFilter: ['data-ds-dark-theme'],
   })
 
-  /* git 红点：跟随 git 按钮 .bdg 徽标增删与文本 */
-  const syncDot = () => {
-    const btn = document.getElementById(BTN)
-    if (btn === null) return
-    const git = document.getElementById('__dsh_desktop_git_btn')
-    const bdg = git !== null ? git.querySelector('.bdg') : null
-    let dot = btn.querySelector('.dot')
-    if (bdg !== null) {
-      if (dot === null) {
-        dot = document.createElement('span')
-        dot.className = 'dot'
-        btn.append(dot)
-      }
-      dot.textContent = bdg.textContent
-    } else if (dot !== null) dot.remove()
-  }
+  /* git 红点：随 git 面板删除，不再需要 */
 
   let openObs = null
   const closeMenu = () => {
@@ -199,14 +178,6 @@ const MENU_JS = `(() => {
     }, true)
     document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeMenu() }, true)
 
-    /* git 徽标常驻观察（红点在菜单关闭时也要正确） */
-    const gitWatch = () => {
-      const git = document.getElementById('__dsh_desktop_git_btn')
-      if (git === null) { requestAnimationFrame(gitWatch); return }
-      new MutationObserver(syncDot).observe(git, { childList: true, subtree: true })
-      syncDot()
-    }
-    gitWatch()
     applyTheme()
     return true
   }
@@ -216,7 +187,7 @@ const MENU_JS = `(() => {
 })()`
 
 /**
- * 挂载面板收纳菜单（仅 win32；其他平台为 no-op，五钮平铺不变）。
+ * 挂载面板收纳菜单（仅 win32；其他平台为 no-op，两钮平铺不变）。
  */
 export function attachPanelMenu(win: BrowserWindow): void {
   if (process.platform !== 'win32') return

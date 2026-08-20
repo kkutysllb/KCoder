@@ -55,9 +55,9 @@ let updaterLogStream: ReturnType<typeof createWriteStream> | null = null
 function updaterLog(level: 'info' | 'warn' | 'error' | 'debug', message?: unknown): void {
   try {
     if (updaterLogStream === null) {
-      // 首次写日志时才解析 DSH_HOME：index.ts 在 import 阶段即设置该
-      // 环境变量，但模块体执行先于其后的赋值语句，不可在此处读
-      const logDir = join(process.env.DSH_HOME ?? join(homedir(), '.kcoder'), 'logs')
+      // 首次写日志时才解析 DSH_HOME（用户显式设置时从之，否则上游
+      // 默认 ~/.dsh——与 dshHome() 同步；不走其引用避免循环依赖）
+      const logDir = join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'logs')
       mkdirSync(logDir, { recursive: true })
       updaterLogStream = createWriteStream(join(logDir, 'updater.log'), { flags: 'a' })
     }

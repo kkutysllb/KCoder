@@ -30,35 +30,8 @@ const bridge: DesktopBridge = {
   updateCheck: () => ipcRenderer.invoke('update:check'),
   updateInstall: () => ipcRenderer.invoke('update:install'),
   showShell: () => ipcRenderer.invoke('shell:show'),
-  terminalTabs: () => ipcRenderer.invoke('terminal:tabs'),
-  terminalNew: () => ipcRenderer.invoke('terminal:new'),
-  terminalWrite: (id, data) => ipcRenderer.invoke('terminal:write', id, data),
-  terminalResize: (id, cols, rows) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
-  terminalRestartTab: (id) => ipcRenderer.invoke('terminal:restart', id),
-  terminalClose: (id) => ipcRenderer.invoke('terminal:close', id),
-  terminalHide: () => ipcRenderer.invoke('terminal:hide'),
-  terminalPanelResize: (dy) => ipcRenderer.invoke('terminal:panel-resize', dy),
-  terminalTheme: () => ipcRenderer.invoke('terminal:theme'),
   clipboardReadText: () => ipcRenderer.invoke('clipboard:read'),
   clipboardWriteText: (text) => ipcRenderer.invoke('clipboard:write', text),
-  previewEntries: () => ipcRenderer.invoke('preview:entries'),
-  previewReadFile: (path) => ipcRenderer.invoke('preview:read-file', path),
-  previewHide: () => ipcRenderer.invoke('preview:hide'),
-  previewPanelResize: (dx) => ipcRenderer.invoke('preview:panel-resize', dx),
-  previewOpenEditor: (path) => ipcRenderer.invoke('preview:open-editor', path),
-  previewMode: () => ipcRenderer.invoke('preview:mode'),
-  previewSetMode: (mode) => ipcRenderer.invoke('preview:set-mode', mode),
-  trajectoryFetch: () => ipcRenderer.invoke('trajectory:fetch'),
-  gitSnapshot: () => ipcRenderer.invoke('git:snapshot'),
-  gitRefresh: () => ipcRenderer.invoke('git:refresh'),
-  gitFetch: () => ipcRenderer.invoke('git:fetch'),
-  gitCommit: (message) => ipcRenderer.invoke('git:commit', message),
-  gitPush: () => ipcRenderer.invoke('git:push'),
-  gitBranchSwitch: (name) => ipcRenderer.invoke('git:branch-switch', name),
-  gitBranchCreate: (name, base) => ipcRenderer.invoke('git:branch-create', name, base),
-  gitHide: () => ipcRenderer.invoke('git:hide'),
-  gitOpenPlan: (path) => ipcRenderer.invoke('git:open-plan', path),
-  gitSubagents: () => ipcRenderer.invoke('git:subagents'),
   preferencesGet: () => ipcRenderer.invoke('preferences:get'),
   preferencesSet: (patch) => ipcRenderer.invoke('preferences:set', patch),
   onDshStateChanged: (cb) => {
@@ -80,56 +53,6 @@ const bridge: DesktopBridge = {
     const listener = (_e: Electron.IpcRendererEvent, s: Parameters<typeof cb>[0]): void => cb(s)
     ipcRenderer.on('update:state-changed', listener)
     return () => ipcRenderer.removeListener('update:state-changed', listener)
-  },
-  onTerminalData: (cb) => {
-    const listener = (_e: Electron.IpcRendererEvent, chunk: string, id: number): void => cb(chunk, id)
-    ipcRenderer.on('terminal:data', listener)
-    return () => ipcRenderer.removeListener('terminal:data', listener)
-  },
-  onTerminalExit: (cb) => {
-    const listener = (_e: Electron.IpcRendererEvent, id: number): void => cb(id)
-    ipcRenderer.on('terminal:exit', listener)
-    return () => ipcRenderer.removeListener('terminal:exit', listener)
-  },
-  onTerminalReset: (cb) => {
-    const listener = (): void => cb()
-    ipcRenderer.on('terminal:reset', listener)
-    return () => ipcRenderer.removeListener('terminal:reset', listener)
-  },
-  onTerminalTheme: (cb) => {
-    const listener = (_e: Electron.IpcRendererEvent, t: Parameters<typeof cb>[0]): void => cb(t)
-    ipcRenderer.on('terminal:theme', listener)
-    return () => ipcRenderer.removeListener('terminal:theme', listener)
-  },
-  onPreviewActivity: (cb) => {
-    const listener = (_e: Electron.IpcRendererEvent, entry: Parameters<typeof cb>[0], focus: boolean): void => cb(entry, focus)
-    ipcRenderer.on('preview:activity', listener)
-    return () => ipcRenderer.removeListener('preview:activity', listener)
-  },
-  onPreviewRefresh: (cb) => {
-    const listener = (): void => cb()
-    ipcRenderer.on('preview:refresh', listener)
-    return () => ipcRenderer.removeListener('preview:refresh', listener)
-  },
-  onPreviewMode: (cb) => {
-    const listener = (_e: Electron.IpcRendererEvent, m: Parameters<typeof cb>[0]): void => cb(m)
-    ipcRenderer.on('preview:mode-changed', listener)
-    return () => ipcRenderer.removeListener('preview:mode-changed', listener)
-  },
-  onTrajectoryUpdate: (cb) => {
-    const listener = (_e: Electron.IpcRendererEvent, s: Parameters<typeof cb>[0]): void => cb(s)
-    ipcRenderer.on('trajectory:update', listener)
-    return () => ipcRenderer.removeListener('trajectory:update', listener)
-  },
-  onGitSnapshot: (cb) => {
-    const listener = (_e: Electron.IpcRendererEvent, s: Parameters<typeof cb>[0]): void => cb(s)
-    ipcRenderer.on('git:changed', listener)
-    return () => ipcRenderer.removeListener('git:changed', listener)
-  },
-  onGitSubagents: (cb) => {
-    const listener = (_e: Electron.IpcRendererEvent, list: Parameters<typeof cb>[0]): void => cb(list)
-    ipcRenderer.on('subagents:changed', listener)
-    return () => ipcRenderer.removeListener('subagents:changed', listener)
   },
 }
 

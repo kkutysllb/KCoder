@@ -13,8 +13,6 @@ import { dshManager } from './dsh-manager'
 import { registerIpc } from './ipc'
 import { installMenu, installTray, wireMenuRefresh } from './menu'
 import { closePanels, markQuitting, showBootstrap, showShellWindow } from './windows'
-import { terminalPanel } from './terminal-panel'
-import { previewPanel } from './preview-panel'
 import { fileActivity } from './file-activity'
 import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-contract'
 import { ensureKcoderSkillsBundle } from './kcoder-skills-bundle'
@@ -25,18 +23,15 @@ import { initUpdater } from './updater'
 import { applyNativeTheme, currentThemePref } from './theme-watcher'
 import { getSettings } from './store'
 import { homedir } from 'node:os'
-import { mkdirSync, readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-// 引擎用户数据目录：独立于同机 dsh-desktop / dsh CLI 的 ~/.dsh——两产品
-// 并存时会话/凭据/插件会互串，KCoder 落自己的 ~/.kcoder。必须在任何
-// spawn dsh / dshHome() 之前设置：侧车与 dsh CLI 转发都继承主进程 env。
-// 用户显式设置了 DSH_HOME 时尊重之（排障/有意共享数据的场景）。
-if (process.env.DSH_HOME === undefined) {
-  process.env.DSH_HOME = join(homedir(), '.kcoder')
-}
-mkdirSync(process.env.DSH_HOME, { recursive: true })
+// 引擎用户数据目录：与上游共享默认 `~/.dsh`（不预置 DSH_HOME）——
+// 会话/凭据/插件/profile 与 dsh CLI / npx dsh web 完全同一套，插件
+// 市场安装与更新全链统一；用户显式设置 DSH_HOME 时上游自行尊重之
+//（排障/有意隔离数据的场景）。目录创建无需干预：各物化链与 dsh 启
+// 动均 recursive mkdir。
 
 // npm registry 透传：GUI 应用不经 shell 启动，引擎进程拿不到用户 npm
 // 配置；插件（如 dsh-vision-router）的更新检查读 npm_config_registry，
@@ -184,8 +179,6 @@ autoUpdater.on('before-quit-for-update', () => {
 
 app.on('before-quit', (event) => {
   markQuitting() // 首位置位：主窗口 close 拦截放行，退出不被托盘保活挡死
-  terminalPanel.dispose() // 杀内嵌终端 shell（SIGTERM 发出即离开）
-  previewPanel.dispose()
   fileActivity.dispose() // 断开 mux 订阅
   if (dshManager.status.state === 'stopped' || dshManager.status.state === 'failed') return
   event.preventDefault()

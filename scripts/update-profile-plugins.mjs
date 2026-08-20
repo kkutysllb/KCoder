@@ -33,7 +33,7 @@ import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolveRepoRoot()
-const PROFILE = process.env.DSH_HOME ? join(process.env.DSH_HOME, 'profiles/web') : join(homedir(), '.kcoder/profiles/web')
+const PROFILE = process.env.DSH_HOME ? join(process.env.DSH_HOME, 'profiles/web') : join(homedir(), '.dsh/profiles/web')
 const PATCHES = [
   'dsh-plugin-genui@0.12.2.patch',
   'dsh-context@0.12.1.patch',

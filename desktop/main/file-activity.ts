@@ -1,12 +1,11 @@
 /**
- * 活动订阅器：作为第二个客户端连 dsh 的 mux 事件流，供右侧预览抽屉
- * 消费两个关注点：
- * - 文件活动：agent 的读文件 / 编辑文件活动（tool/result 的 view 卡片）；
- * - 会话轨迹：当前会话的消息/工具事件时间线（user/message、
- *   assistant/message、tool/call、tool/result 四类，{@link FileActivity.trajEvent}
- *   摘要为 {@link TrajectoryRow}），历史部分从 session.history 补拉
- *   （首页即够预览抽屉体量），实时部分随 mux 帧追加，callId 配对
- *   补全耗时与终态。
+ * 活动订阅器：作为第二个客户端连 dsh 的 mux 事件流，跟踪 agent 的
+ * 读/编辑文件活动（tool/result 的 view 卡片），供两个消费方使用：
+ * - 工作区基准（skills-catalog）：`activeKey()` 给出当前工作区，
+ *   供工作区项目技能目录探位；
+ * - 正文文件徽章（workspace-probe）：当前工作区的 edit 活动推给
+ *   shell 页面加 +n/−n 统计，历史部分从 session.history 补拉
+ *   （页面探针拦截上报触发，首页即够）。
  *
  * 上游契约（packages/host/apiproxy/src/api/events.ts + core/tools
  * presentation.ts + core/session/src/types.ts + client/connection
@@ -33,14 +32,12 @@
  * 状态断开；活动按文件聚合（同文件取最新），上限 {@link MAX_ENTRIES}。
  *
  * 工作区隔离：mux 流推送所有会话的活动，多工作区并存时直接入同一
- * 张表会互串（预览抽屉显示别的工作区文件）。按「会话 → 工作区」
- * 归属分桶存储——归属映射来自 workspace.list 的 sessionIds（主进程
- * 自拉，5s 节流 + in-flight 去重）；映射未收录的新会话先按当前工作
- * 区兜底（新会话总是在当前工作区创建），映射刷新后后续事件归位。
- * 相对路径同样按归属工作区解析（不再用全局单一基准——后台工作区
- * 的相对路径会被记到当前工作区名下）。list()/open() 只面向当前
- * 工作区桶；跨工作区实时活动不转发（ipc.ts 按 workspaceOf 过滤）。
- * 轨迹只跟随页面当前选中的会话（侧边栏探针上报），天然无跨串。
+ * 张表会互串。按「会话 → 工作区」归属分桶存储——归属映射来自
+ * workspace.list 的 sessionIds（主进程自拉，5s 节流 + in-flight
+ * 去重）；映射未收录的新会话先按当前工作区兑底（新会话总是在当前
+ * 工作区创建），映射刷新后后续事件归位。相对路径同样按归属工作区
+ * 解析。list() 只面向当前工作区桶；跨工作区实时活动不转发（消费方
+ * 按 wsKey 过滤）。
  *
  * @module desktop/main/file-activity
  */
@@ -48,16 +45,10 @@
 import { EventEmitter } from 'node:events'
 import { isAbsolute, join } from 'node:path'
 import { dshManager } from './dsh-manager'
-import type { PreviewEntry, TrajectoryRow, TrajectorySnapshot } from '@shared/ipc-contract'
+import type { PreviewEntry } from '@shared/ipc-contract'
 
 /** 聚合后的活动条目上限（每工作区桶独立计算，超出丢最老）。 */
 const MAX_ENTRIES = 300
-
-/** 轨迹时间线的行数上限（超出丢最老；抽屉体量下首页 history + 实时足够）。 */
-const MAX_TRAJ_ROWS = 500
-
-/** 轨迹文本摘录的字符上限（user/assistant 消息拼后的截断长度）。 */
-const TRAJ_TEXT_CHARS = 240
 
 /** 断线重连间隔（毫秒）。 */
 const RECONNECT_MS = 2_000
@@ -135,44 +126,24 @@ interface MuxEnvelope {
   payload?: MuxFrame
 }
 
-/** mux 业务帧的最小形状（只声明消费的字段；event = SessionEvent 外壳）。子代理监控也消费（onFrame）。 */
-export interface MuxFrame {
+/** mux 业务帧的最小形状（只声明消费的字段；event = SessionEvent 外壳）。 */
+interface MuxFrame {
   type: string
   sessionId?: string
   event?: { type?: string; seq?: number; time?: number; data?: unknown }
   view?: { for?: string; view?: Record<string, unknown> }
 }
 
-/** 轨迹关注的四类 SessionEvent（其余类型忽略）。 */
-const TRAJ_EVENT_TYPES: ReadonlySet<string> = new Set([
-  'user/message', 'assistant/message', 'tool/call', 'tool/result',
-])
-
-/** 从消息 content 块里拼文本摘录（text 块拼接；纯图片/纯工具调用为 null）。子代理监控同用。 */
-export function textOfBlocks(content: unknown): string | null {
-  if (!Array.isArray(content)) return null
-  let text = ''
-  for (const block of content) {
-    if (block !== null && typeof block === 'object'
-      && (block as Record<string, unknown>).type === 'text'
-      && typeof (block as Record<string, unknown>).text === 'string') {
-      text += (text === '' ? '' : '\n') + (block as Record<string, unknown>).text as string
-    }
-  }
-  if (text === '') return null
-  return text.length > TRAJ_TEXT_CHARS ? text.slice(0, TRAJ_TEXT_CHARS - 1) + '…' : text
-}
-
 /**
- * 订阅器单例。`setWorkspace` 由面板层喳进页面探针解析的工作区路径
- * （当前显示哪个工作区的桶；相对 path 按归属工作区解析）。
+ * 订阅器单例。`setWorkspace` 由 workspace-probe 探针解析的工作区路径
+ * 喂进（当前显示哪个工作区的桶；相对 path 按归属工作区解析）。
  */
 class FileActivity extends EventEmitter {
   /** 工作区路径 →（绝对路径 → 条目）：活动按工作区隔离，切换互不污染。 */
   private readonly buckets = new Map<string, Map<string, PreviewEntry>>()
   private ws: WebSocket | null = null
   private reconnectTimer: NodeJS.Timeout | null = null
-  /** 当前页面选中的工作区（list()/open() 的目标桶；null = 无工作区）。 */
+  /** 当前页面选中的工作区（list() 的目标桶；null = 无工作区）。 */
   private activeWorkspace: string | null = null
   /** sessionId → 工作区路径（workspace.list 的 sessionIds 归属）。 */
   private readonly sessionWorkspace = new Map<string, string>()
@@ -181,14 +152,6 @@ class FileActivity extends EventEmitter {
   /** 最近一次历史补拉的会话与时间（翻页重复上报去重）。 */
   private lastHistorySession = ''
   private lastHistoryAt = 0
-  /* ---- 轨迹时间线（只跟随页面当前选中会话） ---- */
-  private trajSession: string | null = null
-  private trajTitle = ''
-  private trajRows: TrajectoryRow[] = []
-  /** seq 去重（history 补拉与 mux 实时可能交叠）。 */
-  private readonly trajSeen = new Set<number>()
-  private lastTrajFetchSession = ''
-  private lastTrajFetchAt = 0
 
   constructor() {
     super()
@@ -200,17 +163,11 @@ class FileActivity extends EventEmitter {
     if (current.state === 'ready' && current.url !== null) this.connect(current.url)
   }
 
-  /** 页面探针解析的当前工作区（变化时发 workspace-changed，视图重拉）。 */
+  /** 页面探针解析的当前工作区（workspace-probe 喂进）。 */
   setWorkspace(path: string | null): void {
     const next = path !== null && path !== '' ? path : null
     if (next === this.activeWorkspace) return
     this.activeWorkspace = next
-    this.emit('workspace-changed', next)
-  }
-
-  /** mux 帧观察口（subagent-monitor 消费子会话事件；只读，勿改帧）。 */
-  onFrame(cb: (frame: MuxFrame) => void): void {
-    this.on('frame', cb)
   }
 
   /** 当前工作区桶键（无工作区时空串，桶仍可用但不常展示）。 */
@@ -224,173 +181,11 @@ class FileActivity extends EventEmitter {
     return bucket === undefined ? [] : [...bucket.values()].reverse()
   }
 
-  /**
-   * 手动打开（正文文件链接接管）：已有条目复用（保留 edit 的 diff），
-   * 否则建 read 条目；返回后由面板层 show + focus 选中。入当前桶。
-   */
-  open(path: string): PreviewEntry {
-    const wsKey = this.activeKey()
-    const abs = this.resolve(path, wsKey)
-    const bucket = this.bucketOf(wsKey)
-    const existing = bucket.get(abs)
-    const entry: PreviewEntry = existing !== undefined
-      ? { ...existing, at: Date.now() }
-      : {
-          path: abs,
-          kind: 'read',
-          at: Date.now(),
-          added: 0,
-          removed: 0,
-          lang: langOf(abs, null),
-          diffs: null,
-        }
-    bucket.delete(abs)
-    bucket.set(abs, entry)
-    this.trim(bucket)
-    return entry
-  }
-
   /** 应用退出前清理。 */
   dispose(): void {
     this.disconnect()
   }
-
-  /* ---------------- 会话轨迹（预览抽屉的轨迹模式） ---------------- */
-
-  /**
-   * 页面探针上报的当前选中会话（变化时重置时间线 + 补拉历史）。
-   * title 来自侧边栏树节点（fiber 探针），无标题时空串。
-   */
-  setTrajectorySession(sessionId: string | null, title: string): void {
-    const next = sessionId !== null && sessionId !== '' ? sessionId : null
-    if (next === this.trajSession) {
-      // 同会话：仅标题可能变（首条消息后树节点更新标题）
-      if (next !== null && title !== '' && title !== this.trajTitle) {
-        this.trajTitle = title
-        this.emitTrajectory()
-      }
-      return
-    }
-    this.trajSession = next
-    this.trajTitle = title
-    this.trajRows = []
-    this.trajSeen.clear()
-    this.emitTrajectory()
-    if (next !== null) void this.fetchTrajectory(next)
-  }
-
-  /** 当前时间线快照（trajectory:fetch）。 */
-  trajectorySnapshot(): TrajectorySnapshot {
-    return { sessionId: this.trajSession, title: this.trajTitle, rows: [...this.trajRows] }
-  }
-
-  /**
-   * 拉会话首页历史补轨迹（mux 不重放历史）：解析四类事件拼时间线。
-   * 与文件活动的 fetchHistory 各自去重（触发时机不同：本方法只随
-   * 会话切换，短窗口去重防探针抖动）。失败静默（实时流继续）。 */
-  private async fetchTrajectory(sessionId: string): Promise<void> {
-    const now = Date.now()
-    if (sessionId === this.lastTrajFetchSession && now - this.lastTrajFetchAt < 5_000) return
-    const status = dshManager.status
-    if (status.state !== 'ready' || status.url === null) return
-    try {
-      const resp = await fetch(`${status.url}/api/session.history`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          type: 'client-request',
-          rpcId: `kcoder-traj-${now}`,
-          method: 'session.history',
-          payload: { sessionId },
-        }),
-      })
-      if (!resp.ok) return
-      const body = JSON.parse(await resp.text()) as {
-        result?: { ok?: boolean; value?: { events?: Array<{ event?: unknown }> } }
-      }
-      const events = body.result?.ok === true ? body.result.value?.events : undefined
-      if (!Array.isArray(events)) return
-      this.lastTrajFetchSession = sessionId
-      this.lastTrajFetchAt = Date.now()
-      let changed = false
-      for (const e of events) {
-        const ev = (e as { event?: unknown } | null)?.event
-        if (ev !== null && ev !== undefined && this.trajEvent(ev)) changed = true
-      }
-      // 会话可能在拉取期间又被切走：只发布仍跟随当前会话的结果
-      if (changed && this.trajSession === sessionId) this.emitTrajectory()
-    } catch {
-      // dsh 重启间隙 / 响应非 JSON 等：静默，实时流继续
-    }
-  }
-
-  /**
-   * 摘要一个 SessionEvent 入时间线（history 补拉与 mux 实时共用；
-   * seq 去重，callId 配对补全工具终态与耗时）。返回是否有变更。
-   */
-  private trajEvent(ev: unknown): boolean {
-    if (this.trajSession === null) return false
-    const e = ev as { type?: unknown; seq?: unknown; time?: unknown; data?: unknown }
-    if (typeof e.type !== 'string' || !TRAJ_EVENT_TYPES.has(e.type)) return false
-    if (typeof e.seq !== 'number' || typeof e.time !== 'number') return false
-    if (this.trajSeen.has(e.seq)) return false
-    const data = (e.data ?? {}) as Record<string, unknown>
-    const turn = typeof data.turn === 'number' ? data.turn : 0
-    if (e.type === 'tool/call') {
-      this.trajSeen.add(e.seq)
-      const callId = typeof data.callId === 'string' ? data.callId : String(e.seq)
-      const name = typeof data.name === 'string' ? data.name : '?'
-      this.pushTrajRow({ seq: e.seq, at: e.time, turn, kind: 'tool', text: null,
-        tool: { callId, name, status: 'running', ms: null } })
-      return true
-    }
-    if (e.type === 'tool/result') {
-      this.trajSeen.add(e.seq)
-      const message = (data.message ?? {}) as Record<string, unknown>
-      const blocks = Array.isArray(message.content) ? message.content as Array<Record<string, unknown>> : []
-      const block = blocks[0] ?? {}
-      const callId = typeof block.toolCallId === 'string' ? block.toolCallId : String(e.seq)
-      const failed = data.error != null || block.isError === true
-      // 配对同 callId 的 running 行（mux 流里 call 在前）；找不到则补建
-      const running = [...this.trajRows].reverse()
-        .find(r => r.kind === 'tool' && r.tool?.callId === callId && r.tool.status === 'running')
-      if (running !== undefined && running.tool !== null) {
-        running.tool.status = failed ? 'error' : 'ok'
-        running.tool.ms = Math.max(0, e.time - running.at)
-      } else {
-        // result 无工具名（名字在 tool/call 事件里）：占位空串，视图兜底显示
-        this.pushTrajRow({ seq: e.seq, at: e.time, turn, kind: 'tool', text: null,
-          tool: { callId, name: '', status: failed ? 'error' : 'ok', ms: 0 } })
-      }
-      return true
-    }
-    // user/message 的 data 即消息本体；assistant/message 的消息在 data.message
-    const message = e.type === 'user/message' ? data : (data.message ?? {}) as Record<string, unknown>
-    this.trajSeen.add(e.seq)
-    this.pushTrajRow({
-      seq: e.seq, at: e.time, turn,
-      kind: e.type === 'user/message' ? 'user' : 'assistant',
-      text: textOfBlocks(message.content),
-      tool: null,
-    })
-    return true
-  }
-
-  /** 入列（seq 升序插入 + 上限淘汰）。 */
-  private pushTrajRow(row: TrajectoryRow): void {
-    this.trajRows.push(row)
-    this.trajRows.sort((a, b) => a.seq - b.seq)
-    while (this.trajRows.length > MAX_TRAJ_ROWS) {
-      const dropped = this.trajRows.shift()
-      if (dropped !== undefined) this.trajSeen.delete(dropped.seq)
-    }
-  }
-
-  /** 发布时间线（trajectory 事件 → ipc 转发给抽屉视图）。 */
-  private emitTrajectory(): void {
-    this.emit('trajectory', this.trajectorySnapshot())
-  }
-
+  
   /**
    * 拉会话历史补活动（页面打开/切换会话时由注入 hook 触发）：mux
    * 不重放历史，读/编辑活动只能从 session.history 的分页时 view 推导
@@ -497,12 +292,6 @@ class FileActivity extends EventEmitter {
 
   private consume(frame: MuxFrame): void {
     if (frame.type !== 'session/event') return
-    this.emit('frame', frame)
-    // 轨迹：当前会话的消息/工具事件（先于文件活动的 view 过滤）
-    if (this.trajSession !== null && frame.sessionId === this.trajSession
-      && frame.event !== undefined && this.trajEvent(frame.event)) {
-      this.emitTrajectory()
-    }
     if (frame.event?.type !== 'tool/result') return
     const view = frame.view
     if (view?.for !== 'result' || view.view === undefined) return

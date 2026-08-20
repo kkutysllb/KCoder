@@ -161,7 +161,7 @@ const PAGE_JS = `(() => {
     var name = document.createElement('span'); name.className = 'dsk-name'; name.textContent = e.name
     var desc = document.createElement('span'); desc.className = 'dsk-desc'; desc.textContent = e.description
     row.append(x, badge, name, desc)
-    // optional 行尾「启用」按钮：主进程代拷到 ~/.kcoder/skills/<name>/，
+    // optional 行尾「启用」按钮：主进程代拷到 ~/.dsh/skills/<name>/，
     // 免手动命令行（cp -R 目标不存在时的分叉坑）；成功后目录整体刷新，
     // 该行跳到用户全局区
     if (e.source === 'optional') {

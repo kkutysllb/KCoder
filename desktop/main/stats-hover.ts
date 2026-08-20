@@ -23,18 +23,14 @@
 
 import type { BrowserWindow } from 'electron'
 
-/** 面板样式（注入页面；id 写死避免模板串插值）。定位按可用区自适应：
-    右侧预览抽屉/底部终端都是叠在上游页面上的 WebContentsView（页面视口
-    不缩），两个面板的让位注入器会把几何广播为 CSS 变量，这里消费——
-    面板居中于抽屉左侧的可用区（轴线左移半个抽屉宽）、宽度上限扣减、
-    底边抬起，不钻到面板底下。变量纯 CSS 消费，拖动抽屉时实时重算。 */
+/** 面板样式（注入页面；id 写死避免模板串插值）。视口底部居中。 */
 const PANEL_CSS = String.raw`
 #__dsh_stats_panel {
   position: fixed;
-  left: calc(50% - (var(--dsh-preview-inset, 0px) + var(--dsh-git-inset, 0px)) / 2);
-  bottom: var(--dsh-terminal-inset, 0px);
+  left: 50%;
+  bottom: 0;
   z-index: 2147483646;
-  width: min(560px, calc(92vw - (var(--dsh-preview-inset, 0px) + var(--dsh-git-inset, 0px)))); box-sizing: border-box; padding: 10px 14px 8px;
+  width: min(560px, 92vw); box-sizing: border-box; padding: 10px 14px 8px;
   border: 1px solid #DCE0E6; border-bottom: none; border-radius: 12px 12px 0 0;
   background: #FFFFFF; color: #1A1D21;
   box-shadow: 0 -10px 32px rgba(9, 16, 29, .14);

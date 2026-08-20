@@ -29,15 +29,18 @@
  * 它的两个上游缺陷补丁仍随包分发：用户自装后 ensureProfilePatches 会
  * 补声明并自愈（锄点注入兑底，见 profile-patches.ts）。
  *
- * dsh-better-sidebar（2026-08-20 预置，替代自研文件树面板）：侧边栏
- * 工作台底座（文件树/CM6 编辑器/图片·MD 预览/终端/Git/子代理，
- * 服务化扩展点）。原生兼容 rc.8 无需补丁；两项额外物化：
+ * dsh-better-sidebar（2026-08-20 预置，全面替代自研功能面：文件树
+ * 面板、内嵌终端与状态栏四面板——文件预览/会话轨迹/日志导出/Git
+ * ——已删除）：侧边栏工作台底座（文件树/CM6 编辑器/图片·MD 预览/
+ * 终端/Git/子代理，服务化扩展点）。原生兼容 rc.8 无需补丁；两项额外物化：
  * - pnpm-workspace.yaml 补写 onlyBuiltDependencies: [node-pty]（pnpm 10
  *   默认拦截原生构建脚本，不许可则插件终端缺 node-pty 二进制）；
  * - $DSH_HOME/settings.yaml 补写 dsh-better-sidebar.titleBarCompat:
- *   true + titleBarStripPx（右上角开关簇下移让位 KCoder 自绘标题栏，
- *   插件自动探测只认 win32 advanced 标题栏，mac 需手动开；实测
- *   2026-08-20：开关簇 y 3→51，面板顶 padding 同步，见会话记录）。
+ *   true + titleBarStripPx——面板顶部让位 KCoder 自绘状态栏（插件
+ *   自动探测只认 win32 advanced 标题栏，mac 需手动开；实测
+ *   2026-08-20）。开关簇不下移：由 sidebar-cluster.ts 注入器隐藏
+ *   并在状态栏右侧代理接管（状态栏右侧仅剩两枚代理按钮，right 序
+ *   12/44；自研终端与四状态栏面板同日删除）。
  *
  * @module desktop/main/preset-plugins
  */
@@ -105,10 +108,11 @@ function ensurePnpmBuildAllowlist(workspacePath: string): void {
 
 /**
  * 幂等补写 better-sidebar 标题栏避让配置（$DSH_HOME/settings.yaml）：
- * 开关簇/面板顶部让位 KCoder 自绘标题栏（48px，取 SHELL_TITLEBAR_HEIGHT
- * 防魔数漂移）。整块缺失才追加——用户/插件设置页改过则不动；调用时序
- * 在 dsh 启动前，无并发写风险。tabsEnabled 不写：终端/Git 等重功能
- * 保持插件默认，用户经设置页自选（KCoder 内置终端/预览面板不互斥）。
+ * 面板顶部让位 KCoder 自绘状态栏（48px，取 SHELL_TITLEBAR_HEIGHT 防魔
+ * 数漂移；开关簇本体由 sidebar-cluster.ts 隐藏代理，不消费下移效果）。
+ * 整块缺失才追加——用户/插件设置页改过则不动；调用时序在 dsh 启动前，
+ * 无并发写风险。tabsEnabled 不写：终端/Git 等重功能保持插件默认，
+ * 用户经设置页自选（KCoder 内置终端面板已删除，预览面板不互斥）。
  */
 function ensureSidebarCompatSettings(): void {
   try {

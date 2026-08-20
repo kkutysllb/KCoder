@@ -184,32 +184,12 @@ export interface UpdateStatus {
   error: string | null
 }
 
-/* ---------- 内嵌终端 ---------- */
+/* ---------- 文件活动 ---------- */
 
-/** 终端面板/pty 的主题 token（上游 bg-base/sidebar-fill 系）。 */
-export interface TerminalTheme {
-  dark: boolean
-  /** 终端区背景（深 #151517 = 950 / 浅 #FFFFFF = 00）。 */
-  bg: string
-  /** header 条背景（深 #1B1B1C = 900 / 浅 #F9FAFB = 50）。 */
-  headerBg: string
-  fg: string
-  border: string
-  accent: string
-}
-
-/** pty 会话快照（terminal:tabs / terminal:new 拉取）：一个标签 = 一个 shell。 */
-export interface TerminalTab {
-  id: number
-  alive: boolean
-  cwd: string
-  /** shell 名（zsh/bash/powershell，tab/header 显示用）。 */
-  title: string
-}
-
-/* ---------- 文件预览抽屉 ---------- */
-
-/** 一次文件活动（agent 读/改了哪个文件），随 preview:activity 推送。 */
+/**
+ * 一次文件活动（agent 读/改了哪个文件）。file-activity 聚合存储
+ *（主进程内部），workspace-probe 消费驱动正文文件徽章。
+ */
 export interface PreviewEntry {
   /** 绝对路径（相对路径已按当前工作区解析）。 */
   path: string
@@ -224,127 +204,8 @@ export interface PreviewEntry {
   lang: string | null
   /** 上游 applied hunk（kind=edit 有值；行级 diff 渲染原料）。 */
   diffs: Array<{ path: string; oldText: string | null; newText: string }> | null
-  /** 主进程请求选中展示（正文文件链接接管时 true；普通活动缺省）。 */
+  /** 主进程请求选中展示（历史回放标志；普通活动缺省）。 */
   focus?: boolean
-}
-
-/** preview:read-file 的结果（面板按需读盘）。 */
-export interface PreviewFileContent {
-  ok: boolean
-  content: string | null
-  /** 超过上限破截断。 */
-  truncated: boolean
-  error: string | null
-}
-
-/* ---------- 会话轨迹（预览抽屉的轨迹模式） ---------- */
-
-/** 预览抽屉的展示模式：files = 文件活动流；trajectory = 会话轨迹时间线。 */
-export type PreviewMode = 'files' | 'trajectory'
-
-/** 轨迹时间线一行（当前会话的消息/工具事件摘要）。 */
-export interface TrajectoryRow {
-  /** 会话事件序号（升序排列基准）。 */
-  seq: number
-  /** 事件时间（Unix 毫秒）。 */
-  at: number
-  /** 所属轮次（turn/start 的 turn 号）。 */
-  turn: number
-  /** user = 用户消息；assistant = 助手消息；tool = 工具调用。 */
-  kind: 'user' | 'assistant' | 'tool'
-  /** user/assistant 的文本摘录（text 块拼接截断；纯图片/纯工具调用时 null）。 */
-  text: string | null
-  /** kind=tool 时的调用信息（其他 kind 为 null）。 */
-  tool: {
-    callId: string
-    name: string
-    /** running = 进行中；ok = 完成；error = 失败。 */
-    status: 'running' | 'ok' | 'error'
-    /** 耗时毫秒（完成后有值）。 */
-    ms: number | null
-  } | null
-}
-
-/** trajectory:fetch 的结果（当前会话的完整时间线快照）。 */
-export interface TrajectorySnapshot {
-  /** 当前跟随的会话（无选中会话时 null）。 */
-  sessionId: string | null
-  /** 会话标题（侧边栏树节点标题，可能为空串）。 */
-  title: string
-  /** 时间线行（seq 升序，上限截断丢最老）。 */
-  rows: TrajectoryRow[]
-}
-
-/* ---------- git 环境面板 ---------- */
-
-/** 工作区里 agent 写下的计划文档（git 面板列出，点击进预览抽屉渲染）。 */
-export interface GitPlanFile {
-  /** 绝对路径。 */
-  path: string
-  /** 标题（文档首个 # 标题，缺省回退文件名）。 */
-  title: string
-  /** 相对修改时间（git 风格「3 hours ago」）。 */
-  when: string
-}
-
-/**
- * git 工作区状态快照（主进程探测；随 `git:changed` 推送，也可
- * `git:snapshot` 拉取）。非 git 仓库时 isRepo=false 其余字段归零。
- */
-export interface GitSnapshot {
-  /** 当前工作区名（路径尾段；无工作区 null）。 */
-  workspace: string | null
-  isRepo: boolean
-  branch: string | null
-  /** 上游分支短名（origin/main；无则 null）。 */
-  upstream: string | null
-  ahead: number | null
-  behind: number | null
-  staged: number
-  changed: number
-  untracked: number
-  /** 相对 HEAD 的增/删行数（numstat 求和；不含 untracked）。 */
-  added: number
-  removed: number
-  /** 本地分支列表（字母序；当前分支靠 branch 字段高亮）。 */
-  branches: string[]
-  /** 工作区内的计划文档（mtime 降序，最多 6 个；可为空）。 */
-  plans: GitPlanFile[]
-  commits: Array<{ hash: string; subject: string; when: string; author: string }>
-  /** Fetch 进行中（按钮禁用态）。 */
-  fetching: boolean
-  /** 写操作（提交/推送/切分支/建分支）进行中，视图按钮禁用。 */
-  busy: boolean
-  error: string | null
-}
-
-/** git 写操作（commit/push/branch-create 等）的执行结果。 */
-export interface GitOpResult {
-  ok: boolean
-  /** 失败时的首行错误文案（git 原样输出）。 */
-  error: string | null
-}
-
-/** 子代理监控条目（subagent 子会话的聚合视图，git 面板展示）。 */
-export interface SubagentEntry {
-  /** 子会话 id。 */
-  id: string
-  /** 父会话 id（发起 subagent 工具调用的会话）。 */
-  parentId: string | null
-  /** 工作区显示名（cwd 尾段；跨工作区条目标注用，无 cwd 时 null）。 */
-  ws: string | null
-  /** 子代理名（agentPreset；缺省「子代理」）。 */
-  label: string
-  /** 任务描述（首条 user 消息摘录；未观察到时空串）。 */
-  task: string
-  /** 是否仍在运行（session.list 的 running，轮询刷新）。 */
-  running: boolean
-  /** 工具调用次数（tool/call 计数）。 */
-  toolCalls: number
-  /** 最后活动时间（Unix 毫秒；0 = 未观察到）。 */
-  lastAt: number
-  /** 执行轨迹（seq 升序，最多 N 行，与轨迹抽屉同构）。 */
-  rows: TrajectoryRow[]
 }
 
 /* ---------- preload 暴露面 ---------- */
@@ -379,76 +240,9 @@ export interface DesktopBridge {
   pluginAdd(pkg: string): Promise<PluginCommandResult>
   pluginRemove(pkg: string): Promise<PluginCommandResult>
   pluginUpdate(pkg: string): Promise<PluginCommandResult>
-  /* 内嵌终端（shell 窗口底部面板，多标签） */
-  /** 全部标签快照（面板初次挂载时拉取）。 */
-  terminalTabs(): Promise<TerminalTab[]>
-  /** 新建标签（工作目录 = 当前工作区），返回新标签。 */
-  terminalNew(): Promise<TerminalTab>
-  terminalWrite(id: number, data: string): Promise<void>
-  terminalResize(id: number, cols: number, rows: number): Promise<void>
-  /** 销毁对应标签并以当前工作区目录重建 shell。 */
-  terminalRestartTab(id: number): Promise<TerminalTab | null>
-  /** 关闭单个标签（杀 shell），返回剩余标签（空 = 全部关闭）。 */
-  terminalClose(id: number): Promise<TerminalTab[]>
-  /** 关闭面板（pty 全部保留，会话不丢）。 */
-  terminalHide(): Promise<void>
-  /** 拖拽面板上缘调高度（dy 向下为正），返回新高度。 */
-  terminalPanelResize(dy: number): Promise<number>
-  terminalTheme(): Promise<TerminalTheme>
-  /* 剪贴板（终端右键菜单用；主进程 electron.clipboard 无权限问题） */
+  /* 剪贴板（面板右键菜单用；主进程 electron.clipboard 无权限问题） */
   clipboardReadText(): Promise<string>
   clipboardWriteText(text: string): Promise<void>
-  /* 文件预览抽屉（右侧面板，agent 读/编辑文件的活动流） */
-  /** 活动条目列表（最近在前，同文件聚合取最新）。 */
-  previewEntries(): Promise<PreviewEntry[]>
-  /** 按绝对路径读文件当前内容（限 1MB，超限截断）。 */
-  previewReadFile(path: string): Promise<PreviewFileContent>
-  /** 关闭抽屉（活动记录保留，重开即回）。 */
-  previewHide(): Promise<void>
-  /** 拖左缘调宽度（dx 向左为正 = 变宽），返回新宽度。 */
-  previewPanelResize(dx: number): Promise<number>
-  /** 用外部代码编辑器打开当前预览文件（探测 code/cursor/zed…）。 */
-  previewOpenEditor(path: string): Promise<{ ok: boolean; error: string | null }>
-  /** 抽屉当前模式（轨迹/文件，随状态栏按钮切换）。 */
-  previewMode(): Promise<PreviewMode>
-  /** 抽屉内切换模式（不强制展示抽屉）。 */
-  previewSetMode(mode: PreviewMode): Promise<void>
-  onPreviewActivity(cb: (e: PreviewEntry, focus: boolean) => void): () => void
-  /** 工作区切换通知（活动已换桶，视图应重拉 previewEntries）。 */
-  onPreviewRefresh(cb: () => void): () => void
-  /** 模式切换通知（状态栏按钮触发；视图跟随切换内容区）。 */
-  onPreviewMode(cb: (m: PreviewMode) => void): () => void
-  /* 会话轨迹（预览抽屉的轨迹模式数据源） */
-  /** 当前会话的轨迹时间线快照。 */
-  trajectoryFetch(): Promise<TrajectorySnapshot>
-  /** 时间线更新推送（新事件到达/会话切换）。 */
-  onTrajectoryUpdate(cb: (s: TrajectorySnapshot) => void): () => void
-  /* git 环境面板（右侧停靠；探测与写操作都在主进程串行执行） */
-  /** 当前快照（面板初次挂载时拉取）。 */
-  gitSnapshot(): Promise<GitSnapshot>
-  /** 触发一次重探（视图内手动刷新）。 */
-  gitRefresh(): Promise<void>
-  /** git fetch（拉取上游，完成后快照会再推一次）。 */
-  gitFetch(): Promise<GitOpResult>
-  /** 提交全部变更（add -A + commit -m；message 视图/主进程双重非空校验）。 */
-  gitCommit(message: string): Promise<GitOpResult>
-  /** 推送（有上游直接 push，否则 push -u origin HEAD）。 */
-  gitPush(): Promise<GitOpResult>
-  /** 切换本地分支（checkout）。 */
-  gitBranchSwitch(name: string): Promise<GitOpResult>
-  /** 新建分支并切换（base 空 = 从当前 HEAD）。 */
-  gitBranchCreate(name: string, base: string | null): Promise<GitOpResult>
-  /** 关闭面板（用户在面板内点关闭；算手动关闭，本次任务不再自动展开）。 */
-  gitHide(): Promise<void>
-  /** 在预览抽屉中打开计划文档（git 面板收起、抽屉切文件模式渲染）。 */
-  gitOpenPlan(path: string): Promise<void>
-  /* 子代理监控（subagent 子会话聚合；随面板打开启停轮询） */
-  /** 当前工作区的子代理条目（面板初次挂载时拉取）。 */
-  gitSubagents(): Promise<SubagentEntry[]>
-  /** 子代理条目更新推送（轮询发现变化/mux 实时事件）。 */
-  onGitSubagents(cb: (list: SubagentEntry[]) => void): () => void
-  /** 快照更新推送（探测完成/操作完成/开合）。 */
-  onGitSnapshot(cb: (s: GitSnapshot) => void): () => void
   /* 偏好设置（样式定制/托盘保活；样式变更后主进程自动重注入 shell 窗口） */
   preferencesGet(): Promise<Preferences>
   preferencesSet(patch: Partial<Preferences>): Promise<Preferences>
@@ -457,12 +251,4 @@ export interface DesktopBridge {
   onDshLog(cb: (l: DshLogLine) => void): () => void
   onUpstreamProgress(cb: (p: UpstreamProgress) => void): () => void
   onUpdateStateChanged(cb: (s: UpdateStatus) => void): () => void
-  onTerminalData(cb: (chunk: string, id: number) => void): () => void
-  onTerminalExit(cb: (id: number) => void): () => void
-  onTerminalTheme(cb: (t: TerminalTheme) => void): () => void
-  /**
-   * 工作区切换后 PtyHost 被主进程重置并在新路径上重建首个标签，
-   * 渲染端应丢弃旧 tab 再 `terminalTabs()` 重拉，保证本地/远端一致。
-   */
-  onTerminalReset(cb: () => void): () => void
 }

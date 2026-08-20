@@ -8,7 +8,7 @@
  * - 核心批 → skills/<name>/，进 manifest.json（entry.js 注册生效，
  *   目录常驻会话上下文）
  * - 可选批 → skills/optional/<name>/，不进 manifest（不注册、零目录税；
- *   技能面板「未启用」分区展示，拷到 ~/.kcoder/skills/<name>/ 即启用）
+ *   技能面板「未启用」分区展示，拷到 ~/.dsh/skills/<name>/ 即启用）
  * - office 批 → 源在 KSkills/office/ 的「知识+脚本」型技能（docx/
  *   xlsx/pptx/pdf），整资源物化到 skills/optional/：SKILL.md 清洗 +
  *   scripts/references/LICENSE 原样拷贝（启用后 agent 可直接执行
