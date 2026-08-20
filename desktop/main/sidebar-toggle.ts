@@ -48,20 +48,35 @@ const PAGE_JS = `(() => {
   // 变量（CSS 变量变化自动重算，无需重建 bar）
   document.documentElement.style.setProperty('--dsh-titlebar-extra-left', EXTRA_LEFT + 'px')
 
-  // 上游折叠按钮（展开 logoRow 右侧 / 收起 rail 图标，同一按钮）
+  // 上游折叠按钮（展开 logoRow 右侧 / 收起 rail 图标，同一按钮）。
+  // 收起态（rail）：恢复显示——railMark 内 brand-injector 注入的
+  // KCoder K logo 即"折叠后红框处的 logo K"，点击展开（上游设计：
+  // 静息 K logo、hover 换 panelIcon 展开提示）；展开态：隐藏，
+  // 折叠交给标题栏按钮接管。
   const toggleEl = () => document.querySelector('[class*="logoRow"] button[class*="toggle"]')
+  const isCollapsed = () => {
+    const t = toggleEl()
+    return t !== null && t.querySelector('[class*="railMark"]') !== null
+  }
   const hideToggle = () => {
     const t = toggleEl()
-    if (t !== null && t.style.display !== 'none') t.style.display = 'none'
+    if (t === null) return
+    if (isCollapsed()) {
+      // 收起态：恢复显示（React 重建后不带 inline display，只需清掉旧值）
+      if (t.style.display === 'none') t.style.display = ''
+    } else if (t.style.display !== 'none') {
+      t.style.display = 'none'
+    }
   }
   hideToggle()
 
-  // 兜底样式：隐藏上游 toggle（React 重建的按钮不带 inline display，
-  // 靠 !important 兜底）+ 注入按钮外观（与 terminal-panel 按钮同款）
+  // 兜底样式：仅隐藏展开态的上游 toggle（React 重建的按钮不带 inline
+  // display，靠 :has() 兜底；收起态含 railMark 的不命中）+ 注入按钮
+  // 外观（与 terminal-panel 按钮同款）
   const style = document.createElement('style')
   style.id = '__dsh_desktop_toggle_style'
   style.textContent = [
-    '[class*="logoRow"] button[class*="toggle"]{display:none !important}',
+    '[class*="logoRow"] button[class*="toggle"]:not(:has([class*="railMark"])){display:none !important}',
     '#' + BTN_ID + '{all:unset;box-sizing:border-box;position:absolute;left:' + BTN_LEFT + 'px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;cursor:pointer;color:rgba(26,29,33,.65);-webkit-app-region:no-drag;transition:background .15s ease}',
     'body[data-ds-dark-theme] #' + BTN_ID + '{color:rgba(232,234,237,.8)}',
     '#' + BTN_ID + ':hover{background:color-mix(in srgb,currentColor 10%,transparent)}',
