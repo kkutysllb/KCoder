@@ -1,7 +1,8 @@
 /**
- * 预置第三方插件（dsh-vision-router / dsh-context）的开箱物化。
+ * 预置第三方插件（dsh-vision-router / dsh-context / dsh-better-sidebar）
+ * 的开箱物化。
  *
- * 这两个插件是 KCoder 发行物的一部分：Windows 全新安装后 profile 是
+ * 这三个插件是 KCoder 发行物的一部分：Windows 全新安装后 profile 是
  * 上游空模板（只有 dsh-base / dsh-web-app 内置层），第三方插件不会自动
  * 出现（mac 开发机上它们存在于用户 profile，属用户数据不随包分发）。
  * 本模块在 dsh 启动前幂等物化：
@@ -28,6 +29,16 @@
  * 它的两个上游缺陷补丁仍随包分发：用户自装后 ensureProfilePatches 会
  * 补声明并自愈（锄点注入兑底，见 profile-patches.ts）。
  *
+ * dsh-better-sidebar（2026-08-20 预置，替代自研文件树面板）：侧边栏
+ * 工作台底座（文件树/CM6 编辑器/图片·MD 预览/终端/Git/子代理，
+ * 服务化扩展点）。原生兼容 rc.8 无需补丁；两项额外物化：
+ * - pnpm-workspace.yaml 补写 onlyBuiltDependencies: [node-pty]（pnpm 10
+ *   默认拦截原生构建脚本，不许可则插件终端缺 node-pty 二进制）；
+ * - $DSH_HOME/settings.yaml 补写 dsh-better-sidebar.titleBarCompat:
+ *   true + titleBarStripPx（右上角开关簇下移让位 KCoder 自绘标题栏，
+ *   插件自动探测只认 win32 advanced 标题栏，mac 需手动开；实测
+ *   2026-08-20：开关簇 y 3→51，面板顶 padding 同步，见会话记录）。
+ *
  * @module desktop/main/preset-plugins
  */
 
@@ -35,11 +46,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { WEB_PROFILE, dshHome, runPnpm } from './dsh-contract'
 import { ensureProfilePatches, healLog } from './profile-patches'
+import { SHELL_TITLEBAR_HEIGHT } from './theme-watcher'
 
 /** 预置插件：bundle 名 → 依赖 spec（键顺序即层叠顺序，对齐 mac 开发机）。 */
 export const PRESET_PLUGINS: Record<string, string> = {
   'dsh-vision-router': '1.6.1',
   'dsh-context': '^0.12.1',
+  'dsh-better-sidebar': '^0.14.0',
 }
 
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */
@@ -66,6 +79,50 @@ function readJson(path: string): Record<string, unknown> | null {
     return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
   } catch {
     return null
+  }
+}
+
+/**
+ * 幂等补写 onlyBuiltDependencies（pnpm 10 默认拦截原生构建脚本，
+ * better-sidebar 的 node-pty 不许可则缺预编译二进制，终端 tab 报修复
+ * 横幅）。整键缺失才追加（用户自配过则不动）；须在 pnpm install 前
+ * 就位，否则首装后需重装才生效。
+ */
+function ensurePnpmBuildAllowlist(workspacePath: string): void {
+  try {
+    if (!existsSync(workspacePath)) return
+    const yaml = readFileSync(workspacePath, 'utf8')
+    if (/^onlyBuiltDependencies:/m.test(yaml)) return
+    const block = '\nonlyBuiltDependencies:\n  - node-pty\n'
+    writeFileSync(workspacePath, yaml.endsWith('\n') ? yaml + block.slice(1) : yaml + block)
+    console.log('[preset-plugins] 已补写 onlyBuiltDependencies: [node-pty]')
+    healLog('[preset] 已补写 onlyBuiltDependencies: [node-pty]')
+  } catch (error) {
+    console.error('[preset-plugins] onlyBuiltDependencies 补写失败:', error)
+    healLog(`[preset] onlyBuiltDependencies 补写异常：${String(error)}`)
+  }
+}
+
+/**
+ * 幂等补写 better-sidebar 标题栏避让配置（$DSH_HOME/settings.yaml）：
+ * 开关簇/面板顶部让位 KCoder 自绘标题栏（48px，取 SHELL_TITLEBAR_HEIGHT
+ * 防魔数漂移）。整块缺失才追加——用户/插件设置页改过则不动；调用时序
+ * 在 dsh 启动前，无并发写风险。tabsEnabled 不写：终端/Git 等重功能
+ * 保持插件默认，用户经设置页自选（KCoder 内置终端/预览面板不互斥）。
+ */
+function ensureSidebarCompatSettings(): void {
+  try {
+    const settingsPath = join(dshHome(), 'settings.yaml')
+    if (!existsSync(settingsPath)) return
+    const yaml = readFileSync(settingsPath, 'utf8')
+    if (/^dsh-better-sidebar:/m.test(yaml)) return
+    const block = `dsh-better-sidebar:\n  titleBarCompat: true\n  titleBarStripPx: ${SHELL_TITLEBAR_HEIGHT}\n`
+    writeFileSync(settingsPath, yaml.endsWith('\n') ? yaml + block : yaml + '\n' + block)
+    console.log('[preset-plugins] 已补写 better-sidebar 标题栏避让配置')
+    healLog('[preset] 已补写 better-sidebar 标题栏避让配置')
+  } catch (error) {
+    console.error('[preset-plugins] better-sidebar 避让配置补写失败:', error)
+    healLog(`[preset] better-sidebar 避让配置补写异常：${String(error)}`)
   }
 }
 
@@ -123,12 +180,16 @@ export function ensurePresetPlugins(): void {
       healLog(`[preset] 已补写依赖声明: ${missingDeps.join(', ')}`)
     }
 
-    // 3) 安装：任何预置包缺席 → pnpm install（先确保 patch 声明就位——
-    //    name-only 补丁在安装时自动应用）。含幽灵态自愈：旧版本声明了
-    //    bundles 但装包失败，这里重装后由第 4 步对账落地声明。
-    //    install 成功后二调 ensureProfilePatches：补丁未生效时（如
-    //    v0.1.9 Windows CRLF patch 现场）重装应用 + 锄点注入兑底
+    // 3) 安装：任何预置包缺席 → pnpm install（先确保 patch 声明与
+    //    node-pty 构建许可就位——name-only 补丁在安装时自动应用，
+    //    构建许可不在 install 前写入则首装后需重装才生效）。含幽灵态
+    //    自愈：旧版本声明了 bundles 但装包失败，这里重装后由第 4 步
+    //    对账落地声明。install 成功后二调 ensureProfilePatches：补丁
+    //    未生效时（如 v0.1.9 Windows CRLF patch 现场）重装应用 + 锄点
+    //    注入兑底
     const needInstall = presetNames.some((p) => !installed(p))
+    ensurePnpmBuildAllowlist(workspacePath)
+    ensureSidebarCompatSettings()
     if (needInstall) {
       ensureProfilePatches()
       console.log('[preset-plugins] 预置插件缺失，执行 pnpm install …')

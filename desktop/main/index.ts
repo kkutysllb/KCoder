@@ -137,8 +137,8 @@ app.whenReady().then(() => {
   // 的唯一通道；插件已装但补丁未生效时触发一次 pnpm install）
   ensureProfilePatches()
   // 预置第三方插件物化（幂等；Windows 全新安装 profile 为空模板，开箱
-  // 即预置 vision-router / context，含缺陷补丁自动应用；genui 已改为
-  // 用户经插件市场自行安装，其缺陷补丁仍随自愈链覆盖）
+  // 即预置 vision-router / context / better-sidebar，含缺陷补丁自动
+  // 应用；genui 已改为用户经插件市场自行安装，其缺陷补丁仍随自愈链覆盖）
   ensurePresetPlugins()
   dshManager.start()
 

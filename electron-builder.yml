@@ -21,7 +21,9 @@ extraResources:
   # 上游插件缺陷补丁（genui 双缺陷 / dsh-context 缓存 / drag-to-attachment
   # 漏 return）：主进程启动时幂等物化进 $DSH_HOME/profiles/web
   # （patches/ + patchedDependencies 声明跟随 deps 实态，见
-  # profile-patches.ts）。Windows 无 launchd，随包分发是唯一通道
+  # profile-patches.ts）。Windows 无 launchd，随包分发是唯一通道。
+  # better-sidebar 预置无需补丁（npm 原生兼容），额外物化见
+  # preset-plugins.ts（node-pty 构建许可 + titleBarCompat 避让）
   - from: profiles/web/patches
     to: profile-patches
   # scripts 与 assets（官方图标）随应用分发，供首次引导与托盘使用
