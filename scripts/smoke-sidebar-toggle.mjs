@@ -4,14 +4,14 @@
  * 样式，label 的 margin-left 消费 --dsh-titlebar-extra-left）→ 注入
  * sidebar-toggle 的 PAGE_JS → 断言：
  * - 上游 toggle（logoRow 内 button.iconButton.toggle）隐藏；
- * - 标题栏红绿灯右侧（left 78px）注入 26x26 折叠按钮，垂直居中、
- *   在 bar 内；
+ * - 标题栏注入 26x26 折叠按钮（macOS 用户标注位置 left 254px，
+ *   中心对齐箭头尖端 x≈267）、垂直居中、在 bar 内；
  * - 点击注入按钮 → 上游 toggle 的 click 被触发（React 合成事件
  *   路径照常）；
  * - 图标实时克隆上游 toggle 的 panelIcon svg、aria-label 同步；
- * - --dsh-titlebar-extra-left=34px：侧边栏宽 280 时标题仍在侧边栏
- *   右缘（292px），收起（56px）/探针失效（0）时标题退到按钮右侧
- *   （112px）不重叠；
+ * - --dsh-titlebar-extra-left=210px（按钮右缘 280 + 间距 8 - leftPad
+ *   78）：侧边栏宽 280 时标题仍在侧边栏右缘（292px），收起（56px）/
+ *   探针失效（0）时标题退到按钮右侧（288px）不重叠；
  * - 自愈：模拟 React 重建 toggle（收起态：brand 移除 + railMark
  *   svg + aria-label 变化）→ 按钮图标/语义自动跟随、新 toggle 隐藏；
  * - 双主题截图。
@@ -26,14 +26,18 @@ import { join, resolve } from 'node:path'
 const ROOT = resolve(import.meta.dirname, '..')
 const BT = String.fromCharCode(96)
 
-// 从源码提取 PAGE_JS 模板串原文（占位符 ${PLACEHOLDER} → 78px：
-// macOS 红绿灯区 rightPad 之后的让位点；Windows 12px 由主进程替换）
+// 从源码提取 PAGE_JS 模板串原文（占位符替换为 macOS 值：BTN_LEFT 254
+// = 用户标注目标位置（箭头尖端 x≈267，按钮中心对齐）；EXTRA 210 =
+// 254+26+8-78。Windows 值 12/34 由主进程替换）
 const src = readFileSync(join(ROOT, 'desktop/main/sidebar-toggle.ts'), 'utf8')
 const decl = 'const PAGE_JS = ' + BT
 const from = src.indexOf(decl) + decl.length
 const endTick = src.indexOf('\n})()`', from)
 if (from < decl.length || endTick < 0) throw new Error('无法提取 PAGE_JS')
-const pageJs = src.slice(from, endTick + 5).replaceAll('${PLACEHOLDER}', '78')
+const pageJs = src
+  .slice(from, endTick + 5)
+  .replaceAll('${PLACEHOLDER}', '254')
+  .replaceAll('${EXTRA_PLACEHOLDER}', '210')
 
 // 手搓上游 sidebar（.logoRow/.iconButton 对齐 SidebarRoot.module.css）
 // + 自绘标题栏（#bar/.ttl 对齐 theme-watcher SHELL_TITLEBAR_JS：
@@ -126,7 +130,7 @@ async function runScenario(win, label, dark) {
   if (!probe.btnExists) fails.push('标题栏折叠按钮未注入')
   else {
     if (!probe.btnInBar) fails.push('折叠按钮不在标题栏 bar 内')
-    if (Math.abs(btnLeft - 78) > 1) fails.push(`折叠按钮 left=${btnLeft} 应 ≈78（红绿灯右侧）`)
+    if (Math.abs(btnLeft - 254) > 1) fails.push(`折叠按钮 left=${btnLeft} 应 ≈254（用户标注目标，中心对齐箭头尖端 x≈267）`)
     if (Math.abs(probe.btnRect.width - 26) > 1 || Math.abs(probe.btnRect.height - 26) > 1)
       fails.push(`折叠按钮尺寸=${probe.btnRect.width}x${probe.btnRect.height} 应为 26x26`)
     const barTop = probe.barRect.top
@@ -136,10 +140,10 @@ async function runScenario(win, label, dark) {
   if (!probe.toggleHidden) fails.push('上游 logoRow toggle 未隐藏')
   if (probe.iconClone !== probe.iconSrc) fails.push('折叠按钮图标未克隆上游 panelIcon svg')
   if (probe.ariaSync !== '折叠侧边栏') fails.push(`aria-label=${probe.ariaSync} 应同步为 折叠侧边栏`)
-  if (probe.extra !== '34px') fails.push(`--dsh-titlebar-extra-left=${probe.extra} 应为 34px`)
-  if (probe.ttl0 === null || probe.ttl0 < 110) fails.push(`探针失效时标题 left=${probe.ttl0} 应 ≥112（按钮右侧）`)
+  if (probe.extra !== '210px') fails.push(`--dsh-titlebar-extra-left=${probe.extra} 应为 210px`)
+  if (probe.ttl0 === null || Math.abs(probe.ttl0 - 288) > 1) fails.push(`探针失效时标题 left=${probe.ttl0} 应 ≈288（按钮右侧）`)
   if (probe.ttl280 === null || Math.abs(probe.ttl280 - 292) > 1) fails.push(`侧边栏 280 时标题 left=${probe.ttl280} 应 ≈292（仍在侧边栏右缘）`)
-  if (probe.ttl56 === null || probe.ttl56 < 110) fails.push(`收起态标题 left=${probe.ttl56} 应 ≥112（不与按钮重叠）`)
+  if (probe.ttl56 === null || Math.abs(probe.ttl56 - 288) > 1) fails.push(`收起态标题 left=${probe.ttl56} 应 ≈288（不与按钮重叠）`)
   if (probe.clicks !== 1) fails.push(`点击注入按钮后上游 toggle 触发=${probe.clicks} 次（应 1）`)
 
   // 自愈：模拟 React 重建 toggle（收起态：brand 移除 + railMark svg
