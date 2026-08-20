@@ -158,14 +158,16 @@ async function runScenario(win, label, vars, dark) {
   // 徽章位置：行内上标——排在 "Coder" 字标右侧，横向与字标零重叠
   // （不遮任何字母，硬保证：徽章左缘在字标右缘之外且留 3~10px 间隙，
   // 更不得横跨到 K 图标方向）；垂直方向徽章顶与字标顶齐平（±3px）、
-  // 徽章底垂在字标上半（≤15px，深了像下标）；右缘离 brand 边界留余量
+  // 徽章高 16px（10px 字号 + 2px 上下内边距 + 1px 边框）且底垂在字
+  // 标上半（≤18px，深了像下标）；右缘离 brand 边界留余量
   const { k, coder, ver, btn } = probe.rects
   const gap = ver.left - coder.right
   const dTop = ver.top - coder.top
   const hang = ver.bottom - coder.top
   if (gap < 3 || gap > 10) fails.push(`字标-徽章间隙=${gap.toFixed(1)} 应在 3~10px`)
   if (dTop < -3 || dTop > 3) fails.push(`徽章顶偏离字标顶=${dTop.toFixed(1)} 应在 ±3px（上标齐平）`)
-  if (hang > 15) fails.push(`徽章底垂至字标顶以下 ${hang.toFixed(1)}px（应 ≤15px，字标上半）`)
+  if (ver.height < 14 || ver.height > 18) fails.push(`徽章高=${ver.height} 应在 14~18px（10px 字号规格）`)
+  if (hang > 18) fails.push(`徽章底垂至字标顶以下 ${hang.toFixed(1)}px（应 ≤18px，字标上半）`)
   if (ver.left < coder.right - 0.5) fails.push('徽章与字标横向重叠（遮字母）')
   if (ver.left < k.right - 2) fails.push('徽章横跨到 K 图标方向')
   if (ver.right > btn.right - 4) fails.push(`徽章右缘贴 brand 边界（余量 ${(btn.right - ver.right).toFixed(1)}px < 4px）`)

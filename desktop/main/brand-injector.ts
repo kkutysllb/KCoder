@@ -1,11 +1,16 @@
 /**
  * 品牌注入器：shell 窗口（上游 Web UI）侧边栏 logo 与窗口标题品牌化。
  *
- * 定位依据（上游 SidebarRoot.tsx + ui-primitives + DocumentTitle.tsx）：
- * - 展开态：logoRow 内 `button.brand`（兼新会话快捷键）含 BrandWordmark
- *   SVG（鲸鱼 + "deepseek" 字形 + harness 徽章，全部矢量路径）；
- * - 收起态（rail）：iconButton.toggle 内 `<FishLogo className={railFish}>`
- *   → `svg[class*="railFish"]`，hover 时 CSS 换 panel 图标（类名继承）；
+ * 定位依据（上游 rc.8 SidebarRoot.tsx + ui-primitives + DocumentTitle.tsx）：
+ * - 展开态：logoRow 内 `button.brand`（兼新会话快捷键）内含
+ *   `span.brandIdentity > span.brandMark（slot sidebar.brand.mark 的
+ *   fallback FishLogo SVG）+ span.brandName（fallback 文本 "DSH Local
+ *   Build" + 构建号）——SVG 藏起 + brandName 整个藏起（React 持有，
+ *   仅 display:none + CSS 兑底，不 remove）+ brandMark 内旁插 wrapper；
+ * - 收起态（rail）：iconButton.toggle 内 `span.railMark > FishLogo SVG`
+ *   → `[class*="railMark"] svg`（rc.7 及以前是 svg 自带 railFish 类），
+ *   注入 img 放进 railMark 内——`.collapsed .toggle:hover .railMark
+ *   { display:none }` 作用于父 span，hover 换图 CSS 连带藏掉注入 img；
  * - 标题：index.html `<title>DeepSeek Harness</title>`；DocumentTitle
  *   组件在挂载时快照 original，投射 "会话标题 — DeepSeek Harness"。
  *
@@ -131,20 +136,23 @@ const INJECT_JS = `(() => {
     if (document.title.includes(UP)) document.title = document.title.split(UP).join(DOWN)
   }
 
-  // ---- 全局样式（极简：仅隐藏 brand 内 SVG） ----
+  // ---- 全局样式（极简：隐藏 brand 内 SVG 与 brandName 文本） ----
   // 组合 Logo 已是单张图（K+Coder 紧贴），brand 按钮回归上游无边框
   // 样式（上游 .brand 本身 border:none / background:transparent /
-  // padding:0），无需任何边框/hover/字标 CSS。唯一必须保留的是
-  // brand 内上游 BrandWordmark SVG 的隐藏——否则 React 重渲染重建
-  // 新 SVG 时（inline display:none 会被清掉），HARNESS 徽章 rect 会
-  // 以 currentColor 白底圆角矩形重新出现。CSS !important 兜底覆盖
-  // React 重建路径，选择器对新 SVG 持续生效。
+  // padding:0），无需任何边框/hover/字标 CSS。必须保留两条隐藏：
+  // ① brandMark 内 FishLogo SVG——否则 React 重渲染重建新 SVG 时（inline
+  // display:none 会被清掉），鲸鱼会重新出现。CSS !important 兑底覆盖
+  // React 重建路径，选择器对新 SVG 持续生效；② brandName（rc.8 起
+  // "DSH Local Build" 文本与 SVG 分离，同理需要 CSS 兑底）。
   const installStyles = () => {
     if (document.getElementById(LOGO_ID + '_style') !== null) return
     const el = document.createElement('style')
     el.id = LOGO_ID + '_style'
     el.textContent = [
       '[class*="root"]:not([class*="collapsed"]) [class*="logoRow"] [class*="brand"] svg{',
+      '  display:none !important;',
+      '}',
+      '[class*="root"]:not([class*="collapsed"]) [class*="logoRow"] [class*="brand"] [class*="brandName"]{',
       '  display:none !important;',
       '}',
       // hero headline 首列从固定 34px 改 auto：组合 Logo（K+Coder，宽约
@@ -160,11 +168,12 @@ const INJECT_JS = `(() => {
   // ---- 版本徽章工厂（仅侧边栏展开态；hero 不带徽章） ----
   // 行内上标形态：徽章是 wrap 的末尾 flex 子项，排在 "Coder" 字标右
   // 侧（margin-left:5px），align-self:flex-start + margin-top:1px 与
-  // 字标字形顶齐平（字标 PNG 上下零内边距、字形满高 22px，徽章 12px
-  // 高悬于字标右上的上标位）。旧 absolute 方案两个坑：top:9 横压字标
-  // 顶部 ~9px（字母上半被盖，用户反馈位置不对）、top:0 则距字形 12px
-  // 悬空；行内排在右侧不遮字母也不悬空，且行内流无负偏移、绝不被
-  // brand/logoRow 的 overflow:hidden 裁剪。不拦点击。
+  // 字标字形顶齐平（字标 PNG 上下零内边距、字形满高 22px，徽章 16px
+  // 高悬于字标右上的上标位，10px 字号对 22px 字形 ≈ 小两号的上标标
+  // 签；旧 8px 用户反馈偏小）。旧 absolute 方案两个坑：top:9 横压字
+  // 标顶部 ~9px（字母上半被盖，用户反馈位置不对）、top:0 则距字形
+  // 12px 悬空；行内排在右侧不遮字母也不悬空，且行内流无负偏移、绝
+  // 不被 brand/logoRow 的 overflow:hidden 裁剪。不拦点击。
   const badgeEl = (id) => {
     const ver = document.createElement('span')
     ver.id = id
@@ -173,10 +182,10 @@ const INJECT_JS = `(() => {
     ver.style.marginTop = '1px'
     ver.style.marginLeft = '5px'
     ver.style.flex = 'none'
-    ver.style.fontSize = '8px'
+    ver.style.fontSize = '10px'
     ver.style.lineHeight = '1'
-    ver.style.padding = '1px 4px'
-    ver.style.borderRadius = '3px'
+    ver.style.padding = '2px 6px'
+    ver.style.borderRadius = '4px'
     ver.style.background = 'var(--dsw-alias-bg-layer-2, rgba(128,128,128,.12))'
     ver.style.color = 'var(--dsw-alias-label-tertiary, #999)'
     ver.style.border = '1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.2))'
@@ -185,19 +194,25 @@ const INJECT_JS = `(() => {
     return ver
   }
 
-  // ---- 展开：brand 按钮内 wordmark SVG 藏起 + 旁插分体 wrapper ----
+  // ---- 展开：brandMark 内 FishLogo SVG 藏起 + 藏 brandName + 旁插分体 wrapper ----
   // 不用 replaceWith：React 卸载时会 removeChild 它记录的旧 svg，
   // 节点被换走会抛 NotFoundError 崩整棵树（实测踩坑）。
+  // rc.8 结构：button.brand > brandIdentity > brandMark（FishLogo）+
+  // brandName（"DSH Local Build" 文本，与 SVG 并列）——两者都藏，
+  // wrap 插 brandMark 内 svg 之后；brandName 藏而非删（React 持有，
+  // inline display:none + installStyles 的 CSS 兑底双保险）。
   // 分体结构（K 图标 + coder 字标 + 行内徽章）：wrap 用 inline-flex +
   // align-items:flex-end，高度随内容 = 22px（K/字标同高沉底）；徽章
   // 是 wrap 末尾 flex 子项（align-self:flex-start + margin-top:1px，
   // 见 badgeEl），排在字标右侧、顶与字形顶齐平，不遮任何字母。
   // 行内流无负偏移，brand（flex:1 + overflow:hidden）永不裁徽章；
   // SIDEBAR_MIN 264px 下 brand 可用 ~224px > K 22 + 字标 71 + 间隙 5
-  // + 徽章 ~62 ≈ 160px，不溢出不换行。
+  // + 徽章 ~74 ≈ 172px，不溢出不换行。
   const swapBrand = () => {
     const btn = document.querySelector('[class*="logoRow"] button[class*="brand"]')
     if (btn === null) return
+    const name = btn.querySelector('[class*="brandName"]')
+    if (name !== null && name.style.display !== 'none') name.style.display = 'none'
     if (btn.querySelector('#' + LOGO_ID) === null) {
       const svg = btn.querySelector('svg')
       if (svg !== null) {
@@ -243,20 +258,21 @@ const INJECT_JS = `(() => {
     }
   }
 
-  // ---- rail：鲸鱼 SVG 藏起 + 旁插 logo img（复制类名，hover 换图生效）----
+  // ---- rail：railMark 内鲸鱼 SVG 藏起 + 同容器旁插 logo img ----
+  // rc.8：toggle 内是 span.railMark 包 FishLogo（rc.7 及以前是 svg 自带
+  // railFish 类）。img 插 railMark 内 svg 之后，不复制类名——hover 换图
+  // 规则 .collapsed .toggle:hover .railMark { display:none } 作用于
+  // 父 span，svg 藏掉后注入 img 随 railMark 一起在 hover 时藏、平时展示。
   const swapRail = () => {
-    const svg = document.querySelector('svg[class*="railFish"]')
+    const svg = document.querySelector('[class*="railMark"] svg')
     if (svg === null || svg.nextElementSibling?.id === LOGO_ID + '_rail') return
     const img = document.createElement('img')
     img.id = LOGO_ID + '_rail'
     img.src = DATA_URL
     img.alt = ''
-    img.className = svg.getAttribute('class') || ''
-    img.style.height = '23px'
-    img.style.width = '23px'
+    img.style.height = '24px'
+    img.style.width = '24px'
     img.style.flex = 'none'
-    // 不设 display：让 .collapsed .toggle:hover .railFish { display:none }
-    // 等 hover 换图规则保持作用（内联不与 display 规则冲突）
     svg.style.display = 'none'
     svg.insertAdjacentElement('afterend', img)
   }
@@ -324,7 +340,7 @@ const INJECT_JS = `(() => {
     apply()
     if (++n > 120) clearInterval(t)
   }, 500)
-  // React 重渲染可能重建 logoRow/brand/railFish/hero：自愈重替换
+  // React 重渲染可能重建 logoRow/brand/railMark/hero：自愈重替换
   //（characterData：React 重设 headline 文案时也能自愈改回；attributes：
   //  主题切换 data-ds-dark-theme 时换组合 Logo 字色版）
   const mo = new MutationObserver(apply)
