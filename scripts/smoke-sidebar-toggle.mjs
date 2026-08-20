@@ -6,14 +6,17 @@
  * - 上游 toggle（logoRow 内 button.iconButton.toggle）仅展开态隐藏
  *   （收起态恢复显示——railMark 内 brand-injector 注入的 K logo 即
  *   "折叠后 rail 顶部的 logo K"，点击展开，标题栏按钮不重复隐藏它）；
- * - 标题栏注入 26x26 折叠按钮（macOS 用户标注位置 left 254px，
- *   中心对齐箭头尖端 x≈267）、垂直居中、在 bar 内；
- * - 点击注入按钮 → 上游 toggle 的 click 被触发（React 合成事件
+ * - 标题栏注入三个 26x26 按钮（macOS：折叠 84px / 左箭头 128px /
+ *   右箭头 174px，紧邻红绿灯区域右侧；垂直居中、在 bar 内；
+ * - 点击折叠按钮 → 上游 toggle 的 click 被触发（React 合成事件
  *   路径照常）；
  * - 图标实时克隆上游 toggle 的 panelIcon svg、aria-label 同步；
- * - --dsh-titlebar-extra-left=210px（按钮右缘 280 + 间距 8 - leftPad
- *   78）：侧边栏宽 280 时标题仍在侧边栏右缘（292px），收起（56px）/
- *   探针失效（0）时标题退到按钮右侧（288px）不重叠；
+ * - 箭头按钮 → 会话树（role="tree" 内 role="treeitem" 的 sessionRow，
+ *   aria-selected 标记当前会话）相邻行 click：左=上一个、右=下一个；
+ *   收起态无会话列表（列表仅展开态挂载）→ 先触发 toggle 展开；
+ * - --dsh-titlebar-extra-left=130px（右箭头右缘 174+26=200 + 间距 8
+ *   - leftPad 78）：侧边栏宽 280 时标题仍在侧边栏右缘（292px），收起
+ *   （56px）/探针失效（0）时标题退到按钮右侧（208px）不重叠；
  * - 自愈：模拟 React 重建 toggle（收起态：brand 移除 + railMark
  *   svg + aria-label 变化）→ 收起态 toggle 恢复显示（rail K logo
  *   可见可点）、按钮图标/语义自动跟随；
@@ -32,9 +35,9 @@ import { join, resolve } from 'node:path'
 const ROOT = resolve(import.meta.dirname, '..')
 const BT = String.fromCharCode(96)
 
-// 从源码提取 PAGE_JS 模板串原文（占位符替换为 macOS 值：BTN_LEFT 254
-// = 用户标注目标位置（箭头尖端 x≈267，按钮中心对齐）；EXTRA 210 =
-// 254+26+8-78。Windows 值 12/34 由主进程替换）
+// 从源码提取 PAGE_JS 模板串原文（占位符替换为 macOS 值：折叠 84 /
+// 左箭头 128 / 右箭头 174，紧邻红绿灯区域右侧；EXTRA 130 = 最右按钮
+// 右缘 200 + 间距 8 - leftPad 78。Windows 值 12/46/80/102 由主进程替换）
 const src = readFileSync(join(ROOT, 'desktop/main/sidebar-toggle.ts'), 'utf8')
 const decl = 'const PAGE_JS = ' + BT
 const from = src.indexOf(decl) + decl.length
@@ -42,8 +45,10 @@ const endTick = src.indexOf('\n})()`', from)
 if (from < decl.length || endTick < 0) throw new Error('无法提取 PAGE_JS')
 const pageJs = src
   .slice(from, endTick + 5)
-  .replaceAll('${PLACEHOLDER}', '254')
-  .replaceAll('${EXTRA_PLACEHOLDER}', '210')
+  .replaceAll('${PLACEHOLDER}', '84')
+  .replaceAll('${ARROW_PREV_PLACEHOLDER}', '128')
+  .replaceAll('${ARROW_NEXT_PLACEHOLDER}', '174')
+  .replaceAll('${EXTRA_PLACEHOLDER}', '130')
 
 // 手搓上游 sidebar（.logoRow/.iconButton 对齐 SidebarRoot.module.css）
 // + 自绘标题栏（#bar/.ttl 对齐 theme-watcher SHELL_TITLEBAR_JS：
@@ -68,6 +73,9 @@ const html = (dark, collapsed = false) => `<!doctype html><html><head><meta char
   .brand { flex: 1; min-width: 0; display: inline-flex; align-items: center; overflow: hidden; padding: 0; border: none; background: transparent; color: ${dark ? '#e8eaed' : '#1a1d21'}; cursor: pointer; }
   .iconButton { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: none; border-radius: 50%; padding: 0; background: transparent; color: ${dark ? '#e8eaed' : '#1a1d21'}; cursor: pointer; }
   .railMark { display: inline-flex; }
+  .tree { padding: 8px 6px; }
+  .sessionRow { padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; color: ${dark ? '#e8eaed' : '#1a1d21'}; }
+  .sessionRow[aria-selected="true"] { background: rgba(128,128,128,.18); }
 </style></head><body${dark ? ' data-ds-dark-theme=""' : ''}>
 <div id="__dsh_desktop_titlebar"><i class="tl r"></i><i class="tl y"></i><i class="tl g"></i><span id="ttl">KCoder / DSH Local Build</span></div>
 <div class="side">
@@ -84,10 +92,19 @@ const html = (dark, collapsed = false) => `<!doctype html><html><head><meta char
         <svg class="panelIcon" width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="2" fill="none" stroke="currentColor"/></svg>
       </button>`}
   </div>
+  ${collapsed ? '' : `<div class="tree" role="tree" aria-label="sessions">
+    <div role="treeitem" class="sessionRow" data-id="s1" tabindex="-1">会话 1</div>
+    <div role="treeitem" class="sessionRow" data-id="s2" aria-selected="true" tabindex="0">会话 2</div>
+    <div role="treeitem" class="sessionRow" data-id="s3" tabindex="-1">会话 3</div>
+  </div>`}
 </div>
 <script>
   window.__toggleClicks = 0
+  window.__opened = []
   document.querySelector('button.toggle').addEventListener('click', () => { window.__toggleClicks++ })
+  document.querySelectorAll('[role="treeitem"]').forEach((el) => {
+    el.addEventListener('click', () => { window.__opened.push(el.dataset.id) })
+  })
 </script>
 </body></html>`
 
@@ -100,7 +117,11 @@ async function runScenario(win, label, dark, collapsed = false) {
 
   const probe = JSON.parse(await win.webContents.executeJavaScript(`(() => {
     const ID = '__dsh_desktop_toggle_btn'
+    const PREV = '__dsh_desktop_prev_btn'
+    const NEXT = '__dsh_desktop_next_btn'
     const btn = document.getElementById(ID)
+    const prevBtn = document.getElementById(PREV)
+    const nextBtn = document.getElementById(NEXT)
     const bar = document.getElementById('__dsh_desktop_titlebar')
     const toggle = document.querySelector('button[class*="toggle"]')
     const ttl = document.getElementById('ttl')
@@ -127,12 +148,23 @@ async function runScenario(win, label, dark, collapsed = false) {
     setSidebarW('56px')
     const ttl56 = r(ttl)
     setSidebarW('0px')
-    // 点击注入按钮 → 上游 toggle click 计数
+    // 点击：折叠按钮 → 上游 toggle click；左箭头 → 上一个会话行；
+    // 右箭头 → 下一个会话行（会话 2 为当前，prev→s1、next→s3）
     btn !== null && btn.click()
+    prevBtn !== null && prevBtn.click()
+    nextBtn !== null && nextBtn.click()
     return JSON.stringify({
       btnExists: btn !== null,
       btnInBar: btn !== null && bar !== null && bar.contains(btn),
       btnRect: r(btn),
+      prevExists: prevBtn !== null,
+      prevInBar: prevBtn !== null && bar !== null && bar.contains(prevBtn),
+      prevRect: r(prevBtn),
+      prevAria: prevBtn !== null ? prevBtn.getAttribute('aria-label') : null,
+      nextExists: nextBtn !== null,
+      nextInBar: nextBtn !== null && bar !== null && bar.contains(nextBtn),
+      nextRect: r(nextBtn),
+      nextAria: nextBtn !== null ? nextBtn.getAttribute('aria-label') : null,
       barRect: r(bar),
       toggleHidden,
       railImgVisible,
@@ -142,36 +174,58 @@ async function runScenario(win, label, dark, collapsed = false) {
       extra,
       ttl0: ttl0?.left ?? null, ttl280: ttl280?.left ?? null, ttl56: ttl56?.left ?? null,
       clicks: window.__toggleClicks,
+      opened: window.__opened,
     })
   })()`, true))
 
   const fails = []
-  const btnLeft = probe.btnRect?.left ?? null
-  const btnTop = probe.btnRect?.top ?? null
+  const barTop = probe.barRect.top
+  const expectTop = barTop + (48 - 26) / 2
   if (!probe.btnExists) fails.push('标题栏折叠按钮未注入')
   else {
     if (!probe.btnInBar) fails.push('折叠按钮不在标题栏 bar 内')
-    if (Math.abs(btnLeft - 254) > 1) fails.push(`折叠按钮 left=${btnLeft} 应 ≈254（用户标注目标，中心对齐箭头尖端 x≈267）`)
+    if (Math.abs(probe.btnRect.left - 84) > 1) fails.push(`折叠按钮 left=${probe.btnRect.left} 应 ≈84（红绿灯区域右侧）`)
     if (Math.abs(probe.btnRect.width - 26) > 1 || Math.abs(probe.btnRect.height - 26) > 1)
       fails.push(`折叠按钮尺寸=${probe.btnRect.width}x${probe.btnRect.height} 应为 26x26`)
-    const barTop = probe.barRect.top
-    const expectTop = barTop + (48 - 26) / 2
-    if (Math.abs(btnTop - expectTop) > 1) fails.push(`折叠按钮 top=${btnTop} 应 ≈${expectTop}（垂直居中）`)
+    if (Math.abs(probe.btnRect.top - expectTop) > 1) fails.push(`折叠按钮 top=${probe.btnRect.top} 应 ≈${expectTop}（垂直居中）`)
+  }
+  if (!probe.prevExists) fails.push('左箭头按钮未注入')
+  else {
+    if (!probe.prevInBar) fails.push('左箭头按钮不在标题栏 bar 内')
+    if (Math.abs(probe.prevRect.left - 128) > 1) fails.push(`左箭头 left=${probe.prevRect.left} 应 ≈128`)
+    if (Math.abs(probe.prevRect.width - 26) > 1 || Math.abs(probe.prevRect.height - 26) > 1)
+      fails.push(`左箭头尺寸=${probe.prevRect.width}x${probe.prevRect.height} 应为 26x26`)
+    if (Math.abs(probe.prevRect.top - expectTop) > 1) fails.push(`左箭头 top=${probe.prevRect.top} 应 ≈${expectTop}（垂直居中）`)
+    if (probe.prevAria !== '上一个会话') fails.push(`左箭头 aria-label=${probe.prevAria} 应为 上一个会话`)
+  }
+  if (!probe.nextExists) fails.push('右箭头按钮未注入')
+  else {
+    if (!probe.nextInBar) fails.push('右箭头按钮不在标题栏 bar 内')
+    if (Math.abs(probe.nextRect.left - 174) > 1) fails.push(`右箭头 left=${probe.nextRect.left} 应 ≈174`)
+    if (Math.abs(probe.nextRect.width - 26) > 1 || Math.abs(probe.nextRect.height - 26) > 1)
+      fails.push(`右箭头尺寸=${probe.nextRect.width}x${probe.nextRect.height} 应为 26x26`)
+    if (Math.abs(probe.nextRect.top - expectTop) > 1) fails.push(`右箭头 top=${probe.nextRect.top} 应 ≈${expectTop}（垂直居中）`)
+    if (probe.nextAria !== '下一个会话') fails.push(`右箭头 aria-label=${probe.nextAria} 应为 下一个会话`)
   }
   if (collapsed) {
     if (probe.toggleHidden) fails.push('收起态上游 toggle 被错误隐藏（rail K logo 应显示可点）')
     if (!probe.railImgVisible) fails.push('收起态 railMark 内 K logo img 不可见（红框处缺 logo K）')
+    // 收起态无会话列表：三个按钮点击都应触发 toggle 展开（各 +1）
+    if (probe.clicks !== 3) fails.push(`收起态三按钮点击后 toggle 触发=${probe.clicks} 次（应 3，箭头先展开）`)
+    if (probe.opened.length !== 0) fails.push(`收起态不应打开会话，实际 opened=${probe.opened}`)
   } else {
     if (!probe.toggleHidden) fails.push('展开态上游 logoRow toggle 未隐藏')
+    if (probe.clicks !== 1) fails.push(`点击折叠按钮后上游 toggle 触发=${probe.clicks} 次（应 1）`)
+    if (JSON.stringify(probe.opened) !== JSON.stringify(['s1', 's3']))
+      fails.push(`箭头点击应依次打开 s1（上一个）、s3（下一个），实际=${probe.opened}`)
   }
   if (probe.iconClone !== probe.iconSrc) fails.push('折叠按钮图标未克隆上游 panelIcon svg')
   const wantAria = collapsed ? '展开侧边栏' : '折叠侧边栏'
   if (probe.ariaSync !== wantAria) fails.push(`aria-label=${probe.ariaSync} 应同步为 ${wantAria}`)
-  if (probe.extra !== '210px') fails.push(`--dsh-titlebar-extra-left=${probe.extra} 应为 210px`)
-  if (probe.ttl0 === null || Math.abs(probe.ttl0 - 288) > 1) fails.push(`探针失效时标题 left=${probe.ttl0} 应 ≈288（按钮右侧）`)
+  if (probe.extra !== '130px') fails.push(`--dsh-titlebar-extra-left=${probe.extra} 应为 130px`)
+  if (probe.ttl0 === null || Math.abs(probe.ttl0 - 208) > 1) fails.push(`探针失效时标题 left=${probe.ttl0} 应 ≈208（按钮右侧）`)
   if (probe.ttl280 === null || Math.abs(probe.ttl280 - 292) > 1) fails.push(`侧边栏 280 时标题 left=${probe.ttl280} 应 ≈292（仍在侧边栏右缘）`)
-  if (probe.ttl56 === null || Math.abs(probe.ttl56 - 288) > 1) fails.push(`收起态标题 left=${probe.ttl56} 应 ≈288（不与按钮重叠）`)
-  if (probe.clicks !== 1) fails.push(`点击注入按钮后上游 toggle 触发=${probe.clicks} 次（应 1）`)
+  if (probe.ttl56 === null || Math.abs(probe.ttl56 - 208) > 1) fails.push(`收起态标题 left=${probe.ttl56} 应 ≈208（不与按钮重叠）`)
 
   // 自愈：模拟 React 重建 toggle（收起态：brand 移除 + railMark svg
   // 插到 panelIcon 前 + aria-label 变化）→ 等待 observer → 复查：
