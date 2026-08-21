@@ -43,8 +43,10 @@ KCoder 经历了三个时代，当前是第三时代：
 
 上游侧车管理、面板体系（设置/诊断/同步/插件/偏好）、内嵌终端（node-pty）、
 文件活动预览抽屉、插件桥、自动更新、发布流水线（GitHub Actions 三平台）。
-（内嵌终端与状态栏四面板——文件预览/会话轨迹/日志导出/Git——已于
-2026-08-20 删除，功能由预置插件 dsh-better-sidebar 承接。）
+（状态栏四面板——文件预览/会话轨迹/日志导出/Git——已于 2026-08-20 删除，
+功能由预置插件 dsh-better-sidebar 承接；内嵌终端同日删除后于 2026-08-22
+恢复——插件底面板在 agent 运行态黑屏且无唤醒信号，产品决策弃用其
+入口（sidebar-cluster 压制看门狗）回归自研。）
 
 ### 品牌替换矩阵（品牌层换了，引擎层没换）
 
@@ -110,8 +112,8 @@ Electron 主进程 (desktop/main/)
 | `windows.ts` | shell 窗口与面板窗口创建；各注入器的接线点 | 各注入模块 |
 | `style-overlay.ts` | CSS 注入：标题栏、主题 token、轨迹页美化（锚点 `data-conversation-composer-overlay`）、跳到底部按钮居中（`toBottomSlot`） | §8 类名匹配策略 |
 | `console-channel.ts` | console 通道：页面注入脚本 → 主进程 的上行通信约定（`__dsh_*:` 前缀） | 各注入模块 |
-| `sidebar-cluster.ts` | better-sidebar 开关簇收纳：插件开关簇隐藏，状态栏右侧两枚代理按钮（点击转发插件真实按钮，disabled/图标/label 实时同步） | §8 点击转发 |
-| `sidebar-compat.ts` | better-sidebar 布局双垫片：①底面板挤压锚（data-pane）在 rc.8 缺失，按 centerCol 类名 + conversation 槽位壳复刻 margin-bottom 挤压（终端/Git 底面板占位而非盖住输入框）；②拖高时 --dsh-sidebar-width 未按 panelOpen 门控致侧栏关闭态横向压缩 #root，用 body[data-dsh-sidebar-collapsed] 门控宽度挤压 | §7 布局列契约 |
+| `sidebar-cluster.ts` | better-sidebar 开关簇收纳：插件开关簇隐藏，状态栏右侧面板代理按钮（点击转发插件真实按钮）+ 底面板压制看门狗（插件底面板产品侧弃用：agent 运行态黑屏无唤醒信号，持久化恢复/pane 归位等无按钮打开路径一律自动收回；终端回归自研 terminal-panel） | §8 点击转发 |
+| `terminal-panel.ts` + `pty-host.ts` | 内嵌终端（2026-08-22 自研回归）：每工作区独立 WebContentsView + node-pty 桶（多标签），切工作区仅 setVisible 不销毁；标题栏按钮 right 44 + 快捷键 Control+\`；让位几何广播 --dsh-terminal-inset（stats-hover 消费） | — |
 | `workspace-probe.ts` + `file-activity.ts` | 页面级存续功能（预览/Git 面板删除后迁出）：工作区探针（workspace.list → 标题栏工作区名/按钮 + fileActivity 工作区基准）、正文文件徽章（类型 + edit 增删行数）、历史会话补拉拦截；file-activity 为 mux 流按工作区分桶的聚合存储（sessionId→workspace 归属） | mux 流消费必须带归属维度 |
 | `plugins.ts` | 插件桥：profile 层叠清单 + GitHub `topic:dsh-plugin` 发现 + `dsh plugin` CLI 转发 | — |
 | `native-overlay.ts` | 原生 in-box 包增强覆盖：增强版构建产物整文件覆盖到运行时实际解析到的安装树（`$DSH_HOME/profiles/node_modules` 扁平兑底 symlink → 真实位置；版本门 + mark 幂等 + 签名锚，双锚解析决定了 profile 内副本无法遮蔽安装树）。当前对象：dsh-client-ui-deliverables（原生产物面板 + 审查变更 +A/−R 与 hunk 红删绿增 + 纯审计轮结论卡）；overlay 源在 `native-overlay/`，原版快照在 `.patches/` | 上游 rc 升级须对照快照重制 overlay |

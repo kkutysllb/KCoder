@@ -19,14 +19,15 @@ import { attachBrandInjector } from './brand-injector'
 import { attachThemeWatcher, overlaySymbolColor, SHELL_TITLEBAR_HEIGHT, themeBackgroundColor } from './theme-watcher'
 import { attachSidebarToggle } from './sidebar-toggle'
 import { attachSidebarCluster } from './sidebar-cluster'
-import { attachSidebarCompat } from './sidebar-compat'
-import { attachBottomPanelHotfix } from './bottom-panel-hotfix'
+import { attachContextButton } from './context-button'
+import { terminalPanel } from './terminal-panel'
 import { attachStyleOverlay } from './style-overlay'
 import { attachWorkspaceHeader } from './workspace-header'
 import { attachStatsHover } from './stats-hover'
 import { attachPicker } from './attach-picker'
 import { attachWorkspaceProbe } from './workspace-probe'
 import { attachStyleSettingsInjector } from './style-settings'
+import { attachLanguageSettingsInjector } from './language-settings'
 import { attachSkillsSettingsInjector } from './skills-settings'
 import { attachMcpSettingsInjector } from './mcp-settings'
 import { attachPanelMenu } from './panel-menu'
@@ -143,19 +144,19 @@ export function showShellWindow(dshUrl: string): void {
     // 注入代理按钮（点击转发上游 toggle.click()，图标随状态克隆；
     // 宿主=自绘标题栏，故注册在 attachThemeWatcher 之后）
     attachSidebarToggle(shellWindow)
-    // better-sidebar 开关簇收纳：插件右上开关簇隐藏 → 状态栏注入两枚
-    // 代理按钮（点击转发插件真实按钮，disabled/图标/label 实时同步；
-    // 宿主=自绘状态栏，故注册在 attachThemeWatcher 之后）
+    // better-sidebar 开关簇收纳：插件右上开关簇隐藏 → 状态栏注入面板
+    // 代理按钮 + 底面板压制看门狗（产品侧弃用插件底面板，见注入器头
+    // 注释；宿主=自绘状态栏，故注册在 attachThemeWatcher 之后）
     attachSidebarCluster(shellWindow)
-    // better-sidebar 布局垫片：插件底面板挤压锚（data-dsh-frame/
-    // data-pane）在 rc.8 不存在，终端/Git 底面板会盖住输入框；
-    // 按 rc.8 结构复刻 margin-bottom 挤压（见 sidebar-compat.ts）
-    attachSidebarCompat(shellWindow)
-    // better-sidebar 底面板空白热补丁：插件 centerRect 测量竞态导致底面板
-    // 常驻 visibility:hidden 而挤压仍在（上移对话 + 一条空白坑）；本注入器
-    // 复用插件 documentElement style 突变通道，在明确症状下触发它重测中心列，
-    // 把面板从 hidden 唤醒（见 bottom-panel-hotfix.ts）
-    attachBottomPanelHotfix(shellWindow)
+    // 上下文面板 GUI 入口：状态栏第三枚按钮（插件代理与终端按钮左侧，
+    // right 76），点击等价输入框 /context 回车（走 dsh-context input
+    // trigger 真实契约，不发送消息）；打开态拉满主页面区域 + 右上角
+    // 「返回任务」按钮
+    attachContextButton(shellWindow)
+    // 内嵌终端面板：底部真实终端（pty + xterm，自研回归——插件底面板
+    // agent 运行态黑屏且无唤醒信号，产品侧弃用入口由 sidebar-cluster
+    // 压制；按钮 right 44，页面探针/让位注入，多工作区独立视图）
+    terminalPanel.attach(shellWindow)
     // 消息样式覆盖层：排版 token/气泡/代码块微调（零侵入，token 改名静默失效）
     attachStyleOverlay(shellWindow)
     // workspace 顶栏收纳：会话标题/标签/日志按钮迁至状态栏与抽屉，
@@ -171,9 +172,12 @@ export function showShellWindow(dshUrl: string): void {
     // + file-activity 工作区基准；附带正文文件徽章（类型徽章 + edit
     // 增删行数）与历史会话补拉拦截（预览/Git 面板删除后独立存续）
     attachWorkspaceProbe(shellWindow)
-    // 样式设置：设置面板通用区注入密度/列宽方块行（console 通道写回，
+    // 样式设置：设置面板通用区注入密度/列宽/字号方块行（console 通道写回，
     // 偏好设置面板只留桌面特有项）
     attachStyleSettingsInjector(shellWindow)
+    // 回答语言：设置面板通用区注入「回答语言」行（跟随模型/强制中文；
+    // 写回经 home patch 层热重载即时生效，无需重启引擎）
+    attachLanguageSettingsInjector(shellWindow)
     // 技能设置：设置面板导航列注入「技能」分区（三来源技能目录 +
     // 行展开正文；console 通道拉目录/正文，白名单读取）
     attachSkillsSettingsInjector(shellWindow)
@@ -204,9 +208,12 @@ export function showShellWindow(dshUrl: string): void {
         void shell.openExternal(url)
       }
     })
-    // dsh Web UI 无需任何浏览器特权
-    shellWindow.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => {
-      callback(false)
+    // dsh Web UI 无需任何浏览器特权。唯一放行：剪贴板写入权限——对话上
+    // 「复制」按钮用 navigator.clipboard.writeText，沙箱窗口默认拒绝该
+    // 权限会导致复制持续无效果（drag-to-attachment 插件 copyUserText 静默
+    // 吞错）。仅放行 clipboard-sanitized-write，其余照旧拒绝。
+    shellWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(permission === 'clipboard-sanitized-write')
     })
   }
   // 已在承载同一 dsh 实例 → 只恢复展示，绝不变相重载整页。

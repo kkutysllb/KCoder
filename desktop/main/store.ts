@@ -10,13 +10,19 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
-import type { StyleSettings } from '@shared/ipc-contract'
+import type { LanguageSettings, StyleSettings } from '@shared/ipc-contract'
 
 /** 样式定制的默认档（与 style-overlay 定值表一致：紧凑密度 + 1080 列宽）。 */
 export const DEFAULT_STYLE: StyleSettings = {
   enabled: true,
   density: 'compact',
   contentWidth: 'extra',
+  fontSize: 'auto',
+}
+
+/** 回答语言的默认档（跟随模型，不干预）。 */
+export const DEFAULT_LANGUAGE: LanguageSettings = {
+  forceChinese: false,
 }
 
 /** 持久化的设置形状。 */
@@ -27,15 +33,21 @@ export interface DesktopSettings {
   keepRunningInTray: boolean
   /** 上游 Web UI 最后已知的渲染主题（用于启动时预置原生外观，避免闪烁）。 */
   lastTheme: 'system' | 'light' | 'dark'
+  /** 内嵌终端面板高度（拖拽调节后记住）。 */
+  terminalHeight: number | null
   /** 界面样式定制（预设档位，见 style-overlay）。 */
   style: StyleSettings
+  /** Agent 回答语言定制（home patch 层热切换，见 language-settings）。 */
+  language: LanguageSettings
 }
 
 const DEFAULTS: DesktopSettings = {
   windowBounds: null,
   keepRunningInTray: true,
   lastTheme: 'system',
+  terminalHeight: null,
   style: DEFAULT_STYLE,
+  language: DEFAULT_LANGUAGE,
 }
 
 let cache: DesktopSettings | null = null
@@ -49,7 +61,12 @@ export function getSettings(): DesktopSettings {
   if (cache !== null) return cache
   try {
     const raw = JSON.parse(readFileSync(storePath(), 'utf8')) as Partial<DesktopSettings>
-    cache = { ...DEFAULTS, ...raw, style: { ...DEFAULT_STYLE, ...raw.style } }
+    cache = {
+      ...DEFAULTS,
+      ...raw,
+      style: { ...DEFAULT_STYLE, ...raw.style },
+      language: { ...DEFAULT_LANGUAGE, ...raw.language },
+    }
   } catch {
     cache = { ...DEFAULTS }
   }

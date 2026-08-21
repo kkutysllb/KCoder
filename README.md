@@ -73,7 +73,8 @@ desktop/
 │   ├── upstream.ts  # 上游状态检测 + 同步流水线（fetch→ff-only→install→build）
 │   ├── plugins.ts   # 插件桥：profile 层叠清单 + GitHub dsh-plugin 发现 + 安装转发
 │   ├── windows.ts   # shell 窗口（无 preload，纯浏览器）与面板窗口
-│   ├── sidebar-cluster.ts # better-sidebar 开关簇收纳（状态栏代理按钮）
+│   ├── terminal-panel.ts / pty-host.ts # 内嵌终端（多工作区视图 + node-pty）
+│   ├── sidebar-cluster.ts # better-sidebar 开关簇收纳（代理按钮 + 底面板压制）
 │   ├── menu.ts / ipc.ts / store.ts
 ├── preload/         # contextBridge 白名单（window.dshDesktop）
 ├── renderer/        # 本地面板（hash 路由，无框架；views/landing.ts = KCoder 欢迎屏）

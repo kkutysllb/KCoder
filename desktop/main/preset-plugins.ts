@@ -33,18 +33,19 @@
  *   面板、内嵌终端与状态栏四面板——文件预览/会话轨迹/日志导出/Git
  *   ——已删除）：侧边栏工作台底座（文件树/CM6 编辑器/图片·MD 预览/
  *   终端/Git/子代理，服务化扩展点）。原生兼容 rc.8 无需补丁；两项额外物化：
- * - pnpm-workspace.yaml 补写 onlyBuiltDependencies: [node-pty]（pnpm 10
- *   默认拦截原生构建脚本，不许可则插件终端缺 node-pty 二进制）；
+ * - pnpm-workspace.yaml 补写 onlyBuiltDependencies: [node-pty,
+ *   dsh-better-sidebar]（pnpm 10 默认拦截构建脚本：不许可则插件终端
+ *   缺 node-pty 二进制，git 源版本（0.15.0+）直接装不上）；
  * - $DSH_HOME/settings.yaml 补写 dsh-better-sidebar.titleBarCompat:
  *   true + titleBarStripPx——面板顶部让位 KCoder 自绘状态栏（插件
  *   自动探测只认 win32 advanced 标题栏，mac 需手动开；实测
  *   2026-08-20）。开关簇不下移：由 sidebar-cluster.ts 注入器隐藏
- *   并在状态栏右侧代理接管（状态栏右侧仅剩两枚代理按钮，right 序
- *   12/44；自研终端与四状态栏面板同日删除）。底面板“占位而非覆盖”
- *   的挤压锚在 rc.8 缺失，由 sidebar-compat.ts 垫片补齐。两项功能热补丁
- *   （2026-08-21，上游 #131 P2 无修复计划）：预览面板修改文件 Diff pill、
- *   git 面板整体 ±N 统计，patch 随包分发自愈（见 profile-patches.ts）；
- *   底面板空白修复为 DOM 注入式（bottom-panel-hotfix.ts，不经 patch 链）。
+ *   并在状态栏代理接管（代理一枚 right 12 + 自研终端 44 + 上下文 76；
+ *   插件底面板产品侧弃用——agent 运行态黑屏无唤醒信号，sidebar-cluster
+ *   压制看门狗自动收回一切打开路径，热补丁/挤压垫片已随终端回归
+ *   自研而拆除）。两项功能热补丁（2026-08-21，上游 #131 P2 无修复
+ *   计划）：预览面板修改文件 Diff pill、git 面板整体 ±N 统计，patch
+ *   随包分发自愈（见 profile-patches.ts）。
  *
  * @tt-a1i/archify-dsh（2026-08-20 预置）：架构图 agent skill——把
  * 代码库/系统描述变成自包含交互 HTML 技术图（架构/工作流/时序/
@@ -113,20 +114,50 @@ function readJson(path: string): Record<string, unknown> | null {
 }
 
 /**
- * 幂等补写 onlyBuiltDependencies（pnpm 10 默认拦截原生构建脚本，
- * better-sidebar 的 node-pty 不许可则缺预编译二进制，终端 tab 报修复
- * 横幅）。整键缺失才追加（用户自配过则不动）；须在 pnpm install 前
- * 就位，否则首装后需重装才生效。
+ * 需要构建许可的包（pnpm ≥10 默认拦截构建脚本，不在白名单则装不上
+ * 或缺二进制）：
+ * - node-pty：better-sidebar 终端的原生模块，不许可则缺预编译二进制，
+ *   终端 tab 报修复横幅；
+ * - dsh-better-sidebar：插件市场 git 源版本（0.15.0+）经 prepare 构建，
+ *   不许可则 ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED 直接装不上
+ *   （2026-08-22 实测现场，上游 dsh 只提示不自动加）；registry 版无
+ *   构建脚本，多余项无害。
+ */
+const BUILD_ALLOWLIST = ['node-pty', 'dsh-better-sidebar']
+
+/**
+ * 幂等维护 onlyBuiltDependencies 白名单：整键缺失则补写全量；键存在
+ * 则逐项补缺（用户自配的其他项不动——旧版整键存在即早退，市场升级
+ * git 源 0.15.0 时被拦）。须在 pnpm install 前就位，否则首装后需
+ * 重装才生效。
  */
 function ensurePnpmBuildAllowlist(workspacePath: string): void {
   try {
     if (!existsSync(workspacePath)) return
-    const yaml = readFileSync(workspacePath, 'utf8')
-    if (/^onlyBuiltDependencies:/m.test(yaml)) return
-    const block = '\nonlyBuiltDependencies:\n  - node-pty\n'
-    writeFileSync(workspacePath, yaml.endsWith('\n') ? yaml + block.slice(1) : yaml + block)
-    console.log('[preset-plugins] 已补写 onlyBuiltDependencies: [node-pty]')
-    healLog('[preset] 已补写 onlyBuiltDependencies: [node-pty]')
+    let yaml = readFileSync(workspacePath, 'utf8')
+    if (!yaml.endsWith('\n')) yaml += '\n'
+    if (!/^onlyBuiltDependencies:/m.test(yaml)) {
+      const block = `\nonlyBuiltDependencies:\n${BUILD_ALLOWLIST.map((p) => `  - ${p}\n`).join('')}`
+      writeFileSync(workspacePath, yaml.endsWith('\n\n') ? yaml + block.slice(1) : yaml + block)
+      console.log(`[preset-plugins] 已补写 onlyBuiltDependencies: [${BUILD_ALLOWLIST.join(', ')}]`)
+      healLog(`[preset] 已补写 onlyBuiltDependencies: [${BUILD_ALLOWLIST.join(', ')}]`)
+      return
+    }
+    // 键已存在：逐项补缺（精确匹配列表项行，用户自配项保留）
+    const missing = BUILD_ALLOWLIST.filter(
+      (p) => !new RegExp(`^[ \\t]*-[ \\t]+(['\"]?)${p.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\1[ \\t]*$`, 'm').test(yaml),
+    )
+    if (missing.length === 0) return
+    for (const p of missing) {
+      // 在 onlyBuiltDependencies 键行之后、已缩进列表项的末尾追加
+      yaml = yaml.replace(
+        /^(onlyBuiltDependencies:\n)((?:[ \\t]+-[^\n]*\n)*)/m,
+        (_match, head: string, items: string) => `${head}${items}  - ${p}\n`,
+      )
+    }
+    writeFileSync(workspacePath, yaml)
+    console.log(`[preset-plugins] onlyBuiltDependencies 已补：[${missing.join(', ')}]`)
+    healLog(`[preset] onlyBuiltDependencies 已补：[${missing.join(', ')}]`)
   } catch (error) {
     console.error('[preset-plugins] onlyBuiltDependencies 补写失败:', error)
     healLog(`[preset] onlyBuiltDependencies 补写异常：${String(error)}`)

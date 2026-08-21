@@ -32,6 +32,15 @@ const bridge: DesktopBridge = {
   showShell: () => ipcRenderer.invoke('shell:show'),
   clipboardReadText: () => ipcRenderer.invoke('clipboard:read'),
   clipboardWriteText: (text) => ipcRenderer.invoke('clipboard:write', text),
+  terminalTabs: () => ipcRenderer.invoke('terminal:tabs'),
+  terminalNew: () => ipcRenderer.invoke('terminal:new'),
+  terminalWrite: (id, data) => ipcRenderer.invoke('terminal:write', id, data),
+  terminalResize: (id, cols, rows) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
+  terminalRestartTab: (id) => ipcRenderer.invoke('terminal:restart', id),
+  terminalClose: (id) => ipcRenderer.invoke('terminal:close', id),
+  terminalHide: () => ipcRenderer.invoke('terminal:hide'),
+  terminalPanelResize: (dy) => ipcRenderer.invoke('terminal:panel-resize', dy),
+  terminalTheme: () => ipcRenderer.invoke('terminal:theme'),
   preferencesGet: () => ipcRenderer.invoke('preferences:get'),
   preferencesSet: (patch) => ipcRenderer.invoke('preferences:set', patch),
   onDshStateChanged: (cb) => {
@@ -53,6 +62,26 @@ const bridge: DesktopBridge = {
     const listener = (_e: Electron.IpcRendererEvent, s: Parameters<typeof cb>[0]): void => cb(s)
     ipcRenderer.on('update:state-changed', listener)
     return () => ipcRenderer.removeListener('update:state-changed', listener)
+  },
+  onTerminalData: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, chunk: string, id: number): void => cb(chunk, id)
+    ipcRenderer.on('terminal:data', listener)
+    return () => ipcRenderer.removeListener('terminal:data', listener)
+  },
+  onTerminalExit: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, id: number): void => cb(id)
+    ipcRenderer.on('terminal:exit', listener)
+    return () => ipcRenderer.removeListener('terminal:exit', listener)
+  },
+  onTerminalTheme: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, t: Parameters<typeof cb>[0]): void => cb(t)
+    ipcRenderer.on('terminal:theme', listener)
+    return () => ipcRenderer.removeListener('terminal:theme', listener)
+  },
+  onTerminalReset: (cb) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('terminal:reset', listener)
+    return () => ipcRenderer.removeListener('terminal:reset', listener)
   },
 }
 

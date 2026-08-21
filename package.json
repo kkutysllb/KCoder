@@ -20,7 +20,10 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
     "electron-updater": "^6.8.9",
+    "node-pty": "^1.1.0",
     "semver": "^7.7.0",
     "yaml": "2.9.0"
   },
@@ -39,7 +42,8 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
-      "esbuild"
+      "esbuild",
+      "node-pty"
     ]
   }
 }

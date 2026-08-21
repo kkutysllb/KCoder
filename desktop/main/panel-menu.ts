@@ -25,7 +25,7 @@ const MENU_JS = `(() => {
   window.__dshPanelMenuWired = true
   const PANELS = [
     { id: '__dsh_desktop_sidebar_panel_btn', label: '侧边栏' },
-    { id: '__dsh_desktop_sidebar_bottom_btn', label: '侧栏底部面板' },
+    { id: '__dsh_desktop_terminal_btn', label: '内嵌终端' },
   ]
   const BTN = '__dsh_desktop_panel_menu_btn'
   const POP = '__dsh_desktop_panel_menu_pop'

@@ -7,9 +7,17 @@
  *   为结构锚，closest 到第一个 _root 即缩略条本身，三重校验
  *   （parentElement 恒等/计数组文本/高度 ≤48px），hover 热区精确；
  * - 压制上游 Tooltip：在 StatsLine 元素 capture 阶段拦 mouseover/
- *   mouseout 并 stopPropagation——React 合成事件走 root 委托监听，
- *   事件到不了 root，文本气泡不再触发；仅影响该元素，CSS :hover
- *   与页面其余交互不受 JS 事件拦截影响；
+ *   mouseout 与 focusin/focusout 并 stopPropagation——React 合成事件
+ *   走 root 委托监听，事件到不了 root，文本气泡不再触发；仅影响该
+ *   元素，CSS :hover 与页面其余交互不受 JS 事件拦截影响。上游 Tooltip
+ *   仅在行截断时启用（disabled={!truncated}）：agent 执行中数字增长
+ *   → scrollWidth 超宽 → 原生气泡激活，即「有时出现浮动缩略条」的
+ *   来源；事件拦截存在重建竞态窗口（React 重建节点到 250ms 防抖
+ *   rewire 之间 mouseover 放行 → mouseenter 已派发，而后续 rewire 后
+ *   mouseleave 反被拦派发不了 → 气泡弹出且卡屏），故另有气泡本体
+ *   狙杀兑底（见 PAGE_JS 内 killNativeBubble：专职 observer 在微任务
+ *   时机扫 span[role=tooltip]，文本命中统计行计数特征即隐藏——其他
+ *   tooltip（按钮提示等）文本不含该特征，零误伤）；
  * - 数据：解析 StatsLine 的 DOM 文本（zh/en 双格式，对齐上游
  *   formatDuration/formatTokens 的真实输出：45.2s / 2m42s / 1.2K /
  *   3.4M），agent 执行中数字持续更新 → MutationObserver 实时重绘；
@@ -23,12 +31,16 @@
 
 import type { BrowserWindow } from 'electron'
 
-/** 面板样式（注入页面；id 写死避免模板串插值）。视口底部居中。 */
+/** 面板样式（注入页面；id 写死避免模板串插值）。定位按可用区自适应：
+    内嵌终端面板是叠在上游页面上的 WebContentsView（页面视口不缩），
+    terminal-panel 的让位注入器把面板高度广播为 CSS 变量
+    (--dsh-terminal-inset)，这里消费——底边抬起不钻到终端面板底下。
+    变量纯 CSS 消费，拖拽面板高度时实时重算。 */
 const PANEL_CSS = String.raw`
 #__dsh_stats_panel {
   position: fixed;
   left: 50%;
-  bottom: 0;
+  bottom: var(--dsh-terminal-inset, 0px);
   z-index: 2147483646;
   width: min(560px, 92vw); box-sizing: border-box; padding: 10px 14px 8px;
   border: 1px solid #DCE0E6; border-bottom: none; border-radius: 12px 12px 0 0;
@@ -337,8 +349,47 @@ const PAGE_JS = String.raw`(() => {
       if (node.contains(ev.relatedTarget)) return
       scheduleHide()
     }, true)
+    // focusin/focusout 补拦：上游 Tooltip 的 onFocus 是无延迟即时显示
+    // 路径（React 经 focusin 委托派发）。StatsLine 子树当前无可聚焦
+    // 元素，拦之为纯预防——未来上游加 tabIndex 时仍不漏。
+    node.addEventListener('focusin', (ev) => { ev.stopPropagation() }, true)
+    node.addEventListener('focusout', (ev) => { ev.stopPropagation() }, true)
   }
+  /* ---------- 上游原生浮动气泡狙杀（重建竞态兑底） ----------
+     事件拦截的竞态窗口（re­wire 前 mouseenter 已派发、re­wire 后
+     mouseleave 派发不了）会让上游气泡弹出且卡屏，事件层无法完全
+     堵死，对气泡本体兑底：专职 observer 在微任务时机检查新增节点，
+     是 span[role=tooltip] 且文本命中统计行计数特征（RE_LINE，上游
+     label 恒为含「N 轮 · M 步」的完整行）即 inline display:none。
+     React 只 patch 自己认识的 style 属性（left/top/maxWidth），
+     inline display 不会被气泡位置更新清除；dataset 标记防重入，
+     卸载重挂的新节点重新狙杀。agent 执行中 DOM 变更频繁，回调只看
+     addedNodes（自身或后代命中），不做全量扫描；scan() 的 250ms
+     节流里再全量兑一次，覆盖注入时已卡屏的现场。 */
+  const killNativeBubble = (root) => {
+    const tips = root !== undefined
+      ? (root.getAttribute('role') === 'tooltip' ? [root] : Array.from(root.querySelectorAll('span[role="tooltip"]')))
+      : Array.from(document.querySelectorAll('span[role="tooltip"]'))
+    for (const tip of tips) {
+      if (tip.dataset.dshstatskilled === '1') continue
+      if (!RE_LINE.test(tip.textContent || '')) continue
+      tip.dataset.dshstatskilled = '1'
+      tip.style.display = 'none'
+    }
+  }
+  new MutationObserver((muts) => {
+    for (const m of muts) {
+      for (const n of m.addedNodes) {
+        if (n.nodeType === 1) killNativeBubble(n)
+      }
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true })
+  killNativeBubble()
+
   const scan = () => {
+    // 气泡兑底全量补扫（覆盖注入时已卡屏的现场；专职 observer 只看
+    // 增量，这里兑住存量）
+    killNativeBubble()
     // 源元素被 SPA 导航移除：收起并断开观察（无 mouseout 可依赖）
     if (source !== null && !source.isConnected) {
       hide()

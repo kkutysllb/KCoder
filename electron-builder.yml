@@ -14,10 +14,14 @@ extraResources:
   # build 物化到 staging/kcoder-runtime.tar.gz。
   - from: staging/kcoder-runtime.tar.gz
     to: kcoder-runtime.tar.gz
-  # KCoder 自有 dsh bundle（方法论技能包）：主进程启动时幂等物化到
+  # KCoder 自有 dsh bundle：主进程启动时幂等物化到
   # $DSH_HOME/profiles/web/node_modules 并注册层叠（kcoder-skills-bundle.ts）
+  # —— kcoder-skills（方法论技能包）/ kcoder-language（强制中文回答
+  # system-prompt section，默认 disabled，home patch 层热切换）
   - from: bundle/kcoder-skills
     to: kcoder-skills
+  - from: bundle/kcoder-language
+    to: kcoder-language
   # 插件热补丁（name-only patchedDependencies，主进程启动时幂等物化进
   # $DSH_HOME/profiles/web，声明跟随 deps 实态自愈，见 profile-patches.ts）：
   # genui 双缺陷 / dsh-context 缓存 / drag-to-attachment 漏 return /
@@ -43,6 +47,8 @@ extraResources:
     filter: ["*.png", "*.svg"]
 asarUnpack:
   - "**/*.sh"
+  # 原生模块（node-pty 的 .node 二进制不能进 asar）
+  - "node_modules/node-pty/**"
 mac:
   category: public.app-category.developer-tools
   target:
@@ -55,6 +61,16 @@ mac:
   # zip/dmg 同名异扩展，无冲突
   artifactName: KCoder-${version}-${arch}.${ext}
   minimumSystemVersion: '13.0'
+  # Hardened Runtime（检测到 Developer ID 证书时 builder 默认启用）必须
+  # 配套签入 Electron 官方 mac 四件套豁免，缺 allow-jit 时 V8 启动初始化
+  # 期的 CodeRange/JIT 内存预留会被内核直接拒绝：主进程报 Fatal process
+  # out of memory: Failed to reserve virtual memory for CodeRange 后
+  # SIGTRAP 崩溃（v0.2.7 本地构建中招；dev 的 adhoc 签名无 Hardened
+  # Runtime，故开发环境从不复现）。两个文件存在时 builder 也会自动拾取
+  # （默认路径），这里显式声明并留痕。
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
   # 正式发布的包必须公证（未公证的 Developer ID 应用会被用户机器的
   # Gatekeeper 拦截）。凭据走 APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
   # APPLE_TEAM_ID 环境变量——缺任一 electron-builder 会直接构建失败，

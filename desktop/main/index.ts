@@ -14,8 +14,10 @@ import { registerIpc } from './ipc'
 import { installMenu, installTray, wireMenuRefresh } from './menu'
 import { closePanels, markQuitting, showBootstrap, showShellWindow } from './windows'
 import { fileActivity } from './file-activity'
+import { terminalPanel } from './terminal-panel'
 import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-contract'
-import { ensureKcoderSkillsBundle } from './kcoder-skills-bundle'
+import { ensureKcoderBundles } from './kcoder-skills-bundle'
+import { syncLanguagePatch } from './language-settings'
 import { ensureBuiltinMcpServers } from './mcp-builtin'
 import { ensureProfilePatches } from './profile-patches'
 import { ensureNativeOverlay } from './native-overlay'
@@ -27,6 +29,12 @@ import { homedir } from 'node:os'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
+
+// 诊断开关（临时）：KC_REMOTE_DEBUG_PORT=9333 pnpm dev 开 CDP，
+// 供渲染进程死循环现场抓 Profiler 热点；不动打包默认行为。
+if (process.env.KC_REMOTE_DEBUG_PORT !== undefined) {
+  app.commandLine.appendSwitch('remote-debugging-port', process.env.KC_REMOTE_DEBUG_PORT)
+}
 
 // 引擎用户数据目录：与上游共享默认 `~/.dsh`（不预置 DSH_HOME）——
 // 会话/凭据/插件/profile 与 dsh CLI / npx dsh web 完全同一套，插件
@@ -124,9 +132,12 @@ app.whenReady().then(() => {
     bootstrap?.close()
     bootstrap = showBootstrap('setup')
   }
-  // KCoder 内置技能 bundle 物化进 web profile（幂等；dsh 读取 profile
-  // 清单在此之前完成注册）
-  ensureKcoderSkillsBundle()
+  // KCoder 内置 dsh bundle（技能包 + 语言指令）物化进 web profile
+  // （幂等；dsh 读取 profile 清单在此之前完成注册）
+  ensureKcoderBundles()
+  // 「强制中文回答」开关同步 home patch 层（幂等；必须在 dsh 启动前，
+  // 组合树首次挂载即带上该行覆盖）
+  syncLanguagePatch()
   // 内置 MCP 服务器物化（幂等；首次启动写入全部条目，升级时只追加新增项）
   ensureBuiltinMcpServers()
   // 上游插件缺陷补丁物化（幂等；跨平台——Windows 无 launchd，随包分发
@@ -183,6 +194,7 @@ autoUpdater.on('before-quit-for-update', () => {
 
 app.on('before-quit', (event) => {
   markQuitting() // 首位置位：主窗口 close 拦截放行，退出不被托盘保活挡死
+  terminalPanel.dispose() // 杀内嵌终端 shell（SIGTERM 发出即离开）
   fileActivity.dispose() // 断开 mux 订阅
   if (dshManager.status.state === 'stopped' || dshManager.status.state === 'failed') return
   event.preventDefault()

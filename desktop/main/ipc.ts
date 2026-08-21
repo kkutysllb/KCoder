@@ -15,11 +15,17 @@ import { communityPlugins, installedPlugins, latestVersions, runPluginCommand } 
 import { checkForUpdates, installUpdate, updateEvents, updateStatus } from './updater'
 import { refreshStyleOverlay } from './style-overlay'
 import { getSettings, saveSettings } from './store'
+import { terminalPanel, terminalTheme } from './terminal-panel'
 import type { Preferences, StyleSettings, UpstreamProgress } from '@shared/ipc-contract'
 
 /** 偏好设置合法档位枚举（非法 patch 丢弃，防御性校验）。 */
 const DENSITY_VALUES: StyleSettings['density'][] = ['compact', 'standard', 'native']
 const WIDTH_VALUES: StyleSettings['contentWidth'][] = ['narrow', 'wide', 'extra']
+/** 自定义正文字号合法域：'auto' 或 12–20 整数。 */
+function validFontSize(v: unknown): v is StyleSettings['fontSize'] {
+  if (v === 'auto') return true
+  return typeof v === 'number' && Number.isInteger(v) && v >= 12 && v <= 20
+}
 
 /** 当前偏好快照（偏好设置页可读写的子集）。 */
 function preferences(): Preferences {
@@ -93,6 +99,43 @@ export function registerIpc(): void {
     return Promise.resolve()
   })
 
+  /* ---- 内嵌终端（面板视图 ↔ pty，多标签：每个工作区一份私有桶）
+   * 调用方工作区 = event.sender 所属 view 的 workspace（不是
+   * currentWorkspace，否则 B view 调用 close(id) 会被当作 A 桶操作；
+   * 按 view 反查保证调用方只能操作自己工作区桶内的 session）。 */
+  ipcMain.handle('terminal:tabs', (event) => {
+    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
+    return terminalPanel.ptyHost().list(bucket)
+  })
+  ipcMain.handle('terminal:new', (event) => {
+    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
+    return terminalPanel.ptyHost().create(bucket)
+  })
+  ipcMain.handle('terminal:write', (_event, id: number, data: string) => {
+    terminalPanel.ptyHost().write(id, data)
+  })
+  ipcMain.handle('terminal:resize', (_event, id: number, cols: number, rows: number) => {
+    terminalPanel.ptyHost().resize(id, cols, rows)
+  })
+  ipcMain.handle('terminal:restart', (event, id: number) => {
+    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
+    return terminalPanel.ptyHost().restart(id, bucket)
+  })
+  ipcMain.handle('terminal:close', (event, id: number) => {
+    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
+    return terminalPanel.ptyHost().close(id, bucket)
+  })
+  ipcMain.handle('terminal:hide', (event) => {
+    // 关闭"调用方所在工作区"的面板可见性，不影响其他工作区
+    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
+    terminalPanel.hide(bucket)
+  })
+  ipcMain.handle('terminal:theme', () => terminalTheme())
+  ipcMain.handle('terminal:panel-resize', (_event, dy: number) => {
+    terminalPanel.adjustHeight(dy)
+    return terminalPanel.height()
+  })
+
   /* ---- 偏好设置（样式档位/托盘保活；写后即时生效） ---- */
   ipcMain.handle('preferences:get', () => preferences())
   ipcMain.handle('preferences:set', (_event, patch: Partial<Preferences>) => {
@@ -104,6 +147,7 @@ export function registerIpc(): void {
         enabled: typeof p.enabled === 'boolean' ? p.enabled : current.style.enabled,
         density: DENSITY_VALUES.includes(p.density) ? p.density : current.style.density,
         contentWidth: WIDTH_VALUES.includes(p.contentWidth) ? p.contentWidth : current.style.contentWidth,
+        fontSize: validFontSize(p.fontSize) ? p.fontSize : current.style.fontSize,
       }
       saveSettings({ style: next })
       // 样式变更 → 立即重注入 shell 窗口（不等下次整页加载）
