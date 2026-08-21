@@ -114,6 +114,7 @@ Electron 主进程 (desktop/main/)
 | `sidebar-compat.ts` | better-sidebar 布局双垫片：①底面板挤压锚（data-pane）在 rc.8 缺失，按 centerCol 类名 + conversation 槽位壳复刻 margin-bottom 挤压（终端/Git 底面板占位而非盖住输入框）；②拖高时 --dsh-sidebar-width 未按 panelOpen 门控致侧栏关闭态横向压缩 #root，用 body[data-dsh-sidebar-collapsed] 门控宽度挤压 | §7 布局列契约 |
 | `workspace-probe.ts` + `file-activity.ts` | 页面级存续功能（预览/Git 面板删除后迁出）：工作区探针（workspace.list → 标题栏工作区名/按钮 + fileActivity 工作区基准）、正文文件徽章（类型 + edit 增删行数）、历史会话补拉拦截；file-activity 为 mux 流按工作区分桶的聚合存储（sessionId→workspace 归属） | mux 流消费必须带归属维度 |
 | `plugins.ts` | 插件桥：profile 层叠清单 + GitHub `topic:dsh-plugin` 发现 + `dsh plugin` CLI 转发 | — |
+| `native-overlay.ts` | 原生 in-box 包增强覆盖：增强版构建产物整文件覆盖到运行时实际解析到的安装树（`$DSH_HOME/profiles/node_modules` 扁平兑底 symlink → 真实位置；版本门 + mark 幂等 + 签名锚，双锚解析决定了 profile 内副本无法遮蔽安装树）。当前对象：dsh-client-ui-deliverables（原生产物面板 + 审查变更 +A/−R 与 hunk 红删绿增 + 纯审计轮结论卡）；overlay 源在 `native-overlay/`，原版快照在 `.patches/` | 上游 rc 升级须对照快照重制 overlay |
 | `updater.ts` + `update-injector.ts` | electron-updater + 向上游 logoRow 注入安装按钮（`kcoder://install-update` 深链） | — |
 | `brand-injector.ts` | 品牌化：侧边栏展开/rail 鲸鱼换 KCoder 标（`assets/brand-k.png`）、新会话 hero 鲸鱼+slogan（中「所思，皆可成码」/英 "Think it, code it."，CJK 自适应；预览徽章藏起）、`document.title` 产品名替换（拦截 setter）。⚠ 只能藏起+旁插/改 .data，不能 replaceWith/改 textContent（React removeChild 崩树） | §8；“再生成品牌图”同源 |
 | `attach-picker.ts` | 附件按钮改造：拦截 drag-to-attachment 插件的模式按钮 → 原生文件对话框 → 合成 drop → 插件 fast path | §8 自毁坑 |

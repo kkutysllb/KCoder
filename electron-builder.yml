@@ -27,6 +27,11 @@ extraResources:
   # sidebar-cluster.ts 状态栏代理接管）
   - from: profiles/web/patches
     to: profile-patches
+  # 原生 in-box 包增强覆盖（当前：dsh-client-ui-deliverables 交付面板的
+  # 审查变更 + 纯审计轮结论卡）：主进程启动时整文件覆盖到运行时解析到
+  # 的安装树（native-overlay.ts；版本门 + mark 幂等）
+  - from: native-overlay
+    to: native-overlay
   # scripts 与 assets（官方图标）随应用分发，供首次引导与托盘使用
   - from: scripts
     to: scripts

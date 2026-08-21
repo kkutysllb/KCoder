@@ -1,0 +1,6 @@
+{
+  "package": "@deepseek-ai/dsh-client-ui-deliverables",
+  "targetVersion": "0.1.0-rc.8",
+  "mark": "kcoderc:deliverables-review",
+  "description": "KCoder native overlay: review extension (per-file +N/−N, hunk-level red/green diff) and pure-audit conclusion card on the upstream ProducedFiles turn-tail entry. Applied in place onto the running dsh installation tree by desktop/main/native-overlay.ts; regenerated against .patches/dsh-client-ui-deliverables-original when the pinned upstream version moves."
+}

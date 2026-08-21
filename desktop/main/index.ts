@@ -18,6 +18,7 @@ import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-cont
 import { ensureKcoderSkillsBundle } from './kcoder-skills-bundle'
 import { ensureBuiltinMcpServers } from './mcp-builtin'
 import { ensureProfilePatches } from './profile-patches'
+import { ensureNativeOverlay } from './native-overlay'
 import { ensurePresetPlugins } from './preset-plugins'
 import { initUpdater } from './updater'
 import { applyNativeTheme, currentThemePref } from './theme-watcher'
@@ -131,6 +132,9 @@ app.whenReady().then(() => {
   // 上游插件缺陷补丁物化（幂等；跨平台——Windows 无 launchd，随包分发
   // 的唯一通道；插件已装但补丁未生效时触发一次 pnpm install）
   ensureProfilePatches()
+  // 原生 in-box 包增强覆盖（当前：dsh-client-ui-deliverables 交付审查
+  // +A/−N 与纯审计轮结论卡；幂等，版本门拒绝覆盖已升级的树）
+  ensureNativeOverlay()
   // 预置第三方插件物化（幂等；Windows 全新安装 profile 为空模板，开箱
   // 即预置 vision-router / context / better-sidebar，含缺陷补丁自动
   // 应用；genui 已改为用户经插件市场自行安装，其缺陷补丁仍随自愈链覆盖）
