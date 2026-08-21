@@ -1,180 +1,46 @@
-From edce8e5696144b6affb5a292aaedbbab2c502dad Mon Sep 17 00:00:00 2001
-From: kkutysllb <46704313+kkutysllb@users.noreply.github.com>
-Date: Wed, 19 Aug 2026 00:47:55 +0800
-Subject: [PATCH] fix(session): isolate non-JSON projection units instead of
- failing the record
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-A single unit whose state violates the plain-JSON contract (e.g. a
-third-party plugin's contextTimeline initial state with undefined fields)
-previously failed the whole checkpoint serialization. The write path is
-fail-soft, so the failure was silent: every session's cache row stopped
-updating, and after an environment restart the sidebar history showed each
-session's workspace title instead of its task title until the session was
-clicked.
-
-put() now snapshots per unit: a violating row is dropped with a warning and
-the surviving rows still land; when nothing survives the pass, the previous
-record is kept rather than replaced with an empty one. A dropped key reads
-as not-yet-available and refolds from the log on the next fuller read —
-the same degradation a lost write already costs, now bounded to the broken
-unit instead of evicting the whole session's cache (titles etc. persist).
-
-The cache suite gains two cases (a bad unit's row is dropped while a good
-unit's value still lands and is served by cachedSnapshot; an all-bad
-checkpoint keeps the previous record). End-to-end probes reproduce the
-original failure (dsh-context mounted: put threw, cold cachedSnapshot
-empty) and confirm the fix (write succeeds, title survives the cold
-snapshot, the full host session.list cold path serves the title).
----
- ...on-cache-isolates-non-json-units.i18n.yaml |  6 ++
- ...rojection-cache-isolates-non-json-units.md | 33 +++++++++++
- ...ection-cache-isolates-non-json-units.zh.md | 33 +++++++++++
- .../session-projection-cache/README.i18n.yaml |  4 +-
- .../session-projection-cache/README.md        |  2 +-
- .../session-projection-cache/README.zh.md     |  2 +-
- .../session-projection-cache/src/index.ts     | 25 ++++++--
- .../tests/cache.spec.ts                       | 57 ++++++++++++++++++-
- 8 files changed, 150 insertions(+), 12 deletions(-)
- create mode 100644 .agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.i18n.yaml
- create mode 100644 .agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.md
- create mode 100644 .agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.zh.md
-
-diff --git a/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.i18n.yaml b/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.i18n.yaml
-new file mode 100644
-index 0000000000..f2e35f4fc0
---- /dev/null
-+++ b/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.i18n.yaml
-@@ -0,0 +1,6 @@
-+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-+# side as of the last confirmed-consistent state. Both languages carry equal authority;
-+# after editing either side, bring the other along and re-record with:
-+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.md
-+2026-08-19-projection-cache-isolates-non-json-units.md: 8b815f0c0a28e0571b6d7118743da9b1e95afdf7
-+2026-08-19-projection-cache-isolates-non-json-units.zh.md: 47abd4b42ac12788cc8a12b7df1a9e88609cd9f5
-diff --git a/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.md b/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.md
-new file mode 100644
-index 0000000000..8b815f0c0a
---- /dev/null
-+++ b/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.md
-@@ -0,0 +1,33 @@
-+# Agent Note: Projection cache isolates plain-JSON violations per unit
-+
-+Status: implemented
-+
-+English | [中文](2026-08-19-projection-cache-isolates-non-json-units.zh.md)
-+
-+## Problem
-+
-+The persisted projection cache replaced a session's whole checkpoint through one `snapshotJsonValue(rows)` pass, and a single unit whose state violated the plain-JSON contract made the **entire** record unwritable. The write path is fail-soft (`flushSoft` logs and keeps the cache stale), so the failure was silent: every session's cache row stopped updating, and `session.list`'s cold path served no title projection for those sessions. After an environment restart, the sidebar history showed each session's workspace title (the cwd basename fallback) instead of the task title — the title only appeared after clicking the session, when the host's live registry snapshot supplied it.
-+
-+The concrete trigger was a third-party plugin (`dsh-context`) registering a `contextTimeline` projection unit whose initial state contains `undefined` fields (`model`, `provider`, `lastModel`, `contextWindow`, `pendingShadowedSeqs`). `undefined` is not lossless JSON, so the unit's row always failed serialization and took the title (and every other unit) down with it.
-+
-+## Decision
-+
-+`SessionProjectionCache.put()` serializes **per unit** instead of per record: each `(key → row)` passes `snapshotJsonValue` independently; a row that fails is dropped with a warning, and the remaining rows still land. A dropped key reads as not-yet-available (`cachedSnapshot`/`viewCheckpoint` skip it) and refolds from the log on the next fuller read — the same degradation a lost write already costs, now bounded to the broken unit instead of evicting the session's whole cache (titles etc. persist). When every unit fails the pass, the previous record is kept rather than replaced with an empty one.
-+
-+The fail-loud contract (throw on any non-JSON unit) was deliberately changed: it never actually failed loud in production — `flushSoft` and `putSoft` both contain `put` — and its blast radius (one third-party bug erasing title caching for every session) outweighed its diagnostic value, which the per-unit warning preserves.
-+
-+## Verification
-+
-+The cache suite gained two cases: a bad unit's row is dropped while a good unit's value still lands and is served by `cachedSnapshot`; and a checkpoint where every unit fails keeps the previous record. End-to-end probes reproduced the original failure (dsh-context mounted: `put` threw `not losslessly JSON-serializable`, cold `cachedSnapshot` empty) and confirmed the fix (write succeeds, title survives in the cold snapshot, `contextTimeline` isolated out), including the full host `session.list` cold path serving the title.
-+
-+## Alternatives considered
-+
-+**Fix the plugin (`dsh-context`).** It is a third-party bundle outside this repository, and its released 0.12.x still ships the `undefined` initial state; the host must stay correct in the presence of a bad unit regardless.
-+
-+**Fail loud unchanged.** Rejected: the failure was already effectively silent (fail-soft wrappers), and its blast radius — losing title caching for every session — was disproportionate to the diagnostic value, which the per-unit warning keeps.
-+
-+**Write a record with only the surviving rows but no guard for the all-bad case.** Rejected: replacing a good previous record with an empty one would discard stale-but-never-wrong data; keeping the previous record is the safe degradation.
-+
-+## Consequences
-+
-+`SessionProjectionCache` no longer fails loud on a non-JSON unit — it drops that unit's row and persists the rest, so a single broken unit (e.g. a third-party plugin's `contextTimeline`) can no longer silently stop title caching for every session. The per-unit warning keeps the diagnostic value the old throw provided, now scoped to the offending key. A dropped key reads as not-yet-available and refolds from the log on the next fuller read; an all-bad checkpoint keeps the previous record. Existing cache rows are unaffected (per-unit pass only shrinks future writes), and previously lost title rows heal on the next write of that session.
-diff --git a/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.zh.md b/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.zh.md
-new file mode 100644
-index 0000000000..47abd4b42a
---- /dev/null
-+++ b/.agents/notes/implemented/bug-fix/2026-08-19-projection-cache-isolates-non-json-units.zh.md
-@@ -0,0 +1,33 @@
-+# Agent Note: 投影缓存按单元隔离纯 JSON 违规
-+
-+Status: implemented
-+
-+[English](2026-08-19-projection-cache-isolates-non-json-units.md) | 中文
-+
-+## 问题
-+
-+持久投影缓存曾通过一次 `snapshotJsonValue(rows)` 校验替换会话的整个检查点，只要有一个单元的状态违反纯 JSON 约定，**整条**记录就写不进去。写路径是 fail-soft 的（`flushSoft` 只记日志并保持缓存陈旧），因此失败是静默的：每个会话的缓存行都停止更新，`session.list` 的冷路径对这些会话不再提供 title 投影。环境重启后，侧边栏历史把每个会话显示成工作区标题（cwd basename 回退），而不是任务标题——只有点击会话后，host 的实时注册表快照才提供 title。
-+
-+具体触发点是第三方插件（`dsh-context`）注册的 `contextTimeline` 投影单元，其初始状态含 `undefined` 字段（`model`、`provider`、`lastModel`、`contextWindow`、`pendingShadowedSeqs`）。`undefined` 不是无损 JSON，所以该单元的行总是序列化失败，并把 title（以及其余每个单元）一起拖下水。
-+
-+## 决策
-+
-+`SessionProjectionCache.put()` 改为**逐单元**序列化而不是整条记录：每个 `(key → row)` 独立通过 `snapshotJsonValue`；失败的行被剔除（带警告），其余行照常落地。被剔除的 key 读取时按"尚不可用"处理（`cachedSnapshot`/`viewCheckpoint` 跳过它），并在下一次更完整的读取时从日志重新折叠——这本来就是一次丢失写入的代价，现在被限制在损坏的单元内，而不是清空整个会话的缓存（title 等照常保留）。当所有单元都未通过序列化时，保留上一条记录，而不是替换成空记录。
-+
-+原先"任何非 JSON 单元即抛错"的 fail-loud 契约是有意改掉的：它在生产环境其实从未真正 fail-loud——`flushSoft` 和 `putSoft` 都包住了 `put`——而且它的波及面（一个第三方 bug 抹掉所有会话的 title 缓存）远大于诊断价值，逐单元警告已经保留了诊断价值。
-+
-+## 验证
-+
-+缓存测试套件新增两个用例：坏单元的行被剔除，同时好单元的值照常落地并被 `cachedSnapshot` 服务；以及所有单元都违规的检查点保留上一条记录。端到端探针复现了原始故障（挂载 dsh-context 后 `put` 抛 `not losslessly JSON-serializable`、冷 `cachedSnapshot` 为空），并确认修复生效（写入成功、title 在冷快照中保留、`contextTimeline` 被隔离出去），包括完整 host `session.list` 冷路径正常提供 title。
-+
-+## 备选方案
-+
-+**修复插件（`dsh-context`）。** 它是本仓库之外的第三方 bundle，已发布的 0.12.x 仍带 `undefined` 初始状态；无论是否存在坏单元，host 都必须保持正确。
-+
-+**保持 fail-loud 不变。** 否决：该失败实际上已经是静默的（fail-soft 包装），而且它的波及面——抹掉所有会话的 title 缓存——远大于诊断价值，逐单元警告已经保留诊断价值。
-+
-+**只写幸存行、但不对全坏场景设防。** 否决：用空记录替换一条好的旧记录会丢弃"陈旧但绝不错"的数据；保留上一条记录才是安全的降级。
-+
-+## 影响
-+
-+`SessionProjectionCache` 不再对非 JSON 单元 fail-loud——它剔除该单元的行并保留其余，因此单个损坏单元（例如第三方插件的 `contextTimeline`）不再能静默停掉所有会话的 title 缓存。逐单元警告保留了旧抛错的诊断价值，现在只针对违规的 key。被剔除的 key 读取时按"尚不可用"处理，并在下一次更完整的读取时从日志重新折叠；全坏检查点保留上一条记录。既有缓存行不受影响（逐单元处理只会收缩未来的写入），先前丢失的 title 行会在该会话下一次写入时自愈。
 diff --git a/packages/session/session-projection-cache/README.i18n.yaml b/packages/session/session-projection-cache/README.i18n.yaml
-index 618533d282..180873628c 100644
+index 609f146f24..f3817bbb2f 100644
 --- a/packages/session/session-projection-cache/README.i18n.yaml
 +++ b/packages/session/session-projection-cache/README.i18n.yaml
 @@ -2,5 +2,5 @@
  # side as of the last confirmed-consistent state. Both languages carry equal authority;
  # after editing either side, bring the other along and re-record with:
  #   pnpm run verify-translation-pairing --write packages/session/session-projection-cache/README.md
--README.md: 5d4ad07fab6648acdb40c6aa86d32cc78b4c016e
--README.zh.md: 5e38ee98b04bc8f856538112d2922b64cadce4d5
-+README.md: c9cf20150cc89987a2761fc648453537c6e78075
-+README.zh.md: 0462d2814d7386fa8dac769e999ca6c5de253c31
+-README.md: 33908578a5127f2b6bb78ed7467833aaaa2cf085
+-README.zh.md: 0ca410f91562360d85faadf4cf64cb61ac467482
++README.md: bce5ff821cee4b9af82d80cb543fd936171554f2
++README.zh.md: 3d7b2636b111878f0021bee8222794517dccbfce
 diff --git a/packages/session/session-projection-cache/README.md b/packages/session/session-projection-cache/README.md
-index 5d4ad07fab..c9cf20150c 100644
+index 33908578a5..bce5ff821c 100644
 --- a/packages/session/session-projection-cache/README.md
 +++ b/packages/session/session-projection-cache/README.md
-@@ -8,7 +8,7 @@ A stored row `(key → {ver, seq, val})` is a fold shortcut, never an authority:
- 
+@@ -9,7 +9,7 @@ A stored row `(key → {ver, seq, val})` is a fold shortcut, never an authority:
  - **Every background write is fail-soft.** A failed durable write logs a warning and keeps the cache stale; the next write or cold read self-heals. A crash between writes costs a longer tail replay, never a wrong value.
  - **A `ver` mismatch against the live unit's `stateVersion` discards, never migrates.** A unit bump invalidates its rows at read time; the key refolds from the log.
+ - **A row must pass the live unit's `stateSchema`.** A malformed row is omitted from the zero-I/O view and rejected by restore so the cold-read ladder refolds it from the log.
 -- **Whole-record writes.** Each write replaces the session's full checkpoint (the registry cut is always complete), snapshotted through the lossless-JSON boundary — a unit state violating the plain-JSON contract fails loud.
-+- **Whole-record writes, per-unit serialization.** Each write replaces the session's full checkpoint (the registry cut is always complete), snapshotted through the lossless-JSON boundary per unit — a unit state violating the plain-JSON contract is dropped from the row (with a warning) so it cannot evict the whole session's cache; the key then reads as not-yet-available and refolds from the log. When every unit fails the pass, the previous record is kept.
++- **Whole-record writes.** Each write replaces the session's full checkpoint (the registry cut is always complete), snapshotted through the lossless-JSON boundary — a unit state violating the plain-JSON contract is isolated: its row is dropped with a warning while the surviving units persist (a bad unit never evicts the whole session's cache).
  - **Records are bound to a log lifecycle, not just an id.** Each record stores the header identity (`createdAt`, `cwd`) it was folded from; every read validates it (the live or stored header is the witness) before accepting a row, so a deleted-then-recreated id or a persistence store swapped under a surviving cache discards the unrelated record instead of seeding phantom values.
  - **The log leads, the cache follows.** A live checkpoint flushes the session's buffered events durably BEFORE the cache row lands, so a crash can leave the cache behind the log (a longer tail replay) but never ahead of it.
  
 diff --git a/packages/session/session-projection-cache/README.zh.md b/packages/session/session-projection-cache/README.zh.md
-index 5e38ee98b0..0462d2814d 100644
+index 0ca410f915..3d7b2636b1 100644
 --- a/packages/session/session-projection-cache/README.zh.md
 +++ b/packages/session/session-projection-cache/README.zh.md
-@@ -8,7 +8,7 @@
- 
+@@ -9,7 +9,7 @@
  - **每次后台写入都 fail-soft。** 持久写失败只记一条警告并保持缓存陈旧；下一次写入或冷读自愈。两次写之间崩溃的代价是更长的尾部回放，绝不是错误的值。
  - **`ver` 与当前运行单元的 `stateVersion` 不匹配即丢弃，绝不迁移。** 单元递增版本会在读取时使其行失效；该 key 从日志重新折叠。
+ - **存储行必须通过当前单元的 `stateSchema`。** 畸形行从零 I/O view 中省略，并被 restore 拒绝，使冷读阶梯从日志重新折叠。
 -- **整记录写入。** 每次写入替换该会话的完整检查点（注册表切面始终是完整的），并经无损 JSON 边界快照——违反纯 JSON 约定的单元状态会显式失败并报错。
-+- **整记录写入，逐单元序列化。** 每次写入替换该会话的完整检查点（注册表切面始终是完整的），并按单元经过无损 JSON 边界快照——违反纯 JSON 约定的单元状态会从该行中剔除（带警告），以免拖垮整会话的缓存；该 key 随后按"尚不可用"读取并从日志重新折叠。当所有单元都未通过序列化时，保留上一条记录。
++- **整记录写入。** 每次写入替换该会话的完整检查点（注册表切面始终是完整的），并经无损 JSON 边界快照——违反纯 JSON 约定的单元状态被隔离：该单元行以警告丢弃，其余单元照常持久化（坏单元绝不驱逐整个会话的缓存）。
  - **记录绑定到日志生命周期，而不只是 id。** 每条记录存储其折叠来源的 header 身份（`createdAt`、`cwd`）；每次读取先以活 header 或存储 header 为证验证它，再接受任何行——被删后重建的 id、或缓存幸存而持久化存储被换掉时，无关记录被整体丢弃，绝不播种幻影值。
  - **日志领先，缓存跟随。** 活会话检查点先把缓冲事件持久 flush，缓存行才落地，因此崩溃只会让缓存落后于日志（更长的尾部回放），绝不领先于它。
  
 diff --git a/packages/session/session-projection-cache/src/index.ts b/packages/session/session-projection-cache/src/index.ts
-index 66ad637402..7c394cc880 100644
+index f7bdb62a3a..f697bfcb35 100644
 --- a/packages/session/session-projection-cache/src/index.ts
 +++ b/packages/session/session-projection-cache/src/index.ts
-@@ -262,13 +262,28 @@ export class SessionProjectionCache extends Service {
+@@ -261,13 +261,28 @@ export class SessionProjectionCache extends Service {
      }
    }
  
@@ -209,10 +75,18 @@ index 66ad637402..7c394cc880 100644
  
    /** Fail-soft {@link put}: cache writes must never fail their caller's read or event path. */
 diff --git a/packages/session/session-projection-cache/tests/cache.spec.ts b/packages/session/session-projection-cache/tests/cache.spec.ts
-index 6395ed7d0f..201610b1e5 100644
+index 89154ec108..7016989aeb 100644
 --- a/packages/session/session-projection-cache/tests/cache.spec.ts
 +++ b/packages/session/session-projection-cache/tests/cache.spec.ts
-@@ -167,13 +167,15 @@ describe('SessionProjectionCache write policy', () => {
+@@ -22,6 +22,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
+   interface SessionProjectionStateMap {
+     'cache-test/marks': MarksState
+     'cache-test/marks2': Map<string, string>
++    'cache-test/bad-only': Map<string, string>
+   }
+   interface SessionProjectionMap {
+     'cache-test/marks': { marks: string[] }
+@@ -174,13 +175,15 @@ describe('SessionProjectionCache write policy', () => {
      expect(storedRows(pool, session.id)?.['cache-test/marks']?.val).toEqual({ marks: ['slow'] })
    })
  
@@ -228,10 +102,10 @@ index 6395ed7d0f..201610b1e5 100644
 +    // row (cold reads refold it), while the other units still persist — one
 +    // bad unit must not evict the whole session's cache (titles etc.).
      ctx.sessionProjections.register({
-       key: 'cache-test/marks2' as never,
-       schema: { parse: (value: unknown) => value } as never,
-@@ -182,7 +184,56 @@ describe('SessionProjectionCache write policy', () => {
-       view: () => null as never,
+       key: 'cache-test/marks2',
+       stateSchema: z.custom<Map<string, string>>(() => true),
+@@ -188,7 +191,37 @@ describe('SessionProjectionCache write policy', () => {
+       apply: state => state,
        stateVersion: 1,
      })
 -    await expect(ctx.sessionProjectionCache.write(clean)).rejects.toThrow('not losslessly JSON-serializable')
@@ -252,11 +126,10 @@ index 6395ed7d0f..201610b1e5 100644
 +    // A second unit that is bad from init onward: its row is dropped on write,
 +    // but the good unit's value must still be served on the cold read.
 +    ctx.sessionProjections.register({
-+      key: 'cache-test/bad-only' as never,
-+      schema: { parse: (value: unknown) => value } as never,
++      key: 'cache-test/bad-only',
++      stateSchema: z.custom<Map<string, string>>(() => true),
 +      init: () => new Map<string, string>(),
-+      apply: (state: unknown) => state,
-+      view: () => null as never,
++      apply: state => state,
 +      stateVersion: 1,
 +    })
 +    const warn = vi.spyOn(ctx.logger, 'warn')
@@ -267,27 +140,6 @@ index 6395ed7d0f..201610b1e5 100644
 +    expect(warn).toHaveBeenCalledWith(
 +      expect.stringContaining('unit "cache-test/bad-only" state'),
 +    )
-+  })
-+
-+  it('keeps the previous row when every unit violates the plain-JSON contract', async () => {
-+    const { ctx, pool } = await harness()
-+    const session = ctx.sessions.create(SessionId('all-bad'))
-+    mark(session, ['kept'])
-+    await ctx.sessionProjectionCache.write(session)
-+    const before = storedRows(pool, session.id)
-+    expect(before?.['cache-test/marks']).toEqual({ ver: 1, seq: 0, val: { marks: ['kept'] } })
-+    // The next checkpoint yields only a non-JSON row (a Map state): the
-+    // per-unit pass leaves nothing to persist, so the previous record
-+    // survives untouched instead of being replaced with an empty one.
-+    vi.spyOn(ctx.sessionProjections, 'checkpoint').mockReturnValue({
-+      'cache-test/marks': { ver: 1, seq: 1, val: new Map<string, string>() },
-+    })
-+    await ctx.sessionProjectionCache.write(session)
-+    expect(storedRows(pool, session.id)).toEqual(before)
-+    vi.restoreAllMocks()
    })
  
    it('plugin disposal clears armed interval timers and leaves cleaned sessions alone', async () => {
--- 
-2.50.1 (Apple Git-155)
-

@@ -27,9 +27,21 @@
 # build 入口改为 tsx scripts/build.ts；双 patch 干净重放（fork 双分支已重建）。
 # 遇坑：pnpm 需删 node_modules 重装（交互确认在无 TTY 后台死等）。
 #
+# 升级记录：2026-08-21 rc.8(141eb6fe) → 0.1.1-rc.1(528c682e，上游 tag
+# dsh-v0.1.1-rc.1 落在此提交)。172 提交 diff 逐项核对：KCoder 全部注入
+# 锚点（railMark/brandName、conversation.chat.turnTail、settings.plugin.item、
+# selectProducedFiles/producedForClosing、dsw 变量体系）零触碰；slot 契约
+# 未变，第三方插件锁版继续有效。上游新功能：DeepSeek-V4-Flash-Vision-Exp
+# 视觉模型（llm 层自动生效）、composer @ 引用编辑归因修复、bubblewrap
+# PID namespace 隔离（/proc/<pid>/root 绕过）、cache 命中率小数显示、
+# ask_user_question 多行回答、Markdown 表格自适应。适配：双 patch 基于
+# rc.1 重放（projection-isolate 精简重制，测试 32/32）；native-overlay
+# 版本门 0.1.1-rc.1 + CSS 哈希同步（本地构建 brpKHq 替 CI P4kPIW）；
+# webserver 新增结构化 injections 机制（不影响 KCoder DOM 注入链）。
+#
 # 升级基线的正确姿势：
 #   1. 改本文件为新提交 SHA
 #   2. bash scripts/setup.sh        # fetch + reset + install + build
 #   3. 全量回归（重点：第三方插件加载、Web UI 冒烟、打包链 smoke）
 #   4. 提交本文件
-141eb6fef83422698aef7a981029e843e8161534
+528c682e061696f5a160f363f236ecbf53cbd006
