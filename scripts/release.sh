@@ -149,6 +149,18 @@ cmd_verify() {
   [[ -f "$tarball" ]] || die "校验失败：包内缺 kcoder-runtime.tar.gz（开箱即用被破坏）"
   ok "内置运行时：kcoder-runtime.tar.gz（$(du -h "$tarball" | cut -f1)）"
 
+  # 1.5) 插件热补丁（extraResources 目录映射 profile-patches）：与仓库
+  #      profiles/web/patches 逐文件对账——缺任一即自愈链断供（Windows
+  #      无 launchd，随包分发是补丁的唯一通道；新增补丁忘了提交/映射
+  #      漂移都在此拦下）
+  local pdir="$res/profile-patches" pmiss=0 pf
+  [[ -d "$pdir" ]] || die "校验失败：包内缺 profile-patches/（插件热补丁断供）"
+  for pf in "$ROOT"/profiles/web/patches/*.patch; do
+    [[ -f "$pdir/$(basename "$pf")" ]] || { warn "包内缺补丁 $(basename "$pf")"; pmiss=1; }
+  done
+  [[ $pmiss -eq 0 ]] || die "校验失败：profile-patches 与仓库补丁清单不一致"
+  ok "插件热补丁：$(ls "$pdir"/*.patch | wc -l | tr -d ' ') 个 patch 全部在位"
+
   # 2) 解压 + 真实起服冒烟（模拟首启解压，包内运行时全链路验收）；
   #    macOS 上另跑 Electron node 形态——真机 GUI 启动时 PATH 无系统
   #    node，回退 Electron 内置 node（v0.1.0 曾挂：HMR 需 internal
