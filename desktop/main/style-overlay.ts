@@ -2,9 +2,16 @@
  * 消息样式覆盖层：零修改上游的前提下微调 Web UI 的消息排版。
  *
  * 上游是高度 token 化的设计系统（ui-theme 的 --dsw-* / --ds-* 变量），
- * 排版出口全部变量化——覆盖层在文档末尾注入 `<style>`，按同特异性
- * 后到者赢的层叠规则直接改写 token 值；个别写死在 CSS Modules 规则
- * 里的值（气泡宽度/圆角等）用属性选择器匹配 scoped 产物类名。
+ * 排版出口全部变量化——覆盖层在文档末尾注入 `<style>`，按层叠规则
+ * 直接改写 token 值。
+ *
+ * token 定义宿主是 body 不是 :root（ui-theme gradient-shadow-text.css，
+ * 0.1.1-rc.1 起由插件动态注入 head）——自定义属性按继承距离解析，
+ * :root(html) 上的覆盖对 body 后代永远输给 body 自身定义；且上游
+ * 标签动态插入晚于本覆盖层，同元素同特异性时会后到者赢。因此 token
+ * 段用 `html body`（(0,0,2) 恒赢 body 的 (0,0,1)，与插入顺序无关）；
+ * 个别写死在 CSS Modules 规则里的值（气泡宽度/圆角等）用属性选择器
+ * 匹配 scoped 产物类名。
  *
  * 档位驱动（偏好设置页可调，store 持久化）：density=native /
  * contentWidth=narrow 档直接不输出对应段——不覆盖即上游原生值，
@@ -83,6 +90,9 @@ const DENSITIES: Record<
   },
 }
 
+/** 一档密度的完整定值形状（effectiveSpec 的缩放产物同形）。 */
+type DensitySpec = (typeof DENSITIES)['compact']
+
 /** 列宽档位 → 内容宽度 px（narrow 档不覆盖，不在表内）。 */
 const CONTENT_WIDTHS: Record<Exclude<StyleSettings['contentWidth'], 'narrow'>, number> = {
   wide: 960,
@@ -144,42 +154,68 @@ tr[data-turn-start='true']:not(:first-child) > td::before {
 }`
 
 /**
+ * 解析当前生效的排版梯度：fontSize='auto' 时直接用密度档定值
+ * （native = null，不覆盖）；fontSize 为数字（12–20）时以基准档
+ * 形状同比缩放（基准 = 非 native 密度档，native 档用 standard 形状
+ * 逼近上游），整套 [字号, 行高] 乘 scale 后四舍五入。
+ */
+function effectiveSpec(style: StyleSettings): DensitySpec | null {
+  const base = style.density !== 'native' ? DENSITIES[style.density] : DENSITIES.standard
+  if (style.fontSize === 'auto') return style.density !== 'native' ? DENSITIES[style.density] : null
+  const scale = style.fontSize / base.base[0]
+  const s = (spec: readonly [number, number]): [number, number] => [
+    Math.round(spec[0] * scale),
+    Math.round(spec[1] * scale),
+  ]
+  return {
+    base: s(base.base),
+    strong: s(base.strong),
+    h1: s(base.h1),
+    h2: s(base.h2),
+    h3: s(base.h3),
+    h4: s(base.h4),
+    code: s(base.code),
+    bubble: s(base.bubble),
+  }
+}
+
+/**
  * 按档位生成覆盖 CSS。空串 = 移除覆盖标签，完全回上游原样。
  * @module 内部导出仅供测试/诊断；注入一律走 refreshStyleOverlay。
  */
 export function buildOverlayCss(style: StyleSettings): string {
   if (!style.enabled) return ''
   const sections: string[] = []
+  const spec = effectiveSpec(style)
 
-  if (style.density !== 'native') {
-    const d = DENSITIES[style.density]
+  if (spec !== null) {
     // shorthand + longhand 双写：部分组件消费 longhand 变量
-    sections.push(`/* ---- 排版 token（${style.density} 档） ---- */
-:root {
-  --dsw-font-markdown-base: 400 ${lh(d.base)} var(--dsw-font-family);
+    sections.push(`/* ---- 排版 token（${style.density} 档${style.fontSize === 'auto' ? '' : `，正文 ${String(style.fontSize)}px 缩放`}） ---- */
+html body {
+  --dsw-font-markdown-base: 400 ${lh(spec.base)} var(--dsw-font-family);
   --dsw-font-markdown-base-font-family: var(--dsw-font-family);
   --dsw-font-markdown-base-font-weight: 400;
-  --dsw-font-markdown-base-font-size: ${String(d.base[0])}px;
+  --dsw-font-markdown-base-font-size: ${String(spec.base[0])}px;
   --dsw-font-markdown-base-font-style: normal;
-  --dsw-font-markdown-base-line-height: ${String(d.base[1])}px;
-  --dsw-font-markdown-base-strong: 600 ${lh(d.strong)} var(--dsw-font-family);
-  --dsw-font-markdown-base-strong-font-size: ${String(d.strong[0])}px;
-  --dsw-font-markdown-base-strong-line-height: ${String(d.strong[1])}px;
-  --dsw-font-markdown-h1: 700 ${lh(d.h1)} var(--dsw-font-family);
-  --dsw-font-markdown-h1-font-size: ${String(d.h1[0])}px;
-  --dsw-font-markdown-h1-line-height: ${String(d.h1[1])}px;
-  --dsw-font-markdown-h2: 700 ${lh(d.h2)} var(--dsw-font-family);
-  --dsw-font-markdown-h2-font-size: ${String(d.h2[0])}px;
-  --dsw-font-markdown-h2-line-height: ${String(d.h2[1])}px;
-  --dsw-font-markdown-h3: 600 ${lh(d.h3)} var(--dsw-font-family);
-  --dsw-font-markdown-h3-font-size: ${String(d.h3[0])}px;
-  --dsw-font-markdown-h3-line-height: ${String(d.h3[1])}px;
-  --dsw-font-markdown-h4: 600 ${lh(d.h4)} var(--dsw-font-family);
-  --dsw-font-markdown-h4-font-size: ${String(d.h4[0])}px;
-  --dsw-font-markdown-h4-line-height: ${String(d.h4[1])}px;
-  --dsw-font-markdown-code-block: ${lh(d.code)} var(--ds-font-family-code);
-  --dsw-font-markdown-code-block-font-size: ${String(d.code[0])}px;
-  --dsw-font-markdown-code-block-line-height: ${String(d.code[1])}px;
+  --dsw-font-markdown-base-line-height: ${String(spec.base[1])}px;
+  --dsw-font-markdown-base-strong: 600 ${lh(spec.strong)} var(--dsw-font-family);
+  --dsw-font-markdown-base-strong-font-size: ${String(spec.strong[0])}px;
+  --dsw-font-markdown-base-strong-line-height: ${String(spec.strong[1])}px;
+  --dsw-font-markdown-h1: 700 ${lh(spec.h1)} var(--dsw-font-family);
+  --dsw-font-markdown-h1-font-size: ${String(spec.h1[0])}px;
+  --dsw-font-markdown-h1-line-height: ${String(spec.h1[1])}px;
+  --dsw-font-markdown-h2: 700 ${lh(spec.h2)} var(--dsw-font-family);
+  --dsw-font-markdown-h2-font-size: ${String(spec.h2[0])}px;
+  --dsw-font-markdown-h2-line-height: ${String(spec.h2[1])}px;
+  --dsw-font-markdown-h3: 600 ${lh(spec.h3)} var(--dsw-font-family);
+  --dsw-font-markdown-h3-font-size: ${String(spec.h3[0])}px;
+  --dsw-font-markdown-h3-line-height: ${String(spec.h3[1])}px;
+  --dsw-font-markdown-h4: 600 ${lh(spec.h4)} var(--dsw-font-family);
+  --dsw-font-markdown-h4-font-size: ${String(spec.h4[0])}px;
+  --dsw-font-markdown-h4-line-height: ${String(spec.h4[1])}px;
+  --dsw-font-markdown-code-block: ${lh(spec.code)} var(--ds-font-family-code);
+  --dsw-font-markdown-code-block-font-size: ${String(spec.code[0])}px;
+  --dsw-font-markdown-code-block-line-height: ${String(spec.code[1])}px;
 }`)
   }
 
@@ -187,13 +223,13 @@ export function buildOverlayCss(style: StyleSettings): string {
   // bubble 类跨文件同名（Tooltip/MessageItem/GoalCommandInput 三处），
   // 用「userStack 后代」结构判别锁定 MessageItem 的那一处（userStack
   // 全仓唯一）；两个选择器均按「_+类名」子串匹配，对 hash 位置无感。
-  // 字号/行高只在非 native 密度下写（native = 上游原值）。
-  const bubbleText =
-    style.density !== 'native'
-      ? `  font-size: ${String(DENSITIES[style.density].bubble[0])}px !important;
-  line-height: ${String(DENSITIES[style.density].bubble[1])}px !important;
+  // 字号/行高与 token 段同源（effectiveSpec）：'auto'+native = 上游
+  // 原值不写；自定义字号时 native 档也缩放（standard 形状逼近）。
+  const bubbleText = spec !== null
+    ? `  font-size: ${String(spec.bubble[0])}px !important;
+  line-height: ${String(spec.bubble[1])}px !important;
 `
-      : ''
+    : ''
   sections.push(`[class*="_userStack"] { max-width: min(640px, 88%) !important; }
 [class*="_userStack"] [class*="_bubble"] {
   border-radius: 16px !important;
@@ -213,8 +249,9 @@ ${bubbleText}}`)
     sections.push(`[class*="_root"] { --dsh-chat-content-width: ${String(CONTENT_WIDTHS[style.contentWidth])}px; }`)
   }
 
-  // ---- 深色主题：气泡与背景（900）对比拉开一档 ----
-  sections.push('body[data-ds-dark-theme] { --dsw-specific-bubble: var(--dsw-static-neutral-bluish-800); }')
+  // ---- 深色主题：气泡与背景（900）对比拉开一档（同样 html body 前缀
+  // 恒赢上游动态注入的同名定义） ----
+  sections.push('html body[data-ds-dark-theme] { --dsw-specific-bubble: var(--dsw-static-neutral-bluish-800); }')
 
   // ---- 「跳到底部」浮动按钮：右缘对齐改输入框中心锚定
   //（ChatView.toBottomSlot 原为 justify-content:flex-end + padding-right

@@ -1,7 +1,8 @@
 /**
- * 样式设置注入器：把桌面壳的界面样式定制（启用/正文密度/消息列宽，
- * style-overlay 的三个档位）注入上游设置面板「通用」区——设置入口
- * 统一到上游面板，桌面壳偏好设置面板只留桌面特有项（托盘保活）。
+ * 样式设置注入器：把桌面壳的界面样式定制（启用/正文密度/正文字号/
+ * 消息列宽，style-overlay 的档位 + 字号梯度缩放）注入上游设置面板
+ * 「通用」区——设置入口统一到上游面板，桌面壳偏好设置面板只留桌面
+ * 特有项（托盘保活）。
  *
  * 上游契约（零侵入、只读）：
  * - 通用区条目：SettingsRoot 的 options 列内，每个条目包在
@@ -35,7 +36,7 @@ const PAGE_JS = `(() => {
   const ID = '__dsh_desktop_style_item'
   const PREFIX = '__dsh_style__:'
 
-  let state = { enabled: true, density: 'compact', contentWidth: 'extra' }
+  let state = { enabled: true, density: 'compact', contentWidth: 'extra', fontSize: 'auto' }
   let root = null
   let plainCls = ''
   let selCls = ''
@@ -50,6 +51,11 @@ const PAGE_JS = `(() => {
     ['wide', '加宽', '960px'],
     ['extra', '超宽', '1080px（默认）'],
   ]
+
+  // 字号 stepper 的域与起点：auto 态跟随当前密度档基准（与
+  // style-overlay DENSITIES/native=16 同源）；数字态 12–20 整数
+  const autoBase = () => state.density === 'compact' ? 14 : state.density === 'standard' ? 15 : 16
+  const curSize = () => state.fontSize === 'auto' ? autoBase() : state.fontSize
 
   const build = () => {
     root = document.getElementById(ID)
@@ -113,12 +119,53 @@ const PAGE_JS = `(() => {
       return g
     }
 
+    // 正文字号 stepper：[−] [当前值/自动] [+]，同一 cubeRow 形态克隆；
+    // 中间按钮 auto 态高亮显示「自动」，数字态显示「Npx」，点击复位 auto
+    const mkStepper = (titleText, key) => {
+      const g = document.createElement('div')
+      g.className = group.className
+      g.setAttribute('data-key', key)
+      const t = document.createElement('div')
+      if (titleEl != null) t.className = titleEl.className
+      t.textContent = titleText
+      const row = document.createElement('div')
+      row.className = cubeRow.className
+      const changed = () => {
+        render()
+        console.log(PREFIX + JSON.stringify({ style: state }))
+      }
+      const mkCube = (val, main, hint, onClick) => {
+        const b = document.createElement('button')
+        b.type = 'button'
+        b.className = plainCls
+        b.setAttribute('data-val', val)
+        b.setAttribute('data-plain', plainCls)
+        b.title = hint
+        const l1 = document.createElement('span')
+        l1.textContent = main
+        const l2 = document.createElement('span')
+        l2.textContent = hint
+        l2.style.cssText = 'font-size:12px;line-height:16px;font-weight:400;color:var(--dsw-alias-label-tertiary,#9aa1ac);'
+        b.append(l1, l2)
+        b.addEventListener('click', () => { if (!b.disabled) onClick() })
+        return b
+      }
+      row.append(
+        mkCube('dec', '−', '调小', () => { state.fontSize = Math.max(12, curSize() - 1); changed() }),
+        mkCube('auto', '自动', '点击恢复跟随密度档', () => { state.fontSize = 'auto'; changed() }),
+        mkCube('inc', '+', '调大', () => { state.fontSize = Math.min(20, curSize() + 1); changed() }),
+      )
+      g.append(t, row)
+      return g
+    }
+
     root = document.createElement('div')
     root.id = ID
     root.setAttribute('data-slot', 'settings.general.item')
     root.append(
       mkGroup('桌面样式定制', [['on', '启用', '密度/列宽优化生效（含轨迹页美化）'], ['off', '关闭', '完全恢复上游原版排版']], 'enabled'),
       mkGroup('正文密度', DENSITY, 'density'),
+      mkStepper('正文字号', 'fontSize'),
       mkGroup('消息列宽', WIDTH, 'contentWidth'),
     )
     section.append(root)
@@ -139,6 +186,17 @@ const PAGE_JS = `(() => {
         b.setAttribute('aria-pressed', active ? 'true' : 'false')
         b.className = b.getAttribute('data-plain') + (active && selCls !== '' ? ' ' + selCls : '')
         b.disabled = off
+        if (key === 'fontSize') {
+          // 中间按钮主行随状态刷新；−/+ 到 12/20 边界禁用
+          if (val === 'auto') {
+            const l1 = b.firstElementChild
+            if (l1 != null) l1.textContent = state.fontSize === 'auto' ? '自动' : String(state.fontSize) + 'px'
+          } else if (val === 'dec') {
+            b.disabled = off || curSize() <= 12
+          } else if (val === 'inc') {
+            b.disabled = off || curSize() >= 20
+          }
+        }
       }
     }
   }
@@ -150,6 +208,9 @@ const PAGE_JS = `(() => {
       enabled: s.enabled !== false,
       density: typeof s.density === 'string' ? s.density : state.density,
       contentWidth: typeof s.contentWidth === 'string' ? s.contentWidth : state.contentWidth,
+      fontSize: s.fontSize === 'auto' || (typeof s.fontSize === 'number' && s.fontSize >= 12 && s.fontSize <= 20)
+        ? s.fontSize
+        : state.fontSize,
     }
     render()
   }
@@ -193,6 +254,9 @@ export function attachStyleSettingsInjector(win: BrowserWindow): void {
       contentWidth: (['narrow', 'wide', 'extra'] as const).includes(p.contentWidth as StyleSettings['contentWidth'])
         ? (p.contentWidth as StyleSettings['contentWidth'])
         : cur.contentWidth,
+      fontSize: p.fontSize === 'auto' || (typeof p.fontSize === 'number' && Number.isInteger(p.fontSize) && p.fontSize >= 12 && p.fontSize <= 20)
+        ? (p.fontSize as StyleSettings['fontSize'])
+        : cur.fontSize,
     }
     saveSettings({ style: next })
     refreshStyleOverlay(win)

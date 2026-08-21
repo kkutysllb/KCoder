@@ -102,7 +102,7 @@ export function listSkills(): SkillCatalogGroup[] {
   // 1) KCoder 内置：bundle 源 manifest 是单一事实源（含版本）
   const builtin: SkillCatalogEntry[] = []
   try {
-    const bundleDir = join(bundleSource(), 'skills')
+    const bundleDir = join(bundleSource('kcoder-skills'), 'skills')
     const manifest = JSON.parse(readFileSync(join(bundleDir, 'manifest.json'), 'utf8')) as {
       skills: Array<{ dir: string; name: string; description: string }>
     }
@@ -133,7 +133,7 @@ export function listSkills(): SkillCatalogGroup[] {
   //    否则刷新后「未启用」区原地残留同一技能造成两区重复显示
   const active = new Set(entries.map((e) => e.name))
   const optional: SkillCatalogEntry[] = []
-  scanRoot(join(bundleSource(), 'skills', 'optional'), 'optional', optional)
+  scanRoot(join(bundleSource('kcoder-skills'), 'skills', 'optional'), 'optional', optional)
   const enabledOptional = optional.filter((e) => !active.has(e.name))
 
   knownPaths = new Set([...builtin, ...enabledOptional, ...entries].map((e) => e.path))

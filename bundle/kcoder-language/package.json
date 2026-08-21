@@ -1,0 +1,22 @@
+{
+  "name": "@kcoder/language-bundle",
+  "version": "0.1.1",
+  "description": "KCoder in-box dsh bundle: the 'force Chinese responses' agent language directive, contributed as a global system-prompt section (toggle is a disabled flip in the DSH_HOME cordis.patch.yml, hot-reloaded).",
+  "license": "MIT",
+  "type": "module",
+  "main": "entry.js",
+  "exports": {
+    ".": "./entry.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "entry.js",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
