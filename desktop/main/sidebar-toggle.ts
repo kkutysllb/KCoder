@@ -52,6 +52,23 @@ const ARROW_NEXT_PLACEHOLDER = '${TOGGLE_ARROW_NEXT_LEFT}'
 /** 标题栏 label 让位量占位符（最右按钮右缘 + 间距 8 - 平台 leftPad）。 */
 const EXTRA_PLACEHOLDER = '${TOGGLE_EXTRA_LEFT}'
 
+/**
+ * 折叠按钮静态图标占位符：构建时替换为完整 panel-left path（取自上游
+ * dsh-client-ui-primitives 的 IconPanelLeftOutline16，viewBox 0 0 16 16、
+ * fillRule evenodd、fill currentColor，固定 16×16）。放占位符是因为
+ * 2151 字符的 path 数据内嵌会让源码这一行不可读；真值由下方
+ * TOGGLE_ICON_SVG 常量（模块装配段）注入。
+ */
+const TOGGLE_ICON_PLACEHOLDER = '${TOGGLE_ICON_SVG}'
+
+/** 折叠按钮静态图标（与上游 IconPanelLeftOutline16 逐字形一致，恒 16px）。 */
+const TOGGLE_ICON_SVG =
+  '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor" d="' +
+  'M9.67272 0.522841C10.8339 0.522841 11.76 0.522714 12.4963 0.602493C13.2453 0.683657 13.8789 0.854248 14.4264 1.25197C14.7504 1.48739 15.0355 1.77247 15.2709 2.0965C15.6686 2.64394 15.8392 3.27758 15.9204 4.02655C16.0002 4.7629 16 5.68895 16 6.85014V9.14986C16 10.3111 16.0002 11.2371 15.9204 11.9735C15.8392 12.7224 15.6686 13.3561 15.2709 13.9035C15.0355 14.2275 14.7504 14.5126 14.4264 14.748C13.8789 15.1458 13.2453 15.3163 12.4963 15.3975C11.76 15.4773 10.8339 15.4772 9.67272 15.4772H6.3273C5.16611 15.4772 4.24006 15.4773 3.50371 15.3975C2.75474 15.3163 2.1211 15.1458 1.57366 14.748C1.24963 14.5126 0.964549 14.2275 0.729131 13.9035C0.331407 13.3561 0.160817 12.7224 0.0796529 11.9735C-0.000126137 11.2371 1.25338e-09 10.3111 1.25338e-09 9.14986V6.85014C1.25329e-09 5.68895 -0.000126137 4.7629 0.0796529 4.02655C0.160817 3.27758 0.331407 2.64394 0.729131 2.0965C0.964549 1.77247 1.24963 1.48739 1.57366 1.25197C2.1211 0.854248 2.75474 0.683657 3.50371 0.602493C4.24006 0.522714 5.16611 0.522841 6.3273 0.522841H9.67272Z' +
+  'M5.54303 1.88715V14.1118C5.78636 14.1128 6.04709 14.1169 6.3273 14.1169H9.67272C10.8639 14.1169 11.7032 14.1164 12.3493 14.0465C12.9824 13.9779 13.3497 13.8494 13.6268 13.6482C13.8354 13.4966 14.0195 13.3125 14.1711 13.1039C14.3723 12.8268 14.5007 12.4595 14.5693 11.8264C14.6393 11.1803 14.6398 10.341 14.6398 9.14986V6.85014C14.6398 5.65896 14.6393 4.81967 14.5693 4.1736C14.5007 3.54048 14.3723 3.17318 14.1711 2.89609C14.0195 2.68747 13.8354 2.50337 13.6268 2.35179C13.3497 2.1506 12.9824 2.02212 12.3493 1.95353C11.7032 1.88358 10.8639 1.88307 9.67272 1.88307H6.3273C6.04709 1.88307 5.78636 1.8862 5.54303 1.88715Z' +
+  'M4.1828 1.91166C3.99125 1.9216 3.8148 1.93577 3.65076 1.95353C3.01764 2.02212 2.65034 2.1506 2.37325 2.35179C2.16463 2.50337 1.98052 2.68747 1.82895 2.89609C1.62776 3.17318 1.49928 3.54048 1.43069 4.1736C1.36074 4.81967 1.36023 5.65896 1.36023 6.85014V9.14986C1.36023 10.341 1.36074 11.1803 1.43069 11.8264C1.49928 12.4595 1.62776 12.8268 1.82895 13.1039C1.98052 13.3125 2.16463 13.4966 2.37325 13.6482C2.65034 13.8494 3.01764 13.9779 3.65076 14.0465C3.81478 14.0642 3.99127 14.0774 4.1828 14.0873V1.91166Z' +
+  '"/></svg>'
+
 const PAGE_JS = `(() => {
   if (window.__dshSidebarToggleWired) return
   window.__dshSidebarToggleWired = true
@@ -67,6 +84,14 @@ const PAGE_JS = `(() => {
     '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>'
   const ARROW_RIGHT_SVG =
     '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg>'
+  // 折叠按钮固定图标：与上游 IconPanelLeftOutline16 同字形（path 完整取自
+  // dsh-client-ui-primitives 产物，viewBox 0 0 16 16 / fillRule evenodd /
+  // currentColor），固定 16×16。不再克隆上游 svg——上游 panelIcon 随状态
+  // 漂移尺寸（展开 size=16 / 折叠 rail spec size=18 / 宽屏 iconButton
+  // 36px），克隆会把漂移带进按钮（折叠态图标变大的根因）；两态字形恒为
+  // 同一 panel-left 矢量，静态内联与克隆视觉等价且尺寸恒定——与上下箭头
+  // 同款做法（箭头自注入以来从未出过尺寸问题）。
+  const TOGGLE_ICON_SVG = ${TOGGLE_ICON_PLACEHOLDER}
 
   // 标题栏 label 让位：theme-watcher 的 margin-left/max-width 消费此
   // 变量（CSS 变量变化自动重算，无需重建 bar）
@@ -103,6 +128,10 @@ const PAGE_JS = `(() => {
   style.textContent = [
     '[class*="logoRow"] button[class*="toggle"]:not(:has([class*="railMark"])){display:none !important}',
     BTN_CSS + '{all:unset;box-sizing:border-box;position:absolute;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;cursor:pointer;color:rgba(26,29,33,.65);-webkit-app-region:no-drag;transition:background .15s ease}',
+    // 图标尺寸钳制（双保险）：三枚按钮内 svg 一律 16×16——折叠按钮已改静态
+    // 图标（恒 16px），此规则同时兜住两枚箭头与任何未来注入内容；!important
+    // + max-* 击败属性与内联 style，与状态栏右端代理按钮图标同级。
+    BTN_CSS + ' svg{width:16px !important;height:16px !important;max-width:16px;max-height:16px;display:block;flex:none}',
     '#' + BTN_ID + '{left:' + BTN_LEFT + 'px}',
     '#' + PREV_ID + '{left:' + PREV_LEFT + 'px}',
     '#' + NEXT_ID + '{left:' + NEXT_LEFT + 'px}',
@@ -114,18 +143,19 @@ const PAGE_JS = `(() => {
 
   const bar = () => document.getElementById('__dsh_desktop_titlebar')
 
-  // 图标/语义同步：克隆上游 toggle 最后一个 svg（panelIcon；收起态
-  // railMark FishLogo 在前、panelIcon 在后），aria-label/title 同步
+  // 图标/语义同步：折叠按钮图标为静态内联（注入时一次写入，见 mkBtn
+  // 调用），sync 只同步 aria-label/title——绝不能在此回写 innerHTML：
+  // TOGGLE_ICON_SVG 的 path 是自闭合写法，innerHTML 写入后读回为展开
+  // 形态（<path></path>），「读回 !== 源串」恒真；而本注入器的自愈
+  // observer 监听 body childList，innerHTML 赋值（删子树+重建）必然
+  // 触发变更记录 → sync 再写 → 再触发 → 无限微任务风暴，主线程 100%
+  // 冻结（0.15.0 当晚的渲染进程卡死根因；克隆时代无此问题：插件
+  // svg 是展开形态、往返相等收敛）。aria-label/title 语义仍从上游
+  // toggle 实时同步（展开=收起侧边栏 / 折叠=展开侧边栏）。
   const sync = () => {
     const t = toggleEl()
     const btn = document.getElementById(BTN_ID)
     if (t === null || btn === null) return
-    const svgs = t.querySelectorAll('svg')
-    const icon = svgs.length > 0 ? svgs[svgs.length - 1] : null
-    const box = btn.firstElementChild
-    if (icon !== null && box !== null && box.innerHTML !== icon.outerHTML) {
-      box.innerHTML = icon.outerHTML
-    }
     const label = t.getAttribute('aria-label') || t.title || ''
     if (label !== '' && btn.getAttribute('aria-label') !== label) {
       btn.setAttribute('aria-label', label)
@@ -177,7 +207,7 @@ const PAGE_JS = `(() => {
       b.onclick = onClick
       host.append(b)
     }
-    mkBtn(BTN_ID, '', '', () => {
+    mkBtn(BTN_ID, '', TOGGLE_ICON_SVG, () => {
       const t = toggleEl()
       if (t !== null) t.click()
     })
@@ -221,6 +251,7 @@ export function attachSidebarToggle(win: BrowserWindow): void {
     .replaceAll(ARROW_PREV_PLACEHOLDER, String(prev))
     .replaceAll(ARROW_NEXT_PLACEHOLDER, String(next))
     .replaceAll(EXTRA_PLACEHOLDER, String(extra))
+    .replaceAll(TOGGLE_ICON_PLACEHOLDER, JSON.stringify(TOGGLE_ICON_SVG))
   win.webContents.on('did-finish-load', () => {
     if (win.isDestroyed()) return
     win.webContents.executeJavaScript(script, true).catch(() => {
