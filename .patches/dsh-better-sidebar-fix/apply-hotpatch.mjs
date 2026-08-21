@@ -19,6 +19,16 @@
  * v2：pill 点击改为在预览面板内切换内联 diff 视图（复用插件 DiffView），
  * 不再经 props.onOpenDiff——editor tab descriptor 是解构白名单
  * （不透传 onOpenDiff），v1 的跳转链路注定静默无效。
+ *
+ * v3（底面板隐形根因修复）：插件的中心列测量锚点
+ * `#root [data-slot="conversation"]` 在上游 0.1.1-rc.1 重构后已不存在
+ * （三列 grid 改用 css-modules 类，无 data-slot 标记），locate() 永远
+ * 拿不到 col → measureCenter 不跑 → centerRect 恒 {0,0} → 底部面板
+ * inline `visibility:hidden` 永久压制（CSS 类是开的）且几何全宽坏位，
+ * 但高度照旧挤压布局——侧栏面板不依赖 centerRect 故总正常。DOM 注入式
+ * nudge（bottom-panel-hotfix.ts）触发的是同一条死链，救不回来。修复：
+ * 测量锚点加兜底 `[class*="_centerCol"]`（AppFrame centerCol，css-modules
+ * 哈希前缀变化也能命中）。
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 
@@ -74,6 +84,10 @@ const A7 = [
 
 // css$3 内 editorMain 规则（overlay 的 position 锚）
 const A8 = '.nArs4W_editorMain{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex}'
+
+// locate() 的中心列测量锚点（v3：上游重构后 data-slot=conversation 已不存在）
+const A9 = String.raw`const col = document.querySelector("#root [data-slot=\"conversation\"]")?.parentElement;`
+const R9 = String.raw`const col = document.querySelector("#root [data-slot=\"conversation\"]")?.parentElement ?? document.querySelector("#root [class*=\"_centerCol\"]");`
 
 // ---------- 替换内容（缩进对齐 bundle 层级：模块级 2 tabs / 组件体 3 tabs） ----------
 const R1 = [
@@ -285,6 +299,7 @@ const RULES = [
   { name: 'EditorHost-diff-pill', anchor: A6, next: R6 },
   { name: 'EditorHost-diff-overlay', anchor: A7, next: R7 },
   { name: 'css-editorMain-position', anchor: A8, next: R8 },
+  { name: 'center-rect-anchor-fallback', anchor: A9, next: R9 },
 ]
 
 let failed = false

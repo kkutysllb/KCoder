@@ -7947,7 +7947,7 @@ window.__ModuleLoader__.load({
 				let observer;
 				const locate = () => {
 					if (disposed) return;
-					const col = document.querySelector("#root [data-slot=\"conversation\"]")?.parentElement;
+					const col = document.querySelector("#root [data-slot=\"conversation\"]")?.parentElement ?? document.querySelector("#root [class*=\"_centerCol\"]");
 					if (col === void 0) {
 						if (centerColRef.current !== null) {
 							centerColRef.current = null;

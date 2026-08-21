@@ -27,6 +27,14 @@
  *   把 "ts" 当 MPEG-TS 流抢先声明，TypeScript 源码全被视频播放器接管
  *   （matchFileViewer 按 priority 降序，video（0）压过内置 code 兑底
  *   （-100））。补丁删 "ts" 保留 m2ts；快照归档 .patches/dsh-video-preview
+ * - @dsh-external/dsh-drag-to-attachment（用户消息气泡的两项 KCoder
+ *   增强，0.2.7 加）：① 复制按钮 — windows.ts 拒绝所有权限导致
+ *   navigator.clipboard.writeText 静默失败，原版 copyUserText 吞错
+ *   无 execCommand 兜底 → 修复兜底 + 错误处理；② 编辑按钮 — 原本点击
+ *   把用户消息复制到输入框（方案 A 改为就地编辑：点击铅笔气泡内
+ *   变 textarea + 发送/取消，发送直接调 conversation.send(newText) 走新
+ *   一轮，session 落定无删除能力故保留原消息实际展示+新轮并存的方案）。
+ *   patches 文件  @dsh-external__dsh-drag-to-attachment__edit-copy@x.patch
  *
  * 补丁经 pnpm patchedDependencies（name-only 声明）固化在用户 profile：
  * 上游任意版本安装/升级时 pnpm 都会尝试应用，应用失败静默跳过（插件
@@ -95,6 +103,12 @@ const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
   // 防上游未来自己加同款串时误判）
   '@dsh-external/dsh-drag-to-attachment': [
     ['lib/client.js', "clearFiles()\n        return { kind: 'success' }"],
+  ],
+  // KCoder 编辑/复制增强标记（请勿与上游符号同名；防原版错把此串放进
+  // 上游产物；version anchor + 锚点同等：commitEditInPlace + editBtnStyle.PRIMARY
+  // 都是 KCoder 引入，足够稳定不可误判）
+  '@dsh-external/dsh-drag-to-attachment__edit-copy': [
+    ['lib/client.js', "editBtnStyle.PRIMARY = 'kcoder-edit-primary'"],
   ],
   'dsh-plugin-genui': [
     ['lib/client.js', 'key: "genui-design"'],
@@ -319,6 +333,7 @@ const KNOWN_PATCH_SENTINELS = [
   'dsh-plugin-genui@x.patch',
   'dsh-context@x.patch',
   '@dsh-external__dsh-drag-to-attachment@x.patch',
+  '@dsh-external__dsh-drag-to-attachment__edit-copy@x.patch',
   'dsh-better-sidebar@x.patch',
   'dsh-video-preview@x.patch',
 ]

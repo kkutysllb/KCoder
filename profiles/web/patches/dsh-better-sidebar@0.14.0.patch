@@ -227,6 +227,15 @@ diff --git a/lib/client.js b/lib/client.js
  		/** Strip the `a/` / `b/` prefix git puts on diff paths (not on /dev/null). */
  		function displayPath(path) {
  			if (path === "/dev/null") return path;
+@@ -7796,7 +7947,7 @@
+ 				let observer;
+ 				const locate = () => {
+ 					if (disposed) return;
+-					const col = document.querySelector("#root [data-slot=\"conversation\"]")?.parentElement;
++					const col = document.querySelector("#root [data-slot=\"conversation\"]")?.parentElement ?? document.querySelector("#root [class*=\"_centerCol\"]");
+ 					if (col === void 0) {
+ 						if (centerColRef.current !== null) {
+ 							centerColRef.current = null;
 diff --git a/lib/client-registry.js b/lib/client-registry.js
 --- a/lib/client-registry.js
 +++ b/lib/client-registry.js
@@ -456,3 +465,12 @@ diff --git a/lib/client-registry.js b/lib/client-registry.js
  		/** Strip the `a/` / `b/` prefix git puts on diff paths (not on /dev/null). */
  		function displayPath(path) {
  			if (path === "/dev/null") return path;
+@@ -7796,7 +7947,7 @@
+ 				let observer;
+ 				const locate = () => {
+ 					if (disposed) return;
+-					const col = document.querySelector("#root [data-slot=\"conversation\"]")?.parentElement;
++					const col = document.querySelector("#root [data-slot=\"conversation\"]")?.parentElement ?? document.querySelector("#root [class*=\"_centerCol\"]");
+ 					if (col === void 0) {
+ 						if (centerColRef.current !== null) {
+ 							centerColRef.current = null;

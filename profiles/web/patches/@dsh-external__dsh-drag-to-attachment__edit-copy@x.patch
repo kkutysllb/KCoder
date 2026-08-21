@@ -1,0 +1,149 @@
+diff --git a/lib/client.js b/lib/client.js
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -1608,24 +1608,45 @@
+       return React.createElement('svg', { width: size || 16, height: size || 16, viewBox: '0 0 24 24', fill: 'currentColor', style: { display: 'block' } },
+         React.createElement('path', { d: d }))
+     }
++    function editBtnStyle(variant) {
++      var base = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
++        width: 'auto', minWidth: '52px', height: '26px', padding: '0 12px', border: 'none', borderRadius: '28px',
++        cursor: 'pointer', fontSize: '12px', lineHeight: '1' }
++      if (variant === editBtnStyle.PRIMARY) {
++        base.background = 'var(--dsw-alias-button-primary-fill)'
++        base.color = 'var(--dsw-alias-label-primary-inverted)'
++      } else {
++        base.background = 'transparent'
++        base.color = 'var(--dsw-alias-label-secondary)'
++      }
++      return base
++    }
++    editBtnStyle.PRIMARY = 'kcoder-edit-primary'
+     function iconBtnStyle() {
+       return { display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+         width: '28px', height: '28px', padding: '6px', border: 'none', borderRadius: '28px',
+         background: 'transparent', color: 'var(--dsw-alias-label-tertiary)', cursor: 'pointer' }
+     }
+     function copyUserText(text) {
+-      try {
+-        if (navigator.clipboard && navigator.clipboard.writeText) {
+-          navigator.clipboard.writeText(text).catch(function () { /* noop */ })
+-        } else {
++      function legacyCopy() {
++        try {
+           var ta = document.createElement('textarea')
+           ta.value = text
++          ta.setAttribute('readonly', '')
++          ta.style.position = 'fixed'
++          ta.style.left = '-9999px'
+           document.body.appendChild(ta)
+           ta.select()
+-          document.execCommand('copy')
++          var ok = document.execCommand('copy')
+           ta.remove()
+-        }
+-      } catch (error) { /* best-effort */ }
++          return ok
++        } catch (e) { return false }
++      }
++      try {
++        if (navigator.clipboard && navigator.clipboard.writeText) {
++          navigator.clipboard.writeText(text).then(function () { return true }).catch(function () { return legacyCopy() })
++        } else { legacyCopy() }
++      } catch (error) { legacyCopy() }
+     }
+     function editUserText(text) {
+       try {
+@@ -1638,7 +1659,7 @@
+         ta.dispatchEvent(new Event('input', { bubbles: true }))
+       } catch (error) { /* best-effort */ }
+     }
+-    function renderUserActions(text, timeMs) {
++    function renderUserActions(text, timeMs, onEdit) {
+       var hasText = typeof text === 'string' && text.trim() !== ''
+       if (!hasText && timeMs === undefined) return null
+       var items = []
+@@ -1651,7 +1672,10 @@
+       }
+       if (hasText) {
+         items.push(React.createElement('button', { key: 'copy', type: 'button', className: 'dta-user-action', title: '复制', 'aria-label': '复制', onClick: function () { copyUserText(text) }, style: iconBtnStyle() }, iconSvg(COPY_ICON_PATH)))
+-        items.push(React.createElement('button', { key: 'edit', type: 'button', className: 'dta-user-action', title: '编辑', 'aria-label': '编辑', onClick: function () { editUserText(text) }, style: iconBtnStyle() }, iconSvg(EDIT_ICON_PATH)))
++        items.push(React.createElement('button', { key: 'edit', type: 'button', className: 'dta-user-action', title: '编辑', 'aria-label': '编辑', onClick: function () {
++          if (typeof onEdit === 'function') { onEdit(text); return }
++          editUserText(text)
++        }, style: iconBtnStyle() }, iconSvg(EDIT_ICON_PATH)))
+       }
+       return React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', height: '28px' } }, items)
+     }
+@@ -1668,6 +1692,15 @@
+           if (block && block.type === 'image') nativeImages += 1
+         })
+         var text = texts.join('')
++        // ---- [KCoder] 就地编辑：气泡内 textarea 编辑后发送（方案 A）----
++        var dtaEdit = null
++        try { dtaEdit = React.useState ? { set: React.useState, ref: React.useState } : null } catch (e) { dtaEdit = null }
++        var editingInPlace = false, setEditingInPlace = null, draftInPlace = '', setDraftInPlace = null, sentInPlace = false, setSentInPlace = null
++        try {
++          var es = React.useState(false); editingInPlace = es[0]; setEditingInPlace = es[1]
++          var ds = React.useState(text); draftInPlace = ds[0]; setDraftInPlace = ds[1]
++          var ss = React.useState(false); sentInPlace = ss[0]; setSentInPlace = ss[1]
++        } catch (e) { /* hooks unavailable: keep old copy-to-composer path */ }
+         var parsed = parseAttachmentMarkup(text)
+         if (parsed !== null && parsed.attachments.length > 0) {
+           // Debug aid while diagnosing the card renderer.
+@@ -1683,8 +1716,27 @@
+           wordBreak: 'break-word',
+         }
+         var row = { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px', margin: '6px 0' }
+-        var actions = renderUserActions(text, data && data.time)
++        var beginEditInPlace = function () {
++          if (setEditingInPlace) { setDraftInPlace ? setDraftInPlace(text) : null; setEditingInPlace(true); setSentInPlace ? setSentInPlace(false) : null }
++        }
++        var actions = renderUserActions(text, data && data.time, beginEditInPlace)
+         // data-time-hover-root: reveal the timestamp on message hover (native).
++        function commitEditInPlace() {
++          var t = draftInPlace && draftInPlace.trim()
++          if (!t || sentInPlace) return
++          if (setSentInPlace) setSentInPlace(true)
++          var conversation = activeCtx && activeCtx.get ? activeCtx.get('conversation') : null
++          if (conversation && typeof conversation.send === 'function') {
++            conversation.send(t).then(function () {
++              if (setEditingInPlace) setEditingInPlace(false)
++              if (setSentInPlace) setSentInPlace(false)
++            }).catch(function (err) {
++              try { console.error('[dta] in-place edit send failed:', err) } catch (e) {}
++              if (setSentInPlace) setSentInPlace(false)
++            })
++          } else { if (setEditingInPlace) setEditingInPlace(false) }
++        }
++        function cancelEditInPlace() { if (setEditingInPlace) setEditingInPlace(false); if (setSentInPlace) setSentInPlace(false) }
+         var rowAttrs = { 'data-time-hover-root': '1' }
+         if (parsed === null) {
+           // No attachment markup: approximate the native user bubble.
+@@ -1695,7 +1747,25 @@
+                   return React.createElement('img', { key: i, src: '#', alt: 'image', style: { width: '64px', height: '64px', objectFit: 'cover', borderRadius: '6px', background: 'rgba(0,0,0,.08)' } })
+                 })
+               ) : null,
+-              text.trim() ? React.createElement('div', null, text.trim()) : null,
++              editingInPlace ? (
++                React.createElement('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', width: '100%' } },
++                  React.createElement('textarea', {
++                    value: draftInPlace,
++                    onChange: function (ev) { setDraftInPlace ? setDraftInPlace(ev.target.value) : null },
++                    autoFocus: true,
++                    onKeyDown: function (ev) { if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') { ev.preventDefault(); commitEditInPlace() } },
++                    style: { width: '360px', maxWidth: '100%', minHeight: '60px', boxSizing: 'border-box', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', font: 'inherit', fontSize: '14px', lineHeight: '20px', resize: 'vertical', outline: 'none' }
++                  })
++                  ,
++                  React.createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
++                    sentInPlace ? React.createElement('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-state-success-primary)' } }, '已发送') : null,
++                    React.createElement('button', { type: 'button', onClick: cancelEditInPlace, style: editBtnStyle() }, '取消'),
++                    React.createElement('button', { type: 'button', onClick: commitEditInPlace, disabled: !(draftInPlace && draftInPlace.trim() !== '') || sentInPlace, style: editBtnStyle(editBtnStyle.PRIMARY) }, sentInPlace ? '发送中…' : '发送')
++                  )
++                )
++              ) : (
++                text.trim() ? React.createElement('div', null, text.trim()) : null
++              ),
+             ),
+             actions,
+           ),
