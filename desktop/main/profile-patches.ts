@@ -16,6 +16,17 @@
  * - dsh-context：node half 缓存失败缺陷（projection 状态残留），修复版
  *   与 npm 原版快照分别归档于 .patches/dsh-context-fix（应用版）与
  *   .patches/dsh-context（原版），patch 由此生成
+ * - dsh-better-sidebar：两项功能热补丁（上游 #131 P2 无修复计划，产品侧
+ *   补齐）：文件预览面板对 git 修改文件显示「Diff +N −M」pill（点击开
+ *   diff tab）；git 面板 header 显示项目整体 +N −M 统计。改 web half 两个
+ *   入口变体（lib/client.js 与 lib/client-registry.js，除头部模块名外逐
+ *   字节相同）；快照与施加器归档于 .patches/dsh-better-sidebar{,-fix}。
+ *   无锄点兑底（PATCH_FALLBACKS）：功能型多锄点注入盲改风险大于收益，
+ *   依赖 pnpm patch + install 重放两层即可，缺失时插件裸装照常工作
+ * - dsh-video-preview（用户自装，genui 同款「自装也覆盖」）：VIDEO_EXTS
+ *   把 "ts" 当 MPEG-TS 流抢先声明，TypeScript 源码全被视频播放器接管
+ *   （matchFileViewer 按 priority 降序，video（0）压过内置 code 兑底
+ *   （-100））。补丁删 "ts" 保留 m2ts；快照归档 .patches/dsh-video-preview
  *
  * 补丁经 pnpm patchedDependencies（name-only 声明）固化在用户 profile：
  * 上游任意版本安装/升级时 pnpm 都会尝试应用，应用失败静默跳过（插件
@@ -94,6 +105,14 @@ const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
   ],
   // 修复版用 delete 清理投影状态；原版为置 undefined（缓存残留根因）
   'dsh-context': [['lib/index.js', 'delete st.pendingShadowedSeqs']],
+  // 双入口变体同步改（client.js / client-registry.js 除头部模块名外
+  // 逐字节相同，patch 两段各含 kcodercCountDiff 定义与调用）
+  'dsh-better-sidebar': [
+    ['lib/client.js', 'kcodercCountDiff'],
+    ['lib/client-registry.js', 'kcodercCountDiff'],
+  ],
+  // 修复特征：扩展表无 ts（原版 "3g2", "ts", "m2ts"；根级 client.js）
+  'dsh-video-preview': [['client.js', '"3g2", "m2ts"']],
 }
 
 /**
@@ -300,6 +319,8 @@ const KNOWN_PATCH_SENTINELS = [
   'dsh-plugin-genui@x.patch',
   'dsh-context@x.patch',
   '@dsh-external__dsh-drag-to-attachment@x.patch',
+  'dsh-better-sidebar@x.patch',
+  'dsh-video-preview@x.patch',
 ]
 
 /**

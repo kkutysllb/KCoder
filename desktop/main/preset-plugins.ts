@@ -30,9 +30,9 @@
  * 补声明并自愈（锄点注入兑底，见 profile-patches.ts）。
  *
  * dsh-better-sidebar（2026-08-20 预置，全面替代自研功能面：文件树
- * 面板、内嵌终端与状态栏四面板——文件预览/会话轨迹/日志导出/Git
- * ——已删除）：侧边栏工作台底座（文件树/CM6 编辑器/图片·MD 预览/
- * 终端/Git/子代理，服务化扩展点）。原生兼容 rc.8 无需补丁；两项额外物化：
+ *   面板、内嵌终端与状态栏四面板——文件预览/会话轨迹/日志导出/Git
+ *   ——已删除）：侧边栏工作台底座（文件树/CM6 编辑器/图片·MD 预览/
+ *   终端/Git/子代理，服务化扩展点）。原生兼容 rc.8 无需补丁；两项额外物化：
  * - pnpm-workspace.yaml 补写 onlyBuiltDependencies: [node-pty]（pnpm 10
  *   默认拦截原生构建脚本，不许可则插件终端缺 node-pty 二进制）；
  * - $DSH_HOME/settings.yaml 补写 dsh-better-sidebar.titleBarCompat:
@@ -41,7 +41,10 @@
  *   2026-08-20）。开关簇不下移：由 sidebar-cluster.ts 注入器隐藏
  *   并在状态栏右侧代理接管（状态栏右侧仅剩两枚代理按钮，right 序
  *   12/44；自研终端与四状态栏面板同日删除）。底面板“占位而非覆盖”
- *   的挤压锚在 rc.8 缺失，由 sidebar-compat.ts 垫片补齐。
+ *   的挤压锚在 rc.8 缺失，由 sidebar-compat.ts 垫片补齐。两项功能热补丁
+ *   （2026-08-21，上游 #131 P2 无修复计划）：预览面板修改文件 Diff pill、
+ *   git 面板整体 ±N 统计，patch 随包分发自愈（见 profile-patches.ts）；
+ *   底面板空白修复为 DOM 注入式（bottom-panel-hotfix.ts，不经 patch 链）。
  *
  * @tt-a1i/archify-dsh（2026-08-20 预置）：架构图 agent skill——把
  * 代码库/系统描述变成自包含交互 HTML 技术图（架构/工作流/时序/
