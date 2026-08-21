@@ -27,6 +27,14 @@
  * 侧栏关闭时拖高会横向压缩主区域——用插件自维的
  * body[data-dsh-sidebar-collapsed] 把宽度挤压限定在面板开启态。
  *
+ * 姊妹补丁：本垫片只补「挤压」这一半。底面板本体能否被看见，取决于插件
+ * 的 centerRect 测量（`#root [data-slot="conversation"]` 父元素），在 rc.8
+ * 上那条测量存在竞态——量不出时插件把面板置 `visibility: hidden`，但挤压
+ * 仍在、对话上移，于是留下一条空白坑。另一半由 bottom-panel-hotfix.ts
+ * 收口：它复用插件 documentElement style 突变通道，在「面板开着但 hidden」
+ * 时触发插件重测中心列唤醒面板。两者是同一基线缺陷的两个面，随上游基线
+ * 升级带上 data-dsh-frame/data-pane 后应一并撤除。
+ *
  * @module desktop/main/sidebar-compat
  */
 

@@ -20,6 +20,7 @@ import { attachThemeWatcher, overlaySymbolColor, SHELL_TITLEBAR_HEIGHT, themeBac
 import { attachSidebarToggle } from './sidebar-toggle'
 import { attachSidebarCluster } from './sidebar-cluster'
 import { attachSidebarCompat } from './sidebar-compat'
+import { attachBottomPanelHotfix } from './bottom-panel-hotfix'
 import { attachStyleOverlay } from './style-overlay'
 import { attachWorkspaceHeader } from './workspace-header'
 import { attachStatsHover } from './stats-hover'
@@ -150,6 +151,11 @@ export function showShellWindow(dshUrl: string): void {
     // data-pane）在 rc.8 不存在，终端/Git 底面板会盖住输入框；
     // 按 rc.8 结构复刻 margin-bottom 挤压（见 sidebar-compat.ts）
     attachSidebarCompat(shellWindow)
+    // better-sidebar 底面板空白热补丁：插件 centerRect 测量竞态导致底面板
+    // 常驻 visibility:hidden 而挤压仍在（上移对话 + 一条空白坑）；本注入器
+    // 复用插件 documentElement style 突变通道，在明确症状下触发它重测中心列，
+    // 把面板从 hidden 唤醒（见 bottom-panel-hotfix.ts）
+    attachBottomPanelHotfix(shellWindow)
     // 消息样式覆盖层：排版 token/气泡/代码块微调（零侵入，token 改名静默失效）
     attachStyleOverlay(shellWindow)
     // workspace 顶栏收纳：会话标题/标签/日志按钮迁至状态栏与抽屉，
