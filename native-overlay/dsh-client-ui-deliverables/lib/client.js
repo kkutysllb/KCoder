@@ -22,7 +22,7 @@ window.__ModuleLoader__.load({
 			if (view.card === "generic" && view.kind === "edit") return (view.locations ?? []).map((location) => location.path);
 			return [];
 		}
-		/* === KCoder native-overlay begin (mark: kcoderc:deliverables-review) ===
+		/* === KCoder native-overlay begin (mark: kcoderc:deliverables-card) ===
 		 * KCoder 交付审查增强：在原生产物推导之上保留 diff hunk 文本
 		 * （oldText/newText）与 +N/−N 行统计，并累积 assistant/message 的
 		 * text 块作为纯审计轮（无文件产出但跑过工具）的结论交付。 */
@@ -293,7 +293,7 @@ window.__ModuleLoader__.load({
 			"showFolder": "brpKHq_showFolder"
 		};
 		/* === KCoder native-overlay: review/audit styles (own tag, kcdlv-*) === */
-		const kcdlvCss = ".kcdlv-tools{grid-column:1 / -1;display:flex;align-items:center;gap:8px;margin-top:2px;font-size:12px;line-height:20px;justify-self:start}.kcdlv-btn{color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;background:var(--dsw-alias-interactive-bg-hover);border:none;border-radius:6px;padding:1px 8px}.kcdlv-btn:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}.kcdlv-btn:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}.kcdlv-count{display:inline-flex;gap:6px;font-variant-numeric:tabular-nums;font-size:11px}.kcdlv-count i{font-style:normal;font-weight:600}.kcdlv-count .a{color:#1A7F37}.kcdlv-count .d{color:#CF222E}body[data-ds-dark-theme] .kcdlv-count .a{color:#52B788}body[data-ds-dark-theme] .kcdlv-count .d{color:#F85149}.kcdlv-body{grid-column:1 / -1;margin-top:4px;border:1px solid var(--dsw-alias-border-l2,#EBEEF1);border-radius:8px;overflow:hidden;max-height:420px;overflow-y:auto}body[data-ds-dark-theme] .kcdlv-body{border-color:#33353B}.kcdlv-file{border-bottom:1px solid var(--dsw-alias-border-l1,#F0F2F5)}.kcdlv-file:last-child{border-bottom:none}body[data-ds-dark-theme] .kcdlv-file{border-bottom-color:#2A2B2F}.kcdlv-filehead{display:flex;align-items:center;gap:7px;padding:5px 10px;cursor:pointer}.kcdlv-filehead:hover{background:var(--dsw-alias-interactive-bg-hover)}.kcdlv-chev{color:var(--dsw-alias-label-tertiary);font-size:10px}.kcdlv-path{color:var(--dsw-alias-label-primary);font-size:11.5px;font-weight:500;font-family:ui-monospace,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.kcdlv-delta{margin-left:auto;display:inline-flex;gap:6px;font-size:10.5px;font-weight:600;font-variant-numeric:tabular-nums;font-family:ui-monospace,Menlo,monospace}.kcdlv-delta .a{color:#1A7F37}.kcdlv-delta .d{color:#CF222E}body[data-ds-dark-theme] .kcdlv-delta .a{color:#52B788}body[data-ds-dark-theme] .kcdlv-delta .d{color:#F85149}.kcdlv-ln{display:flex;font:10.5px/1.5 ui-monospace,Menlo,monospace;white-space:pre}.kcdlv-ln i{flex:none;width:22px;text-align:center;font-style:normal;user-select:none;opacity:.7}.kcdlv-ln pre{margin:0;padding:0 10px 0 4px;flex:1;min-width:0;overflow-x:auto;font:inherit}.kcdlv-ln.del{background:rgba(207,34,46,.07)}.kcdlv-ln.del i{color:#CF222E}.kcdlv-ln.add{background:rgba(26,127,55,.07)}.kcdlv-ln.add i{color:#1A7F37}body[data-ds-dark-theme] .kcdlv-ln.del{background:rgba(248,81,73,.12)}body[data-ds-dark-theme] .kcdlv-ln.del i{color:#F85149}body[data-ds-dark-theme] .kcdlv-ln.add{background:rgba(82,183,136,.12)}body[data-ds-dark-theme] .kcdlv-ln.add i{color:#52B788}.kcdlv-more{padding:2px 10px;font-size:10px;color:var(--dsw-alias-label-tertiary)}.kcdlv-note{grid-column:1 / -1;margin-top:4px;padding:8px 12px;max-height:320px;overflow-y:auto;border:1px solid var(--dsw-alias-border-l2,#EBEEF1);border-radius:8px;white-space:pre-wrap;word-break:break-word;font-size:12.5px;line-height:1.7;color:var(--dsw-alias-label-primary)}body[data-ds-dark-theme] .kcdlv-note{border-color:#33353B}";
+		const kcdlvCss = ".kcdlv-card{grid-column:1 / -1;margin-top:6px;border:1px solid var(--dsw-alias-border-l2,#EBEEF1);border-radius:10px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}body[data-ds-dark-theme] .kcdlv-card{border-color:#2E3035}.kcdlv-head{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--dsw-alias-border-l1,#F0F2F5)}body[data-ds-dark-theme] .kcdlv-head{border-bottom-color:#2A2B2F}.kcdlv-ico{flex:none;width:26px;height:26px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.kcdlv-ico svg{display:block}.kcdlv-title{color:var(--dsw-alias-label-primary);font-size:12.5px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.kcdlv-stats{flex:none;display:inline-flex;gap:8px;font:600 11px/1 ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}.kcdlv-stats i{font-style:normal}.kcdlv-stats .a{color:#1A7F37}.kcdlv-stats .d{color:#CF222E}body[data-ds-dark-theme] .kcdlv-stats .a{color:#52B788}body[data-ds-dark-theme] .kcdlv-stats .d{color:#F85149}.kcdlv-actions{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:8px}.kcdlv-btn{color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1;cursor:pointer;background:transparent;border:1px solid var(--dsw-alias-border-l2,#D8DCE1);border-radius:6px;padding:4px 10px;white-space:nowrap}.kcdlv-btn:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}body[data-ds-dark-theme] .kcdlv-btn{border-color:#3A3D44}.kcdlv-lnk{color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:1;cursor:pointer;background:transparent;border:none;border-radius:6px;padding:4px 6px;white-space:nowrap}.kcdlv-lnk:hover{color:var(--dsw-alias-label-secondary);text-decoration:underline}.kcdlv-btn:focus-visible,.kcdlv-lnk:focus-visible,.kcdlv-foot:focus-visible,.kcdlv-frow:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}.kcdlv-list{max-height:420px;overflow-y:auto}.kcdlv-frow{display:flex;align-items:center;gap:8px;padding:6px 14px;cursor:pointer}.kcdlv-frow:hover{background:var(--dsw-alias-interactive-bg-hover)}.kcdlv-chev{flex:none;width:10px;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1}.kcdlv-fpath{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font:11.5px/1.6 ui-monospace,Menlo,monospace}.kcdlv-frow:hover .kcdlv-fpath{color:var(--dsw-alias-label-primary)}.kcdlv-open{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:none;border-radius:5px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;padding:0}.kcdlv-open:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.kcdlv-open:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}.kcdlv-delta{margin-left:auto;flex:none;display:inline-flex;gap:6px;font:600 10.5px/1 ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}.kcdlv-delta i{font-style:normal}.kcdlv-delta .a{color:#1A7F37}.kcdlv-delta .d{color:#CF222E}body[data-ds-dark-theme] .kcdlv-delta .a{color:#52B788}body[data-ds-dark-theme] .kcdlv-delta .d{color:#F85149}.kcdlv-foot{display:flex;width:100%;align-items:center;gap:6px;padding:5px 14px;background:transparent;border:none;border-top:1px solid var(--dsw-alias-border-l1,#F0F2F5);color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11.5px;cursor:pointer;text-align:left}body[data-ds-dark-theme] .kcdlv-foot{border-top-color:#2A2B2F}.kcdlv-foot:hover{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover)}.kcdlv-ln{display:flex;font:10.5px/1.5 ui-monospace,Menlo,monospace;white-space:pre}.kcdlv-ln i{flex:none;width:22px;text-align:center;font-style:normal;user-select:none;opacity:.7}.kcdlv-ln pre{margin:0;padding:0 10px 0 4px;flex:1;min-width:0;overflow-x:auto;font:inherit}.kcdlv-ln.del{background:rgba(207,34,46,.07)}.kcdlv-ln.del i{color:#CF222E}.kcdlv-ln.add{background:rgba(26,127,55,.07)}.kcdlv-ln.add i{color:#1A7F37}body[data-ds-dark-theme] .kcdlv-ln.del{background:rgba(248,81,73,.12)}body[data-ds-dark-theme] .kcdlv-ln.del i{color:#F85149}body[data-ds-dark-theme] .kcdlv-ln.add{background:rgba(82,183,136,.12)}body[data-ds-dark-theme] .kcdlv-ln.add i{color:#52B788}.kcdlv-more{padding:2px 10px;font-size:10px;color:var(--dsw-alias-label-tertiary)}.kcdlv-note{padding:10px 14px;max-height:320px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;font-size:12.5px;line-height:1.7;color:var(--dsw-alias-label-primary)}";
 		const kcdlvTagId = "@kcoder/native-overlay/deliverables.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(kcdlvTagId) + "]") === null) {
 			const kcdlvTag = document.createElement("style");
@@ -304,38 +304,32 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region lib/types/client/ProducedFiles.js
-		/** At most six chips compete for the one-line summary; every other path stays counted. */
-		const SHOWN_LIMIT = 6;
+		/* === KCoder native-overlay: GitHub 风格摘要卡（mark: kcoderc:deliverables-card） ===
+		 * 参考图（PR Files-changed 摘要卡）重构：圆角卡片 = 头部（图标 + 标题
+		 * 「已产出 N 个文件」+ 总计 +N/−N + 右侧动作按钮）+ 分隔线 + 等宽
+		 * 文件路径行（行尾 +N/−N 右对齐、hover 高亮）+ 底部「再显示 N 个
+		 * 文件」折叠行。纯审计轮（无文件产出）同卡片形态：标题「分析结论」
+		 * + 字数 + 复制/展开按钮，正文为结论文本。文件行点击即展开/收起该文件的红删绿增 hunk（原
+		 * 交付组件的 diff 面板交互，不再经由头部审查开关）；行尾 ↗ 图标
+		 * 承接原 chips 的 openFile（打开文件预览）。 */
+		/** 列表默认展示的文件行数；其余折进「再显示」行（审查模式全量）。 */
+		const KCDLV_PREVIEW = 3;
 		/** At most this many diff lines render per file; the rest stays counted. */
 		const KCDLV_LINE_LIMIT = 400;
-		/**
-		 * Select the largest prefix whose measured chips and exact remainder fit.
-		 * @param available - usable width of the one-line file lane.
-		 * @param gap - computed flex gap between adjacent visible items.
-		 * @param chipWidths - measured widths for the candidate file chips.
-		 * @param moreWidthsByShown - exact localized remainder width for each shown count.
-		 * @returns Number of leading chips to render.
-		 */
-		function fitProducedFiles(available, gap, chipWidths, moreWidthsByShown) {
-			if (available <= 0) return chipWidths.length;
-			const prefix = [0];
-			let prefixWidth = 0;
-			for (const width of chipWidths) {
-				prefixWidth += width;
-				prefix.push(prefixWidth);
-			}
-			let largestFit = 0;
-			for (const [shown, width] of prefix.entries()) {
-				const more = moreWidthsByShown[shown];
-				const items = shown + (more === void 0 ? 0 : 1);
-				if (width + (more ?? 0) + Math.max(0, items - 1) * gap <= available) largestFit = shown;
-			}
-			return largestFit;
-		}
-		function moreLabel(t, count) {
-			return count === 1 ? t("produced.moreOne") : t("produced.more", { count: String(count) });
-		}
-		/* === KCoder native-overlay: review body (per-file red/green hunks) === */
+		/** Header diff glyph（三横线 + 加号，currentColor）。 */
+		const DiffIcon = () => (0, react_jsx_runtime.jsxs)("svg", { width: 14, height: 14, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", "strokeWidth": 1.5, "strokeLinecap": "round", "aria-hidden": true, children: [
+			(0, react_jsx_runtime.jsx)("path", { d: "M2.5 4h7" }),
+			(0, react_jsx_runtime.jsx)("path", { d: "M2.5 8h5" }),
+			(0, react_jsx_runtime.jsx)("path", { d: "M2.5 12h3" }),
+			(0, react_jsx_runtime.jsx)("path", { d: "M12 5.75v4.5" }),
+			(0, react_jsx_runtime.jsx)("path", { d: "M9.75 8h4.5" })
+		] });
+		/** Header note glyph（文本行）。 */
+		const NoteIcon = () => (0, react_jsx_runtime.jsxs)("svg", { width: 14, height: 14, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", "strokeWidth": 1.5, "strokeLinecap": "round", "aria-hidden": true, children: [
+			(0, react_jsx_runtime.jsx)("path", { d: "M3 4h10" }),
+			(0, react_jsx_runtime.jsx)("path", { d: "M3 8h10" }),
+			(0, react_jsx_runtime.jsx)("path", { d: "M3 12h6" })
+		] });
 		/** Diff rows for one file's hunks: old lines red, new lines green, bounded. */
 		function reviewFileRows(file, t) {
 			const rows = [];
@@ -362,64 +356,61 @@ window.__ModuleLoader__.load({
 			}
 			return { rows, hidden };
 		}
-		/** One reviewable file: header row (basename, +N/−N) and expandable hunks. */
-		function ReviewFileRow({ file, open, onToggle, t }) {
-			const { rows, hidden } = open ? reviewFileRows(file, t) : { rows: [], hidden: 0 };
-			return (0, react_jsx_runtime.jsxs)("div", { className: "kcdlv-file", children: [(0, react_jsx_runtime.jsxs)("div", { className: "kcdlv-filehead", onClick: onToggle, children: [(0, react_jsx_runtime.jsx)("span", { className: "kcdlv-chev", children: open ? "▾" : "▸" }), (0, react_jsx_runtime.jsx)("span", { className: "kcdlv-path", title: file.path, children: basename(file.path) }), (0, react_jsx_runtime.jsxs)("span", { className: "kcdlv-delta", children: [(0, react_jsx_runtime.jsx)("i", { className: "a", children: `+${file.added}` }), (0, react_jsx_runtime.jsx)("i", { className: "d", children: `−${file.removed}` })] })] }), open && rows, open && hidden > 0 && (0, react_jsx_runtime.jsx)("div", { className: "kcdlv-more", children: t("review.more", { count: String(hidden) }) })] });
+		/** One file row：等宽路径 + 行尾 +N/−N；审查模式下带 chevron 并可展开 hunk。 */
+		function FileRow({ file, diffOpen, onToggle, onOpen, t }) {
+			const review = diffOpen ? reviewFileRows(file, t) : null;
+			return (0, react_jsx_runtime.jsxs)("div", { className: "kcdlv-file", children: [
+				(0, react_jsx_runtime.jsxs)("div", { className: "kcdlv-frow", onClick: onToggle, role: "button", tabIndex: 0, "aria-expanded": diffOpen, onKeyDown: (event) => {
+					if (event.key === "Enter" || event.key === " ") {
+						event.preventDefault();
+						onToggle();
+					}
+				}, children: [
+					(0, react_jsx_runtime.jsx)("span", { className: "kcdlv-chev", children: diffOpen ? "▾" : "▸" }),
+					(0, react_jsx_runtime.jsx)("span", { className: "kcdlv-fpath", title: file.path, children: file.path }),
+					(0, react_jsx_runtime.jsxs)("span", { className: "kcdlv-delta", children: [
+						(0, react_jsx_runtime.jsx)("i", { className: "a", children: "+" + file.added }),
+						(0, react_jsx_runtime.jsx)("i", { className: "d", children: "−" + file.removed })
+					] }),
+					(0, react_jsx_runtime.jsx)("button", { type: "button", className: "kcdlv-open", title: t("produced.open", { name: file.path }), "aria-label": t("produced.open", { name: file.path }), onClick: (event) => {
+						event.stopPropagation();
+						onOpen();
+					}, children: (0, react_jsx_runtime.jsxs)("svg", { width: 12, height: 12, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, children: [
+						(0, react_jsx_runtime.jsx)("path", { d: "M6 3H4.5A1.5 1.5 0 0 0 3 4.5v7A1.5 1.5 0 0 0 4.5 13h7a1.5 1.5 0 0 0 1.5-1.5V10" }),
+						(0, react_jsx_runtime.jsx)("path", { d: "M9 3h4v4" }),
+						(0, react_jsx_runtime.jsx)("path", { d: "M13 3 7.5 8.5" })
+					] }) }, "open")
+				] }, "row"),
+				review !== null ? review.rows : null,
+				review !== null && review.hidden > 0 ? (0, react_jsx_runtime.jsx)("div", { className: "kcdlv-more", children: t("review.more", { count: String(review.hidden) }) }) : null
+			] });
 		}
 		/**
-		 * Render one turn's produced files as openable chips, with the KCoder
-		 * review extension: a 审查 toggle (+N/−N) expanding hunk-level red/green
-		 * diffs, and a pure-audit conclusion card (copy + expand) for turns that
-		 * ran tools without producing files.
+		 * Render one turn's produced files as a GitHub-style summary card（头部
+		 * 标题/总计/动作 + 文件行 + 再显示折叠行），审查模式展开 per-file
+		 * 红删绿增 hunk；纯审计轮为「分析结论」卡（复制 + 展开）。
 		 * @param props - selector-matched `{paths, files, closingText}`, the chat
 		 * view's file opener, and the locale seat.
-		 * @returns The produced-files row with its review/audit extension.
+		 * @returns The summary card.
 		 */
 		function ProducedFiles({ matched, openFile, isLoopback, useHostDescription, t }) {
-			const { paths, files, closingText } = matched;
+			const { files, closingText } = matched;
 			const hostCanOpenPath = useHostDescription((description) => description?.canOpenPath === true);
 			const canOpenPath = isLoopback && hostCanOpenPath;
-			const limit = Math.min(paths.length, SHOWN_LIMIT);
-			const [shownCount, setShownCount] = (0, react.useState)(limit);
+			const [expanded, setExpanded] = (0, react.useState)(false);
 			const [reviewOpen, setReviewOpen] = (0, react.useState)(false);
-			const [openPath, setOpenPath] = (0, react.useState)(null);
+			const [openDiff, setOpenDiff] = (0, react.useState)(null);
 			const [copied, setCopied] = (0, react.useState)(false);
-			const rowRef = (0, react.useRef)(null);
-			const chipProbes = (0, react.useRef)([]);
-			const moreProbe = (0, react.useRef)(null);
-			(0, react.useLayoutEffect)(() => {
-				const row = rowRef.current;
-				const remainderProbe = moreProbe.current;
-				/* v8 ignore next -- React attaches both refs before the layout effect runs. */
-				if (row === null || remainderProbe === null) return;
-				const measure = () => {
-					const styles = getComputedStyle(row);
-					const gap = Number.parseFloat(styles.columnGap || styles.gap) || 0;
-					const chips = chipProbes.current.slice(0, limit).map((probe) => probe.getBoundingClientRect().width);
-					const more = Array.from({ length: limit + 1 }, (_, candidate) => {
-						if (paths.length === candidate) return void 0;
-						remainderProbe.textContent = moreLabel(t, paths.length - candidate);
-						return remainderProbe.getBoundingClientRect().width;
-					});
-					setShownCount(fitProducedFiles(row.clientWidth, gap, chips, more));
-				};
-				measure();
-				if (typeof ResizeObserver === "undefined") return;
-				const observer = new ResizeObserver(measure);
-				observer.observe(row);
-				for (const probe of [...chipProbes.current, moreProbe.current]) if (probe !== null) observer.observe(probe);
-				return () => {
-					observer.disconnect();
-				};
-			}, [
-				limit,
-				paths,
-				t
-			]);
-			const visibleCount = Math.min(shownCount, limit);
-			const shown = paths.slice(0, visibleCount);
-			const hidden = paths.length - shown.length;
+			const produced = files.length > 0;
+			let added = 0;
+			let removed = 0;
+			for (const file of files) {
+				added += file.added;
+				removed += file.removed;
+			}
+			const previewCount = Math.min(files.length, KCDLV_PREVIEW);
+			const visible = expanded ? files : files.slice(0, previewCount);
+			const hidden = files.length - visible.length;
 			const onCopy = () => {
 				if (closingText === "") return;
 				try {
@@ -429,109 +420,48 @@ window.__ModuleLoader__.load({
 					}, () => {});
 				} catch {}
 			};
-			let reviewAdded = 0;
-			let reviewRemoved = 0;
-			for (const file of files) {
-				reviewAdded += file.added;
-				reviewRemoved += file.removed;
-			}
-			const tools = [];
-			if (paths.length > 0) {
-				tools.push((0, react_jsx_runtime.jsxs)("button", {
-					type: "button",
-					className: "kcdlv-btn",
-					onClick: () => {
-						setReviewOpen(!reviewOpen);
-					},
-					children: [reviewOpen ? t("review.close") : t("review.label"), (reviewAdded > 0 || reviewRemoved > 0) && (0, react_jsx_runtime.jsxs)("span", { className: "kcdlv-count", children: [(0, react_jsx_runtime.jsx)("i", { className: "a", children: `+${reviewAdded}` }), (0, react_jsx_runtime.jsx)("i", { className: "d", children: `−${reviewRemoved}` })] }), reviewOpen ? " ▴" : " ▾"]
-				}, "review-toggle"));
-			} else {
-				tools.push((0, react_jsx_runtime.jsx)("span", { className: "kcdlv-count", style: { color: "var(--dsw-alias-label-tertiary)" }, children: `${closingText.length} ${t("audit.words")}` }, "audit-count"), (0, react_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: "kcdlv-btn",
-					onClick: onCopy,
-					children: copied ? t("audit.copied") : t("audit.copy")
-				}, "audit-copy"), (0, react_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: "kcdlv-btn",
-					onClick: () => {
-						setReviewOpen(!reviewOpen);
-					},
-					children: `${reviewOpen ? t("review.close") : t("review.label")} ${reviewOpen ? "▴" : "▾"}`
-				}, "audit-toggle"));
-			}
-			return (0, react_jsx_runtime.jsxs)("div", {
-				className: ProducedFiles_module_css_default.root,
-				children: [
-					(0, react_jsx_runtime.jsx)("span", {
-						className: ProducedFiles_module_css_default.label,
-						children: paths.length > 0 ? t("produced.label") : t("audit.label")
-					}),
-					(0, react_jsx_runtime.jsxs)("div", {
-						ref: rowRef,
-						className: ProducedFiles_module_css_default.row,
-						"data-produced-files-row": true,
-						children: [shown.map((path) => (0, react_jsx_runtime.jsx)("button", {
-							type: "button",
-							className: ProducedFiles_module_css_default.file,
-							title: path,
-							"aria-label": t("produced.open", { name: path }),
-							onClick: () => {
-								openFile(path);
-							},
-							children: basename(path)
-						}, path)), hidden > 0 && (0, react_jsx_runtime.jsx)("span", {
-							className: ProducedFiles_module_css_default.more,
-							children: moreLabel(t, hidden)
-						})]
-					}),
-					hidden > 0 && canOpenPath && (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: ProducedFiles_module_css_default.showFolder,
-						onClick: () => {
-							openFile(".");
+			const headButtons = produced ? [
+				canOpenPath ? (0, react_jsx_runtime.jsx)("button", { type: "button", className: "kcdlv-lnk", onClick: () => {
+					openFile(".");
+				}, children: t("produced.showInFolder") }, "folder") : null
+			].filter(Boolean) : [
+				(0, react_jsx_runtime.jsx)("button", { type: "button", className: "kcdlv-btn", onClick: onCopy, children: copied ? t("audit.copied") : t("audit.copy") }, "copy"),
+				(0, react_jsx_runtime.jsx)("button", { type: "button", className: "kcdlv-btn", onClick: () => {
+					setReviewOpen(!reviewOpen);
+				}, children: [reviewOpen ? t("review.close") : t("audit.expand"), " ", reviewOpen ? "▴" : "▾"] }, "note")
+			];
+			return (0, react_jsx_runtime.jsx)("div", { className: "kcdlv-card", children: [
+				(0, react_jsx_runtime.jsxs)("div", { className: "kcdlv-head", children: [
+					(0, react_jsx_runtime.jsx)("span", { className: "kcdlv-ico", children: produced ? (0, react_jsx_runtime.jsx)(DiffIcon, {}) : (0, react_jsx_runtime.jsx)(NoteIcon, {}) }, "ico"),
+					(0, react_jsx_runtime.jsx)("span", { className: "kcdlv-title", children: produced ? t("produced.cardTitle", { count: String(files.length) }) : t("audit.label") }, "title"),
+					produced && (added > 0 || removed > 0) ? (0, react_jsx_runtime.jsxs)("span", { className: "kcdlv-stats", children: [
+						(0, react_jsx_runtime.jsx)("i", { className: "a", children: "+" + added }),
+						(0, react_jsx_runtime.jsx)("i", { className: "d", children: "−" + removed })
+					] }, "stats") : null,
+					headButtons.length > 0 ? (0, react_jsx_runtime.jsx)("div", { className: "kcdlv-actions", children: headButtons }, "actions") : null
+				] }, "head"),
+				produced ? (0, react_jsx_runtime.jsxs)("div", { className: "kcdlv-list", children: [
+					visible.map((file) => (0, react_jsx_runtime.jsx)(FileRow, {
+						file,
+						diffOpen: openDiff === file.path,
+						onToggle: () => {
+							setOpenDiff(openDiff === file.path ? null : file.path);
 						},
-						children: t("produced.showInFolder")
-					}),
-					(0, react_jsx_runtime.jsxs)("div", {
-						className: "kcdlv-tools",
-						children: tools
-					}),
-					reviewOpen && paths.length > 0 && (0, react_jsx_runtime.jsx)("div", {
-						className: "kcdlv-body",
-						children: files.map((file) => (0, react_jsx_runtime.jsx)(ReviewFileRow, {
-							file,
-							open: openPath === file.path,
-							onToggle: () => {
-								setOpenPath(openPath === file.path ? null : file.path);
-							},
-							t
-						}, file.path))
-					}),
-					reviewOpen && paths.length === 0 && (0, react_jsx_runtime.jsx)("div", {
-						className: "kcdlv-note",
-						children: closingText
-					}),
-					(0, react_jsx_runtime.jsxs)("div", {
-						className: ProducedFiles_module_css_default.measure,
-						"aria-hidden": "true",
-						children: [paths.slice(0, limit).map((path, index) => (0, react_jsx_runtime.jsx)("button", {
-							ref: (node) => {
-								chipProbes.current[index] = node;
-							},
-							type: "button",
-							tabIndex: -1,
-							className: `${ProducedFiles_module_css_default.file} ${ProducedFiles_module_css_default.probe}`,
-							children: basename(path)
-						}, path)), (0, react_jsx_runtime.jsx)("span", {
-							ref: moreProbe,
-							className: `${ProducedFiles_module_css_default.more} ${ProducedFiles_module_css_default.probe}`
-						})]
-					})
-				]
-			});
+						onOpen: () => {
+							openFile(file.path);
+						},
+						t
+					}, file.path)),
+					hidden > 0 ? (0, react_jsx_runtime.jsxs)("button", { type: "button", className: "kcdlv-foot", onClick: () => {
+						setExpanded(!expanded);
+					}, children: [
+						(0, react_jsx_runtime.jsx)("span", { className: "kcdlv-chev", children: "▾" }),
+						expanded ? t("review.close") : t("produced.expandMore", { count: String(hidden) })
+					] }, "more") : null
+				] }, "list") : reviewOpen ? (0, react_jsx_runtime.jsx)("div", { className: "kcdlv-note", children: closingText }, "note") : null
+			] });
 		}
-		//#endregion
+				//#endregion
 		//#region lib/types/client/locales.js
 		/** `deliverables` namespace dictionaries. */
 		/** Dictionary namespace owned by this plugin. */
@@ -543,12 +473,15 @@ window.__ModuleLoader__.load({
 			"produced.more": "+ {count} 个文件",
 			"produced.open": "打开 {name}",
 			"produced.showInFolder": "在文件夹中显示",
+			"produced.cardTitle": "已产出 {count} 个文件",
+			"produced.expandMore": "再显示 {count} 个文件",
 			"review.label": "审查变更",
 			"review.close": "收起",
 			"review.noDiff": "（该文件无 diff 详情）",
 			"review.more": "… 还有 {count} 行未展示",
 			"audit.label": "分析结论",
 			"audit.words": "字",
+			"audit.expand": "展开",
 			"audit.copy": "复制",
 			"audit.copied": "已复制"
 		};
@@ -559,12 +492,15 @@ window.__ModuleLoader__.load({
 			"produced.more": "+ {count} files",
 			"produced.open": "Open {name}",
 			"produced.showInFolder": "Show in folder",
+			"produced.cardTitle": "Produced {count} files",
+			"produced.expandMore": "Show {count} more files",
 			"review.label": "Review changes",
 			"review.close": "Collapse",
 			"review.noDiff": "(no diff details for this file)",
 			"review.more": "… {count} more lines not shown",
 			"audit.label": "Findings",
 			"audit.words": "chars",
+			"audit.expand": "Expand",
 			"audit.copy": "Copy",
 			"audit.copied": "Copied"
 		};
