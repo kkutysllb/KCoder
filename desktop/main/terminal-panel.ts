@@ -43,6 +43,9 @@ import type { TerminalTheme } from '@shared/ipc-contract'
 /** console 通道前缀（与注入脚本约定）。 */
 const TERMINAL_PREFIX = '__dsh_terminal__:'
 
+/** 上下文沉浸模式上报前缀（context-button PAGE_JS 发送，1=开/0=关）。 */
+const CONTEXT_PREFIX = '__dsh_ctx__:'
+
 /** 面板默认/界限高度（DIP）。 */
 const PANEL_DEFAULT_H = 280
 const PANEL_MIN_H = 140
@@ -254,6 +257,9 @@ class TerminalPanel {
   private panelH = clampH(getSettings().terminalHeight ?? PANEL_DEFAULT_H)
   /** 侧栏宽度（所有工作区视图共用一个值，跟随上游）。 */
   private sidebarW = 0
+  /** 上下文沉浸模式（dsh-context modal 打开）：终端全员让位，
+   * open 偏好保留，退出后原样恢复。 */
+  private ctxMode = false
 
   /** 构造：pty 事件路由（带 bucket 转发到对应 workspace view）。 */
   constructor() {
@@ -277,6 +283,12 @@ class TerminalPanel {
     const { webContents } = win
     const onConsole = (event: unknown, ...rest: unknown[]): void => {
       const message = consoleMessageText(event, rest)
+      // 上下文沉浸模式（context-button 上报）：modal 开关 → 终端全员
+      // 让位/恢复。放终端前缀检查之前（两个前缀互不包含，顺序无耦合）。
+      if (message.startsWith(CONTEXT_PREFIX)) {
+        this.setContextMode(message.slice(CONTEXT_PREFIX.length).trim() === '1')
+        return
+      }
       if (!message.startsWith(TERMINAL_PREFIX)) return
       let payload: Record<string, unknown>
       try { payload = JSON.parse(message.slice(TERMINAL_PREFIX.length)) as Record<string, unknown> } catch { return }
@@ -305,6 +317,9 @@ class TerminalPanel {
     }
     const onDidLoad = (): void => {
       if (win.isDestroyed()) return
+      // 页面重载后 modal 必然不在（React 状态重置），沉浸态若因上报
+      // 丢失卡住，在此复位（恢复 open 偏好的 view）
+      if (this.ctxMode) this.setContextMode(false)
       webContents.executeJavaScript(PAGE_JS, true).catch(() => {
         // 页面跳转间隙执行失败属正常，下次加载会重试
       })
@@ -359,6 +374,10 @@ class TerminalPanel {
   }
 
   toggle(): void {
+    // 沉浸模式期间一律无操作：终端开着时 toggle 走 hide 会清掉 open
+    // 偏好，退出沉浸后就不恢复了——按钮/菜单在 modal 期间点击无反应
+    //（状态冻结，退出后按进入前状态原样呈现）。
+    if (this.ctxMode) return
     const bucket = this.activeBucket ?? NO_WORKSPACE_KEY
     const entry = this.ensureEntry(bucket)
     if (entry.open) this.hide(bucket)
@@ -367,6 +386,10 @@ class TerminalPanel {
 
   /** 显示指定工作区面板：若 view 未挂载则懒建挂载+loadURL。 */
   show(bucket: string | null): void {
+    // 沉浸模式（上下文 modal 打开）期间拒绝显示：终端 view 一旦可见
+    // 会盖住 modal（compositor 层）；modal 关闭后按钮恢复可用。菜单 /
+    // 快捷键等 main 侧入口统一被此早退拦截。
+    if (this.ctxMode) return
     const win = this.win
     if (win === null || win.isDestroyed()) return
     const key = bucket ?? NO_WORKSPACE_KEY
@@ -471,6 +494,18 @@ class TerminalPanel {
   }
 
   /**
+   * 上下文沉浸模式：modal 打开（console 上报）时终端全员让位
+   * （open 偏好保留）；modal 关闭后按各工作区开合偏好原样恢复。
+   * 与手输 /context（不经 GUI）同被 MutationObserver 检测，覆盖全部
+   * 打开路径；页面重载由 onDidLoad 复位兑底。
+   */
+  setContextMode(on: boolean): void {
+    if (on === this.ctxMode) return
+    this.ctxMode = on
+    this.switchVisible(this.activeBucket ?? NO_WORKSPACE_KEY)
+  }
+
+  /**
    * 切工作区（active bucket 变化）时：恢复"目标工作区自己的"面板状态。
    * - 每个工作区独立记忆自己的开合偏好（entry.open）；
    * - 目标工作区若曾打开过面板（open=true）→ 恢复显示；没打开过 →
@@ -480,7 +515,7 @@ class TerminalPanel {
    */
   private switchVisible(newBucket: string): void {
     for (const [bucket, entry] of this.views) {
-      const shouldShow = bucket === newBucket && entry.open
+      const shouldShow = bucket === newBucket && entry.open && !this.ctxMode
       entry.view.setVisible(shouldShow)
       entry.shown = shouldShow
     }

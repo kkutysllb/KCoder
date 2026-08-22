@@ -9,6 +9,16 @@
  * 模块闭包内）。
  *
  * 打开态接管（无论 GUI 还是手输 /context 打开，一律接管）：
+ * - 沉浸模式：modal 开 → html 加 __dsh_ctx_mode class（三个让位层
+ *   CSS display:none：better-sidebar 面板 host、上游侧栏列、上游
+ *   overlay 层——它们 z 均低于 backdrop:200，DOM 已被盖，display:none
+ *   消除半透明 backdrop 下的透出杂音；退出零状态记录，class 移除即
+ *   复原）+ console 上报主进程隐藏终端 view（WebContentsView 在
+ *   compositor 层，页面 DOM 永远盖不住它，必须主进程
+ *   setVisible(false)；modal 关后按用户开合偏好原样恢复）；状态栏
+ *   按钮全部保留可见（沉浸期间点终端按钮无反应——show() 在
+ *   ctxMode 早退；点面板/折叠按钮改的是插件/上游状态，退出后按
+ *   最终状态呈现，符合直觉）；
  * - 拉满主页面区域：插件 backdrop 本就 position:fixed inset:0
  *   z-index:200，而自绘状态栏 z=int32 最大值恒在其上——天然只覆盖
  *   状态栏以下；注入 CSS 把 720px 居中卡片改为 padding-top:48px
@@ -23,9 +33,15 @@
  *
  * 上游契约（运行时探测）：composer 锚 [data-composer-card] textarea
  * （data 属性是稳定 API 面）；modal 锚 .lc-modal-backdrop /
- * .lc-modal-close（dsh-context 私有 lc- 前缀，不与他插件冲突）。
- * 受控输入须用原型 value setter + input 事件（React onChange 才收
- * 得到），Enter 用合成 keydown（上游无 isTrusted 检查）；React 状态
+ * .lc-modal-close（dsh-context 私有 lc- 前缀，不与他插件冲突）；
+ * 让位锄 [data-dsh-better-sidebar]（插件面板 host——dsh-better-sidebar
+ * 自己 appendChild 到 body 直下的独立 div，不在 frame 内；插件带
+ * 守护 observer 会在 host 被移出 body 时重挂，故只能 CSS 让位不能
+ * 动 DOM，display:none 不触发重挂）/[class*="sidebarCol"]（上游侧栏
+ * 列）/[class*="overlayLayer"]（上游 overlay 层，z:20）。console 通道
+ * 前缀 __dsh_ctx__:1/0（见 console-channel，terminal-panel.onConsole
+ * 消费）。受控输入须用原型 value setter + input 事件（React onChange
+ * 才收得到），Enter 用合成 keydown（上游无 isTrusted 检查）；React 状态
  * 异步，输入后隔一拍（60ms）再派发 Enter，matchEnter 才能读到整行。
  *
  * 草稿回滚/恢复的时序容错：Enter 后轮询等 modal（首次打开插件懒加载
@@ -51,6 +67,9 @@ const CONTEXT_BTN_RIGHT = 76
 
 /** 「返回任务」按钮 id（挂插件 backdrop 右上角，随 backdrop 消亡）。 */
 const BACK_BTN_ID = '__dsh_desktop_context_back'
+
+/** 沉浸模式 console 上报前缀（terminal-panel.onConsole 消费）。 */
+const CONTEXT_PREFIX = '__dsh_ctx__:'
 
 /** IconQueueOutline14（上游 ui-primitives，对话气泡 + 内容行 = 会话
  * 上下文；v1 用 IconDataOutline16 被看成汉字——三枚六边形集群在
@@ -90,6 +109,14 @@ const PAGE_JS = `(() => {
     // dsh-context 私有命名空间；modal 不存在时规则无目标零副作用）
     '.lc-modal-backdrop{padding-top:' + BAR_H + 'px !important;align-items:stretch !important}',
     '.lc-modal-card{width:100% !important;max-width:none !important;height:100% !important;max-height:none !important;border-radius:0 !important}',
+    // 沉浸让位（三个遮挡源 CSS 退场，退出 class 移除即复原）：
+    // - [data-dsh-better-sidebar]：插件面板 host（body 直下独立 div，
+    //   不在 frame 内；插件带守护 observer 会重挂被移出的 host，故只能
+    //   CSS 让位不能动 DOM，display:none 不触发重挂）；
+    // - [class*="sidebarCol"]：上游侧栏列；[class*="overlayLayer"]：
+    //   上游 overlay 层（z:20）。
+    // 状态栏按钮全部保留可见（藏按钮是 v1 的错误设计，用户否决）。
+    '.__dsh_ctx_mode [data-dsh-better-sidebar], .__dsh_ctx_mode [class*="sidebarCol"], .__dsh_ctx_mode [class*="overlayLayer"]{display:none !important}',
     // 「返回任务」按钮（挂 backdrop 内，随 backdrop 消亡，无需清理）
     '#' + BACK + '{all:unset;box-sizing:border-box;position:absolute;top:' + (BAR_H + 10) + 'px;right:12px;z-index:1;display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 12px;border-radius:7px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);font:500 12px -apple-system,"PingFang SC","Segoe UI",sans-serif;cursor:pointer;box-shadow:0 2px 8px #0003}',
     '#' + BACK + ' svg{width:14px;height:14px;display:block;flex:none}',
@@ -146,6 +173,16 @@ const PAGE_JS = `(() => {
     }, 60)
   }
 
+  // 沉浸模式开关：只在 modal 出现/消失的翻转沿上报（sync 每次变更
+  // 都跑）。页面重载会丢 class 与 ctxOn 记忆，主进程侧 onDidLoad
+  // 复位兑底；console 上报丢失时主进程 ctxMode 卡住由同一路径自愈。
+  let ctxOn = false
+  const setCtxMode = (on) => {
+    ctxOn = on
+    document.documentElement.classList.toggle('__dsh_ctx_mode', on)
+    console.log('${CONTEXT_PREFIX}' + (on ? '1' : '0'))
+  }
+
   // 「返回任务」注入（幂等）：点插件自带 × 走真实关闭路径
   // （pendingConsume 消费 composer 里的 token）；× 缺席兜底 Escape
   const injectBack = () => {
@@ -189,7 +226,9 @@ const PAGE_JS = `(() => {
   const sync = () => {
     const b = document.getElementById(BTN)
     if (b != null && b.disabled !== (ta() == null)) b.disabled = ta() == null
-    if (modal() != null) injectBack()
+    const inCtx = modal() != null
+    if (inCtx !== ctxOn) setCtxMode(inCtx)
+    if (inCtx) injectBack()
   }
 
   let tries = 0
