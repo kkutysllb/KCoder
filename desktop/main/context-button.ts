@@ -2,11 +2,19 @@
  * 上下文面板 GUI 入口（零侵入注入器）：状态栏插件代理与终端按钮
  * （sidebar-cluster 侧栏面板 12 / terminal-panel 内嵌终端 44）左侧
  * 注入「上下文」
- * 按钮（right 76），点击等价在输入框敲 /context 回车——dsh-context
- * 插件的 input trigger 真实契约（matchEnter 精确匹配 line ===
- * '/context' → modalStore.set(true) → 返回 'handled'：不发送消息、
- * 不进会话记录、模型不可见），比直调插件内部句柄稳（无全局句柄可调，
- * 模块闭包内）。
+ * 按钮（right 76），点击原生「上下文」tab——dsh-context v0.9+ 在
+ * conversation.view slot 注册 id:'context' 的 tab（order 20，与
+ * Chat/Trajectory 并列），渲染完整统计视图（StatsBoard 统计板/
+ * 当前构成/趋势图+请求明细/上下文浏览器/事件列表/消息构成/口径
+ * 脚注，比 /context modal 的两区块多五个统计维度）；上游 tab 头
+ * button[role="tab"] 文本走插件字典（zh「上下文」/en「Context」），
+ * 点击即 actions.setView('context')，view 状态随 ChatStore 持久化。
+ * tab 是文档流内视图（非 overlay），终端 view 的 padding 让位照常
+ * 生效，无需沉浸模式；tab 缺席（插件 <0.9/空态无会话）回退模拟
+ * /context 回车开 modal（dsh-context 插件的 input trigger 真实
+ * 契约：matchEnter 精确匹配 line === '/context' →
+ * modalStore.set(true) → 返回 'handled'：不发送消息、不进会话
+ * 记录、模型不可见；比直调插件内部句柄稳，无全局句柄可调）。
  *
  * 打开态接管（无论 GUI 还是手输 /context 打开，一律接管）：
  * - 沉浸模式：modal 开 → html 加 __dsh_ctx_mode class（三个让位层
@@ -143,8 +151,18 @@ const PAGE_JS = `(() => {
     }, 200)
   }
 
-  // 打开：模拟「输入 /context + 回车」走插件 input trigger 真实契约
-  // （matchEnter → handled：不发送消息、不进会话记录）
+  // 原生「上下文」tab 头（dsh-context v0.9+ 注册，id:'context'；
+  // 文本走插件字典 zh/en，trim 后整词匹配防误中）
+  const ctxTab = () => {
+    for (const b of document.querySelectorAll('button[role="tab"]')) {
+      const s = (b.textContent || '').trim()
+      if (s === '上下文' || s === 'Context') return b
+    }
+    return null
+  }
+
+  // 打开（回退路径）：模拟「输入 /context + 回车」走插件 input
+  // trigger 真实契约（matchEnter → handled：不发送消息、不进会话记录）
   const openPanel = () => {
     if (modal() != null) return
     const t = ta()
@@ -171,6 +189,17 @@ const PAGE_JS = `(() => {
         }
       }, 150)
     }, 60)
+  }
+
+  // 主路径：点击原生 tab 头（actions.setView('context')，完整统计
+  // 视图）。modal 打开期间冻结不动作（与沉浸模式的「状态冻结，退出
+  // 后原样呈现」一致）；已激活也不再动作——切回对话走页面上方的
+  // 原生 tab 栏，不自行发挥。
+  const openContext = () => {
+    if (modal() != null) return
+    const tab = ctxTab()
+    if (tab == null) { openPanel(); return }
+    if (tab.getAttribute('aria-selected') !== 'true') tab.click()
   }
 
   // 沉浸模式开关：只在 modal 出现/消失的翻转沿上报（sync 每次变更
@@ -216,16 +245,22 @@ const PAGE_JS = `(() => {
     b.title = '上下文'
     b.setAttribute('aria-label', '上下文')
     b.innerHTML = '${ICON_SVG}'
-    b.addEventListener('click', openPanel)
+    b.addEventListener('click', openContext)
     host.append(b)
     return 'injected'
   }
 
-  // 无 composer（空态无会话）→ 置灰；手输 /context 打开的 modal
+  // 无 composer（空态无会话）→ 置灰；上下文 tab 激活态挂 data-on
+  // （panel-menu 菜单项蓝点读取）；手输 /context 打开的 modal
   // 一并接管（拉满 + 返回按钮）
   const sync = () => {
     const b = document.getElementById(BTN)
     if (b != null && b.disabled !== (ta() == null)) b.disabled = ta() == null
+    const tab = ctxTab()
+    if (b != null && tab != null) {
+      if (tab.getAttribute('aria-selected') === 'true') b.setAttribute('data-on', '1')
+      else b.removeAttribute('data-on')
+    }
     const inCtx = modal() != null
     if (inCtx !== ctxOn) setCtxMode(inCtx)
     if (inCtx) injectBack()
@@ -238,7 +273,13 @@ const PAGE_JS = `(() => {
     if (status !== 'absent' || ++tries > 120) clearInterval(poll)
   }, 500)
 
-  new MutationObserver(sync).observe(document.body, { subtree: true, childList: true })
+  new MutationObserver(sync).observe(document.body, {
+    subtree: true,
+    childList: true,
+    // tab 激活翻转（aria-selected）→ 按钮 data-on 跟随
+    attributes: true,
+    attributeFilter: ['aria-selected'],
+  })
 })()`
 
 /**
