@@ -75,6 +75,24 @@ const EXT_LANG: Record<string, string> = {
   sql: 'sql', lua: 'lua', php: 'php', dart: 'dart',
 }
 
+/** 活动条目文本摘录的截断长度（textOfBlocks 用；子代理监控同用）。 */
+const TRAJ_TEXT_CHARS = 240
+
+/** 从消息 content 块里拼文本摘录（text 块拼接；纯图片/纯工具调用为 null）。子代理监控同用。 */
+export function textOfBlocks(content: unknown): string | null {
+  if (!Array.isArray(content)) return null
+  let text = ''
+  for (const block of content) {
+    if (block !== null && typeof block === 'object'
+      && (block as Record<string, unknown>).type === 'text'
+      && typeof (block as Record<string, unknown>).text === 'string') {
+      text += (text === '' ? '' : '\n') + (block as Record<string, unknown>).text as string
+    }
+  }
+  if (text === '') return null
+  return text.length > TRAJ_TEXT_CHARS ? text.slice(0, TRAJ_TEXT_CHARS - 1) + '…' : text
+}
+
 function langOf(path: string, hint: unknown): string | null {
   if (typeof hint === 'string' && hint !== '') return hint
   const dot = path.lastIndexOf('.')
@@ -126,8 +144,8 @@ interface MuxEnvelope {
   payload?: MuxFrame
 }
 
-/** mux 业务帧的最小形状（只声明消费的字段；event = SessionEvent 外壳）。 */
-interface MuxFrame {
+/** mux 业务帧的最小形状（只声明消费的字段；event = SessionEvent 外壳）。子代理监控也消费（onFrame）。 */
+export interface MuxFrame {
   type: string
   sessionId?: string
   event?: { type?: string; seq?: number; time?: number; data?: unknown }
@@ -163,11 +181,12 @@ class FileActivity extends EventEmitter {
     if (current.state === 'ready' && current.url !== null) this.connect(current.url)
   }
 
-  /** 页面探针解析的当前工作区（workspace-probe 喂进）。 */
+  /** 页面探针解析的当前工作区（workspace-probe 喂进；变化时发 workspace-changed，git 面板重探徽章跟随）。 */
   setWorkspace(path: string | null): void {
     const next = path !== null && path !== '' ? path : null
     if (next === this.activeWorkspace) return
     this.activeWorkspace = next
+    this.emit('workspace-changed', next)
   }
 
   /** 当前工作区桶键（无工作区时空串，桶仍可用但不常展示）。 */
@@ -179,6 +198,11 @@ class FileActivity extends EventEmitter {
   list(): PreviewEntry[] {
     const bucket = this.buckets.get(this.activeKey())
     return bucket === undefined ? [] : [...bucket.values()].reverse()
+  }
+
+  /** mux 帧观察口（subagent-monitor 消费子会话事件；只读，勿改帧）。 */
+  onFrame(cb: (frame: MuxFrame) => void): void {
+    this.on('frame', cb)
   }
 
   /** 应用退出前清理。 */
@@ -292,6 +316,7 @@ class FileActivity extends EventEmitter {
 
   private consume(frame: MuxFrame): void {
     if (frame.type !== 'session/event') return
+    this.emit('frame', frame)
     if (frame.event?.type !== 'tool/result') return
     const view = frame.view
     if (view?.for !== 'result' || view.view === undefined) return

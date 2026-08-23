@@ -21,6 +21,7 @@ import { attachSidebarToggle } from './sidebar-toggle'
 import { attachSidebarCluster } from './sidebar-cluster'
 import { attachContextButton } from './context-button'
 import { terminalPanel } from './terminal-panel'
+import { gitPanel } from './git-panel'
 import { attachStyleOverlay } from './style-overlay'
 import { attachWorkspaceHeader } from './workspace-header'
 import { attachStatsHover } from './stats-hover'
@@ -157,6 +158,10 @@ export function showShellWindow(dshUrl: string): void {
     // agent 运行态黑屏且无唤醒信号，产品侧弃用入口由 sidebar-cluster
     // 压制；按钮 right 44，页面探针/让位注入，多工作区独立视图）
     terminalPanel.attach(shellWindow)
+        // git 环境面板：右侧浮动卡片（主进程 git 探测 + 写操作串行队列；
+        // 计划文档扫描/子代理轨迹聚合；按钮 right 108——上下文按钮左侧，
+        // win32 由 panel-menu 收进下拉菜单；工作区跟随 file-activity）
+    gitPanel.attach(shellWindow)
     // 消息样式覆盖层：排版 token/气泡/代码块微调（零侵入，token 改名静默失效）
     attachStyleOverlay(shellWindow)
     // workspace 顶栏收纳：会话标题/标签/日志按钮迁至状态栏与抽屉，
@@ -185,7 +190,7 @@ export function showShellWindow(dshUrl: string): void {
     // 编辑表单；console 通道 CRUD mcp-store，保存后上游 HMR 热加载）
     attachMcpSettingsInjector(shellWindow)
     // win32 面板收纳菜单：原生控制按钮区盖住右侧面板按钮，
-    // 三枚代理按钮收进一枚下拉菜单（点击转发原按钮，状态实时克隆；
+    // 四枚代理按钮收进一枚下拉菜单（点击转发原按钮，状态实时克隆；
     // 其他平台 no-op 不注入）
     attachPanelMenu(shellWindow)
     // 只允许停留在 dsh 回环地址；外链交给系统浏览器

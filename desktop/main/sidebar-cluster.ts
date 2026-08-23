@@ -38,8 +38,8 @@
  *   `[class*="bottomPanelHidden"]`；
  * - 按钮宿主：theme-watcher 注入的自绘状态栏（#__dsh_desktop_titlebar）。
  *
- * right 序（预览/轨迹/日志/git 四钮已删）：侧栏面板 12（本注入器）/
- * 内嵌终端 44（terminal-panel）/ 上下文 76（context-button）；标题
+ * right 序：侧栏面板 12（本注入器）/ 内嵌终端 44（terminal-panel）/
+ * 上下文 76（context-button）/ git 108（git-panel）；标题
  * 避让带同步见 theme-watcher。
  *
  * 宿主时序不保证：bar 由 theme-watcher 注入（同 did-finish-load，
@@ -53,7 +53,7 @@ import type { BrowserWindow } from 'electron'
 const PANEL_BTN_ID = '__dsh_desktop_sidebar_panel_btn'
 
 /** 代理按钮右缘 right 偏移（DIP，全局 right 序：侧栏面板 12（本注入器）/
- * 内嵌终端 44（terminal-panel）/ 上下文 76（context-button））。 */
+ * 内嵌终端 44（terminal-panel）/ 上下文 76（context-button）/ git 108（git-panel））。 */
 const PANEL_BTN_RIGHT = 12
 
 const PAGE_JS = `(() => {

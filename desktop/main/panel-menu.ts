@@ -1,24 +1,38 @@
 /**
- * win32 面板收纳菜单：三枚代理按钮收进标题栏下拉菜单。
+ * win32 面板收纳菜单：四枚面板按钮收进标题栏下拉菜单。
  *
- * 背景（Windows titleBarOverlay 遮挡缺陷）：三枚代理按钮
- * （sidebar-cluster/terminal-panel/context-button 注入，
- * `position:absolute; right:12/44/76px`）挂在自绘标题栏内——
+ * 背景（Windows titleBarOverlay 遮挡缺陷）：四枚面板按钮
+ * （sidebar-cluster/terminal-panel/context-button/git-panel 注入，
+ * `position:absolute; right:12/44/76/108px`）挂在自绘标题栏内——
  * absolute 定位基于包含块 padding box（≈窗口右缘），标题栏为避让
  * 原生控制按钮区（titleBarOverlay 右侧 138px，绘制在窗口层最顶）
  * 加的 padding-right:138px 对 absolute 子元素无效 → 按钮带整段
- * （76+26=102 < 138）落在原生按钮区内被盖。
+ * （108+26=134 < 138）落在原生按钮区内被盖。
  *
- * 方案：win32 下三钮 display:none，由一枚菜单按钮（right:150px，
+ * 方案：win32 下四钮 display:none，由一枚菜单按钮（right:150px，
  * 原生区左侧安全位）下拉收纳。菜单项点击转发 .click() 到原按钮——
  * 原生 onclick 不依赖可见性，display:none 照常触发（workspace-header
  * 的 tab 兑底同款事实）；菜单项图标与开关态实时克隆自原按钮
- * （svg/disabled）。macOS/Linux 不注入本模块，三钮平铺现状不变。
+ * （svg/disabled）；点击转发原按钮 .click()。菜单按钮带 git 变更
+ * 红点（同步 git 按钮 .bdg 徽标）。macOS/Linux 不注入本模块，
+ * 四钮平铺现状不变。
+ *
+ * 与 WebContentsView 面板的冲突：下拉是页面 DOM，compositor 层上
+ * 任何独立视图（git 卡片/内嵌终端）都盖在它上面（z-index 无效），
+ * 故下拉开合经 console 通道（`__dsh_panel_menu:`）通知主进程：
+ * 打开 → 相关面板 yieldForMenu 临时收视图（开合态/让位 pad 全保留），
+ * 关闭 → 按原开合态恢复。
  *
  * @module desktop/main/panel-menu
  */
 
 import type { BrowserWindow } from 'electron'
+import { consoleMessageText } from './console-channel'
+import { gitPanel } from './git-panel'
+import { terminalPanel } from './terminal-panel'
+
+/** console 通道前缀：下拉开合上报（见模块头注释冲突段）。 */
+const MENU_PREFIX = '__dsh_panel_menu:'
 
 /** 注入脚本（页面上下文；模板串内无主进程插值，全部为页面代码）。 */
 const MENU_JS = `(() => {
@@ -28,6 +42,7 @@ const MENU_JS = `(() => {
     { id: '__dsh_desktop_sidebar_panel_btn', label: '侧边栏' },
     { id: '__dsh_desktop_terminal_btn', label: '内嵌终端' },
     { id: '__dsh_desktop_context_btn', label: '上下文' },
+    { id: '__dsh_desktop_git_btn', label: 'Git 面板' },
   ]
   const BTN = '__dsh_desktop_panel_menu_btn'
   const POP = '__dsh_desktop_panel_menu_pop'
@@ -48,6 +63,8 @@ const MENU_JS = `(() => {
     '#' + BTN + ':hover{background:color-mix(in srgb,currentColor 10%,transparent)}',
     '#' + BTN + ':active{background:color-mix(in srgb,currentColor 18%,transparent)}',
     '#' + BTN + '[data-open="1"]{background:color-mix(in srgb,currentColor 14%,transparent)}',
+    /* git 变更红点（同步原 git 按钮 .bdg 徽标） */
+    '#' + BTN + ' .dot{position:absolute;top:1px;right:0;min-width:13px;height:13px;padding:0 3px;border-radius:7px;background:#CF222E;color:#FFF;font:600 8.5px/13px -apple-system,"PingFang SC",sans-serif;text-align:center}',
     /* 下拉面板：按钮正下方，右缘对齐按钮右缘 */
     '#' + POP + '{position:fixed;top:52px;right:150px;z-index:2147483647;min-width:190px;padding:5px;border-radius:11px;box-shadow:0 8px 28px rgba(9,12,16,.18),0 0 0 1px rgba(9,12,16,.07);display:none}',
     '#' + POP + '[data-show="1"]{display:block}',
@@ -79,15 +96,33 @@ const MENU_JS = `(() => {
     attributes: true, attributeFilter: ['data-ds-dark-theme'],
   })
 
-  /* git 红点：随 git 面板删除，不再需要 */
+  /* git 红点：跟随 git 按钮 .bdg 徽标增删与文本 */
+  const syncDot = () => {
+    const btn = document.getElementById(BTN)
+    if (btn === null) return
+    const git = document.getElementById('__dsh_desktop_git_btn')
+    const bdg = git !== null ? git.querySelector('.bdg') : null
+    let dot = btn.querySelector('.dot')
+    if (bdg !== null) {
+      if (dot === null) {
+        dot = document.createElement('span')
+        dot.className = 'dot'
+        btn.append(dot)
+      }
+      dot.textContent = bdg.textContent
+    } else if (dot !== null) dot.remove()
+  }
 
   let openObs = null
   const closeMenu = () => {
     const pop = document.getElementById(POP)
+    const was = pop !== null && pop.getAttribute('data-show') === '1'
     if (pop !== null) pop.setAttribute('data-show', '0')
     if (openObs !== null) { openObs.disconnect(); openObs = null }
     const btn = document.getElementById(BTN)
     if (btn !== null) btn.setAttribute('data-open', '0')
+    /* 仅真的关了才通知：WebContentsView 面板（git 卡片/终端）恢复 */
+    if (was) console.log('__dsh_panel_menu:close')
   }
   /* 菜单项构建：图标克隆原按钮 svg；开关态读 data-open/data-on；
      禁用态跟随原按钮 disabled/.dim；点击转发原按钮 .click() */
@@ -137,6 +172,8 @@ const MENU_JS = `(() => {
       const src = document.getElementById(p.id)
       if (src !== null) openObs.observe(src, { attributes: true, childList: true, subtree: true })
     }
+    /* 通知主进程：WebContentsView 面板（git 卡片/终端）临时让位 */
+    console.log('__dsh_panel_menu:open')
   }
   const toggleMenu = (ev) => {
     ev.stopPropagation()
@@ -180,6 +217,14 @@ const MENU_JS = `(() => {
     }, true)
     document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeMenu() }, true)
 
+    /* git 徽标常驻观察（红点在菜单关闭时也要正确） */
+    const gitWatch = () => {
+      const git = document.getElementById('__dsh_desktop_git_btn')
+      if (git === null) { requestAnimationFrame(gitWatch); return }
+      new MutationObserver(syncDot).observe(git, { childList: true, subtree: true })
+      syncDot()
+    }
+    gitWatch()
     applyTheme()
     return true
   }
@@ -189,11 +234,21 @@ const MENU_JS = `(() => {
 })()`
 
 /**
- * 挂载面板收纳菜单（仅 win32；其他平台为 no-op，两钮平铺不变）。
+ * 挂载面板收纳菜单（仅 win32；其他平台为 no-op，四钮平铺不变）。
  */
 export function attachPanelMenu(win: BrowserWindow): void {
   if (process.platform !== 'win32') return
   const wc = win.webContents
+  // 下拉开合 → WebContentsView 面板让位/恢复（compositor 层冲突，
+  // 见模块头注释）
+  const onConsole = (event: unknown, ...rest: unknown[]): void => {
+    const message = consoleMessageText(event, rest)
+    if (!message.startsWith(MENU_PREFIX)) return
+    const on = message.slice(MENU_PREFIX.length) === 'open'
+    gitPanel.yieldForMenu(on)
+    terminalPanel.yieldForMenu(on)
+  }
+  wc.on('console-message', onConsole)
   const onDidLoad = (): void => {
     if (win.isDestroyed()) return
     wc.executeJavaScript(MENU_JS, true).catch(() => {
@@ -201,5 +256,8 @@ export function attachPanelMenu(win: BrowserWindow): void {
     })
   }
   wc.on('did-finish-load', onDidLoad)
-  win.on('closed', () => wc.removeListener('did-finish-load', onDidLoad))
+  win.on('closed', () => {
+    wc.removeListener('did-finish-load', onDidLoad)
+    wc.removeListener('console-message', onConsole)
+  })
 }

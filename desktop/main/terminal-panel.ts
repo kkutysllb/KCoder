@@ -19,7 +19,7 @@
  *   → POST /api/workspace.list → sessionIds 命中项的 path（契约细节见
  *   workspace 探针脚本内注释）；
  * - 按钮宿主：theme-watcher 注入的自绘标题栏（#__dsh_desktop_titlebar）；
- *   right 序 44（全局：侧栏面板 12 / 内嵌终端 44 / 上下文 76）。
+ *   right 序 44（全局：侧栏面板 12 / 内嵌终端 44 / 上下文 76 / git 108）。
  *
  * 2026-08 恢复：better-sidebar 底部面板在 agent 运行态黑屏（面板状态机
  * 脱节：height:0 但挤压变量残留 220px，且无自动唤醒信号），产品决策
@@ -422,6 +422,22 @@ class TerminalPanel {
     } else {
       // 隐藏的不是当前 active：仅同步自己，无需碰上游 padding
       this.layout()
+    }
+  }
+
+  /**
+   * panel-menu 下拉打开期间的临时让位（win32）：下拉是页面 DOM，
+   * compositor 层上任何 WebContentsView 都盖在它上面（z-index 无解），
+   * 只能临时收视图；open/shown 偏好全部保留，关闭即原样恢复
+   * （沉浸模式期间本就全部隐藏，不参与恢复）。
+   */
+  yieldForMenu(on: boolean): void {
+    for (const entry of this.views.values()) {
+      if (on) {
+        if (entry.shown) entry.view.setVisible(false)
+      } else if (entry.shown && !this.ctxMode) {
+        entry.view.setVisible(true)
+      }
     }
   }
 

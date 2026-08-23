@@ -60,7 +60,7 @@
  * disabled 置灰。
  *
  * right 序（全局，见 theme-watcher 避让带同步）：侧栏面板 12 /
- * 内嵌终端 44 / 上下文 76。
+ * 内嵌终端 44 / 上下文 76 / git 108。
  *
  * @module desktop/main/context-button
  */

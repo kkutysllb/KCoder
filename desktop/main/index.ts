@@ -15,6 +15,7 @@ import { installMenu, installTray, wireMenuRefresh } from './menu'
 import { closePanels, markQuitting, showBootstrap, showShellWindow } from './windows'
 import { fileActivity } from './file-activity'
 import { terminalPanel } from './terminal-panel'
+import { gitPanel } from './git-panel'
 import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-contract'
 import { ensureKcoderBundles } from './kcoder-skills-bundle'
 import { syncLanguagePatch } from './language-settings'
@@ -264,6 +265,7 @@ autoUpdater.on('before-quit-for-update', () => {
 app.on('before-quit', (event) => {
   markQuitting() // 首位置位：主窗口 close 拦截放行，退出不被托盘保活挡死
   terminalPanel.dispose() // 杀内嵌终端 shell（SIGTERM 发出即离开）
+  gitPanel.dispose() // 收起 git 面板 + 停子代理监控
   fileActivity.dispose() // 断开 mux 订阅
   if (dshManager.status.state === 'stopped' || dshManager.status.state === 'failed') return
   event.preventDefault()

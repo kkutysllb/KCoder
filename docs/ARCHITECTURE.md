@@ -46,7 +46,9 @@ KCoder 经历了三个时代，当前是第三时代：
 （状态栏四面板——文件预览/会话轨迹/日志导出/Git——已于 2026-08-20 删除，
 功能由预置插件 dsh-better-sidebar 承接；内嵌终端同日删除后于 2026-08-22
 恢复——插件底面板在 agent 运行态黑屏且无唤醒信号，产品决策弃用其
-入口（sidebar-cluster 压制看门狗）回归自研。）
+入口（sidebar-cluster 压制看门狗）回归自研；Git 面板于 2026-08-23 恢复
+——浮动卡片（`#/git`）承载状态/提交/推送/分支/计划文档/子代理轨迹，
+按钮 win32 收进 panel-menu 菜单组、macOS 平铺在按钮组左侧。）
 
 ### 品牌替换矩阵（品牌层换了，引擎层没换）
 
@@ -114,7 +116,9 @@ Electron 主进程 (desktop/main/)
 | `console-channel.ts` | console 通道：页面注入脚本 → 主进程 的上行通信约定（`__dsh_*:` 前缀） | 各注入模块 |
 | `sidebar-cluster.ts` | better-sidebar 开关簇收纳：插件开关簇隐藏，状态栏右侧面板代理按钮（点击转发插件真实按钮）+ 底面板压制看门狗（插件底面板产品侧弃用：agent 运行态黑屏无唤醒信号，持久化恢复/pane 归位等无按钮打开路径一律自动收回；终端回归自研 terminal-panel） | §8 点击转发 |
 | `terminal-panel.ts` + `pty-host.ts` | 内嵌终端（2026-08-22 自研回归）：每工作区独立 WebContentsView + node-pty 桶（多标签），切工作区仅 setVisible 不销毁；标题栏按钮 right 44 + 快捷键 Control+\`；让位几何广播 --dsh-terminal-inset（stats-hover 消费） | — |
-| `workspace-probe.ts` + `file-activity.ts` | 页面级存续功能（预览/Git 面板删除后迁出）：工作区探针（workspace.list → 标题栏工作区名/按钮 + fileActivity 工作区基准）、正文文件徽章（类型 + edit 增删行数）、历史会话补拉拦截；file-activity 为 mux 流按工作区分桶的聚合存储（sessionId→workspace 归属） | mux 流消费必须带归属维度 |
+| `git-panel.ts` + `subagent-monitor.ts` | Git 环境面板（2026-08-23 恢复）：透明 WebContentsView 浮动卡片（`#/git`）——仓库状态/提交/推送/分支切换/计划文档（shell.openPath 系统应用打开）/子代理轨迹（session.list 轮询 + mux `session/event` 帧聚合）；probeQueue 串行探测与写操作；按钮 right 108 + 徽章 `+N −M`；自动展开三重门槛（当前工作区/实时活动非 replay/git 仓库） | file-activity 帧观察面 |
+| `panel-menu.ts` | win32 面板收纳菜单：原生控制按钮区盖住右侧四枚面板按钮，收进一枚下拉菜单（点击转发原按钮，状态实时克隆；git 项红点同步徽章）；其他平台 no-op | 状态栏按钮 right 序 |
+| `workspace-probe.ts` + `file-activity.ts` | 页面级存续功能（预览面板删除后迁出）：工作区探针（workspace.list → 标题栏工作区名/按钮 + fileActivity 工作区基准）、正文文件徽章（类型 + edit 增删行数）、历史会话补拉拦截；file-activity 为 mux 流按工作区分桶的聚合存储（sessionId→workspace 归属），并向 git-panel 转发 session/event 帧 | mux 流消费必须带归属维度 |
 | `plugins.ts` | 插件桥：profile 层叠清单 + GitHub `topic:dsh-plugin` 发现 + `dsh plugin` CLI 转发 | — |
 | `native-overlay.ts` | 原生 in-box 包增强覆盖：增强版构建产物整文件覆盖到运行时实际解析到的安装树（`$DSH_HOME/profiles/node_modules` 扁平兑底 symlink → 真实位置；版本门 + mark 幂等 + 签名锚，双锚解析决定了 profile 内副本无法遮蔽安装树）。当前对象：dsh-client-ui-deliverables（原生产物面板 + 审查变更 +A/−R 与 hunk 红删绿增 + 纯审计轮结论卡）；overlay 源在 `native-overlay/`，原版快照在 `.patches/` | 上游 rc 升级须对照快照重制 overlay |
 | `updater.ts` + `update-injector.ts` | electron-updater + 向上游 logoRow 注入安装按钮（`kcoder://install-update` 深链） | — |
@@ -127,7 +131,8 @@ Electron 主进程 (desktop/main/)
 | `menu.ts` / `ipc.ts` / `store.ts` | 菜单与托盘 / IPC 分发 / 持久化 | — |
 
 渲染端（`desktop/renderer/src/views/`）：`landing`（KCoder 欢迎屏）、`splash`、
-`setup`、`diagnostics`、`sync`、`plugins`、`preferences`，
+`setup`、`diagnostics`、`sync`、`plugins`、`preferences`、`terminal`、`git`
+（后两者为面板窗口视图；shell 窗口走注入器，不走这些路由），
 hash 路由，无框架，纯 TS + 手写 DOM。
 
 ## 5. 上游克隆的特殊性（重建时踩过）
