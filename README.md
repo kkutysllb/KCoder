@@ -28,9 +28,9 @@ KCoder 以 DSH-Desktop（v0.1.4，`f29f852`）为基线整仓拷贝起步，两�
 
 ## 快速开始
 
-前置：Node.js（≥ 上游要求，见 `deepseek-harness/package.json` 的 `engines.node`）、pnpm v10、git。
+前置：Node.js（≥ 上游要求，见 `deepseek-harness/package.json` 的 `engines.node`）、pnpm v11、git。
 
-> **pnpm 必须是 v10，且本机全局只保留这一个主版本**（安装：`npm install -g pnpm@10`）。CI 与上游构建链均基于 pnpm 10（store v10）；若与其它主版本（如自装的 v11）并存，`~/.dsh/profiles/web` 的依赖链接与调用到的 pnpm store 大版本不一致，插件安装/更新会报 `ERR_PNPM_UNEXPECTED_STORE` 失败；且 pnpm 11 对补丁应用失败是硬错误（`ERR_PNPM_PATCH_FAILED`，pnpm 10 为静默跳过），KCoder 的插件补丁链按 pnpm 10 行为设计。已混装的机器：卸载多余主版本（自装版即删 `%LOCALAPPDATA%\pnpm` 目录及注册表 `PNPM_HOME` 变量、User PATH 里的 `%PNPM_HOME%\bin` 条目），确保任意终端 `pnpm --version` 为 10.x，再删除 `~/.dsh/profiles/web/node_modules` 与 `pnpm-lock.yaml`，重启 KCoder 自动重装。
+> **pnpm 必须是 v11，且本机全局只保留这一个主版本**（安装：`npm install -g pnpm@11`）。上游 `packageManager` 声明、CI 与桌面端内置运行时的 vendored pnpm 均为 v11（当前 11.7.0）；profile（`~/.dsh/profiles/web`）的依赖链接与其调用到的 pnpm store 大版本必须一致，与其它主版本（如旧的 v10）并存时插件安装/更新会报 `ERR_PNPM_UNEXPECTED_STORE`。KCoder 的插件补丁链已按 pnpm 11 语义适配（patchedDependencies 用精确版本键 + `allowUnusedPatches` 容忍漂移；老版本的 name-only 声明会在启动时自动迁移）。已混装的机器：卸载多余主版本（npm 装的`npm uninstall -g pnpm` 后重装指定主版本；自装版即删 `%LOCALAPPDATA%\pnpm` 目录及注册表 `PNPM_HOME` 变量、User PATH 里的 `%PNPM_HOME%\bin` 条目），确保任意终端 `pnpm --version` 为 11.x，再删除 `~/.dsh/profiles/web/node_modules` 与 `pnpm-lock.yaml`，重启 KCoder 自动重装。
 
 ```sh
 pnpm install          # 安装桌面端依赖

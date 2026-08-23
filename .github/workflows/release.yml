@@ -37,7 +37,10 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          # 与上游 deepseek-harness 的 packageManager 及内置运行时 vendored
+          # pnpm 保持同主版本（profile store 链接与 store 大版本一致，否则
+          # ERR_PNPM_UNEXPECTED_STORE）
+          version: 11.7.0
       - uses: actions/setup-node@v4
         with:
           node-version: 22

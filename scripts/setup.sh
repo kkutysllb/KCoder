@@ -18,7 +18,14 @@ warn() { printf '\033[1;33m[setup] 警告：\033[0m %s\n' "$*" >&2; }
 
 command -v git >/dev/null 2>&1 || die "需要 git"
 command -v node >/dev/null 2>&1 || die "需要 Node.js（上游要求 ^22.19.0 || >=24.0.0）"
-command -v pnpm >/dev/null 2>&1 || die "需要 pnpm（可运行：corepack enable && corepack prepare pnpm@latest --activate）"
+command -v pnpm >/dev/null 2>&1 || die "需要 pnpm 11（可运行：corepack enable && corepack prepare pnpm@11 --activate，或 npm install -g pnpm@11）"
+# 主版本软校验：与上游 packageManager 及内置运行时 vendored pnpm 同主版
+# 本（store 大版本不一致 → ERR_PNPM_UNEXPECTED_STORE）；不 die，交由
+# 后续 install 的硬错误兜底
+if [[ "$(pnpm --version 2>/dev/null | cut -d. -f1)" != "11" ]]; then
+  warn "当前 pnpm $(pnpm --version) 主版本非 11，与上游/vendored 不一致，"
+  warn "依赖安装可能报 ERR_PNPM_UNEXPECTED_STORE / PATCH_FAILED，建议对齐"
+fi
 
 if [[ ! -d "$UPSTREAM/.git" && "${1:-}" != "--skip-clone" ]]; then
   say "克隆上游 deepseek-harness …"

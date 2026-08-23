@@ -19,10 +19,11 @@
  * - dsh-context：node half 缓存失败缺陷（projection 状态残留），修复版
  *   与 npm 原版快照归档于 .patches/dsh-context-fix 与 .patches/dsh-context
  *
- * 补丁通过 pnpm patchedDependencies（name-only 声明）固化在 profile：
- *   - 上游任意版本安装/升级时 pnpm 都会尝试应用；应用失败静默跳过
- *     （插件裸装，keyed slot 报错横幅提示需更新 patch）——因此上游发
- *     版后直接 `pnpm update <pkg>` 即可自动跟随
+ * 补丁通过 pnpm patchedDependencies 固化在 profile：精确版本键
+ *   （name@ver）只对匹配版本应用；版本漂移时声明“未用”由
+ *   allowUnusedPatches 容忍（pnpm 11 对失配补丁是硬错误
+ *   ERR_PNPM_PATCH_FAILED，内置运行时 vendored 的就是 11）——因此
+ *   上游发版后直接 `pnpm update <pkg>` 即可自动跟随
  *   - 依赖声明 ^0.12.x 本就允许 minor/patch 自动升级
  *
  * 用法：
@@ -141,10 +142,10 @@ function patchApplied() {
   return missing
 }
 
-/** 幂等声明 patchedDependencies（name-only），声明跟随 dependencies 实态
- *  （与 desktop/main/profile-patches.ts 的 ensurePatchDeclared 同规则）：
- *  包不在 deps 时不声明且摘除已有声明——pnpm 对未用补丁声明报
- *  ERR_PNPM_UNUSED_PATCH（exit 1），残留声明会让 profile install 整体失败。 */
+/** 幂等声明 patchedDependencies，声明跟随 dependencies 实态（与
+ *  desktop/main/profile-patches.ts 的 ensurePatchDeclared 同规则）：
+ *  精确版本键（name@ver，@x 类 name-only）+ allowUnusedPatches 容忍；
+ *  包不在 deps 时不声明且摘除已有声明（两种键形态都匹配）。 */
 function ensurePatchDeclared() {
   if (!existsSync(WORKSPACE_YAML)) die(`profile workspace 不存在：${WORKSPACE_YAML}`)
   let yaml = readFileSync(WORKSPACE_YAML, 'utf8')
@@ -155,20 +156,61 @@ function ensurePatchDeclared() {
     die(`profile package.json 不可读：${join(PROFILE, 'package.json')}`)
   }
   let changed = false
+  const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, (ch) => `\\${ch}`)
+  // 该包的任意声明行：name-only 与 name@ver 两种键形态（scoped 带引号，
+  // @ver 在引号内）
+  const declLineOf = (pkg) =>
+    new RegExp(String.raw`^  (?:'${escapeRe(pkg)}(?:@[^']+)?'|${escapeRe(pkg)}(?:@[^:\s'"]+)?)?: patches/[^\n]*\n?`, 'gm')
+  // pnpm 11 语义配套：未用声明容忍（精确键漂移/摘除残留都不再报 ERR_PNPM_UNUSED_PATCH）
+  if (!/^allowUnusedPatches:/m.test(yaml)) {
+    const anchor = 'nodeLinker: hoisted\n'
+    if (yaml.includes(anchor)) {
+      yaml = yaml.replace(
+        anchor,
+        `${anchor}# KCoder：未用补丁声明容忍（精确版本键 + 实装版本漂移时声明未用不报错）\nallowUnusedPatches: true\n`,
+      )
+      changed = true
+    }
+  }
   for (const f of PATCHES) {
     const pkg = pkgNameOf(f)
     if (deps.has(pkg)) continue
-    const key = pkg.replace(/[.*+?^${}()|[\]\\]/g, (ch) => `\\${ch}`)
-    const next = yaml.replace(new RegExp(`^  (?:'${key}'|${key}): patches/[^\\n]*\\n?`, 'gm'), '')
+    const next = yaml.replace(declLineOf(pkg), '')
     if (next !== yaml) {
       yaml = next
       changed = true
       say(`已摘除未用补丁声明（包不在 dependencies）：${pkg}`)
     }
   }
-  const missing = PATCHES.filter(
-    (f) => deps.has(pkgNameOf(f)) && !yaml.includes(`\n  ${yamlKeyOf(pkgNameOf(f))}: patches/`),
-  )
+  const declKeyOf = (f) => {
+    const pkg = pkgNameOf(f)
+    const vm = /@([^@]+)\.patch$/.exec(f)
+    return vm === null || vm[1] === 'x' ? pkg : `${pkg}@${vm[1]}`
+  }
+  // 键形态迁移：name-only → 精确版本键（@x 类除外）——老 profile（v0.2.9
+  // 及之前）的 name-only 声明在 pnpm 11 下版本漂移即 PATCH_FAILED 硬错误；
+  // 既有精确键时 name-only 是冗余（老代码误判追加的现场）直接摘除
+  for (const f of PATCHES) {
+    const pkg = pkgNameOf(f)
+    const vm = /@([^@]+)\.patch$/.exec(f)
+    if (vm === null || vm[1] === 'x' || !deps.has(pkg)) continue
+    const nameOnly = new RegExp(String.raw`^  (?:'${escapeRe(pkg)}'|${escapeRe(pkg)}): patches/[^\n]*\n`, 'gm')
+    if (!nameOnly.test(yaml)) continue
+    const exact = new RegExp(String.raw`^  (?:'${escapeRe(pkg)}@[^']+'|${escapeRe(pkg)}@[^:\s'"]+): patches/`, 'm')
+    // 老代码可反复追加同名 name-only 行：首处升级为精确键，其余摘除
+    // （全局替换会把每一行都变成重复精确键，yaml 重复键 pnpm 拒解析）
+    let upgraded = false
+    yaml = exact.test(yaml)
+      ? yaml.replace(nameOnly, '')
+      : yaml.replace(nameOnly, () => {
+          if (upgraded) return ''
+          upgraded = true
+          return `  ${yamlKeyOf(declKeyOf(f))}: patches/${f}\n`
+        })
+    changed = true
+    say(`补丁声明键形态已规范（name-only → 精确键/摘除冗余）：${pkg}`)
+  }
+  const missing = PATCHES.filter((f) => deps.has(pkgNameOf(f)) && !declLineOf(pkgNameOf(f)).test(yaml))
   if (missing.length === 0 && !changed) {
     say('patchedDependencies 已同步（跟随 dependencies 实态），跳过写入')
     return
@@ -177,7 +219,7 @@ function ensurePatchDeclared() {
     writeFileSync(WORKSPACE_YAML, yaml)
     return
   }
-  const entries = missing.map((f) => `  ${yamlKeyOf(pkgNameOf(f))}: patches/${f}`).join('\n')
+  const entries = missing.map((f) => `  ${yamlKeyOf(declKeyOf(f))}: patches/${f}`).join('\n')
   const m = yaml.match(/^patchedDependencies:\n(?:[ \t].*\n?)*/m)
   if (m) {
     // 已有块：新条目追加到块尾（replace 避免 m[0] 与文件头的偏移错位）
@@ -186,8 +228,8 @@ function ensurePatchDeclared() {
     const anchor = 'nodeLinker: hoisted\n'
     if (!yaml.includes(anchor)) die('pnpm-workspace.yaml 缺少 nodeLinker: hoisted 锚点，无法定位插入')
     const block = `patchedDependencies:
-  # name-only：上游任意版本都尝试应用；应用失败时 pnpm 静默跳过（插件裸装，
-  # keyed slot 报错横幅会提示需要更新 patch）。
+  # 精确版本键：只对匹配版本应用；版本漂移时声明未用由
+  # allowUnusedPatches 容忍（pnpm 11 语义）。
 ${entries}
 `
     yaml = yaml.replace(anchor, anchor + block)

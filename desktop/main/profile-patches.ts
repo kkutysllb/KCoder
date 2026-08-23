@@ -44,11 +44,17 @@
  *   把用户消息复制到输入框（方案 A 改为就地编辑：点击铅笔气泡内
  *   变 textarea + 发送/取消，发送直接调 conversation.send(newText) 走新
  *   一轮，session 落定无删除能力故保留原消息实际展示+新轮并存的方案）。
- *   patches 文件  @dsh-external__dsh-drag-to-attachment__edit-copy@x.patch
+ *   patches 文件已并入宿主 @1.0.3.patch（曾有独立 __edit-copy@x.patch：
+ *   其键名 pkgNameOf 产出带 __edit-copy 后缀、恒不匹配 dependencies，
+ *   声明从未写入——0.2.7 至 0.2.10 增强实际从未应用的根因；同包
+ *   pnpm 仅支持一个 patchedDependencies 声明，合并是唯一正解）
  *
- * 补丁经 pnpm patchedDependencies（name-only 声明）固化在用户 profile：
- * 上游任意版本安装/升级时 pnpm 都会尝试应用，应用失败静默跳过（插件
- * 裸装，报错横幅提示需更新 patch）。
+ * 补丁经 pnpm patchedDependencies 固化在用户 profile：精确版本键
+ * （name@ver）只对匹配版本应用；版本漂移时声明“未用”，由
+ * allowUnusedPatches 容忍——pnpm 11（内置运行时 vendored 版本，对齐
+ * 上游 packageManager）对补丁应用失败是硬错误 ERR_PNPM_PATCH_FAILED，
+ * name-only 全版本强套 + 静默跳过是 pnpm 10 语义。@x（无版本锚）patch
+ * 维持 name-only，失配面收窄到这一类（补丁链自愈兑底覆盖）。
  *
  * macOS 上靠 launchd 定时任务同步；Windows 无此机制，且 0.1.5 之前
  * 的安装包根本不随包分发 patch——本模块补上：app 启动时（dsh 启动
@@ -111,16 +117,13 @@ function patchFiles(source: string): string[] {
 const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
   // 修复特征：附件分支的 return（原版 1.0.3 无此串；clearFiles 组合锚定
   // 防上游未来自己加同款串时误判）
+  // KCoder 编辑/复制增强标记（已并入宿主 patch；commitEditInPlace /
+  // editBtnStyle.PRIMARY 都是 KCoder 引入，足够稳定不可误判）
   '@dsh-external/dsh-drag-to-attachment': [
     ['lib/client.js', "clearFiles()\n        return { kind: 'success' }"],
     // Everything spawn 防崩修复（单行 mark：即便无读侧行尾归一化也不受
     // CRLF 产物影响）
     ['lib/index.js', "child.on('error', () => {})"],
-  ],
-  // KCoder 编辑/复制增强标记（请勿与上游符号同名；防原版错把此串放进
-  // 上游产物；version anchor + 锚点同等：commitEditInPlace + editBtnStyle.PRIMARY
-  // 都是 KCoder 引入，足够稳定不可误判）
-  '@dsh-external/dsh-drag-to-attachment__edit-copy': [
     ['lib/client.js', "editBtnStyle.PRIMARY = 'kcoder-edit-primary'"],
   ],
   'dsh-plugin-genui': [
@@ -245,7 +248,8 @@ function enforcePatchFallbacks(profileDir: string): void {
 
 /**
  * 补丁是否已生效：逐 patch 按包名特征校验；插件未安装视为已满足
- * （后续 dsh plugin install 时 pnpm 会自动应用 name-only 补丁）。
+ * （后续 dsh plugin install 时 pnpm 对匹配版本自动应用）；带版本的
+ * 声明在版本漂移时不应用（「未用」），锄点兑底与自愈链据此跳过。
  * mark 匹配前把产物行尾归一化为 LF——drag-to-attachment 的 lib 是
  * CRLF 文件（v1.0.3 tarball 固定字节），跨行组合 mark 按字节匹配会恒
  * 失配，导致每次启动误判未生效而反复 install 重放（阻塞主进程）。
@@ -269,16 +273,17 @@ function patchApplied(profileDir: string, files: string[]): boolean {
 }
 
 /**
- * 幂等声明 patchedDependencies（name-only），声明严格跟随 profile
- * dependencies 实态（依赖图真相）：
+ * 幂等声明 patchedDependencies，声明严格跟随 profile dependencies
+ * 实态（依赖图真相）：
  * - 包在 manifest dependencies 而未声明 → 补写（未装但已声明依赖也算
  *   ——install 时进依赖图，补丁须先就位；用户自装 genui 后下次启动
  *   在此补声明，marks 校验未过则锄点注入/重装自愈）
  * - 包已声明但不在 dependencies（预置撤除后残留/用户卸载）→ 摘除该行
- *   ——pnpm 对未使用的补丁声明直接 ERR_PNPM_UNUSED_PATCH（exit 1），
- *   残留声明会让 profile 任何 install 整体失败（genui 撤预置的教训：
- *   fresh 机不再装它，声明必须同步收缩）；摘除范围仅限本模块分发的包，
- *   用户手动声明的其它补丁不动
+ *   （allowUnusedPatches 已容忍未用声明，摘除仍保持配置卫生）；
+ *   摘除范围仅限本模块分发的包，用户手动声明的其它补丁不动
+ * - 声明键用精确版本（name@ver，patch 文件名的 @ver 段）：pnpm 11 对
+ *   失配补丁硬错误，精确键让漂移版本不应用（“未用”）；@x 类维持
+ *   name-only；同时确保 allowUnusedPatches: true 在位
  * 返回声明操作是否执行到位（yaml 缺锚点等失败降级继续）。
  */
 function ensurePatchDeclared(profileDir: string, names: string[]): boolean {
@@ -294,16 +299,31 @@ function ensurePatchDeclared(profileDir: string, names: string[]): boolean {
     // manifest 缺失/损坏：无法判定实态，不增不删（后续 install 也会因
     // manifest 崩，修复它不归本模块）
   }
+  // pnpm 11 语义配套：未用声明容忍（精确键漂移/摘除残留都不再报
+  // ERR_PNPM_UNUSED_PATCH）
+  if (!/^allowUnusedPatches:/m.test(yaml)) {
+    const topAnchor = 'nodeLinker: hoisted\n'
+    if (yaml.includes(topAnchor)) {
+      yaml = yaml.replace(
+        topAnchor,
+        `${topAnchor}# KCoder：未用补丁声明容忍（精确版本键 + 实装版本漂移时声明未用不报错）\nallowUnusedPatches: true\n`,
+      )
+      changed = true
+    }
+  }
+  const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, (ch) => `\\${ch}`)
+  // 该包的任意声明行：name-only 与 name@ver 两种键形态（scoped 带引号，
+  // @ver 在引号内）；兼容历史写入的裸键
+  const declLineOf = (pkg: string): RegExp =>
+    new RegExp(
+      String.raw`^  (?:'${escapeRe(pkg)}(?:@[^']+)?'|${escapeRe(pkg)}(?:@[^:\s'"]+)?)?: patches/[^\n]*\n?`,
+      'gm',
+    )
   if (deps !== undefined) {
     for (const n of names) {
       const pkg = pkgNameOf(n)
       if (deps.has(pkg)) continue
-      const key = pkg.replace(/[.*+?^${}()|[\]\\]/g, (ch) => `\\${ch}`)
-      // 行形态兼容历史写入：裸键（dsh-plugin-genui）与带引号 scoped 键
-      const next = yaml.replace(
-        new RegExp(String.raw`^  (?:'${key}'|${key}): patches/[^\n]*\n?`, 'gm'),
-        '',
-      )
+      const next = yaml.replace(declLineOf(pkg), '')
       if (next !== yaml) {
         yaml = next
         changed = true
@@ -324,14 +344,51 @@ function ensurePatchDeclared(profileDir: string, names: string[]): boolean {
     if (changed) writeFileSync(yamlPath, yaml)
     return true
   }
+  const declKeyOf = (n: string): string => {
+    const pkg = pkgNameOf(n)
+    const vm = /@([^@]+)\.patch$/.exec(n)
+    return vm === null || vm[1] === 'x' ? pkg : `${pkg}@${vm[1]}`
+  }
+  // 键形态迁移：name-only → 精确版本键（@x 类除外）。老版本（v0.2.9 及
+  // 之前的打包/脚本）写 name-only 声明，且其缺失检测不识别精确键——
+  // 升级后首次启动会把精确键现场误判缺失而追加 name-only（两种形态并
+  // 存）；name-only 对漂移版本强套 patch 在 pnpm 11 下是硬错误
+  // PATCH_FAILED，既有精确键时 name-only 是冗余直接摘除，无则升级
+  for (const n of names) {
+    const pkg = pkgNameOf(n)
+    const vm = /@([^@]+)\.patch$/.exec(n)
+    if (vm === null || vm[1] === 'x' || !deps.has(pkg)) continue
+    const nameOnly = new RegExp(
+      String.raw`^  (?:'${escapeRe(pkg)}'|${escapeRe(pkg)}): patches/[^\n]*\n`,
+      'gm',
+    )
+    if (!nameOnly.test(yaml)) continue
+    const exact = new RegExp(
+      String.raw`^  (?:'${escapeRe(pkg)}@[^']+'|${escapeRe(pkg)}@[^:\s'"]+): patches/`,
+      'm',
+    )
+    // 老代码可反复追加同名 name-only 行：首处升级为精确键，其余摘除
+    // （全局替换会把每一行都变成重复精确键，yaml 重复键 pnpm 拒解析）
+    let upgraded = false
+    yaml = exact.test(yaml)
+      ? yaml.replace(nameOnly, '')
+      : yaml.replace(nameOnly, () => {
+          if (upgraded) return ''
+          upgraded = true
+          return `  ${yamlKeyOf(declKeyOf(n))}: patches/${n}\n`
+        })
+    changed = true
+    console.log(`[profile-patches] 补丁声明键形态已规范（name-only → 精确键/摘除冗余）：${pkg}`)
+    healLog(`[patches] 补丁声明键形态已规范（name-only → 精确键/摘除冗余）：${pkg}`)
+  }
   const missing = names.filter(
-    (n) => deps.has(pkgNameOf(n)) && !yaml.includes(`\n  ${yamlKeyOf(pkgNameOf(n))}: patches/`),
+    (n) => deps.has(pkgNameOf(n)) && !declLineOf(pkgNameOf(n)).test(yaml),
   )
   if (missing.length === 0) {
     if (changed) writeFileSync(yamlPath, yaml)
     return true
   }
-  const entries = missing.map((n) => `  ${yamlKeyOf(pkgNameOf(n))}: patches/${n}`).join('\n')
+  const entries = missing.map((n) => `  ${yamlKeyOf(declKeyOf(n))}: patches/${n}`).join('\n')
   const m = yaml.match(/^patchedDependencies:\n(?:[ \t].*\n?)*/m)
   if (m) {
     // 已有块（如旧版仅 genui）：新条目追加到块尾（replace 避免 m[0]
@@ -344,12 +401,13 @@ function ensurePatchDeclared(profileDir: string, names: string[]): boolean {
       if (changed) writeFileSync(yamlPath, yaml)
       return false
     }
-    // 声明块逐 patch 生成：name-only（不锁版本）→ 上游任意版本都尝试应用
+    // 声明块逐 patch 生成：精确版本键（@x 类除外）——漂移版本不应用，
+    // 声明未用由 allowUnusedPatches 容忍（pnpm 11 语义）
     yaml = yaml.replace(
       anchor,
       `${anchor}patchedDependencies:
-  # 上游插件缺陷补丁（app 启动幂等物化）：name-only 声明，上游任意版本
-  # 都尝试应用；应用失败时 pnpm 静默跳过（插件裸装，报错横幅会提示）。
+  # 上游插件缺陷补丁（app 启动幂等物化）：精确版本键，只对匹配版本应用；
+  # 版本漂移时声明未用由 allowUnusedPatches 容忍（pnpm 11 语义）。
 ${entries}
 `,
     )
@@ -366,7 +424,6 @@ const KNOWN_PATCH_SENTINELS = [
   'dsh-plugin-genui@x.patch',
   'dsh-context@x.patch',
   '@dsh-external__dsh-drag-to-attachment@x.patch',
-  '@dsh-external__dsh-drag-to-attachment__edit-copy@x.patch',
   'dsh-better-sidebar@x.patch',
   'dsh-video-preview@x.patch',
 ]

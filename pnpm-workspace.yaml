@@ -1,0 +1,11 @@
+# pnpm 11 起 settings 的家（package.json 的 pnpm 字段已废弃，pnpm 10.34
+# 同样从此文件读取，双版本兼容）：原生/二进制构建脚本白名单——
+# electron 下载、esbuild 二进制替换、node-pty 原生编译、electron-winstaller
+# （Squirrel 辅助二进制，NSIS 打包链的传递依赖）。
+# 注意用 allowBuilds record 形态：pnpm 11 的构建门只认 record，
+# onlyBuiltDependencies 列表在 11 下不生效（ERR_PNPM_IGNORED_BUILDS 硬错误）
+allowBuilds:
+  electron: true
+  esbuild: true
+  node-pty: true
+  electron-winstaller: true
