@@ -3,11 +3,16 @@
  * Profile 插件同步与上游更新脚本（KCoder 发布物 ↔ 用户 DSH profile）。
  *
  * 已覆盖插件缺陷补丁（profiles/web/patches/*.patch）：
- * - @dsh-external/dsh-drag-to-attachment：wrap 的 sendSession 附件分支
- *   发送成功后无 return（resolve undefined）——rc.8 提交事务硬化后
- *   settleSubmit 读 undefined.kind 炸 TypeError，machine 卡 submitting，
- *   带附件/图片发送后输入框永久锁死。补丁补一行 return（github 源插件，
- *   不在 npm，update 模式自动跳过）
+ * - @dsh-external/dsh-drag-to-attachment：两处缺陷：
+ *   1) wrap 的 sendSession 附件分支发送成功后无 return（resolve
+ *      undefined）——rc.8 提交事务硬化后 settleSubmit 读 undefined.kind
+ *      炸 TypeError，machine 卡 submitting，带附件/图片发送后输入框永久
+ *      锁死。补丁补一行 return（github 源插件，不在 npm，update 模式
+ *      自动跳过）
+ *   2) v1.0.3 npm files 白名单排除 vendor/everything（Everything.exe
+ *      恒缺），ensureEverything 的 spawn ENOENT 无 error 监听 →
+ *      unhandled 'error' 崩掉 dsh 进程。修复在 patch 文件内（pnpm 应用
+ *      器对 CRLF 产物行尾宽容），app 启动链另有 CRLF 锄点注入兑底
  * - dsh-plugin-genui：卡片注册漏传 key + node half 不注册 settings
  *   namespace 两个上游缺陷（npm 最新版同样存在）。插件已不预置
  *   （由用户经插件市场自行安装），补丁仍分发：自装后 --sync 补声明应用
@@ -56,6 +61,8 @@ function yamlKeyOf(pkg) {
 const PATCH_MARKS = {
   '@dsh-external/dsh-drag-to-attachment': [
     ['lib/client.js', "clearFiles()\n        return { kind: 'success' }"],
+    // Everything spawn 防崩修复（单行 mark，不受 CRLF 产物行尾影响）
+    ['lib/index.js', "child.on('error', () => {})"],
   ],
   'dsh-plugin-genui': [
     ['lib/client.js', 'key: "genui-design"'],
@@ -97,16 +104,38 @@ function latestVersion(pkg) {
   }
 }
 
-/** 返回未生效的特征（{pkg}/{file} 列表）；空数组 = 全部生效。 */
+/** 补丁与实装版本门控（与 profile-patches.ts 的 patchVersionMatches 保持
+ *  一致）：patch 按特定版本产物字节生成，版本漂移后 hunk 必然失配（pnpm
+ *  WARN 跳过），视为不适用而非缺失；@x 后缀不设门。 */
+function patchVersionMatches(patchFile, modDir) {
+  const m = /@([^@]+)\.patch$/.exec(patchFile)
+  if (m === null || m[1] === 'x') return true
+  try {
+    return JSON.parse(readFileSync(join(modDir, 'package.json'), 'utf8')).version === m[1]
+  } catch {
+    return true
+  }
+}
+
+/** 返回未生效的特征（{pkg}/{file} 列表）；空数组 = 全部生效。与
+ *  desktop/main/profile-patches.ts 的 patchApplied 保持一致：未安装的包
+ *  跳过（后续安装时 pnpm 自动应用）；版本漂移的 patch 跳过（门控）；
+ *  mark 匹配前行尾归一化为 LF（drag-to-attachment 的 lib 是 CRLF 产物，
+ *  跨行 mark 按字节匹配恒失配）。 */
 function patchApplied() {
   const missing = []
   for (const f of PATCHES) {
     const pkg = pkgNameOf(f)
     const marks = PATCH_MARKS[pkg]
     if (!marks) continue
+    const modDir = join(PROFILE, 'node_modules', pkg)
+    if (!existsSync(modDir)) continue
+    if (!patchVersionMatches(f, modDir)) continue
     for (const [rel, mark] of marks) {
-      const file = join(PROFILE, 'node_modules', pkg, rel)
-      if (!existsSync(file) || !readFileSync(file, 'utf8').includes(mark)) missing.push(`${pkg}/${rel}`)
+      const file = join(modDir, rel)
+      if (!existsSync(file) || !readFileSync(file, 'utf8').replace(/\r\n/g, '\n').includes(mark)) {
+        missing.push(`${pkg}/${rel}`)
+      }
     }
   }
   return missing

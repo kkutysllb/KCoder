@@ -66,6 +66,7 @@ if (process.env.npm_config_registry === undefined) {
 {
   const delim = process.platform === 'win32' ? ';' : ':'
   const extra = new Set<string>()
+  const regDirs: string[] = []
   if (process.platform !== 'win32') {
     const sh = process.platform === 'darwin' && existsSync('/bin/zsh') ? '/bin/zsh' : '/bin/bash'
     try {
@@ -77,8 +78,66 @@ if (process.env.npm_config_registry === undefined) {
       // 用户 shell 配置异常（rc 报错/超时）：走兜底
     }
   }
+  if (process.platform === 'win32') {
+    // Windows 环境块是进程启动时的快照：winget 等安装器把新工具目录写
+    // 注册表（HKCU/HKLM Environment），已运行的终端/IDE 及其子进程
+    // （pnpm dev → electron）即使新开 tab 也只继承宿主进程的旧快照
+    // （重开终端窗口不够，须重宿主；GUI 启动的打包版同理）。
+    //
+    // 两个真实语义缺口（v0.2.9 插件更新 ERR_PNPM_UNEXPECTED_STORE 根因）：
+    // ①注册表 PATH 里的 %VAR%（如 %PNPM_HOME%\bin）不能只靠 process.env
+    // 展开——快照里没有该变量时条目展开失败被丢弃（用户自装 pnpm 在
+    // User PATH 首条，丢了它 dsh 就调到 Roaming\npm 的旧版 pnpm，store
+    // v10 vs profile 已链接的 v11 直接冲突）；②顺序：真实新进程 PATH =
+    // 注册表 Machine+User 拼接，注册表顺序就是用户新终端里的优先级，
+    // 旧快照只做去重补充——与 macOS login shell 增强同构。
+    const regEnv = (key: string): Array<[string, string]> => {
+      try {
+        const r = spawnSync('reg', ['query', key], { timeout: 3000, encoding: 'utf8', windowsHide: true })
+        if (r.status !== 0 || typeof r.stdout !== 'string') return []
+        const out: Array<[string, string]> = []
+        // reg.exe 输出恒 CRLF：split 按行尾正则切掉 \r——行尾残留 \r 会让
+        // (.*)$ 失配（JS 的 . 不匹配 \r，无 m 标志的 $ 只认串尾），
+        // 变量表整个丢拼（v0.2.9 %PNPM_HOME% 展不开即此坑）
+        for (const line of r.stdout.split(/\r?\n/)) {
+          const m = /^\s+(\S+)\s+REG_(?:EXPAND_)?SZ\s+(.*)$/.exec(line)
+          if (m !== null) out.push([m[1], m[2].trim()])
+        }
+        return out
+      } catch {
+        return []
+      }
+    }
+    const HKLM_ENV = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'
+    const HKCU_ENV = 'HKCU\\Environment'
+    // 变量表：process.env 优先，注册表兜底（Machine 先读——Windows 语义
+    // 上 User 变量可引用 Machine 变量，反向不行）
+    const regVars = new Map<string, string>()
+    for (const key of [HKLM_ENV, HKCU_ENV]) {
+      for (const [k, v] of regEnv(key)) {
+        if (!regVars.has(k)) regVars.set(k, v)
+      }
+    }
+    const expandVars = (s: string): string =>
+      s.replace(/%([^%]+)%/g, (_, k) => process.env[k] ?? regVars.get(k) ?? `%${k}%`)
+    const regPath = (key: string): string[] => {
+      try {
+        const r = spawnSync('reg', ['query', key, '/v', 'Path'], { timeout: 3000, encoding: 'utf8', windowsHide: true })
+        if (r.status !== 0 || typeof r.stdout !== 'string') return []
+        const m = /^\s*Path\s+REG_(?:EXPAND_)?SZ\s+(.*)$/m.exec(r.stdout)
+        if (m === null) return []
+        return expandVars(m[1].trim()).split(delim).filter((d) => d !== '' && existsSync(d))
+      } catch {
+        return []
+      }
+    }
+    // 保序去重（Machine+User 可能有重复条目）
+    for (const d of [...regPath(HKLM_ENV), ...regPath(HKCU_ENV)]) {
+      if (!regDirs.includes(d)) regDirs.push(d)
+    }
+  }
   const home = homedir()
-  // 兑底：常见 pnpm 安装位（login shell 不可用时仍能找到 pnpm）
+  // 兜底：常见 pnpm 安装位（login shell 不可用时仍能找到 pnpm）
   for (const dir of [
     join(home, 'Library', 'pnpm'),         // pnpm 自装默认（macOS）
     join(home, '.local', 'share', 'pnpm'), // pnpm 自装默认（Linux）
@@ -90,9 +149,19 @@ if (process.env.npm_config_registry === undefined) {
     if (existsSync(bin)) extra.add(dir)
   }
   const current = (process.env.PATH ?? '').split(delim).filter(d => d !== '')
-  const have = new Set(current)
-  const add = [...extra].filter(d => !have.has(d))
-  if (add.length > 0) process.env.PATH = [...current, ...add].join(delim)
+  if (process.platform === 'win32') {
+    // 注册表序在前（真实新进程语义），旧快照去重补充，兜底最后
+    const have = new Set(regDirs)
+    const tail = current.filter(d => !have.has(d))
+    const back = [...extra].filter(d => !have.has(d) && !tail.includes(d))
+    if (tail.length > 0 || back.length > 0) {
+      process.env.PATH = [...regDirs, ...tail, ...back].join(delim)
+    }
+  } else {
+    const have = new Set(current)
+    const add = [...extra].filter(d => !have.has(d))
+    if (add.length > 0) process.env.PATH = [...current, ...add].join(delim)
+  }
 }
 
 /** splash 窗口引用（切到 shell 后关闭）。 */

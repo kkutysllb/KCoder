@@ -7,7 +7,10 @@
  *   （收起态恢复显示——railMark 内 brand-injector 注入的 K logo 即
  *   "折叠后 rail 顶部的 logo K"，点击展开，标题栏按钮不重复隐藏它）；
  * - 标题栏注入三个 26x26 按钮（macOS：折叠 84px / 左箭头 128px /
- *   右箭头 174px，紧邻红绿灯区域右侧；垂直居中、在 bar 内；
+ *   右箭头 174px，紧邻红绿灯区域右侧；垂直居中、在 bar 内）；
+ * - Windows 场景：最左注入 K logo（24px，与 rail K 同尺寸；按钮带
+ *   右移——折叠 44 / 左箭头 78 / 右箭头 112，extra 134）断言 logo
+ *   尺寸/位置/垂直居中 + 新坐标；macOS 断言无 logo（红绿灯区域）；
  * - 点击折叠按钮 → 上游 toggle 的 click 被触发（React 合成事件
  *   路径照常）；
  * - 图标实时克隆上游 toggle 的 panelIcon svg、aria-label 同步；
@@ -35,30 +38,54 @@ import { join, resolve } from 'node:path'
 const ROOT = resolve(import.meta.dirname, '..')
 const BT = String.fromCharCode(96)
 
-// 从源码提取 PAGE_JS 模板串原文（占位符替换为 macOS 值：折叠 84 /
-// 左箭头 128 / 右箭头 174，紧邻红绿灯区域右侧；EXTRA 130 = 最右按钮
-// 右缘 200 + 间距 8 - leftPad 78。Windows 值 12/46/80/102 由主进程替换）
+// 从源码提取 PAGE_JS 模板串原文，占位符替换出两套平台值：
+// - macOS（红绿灯右侧）：折叠 84 / 左箭头 128 / 右箭头 174，EXTRA
+//   130 = 最右按钮右缘 200 + 间距 8 - leftPad 78，logo -1 不注入；
+// - Windows（K logo 布局）：logo 12（24px 宽 + 间距 8）+ 按钮带右移
+//   折叠 44 / 左箭头 78 / 右箭头 112，EXTRA 134 = 138 + 8 - 12（与
+//   主进程 attachSidebarToggle 的 win32 分支一致）。LOGO_IMG 用占位
+//   dataURL（断言不校验像素内容，只验注入与几何）。
 const src = readFileSync(join(ROOT, 'desktop/main/sidebar-toggle.ts'), 'utf8')
 const decl = 'const PAGE_JS = ' + BT
 const from = src.indexOf(decl) + decl.length
 const endTick = src.indexOf('\n})()`', from)
 if (from < decl.length || endTick < 0) throw new Error('无法提取 PAGE_JS')
-const pageJs = src
-  .slice(from, endTick + 5)
+const LOGO_TINY = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAFElEQVR4nGP8z8Dwn4EIwESMolEAAGJpAgEqGvm/AAAAAElFTkSuQmCC'
+const baseJs = src.slice(from, endTick + 5)
+// 折叠按钮静态图标：PAGE_JS 里 TOGGLE_ICON_PLACEHOLDER（源码插值原文）
+// 需替换为 TOGGLE_ICON_SVG 常量的求值结果——该常量是多段单引号拼接
+// （位于其声明与 PAGE_JS 之间的文本内），正则取出各段 join 即完整
+// svg 串，与主进程 replaceAll 链同构；漏掉此替换会让注入脚本直接
+// SyntaxError（${...} 非法 token）
+const iconBlock = src.slice(src.indexOf('const TOGGLE_ICON_SVG ='), src.indexOf('const PAGE_JS'))
+const toggleIconSvg = [...iconBlock.matchAll(/'((?:[^'\\]|\\.)*)'/g)].map((m) => m[1]).join('')
+if (!toggleIconSvg.startsWith('<svg')) throw new Error('无法提取 TOGGLE_ICON_SVG')
+const pageJs = baseJs
   .replaceAll('${PLACEHOLDER}', '84')
   .replaceAll('${ARROW_PREV_PLACEHOLDER}', '128')
   .replaceAll('${ARROW_NEXT_PLACEHOLDER}', '174')
   .replaceAll('${EXTRA_PLACEHOLDER}', '130')
+  .replaceAll('${TOGGLE_ICON_PLACEHOLDER}', JSON.stringify(toggleIconSvg))
+  .replaceAll('${LOGO_LEFT_PLACEHOLDER}', '-1')
+  .replaceAll('${LOGO_IMG_PLACEHOLDER}', JSON.stringify(LOGO_TINY))
+const pageJsWin = baseJs
+  .replaceAll('${PLACEHOLDER}', '44')
+  .replaceAll('${ARROW_PREV_PLACEHOLDER}', '78')
+  .replaceAll('${ARROW_NEXT_PLACEHOLDER}', '112')
+  .replaceAll('${EXTRA_PLACEHOLDER}', '134')
+  .replaceAll('${TOGGLE_ICON_PLACEHOLDER}', JSON.stringify(toggleIconSvg))
+  .replaceAll('${LOGO_LEFT_PLACEHOLDER}', '12')
+  .replaceAll('${LOGO_IMG_PLACEHOLDER}', JSON.stringify(LOGO_TINY))
 
 // 手搓上游 sidebar（.logoRow/.iconButton 对齐 SidebarRoot.module.css）
 // + 自绘标题栏（#bar/.ttl 对齐 theme-watcher SHELL_TITLEBAR_JS：
 // bar 48px fixed flex；label margin-left/max-width 用同一公式，内含
 // var(--dsh-titlebar-extra-left)）。深色主题给 body 加
 // data-ds-dark-theme（fixture 冒烟以深色为主，浅色仅截图对照）
-const html = (dark, collapsed = false) => `<!doctype html><html><head><meta charset="utf-8"><style>
+const html = (dark, collapsed = false, win32 = false) => `<!doctype html><html><head><meta charset="utf-8"><style>
   body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: ${dark ? '#17181a' : '#fff'}; padding-top: 48px; height: 100vh; box-sizing: border-box; }
   #__dsh_desktop_titlebar { position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 2147483647; -webkit-app-region: drag; display: flex; align-items: center; justify-content: flex-start; }
-  #ttl { flex: 0 1 auto; margin-left: max(calc(78px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px); max-width: calc(100% - max(calc(78px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px) - 134px); display: flex; align-items: center; min-width: 0; white-space: nowrap; color: ${dark ? 'rgba(232,234,237,.9)' : 'rgba(26,29,33,.75)'}; }
+  #ttl { flex: 0 1 auto; margin-left: max(calc(${win32 ? 12 : 78}px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px); max-width: calc(100% - max(calc(${win32 ? 12 : 78}px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px) - 134px); display: flex; align-items: center; min-width: 0; white-space: nowrap; color: ${dark ? 'rgba(232,234,237,.9)' : 'rgba(26,29,33,.75)'}; }
   /* macOS 红绿灯模拟（系统绘制，capturePage 不可见）：三颗 12px 圆、
      间距 8px；默认按修复后位置——垂直居中于 48px bar（trafficLightPosition
      y:18 → 圆 y18-30），与迁移按钮（top:50%）对齐 */
@@ -77,7 +104,7 @@ const html = (dark, collapsed = false) => `<!doctype html><html><head><meta char
   .sessionRow { padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; color: ${dark ? '#e8eaed' : '#1a1d21'}; }
   .sessionRow[aria-selected="true"] { background: rgba(128,128,128,.18); }
 </style></head><body${dark ? ' data-ds-dark-theme=""' : ''}>
-<div id="__dsh_desktop_titlebar"><i class="tl r"></i><i class="tl y"></i><i class="tl g"></i><span id="ttl">KCoder / DSH Local Build</span></div>
+<div id="__dsh_desktop_titlebar">${win32 ? '' : '<i class="tl r"></i><i class="tl y"></i><i class="tl g"></i>'}<span id="ttl">KCoder / DSH Local Build</span></div>
 <div class="side">
   <div class="logoRow${collapsed ? ' collapsed' : ''}">
     ${collapsed
@@ -108,11 +135,11 @@ const html = (dark, collapsed = false) => `<!doctype html><html><head><meta char
 </script>
 </body></html>`
 
-async function runScenario(win, label, dark, collapsed = false) {
+async function runScenario(win, label, dark, collapsed = false, win32 = false) {
   const dir = mkdtempSync(join(tmpdir(), 'toggle-smoke-'))
-  writeFileSync(join(dir, 'index.html'), html(dark, collapsed))
+  writeFileSync(join(dir, 'index.html'), html(dark, collapsed, win32))
   await win.loadFile(join(dir, 'index.html'))
-  await win.webContents.executeJavaScript(pageJs, true)
+  await win.webContents.executeJavaScript(win32 ? pageJsWin : pageJs, true)
   await new Promise((r) => setTimeout(r, 700))
 
   const probe = JSON.parse(await win.webContents.executeJavaScript(`(() => {
@@ -122,6 +149,7 @@ async function runScenario(win, label, dark, collapsed = false) {
     const btn = document.getElementById(ID)
     const prevBtn = document.getElementById(PREV)
     const nextBtn = document.getElementById(NEXT)
+    const logo = document.getElementById('__dsh_desktop_title_logo')
     const bar = document.getElementById('__dsh_desktop_titlebar')
     const toggle = document.querySelector('button[class*="toggle"]')
     const ttl = document.getElementById('ttl')
@@ -135,8 +163,6 @@ async function runScenario(win, label, dark, collapsed = false) {
     })() : false
     const iconClone = btn !== null && btn.firstElementChild !== null
       ? btn.firstElementChild.innerHTML : null
-    const iconSrc = toggle !== null ? (toggle.querySelectorAll('svg').length > 0
-      ? toggle.querySelectorAll('svg')[toggle.querySelectorAll('svg').length - 1].outerHTML : null) : null
     const extra = document.documentElement.style.getPropertyValue('--dsh-titlebar-extra-left')
     const setSidebarW = (px) => {
       document.documentElement.style.setProperty('--dsh-sidebar-w', px)
@@ -154,6 +180,9 @@ async function runScenario(win, label, dark, collapsed = false) {
     prevBtn !== null && prevBtn.click()
     nextBtn !== null && nextBtn.click()
     return JSON.stringify({
+      logoExists: logo !== null,
+      logoInBar: logo !== null && bar !== null && bar.contains(logo),
+      logoRect: r(logo),
       btnExists: btn !== null,
       btnInBar: btn !== null && bar !== null && bar.contains(btn),
       btnRect: r(btn),
@@ -168,7 +197,7 @@ async function runScenario(win, label, dark, collapsed = false) {
       barRect: r(bar),
       toggleHidden,
       railImgVisible,
-      iconClone, iconSrc,
+      iconClone,
       ariaSync: btn !== null ? btn.getAttribute('aria-label') : null,
       toggleAria: toggle !== null ? toggle.getAttribute('aria-label') : null,
       extra,
@@ -181,10 +210,29 @@ async function runScenario(win, label, dark, collapsed = false) {
   const fails = []
   const barTop = probe.barRect.top
   const expectTop = barTop + (48 - 26) / 2
+  // 平台布局期望（与 attachSidebarToggle 平台分支一致）：macOS 红绿灯
+  // 右侧 84/128/174、extra 130、无 logo；Windows K logo 12 + 按钮带
+  // 右移 44/78/112、extra 134；label 让位 = leftPad(12/78) + extra
+  const L = win32
+    ? { toggle: 44, prev: 78, next: 112, extra: '134px', ttl0: 146, ttl280: 292, ttl56: 146 }
+    : { toggle: 84, prev: 128, next: 174, extra: '130px', ttl0: 208, ttl280: 292, ttl56: 208 }
+  if (win32) {
+    if (!probe.logoExists) fails.push('Windows 标题栏 K logo 未注入')
+    else {
+      if (!probe.logoInBar) fails.push('K logo 不在标题栏 bar 内')
+      if (Math.abs(probe.logoRect.left - 12) > 1) fails.push(`K logo left=${probe.logoRect.left} 应 ≈12（折叠按钮左侧）`)
+      if (Math.abs(probe.logoRect.width - 24) > 1 || Math.abs(probe.logoRect.height - 24) > 1)
+        fails.push(`K logo 尺寸=${probe.logoRect.width}x${probe.logoRect.height} 应为 24x24（与 rail K 同尺寸）`)
+      const logoTop = barTop + (48 - 24) / 2
+      if (Math.abs(probe.logoRect.top - logoTop) > 1) fails.push(`K logo top=${probe.logoRect.top} 应 ≈${logoTop}（垂直居中）`)
+    }
+  } else if (probe.logoExists) {
+    fails.push('macOS 不应注入 K logo（红绿灯区域不可侵占）')
+  }
   if (!probe.btnExists) fails.push('标题栏折叠按钮未注入')
   else {
     if (!probe.btnInBar) fails.push('折叠按钮不在标题栏 bar 内')
-    if (Math.abs(probe.btnRect.left - 84) > 1) fails.push(`折叠按钮 left=${probe.btnRect.left} 应 ≈84（红绿灯区域右侧）`)
+    if (Math.abs(probe.btnRect.left - L.toggle) > 1) fails.push(`折叠按钮 left=${probe.btnRect.left} 应 ≈${L.toggle}${win32 ? '（logo 右侧）' : '（红绿灯区域右侧）'}`)
     if (Math.abs(probe.btnRect.width - 26) > 1 || Math.abs(probe.btnRect.height - 26) > 1)
       fails.push(`折叠按钮尺寸=${probe.btnRect.width}x${probe.btnRect.height} 应为 26x26`)
     if (Math.abs(probe.btnRect.top - expectTop) > 1) fails.push(`折叠按钮 top=${probe.btnRect.top} 应 ≈${expectTop}（垂直居中）`)
@@ -192,7 +240,7 @@ async function runScenario(win, label, dark, collapsed = false) {
   if (!probe.prevExists) fails.push('左箭头按钮未注入')
   else {
     if (!probe.prevInBar) fails.push('左箭头按钮不在标题栏 bar 内')
-    if (Math.abs(probe.prevRect.left - 128) > 1) fails.push(`左箭头 left=${probe.prevRect.left} 应 ≈128`)
+    if (Math.abs(probe.prevRect.left - L.prev) > 1) fails.push(`左箭头 left=${probe.prevRect.left} 应 ≈${L.prev}`)
     if (Math.abs(probe.prevRect.width - 26) > 1 || Math.abs(probe.prevRect.height - 26) > 1)
       fails.push(`左箭头尺寸=${probe.prevRect.width}x${probe.prevRect.height} 应为 26x26`)
     if (Math.abs(probe.prevRect.top - expectTop) > 1) fails.push(`左箭头 top=${probe.prevRect.top} 应 ≈${expectTop}（垂直居中）`)
@@ -201,7 +249,7 @@ async function runScenario(win, label, dark, collapsed = false) {
   if (!probe.nextExists) fails.push('右箭头按钮未注入')
   else {
     if (!probe.nextInBar) fails.push('右箭头按钮不在标题栏 bar 内')
-    if (Math.abs(probe.nextRect.left - 174) > 1) fails.push(`右箭头 left=${probe.nextRect.left} 应 ≈174`)
+    if (Math.abs(probe.nextRect.left - L.next) > 1) fails.push(`右箭头 left=${probe.nextRect.left} 应 ≈${L.next}`)
     if (Math.abs(probe.nextRect.width - 26) > 1 || Math.abs(probe.nextRect.height - 26) > 1)
       fails.push(`右箭头尺寸=${probe.nextRect.width}x${probe.nextRect.height} 应为 26x26`)
     if (Math.abs(probe.nextRect.top - expectTop) > 1) fails.push(`右箭头 top=${probe.nextRect.top} 应 ≈${expectTop}（垂直居中）`)
@@ -219,13 +267,17 @@ async function runScenario(win, label, dark, collapsed = false) {
     if (JSON.stringify(probe.opened) !== JSON.stringify(['s1', 's3']))
       fails.push(`箭头点击应依次打开 s1（上一个）、s3（下一个），实际=${probe.opened}`)
   }
-  if (probe.iconClone !== probe.iconSrc) fails.push('折叠按钮图标未克隆上游 panelIcon svg')
+  // 折叠按钮图标为静态 panel-left（不克隆上游——上游 panelIcon 随状态
+  // 漂移尺寸，克隆会把漂移带进按钮）；断言写入的 panel-left 矢量特征
+  // （evenodd fillRule + 首 path 起点 M9.67272），与上游 panelIcon 无关
+  if (probe.iconClone === null || !probe.iconClone.includes('evenodd') || !probe.iconClone.includes('M9.67272'))
+    fails.push('折叠按钮图标应为静态 panel-left 矢量（16px 恒定）')
   const wantAria = collapsed ? '展开侧边栏' : '折叠侧边栏'
   if (probe.ariaSync !== wantAria) fails.push(`aria-label=${probe.ariaSync} 应同步为 ${wantAria}`)
-  if (probe.extra !== '130px') fails.push(`--dsh-titlebar-extra-left=${probe.extra} 应为 130px`)
-  if (probe.ttl0 === null || Math.abs(probe.ttl0 - 208) > 1) fails.push(`探针失效时标题 left=${probe.ttl0} 应 ≈208（按钮右侧）`)
-  if (probe.ttl280 === null || Math.abs(probe.ttl280 - 292) > 1) fails.push(`侧边栏 280 时标题 left=${probe.ttl280} 应 ≈292（仍在侧边栏右缘）`)
-  if (probe.ttl56 === null || Math.abs(probe.ttl56 - 208) > 1) fails.push(`收起态标题 left=${probe.ttl56} 应 ≈208（不与按钮重叠）`)
+  if (probe.extra !== L.extra) fails.push(`--dsh-titlebar-extra-left=${probe.extra} 应为 ${L.extra}`)
+  if (probe.ttl0 === null || Math.abs(probe.ttl0 - L.ttl0) > 1) fails.push(`探针失效时标题 left=${probe.ttl0} 应 ≈${L.ttl0}（按钮右侧）`)
+  if (probe.ttl280 === null || Math.abs(probe.ttl280 - L.ttl280) > 1) fails.push(`侧边栏 280 时标题 left=${probe.ttl280} 应 ≈${L.ttl280}（仍在侧边栏右缘）`)
+  if (probe.ttl56 === null || Math.abs(probe.ttl56 - L.ttl56) > 1) fails.push(`收起态标题 left=${probe.ttl56} 应 ≈${L.ttl56}（不与按钮重叠）`)
 
   // 自愈：模拟 React 重建 toggle（收起态：brand 移除 + railMark svg
   // 插到 panelIcon 前 + aria-label 变化）→ 等待 observer → 复查：
@@ -256,7 +308,7 @@ async function runScenario(win, label, dark, collapsed = false) {
       shown: getComputedStyle(t).display !== 'none',
       hasRail: t.querySelector('[class*="railMark"]') !== null,
       aria: btn.getAttribute('aria-label'),
-      iconSynced: btn.firstElementChild.innerHTML === lastSvg.outerHTML,
+      iconStatic: btn.firstElementChild !== null && btn.firstElementChild.innerHTML.includes('evenodd'),
       lastIsPanel: lastSvg.getAttribute('class') !== 'railMark',
     })
   })()`, true))
@@ -264,8 +316,8 @@ async function runScenario(win, label, dark, collapsed = false) {
   if (!healed.shown) fails.push('收起态新 toggle 未恢复显示（rail K logo 应可见可点）')
   if (!healed.hasRail) fails.push('收起态 toggle 缺少 railMark（isCollapsed 判定失效）')
   if (healed.aria !== '展开侧边栏') fails.push(`自愈后 aria-label=${healed.aria} 应为 展开侧边栏`)
-  if (!healed.iconSynced) fails.push('自愈后按钮图标未跟随新 panelIcon svg')
-  if (!healed.lastIsPanel) fails.push('克隆图标取错（应取 panelIcon 非 railMark）')
+  if (!healed.iconStatic) fails.push('自愈后按钮图标应保持静态 panel-left（不随上游重建漂移）')
+  if (!healed.lastIsPanel) fails.push('fixture 语义错误：toggle 最后一个 svg 应为 panelIcon 非 railMark')
 
   // 再模拟展开态重建（railMark 移除 → brand 恢复）→ toggle 重新隐藏
   const reexpanded = JSON.parse(await win.webContents.executeJavaScript(`(async () => {
@@ -305,6 +357,9 @@ app.whenReady().then(async () => {
   // 收起态场景：fixture 初始即 rail（railMark 内 K logo img + panelIcon），
   // 断言 toggle 显示、K logo 可见、点击可展开 + 截图
   results.push(await runScenario(win, 'dark', true, true))
+  // Windows 场景：K logo + 按钮带右移布局（展开态深色一档；收起态行为
+  // 平台无关，已由上面 macOS 收起场景覆盖）
+  results.push(await runScenario(win, 'win-dark', true, false, true))
   console.log(results.every(Boolean) ? 'ALL PASS' : 'FAILED')
   app.exit(results.every(Boolean) ? 0 : 1)
 })

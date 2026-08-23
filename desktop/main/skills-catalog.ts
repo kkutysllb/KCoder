@@ -34,8 +34,17 @@ let knownPaths = new Set<string>()
 /** 最近一次枚举的 optional 条目路径集合（enable 白名单）。 */
 let optionalPaths = new Set<string>()
 
-/** 行级解析 frontmatter 的 name/description（标量或 >- 折叠块）。 */
+/**
+ * 行级解析 frontmatter 的 name/description（标量或 >- 折叠块）。
+ *
+ * 行尾容错：CRLF/CR 统一归一为 LF——Windows runner 打包（checkout
+ * autocrlf 转换）与本地 Windows clone/手动编辑的 SKILL.md 均可为
+ * CRLF，而解析与正文剥壳均按 LF 写（startsWith('---\n') 等字面匹配
+ * 遇 '\r' 直接失败 → 整个 optional 分区条目全跳过，v0.2.9 Windows
+ * 打包版「未启用（随包可选）」区空的根因；macOS 包 LF 不受影响）。
+ */
 function parseNameDescription(raw: string): { name: string; description: string } {
+  if (raw.includes('\r')) raw = raw.split('\r\n').join('\n').split('\r').join('\n')
   let name = ''
   let description = ''
   if (raw.startsWith('---\n')) {
@@ -154,7 +163,8 @@ export function listSkills(): SkillCatalogGroup[] {
 export function readSkillBody(path: string): string | null {
   if (!knownPaths.has(path)) return null
   try {
-    const raw = readFileSync(path, 'utf8')
+    let raw = readFileSync(path, 'utf8')
+    if (raw.includes('\r')) raw = raw.split('\r\n').join('\n').split('\r').join('\n') // 同 parseNameDescription：CRLF 容错
     if (!raw.startsWith('---\n')) return raw
     const end = raw.indexOf('\n---\n', 4)
     return end === -1 ? raw : raw.slice(end + 5).replace(/^\n+/, '')

@@ -185,7 +185,7 @@ export function showShellWindow(dshUrl: string): void {
     // 编辑表单；console 通道 CRUD mcp-store，保存后上游 HMR 热加载）
     attachMcpSettingsInjector(shellWindow)
     // win32 面板收纳菜单：原生控制按钮区盖住右侧面板按钮，
-    // 两枚代理按钮收进一枚下拉菜单（点击转发原按钮，状态实时克隆；
+    // 三枚代理按钮收进一枚下拉菜单（点击转发原按钮，状态实时克隆；
     // 其他平台 no-op 不注入）
     attachPanelMenu(shellWindow)
     // 只允许停留在 dsh 回环地址；外链交给系统浏览器

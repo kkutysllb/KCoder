@@ -2,13 +2,23 @@
  * 上游插件缺陷补丁（profiles/web/patches）的跨平台物化。
  *
  * 已覆盖：
- * - @dsh-external/dsh-drag-to-attachment：wrap 的 sendSession 附件分支
- *   发送成功后无 return（resolve undefined）。rc.7 时代 defaultSink 是
- *   fire-and-forget（void），无返回值无害；rc.8 把提交事务硬化为消费
- *   `Promise<SubmitOutcome>`（settleSubmit 读 outcome.kind），undefined
- *   直接 TypeError 且 then 回调内抛出无人接 → submit-settled 永不派发
- *   → machine 卡 submitting → 输入框 readOnly + 草稿保留（发带附件/图片
- *   后输入框锁死的根因）。补丁补一行 return 对齐原版契约。
+ * - @dsh-external/dsh-drag-to-attachment：两处缺陷：
+ *   1) wrap 的 sendSession 附件分支发送成功后无 return（resolve
+ *      undefined）。rc.7 时代 defaultSink 是 fire-and-forget（void），
+ *      无返回值无害；rc.8 把提交事务硬化为消费 `Promise<SubmitOutcome>`
+ *      （settleSubmit 读 outcome.kind），undefined 直接 TypeError 且 then
+ *      回调内抛出无人接 → submit-settled 永不派发 → machine 卡
+ *      submitting → 输入框 readOnly + 草稿保留（发带附件/图片后输入框
+ *      锁死的根因）。补丁补一行 return 对齐原版契约（patch 文件分发）。
+ *   2) v1.0.3 的 npm files 白名单不含 vendor/everything，node_modules
+ *      里恒缺 Everything.exe；ensureEverything 对缺失 exe 的 spawn 无
+ *      error 监听（try/catch 包不住异步 'error' 事件）→ unhandled
+ *      'error' 直接崩掉整个 dsh 进程（Windows 打包版启动失败根因）。
+ *      注入存在性检查（缺失走 PowerShell 兜底搜索）+ child error 监听。
+ *      注：两个产物文件均为 CRLF（v1.0.3 tarball 固定字节）；git apply
+ *      对 LF patch + CRLF 文件会拒应用，但 pnpm 的应用器行尾宽容
+ *      （实证：client.js 的 return 修复即此路径落地），patch 文件照常
+ *      分发，锄点兑底按 CRLF 字节锄入。
  * - dsh-plugin-genui：卡片注册漏传 key + node half 不注册 settings
  *   namespace 两个上游缺陷（npm 最新版同样存在）。插件已不预置
  *   （2026-08-20 起由用户经插件市场自行安装），补丁仍分发：自装副本
@@ -103,6 +113,9 @@ const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
   // 防上游未来自己加同款串时误判）
   '@dsh-external/dsh-drag-to-attachment': [
     ['lib/client.js', "clearFiles()\n        return { kind: 'success' }"],
+    // Everything spawn 防崩修复（单行 mark：即便无读侧行尾归一化也不受
+    // CRLF 产物影响）
+    ['lib/index.js', "child.on('error', () => {})"],
   ],
   // KCoder 编辑/复制增强标记（请勿与上游符号同名；防原版错把此串放进
   // 上游产物；version anchor + 锚点同等：commitEditInPlace + editBtnStyle.PRIMARY
@@ -173,11 +186,25 @@ const PATCH_FALLBACKS: PatchFallback[] = [
   },
   {
     // rc.8 提交事务硬化后 wrap 的附件分支必须返回 SubmitOutcome，
-    // 否则 settleSubmit 读 undefined.kind 炸 → 输入框永久锁死
+    // 否则 settleSubmit 读 undefined.kind 炸 → 输入框永久锁死。
+    // 目标文件 CRLF（v1.0.3 tarball 固定字节），锄点与注入均按 \r\n
     pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
     mark: "clearFiles()\n        return { kind: 'success' }",
-    anchor: "this.releaseDraftImages(attachments)\n        clearFiles()",
-    inject: "\n        return { kind: 'success' }",
+    anchor: "this.releaseDraftImages(attachments)\r\n        clearFiles()",
+    inject: "\r\n        return { kind: 'success' }",
+  },
+  {
+    // v1.0.3 npm files 白名单排除 vendor/everything → node_modules 恒缺
+    // Everything.exe，ensureEverything 对缺失 exe 的 spawn 无 error 监听
+    // → unhandled 'error' 崩掉 dsh 进程（spawn ENOENT 异步派发，try/catch
+    // 包不住）。锄入：spawn 前存在性检查（缺失则跳过，windowsSearch 有
+    // PATH es.exe / PowerShell 兜底）+ child.on('error') 接异步失败。
+    // 目标文件 CRLF（v1.0.3 tarball 固定字节），锄点与注入均按 \r\n；
+    // patch 文件同步分发此修复（pnpm 应用器行尾宽容）
+    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/index.js',
+    mark: "child.on('error', () => {})",
+    anchor: "  try {\r\n    const child = spawn(EVERYTHING_EXE, ['-startup'], {\r\n      detached: true, stdio: 'ignore', windowsHide: true,\r\n    })\r\n    child.unref()\r\n  } catch (error) {",
+    replace: "  try {\r\n    await access(EVERYTHING_EXE, constants.F_OK)\r\n  } catch (error) {\r\n    return\r\n  }\r\n  try {\r\n    const child = spawn(EVERYTHING_EXE, ['-startup'], {\r\n      detached: true, stdio: 'ignore', windowsHide: true,\r\n    })\r\n    child.on('error', () => {})\r\n    child.unref()\r\n  } catch (error) {",
   },
 ]
 
@@ -219,6 +246,9 @@ function enforcePatchFallbacks(profileDir: string): void {
 /**
  * 补丁是否已生效：逐 patch 按包名特征校验；插件未安装视为已满足
  * （后续 dsh plugin install 时 pnpm 会自动应用 name-only 补丁）。
+ * mark 匹配前把产物行尾归一化为 LF——drag-to-attachment 的 lib 是
+ * CRLF 文件（v1.0.3 tarball 固定字节），跨行组合 mark 按字节匹配会恒
+ * 失配，导致每次启动误判未生效而反复 install 重放（阻塞主进程）。
  */
 function patchApplied(profileDir: string, files: string[]): boolean {
   for (const f of files) {
@@ -227,9 +257,12 @@ function patchApplied(profileDir: string, files: string[]): boolean {
     if (!marks) continue
     const modDir = join(profileDir, 'node_modules', pkg)
     if (!existsSync(modDir)) continue
+    if (!patchVersionMatches(f, modDir)) continue
     for (const [rel, mark] of marks) {
       const file = join(modDir, rel)
-      if (!existsSync(file) || !readFileSync(file, 'utf8').includes(mark)) return false
+      if (!existsSync(file) || !readFileSync(file, 'utf8').replace(/\r\n/g, '\n').includes(mark)) {
+        return false
+      }
     }
   }
   return true
@@ -345,6 +378,27 @@ const KNOWN_PATCH_SENTINELS = [
  */
 function pkgNameOf(patchFile: string): string {
   return patchFile.replace(/@[^@]+\.patch$/, '').replace(/^(@[^/]*?)__/, '$1/')
+}
+
+/**
+ * 补丁与实装版本门控：patch 按特定版本产物字节生成（文件名 @ver 段），
+ * 版本漂移后 hunk 必然失配——pnpm 应用时 WARN 跳过（pnpm 10 行为；11 为
+ * 硬错误），锄点锚点同样按版本字节写死，install 重放只是让 pnpm 再 WARN
+ * 一次：自愈不可能成功。视为「不适用」而非缺失，避免每次启动空转一轮
+ * pnpm install（用户把插件升到 patch 目标版本之外：better-sidebar npm
+ * 0.14.0 → git 0.15.2 实证，0.15.2 无 diff pill 功能属产品取舍而非自愈
+ * 缺口）。@x 后缀（无版本约束：drag-to-attachment 增强/KNOWN 哨兵）不
+ * 设门；package.json 不可读时放行，交 marks 校验兑底判定。
+ */
+function patchVersionMatches(patchFile: string, modDir: string): boolean {
+  const m = /@([^@]+)\.patch$/.exec(patchFile)
+  if (m === null || m[1] === 'x') return true
+  try {
+    const installed = (JSON.parse(readFileSync(join(modDir, 'package.json'), 'utf8')) as { version?: string }).version
+    return installed === m[1]
+  } catch {
+    return true
+  }
 }
 
 /**

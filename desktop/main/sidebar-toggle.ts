@@ -19,8 +19,10 @@
  *    logo K"，点击展开（上游设计：静息 K logo、hover 换 panelIcon）；
  * 2. 在自绘标题栏（theme-watcher 注入的 #__dsh_desktop_titlebar）
  *    注入三个按钮（macOS：折叠 84px / 左箭头 128px / 右箭头 174px，
- *    紧邻红绿灯区域右侧；Windows 无红绿灯：折叠 12px / 左箭头 46px /
- *    右箭头 80px）：
+ *    紧邻红绿灯区域右侧，红绿灯区域 12~64px 不可侵占；Windows 无红
+ *    绿灯：最左先排 K logo 品牌图标（24px，用户需求：侧边栏顶部折
+ *    叠按钮左侧的 logo），按钮带整体右移——折叠 44px / 左箭头 78px /
+ *    右箭头 112px）：
  *    - 折叠按钮点击 → 上游 toggle.click()：React 合成事件照常，
  *      折叠状态、动画、rail 图标全部由上游驱动；图标实时克隆上游
  *      toggle 内最后一个 svg（panelIcon），aria-label/title 同步；
@@ -28,7 +30,7 @@
  *      （上一个会话/下一个会话）；
  * 3. 标题栏 label 让位：documentElement 设 --dsh-titlebar-extra-left
  *    = 最右按钮（右箭头）右缘 + 间距 8 - 平台 leftPad（macOS：
- *    174+34-78=130；Windows：80+34-12=102），theme-watcher 的
+ *    174+34-78=130；Windows：112+34-12=134），theme-watcher 的
  *    margin-left / max-width 最小让位随之抬升（CSS 变量变化自动重算，
  *    无需重建 bar）；展开态侧边栏宽时标题仍在侧边栏右缘（max 分支
  *    取侧边栏宽度），收起态/探针失效时标题退到按钮右侧不重叠。
@@ -38,7 +40,9 @@
  *
  * @module desktop/main/sidebar-toggle
  */
+import { readFileSync } from 'node:fs'
 import type { BrowserWindow } from 'electron'
+import { resolveAsset } from './dsh-contract'
 
 /** 折叠按钮左缘占位符（smoke 从源码提取后替换为平台值）。 */
 const PLACEHOLDER = '${TOGGLE_BTN_LEFT}'
@@ -61,6 +65,15 @@ const EXTRA_PLACEHOLDER = '${TOGGLE_EXTRA_LEFT}'
  */
 const TOGGLE_ICON_PLACEHOLDER = '${TOGGLE_ICON_SVG}'
 
+/** 标题栏 K logo 左缘占位符（Windows 品牌图标；macOS 为 -1 = 不注入，红绿灯区域不可侵占）。 */
+const LOGO_LEFT_PLACEHOLDER = '${TOGGLE_LOGO_LEFT}'
+
+/** 标题栏 K logo 图占位符（brand-k.png 的 dataURL，构建时注入）。 */
+const LOGO_IMG_PLACEHOLDER = '${TOGGLE_LOGO_IMG}'
+
+/** 标题栏 K logo（Windows 折叠按钮左侧品牌图标；brand-injector 同款 64px 透明 K，与 rail 态 K 同尺寸 24px 展示）。 */
+const logoDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-k.png')).toString('base64')}`
+
 /** 折叠按钮静态图标（与上游 IconPanelLeftOutline16 逐字形一致，恒 16px）。 */
 const TOGGLE_ICON_SVG =
   '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor" d="' +
@@ -79,6 +92,9 @@ const PAGE_JS = `(() => {
   const PREV_LEFT = ${ARROW_PREV_PLACEHOLDER}
   const NEXT_LEFT = ${ARROW_NEXT_PLACEHOLDER}
   const EXTRA_LEFT = ${EXTRA_PLACEHOLDER} // 最右按钮右缘 + 间距 8，折算到平台 leftPad 之后
+  const LOGO_LEFT = ${LOGO_LEFT_PLACEHOLDER} // Windows ≥0：logo 左缘；macOS -1：不注入（红绿灯区域）
+  const LOGO_IMG = ${LOGO_IMG_PLACEHOLDER}
+  const LOGO_ID = '__dsh_desktop_title_logo'
   // 会话导航箭头图标（chevron，参考用户图中红框内左右箭头形态）
   const ARROW_LEFT_SVG =
     '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>'
@@ -122,23 +138,36 @@ const PAGE_JS = `(() => {
   // 兜底样式：仅隐藏展开态的上游 toggle（React 重建的按钮不带 inline
   // display，靠 :has() 兜底；收起态含 railMark 的不命中）+ 注入按钮
   // 外观（与 sidebar-cluster 代理按钮同款，三个按钮共享）
-  const BTN_CSS = '#' + [BTN_ID, PREV_ID, NEXT_ID].join(',#')
   const style = document.createElement('style')
   style.id = '__dsh_desktop_toggle_style'
-  style.textContent = [
+  // 按钮选择器组：前缀/后缀必须应用到每个 id——直接用逗号组字符串
+  // 拼 ' svg'/':hover' 只会作用于最后一个选择器（#A,#B,#C svg 实为
+  // #A、#B、#C svg 三个选择器：svg 钳制直接命中前两个按钮本体，把它们
+  // 压成 16×16 + display:block；深色前缀同坑，箭头逃出作用域颜色不变；
+  // hover 同理只有末位按钮有反馈）
+  const btnSel = (prefix, suffix) => [BTN_ID, PREV_ID, NEXT_ID].map((id) => prefix + '#' + id + suffix).join(',')
+  const rules = [
     '[class*="logoRow"] button[class*="toggle"]:not(:has([class*="railMark"])){display:none !important}',
-    BTN_CSS + '{all:unset;box-sizing:border-box;position:absolute;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;cursor:pointer;color:rgba(26,29,33,.65);-webkit-app-region:no-drag;transition:background .15s ease}',
+    btnSel('', '') + '{all:unset;box-sizing:border-box;position:absolute;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;cursor:pointer;color:rgba(26,29,33,.65);-webkit-app-region:no-drag;transition:background .15s ease}',
     // 图标尺寸钳制（双保险）：三枚按钮内 svg 一律 16×16——折叠按钮已改静态
     // 图标（恒 16px），此规则同时兜住两枚箭头与任何未来注入内容；!important
     // + max-* 击败属性与内联 style，与状态栏右端代理按钮图标同级。
-    BTN_CSS + ' svg{width:16px !important;height:16px !important;max-width:16px;max-height:16px;display:block;flex:none}',
+    btnSel('', ' svg') + '{width:16px !important;height:16px !important;max-width:16px;max-height:16px;display:block;flex:none}',
     '#' + BTN_ID + '{left:' + BTN_LEFT + 'px}',
     '#' + PREV_ID + '{left:' + PREV_LEFT + 'px}',
     '#' + NEXT_ID + '{left:' + NEXT_LEFT + 'px}',
-    'body[data-ds-dark-theme] ' + BTN_CSS + '{color:rgba(232,234,237,.8)}',
-    BTN_CSS + ':hover{background:color-mix(in srgb,currentColor 10%,transparent)}',
-    BTN_CSS + ':active{background:color-mix(in srgb,currentColor 18%,transparent)}',
-  ].join('')
+    btnSel('body[data-ds-dark-theme] ', '') + '{color:rgba(232,234,237,.8)}',
+    btnSel('', ':hover') + '{background:color-mix(in srgb,currentColor 10%,transparent)}',
+    btnSel('', ':active') + '{background:color-mix(in srgb,currentColor 18%,transparent)}',
+  ]
+  // Windows：K logo 样式（24px，与 rail 态 K 同尺寸，垂直居中与按钮同
+  // 款 top:50%）；纯装饰 pointer-events:none——点击穿透到 bar 的拖拽
+  // 区，logo 区域拖动即拖动窗口；-webkit-user-drag 禁原生图片拖拽鬼影。
+  // macOS 不注入此规则（LOGO_LEFT=-1，红绿灯区域零接触）。
+  if (LOGO_LEFT >= 0) {
+    rules.push('#' + LOGO_ID + '{position:absolute;left:' + LOGO_LEFT + 'px;top:50%;transform:translateY(-50%);width:24px;height:24px;pointer-events:none;user-select:none;-webkit-user-drag:none}')
+  }
+  style.textContent = rules.join('')
   document.head.append(style)
 
   const bar = () => document.getElementById('__dsh_desktop_titlebar')
@@ -192,6 +221,16 @@ const PAGE_JS = `(() => {
     if (document.getElementById(NEXT_ID) !== null) return 'present'
     const host = bar()
     if (host === null) return 'absent'
+    // Windows：K logo 先于按钮注入（macOS LOGO_LEFT=-1 跳过；bar 为
+    // 自注入元素非 React 持有，注入后无需 observer 自愈）
+    if (LOGO_LEFT >= 0 && document.getElementById(LOGO_ID) === null) {
+      const logo = document.createElement('img')
+      logo.id = LOGO_ID
+      logo.src = LOGO_IMG
+      logo.alt = ''
+      logo.draggable = false
+      host.append(logo)
+    }
     const mkBtn = (id, aria, iconSvg, onClick) => {
       const b = document.createElement('button')
       b.type = 'button'
@@ -238,19 +277,24 @@ const PAGE_JS = `(() => {
 export function attachSidebarToggle(win: BrowserWindow): void {
   if (process.platform !== 'darwin' && process.platform !== 'win32') return
   // macOS：三个按钮紧邻红绿灯区域右侧（用户参考图：红绿灯右缘 →
-  // 折叠按钮 x≈84 → 左箭头 x≈128 → 右箭头 x≈174）；Windows：从最左
-  // 起排布（titleBarOverlay 控制按钮之前，无红绿灯）。leftPad 与
+  // 折叠按钮 x≈84 → 左箭头 x≈128 → 右箭头 x≈174），无 logo——红绿灯
+  // 区域 12~64px 不可侵占；Windows：最左 K logo（12px 起，24px 宽 +
+  // 间距 8），按钮带右移（折叠 44 / 左箭头 78 / 右箭头 112；
+  // titleBarOverlay 控制按钮在右侧，左侧无冲突）。leftPad 与
   // theme-watcher 一致（darwin 78/win32 12）
   const leftPad = process.platform === 'win32' ? 12 : 78
-  const left = process.platform === 'win32' ? 12 : 84
-  const prev = process.platform === 'win32' ? 46 : 128
-  const next = process.platform === 'win32' ? 80 : 174
+  const logoLeft = process.platform === 'win32' ? 12 : -1
+  const left = process.platform === 'win32' ? 44 : 84
+  const prev = process.platform === 'win32' ? 78 : 128
+  const next = process.platform === 'win32' ? 112 : 174
   const extra = next + 26 + 8 - leftPad // 最右（右箭头）右缘 + 间距 - leftPad
   const script = PAGE_JS
     .replaceAll(PLACEHOLDER, String(left))
     .replaceAll(ARROW_PREV_PLACEHOLDER, String(prev))
     .replaceAll(ARROW_NEXT_PLACEHOLDER, String(next))
     .replaceAll(EXTRA_PLACEHOLDER, String(extra))
+    .replaceAll(LOGO_LEFT_PLACEHOLDER, String(logoLeft))
+    .replaceAll(LOGO_IMG_PLACEHOLDER, JSON.stringify(logoDataUrl))
     .replaceAll(TOGGLE_ICON_PLACEHOLDER, JSON.stringify(TOGGLE_ICON_SVG))
   win.webContents.on('did-finish-load', () => {
     if (win.isDestroyed()) return

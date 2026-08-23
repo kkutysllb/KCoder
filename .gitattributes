@@ -4,3 +4,10 @@
 # v0.1.9 Windows "keyed slot requires options.key" 加载失败的根因）。
 # -text 禁止对该类文件做任何行尾转换/归一化，三平台 checkout 字节一致。
 *.patch -text
+
+# 随包分发的 bundle 同理字节保真：SKILL.md 的 frontmatter 解析按 LF
+# 字面匹配（skills-catalog parseNameDescription），Windows runner 打
+# 包 checkout 转 CRLF 会打进转换产物——v0.2.9 Windows 安装包「未启用
+# （随包可选）」技能区空的根因（macOS 包 LF 正常）。运行时代码已容错
+# 双行尾，此处断源保证三平台安装包字节一致。
+bundle/** -text

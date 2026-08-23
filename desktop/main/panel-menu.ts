@@ -1,18 +1,19 @@
 /**
- * win32 面板收纳菜单：两枚代理按钮收进标题栏下拉菜单。
+ * win32 面板收纳菜单：三枚代理按钮收进标题栏下拉菜单。
  *
- * 背景（Windows titleBarOverlay 遮挡缺陷）：两枚代理按钮
- * （sidebar-cluster 注入，`position:absolute; right:12/44px`）挂在
- * 自绘标题栏内——absolute 定位基于包含块 padding box（≈窗口右缘），
- * 标题栏为避让原生控制按钮区（titleBarOverlay 右侧 138px，绘制在
- * 窗口层最顶）加的 padding-right:138px 对 absolute 子元素无效 →
- * 两枚代理全部落在原生按钮区内被盖。
+ * 背景（Windows titleBarOverlay 遮挡缺陷）：三枚代理按钮
+ * （sidebar-cluster/terminal-panel/context-button 注入，
+ * `position:absolute; right:12/44/76px`）挂在自绘标题栏内——
+ * absolute 定位基于包含块 padding box（≈窗口右缘），标题栏为避让
+ * 原生控制按钮区（titleBarOverlay 右侧 138px，绘制在窗口层最顶）
+ * 加的 padding-right:138px 对 absolute 子元素无效 → 按钮带整段
+ * （76+26=102 < 138）落在原生按钮区内被盖。
  *
- * 方案：win32 下两钮 display:none，由一枚菜单按钮（right:150px，
+ * 方案：win32 下三钮 display:none，由一枚菜单按钮（right:150px，
  * 原生区左侧安全位）下拉收纳。菜单项点击转发 .click() 到原按钮——
  * 原生 onclick 不依赖可见性，display:none 照常触发（workspace-header
  * 的 tab 兑底同款事实）；菜单项图标与开关态实时克隆自原按钮
- * （svg/disabled）。macOS/Linux 不注入本模块，两钮平铺现状不变。
+ * （svg/disabled）。macOS/Linux 不注入本模块，三钮平铺现状不变。
  *
  * @module desktop/main/panel-menu
  */
@@ -26,6 +27,7 @@ const MENU_JS = `(() => {
   const PANELS = [
     { id: '__dsh_desktop_sidebar_panel_btn', label: '侧边栏' },
     { id: '__dsh_desktop_terminal_btn', label: '内嵌终端' },
+    { id: '__dsh_desktop_context_btn', label: '上下文' },
   ]
   const BTN = '__dsh_desktop_panel_menu_btn'
   const POP = '__dsh_desktop_panel_menu_pop'
