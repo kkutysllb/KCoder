@@ -27,6 +27,17 @@
  * bottomPanelHidden）与簇按钮顺序，插件更新不破坏；若未来版本改名，
  * 压制静默失效回到插件原状（届时插件或已修复黑屏，重新评估）。
  *
+ * 面板开合态暴露与反向让位（2026-08）：右侧只有一个——git 浮动卡片
+ * （git-panel，WebContentsView compositor 层）与本面板同时展开时既重叠
+ * （卡片盖面板、鼠标被 view 截走）又双重挤压中间列，互斥让位解决
+ * （正向让位与协议主导在 git-panel）：本注入器在页面暴露
+ * window.__dshPanelOpen()/__dshPanelToggle()（状态查询与开关，均走
+ * 插件真实状态机；本脚本缺席 = 插件未装，git 侧得 undefined 自动跳过
+ * 让位）；代理按钮展开面板后 console 上报 __dsh_git__:
+ * {"action":"sidebar-open"} → git 卡片反向让位收起。上报只挂在用户
+ * 手动点击链上，让位/恢复走 __dshPanelToggle 直点（不经代理
+ * handler），不会自触发循环。
+ *
  * 上游契约（全部运行时探测，哈希前缀无关）：
  * - 开关簇宿主 `[data-dsh-panel-host]`（插件 fixed 覆盖层，data 属性
  *   是插件的稳定 API 面）；簇 `[class*="toggleCluster"]`、按钮
@@ -67,6 +78,16 @@ const PAGE_JS = `(() => {
   // 语义映射：最后一枚恒为右侧面板（窄屏唯一一枚也是它）；首枚仅在
   // 枚举 ≥2 时是底部面板（宽屏顺序：底部在前、右侧在后），压制看门狗用
   const panelSrc = () => { const b = pluginBtns(); return b.length > 0 ? b[b.length - 1] : null }
+
+  /* ---- 面板开合态与开关暴露（git-panel 互斥让位消费）----
+     态查询：面板容器在且无收起态类（面板根收起时追加 panelHidden，
+     CSS modules 哈希前缀无关；容器不在 = 插件未装，计为关）。开关：
+     与代理转发同源（panelSrc 直点，React 合成事件照常）。 */
+  window.__dshPanelOpen = () => {
+    if (document.querySelector('[data-dsh-better-sidebar]') == null) return false
+    return document.querySelector('[data-dsh-better-sidebar] [class*="panelHidden"]') == null
+  }
+  window.__dshPanelToggle = () => { panelSrc()?.click() }
 
   const style = document.createElement('style')
   style.id = '__dsh_desktop_sidebar_cluster_style'
@@ -137,7 +158,17 @@ const PAGE_JS = `(() => {
     const box = document.createElement('span')
     box.style.cssText = 'display:inline-flex;align-items:center;justify-content:center'
     b.append(box)
-    b.addEventListener('click', () => { panelSrc()?.click() })
+    b.addEventListener('click', () => {
+      panelSrc()?.click()
+      // toggle 后若为展开（React 状态落 DOM 异步，隔一拍探测）→
+      // 反向让位上报：git 卡片收起（右侧归面板）。上报只挂用户手动
+      // 点击链——让位/恢复走 __dshPanelToggle 直点，不经此处，无自环。
+      setTimeout(() => {
+        if (window.__dshPanelOpen !== undefined && window.__dshPanelOpen()) {
+          console.log('__dsh_git__:' + JSON.stringify({ action: 'sidebar-open' }))
+        }
+      }, 300)
+    })
     host.append(b)
     sync()
     return 'injected'

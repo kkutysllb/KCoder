@@ -17,6 +17,16 @@
  * - 让位：__dshGitPad(W) 给上游 centerCol/detailsCol 注入
  *   padding-right + --dsh-git-inset 变量——主区域含输入框整体
  *   左移，卡片浮在让出的空白区上（不遮内容）；
+ * - 互斥让位（右侧只有一个）：与 better-sidebar 面板同时展开时既
+ *   重叠（compositor 层卡片盖面板 DOM、鼠标被 view 截走）又双重
+ *   挤压中间列，互斥。正向：show() 查 window.__dshPanelOpen（
+ *   sidebar-cluster 暴露；缺席 = 插件未装自动跳过）展开则记恢复
+ *   义务并 __dshPanelToggle 收起，hide() 履约恢复（全走插件真实
+ *   状态机）；反向：代理按钮展开面板 → console 上报 action
+ *   sidebar-open → 卡片收起（清恢复义务——面板已是用户想要的态；
+ *   manual 语义抑制自动展开，防下次活动自动弹又收用户面板来回
+ *   打架）；自动展开门槛加「面板未占用」（不抢用户在用的右侧，
+ *   手动打开不受此限）；
  * - 探测：status -b / log / diff HEAD --numstat / branch 列表四条
  *   并行只读命令；probeQueue 链式串行（fetch/写操作也排队，避免
  *   读到 add 中间态；每次调用严格等自己的那次完成）；
@@ -395,6 +405,9 @@ class GitPanel {
   private idleTimer: ReturnType<typeof setTimeout> | null = null
   /** 用户手动关过 → 本次任务不再自动展开。 */
   private autoSuppressed = false
+  /** 正向让位义务：show() 时收起的侧边栏（hide() 履约恢复；反向
+   *  让位时用户自开面板，义务解除不履约——恢复会把刚开的又关掉）。 */
+  private yieldedSidebar = false
   /** 子代理监控推送（attach 订阅；严格按当前工作区过滤，运行中也不
    * 跨区——过滤语义详见 filterForWorkspace）。 */
   private readonly onSubagents = (records: SubagentRecord[]): void => {
@@ -415,6 +428,7 @@ class GitPanel {
       try {
         const payload = JSON.parse(message.slice(GIT_PREFIX.length)) as Record<string, unknown>
         if (payload.action === 'toggle') this.toggle()
+        else if (payload.action === 'sidebar-open') this.yieldForSidebar()
       } catch { /* 非 JSON 忽略 */ }
     }
     const onDidLoad = (): void => {
@@ -454,7 +468,7 @@ class GitPanel {
         this.idleTimer = null
         this.autoSuppressed = false
       }, AUTO_IDLE_MS)
-      if (!this.visible && !this.autoSuppressed && this.workspaceIsRepo()) this.show()
+      if (!this.visible && !this.autoSuppressed && this.workspaceIsRepo()) this.autoMaybeShow()
     }
     fileActivity.on('activity', onActivity)
     // 子代理监控：清单/轨迹变化 → 过滤推送（订阅常驻，轮询随开合启停）
@@ -504,6 +518,9 @@ class GitPanel {
     const win = this.win
     if (win === null || win.isDestroyed()) return
     this.visible = true
+    // 正向让位：收起展开中的侧边栏（异步点火不阻卡片呈现；面板本就
+    // 收起则无义务产生）
+    this.yieldSidebar()
     if (this.view === null) {
       this.view = new WebContentsView({
         webPreferences: {
@@ -547,10 +564,53 @@ class GitPanel {
     else if (this.visible) this.view.setVisible(true)
   }
 
+  /** 页面异步求值（页面函数缺席/注入间隙 → fallback；跳转间隙报错吞掉）。 */
+  private pageEval<T>(expr: string, fallback: T): Promise<T> {
+    const wc = this.win?.webContents
+    if (wc === undefined) return Promise.resolve(fallback)
+    return wc.executeJavaScript(expr, true).then(
+      v => (v === undefined ? fallback : (v as T)),
+      () => fallback,
+    )
+  }
+
+  /** 正向让位：侧边栏展开中 → 记恢复义务并收起（异步点火；面板收起
+   *  或插件未装则无义务产生）。 */
+  private yieldSidebar(): void {
+    void this.pageEval<boolean>('window.__dshPanelOpen ? window.__dshPanelOpen() : false', false).then(open => {
+      if (!open || this.win === null) return
+      this.yieldedSidebar = true
+      void this.pageEval('window.__dshPanelToggle ? window.__dshPanelToggle() : undefined', undefined)
+    })
+  }
+
+  /** 自动展开门槛（再加一项：侧边栏未占用——不抢用户在用的右侧；
+   *  手动打开不受此限，用户明确要 git）。 */
+  private autoMaybeShow(): void {
+    void this.pageEval<boolean>('window.__dshPanelOpen ? window.__dshPanelOpen() : false', false).then(open => {
+      if (!open) this.show()
+    })
+  }
+
+  /** 反向让位：用户展开了侧边栏 → 卡片让出右侧。先清恢复义务（面板
+   *  已是用户想要的态，履约会把刚开的又关掉）；manual 语义抑制自动
+   *  展开——否则下次活动自动弹又收用户面板，来回打架。 */
+  private yieldForSidebar(): void {
+    this.yieldedSidebar = false
+    if (!this.visible) return
+    this.hide(true)
+  }
+
   /**
    * 收起面板。manual=true（按钮/面板内关闭）置自动展开抑制；
    */
   hide(manual = true): void {
+    // 履约：show() 时收起的侧边栏还回去（反向让位已先清义务，不会
+    // 把用户刚开的面板又关掉）
+    if (this.yieldedSidebar) {
+      this.yieldedSidebar = false
+      void this.pageEval('window.__dshPanelToggle ? window.__dshPanelToggle() : undefined', undefined)
+    }
     this.visible = false
     this.view?.setVisible(false)
     this.pad(0)
