@@ -22,11 +22,13 @@
  *   挤压中间列，互斥。正向：show() 查 window.__dshPanelOpen（
  *   sidebar-cluster 暴露；缺席 = 插件未装自动跳过）展开则记恢复
  *   义务并 __dshPanelToggle 收起，hide() 履约恢复（全走插件真实
- *   状态机）；反向：代理按钮展开面板 → console 上报 action
- *   sidebar-open → 卡片收起（清恢复义务——面板已是用户想要的态；
- *   manual 语义抑制自动展开，防下次活动自动弹又收用户面板来回
- *   打架）；自动展开门槛加「面板未占用」（不抢用户在用的右侧，
- *   手动打开不受此限）；
+ *   状态机）；反向：面板开合沿上报 action sidebar-open/close
+ *   （sidebar-cluster observer，覆盖代理按钮/文件预览自动展开/会话
+ *   恢复全部路径）→ 卡片收起记 pendingRestore，侧边栏释放（收起沿）
+ *   即恢复 show（右侧回归原状；用户实测推翻了「不自动回来」的初版
+ *   设计——预览用完关闭后 git 该自己回来）；恢复的 show 不经自动
+ *   展开门槛，agent 活动 autoSuppressed 语义不受影响；自动展开门槛
+ *   加「面板未占用」（不抢用户在用的右侧，手动打开不受此限）；
  * - 探测：status -b / log / diff HEAD --numstat / branch 列表四条
  *   并行只读命令；probeQueue 链式串行（fetch/写操作也排队，避免
  *   读到 add 中间态；每次调用严格等自己的那次完成）；
@@ -408,6 +410,9 @@ class GitPanel {
   /** 正向让位义务：show() 时收起的侧边栏（hide() 履约恢复；反向
    *  让位时用户自开面板，义务解除不履约——恢复会把刚开的又关掉）。 */
   private yieldedSidebar = false
+  /** 反向让位待恢复：侧边栏占右期间收起的卡片，释放沿（sidebar-close）
+   *  即 show 回来。用户明确手动关卡片（toggle 关）不置位，关了就不回。 */
+  private pendingRestore = false
   /** 子代理监控推送（attach 订阅；严格按当前工作区过滤，运行中也不
    * 跨区——过滤语义详见 filterForWorkspace）。 */
   private readonly onSubagents = (records: SubagentRecord[]): void => {
@@ -429,6 +434,7 @@ class GitPanel {
         const payload = JSON.parse(message.slice(GIT_PREFIX.length)) as Record<string, unknown>
         if (payload.action === 'toggle') this.toggle()
         else if (payload.action === 'sidebar-open') this.yieldForSidebar()
+        else if (payload.action === 'sidebar-close') this.onSidebarClosed()
       } catch { /* 非 JSON 忽略 */ }
     }
     const onDidLoad = (): void => {
@@ -518,6 +524,7 @@ class GitPanel {
     const win = this.win
     if (win === null || win.isDestroyed()) return
     this.visible = true
+    this.pendingRestore = false
     // 正向让位：收起展开中的侧边栏（异步点火不阻卡片呈现；面板本就
     // 收起则无义务产生）
     this.yieldSidebar()
@@ -592,13 +599,23 @@ class GitPanel {
     })
   }
 
-  /** 反向让位：用户展开了侧边栏 → 卡片让出右侧。先清恢复义务（面板
-   *  已是用户想要的态，履约会把刚开的又关掉）；manual 语义抑制自动
-   *  展开——否则下次活动自动弹又收用户面板，来回打架。 */
+  /** 反向让位：侧边栏占了右侧 → 卡片让出。先清正向义务（面板是
+   *  用户/预览要的态，履约会把刚开的又关掉）并记 pendingRestore
+   *  （释放沿恢复）；manual 语义抑制 agent 自动展开（防活动自动弹
+   *  抢侧边栏，恢复链不经此门槛）。 */
   private yieldForSidebar(): void {
     this.yieldedSidebar = false
     if (!this.visible) return
+    this.pendingRestore = true
     this.hide(true)
+  }
+
+  /** 侧边栏释放右侧（收起沿）：反向让位收掉的卡片回来。手动关卡片
+   *  不置 pendingRestore，关了就不回；恢复的 show 走用户链语义。 */
+  private onSidebarClosed(): void {
+    if (!this.pendingRestore || this.visible) return
+    this.pendingRestore = false
+    this.show()
   }
 
   /**

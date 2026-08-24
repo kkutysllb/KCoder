@@ -33,10 +33,15 @@
  * （正向让位与协议主导在 git-panel）：本注入器在页面暴露
  * window.__dshPanelOpen()/__dshPanelToggle()（状态查询与开关，均走
  * 插件真实状态机；本脚本缺席 = 插件未装，git 侧得 undefined 自动跳过
- * 让位）；代理按钮展开面板后 console 上报 __dsh_git__:
- * {"action":"sidebar-open"} → git 卡片反向让位收起。上报只挂在用户
- * 手动点击链上，让位/恢复走 __dshPanelToggle 直点（不经代理
- * handler），不会自触发循环。
+ * 让位）；面板开合沿（false↔true 翻转）MutationObserver 上报
+ * __dsh_git__:{"action":"sidebar-open"/"sidebar-close"} → git 卡片
+ * 反向让位收起 / 释放恢复。observer 覆盖全部展开路径：代理按钮
+ * 转发、插件内容 open 自动展开（消息文件链接点击 → openTab →
+ * 面板收起时 togglePanel 展开，"must land in sight"——文件预览避让
+ * 盲区正是此路径）、+菜单/会话恢复；收起沿同理覆盖全部关闭路径
+ * （面板 × / 代理按钮 / 预览用完收起）。沿判定天然去重；git 履约
+ * 恢复展开也走此沿，git 侧 yieldForSidebar 对已收卡片直接 return，
+ * 幂等无环。
  *
  * 上游契约（全部运行时探测，哈希前缀无关）：
  * - 开关簇宿主 `[data-dsh-panel-host]`（插件 fixed 覆盖层，data 属性
@@ -158,17 +163,7 @@ const PAGE_JS = `(() => {
     const box = document.createElement('span')
     box.style.cssText = 'display:inline-flex;align-items:center;justify-content:center'
     b.append(box)
-    b.addEventListener('click', () => {
-      panelSrc()?.click()
-      // toggle 后若为展开（React 状态落 DOM 异步，隔一拍探测）→
-      // 反向让位上报：git 卡片收起（右侧归面板）。上报只挂用户手动
-      // 点击链——让位/恢复走 __dshPanelToggle 直点，不经此处，无自环。
-      setTimeout(() => {
-        if (window.__dshPanelOpen !== undefined && window.__dshPanelOpen()) {
-          console.log('__dsh_git__:' + JSON.stringify({ action: 'sidebar-open' }))
-        }
-      }, 300)
-    })
+    b.addEventListener('click', () => { panelSrc()?.click() })
     host.append(b)
     sync()
     return 'injected'
@@ -184,6 +179,20 @@ const PAGE_JS = `(() => {
   // 自愈：插件重挂开关簇（React 重建）/ 按钮态变化后重新同步
   new MutationObserver(sync)
     .observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['disabled', 'aria-label'] })
+
+  // 面板开合沿上报（git 卡片反向让位/释放恢复，见头注释）：面板根
+  // 收起态靠 class（panelHidden）翻转、host 靠挂载，class 变化与
+  // childList 都盯；沿判定（翻转才报）去重，React 高频 class 翻转下
+  // 每次回调仅两次 querySelector + 比较。页面重载后 lastPanelOpen 归
+  // false，持久化恢复的面板会产生一次 open 沿（两面板并存时收敛为
+  // 互斥态，可接受的自愈）。
+  let lastPanelOpen = false
+  new MutationObserver(() => {
+    const open = window.__dshPanelOpen()
+    if (open === lastPanelOpen) return
+    lastPanelOpen = open
+    console.log('__dsh_git__:' + JSON.stringify({ action: open ? 'sidebar-open' : 'sidebar-close' }))
+  }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] })
 })()`
 
 /**

@@ -19,6 +19,7 @@ import { attachBrandInjector } from './brand-injector'
 import { attachThemeWatcher, overlaySymbolColor, SHELL_TITLEBAR_HEIGHT, themeBackgroundColor } from './theme-watcher'
 import { attachSidebarToggle } from './sidebar-toggle'
 import { attachSidebarCluster } from './sidebar-cluster'
+import { attachClipboardFix } from './clipboard-fix'
 import { attachContextButton } from './context-button'
 import { terminalPanel } from './terminal-panel'
 import { gitPanel } from './git-panel'
@@ -149,6 +150,10 @@ export function showShellWindow(dshUrl: string): void {
     // 代理按钮 + 底面板压制看门狗（产品侧弃用插件底面板，见注入器头
     // 注释；宿主=自绘状态栏，故注册在 attachThemeWatcher 之后）
     attachSidebarCluster(shellWindow)
+    // 剪贴板写兜底：wrap 页面 navigator.clipboard.writeText，失败（失焦
+    // /权限拒绝）兜底主进程 electron.clipboard——上游复制点击的 check
+    // 反馈链不再静默断掉（消息泡/代码块全站复制点受益）
+    attachClipboardFix(shellWindow)
     // 上下文面板 GUI 入口：状态栏第三枚按钮（插件代理与终端按钮左侧，
     // right 76），点击等价输入框 /context 回车（走 dsh-context input
     // trigger 真实契约，不发送消息）；打开态拉满主页面区域 + 右上角
