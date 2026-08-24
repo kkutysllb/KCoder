@@ -19,24 +19,6 @@
  *      对 LF patch + CRLF 文件会拒应用，但 pnpm 的应用器行尾宽容
  *      （实证：client.js 的 return 修复即此路径落地），patch 文件照常
  *      分发，锄点兑底按 CRLF 字节锄入。
- * - dsh-plugin-genui：卡片注册漏传 key + node half 不注册 settings
- *   namespace 两个上游缺陷（npm 最新版同样存在）。插件已不预置
- *   （2026-08-20 起由用户经插件市场自行安装），补丁仍分发：自装副本
- *   由声明跟随 deps + 自愈链继续覆盖
- * - dsh-context：node half 缓存失败缺陷（projection 状态残留），修复版
- *   与 npm 原版快照分别归档于 .patches/dsh-context-fix（应用版）与
- *   .patches/dsh-context（原版），patch 由此生成
- * - dsh-better-sidebar：两项功能热补丁（上游 #131 P2 无修复计划，产品侧
- *   补齐）：文件预览面板对 git 修改文件显示「Diff +N −M」pill（点击开
- *   diff tab）；git 面板 header 显示项目整体 +N −M 统计。改 web half 两个
- *   入口变体（lib/client.js 与 lib/client-registry.js，除头部模块名外逐
- *   字节相同）；快照与施加器归档于 .patches/dsh-better-sidebar{,-fix}。
- *   无锄点兑底（PATCH_FALLBACKS）：功能型多锄点注入盲改风险大于收益，
- *   依赖 pnpm patch + install 重放两层即可，缺失时插件裸装照常工作
- * - dsh-video-preview（用户自装，genui 同款「自装也覆盖」）：VIDEO_EXTS
- *   把 "ts" 当 MPEG-TS 流抢先声明，TypeScript 源码全被视频播放器接管
- *   （matchFileViewer 按 priority 降序，video（0）压过内置 code 兑底
- *   （-100））。补丁删 "ts" 保留 m2ts；快照归档 .patches/dsh-video-preview
  * - @dsh-external/dsh-drag-to-attachment（用户消息气泡的两项 KCoder
  *   增强，0.2.7 加）：① 复制按钮 — windows.ts 拒绝所有权限导致
  *   navigator.clipboard.writeText 静默失败，原版 copyUserText 吞错
@@ -68,7 +50,7 @@
  * @module desktop/main/profile-patches
  */
 
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROJECT_ROOT, WEB_PROFILE, dshHome, runPnpm } from './dsh-contract'
 
@@ -125,30 +107,23 @@ const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
     // CRLF 产物影响）
     ['lib/index.js', "child.on('error', () => {})"],
     ['lib/client.js', "editBtnStyle.PRIMARY = 'kcoder-edit-primary'"],
+    // 就地编辑发送修复版特征：scoped conversation 获取（旧版根 ctx 直取
+    // send 恒落空，此 mark 缺失 → 自愈链重放新 patch）
+    ['lib/client.js', 'activeCtx.sessions.scope(curId)'],
   ],
-  'dsh-plugin-genui': [
-    ['lib/client.js', 'key: "genui-design"'],
-    ['lib/index.js', 'ctx.settings.register("genui-design"'],
-    // inject 数组的 "settings"（ctx.settings 可用的必要条件，缺失时
-    // register 反而会造成新的运行时错误）
-    ['lib/index.js', '"agents",\n\t"settings"'],
-  ],
-  // 修复版用 delete 清理投影状态；原版为置 undefined（缓存残留根因）
-  'dsh-context': [['lib/index.js', 'delete st.pendingShadowedSeqs']],
-  // 双入口变体同步改（client.js / client-registry.js 除头部模块名外
-  // 逐字节相同，patch 两段各含 kcodercCountDiff 定义与调用）
-  'dsh-better-sidebar': [
-    ['lib/client.js', 'kcodercCountDiff'],
-    ['lib/client-registry.js', 'kcodercCountDiff'],
-  ],
-  // 修复特征：扩展表无 ts（原版 "3g2", "ts", "m2ts"；根级 client.js）
-  'dsh-video-preview': [['client.js', '"3g2", "m2ts"']],
 }
+
+/**
+ * 已退役的分发补丁包（上游持续迭代，补丁不再需要）：现场残留的旧
+ * patch 文件与声明由自愈链回收（ensureProfilePatches 的文件回收步骤
+ * + ensurePatchDeclared 的缺失文件声明摘除）。
+ */
+const RETIRED_PATCH_PKGS = ['dsh-plugin-genui', 'dsh-context', 'dsh-video-preview', 'dsh-better-sidebar']
 
 /**
  * mark 缺失时的锄点注入兑底（与 patch 内容等价；pnpm patch 机制在任何
  * 平台/版本下静默失败时的第三层保险——锄不中或多处命中则跳过留警告，
- * 绝不盲改）。锄点基于当前锁定版本（genui 0.12.2 唯一版）的产物字节。
+ * 绝不盲改）。锄点基于当前锁定版本的产物字节。
  */
 interface PatchFallback {
   pkg: string
@@ -163,30 +138,6 @@ interface PatchFallback {
 }
 
 const PATCH_FALLBACKS: PatchFallback[] = [
-  {
-    pkg: 'dsh-plugin-genui', file: 'lib/client.js',
-    mark: 'key: "genui-design"',
-    anchor: 'name: "settings.plugin.item",',
-    inject: '\n\t\t\tkey: "genui-design",',
-  },
-  {
-    pkg: 'dsh-plugin-genui', file: 'lib/index.js',
-    mark: 'ctx.settings.register("genui-design"',
-    anchor: 'async function apply(ctx, config) {',
-    inject: '\n\tctx.settings.register("genui-design", z.object({}), { applies: "live" });',
-  },
-  {
-    pkg: 'dsh-plugin-genui', file: 'lib/index.js',
-    mark: '"agents",\n\t"settings"',
-    anchor: '"webServer",\n\t"agents"',
-    replace: '"webServer",\n\t"agents",\n\t"settings"',
-  },
-  {
-    pkg: 'dsh-context', file: 'lib/index.js',
-    mark: 'delete st.pendingShadowedSeqs',
-    anchor: 'st.pendingShadowedSeqs = void 0;',
-    replace: 'delete st.pendingShadowedSeqs;',
-  },
   {
     // rc.8 提交事务硬化后 wrap 的附件分支必须返回 SubmitOutcome，
     // 否则 settleSubmit 读 undefined.kind 炸 → 输入框永久锁死。
@@ -276,8 +227,8 @@ function patchApplied(profileDir: string, files: string[]): boolean {
  * 幂等声明 patchedDependencies，声明严格跟随 profile dependencies
  * 实态（依赖图真相）：
  * - 包在 manifest dependencies 而未声明 → 补写（未装但已声明依赖也算
- *   ——install 时进依赖图，补丁须先就位；用户自装 genui 后下次启动
- *   在此补声明，marks 校验未过则锄点注入/重装自愈）
+ *   ——install 时进依赖图，补丁须先就位；用户自装受补丁覆盖的插件
+ *   后下次启动在此补声明，marks 校验未过则锄点注入/重装自愈）
  * - 包已声明但不在 dependencies（预置撤除后残留/用户卸载）→ 摘除该行
  *   （allowUnusedPatches 已容忍未用声明，摘除仍保持配置卫生）；
  *   摘除范围仅限本模块分发的包，用户手动声明的其它补丁不动
@@ -331,6 +282,21 @@ function ensurePatchDeclared(profileDir: string, names: string[]): boolean {
         healLog(`[patches] 已摘除未用补丁声明（包不在 dependencies）：${pkg}`)
       }
     }
+  }
+  // 退役/缺失回收：本链管理的包（含已退役），声明行引用的 patch 文件
+  // 已不在现场（发行侧摘除后由回收步骤删除，或现场被手动清理）——残留
+  // 声明会让 pnpm install 对缺失文件报错，摘除之；范围限管理包，用户
+  // 自建补丁声明不受影响
+  const managedPkgs = new Set([...Object.keys(PATCH_MARKS), ...RETIRED_PATCH_PKGS])
+  const recycled = yaml.replace(
+    /^ {2}(?:'[^']+'|[^:\n]+): patches\/(\S+)\n?/gm,
+    (line, file) => (managedPkgs.has(pkgNameOf(file)) && !existsSync(join(profileDir, 'patches', file)) ? '' : line),
+  )
+  if (recycled !== yaml) {
+    yaml = recycled
+    changed = true
+    console.log('[profile-patches] 已摘除引用缺失文件的退役补丁声明')
+    healLog('[patches] 已摘除引用缺失文件的退役补丁声明')
   }
   // 只发生摘除（deps 不可判/无缺项）时也要落盘，否则摘除丢失；
   // 全部摘完时连块头带注释一起移除，防空块让 pnpm yaml 解析歧义
@@ -391,7 +357,7 @@ function ensurePatchDeclared(profileDir: string, names: string[]): boolean {
   const entries = missing.map((n) => `  ${yamlKeyOf(declKeyOf(n))}: patches/${n}`).join('\n')
   const m = yaml.match(/^patchedDependencies:\n(?:[ \t].*\n?)*/m)
   if (m) {
-    // 已有块（如旧版仅 genui）：新条目追加到块尾（replace 避免 m[0]
+    // 已有块：新条目追加到块尾（replace 避免 m[0]
     // 与文件头的偏移错位）
     yaml = yaml.replace(m[0], `${m[0]}${entries}\n`)
   } else {
@@ -421,11 +387,7 @@ ${entries}
  * 用途是喂给 patchApplied 的包名提取器，覆盖 PATCH_MARKS 全部包。
  */
 const KNOWN_PATCH_SENTINELS = [
-  'dsh-plugin-genui@x.patch',
-  'dsh-context@x.patch',
   '@dsh-external__dsh-drag-to-attachment@x.patch',
-  'dsh-better-sidebar@x.patch',
-  'dsh-video-preview@x.patch',
 ]
 
 /**
@@ -444,7 +406,8 @@ function pkgNameOf(patchFile: string): string {
  * 一次：自愈不可能成功。视为「不适用」而非缺失，避免每次启动空转一轮
  * pnpm install（用户把插件升到 patch 目标版本之外：better-sidebar npm
  * 0.14.0 → git 0.15.2 实证，0.15.2 无 diff pill 功能属产品取舍而非自愈
- * 缺口）。@x 后缀（无版本约束：drag-to-attachment 增强/KNOWN 哨兵）不
+ * 缺口——该补丁已于 2026-08-25 随迭代退役，见 RETIRED_PATCH_PKGS）。
+ * @x 后缀（无版本约束：drag-to-attachment 增强/KNOWN 哨兵）不
  * 设门；package.json 不可读时放行，交 marks 校验兑底判定。
  */
 function patchVersionMatches(patchFile: string, modDir: string): boolean {
@@ -511,6 +474,19 @@ export function ensureProfilePatches(): void {
         console.warn(`[profile-patches] ${f} 行尾已归一化为 LF（源疑似 CRLF）`)
         healLog(`[patches] ${f} 行尾已归一化为 LF（源疑似 CRLF）`)
       }
+    }
+    // 1.5) 退役补丁回收：曾由本链分发的包，patch 从发布物摘除（上游
+    //    迭代不再需要）后，现场旧文件不会自行消失——版本恰好匹配时
+    //    补丁还会继续应用（违背退役意图），残留声明则让 install 对缺失
+    //    文件报错。回收范围仅限本链管理的包（含已退役），用户自建
+    //    patch 文件不带这些包名不受影响；声明由第 2 步同步摘除
+    const managed = new Set([...Object.keys(PATCH_MARKS), ...RETIRED_PATCH_PKGS])
+    for (const f of readdirSync(join(profileDir, 'patches'))) {
+      if (!f.endsWith('.patch') || files.includes(f)) continue
+      if (!managed.has(pkgNameOf(f))) continue
+      rmSync(join(profileDir, 'patches', f))
+      console.log(`[profile-patches] 已回收退役补丁：${f}`)
+      healLog(`[patches] 已回收退役补丁：${f}`)
     }
     // 2) patchedDependencies 声明（幂等）
     if (!ensurePatchDeclared(profileDir, files)) {

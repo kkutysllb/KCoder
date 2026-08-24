@@ -217,8 +217,7 @@ app.whenReady().then(() => {
   // +A/−N 与纯审计轮结论卡；幂等，版本门拒绝覆盖已升级的树）
   ensureNativeOverlay()
   // 预置第三方插件物化（幂等；Windows 全新安装 profile 为空模板，开箱
-  // 即预置 vision-router / context / better-sidebar，含缺陷补丁自动
-  // 应用；genui 已改为用户经插件市场自行安装，其缺陷补丁仍随自愈链覆盖）
+  // 即预置 vision-router / context / better-sidebar，含缺陷补丁自动应用）
   ensurePresetPlugins()
   dshManager.start()
 

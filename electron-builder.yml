@@ -24,9 +24,7 @@ extraResources:
     to: kcoder-language
   # 插件热补丁（name-only patchedDependencies，主进程启动时幂等物化进
   # $DSH_HOME/profiles/web，声明跟随 deps 实态自愈，见 profile-patches.ts）：
-  # genui 双缺陷 / dsh-context 缓存 / drag-to-attachment 漏 return /
-  # better-sidebar 预览 diff pill + git 面板 ±N 统计 / video-preview 扩展
-  # 表纠偏（ts 误占）。目录级映射：新增补丁落仓库即随包，release.sh
+  # drag-to-attachment 漏 return / 复制·就地编辑增强。目录级映射：新增补丁落仓库即随包，release.sh
   # verify 与仓库清单逐文件对账防断供。Windows 无 launchd，随包分发是
   # 补丁的唯一通道。
   # better-sidebar 另有产品侧物化见 preset-plugins.ts（node-pty 构建许可

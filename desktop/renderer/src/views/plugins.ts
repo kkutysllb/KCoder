@@ -110,7 +110,7 @@ export function mountPlugins(root: HTMLElement): void {
         ]),
         el('div', 'card', [
           el('h2', '', '社区插件（GitHub topic: dsh-plugin）'),
-          el('div', 'sub', '按 ★ 倒序；搜索直接查询 GitHub，可找到榜单之外的插件（如 genui / context）。'),
+          el('div', 'sub', '按 ★ 倒序；搜索直接查询 GitHub，可找到榜单之外的插件（如 context）。'),
           communitySearch,
           communityMeta,
           communityTable,

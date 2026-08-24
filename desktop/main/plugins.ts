@@ -334,7 +334,7 @@ function sanitizeQuery(query: string): string {
 /**
  * 发现社区插件（GitHub topic `dsh-plugin`，按 ★ 倒序；未认证 API
  * 单页上限 100 条）。query 非空时走服务端搜索（`in:name,description`），
- * 可命中榜单 100 名之外的插件（如 genui）；page 用于「加载更多」翻页。
+ * 可命中榜单 100 名之外的插件（如 context）；page 用于「加载更多」翻页。
  * 使用 Electron net（尊重系统代理）。失败时返回已缓存页，无缓存则空。
  */
 export async function communityPlugins(query = '', page = 1): Promise<CommunityQueryResult> {

@@ -25,10 +25,6 @@
  * update --latest 升线。vision-router 精确锁定（keyed slot 契约适配版，
  * 防破坏性变更混入）。
  *
- * dsh-plugin-genui 已不再预置（2026-08-20 起由用户经插件市场自行安装）。
- * 它的两个上游缺陷补丁仍随包分发：用户自装后 ensureProfilePatches 会
- * 补声明并自愈（锄点注入兑底，见 profile-patches.ts）。
- *
  * dsh-better-sidebar（2026-08-20 预置，全面替代自研功能面：文件树
  *   面板、内嵌终端与状态栏四面板——文件预览/会话轨迹/日志导出/Git
  *   ——已删除）：侧边栏工作台底座（文件树/CM6 编辑器/图片·MD 预览/
@@ -43,9 +39,7 @@
  *   并在状态栏代理接管（代理一枚 right 12 + 自研终端 44 + 上下文 76；
  *   插件底面板产品侧弃用——agent 运行态黑屏无唤醒信号，sidebar-cluster
  *   压制看门狗自动收回一切打开路径，热补丁/挤压垫片已随终端回归
- *   自研而拆除）。两项功能热补丁（2026-08-21，上游 #131 P2 无修复
- *   计划）：预览面板修改文件 Diff pill、git 面板整体 ±N 统计，patch
- *   随包分发自愈（见 profile-patches.ts）。
+ *   自研而拆除）。
  *
  * @tt-a1i/archify-dsh（2026-08-20 预置）：架构图 agent skill——把
  * 代码库/系统描述变成自包含交互 HTML 技术图（架构/工作流/时序/
@@ -66,7 +60,7 @@
  * 附件按钮作为输入框产品功能随之消失（实测）——收归预置根治。
  * GitHub 源无 semver，锁 tag v1.0.3（与 profile-patches.ts 的
  * rc.8 return 补丁三层链精确对齐）；升级走显式改预置。无额外物化
- * 项（补丁链由 ensureProfilePatches 按需自愈，genui 同款）。
+ * 项（补丁链由 ensureProfilePatches 按需自愈）。
  *
  * @module desktop/main/preset-plugins
  */

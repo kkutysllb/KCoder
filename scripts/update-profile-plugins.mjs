@@ -13,11 +13,6 @@
  *      恒缺），ensureEverything 的 spawn ENOENT 无 error 监听 →
  *      unhandled 'error' 崩掉 dsh 进程。修复在 patch 文件内（pnpm 应用
  *      器对 CRLF 产物行尾宽容），app 启动链另有 CRLF 锄点注入兑底
- * - dsh-plugin-genui：卡片注册漏传 key + node half 不注册 settings
- *   namespace 两个上游缺陷（npm 最新版同样存在）。插件已不预置
- *   （由用户经插件市场自行安装），补丁仍分发：自装后 --sync 补声明应用
- * - dsh-context：node half 缓存失败缺陷（projection 状态残留），修复版
- *   与 npm 原版快照归档于 .patches/dsh-context-fix 与 .patches/dsh-context
  *
  * 补丁通过 pnpm patchedDependencies 固化在 profile：精确版本键
  *   （name@ver）只对匹配版本应用；版本漂移时声明“未用”由
@@ -41,8 +36,6 @@ import { fileURLToPath } from 'node:url'
 const ROOT = resolveRepoRoot()
 const PROFILE = process.env.DSH_HOME ? join(process.env.DSH_HOME, 'profiles/web') : join(homedir(), '.dsh/profiles/web')
 const PATCHES = [
-  'dsh-plugin-genui@0.12.2.patch',
-  'dsh-context@0.12.1.patch',
   '@dsh-external__dsh-drag-to-attachment@1.0.3.patch',
 ]
 const WORKSPACE_YAML = join(PROFILE, 'pnpm-workspace.yaml')
@@ -65,14 +58,7 @@ const PATCH_MARKS = {
     // Everything spawn 防崩修复（单行 mark，不受 CRLF 产物行尾影响）
     ['lib/index.js', "child.on('error', () => {})"],
   ],
-  'dsh-plugin-genui': [
-    ['lib/client.js', 'key: "genui-design"'],
-    ['lib/index.js', 'ctx.settings.register("genui-design"'],
-    ['lib/index.js', '"agents",\n\t"settings"'],
-  ],
-  'dsh-context': [['lib/index.js', 'delete st.pendingShadowedSeqs']],
 }
-
 function resolveRepoRoot() {
   const here = dirname(fileURLToPath(import.meta.url))
   return join(here, '..')

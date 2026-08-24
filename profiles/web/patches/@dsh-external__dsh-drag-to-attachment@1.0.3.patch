@@ -1,5 +1,5 @@
 diff --git a/lib/client.js b/lib/client.js
-index cb6bf08..25d0e3f 100644
+index cb6bf08..3a66c5f 100644
 --- a/lib/client.js
 +++ b/lib/client.js
 @@ -1468,6 +1468,7 @@ window.__ModuleLoader__.load({
@@ -10,7 +10,7 @@ index cb6bf08..25d0e3f 100644
        }
      }
  
-@@ -1608,24 +1608,45 @@
+@@ -1607,24 +1608,45 @@ window.__ModuleLoader__.load({
        return React.createElement('svg', { width: size || 16, height: size || 16, viewBox: '0 0 24 24', fill: 'currentColor', style: { display: 'block' } },
          React.createElement('path', { d: d }))
      }
@@ -63,7 +63,7 @@ index cb6bf08..25d0e3f 100644
      }
      function editUserText(text) {
        try {
-@@ -1638,7 +1659,7 @@
+@@ -1637,7 +1659,7 @@ window.__ModuleLoader__.load({
          ta.dispatchEvent(new Event('input', { bubbles: true }))
        } catch (error) { /* best-effort */ }
      }
@@ -72,7 +72,7 @@ index cb6bf08..25d0e3f 100644
        var hasText = typeof text === 'string' && text.trim() !== ''
        if (!hasText && timeMs === undefined) return null
        var items = []
-@@ -1651,7 +1672,10 @@
+@@ -1650,7 +1672,10 @@ window.__ModuleLoader__.load({
        }
        if (hasText) {
          items.push(React.createElement('button', { key: 'copy', type: 'button', className: 'dta-user-action', title: '复制', 'aria-label': '复制', onClick: function () { copyUserText(text) }, style: iconBtnStyle() }, iconSvg(COPY_ICON_PATH)))
@@ -84,7 +84,7 @@ index cb6bf08..25d0e3f 100644
        }
        return React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', height: '28px' } }, items)
      }
-@@ -1668,6 +1692,15 @@
+@@ -1667,6 +1692,15 @@ window.__ModuleLoader__.load({
            if (block && block.type === 'image') nativeImages += 1
          })
          var text = texts.join('')
@@ -100,7 +100,7 @@ index cb6bf08..25d0e3f 100644
          var parsed = parseAttachmentMarkup(text)
          if (parsed !== null && parsed.attachments.length > 0) {
            // Debug aid while diagnosing the card renderer.
-@@ -1683,8 +1716,27 @@
+@@ -1682,8 +1716,36 @@ window.__ModuleLoader__.load({
            wordBreak: 'break-word',
          }
          var row = { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px', margin: '6px 0' }
@@ -114,7 +114,16 @@ index cb6bf08..25d0e3f 100644
 +          var t = draftInPlace && draftInPlace.trim()
 +          if (!t || sentInPlace) return
 +          if (setSentInPlace) setSentInPlace(true)
-+          var conversation = activeCtx && activeCtx.get ? activeCtx.get('conversation') : null
++          var conversation = null
++          // conversation.send 是 session-scoped（根 ctx 上 scopeOf 恒
++          // undefined → throw "requires a session scope"，旧版在这里
++          // 静默落空：点发送只关编辑框、消息未发）：按上游指路，先取
++          // 当前 session 的 scoped ctx 再取服务
++          try {
++            var curId = activeCtx && activeCtx.sessions ? activeCtx.sessions.list.getSnapshot().current : undefined
++            var scopedCtx = curId !== undefined && activeCtx.sessions ? activeCtx.sessions.scope(curId) : undefined
++            conversation = scopedCtx ? scopedCtx.get('conversation') : null
++          } catch (e) { conversation = null }
 +          if (conversation && typeof conversation.send === 'function') {
 +            conversation.send(t).then(function () {
 +              if (setEditingInPlace) setEditingInPlace(false)
@@ -129,7 +138,7 @@ index cb6bf08..25d0e3f 100644
          var rowAttrs = { 'data-time-hover-root': '1' }
          if (parsed === null) {
            // No attachment markup: approximate the native user bubble.
-@@ -1695,7 +1747,25 @@
+@@ -1694,7 +1756,25 @@ window.__ModuleLoader__.load({
                    return React.createElement('img', { key: i, src: '#', alt: 'image', style: { width: '64px', height: '64px', objectFit: 'cover', borderRadius: '6px', background: 'rgba(0,0,0,.08)' } })
                  })
                ) : null,
@@ -141,7 +150,7 @@ index cb6bf08..25d0e3f 100644
 +                    onChange: function (ev) { setDraftInPlace ? setDraftInPlace(ev.target.value) : null },
 +                    autoFocus: true,
 +                    onKeyDown: function (ev) { if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') { ev.preventDefault(); commitEditInPlace() } },
-+                    style: { width: '360px', maxWidth: '100%', minHeight: '60px', boxSizing: 'border-box', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', font: 'inherit', fontSize: '14px', lineHeight: '20px', resize: 'vertical', outline: 'none' }
++                    style: { width: '100%', maxWidth: '100%', minHeight: '60px', maxHeight: '40vh', overflowY: 'auto', boxSizing: 'border-box', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', font: 'inherit', fontSize: '14px', lineHeight: '20px', resize: 'vertical', outline: 'none' }
 +                  })
 +                  ,
 +                  React.createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
