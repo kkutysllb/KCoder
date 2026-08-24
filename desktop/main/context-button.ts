@@ -8,7 +8,9 @@
  * 当前构成/趋势图+请求明细/上下文浏览器/事件列表/消息构成/口径
  * 脚注，比 /context modal 的两区块多五个统计维度）；上游 tab 头
  * button[role="tab"] 文本走插件字典（zh「上下文」/en「Context」），
- * 点击即 actions.setView('context')，view 状态随 ChatStore 持久化。
+ * 点击即 actions.setView('context')，view 状态随 ChatStore 持久化；
+ * 已激活时再点 = 切回「对话」tab（toggle，view.chat 词典
+ * zh「对话」/en「Chat」同款整词匹配）。
  * tab 是文档流内视图（非 overlay），终端 view 的 padding 让位照常
  * 生效，无需沉浸模式；tab 缺席（插件 <0.9/空态无会话）回退模拟
  * /context 回车开 modal（dsh-context 插件的 input trigger 真实
@@ -192,14 +194,22 @@ const PAGE_JS = `(() => {
   }
 
   // 主路径：点击原生 tab 头（actions.setView('context')，完整统计
-  // 视图）。modal 打开期间冻结不动作（与沉浸模式的「状态冻结，退出
-  // 后原样呈现」一致）；已激活也不再动作——切回对话走页面上方的
-  // 原生 tab 栏，不自行发挥。
+  // 视图）；已激活时再点 = 切回「对话」tab（toggle 语义——上游
+  // view.chat 词典 zh「对话」/en「Chat」，与 ctxTab 同款整词匹配；
+  // 对话 tab 是 tab 栏首枚且必在，找不到则不动）。modal 打开期间
+  // 冻结不动作（与沉浸模式的「状态冻结，退出后原样呈现」一致）。
   const openContext = () => {
     if (modal() != null) return
     const tab = ctxTab()
     if (tab == null) { openPanel(); return }
-    if (tab.getAttribute('aria-selected') !== 'true') tab.click()
+    if (tab.getAttribute('aria-selected') === 'true') {
+      for (const b of document.querySelectorAll('button[role="tab"]')) {
+        const s = (b.textContent || '').trim()
+        if (s === '对话' || s === 'Chat') { b.click(); return }
+      }
+      return
+    }
+    tab.click()
   }
 
   // 沉浸模式开关：只在 modal 出现/消失的翻转沿上报（sync 每次变更
