@@ -90,52 +90,78 @@ const PAGE_JS = `(() => {
   watchSidebar()
 
   /* ---- 当前会话 → 工作区解析（同源 RPC）---- */
-  const probeSessionId = () => {
-    const rows = document.querySelectorAll('[role="treeitem"][aria-selected="true"]')
-    for (const el of rows) {
+  // 收集全部 selected 树行的会话 id：多棵树可能同时各有 selected
+  //（会话树 + 搜索结果等），取第一个会拿到另一棵树的残留选中
+  const probeSessionIds = () => {
+    const ids = []
+    for (const el of document.querySelectorAll('[role="treeitem"][aria-selected="true"]')) {
       const fiberKey = Object.keys(el).find(k => k.startsWith('__reactFiber$'))
       let fiber = fiberKey !== undefined ? el[fiberKey] : null
       while (fiber != null) {
         const node = fiber.memoizedProps != null ? fiber.memoizedProps.node : null
-        if (node != null && typeof node.id === 'string') return node.id
+        if (node != null && typeof node.id === 'string') { ids.push(node.id); break }
         fiber = fiber.return
       }
     }
-    return null
+    return ids
   }
   let rpcSeq = 0
+  // 解析代数：debounce 上报与按钮点击并发时，后发起的解析读到更新的
+  // DOM；先发起的旧结果即使响应晚到也不得覆盖 → 代数不等的直接丢弃。
+  // （rpcId 的 seq 只进了日志，从未校验——乱序防御在这里补齐）
+  let wsGen = 0
+  // 结果语义：matched=true 选中会话唯一映射到某工作区（强信号）；
+  // matched=false 无任何选中行，fallback 到 updatedAt 最新（弱信号，
+  // 仅启动初态可用）；null = 有选中但映射不到/映射歧义，或响应乱序——
+  // 此刻任何「猜」出的工作区都可能不是用户所在（错桶的根因），
+  // 宁可不上报，等 DOM/列表数据稳定后的下一次变化重解析。
   const resolveWorkspace = async () => {
-    const res = await fetch('/api/workspace.list', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        type: 'client-request', rpcId: 'kcoder-terminal-' + (++rpcSeq),
-        method: 'workspace.list', payload: {},
-      }),
-    })
-    if (!res.ok) return null
-    const envelope = await res.json().catch(() => null)
-    const result = envelope != null && envelope.result != null ? envelope.result : null
-    const items = result != null && result.ok === true && result.value != null
-      && Array.isArray(result.value.items) ? result.value.items : null
-    if (items == null || items.length === 0) return null
-    const usable = items.filter(it => it != null && typeof it.path === 'string' && it.path !== '')
-    if (usable.length === 0) return null
-    const sessionId = probeSessionId()
-    const bySession = sessionId !== null
-      ? usable.find(it => Array.isArray(it.sessionIds) && it.sessionIds.includes(sessionId))
-      : null
-    const latest = usable.slice()
-      .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0]
-    const workspace = bySession != null ? bySession : latest
-    return { path: workspace.path, title: typeof workspace.title === 'string' ? workspace.title : '' }
+    const gen = ++wsGen
+    const doResolve = async () => {
+      const res = await fetch('/api/workspace.list', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          type: 'client-request', rpcId: 'kcoder-terminal-' + (++rpcSeq),
+          method: 'workspace.list', payload: {},
+        }),
+      })
+      if (!res.ok) return null
+      const envelope = await res.json().catch(() => null)
+      const result = envelope != null && envelope.result != null ? envelope.result : null
+      const items = result != null && result.ok === true && result.value != null
+        && Array.isArray(result.value.items) ? result.value.items : null
+      if (items == null || items.length === 0) return null
+      const usable = items.filter(it => it != null && typeof it.path === 'string' && it.path !== '')
+      if (usable.length === 0) return null
+      const ids = probeSessionIds()
+      if (ids.length > 0) {
+        const hits = new Set()
+        for (const id of ids) {
+          const w = usable.find(it => Array.isArray(it.sessionIds) && it.sessionIds.includes(id))
+          if (w != null) hits.add(w)
+        }
+        if (hits.size !== 1) return null
+        const workspace = [...hits][0]
+        return { matched: true, path: workspace.path, title: typeof workspace.title === 'string' ? workspace.title : '' }
+      }
+      const latest = usable.slice()
+        .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0]
+      return { matched: false, path: latest.path, title: typeof latest.title === 'string' ? latest.title : '' }
+    }
+    const ws = await doResolve().catch(() => null)
+    return gen === wsGen ? ws : null
   }
 
   /* ---- 工作区缓存上报：选中会话变化（或列表重挂载）时重解析 ---- */
   let debounce = 0
   const reportWorkspace = () => {
     resolveWorkspace()
-      .then(ws => { if (ws != null) report({ workspace: ws.path, workspaceTitle: ws.title }) })
+      .then(ws => {
+        if (ws == null) return
+        if (ws.matched) report({ workspace: ws.path, workspaceTitle: ws.title })
+        else report({ workspaceFallback: ws.path, workspaceTitle: ws.title })
+      })
       .catch(() => {})
   }
   const watchSelection = () => {
@@ -179,7 +205,7 @@ const PAGE_JS = `(() => {
     btn.append(svg)
     btn.onclick = () => {
       resolveWorkspace()
-        .then(ws => report(ws == null ? { action: 'toggle', path: null } : { action: 'toggle', path: ws.path }))
+        .then(ws => report({ action: 'toggle', path: ws != null && ws.matched ? ws.path : null }))
         .catch(() => report({ action: 'toggle', path: null }))
     }
     host.append(btn)
@@ -299,14 +325,24 @@ class TerminalPanel {
         return
       }
       const workspace = payload.workspace
-      if (typeof workspace === 'string') {
-        // 探针报告当前工作区：仅切换"哪个 view 当前可见"，不动其他工作区
-        // 视图与 pty session（多任务并行：A 的长任务不应被切到 B 时影响）。
+      if (typeof workspace === 'string' && workspace !== '') {
+        // 探针报告当前工作区（强信号：选中会话唯一映射）：仅切换"哪个
+        // view 当前可见"，不动其他工作区视图与 pty session（多任务并行：
+        // A 的长任务不应被切到 B 时影响）。
         const prevBucket = this.activeBucket
         this.activeBucket = workspace
         this.activeTitle = typeof payload.workspaceTitle === 'string' ? payload.workspaceTitle : ''
-        // 兜底桶键：空串对应"无工作区"桶，确保新 view 可被找到
+        // 兕底桶键：空串对应"无工作区"桶，确保新 view 可被找到
         if (prevBucket !== this.activeBucket) this.switchVisible(this.activeBucket)
+        return
+      }
+      const fallback = payload.workspaceFallback
+      if (typeof fallback === 'string' && fallback !== '' && this.activeBucket === null) {
+        // 弱信号（无任何选中会话，updatedAt 最新兑底）：仅在从未有过
+        // 强信号时采纳——一旦已知工作区，绝不被猜出来的值覆盖（错桶根因）
+        this.activeBucket = fallback
+        this.activeTitle = typeof payload.workspaceTitle === 'string' ? payload.workspaceTitle : ''
+        this.switchVisible(fallback)
         return
       }
       if (payload.action === 'toggle') {
