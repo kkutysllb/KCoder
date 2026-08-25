@@ -8,7 +8,9 @@
  */
 
 import { BrowserWindow, clipboard, ipcMain, shell } from 'electron'
-import { getShellWindow, showShellWindow } from './windows'
+import { getShellWindow, logoutToLanding, showShellWindow } from './windows'
+import { authLogin, authLoggedIn, authRegister, authStatus } from './auth'
+import { applyLandingTheme, currentLandingTheme } from './theme-watcher'
 import { dshManager } from './dsh-manager'
 import { progressEvents, setupUpstream, syncUpstream, upstreamStatus } from './upstream'
 import { communityPlugins, installedPlugins, latestVersions, runPluginCommand } from './plugins'
@@ -77,13 +79,17 @@ export function registerIpc(): void {
   ipcMain.handle('update:install', () => installUpdate())
 
   /* ---- 桌面动作 ---- */
+  // 外链门禁：未登录一律拒绝跳转（landing 停留语义）；已登录仅放行
+  // http(s)，其余协议（file:/自定义）不交系统
   ipcMain.handle('shell:openExternal', (_event, url: string) => {
-    if (/^https?:\/\//.test(url)) void shell.openExternal(url)
+    if (!authLoggedIn() || !/^https?:\/\//.test(url)) return Promise.resolve()
+    void shell.openExternal(url)
     return Promise.resolve()
   })
   ipcMain.handle('shell:show', (event) => {
     const url = dshManager.status.url
-    if (url === null) return false
+    // 门禁：未登录拒开工作台（showShellWindow 内部同款兑底，双保险）
+    if (url === null || !authLoggedIn()) return false
     showShellWindow(url)
     BrowserWindow.fromWebContents(event.sender)?.close()
     return true
@@ -162,6 +168,28 @@ export function registerIpc(): void {
   ipcMain.handle('terminal:panel-resize', (_event, dy: number) => {
     terminalPanel.adjustHeight(dy)
     return terminalPanel.height()
+  })
+
+  /* ---- 本地账户鉴权（门禁数据源；登出连带窗口收场） ---- */
+  ipcMain.handle('auth:status', () => authStatus())
+  ipcMain.handle('auth:register', (_event, username: unknown, password: unknown) =>
+    authRegister(username, password))
+  ipcMain.handle('auth:login', (_event, username: unknown, password: unknown) =>
+    authLogin(username, password))
+  ipcMain.handle('auth:logout', () => {
+    // 登出收场：收起并卸载工作台（windows.logoutToLanding，内部完成
+    // authLogout）+ landing 回到登录表单（workspace 菜单的
+    // kcoder://auth-logout 拦截路径直调同款函数，两路行为一致）
+    logoutToLanding()
+    return { ok: true, error: null, status: authStatus() }
+  })
+
+  /* ---- landing 页面主题（三态循环按钮；与上游解耦，独立持久化） ---- */
+  ipcMain.handle('theme:landing', () => currentLandingTheme())
+  ipcMain.handle('theme:setLanding', (_event, pref: unknown) => {
+    if (pref !== 'system' && pref !== 'light' && pref !== 'dark') return currentLandingTheme()
+    applyLandingTheme(pref)
+    return currentLandingTheme()
   })
 
   /* ---- 偏好设置（样式档位/托盘保活；写后即时生效） ---- */

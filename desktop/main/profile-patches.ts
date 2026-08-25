@@ -30,6 +30,12 @@
  *   其键名 pkgNameOf 产出带 __edit-copy 后缀、恒不匹配 dependencies，
  *   声明从未写入——0.2.7 至 0.2.10 增强实际从未应用的根因；同包
  *   pnpm 仅支持一个 patchedDependencies 声明，合并是唯一正解）
+ * - dsh-video-preview（用户自装，genui 同款「自装也覆盖」）：VIDEO_EXTS
+ *   把 "ts" 当 MPEG-TS 流抢先声明，TypeScript 源码全被视频播放器接管
+ *   （matchFileViewer 按 priority 降序，video（0）压过内置 code 兑底
+ *   （-100））。补丁删 "ts" 保留 m2ts；快照归档 .patches/dsh-video-preview。
+ *   0.3.5 曾随「插件方已迭代吸收」误判退役，8-25 现场 0.1.1 复测
+ *   "ts" 仍在——未吸收，复役
  *
  * 补丁经 pnpm patchedDependencies 固化在用户 profile：精确版本键
  * （name@ver）只对匹配版本应用；版本漂移时声明“未用”，由
@@ -111,6 +117,8 @@ const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
     // send 恒落空，此 mark 缺失 → 自愈链重放新 patch）
     ['lib/client.js', 'activeCtx.sessions.scope(curId)'],
   ],
+  // 修复特征：扩展表无 ts（原版 "3g2", "ts", "m2ts"；根级 client.js）
+  'dsh-video-preview': [['client.js', '"3g2", "m2ts"']],
 }
 
 /**
@@ -118,7 +126,7 @@ const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
  * patch 文件与声明由自愈链回收（ensureProfilePatches 的文件回收步骤
  * + ensurePatchDeclared 的缺失文件声明摘除）。
  */
-const RETIRED_PATCH_PKGS = ['dsh-plugin-genui', 'dsh-context', 'dsh-video-preview', 'dsh-better-sidebar']
+const RETIRED_PATCH_PKGS = ['dsh-plugin-genui', 'dsh-context', 'dsh-better-sidebar']
 
 /**
  * mark 缺失时的锄点注入兑底（与 patch 内容等价；pnpm patch 机制在任何
@@ -138,6 +146,14 @@ interface PatchFallback {
 }
 
 const PATCH_FALLBACKS: PatchFallback[] = [
+  {
+    // video-preview 复役锄点：原版扩展表含 "ts"（单次出现），删之留
+    // m2ts——与 patch 内容等价的第三层兑底
+    pkg: 'dsh-video-preview', file: 'client.js',
+    mark: '"3g2", "m2ts"',
+    anchor: '"3g2", "ts", "m2ts"',
+    replace: '"3g2", "m2ts"',
+  },
   {
     // rc.8 提交事务硬化后 wrap 的附件分支必须返回 SubmitOutcome，
     // 否则 settleSubmit 读 undefined.kind 炸 → 输入框永久锁死。
@@ -388,6 +404,7 @@ ${entries}
  */
 const KNOWN_PATCH_SENTINELS = [
   '@dsh-external__dsh-drag-to-attachment@x.patch',
+  'dsh-video-preview@x.patch',
 ]
 
 /**

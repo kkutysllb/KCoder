@@ -10,11 +10,19 @@
  *
  * 桌面端链路（shell 窗口是纯浏览器载体，无 preload）：
  * 1. 注入观察脚本（MutationObserver）监听上述两处 DOM 变化；
- * 2. 通过 console 通道 `__dsh_theme__:<dark|light>` 回传主进程
- *    （webContents console-message 事件，CSP 不影响，零导航开销）；
+ * 2. 通过 console 通道回传主进程（webContents console-message 事件，
+ *    CSP 不影响，零导航开销）：
+ *    - `__dsh_theme__:<dark|light>`：解析后的实色，只同步窗口 chrome
+ *      （标题栏底色/Windows overlay）——不碰 nativeTheme；
+ *    - `__dsh_theme_pref__:<light|dark|system>`：用户偏好档（同源
+ *      fetch 首页，解析服务端内嵌的 boot 内联脚本
+ *      `const preference = "..."`——上游不把偏好落在 DOM，仅实色），
+ *      驱动 `nativeTheme.themeSource` 与持久化。三态语义：选深色就深色、
+ *      选浅色就浅色、选跟随系统就跟随系统（实色钉死 themeSource 会丢
+ *      掉“跟随系统”档：登出后系统翻转不再跟随）；
  * 3. 主进程 `nativeTheme.themeSource` 同步 → 原生标题栏/红绿灯区域、
  *    菜单栏、Dock 与桌面端面板（prefers-color-scheme）全部自适应；
- * 4. 最后已知渲染主题持久化到 store，下次启动预置，避免首帧闪烁。
+ * 4. 偏好档持久化到 store，下次启动预置，避免首帧闪烁。
  *
  * @module desktop/main/theme-watcher
  */
@@ -24,8 +32,10 @@ import { nativeTheme, shell, type BrowserWindow } from 'electron'
 import { consoleMessageText } from './console-channel'
 import { getSettings, saveSettings } from './store'
 
-/** console 通道前缀（与注入脚本约定）。 */
+/** console 通道前缀（与注入脚本约定）：解析后的实色。 */
 const THEME_PREFIX = '__dsh_theme__:'
+/** console 通道前缀（与注入脚本约定）：用户偏好档（三态）。 */
+const THEME_PREF_PREFIX = '__dsh_theme_pref__:'
 /** 工作区按钮上行通道（打开工作区目录）。 */
 const WS_PREFIX = '__dsh_ws__:'
 
@@ -71,6 +81,20 @@ const WATCH_JS = `(() => {
       : document.body.hasAttribute('data-ds-dark-theme')
         || document.documentElement.style.colorScheme === 'dark'
     console.log('__dsh_theme__:' + (dark ? 'dark' : 'light'))
+    reportPref()
+  }
+  // 偏好档探测：上游不把偏好落在 DOM（仅实色），但服务端渲染 index 时
+  // 内嵌 boot 内联脚本 const preference = "light|dark|system"
+  //（boot-theme.ts，每次请求读持久化值）。同源 fetch 首页解析即可。
+  // 实色变化（偏好切换/系统翻转）都重探一次；失败静默，下次变化重试
+  const reportPref = () => {
+    fetch('./', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.text() : ''))
+      .then((html) => {
+        const m = /const preference = "(light|dark|system)"/.exec(html)
+        if (m !== null) console.log('__dsh_theme_pref__:' + m[1])
+      })
+      .catch(() => {})
   }
   new MutationObserver(report).observe(document.documentElement, {
     attributes: true, attributeFilter: ['style'],
@@ -93,14 +117,30 @@ export function currentThemePref(): 'system' | 'light' | 'dark' {
   return getSettings().lastTheme
 }
 
+/** 当前 landing 页面主题选择（页面按钮三态循环，与上游解耦）。 */
+export function currentLandingTheme(): 'system' | 'light' | 'dark' {
+  return getSettings().landingTheme
+}
+
 /** 主题变化事件面（终端面板等跟随原生外观的组件订阅）。 */
 export const themeEvents = new EventEmitter()
 
-/** 应用原生主题：themeSource + 持久化（变化才写盘）。 */
-export function applyNativeTheme(pref: 'system' | 'light' | 'dark'): void {
+/** 驱动原生外观：themeSource + 事件（不写盘，持久化由调用方定）。 */
+function driveNativeTheme(pref: 'system' | 'light' | 'dark'): void {
   nativeTheme.themeSource = pref
-  if (getSettings().lastTheme !== pref) saveSettings({ lastTheme: pref })
   themeEvents.emit('theme-changed', pref)
+}
+
+/** shell 链路主题应用：上游实色/偏好档 → themeSource + lastTheme 持久化（变化才写盘）。 */
+export function applyNativeTheme(pref: 'system' | 'light' | 'dark'): void {
+  driveNativeTheme(pref)
+  if (getSettings().lastTheme !== pref) saveSettings({ lastTheme: pref })
+}
+
+/** landing 主题应用：页面按钮选择 → themeSource + landingTheme 持久化。 */
+export function applyLandingTheme(pref: 'system' | 'light' | 'dark'): void {
+  driveNativeTheme(pref)
+  if (getSettings().landingTheme !== pref) saveSettings({ landingTheme: pref })
 }
 
 /**
@@ -115,6 +155,15 @@ export function attachThemeWatcher(win: BrowserWindow): void {
     if (message.startsWith(THEME_PREFIX)) {
       const value = message.slice(THEME_PREFIX.length)
       if (value === 'dark' || value === 'light') {
+        // 实色只同步窗口 chrome（即时，无网络等待）；nativeTheme 由
+        // 偏好档通道驱动（三态），实色钉死会丢“跟随系统”档
+        applyShellChromeTheme(win, value)
+      }
+      return
+    }
+    if (message.startsWith(THEME_PREF_PREFIX)) {
+      const value = message.slice(THEME_PREF_PREFIX.length)
+      if (value === 'system' || value === 'light' || value === 'dark') {
         applyNativeTheme(value)
         applyShellChromeTheme(win, value)
       }

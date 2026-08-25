@@ -12,7 +12,8 @@ import { app, autoUpdater } from 'electron'
 import { dshManager } from './dsh-manager'
 import { registerIpc } from './ipc'
 import { installMenu, installTray, wireMenuRefresh } from './menu'
-import { closePanels, markQuitting, showBootstrap, showShellWindow } from './windows'
+import { closePanels, markQuitting, showBootstrap, showLanding, showShellWindow } from './windows'
+import { authLoggedIn, initAuthSession } from './auth'
 import { fileActivity } from './file-activity'
 import { terminalPanel } from './terminal-panel'
 import { gitPanel } from './git-panel'
@@ -24,7 +25,7 @@ import { ensureProfilePatches } from './profile-patches'
 import { ensureNativeOverlay } from './native-overlay'
 import { ensurePresetPlugins } from './preset-plugins'
 import { initUpdater } from './updater'
-import { applyNativeTheme, currentThemePref } from './theme-watcher'
+import { applyNativeTheme, currentLandingTheme, currentThemePref } from './theme-watcher'
 import { getSettings } from './store'
 import { homedir } from 'node:os'
 import { readFileSync, existsSync } from 'node:fs'
@@ -169,16 +170,19 @@ if (process.env.npm_config_registry === undefined) {
 let bootstrap: Electron.BrowserWindow | null = null
 
 app.whenReady().then(() => {
-  // 预置上次已知主题：原生标题栏/菜单栏在首个窗口出现前就对色
-  applyNativeTheme(currentThemePref())
+  // 鉴权会话恢复先行：登录态用上游最后已知主题（马上进 shell），
+  // 未登录用 landing 自己的主题选择（马上显示 landing，与上游解耦）。
+  // 原生标题栏/菜单栏在首个窗口出现前就对色
+  initAuthSession()
+  applyNativeTheme(authLoggedIn() ? currentThemePref() : currentLandingTheme())
   registerIpc()
   installMenu()
   installTray()
   wireMenuRefresh() // dsh/更新状态变化 → 重建菜单与托盘
   initUpdater() // 自动更新：启动后静默检测，下载完成侧边栏出现安装按钮
 
-  // 启动即显示 landing：服务在后台准备，用户决定何时进入工作台
-  bootstrap = showBootstrap('landing')
+  // 启动即显示 landing（单例入口）：服务在后台准备，用户决定何时进入工作台
+  bootstrap = showLanding()
 
   const onStateChanged = (status: { state: string; url: string | null }): void => {
     if (status.state === 'ready') {

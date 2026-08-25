@@ -108,53 +108,34 @@ function readJson(path: string): Record<string, unknown> | null {
 }
 
 /**
- * 需要构建许可的包（pnpm ≥10 默认拦截构建脚本，不在白名单则装不上
- * 或缺二进制）：
- * - node-pty：better-sidebar 终端的原生模块，不许可则缺预编译二进制，
- *   终端 tab 报修复横幅；
- * - dsh-better-sidebar：插件市场 git 源版本（0.15.0+）经 prepare 构建，
- *   不许可则 ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED 直接装不上
- *   （2026-08-22 实测现场，上游 dsh 只提示不自动加）；registry 版无
- *   构建脚本，多余项无害。
+ * 幂等放开 pnpm 构建脚本门（dangerouslyAllowAllBuilds: true）。
+ * 白名单逐包收编路线已证伪：pnpm 11 对 git 源要求带 commit hash
+ * 的完整 id key，插件每次更新换 hash 即失效，且插件生态随时带进新
+ * 构建型依赖（esbuild/protobufjs/ssh2/cpu-features 四连撞门，
+ * 2026-08-25 实证穷举不彻底）；pnpm 失败时还会在 yaml 留
+ * "set this to true or false" 占位键污染现场。放行一切构建脚本
+ * 等同 npm/yarn 十几年的默认行为（pnpm 10 才收紧），信任边界前移到
+ * 插件市场点安装那一刻的用户决策。已放行则不动；键在但非 true
+ * （用户/上游显式收紧）尊重不覆盖。须在 pnpm install 前就位，
+ * 否则首装后需重装才生效。
  */
-const BUILD_ALLOWLIST = ['node-pty', 'dsh-better-sidebar']
-
-/**
- * 幂等维护 onlyBuiltDependencies 白名单：整键缺失则补写全量；键存在
- * 则逐项补缺（用户自配的其他项不动——旧版整键存在即早退，市场升级
- * git 源 0.15.0 时被拦）。须在 pnpm install 前就位，否则首装后需
- * 重装才生效。
- */
-function ensurePnpmBuildAllowlist(workspacePath: string): void {
+function ensurePnpmBuildsAllowed(workspacePath: string): void {
   try {
     if (!existsSync(workspacePath)) return
     let yaml = readFileSync(workspacePath, 'utf8')
     if (!yaml.endsWith('\n')) yaml += '\n'
-    if (!/^onlyBuiltDependencies:/m.test(yaml)) {
-      const block = `\nonlyBuiltDependencies:\n${BUILD_ALLOWLIST.map((p) => `  - ${p}\n`).join('')}`
-      writeFileSync(workspacePath, yaml.endsWith('\n\n') ? yaml + block.slice(1) : yaml + block)
-      console.log(`[preset-plugins] 已补写 onlyBuiltDependencies: [${BUILD_ALLOWLIST.join(', ')}]`)
-      healLog(`[preset] 已补写 onlyBuiltDependencies: [${BUILD_ALLOWLIST.join(', ')}]`)
+    if (/^dangerouslyAllowAllBuilds:[ \t]*true[ \t]*(?:#.*)?$/m.test(yaml)) return
+    if (/^dangerouslyAllowAllBuilds:/m.test(yaml)) {
+      healLog('[preset] dangerouslyAllowAllBuilds 非 true（显式收紧），尊重不覆盖')
       return
     }
-    // 键已存在：逐项补缺（精确匹配列表项行，用户自配项保留）
-    const missing = BUILD_ALLOWLIST.filter(
-      (p) => !new RegExp(`^[ \\t]*-[ \\t]+(['\"]?)${p.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\1[ \\t]*$`, 'm').test(yaml),
-    )
-    if (missing.length === 0) return
-    for (const p of missing) {
-      // 在 onlyBuiltDependencies 键行之后、已缩进列表项的末尾追加
-      yaml = yaml.replace(
-        /^(onlyBuiltDependencies:\n)((?:[ \\t]+-[^\n]*\n)*)/m,
-        (_match, head: string, items: string) => `${head}${items}  - ${p}\n`,
-      )
-    }
+    yaml += 'dangerouslyAllowAllBuilds: true\n'
     writeFileSync(workspacePath, yaml)
-    console.log(`[preset-plugins] onlyBuiltDependencies 已补：[${missing.join(', ')}]`)
-    healLog(`[preset] onlyBuiltDependencies 已补：[${missing.join(', ')}]`)
+    console.log('[preset-plugins] 已写 dangerouslyAllowAllBuilds: true（构建门放开）')
+    healLog('[preset] 已写 dangerouslyAllowAllBuilds: true（构建门放开）')
   } catch (error) {
-    console.error('[preset-plugins] onlyBuiltDependencies 补写失败:', error)
-    healLog(`[preset] onlyBuiltDependencies 补写异常：${String(error)}`)
+    console.error('[preset-plugins] 构建门配置失败:', error)
+    healLog(`[preset] 构建门配置异常：${String(error)}`)
   }
 }
 
@@ -228,7 +209,7 @@ export function ensurePresetPlugins(): void {
     //      非常规态）：幂等补写上游同款模板。不补则三处连锁卡死——
     //      ensureProfilePatches 以它判 profile 已初始化（早退连锄点
     //      兜底都跳过，2026-08-20 实测现场）、ensureProfilePeerRules
-    //      同判、ensurePnpmBuildAllowlist 同判；且丢失态下 pnpm 按
+    //      同判、ensurePnpmBuildsAllowed 同判；且丢失态下 pnpm 按
     //      默认 symlink 布局安装，偏离上游 hoisted 模板。上游
     //      initProfile 本就是缺失才补的同款幂等设计，此处对非 fresh
     //      路径补齐同一行为
@@ -258,7 +239,7 @@ export function ensurePresetPlugins(): void {
     //    未生效时（如 v0.1.9 Windows CRLF patch 现场）重装应用 + 锄点
     //    注入兑底
     const needInstall = presetNames.some((p) => !installed(p))
-    ensurePnpmBuildAllowlist(workspacePath)
+    ensurePnpmBuildsAllowed(workspacePath)
     ensureSidebarCompatSettings()
     if (needInstall) {
       ensureProfilePatches()

@@ -11,12 +11,14 @@
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { BrowserWindow, nativeTheme, shell } from 'electron'
+import { authLoggedIn, authLogout } from './auth'
+import { attachAccountChip } from './account-chip'
 import { resolveAsset } from './dsh-contract'
 import { dshManager } from './dsh-manager'
 import { installUpdate } from './updater'
 import { attachUpdateInjector } from './update-injector'
 import { attachBrandInjector } from './brand-injector'
-import { attachThemeWatcher, overlaySymbolColor, SHELL_TITLEBAR_HEIGHT, themeBackgroundColor } from './theme-watcher'
+import { attachThemeWatcher, currentLandingTheme, applyLandingTheme, overlaySymbolColor, SHELL_TITLEBAR_HEIGHT, themeBackgroundColor } from './theme-watcher'
 import { attachSidebarToggle } from './sidebar-toggle'
 import { attachSidebarCluster } from './sidebar-cluster'
 import { attachClipboardFix } from './clipboard-fix'
@@ -24,6 +26,7 @@ import { attachContextButton } from './context-button'
 import { terminalPanel } from './terminal-panel'
 import { gitPanel } from './git-panel'
 import { attachStyleOverlay } from './style-overlay'
+import { attachSettingsPage } from './settings-page'
 import { attachWorkspaceHeader } from './workspace-header'
 import { attachStatsHover } from './stats-hover'
 import { attachPicker } from './attach-picker'
@@ -44,6 +47,9 @@ const PRELOAD = join(__dirname, '../preload/index.js')
 let shellWindow: BrowserWindow | null = null
 const panels = new Map<string, BrowserWindow>()
 
+/** landing 窗口单例引用（登出后复现，不堆叠窗口）。 */
+let landingWindow: BrowserWindow | null = null
+
 /** 退出意图标志：before-quit 置位后，主窗口 close 不再拦截（hide）。 */
 let quitting = false
 
@@ -59,9 +65,15 @@ export function getShellWindow(): BrowserWindow | null {
 
 /**
  * 创建（或复用并导航到 dsh URL）shell 窗口。
+ * 登录门禁统一闸口：未登录 → 回 landing 登录页（菜单/托盘/IPC/
+ * activate 全部入口汇于此，无一绕过）。
  * @param dshUrl - dsh web 就绪地址（http://127.0.0.1:<port>）。
  */
 export function showShellWindow(dshUrl: string): void {
+  if (!authLoggedIn()) {
+    showLanding()
+    return
+  }
   if (shellWindow === null || shellWindow.isDestroyed()) {
     const bounds = getSettings().windowBounds
     shellWindow = new BrowserWindow({
@@ -169,6 +181,9 @@ export function showShellWindow(dshUrl: string): void {
     gitPanel.attach(shellWindow)
     // 消息样式覆盖层：排版 token/气泡/代码块微调（零侵入，token 改名静默失效）
     attachStyleOverlay(shellWindow)
+    // 设置页单页化：设置模态浮层 → 铺满窗口两分栏（左 nav + 右内容，
+    // 底部让位状态栏；纯 CSS 形态覆盖，行为层全留上游，类改名静默失效）
+    attachSettingsPage(shellWindow)
     // workspace 顶栏收纳：会话标题/标签/日志按钮迁至状态栏与抽屉，
     // 上游头部隐藏 + 轨迹视图兜底回对话（零侵入，类改名静默失效）
     attachWorkspaceHeader(shellWindow)
@@ -198,6 +213,9 @@ export function showShellWindow(dshUrl: string): void {
     // 四枚代理按钮收进一枚下拉菜单（点击转发原按钮，状态实时克隆；
     // 其他平台 no-op 不注入）
     attachPanelMenu(shellWindow)
+    // 登录账号行：侧边栏底部设置按钮上方（头像 + 账号名，点击弹
+    // 设置/退出菜单；零侵入，settingsArea 改名静默失效）
+    attachAccountChip(shellWindow)
     // 只允许停留在 dsh 回环地址；外链交给系统浏览器
     shellWindow.webContents.setWindowOpenHandler(({ url }) => {
       if (url.startsWith('kcoder:')) return { action: 'deny' }
@@ -205,10 +223,13 @@ export function showShellWindow(dshUrl: string): void {
       return { action: 'deny' }
     })
     shellWindow.webContents.on('will-navigate', (event, url) => {
-      // 安装按钮的回调协议：拦下并触发安装，绝不真正导航
+      // 回调协议：拦下并执行，绝不真正导航。install-update =
+      // 更新安装（update-injector）；auth-logout = 登出收场
+      // （account-chip 菜单，shell 窗口无 preload 的既有通道）
       if (url.startsWith('kcoder:')) {
         event.preventDefault()
         if (url === 'kcoder://install-update') void installUpdate()
+        else if (url === 'kcoder://auth-logout') logoutToLanding()
         return
       }
       // 实时取当前 dsh 地址（dsh 重启端口会变，不能用创建时的闭包值）
@@ -318,6 +339,43 @@ export function showBootstrap(route: 'landing' | 'splash' | 'setup'): BrowserWin
     : `${pathToFileURL(join(__dirname, '../renderer/index.html')).href}#/${route}`
   void win.loadURL(url)
   return win
+}
+
+/**
+ * landing 窗口单例：已在 → 恢复展示；不在 → 新建（登出后复现、
+ * 门禁回退共用；closed 清引用，不堆叠窗口）。启动首屏同样经此入口。
+ */
+export function showLanding(): BrowserWindow {
+  if (landingWindow !== null && !landingWindow.isDestroyed()) {
+    if (landingWindow.isMinimized()) landingWindow.restore()
+    landingWindow.show()
+    landingWindow.focus()
+    return landingWindow
+  }
+  landingWindow = showBootstrap('landing')
+  landingWindow.on('closed', () => { landingWindow = null })
+  return landingWindow
+}
+
+/**
+ * 登出收场（IPC 与 workspace 菜单 kcoder://auth-logout 两路共用）：
+ * 清会话态 → 收起并卸载工作台页面（hide + about:blank：托盘保活
+ * 语义下不销毁窗口；登出用户的会话页不再挂在隐藏窗口里，重登录
+ * showShellWindow 全新加载，所有注入器按新账号重跑）→ landing
+ * 回到登录表单。
+ */
+export function logoutToLanding(): void {
+  authLogout()
+  const shell = getShellWindow()
+  if (shell !== null && !shell.isDestroyed()) {
+    shell.hide()
+    if (!shell.webContents.isDestroyed()) void shell.webContents.loadURL('about:blank')
+  }
+  // 主题还原：landing 自己的主题选择（页面按钮三档，store 独立字段）。
+  // 与上游完全解耦——shell 期间 theme-watcher 钉的什么主题都不落地，
+  // 登出后 landing 显示的一律是用户在 landing 上选的档，稳定可预期
+  applyLandingTheme(currentLandingTheme())
+  showLanding()
 }
 
 /** 关闭全部面板窗口（应用退出前）。 */

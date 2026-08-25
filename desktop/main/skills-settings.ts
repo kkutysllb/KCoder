@@ -442,8 +442,10 @@ const PAGE_JS = `(() => {
       style.id = CSS_ID
       style.textContent = [
         '#' + SEC_ID + ' { display: none; }',
-        '[role="dialog"].' + MARKER + ' div[data-slot="settings.section"] { display: none !important; }',
-        '[role="dialog"].' + MARKER + ' #' + SEC_ID + ' { display: block; }',
+        // settings-page 会把右侧内容统一限宽；带 options 祖先的选择器
+        // 确保技能激活时原生 React 分区始终被隐藏，不与自绘列表叠加。
+        '[role="dialog"].' + MARKER + ' [class*="_options"] > div[data-slot="settings.section"] { display: none !important; }',
+        '[role="dialog"].' + MARKER + ' #' + SEC_ID + ' { display: block; width: 100%; max-width: 960px; margin: 0 auto; box-sizing: border-box; }',
         '.dsk-lead { margin: 2px 0 20px; color: var(--dsw-alias-label-secondary, #888); font-size: 13px; line-height: 1.65; }',
         '.dsk-group { margin: 0 0 26px; }',
         '.dsk-gtitle { font-size: 15px; font-weight: 600; color: var(--dsw-alias-label-primary, #222); margin: 0 0 4px; }',

@@ -38,12 +38,21 @@
  * @module desktop/main/style-overlay
  */
 
+import { readFileSync } from 'node:fs'
 import type { BrowserWindow } from 'electron'
 import type { StyleSettings } from '@shared/ipc-contract'
+import { resolveAsset } from './dsh-contract'
 import { getSettings } from './store'
 
 /** 注入的 style 元素 id（幂等替换；SPA 内部导航不清 head）。 */
 const STYLE_ID = '__dsh_desktop_style_override'
+
+/**
+ * K mark used by the empty-session watermark. Embed the asset in the injected
+ * stylesheet because the shell is served by the dsh sidecar and cannot rely
+ * on the desktop renderer's public directory being on its URL origin.
+ */
+const watermarkDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-k.png')).toString('base64')}`
 
 /** 一档排版定值：[字号px, 行高px]。 */
 type LineSpec = readonly [number, number]
@@ -252,6 +261,37 @@ ${bubbleText}}`)
   // ---- 深色主题：气泡与背景（900）对比拉开一档（同样 html body 前缀
   // 恒赢上游动态注入的同名定义） ----
   sections.push('html body[data-ds-dark-theme] { --dsw-specific-bubble: var(--dsw-static-neutral-bluish-800); }')
+
+  // ---- 空会话 K 水印：仅 hero 阶段显示，所有会话内容保持在其上方 ----
+  // 位置和大小以滚动区为参照，避免跟随 composer 高度变化；opacity 分主题
+  // 调整，浅色保持极淡，深色提高一档以免蓝色消失在深背景里。
+  sections.push(`
+[data-phase='hero'] [data-conversation-scroll] {
+  position: relative;
+  isolation: isolate;
+}
+[data-phase='hero'] [data-conversation-scroll]::before {
+  content: '';
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  z-index: 0;
+  width: min(58vw, 620px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: url('${watermarkDataUrl}') center / contain no-repeat;
+  opacity: .035;
+  pointer-events: none;
+}
+[data-phase='hero'] [data-conversation-scroll] > [data-slot='conversation.session'],
+[data-phase='hero'] [data-conversation-scroll] > [data-composer-seat] {
+  position: relative;
+  z-index: 1;
+}
+body[data-ds-dark-theme] [data-phase='hero'] [data-conversation-scroll]::before {
+  opacity: .075;
+  filter: saturate(1.08) brightness(1.18);
+}`)
 
   // ---- 「跳到底部」浮动按钮：右缘对齐改输入框中心锚定
   //（ChatView.toBottomSlot 原为 justify-content:flex-end + padding-right

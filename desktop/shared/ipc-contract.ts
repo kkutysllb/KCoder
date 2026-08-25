@@ -335,6 +335,23 @@ export interface SubagentEntry {
   rows: TrajectoryRow[]
 }
 
+/* ---------- 本地账户鉴权 ---------- */
+
+/** 鉴权状态快照（landing 门禁渲染与 workspace 账号显示的数据源）。 */
+export interface AuthStatus {
+  loggedIn: boolean
+  username: string | null
+  /** 是否已有任何账户（landing 默认展示登录还是注册表单）。 */
+  hasAccount: boolean
+}
+
+/** 鉴权操作结果（成功时附带最新状态，渲染端免二次拉取）。 */
+export interface AuthResult {
+  ok: boolean
+  error: string | null
+  status: AuthStatus
+}
+
 /* ---------- preload 暴露面 ---------- */
 
 /** preload 通过 contextBridge 暴露的 `window.dshDesktop`。 */
@@ -358,8 +375,16 @@ export interface DesktopBridge {
   updateCheck(): Promise<UpdateStatus>
   updateInstall(): Promise<UpdateStatus>
   updateStatus(): Promise<UpdateStatus>
-  /** 打开已就绪的 dsh Web UI，并关闭当前 landing 窗口。 */
+  /** 打开已就绪的 dsh Web UI，并关闭当前 landing 窗口（未登录时主进程拒绝，返回 false）。 */
   showShell(): Promise<boolean>
+  /* 本地账户鉴权（注册/登录成功即建立会话；登出后门禁回到 landing） */
+  authStatus(): Promise<AuthStatus>
+  authRegister(username: string, password: string): Promise<AuthResult>
+  authLogin(username: string, password: string): Promise<AuthResult>
+  authLogout(): Promise<AuthResult>
+  /* landing 页面主题（与上游解耦，三态循环按钮）：读当前档 / 切换并持久化 */
+  landingTheme(): Promise<'system' | 'light' | 'dark'>
+  setLandingTheme(pref: 'system' | 'light' | 'dark'): Promise<'system' | 'light' | 'dark'>
   openExternal(url: string): Promise<void>
   revealPath(path: string): Promise<void>
   upstreamSync(): Promise<{ ok: boolean; error: string | null }>
