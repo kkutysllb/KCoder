@@ -21,7 +21,9 @@
  * - 数据：解析 StatsLine 的 DOM 文本（zh/en 双格式，对齐上游
  *   formatDuration/formatTokens 的真实输出：45.2s / 2m42s / 1.2K /
  *   3.4M），agent 执行中数字持续更新 → MutationObserver 实时重绘；
- * - 面板：fixed 贴底向上弹出（bottom sheet），pointer-events:none
+ * - 面板：fixed 贴底向上弹出（bottom sheet），水平以缩略条中心线
+ *   （即输入框主区中心）对齐——show/resize 实时读 rect 计算，右侧栏
+ *   展开主区左移、窗口缩放均动态跟随；pointer-events:none
  *   纯展示，离开缩略条 200ms 后收起；
  * - 脆性边界：上游文案/结构改动 → 解析静默失败，面板显示可解析的
  *   部分（全部失败则不弹），不崩不错位。
@@ -35,7 +37,10 @@ import type { BrowserWindow } from 'electron'
     内嵌终端面板是叠在上游页面上的 WebContentsView（页面视口不缩），
     terminal-panel 的让位注入器把面板高度广播为 CSS 变量
     (--dsh-terminal-inset)，这里消费——底边抬起不钻到终端面板底下。
-    变量纯 CSS 消费，拖拽面板高度时实时重算。 */
+    变量纯 CSS 消费，拖拽面板高度时实时重算。
+    水平方向：CSS 的 left:50% 仅是无源兑底，实际由注入脚本实时写
+    inline left（缩略条中心线，见 PAGE_JS 内 position）——右侧栏
+    展开/收起主区位移无让位变量可依赖，rect 实算才永远对齐。 */
 const PANEL_CSS = String.raw`
 #__dsh_stats_panel {
   position: fixed;
@@ -300,11 +305,26 @@ const PAGE_JS = String.raw`(() => {
   const show = () => {
     ensurePanel()
     if (source !== null) render()
+    position()
     panel.classList.add('on')
   }
   const hide = () => {
     if (panel !== null) panel.classList.remove('on')
   }
+
+  /* 水平定位：以缩略条中心线（输入框主区中心）对齐——右侧栏展开、
+     窗口缩放等任何主区位移都实时正确；左右 clamp 防窄窗口溢出。
+     缩略条与输入框同宽同区，其 rect 中心即输入框中心 */
+  const position = () => {
+    if (panel === null || source === null || !source.isConnected) return
+    const r = source.getBoundingClientRect()
+    const half = panel.offsetWidth / 2
+    const cx = Math.min(Math.max(r.left + r.width / 2, half), window.innerWidth - half)
+    panel.style.left = cx + 'px'
+  }
+  window.addEventListener('resize', () => {
+    if (panel !== null && panel.classList.contains('on')) position()
+  })
 
   const scheduleHide = () => {
     clearTimeout(hideTimer)
