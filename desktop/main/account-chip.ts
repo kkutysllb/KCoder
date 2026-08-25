@@ -14,8 +14,8 @@
  *   复用 update-injector 的 kcoder:// 回调协议（shell 窗口无 preload，
  *   自定义协议导航是渲染页 → 主进程的既有通道），windows.ts 的
  *   will-navigate 拦截执行登出收场；
- * - rail 收起态（root.collapsed）：账号行整体隐藏（上游 foot 区收窄
- *   为 36px 圆钮列，账号名无处安放）；
+ * - rail 收起态（root.collapsed）：仅显示头像圆钮（与上游 foot 区
+ *   36px 圆钮列同形，用户名隐藏），点击照常弹菜单；
  * - username 随脚本生成时烧入（did-finish-load 每次重注入；登出走
  *   reload，重登录后注入器按新账号重跑——windows.logoutToLanding）。
  *
@@ -140,8 +140,9 @@ const chipJs = (username: string): string => `(() => {
     area.insertBefore(row, area.firstChild)
   }
 
-  // 静态样式：navCell 同款盒 + rail 收起态隐藏（上游 foot 区收窄为
-  // 36px 圆钮列，账号行无处安放；collapsed 类挂在 sidebar root 上）
+  // 静态样式：navCell 同款盒；rail 收起态切换为圆钮形态（头像居中，
+  //   用户名隐藏，与上游 foot 区 36px 圆钮列同形；collapsed 类挂在
+  // sidebar root 上）
   if (document.getElementById(CHIP + '_style') === null) {
     const style = document.createElement('style')
     style.id = CHIP + '_style'
@@ -150,7 +151,8 @@ const chipJs = (username: string): string => `(() => {
       '#' + CHIP + ':hover{background:var(--dsw-specific-sidebar-nav-item-hover)}',
       '#' + CHIP + ':active{background:var(--dsw-specific-sidebar-nav-item-active)}',
       '[class*="settingsArea"] [data-kcoder-hidden-settings="true"]{display:none !important}',
-      '[class*="collapsed"] #' + CHIP + '{display:none}',
+      '[class*="collapsed"] #' + CHIP + '{height:36px;justify-content:center;padding:0;gap:0;border-radius:10px}',
+      '[class*="collapsed"] #' + CHIP + ' > span + span{display:none}',
     ].join('')
     document.head.append(style)
   }
