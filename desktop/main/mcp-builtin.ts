@@ -29,7 +29,7 @@ import { mcpServerDelete, mcpServerSave, mcpServers, type McpServerEntry } from 
  * 内置定义版本。修改任何内置条目（命令/参数/新增/删除）时递增，触发
  * 已安装用户的全量重写（确保旧错误配置被修正）。
  */
-const BUILTIN_VERSION = 3
+const BUILTIN_VERSION = 4
 
 /** 内置 MCP 服务器定义。 */
 export const BUILTIN_MCP_SERVERS: McpServerEntry[] = [
@@ -78,7 +78,11 @@ export const BUILTIN_MCP_SERVERS: McpServerEntry[] = [
     transport: 'stdio',
     enabled: true,
     command: 'npx',
-    args: ['-y', '@executeautomation/playwright-mcp-server'],
+    // 官方 @playwright/mcp + 系统 Chrome（channel 直驱）：不下载专属
+    // chromium build，库升级不再触发浏览器重装（旧 executeautomation
+    // 服务器 + playwright 库/浏览器强耦合是“每次都要安装”的病灶）。
+    // Chrome 缺失时降级为默认 chromium（首次使用自动下载一次）。
+    args: ['-y', '@playwright/mcp@latest', ...playwrightBrowserArgs()],
     env: {},
     cwd: '',
     url: '',
@@ -146,6 +150,38 @@ function commandAvailable(command: string): boolean {
   return ok
 }
 
+/** 系统 Chrome 常见安装位置（跨平台）。 */
+function chromeCandidates(): string[] {
+  switch (process.platform) {
+    case 'darwin':
+      return ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
+    case 'win32':
+      return [
+        join(process.env['PROGRAMFILES'] ?? 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        join(process.env['PROGRAMFILES(X86)'] ?? 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        join(process.env['LOCALAPPDATA'] ?? '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      ]
+    default:
+      return ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/snap/bin/chromium']
+  }
+}
+
+/** 系统是否装了 Chrome（探测结果单次启动内缓存）。 */
+let chromeAvailableCache: boolean | undefined
+function chromeAvailable(): boolean {
+  chromeAvailableCache ??= chromeCandidates().some((p) => p !== '' && existsSync(p))
+  return chromeAvailableCache
+}
+
+/**
+ * playwright MCP 浏览器参数：有系统 Chrome 时用 channel 直驱（零下载）；
+ * 缺失时不传 --browser，回落官方默认 chromium（首次使用时自动下载
+ * 一次，而非每次会话重试）。
+ */
+function playwrightBrowserArgs(): string[] {
+  return chromeAvailable() ? ['--browser', 'chrome'] : []
+}
+
 /**
  * 幂等物化内置 MCP 服务器（dsh 启动前调用）。首次启动写入全部条目，升级时
  * 只追加新增项（用户删过的不复活——状态文件记录已处理过的名字）；
@@ -191,7 +227,8 @@ export function ensureBuiltinMcpServers(): void {
         )
         continue
       }
-      // 版本变更时强制覆盖（修正旧错误配置）；否则仅追加缺失条目
+      // 版本变更时强制覆盖同名条目（修正旧配置；按名字匹配，内置条目
+      // 换 command/参数后旧条目也能被换掉）；否则仅追加缺失条目
       const force = versionChanged && existingNames.has(entry.serverName)
       if (!existingNames.has(entry.serverName) || force) {
         const result = mcpServerSave(entry)

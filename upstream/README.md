@@ -16,7 +16,7 @@ KCoder 仓库内的随包分发形态（setup.sh 钉版后 apply，CI 与本地�
 | Patch | 内容 | 状态 |
 |---|---|---|
 | `0001-markdown-model-sanitize.patch` | 模型输出 markdown 修复：跨行 `**` 强调 与跨行行内 code（不合法 CommonMark，渲染成字面星号/断码）在解析管线合并回单行；fence 代码块跳过；含 73 行实现 + 73 行测试 | fork 分支 `fix/markdown-model-sanitize`（625720a，含上游 lint 合规收敛：non-null assertion 改判空） |
-| `0002-pi-ai-0.84.3-upgrade.patch` | pi-ai 0.82.1 → 0.84.3 升级：模型目录补齐（glm-5.3 等）+ drift gate 适配（baseten/thinking.budget/新 compat 字段/pending/deferred stop reason/abort 走 error 事件改信号判定）+ 依赖范围放宽为 >=0.84.3 <1.0.0（后续 `pnpm update @earendil-works/pi-ai --filter @deepseek-ai/dsh-llm-pi-ai` 即可跟最新 0.x）；含 lockfile 与测试适配 | 待建 fork 分支 `chore/pi-ai-0.84.3-upgrade`（分支提交前 patch 先行，dev/构建已验证 940/940 绿） |
+| `0002-pi-ai-0.84.3-upgrade.patch` | pi-ai 0.82.1 → 0.84.3 升级：模型目录补齐（glm-5.3 等）+ drift gate 适配（baseten/thinking.budget/新 compat 字段/pending/deferred stop reason/abort 走 error 事件改信号判定）+ 依赖范围放宽为 >=0.84.3 <1.0.0（后续 `pnpm update @earendil-works/pi-ai --filter @deepseek-ai/dsh-llm-pi-ai` 即可跟最新 0.x）；含 lockfile 与测试适配 | fork 分支 `chore/pi-ai-0.84.3-upgrade`（e1a0698，基于基线 rc.2，dev/构建已验证 940/940 绿） |
 | `upstream-projection-cache-isolate.patch` | session-projection-cache 非 JSON 投影单元逐单元隔离而非整条记录失败（该修复为 dsh-context 插件缓存失败 bug 的引擎层根因） | fork 分支 `fix/session-projection-cache-per-unit-isolation`（5bef8cf）；0.2.3 产物未含此修复（归档前所发），0.2.4 起包含 |
 
 ## 应用方法
