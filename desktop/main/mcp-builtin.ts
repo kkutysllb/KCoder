@@ -31,6 +31,44 @@ import { mcpServerDelete, mcpServerSave, mcpServers, type McpServerEntry } from 
  */
 const BUILTIN_VERSION = 4
 
+/**
+ * 系统 Chrome 常见安装位置（跨平台）。
+ *
+ * 注意：以下三个辅助函数被 BUILTIN_MCP_SERVERS 在模块加载期急切引用，
+ * 声明（含 chromeAvailableCache 的 let）必须位于数组字面量之前，
+ * 否则启动时 TDZ ReferenceError（v4 曾踩）。
+ */
+function chromeCandidates(): string[] {
+  switch (process.platform) {
+    case 'darwin':
+      return ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
+    case 'win32':
+      return [
+        join(process.env['PROGRAMFILES'] ?? 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        join(process.env['PROGRAMFILES(X86)'] ?? 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        join(process.env['LOCALAPPDATA'] ?? '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      ]
+    default:
+      return ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/snap/bin/chromium']
+  }
+}
+
+/** 系统是否装了 Chrome（探测结果单次启动内缓存）。 */
+let chromeAvailableCache: boolean | undefined
+function chromeAvailable(): boolean {
+  chromeAvailableCache ??= chromeCandidates().some((p) => p !== '' && existsSync(p))
+  return chromeAvailableCache
+}
+
+/**
+ * playwright MCP 浏览器参数：有系统 Chrome 时用 channel 直驱（零下载）；
+ * 缺失时不传 --browser，回落官方默认 chromium（首次使用时自动下载
+ * 一次，而非每次会话重试）。
+ */
+function playwrightBrowserArgs(): string[] {
+  return chromeAvailable() ? ['--browser', 'chrome'] : []
+}
+
 /** 内置 MCP 服务器定义。 */
 export const BUILTIN_MCP_SERVERS: McpServerEntry[] = [
   {
@@ -148,38 +186,6 @@ function commandAvailable(command: string): boolean {
   }
   commandProbeCache.set(command, ok)
   return ok
-}
-
-/** 系统 Chrome 常见安装位置（跨平台）。 */
-function chromeCandidates(): string[] {
-  switch (process.platform) {
-    case 'darwin':
-      return ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
-    case 'win32':
-      return [
-        join(process.env['PROGRAMFILES'] ?? 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-        join(process.env['PROGRAMFILES(X86)'] ?? 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-        join(process.env['LOCALAPPDATA'] ?? '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-      ]
-    default:
-      return ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/snap/bin/chromium']
-  }
-}
-
-/** 系统是否装了 Chrome（探测结果单次启动内缓存）。 */
-let chromeAvailableCache: boolean | undefined
-function chromeAvailable(): boolean {
-  chromeAvailableCache ??= chromeCandidates().some((p) => p !== '' && existsSync(p))
-  return chromeAvailableCache
-}
-
-/**
- * playwright MCP 浏览器参数：有系统 Chrome 时用 channel 直驱（零下载）；
- * 缺失时不传 --browser，回落官方默认 chromium（首次使用时自动下载
- * 一次，而非每次会话重试）。
- */
-function playwrightBrowserArgs(): string[] {
-  return chromeAvailable() ? ['--browser', 'chrome'] : []
 }
 
 /**
