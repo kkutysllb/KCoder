@@ -1,0 +1,80 @@
+From 8bedd6e57e39ce3a9b82c032fd89131f42d83aef Mon Sep 17 00:00:00 2001
+From: kkutysllb <46704313+kkutysllb@users.noreply.github.com>
+Date: Wed, 26 Aug 2026 23:25:41 +0800
+Subject: [PATCH] fix(llm): tolerate relays that close Responses streams
+ without a terminal event
+
+Translation-style relays (upstream chat completions re-shaped into the Responses wire format) stream the deltas, send [DONE] and close without emitting response.done/completed - synthesizing the terminal event would need the full response object they never hold. The shared processResponsesStream hard-checked for it, discarded the already-delivered content and failed every attempt (classified retryable, so each turn burned the whole backoff ladder). The official Codex client tolerates this shape.
+
+Extend the pi-ai 0.84.3 pnpm patch: when the stream ends without a terminal event but content was delivered, finalize as completed (stopReason stop, or toolUse when tool calls landed). Empty streams keep the strict throw so real failures stay visible; official endpoints always send the event and are unaffected.
+
+Verified: mock-relay differential probe (deltas + [DONE], no terminal event): pre-patch error event 'stream ended before a terminal response event' -> post-patch done with text landed and stopReason stop; empty-stream probe still throws; llm-pi-ai 264/264 green.
+---
+ patches/@earendil-works__pi-ai@0.84.3.patch | 22 +++++++++++++++++++++
+ pnpm-lock.yaml                              |  6 +++---
+ 2 files changed, 25 insertions(+), 3 deletions(-)
+
+diff --git a/patches/@earendil-works__pi-ai@0.84.3.patch b/patches/@earendil-works__pi-ai@0.84.3.patch
+index ef71bdb638..4da5ae4a17 100644
+--- a/patches/@earendil-works__pi-ai@0.84.3.patch
++++ b/patches/@earendil-works__pi-ai@0.84.3.patch
+@@ -18,3 +18,25 @@ index 2a8aca4b2e91c111c221f204ac37ad1956045826..1b98797ca197896758703b38181e6709
+      }
+  }
+  function buildBaseCodexHeaders(initHeaders, additionalHeaders, accountId, token) {
++diff --git a/dist/api/openai-responses-shared.js b/dist/api/openai-responses-shared.js
++index c35771dcc9b2173d0b459d13c6d86e622de45e9a..eea7ac76389508165e6332f524bce8dcd0b419f1 100644
++--- a/dist/api/openai-responses-shared.js
+++++ b/dist/api/openai-responses-shared.js
++@@ -651,6 +651,17 @@ export async function processResponsesStream(openaiStream, output, stream, model
++         }
++     }
++     if (!sawTerminalResponseEvent) {
+++        if (output.content.length > 0) {
+++            // KCoder patch: translation-style relays (upstream chat completions
+++            // re-shaped into the Responses wire format) commonly stream the
+++            // deltas, send [DONE] and close without ever emitting the terminal
+++            // response.done/completed event - synthesizing it would need the
+++            // full response object they never hold. The official Codex client
+++            // tolerates this; treat delivered content as a completed turn
+++            // instead of discarding it and failing every attempt.
+++            finalizeResponse({ status: "completed" });
+++            return;
+++        }
++         throw new Error("OpenAI Responses stream ended before a terminal response event");
++     }
++ }
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 74715a419f..d16595b562 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -9,7 +9,7 @@ overrides:
+   '@deepseek-ai/schemastery': link:vendor/schemastery
+ 
+ patchedDependencies:
+-  '@earendil-works/pi-ai@0.84.3': a1a6fdfe88856c21018a6a646b3494167d4187402752e15ace3155fee805e4bf
++  '@earendil-works/pi-ai@0.84.3': 4e4bd7a9145339e274cce53c46d9234db1d793c346efe6a7514341522c0f8f63
+   node-pty@1.2.0-beta.15: b40ae545608897914bd25fb009c97eeac478c34e8a910298ddcb01b746534bb0
+ 
+ importers:
+@@ -5540,7 +5540,7 @@ importers:
+         version: link:../../../vendor/schemastery
+       '@earendil-works/pi-ai':
+         specifier: ^0.84.3
+-        version: 0.84.3(patch_hash=a1a6fdfe88856c21018a6a646b3494167d4187402752e15ace3155fee805e4bf)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
++        version: 0.84.3(patch_hash=4e4bd7a9145339e274cce53c46d9234db1d793c346efe6a7514341522c0f8f63)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
+     devDependencies:
+       '@deepseek-ai/cordis':
+         specifier: workspace:^
+@@ -15464,7 +15464,7 @@ snapshots:
+     transitivePeerDependencies:
+       - '@algolia/client-search'
+ 
+-  '@earendil-works/pi-ai@0.84.3(patch_hash=a1a6fdfe88856c21018a6a646b3494167d4187402752e15ace3155fee805e4bf)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)':
++  '@earendil-works/pi-ai@0.84.3(patch_hash=4e4bd7a9145339e274cce53c46d9234db1d793c346efe6a7514341522c0f8f63)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)':
+     dependencies:
+       '@anthropic-ai/sdk': 0.91.1(zod@4.4.3)
+       '@aws-sdk/client-bedrock-runtime': 3.1048.0
+-- 
+2.50.1 (Apple Git-155)
+

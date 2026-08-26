@@ -320,7 +320,12 @@ const PAGE_JS = `(() => {
     'body[data-ds-dark-theme] #' + BTN_ID + '[data-on="1"]{background:rgba(124,155,255,.18);color:#7C9BFF}',
     '#' + BTN_ID + '.dim{opacity:.35}',
     '#' + BTN_ID + ' svg{width:15px;height:15px;flex:none}',
-    '#' + BTN_ID + ' .bdg{position:absolute;top:-3px;right:-10px;min-width:14px;height:14px;padding:0 4px;border-radius:7px;background:#CF222E;color:#FFF;white-space:nowrap;font:600 9px/14px -apple-system,"PingFang SC",sans-serif;text-align:center}',
+    '#' + BTN_ID + ' .bdg{position:absolute;top:-3px;right:-10px;display:inline-flex;height:14px;border-radius:7px;overflow:hidden;white-space:nowrap;color:#FFF;font:600 9px/14px -apple-system,"PingFang SC",sans-serif;text-align:center}',
+    // 双色胶囊与代码 diff 约定一致：+N 绿底、−N 红底（面板 gt-lines 同款色族）
+    '#' + BTN_ID + ' .bdg .a{padding:0 4px;background:#1A7F37}',
+    '#' + BTN_ID + ' .bdg .d{padding:0 4px;background:#CF222E}',
+    'body[data-ds-dark-theme] #' + BTN_ID + ' .bdg .a{background:#238636}',
+    'body[data-ds-dark-theme] #' + BTN_ID + ' .bdg .d{background:#DA3633}',
   ].join('')
 
   /* 样式立即注入：按钮的定位/尺寸全靠它（懒注入会让按钮以原生
@@ -378,7 +383,10 @@ const PAGE_JS = `(() => {
     let bdg = btn.querySelector('.bdg')
     if (delta > 0) {
       if (bdg === null) { bdg = document.createElement('span'); bdg.className = 'bdg'; btn.append(bdg) }
-      bdg.textContent = '+' + s.added + ' \\u2212' + s.removed
+      bdg.textContent = ''
+      const a = document.createElement('span'); a.className = 'a'; a.textContent = '+' + s.added
+      const d = document.createElement('span'); d.className = 'd'; d.textContent = '\\u2212' + s.removed
+      bdg.append(a, d)
     } else if (bdg !== null) bdg.remove()
   }
 })()`

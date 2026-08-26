@@ -1,0 +1,336 @@
+From 0002a42c3119001f0ab24575c685c232a143acf2 Mon Sep 17 00:00:00 2001
+From: kkutysllb <46704313+kkutysllb@users.noreply.github.com>
+Date: Thu, 27 Aug 2026 00:23:12 +0800
+Subject: [PATCH] fix(llm): fall back to openai-responses when a codex route's
+ gateway has no codex channel
+
+Gateways without a Codex channel (translation relays, new-api-style
+gateways) answer the codex path with their HTML front page or a 404, so
+a codex-protocol route pointed at one fails every turn with an empty
+stream while the same gateway serves the standard /v1/responses channel
+fine. The adapter now re-issues such a request over openai-responses
+(configured base first, then with the /v1 prefix) when the configured
+attempt fails with a protocol-mismatch signature before any content was
+delivered; healthy codex endpoints and non-codex routes keep their
+single attempt.
+---
+ packages/llm/llm-pi-ai/src/adapter.ts         | 137 +++++++++++++++---
+ .../llm-pi-ai/tests/codex-fallback.spec.ts    | 136 +++++++++++++++++
+ 2 files changed, 252 insertions(+), 21 deletions(-)
+ create mode 100644 packages/llm/llm-pi-ai/tests/codex-fallback.spec.ts
+
+diff --git a/packages/llm/llm-pi-ai/src/adapter.ts b/packages/llm/llm-pi-ai/src/adapter.ts
+index 253900cfac..2cf2eb9d3a 100644
+--- a/packages/llm/llm-pi-ai/src/adapter.ts
++++ b/packages/llm/llm-pi-ai/src/adapter.ts
+@@ -27,6 +27,7 @@
+  */
+ 
+ import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
++import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy'
+ import type {
+   Api,
+   AuthContext,
+@@ -208,6 +209,56 @@ function requestHeaders(headers: Readonly<Record<string, string>> | undefined):
+   }
+ }
+ 
++/**
++ * Error-finish signatures of an endpoint that does not speak the Codex wire
++ * protocol. Gateways without a Codex channel (translation relays, new-api-style
++ * gateways) answer the codex path with their HTML front page — zero SSE events,
++ * so the shared Responses parser reports its terminal-event error or the raw
++ * HTML surfaces as the error text — or with a plain 404/405.
++ * @param failure - the error finish's failure detail.
++ * @returns whether the failure reads as "no Codex channel here".
++ */
++function isCodexProtocolMismatch(failure: { message: string; code: string }): boolean {
++  return /stream ended before a terminal response event/i.test(failure.message)
++    || /<!doctype html|<html[\s>]/i.test(failure.message)
++    || /\b404\b|\b405\b/.test(failure.message)
++}
++
++/**
++ * Whether one fallback attempt's error justifies the next candidate. Clear
++ * provider verdicts (auth, quota, rate limit, invalid request, server, timeout)
++ * would repeat on every path of the same host, so only mismatch signatures and
++ * unclassified or transport noise advance the chain.
++ * @param failure - the error finish's failure detail.
++ * @returns whether the next candidate should be tried.
++ */
++function fallbackAdvanceable(failure: { message: string; code: string }): boolean {
++  return isCodexProtocolMismatch(failure)
++    || failure.code === 'TRANSPORT'
++    || failure.code === 'PI_AI_ERROR'
++}
++
++/**
++ * The candidate models for one stream attempt, configured protocol first. A
++ * route speaking the Codex wire protocol may in practice point at a gateway
++ * that only serves the standard OpenAI Responses protocol; for those the
++ * follow-up attempts re-issue the request over `openai-responses`, first
++ * against the configured endpoint and then with the conventional `/v1` prefix
++ * the standard channel lives under. A route with no configured base URL is the
++ * official Codex endpoint, which speaks the native protocol, and non-Codex
++ * routes get their single attempt.
++ * @param model - the resolved model descriptor.
++ * @returns the attempt candidates.
++ */
++function codexProtocolFallbacks(model: Model<Api>): readonly Model<Api>[] {
++  if (model.api !== 'openai-codex-responses') return [model]
++  const base = model.baseUrl.trim().replace(/\/+$/, '')
++  if (base.length === 0) return [model]
++  const repointed: Model<Api> = { ...model, api: 'openai-responses' }
++  if (/\/v\d+$/.test(base)) return [model, repointed]
++  return [model, repointed, { ...repointed, baseUrl: `${base}/v1` }]
++}
++
+ /**
+  * pi-ai-backed multi-provider adapter. Each operation reads the current
+  * profiles, so a configuration change reaches the next request without a
+@@ -364,7 +415,7 @@ export class PiAiAdapter extends LlmAdapter {
+           maxPixels: profile.requestImagePixelBudget,
+           maxBytes: profile.requestImageMaxBytes,
+         })
+-      const events = snapshot.models.streamSimple(model, context, {
++      const streamOptions = {
+         ...profileOptions(profile, reasoning, apiKey),
+         ...options.temperature === undefined ? {} : { temperature: options.temperature },
+         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
+@@ -373,27 +424,71 @@ export class PiAiAdapter extends LlmAdapter {
+         // Profile headers are deployment-owned; attribution names are
+         // Harness-owned and therefore win collisions.
+         headers: requestHeaders(profile.headers),
+-      })
+-      const iterator = toStreamChunks(events, model.contextWindow, watchdog.signal)[Symbol.asyncIterator]()
+-      let exhausted = false
+-      try {
+-        while (true) {
+-          const result = await watchdog.next(iterator)
+-          const timeout = timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT')
+-          if (timeout !== undefined) throw timeout
+-          if (result.done) {
+-            exhausted = true
+-            return
++      }
++      // One attempt per candidate model: the configured protocol first, then —
++      // for a Codex-protocol route whose endpoint betrays no Codex channel —
++      // the standard OpenAI Responses protocol (see codexProtocolFallbacks).
++      const attempts = codexProtocolFallbacks(model)
++      // The usage chunk is held back one step: a protocol-mismatch finish must
++      // be swallowable without the consumer having seen a zero usage for an
++      // attempt it will never know happened.
++      let pendingUsage: StreamChunk | undefined
++      let sawContent = false
++      for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex++) {
++        const attemptModel = attempts[attemptIndex]
++        if (attemptModel === undefined) return
++        const lastAttempt = attemptIndex === attempts.length - 1
++        const events = attemptIndex === 0
++          ? snapshot.models.streamSimple(model, context, streamOptions)
++          : openAIResponsesApi().streamSimple(attemptModel, context, streamOptions)
++        const iterator = toStreamChunks(events, model.contextWindow, watchdog.signal)[Symbol.asyncIterator]()
++        let settled = false
++        try {
++          while (true) {
++            const result = await watchdog.next(iterator)
++            const timeout = timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT')
++            if (timeout !== undefined) throw timeout
++            if (result.done) {
++              settled = true
++              return
++            }
++            const chunk = result.value
++            if (chunk.type === 'usage') {
++              pendingUsage = chunk
++              continue
++            }
++            const mismatch = chunk.type === 'finish'
++              && chunk.reason.kind === 'error'
++              && !sawContent
++              && (attemptIndex === 0
++                ? isCodexProtocolMismatch(chunk.reason.failure)
++                : fallbackAdvanceable(chunk.reason.failure))
++            if (!lastAttempt && mismatch) {
++              // Discard the held usage and re-issue over the next candidate.
++              pendingUsage = undefined
++              sawContent = false
++              settled = true
++              break
++            }
++            if (pendingUsage !== undefined) {
++              yield pendingUsage
++              pendingUsage = undefined
++            }
++            if (chunk.type !== 'finish') sawContent = true
++            yield chunk
++            if (chunk.type === 'finish') {
++              settled = true
++              return
++            }
+           }
+-          yield result.value
+-        }
+-      } finally {
+-        if (!exhausted) {
+-          consumer.abort('pi-ai stream consumer stopped')
+-          try {
+-            await iterator.return(undefined)
+-          } catch (_abortedSdkTeardown) {
+-            // The stable signal already owns SDK termination; return-time abort cannot add an outcome.
++        } finally {
++          if (!settled) {
++            consumer.abort('pi-ai stream consumer stopped')
++            try {
++              await iterator.return(undefined)
++            } catch (_abortedSdkTeardown) {
++              // The stable signal already owns SDK termination; return-time abort cannot add an outcome.
++            }
+           }
+         }
+       }
+diff --git a/packages/llm/llm-pi-ai/tests/codex-fallback.spec.ts b/packages/llm/llm-pi-ai/tests/codex-fallback.spec.ts
+new file mode 100644
+index 0000000000..49b900d59a
+--- /dev/null
++++ b/packages/llm/llm-pi-ai/tests/codex-fallback.spec.ts
+@@ -0,0 +1,136 @@
++/**
++ * Codex-protocol routes pointed at gateways without a Codex channel
++ * (translation relays, new-api-style gateways) must transparently fall back to
++ * the standard OpenAI Responses protocol: the codex path is answered with the
++ * gateway's HTML front page or a 404, and the standard channel lives at the
++ * configured base or under the conventional /v1 prefix.
++ */
++
++import { createServer } from 'node:http'
++import type { Server, ServerResponse } from 'node:http'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { Context } from '@deepseek-ai/cordis'
++import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
++import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
++import { assemble } from './assemble.ts'
++
++afterEach(() => {
++  vi.unstubAllEnvs()
++})
++
++const servers: Server[] = []
++afterEach(async () => {
++  await Promise.all(servers.splice(0).map(server => new Promise(resolve => server.close(resolve))))
++})
++
++/** One complete text turn in the shared Responses wire format (both protocols). */
++const RESPONSES_EVENTS = [
++  '{"type":"response.created","response":{"id":"resp_1"}}',
++  '{"type":"response.output_item.added","output_index":0,"item":{"type":"message"}}',
++  '{"type":"response.output_text.delta","output_index":0,"delta":"hello"}',
++  '{"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}}',
++]
++
++function writeSse(response: ServerResponse, events: string[]): void {
++  response.writeHead(200, { 'content-type': 'text/event-stream' })
++  for (const event of events) response.write(`data: ${event}\n\n`)
++  response.end()
++}
++
++interface Relay {
++  url: string
++  paths: string[]
++}
++
++/**
++ * new-api-style gateway stand-in: the codex path gets the HTML front page (or
++ * a working codex channel when `codex` is true), the standard channel lives
++ * under /v1/responses, and everything else 404s. Bodies are drained, never
++ * parsed: the codex protocol may zstd-compress them.
++ */
++async function relayServer(options: { codex?: boolean } = {}): Promise<Relay> {
++  const paths: string[] = []
++  const server = createServer((request, response) => {
++    request.resume()
++    request.on('end', () => {
++      const path = request.url ?? ''
++      paths.push(path)
++      if (path.endsWith('/codex/responses')) {
++        if (options.codex === true) {
++          writeSse(response, RESPONSES_EVENTS)
++          return
++        }
++        response.writeHead(200, { 'content-type': 'text/html' })
++        response.end('<!DOCTYPE html><html><head><title>gateway</title></head><body>home</body></html>')
++        return
++      }
++      if (path === '/v1/responses') {
++        writeSse(response, RESPONSES_EVENTS)
++        return
++      }
++      response.writeHead(404, { 'content-type': 'application/json' })
++      response.end('{"error":{"message":"404 Not Found"}}')
++    })
++  })
++  servers.push(server)
++  // The codex protocol probes WebSocket first; a gateway without a Codex
++  // channel never upgrades. Destroying the socket on upgrade keeps the
++  // handshake out of the recorded request paths.
++  server.on('upgrade', (_request, socket) => { socket.destroy() })
++  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
++  const address = server.address()
++  if (address === null || typeof address === 'string') throw new Error('no port')
++  return { url: `http://127.0.0.1:${address.port}`, paths }
++}
++
++async function harness(providers: Record<string, Record<string, unknown>>): Promise<Context> {
++  vi.stubEnv('PI_TEST_KEY', 'test-key')
++  const ctx = new Context()
++  await ctx.plugin(LlmRuntime)
++  await ctx.plugin(LlmPiAi, { providers })
++  return ctx
++}
++
++const userMessage = (): ReturnType<typeof createUserMessage> => createUserMessage({
++  content: [{ type: 'text', text: 'hi' }],
++  source: { kind: 'plugin', plugin: 'test' },
++})
++
++const CODEX_MODELS = [{ id: 'gpt-5.5', name: 'GPT-5.5', contextWindow: 272000, maxTokens: 128000 }]
++
++describe('codex route protocol fallback', () => {
++  it('falls back to /v1/responses when the gateway has no codex channel', async () => {
++    const relay = await relayServer()
++    const ctx = await harness({ 'openai-codex': { apiKeyEnv: 'PI_TEST_KEY', baseURL: relay.url, models: CODEX_MODELS } })
++    const result = await assemble(ctx, { provider: 'openai-codex', model: 'gpt-5.5', messages: [userMessage()] })
++    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
++    expect(result.finish).toEqual({ kind: 'stop' })
++    expect(result.usage).toEqual({ inputTokens: 3, outputTokens: 1 })
++    expect(relay.paths).toEqual(['/codex/responses', '/responses', '/v1/responses'])
++  })
++
++  it('falls back directly when the configured base already carries /v1', async () => {
++    const relay = await relayServer()
++    const ctx = await harness({ 'openai-codex': { apiKeyEnv: 'PI_TEST_KEY', baseURL: `${relay.url}/v1`, models: CODEX_MODELS } })
++    const result = await assemble(ctx, { provider: 'openai-codex', model: 'gpt-5.5', messages: [userMessage()] })
++    expect(result.finish).toEqual({ kind: 'stop' })
++    expect(relay.paths).toEqual(['/v1/codex/responses', '/v1/responses'])
++  })
++
++  it('keeps the codex protocol when the channel works', async () => {
++    const relay = await relayServer({ codex: true })
++    const ctx = await harness({ 'openai-codex': { apiKeyEnv: 'PI_TEST_KEY', baseURL: relay.url, models: CODEX_MODELS } })
++    const result = await assemble(ctx, { provider: 'openai-codex', model: 'gpt-5.5', messages: [userMessage()] })
++    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
++    expect(result.finish).toEqual({ kind: 'stop' })
++    expect(relay.paths).toEqual(['/codex/responses'])
++  })
++
++  it('never falls back on non-codex routes', async () => {
++    const relay = await relayServer()
++    const ctx = await harness({ deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: relay.url } })
++    const result = await assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [userMessage()] })
++    expect(result.finish.kind).toBe('error')
++    expect(relay.paths).toEqual(['/chat/completions'])
++  })
++})
+-- 
+2.50.1 (Apple Git-155)
+

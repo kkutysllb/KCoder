@@ -1,0 +1,109 @@
+From 0552d34e6b2dd2c220405212ecb73a47e96545ed Mon Sep 17 00:00:00 2001
+From: kkutysllb <46704313+kkutysllb@users.noreply.github.com>
+Date: Wed, 26 Aug 2026 22:29:08 +0800
+Subject: [PATCH] fix(llm): tolerate relay API keys in openai-codex accountId
+ extraction
+
+The openai-codex-responses stream unconditionally decodes the configured
+key as an OpenAI OAuth JWT and hard-fails with "Failed to extract
+accountId from token" when the claim is absent. Relay/proxy deployments
+configure plain API keys against a custom baseUrl, so every turn died
+with PI_AI_ERROR before any request went out.
+
+Add a pnpm patch for @earendil-works/pi-ai@0.84.3: on extraction failure,
+fall back to a stable token-derived id instead of throwing. The value
+only feeds the chatgpt-account-id header and the WebSocket session cache
+key, both meaningless to relays; real OAuth JWTs keep the original path.
+
+Verified: differential probe (non-JWT key: pre-patch accountId error,
+post-patch network error against an unreachable baseUrl); vitest
+packages/llm/llm-pi-ai 264/264 green.
+---
+ THIRD_PARTY_NOTICES.md                      |  1 +
+ patches/@earendil-works__pi-ai@0.84.3.patch | 20 ++++++++++++++++++++
+ pnpm-lock.yaml                              |  5 +++--
+ pnpm-workspace.yaml                         |  1 +
+ 4 files changed, 25 insertions(+), 2 deletions(-)
+ create mode 100644 patches/@earendil-works__pi-ai@0.84.3.patch
+
+diff --git a/THIRD_PARTY_NOTICES.md b/THIRD_PARTY_NOTICES.md
+index 295eb1868f..56cd4c1917 100644
+--- a/THIRD_PARTY_NOTICES.md
++++ b/THIRD_PARTY_NOTICES.md
+@@ -95,6 +95,7 @@ External packages that a workspace package resolves at runtime. The tier covers
+ 
+ pnpm applies local patches to the following packages at install time, so shipped artifacts carry modified copies; each patch file is the complete record of the modification:
+ 
++- `@earendil-works/pi-ai@0.84.3` — [`patches/@earendil-works__pi-ai@0.84.3.patch`](patches/@earendil-works__pi-ai@0.84.3.patch)
+ - `node-pty@1.2.0-beta.15` — [`patches/node-pty@1.2.0-beta.15.patch`](patches/node-pty@1.2.0-beta.15.patch)
+ 
+ ## Official Claude Code platform payloads
+diff --git a/patches/@earendil-works__pi-ai@0.84.3.patch b/patches/@earendil-works__pi-ai@0.84.3.patch
+new file mode 100644
+index 0000000000..ef71bdb638
+--- /dev/null
++++ b/patches/@earendil-works__pi-ai@0.84.3.patch
+@@ -0,0 +1,20 @@
++diff --git a/dist/api/openai-codex-responses.js b/dist/api/openai-codex-responses.js
++index 2a8aca4b2e91c111c221f204ac37ad1956045826..1b98797ca197896758703b38181e6709cf100d5a 100644
++--- a/dist/api/openai-codex-responses.js
+++++ b/dist/api/openai-codex-responses.js
++@@ -1253,7 +1253,14 @@ function extractAccountId(token) {
++         return accountId;
++     }
++     catch {
++-        throw new Error("Failed to extract accountId from token");
+++        // KCoder patch: relay/proxy keys are plain API keys, not OpenAI OAuth
+++        // JWTs. Fall back to a stable token-derived id so relay setups work;
+++        // the value only feeds the chatgpt-account-id header and the WebSocket
+++        // session cache key, both irrelevant to relays.
+++        let h = 0;
+++        for (let i = 0; i < token.length; i++)
+++            h = (h * 31 + token.charCodeAt(i)) | 0;
+++        return `relay-${(h >>> 0).toString(16)}`;
++     }
++ }
++ function buildBaseCodexHeaders(initHeaders, additionalHeaders, accountId, token) {
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index c71839c4d9..74715a419f 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -9,6 +9,7 @@ overrides:
+   '@deepseek-ai/schemastery': link:vendor/schemastery
+ 
+ patchedDependencies:
++  '@earendil-works/pi-ai@0.84.3': a1a6fdfe88856c21018a6a646b3494167d4187402752e15ace3155fee805e4bf
+   node-pty@1.2.0-beta.15: b40ae545608897914bd25fb009c97eeac478c34e8a910298ddcb01b746534bb0
+ 
+ importers:
+@@ -5539,7 +5540,7 @@ importers:
+         version: link:../../../vendor/schemastery
+       '@earendil-works/pi-ai':
+         specifier: ^0.84.3
+-        version: 0.84.3(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
++        version: 0.84.3(patch_hash=a1a6fdfe88856c21018a6a646b3494167d4187402752e15ace3155fee805e4bf)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
+     devDependencies:
+       '@deepseek-ai/cordis':
+         specifier: workspace:^
+@@ -15463,7 +15464,7 @@ snapshots:
+     transitivePeerDependencies:
+       - '@algolia/client-search'
+ 
+-  '@earendil-works/pi-ai@0.84.3(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)':
++  '@earendil-works/pi-ai@0.84.3(patch_hash=a1a6fdfe88856c21018a6a646b3494167d4187402752e15ace3155fee805e4bf)(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)':
+     dependencies:
+       '@anthropic-ai/sdk': 0.91.1(zod@4.4.3)
+       '@aws-sdk/client-bedrock-runtime': 3.1048.0
+diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
+index ec6cfd3af9..85350ee559 100644
+--- a/pnpm-workspace.yaml
++++ b/pnpm-workspace.yaml
+@@ -69,4 +69,5 @@ minimumReleaseAgeExclude:
+   - node-addon-require-builtin@0.1.4
+ 
+ patchedDependencies:
++  '@earendil-works/pi-ai@0.84.3': patches/@earendil-works__pi-ai@0.84.3.patch
+   node-pty@1.2.0-beta.15: patches/node-pty@1.2.0-beta.15.patch
+-- 
+2.50.1 (Apple Git-155)
+
