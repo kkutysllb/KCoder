@@ -116,6 +116,9 @@ const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
     // 就地编辑发送修复版特征：scoped conversation 获取（旧版根 ctx 直取
     // send 恒落空，此 mark 缺失 → 自愈链重放新 patch）
     ['lib/client.js', 'activeCtx.sessions.scope(curId)'],
+    // 编辑区自适应增强特征（气泡扩宽 + textarea 随内容长高；旧版
+    // 编辑区固定 60px 高过小，此 mark 缺失 → 自愈链重放新 patch）
+    ['lib/client.js', 'autoGrowEditBox'],
   ],
   // 修复特征：扩展表无 ts（原版 "3g2", "ts", "m2ts"；根级 client.js）
   'dsh-video-preview': [['client.js', '"3g2", "m2ts"']],

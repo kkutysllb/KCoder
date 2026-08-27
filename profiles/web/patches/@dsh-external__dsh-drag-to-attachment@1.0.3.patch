@@ -1,5 +1,5 @@
 diff --git a/lib/client.js b/lib/client.js
-index cb6bf08..3a66c5f 100644
+index cb6bf08..9cc6bfb 100644
 --- a/lib/client.js
 +++ b/lib/client.js
 @@ -1468,6 +1468,7 @@ window.__ModuleLoader__.load({
@@ -100,9 +100,23 @@ index cb6bf08..3a66c5f 100644
          var parsed = parseAttachmentMarkup(text)
          if (parsed !== null && parsed.attachments.length > 0) {
            // Debug aid while diagnosing the card renderer.
-@@ -1682,8 +1716,36 @@ window.__ModuleLoader__.load({
+@@ -1681,9 +1715,50 @@ window.__ModuleLoader__.load({
+           fontSize: '16px', lineHeight: '24px',
            wordBreak: 'break-word',
          }
++        if (editingInPlace) {
++          // 编辑态：气泡扩至整列宽，给 textarea 最大书写空间
++          bubble.display = 'block'
++          bubble.maxWidth = '100%'
++          bubble.width = '100%'
++        }
++        // textarea 高度随草稿自适应（封顶 60vh，超出内部滚动）
++        function autoGrowEditBox(el) {
++          if (!el) return
++          el.style.height = 'auto'
++          var cap = Math.max(240, Math.floor((window.innerHeight || 800) * 0.6))
++          el.style.height = Math.min(el.scrollHeight + 2, cap) + 'px'
++        }
          var row = { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px', margin: '6px 0' }
 -        var actions = renderUserActions(text, data && data.time)
 +        var beginEditInPlace = function () {
@@ -138,7 +152,7 @@ index cb6bf08..3a66c5f 100644
          var rowAttrs = { 'data-time-hover-root': '1' }
          if (parsed === null) {
            // No attachment markup: approximate the native user bubble.
-@@ -1694,7 +1756,25 @@ window.__ModuleLoader__.load({
+@@ -1694,7 +1769,26 @@ window.__ModuleLoader__.load({
                    return React.createElement('img', { key: i, src: '#', alt: 'image', style: { width: '64px', height: '64px', objectFit: 'cover', borderRadius: '6px', background: 'rgba(0,0,0,.08)' } })
                  })
                ) : null,
@@ -147,10 +161,11 @@ index cb6bf08..3a66c5f 100644
 +                React.createElement('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', width: '100%' } },
 +                  React.createElement('textarea', {
 +                    value: draftInPlace,
-+                    onChange: function (ev) { setDraftInPlace ? setDraftInPlace(ev.target.value) : null },
++                    onChange: function (ev) { setDraftInPlace ? setDraftInPlace(ev.target.value) : null; autoGrowEditBox(ev.target) },
 +                    autoFocus: true,
++                    ref: function (el) { autoGrowEditBox(el) },
 +                    onKeyDown: function (ev) { if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') { ev.preventDefault(); commitEditInPlace() } },
-+                    style: { width: '100%', maxWidth: '100%', minHeight: '60px', maxHeight: '40vh', overflowY: 'auto', boxSizing: 'border-box', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', font: 'inherit', fontSize: '14px', lineHeight: '20px', resize: 'vertical', outline: 'none' }
++                    style: { width: '100%', maxWidth: '100%', minHeight: '120px', maxHeight: '60vh', overflowY: 'auto', boxSizing: 'border-box', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', font: 'inherit', fontSize: '14px', lineHeight: '20px', resize: 'vertical', outline: 'none' }
 +                  })
 +                  ,
 +                  React.createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },

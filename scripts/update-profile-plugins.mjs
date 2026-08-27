@@ -58,6 +58,8 @@ const PATCH_MARKS = {
     ['lib/client.js', "clearFiles()\n        return { kind: 'success' }"],
     // Everything spawn 防崩修复（单行 mark，不受 CRLF 产物行尾影响）
     ['lib/index.js', "child.on('error', () => {})"],
+    // 编辑区自适应增强特征（气泡扩宽 + textarea 随内容长高）
+    ['lib/client.js', 'autoGrowEditBox'],
   ],
 }
 function resolveRepoRoot() {
