@@ -150,6 +150,19 @@ function materialize(profileDir: string, b: BundledPlugin): void {
     console.log('[kcoder-bundle] 预写 profile 清单并注册 bundles')
     return
   }
+  // @kcoder/* 全部是物化直写目录，不经 registry/pnpm 安装（上游 plugin.ts 亦
+  // 明确 bundles 不进 dependencies）。dependencies 里若有历史接线的残留声明
+  // （0.4.x 曾把 file-review 以 "0.4.1" 钉进依赖），pnpm 在 profile 跑
+  // install/update 时会去 registry 拉这个未发布包直接 404，挡住所有其他插件
+  // 的更新。注册 bundles 时顺手拔除残留，只保留 bundles 层叠这一条注册面。
+  const dependencies = (manifest['dependencies'] ?? {}) as Record<string, unknown>
+  const staleDeps = BUNDLES.filter((x) => x.pkg in dependencies).map((x) => x.pkg)
+  if (staleDeps.length > 0) {
+    for (const pkg of staleDeps) delete dependencies[pkg]
+    manifest['dependencies'] = dependencies
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
+    console.log(`[kcoder-bundle] 清除 profile dependencies 残留: ${staleDeps.join(', ')}`)
+  }
   const bundles = bundlesOf(manifest)
   if (bundles.includes(b.pkg)) return
   const anchor = bundles.indexOf(TEMPLATE_BUNDLES[1])
