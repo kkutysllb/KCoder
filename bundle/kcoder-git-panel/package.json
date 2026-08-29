@@ -1,0 +1,32 @@
+{
+  "name": "@kcoder/git-panel",
+  "version": "0.4.0",
+  "description": "KCoder in-box dsh bundle: standalone git workspace panel (change stats + task plans) as an independent right-side floating panel, with plan documents previewed through dsh-better-sidebar when present.",
+  "license": "MIT",
+  "type": "module",
+  "main": "entry.js",
+  "exports": {
+    ".": "./entry.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "entry.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  }
+}

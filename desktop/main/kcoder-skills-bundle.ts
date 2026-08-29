@@ -1,12 +1,15 @@
 /**
  * KCoder 自有 dsh bundle 的物化与注册（out-of-tree bundle 随桌面端分发）。
  *
- * 当前两个 bundle：
+ * 当前三个 bundle：
  * - @kcoder/skills-bundle（bundle/kcoder-skills）：方法论技能包（适配自
  *   KSkills 仓库），激活时注册 runtime skill；
  * - @kcoder/language-bundle（bundle/kcoder-language）：「强制中文回答」
  *   system-prompt section 插件，默认 disabled，由 language-settings.ts
- *   在 home patch 层热切换。
+ *   在 home patch 层热切换；
+ * - @kcoder/git-panel（bundle/kcoder-git-panel）：独立 git 工作区面板
+ *   （server 只读快照 RPC + client 页面内浮动面板）。2026-08 起整体替代
+ *   已退役的 Electron 宿主 git-panel.ts（旧 IPC/视图/让位协议已摘除）。
  *
  * 本模块在 dsh 启动前把各 bundle 幂等物化进 web profile：
  *
@@ -33,6 +36,9 @@ export const KCODER_SKILLS_BUNDLE = '@kcoder/skills-bundle'
 /** 语言指令 bundle 包名（开关热切换见 language-settings.ts）。 */
 export const KCODER_LANGUAGE_BUNDLE = '@kcoder/language-bundle'
 
+/** git 工作区面板 bundle 包名（独立插件，见 bundle/kcoder-git-panel）。 */
+export const KCODER_GIT_PANEL_BUNDLE = '@kcoder/git-panel'
+
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */
 const TEMPLATE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
 
@@ -50,6 +56,7 @@ interface BundledPlugin {
 const BUNDLES: BundledPlugin[] = [
   { pkg: KCODER_SKILLS_BUNDLE, dir: 'kcoder-skills', intactFiles: [join('skills', 'manifest.json')] },
   { pkg: KCODER_LANGUAGE_BUNDLE, dir: 'kcoder-language', intactFiles: [] },
+  { pkg: KCODER_GIT_PANEL_BUNDLE, dir: 'kcoder-git-panel', intactFiles: ['client.js'] },
 ]
 
 /** 分发的 bundle 源目录（开发态仓库内；打包态 extraResources）。 */

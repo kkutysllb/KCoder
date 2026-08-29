@@ -19,7 +19,7 @@ import { join } from 'node:path'
 import { net } from 'electron'
 import { WEB_PROFILE, dshHome, resolveDshCommand, vendoredPnpmEntry } from './dsh-contract'
 import { ensureProfilePatches, healLog } from './profile-patches'
-import { KCODER_SKILLS_BUNDLE } from './kcoder-skills-bundle'
+import { KCODER_GIT_PANEL_BUNDLE, KCODER_LANGUAGE_BUNDLE, KCODER_SKILLS_BUNDLE } from './kcoder-skills-bundle'
 import { PRESET_PLUGINS } from './preset-plugins'
 import type {
   CommunityPlugin,
@@ -29,11 +29,14 @@ import type {
   PluginCommandResult,
 } from '@shared/ipc-contract'
 
-/** 发行版模板内置层 + KCoder 物化注册层（预置第三方插件与技能 bundle，UI 均展示为内置且禁卸载）。 */
+/** 发行版模板内置层 + KCoder 物化注册层（预置第三方插件与技能/面板 bundle，
+ *  UI 均展示为内置且禁卸载）。 */
 const IN_BOX_BUNDLES = [
   '@deepseek-ai/dsh-base',
   '@deepseek-ai/dsh-web-app',
   KCODER_SKILLS_BUNDLE,
+  KCODER_LANGUAGE_BUNDLE,
+  KCODER_GIT_PANEL_BUNDLE,
   ...Object.keys(PRESET_PLUGINS),
 ]
 
