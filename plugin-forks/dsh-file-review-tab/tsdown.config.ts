@@ -23,7 +23,9 @@ function cssModulesPlugin() {
     async load(virtualId: string) {
       if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) return null
       const file = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length)
-      this.addWatchFile(file)
+      // rolldown 的 LoadHook 上下文类型未标 addWatchFile（运行时兼容层提供，
+      // rollup/unplugin 风格）；结构断言 + 可选链，缺失时静默跳过。
+      ;(this as { addWatchFile?: (id: string) => void }).addWatchFile?.(file)
       const source = await readFile(file)
       const { code, exports } = transform({
         filename: file,
