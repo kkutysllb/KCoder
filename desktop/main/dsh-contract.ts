@@ -32,8 +32,15 @@ import { satisfies, gte, valid } from 'semver'
 import { app } from 'electron'
 import type { DshSource } from '@shared/ipc-contract'
 
-/** 就绪行的解析规则：`dsh web: http://127.0.0.1:<port>`。 */
-export const READY_LINE_RE = /^dsh web: http:\/\/127\.0\.0\.1:(\d+)/
+/**
+ * 就绪行的解析规则：`dsh web: http://127.0.0.1:<port>[/?token=<进程启动令牌>]`。
+ * 组 1 = 回环基址；组 2 = 可选的查询尾部。
+ * alpha.1 基线起上游 BrowserAuth 门禁：根路径只认进程启动令牌（换取签名
+ * cookie，303 回 `/`）或已持有的签名 cookie，其余一律 401（“dsh web
+ * authentication required”）——就绪行里的令牌是宿主换 cookie 的唯一入口，
+ * 绝不能丢（旧版无门禁时组 2 为空串，向后兼容）。
+ */
+export const READY_LINE_RE = /^dsh web: (http:\/\/127\.0\.0\.1:\d+)(\S*)/
 
 /** 就绪等待上限（毫秒）：dsh 需等 loader 结算后才打印 URL。 */
 export const READY_TIMEOUT_MS = 60_000
@@ -41,14 +48,24 @@ export const READY_TIMEOUT_MS = 60_000
 /** 崩溃自动重启次数上限。 */
 export const MAX_AUTO_RESTARTS = 3
 
-/** 上游克隆在本项目中的目录名（被 .gitignore 排除，绝不提交）。 */
-export const UPSTREAM_DIR_NAME = 'deepseek-harness'
+/**
+ * 上游锚定 = 自有 fork（kkutysllb/deepseek-harness）：上游修复直接以提交
+ * 落集成分支 `kcoder/alpha.1`（= 基线 + 六修复分支的 merge），不再用
+ * KCoder 仓内 *.patch 归档应用。消费工作树在仓外单一路径（可用环境变
+ * 量 KCODER_UPSTREAM_DIR 覆盖）。
+ */
+export const UPSTREAM_REPO = 'git@github.com:kkutysllb/deepseek-harness.git'
+
+/** 消费分支：基线 + 上游修复合入（setup.sh / release.sh 断言同一分支）。 */
+export const UPSTREAM_BRANCH = 'kcoder/alpha.1'
+
+const DEFAULT_UPSTREAM_DIR = '/Users/libing/kk_Projects/deepseek-harness'
+
+/** 上游工作树绝对路径（fork 本地克隆，仓外单一真相源）。 */
+export const UPSTREAM_DIR = process.env.KCODER_UPSTREAM_DIR ?? DEFAULT_UPSTREAM_DIR
 
 /** 桌面端工作区根（含 desktop/、scripts/、上游克隆）。 */
 export const PROJECT_ROOT = resolve(__dirname, '..', '..')
-
-/** 上游克隆的绝对路径。 */
-export const UPSTREAM_DIR = join(PROJECT_ROOT, UPSTREAM_DIR_NAME)
 
 /**
  * 打包内置的上游运行时压缩包（extraResources/kcoder-runtime.tar.gz）。
@@ -251,8 +268,9 @@ export interface DshCommand {
   describe: string
 }
 
-/** 目录内 dsh 仓的版本号（monorepo 根 package.json 的 version）；读不到/非 semver 返回 null。 */
-function upstreamVersionIn(dir: string): string | null {
+/** 目录内 dsh 仓的版本号（monorepo 根 package.json 的 version）；读不到/非 semver 返回 null。
+ * 导出供 about-settings 等读取实际运行时版本。 */
+export function upstreamVersionIn(dir: string): string | null {
   try {
     const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { version?: unknown }
     return typeof manifest.version === 'string' ? valid(manifest.version) : null

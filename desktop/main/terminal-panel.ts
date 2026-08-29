@@ -16,8 +16,9 @@
  *   `[class*="detailsCol"]`（ui-layout AppFrame，CSS modules 哈希前缀
  *   不影响 `[class*=…]` 匹配）；
  * - 当前会话 → 工作区：选中行 aria-selected + React fiber props.node.id
- *   → POST /api/workspace.list → sessionIds 命中项的 path（契约细节见
- *   workspace 探针脚本内注释）；
+ *   → POST /api/session/list → 选中会话 SessionSummary.cwd（alpha.1 起
+ *   workspace.list 一次性 RPC 已移除，改直取会话自带工作目录；契约细
+ *   节见 workspace 探针脚本内注释）；
  * - 按钮宿主：theme-watcher 注入的自绘标题栏（#__dsh_desktop_titlebar）；
  *   right 序 44（全局：侧栏面板 12 / 内嵌终端 44 / 上下文 76 / git 108）。
  *
@@ -89,7 +90,7 @@ const PAGE_JS = `(() => {
   }
   watchSidebar()
 
-  /* ---- 当前会话 → 工作区解析（同源 RPC）---- */
+  /* ---- 当前会话 → 工作目录解析（同源 RPC）---- */
   // 收集全部 selected 树行的会话 id：多棵树可能同时各有 selected
   //（会话树 + 搜索结果等），取第一个会拿到另一棵树的残留选中
   const probeSessionIds = () => {
@@ -110,20 +111,26 @@ const PAGE_JS = `(() => {
   // DOM；先发起的旧结果即使响应晚到也不得覆盖 → 代数不等的直接丢弃。
   // （rpcId 的 seq 只进了日志，从未校验——乱序防御在这里补齐）
   let wsGen = 0
-  // 结果语义：matched=true 选中会话唯一映射到某工作区（强信号）；
-  // matched=false 无任何选中行，fallback 到 updatedAt 最新（弱信号，
-  // 仅启动初态可用）；null = 有选中但映射不到/映射歧义，或响应乱序——
-  // 此刻任何「猜」出的工作区都可能不是用户所在（错桶的根因），
+  // 结果语义：matched=true 选中会话解析出唯一工作目录（强信号）；
+  // matched=false 无任何选中行，fallback 到最近活跃会话的 cwd（弱信号，
+  // 仅启动初态可用）；null = 有选中但解析不出（无 cwd / 目录不唯一），
+  // 或响应乱序——此刻任何「猜」出的工作区都可能不是用户所在（错桶的根因），
   // 宁可不上报，等 DOM/列表数据稳定后的下一次变化重解析。
+  // alpha.1 契约：workspace.list 一次性 RPC 已移除（workspace 命名空间仅留
+  // create/rename/delete/insertBefore/insertSessionBefore/archiveSession +
+  // 流式 follow——浏览器侧流走 WebSocket mux，裸 fetch 不可达）；改调一次性
+  // session/list，SessionSummary 自带 cwd，直取会话工作目录，省掉
+  // session→workspace 映射层。wire：endpoint 路径段以 / 分隔（段内禁 .），
+  // typert payload 须 { args: { _request: {...} } } 命名参格式（均已实测）。
   const resolveWorkspace = async () => {
     const gen = ++wsGen
     const doResolve = async () => {
-      const res = await fetch('/api/workspace.list', {
+      const res = await fetch('/api/session/list', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           type: 'client-request', rpcId: 'kcoder-terminal-' + (++rpcSeq),
-          method: 'workspace.list', payload: {},
+          method: 'session/list', payload: { args: { _request: {} } },
         }),
       })
       if (!res.ok) return null
@@ -132,22 +139,24 @@ const PAGE_JS = `(() => {
       const items = result != null && result.ok === true && result.value != null
         && Array.isArray(result.value.items) ? result.value.items : null
       if (items == null || items.length === 0) return null
-      const usable = items.filter(it => it != null && typeof it.path === 'string' && it.path !== '')
+      const usable = items.filter(it => it != null && typeof it.sessionId === 'string')
       if (usable.length === 0) return null
       const ids = probeSessionIds()
       if (ids.length > 0) {
-        const hits = new Set()
-        for (const id of ids) {
-          const w = usable.find(it => Array.isArray(it.sessionIds) && it.sessionIds.includes(id))
-          if (w != null) hits.add(w)
+        const selected = usable.filter(it => ids.includes(it.sessionId))
+        const dirs = new Set()
+        for (const it of selected) {
+          if (typeof it.cwd === 'string' && it.cwd !== '') dirs.add(it.cwd)
         }
-        if (hits.size !== 1) return null
-        const workspace = [...hits][0]
-        return { matched: true, path: workspace.path, title: typeof workspace.title === 'string' ? workspace.title : '' }
+        if (dirs.size !== 1) return null
+        const path = [...dirs][0]
+        return { matched: true, path, title: path.split('/').filter(Boolean).pop() ?? '' }
       }
-      const latest = usable.slice()
-        .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0]
-      return { matched: false, path: latest.path, title: typeof latest.title === 'string' ? latest.title : '' }
+      const withCwd = usable.filter(it => typeof it.cwd === 'string' && it.cwd !== '')
+      if (withCwd.length === 0) return null
+      const latest = withCwd.slice()
+        .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0))[0]
+      return { matched: false, path: latest.cwd, title: latest.cwd.split('/').filter(Boolean).pop() ?? '' }
     }
     const ws = await doResolve().catch(() => null)
     return gen === wsGen ? ws : null
@@ -338,7 +347,7 @@ class TerminalPanel {
       }
       const fallback = payload.workspaceFallback
       if (typeof fallback === 'string' && fallback !== '' && this.activeBucket === null) {
-        // 弱信号（无任何选中会话，updatedAt 最新兑底）：仅在从未有过
+        // 弱信号（无任何选中会话，最近活跃会话的 cwd 兑底）：仅在从未有过
         // 强信号时采纳——一旦已知工作区，绝不被猜出来的值覆盖（错桶根因）
         this.activeBucket = fallback
         this.activeTitle = typeof payload.workspaceTitle === 'string' ? payload.workspaceTitle : ''

@@ -191,6 +191,8 @@ export interface UpdateStatus {
   progress: number | null
   /** 最近一次错误（state=error 时有值）。 */
   error: string | null
+  /** 新版本发布说明（GitHub Release 正文；available 及之后异步补齐，拉取失败为 null）。 */
+  releaseNotes: string | null
 }
 
 /* ---------- 内嵌终端 ---------- */
@@ -240,100 +242,8 @@ export interface PreviewEntry {
   focus?: boolean
 }
 
-/* ---------- git 环境面板 ---------- */
-
-/** 轨迹时间线一行（当前会话的消息/工具事件摘要；子代理条目同构）。 */
-export interface TrajectoryRow {
-  /** 会话事件序号（升序排列基准）。 */
-  seq: number
-  /** 事件时间（Unix 毫秒）。 */
-  at: number
-  /** 所属轮次（turn/start 的 turn 号）。 */
-  turn: number
-  /** user = 用户消息；assistant = 助手消息；tool = 工具调用。 */
-  kind: 'user' | 'assistant' | 'tool'
-  /** user/assistant 的文本摘录（text 块拼接截断；纯图片/纯工具调用时 null）。 */
-  text: string | null
-  /** kind=tool 时的调用信息（其他 kind 为 null）。 */
-  tool: {
-    callId: string
-    name: string
-    /** running = 进行中；ok = 完成；error = 失败。 */
-    status: 'running' | 'ok' | 'error'
-    /** 耗时毫秒（完成后有值）。 */
-    ms: number | null
-  } | null
-}
-
-/** 工作区里 agent 写下的计划文档（git 面板列出，点击系统默认应用打开）。 */
-export interface GitPlanFile {
-  /** 绝对路径。 */
-  path: string
-  /** 标题（文档首个 # 标题，缺省回退文件名）。 */
-  title: string
-  /** 相对修改时间（git 风格「3 hours ago」）。 */
-  when: string
-}
-
-/**
- * git 工作区状态快照（主进程探测；随 `git:changed` 推送，也可
- * `git:snapshot` 拉取）。非 git 仓库时 isRepo=false 其余字段归零。
- */
-export interface GitSnapshot {
-  /** 当前工作区名（路径尾段；无工作区 null）。 */
-  workspace: string | null
-  isRepo: boolean
-  branch: string | null
-  /** 上游分支短名（origin/main；无则 null）。 */
-  upstream: string | null
-  ahead: number | null
-  behind: number | null
-  staged: number
-  changed: number
-  untracked: number
-  /** 相对 HEAD 的增/删行数（numstat 求和 + untracked 新文件行数）。 */
-  added: number
-  removed: number
-  /** 本地分支列表（字母序；当前分支靠 branch 字段高亮）。 */
-  branches: string[]
-  /** 工作区内的计划文档（mtime 降序，最多 6 个；可为空）。 */
-  plans: GitPlanFile[]
-  commits: Array<{ hash: string; subject: string; when: string; author: string }>
-  /** Fetch 进行中（按钮禁用态）。 */
-  fetching: boolean
-  /** 写操作（提交/推送/切分支/建分支）进行中，视图按钮禁用。 */
-  busy: boolean
-  error: string | null
-}
-
-/** git 写操作（commit/push/branch-create 等）的执行结果。 */
-export interface GitOpResult {
-  ok: boolean
-  /** 失败时的首行错误文案（git 原样输出）。 */
-  error: string | null
-}
-
-/** 子代理监控条目（subagent 子会话的聚合视图，git 面板展示）。 */
-export interface SubagentEntry {
-  /** 子会话 id。 */
-  id: string
-  /** 父会话 id（发起 subagent 工具调用的会话）。 */
-  parentId: string | null
-  /** 工作区显示名（cwd 尾段；跨工作区条目标注用，无 cwd 时 null）。 */
-  ws: string | null
-  /** 子代理名（agentPreset；缺省「子代理」）。 */
-  label: string
-  /** 任务描述（首条 user 消息摘录；未观察到时空串）。 */
-  task: string
-  /** 是否仍在运行（session.list 的 running，轮询刷新）。 */
-  running: boolean
-  /** 工具调用次数（tool/call 计数）。 */
-  toolCalls: number
-  /** 最后活动时间（Unix 毫秒；0 = 未观察到）。 */
-  lastAt: number
-  /** 执行轨迹（seq 升序，最多 N 行）。 */
-  rows: TrajectoryRow[]
-}
+/* git 环境面板契约已退役（2026-08）：@kcoder/git-panel 插件自带
+ * webServer RPC 快照/计划打开，不再走主进程 IPC。 */
 
 /* ---------- 本地账户鉴权 ---------- */
 
@@ -375,6 +285,8 @@ export interface DesktopBridge {
   updateCheck(): Promise<UpdateStatus>
   updateInstall(): Promise<UpdateStatus>
   updateStatus(): Promise<UpdateStatus>
+  /** 拉取指定版本的发布说明（主进程带缓存；失败返回 null）。 */
+  updateReleaseNotes(version: string): Promise<string | null>
   /** 打开已就绪的 dsh Web UI，并关闭当前 landing 窗口（未登录时主进程拒绝，返回 false）。 */
   showShell(): Promise<boolean>
   /* 本地账户鉴权（注册/登录成功即建立会话；登出后门禁回到 landing） */
@@ -406,32 +318,6 @@ export interface DesktopBridge {
   terminalHide(): Promise<void>
   terminalPanelResize(dy: number): Promise<number>
   terminalTheme(): Promise<TerminalTheme>
-  /* git 环境面板（右侧浮动卡片；探测与写操作主进程串行） */
-  /** 当前快照（面板初次挂载时拉取）。 */
-  gitSnapshot(): Promise<GitSnapshot>
-  /** 触发一次重探（视图内手动刷新）。 */
-  gitRefresh(): Promise<void>
-  /** git fetch（拉取上游，完成后快照会再推一次）。 */
-  gitFetch(): Promise<GitOpResult>
-  /** 提交全部变更（add -A + commit -m；message 视图/主进程双重非空校验）。 */
-  gitCommit(message: string): Promise<GitOpResult>
-  /** 推送（有上游直接 push，否则 push -u origin HEAD）。 */
-  gitPush(): Promise<GitOpResult>
-  /** 切换本地分支（checkout）。 */
-  gitBranchSwitch(name: string): Promise<GitOpResult>
-  /** 新建分支并切换（base 空 = 从当前 HEAD）。 */
-  gitBranchCreate(name: string, base: string | null): Promise<GitOpResult>
-  /** 关闭面板（用户在面板内点关闭；算手动关闭，本次任务不再自动展开）。 */
-  gitHide(): Promise<void>
-  /** 用系统默认应用打开计划文档。 */
-  gitOpenPlan(path: string): Promise<void>
-  /* 子代理监控（subagent 子会话聚合；随面板打开启停轮询） */
-  /** 当前工作区的子代理条目（面板初次挂载时拉取）。 */
-  gitSubagents(): Promise<SubagentEntry[]>
-  /** 子代理条目更新推送（轮询发现变化/mux 实时事件）。 */
-  onGitSubagents(cb: (list: SubagentEntry[]) => void): () => void
-  /** 快照更新推送（探测完成/操作完成/开合）。 */
-  onGitSnapshot(cb: (s: GitSnapshot) => void): () => void
   /* 偏好设置（样式定制/托盘保活；样式变更后主进程自动重注入 shell 窗口） */
   preferencesGet(): Promise<Preferences>
   preferencesSet(patch: Partial<Preferences>): Promise<Preferences>

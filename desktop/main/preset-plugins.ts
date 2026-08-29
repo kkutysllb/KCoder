@@ -73,9 +73,9 @@ import { SHELL_TITLEBAR_HEIGHT } from './theme-watcher'
 
 /** 预置插件：bundle 名 → 依赖 spec（键顺序即层叠顺序，对齐 mac 开发机）。 */
 export const PRESET_PLUGINS: Record<string, string> = {
-  'dsh-vision-router': '1.6.1',
-  'dsh-context': '^0.12.1',
-  'dsh-better-sidebar': '^0.14.0',
+  'dsh-vision-router': '2.0.1',
+  'dsh-context': '^0.37.0',
+  'dsh-better-sidebar': '^0.17.0',
   '@tt-a1i/archify-dsh': '0.1.0',
   '@dsh-external/dsh-drag-to-attachment': 'github:djt889/dsh-drag-to-attachment#v1.0.3',
 }

@@ -4,7 +4,9 @@
  * 行为约定（与产品要求一致）：
  * 1. 启动后自动检测 GitHub Releases（仅打包版；dev 下优雅降级为提示）；
  * 2. 发现新版本 → **后台静默下载**（autoDownload），不打扰用户；
- * 3. 下载完成 → 状态广播 `downloaded`，shell 侧边栏出现安装按钮（见
+ *    同时异步拉取该版本发布说明（GitHub Release 正文，约定见
+ *    release/README.md）——下载图标悬停气泡与诊断面板展示；
+ * 3. 下载完成 → 状态广播 `downloaded`，shell 侧边栏安装按钮保持展示（见
  *    update-injector），菜单/托盘同步出现"安装并重启"；
  * 4. 用户触发安装 → 先优雅关停 dsh 侧车，再 quitAndInstall 退出、
  *    装新版本并自动重启。
@@ -29,6 +31,7 @@ let state: UpdateState = 'idle'
 let availableVersion: string | null = null
 let progress: number | null = null
 let error: string | null = null
+let releaseNotes: string | null = null
 
 export function updateStatus(): UpdateStatus {
   return {
@@ -37,6 +40,7 @@ export function updateStatus(): UpdateStatus {
     availableVersion,
     progress,
     error,
+    releaseNotes,
   }
 }
 
@@ -85,10 +89,20 @@ function wireAutoUpdater(): void {
   autoUpdater.on('checking-for-update', () => setState('checking'))
   autoUpdater.on('update-available', (info) => {
     availableVersion = info.version
+    releaseNotes = null
     setState('available', { version: info.version })
     // autoDownload=true 时 electron-updater 随即开始下载，稍后进入 downloading
+    // 发布说明异步补齐（不阻塞状态机）：到位后再广播一次，气泡/诊断面板刷新。
+    void getReleaseNotes(info.version).then((notes) => {
+      if (availableVersion !== info.version) return // 版本已切换，丢弃迟到结果
+      releaseNotes = notes
+      updateEvents.emit('state-changed', updateStatus())
+    })
   })
-  autoUpdater.on('update-not-available', () => setState('unavailable', { version: null }))
+  autoUpdater.on('update-not-available', () => {
+    releaseNotes = null
+    setState('unavailable', { version: null })
+  })
   autoUpdater.on('download-progress', (info) => {
     setState('downloading', { progress: Math.round(info.percent) })
   })
@@ -103,6 +117,39 @@ function wireAutoUpdater(): void {
 /** 是否具备更新能力：dev（未打包）下没有 app-update.yml，只能提示。 */
 function updatable(): boolean {
   return app.isPackaged
+}
+
+/* ---------- 发布说明：GitHub Release 正文（更新内容的唯一展示源） ---------- */
+
+/** 按版本缓存（含失败结果，防重复轰炸；进程内生效，重启重拉）。 */
+const notesCache = new Map<string, string | null>()
+
+/** GitHub 拉取超时（毫秒）。 */
+const NOTES_TIMEOUT_MS = 8_000
+
+/**
+ * 拉取指定版本的发布说明（GitHub Release 正文，仓内约定见 release/README.md）。
+ * 失败（无网络/无该版本 release）返回 null，消费端降级为“版本可用”提示。
+ */
+export async function getReleaseNotes(version: string): Promise<string | null> {
+  const v = version.replace(/^v/, '')
+  if (notesCache.has(v)) return notesCache.get(v) ?? null
+  let notes: string | null = null
+  try {
+    const res = await fetch(`https://api.github.com/repos/kkutysllb/KCoder/releases/tags/v${v}`, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'KCoder-updater' },
+      signal: AbortSignal.timeout(NOTES_TIMEOUT_MS),
+    })
+    if (res.ok) {
+      const data = (await res.json()) as { body?: unknown }
+      if (typeof data.body === 'string' && data.body.trim() !== '') notes = data.body.trim()
+    }
+  } catch {
+    // 离线/超时：静默降级，更新链路不受影响（落 updater.log 有据）
+    updaterLog('warn', `拉取 v${v} 发布说明失败（离线或无该 release），悬停气泡降级为纯版本提示`)
+  }
+  notesCache.set(v, notes)
+  return notes
 }
 
 /** 手动/自动触发一次检测。重复调用在 checking 期间被忽略。 */

@@ -23,6 +23,11 @@ export function mountDiagnostics(root: HTMLElement): void {
   const installButton = document.createElement('button')
   installButton.className = 'primary'
   installButton.textContent = '安装更新并重启'
+  // 新版本发布说明区（GitHub Release 正文；与侧边栏下载图标悬停气泡同源）
+  const notesBox = document.createElement('pre')
+  notesBox.className = 'log'
+  notesBox.style.display = 'none'
+  notesBox.style.maxHeight = '220px'
 
   root.append(
     el('div', 'page', [
@@ -32,7 +37,7 @@ export function mountDiagnostics(root: HTMLElement): void {
       ]),
       el('div', 'page-body', [
         el('div', 'card', [el('h2', '', '状态'), statusText, el('div', 'row', [restartButton])]),
-        el('div', 'card', [el('h2', '', '应用更新'), updateText, el('div', 'row', [checkButton, installButton])]),
+        el('div', 'card', [el('h2', '', '应用更新'), updateText, notesBox, el('div', 'row', [checkButton, installButton])]),
         el('div', 'card', [el('h2', '', '日志（尾部 500 行，实时）'), log]),
       ]),
     ]),
@@ -78,6 +83,16 @@ export function mountDiagnostics(root: HTMLElement): void {
   })
 
   /* ---- 更新状态渲染与动作 ---- */
+  /** 发布说明 md → 纯文本（textContent 渲染，只去标题/引用/加粗标记，列表改·）。 */
+  const mdToText = (md: string): string =>
+    md
+      .split('\n')
+      .map((l) => {
+        const t = l.replace(/^#+\s*/, '').replace(/^>\s?/, '').replace(/\*\*(.+?)\*\*/g, '$1')
+        return /^[-*]\s/.test(l) ? '· ' + t.replace(/^[-*]\s/, '') : t
+      })
+      .join('\n')
+
   const updateLabel = (u: UpdateStatus): string => {
     const base = `当前版本：${u.currentVersion}`
     const map: Record<UpdateStatus['state'], string> = {
@@ -98,6 +113,23 @@ export function mountDiagnostics(root: HTMLElement): void {
     checkButton.disabled = u.state === 'checking' || u.state === 'downloading' || u.state === 'installing'
     installButton.style.display = u.state === 'downloaded' ? '' : 'none'
     installButton.disabled = u.state === 'installing'
+    /* 新版本发布说明：发现新版本即展示（状态二次广播会随说明补齐刷新） */
+    const hasNew =
+      u.availableVersion !== null && (u.state === 'available' || u.state === 'downloading' || u.state === 'downloaded')
+    notesBox.style.display = hasNew ? '' : 'none'
+    if (!hasNew || u.availableVersion === null) return
+    const v = u.availableVersion
+    notesBox.dataset.version = v
+    if (u.releaseNotes !== null) {
+      notesBox.textContent = `── v${v} 更新内容 ──\n${mdToText(u.releaseNotes)}`
+      return
+    }
+    notesBox.textContent = `── v${v} 更新内容：获取中… ──`
+    void bridge.updateReleaseNotes(v).then((notes) => {
+      if (notesBox.dataset.version !== v) return // 面板已切到别的版本，丢弃迟到结果
+      notesBox.textContent =
+        notes !== null ? `── v${v} 更新内容 ──\n${mdToText(notes)}` : `── v${v}：暂无更新内容（离线或该版本未发布说明） ──`
+    })
   }
 
   void bridge.updateStatus().then(renderUpdate)

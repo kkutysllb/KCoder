@@ -3,13 +3,16 @@
  * 文件预览抽屉/Git 面板删除后仍独立存续的三个页面级功能——
  *
  * 1. 工作区探针：选中会话变化（aria-selected，debounce 600ms）→
- *    同源 workspace.list RPC 解析当前工作区（会话 id 配对，无会话
- *    取最近更新）→ 写入 --dsh-ws-name / --dsh-ws-path（自绘标题栏
- *    消费：工作区名前缀 + 工作区按钮）+ console `__dsh_wsprobe__:`
+ *    同源 session/list RPC 解析当前工作目录（选中会话 SessionSummary.cwd，
+ *    无会话取最近活跃会话的 cwd）→ 写入 --dsh-ws-name / --dsh-ws-path
+ *    （自绘标题栏消费：工作区名前缀 + 工作区按钮）+ console `__dsh_wsprobe__:`
  *    上报主进程转喂 fileActivity.setWorkspace——skills-catalog 的
  *    工作区项目技能目录与正文徽章的活动分桶都以它为当前基准；
- * 2. 历史补拉拦截：fetch /api/session.history（页面打开/翻页会话时）
- *    → 上报 sessionId → fileActivity.fetchHistory（mux 不重放历史，
+ *    选中会话变化同时上报 sessionId（首屏/路由直开会话不经 fetch 时
+ *    兜住历史补拉触发源；主进程短窗去重，重复无害）；
+ * 2. 历史补拉拦截：fetch /api/session/page（页面打开/翻页会话时；
+ *    alpha.1 起 session.history 已换）→ 从 typert 命名参提取
+ *    address.sessionId → fileActivity.fetchHistory（mux 不重放历史，
  *    徽章的历史 +n/−n 靠这里补回；请求本身放行）；
  * 3. 正文文件徽章：工具卡片文件路径按钮（scoped 类名含 _fileLink，
  *    文本即路径）与正文文件 mention（_fileMention）——类型徽章 +
@@ -58,13 +61,17 @@ const PAGE_JS = `(() => {
     return null
   }
   let rpcSeq = 0
+  // alpha.1 契约：workspace.list 一次性 RPC 已移除（仅剩流式 follow，
+  // 浏览器侧流走 WebSocket mux，裸 fetch 不可达）；改调一次性 session/list，
+  // SessionSummary 自带 cwd。wire：endpoint 路径段以 / 分隔（段内禁 .），
+  // typert payload 须 { args: { _request: {...} } } 命名参格式（均已实测）。
   const resolveWorkspace = async () => {
-    const res = await fetch('/api/workspace.list', {
+    const res = await fetch('/api/session/list', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         type: 'client-request', rpcId: 'kcoder-probe-' + (++rpcSeq),
-        method: 'workspace.list', payload: {},
+        method: 'session/list', payload: { args: { _request: {} } },
       }),
     })
     if (!res.ok) return null
@@ -73,16 +80,17 @@ const PAGE_JS = `(() => {
     const items = result != null && result.ok === true && result.value != null
       && Array.isArray(result.value.items) ? result.value.items : null
     if (items == null || items.length === 0) return null
-    const usable = items.filter(it => it != null && typeof it.path === 'string' && it.path !== '')
+    const usable = items.filter(it => it != null && typeof it.sessionId === 'string'
+      && typeof it.cwd === 'string' && it.cwd !== '')
     if (usable.length === 0) return null
     const sessionId = probeSessionId()
     const bySession = sessionId !== null
-      ? usable.find(it => Array.isArray(it.sessionIds) && it.sessionIds.includes(sessionId))
+      ? usable.find(it => it.sessionId === sessionId) ?? null
       : null
     const latest = usable.slice()
-      .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0]
+      .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0))[0]
     const workspace = bySession != null ? bySession : latest
-    return { path: workspace.path, title: typeof workspace.title === 'string' ? workspace.title : '' }
+    return { path: workspace.cwd, title: '' }
   }
 
   let debounce = 0
@@ -105,15 +113,23 @@ const PAGE_JS = `(() => {
   const watchSelection = () => {
     new MutationObserver(() => {
       window.clearTimeout(debounce)
-      debounce = window.setTimeout(reportWorkspace, 600)
+      debounce = window.setTimeout(() => {
+        reportWorkspace()
+        // 会话打开/切换的历史补拉兜底：首屏或路由直开会话不经 fetch，
+        // 选中会话直接从 treeitem fiber 上报（主进程短窗去重，重复无害）
+        const sid = probeSessionId()
+        if (sid !== null) report({ action: 'session', sessionId: sid })
+      }, 600)
     }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-selected'] })
     reportWorkspace()
   }
   if (document.body) watchSelection()
   else document.addEventListener('DOMContentLoaded', () => watchSelection(), { once: true })
 
-  /* ---- 历史会话补拉：拦 session.history RPC → 上报 sessionId ----
-   * （mux 不重放历史，主进程自己发同一 RPC 补回活动与徽章数据，
+  /* ---- 历史会话补拉：拦 session/page RPC → 上报 sessionId ----
+   * （alpha.1 起 session.history 换成 session/page：address + throughSeq
+   * 语义，sessionId 藏在 typert 命名参 payload.args.request.address；
+   * mux 不重放历史，主进程自己发同一 RPC 补回活动与徽章数据，
    * diff 内容可能很大不走 console 通道；请求本身放行） */
   const origFetch = window.fetch.bind(window)
   window.fetch = (input, init) => {
@@ -131,9 +147,16 @@ const PAGE_JS = `(() => {
         let rpc = null
         try { rpc = JSON.parse(text) } catch { /* 非 JSON 放行 */ }
         const m = rpc !== null && typeof rpc.method === 'string' ? rpc.method : null
-        if (m === 'session.history' || m === 'subagent.history') {
-          const sid = rpc != null && rpc.payload != null && typeof rpc.payload === 'object'
-            && typeof rpc.payload.sessionId === 'string' ? rpc.payload.sessionId : null
+        if (m === 'session/page') {
+          // 仅主会话地址上报（kind==='session'）；子代理地址需 parent 且
+          // 主进程 fetchHistory 对非 session- 前缀直接跳过，不上报省噪音
+          const addr = rpc != null && rpc.payload != null && typeof rpc.payload === 'object'
+            && rpc.payload.args != null && typeof rpc.payload.args === 'object'
+            && rpc.payload.args.request != null && typeof rpc.payload.args.request === 'object'
+            && rpc.payload.args.request.address != null && typeof rpc.payload.args.request.address === 'object'
+            ? rpc.payload.args.request.address : null
+          const sid = addr !== null && addr.kind === 'session'
+            && typeof addr.sessionId === 'string' ? addr.sessionId : null
           if (sid !== null) report({ action: 'session', sessionId: sid })
         }
         return origFetch(input, init)

@@ -14,11 +14,10 @@ import { applyLandingTheme, currentLandingTheme } from './theme-watcher'
 import { dshManager } from './dsh-manager'
 import { progressEvents, setupUpstream, syncUpstream, upstreamStatus } from './upstream'
 import { communityPlugins, installedPlugins, latestVersions, runPluginCommand } from './plugins'
-import { checkForUpdates, installUpdate, updateEvents, updateStatus } from './updater'
+import { checkForUpdates, getReleaseNotes, installUpdate, updateEvents, updateStatus } from './updater'
 import { refreshStyleOverlay } from './style-overlay'
 import { getSettings, saveSettings } from './store'
 import { terminalPanel, terminalTheme } from './terminal-panel'
-import { gitPanel } from './git-panel'
 import type { Preferences, StyleSettings, UpstreamProgress } from '@shared/ipc-contract'
 
 /** 偏好设置合法档位枚举（非法 patch 丢弃，防御性校验）。 */
@@ -77,6 +76,7 @@ export function registerIpc(): void {
   ipcMain.handle('update:status', () => updateStatus())
   ipcMain.handle('update:check', () => checkForUpdates())
   ipcMain.handle('update:install', () => installUpdate())
+  ipcMain.handle('update:release-notes', (_e, version: string) => getReleaseNotes(version))
 
   /* ---- 桌面动作 ---- */
   // 外链门禁：未登录一律拒绝跳转（landing 停留语义）；已登录仅放行
@@ -106,32 +106,8 @@ export function registerIpc(): void {
     return Promise.resolve()
   })
 
-  /* ---- git 环境面板（右侧浮动卡片；探测与写操作主进程串行） ---- */
-  ipcMain.handle('git:snapshot', () => gitPanel.current())
-  ipcMain.handle('git:refresh', () => gitPanel.refresh())
-  ipcMain.handle('git:fetch', () => gitPanel.fetch())
-  ipcMain.handle('git:commit', (_event, message: unknown) =>
-    gitPanel.commit(typeof message === 'string' ? message : ''))
-  ipcMain.handle('git:push', () => gitPanel.push())
-  ipcMain.handle('git:branch-switch', (_event, name: unknown) =>
-    gitPanel.switchBranch(typeof name === 'string' ? name : ''))
-  ipcMain.handle('git:branch-create', (_event, name: unknown, base: unknown) =>
-    gitPanel.createBranch(
-      typeof name === 'string' ? name : '',
-      typeof base === 'string' ? base : null,
-    ))
-  ipcMain.handle('git:hide', () => {
-    gitPanel.hide(true)
-    return Promise.resolve()
-  })
-  ipcMain.handle('git:open-plan', (_event, path: unknown) => {
-    const target = typeof path === 'string' ? path : ''
-    // 只放行快照里见过的计划文档路径（防任意路径打开）
-    const known = gitPanel.current().plans.some(p => p.path === target)
-    if (known) gitPanel.openPlan(target)
-    return Promise.resolve()
-  })
-  ipcMain.handle('git:subagents', () => gitPanel.subagents())
+  /* git 环境面板 IPC 已退役（2026-08）：@kcoder/git-panel 插件自带
+   * webServer RPC（/kc-git-panel/api/snapshot|open-plan）替代。 */
 
   /* ---- 内嵌终端（面板视图 ↔ pty，多标签：每个工作区一份私有桶）
    * 调用方工作区 = event.sender 所属 view 的 workspace（不是

@@ -27,21 +27,11 @@
  * bottomPanelHidden）与簇按钮顺序，插件更新不破坏；若未来版本改名，
  * 压制静默失效回到插件原状（届时插件或已修复黑屏，重新评估）。
  *
- * 面板开合态暴露与反向让位（2026-08）：右侧只有一个——git 浮动卡片
- * （git-panel，WebContentsView compositor 层）与本面板同时展开时既重叠
- * （卡片盖面板、鼠标被 view 截走）又双重挤压中间列，互斥让位解决
- * （正向让位与协议主导在 git-panel）：本注入器在页面暴露
- * window.__dshPanelOpen()/__dshPanelToggle()（状态查询与开关，均走
- * 插件真实状态机；本脚本缺席 = 插件未装，git 侧得 undefined 自动跳过
- * 让位）；面板开合沿（false↔true 翻转）MutationObserver 上报
- * __dsh_git__:{"action":"sidebar-open"/"sidebar-close"} → git 卡片
- * 反向让位收起 / 释放恢复。observer 覆盖全部展开路径：代理按钮
- * 转发、插件内容 open 自动展开（消息文件链接点击 → openTab →
- * 面板收起时 togglePanel 展开，"must land in sight"——文件预览避让
- * 盲区正是此路径）、+菜单/会话恢复；收起沿同理覆盖全部关闭路径
- * （面板 × / 代理按钮 / 预览用完收起）。沿判定天然去重；git 履约
- * 恢复展开也走此沿，git 侧 yieldForSidebar 对已收卡片直接 return，
- * 幂等无环。
+ * git 互斥让位协议已随宿主面板退役（2026-08）：旧版曾在本脚本暴露
+ * window.__dshPanelOpen/Toggle/__dshOpenPlan 并经 MutationObserver
+ * 上报开合沿供旧 git 卡片反向让位与计划预览点火；git 面板已由
+ * @kcoder/git-panel 客户端插件整体替代（软依赖 betterSidebar.openTab
+ * 直连预览，无需 DOM 模拟），上述暴露与 observer 一并摘除。
  *
  * 上游契约（全部运行时探测，哈希前缀无关）：
  * - 开关簇宿主 `[data-dsh-panel-host]`（插件 fixed 覆盖层，data 属性
@@ -55,8 +45,8 @@
  * - 按钮宿主：theme-watcher 注入的自绘状态栏（#__dsh_desktop_titlebar）。
  *
  * right 序：侧栏面板 12（本注入器）/ 内嵌终端 44（terminal-panel）/
- * 上下文 76（context-button）/ git 108（git-panel）；标题
- * 避让带同步见 theme-watcher。
+ * 上下文 76（context-button）/ git 108（@kcoder/git-panel 插件）；
+ * 标题避让带同步见 theme-watcher。
  *
  * 宿主时序不保证：bar 由 theme-watcher 注入（同 did-finish-load，
  * 本注入器注册在其后），轮询等待 bar 存在（与 sidebar-toggle 同款）。
@@ -69,7 +59,7 @@ import type { BrowserWindow } from 'electron'
 const PANEL_BTN_ID = '__dsh_desktop_sidebar_panel_btn'
 
 /** 代理按钮右缘 right 偏移（DIP，全局 right 序：侧栏面板 12（本注入器）/
- * 内嵌终端 44（terminal-panel）/ 上下文 76（context-button）/ git 108（git-panel））。 */
+ * 内嵌终端 44（terminal-panel）/ 上下文 76（context-button）/ git 108（插件）。 */
 const PANEL_BTN_RIGHT = 12
 
 const PAGE_JS = `(() => {
@@ -83,16 +73,6 @@ const PAGE_JS = `(() => {
   // 语义映射：最后一枚恒为右侧面板（窄屏唯一一枚也是它）；首枚仅在
   // 枚举 ≥2 时是底部面板（宽屏顺序：底部在前、右侧在后），压制看门狗用
   const panelSrc = () => { const b = pluginBtns(); return b.length > 0 ? b[b.length - 1] : null }
-
-  /* ---- 面板开合态与开关暴露（git-panel 互斥让位消费）----
-     态查询：面板容器在且无收起态类（面板根收起时追加 panelHidden，
-     CSS modules 哈希前缀无关；容器不在 = 插件未装，计为关）。开关：
-     与代理转发同源（panelSrc 直点，React 合成事件照常）。 */
-  window.__dshPanelOpen = () => {
-    if (document.querySelector('[data-dsh-better-sidebar]') == null) return false
-    return document.querySelector('[data-dsh-better-sidebar] [class*="panelHidden"]') == null
-  }
-  window.__dshPanelToggle = () => { panelSrc()?.click() }
 
   const style = document.createElement('style')
   style.id = '__dsh_desktop_sidebar_cluster_style'
@@ -179,20 +159,6 @@ const PAGE_JS = `(() => {
   // 自愈：插件重挂开关簇（React 重建）/ 按钮态变化后重新同步
   new MutationObserver(sync)
     .observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['disabled', 'aria-label'] })
-
-  // 面板开合沿上报（git 卡片反向让位/释放恢复，见头注释）：面板根
-  // 收起态靠 class（panelHidden）翻转、host 靠挂载，class 变化与
-  // childList 都盯；沿判定（翻转才报）去重，React 高频 class 翻转下
-  // 每次回调仅两次 querySelector + 比较。页面重载后 lastPanelOpen 归
-  // false，持久化恢复的面板会产生一次 open 沿（两面板并存时收敛为
-  // 互斥态，可接受的自愈）。
-  let lastPanelOpen = false
-  new MutationObserver(() => {
-    const open = window.__dshPanelOpen()
-    if (open === lastPanelOpen) return
-    lastPanelOpen = open
-    console.log('__dsh_git__:' + JSON.stringify({ action: open ? 'sidebar-open' : 'sidebar-close' }))
-  }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] })
 })()`
 
 /**

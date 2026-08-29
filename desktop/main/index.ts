@@ -14,15 +14,12 @@ import { registerIpc } from './ipc'
 import { installMenu, installTray, wireMenuRefresh } from './menu'
 import { closePanels, markQuitting, showBootstrap, showLanding, showShellWindow } from './windows'
 import { authLoggedIn, initAuthSession } from './auth'
-import { fileActivity } from './file-activity'
 import { terminalPanel } from './terminal-panel'
-import { gitPanel } from './git-panel'
 import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-contract'
 import { ensureKcoderBundles } from './kcoder-skills-bundle'
 import { syncLanguagePatch } from './language-settings'
 import { ensureBuiltinMcpServers } from './mcp-builtin'
 import { ensureProfilePatches } from './profile-patches'
-import { ensureNativeOverlay } from './native-overlay'
 import { ensurePresetPlugins } from './preset-plugins'
 import { initUpdater } from './updater'
 import { applyNativeTheme, currentLandingTheme, currentThemePref } from './theme-watcher'
@@ -217,9 +214,6 @@ app.whenReady().then(() => {
   // 上游插件缺陷补丁物化（幂等；跨平台——Windows 无 launchd，随包分发
   // 的唯一通道；插件已装但补丁未生效时触发一次 pnpm install）
   ensureProfilePatches()
-  // 原生 in-box 包增强覆盖（当前：dsh-client-ui-deliverables 交付审查
-  // +A/−N 与纯审计轮结论卡；幂等，版本门拒绝覆盖已升级的树）
-  ensureNativeOverlay()
   // 预置第三方插件物化（幂等；Windows 全新安装 profile 为空模板，开箱
   // 即预置 vision-router / context / better-sidebar，含缺陷补丁自动应用）
   ensurePresetPlugins()
@@ -268,8 +262,6 @@ autoUpdater.on('before-quit-for-update', () => {
 app.on('before-quit', (event) => {
   markQuitting() // 首位置位：主窗口 close 拦截放行，退出不被托盘保活挡死
   terminalPanel.dispose() // 杀内嵌终端 shell（SIGTERM 发出即离开）
-  gitPanel.dispose() // 收起 git 面板 + 停子代理监控
-  fileActivity.dispose() // 断开 mux 订阅
   if (dshManager.status.state === 'stopped' || dshManager.status.state === 'failed') return
   event.preventDefault()
   void dshManager.stop().then(() => {

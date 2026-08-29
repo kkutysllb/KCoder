@@ -71,9 +71,9 @@ const PAGE_JS = `(() => {
     '[role="dialog"] [class*="_options"]{padding:28px 40px 48px}',
     '[role="dialog"] [class*="_options"] > [data-slot="settings.section"]{display:block!important;width:min(100%,960px);max-width:960px!important;margin:0 auto}',
     '[role="dialog"] [class*="_options"] > [data-slot="settings.section"] > *{width:100%;max-width:none;margin-left:auto;margin-right:auto}',
-    // 技能/MCP 是注入器追加的独立容器，不走 settings.section slot；显式
+    // 技能/MCP/关于是注入器追加的独立容器，不走 settings.section slot；显式
     // 给它们同一列宽，避免 options 的居中 flex 触发 shrink-to-fit。
-    '[role="dialog"] [class*="_options"] > #__dsh_desktop_skills_section,[role="dialog"] [class*="_options"] > #__dsh_desktop_mcp_section{box-sizing:border-box;width:min(100%,960px);max-width:960px;margin:0 auto;min-width:0}',
+    '[role="dialog"] [class*="_options"] > #__dsh_desktop_skills_section,[role="dialog"] [class*="_options"] > #__dsh_desktop_mcp_section,[role="dialog"] [class*="_options"] > #__dsh_desktop_about_section{box-sizing:border-box;width:min(100%,960px);max-width:960px;margin:0 auto;min-width:0}',
     // 通用设置：每个功能项独立成卡片，保留 slot wrapper 的地址能力。
     '[role="dialog"] [data-slot="settings.general.item"]{display:block!important;width:100%;max-width:none!important;margin:0 0 14px!important}',
     '[role="dialog"] [data-slot="settings.general.item"] > *{box-sizing:border-box;width:100%;margin:0!important;padding:20px 24px!important;border:1px solid var(--dsw-alias-border-l2);border-radius:16px!important;background:var(--dsw-alias-bg-module-platform);box-shadow:0 2px 10px rgba(9,16,29,.035)}',

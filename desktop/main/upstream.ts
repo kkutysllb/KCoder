@@ -11,7 +11,7 @@
 
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { UPSTREAM_DIR, upstreamBuilt, upstreamCloned, upstreamNodeRange } from './dsh-contract'
+import { UPSTREAM_BRANCH, UPSTREAM_DIR, UPSTREAM_REPO, upstreamBuilt, upstreamCloned, upstreamNodeRange } from './dsh-contract'
 import type { UpstreamProgress, UpstreamStatus } from '@shared/ipc-contract'
 
 /** 同步中标志：同步进行时拒绝重复触发与 dsh 启动竞争。 */
@@ -159,10 +159,10 @@ export async function setupUpstream(): Promise<{ ok: boolean; error: string | nu
   if (syncing) return { ok: false, error: '初始化已在进行中' }
   syncing = true
   try {
-    emit('克隆', 'git clone https://github.com/deepseek-ai/deepseek-harness.git（浅克隆重用已有缓存可显著加速）…')
+    emit('克隆', `git clone ${UPSTREAM_REPO}（fork 锚定，克隆后切 ${UPSTREAM_BRANCH}）…`)
     const clone = spawnSync(
       'git',
-      ['clone', 'https://github.com/deepseek-ai/deepseek-harness.git', UPSTREAM_DIR],
+      ['clone', '-b', UPSTREAM_BRANCH, UPSTREAM_REPO, UPSTREAM_DIR],
       { encoding: 'utf8', timeout: 600_000, stdio: 'pipe' },
     )
     if (clone.status !== 0) {

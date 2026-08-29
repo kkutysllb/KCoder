@@ -24,7 +24,6 @@ import { attachSidebarCluster } from './sidebar-cluster'
 import { attachClipboardFix } from './clipboard-fix'
 import { attachContextButton } from './context-button'
 import { terminalPanel } from './terminal-panel'
-import { gitPanel } from './git-panel'
 import { attachStyleOverlay } from './style-overlay'
 import { attachSettingsPage } from './settings-page'
 import { attachWorkspaceHeader } from './workspace-header'
@@ -35,6 +34,7 @@ import { attachStyleSettingsInjector } from './style-settings'
 import { attachLanguageSettingsInjector } from './language-settings'
 import { attachSkillsSettingsInjector } from './skills-settings'
 import { attachMcpSettingsInjector } from './mcp-settings'
+import { attachAboutSettingsInjector } from './about-settings'
 import { attachPanelMenu } from './panel-menu'
 import { getSettings, saveSettings } from './store'
 
@@ -175,10 +175,9 @@ export function showShellWindow(dshUrl: string): void {
     // agent 运行态黑屏且无唤醒信号，产品侧弃用入口由 sidebar-cluster
     // 压制；按钮 right 44，页面探针/让位注入，多工作区独立视图）
     terminalPanel.attach(shellWindow)
-        // git 环境面板：右侧浮动卡片（主进程 git 探测 + 写操作串行队列；
-        // 计划文档扫描/子代理轨迹聚合；按钮 right 108——上下文按钮左侧，
-        // win32 由 panel-menu 收进下拉菜单；工作区跟随 file-activity）
-    gitPanel.attach(shellWindow)
+    // git 环境面板已退役（2026-08）：由 @kcoder/git-panel 客户端插件
+    // （bundle/kcoder-git-panel，dsh client-modules 加载）整体替代——
+    // 按钮 right 108 由插件注入，数据走插件自带 webServer RPC
     // 消息样式覆盖层：排版 token/气泡/代码块微调（零侵入，token 改名静默失效）
     attachStyleOverlay(shellWindow)
     // 设置页单页化：设置模态浮层 → 铺满窗口两分栏（左 nav + 右内容，
@@ -209,6 +208,9 @@ export function showShellWindow(dshUrl: string): void {
     // MCP 服务器：设置面板导航列注入「MCP 服务器」分区（列表 + 行内
     // 编辑表单；console 通道 CRUD mcp-store，保存后上游 HMR 热加载）
     attachMcpSettingsInjector(shellWindow)
+    // 关于：设置面板导航列末尾注入「关于」分区（产品介绍 + 版本信息卡；
+    // 版本全部运行时派生：应用元数据/运行时目录/fork 锚点，发布自动同步）
+    attachAboutSettingsInjector(shellWindow)
     // win32 面板收纳菜单：原生控制按钮区盖住右侧面板按钮，
     // 四枚代理按钮收进一枚下拉菜单（点击转发原按钮，状态实时克隆；
     // 其他平台 no-op 不注入）
@@ -252,9 +254,11 @@ export function showShellWindow(dshUrl: string): void {
   // 无条件 loadURL 会让每次窗口激活都整页刷新（会话重拉 + 样式
   // 覆盖层/标题栏/徽章延迟重注入的双重闪烁）。
   // dsh 重启端口变化 → 前缀不匹配 → 正常加载新实例（sync 流程）。
-  // SPA 内部路由（…/session/xxx）共享同一前缀，不会被误判为外部地址
+  // SPA 内部路由（…/session/xxx）共享同一前缀，不会被误判为外部地址。
+  // 加载目标用带启动令牌的入口 URL（alpha.1 BrowserAuth 门禁：首次访问
+  // 拿令牌换签名 cookie，303 回 `/`；此后同源请求凭 cookie 通行）。
   if (!shellWindow.webContents.getURL().startsWith(dshUrl)) {
-    void shellWindow.loadURL(dshUrl)
+    void shellWindow.loadURL(dshManager.shellEntryUrl(dshUrl))
   }
   if (shellWindow.isMinimized()) shellWindow.restore()
   if (!shellWindow.isVisible()) shellWindow.show()

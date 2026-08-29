@@ -41,8 +41,12 @@
  *   插件消费完 token（框回空）后再恢复——用户半截打字的草稿不丢；
  *   恢复带 guard（框非空不碰，绝不覆盖用户新输入）。
  *
- * 上游契约（运行时探测）：composer 锚 [data-composer-card] textarea
- * （data 属性是稳定 API 面）；modal 锚 .lc-modal-backdrop /
+ * 上游契约（运行时探测）：composer 锚双模——0.1.2-alpha.1 起上游
+ * 把 composer 换成 Lexical contentEditable（[data-composer-input]
+ * 常驻 div：无会话 workspace-trigger 态 editor 为 null 时不渲染
+ * contenteditable 属性 = isContentEditable false，同一 div 存续
+ * 不换树），旧版 [data-composer-card] textarea 兜底；modal 锚
+ * .lc-modal-backdrop /
  * .lc-modal-close（dsh-context 私有 lc- 前缀，不与他插件冲突）；
  * 让位锄 [data-dsh-better-sidebar]（插件面板 host——dsh-better-sidebar
  * 自己 appendChild 到 body 直下的独立 div，不在 frame 内；插件带
@@ -50,16 +54,20 @@
  * 动 DOM，display:none 不触发重挂）/[class*="sidebarCol"]（上游侧栏
  * 列）/[class*="overlayLayer"]（上游 overlay 层，z:20）。console 通道
  * 前缀 __dsh_ctx__:1/0（见 console-channel，terminal-panel.onConsole
- * 消费）。受控输入须用原型 value setter + input 事件（React onChange
- * 才收得到），Enter 用合成 keydown（上游无 isTrusted 检查）；React 状态
- * 异步，输入后隔一拍（60ms）再派发 Enter，matchEnter 才能读到整行。
+ * 消费）。受控输入双模：contentEditable 走全选 + execCommand
+ * insertText（产生 trusted beforeinput——Lexical 受控链只认 trusted
+ * 事件），textarea 用原型 value setter + input 事件（React onChange
+ * 才收得到）；Enter 用合成 keydown（上游 keymap 无 isTrusted 检查）；
+ * React 状态异步，输入后隔一拍（60ms）再派发 Enter，matchEnter 才能读
+ * 到整行。
  *
  * 草稿回滚/恢复的时序容错：Enter 后轮询等 modal（首次打开插件懒加载
  * 可达秒级，一次性超时判定会在 modal 迟到时误回滚，实测踩过），5s
  * 未现（插件缺席/提交锁 machineBusy 拒改草稿）才回滚；modal 关闭后
  * 等 350ms（React 状态落定）再恢复。dsh-context 为预装插件
- * （preset-plugins），按钮常驻；无 composer（空态无会话）→ 按钮
- * disabled 置灰。
+ * （preset-plugins），按钮常驻；无会话惯性态（data-phase="inert"）
+ * 或锚缺席 → 按钮 disabled 置灰（busy/locked 态保持可点，tab 主路径
+ * 不依赖编辑面）。
  *
  * right 序（全局，见 theme-watcher 避让带同步）：侧栏面板 12 /
  * 内嵌终端 44 / 上下文 76 / git 108。
@@ -97,11 +105,29 @@ const PAGE_JS = `(() => {
   const LINE = '/context'
   const bar = () => document.getElementById('__dsh_desktop_titlebar')
   const modal = () => document.querySelector('.lc-modal-backdrop')
-  const ta = () => document.querySelector('[data-composer-card] textarea')
+  // 锚双模：新基线 Lexical contentEditable（[data-composer-input]，
+  // 常驻 div），旧基线 textarea 兜底
+  const ta = () => document.querySelector('[data-composer-input], [data-composer-card] textarea')
+  // 输入面可用判定：无会话惯性态（上游 workspace-trigger：editor 未
+  // 绑定，data-phase="inert"）→ 置灰——旧版「无 composer」语义的对应
+  // 物；busy/locked 只移除 contenteditable 属性而 data-phase 仍实，
+  // 按钮保持可点（tab 主路径不依赖编辑面）；textarea 恒可用
+  const usable = (t) => t != null && (t.tagName === 'TEXTAREA' || t.dataset.phase !== 'inert')
+  // 草稿读写双模：contentEditable 走全选 + execCommand insertText/
+  // delete（Chromium 编辑命令管线产生 trusted beforeinput——Lexical
+  // 受控链只认 trusted 事件，合成 beforeinput 被过滤）；textarea 用
+  // 原型 value setter + input 事件（React onChange 才收得到）
+  const draftOf = (t) => (t.tagName === 'TEXTAREA' ? t.value : (t.textContent || ''))
   const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
   const setDraft = (t, v) => {
-    valueSetter.call(t, v)
-    t.dispatchEvent(new Event('input', { bubbles: true }))
+    if (t.tagName !== 'TEXTAREA') {
+      t.focus()
+      document.execCommand('selectAll', false, null)
+      document.execCommand(v === '' ? 'delete' : 'insertText', false, v)
+    } else {
+      valueSetter.call(t, v)
+      t.dispatchEvent(new Event('input', { bubbles: true }))
+    }
   }
 
   const style = document.createElement('style')
@@ -148,7 +174,7 @@ const PAGE_JS = `(() => {
       clearInterval(iv)
       setTimeout(() => {
         const t = ta()
-        if (t != null && t.value === '') setDraft(t, saved)
+        if (usable(t) && draftOf(t) === '') setDraft(t, saved)
       }, 350)
     }, 200)
   }
@@ -168,8 +194,10 @@ const PAGE_JS = `(() => {
   const openPanel = () => {
     if (modal() != null) return
     const t = ta()
-    if (t == null || t.disabled) return
-    const saved = t.value
+    // 回退路径要求编辑面真正可写（busy/locked 下 contenteditable 属性
+    // 被上游移除，execCommand 对不可编辑宿主无效）
+    if (t == null || !t.isContentEditable || t.disabled === true) return
+    const saved = draftOf(t)
     setDraft(t, LINE)
     // React 状态异步：隔一拍再派发 Enter，matchEnter 才能读到整行。
     // 之后轮询等 modal：首次打开插件懒加载可达秒级，一次性超时判定
@@ -187,7 +215,7 @@ const PAGE_JS = `(() => {
           clearInterval(iv)
           // 插件缺席/提交锁拒改草稿 → 回滚（框值仍是整行时才碰）
           const cur = ta()
-          if (cur != null && cur.value === LINE) setDraft(cur, saved)
+          if (usable(cur) && draftOf(cur) === LINE) setDraft(cur, saved)
         }
       }, 150)
     }, 60)
@@ -260,12 +288,13 @@ const PAGE_JS = `(() => {
     return 'injected'
   }
 
-  // 无 composer（空态无会话）→ 置灰；上下文 tab 激活态挂 data-on
-  // （panel-menu 菜单项蓝点读取）；手输 /context 打开的 modal
+  // 输入面不可编辑（空态无会话/惯性态）→ 置灰；上下文 tab 激活态挂
+  // data-on（panel-menu 菜单项蓝点读取）；手输 /context 打开的 modal
   // 一并接管（拉满 + 返回按钮）
   const sync = () => {
     const b = document.getElementById(BTN)
-    if (b != null && b.disabled !== (ta() == null)) b.disabled = ta() == null
+    const ok = usable(ta())
+    if (b != null && b.disabled !== !ok) b.disabled = !ok
     const tab = ctxTab()
     if (b != null && tab != null) {
       if (tab.getAttribute('aria-selected') === 'true') b.setAttribute('data-on', '1')
@@ -286,9 +315,11 @@ const PAGE_JS = `(() => {
   new MutationObserver(sync).observe(document.body, {
     subtree: true,
     childList: true,
-    // tab 激活翻转（aria-selected）→ 按钮 data-on 跟随
+    // tab 激活翻转（aria-selected）→ 按钮 data-on 跟随；data-phase 翻
+    // 转（composer 常驻 div 惯性↔实态）→ 置灰跟随——只听 childList 会
+    // 漏掉属性翻转（div 不挂卸），建会话后按钮永远卡灰
     attributes: true,
-    attributeFilter: ['aria-selected'],
+    attributeFilter: ['aria-selected', 'data-phase'],
   })
 })()`
 

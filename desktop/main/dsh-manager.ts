@@ -44,6 +44,8 @@ export class DshManager extends EventEmitter {
   private child: ChildProcess | null = null
   private state: DshState = 'stopped'
   private url: string | null = null
+  /** shell 入口 URL：就绪行原样（带启动令牌，无门禁时等于 url）。 */
+  private entryUrl: string | null = null
   private error: string | null = null
   private source: DshStatus['source'] = null
   private restartsLeft = MAX_AUTO_RESTARTS
@@ -120,7 +122,10 @@ export class DshManager extends EventEmitter {
         if (line === '') continue
         this.appendLog('stdout', line)
         const match = READY_LINE_RE.exec(line)
-        if (match !== null) this.onReady(`http://127.0.0.1:${match[1]}`)
+        // 组 1 = 回环基址（对外快照保持无令牌：API 拉取/前缀门禁/诊断展示）；
+        // 组 2 = 查询尾部（alpha.1 的 ?token=…）——shell 首次加载靠它换签名
+        // cookie，两路分开存，令牌不进 DshStatus 广播。
+        if (match !== null) this.onReady(match[1], match[1] + match[2])
       }
     })
     child.stderr?.on('data', (chunk: Buffer) => {
@@ -197,11 +202,22 @@ export class DshManager extends EventEmitter {
 
   /* ---------- 内部 ---------- */
 
-  private onReady(url: string): void {
+  private onReady(url: string, entryUrl: string): void {
     if (this.state === 'ready') return
     this.clearReadyTimer()
     this.restartsLeft = MAX_AUTO_RESTARTS
+    this.entryUrl = entryUrl
     this.setValues({ state: 'ready', url, error: null })
+  }
+
+  /**
+   * shell 窗口入口 URL：当前实例的带令牌就绪 URL（BrowserAuth 门禁下首次
+   * 访问靠它换签名 cookie）；传入地址非当前实例或无令牌时原样回退。
+   * dsh 重启换端口后 authority（含端口）变化，旧 cookie 失效——新进程的
+   * 新令牌正是再次换 cookie 的钥匙。
+   */
+  shellEntryUrl(bareUrl: string): string {
+    return this.url === bareUrl && this.entryUrl !== null ? this.entryUrl : bareUrl
   }
 
   private scheduleRestart(): void {
