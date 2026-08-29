@@ -8,7 +8,7 @@
  * @module desktop/main
  */
 
-import { app, autoUpdater } from 'electron'
+import { app, autoUpdater, session } from 'electron'
 import { dshManager } from './dsh-manager'
 import { registerIpc } from './ipc'
 import { installMenu, installTray, wireMenuRefresh } from './menu'
@@ -166,6 +166,21 @@ if (process.env.npm_config_registry === undefined) {
 let bootstrap: Electron.BrowserWindow | null = null
 
 app.whenReady().then(() => {
+  // dsh dev 每次启动随机端口，但 BrowserAuth 的认证 cookie 按 host（127.0.0.1）
+  // 作用、不区分端口，每次重启写一个新的 `dsh-auth-*`（Max-Age 30 天、永不覆
+  // 盖）。历史 cookie 对当前端口全部无效却随每个请求全量携带——堆积后把组合脚本的长
+  // URL 一起撑爆 Node http 16KB 请求头限制，浏览器收到 431（Request Header
+  // Fields Too Large），combo 脚本加载失败 → boot 全灭（Failed to load
+  // plugins）。启动时清掉历史认证 cookie：本次启动用带令牌的入口 URL 自动换新，
+  // 无登录态损失。
+  void (async () => {
+    const cookies = await session.defaultSession.cookies.get({}).catch(() => [])
+    for (const c of cookies) {
+      if (c.name.startsWith('dsh-auth-')) {
+        await session.defaultSession.cookies.remove('http://127.0.0.1', c.name).catch(() => {})
+      }
+    }
+  })()
   // 鉴权会话恢复先行：登录态用上游最后已知主题（马上进 shell），
   // 未登录用 landing 自己的主题选择（马上显示 landing，与上游解耦）。
   // 原生标题栏/菜单栏在首个窗口出现前就对色
