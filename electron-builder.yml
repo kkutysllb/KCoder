@@ -27,6 +27,9 @@ extraResources:
     to: kcoder-git-panel
   - from: bundle/kcoder-terminal
     to: kcoder-terminal
+  # kcoder-file-review（文件审查，fork 自 Lzh3070/dsh-file-review-tab）
+  - from: bundle/kcoder-file-review
+    to: kcoder-file-review
   # 插件热补丁（name-only patchedDependencies，主进程启动时幂等物化进
   # $DSH_HOME/profiles/web，声明跟随 deps 实态自愈，见 profile-patches.ts）：
   # drag-to-attachment 漏 return / 复制·就地编辑增强；video-preview 扩展表

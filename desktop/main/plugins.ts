@@ -19,7 +19,7 @@ import { join } from 'node:path'
 import { net } from 'electron'
 import { WEB_PROFILE, dshHome, resolveDshCommand, vendoredPnpmEntry } from './dsh-contract'
 import { ensureProfilePatches, healLog } from './profile-patches'
-import { KCODER_GIT_PANEL_BUNDLE, KCODER_LANGUAGE_BUNDLE, KCODER_SKILLS_BUNDLE, KCODER_TERMINAL_BUNDLE } from './kcoder-skills-bundle'
+import { KCODER_FILE_REVIEW_BUNDLE, KCODER_GIT_PANEL_BUNDLE, KCODER_LANGUAGE_BUNDLE, KCODER_SKILLS_BUNDLE, KCODER_TERMINAL_BUNDLE } from './kcoder-skills-bundle'
 import { PRESET_PLUGINS } from './preset-plugins'
 import type {
   CommunityPlugin,
@@ -38,6 +38,7 @@ const IN_BOX_BUNDLES = [
   KCODER_LANGUAGE_BUNDLE,
   KCODER_GIT_PANEL_BUNDLE,
   KCODER_TERMINAL_BUNDLE,
+  KCODER_FILE_REVIEW_BUNDLE,
   ...Object.keys(PRESET_PLUGINS),
 ]
 
