@@ -50,6 +50,8 @@ function cssModulesPlugin() {
   }
 }
 
+const HOST_EXTERNALS = [] as const
+
 const config: UserConfig[] = [{
   name: PACKAGE_NAME,
   entry: ['src/index.ts', 'src/typert.host.ts', 'src/remote.ts'],
@@ -60,6 +62,16 @@ const config: UserConfig[] = [{
   fixedExtension: false,
   dts: false,
   clean: false,
+  // zod/diff 内联（不自包）：host 侧的 typert codec 必须由 zod v4 构造
+  // （typert-loader 只认 schema 上的 v4 `_zod` 标记），若外部化则运行时
+  // 从 profile node_modules 解析——任何一次 `dsh plugin update` 重算依赖
+  // 树都可能把顶层 zod 换成 v3（2026-08-29 实际翻车：全树唯一解析成
+  // 3.25.76，引擎启动直接拒载）。自包含后免疫 profile 依赖树漂移。
+  deps: {
+    neverBundle: [...HOST_EXTERNALS],
+    alwaysBundle: ['diff', 'zod'],
+    onlyBundle: ['diff', 'zod'],
+  },
   outputOptions: {
     chunkFileNames: '[name].js',
   },
