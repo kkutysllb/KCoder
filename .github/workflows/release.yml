@@ -172,6 +172,21 @@ jobs:
     permissions:
       contents: write
     steps:
+      # 发布正文来自仓内发布说明（约定见 release/README.md：每个版本一个
+      # release/v<版本>.md，随 release 提交入库）；说明缺失时回退自动摘要。
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          sparse-checkout: release
+      - name: 准备发布说明正文
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          if [ -f "release/$TAG.md" ]; then
+            cp "release/$TAG.md" /tmp/release-notes.md
+          else
+            echo "::warning::缺 release/$TAG.md，回退自动生成的变更摘要（约定见 release/README.md）"
+            : > /tmp/release-notes.md
+          fi
       - uses: actions/download-artifact@v4
         with:
           path: dist-release
@@ -182,4 +197,6 @@ jobs:
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: dist-release/**
+          # 空文件 → 由自动生成的变更摘要填充；非空 → 用仓内发布说明。
+          body_path: /tmp/release-notes.md
           generate_release_notes: true

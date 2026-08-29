@@ -50,10 +50,15 @@
 # → rc.2（ui-deliverables 仅版本戳变化，overlay 源码仍有效，CSS 哈希
 # 不变）；--no-open 门保留。附带效果：pi-ai 仍 0.82.x（rc.2 未刷新 lock，
 # glm-5.3 目录缺失问题继续由 settings.yaml 显式声明兑底）。
-# 升级基线的正确姿势：
-#   1. 改本文件为新提交 SHA
-#   2. bash scripts/setup.sh        # fetch + reset + install + build
-#   3. 全量回归（重点：第三方插件加载、Web UI 冒烟、打包链 smoke）
-#   4. 提交本文件
+# 升级记录：2026-08-29 rc.2(b150a551) → 0.1.2-alpha.1(cd5ef814)，同时上游锚定从官方仓切到自有 fork（kkutysllb/deepseek-harness）：修复不再走 upstream/*.patch 应用，而是以提交落 fork 集成分支 kcoder/alpha.1（= 基线 + 六修复分支 merge：pi-ai 0.84.3 升级 / codex 协议回退 / codex relay accountId / markdown 跨行合并 / relay 终端事件 / projection-cache 隔离）。消费工作树移到仓外 /Users/libing/kk_Projects/deepseek-harness（KCODER_UPSTREAM_DIR 可覆盖），KCoder 内嵌 deepseek-harness/ 退役。本次为二次升 alpha.1：首轮（08-28）因破坏面过大整体回退，后因交付审查需 file-review-tab 0.4.0（仅 alpha.1 有 uiConversation 服务）重启升级。
 #
-b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
+# 升级基线的正确姿势（fork 锚定形态）：
+#   1. 改本文件为新提交 SHA（fork 上存在的基线提交）
+#   2. 在 fork 本地克隆重建集成分支：基于新基线建 kcoder/<版本> +
+#      依次 merge 修复分支 → 推 fork，同步 dsh-contract.ts 的
+#      UPSTREAM_BRANCH 与 setup.sh / release.sh 的分支名
+#   3. bash scripts/setup.sh        # checkout + 基线包含断言 + install + build
+#   4. 全量回归（重点：第三方插件加载、Web UI 冒烟、打包链 smoke）
+#   5. 提交本文件（及分支名相关改动）
+#
+cd5ef8148158c3a752a658978873241fdf8e2bbc

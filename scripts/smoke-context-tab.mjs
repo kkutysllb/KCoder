@@ -1,19 +1,24 @@
 /**
  * 上下文按钮点击原生 tab 冒烟：手搓上游会话视图（tablist 三枚
  * button[role="tab"] 模拟 ConversationSession 头（Chat/Trajectory/
- * context，label 走插件字典 zh「上下文」）+ data-composer-card
- * textarea）+ 自绘标题栏 → 注入 context-button 的 PAGE_JS → 断言：
- * - 按钮注入（标题栏内、无 composer 时 disabled）；
+ * context，label 走插件字典 zh「上下文」）+ data-composer-card 内
+ * data-composer-input contentEditable（0.1.2-alpha.1 基线形态））
+ * + 自绘标题栏 → 注入 context-button 的 PAGE_JS → 断言：
+ * - 按钮注入（标题栏内、输入面不可编辑时 disabled）；
  * - 点击按钮 → 原生「上下文」tab 被点击（aria-selected 单选翻转，
  *   其余 tab 转false）——不再开 modal；
- * - 已激活时再点 → 不动作（tab click 不重复派发，不自行发挥）；
+ * - 已激活时再点 → toggle 切回「对话」tab（tab click 恰两枚，
+ *   「上下文」取消选中，不自行发挥）；
  * - tab 激活翻转（aria-selected 属性变化）→ 按钮 data-on 跟随
  *   （panel-menu 菜单蓝点数据源）；
  * - 手输 /context 打开的 modal（.lc-modal-backdrop 出现/消失）→
  *   沉浸模式接管（__dsh_ctx_mode class + __dsh_ctx__: console 上报
  *   1/0）；modal 期间点按钮冻结不切 tab；
  * - tab 缺席（插件 <0.9/纯上游）→ 回退模拟 /context 输入路径
- *   （textarea 收到 '/context' input + Enter keydown）。
+ *   （composer 收到 '/context' 写入 + Enter keydown）；
+ * - composer 惯性态（无会话 workspace-trigger：data-phase="inert"）→
+ *   置灰；翻转为实态 → observer 解灰（常驻 div 不挂卸，只听 childList
+ *   会永远卡灰）。
  *
  * 运行：pnpm exec electron scripts/smoke-context-tab.mjs
  */
@@ -47,7 +52,7 @@ const pageJs = src
 // （aria-selected 翻转——按钮 data-on 的 observer 数据源）；
 // console.log 劫持收集 __dsh_ctx__: 上报；textarea 记录 input /
 // Enter keydown（回退路径证据）
-const html = (dark, withCtxTab = true, withComposer = true) => `<!doctype html><html><head><meta charset="utf-8"><style>
+const html = (dark, withCtxTab = true, withComposer = true, composerInert = false) => `<!doctype html><html><head><meta charset="utf-8"><style>
   body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: ${dark ? '#17181a' : '#fff'}; color: ${dark ? '#e8eaed' : '#1a1d21'}; padding-top: 48px; height: 100vh; box-sizing: border-box; }
   #__dsh_desktop_titlebar { position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 2147483647; display: flex; align-items: center; background: ${dark ? '#1d1e20' : '#f7f7f8'}; }
   .tabs { display: flex; gap: 4px; padding: 12px 16px; }
@@ -55,7 +60,7 @@ const html = (dark, withCtxTab = true, withComposer = true) => `<!doctype html><
   .tabs button[aria-selected="true"] { background: rgba(128,128,128,.2); }
   .main { padding: 16px; font-size: 13px; opacity: .7; }
   .composer { position: fixed; bottom: 0; left: 0; right: 0; padding: 12px; }
-  [data-composer-card] textarea { width: 100%; height: 60px; box-sizing: border-box; font-size: 13px; }
+  [data-composer-input] { width: 100%; min-height: 60px; box-sizing: border-box; font-size: 13px; border: 1px solid rgba(128,128,128,.3); border-radius: 6px; padding: 6px; }
 </style></head><body${dark ? ' data-ds-dark-theme=""' : ''}>
 <div id="__dsh_desktop_titlebar"></div>
 <div class="tabs" role="tablist">
@@ -64,7 +69,7 @@ const html = (dark, withCtxTab = true, withComposer = true) => `<!doctype html><
   ${withCtxTab ? '<button type="button" role="tab" data-id="context">上下文</button>' : ''}
 </div>
 <div class="main">会话主内容区（视图环挂载点）</div>
-${withComposer ? '<div class="composer"><div data-composer-card><textarea placeholder="输入消息…"></textarea></div></div>' : ''}
+${withComposer ? `<div class="composer"><div data-composer-card><div data-composer-input role="textbox" aria-multiline="true" data-phase="${composerInert ? 'inert' : 'idle'}"${composerInert ? '' : ' contenteditable="true"'}></div></div></div>` : ''}
 <script>
   window.__tabClicks = []
   document.querySelectorAll('[role="tab"]').forEach((b) => {
@@ -78,7 +83,7 @@ ${withComposer ? '<div class="composer"><div data-composer-card><textarea placeh
   console.log = (...a) => { if (String(a[0]).startsWith('__dsh_ctx__:')) window.__ctxLogs.push(String(a[0])); origLog(...a) }
   window.__inputs = 0
   window.__enters = 0
-  const ta = document.querySelector('[data-composer-card] textarea')
+  const ta = document.querySelector('[data-composer-input],[data-composer-card] textarea')
   if (ta !== null) {
     ta.addEventListener('input', () => { window.__inputs++ })
     ta.addEventListener('keydown', (e) => { if (e.key === 'Enter') window.__enters++ })
@@ -89,34 +94,48 @@ ${withComposer ? '<div class="composer"><div data-composer-card><textarea placeh
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const TAB = (id) => `document.querySelector('[role="tab"][data-id="${id}"]')`
 
-async function loadFixture(win, dark, withCtxTab, withComposer) {
+async function loadFixture(win, dark, withCtxTab, withComposer, composerInert) {
   const dir = mkdtempSync(join(tmpdir(), 'ctx-tab-smoke-'))
-  writeFileSync(join(dir, 'index.html'), html(dark, withCtxTab, withComposer))
+  writeFileSync(join(dir, 'index.html'), html(dark, withCtxTab, withComposer, composerInert))
   await win.loadFile(join(dir, 'index.html'))
   await win.webContents.executeJavaScript(pageJs, true)
   await sleep(800)
 }
 
-async function runScenario(win, label, dark, withCtxTab = true, withComposer = true, screenshot = false) {
-  await loadFixture(win, dark, withCtxTab, withComposer)
+async function runScenario(win, label, dark, withCtxTab = true, withComposer = true, screenshot = false, composerInert = false) {
+  await loadFixture(win, dark, withCtxTab, withComposer, composerInert)
   const fails = []
 
   // ── 基础：按钮注入 + 初始态 ──────────────────────────────────
   const base = JSON.parse(await win.webContents.executeJavaScript(`(() => {
     const btn = document.getElementById('__dsh_desktop_context_btn')
     const ctx = ${TAB('context')}
+    const t = document.querySelector('[data-composer-input],[data-composer-card] textarea')
     return JSON.stringify({
       btnExists: btn !== null,
       btnDisabled: btn !== null ? btn.disabled : null,
       ctxTabSelected: ctx !== null ? ctx.getAttribute('aria-selected') : null,
-      hasComposer: document.querySelector('[data-composer-card] textarea') !== null,
+      hasUsable: t !== null && (t.tagName === 'TEXTAREA' || t.dataset.phase !== 'inert'),
     })
   })()`, true))
   if (!base.btnExists) fails.push('状态栏「上下文」按钮未注入')
-  if (base.btnDisabled !== !base.hasComposer) fails.push(`按钮 disabled=${base.btnDisabled} 应为 ${!base.hasComposer}（无 composer 置灰）`)
+  if (base.btnDisabled !== !base.hasUsable) fails.push(`按钮 disabled=${base.btnDisabled} 应为 ${!base.hasUsable}（输入面不可编辑置灰）`)
+
+  // ── 惯性态场景：翻 contenteditable 属性 → observer 解灰 ──────
+  if (composerInert) {
+    const flip = JSON.parse(await win.webContents.executeJavaScript(`(async () => {
+      const c = document.querySelector('[data-composer-input]')
+      c.setAttribute('data-phase', 'idle')
+      c.setAttribute('contenteditable', 'true')
+      await new Promise((r) => setTimeout(r, 400))
+      return JSON.stringify({ btnDisabled: document.getElementById('__dsh_desktop_context_btn').disabled })
+    })()`, true))
+    if (flip.btnDisabled !== false) fails.push(`惯性态翻转为实态后按钮 disabled=${flip.btnDisabled} 应解灰（observer data-phase 翻转）`)
+  }
 
   // ── 主路径：点击 → 原生 tab 切换（不开 modal）────────────────
-  if (withCtxTab && withComposer) {
+  // （惯性态按钮置灰点了无反应，跳过点击路径断言）
+  if (withCtxTab && withComposer && !composerInert) {
     const clicked = JSON.parse(await win.webContents.executeJavaScript(`(async () => {
       document.getElementById('__dsh_desktop_context_btn').click()
       await new Promise((r) => setTimeout(r, 400))
@@ -144,9 +163,15 @@ async function runScenario(win, label, dark, withCtxTab = true, withComposer = t
       return JSON.stringify({
         tabClicks: [...window.__tabClicks],
         ctxSelected: ${TAB('context')}.getAttribute('aria-selected'),
+        chatSelected: ${TAB('chat')}.getAttribute('aria-selected'),
       })
     })()`, true))
-    if (again.tabClicks.length !== 1) fails.push(`已激活时再点按钮又触发 tab click=${JSON.stringify(again.tabClicks)}（应不动作）`)
+    // toggle 是产品语义：再点 = 切回对话（断言曾写「不动作」，与
+    // openContext 的 toggle 分支冲突——存量测试债，基线升级期间暴露修正）
+    if (JSON.stringify(again.tabClicks) !== JSON.stringify(['context', 'chat']))
+      fails.push(`已激活时再点 tab click=${JSON.stringify(again.tabClicks)} 应为 ['context','chat']（toggle 切回对话）`)
+    if (again.ctxSelected !== 'false') fails.push('toggle 后「上下文」tab 应取消激活')
+    if (again.chatSelected !== 'true') fails.push('toggle 后「对话」tab 应激活')
 
     // ── 手动切回对话 tab（aria-selected 翻转）→ data-on 移除 ──
     const off = JSON.parse(await win.webContents.executeJavaScript(`(async () => {
@@ -198,14 +223,14 @@ async function runScenario(win, label, dark, withCtxTab = true, withComposer = t
     const fallback = JSON.parse(await win.webContents.executeJavaScript(`(async () => {
       document.getElementById('__dsh_desktop_context_btn').click()
       await new Promise((r) => setTimeout(r, 250))
-      const ta = document.querySelector('[data-composer-card] textarea')
+      const ta = document.querySelector('[data-composer-input],[data-composer-card] textarea')
       return JSON.stringify({
         inputs: window.__inputs,
         enters: window.__enters,
-        draft: ta !== null ? ta.value : null,
+        draft: ta !== null ? (ta.isContentEditable ? (ta.textContent || '') : ta.value) : null,
       })
     })()`, true))
-    if (fallback.inputs < 1) fails.push('tab 缺席时未走回退输入路径（textarea 无 input）')
+    if (fallback.inputs < 1) fails.push('tab 缺席时未走回退输入路径（composer 无 input）')
     if (fallback.enters < 1) fails.push('回退路径未派发 Enter keydown')
     if (fallback.draft !== '/context') fails.push(`回退路径草稿=${fallback.draft} 应为 /context`)
   }
@@ -228,6 +253,7 @@ app.whenReady().then(async () => {
   results.push(await runScenario(win, 'light-tab', false))
   results.push(await runScenario(win, 'no-tab-fallback', true, false, true))
   results.push(await runScenario(win, 'no-composer-disabled', true, true, false))
+  results.push(await runScenario(win, 'inert-composer-disabled', true, true, true, false, true))
   console.log(results.every(Boolean) ? 'ALL PASS' : 'FAILED')
   app.exit(results.every(Boolean) ? 0 : 1)
 })

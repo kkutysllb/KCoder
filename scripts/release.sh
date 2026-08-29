@@ -13,6 +13,8 @@
 #     export APPLE_TEAM_ID=<团队 id>
 #
 # 常用流程（一键，KStock 同款）：
+#   先写发布说明（约定见 release/README.md，ship 会强制校验）：
+#     新建 release/v0.2.0.md（模板在 release/README.md）
 #   bash scripts/release.sh ship 0.2.0   # bump+提交+tag+推送，CI 全自动三平台发布
 #
 # 本地调试/应急（可选）：
@@ -28,7 +30,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UPSTREAM="$ROOT/deepseek-harness"
+UPSTREAM="${KCODER_UPSTREAM_DIR:-/Users/libing/kk_Projects/deepseek-harness}"
 STAGING="$ROOT/staging/kcoder-runtime"
 DIST="$ROOT/dist"
 APP_NAME="KCoder.app"
@@ -96,11 +98,14 @@ cmd_build() {
 
   # 3) 物化上游运行时（开箱即用的核心）：pnpm deploy 生产闭包
   #    + peer/平台二进制补齐（materialize-peers，deploy 的盲区）
-  #    基线断言：物化产物必须来自钉版基线（upstream/BASELINE）——
-  #    手动同步上游后忘更新基线文件时在此拦下，未验证代码不进产物。
+  #    基线断言（fork 锚定）：消费态 = 集成分支 kcoder/alpha.1，历史必须含
+  #    钉版基线（upstream/BASELINE）——手动改集成分支忘同步基线文件时在
+  #    此拦下，未验证代码不进产物。
   BASELINE_SHA="$(grep -vE '^[[:space:]]*(#|$)' "$ROOT/upstream/BASELINE" | head -1 | tr -d '[:space:]')"
-  [[ "$(git -C "$UPSTREAM" rev-parse HEAD)" == "$BASELINE_SHA" ]] \
-    || die "上游克隆 HEAD 不在基线 ${BASELINE_SHA:0:7} 上（先 bash scripts/setup.sh 钉版，或更新 upstream/BASELINE）"
+  [[ "$(git -C "$UPSTREAM" branch --show-current)" == "kcoder/alpha.1" ]] \
+    || die "上游克隆不在集成分支 kcoder/alpha.1 上（先 bash scripts/setup.sh，或更新 upstream/BASELINE）"
+  git -C "$UPSTREAM" merge-base --is-ancestor "$BASELINE_SHA" HEAD \
+    || die "集成分支不含基线 ${BASELINE_SHA:0:7}（在 fork 上重建集成分支或更新 upstream/BASELINE）"
   say "物化上游运行时（deploy --prod + peer 补齐）→ staging/kcoder-runtime …"
   rm -rf "$STAGING"
   pnpm --dir "$UPSTREAM" --filter=@deepseek-ai/dsh deploy --prod --legacy "$STAGING"
@@ -233,6 +238,11 @@ cmd_ship() {
   [[ $# -eq 1 ]] || die "用法：release.sh ship <version>（例：0.1.0）"
   local t; t="$(norm_tag "$1")"; local v; v="$(bare_version "$t")"
 
+  # 发布说明前置检查（约定见 release/README.md）：说明文件随 release 提交
+  # 一并入库，CI 发布时作为 GitHub Release 正文——缺失即拒绝发布。
+  [[ -f "$ROOT/release/$t.md" ]] \
+    || die "缺发布说明 release/$t.md（约定与模板见 release/README.md：先写好说明再 ship）"
+
   # 前置检查：不覆盖已有 tag；本地不落后远程
   if git -C "$ROOT" rev-parse -q --verify "refs/tags/$t" >/dev/null; then
     die "本地 tag $t 已存在（先 release.sh tag delete $v 或换版本号）"
@@ -330,8 +340,15 @@ cmd_release() {
       # 产物必须存在且新鲜（当天构建）
       [[ -f "$DIST/latest-mac.yml" ]] || die "dist 无产物，先：release.sh build"
       say "上传产物到 $t …"
-      local args=(--draft --title "$t" --generate-notes)
-      [[ "$publish" == "--publish" ]] && args=(--title "$t" --generate-notes)
+      # 正文优先取仓内发布说明（与 CI 发布同口径）；缺失才回退自动摘要。
+      local notes_args=(--generate-notes)
+      if [[ -f "$ROOT/release/$t.md" ]]; then
+        notes_args=(--notes-file "$ROOT/release/$t.md")
+      else
+        warn "缺 release/$t.md，回退自动摘要（约定见 release/README.md）"
+      fi
+      local args=(--draft --title "$t" "${notes_args[@]}")
+      [[ "$publish" == "--publish" ]] && args=(--title "$t" "${notes_args[@]}")
       (cd "$DIST" && gh release create "$t" -R kkutysllb/KCoder \
         ./*.dmg ./*.zip ./*.blockmap ./latest*.yml "${args[@]}")
       if [[ "$publish" == "--publish" ]]; then

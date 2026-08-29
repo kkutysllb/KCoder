@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# KCoder 首次引导：克隆上游 deepseek-harness（若缺）→ 安装依赖 → 构建。
+# KCoder 首次引导：克隆上游 fork（若缺）→ 切集成分支 → 安装依赖 → 构建。
 #
-# 上游克隆位于 ./deepseek-harness（.gitignore 排除，绝不提交），
-# 桌面端零修改复用其 Web UI、API 网关与插件生态。
+# 上游锚定 = 自有 fork（kkutysllb/deepseek-harness），消费工作树在仓外单一路径，
+# 上游修复以提交落集成分支 ${UPSTREAM_BRANCH}（= 基线 + 修复分支的 merge），
+# 不再用 upstream/*.patch 归档应用。桌面端零修改复用其 Web UI、API 网关与插件生态。
 #
 # 用法：bash scripts/setup.sh [--skip-clone]
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UPSTREAM="$ROOT/deepseek-harness"
-UPSTREAM_REPO="https://github.com/deepseek-ai/deepseek-harness.git"
+UPSTREAM="${KCODER_UPSTREAM_DIR:-/Users/libing/kk_Projects/deepseek-harness}"
+UPSTREAM_REPO="git@github.com:kkutysllb/deepseek-harness.git"
+UPSTREAM_BRANCH="kcoder/alpha.1"
 
 say() { printf '\033[1;34m[setup]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[setup] 错误：\033[0m %s\n' "$*" >&2; exit 1; }
@@ -28,42 +30,33 @@ if [[ "$(pnpm --version 2>/dev/null | cut -d. -f1)" != "11" ]]; then
 fi
 
 if [[ ! -d "$UPSTREAM/.git" && "${1:-}" != "--skip-clone" ]]; then
-  say "克隆上游 deepseek-harness …"
-  git clone "$UPSTREAM_REPO" "$UPSTREAM"
+  say "克隆上游 fork deepseek-harness（分支 $UPSTREAM_BRANCH）…"
+  git clone -b "$UPSTREAM_BRANCH" "$UPSTREAM_REPO" "$UPSTREAM"
 fi
-[[ -d "$UPSTREAM/.git" ]] || die "上游克隆不存在：$UPSTREAM（重试不带 --skip-clone）"
+[[ -d "$UPSTREAM/.git" ]] || die "上游克隆不存在：$UPSTREAM（重试不带 --skip-clone，或设 KCODER_UPSTREAM_DIR）"
 
 cd "$UPSTREAM"
 
-# 基线钉版：克隆/构建必须落在 upstream/BASELINE 指定的提交上。
-# 不钉版的教训：CI 浮动克隆 master，上游发 rc.7 当天（slot 契约
-# list→keyed 破坏性变化）就混进了打包运行时，第三方插件启动即挂。
-# 升级基线 = 改 BASELINE 文件后重跑本脚本（详见该文件头注释）。
+# 基线钉版（fork 锚定形态）：消费态 = 集成分支 $UPSTREAM_BRANCH，其历史必须包含
+# upstream/BASELINE 指定的基线提交。不钉版的教训：CI 浮动克隆 master，上游发
+# rc.7 当天（slot 契约 list→keyed 破坏性变化）就混进了打包运行时。
+# 升级基线 = 改 BASELINE 文件 + 在 fork 上重建集成分支后重跑本脚本。
 BASELINE_SHA="$(grep -vE '^[[:space:]]*(#|$)' "$ROOT/upstream/BASELINE" | head -1 | tr -d '[:space:]')"
 [[ -n "$BASELINE_SHA" ]] || die "upstream/BASELINE 缺少提交 SHA"
 git cat-file -e "${BASELINE_SHA}^{commit}" 2>/dev/null || {
-  say "本地缺失基线对象，fetch ${BASELINE_SHA:0:7} …"
-  git fetch origin "$BASELINE_SHA" || die "拉取基线提交失败（检查 upstream/BASELINE 是否写错）"
+  say "本地缺失基线对象，fetch 远端 …"
+  git fetch origin "+refs/heads/*:refs/remotes/origin/*" || die "拉取基线提交失败（检查 upstream/BASELINE 是否写错）"
 }
-if [[ "$(git rev-parse HEAD)" != "$BASELINE_SHA" ]]; then
-  [[ -z "$(git status --porcelain)" ]] || die "上游工作树不干净，无法钉版（先恢复 pristine，见 upstream/README.md）"
-  say "钉版到基线 ${BASELINE_SHA:0:7}（当前 HEAD $(git rev-parse --short HEAD)）…"
-  git reset --hard "$BASELINE_SHA"
+if [[ "$(git branch --show-current)" != "$UPSTREAM_BRANCH" ]]; then
+  [[ -z "$(git status --porcelain)" ]] || die "上游工作树不干净，无法切分支（先恢复 pristine）"
+  say "切换到集成分支 $UPSTREAM_BRANCH …"
+  git checkout "$UPSTREAM_BRANCH"
 fi
+git merge-base --is-ancestor "$BASELINE_SHA" HEAD \
+  || die "集成分支 $UPSTREAM_BRANCH 不含基线 ${BASELINE_SHA:0:7}（在 fork 上重建集成分支或更新 upstream/BASELINE）"
 
-# 基线钉版后：应用上游补丁存档（upstream/*.patch，如 markdown-sanitize /
-# projection-cache-isolate）。补丁 = 已本地验证但暂未推上游的修复；CI 与
-# 本地构建共用本脚本，保证运行时产物含修复。不可应用（基线已含/上下文
-# 漂移）时跳过并警告——不静默失败，后续运行时冒烟会兜底验证。
-for p in "$ROOT"/upstream/*.patch; do
-  [[ -f "$p" ]] || continue
-  if git apply --check "$p" 2>/dev/null; then
-    say "应用上游补丁 $(basename "$p") …"
-    git apply "$p"
-  else
-    warn "跳过上游补丁 $(basename "$p")（不可应用：基线已含修复或上下文漂移）"
-  fi
-done
+# 上游修复已在集成分支中以提交存在（六修复分支的 merge），无需再 apply。
+# upstream/*.patch 仅留作历史参照；旧克隆带应用态残留时用 git checkout 恢复。
 
 say "安装依赖（pnpm install）…"
 pnpm install
