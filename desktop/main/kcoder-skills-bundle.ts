@@ -10,6 +10,13 @@
  * - @kcoder/git-panel（bundle/kcoder-git-panel）：独立 git 工作区面板
  *   （server 只读快照 RPC + client 页面内浮动面板）。2026-08 起整体替代
  *   已退役的 Electron 宿主 git-panel.ts（旧 IPC/视图/让位协议已摘除）。
+ * - @kcoder/terminal（bundle/kcoder-terminal）：侧边栏嵌入式终端。
+ * - @kcoder/file-review（bundle/kcoder-file-review）：文件审查 fork。
+ *   自有 bundle 里唯一的**包型**产物（fork 自 Lzh3070/dsh-file-review-tab，
+ *   保留上游 pnpm 布局：main=lib/index.js + dsh.bundle.patch 补丁清单 +
+ *   dsh.client 段），没有 entry.js 四件套里的那个 entry.js——物化门按
+ *   各自的 entry 字段判存在性，漏配会让自动物化永远跳过（0.5.0 接线
+ *   教训：手动 cp 掩盖了断链，换机/重建 profile 即缺插件）。
  *
  * 本模块在 dsh 启动前把各 bundle 幂等物化进 web profile：
  *
@@ -54,17 +61,19 @@ interface BundledPlugin {
   pkg: string
   /** 源目录名（开发态 bundle/ 下；打包态 resources/ 下同名）。 */
   dir: string
-  /** entry.js 之外参与完整性检查的相对路径。 */
+  /** 源存在性判定与物化后完整性检查共用的入口文件（相对包根）。 */
+  entry: string
+  /** entry 之外参与完整性检查的相对路径。 */
   intactFiles: string[]
 }
 
 /** 全部内置 bundle（物化顺序即注册顺序）。 */
 const BUNDLES: BundledPlugin[] = [
-  { pkg: KCODER_SKILLS_BUNDLE, dir: 'kcoder-skills', intactFiles: [join('skills', 'manifest.json')] },
-  { pkg: KCODER_LANGUAGE_BUNDLE, dir: 'kcoder-language', intactFiles: [] },
-  { pkg: KCODER_GIT_PANEL_BUNDLE, dir: 'kcoder-git-panel', intactFiles: ['client.js'] },
-  { pkg: KCODER_TERMINAL_BUNDLE, dir: 'kcoder-terminal', intactFiles: ['client.js'] },
-  { pkg: KCODER_FILE_REVIEW_BUNDLE, dir: 'kcoder-file-review', intactFiles: [join('lib', 'client.js')] },
+  { pkg: KCODER_SKILLS_BUNDLE, dir: 'kcoder-skills', entry: 'entry.js', intactFiles: [join('skills', 'manifest.json')] },
+  { pkg: KCODER_LANGUAGE_BUNDLE, dir: 'kcoder-language', entry: 'entry.js', intactFiles: [] },
+  { pkg: KCODER_GIT_PANEL_BUNDLE, dir: 'kcoder-git-panel', entry: 'entry.js', intactFiles: ['client.js'] },
+  { pkg: KCODER_TERMINAL_BUNDLE, dir: 'kcoder-terminal', entry: 'entry.js', intactFiles: ['client.js'] },
+  { pkg: KCODER_FILE_REVIEW_BUNDLE, dir: 'kcoder-file-review', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
 ]
 
 /** 分发的 bundle 源目录（开发态仓库内；打包态 extraResources）。 */
@@ -108,7 +117,7 @@ export function ensureKcoderBundles(): void {
 /** 单个 bundle 的物化与 bundles 注册（失败由调用方捕获）。 */
 function materialize(profileDir: string, b: BundledPlugin): void {
   const source = bundleSource(b.dir)
-  if (!existsSync(join(source, 'entry.js'))) {
+  if (!existsSync(join(source, b.entry))) {
     console.warn(`[kcoder-bundle] ${b.pkg} 源缺失，跳过物化:`, source)
     return
   }
@@ -117,7 +126,7 @@ function materialize(profileDir: string, b: BundledPlugin): void {
   // 1) 文件物化：版本一致且入口齐全则跳过
   const srcVersion = (readJson(join(source, 'package.json'))?.['version'] as string) ?? ''
   const dstVersion = (readJson(join(target, 'package.json'))?.['version'] as string) ?? ''
-  const intact = existsSync(join(target, 'entry.js'))
+  const intact = existsSync(join(target, b.entry))
     && b.intactFiles.every((f) => existsSync(join(target, f)))
   if (!intact || srcVersion !== dstVersion) {
     mkdirSync(join(profileDir, 'node_modules', '@kcoder'), { recursive: true })
