@@ -1,0 +1,14 @@
+# @kcoder/terminal bundle layer（KCoder 桌面端内置嵌入式终端）。
+#
+# 声明于 package.json 的 dsh.bundle.patch，由 KCoder 主进程物化到
+# web profile 的 node_modules 并注册进 dsh.profile.bundles（紧跟
+# @kcoder/git-panel 之后）。本层挂一个胶水插件（entry.js）：激活时
+# 注册终端 RPC（/kc-terminal/api/*：pty 操作 + SSE 输出流 + xterm
+# vendor 静态托管）；client 交付物（exports["./client"] → client.js）
+# 由 dsh client-modules 自动集成，在 shell 页面渲染底部终端面板 +
+# 标题栏开关按钮。后续层（profile 自身 cordis.patch.yml、--patch
+# 覆盖）可按行 id 覆写或禁用本行。
+
+- insert:
+    - id: kc-terminal
+      name: '@kcoder/terminal'

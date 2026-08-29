@@ -18,13 +18,15 @@ extraResources:
   # $DSH_HOME/profiles/web/node_modules 并注册层叠（kcoder-skills-bundle.ts）
   # —— kcoder-skills（方法论技能包）/ kcoder-language（强制中文回答
   # system-prompt section，默认 disabled，home patch 层热切换）/
-  # kcoder-git-panel（独立 git 工作区面板）
+  # kcoder-git-panel（独立 git 工作区面板）/ kcoder-terminal（嵌入式终端）
   - from: bundle/kcoder-skills
     to: kcoder-skills
   - from: bundle/kcoder-language
     to: kcoder-language
   - from: bundle/kcoder-git-panel
     to: kcoder-git-panel
+  - from: bundle/kcoder-terminal
+    to: kcoder-terminal
   # 插件热补丁（name-only patchedDependencies，主进程启动时幂等物化进
   # $DSH_HOME/profiles/web，声明跟随 deps 实态自愈，见 profile-patches.ts）：
   # drag-to-attachment 漏 return / 复制·就地编辑增强；video-preview 扩展表

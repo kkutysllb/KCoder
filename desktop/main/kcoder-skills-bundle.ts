@@ -39,6 +39,9 @@ export const KCODER_LANGUAGE_BUNDLE = '@kcoder/language-bundle'
 /** git 工作区面板 bundle 包名（独立插件，见 bundle/kcoder-git-panel）。 */
 export const KCODER_GIT_PANEL_BUNDLE = '@kcoder/git-panel'
 
+/** 嵌入式终端 bundle 包名（独立插件，见 bundle/kcoder-terminal）。 */
+export const KCODER_TERMINAL_BUNDLE = '@kcoder/terminal'
+
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */
 const TEMPLATE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
 
@@ -57,6 +60,7 @@ const BUNDLES: BundledPlugin[] = [
   { pkg: KCODER_SKILLS_BUNDLE, dir: 'kcoder-skills', intactFiles: [join('skills', 'manifest.json')] },
   { pkg: KCODER_LANGUAGE_BUNDLE, dir: 'kcoder-language', intactFiles: [] },
   { pkg: KCODER_GIT_PANEL_BUNDLE, dir: 'kcoder-git-panel', intactFiles: ['client.js'] },
+  { pkg: KCODER_TERMINAL_BUNDLE, dir: 'kcoder-terminal', intactFiles: ['client.js'] },
 ]
 
 /** 分发的 bundle 源目录（开发态仓库内；打包态 extraResources）。 */
