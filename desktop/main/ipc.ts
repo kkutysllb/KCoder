@@ -17,7 +17,6 @@ import { communityPlugins, installedPlugins, latestVersions, runPluginCommand } 
 import { checkForUpdates, getReleaseNotes, installUpdate, updateEvents, updateStatus } from './updater'
 import { refreshStyleOverlay } from './style-overlay'
 import { getSettings, saveSettings } from './store'
-import { terminalPanel, terminalTheme } from './terminal-panel'
 import type { Preferences, StyleSettings, UpstreamProgress } from '@shared/ipc-contract'
 
 /** 偏好设置合法档位枚举（非法 patch 丢弃，防御性校验）。 */
@@ -106,45 +105,11 @@ export function registerIpc(): void {
     return Promise.resolve()
   })
 
-  /* git 环境面板 IPC 已退役（2026-08）：@kcoder/git-panel 插件自带
+  /* git 面板 IPC 已退役（2026-08）：@kcoder/git-panel 插件自带
    * webServer RPC（/kc-git-panel/api/snapshot|open-plan）替代。 */
 
-  /* ---- 内嵌终端（面板视图 ↔ pty，多标签：每个工作区一份私有桶）
-   * 调用方工作区 = event.sender 所属 view 的 workspace（不是
-   * currentWorkspace，否则 B view 调用 close(id) 会被当作 A 桶操作；
-   * 按 view 反查保证调用方只能操作自己工作区桶内的 session）。 */
-  ipcMain.handle('terminal:tabs', (event) => {
-    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
-    return terminalPanel.ptyHost().list(bucket)
-  })
-  ipcMain.handle('terminal:new', (event) => {
-    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
-    return terminalPanel.ptyHost().create(bucket)
-  })
-  ipcMain.handle('terminal:write', (_event, id: number, data: string) => {
-    terminalPanel.ptyHost().write(id, data)
-  })
-  ipcMain.handle('terminal:resize', (_event, id: number, cols: number, rows: number) => {
-    terminalPanel.ptyHost().resize(id, cols, rows)
-  })
-  ipcMain.handle('terminal:restart', (event, id: number) => {
-    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
-    return terminalPanel.ptyHost().restart(id, bucket)
-  })
-  ipcMain.handle('terminal:close', (event, id: number) => {
-    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
-    return terminalPanel.ptyHost().close(id, bucket)
-  })
-  ipcMain.handle('terminal:hide', (event) => {
-    // 关闭"调用方所在工作区"的面板可见性，不影响其他工作区
-    const bucket = terminalPanel.bucketOfWebContentsId(event.sender.id)
-    terminalPanel.hide(bucket)
-  })
-  ipcMain.handle('terminal:theme', () => terminalTheme())
-  ipcMain.handle('terminal:panel-resize', (_event, dy: number) => {
-    terminalPanel.adjustHeight(dy)
-    return terminalPanel.height()
-  })
+  /* 内嵌终端 IPC 已退役（2026-08）：@kcoder/terminal 插件自带
+   * webServer RPC（/kc-terminal/api/rpc + SSE 输出流）替代。 */
 
   /* ---- 本地账户鉴权（门禁数据源；登出连带窗口收场） ---- */
   ipcMain.handle('auth:status', () => authStatus())

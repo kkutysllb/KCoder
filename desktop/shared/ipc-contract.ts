@@ -195,28 +195,10 @@ export interface UpdateStatus {
   releaseNotes: string | null
 }
 
-/* ---------- 内嵌终端 ---------- */
-
-/** 终端面板/pty 的主题 token（上游 bg-base/sidebar-fill 系）。 */
-export interface TerminalTheme {
-  dark: boolean
-  /** 终端区背景（深 #151517 / 浅 #FFFFFF）。 */
-  bg: string
-  /** header 条背景（深 #1B1B1C / 浅 #F9FAFB）。 */
-  headerBg: string
-  fg: string
-  border: string
-  accent: string
-}
-
-/** pty 会话快照（terminal:tabs / terminal:new 拉取）：一个标签 = 一个 shell。 */
-export interface TerminalTab {
-  id: number
-  alive: boolean
-  cwd: string
-  /** shell 名（zsh/bash/powershell，tab/header 显示用）。 */
-  title: string
-}
+/* ---------- 内嵌终端（已退役） ----------
+ * TerminalTheme/TerminalTab 契约与 terminal:* bridge 已随宿主终端
+ * 面板退役（2026-08）：@kcoder/terminal 插件自带 webServer RPC
+ * （/kc-terminal/api/rpc + SSE 输出流）替代，见 bundle/kcoder-terminal。 */
 
 /* ---------- 文件活动 ---------- */
 
@@ -307,17 +289,6 @@ export interface DesktopBridge {
   /* 剪贴板（面板右键菜单用；主进程 electron.clipboard 无权限问题） */
   clipboardReadText(): Promise<string>
   clipboardWriteText(text: string): Promise<void>
-  /* 内嵌终端（面板视图 ↔ pty，多标签：每个工作区一份私有桶；调用方
-   * 工作区 = event.sender 所属 view 的 workspace） */
-  terminalTabs(): Promise<TerminalTab[]>
-  terminalNew(): Promise<TerminalTab>
-  terminalWrite(id: number, data: string): Promise<void>
-  terminalResize(id: number, cols: number, rows: number): Promise<void>
-  terminalRestartTab(id: number): Promise<TerminalTab | null>
-  terminalClose(id: number): Promise<TerminalTab[]>
-  terminalHide(): Promise<void>
-  terminalPanelResize(dy: number): Promise<number>
-  terminalTheme(): Promise<TerminalTheme>
   /* 偏好设置（样式定制/托盘保活；样式变更后主进程自动重注入 shell 窗口） */
   preferencesGet(): Promise<Preferences>
   preferencesSet(patch: Partial<Preferences>): Promise<Preferences>
@@ -326,9 +297,4 @@ export interface DesktopBridge {
   onDshLog(cb: (l: DshLogLine) => void): () => void
   onUpstreamProgress(cb: (p: UpstreamProgress) => void): () => void
   onUpdateStateChanged(cb: (s: UpdateStatus) => void): () => void
-  onTerminalData(cb: (chunk: string, id: number) => void): () => void
-  onTerminalExit(cb: (id: number) => void): () => void
-  onTerminalTheme(cb: (t: TerminalTheme) => void): () => void
-  /** 工作区切换后 PtyHost 在新桶重建首标签，渲染端应丢弃旧 tab 重拉。 */
-  onTerminalReset(cb: () => void): () => void
 }

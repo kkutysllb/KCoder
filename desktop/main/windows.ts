@@ -23,7 +23,6 @@ import { attachSidebarToggle } from './sidebar-toggle'
 import { attachSidebarCluster } from './sidebar-cluster'
 import { attachClipboardFix } from './clipboard-fix'
 import { attachContextButton } from './context-button'
-import { terminalPanel } from './terminal-panel'
 import { attachStyleOverlay } from './style-overlay'
 import { attachSettingsPage } from './settings-page'
 import { attachWorkspaceHeader } from './workspace-header'
@@ -171,10 +170,10 @@ export function showShellWindow(dshUrl: string): void {
     // trigger 真实契约，不发送消息）；打开态拉满主页面区域 + 右上角
     // 「返回任务」按钮
     attachContextButton(shellWindow)
-    // 内嵌终端面板：底部真实终端（pty + xterm，自研回归——插件底面板
-    // agent 运行态黑屏且无唤醒信号，产品侧弃用入口由 sidebar-cluster
-    // 压制；按钮 right 44，页面探针/让位注入，多工作区独立视图）
-    terminalPanel.attach(shellWindow)
+    // 内嵌终端已插件化（2026-08）：由 @kcoder/terminal 客户端插件
+    // （bundle/kcoder-terminal，dsh client-modules 加载）整体替代——
+    // 页面内底部 DOM 面板 + node-pty 服务端 RPC/SSE，按钮 right 44
+    // 由插件注入；旧 WebContentsView 形态（terminal-panel.ts）已退役
     // git 环境面板已退役（2026-08）：由 @kcoder/git-panel 客户端插件
     // （bundle/kcoder-git-panel，dsh client-modules 加载）整体替代——
     // 按钮 right 108 由插件注入，数据走插件自带 webServer RPC

@@ -14,7 +14,6 @@ import { registerIpc } from './ipc'
 import { installMenu, installTray, wireMenuRefresh } from './menu'
 import { closePanels, markQuitting, showBootstrap, showLanding, showShellWindow } from './windows'
 import { authLoggedIn, initAuthSession } from './auth'
-import { terminalPanel } from './terminal-panel'
 import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-contract'
 import { ensureKcoderBundles } from './kcoder-skills-bundle'
 import { syncLanguagePatch } from './language-settings'
@@ -261,7 +260,6 @@ autoUpdater.on('before-quit-for-update', () => {
 
 app.on('before-quit', (event) => {
   markQuitting() // 首位置位：主窗口 close 拦截放行，退出不被托盘保活挡死
-  terminalPanel.dispose() // 杀内嵌终端 shell（SIGTERM 发出即离开）
   if (dshManager.status.state === 'stopped' || dshManager.status.state === 'failed') return
   event.preventDefault()
   void dshManager.stop().then(() => {

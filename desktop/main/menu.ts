@@ -15,7 +15,6 @@ import { dshManager } from './dsh-manager'
 import { resolveAsset } from './dsh-contract'
 import { checkForUpdates, installUpdate, updateEvents, updateStatus } from './updater'
 import { getShellWindow, openPanel, showShellWindow } from './windows'
-import { terminalPanel } from './terminal-panel'
 import type { UpdateStatus } from '@shared/ipc-contract'
 
 let tray: Tray | null = null
@@ -160,8 +159,16 @@ export function installMenu(): void {
           accelerator: 'Control+`',
           click: () => {
             const w = getShellWindow()
-            if (w !== null && !w.isDestroyed()) w.show()
-            terminalPanel.toggle()
+            if (w === null || w.isDestroyed()) return
+            w.show()
+            // 终端已插件化（@kcoder/terminal）：转发页面内插件按钮
+            // 点击（onclick 不依赖可见性，win32 display:none 照常触发）
+            void w.webContents
+              .executeJavaScript(
+                "(() => { const b = document.getElementById('__dsh_kc_term_btn'); if (b) b.click() })()",
+                true,
+              )
+              .catch(() => {})
           },
         },
         { type: 'separator' },
