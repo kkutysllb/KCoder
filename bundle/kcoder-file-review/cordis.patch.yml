@@ -1,6 +1,9 @@
-- id: ui-deliverables
-  disabled: true
-
+# No ui-deliverables row here: since 0.5.0 this fork CLAIMS the built-in
+# plugin's `deliverables` turn data instead of registering its own Definition,
+# so the built-in ui-deliverables must stay ENABLED. (0.4.x shipped
+# `- id: ui-deliverables / disabled: true` to keep the two Definitions from
+# colliding — leaving that row in silently starved the card claim AND the
+# built-in tail: the tab went empty and every turn-tail row vanished.)
 - insert:
     - id: file-review-tab
       name: '@kcoder/file-review'

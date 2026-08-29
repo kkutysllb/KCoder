@@ -6,7 +6,13 @@
  *    files · +M -K / Undo / Review"), registered into the
  *    'conversation.chat.turnTail' chain at priority -2 so it claims the chain
  *    BEFORE dsh-better-sidebar's own -1 interception row (chain election is
- *    first-claim-wins: exactly one row ever renders, never both); and
+ *    first-claim-wins: exactly one row ever renders, never both). Since dsh
+ *    0.1.2-alpha.1 the per-turn produced paths come from the BUILT-IN
+ *    ui-deliverables plugin (which owns the `deliverables` Definition and its
+ *    turn Location data — this plugin registers no Definition of its own, a
+ *    second `deliverables` kind would collide with and crash the built-in);
+ *    the card's diff stats and undo ride the session derive (session-changes
+ *    argument-contract reconstruction); and
  * 2. the 'file-review' better-sidebar tab (per-session change list + inline
  *    red/green diffs + per-turn/per-file undo).
  *
@@ -21,23 +27,24 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from 'dsh-better-sidebar/client/service'
-import type { ConversationSnapshot, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ChatFileMentions } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { TabDescriptor } from 'dsh-better-sidebar/client/service'
-import type { FileReviewRequest, FileReviewResult } from '../change-types.ts'
+import type {
+  FileReviewRequest, FileReviewResult, ProducedFileReview,
+} from '../change-types.ts'
 import { TYPERT_REMOTE } from '../remote.ts'
 import { FileReviewTab } from './FileReviewTab.tsx'
 import { resolveConversationStore } from './conversation-store.ts'
+import type { ConversationFace } from './conversation-store.ts'
+import { fileReviewDefinition } from './definition.ts'
 import { ProducedFiles } from './ProducedFiles.tsx'
 import { attachLocale, en, LOCALE_NS, t, zh } from './locales.ts'
 import {
   en as chatEn, NS as CHAT_NS, zh as chatZh, type DeliverablesKey,
 } from './chat-locales.ts'
-import { countChangedFiles, deriveSessionChanges, splitArchivedTurns } from './session-changes.ts'
-import {
-  deliverablesDefinition, producedFileMentions, selectProducedFiles,
-} from './turn-deliverables.ts'
+import { countChangedFiles, deriveTimelineChanges, splitArchivedTurns } from './session-changes.ts'
+import { selectDeliverablePaths } from './turn-deliverables.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -98,11 +105,22 @@ interface FileReviewRemote {
  */
 const badgeMemo = new Map<string, { fingerprint: string; count: number | null }>()
 
-function snapshotFingerprint(snapshot: ConversationSnapshot | null): string {
-  if (snapshot === null) return 'none'
+function faceFingerprint(face: ConversationFace | null): string {
+  if (face === null) return 'none'
   let lastEnd = 0
-  for (const endSeq of snapshot.turnEnds.values()) lastEnd = endSeq
-  return `${snapshot.nodes.length}:${snapshot.turnEnds.size}:${lastEnd}`
+  for (const endSeq of face.legacy.turnEnds.values()) lastEnd = endSeq
+  // Definition data can land on the timeline (including a late-registration
+  // rebuild) without touching the windowed transcript slice, so the count
+  // of data-bearing turns rides the fingerprint too.
+  let dataTurns = -1
+  const timeline = face.timeline
+  if (timeline !== undefined) {
+    dataTurns = 0
+    for (const turn of timeline.turnOrder) {
+      if (timeline.turns.get(turn)?.data.get('fileReviewChanges') !== undefined) dataTurns += 1
+    }
+  }
+  return `${face.legacy.nodes.length}:${face.legacy.turnEnds.size}:${lastEnd}:${dataTurns}`
 }
 
 function badgeCount(ctx: Context, sessionId: string): number | null {
@@ -110,51 +128,19 @@ function badgeCount(ctx: Context, sessionId: string): number | null {
   // snapshot carries queue state only on 0.1.2-alpha.1+ — see
   // conversation-store.ts).
   const store = resolveConversationStore(ctx, sessionId)
-  const snapshot = store?.getSnapshot() ?? null
-  const fingerprint = snapshotFingerprint(snapshot)
+  const face = store?.getSnapshot() ?? null
+  const fingerprint = faceFingerprint(face)
   const hit = badgeMemo.get(sessionId)
   if (hit !== undefined && hit.fingerprint === fingerprint) return hit.count
   // The badge counts the MAIN list only — auto-archived turns already read
-  // their review and left the tab's active section (issue #5).
-  const { main } = splitArchivedTurns(deriveSessionChanges(snapshot))
+  // their review and left the tab's active section (issue #5). The derive
+  // is session-wide via the timeline (issue #8); the windowed snapshot
+  // derive remains the fallback inside deriveTimelineChanges.
+  const { main } = splitArchivedTurns(deriveTimelineChanges(face))
   const count = countChangedFiles(main)
   const value = count === 0 ? null : count
   badgeMemo.set(sessionId, { fingerprint, count: value })
   return value
-}
-
-/**
- * The conversation Definition registry face this plugin needs: just the
- * per-turn deliverables registration. Same shape on every dsh release — only
- * the service path to reach it moved.
- */
-interface ConversationDefinitionRegistry {
-  register(definition: typeof deliverablesDefinition): () => void
-}
-
-/**
- * Resolve the conversation Definition registry without statically injecting
- * it. dsh 0.1.2-alpha.1+ folds the old `conversationEvents` /
- * `conversationViews` pair into a single `uiConversation` service (the
- * registry is its `.events` property); dsh 0.1.1 and earlier expose it as the
- * standalone root `conversationEvents` service. Returns undefined when the
- * running dsh provides neither — the caller degrades instead of blocking.
- */
-function resolveConversationEvents(ctx: Context): ConversationDefinitionRegistry | undefined {
-  const lookup = (name: string): unknown => {
-    // ctx.get() exists on newer cordis; ctx.reflect.get() is the documented
-    // "read a service without the inject requirement" escape hatch on both.
-    const anyCtx = ctx as unknown as { get?: (name: string) => unknown }
-    if (typeof anyCtx.get === 'function') return anyCtx.get(name)
-    return ctx.reflect.get(name)
-  }
-  const uiConversation = lookup('uiConversation') as
-    | { readonly events?: ConversationDefinitionRegistry | null }
-    | undefined
-  if (uiConversation?.events !== undefined && uiConversation.events !== null) return uiConversation.events
-  const conversationEvents = lookup('conversationEvents') as ConversationDefinitionRegistry | undefined
-  if (conversationEvents !== undefined && conversationEvents !== null) return conversationEvents
-  return undefined
 }
 
 /**
@@ -190,39 +176,59 @@ export function apply(ctx: Context): void {
     }
   }, 'file-review-tab: typert remote')
 
-  // The turn-local mutation accumulator both chat-side surfaces read: the
-  // turn-tail row's select() and the prose-mention vocabulary derive from the
-  // 'deliverables' Turn data this Definition publishes. Registered against
-  // whichever conversation registry the running dsh exposes (see
-  // resolveConversationEvents); re-registered when the owning service is
-  // (re-)provided or replaced, and skipped entirely on a dsh that exposes
-  // neither — the sidebar tab derives from session snapshots and keeps
-  // working without it.
-  let registeredOn: ConversationDefinitionRegistry | undefined
-  const registerDeliverables = (): void => {
-    const events = resolveConversationEvents(ctx)
-    if (events === undefined || events === registeredOn) return
-    registeredOn = events
-    ctx.effect(
-      () => events.register(deliverablesDefinition),
-      'file-review-tab: deliverables definition',
-    )
-  }
-  registerDeliverables()
-  ctx.on('internal/service', (name: string) => {
-    if (name === 'conversationEvents' || name === 'uiConversation') registerDeliverables()
-  })
+  // The plugin's own session-wide Definition (see definition.ts). The
+  // registry lives on the uiConversation service, which is deliberately NOT
+  // a declared inject (issue #6 policy: the conversation registries' service
+  // name moved across dsh releases, and a hard inject would leave the whole
+  // plugin forever pending on the wrong version) — resolve it dynamically
+  // instead, retrying briefly past client boot in case this plugin
+  // activates first. A missed registration only degrades the tab, badge and
+  // card reviews to the windowed snapshot derive; it never fails boot. The
+  // registry rebuilds existing bindings on registration, so even a late
+  // registration covers every already-loaded turn.
+  ctx.effect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let dispose: (() => void) | undefined
+    let attempts = 0
+    const stop = (): void => {
+      if (timer !== undefined) { clearTimeout(timer); timer = undefined }
+    }
+    const tryRegister = (): void => {
+      attempts += 1
+      const anyCtx = ctx as unknown as { get?: (name: string) => unknown }
+      const service = (typeof anyCtx.get === 'function' ? anyCtx.get('uiConversation') : undefined) as
+        | { events?: { register(definition: unknown): () => void } }
+        | undefined
+      const events = service?.events
+      if (events !== undefined && typeof events.register === 'function') {
+        dispose = events.register(fileReviewDefinition)
+        stop()
+        return
+      }
+      // ~30s of retries, then give up (carrier without the service).
+      if (attempts >= 120) { stop(); return }
+      timer = setTimeout(tryRegister, 250)
+    }
+    tryRegister()
+    return () => {
+      stop()
+      if (dispose !== undefined) dispose()
+    }
+  }, 'file-review-tab: session-wide Definition')
 
   // The chat turn-tail row — the original dsh-file-review card, verbatim.
   // priority -2 runs BEFORE dsh-better-sidebar's -1 interception row: chain
   // election is first-claim-wins in ascending priority order, so this row
-  // renders and the sidebar's chip row declines (never a double row). When
-  // this plugin is composed out, the -1 row (or the host fallback) takes over
-  // again — the off state needs no cleanup here.
+  // renders and the sidebar's chip row declines (never a double row). The
+  // claim input is the BUILT-IN ui-deliverables turn data (paths only); the
+  // card's hunks/stats/undo are reconstructed per turn from the session
+  // snapshot derive (the same argument-contract vocabulary the tab uses).
+  // When this plugin is composed out, the built-in row (or the -1 chip row)
+  // takes over again — the off state needs no cleanup here.
   ctx.effect(
     () => ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({
       name: 'conversation.chat.turnTail',
-      select: selectProducedFiles,
+      select: selectDeliverablePaths,
       priority: -2,
       locale: CHAT_NS,
       registrant: 'dsh-file-review-tab',
@@ -246,10 +252,29 @@ export function apply(ctx: Context): void {
           if (!result.ok) throw new Error(result.error.message)
           return result.value
         }
+        // Reviews for the claiming turn: the session-wide turn data first
+        // (this plugin's Definition — complete hunks for EVERY loaded turn),
+        // with the windowed snapshot derive as the timeline-less fallback.
+        const store = resolveConversationStore(ctx, sessionId)
+        const face = store?.getSnapshot() ?? null
+        const collectReviews = (turn: number): readonly ProducedFileReview[] => {
+          const own = face?.timeline?.turns.get(turn)?.data.get('fileReviewChanges') as
+            | { files?: readonly ProducedFileReview[] }
+            | undefined
+          const files = own?.files
+            ?? deriveTimelineChanges(face).find(entry => entry.turn === turn)?.files
+          if (files === undefined) return []
+          return files.map(file => ({
+            path: file.path,
+            diffs: [...file.diffs],
+            ...(file.deleted === true ? { deleted: true as const } : {}),
+          }))
+        }
         return {
           projectRoot,
           inspectChanges: (request: FileReviewRequest) => invoke('status', request),
           applyChanges: (request: FileReviewRequest) => invoke('apply', request),
+          collectReviews,
           // 审查 button / per-file chip: open (or focus) the sidebar tab with
           // these paths pre-expanded. updateTab runs FIRST: an already-open
           // tab receives the fresh meta reference here (the tab replays the
@@ -280,26 +305,6 @@ export function apply(ctx: Context): void {
     }, ProducedFiles)),
     'file-review-tab: turn-tail row',
   )
-
-  // The prose side of the same vocabulary: the chat view reaches this face
-  // via ctx.get, so its absence — this plugin composed out — is the off state.
-  ctx.effect(() => {
-    const tChat = ctx.locale.bind(CHAT_NS)
-    const mentions: ChatFileMentions = {
-      forClosing(owner) {
-        // Same claim test the turn-tail chain entry runs: no produced files,
-        // no vocabulary — the two surfaces agree by construction.
-        const reviews = selectProducedFiles(owner)
-        if (reviews === null) return undefined
-        return producedFileMentions(
-          reviews.map(review => review.path),
-          owner.openFile,
-          path => tChat('produced.open', { name: path }),
-        )
-      },
-    }
-    return ctx.provide('chatFileMentions', mentions)
-  }, 'file-review-tab: chat file mentions')
 
   ctx.effect(() => ctx.betterSidebar.registerTab({
     id: 'file-review',

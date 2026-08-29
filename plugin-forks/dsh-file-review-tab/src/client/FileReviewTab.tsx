@@ -18,7 +18,7 @@ import type {
   RecordedMutation, RecordedRequest, RecordedResult,
 } from '../change-types.ts'
 import {
-  ARCHIVE_PAGE_TURNS, basename, deriveSessionChanges, deriveSessionRoots,
+  ARCHIVE_PAGE_TURNS, basename, deriveSessionRoots, deriveTimelineChanges,
   mergeRecordedTurns, resolveSessionPath, splitArchivedTurns,
   type SessionFileChange, type TurnFileChanges,
 } from './session-changes.ts'
@@ -191,15 +191,15 @@ export function FileReviewTab({ ctx, sessionId, cwd, visible, tab }: FileReviewT
     (listener: () => void) => store?.subscribe(listener) ?? (() => {}),
     [store],
   )
-  const snapshot = useSyncExternalStore(subscribe, () => store?.getSnapshot() ?? null)
+  const face = useSyncExternalStore(subscribe, () => store?.getSnapshot() ?? null)
 
   // Code Mode (run_code) roots and their Host-recorded mutations: nested
   // dispatches carry no reuseable views, so each root's file changes are
-  // fetched async and merged into the snapshot-derived turns below. The
+  // fetched async and merged into the timeline-derived turns below. The
   // fetch re-arms on the root set (a new run_code turn) or a manual refresh.
   const roots = useMemo(
-    () => (snapshot === null ? [] : deriveSessionRoots(snapshot)),
-    [snapshot],
+    () => (face === null ? [] : deriveSessionRoots(face.legacy)),
+    [face],
   )
   const rootsKey = useMemo(
     () => roots.map(root => root.rootCallId).join('|'),
@@ -230,9 +230,14 @@ export function FileReviewTab({ ctx, sessionId, cwd, visible, tab }: FileReviewT
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, rootsKey, tick, sessions, sessionId])
 
+  // Session-wide turns from the timeline Location index (issue #8): every
+  // loaded turn's Definition data, not just the assembled window — the old
+  // windowed derive read zero changes whenever the session's editing
+  // happened outside the current window. Carriers without a timeline
+  // degrade to the windowed derive inside deriveTimelineChanges.
   const turns = useMemo(
-    () => mergeRecordedTurns(deriveSessionChanges(snapshot), roots, recorded),
-    [snapshot, roots, recorded],
+    () => mergeRecordedTurns(deriveTimelineChanges(face), roots, recorded),
+    [face, roots, recorded],
   )
   // Auto-archive (issue #5): only the newest turns stay in the main list;
   // older completed turns collapse into the tab's bottom section, which

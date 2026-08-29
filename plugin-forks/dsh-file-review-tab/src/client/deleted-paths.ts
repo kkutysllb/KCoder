@@ -185,15 +185,3 @@ export function deletedPathsFromCommand(command: string): readonly string[] {
   }
   return paths
 }
-
-/**
- * Deleted paths reported by one tool call view: terminal cards carry the
- * command in `title`. Every other card shape (diff/generic/…) declares no
- * deletions.
- */
-export function deletedPaths(view: unknown): readonly string[] {
-  if (typeof view !== 'object' || view === null || Array.isArray(view)) return []
-  const record = view as Record<string, unknown>
-  if (record.card !== 'terminal' || typeof record.title !== 'string') return []
-  return deletedPathsFromCommand(record.title)
-}

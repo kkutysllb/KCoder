@@ -4149,7 +4149,14 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					getSnapshot: () => {
 						const snap = source.getSnapshot();
 						if (snap === void 0 || snap === null) return null;
-						return ("legacy" in snap ? snap.legacy : snap) ?? snap;
+						if ("legacy" in snap && snap.legacy !== void 0 && snap.legacy !== null) return {
+							legacy: snap.legacy,
+							timeline: snap.timeline
+						};
+						return {
+							legacy: snap,
+							timeline: void 0
+						};
 					},
 					subscribe: (listener) => source.subscribe(listener)
 				};
@@ -4340,17 +4347,6 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				}
 			}
 			return paths;
-		}
-		/**
-		* Deleted paths reported by one tool call view: terminal cards carry the
-		* command in `title`. Every other card shape (diff/generic/…) declares no
-		* deletions.
-		*/
-		function deletedPaths(view) {
-			if (typeof view !== "object" || view === null || Array.isArray(view)) return [];
-			const record = view;
-			if (record.card !== "terminal" || typeof record.title !== "string") return [];
-			return deletedPathsFromCommand(record.title);
 		}
 		//#endregion
 		//#region node_modules/.pnpm/diff@9.0.0/node_modules/diff/libesm/diff/base.js
@@ -4983,51 +4979,99 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		//#endregion
 		//#region src/client/session-changes.ts
 		/**
-		* Paths a call view reports having created or changed, by render intent
-		* rather than tool name: a diff card, or a generic card whose kind is `edit`.
-		* Mirrors dsh-file-review's producedPaths exactly (unknown-safe).
+		* Paths a call reports having created or changed, reconstructed from the
+		* call's OWN arguments. Since dsh 0.1.2-alpha.1 the finalized ToolResultNode
+		* carries no render-intent views (`callView`/`resultView` are gone — only
+		* `call: { name, argsRaw }` remains), and the built-in ui-deliverables
+		* vocabulary recognizes mutations by tool-argument contract: `write`,
+		* `edit`, and the mutating `str_replace_editor` commands. The hunks below
+		* are constructed from those same arguments, which the Host reviewer's
+		* locate-and-replace transform consumes unchanged: `edit`/`str_replace`
+		* hunks are reversible (unique old-text match), creations render as
+		* all-green inserts with no undo (nothing to restore), and `insert` is
+		* listed with no hunks (its line-anchor semantics are engine-side).
 		*/
-		function producedPaths$1(view) {
-			if (typeof view !== "object" || view === null || Array.isArray(view)) return [];
-			const record = view;
-			if (record.card !== "diff" && !(record.card === "generic" && record.kind === "edit")) return [];
-			const locations = record.locations;
-			if (!Array.isArray(locations)) return [];
-			const paths = [];
-			const seen = /* @__PURE__ */ new Set();
-			for (const location of locations) {
-				if (typeof location !== "object" || location === null || Array.isArray(location)) continue;
-				const path = location.path;
-				if (typeof path !== "string" || seen.has(path)) continue;
-				seen.add(path);
-				paths.push(path);
+		function mutationDetail(name, argsRaw) {
+			let args;
+			try {
+				args = JSON.parse(argsRaw);
+			} catch {
+				return null;
 			}
-			return paths;
-		}
-		/** Validate diff hunks crossing the Host/browser transport (unknown-safe). */
-		function producedDiffs$1(view) {
-			if (typeof view !== "object" || view === null || Array.isArray(view)) return [];
-			const record = view;
-			if (record.card !== "diff" || !Array.isArray(record.diffs)) return [];
-			const diffs = [];
-			for (const value of record.diffs) {
-				if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
-				const { path, oldText, newText, oldStart, newStart } = value;
-				if (typeof path !== "string" || oldText !== null && typeof oldText !== "string" || typeof newText !== "string" || oldStart !== void 0 && (typeof oldStart !== "number" || !Number.isInteger(oldStart) || oldStart < 1) || newStart !== void 0 && (typeof newStart !== "number" || !Number.isInteger(newStart) || newStart < 1)) return [];
-				diffs.push({
-					path,
-					oldText,
-					newText,
-					...typeof oldStart === "number" ? { oldStart } : {},
-					...typeof newStart === "number" ? { newStart } : {}
-				});
+			if (typeof args !== "object" || args === null || Array.isArray(args)) return null;
+			const record = args;
+			const path = (value) => typeof value === "string" && value.trim().length > 0 ? value : null;
+			switch (name) {
+				case "write": {
+					const target = path(record.file_path);
+					if (target === null || typeof record.content !== "string") return null;
+					return {
+						path: target,
+						diffs: [{
+							path: target,
+							oldText: null,
+							newText: record.content
+						}]
+					};
+				}
+				case "edit": {
+					const target = path(record.file_path);
+					if (target === null) return null;
+					if (typeof record.old_string !== "string" || record.old_string.length === 0 || typeof record.new_string !== "string" || record.old_string === record.new_string) return null;
+					return {
+						path: target,
+						diffs: [{
+							path: target,
+							oldText: record.old_string,
+							newText: record.new_string
+						}]
+					};
+				}
+				case "str_replace_editor": {
+					const target = path(record.path);
+					if (target === null) return null;
+					switch (record.command) {
+						case "create": return typeof record.file_text === "string" ? {
+							path: target,
+							diffs: [{
+								path: target,
+								oldText: null,
+								newText: record.file_text
+							}]
+						} : null;
+						case "str_replace": return typeof record.old_str === "string" && record.old_str.length > 0 && (record.new_str === void 0 || typeof record.new_str === "string") ? {
+							path: target,
+							diffs: [{
+								path: target,
+								oldText: record.old_str,
+								newText: typeof record.new_str === "string" ? record.new_str : ""
+							}]
+						} : null;
+						default: return {
+							path: target,
+							diffs: []
+						};
+					}
+				}
+				default: return null;
 			}
-			return diffs;
 		}
-		/** Applied result hunks, or call-intent hunks when no result view exists. */
-		function reviewDiffs$1(node) {
-			if (node.resultView !== null) return producedDiffs$1(node.resultView);
-			return producedDiffs$1(node.callView);
+		/**
+		* Terminal deletion records from one call's raw arguments. Deletions happen
+		* in the terminals (`bash` / `pwsh`, whose `command` argument carries the
+		* literal line); they surface as hunk-less, non-undoable entries.
+		*/
+		function terminalDeletions(name, argsRaw) {
+			if (name !== "bash" && name !== "pwsh") return [];
+			let args;
+			try {
+				args = JSON.parse(argsRaw);
+			} catch {
+				return [];
+			}
+			if (typeof args !== "object" || args === null || Array.isArray(args)) return [];
+			const command = args.command;
+			return typeof command === "string" ? deletedPathsFromCommand(command) : [];
 		}
 		/**
 		* Attribute an event seq to its owning turn. Completed turns own the seq
@@ -5049,16 +5093,73 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				};
 			};
 		}
+		/**
+		* Session-wide turns from the timeline Location index: every LOADED turn's
+		* Definition-owned change set, in turn order — the windowed snapshot derive
+		* only ever sees the assembled window, so a session whose editing happened
+		* outside the current window derived zero changes (issue #8). The plugin's
+		* own `fileReviewChanges` turn data carries complete hunks; the built-in
+		* `deliverables` data (paths only) covers turns this plugin's Definition
+		* has not seen; and the windowed legacy derive is the last fallback for
+		* carriers without a timeline at all. Memoized per published snapshot
+		* reference (the badge re-derives on every tab-bar render).
+		*/
+		const timelineCache = /* @__PURE__ */ new WeakMap();
+		function deriveTimelineChanges(face) {
+			if (face === null) return [];
+			const timeline = face.timeline;
+			if (timeline === void 0) return deriveSessionChanges(face.legacy);
+			const hit = timelineCache.get(timeline);
+			if (hit !== void 0) return hit;
+			const derived = [];
+			for (const turn of timeline.turnOrder) {
+				const location = timeline.turns.get(turn);
+				if (location === void 0) continue;
+				const own = location.data.get("fileReviewChanges");
+				let files;
+				if (own?.files !== void 0 && own.files.length > 0) files = own.files.map((file) => ({
+					path: file.path,
+					diffs: file.diffs,
+					...file.deleted === true ? { deleted: true } : {}
+				}));
+				else {
+					const builtIn = location.data.get("deliverables");
+					if (builtIn?.produced === void 0) continue;
+					const seen = /* @__PURE__ */ new Set();
+					const paths = [];
+					for (const produced of builtIn.produced) {
+						if (seen.has(produced.path)) continue;
+						seen.add(produced.path);
+						paths.push(produced.path);
+					}
+					if (paths.length === 0) continue;
+					files = paths.map((path) => ({
+						path,
+						diffs: []
+					}));
+				}
+				derived.push({
+					turn,
+					live: location.status === "open",
+					files
+				});
+			}
+			timelineCache.set(timeline, derived);
+			return derived;
+		}
 		/** Derive one session's per-turn produced-file changes (uncached core). */
 		function derive(snapshot) {
 			const attribute = turnAttribution(snapshot);
 			const byTurn = /* @__PURE__ */ new Map();
 			for (const node of snapshot.nodes) {
 				if (node.kind !== "tool-result" || node.isError) continue;
-				const paths = producedPaths$1(node.callView);
-				const deletions = paths.length === 0 ? deletedPaths(node.callView) : [];
-				if (paths.length === 0 && deletions.length === 0) continue;
-				const diffs = reviewDiffs$1(node);
+				const call = node.call;
+				if (call === null) continue;
+				const detail = mutationDetail(call.name, call.argsRaw);
+				const deletions = detail === null ? terminalDeletions(call.name, call.argsRaw) : [];
+				if (detail === null && deletions.length === 0) continue;
+				const diffs = detail?.diffs ?? [];
+				const paths = detail !== null ? [detail.path] : [];
 				const { turn, live } = attribute(node.seq);
 				let group = byTurn.get(turn);
 				if (group === void 0) {
@@ -5259,26 +5360,26 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var UnifiedDiff_module_css_default = {
-			"unifiedLineNumber": "R1EYoa_unifiedLineNumber",
-			"unifiedHeader": "R1EYoa_unifiedHeader",
-			"unifiedText": "R1EYoa_unifiedText",
-			"unifiedGap": "R1EYoa_unifiedGap",
-			"unifiedCopyButton": "R1EYoa_unifiedCopyButton",
-			"unifiedStatus": "R1EYoa_unifiedStatus",
-			"unifiedLine": "R1EYoa_unifiedLine",
-			"unifiedPath": "R1EYoa_unifiedPath",
-			"unified_context": "R1EYoa_unified_context",
-			"unifiedBody": "R1EYoa_unifiedBody",
-			"unified_del": "R1EYoa_unified_del",
-			"unifiedRemoved": "R1EYoa_unifiedRemoved",
-			"unifiedOmitted": "R1EYoa_unifiedOmitted",
 			"unifiedBlock": "R1EYoa_unifiedBlock",
-			"unified_add": "R1EYoa_unified_add",
+			"unifiedLine": "R1EYoa_unifiedLine",
+			"unifiedBody": "R1EYoa_unifiedBody",
+			"unifiedLineNumber": "R1EYoa_unifiedLineNumber",
+			"unifiedAdded": "R1EYoa_unifiedAdded",
+			"unifiedPath": "R1EYoa_unifiedPath",
 			"unifiedEmbedded": "R1EYoa_unifiedEmbedded",
-			"unifiedFile": "R1EYoa_unifiedFile",
-			"unifiedHunkHeader": "R1EYoa_unifiedHunkHeader",
 			"unifiedSign": "R1EYoa_unifiedSign",
-			"unifiedAdded": "R1EYoa_unifiedAdded"
+			"unifiedRemoved": "R1EYoa_unifiedRemoved",
+			"unified_del": "R1EYoa_unified_del",
+			"unifiedOmitted": "R1EYoa_unifiedOmitted",
+			"unifiedHeader": "R1EYoa_unifiedHeader",
+			"unified_add": "R1EYoa_unified_add",
+			"unifiedFile": "R1EYoa_unifiedFile",
+			"unifiedStatus": "R1EYoa_unifiedStatus",
+			"unified_context": "R1EYoa_unified_context",
+			"unifiedGap": "R1EYoa_unifiedGap",
+			"unifiedText": "R1EYoa_unifiedText",
+			"unifiedHunkHeader": "R1EYoa_unifiedHunkHeader",
+			"unifiedCopyButton": "R1EYoa_unifiedCopyButton"
 		};
 		//#endregion
 		//#region src/client/UnifiedDiff.tsx
@@ -5688,44 +5789,44 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var FileReviewTab_module_css_default = {
-			"fileRow": "f6ZLOa_fileRow",
-			"actionButton": "f6ZLOa_actionButton",
-			"noticeSuccess": "f6ZLOa_noticeSuccess",
-			"deletedBadge": "f6ZLOa_deletedBadge",
-			"stateBadge": "f6ZLOa_stateBadge",
-			"reviewDiff": "f6ZLOa_reviewDiff",
-			"buttonIcon": "f6ZLOa_buttonIcon",
-			"turnHeader": "f6ZLOa_turnHeader",
-			"empty": "f6ZLOa_empty",
-			"diffWrap": "f6ZLOa_diffWrap",
-			"diffUnavailable": "f6ZLOa_diffUnavailable",
-			"archiveHeader": "f6ZLOa_archiveHeader",
-			"refreshButton": "f6ZLOa_refreshButton",
-			"archiveTitle": "f6ZLOa_archiveTitle",
-			"noticeError": "f6ZLOa_noticeError",
-			"fileItem": "f6ZLOa_fileItem",
-			"header": "f6ZLOa_header",
-			"added": "f6ZLOa_added",
-			"removed": "f6ZLOa_removed",
-			"badgeMuted": "f6ZLOa_badgeMuted",
-			"turnTitle": "f6ZLOa_turnTitle",
-			"badgeError": "f6ZLOa_badgeError",
 			"headerTitle": "f6ZLOa_headerTitle",
+			"removed": "f6ZLOa_removed",
+			"fileItem": "f6ZLOa_fileItem",
 			"notice": "f6ZLOa_notice",
-			"editorButton": "f6ZLOa_editorButton",
-			"liveBadge": "f6ZLOa_liveBadge",
-			"archiveSection": "f6ZLOa_archiveSection",
-			"root": "f6ZLOa_root",
-			"fileName": "f6ZLOa_fileName",
-			"badgeUndone": "f6ZLOa_badgeUndone",
-			"chevron": "f6ZLOa_chevron",
 			"body": "f6ZLOa_body",
+			"turnHeader": "f6ZLOa_turnHeader",
+			"added": "f6ZLOa_added",
+			"deletedBadge": "f6ZLOa_deletedBadge",
+			"turnCount": "f6ZLOa_turnCount",
+			"badgeUndone": "f6ZLOa_badgeUndone",
+			"actionButton": "f6ZLOa_actionButton",
+			"reviewDiff": "f6ZLOa_reviewDiff",
+			"badgeError": "f6ZLOa_badgeError",
+			"archiveHeader": "f6ZLOa_archiveHeader",
+			"archiveTitle": "f6ZLOa_archiveTitle",
+			"diffUnavailable": "f6ZLOa_diffUnavailable",
+			"fileRow": "f6ZLOa_fileRow",
+			"turnGroup": "f6ZLOa_turnGroup",
+			"badgeMuted": "f6ZLOa_badgeMuted",
+			"empty": "f6ZLOa_empty",
+			"buttonIcon": "f6ZLOa_buttonIcon",
+			"smallButton": "f6ZLOa_smallButton",
+			"diffWrap": "f6ZLOa_diffWrap",
+			"turnTitle": "f6ZLOa_turnTitle",
+			"noticeSuccess": "f6ZLOa_noticeSuccess",
+			"noticeError": "f6ZLOa_noticeError",
+			"root": "f6ZLOa_root",
 			"stats": "f6ZLOa_stats",
 			"chevronOpen": "f6ZLOa_chevronOpen",
-			"turnCount": "f6ZLOa_turnCount",
-			"turnGroup": "f6ZLOa_turnGroup",
-			"smallButton": "f6ZLOa_smallButton",
-			"fileList": "f6ZLOa_fileList"
+			"fileName": "f6ZLOa_fileName",
+			"liveBadge": "f6ZLOa_liveBadge",
+			"fileList": "f6ZLOa_fileList",
+			"header": "f6ZLOa_header",
+			"refreshButton": "f6ZLOa_refreshButton",
+			"editorButton": "f6ZLOa_editorButton",
+			"stateBadge": "f6ZLOa_stateBadge",
+			"archiveSection": "f6ZLOa_archiveSection",
+			"chevron": "f6ZLOa_chevron"
 		};
 		//#endregion
 		//#region src/client/FileReviewTab.tsx
@@ -5836,8 +5937,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			const noticeTimerRef = (0, react.useRef)(null);
 			const store = resolveConversationStore(ctx, sessionId);
 			const subscribe = (0, react.useCallback)((listener) => store?.subscribe(listener) ?? (() => {}), [store]);
-			const snapshot = (0, react.useSyncExternalStore)(subscribe, () => store?.getSnapshot() ?? null);
-			const roots = (0, react.useMemo)(() => snapshot === null ? [] : deriveSessionRoots(snapshot), [snapshot]);
+			const face = (0, react.useSyncExternalStore)(subscribe, () => store?.getSnapshot() ?? null);
+			const roots = (0, react.useMemo)(() => face === null ? [] : deriveSessionRoots(face.legacy), [face]);
 			const rootsKey = (0, react.useMemo)(() => roots.map((root) => root.rootCallId).join("|"), [roots]);
 			const [recorded, setRecorded] = (0, react.useState)(() => []);
 			(0, react.useEffect)(() => {
@@ -5866,8 +5967,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				sessions,
 				sessionId
 			]);
-			const turns = (0, react.useMemo)(() => mergeRecordedTurns(deriveSessionChanges(snapshot), roots, recorded), [
-				snapshot,
+			const turns = (0, react.useMemo)(() => mergeRecordedTurns(deriveTimelineChanges(face), roots, recorded), [
+				face,
 				roots,
 				recorded
 			]);
@@ -6304,96 +6405,15 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			});
 		}
 		//#endregion
-		//#region src/client/turn-deliverables.ts
+		//#region src/client/definition.ts
 		/**
-		* Paths a call view reports having created or changed, by render intent rather
-		* than tool name: a diff card, or a generic card whose kind is `edit` (the
-		* shape `str_replace_editor`'s insert presents). Every other card produces
-		* nothing to open — a read looked, a delete removed, a terminal ran. Only
-		* root call views enter this Turn accumulator; nested Code Mode dispatches
-		* preserve the pre-assembly behavior and do not contribute independently.
+		* Per-Turn produced-file facts for one loaded turn, published as turn
+		* Location data: complete files (paths + reversible hunks + deletion state)
+		* keyed `fileReviewChanges`, consumed session-wide by the sidebar tab, the
+		* badge and the turn-tail card's reviews.
 		*/
-		function producedPaths(view) {
-			if (view === null || view.card !== "diff" && !(view.card === "generic" && view.kind === "edit")) return [];
-			const locations = view.locations;
-			if (!Array.isArray(locations)) return [];
-			const paths = [];
-			const seen = /* @__PURE__ */ new Set();
-			for (const location of locations) {
-				if (typeof location !== "object" || location === null || Array.isArray(location)) continue;
-				const path = location.path;
-				if (typeof path !== "string" || seen.has(path)) continue;
-				seen.add(path);
-				paths.push(path);
-			}
-			return paths;
-		}
-		/** Validate diff hunks crossing the Host/browser transport. */
-		function producedDiffs(view) {
-			if (typeof view !== "object" || view === null || Array.isArray(view)) return [];
-			const record = view;
-			if (record.card !== "diff" || !Array.isArray(record.diffs)) return [];
-			const diffs = [];
-			for (const value of record.diffs) {
-				if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
-				const { path, oldText, newText, oldStart, newStart } = value;
-				if (typeof path !== "string" || oldText !== null && typeof oldText !== "string" || typeof newText !== "string" || oldStart !== void 0 && (typeof oldStart !== "number" || !Number.isInteger(oldStart) || oldStart < 1) || newStart !== void 0 && (typeof newStart !== "number" || !Number.isInteger(newStart) || newStart < 1)) return [];
-				diffs.push({
-					path,
-					oldText,
-					newText,
-					...typeof oldStart === "number" ? { oldStart } : {},
-					...typeof newStart === "number" ? { newStart } : {}
-				});
-			}
-			return diffs;
-		}
-		/** Applied result hunks, or successful-call intent only when no result view exists. */
-		function reviewDiffs(callView, resultView) {
-			if (resultView?.for === "result") return producedDiffs(resultView.view);
-			return producedDiffs(callView);
-		}
-		/**
-		* Files and review hunks available at one closing Assistant boundary.
-		* @param data - engine-published Deliverables data for one Turn.
-		* @param seq - closing Assistant seq; later Tool settlements are excluded.
-		* @returns Produced files in first-seen order with same-path hunks appended in settlement order.
-		*/
-		function reviewsForClosing(data, seq = Number.POSITIVE_INFINITY) {
-			if (data === void 0) return [];
-			const reviews = [];
-			const byPath = /* @__PURE__ */ new Map();
-			for (const produced of data.produced) {
-				if (produced.seq > seq) continue;
-				const review = byPath.get(produced.path);
-				if (review === void 0) {
-					const created = {
-						path: produced.path,
-						diffs: [...produced.diffs],
-						...produced.deleted === true ? { deleted: true } : {}
-					};
-					byPath.set(produced.path, created);
-					reviews.push(created);
-				} else {
-					review.diffs.push(...produced.diffs);
-					if (produced.deleted === true) review.deleted = true;
-					else delete review.deleted;
-				}
-			}
-			return reviews;
-		}
-		/**
-		* Claim the turn-tail chain only when its closing turn produced files.
-		* @param owner - Turn-tail owner currency for the closing assistant.
-		* @returns Produced-file reviews as the component's match, or null to decline before mount.
-		*/
-		function selectProducedFiles(owner) {
-			const reviews = reviewsForClosing(owner.turn.data.get("deliverables"), owner.seq);
-			return reviews.length === 0 ? null : reviews;
-		}
-		/** Turn-local successful mutation accumulator; it publishes no view Node. */
-		const deliverablesDefinition = {
-			kind: "deliverables",
+		const fileReviewDefinition = {
+			kind: "fileReviewChanges",
 			match: (event) => {
 				if (event.type === "turn/start") return {
 					id: String(event.data.turn),
@@ -6410,91 +6430,123 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				return null;
 			},
 			start: (_context, match) => {
-				if (match.event.type !== "turn/start") throw new Error("deliverables start requires turn/start");
+				if (match.event.type !== "turn/start") throw new Error("fileReviewChanges start requires turn/start");
 				return {
-					turn: match.event.data.turn,
+					turn: Number(match.event.data.turn),
 					calls: /* @__PURE__ */ new Map(),
-					produced: []
+					files: /* @__PURE__ */ new Map()
 				};
 			},
 			update: (context, match) => {
+				const state = context.state;
 				if (match.event.type === "tool/call") {
-					const calls = new Map(context.state.calls);
-					calls.set(String(match.event.data.callId), match.view?.for === "call" ? match.view.view : null);
+					const name = typeof match.event.data.name === "string" ? match.event.data.name : "";
+					const argsRaw = typeof match.event.data.arguments === "string" ? match.event.data.arguments : "";
+					const detail = mutationDetail(name, argsRaw);
+					let record = null;
+					if (detail !== null) record = {
+						kind: "mutation",
+						path: detail.path,
+						hunks: detail.diffs
+					};
+					else {
+						const deletions = terminalDeletions(name, argsRaw);
+						if (deletions.length > 0) record = {
+							kind: "deletion",
+							paths: deletions
+						};
+					}
+					const calls = new Map(state.calls);
+					calls.set(String(match.event.data.callId), record);
 					return {
-						...context.state,
+						...state,
 						calls
 					};
 				}
-				if (match.event.type !== "tool/result") return context.state;
-				if (match.event.data.message.content[0].isError === true) return context.state;
-				const callId = String(match.event.data.message.source.callId);
-				const callView = context.state.calls.get(callId) ?? null;
-				const diffs = reviewDiffs(callView, match.view);
-				const additions = producedPaths(callView).map((path) => ({
-					seq: match.event.seq,
-					path,
-					diffs: diffs.filter((diff) => diff.path === path)
-				}));
-				for (const path of callView !== null ? deletedPaths(callView) : []) {
-					if (additions.some((addition) => addition.path === path)) continue;
-					additions.push({
-						seq: match.event.seq,
-						path,
-						diffs: [],
+				if (match.event.type !== "tool/result") return state;
+				if ((match.event.data.message?.content?.[0])?.isError === true) return state;
+				const call = state.calls.get(String(match.event.data.message?.source?.callId));
+				if (call === void 0 || call === null) return state;
+				const files = new Map(state.files);
+				if (call.kind === "mutation") {
+					const existing = files.get(call.path);
+					files.set(call.path, { diffs: existing === void 0 ? [...call.hunks] : [...existing.diffs, ...call.hunks] });
+				} else for (const path of call.paths) {
+					const existing = files.get(path);
+					files.set(path, {
+						diffs: existing === void 0 ? [] : existing.diffs,
 						deleted: true
 					});
 				}
-				return additions.length === 0 ? context.state : {
-					...context.state,
-					produced: [...context.state.produced, ...additions]
+				return {
+					...state,
+					files
 				};
 			},
-			buildLocationData: (context, scope) => scope !== "turn" || context.state === void 0 ? null : {
-				kind: "turn",
-				turn: context.state.turn,
-				key: "deliverables",
-				value: { produced: context.state.produced }
+			buildLocationData: (context, scope) => {
+				if (scope !== "turn" || context.state === void 0) return null;
+				const files = [...context.state.files.entries()].map(([path, own]) => ({
+					path,
+					diffs: own.diffs,
+					...own.deleted === true ? { deleted: true } : {}
+				}));
+				return {
+					kind: "turn",
+					turn: context.state.turn,
+					key: "fileReviewChanges",
+					value: { files }
+				};
 			}
 		};
+		//#endregion
+		//#region src/client/turn-deliverables.ts
 		/**
-		* Trailing path segment, the part that identifies the file at a glance.
-		* @param path - Slash- or backslash-separated path.
-		* @returns The final segment, or the whole string when separator-free.
+		* Files produced by one Turn data value, deduplicated in first-seen order.
+		* Mirrors the built-in producedForClosing: the Location index owns turn
+		* membership, so paths cannot spill across turns.
+		* @param data - engine-published Deliverables data for one Turn.
+		* @param seq - closing Assistant seq; later Tool settlements are excluded.
+		* @returns Produced paths in first-seen order; empty when the turn wrote nothing.
 		*/
+		function producedPathsForClosing(data, seq = Number.POSITIVE_INFINITY) {
+			if (data === void 0) return [];
+			const paths = [];
+			const seen = /* @__PURE__ */ new Set();
+			for (const produced of data.produced) {
+				if (produced.seq > seq || seen.has(produced.path)) continue;
+				seen.add(produced.path);
+				paths.push(produced.path);
+			}
+			return paths;
+		}
+		/**
+		* Claim the turn-tail chain only when its closing turn produced files.
+		* Own `fileReviewChanges` turn data first (this plugin's Definition: same
+		* vocabulary, complete hunks); the built-in `deliverables` data remains the
+		* claim input of last resort for a turn the own Definition has not covered.
+		* @param owner - Turn-tail owner currency for the closing assistant.
+		* @returns Produced paths as the component's match, or null to decline before mount.
+		*/
+		function selectDeliverablePaths(owner) {
+			const data = owner.turn.data;
+			const own = data.get("fileReviewChanges");
+			if (own?.files !== void 0) {
+				const paths = [];
+				const seen = /* @__PURE__ */ new Set();
+				for (const file of own.files) {
+					if (seen.has(file.path)) continue;
+					seen.add(file.path);
+					paths.push(file.path);
+				}
+				if (paths.length > 0) return paths;
+			}
+			const paths = producedPathsForClosing(data.get("deliverables"), owner.seq);
+			return paths.length === 0 ? null : paths;
+		}
+		/** Trailing path segment, the part that identifies the file at a glance. */
 		function basename(path) {
 			const at = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
 			return at === -1 ? path : path.slice(at + 1);
-		}
-		/**
-		* File-mention vocabulary over one turn's produced paths, for the closing
-		* message's prose: an inline-code token opens the file it names. A token
-		* resolves by exact path, or by being exactly the basename of exactly one
-		* produced path — a basename two paths share stays inert rather than
-		* guessing, so a mention link can never open the wrong file or 404.
-		* @param paths - The turn's produced paths (tool order, already deduped).
-		* @param openFile - The chat view's file opener.
-		* @param label - Localizes the accessible open-label for a resolved path.
-		* @returns The resolver MarkdownText consumes; the full path rides `title`,
-		* the same disambiguator the row's chips carry.
-		*/
-		function producedFileMentions(paths, openFile, label) {
-			return { resolve(value) {
-				const path = paths.includes(value) ? value : onlyPathWithBasename(paths, value);
-				if (path === void 0) return void 0;
-				return {
-					open: () => {
-						openFile(path);
-					},
-					label: label(path),
-					title: path
-				};
-			} };
-		}
-		/** The single produced path whose basename is exactly `value`, else undefined. */
-		function onlyPathWithBasename(paths, value) {
-			const matches = paths.filter((path) => basename(path) === value);
-			return matches.length === 1 ? matches[0] : void 0;
 		}
 		//#endregion
 		//#region \0@kcoder/file-review-css:/Users/libing/kk_Projects/KCoder/plugin-forks/dsh-file-review-tab/src/client/ProducedFiles.module.css.mjs
@@ -6508,60 +6560,60 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var ProducedFiles_module_css_default = {
-			"drawerHeader": "KiILGG_drawerHeader",
-			"card": "KiILGG_card",
+			"drawerBody": "KiILGG_drawerBody",
+			"reviewDiff": "KiILGG_reviewDiff",
 			"fileRow": "KiILGG_fileRow",
-			"fileList": "KiILGG_fileList",
-			"added": "KiILGG_added",
-			"toastDescription": "KiILGG_toastDescription",
-			"cardTitle": "KiILGG_cardTitle",
+			"noticeFiles": "KiILGG_noticeFiles",
 			"reviewButton": "KiILGG_reviewButton",
-			"toolbarButton": "KiILGG_toolbarButton",
-			"toast": "KiILGG_toast",
+			"drawer": "KiILGG_drawer",
+			"drawerSubtitle": "KiILGG_drawerSubtitle",
+			"reviewFile": "KiILGG_reviewFile",
+			"fileIconWrap": "KiILGG_fileIconWrap",
 			"openButton": "KiILGG_openButton",
-			"toastSuccess": "KiILGG_toastSuccess",
+			"reviewFileHeader": "KiILGG_reviewFileHeader",
+			"drawer-enter": "KiILGG_drawer-enter",
+			"toastCloseButton": "KiILGG_toastCloseButton",
+			"toast": "KiILGG_toast",
+			"noticeFileArrow": "KiILGG_noticeFileArrow",
+			"drawerSplit": "KiILGG_drawerSplit",
+			"fileList": "KiILGG_fileList",
+			"resizeHandle": "KiILGG_resizeHandle",
+			"drawerHeading": "KiILGG_drawerHeading",
+			"reviewStatus": "KiILGG_reviewStatus",
+			"reviewPath": "KiILGG_reviewPath",
+			"reviewUnavailable": "KiILGG_reviewUnavailable",
+			"removed": "KiILGG_removed",
+			"drawerTitle": "KiILGG_drawerTitle",
+			"card": "KiILGG_card",
+			"noticeIcon": "KiILGG_noticeIcon",
+			"toastTitle": "KiILGG_toastTitle",
+			"deletedBadge": "KiILGG_deletedBadge",
+			"toastCopy": "KiILGG_toastCopy",
+			"noticeDismissButton": "KiILGG_noticeDismissButton",
+			"cardHeader": "KiILGG_cardHeader",
+			"noticeIconSvg": "KiILGG_noticeIconSvg",
+			"drawerResizing": "KiILGG_drawerResizing",
+			"fileName": "KiILGG_fileName",
+			"toastDescription": "KiILGG_toastDescription",
+			"closeIcon": "KiILGG_closeIcon",
+			"added": "KiILGG_added",
+			"cardTitleBlock": "KiILGG_cardTitleBlock",
+			"closeButton": "KiILGG_closeButton",
+			"icon": "KiILGG_icon",
+			"buttonIcon": "KiILGG_buttonIcon",
+			"toolbarButton": "KiILGG_toolbarButton",
+			"cardTitle": "KiILGG_cardTitle",
+			"moreFiles": "KiILGG_moreFiles",
+			"drawerHeader": "KiILGG_drawerHeader",
+			"toastError": "KiILGG_toastError",
+			"toggleButton": "KiILGG_toggleButton",
+			"stats": "KiILGG_stats",
+			"toastHeader": "KiILGG_toastHeader",
 			"noticeFileButton": "KiILGG_noticeFileButton",
 			"noticeFileListLabel": "KiILGG_noticeFileListLabel",
+			"toastSuccess": "KiILGG_toastSuccess",
 			"noticeFileList": "KiILGG_noticeFileList",
-			"noticeFilePath": "KiILGG_noticeFilePath",
-			"closeIcon": "KiILGG_closeIcon",
-			"noticeDismissButton": "KiILGG_noticeDismissButton",
-			"reviewFileHeader": "KiILGG_reviewFileHeader",
-			"reviewStatus": "KiILGG_reviewStatus",
-			"reviewFile": "KiILGG_reviewFile",
-			"reviewDiff": "KiILGG_reviewDiff",
-			"drawerHeading": "KiILGG_drawerHeading",
-			"drawerSubtitle": "KiILGG_drawerSubtitle",
-			"moreFiles": "KiILGG_moreFiles",
-			"drawer": "KiILGG_drawer",
-			"toastCopy": "KiILGG_toastCopy",
-			"toggleButton": "KiILGG_toggleButton",
-			"toastTitle": "KiILGG_toastTitle",
-			"fileName": "KiILGG_fileName",
-			"drawerResizing": "KiILGG_drawerResizing",
-			"noticeFiles": "KiILGG_noticeFiles",
-			"reviewUnavailable": "KiILGG_reviewUnavailable",
-			"buttonIcon": "KiILGG_buttonIcon",
-			"resizeHandle": "KiILGG_resizeHandle",
-			"removed": "KiILGG_removed",
-			"toastError": "KiILGG_toastError",
-			"cardHeader": "KiILGG_cardHeader",
-			"icon": "KiILGG_icon",
-			"closeButton": "KiILGG_closeButton",
-			"toastHeader": "KiILGG_toastHeader",
-			"toastCloseButton": "KiILGG_toastCloseButton",
-			"drawerBody": "KiILGG_drawerBody",
-			"fileIconWrap": "KiILGG_fileIconWrap",
-			"noticeIcon": "KiILGG_noticeIcon",
-			"noticeIconSvg": "KiILGG_noticeIconSvg",
-			"noticeFileArrow": "KiILGG_noticeFileArrow",
-			"cardTitleBlock": "KiILGG_cardTitleBlock",
-			"drawerTitle": "KiILGG_drawerTitle",
-			"reviewPath": "KiILGG_reviewPath",
-			"drawerSplit": "KiILGG_drawerSplit",
-			"drawer-enter": "KiILGG_drawer-enter",
-			"deletedBadge": "KiILGG_deletedBadge",
-			"stats": "KiILGG_stats"
+			"noticeFilePath": "KiILGG_noticeFilePath"
 		};
 		//#endregion
 		//#region src/client/ProducedFiles.tsx
@@ -6711,8 +6763,20 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			});
 		}
 		/** Render one turn's produced files as a summary card opening the sidebar tab. */
-		function ProducedFiles({ matched: reviews, openFile, turn: turnLocation, inspectChanges = unavailableChanges, applyChanges = unavailableChanges, openInSidebarTab, t }) {
+		function ProducedFiles({ matched, collectReviews, openFile, turn: turnLocation, inspectChanges = unavailableChanges, applyChanges = unavailableChanges, openInSidebarTab, t }) {
 			const turnNumber = turnLocation.turn;
+			const reviews = (0, react.useMemo)(() => {
+				const derived = collectReviews?.(turnNumber);
+				const byPath = new Map((derived ?? []).map((review) => [review.path, review]));
+				return matched.map((path) => byPath.get(path) ?? {
+					path,
+					diffs: []
+				});
+			}, [
+				collectReviews,
+				turnNumber,
+				matched
+			]);
 			const [toggleAction, setToggleAction] = (0, react.useState)("undo");
 			const [statusPending, setStatusPending] = (0, react.useState)(true);
 			const [togglePending, setTogglePending] = (0, react.useState)(false);
@@ -7039,18 +7103,24 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* fingerprint stable and skip the full re-derive.
 		*/
 		const badgeMemo = /* @__PURE__ */ new Map();
-		function snapshotFingerprint(snapshot) {
-			if (snapshot === null) return "none";
+		function faceFingerprint(face) {
+			if (face === null) return "none";
 			let lastEnd = 0;
-			for (const endSeq of snapshot.turnEnds.values()) lastEnd = endSeq;
-			return `${snapshot.nodes.length}:${snapshot.turnEnds.size}:${lastEnd}`;
+			for (const endSeq of face.legacy.turnEnds.values()) lastEnd = endSeq;
+			let dataTurns = -1;
+			const timeline = face.timeline;
+			if (timeline !== void 0) {
+				dataTurns = 0;
+				for (const turn of timeline.turnOrder) if (timeline.turns.get(turn)?.data.get("fileReviewChanges") !== void 0) dataTurns += 1;
+			}
+			return `${face.legacy.nodes.length}:${face.legacy.turnEnds.size}:${lastEnd}:${dataTurns}`;
 		}
 		function badgeCount(ctx, sessionId) {
-			const snapshot = resolveConversationStore(ctx, sessionId)?.getSnapshot() ?? null;
-			const fingerprint = snapshotFingerprint(snapshot);
+			const face = resolveConversationStore(ctx, sessionId)?.getSnapshot() ?? null;
+			const fingerprint = faceFingerprint(face);
 			const hit = badgeMemo.get(sessionId);
 			if (hit !== void 0 && hit.fingerprint === fingerprint) return hit.count;
-			const { main } = splitArchivedTurns(deriveSessionChanges(snapshot));
+			const { main } = splitArchivedTurns(deriveTimelineChanges(face));
 			const count = countChangedFiles(main);
 			const value = count === 0 ? null : count;
 			badgeMemo.set(sessionId, {
@@ -7058,25 +7128,6 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				count: value
 			});
 			return value;
-		}
-		/**
-		* Resolve the conversation Definition registry without statically injecting
-		* it. dsh 0.1.2-alpha.1+ folds the old `conversationEvents` /
-		* `conversationViews` pair into a single `uiConversation` service (the
-		* registry is its `.events` property); dsh 0.1.1 and earlier expose it as the
-		* standalone root `conversationEvents` service. Returns undefined when the
-		* running dsh provides neither — the caller degrades instead of blocking.
-		*/
-		function resolveConversationEvents(ctx) {
-			const lookup = (name) => {
-				const anyCtx = ctx;
-				if (typeof anyCtx.get === "function") return anyCtx.get(name);
-				return ctx.reflect.get(name);
-			};
-			const uiConversation = lookup("uiConversation");
-			if (uiConversation?.events !== void 0 && uiConversation.events !== null) return uiConversation.events;
-			const conversationEvents = lookup("conversationEvents");
-			if (conversationEvents !== void 0 && conversationEvents !== null) return conversationEvents;
 		}
 		/**
 		* Client plugin body: attach locale, mount the Typert remote, register the
@@ -7111,20 +7162,40 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					if (disposeRemote !== void 0) disposeRemote();
 				};
 			}, "file-review-tab: typert remote");
-			let registeredOn;
-			const registerDeliverables = () => {
-				const events = resolveConversationEvents(ctx);
-				if (events === void 0 || events === registeredOn) return;
-				registeredOn = events;
-				ctx.effect(() => events.register(deliverablesDefinition), "file-review-tab: deliverables definition");
-			};
-			registerDeliverables();
-			ctx.on("internal/service", (name) => {
-				if (name === "conversationEvents" || name === "uiConversation") registerDeliverables();
-			});
+			ctx.effect(() => {
+				let timer;
+				let dispose;
+				let attempts = 0;
+				const stop = () => {
+					if (timer !== void 0) {
+						clearTimeout(timer);
+						timer = void 0;
+					}
+				};
+				const tryRegister = () => {
+					attempts += 1;
+					const anyCtx = ctx;
+					const events = (typeof anyCtx.get === "function" ? anyCtx.get("uiConversation") : void 0)?.events;
+					if (events !== void 0 && typeof events.register === "function") {
+						dispose = events.register(fileReviewDefinition);
+						stop();
+						return;
+					}
+					if (attempts >= 120) {
+						stop();
+						return;
+					}
+					timer = setTimeout(tryRegister, 250);
+				};
+				tryRegister();
+				return () => {
+					stop();
+					if (dispose !== void 0) dispose();
+				};
+			}, "file-review-tab: session-wide Definition");
 			ctx.effect(() => ctx.slots.inject("conversation.chat.turnTail", () => ctx.slots.register({
 				name: "conversation.chat.turnTail",
-				select: selectProducedFiles,
+				select: selectDeliverablePaths,
 				priority: -2,
 				locale: NS,
 				registrant: "dsh-file-review-tab",
@@ -7140,10 +7211,21 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						if (!result.ok) throw new Error(result.error.message);
 						return result.value;
 					};
+					const face = resolveConversationStore(ctx, sessionId)?.getSnapshot() ?? null;
+					const collectReviews = (turn) => {
+						const files = (face?.timeline?.turns.get(turn)?.data.get("fileReviewChanges"))?.files ?? deriveTimelineChanges(face).find((entry) => entry.turn === turn)?.files;
+						if (files === void 0) return [];
+						return files.map((file) => ({
+							path: file.path,
+							diffs: [...file.diffs],
+							...file.deleted === true ? { deleted: true } : {}
+						}));
+					};
 					return {
 						projectRoot,
 						inspectChanges: (request) => invoke("status", request),
 						applyChanges: (request) => invoke("apply", request),
+						collectReviews,
 						openInSidebarTab: (paths, turn) => {
 							const sidebar = ctx.betterSidebar;
 							const first = paths[0];
@@ -7167,14 +7249,6 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					};
 				}
 			}, ProducedFiles)), "file-review-tab: turn-tail row");
-			ctx.effect(() => {
-				const tChat = ctx.locale.bind(NS);
-				return ctx.provide("chatFileMentions", { forClosing(owner) {
-					const reviews = selectProducedFiles(owner);
-					if (reviews === null) return void 0;
-					return producedFileMentions(reviews.map((review) => review.path), owner.openFile, (path) => tChat("produced.open", { name: path }));
-				} });
-			}, "file-review-tab: chat file mentions");
 			ctx.effect(() => ctx.betterSidebar.registerTab({
 				id: "file-review",
 				title: () => t("tabTitle"),

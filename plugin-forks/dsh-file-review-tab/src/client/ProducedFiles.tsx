@@ -12,9 +12,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
-  FileReviewAction, FileReviewRequest, FileReviewResult,
+  FileReviewAction, FileReviewRequest, FileReviewResult, ProducedFileReview,
 } from '../change-types.ts'
-import { basename, type ProducedFileReview } from './turn-deliverables.ts'
+import { basename } from './turn-deliverables.ts'
 import type { NS } from './chat-locales.ts'
 import { summarizeDiffs, type UnifiedDiffStats } from './UnifiedDiff.tsx'
 import css from './ProducedFiles.module.css'
@@ -36,9 +36,16 @@ interface ToggleNotice {
   readonly files: readonly NoticeFile[]
 }
 
-/** Matched file reviews plus the opener and locale supplied by the turn-tail slot. */
+/** Matched produced paths plus the opener and locale supplied by the turn-tail slot. */
 export type ProducedFilesProps = Pick<TurnTailOwnerProps, 'openFile' | 'turn'> & {
-  matched: readonly ProducedFileReview[]
+  /** The built-in deliverables turn data: the turn's produced paths, in order. */
+  matched: readonly string[]
+  /**
+   * Reviews (hunks + deletion state) for the claiming turn, reconstructed
+   * from the session snapshot by the slot's inject; the built-in turn data
+   * carries paths only. Paths without a review render as hunk-less chips.
+   */
+  collectReviews?: (turn: number) => readonly ProducedFileReview[]
   /** Session workspace root (reserved; the chat card shows tool paths verbatim). */
   projectRoot?: string | undefined
   inspectChanges?: (request: FileReviewRequest) => Promise<FileReviewResult>
@@ -190,13 +197,20 @@ function Stats({ stats, label }: { readonly stats: UnifiedDiffStats; readonly la
 
 /** Render one turn's produced files as a summary card opening the sidebar tab. */
 export function ProducedFiles({
-  matched: reviews, openFile, turn: turnLocation,
+  matched, collectReviews, openFile, turn: turnLocation,
   inspectChanges = unavailableChanges, applyChanges = unavailableChanges,
   openInSidebarTab, t,
 }: ProducedFilesProps) {
   // The owning turn number (TurnLocation.turn) rides every deep link so the
   // sidebar tab expands this turn's rows only.
   const turnNumber = turnLocation.turn
+  // The chip list follows the built-in deliverables paths (the claim input);
+  // hunks/deletion state join from the snapshot derive where available.
+  const reviews = useMemo<readonly ProducedFileReview[]>(() => {
+    const derived = collectReviews?.(turnNumber)
+    const byPath = new Map((derived ?? []).map(review => [review.path, review]))
+    return matched.map(path => byPath.get(path) ?? { path, diffs: [] })
+  }, [collectReviews, turnNumber, matched])
   const [toggleAction, setToggleAction] = useState<FileReviewAction>('undo')
   const [statusPending, setStatusPending] = useState(true)
   const [togglePending, setTogglePending] = useState(false)

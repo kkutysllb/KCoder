@@ -1,18 +1,19 @@
 /**
  * Session-wide produced-file derivation from a finalized ConversationSnapshot.
- * Client-only and model-free: the vocabulary is the mutation tools' own
- * follow-along `locations` and diff views, never the closing prose. This is
- * the sidebar-tab analogue of dsh-file-review's turn-deliverables.ts: instead
- * of a ConversationNodeDefinition accumulating one turn's data for the
- * turn-tail slot, it derives EVERY in-window turn's changes from the session
- * snapshot's finalized nodes, attributing each tool result to its owning
- * turn through `turnEnds` (completed turns) or the live turn counters.
+ * Client-only and model-free: the vocabulary is the mutation tools' OWN
+ * arguments (write / edit / str_replace_editor, plus literal rm-family
+ * deletions in the terminals), never the closing prose. Since dsh
+ * 0.1.2-alpha.1 the finalized ToolResultNode carries no render-intent views,
+ * so this is a tool-argument contract derive, aligned with the built-in
+ * ui-deliverables vocabulary: it derives EVERY in-window turn's changes from
+ * the session snapshot's finalized nodes, attributing each tool result to
+ * its owning turn through `turnEnds` (completed turns) or the live turn
+ * counters.
  */
-import type {
-  ConversationSnapshot, ToolResultNode,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ProducedFileDiff, RecordedMutation } from '../change-types.ts'
-import { deletedPaths } from './deleted-paths.ts'
+import { deletedPathsFromCommand } from './deleted-paths.ts'
+import type { ConversationFace } from './conversation-store.ts'
 import { diffsFromBeforeAfter } from './recorded-diffs.ts'
 
 /** One changed file inside one turn, hunks appended in settlement order. */
@@ -38,59 +39,94 @@ interface FileAccumulator {
 }
 
 /**
- * Paths a call view reports having created or changed, by render intent
- * rather than tool name: a diff card, or a generic card whose kind is `edit`.
- * Mirrors dsh-file-review's producedPaths exactly (unknown-safe).
+ * Paths a call reports having created or changed, reconstructed from the
+ * call's OWN arguments. Since dsh 0.1.2-alpha.1 the finalized ToolResultNode
+ * carries no render-intent views (`callView`/`resultView` are gone — only
+ * `call: { name, argsRaw }` remains), and the built-in ui-deliverables
+ * vocabulary recognizes mutations by tool-argument contract: `write`,
+ * `edit`, and the mutating `str_replace_editor` commands. The hunks below
+ * are constructed from those same arguments, which the Host reviewer's
+ * locate-and-replace transform consumes unchanged: `edit`/`str_replace`
+ * hunks are reversible (unique old-text match), creations render as
+ * all-green inserts with no undo (nothing to restore), and `insert` is
+ * listed with no hunks (its line-anchor semantics are engine-side).
  */
-export function producedPaths(view: unknown): readonly string[] {
-  if (typeof view !== 'object' || view === null || Array.isArray(view)) return []
-  const record = view as Record<string, unknown>
-  if (record.card !== 'diff' && !(record.card === 'generic' && record.kind === 'edit')) return []
-  const locations = record.locations
-  if (!Array.isArray(locations)) return []
-  const paths: string[] = []
-  const seen = new Set<string>()
-  for (const location of locations) {
-    if (typeof location !== 'object' || location === null || Array.isArray(location)) continue
-    const path = (location as Record<string, unknown>).path
-    if (typeof path !== 'string' || seen.has(path)) continue
-    seen.add(path)
-    paths.push(path)
+export function mutationDetail(
+  name: string,
+  argsRaw: string,
+): { path: string; diffs: readonly ProducedFileDiff[] } | null {
+  let args: unknown
+  try {
+    args = JSON.parse(argsRaw) as unknown
+  } catch {
+    return null
   }
-  return paths
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) return null
+  const record = args as Record<string, unknown>
+  const path = (value: unknown): string | null =>
+    typeof value === 'string' && value.trim().length > 0 ? value : null
+  switch (name) {
+    case 'write': {
+      const target = path(record.file_path)
+      if (target === null || typeof record.content !== 'string') return null
+      return { path: target, diffs: [{ path: target, oldText: null, newText: record.content }] }
+    }
+    case 'edit': {
+      const target = path(record.file_path)
+      if (target === null) return null
+      if (typeof record.old_string !== 'string' || record.old_string.length === 0
+        || typeof record.new_string !== 'string' || record.old_string === record.new_string) return null
+      return {
+        path: target,
+        diffs: [{ path: target, oldText: record.old_string, newText: record.new_string }],
+      }
+    }
+    case 'str_replace_editor': {
+      const target = path(record.path)
+      if (target === null) return null
+      switch (record.command) {
+        case 'create':
+          return typeof record.file_text === 'string'
+            ? { path: target, diffs: [{ path: target, oldText: null, newText: record.file_text }] }
+            : null
+        case 'str_replace':
+          return typeof record.old_str === 'string' && record.old_str.length > 0
+            && (record.new_str === undefined || typeof record.new_str === 'string')
+            ? {
+              path: target,
+              diffs: [{
+                path: target,
+                oldText: record.old_str,
+                newText: typeof record.new_str === 'string' ? record.new_str : '',
+              }],
+            }
+            : null
+        default:
+          // `insert` (and any future command): listed, but without hunks.
+          return { path: target, diffs: [] }
+      }
+    }
+    default:
+      return null
+  }
 }
 
-/** Validate diff hunks crossing the Host/browser transport (unknown-safe). */
-export function producedDiffs(view: unknown): readonly ProducedFileDiff[] {
-  if (typeof view !== 'object' || view === null || Array.isArray(view)) return []
-  const record = view as Record<string, unknown>
-  if (record.card !== 'diff' || !Array.isArray(record.diffs)) return []
-  const diffs: ProducedFileDiff[] = []
-  for (const value of record.diffs) {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return []
-    const { path, oldText, newText, oldStart, newStart } = value as Record<string, unknown>
-    if (typeof path !== 'string'
-      || (oldText !== null && typeof oldText !== 'string')
-      || typeof newText !== 'string'
-      || (oldStart !== undefined
-        && (typeof oldStart !== 'number' || !Number.isInteger(oldStart) || oldStart < 1))
-      || (newStart !== undefined
-        && (typeof newStart !== 'number' || !Number.isInteger(newStart) || newStart < 1))) return []
-    diffs.push({
-      path,
-      oldText,
-      newText,
-      ...(typeof oldStart === 'number' ? { oldStart } : {}),
-      ...(typeof newStart === 'number' ? { newStart } : {}),
-    })
+/**
+ * Terminal deletion records from one call's raw arguments. Deletions happen
+ * in the terminals (`bash` / `pwsh`, whose `command` argument carries the
+ * literal line); they surface as hunk-less, non-undoable entries.
+ */
+export function terminalDeletions(name: string, argsRaw: string): readonly string[] {
+  if (name !== 'bash' && name !== 'pwsh') return []
+  let args: unknown
+  try {
+    args = JSON.parse(argsRaw) as unknown
+  } catch {
+    return []
   }
-  return diffs
-}
-
-/** Applied result hunks, or call-intent hunks when no result view exists. */
-function reviewDiffs(node: ToolResultNode): readonly ProducedFileDiff[] {
-  if (node.resultView !== null) return producedDiffs(node.resultView)
-  return producedDiffs(node.callView)
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) return []
+  const command = (args as Record<string, unknown>).command
+  return typeof command === 'string' ? deletedPathsFromCommand(command) : []
 }
 
 /**
@@ -112,19 +148,76 @@ function turnAttribution(snapshot: ConversationSnapshot): (seq: number) => { tur
   }
 }
 
+/**
+ * Session-wide turns from the timeline Location index: every LOADED turn's
+ * Definition-owned change set, in turn order — the windowed snapshot derive
+ * only ever sees the assembled window, so a session whose editing happened
+ * outside the current window derived zero changes (issue #8). The plugin's
+ * own `fileReviewChanges` turn data carries complete hunks; the built-in
+ * `deliverables` data (paths only) covers turns this plugin's Definition
+ * has not seen; and the windowed legacy derive is the last fallback for
+ * carriers without a timeline at all. Memoized per published snapshot
+ * reference (the badge re-derives on every tab-bar render).
+ */
+const timelineCache = new WeakMap<object, TurnFileChanges[]>()
+
+export function deriveTimelineChanges(face: ConversationFace | null): TurnFileChanges[] {
+  if (face === null) return []
+  const timeline = face.timeline
+  if (timeline === undefined) return deriveSessionChanges(face.legacy)
+  const hit = timelineCache.get(timeline)
+  if (hit !== undefined) return hit
+  const derived: TurnFileChanges[] = []
+  for (const turn of timeline.turnOrder) {
+    const location = timeline.turns.get(turn)
+    if (location === undefined) continue
+    const own = location.data.get('fileReviewChanges') as
+      | { files?: readonly { path: string; diffs: readonly ProducedFileDiff[]; deleted?: true }[] }
+      | undefined
+    let files: SessionFileChange[] | undefined
+    if (own?.files !== undefined && own.files.length > 0) {
+      files = own.files.map(file => ({
+        path: file.path,
+        diffs: file.diffs,
+        ...(file.deleted === true ? { deleted: true as const } : {}),
+      }))
+    } else {
+      const builtIn = location.data.get('deliverables') as
+        | { produced?: readonly { seq: number; path: string }[] }
+        | undefined
+      if (builtIn?.produced === undefined) continue
+      const seen = new Set<string>()
+      const paths: string[] = []
+      for (const produced of builtIn.produced) {
+        if (seen.has(produced.path)) continue
+        seen.add(produced.path)
+        paths.push(produced.path)
+      }
+      if (paths.length === 0) continue
+      files = paths.map(path => ({ path, diffs: [] }))
+    }
+    derived.push({ turn, live: location.status === 'open', files })
+  }
+  timelineCache.set(timeline, derived)
+  return derived
+}
+
 /** Derive one session's per-turn produced-file changes (uncached core). */
 function derive(snapshot: ConversationSnapshot): TurnFileChanges[] {
   const attribute = turnAttribution(snapshot)
   const byTurn = new Map<number, { live: boolean; files: Map<string, FileAccumulator> }>()
   for (const node of snapshot.nodes) {
     if (node.kind !== 'tool-result' || node.isError) continue
-    const paths = producedPaths(node.callView)
+    const call = node.call
+    if (call === null) continue
+    const detail = mutationDetail(call.name, call.argsRaw)
     // dsh has no delete-file tool: deletions happen in the terminals, and a
     // successful terminal call's literal rm-family arguments are the only
     // record of them. They surface as hunk-less, non-undoable entries.
-    const deletions = paths.length === 0 ? deletedPaths(node.callView) : []
-    if (paths.length === 0 && deletions.length === 0) continue
-    const diffs = reviewDiffs(node)
+    const deletions = detail === null ? terminalDeletions(call.name, call.argsRaw) : []
+    if (detail === null && deletions.length === 0) continue
+    const diffs = detail?.diffs ?? []
+    const paths = detail !== null ? [detail.path] : []
     const { turn, live } = attribute(node.seq)
     let group = byTurn.get(turn)
     if (group === undefined) {
