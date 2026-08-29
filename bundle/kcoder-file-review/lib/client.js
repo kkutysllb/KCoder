@@ -4145,18 +4145,27 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			try {
 				const source = service.binding(sessionId)?.target?.("chat");
 				if (source === void 0) return void 0;
+				let seen = false;
+				let cachedSnap;
+				let cachedFace = null;
 				return {
 					getSnapshot: () => {
 						const snap = source.getSnapshot();
-						if (snap === void 0 || snap === null) return null;
-						if ("legacy" in snap && snap.legacy !== void 0 && snap.legacy !== null) return {
+						if (seen && snap === cachedSnap) return cachedFace;
+						let face;
+						if (snap === void 0 || snap === null) face = null;
+						else if ("legacy" in snap && snap.legacy !== void 0 && snap.legacy !== null) face = {
 							legacy: snap.legacy,
 							timeline: snap.timeline
 						};
-						return {
+						else face = {
 							legacy: snap,
 							timeline: void 0
 						};
+						seen = true;
+						cachedSnap = snap;
+						cachedFace = face;
+						return face;
 					},
 					subscribe: (listener) => source.subscribe(listener)
 				};
@@ -5360,26 +5369,26 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var UnifiedDiff_module_css_default = {
-			"unifiedBlock": "R1EYoa_unifiedBlock",
-			"unifiedLine": "R1EYoa_unifiedLine",
-			"unifiedBody": "R1EYoa_unifiedBody",
 			"unifiedLineNumber": "R1EYoa_unifiedLineNumber",
-			"unifiedAdded": "R1EYoa_unifiedAdded",
-			"unifiedPath": "R1EYoa_unifiedPath",
-			"unifiedEmbedded": "R1EYoa_unifiedEmbedded",
-			"unifiedSign": "R1EYoa_unifiedSign",
-			"unifiedRemoved": "R1EYoa_unifiedRemoved",
-			"unified_del": "R1EYoa_unified_del",
-			"unifiedOmitted": "R1EYoa_unifiedOmitted",
-			"unifiedHeader": "R1EYoa_unifiedHeader",
-			"unified_add": "R1EYoa_unified_add",
-			"unifiedFile": "R1EYoa_unifiedFile",
-			"unifiedStatus": "R1EYoa_unifiedStatus",
-			"unified_context": "R1EYoa_unified_context",
-			"unifiedGap": "R1EYoa_unifiedGap",
-			"unifiedText": "R1EYoa_unifiedText",
 			"unifiedHunkHeader": "R1EYoa_unifiedHunkHeader",
-			"unifiedCopyButton": "R1EYoa_unifiedCopyButton"
+			"unifiedLine": "R1EYoa_unifiedLine",
+			"unified_context": "R1EYoa_unified_context",
+			"unifiedPath": "R1EYoa_unifiedPath",
+			"unifiedCopyButton": "R1EYoa_unifiedCopyButton",
+			"unifiedText": "R1EYoa_unifiedText",
+			"unifiedOmitted": "R1EYoa_unifiedOmitted",
+			"unifiedEmbedded": "R1EYoa_unifiedEmbedded",
+			"unified_add": "R1EYoa_unified_add",
+			"unified_del": "R1EYoa_unified_del",
+			"unifiedFile": "R1EYoa_unifiedFile",
+			"unifiedAdded": "R1EYoa_unifiedAdded",
+			"unifiedRemoved": "R1EYoa_unifiedRemoved",
+			"unifiedSign": "R1EYoa_unifiedSign",
+			"unifiedGap": "R1EYoa_unifiedGap",
+			"unifiedHeader": "R1EYoa_unifiedHeader",
+			"unifiedBody": "R1EYoa_unifiedBody",
+			"unifiedStatus": "R1EYoa_unifiedStatus",
+			"unifiedBlock": "R1EYoa_unifiedBlock"
 		};
 		//#endregion
 		//#region src/client/UnifiedDiff.tsx
@@ -5789,44 +5798,44 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var FileReviewTab_module_css_default = {
+			"archiveTitle": "f6ZLOa_archiveTitle",
+			"header": "f6ZLOa_header",
+			"fileItem": "f6ZLOa_fileItem",
+			"fileList": "f6ZLOa_fileList",
+			"fileRow": "f6ZLOa_fileRow",
+			"chevronOpen": "f6ZLOa_chevronOpen",
+			"diffUnavailable": "f6ZLOa_diffUnavailable",
+			"fileName": "f6ZLOa_fileName",
+			"deletedBadge": "f6ZLOa_deletedBadge",
 			"headerTitle": "f6ZLOa_headerTitle",
 			"removed": "f6ZLOa_removed",
-			"fileItem": "f6ZLOa_fileItem",
-			"notice": "f6ZLOa_notice",
-			"body": "f6ZLOa_body",
-			"turnHeader": "f6ZLOa_turnHeader",
-			"added": "f6ZLOa_added",
-			"deletedBadge": "f6ZLOa_deletedBadge",
-			"turnCount": "f6ZLOa_turnCount",
-			"badgeUndone": "f6ZLOa_badgeUndone",
+			"chevron": "f6ZLOa_chevron",
 			"actionButton": "f6ZLOa_actionButton",
-			"reviewDiff": "f6ZLOa_reviewDiff",
-			"badgeError": "f6ZLOa_badgeError",
+			"notice": "f6ZLOa_notice",
+			"stateBadge": "f6ZLOa_stateBadge",
+			"noticeError": "f6ZLOa_noticeError",
+			"body": "f6ZLOa_body",
+			"badgeUndone": "f6ZLOa_badgeUndone",
+			"editorButton": "f6ZLOa_editorButton",
+			"archiveSection": "f6ZLOa_archiveSection",
 			"archiveHeader": "f6ZLOa_archiveHeader",
-			"archiveTitle": "f6ZLOa_archiveTitle",
-			"diffUnavailable": "f6ZLOa_diffUnavailable",
-			"fileRow": "f6ZLOa_fileRow",
-			"turnGroup": "f6ZLOa_turnGroup",
-			"badgeMuted": "f6ZLOa_badgeMuted",
-			"empty": "f6ZLOa_empty",
-			"buttonIcon": "f6ZLOa_buttonIcon",
 			"smallButton": "f6ZLOa_smallButton",
 			"diffWrap": "f6ZLOa_diffWrap",
+			"badgeError": "f6ZLOa_badgeError",
 			"turnTitle": "f6ZLOa_turnTitle",
-			"noticeSuccess": "f6ZLOa_noticeSuccess",
-			"noticeError": "f6ZLOa_noticeError",
 			"root": "f6ZLOa_root",
+			"empty": "f6ZLOa_empty",
+			"added": "f6ZLOa_added",
+			"buttonIcon": "f6ZLOa_buttonIcon",
 			"stats": "f6ZLOa_stats",
-			"chevronOpen": "f6ZLOa_chevronOpen",
-			"fileName": "f6ZLOa_fileName",
+			"turnHeader": "f6ZLOa_turnHeader",
 			"liveBadge": "f6ZLOa_liveBadge",
-			"fileList": "f6ZLOa_fileList",
-			"header": "f6ZLOa_header",
+			"turnCount": "f6ZLOa_turnCount",
+			"noticeSuccess": "f6ZLOa_noticeSuccess",
+			"badgeMuted": "f6ZLOa_badgeMuted",
 			"refreshButton": "f6ZLOa_refreshButton",
-			"editorButton": "f6ZLOa_editorButton",
-			"stateBadge": "f6ZLOa_stateBadge",
-			"archiveSection": "f6ZLOa_archiveSection",
-			"chevron": "f6ZLOa_chevron"
+			"reviewDiff": "f6ZLOa_reviewDiff",
+			"turnGroup": "f6ZLOa_turnGroup"
 		};
 		//#endregion
 		//#region src/client/FileReviewTab.tsx
@@ -6560,60 +6569,60 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var ProducedFiles_module_css_default = {
-			"drawerBody": "KiILGG_drawerBody",
-			"reviewDiff": "KiILGG_reviewDiff",
-			"fileRow": "KiILGG_fileRow",
-			"noticeFiles": "KiILGG_noticeFiles",
-			"reviewButton": "KiILGG_reviewButton",
-			"drawer": "KiILGG_drawer",
-			"drawerSubtitle": "KiILGG_drawerSubtitle",
-			"reviewFile": "KiILGG_reviewFile",
-			"fileIconWrap": "KiILGG_fileIconWrap",
-			"openButton": "KiILGG_openButton",
-			"reviewFileHeader": "KiILGG_reviewFileHeader",
-			"drawer-enter": "KiILGG_drawer-enter",
-			"toastCloseButton": "KiILGG_toastCloseButton",
-			"toast": "KiILGG_toast",
-			"noticeFileArrow": "KiILGG_noticeFileArrow",
-			"drawerSplit": "KiILGG_drawerSplit",
-			"fileList": "KiILGG_fileList",
-			"resizeHandle": "KiILGG_resizeHandle",
-			"drawerHeading": "KiILGG_drawerHeading",
-			"reviewStatus": "KiILGG_reviewStatus",
-			"reviewPath": "KiILGG_reviewPath",
-			"reviewUnavailable": "KiILGG_reviewUnavailable",
-			"removed": "KiILGG_removed",
-			"drawerTitle": "KiILGG_drawerTitle",
-			"card": "KiILGG_card",
-			"noticeIcon": "KiILGG_noticeIcon",
-			"toastTitle": "KiILGG_toastTitle",
-			"deletedBadge": "KiILGG_deletedBadge",
-			"toastCopy": "KiILGG_toastCopy",
-			"noticeDismissButton": "KiILGG_noticeDismissButton",
-			"cardHeader": "KiILGG_cardHeader",
-			"noticeIconSvg": "KiILGG_noticeIconSvg",
-			"drawerResizing": "KiILGG_drawerResizing",
-			"fileName": "KiILGG_fileName",
-			"toastDescription": "KiILGG_toastDescription",
 			"closeIcon": "KiILGG_closeIcon",
-			"added": "KiILGG_added",
-			"cardTitleBlock": "KiILGG_cardTitleBlock",
-			"closeButton": "KiILGG_closeButton",
-			"icon": "KiILGG_icon",
-			"buttonIcon": "KiILGG_buttonIcon",
-			"toolbarButton": "KiILGG_toolbarButton",
-			"cardTitle": "KiILGG_cardTitle",
-			"moreFiles": "KiILGG_moreFiles",
-			"drawerHeader": "KiILGG_drawerHeader",
-			"toastError": "KiILGG_toastError",
+			"reviewPath": "KiILGG_reviewPath",
+			"toast": "KiILGG_toast",
+			"toastTitle": "KiILGG_toastTitle",
 			"toggleButton": "KiILGG_toggleButton",
-			"stats": "KiILGG_stats",
-			"toastHeader": "KiILGG_toastHeader",
-			"noticeFileButton": "KiILGG_noticeFileButton",
-			"noticeFileListLabel": "KiILGG_noticeFileListLabel",
-			"toastSuccess": "KiILGG_toastSuccess",
+			"openButton": "KiILGG_openButton",
+			"removed": "KiILGG_removed",
+			"drawerHeading": "KiILGG_drawerHeading",
+			"toastCopy": "KiILGG_toastCopy",
+			"toastCloseButton": "KiILGG_toastCloseButton",
+			"noticeFiles": "KiILGG_noticeFiles",
 			"noticeFileList": "KiILGG_noticeFileList",
-			"noticeFilePath": "KiILGG_noticeFilePath"
+			"reviewStatus": "KiILGG_reviewStatus",
+			"cardHeader": "KiILGG_cardHeader",
+			"cardTitleBlock": "KiILGG_cardTitleBlock",
+			"cardTitle": "KiILGG_cardTitle",
+			"fileName": "KiILGG_fileName",
+			"noticeFileArrow": "KiILGG_noticeFileArrow",
+			"resizeHandle": "KiILGG_resizeHandle",
+			"moreFiles": "KiILGG_moreFiles",
+			"stats": "KiILGG_stats",
+			"added": "KiILGG_added",
+			"drawerResizing": "KiILGG_drawerResizing",
+			"reviewButton": "KiILGG_reviewButton",
+			"drawerSubtitle": "KiILGG_drawerSubtitle",
+			"fileIconWrap": "KiILGG_fileIconWrap",
+			"toastError": "KiILGG_toastError",
+			"closeButton": "KiILGG_closeButton",
+			"toastHeader": "KiILGG_toastHeader",
+			"noticeIcon": "KiILGG_noticeIcon",
+			"toastSuccess": "KiILGG_toastSuccess",
+			"toastDescription": "KiILGG_toastDescription",
+			"toolbarButton": "KiILGG_toolbarButton",
+			"noticeFileListLabel": "KiILGG_noticeFileListLabel",
+			"noticeFilePath": "KiILGG_noticeFilePath",
+			"buttonIcon": "KiILGG_buttonIcon",
+			"drawerTitle": "KiILGG_drawerTitle",
+			"drawerBody": "KiILGG_drawerBody",
+			"fileRow": "KiILGG_fileRow",
+			"reviewFile": "KiILGG_reviewFile",
+			"noticeIconSvg": "KiILGG_noticeIconSvg",
+			"reviewFileHeader": "KiILGG_reviewFileHeader",
+			"card": "KiILGG_card",
+			"drawerSplit": "KiILGG_drawerSplit",
+			"noticeDismissButton": "KiILGG_noticeDismissButton",
+			"drawer-enter": "KiILGG_drawer-enter",
+			"deletedBadge": "KiILGG_deletedBadge",
+			"reviewUnavailable": "KiILGG_reviewUnavailable",
+			"fileList": "KiILGG_fileList",
+			"noticeFileButton": "KiILGG_noticeFileButton",
+			"drawer": "KiILGG_drawer",
+			"reviewDiff": "KiILGG_reviewDiff",
+			"drawerHeader": "KiILGG_drawerHeader",
+			"icon": "KiILGG_icon"
 		};
 		//#endregion
 		//#region src/client/ProducedFiles.tsx

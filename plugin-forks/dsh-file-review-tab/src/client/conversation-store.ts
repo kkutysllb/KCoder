@@ -94,6 +94,15 @@ export function resolveConversationStore(ctx: Context, sessionId: string): Conve
     // (nodes/turnEnds/turnTimings/partial/runningCalls) live on the
     // compatibility `legacy` slice; older carriers published them at the top
     // level — prefer the slice, fall back to the raw snapshot.
+    //
+    // useSyncExternalStore compares getSnapshot() results with Object.is on
+    // EVERY render — returning a freshly-built face object each call reads as
+    // "changed forever" and spins React into the #185 maximum-update-depth
+    // loop (the 0.5.2 crash). Cache the face keyed on the underlying snapshot
+    // reference: the source only swaps that reference on real publication.
+    let seen = false
+    let cachedSnap: unknown
+    let cachedFace: ConversationFace | null = null
     return {
       getSnapshot: () => {
         const snap = source.getSnapshot() as
@@ -101,13 +110,19 @@ export function resolveConversationStore(ctx: Context, sessionId: string): Conve
           | ConversationSnapshot
           | null
           | undefined
-        if (snap === undefined || snap === null) return null
-        if ('legacy' in snap && snap.legacy !== undefined && snap.legacy !== null) {
-          return { legacy: snap.legacy, timeline: snap.timeline }
+        if (seen && snap === cachedSnap) return cachedFace
+        let face: ConversationFace | null
+        if (snap === undefined || snap === null) face = null
+        else if ('legacy' in snap && snap.legacy !== undefined && snap.legacy !== null) {
+          face = { legacy: snap.legacy, timeline: snap.timeline }
         }
         // Older carriers publish the transcript at the top level, without a
         // timeline — consumers degrade to the windowed derive.
-        return { legacy: snap as ConversationSnapshot, timeline: undefined }
+        else face = { legacy: snap as ConversationSnapshot, timeline: undefined }
+        seen = true
+        cachedSnap = snap
+        cachedFace = face
+        return face
       },
       subscribe: (listener) => source.subscribe(listener),
     }
