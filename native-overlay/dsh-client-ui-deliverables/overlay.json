@@ -1,6 +1,0 @@
-{
-  "package": "@deepseek-ai/dsh-client-ui-deliverables",
-  "targetVersion": "0.1.1-rc.2",
-  "mark": "kcoderc:deliverables-card",
-  "description": "KCoder native overlay: GitHub-style summary card (header icon/title/total +N/−N/actions, mono file rows with right-aligned deltas, show-more footer, hover highlight; review mode expands per-file red/green hunks) and pure-audit conclusion card on the upstream ProducedFiles turn-tail entry. Applied in place onto the running dsh installation tree by desktop/main/native-overlay.ts; regenerated against .patches/dsh-client-ui-deliverables-original when the pinned upstream version moves. Mark bumped from kcoderc:deliverables-review so trees carrying the previous overlay re-apply."
-}
