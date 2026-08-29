@@ -1,0 +1,63 @@
+{
+  "name": "@kcoder/flowglass",
+  "version": "0.4.1-kcoder.1",
+  "description": "流镜（KCoder 内置收编版，fork 自 Iwctwbh/dsh-flowglass 0.4.1 并补全 host inject 声明）",
+  "type": "module",
+  "main": "./flowglass/lib/index.js",
+  "exports": {
+    ".": "./flowglass/lib/index.js",
+    "./client": "./flowglass/lib/client.js",
+    "./remote": "./flowglass/lib/remote.js",
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Iwctwbh/dsh-flowglass.git"
+  },
+  "license": "MIT",
+  "author": "Iwctwbh",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "plugin",
+    "flow"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./flowglass/cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  },
+  "files": [
+    "flowglass/lib/**",
+    "flowglass/manifest.json",
+    "flowglass/BUILDINFO.json",
+    "flowglass/cordis.patch.yml",
+    "flowglass/README.md",
+    "flowglass/LICENSE",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.19"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.1-rc.2",
+    "dsh-better-sidebar": ">=0.4.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "peerDependenciesMeta": {
+    "dsh-better-sidebar": {
+      "optional": true
+    }
+  }
+}

@@ -52,6 +52,9 @@ export const KCODER_TERMINAL_BUNDLE = '@kcoder/terminal'
 /** 文件审查 bundle 包名（独立插件，fork 自 Lzh3070/dsh-file-review-tab，源码见 plugin-forks/dsh-file-review-tab）。 */
 export const KCODER_FILE_REVIEW_BUNDLE = '@kcoder/file-review'
 
+/** 流镜 bundle 包名（收编自 Iwctwbh/dsh-flowglass 0.4.1 产物，补丁与更新方法见 bundle/kcoder-flowglass/FORK-NOTES.md）。 */
+export const KCODER_FLOWGLASS_BUNDLE = '@kcoder/flowglass'
+
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */
 const TEMPLATE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
 
@@ -74,7 +77,15 @@ const BUNDLES: BundledPlugin[] = [
   { pkg: KCODER_GIT_PANEL_BUNDLE, dir: 'kcoder-git-panel', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: KCODER_TERMINAL_BUNDLE, dir: 'kcoder-terminal', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: KCODER_FILE_REVIEW_BUNDLE, dir: 'kcoder-file-review', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
+  { pkg: KCODER_FLOWGLASS_BUNDLE, dir: 'kcoder-flowglass', entry: join('flowglass', 'lib', 'index.js'), intactFiles: [join('flowglass', 'lib', 'client.js')] },
 ]
+
+/**
+ * 被内置收编的第三方插件原名：用户可能仍以 registry 依赖装着它们
+ * （dependencies + bundles 双残留）。收编后旧副本继续被 loader 加载会与
+ * 内置副本双跑（或带着未修的 bug 重炸 entry），物化时一次性拔除。
+ */
+const ADOPTED_THIRD_PARTY = ['dsh-flowglass']
 
 /** 分发的 bundle 源目录（开发态仓库内；打包态 extraResources）。 */
 export function bundleSource(dir: string): string {
@@ -151,17 +162,28 @@ function materialize(profileDir: string, b: BundledPlugin): void {
     return
   }
   // @kcoder/* 全部是物化直写目录，不经 registry/pnpm 安装（上游 plugin.ts 亦
-  // 明确 bundles 不进 dependencies）。dependencies 里若有历史接线的残留声明
-  // （0.4.x 曾把 file-review 以 "0.4.1" 钉进依赖），pnpm 在 profile 跑
-  // install/update 时会去 registry 拉这个未发布包直接 404，挡住所有其他插件
-  // 的更新。注册 bundles 时顺手拔除残留，只保留 bundles 层叠这一条注册面。
+  // 明确 bundles 不进 dependencies）。dependencies 里若有历史接线或旧第三方
+  // 安装的残留声明（file-review 曾被钉 "0.4.1"、收编前的 dsh-flowglass），
+  // pnpm 在 profile 跑 install/update 时要么去 registry 拉 404 挡死全部更新，
+  // 要么与内置副本双跑。注册 bundles 时顺手拔除；被收编的第三方原包同步
+  // 从 bundles 层叠移除，只留内置副本这一条加载面。
   const dependencies = (manifest['dependencies'] ?? {}) as Record<string, unknown>
-  const staleDeps = BUNDLES.filter((x) => x.pkg in dependencies).map((x) => x.pkg)
-  if (staleDeps.length > 0) {
+  const removable = [...BUNDLES.map((x) => x.pkg), ...ADOPTED_THIRD_PARTY]
+  const staleDeps = removable.filter((x) => x in dependencies)
+  const staleBundles = ADOPTED_THIRD_PARTY.filter((x) => bundlesOf(manifest).includes(x))
+  if (staleDeps.length > 0 || staleBundles.length > 0) {
     for (const pkg of staleDeps) delete dependencies[pkg]
     manifest['dependencies'] = dependencies
+    if (staleBundles.length > 0) {
+      const bundles = bundlesOf(manifest).filter((x) => !ADOPTED_THIRD_PARTY.includes(x))
+      const dsh = (manifest['dsh'] ?? {}) as { profile?: Record<string, unknown> }
+      const profile = (dsh.profile ?? {}) as Record<string, unknown>
+      manifest['dsh'] = { ...dsh, profile: { ...profile, bundles } }
+    }
     writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
-    console.log(`[kcoder-bundle] 清除 profile dependencies 残留: ${staleDeps.join(', ')}`)
+    console.log(
+      `[kcoder-bundle] 清除 profile 收编残留: deps=[${staleDeps.join(', ')}] bundles=[${staleBundles.join(', ')}]`,
+    )
   }
   const bundles = bundlesOf(manifest)
   if (bundles.includes(b.pkg)) return
