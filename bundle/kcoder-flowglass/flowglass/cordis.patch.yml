@@ -1,4 +1,0 @@
-# dsh-flowglass · 原生静态 Host/Client 流镜 patch 层
-- insert:
-    - id: toolbox-bundle-flow
-      name: 'dsh-flowglass'
