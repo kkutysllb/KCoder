@@ -60,6 +60,10 @@ const PATCH_MARKS = {
     ['lib/index.js', "child.on('error', () => {})"],
     // 编辑区自适应增强特征（气泡扩宽 + textarea 随内容长高）
     ['lib/client.js', 'autoGrowEditBox'],
+    // alpha.1 composer 适配特征（findComposer 锚 data-composer-card 限定
+    // 查询 + findRail 限定 card 范围；与 profile-patches.ts 同步更新）
+    ['lib/client.js', "document.querySelector('[data-composer-card] textarea')"],
+    ['lib/client.js', "card.querySelector('[class*=\"_attachments\"]')"],
   ],
 }
 function resolveRepoRoot() {

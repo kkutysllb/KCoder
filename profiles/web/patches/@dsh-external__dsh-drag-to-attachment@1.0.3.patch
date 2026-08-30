@@ -2,16 +2,35 @@ diff --git a/lib/client.js b/lib/client.js
 index cb6bf08..9cc6bfb 100644
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -812,7 +812,7 @@
+@@ -812,7 +812,10 @@
        return { icon: '📄', color: '#6b7280' }
      }
-     function findRail() { return document.querySelector('[class*="_attachments"]') }
+-    function findRail() { return document.querySelector('[class*="_attachments"]') }
 -    function findComposer() { return document.querySelector('textarea') }
-+    function findComposer() { return document.querySelector('textarea') || document.querySelector('[contenteditable="true"]') }
++    function findRail(ta) {
++      var card = findCard(ta)
++      return card ? card.querySelector('[class*="_attachments"]') : null
++    }
++    function findComposer() { return document.querySelector('[data-composer-card] textarea') || document.querySelector('[data-composer-card] [contenteditable="true"]') }
      function findCard(ta) {
        var scroll = ta.parentElement && ta.parentElement.parentElement
        return scroll ? scroll.parentElement : null
-@@ -1468,6 +1468,7 @@ window.__ModuleLoader__.load({
+@@ -892,13 +895,13 @@
+         chip.append(label, remove)
+         bar.append(chip)
+       })
+-      var rail = findRail()
++      var rail = findRail(ta)
+       if (rail) {
+         rail.appendChild(bar)
+       } else {
+         var card = findCard(ta)
+         if (!card) return
+         var scroll = ta.parentElement.parentElement
+         card.insertBefore(bar, scroll)
+       }
+     }
+@@ -1468,6 +1471,7 @@ window.__ModuleLoader__.load({
          if (!result.ok) throw new Error('conversation.send failed: ' + result.error.code + ': ' + result.error.message)
          if (hasImages && typeof this.releaseDraftImages === 'function') this.releaseDraftImages(attachments)
          clearFiles()
@@ -19,7 +38,7 @@ index cb6bf08..9cc6bfb 100644
        }
      }
  
-@@ -1607,24 +1608,45 @@ window.__ModuleLoader__.load({
+@@ -1607,24 +1611,45 @@ window.__ModuleLoader__.load({
        return React.createElement('svg', { width: size || 16, height: size || 16, viewBox: '0 0 24 24', fill: 'currentColor', style: { display: 'block' } },
          React.createElement('path', { d: d }))
      }
@@ -72,7 +91,7 @@ index cb6bf08..9cc6bfb 100644
      }
      function editUserText(text) {
        try {
-@@ -1637,7 +1659,7 @@ window.__ModuleLoader__.load({
+@@ -1637,7 +1662,7 @@ window.__ModuleLoader__.load({
          ta.dispatchEvent(new Event('input', { bubbles: true }))
        } catch (error) { /* best-effort */ }
      }
@@ -81,7 +100,7 @@ index cb6bf08..9cc6bfb 100644
        var hasText = typeof text === 'string' && text.trim() !== ''
        if (!hasText && timeMs === undefined) return null
        var items = []
-@@ -1650,7 +1672,10 @@ window.__ModuleLoader__.load({
+@@ -1650,7 +1675,10 @@ window.__ModuleLoader__.load({
        }
        if (hasText) {
          items.push(React.createElement('button', { key: 'copy', type: 'button', className: 'dta-user-action', title: '复制', 'aria-label': '复制', onClick: function () { copyUserText(text) }, style: iconBtnStyle() }, iconSvg(COPY_ICON_PATH)))
@@ -93,7 +112,7 @@ index cb6bf08..9cc6bfb 100644
        }
        return React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', height: '28px' } }, items)
      }
-@@ -1667,6 +1692,15 @@ window.__ModuleLoader__.load({
+@@ -1667,6 +1695,15 @@ window.__ModuleLoader__.load({
            if (block && block.type === 'image') nativeImages += 1
          })
          var text = texts.join('')
@@ -109,7 +128,7 @@ index cb6bf08..9cc6bfb 100644
          var parsed = parseAttachmentMarkup(text)
          if (parsed !== null && parsed.attachments.length > 0) {
            // Debug aid while diagnosing the card renderer.
-@@ -1681,9 +1715,50 @@ window.__ModuleLoader__.load({
+@@ -1681,9 +1718,50 @@ window.__ModuleLoader__.load({
            fontSize: '16px', lineHeight: '24px',
            wordBreak: 'break-word',
          }
@@ -161,7 +180,7 @@ index cb6bf08..9cc6bfb 100644
          var rowAttrs = { 'data-time-hover-root': '1' }
          if (parsed === null) {
            // No attachment markup: approximate the native user bubble.
-@@ -1694,7 +1769,26 @@ window.__ModuleLoader__.load({
+@@ -1694,7 +1772,26 @@ window.__ModuleLoader__.load({
                    return React.createElement('img', { key: i, src: '#', alt: 'image', style: { width: '64px', height: '64px', objectFit: 'cover', borderRadius: '6px', background: 'rgba(0,0,0,.08)' } })
                  })
                ) : null,

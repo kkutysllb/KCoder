@@ -30,6 +30,11 @@
  *   其键名 pkgNameOf 产出带 __edit-copy 后缀、恒不匹配 dependencies，
  *   声明从未写入——0.2.7 至 0.2.10 增强实际从未应用的根因；同包
  *   pnpm 仅支持一个 patchedDependencies 声明，合并是唯一正解）
+ *   3) alpha.1 composer 适配（findComposer fallback + renderChips 挂载
+ *      限定）：上游把输入框换 contenteditable div 且附件预览槽改
+ *      renderSlot 机制，原版 findComposer 恒 null、findRail 全局盲选
+ *      误命中 file-review-tab 嵌套旧包的附件容器（chips 渲染进 git
+ *      面板的现场实证）
  * - dsh-video-preview（用户自装，genui 同款「自装也覆盖」）：VIDEO_EXTS
  *   把 "ts" 当 MPEG-TS 流抢先声明，TypeScript 源码全被视频播放器接管
  *   （matchFileViewer 按 priority 降序，video（0）压过内置 code 兑底
@@ -109,6 +114,9 @@ const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
   // editBtnStyle.PRIMARY 都是 KCoder 引入，足够稳定不可误判）
   '@dsh-external/dsh-drag-to-attachment': [
     ['lib/client.js', "clearFiles()\n        return { kind: 'success' }"],
+    // alpha.1 contenteditable composer 适配特征（findRail 限定 card 范围；
+    // 原版 findRail 无 card.querySelector 组合，不可误判）
+    ['lib/client.js', "card.querySelector('[class*=\"_attachments\"]')"],
     // Everything spawn 防崩修复（单行 mark：即便无读侧行尾归一化也不受
     // CRLF 产物影响）
     ['lib/index.js', "child.on('error', () => {})"],
@@ -150,15 +158,46 @@ interface PatchFallback {
 
 const PATCH_FALLBACKS: PatchFallback[] = [
   {
-    // alpha.1 把输入框从 <textarea> 换成 contenteditable div
-    // （CSS Modules 类名 *_input），findComposer 写死 querySelector('textarea')
-    // 恒 null → renderChips 首行早退：粘贴/拖拽的缩略 chips 永不渲染
-    // （存图 fetch 正常，纯展示断）。composer 类名层级（input→grow→
-    // scroll→card）与 textarea 时代同构，findCard/insertBefore 无需动。
+    // alpha.1 把输入框从 <textarea> 换成 contenteditable div。只加
+    // contenteditable fallback 还不够（996df95 的教训）：composer 不再是
+    // textarea 后，全局 querySelector('textarea') 命中的是 git-panel 的
+    // 提交信息输入框——|| 短路，fallback 分支根本走不到，ta 从源头就选
+    // 错对象（chips 渲染进 git 面板的完整根因）。锚上游官方属性
+    // data-composer-card（产物 JSX 实证）限定查询范围。两条规则分别
+    // 锚定原版与 996df95 形态的现场，replace 均为终态。
     pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
-    mark: 'document.querySelector(\'[contenteditable="true"]\')',
+    mark: "document.querySelector('[data-composer-card] textarea')",
     anchor: "function findComposer() { return document.querySelector('textarea') }",
-    replace: "function findComposer() { return document.querySelector('textarea') || document.querySelector('[contenteditable=\"true\"]') }",
+    replace: "function findComposer() { return document.querySelector('[data-composer-card] textarea') || document.querySelector('[data-composer-card] [contenteditable=\"true\"]') }",
+  },
+  {
+    // 同上，锚 996df95 形态（已应用过 contenteditable fallback 的现场）
+    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
+    mark: "document.querySelector('[data-composer-card] textarea')",
+    anchor: "function findComposer() { return document.querySelector('textarea') || document.querySelector('[contenteditable=\"true\"]') }",
+    replace: "function findComposer() { return document.querySelector('[data-composer-card] textarea') || document.querySelector('[data-composer-card] [contenteditable=\"true\"]') }",
+  },
+  {
+    // findComposer 修复后的第二断点（现场实证：chips 渲染进了 git 面板）：
+    // alpha.1 的附件预览槽已改 renderSlot('conversation.input.attachments')
+    // 机制、composer 内不再有 *_attachments 类名的 rail；renderChips 的
+    // findRail 仍是全局 querySelector('[class*="_attachments"]')，命中的
+    // 是 file-review-tab 嵌套旧版 conversation 包的附件卡容器——chips 全
+    // 塞进 git 面板。rail 查询限定 composer card 范围内：card 内无 rail
+    // 则回退 insertBefore 到 scroll 之前（与上游 attachments slot 同位，
+    // input→grow→scroll→card 层级已按 alpha.1 产物实证）。
+    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
+    mark: "card.querySelector('[class*=\"_attachments\"]')",
+    anchor: "function findRail() { return document.querySelector('[class*=\"_attachments\"]') }",
+    replace: "function findRail(ta) {\n      var card = findCard(ta)\n      return card ? card.querySelector('[class*=\"_attachments\"]') : null\n    }",
+  },
+  {
+    // findRail 改签名（ta → card 范围查询）后调用点同步传 ta；与上一规则
+    // 成对，单行锚不受产物行尾影响
+    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
+    mark: 'var rail = findRail(ta)',
+    anchor: 'var rail = findRail()',
+    replace: 'var rail = findRail(ta)',
   },
   {
     // video-preview 复役锄点：原版扩展表含 "ts"（单次出现），删之留
