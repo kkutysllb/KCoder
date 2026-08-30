@@ -91,7 +91,8 @@ function fail(reason) {
   clearTimeout(timer)
   child.kill('SIGKILL')
   console.error(`[smoke] 失败：${reason}`)
-  console.error(buf.split('\n').slice(-25).join('\n'))
+  // 就绪行携启动 token，回显前脱敏（CI 日志公开可见）
+  console.error(buf.split('\n').slice(-25).map((l) => l.replace(/token=[^&\s]+/, 'token=<redacted>')).join('\n'))
   cleanup()
   process.exit(1)
 }
@@ -107,18 +108,34 @@ function poll() {
   const m = READY.exec(buf)
   if (m === null) { setTimeout(poll, 500); return }
   // authUrl = 就绪行整段（可能携 token）；旧基线无鉴权时即裸首页。
-  // 单请求验收：携 token 首访必须 200（303 铸 cookie 链路的终点页）。
-  // 不另验裸 origin：node 全局 fetch 无 cookie jar，cookie 不会跨请求携带，
-  // 而真实用户路径（浏览器）的 cookie 链路由桌面端 shell 窗口自有验收覆盖。
+  // token 鉴权链路是「首访携 token → 铸 cookie → 303 落首页」；node 全局
+  // fetch 无 cookie jar，redirect: 'follow' 跳转会丢 Set-Cookie 致落点仍 401，
+  // 故手动跟随：取 set-cookie + location，携 cookie 请求落点验 200。
   const authUrl = m[1]
-  fetch(authUrl, { redirect: 'follow' })
-    .then((res) => {
-      if (res.status !== 200) fail(`首页 HTTP ${res.status}（${authUrl.replace(/token=[^&\s]+/, 'token=<redacted>')}）`)
-      clearTimeout(timer)
-      done = true // 主动收尾，exit 事件不再视为失败
-      console.log(`[smoke] 通过：就绪行 + 首页 200（${authUrl.replace(/\?token=[^&\s]+/, '')}）`)
-      child.kill('SIGTERM')
-      setTimeout(() => { child.kill('SIGKILL'); cleanup(); process.exit(0) }, 300)
+  const redact = (u) => u.replace(/token=[^&\s]+/, 'token=<redacted>')
+  const pass = () => {
+    clearTimeout(timer)
+    done = true // 主动收尾，exit 事件不再视为失败
+    console.log(`[smoke] 通过：就绪行 + 首页 200（${authUrl.replace(/[?&]token=[^&\s]+/, '')}）`)
+    child.kill('SIGTERM')
+    setTimeout(() => { child.kill('SIGKILL'); cleanup(); process.exit(0) }, 300)
+  }
+  fetch(authUrl, { redirect: 'manual' })
+    .then(async (res) => {
+      if (res.status === 200) { pass(); return } // 无鉴权基线：直接首页 200
+      const location = res.headers.get('location')
+      const setCookies = typeof res.headers.getSetCookie === 'function'
+        ? res.headers.getSetCookie()
+        : (res.headers.get('set-cookie') ? [res.headers.get('set-cookie')] : [])
+      if (res.status >= 300 && res.status < 400 && location && setCookies.length > 0) {
+        const target = new URL(location, authUrl).href
+        const cookie = setCookies.map((c) => c.split(';')[0]).join('; ')
+        const res2 = await fetch(target, { headers: { cookie }, redirect: 'follow' })
+        if (res2.status === 200) { pass(); return }
+        fail(`鉴权后首页 HTTP ${res2.status}（${redact(target)}）`)
+        return
+      }
+      fail(`首页 HTTP ${res.status}（${redact(authUrl)}）`)
     })
     .catch((e) => fail(`首页请求异常：${e.message}`))
 }
