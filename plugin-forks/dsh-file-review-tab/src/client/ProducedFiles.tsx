@@ -8,7 +8,7 @@
 // one clicked path) as `meta.expandPaths` so the tab expands exactly those
 // diffs. The Undo/Reapply toggle is unchanged.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
@@ -21,6 +21,21 @@ import css from './ProducedFiles.module.css'
 
 /** Keep the turn-tail card compact; the sidebar tab always lists every file. */
 const SHOWN_LIMIT = 6
+
+/**
+ * Minimal reactive face of the plugin's conversation snapshot store (the
+ * inject side passes its resolveConversationStore result). The snapshot
+ * value is opaque here — it only signals that the reviews derivation must
+ * re-run; collectReviews resolves the current snapshot itself per call.
+ */
+export interface ChangesStoreFace {
+  getSnapshot(): unknown
+  subscribe(listener: () => void): () => void
+}
+
+/** useSyncExternalStore fallbacks for carriers without a changes store. */
+const subscribeNever = (): (() => void) => () => {}
+const getNullSnapshot = (): unknown => null
 const SUCCESS_NOTICE_DURATION = 2000
 const ERROR_NOTICE_DURATION = 5000
 
@@ -46,6 +61,16 @@ export type ProducedFilesProps = Pick<TurnTailOwnerProps, 'openFile' | 'turn'> &
    * carries paths only. Paths without a review render as hunk-less chips.
    */
   collectReviews?: (turn: number) => readonly ProducedFileReview[]
+  /**
+   * Reactive face of the plugin's conversation snapshot store. The slot
+   * framework caches this entry's inject result per session, so reviews
+   * reconstructed through collectReviews are frozen at whatever snapshot
+   * was current when the session's FIRST card rendered. Subscribing here
+   * re-derives the stats whenever the snapshot reference moves (turn data
+   * published after the card mounted); absent on carriers without the
+   * uiConversation service.
+   */
+  changesStore?: ChangesStoreFace | undefined
   /** Session workspace root (reserved; the chat card shows tool paths verbatim). */
   projectRoot?: string | undefined
   inspectChanges?: (request: FileReviewRequest) => Promise<FileReviewResult>
@@ -197,7 +222,7 @@ function Stats({ stats, label }: { readonly stats: UnifiedDiffStats; readonly la
 
 /** Render one turn's produced files as a summary card opening the sidebar tab. */
 export function ProducedFiles({
-  matched, collectReviews, openFile, turn: turnLocation,
+  matched, collectReviews, changesStore, openFile, turn: turnLocation,
   inspectChanges = unavailableChanges, applyChanges = unavailableChanges,
   openInSidebarTab, t,
 }: ProducedFilesProps) {
@@ -206,11 +231,20 @@ export function ProducedFiles({
   const turnNumber = turnLocation.turn
   // The chip list follows the built-in deliverables paths (the claim input);
   // hunks/deletion state join from the snapshot derive where available.
+  // changesVersion is the reactive trigger: the conversation snapshot
+  // reference moves whenever turn Location data (this plugin's Definition)
+  // publishes or updates, and each move re-derives the reviews below —
+  // otherwise a card mounted before its turn's data landed would stay at
+  // +0 -0 until reload.
+  const changesVersion = useSyncExternalStore(
+    changesStore?.subscribe ?? subscribeNever,
+    changesStore?.getSnapshot ?? getNullSnapshot,
+  )
   const reviews = useMemo<readonly ProducedFileReview[]>(() => {
     const derived = collectReviews?.(turnNumber)
     const byPath = new Map((derived ?? []).map(review => [review.path, review]))
     return matched.map(path => byPath.get(path) ?? { path, diffs: [] })
-  }, [collectReviews, turnNumber, matched])
+  }, [collectReviews, turnNumber, matched, changesVersion])
   const [toggleAction, setToggleAction] = useState<FileReviewAction>('undo')
   const [statusPending, setStatusPending] = useState(true)
   const [togglePending, setTogglePending] = useState(false)

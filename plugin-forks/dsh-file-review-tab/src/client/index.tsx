@@ -255,9 +255,16 @@ export function apply(ctx: Context): void {
         // Reviews for the claiming turn: the session-wide turn data first
         // (this plugin's Definition — complete hunks for EVERY loaded turn),
         // with the windowed snapshot derive as the timeline-less fallback.
+        // The snapshot is resolved PER CALL on purpose: the slots framework
+        // caches this entry's inject result per session (ui-renderer's
+        // sessionInjectCache), so a face captured in this closure would stay
+        // frozen at whichever turn was current when the session's FIRST card
+        // rendered — every later turn would read as +0 -0 until reload. The
+        // card re-derives when the reactive `changesStore` face moves
+        // (subscribed via useSyncExternalStore inside ProducedFiles).
         const store = resolveConversationStore(ctx, sessionId)
-        const face = store?.getSnapshot() ?? null
         const collectReviews = (turn: number): readonly ProducedFileReview[] => {
+          const face = store?.getSnapshot() ?? null
           const own = face?.timeline?.turns.get(turn)?.data.get('fileReviewChanges') as
             | { files?: readonly ProducedFileReview[] }
             | undefined
@@ -275,6 +282,11 @@ export function apply(ctx: Context): void {
           inspectChanges: (request: FileReviewRequest) => invoke('status', request),
           applyChanges: (request: FileReviewRequest) => invoke('apply', request),
           collectReviews,
+          // Reactive face for the card's useSyncExternalStore subscription
+          // (the fix half of the frozen-inject problem above). Identity used
+          // to be stable only via the framework's cache; passing the store
+          // itself keeps the hook subscribed exactly once per session.
+          changesStore: store,
           // 审查 button / per-file chip: open (or focus) the sidebar tab with
           // these paths pre-expanded. updateTab runs FIRST: an already-open
           // tab receives the fresh meta reference here (the tab replays the
