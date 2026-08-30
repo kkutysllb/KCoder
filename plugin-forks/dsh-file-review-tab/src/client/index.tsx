@@ -255,16 +255,24 @@ export function apply(ctx: Context): void {
         // Reviews for the claiming turn: the session-wide turn data first
         // (this plugin's Definition — complete hunks for EVERY loaded turn),
         // with the windowed snapshot derive as the timeline-less fallback.
-        // The snapshot is resolved PER CALL on purpose: the slots framework
-        // caches this entry's inject result per session (ui-renderer's
-        // sessionInjectCache), so a face captured in this closure would stay
-        // frozen at whichever turn was current when the session's FIRST card
-        // rendered — every later turn would read as +0 -0 until reload. The
-        // card re-derives when the reactive `changesStore` face moves
-        // (subscribed via useSyncExternalStore inside ProducedFiles).
-        const store = resolveConversationStore(ctx, sessionId)
+        // The resolved store is identity-stable per session (its getSnapshot
+        // caches the face keyed on the underlying snapshot reference — what
+        // useSyncExternalStore needs to avoid the #185 max-update loop), but
+        // it only EXISTS once the session binds to the uiConversation service.
+        // The slots framework caches this entry's inject result per session,
+        // so capturing the resolution at first run would freeze the card at
+        // +0 -0 whenever the binding is not ready yet (cold start / fresh
+        // session). Resolve lazily and cache the first defined store, so a
+        // card rendered before the binding self-heals once it lands.
+        let cachedStore: ReturnType<typeof resolveConversationStore>
+        const getStore = () => {
+          if (cachedStore !== undefined) return cachedStore
+          const store = resolveConversationStore(ctx, sessionId)
+          if (store !== undefined) cachedStore = store
+          return store
+        }
         const collectReviews = (turn: number): readonly ProducedFileReview[] => {
-          const face = store?.getSnapshot() ?? null
+          const face = getStore()?.getSnapshot() ?? null
           const own = face?.timeline?.turns.get(turn)?.data.get('fileReviewChanges') as
             | { files?: readonly ProducedFileReview[] }
             | undefined
@@ -283,10 +291,14 @@ export function apply(ctx: Context): void {
           applyChanges: (request: FileReviewRequest) => invoke('apply', request),
           collectReviews,
           // Reactive face for the card's useSyncExternalStore subscription
-          // (the fix half of the frozen-inject problem above). Identity used
-          // to be stable only via the framework's cache; passing the store
-          // itself keeps the hook subscribed exactly once per session.
-          changesStore: store,
+          // (the fix half of the frozen-inject problem above). The accessors
+          // resolve the underlying store PER CALL so a not-yet-bound session
+          // (cold start) self-heals once the service is ready; the wrapper
+          // object itself is constant so the hook subscribes exactly once.
+          changesStore: {
+            getSnapshot: () => getStore()?.getSnapshot() ?? null,
+            subscribe: (listener: () => void) => getStore()?.subscribe(listener) ?? (() => {}),
+          },
           // 审查 button / per-file chip: open (or focus) the sidebar tab with
           // these paths pre-expanded. updateTab runs FIRST: an already-open
           // tab receives the fresh meta reference here (the tab replays the
