@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
     const { MarkdownText: TOOLBOX_MARKDOWN_TEXT } = require('@deepseek-ai/dsh-client-ui-primitives')
     const { createPortal: TOOLBOX_CREATE_PORTAL } = require('react-dom')
     const name = "dsh-flowglass/client"
-    const inject = ['slots', 'remote', 'timer']
+    const inject = ['slots', 'remote', 'timer', 'sessions', 'theme']
 
     const TOOLBOX_RUNTIME_OVERRIDES = {
   "mode": "static-bundle",

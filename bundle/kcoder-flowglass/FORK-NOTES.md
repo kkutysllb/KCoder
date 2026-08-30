@@ -8,9 +8,9 @@
   `flowglass/lib` 即上游产物本体 + 下列 KCoder 补丁。作者更新缓慢，此后由
   KCoder 自行维护（产物级补丁，补丁以 `FORK-NOTES.md` + git diff 为准）。
 
-## 与上游 0.4.1 的差异（全部在 `flowglass/lib/index.js`）
+## 与上游 0.4.1 的差异（产物级补丁）
 
-1. **补全 host `inject` 声明**（KCoder 补丁，上游 bug）：
+1. **补全 host `inject` 声明**（`flowglass/lib/index.js`，KCoder 补丁，上游 bug）：
 
    ```diff
    - export const inject = ["fs","sessionQuery","timer"]
@@ -26,8 +26,23 @@
    （headless：sessions/agents/agentDefaultModel；schedule：sessionPersistence；
    llm-*：llm；terminal-bash/bash-sandbox：sandboxPolicy/subprocess）。
 
-2. 外层 `package.json`：包名 `dsh-flowglass` → `@kcoder/flowglass`，版本
-   `0.4.1` → `0.4.1-kcoder.1`。插件内部标识（cordis `name: "dsh-flowglass"`、
+2. **补全 client `inject` 声明**（`flowglass/lib/client.js` L11，同一根因的
+   client 侧翻版，0.4.1-kcoder.2）：
+
+   ```diff
+   - const inject = ['slots', 'remote', 'timer']
+   + const inject = ['slots', 'remote', 'timer', 'sessions', 'theme']
+   ```
+
+   client 顶层 apply 实际 `ctx.get('sessions')`/`ctx.get('theme')`
+   （L183-184；L139 的子 feature 声明了 sessions，但顶层 apply 没有），
+   web 端 client loader 严格解析同样直接 throw「cannot get property
+   "sessions" without inject」——host 修好后由 client 侧接棒报错。
+   theme 服务存在性已验证（ui-theme `ctx.provide('theme')`，ui-layout
+   client 同款声明 `['slots','theme','locale']`）。
+
+3. 外层 `package.json`：包名 `dsh-flowglass` → `@kcoder/flowglass`，版本
+   `0.4.1` → `0.4.1-kcoder.N`。插件内部标识（cordis `name: "dsh-flowglass"`、
    patch id `toolbox-bundle-flow`、toolbox 前缀、manifest.json）一律保留上游
    原值——这些字符串被内部逻辑与 patch 层引用，改名风险大于收益。
 

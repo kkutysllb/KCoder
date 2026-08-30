@@ -1,6 +1,6 @@
 {
   "name": "@kcoder/flowglass",
-  "version": "0.4.1-kcoder.1",
+  "version": "0.4.1-kcoder.2",
   "description": "流镜（KCoder 内置收编版，fork 自 Iwctwbh/dsh-flowglass 0.4.1 并补全 host inject 声明）",
   "type": "module",
   "main": "./flowglass/lib/index.js",
