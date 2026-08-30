@@ -75,15 +75,20 @@ const PAGE_JS = `(() => {
     // 给它们同一列宽，避免 options 的居中 flex 触发 shrink-to-fit。
     '[role="dialog"] [class*="_options"] > #__dsh_desktop_skills_section,[role="dialog"] [class*="_options"] > #__dsh_desktop_mcp_section,[role="dialog"] [class*="_options"] > #__dsh_desktop_about_section{box-sizing:border-box;width:min(100%,960px);max-width:960px;margin:0 auto;min-width:0}',
     // 通用设置：每个功能项独立成卡片，保留 slot wrapper 的地址能力。
-    '[role="dialog"] [data-slot="settings.general.item"]{display:block!important;width:100%;max-width:none!important;margin:0 0 14px!important}',
-    '[role="dialog"] [data-slot="settings.general.item"] > *{box-sizing:border-box;width:100%;margin:0!important;padding:20px 24px!important;border:1px solid var(--dsw-alias-border-l2);border-radius:16px!important;background:var(--dsw-alias-bg-module-platform);box-shadow:0 2px 10px rgba(9,16,29,.035)}',
+    // upstream slot wrapper 与 KCoder 注入容器（桌面样式定制/回答语言，
+    // 均自带 data-slot 属性）同为 section 直接子级：容器 margin 提供
+    // 三块之间的 20px 缝（组内末卡已归零，缝完全由容器 margin 提供；
+    // section 内最后一个容器由下方 :last-child 归零避免组尾空隙）。
+    '[role="dialog"] [data-slot="settings.general.item"]{display:block!important;width:100%;max-width:none!important;margin:0 0 20px!important}',
+    // 行间距挂在卡片自身：slot wrapper 是单个 display:contents 锚（内含
+    // 全部功能行），wrapper 级 margin 不产生行间隙；注入容器内部同构，
+    // 其 data-key 组走同一套卡片规则。末卡归零避免组尾多余空隙。
+    '[role="dialog"] [data-slot="settings.general.item"] > *{box-sizing:border-box;width:100%;margin:0 0 20px!important;padding:20px 24px!important;border:1px solid var(--dsw-alias-border-l2);border-radius:16px!important;background:var(--dsw-alias-bg-module-platform);box-shadow:0 2px 10px rgba(9,16,29,.035)}',
+    '[role="dialog"] [data-slot="settings.general.item"] > *:last-child{margin-bottom:0!important}',
     '[role="dialog"] [data-slot="settings.general.item"] > * [class*="_row"],[role="dialog"] [data-slot="settings.general.item"] > * [class*="_group"]{border-bottom:0}',
-    // 桌面样式注入项本身包含多组设置：外层只负责排版，组级别各自成卡。
-    '[role="dialog"] [data-slot="settings.general.item"] > #__dsh_desktop_style_item{display:grid;gap:14px;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important}',
-    '[role="dialog"] #__dsh_desktop_style_item > [data-key]{box-sizing:border-box;width:100%;margin:0!important;padding:20px 24px;border:1px solid var(--dsw-alias-border-l2);border-radius:16px;background:var(--dsw-alias-bg-module-platform);box-shadow:0 2px 10px rgba(9,16,29,.035)}',
     '[role="dialog"] [data-slot="settings.general.item"]:last-child{margin-bottom:0!important}',
     // 深色主题阴影减弱，避免卡片边缘发脏；浅色沿用同一套结构。
-    'body[data-ds-dark-theme] [role="dialog"] [data-slot="settings.general.item"] > *,body[data-ds-dark-theme] [role="dialog"] #__dsh_desktop_style_item > [data-key]{box-shadow:0 2px 12px rgba(0,0,0,.16)}',
+    'body[data-ds-dark-theme] [role="dialog"] [data-slot="settings.general.item"] > *{box-shadow:0 2px 12px rgba(0,0,0,.16)}',
     // 返回按钮：navCell 同款盒（40 高 r12）+ sidebar 交互 token
     '#' + BACK + '{display:flex;align-items:center;gap:8px;height:40px;padding:9px 16px 9px 12px;box-sizing:border-box;border:none;border-radius:12px;background:transparent;cursor:pointer;font:inherit;font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary);text-align:left;flex:none}',
     '#' + BACK + ':hover{background:var(--dsw-specific-sidebar-nav-item-hover)}',

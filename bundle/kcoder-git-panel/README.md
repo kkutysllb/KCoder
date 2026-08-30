@@ -81,6 +81,19 @@ dsh client-modules 按 `exports["./client"]` 读入、`/plugins` combo 路由
 - 面板开时内容区右侧让位（`--dsh-git-inset` + center/details 列
   padding-right，384px），与 better-sidebar 的让位变量互不覆盖。
 - 外部编排入口：`window.__dshGitPanelOpen()` / `window.__dshGitPanelToggle()`。
+- 设置页联动（v0.5.3）：进设置页自动收起、返回工作区履约展开（与
+  侧边栏互斥同款义务协议：仅自动收起带恢复，手动开关不参与义务并清
+  除在途义务）。检测锚与 settings-page.ts 同源：
+  `[class*="_overlay"] > [class*="_panel"][role="dialog"]`
+  （SettingsRoot 专属组合，不误伤 ui-primitives Modal）。
+
+## 主题跟随
+
+面板与 flyout 挂 body 子树（`body[data-ds-dark-theme]` 后代选择器轨道
+要求后代关系；SPA 重渲染只动 root 容器内部，body 直挂节点不受影响）。
+唯一主题轨道为应用内 `body[data-ds-dark-theme]` 标记（上游 ui-theme
+契约），不用 `prefers-color-scheme`——避免「应用内浅色 + 系统深色」
+三态组合下面板与应用壳不一致；应用内切主题即时生效。
 
 ## 物化与接线
 

@@ -100,8 +100,9 @@ window.__ModuleLoader__.load({
       const CSS = [
         '#' + PANEL_ID + '{position:fixed;right:' + PANEL_MARGIN + 'px;top:' + PANEL_TOP + 'px;width:min(' + PANEL_W + 'px,calc(100vw - 24px));height:clamp(' + PANEL_MIN_H + 'px,calc(100vh - ' + (PANEL_TOP + PANEL_MARGIN) + 'px),' + PANEL_MAX_H + 'px);z-index:2147483647;display:flex;flex-direction:column;font:400 12px/1.55 -apple-system,"PingFang SC","Segoe UI",sans-serif}',
         '#' + PANEL_ID + ' .gt-card{flex:1;min-height:0;display:flex;flex-direction:column;border-radius:12px;border:1px solid var(--gt-border);background:var(--gt-bg);box-shadow:0 14px 44px rgba(9,16,29,.22),0 2px 8px rgba(9,16,29,.10);overflow:hidden;color:var(--gt-fg);--gt-bg:#FFFFFF;--gt-header:#F9FAFB;--gt-fg:#1A1D21;--gt-border:rgba(0,0,0,.10);--gt-muted:rgba(26,29,33,.55);--gt-chip:rgba(128,128,128,.14);--gt-hover:rgba(128,128,128,.12);--gt-accent:#2F6FED;--gt-add:#1A7F37;--gt-del:#CF222E;--gt-mono:ui-monospace,Menlo,Monaco,monospace}',
-        '@media (prefers-color-scheme: dark){#' + PANEL_ID + ' .gt-card{--gt-bg:#1B1B1C;--gt-header:#222325;--gt-fg:#E8EAED;--gt-border:#2C2C2E;--gt-muted:rgba(232,234,237,.55);--gt-chip:rgba(128,128,128,.18);--gt-hover:rgba(128,128,128,.16);--gt-accent:#7C9BFF;--gt-add:#3FB950;--gt-del:#F85149;box-shadow:0 14px 44px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.4)}}',
-        // 应用内主题轨道（theme-watcher 同步上游暗色到 body 标记）
+        // 应用内主题轨道（唯一轨道；上游契约：以 body[data-ds-dark-theme]
+        // 为准——不用 prefers-color-scheme，避免「应用内浅色+系统深色」
+        // 三态组合下面板与应用壳不一致）
         'body[data-ds-dark-theme] #' + PANEL_ID + ' .gt-card{--gt-bg:#1B1B1C;--gt-header:#222325;--gt-fg:#E8EAED;--gt-border:#2C2C2E;--gt-muted:rgba(232,234,237,.55);--gt-chip:rgba(128,128,128,.18);--gt-hover:rgba(128,128,128,.16);--gt-accent:#7C9BFF;--gt-add:#3FB950;--gt-del:#F85149;box-shadow:0 14px 44px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.4)}',
         '#' + PANEL_ID + ' .gt-header{flex:none;height:34px;display:flex;align-items:center;gap:6px;padding:0 8px 0 12px;background:var(--gt-header);border-bottom:1px solid var(--gt-border);user-select:none}',
         '#' + PANEL_ID + ' .gt-ws{display:inline-flex;align-items:center;gap:5px;min-width:0;flex:1;font:600 12px/1 var(--gt-mono)}',
@@ -179,7 +180,6 @@ window.__ModuleLoader__.load({
         '#' + PANEL_ID + ' .gt-hintline{font-size:10px;color:var(--gt-muted);min-height:12px}',
         // ---- flyout（工作位置 / 分支选择器） ----
         '#' + FLY_ID + '{position:fixed;z-index:2147483647;width:264px;max-height:420px;display:flex;flex-direction:column;border-radius:12px;border:1px solid var(--gt-border);background:var(--gt-bg);color:var(--gt-fg);box-shadow:0 14px 44px rgba(9,16,29,.22),0 2px 8px rgba(9,16,29,.10);overflow:hidden;--gt-bg:#FFFFFF;--gt-fg:#1A1D21;--gt-border:rgba(0,0,0,.10);--gt-muted:rgba(26,29,33,.55);--gt-chip:rgba(128,128,128,.14);--gt-hover:rgba(128,128,128,.12);--gt-accent:#2F6FED;--gt-mono:ui-monospace,Menlo,Monaco,monospace}',
-        '@media (prefers-color-scheme: dark){#' + FLY_ID + '{--gt-bg:#1B1B1C;--gt-fg:#E8EAED;--gt-border:#2C2C2E;--gt-muted:rgba(232,234,237,.55);--gt-chip:rgba(128,128,128,.18);--gt-hover:rgba(128,128,128,.16);--gt-accent:#7C9BFF;box-shadow:0 14px 44px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.4)}}',
         'body[data-ds-dark-theme] #' + FLY_ID + '{--gt-bg:#1B1B1C;--gt-fg:#E8EAED;--gt-border:#2C2C2E;--gt-muted:rgba(232,234,237,.55);--gt-chip:rgba(128,128,128,.18);--gt-hover:rgba(128,128,128,.16);--gt-accent:#7C9BFF;box-shadow:0 14px 44px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.4)}',
         '#' + FLY_ID + ' .fly-cap{padding:10px 12px 4px;font-size:10px;color:var(--gt-muted);letter-spacing:.5px;user-select:none}',
         '#' + FLY_ID + ' .fly-search{all:unset;box-sizing:border-box;margin:6px 10px;display:flex;height:28px;padding:0 8px;border-radius:7px;border:1px solid var(--gt-border);color:var(--gt-fg);font-size:12px}',
@@ -209,7 +209,9 @@ window.__ModuleLoader__.load({
       style.textContent = CSS
       document.head.append(style)
 
-      /* ---- 面板骨架（挂 documentElement：SPA 重渲染不动它） ---- */
+      /* ---- 面板骨架（挂 body 子树：body[data-ds-dark-theme] 主题轨道是
+       * 后代选择器，面板必须是其后代才会跟随应用内主题切换；SPA 重渲染
+       * 只动 root 容器内部，body 直挂节点不受影响） ---- */
       const el = (tag, cls, text) => {
         const n = document.createElement(tag)
         if (cls) n.className = cls
@@ -297,13 +299,13 @@ window.__ModuleLoader__.load({
 
       card.append(header, status, body)
       panel.append(card)
-      document.documentElement.append(panel)
+      document.body.append(panel)
 
-      // flyout 容器（工作位置/分支选择器；面板左侧弹出）
+      // flyout 容器（工作位置/分支选择器；面板左侧弹出；同面板挂 body 子树）
       const fly = el('div')
       fly.id = FLY_ID
       fly.style.display = 'none'
-      document.documentElement.append(fly)
+      document.body.append(fly)
 
       /* ---- 数据与行为 ---- */
       const api = (method, payload) => fetch(API + '/' + method, {
@@ -416,7 +418,30 @@ window.__ModuleLoader__.load({
           setOpen(true)
         }
       }
-      new MutationObserver(applySidebarMutual).observe(document.body, {
+
+      /* ---- 设置页联动：进设置页自动收起（仅自动收起带恢复义务），
+         返回工作区履约展开。检测锚与 settings-page.ts 同源：
+         [class*="_overlay"] > [class*="_panel"][role="dialog"] 是
+         SettingsRoot 专属组合（ui-primitives Modal 结构不同不误伤）。
+         手动开关不参与义务；关闭路径（Escape/close/返回按钮）都是
+         dialog 卸载，同一条沿覆盖。 ---- */
+      let settingsYielded = false // 设置页义务：因进设置而收起（退出沿恢复）
+      let lastSettingsOpen = null // null = 初始态，不当沿
+      const settingsOpen = () =>
+        document.querySelector('[class*="_overlay"] > [class*="_panel"][role="dialog"]') !== null
+      const applySettingsYield = () => {
+        const so = settingsOpen()
+        if (lastSettingsOpen === so) return
+        lastSettingsOpen = so
+        if (so) {
+          if (open) { settingsYielded = true; setOpen(false) }
+        } else if (settingsYielded) {
+          settingsYielded = false
+          setOpen(true)
+        }
+      }
+      const applyBodyMutations = () => { applySidebarMutual(); applySettingsYield() }
+      new MutationObserver(applyBodyMutations).observe(document.body, {
         subtree: true, childList: true, attributes: true, attributeFilter: ['class'],
       })
 
@@ -793,19 +818,19 @@ window.__ModuleLoader__.load({
         btn.id = BTN_ID
         btn.title = 'git 工作区'
         btn.innerHTML = SVG.branch
-        btn.onclick = () => { yielded = false; setOpen(!open) } // 手动清义务
+        btn.onclick = () => { yielded = false; settingsYielded = false; setOpen(!open) } // 手动清义务
         host.append(btn)
         renderBadge()
         return true
       }
       setInterval(() => { injectBtn() }, 500)
 
-      closeBtn.onclick = () => { yielded = false; setOpen(false) } // 手动清义务
+      closeBtn.onclick = () => { yielded = false; settingsYielded = false; setOpen(false) } // 手动清义务
       refreshBtn.onclick = () => { void refresh() }
 
       // 开合 API（外部编排入口）
-      window.__dshGitPanelOpen = () => { if (!open) { yielded = false; setOpen(true) } }
-      window.__dshGitPanelToggle = () => { yielded = false; setOpen(!open) }
+      window.__dshGitPanelOpen = () => { if (!open) { yielded = false; settingsYielded = false; setOpen(true) } }
+      window.__dshGitPanelToggle = () => { yielded = false; settingsYielded = false; setOpen(!open) }
 
       // 启动：收起态 + 降频轮询（徽章保活），首拉立即
       void refresh()
