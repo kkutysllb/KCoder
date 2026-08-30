@@ -36,7 +36,9 @@
  * - backdrop 右上角注入「返回任务」按钮（z 高于卡片）：点击转发插件
  *   自带 × 关闭钮（lc-modal-close，真实关闭路径——插件的
  *   pendingConsume 会在关闭时把 composer 里的 /context token 消费掉），
- *   × 缺席兜底派发 Escape；
+ *   × 缺席兑底派发 Escape；标题栏按钮在 modal 期间同样可点 = 关闭
+ *   （v1 的「modal 期间冻结」把用户锁死在 backdrop 后——backdrop 盖
+ *   住侧栏/会话列表，Windows 现场只能托盘杀进程，已废弃），
  * - 草稿保护：GUI 打开是模拟输入，先存 composer 草稿，modal 关闭且
  *   插件消费完 token（框回空）后再恢复——用户半截打字的草稿不丢；
  *   恢复带 guard（框非空不碰，绝不覆盖用户新输入）。
@@ -221,20 +223,37 @@ const PAGE_JS = `(() => {
     }, 60)
   }
 
+  // modal 关闭：点插件自带 × 走真实关闭路径（pendingConsume 消费
+  // composer 里的 token）；× 缺席兑底 Escape。返回按钮与标题栏按钮
+  // 的 toggle 关闭共用此路径
+  const closeModal = () => {
+    const x = document.querySelector('.lc-modal-close')
+    if (x != null) {
+      x.click()
+      return
+    }
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  }
+
   // 主路径：点击原生 tab 头（actions.setView('context')，完整统计
   // 视图）；已激活时再点 = 切回「对话」tab（toggle 语义——上游
   // view.chat 词典 zh「对话」/en「Chat」，与 ctxTab 同款整词匹配；
-  // 对话 tab 是 tab 栏首枚且必在，找不到则不动）。modal 打开期间
-  // 冻结不动作（与沉浸模式的「状态冻结，退出后原样呈现」一致）。
+  // 失配兑底点 tab 栏首枚——Chat 恒为首枚（view ring order 0），
+  // 上游文案再变也绝不静默困死）。modal 开着时点按钮 = 关闭（v1
+  // 的「冻结」语义被 Windows 现场证伪：用户再点就是要退出，冻结把
+  // 人锁死在 modal 里——backdrop 盖住侧栏/会话列表，无法自救只能
+  // 托盘杀进程）。
   const openContext = () => {
-    if (modal() != null) return
+    if (modal() != null) { closeModal(); return }
     const tab = ctxTab()
     if (tab == null) { openPanel(); return }
     if (tab.getAttribute('aria-selected') === 'true') {
-      for (const b of document.querySelectorAll('button[role="tab"]')) {
+      const tabs = document.querySelectorAll('button[role="tab"]')
+      for (const b of tabs) {
         const s = (b.textContent || '').trim()
         if (s === '对话' || s === 'Chat') { b.click(); return }
       }
+      if (tabs.length > 1) tabs[0].click()
       return
     }
     tab.click()
@@ -263,12 +282,7 @@ const PAGE_JS = `(() => {
     btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M8.5 2.15137L8.07617 2.57617L5.34863 5.30273C5.09294 5.55843 4.86618 5.78438 4.70215 5.98828C4.53117 6.20088 4.38244 6.44405 4.33398 6.75C4.30778 6.91565 4.30778 7.08435 4.33398 7.25C4.38244 7.55595 4.53117 7.79912 4.70215 8.01172C4.86618 8.21561 5.09294 8.44157 5.34863 8.69727L8.07617 11.4238L8.5 11.8486L9.34863 11L8.92383 10.5762L6.19727 7.84863C5.92268 7.57405 5.75151 7.40124 5.6377 7.25977C5.53096 7.12709 5.52187 7.07728 5.51953 7.0625C5.51297 7.02105 5.51297 6.97895 5.51953 6.9375C5.52187 6.92272 5.53096 6.87291 5.6377 6.74023C5.75152 6.59876 5.92268 6.42595 6.19727 6.15137L8.92383 3.42383L9.34863 3L8.5 2.15137Z"/></svg><span>返回任务</span>'
     btn.addEventListener('click', (e) => {
       e.stopPropagation()
-      const x = document.querySelector('.lc-modal-close')
-      if (x != null) {
-        x.click()
-        return
-      }
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      closeModal()
     })
     bd.append(btn)
   }
@@ -289,7 +303,7 @@ const PAGE_JS = `(() => {
   }
 
   // 输入面不可编辑（空态无会话/惯性态）→ 置灰；上下文 tab 激活态挂
-  // data-on（panel-menu 菜单项蓝点读取）；手输 /context 打开的 modal
+  // data-on（按钮开合态蓝点）；手输 /context 打开的 modal
   // 一并接管（拉满 + 返回按钮）
   const sync = () => {
     const b = document.getElementById(BTN)

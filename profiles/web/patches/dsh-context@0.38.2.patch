@@ -1,0 +1,28 @@
+diff --git a/lib/client.js b/lib/client.js
+index 830afe7..af69287 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -4281,7 +4281,23 @@
+ 					const el = stageRef.current;
+ 					if (el === null || typeof ResizeObserver !== "function") return;
+ 					setStageWidth(el.clientWidth);
++					let kcRoHits = [];
++					let kcRoSkipUntil = 0;
+ 					const observer = new ResizeObserver(() => {
++						/* KCoder：RO 回路冷却——Windows DPI 取整/经典滚动条占位可令
++						 * stage 尺寸振荡（量化宽反馈）：RO 触发 → setStageWidth →
++						 * 重渲染 → 布局再变 → RO 再触发，失控吃满主线程直至白屏。
++						 * 500ms 内触发超 12 次即静默 1s：跳过 setState 即断振荡回路，
++						 * 冷却后自动重试，不永久失效 */
++						const now = Date.now();
++						if (now < kcRoSkipUntil) return;
++						kcRoHits = kcRoHits.filter((t) => now - t < 500);
++						kcRoHits.push(now);
++						if (kcRoHits.length > 12) {
++							kcRoHits = [];
++							kcRoSkipUntil = now + 1000;
++							return;
++						}
+ 						setStageWidth(el.clientWidth);
+ 					});
+ 					observer.observe(el);

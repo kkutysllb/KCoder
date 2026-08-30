@@ -80,6 +80,13 @@ jobs:
           pnpm --dir deepseek-harness --filter=@deepseek-ai/dsh deploy --prod --legacy "$PWD/staging/kcoder-runtime"
           test -f staging/kcoder-runtime/lib/bin.js
           node scripts/materialize-peers.mjs
+      - name: 品牌断言（fork 修复必须真实进产物）
+        # 0.4.5 现场：tag 推送早于 fork push，CI 克隆到旧 fork 状态，
+        # b11bd42095（chat.deepDiving 文案）未进产物——dev 现象与发布
+        # 物脱节。断言在产物层硬拦：修复没随 kcoder/alpha.1 推送，
+        # 发布直接红（与本地 release.sh 共用脚本）。
+        timeout-minutes: 2
+        run: node scripts/brand-assert.mjs staging/kcoder-runtime.tar.gz
       - name: 运行时冒烟（真实起服，禁止打包坏运行时）
         timeout-minutes: 5
         run: node scripts/smoke-runtime.mjs --dir "$PWD/staging/kcoder-runtime"

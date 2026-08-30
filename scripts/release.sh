@@ -114,6 +114,12 @@ cmd_build() {
   [[ -f "$ROOT/staging/kcoder-runtime.tar.gz" ]] || die "物化失败：缺 staging/kcoder-runtime.tar.gz"
   ok "运行时就绪（$(du -sh "$STAGING" | cut -f1) → tar.gz $(du -h "$ROOT/staging/kcoder-runtime.tar.gz" | cut -f1)）"
 
+  # 3.5) 品牌断言（fork 锚定第二道闸）：文案修复必须真实在产物里
+  #      （0.4.5 现场：发布物构建早于 fork push，b11bd42095 未进打包
+  #      机克隆态，dev 现象与发布物脱节；与 CI release.yml 共用脚本）
+  say "品牌断言（chat.deepDiving 终值）…"
+  node "$ROOT/scripts/brand-assert.mjs" "$ROOT/staging/kcoder-runtime.tar.gz" || die "品牌断言未通过"
+
   # 4) 运行时冒烟：真实起 Web 服务（就绪行 + 首页 200），
   #    不过全关的检查绝不进入下一步
   say "运行时冒烟（真实起服）…"

@@ -33,7 +33,7 @@ import { attachLanguageSettingsInjector } from './language-settings'
 import { attachSkillsSettingsInjector } from './skills-settings'
 import { attachMcpSettingsInjector } from './mcp-settings'
 import { attachAboutSettingsInjector } from './about-settings'
-import { attachPanelMenu } from './panel-menu'
+import { attachPanelButtons } from './panel-buttons'
 import { getSettings, saveSettings } from './store'
 
 /** dev 模式下 renderer 的 vite 服务地址；生产为 out/renderer 静态文件。 */
@@ -206,10 +206,10 @@ export function showShellWindow(dshUrl: string): void {
     // 关于：设置面板导航列末尾注入「关于」分区（产品介绍 + 版本信息卡；
     // 版本全部运行时派生：应用元数据/运行时目录/fork 锚点，发布自动同步）
     attachAboutSettingsInjector(shellWindow)
-    // win32 面板收纳菜单：原生控制按钮区盖住右侧面板按钮，
-    // 四枚代理按钮收进一枚下拉菜单（点击转发原按钮，状态实时克隆；
-    // 其他平台 no-op 不注入）
-    attachPanelMenu(shellWindow)
+    // win32 四钮平铺让位：原生控制按钮区盖住右侧面板按钮，
+    // 四钮 right 整体平移 +138px 至原生区左侧安全位（2026-08-30 起
+    // 取代下拉收纳方案，无转发层；其他平台 no-op 不注入）
+    attachPanelButtons(shellWindow)
     // 登录账号行：侧边栏底部设置按钮上方（头像 + 账号名，点击弹
     // 设置/退出菜单；零侵入，settingsArea 改名静默失效）
     attachAccountChip(shellWindow)

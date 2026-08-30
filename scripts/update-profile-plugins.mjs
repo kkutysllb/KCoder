@@ -13,6 +13,10 @@
  *      恒缺），ensureEverything 的 spawn ENOENT 无 error 监听 →
  *      unhandled 'error' 崩掉 dsh 进程。修复在 patch 文件内（pnpm 应用
  *      器对 CRLF 产物行尾宽容），app 启动链另有 CRLF 锄点注入兑底
+ * - dsh-context：0.38 的 agents 森林图 stage 以 ResizeObserver 驱动
+ *   量化布局，Windows DPI 取整/经典滚动条占位下尺寸振荡不收敛，渲染
+ *   失控吃满主线程直至白屏（打开上下文即冻结的根因；mac 天然收敛）。
+ *   补丁加回路冷却（500ms 超 12 次触发即静默 1s，断振荡不永久失效）
  *
  * 补丁通过 pnpm patchedDependencies 固化在 profile：精确版本键
  *   （name@ver）只对匹配版本应用；版本漂移时声明“未用”由
@@ -38,6 +42,7 @@ const PROFILE = process.env.DSH_HOME ? join(process.env.DSH_HOME, 'profiles/web'
 const PATCHES = [
   '@dsh-external__dsh-drag-to-attachment@1.0.3.patch',
   'dsh-video-preview@0.1.1.patch',
+  'dsh-context@0.38.2.patch',
 ]
 const WORKSPACE_YAML = join(PROFILE, 'pnpm-workspace.yaml')
 
@@ -65,6 +70,9 @@ const PATCH_MARKS = {
     ['lib/client.js', "document.querySelector('[data-composer-card] textarea')"],
     ['lib/client.js', "card.querySelector('[class*=\"_attachments\"]')"],
   ],
+  // dsh-context RO 回路冷却特征（Windows 打开上下文冻结白屏修复；与
+  // desktop/main/profile-patches.ts 同步更新）
+  'dsh-context': [['lib/client.js', 'kcRoHits']],
 }
 function resolveRepoRoot() {
   const here = dirname(fileURLToPath(import.meta.url))

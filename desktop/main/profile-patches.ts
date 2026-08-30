@@ -41,6 +41,16 @@
  *   （-100））。补丁删 "ts" 保留 m2ts；快照归档 .patches/dsh-video-preview。
  *   0.3.5 曾随「插件方已迭代吸收」误判退役，8-25 现场 0.1.1 复测
  *   "ts" 仍在——未吸收，复役
+ * - dsh-context（2026-08-30 复役再入——新缺陷而非旧补丁回滚）：0.38 的
+ *   agents 森林图 stage 组件以 ResizeObserver 观察 stage 宽驱动
+ *   layoutForest 量化布局（perLevel=floor(stageWidth/SLOT_MIN)，输出宽
+ *   随输入量化跳变）——Windows 的 DPI 分数缩放取整/经典滚动条占位可令
+ *   stage 尺寸振荡不收敛：RO 触发 → setStageWidth → 重渲染 → 布局再变
+ *   → RO 再触发，失控吃满主线程（点击全部排不上队）直至渲染进程崩溃
+ *   白屏（发布版「打开上下文即冻结、CPU 飙升、白屏」根因；mac 的
+ *   overlay 滚动条/整数缩放天然收敛故无感，上游最新版仍带病）。补丁给
+ *   RO 回调加回路冷却：500ms 窗口触发超 12 次即静默 1s（跳过
+ *   setState 断振荡回路，冷却后自动重试不永久失效）
  *
  * 补丁经 pnpm patchedDependencies 固化在用户 profile：精确版本键
  * （name@ver）只对匹配版本应用；版本漂移时声明“未用”，由
@@ -130,14 +140,19 @@ const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
   ],
   // 修复特征：扩展表无 ts（原版 "3g2", "ts", "m2ts"；根级 client.js）
   'dsh-video-preview': [['client.js', '"3g2", "m2ts"']],
+  // 修复特征：RO 回路冷却（kcRoHits 为 KCoder 引入变量名，原版无此串
+  // 不可误判；Windows 打开上下文冻结白屏修复）
+  'dsh-context': [['lib/client.js', 'kcRoHits']],
 }
 
 /**
  * 已退役的分发补丁包（上游持续迭代，补丁不再需要）：现场残留的旧
  * patch 文件与声明由自愈链回收（ensureProfilePatches 的文件回收步骤
- * + ensurePatchDeclared 的缺失文件声明摘除）。
+ * + ensurePatchDeclared 的缺失文件声明摘除）。dsh-context 曾在此列
+ * （早前补丁随上游迭代退役），2026-08-30 因 RO 回路缺陷复役再入
+ * PATCH_MARKS 与分发（见文件头），自列中摘除。
  */
-const RETIRED_PATCH_PKGS = ['dsh-plugin-genui', 'dsh-context', 'dsh-better-sidebar']
+const RETIRED_PATCH_PKGS = ['dsh-plugin-genui', 'dsh-better-sidebar']
 
 /**
  * mark 缺失时的锄点注入兑底（与 patch 内容等价；pnpm patch 机制在任何
@@ -228,6 +243,15 @@ const PATCH_FALLBACKS: PatchFallback[] = [
     mark: "child.on('error', () => {})",
     anchor: "  try {\r\n    const child = spawn(EVERYTHING_EXE, ['-startup'], {\r\n      detached: true, stdio: 'ignore', windowsHide: true,\r\n    })\r\n    child.unref()\r\n  } catch (error) {",
     replace: "  try {\r\n    await access(EVERYTHING_EXE, constants.F_OK)\r\n  } catch (error) {\r\n    return\r\n  }\r\n  try {\r\n    const child = spawn(EVERYTHING_EXE, ['-startup'], {\r\n      detached: true, stdio: 'ignore', windowsHide: true,\r\n    })\r\n    child.on('error', () => {})\r\n    child.unref()\r\n  } catch (error) {",
+  },
+  {
+    // dsh-context 0.38.2 agents 森林图 RO 回路冷却（Windows 打开上下文
+    // 冻结白屏根因，见文件头 dsh-context 条目）：锚 RO 回调原字节
+    // （tab 缩进产物），replace 与 dsh-context@0.38.2.patch 内容等价
+    pkg: 'dsh-context', file: 'lib/client.js',
+    mark: 'kcRoHits',
+    anchor: '\t\t\t\t\tconst observer = new ResizeObserver(() => {\n\t\t\t\t\t\tsetStageWidth(el.clientWidth);\n\t\t\t\t\t});',
+    replace: '\t\t\t\t\tlet kcRoHits = [];\n\t\t\t\t\tlet kcRoSkipUntil = 0;\n\t\t\t\t\tconst observer = new ResizeObserver(() => {\n\t\t\t\t\t\t/* KCoder：RO 回路冷却——Windows DPI 取整/经典滚动条占位可令\n\t\t\t\t\t\t * stage 尺寸振荡（量化宽反馈）：RO 触发 → setStageWidth →\n\t\t\t\t\t\t * 重渲染 → 布局再变 → RO 再触发，失控吃满主线程直至白屏。\n\t\t\t\t\t\t * 500ms 内触发超 12 次即静默 1s：跳过 setState 即断振荡回路，\n\t\t\t\t\t\t * 冷却后自动重试，不永久失效 */\n\t\t\t\t\t\tconst now = Date.now();\n\t\t\t\t\t\tif (now < kcRoSkipUntil) return;\n\t\t\t\t\t\tkcRoHits = kcRoHits.filter((t) => now - t < 500);\n\t\t\t\t\t\tkcRoHits.push(now);\n\t\t\t\t\t\tif (kcRoHits.length > 12) {\n\t\t\t\t\t\t\tkcRoHits = [];\n\t\t\t\t\t\t\tkcRoSkipUntil = now + 1000;\n\t\t\t\t\t\t\treturn;\n\t\t\t\t\t\t}\n\t\t\t\t\t\tsetStageWidth(el.clientWidth);\n\t\t\t\t\t});',
   },
 ]
 

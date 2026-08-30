@@ -10,10 +10,11 @@
  * - 已激活时再点 → toggle 切回「对话」tab（tab click 恰两枚，
  *   「上下文」取消选中，不自行发挥）；
  * - tab 激活翻转（aria-selected 属性变化）→ 按钮 data-on 跟随
- *   （panel-menu 菜单蓝点数据源）；
+ *   （标题栏按钮蓝点数据源）；
  * - 手输 /context 打开的 modal（.lc-modal-backdrop 出现/消失）→
  *   沉浸模式接管（__dsh_ctx_mode class + __dsh_ctx__: console 上报
- *   1/0）；modal 期间点按钮冻结不切 tab；
+ *   1/0）；modal 期间点按钮 = 关闭（× 缺席派发 Escape，不切 tab；
+ *   v1「冻结」语义把用户锁死在 backdrop 后，Windows 现场废弃）；
  * - tab 缺席（插件 <0.9/纯上游）→ 回退模拟 /context 输入路径
  *   （composer 收到 '/context' 写入 + Enter keydown）；
  * - composer 惯性态（无会话 workspace-trigger：data-phase="inert"）→
@@ -154,7 +155,7 @@ async function runScenario(win, label, dark, withCtxTab = true, withComposer = t
     if (clicked.ctxSelected !== 'true') fails.push('点击按钮后「上下文」tab 未激活')
     if (clicked.chatSelected !== 'false') fails.push('点击按钮后「对话」tab 仍激活（单选未翻转）')
     if (clicked.noModal !== true) fails.push('主路径不应打开 modal')
-    if (clicked.dataOn !== '1') fails.push(`tab 激活后按钮 data-on=${clicked.dataOn} 应为 1（panel-menu 蓝点源）`)
+    if (clicked.dataOn !== '1') fails.push(`tab 激活后按钮 data-on=${clicked.dataOn} 应为 1（标题栏蓝点源）`)
 
     // ── 已激活再点 → 不动作 ────────────────────────────────────
     const again = JSON.parse(await win.webContents.executeJavaScript(`(async () => {
@@ -183,7 +184,7 @@ async function runScenario(win, label, dark, withCtxTab = true, withComposer = t
     })()`, true))
     if (off.dataOn !== null) fails.push(`切回对话后按钮 data-on=${off.dataOn} 应已移除（observer attributes 路径）`)
 
-    // ── 手输 /context 开 modal → 沉浸接管 + 按钮冻结 ───────────
+    // ── 手输 /context 开 modal → 沉浸接管 + 按钮点击 = 关闭 ──────
     const modal = JSON.parse(await win.webContents.executeJavaScript(`(async () => {
       const bd = document.createElement('div')
       bd.className = 'lc-modal-backdrop'
@@ -192,20 +193,29 @@ async function runScenario(win, label, dark, withCtxTab = true, withComposer = t
       const clsOn = document.documentElement.classList.contains('__dsh_ctx_mode')
       const logOn = window.__ctxLogs.includes('__dsh_ctx__:1')
       const clicksBefore = window.__tabClicks.length
+      // 手接 backdrop 无插件 × → 按钮关闭走 Escape 兑底：捕获派发
+      let escapes = 0
+      const onEsc = (e) => { if (e.key === 'Escape') escapes++ }
+      document.addEventListener('keydown', onEsc)
       document.getElementById('__dsh_desktop_context_btn').click()
       await new Promise((r) => setTimeout(r, 150))
+      document.removeEventListener('keydown', onEsc)
       const clicksAfter = window.__tabClicks.length
       bd.remove()
       await new Promise((r) => setTimeout(r, 500))
       return JSON.stringify({
-        clsOn, logOn, frozen: clicksAfter === clicksBefore,
+        clsOn, logOn, escapes, noTabClick: clicksAfter === clicksBefore,
         clsOff: !document.documentElement.classList.contains('__dsh_ctx_mode'),
         logOff: window.__ctxLogs.includes('__dsh_ctx__:0'),
       })
     })()`, true))
     if (!modal.clsOn) fails.push('modal 出现后未进入沉浸模式（__dsh_ctx_mode 缺席）')
     if (!modal.logOn) fails.push('modal 出现后无 __dsh_ctx__:1 上报')
-    if (!modal.frozen) fails.push('modal 期间点按钮触发了 tab 切换（应冻结不动作）')
+    // v1 此处断言「冻结不动作」，Windows 现场证伪后被锁死在 backdrop
+    // 后只能托盘杀进程——现语义：modal 期间点按钮 = 关闭（× 缺席派发
+    // Escape），且不切 tab
+    if (modal.escapes !== 1) fails.push(`modal 期间点按钮 escapes=${modal.escapes} 应为 1（关闭路径）`)
+    if (!modal.noTabClick) fails.push('modal 期间点按钮不应切 tab（关闭 ≠ tab 切换）')
     if (!modal.clsOff) fails.push('modal 消失后沉浸模式未退出')
     if (!modal.logOff) fails.push('modal 消失后无 __dsh_ctx__:0 上报')
 

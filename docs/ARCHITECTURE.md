@@ -48,7 +48,7 @@ KCoder 经历了三个时代，当前是第三时代：
 恢复——插件底面板在 agent 运行态黑屏且无唤醒信号，产品决策弃用其
 入口（sidebar-cluster 压制看门狗）回归自研；Git 面板于 2026-08-23 恢复
 ——浮动卡片（`#/git`）承载状态/提交/推送/分支/计划文档/子代理轨迹，
-按钮 win32 收进 panel-menu 菜单组、macOS 平铺在按钮组左侧。）
+按钮 win32/macOS 均平铺在按钮组左侧——win32 因原生控制按钮区遮挡由 panel-buttons 整体平移 +138px 让位（2026-08-30 取代下拉收纳）。）
 
 ### 品牌替换矩阵（品牌层换了，引擎层没换）
 
@@ -117,7 +117,7 @@ Electron 主进程 (desktop/main/)
 | `sidebar-cluster.ts` | better-sidebar 开关簇收纳：插件开关簇隐藏，状态栏右侧面板代理按钮（点击转发插件真实按钮）+ 底面板压制看门狗（插件底面板产品侧弃用：agent 运行态黑屏无唤醒信号，持久化恢复/pane 归位等无按钮打开路径一律自动收回；终端回归自研 terminal-panel） | §8 点击转发 |
 | `terminal-panel.ts` + `pty-host.ts` | 内嵌终端（2026-08-22 自研回归）：每工作区独立 WebContentsView + node-pty 桶（多标签），切工作区仅 setVisible 不销毁；标题栏按钮 right 44 + 快捷键 Control+\`；让位几何广播 --dsh-terminal-inset（bundle/kcoder-stats-panel 消费） | — |
 | `git-panel.ts` + `subagent-monitor.ts` | Git 环境面板（2026-08-23 恢复）：透明 WebContentsView 浮动卡片（`#/git`）——仓库状态/提交/推送/分支切换/计划文档（shell.openPath 系统应用打开）/子代理轨迹（session.list 轮询 + mux `session/event` 帧聚合）；probeQueue 串行探测与写操作；按钮 right 108 + 徽章 `+N −M`；自动展开三重门槛（当前工作区/实时活动非 replay/git 仓库） | file-activity 帧观察面 |
-| `panel-menu.ts` | win32 面板收纳菜单：原生控制按钮区盖住右侧四枚面板按钮，收进一枚下拉菜单（点击转发原按钮，状态实时克隆；git 项红点同步徽章）；其他平台 no-op | 状态栏按钮 right 序 |
+| `panel-buttons.ts` | win32 四钮平铺让位（2026-08-30 取代下拉收纳 panel-menu，无转发层）：原生控制按钮区盖住右侧四枚面板按钮，样式表 !important 将 right 整体平移 +138px 至安全位（150/182/214/246）；其他平台 no-op | 状态栏按钮 right 序 |
 | `workspace-probe.ts` + `file-activity.ts` | 页面级存续功能（预览面板删除后迁出）：工作区探针（workspace.list → 标题栏工作区名/按钮 + fileActivity 工作区基准）、正文文件徽章（类型 + edit 增删行数）、历史会话补拉拦截；file-activity 为 mux 流按工作区分桶的聚合存储（sessionId→workspace 归属），并向 git-panel 转发 session/event 帧 | mux 流消费必须带归属维度 |
 | `plugins.ts` | 插件桥：profile 层叠清单 + GitHub `topic:dsh-plugin` 发现 + `dsh plugin` CLI 转发 | — |
 | `native-overlay.ts` | 原生 in-box 包增强覆盖：增强版构建产物整文件覆盖到运行时实际解析到的安装树（`$DSH_HOME/profiles/node_modules` 扁平兑底 symlink → 真实位置；版本门 + mark 幂等 + 签名锚，双锚解析决定了 profile 内副本无法遮蔽安装树）。当前对象：dsh-client-ui-deliverables（原生产物面板 + 审查变更 +A/−R 与 hunk 红删绿增 + 纯审计轮结论卡）；overlay 源在 `native-overlay/`，原版快照在 `.patches/` | 上游 rc 升级须对照快照重制 overlay |
