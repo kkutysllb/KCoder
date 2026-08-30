@@ -2,6 +2,15 @@ diff --git a/lib/client.js b/lib/client.js
 index cb6bf08..9cc6bfb 100644
 --- a/lib/client.js
 +++ b/lib/client.js
+@@ -812,7 +812,7 @@
+       return { icon: '📄', color: '#6b7280' }
+     }
+     function findRail() { return document.querySelector('[class*="_attachments"]') }
+-    function findComposer() { return document.querySelector('textarea') }
++    function findComposer() { return document.querySelector('textarea') || document.querySelector('[contenteditable="true"]') }
+     function findCard(ta) {
+       var scroll = ta.parentElement && ta.parentElement.parentElement
+       return scroll ? scroll.parentElement : null
 @@ -1468,6 +1468,7 @@ window.__ModuleLoader__.load({
          if (!result.ok) throw new Error('conversation.send failed: ' + result.error.code + ': ' + result.error.message)
          if (hasImages && typeof this.releaseDraftImages === 'function') this.releaseDraftImages(attachments)

@@ -150,6 +150,17 @@ interface PatchFallback {
 
 const PATCH_FALLBACKS: PatchFallback[] = [
   {
+    // alpha.1 把输入框从 <textarea> 换成 contenteditable div
+    // （CSS Modules 类名 *_input），findComposer 写死 querySelector('textarea')
+    // 恒 null → renderChips 首行早退：粘贴/拖拽的缩略 chips 永不渲染
+    // （存图 fetch 正常，纯展示断）。composer 类名层级（input→grow→
+    // scroll→card）与 textarea 时代同构，findCard/insertBefore 无需动。
+    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
+    mark: 'document.querySelector(\'[contenteditable="true"]\')',
+    anchor: "function findComposer() { return document.querySelector('textarea') }",
+    replace: "function findComposer() { return document.querySelector('textarea') || document.querySelector('[contenteditable=\"true\"]') }",
+  },
+  {
     // video-preview 复役锄点：原版扩展表含 "ts"（单次出现），删之留
     // m2ts——与 patch 内容等价的第三层兑底
     pkg: 'dsh-video-preview', file: 'client.js',
