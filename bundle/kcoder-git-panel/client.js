@@ -42,6 +42,7 @@ window.__ModuleLoader__.load({
       const BTN_ID = '__dsh_kc_git_btn'
       const PANEL_ID = '__dsh_kc_git_panel'
       const STYLE_ID = '__dsh_kc_git_style'
+      const FLY_ID = '__dsh_kc_git_fly'
       const API = '/kc-git-panel/api'
       /** 开面板轮询（旧宿主 POLL_MS 同款）。 */
       const POLL_OPEN_MS = 15000
@@ -68,13 +69,31 @@ window.__ModuleLoader__.load({
       let snapshot = EMPTY
       let open = false
       let timer = null
+      /** 工作位置切换（worktree 路径覆盖；null = 跟随会话 cwd）。 */
+      let cwdOverride = null
+      let changesOpen = false
+      let commitOpen = false
+      /** flyout 模式：null | 'location' | 'branch' | 'create'。 */
+      let flyMode = null
+      let branchCache = null
+      let busyAction = false
+      let hintMsg = ''
 
       const SVG = {
         branch: '<svg viewBox="0 0 16 16" fill="none"><path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Z" fill="currentColor"/></svg>',
         folder: '<svg viewBox="0 0 16 16" fill="none"><path d="M1.8 3.5c0-.6.4-1 1-1h3l1.4 1.6h6c.6 0 1 .4 1 1v7c0 .6-.4 1-1 1H2.8c-.6 0-1-.4-1-1v-8.6Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>',
+        x: '<svg viewBox="0 0 16 16" fill="none"><path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
         refresh: '<svg viewBox="0 0 16 16" fill="none"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2v3h-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
         close: '<svg viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
         plan: '<svg viewBox="0 0 16 16" fill="none"><path d="M3 2.2h10c.6 0 1 .4 1 1v9.6c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1V3.2c0-.6.4-1 1-1Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M4.5 5.5h7M4.5 8h7M4.5 10.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+        chevron: '<svg viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        check: '<svg viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.5 3.5L13 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        plus: '<svg viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+        laptop: '<svg viewBox="0 0 16 16" fill="none"><path d="M3 3.8h10v6.4H3z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M1.8 12.5h12.4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+        commit: '<svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.2" stroke="currentColor" stroke-width="1.2"/><path d="M1.5 8h4.3M10.2 8h4.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+        github: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5a6.5 6.5 0 0 0-2.06 12.67c.33.06.45-.14.45-.32v-1.13c-1.8.39-2.19-.87-2.19-.87-.3-.76-.72-.96-.72-.96-.6-.4.04-.4.04-.4.66.05 1.01.68 1.01.68.59 1 1.55.72 1.93.55.06-.43.23-.72.42-.89-1.44-.16-2.96-.72-2.96-3.2 0-.71.25-1.29.67-1.74-.07-.17-.29-.83.06-1.72 0 0 .55-.17 1.8.66a6.2 6.2 0 0 1 3.28 0c1.24-.83 1.79-.66 1.79-.66.36.89.13 1.55.07 1.72.42.45.66 1.03.66 1.74 0 2.49-1.52 3.04-2.97 3.2.24.2.44.6.44 1.22v1.8c0 .18.12.39.46.32A6.5 6.5 0 0 0 8 1.5Z"/></svg>',
+        external: '<svg viewBox="0 0 16 16" fill="none"><path d="M6.5 4H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V9.5M9 3h4v4M13 3L7.5 8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        changes: '<svg viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M8 5.5v5M5.5 8h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
       }
 
       /* ---- 样式：面板（git.ts PAGE_CSS 平移 + fixed 外壳）+ 标题栏按钮/徽章 ---- */
@@ -127,6 +146,62 @@ window.__ModuleLoader__.load({
         '#' + BTN_ID + ' .bdg .d{padding:0 4px;background:#CF222E}',
         'body[data-ds-dark-theme] #' + BTN_ID + ' .bdg .a{background:#238636}',
         'body[data-ds-dark-theme] #' + BTN_ID + ' .bdg .d{background:#DA3633}',
+        // ---- 环境信息行（Codex 风格行布局） ----
+        '#' + PANEL_ID + ' .gt-row{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border-radius:7px;cursor:pointer}',
+        '#' + PANEL_ID + ' .gt-row:hover{background:var(--gt-hover)}',
+        '#' + PANEL_ID + ' .gt-row .ic{display:inline-flex;width:14px;height:14px;flex:none;color:var(--gt-muted)}',
+        '#' + PANEL_ID + ' .gt-row .ic svg{width:14px;height:14px;display:block}',
+        '#' + PANEL_ID + ' .gt-row .lb{flex:1;min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+        '#' + PANEL_ID + ' .gt-row .chev{display:inline-flex;width:12px;height:12px;flex:none;color:var(--gt-muted);transition:transform .15s ease}',
+        '#' + PANEL_ID + ' .gt-row .chev svg{width:12px;height:12px;display:block}',
+        '#' + PANEL_ID + ' .gt-row[data-open="1"] .chev{transform:rotate(180deg)}',
+        '#' + PANEL_ID + ' .gt-row .cnt{flex:none;font:650 10px/1.4 var(--gt-mono);color:var(--gt-muted)}',
+        '#' + PANEL_ID + ' .gt-row.dim{opacity:.45;cursor:default}',
+        '#' + PANEL_ID + ' .gt-row.dim:hover{background:transparent}',
+        // 变更文件列表
+        '#' + PANEL_ID + ' .gt-files{margin:0 0 6px 15px;border-left:1px solid var(--gt-border);padding:2px 0 2px 6px}',
+        '#' + PANEL_ID + ' .gt-file{all:unset;box-sizing:border-box;display:flex;gap:6px;align-items:center;width:100%;padding:3px 6px;border-radius:6px;cursor:pointer}',
+        '#' + PANEL_ID + ' .gt-file:hover{background:var(--gt-hover)}',
+        '#' + PANEL_ID + ' .gt-file .st{flex:none;width:14px;text-align:center;font:650 10px/1.6 var(--gt-mono)}',
+        '#' + PANEL_ID + ' .gt-file .st.a,#' + PANEL_ID + ' .gt-file .st.u{color:var(--gt-add)}',
+        '#' + PANEL_ID + ' .gt-file .st.d{color:var(--gt-del)}',
+        '#' + PANEL_ID + ' .gt-file .st.m{color:#BF8700}',
+        'body[data-ds-dark-theme] #' + PANEL_ID + ' .gt-file .st.m{color:#D29922}',
+        '#' + PANEL_ID + ' .gt-file .fp{flex:1;min-width:0;font:400 11px/1.6 var(--gt-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+        '#' + PANEL_ID + ' .gt-file .ln{flex:none;font:600 10px/1.6 var(--gt-mono);color:var(--gt-muted)}',
+        // 提交盒
+        '#' + PANEL_ID + ' .gt-cbox{margin:2px 8px 8px 23px;display:flex;flex-direction:column;gap:6px}',
+        '#' + PANEL_ID + ' .gt-msg{resize:vertical;min-height:44px;max-height:120px;border-radius:8px;border:1px solid var(--gt-border);background:transparent;color:var(--gt-fg);font:400 12px/1.5 -apple-system,"PingFang SC","Segoe UI",sans-serif;padding:6px 8px;outline:none}',
+        '#' + PANEL_ID + ' .gt-cbtns{display:flex;gap:6px;align-items:center}',
+        '#' + PANEL_ID + ' .gt-abtn{all:unset;box-sizing:border-box;height:24px;padding:0 10px;border-radius:6px;background:var(--gt-accent);color:#FFF;font-size:11px;cursor:pointer}',
+        '#' + PANEL_ID + ' .gt-abtn:disabled{opacity:.4;cursor:default}',
+        '#' + PANEL_ID + ' .gt-abtn.sec{background:var(--gt-chip);color:var(--gt-fg)}',
+        '#' + PANEL_ID + ' .gt-hintline{font-size:10px;color:var(--gt-muted);min-height:12px}',
+        // ---- flyout（工作位置 / 分支选择器） ----
+        '#' + FLY_ID + '{position:fixed;z-index:2147483647;width:264px;max-height:420px;display:flex;flex-direction:column;border-radius:12px;border:1px solid var(--gt-border);background:var(--gt-bg);color:var(--gt-fg);box-shadow:0 14px 44px rgba(9,16,29,.22),0 2px 8px rgba(9,16,29,.10);overflow:hidden;--gt-bg:#FFFFFF;--gt-fg:#1A1D21;--gt-border:rgba(0,0,0,.10);--gt-muted:rgba(26,29,33,.55);--gt-chip:rgba(128,128,128,.14);--gt-hover:rgba(128,128,128,.12);--gt-accent:#2F6FED;--gt-mono:ui-monospace,Menlo,Monaco,monospace}',
+        '@media (prefers-color-scheme: dark){#' + FLY_ID + '{--gt-bg:#1B1B1C;--gt-fg:#E8EAED;--gt-border:#2C2C2E;--gt-muted:rgba(232,234,237,.55);--gt-chip:rgba(128,128,128,.18);--gt-hover:rgba(128,128,128,.16);--gt-accent:#7C9BFF;box-shadow:0 14px 44px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.4)}}',
+        'body[data-ds-dark-theme] #' + FLY_ID + '{--gt-bg:#1B1B1C;--gt-fg:#E8EAED;--gt-border:#2C2C2E;--gt-muted:rgba(232,234,237,.55);--gt-chip:rgba(128,128,128,.18);--gt-hover:rgba(128,128,128,.16);--gt-accent:#7C9BFF;box-shadow:0 14px 44px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.4)}',
+        '#' + FLY_ID + ' .fly-cap{padding:10px 12px 4px;font-size:10px;color:var(--gt-muted);letter-spacing:.5px;user-select:none}',
+        '#' + FLY_ID + ' .fly-search{all:unset;box-sizing:border-box;margin:6px 10px;display:flex;height:28px;padding:0 8px;border-radius:7px;border:1px solid var(--gt-border);color:var(--gt-fg);font-size:12px}',
+        '#' + FLY_ID + ' .fly-list{flex:1;min-height:0;overflow-y:auto;padding:2px 6px 6px}',
+        '#' + FLY_ID + ' .fly-row{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:12px}',
+        '#' + FLY_ID + ' .fly-row:hover{background:var(--gt-hover)}',
+        '#' + FLY_ID + ' .fly-row span:first-child{display:inline-flex;width:14px;height:14px;flex:none;color:var(--gt-muted)}',
+        '#' + FLY_ID + ' .fly-row span:first-child svg{width:14px;height:14px;display:block}',
+        '#' + FLY_ID + ' .fly-row .lb{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+        '#' + FLY_ID + ' .fly-row .ck{display:inline-flex;width:14px;height:14px;flex:none;color:var(--gt-fg)}',
+        '#' + FLY_ID + ' .fly-row .ck svg{width:14px;height:14px;display:block}',
+        '#' + FLY_ID + ' .fly-div{height:1px;background:var(--gt-border);margin:6px 10px}',
+        '#' + FLY_ID + ' .fly-none{padding:8px 12px;font-size:11px;color:var(--gt-muted)}',
+        '#' + FLY_ID + ' .fly-zone{display:inline-flex;align-items:center;gap:4px;flex:none}',
+        '#' + FLY_ID + ' .fly-del{cursor:pointer;user-select:none;font-size:11px;line-height:1;color:var(--gt-muted);padding:3px 5px;border-radius:5px;opacity:0;transition:opacity .12s}',
+        '#' + FLY_ID + ' .fly-del svg{width:12px;height:12px;display:block}',
+        '#' + FLY_ID + ' .fly-del:hover{color:var(--gt-fg);background:var(--gt-hover)}',
+        '#' + FLY_ID + ' .fly-row:hover .fly-del{opacity:1}',
+        '#' + FLY_ID + ' .fly-zone.confirm .fly-del{opacity:1}',
+        '#' + FLY_ID + ' .fly-del.danger{color:#e5534b}',
+        '#' + FLY_ID + ' .fly-ctag{font-size:11px;color:var(--gt-muted);white-space:nowrap}',
+        '#' + FLY_ID + ' .fly-foot{display:flex;justify-content:flex-end;padding:0 10px 10px}',
       ].join('')
 
       const style = document.createElement('style')
@@ -177,15 +252,58 @@ window.__ModuleLoader__.load({
       status.append(lines, pStaged, pChanged, pUntracked)
 
       const body = el('div', 'gt-body')
+      // 环境信息区（Codex 风格行布局：变更/工作位置/分支/提交或推送/比较分支）
+      const envCaps = el('div', 'gt-caps', '环境信息')
+      const mkRow = (icon, label) => {
+        const r = el('button', 'gt-row')
+        const ic = el('span', 'ic')
+        ic.innerHTML = icon
+        const lb = el('span', 'lb', label)
+        r.append(ic, lb)
+        return { r, lb }
+      }
+      const mkChev = () => { const c = el('span', 'chev'); c.innerHTML = SVG.chevron; return c }
+      const chRow = mkRow(SVG.changes, '变更')
+      const chCnt = el('span', 'cnt', '0')
+      const chChev = mkChev()
+      chRow.r.append(chCnt, chChev)
+      const filesBox = el('div', 'gt-files')
+      filesBox.style.display = 'none'
+      const locRow = mkRow(SVG.laptop, '本地')
+      locRow.r.append(mkChev())
+      const brRow = mkRow(SVG.branch, '—')
+      brRow.r.append(mkChev())
+      const cpRow = mkRow(SVG.commit, '提交或推送')
+      const commitBox = el('div', 'gt-cbox')
+      const msgInput = document.createElement('textarea')
+      msgInput.className = 'gt-msg'
+      msgInput.placeholder = '提交信息'
+      const cbtns = el('div', 'gt-cbtns')
+      const doCommitBtn = el('button', 'gt-abtn', '提交')
+      const doPushBtn = el('button', 'gt-abtn sec', '推送')
+      cbtns.append(doCommitBtn, doPushBtn)
+      const hintLine = el('div', 'gt-hintline')
+      commitBox.append(msgInput, cbtns, hintLine)
+      commitBox.style.display = 'none'
+      const cmpRow = mkRow(SVG.github, '比较分支')
+      const cmpExt = el('span', 'chev')
+      cmpExt.innerHTML = SVG.external
+      cmpRow.r.append(cmpExt)
       // 任务计划（约定位置扫到的 agent 计划文档；点击走软依赖预览链）
       const planCaps = el('div', 'gt-caps', '任务计划')
       const planList = el('div')
       const empty = el('div', 'gt-empty')
-      body.append(planCaps, planList, empty)
+      body.append(envCaps, chRow.r, filesBox, locRow.r, brRow.r, cpRow.r, commitBox, cmpRow.r, planCaps, planList, empty)
 
       card.append(header, status, body)
       panel.append(card)
       document.documentElement.append(panel)
+
+      // flyout 容器（工作位置/分支选择器；面板左侧弹出）
+      const fly = el('div')
+      fly.id = FLY_ID
+      fly.style.display = 'none'
+      document.documentElement.append(fly)
 
       /* ---- 数据与行为 ---- */
       const api = (method, payload) => fetch(API + '/' + method, {
@@ -205,7 +323,7 @@ window.__ModuleLoader__.load({
       }
 
       const refresh = async () => {
-        const cwd = currentCwd()
+        const cwd = effectiveCwd()
         if (cwd === null || cwd === '') {
           snapshot = EMPTY
         } else {
@@ -235,6 +353,11 @@ window.__ModuleLoader__.load({
       const setOpen = (next) => {
         open = next
         panel.style.display = open ? '' : 'none'
+        if (!open) {
+          closeFly()
+          commitOpen = false
+          commitBox.style.display = 'none'
+        }
         renderBadge()
         setPad(open ? PAD_W : 0)
         schedule()
@@ -311,6 +434,257 @@ window.__ModuleLoader__.load({
         void api('open-plan', { path: plan.path }).catch(() => { /* 回退链末端失败静默 */ })
       }
 
+      /* ---- 环境信息行为（Codex 风格：worktree/分支/提交/推送/比较） ---- */
+      const effectiveCwd = () => cwdOverride ?? currentCwd()
+      /** 待提交变更总数（staged + changed + untracked）。 */
+      const totalChanges = (s) => s.staged + s.changed + s.untracked
+      const baseName = (p) => {
+        const segs = String(p).split('/').filter(Boolean)
+        return segs.length > 0 ? (segs[segs.length - 1] ?? p) : p
+      }
+
+      const closeFly = () => { flyMode = null; fly.style.display = 'none'; fly.replaceChildren() }
+      const positionFly = (anchor) => {
+        const pr = panel.getBoundingClientRect()
+        const ar = anchor.getBoundingClientRect()
+        fly.style.right = (window.innerWidth - pr.left + 8) + 'px'
+        fly.style.top = Math.max(8, Math.min(ar.top - 8, window.innerHeight - 340)) + 'px'
+        fly.style.display = 'flex'
+      }
+      const flyRow = (icon, label, onClick, checked) => {
+        const r = el('button', 'fly-row')
+        const ic = el('span')
+        ic.innerHTML = icon
+        const lb = el('span', 'lb', label)
+        r.append(ic, lb)
+        if (checked) {
+          const ck = el('span', 'ck')
+          ck.innerHTML = SVG.check
+          r.append(ck)
+        }
+        r.onclick = (ev) => { ev.stopPropagation(); onClick() }
+        return r
+      }
+
+      // 工作位置（worktree 清单；选中切换面板目标，只读视图切换）
+      const openLocationFly = (anchor) => {
+        flyMode = 'location'
+        fly.replaceChildren()
+        fly.append(el('div', 'fly-cap', '工作位置'))
+        const list = el('div', 'fly-list')
+        const wts = snapshot.worktrees ?? []
+        const active = cwdOverride ?? snapshot.root
+        if (wts.length === 0) {
+          list.append(flyRow(SVG.laptop, '本地', () => { cwdOverride = null; closeFly(); void refresh() }, true))
+        }
+        for (const wt of wts) {
+          const isMain = snapshot.root !== null && wt.path === snapshot.root
+          const label = (isMain ? '本地 · ' : '') + (wt.branch ?? '(detached)') + ' · ' + baseName(wt.path)
+          list.append(flyRow(SVG.laptop, label, () => {
+            cwdOverride = isMain ? null : wt.path
+            closeFly()
+            void refresh()
+          }, wt.path === active))
+        }
+        fly.append(list)
+        positionFly(anchor)
+      }
+
+      // 分支选择器（搜索 + 列表✓ + 创建并检出新分支）
+      const openCreateFly = (anchor) => {
+        flyMode = 'create'
+        fly.replaceChildren()
+        fly.append(el('div', 'fly-cap', '创建并检出新分支'))
+        const input = document.createElement('input')
+        input.className = 'fly-search'
+        input.placeholder = '分支名'
+        const btn = el('button', 'gt-abtn', '创建并检出')
+        const foot = el('div', 'fly-foot')
+        foot.append(btn)
+        fly.append(input, foot)
+        btn.onclick = (ev) => { ev.stopPropagation(); void doCreateBranch(input.value) }
+        input.onkeydown = (ev) => { if (ev.key === 'Enter') void doCreateBranch(input.value) }
+        positionFly(anchor)
+        input.focus()
+      }
+      const openBranchFly = (anchor) => {
+        flyMode = 'branch'
+        fly.replaceChildren()
+        const search = document.createElement('input')
+        search.className = 'fly-search'
+        search.placeholder = '搜索 ' + (snapshot.workspace ?? '') + ' 分支'
+        const cap = el('div', 'fly-cap', '分支')
+        const list = el('div', 'fly-list')
+        const div = el('div', 'fly-div')
+        const createRow = flyRow(SVG.plus, '创建并检出新分支…', () => { openCreateFly(anchor) })
+        fly.append(search, cap, list, div, createRow)
+        /** 删除当前 flyout 行内局部状态：idle（×）→ confirm → force。 */
+        const mkZone = (b, doDelete) => {
+          const zone = el('span', 'fly-zone')
+          const setConfirm = (force) => {
+            zone.className = 'fly-zone confirm'
+            zone.replaceChildren()
+            const tag = el('span', 'fly-ctag', force ? '未合并，仍删除？' : '删除分支？')
+            const yes = el('span', 'fly-del danger', force ? '强制删除' : '删除')
+            yes.onclick = (ev) => { ev.stopPropagation(); void doDelete(b, force, () => setConfirm(true)) }
+            const no = el('span', 'fly-del', '取消')
+            no.onclick = (ev) => { ev.stopPropagation(); setIdle() }
+            zone.append(tag, yes, no)
+          }
+          const setIdle = () => {
+            zone.className = 'fly-zone'
+            zone.replaceChildren()
+            const del = el('span', 'fly-del')
+            del.innerHTML = SVG.x
+            del.title = '删除分支'
+            del.onclick = (ev) => { ev.stopPropagation(); setConfirm(false) }
+            zone.append(del)
+          }
+          setIdle()
+          return zone
+        }
+        /** delete-branch：成功后刷新分支缓存并重填列表；
+         *  未合并（merged 标记）时回调升级为强制确认。 */
+        const doDelete = async (b, force, onMerged) => {
+          if (busyAction) return
+          busyAction = true
+          let done = false
+          try {
+            const res = await api('delete-branch', { cwd: effectiveCwd(), name: b, force: force === true })
+            if (res.ok) { done = true; actionHint('已删除 ' + b) }
+            else if (res.merged === true && !force) { busyAction = false; onMerged(); return }
+            else actionHint(res.error ?? '删除失败')
+          } catch { actionHint('网络异常') }
+          busyAction = false
+          if (done) {
+            const cwd = effectiveCwd()
+            if (cwd !== null && cwd !== '') {
+              try { branchCache = await api('branches', { cwd }) } catch { /* 保留旧缓存 */ }
+            }
+            if (flyMode === 'branch') fill(search.value.trim())
+          }
+          void refresh()
+        }
+        const fill = (filter) => {
+          list.replaceChildren()
+          const bs = (branchCache?.branches ?? []).filter(b => filter === '' || b.toLowerCase().includes(filter.toLowerCase()))
+          if (bs.length === 0) list.append(el('div', 'fly-none', '无匹配分支'))
+          for (const b of bs) {
+            const isCur = b === branchCache?.current
+            const row = flyRow(SVG.branch, b, () => { void doCheckout(b) }, isCur)
+            if (!isCur) row.append(mkZone(b, doDelete)) // 当前分支不可删
+            list.append(row)
+          }
+        }
+        search.oninput = () => { fill(search.value.trim()) }
+        positionFly(anchor)
+        search.focus()
+        void (async () => {
+          const cwd = effectiveCwd()
+          if (cwd === null || cwd === '') return
+          try { branchCache = await api('branches', { cwd }) } catch { return }
+          if (flyMode === 'branch') fill(search.value.trim())
+        })()
+      }
+
+      const actionHint = (text) => { hintMsg = text; hintLine.textContent = text }
+      const doCheckout = async (branch) => {
+        if (busyAction) return
+        busyAction = true
+        try {
+          const res = await api('checkout', { cwd: effectiveCwd(), branch })
+          if (res.ok) { actionHint(''); closeFly() } else { actionHint(res.error ?? '检出失败') }
+        } catch { actionHint('网络异常') }
+        busyAction = false
+        void refresh()
+      }
+      const doCreateBranch = async (name) => {
+        if (busyAction) return
+        busyAction = true
+        try {
+          const res = await api('create-branch', { cwd: effectiveCwd(), name })
+          if (res.ok) { actionHint(''); closeFly() } else { actionHint(res.error ?? '创建失败') }
+        } catch { actionHint('网络异常') }
+        busyAction = false
+        void refresh()
+      }
+      const doCommit = async () => {
+        if (busyAction) return
+        const message = msgInput.value.trim()
+        if (message === '') { actionHint('请输入提交信息'); return }
+        busyAction = true
+        actionHint('提交中…')
+        try {
+          const res = await api('commit', { cwd: effectiveCwd(), message })
+          if (res.ok) {
+            msgInput.value = ''
+            actionHint('已提交')
+            commitOpen = false
+            commitBox.style.display = 'none'
+          } else { actionHint(res.error ?? '提交失败') }
+        } catch { actionHint('网络异常') }
+        busyAction = false
+        void refresh()
+      }
+      const doPush = async () => {
+        if (busyAction) return
+        busyAction = true
+        actionHint('推送中…')
+        try {
+          const res = await api('push', { cwd: effectiveCwd() })
+          if (res.ok) actionHint('已推送')
+          else actionHint(res.error ?? '推送失败')
+        } catch { actionHint('网络异常') }
+        busyAction = false
+        void refresh()
+      }
+      const doCompare = async () => {
+        if (busyAction) return
+        busyAction = true
+        try { await api('open-compare', { cwd: effectiveCwd() }) } catch { /* 静默 */ }
+        busyAction = false
+      }
+
+      // 变更文件点击 → better-sidebar editor 预览（软依赖；缺席不动作）
+      const openFile = (path) => {
+        let sidebar = null
+        try { sidebar = ctx.get('betterSidebar') ?? null } catch { sidebar = null }
+        if (sidebar !== null && typeof sidebar.openTab === 'function') {
+          sidebar.openTab({ type: 'editor', title: baseName(path), path, id: 'editor:' + path })
+          if (betterSidebarOpen()) { yielded = true; setOpen(false) }
+        }
+      }
+
+      // 行事件
+      chRow.r.onclick = () => { changesOpen = !changesOpen; render(snapshot) }
+      locRow.r.onclick = () => {
+        if (!snapshot.isRepo) return
+        if (flyMode === 'location') closeFly(); else openLocationFly(locRow.r)
+      }
+      brRow.r.onclick = () => {
+        if (!snapshot.isRepo) return
+        if (flyMode === 'branch' || flyMode === 'create') closeFly(); else openBranchFly(brRow.r)
+      }
+      cpRow.r.onclick = () => {
+        if (!snapshot.isRepo) return
+        if (!(totalChanges(snapshot) > 0 || (snapshot.ahead > 0 && snapshot.hasUpstream))) return
+        commitOpen = !commitOpen
+        commitBox.style.display = commitOpen ? '' : 'none'
+        actionHint('')
+      }
+      cmpRow.r.onclick = () => { if (!cmpRow.r.classList.contains('dim')) void doCompare() }
+      doCommitBtn.onclick = () => { void doCommit() }
+      doPushBtn.onclick = () => { void doPush() }
+
+      // flyout 外点击关闭（行自身点击由 onclick 接管切换）
+      document.addEventListener('mousedown', (ev) => {
+        if (flyMode === null) return
+        if (fly.contains(ev.target)) return
+        if (ev.target instanceof Element && ev.target.closest('#' + PANEL_ID + ' .gt-row') !== null) return
+        closeFly()
+      })
+      document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeFly() })
+
       /* ---- 渲染（git.ts render 平移） ---- */
       function render(s) {
         wName.textContent = s.workspace ?? '—'
@@ -320,6 +694,39 @@ window.__ModuleLoader__.load({
         setPill(pStaged, s.staged)
         setPill(pChanged, s.changed)
         setPill(pUntracked, s.untracked)
+        // 环境信息行
+        chCnt.textContent = String(s.staged + s.changed + s.untracked)
+        chRow.r.classList.toggle('dim', !s.isRepo)
+        chRow.r.dataset.open = changesOpen && s.isRepo ? '1' : '0'
+        locRow.lb.textContent = cwdOverride !== null ? baseName(cwdOverride) : '本地'
+        locRow.r.classList.toggle('dim', !s.isRepo)
+        brRow.lb.textContent = s.branch ?? (s.isRepo ? '(detached)' : '—')
+        brRow.r.classList.toggle('dim', !s.isRepo)
+        cpRow.r.classList.toggle('dim', !(s.isRepo && (totalChanges(s) > 0 || (s.ahead > 0 && s.hasUpstream))))
+        cpRow.lb.textContent = s.hasUpstream && s.ahead > 0
+          ? '提交或推送（' + s.ahead + ' 待推送）'
+          : '提交或推送'
+        cmpRow.r.classList.toggle('dim', !(s.isRepo && s.remoteUrl !== null && s.defaultBranch !== null && s.branch !== null))
+        doCommitBtn.disabled = !(totalChanges(s) > 0) || busyAction
+        doPushBtn.disabled = !(s.hasUpstream && s.ahead > 0) || busyAction
+        hintLine.textContent = hintMsg
+        // 变更文件列表（展开态重建）
+        filesBox.style.display = changesOpen && s.isRepo ? '' : 'none'
+        if (changesOpen && s.isRepo) {
+          filesBox.replaceChildren()
+          if (s.files.length === 0) filesBox.append(el('div', 'fly-none', '无变更'))
+          for (const f of s.files) {
+            const fr = el('button', 'gt-file')
+            fr.title = f.path
+            const code = f.untracked ? 'U' : (f.x !== ' ' && f.x !== '?' ? f.x : (f.y !== ' ' ? f.y : 'M'))
+            const cls = f.untracked ? 'u' : (code === 'A' ? 'a' : (code === 'D' ? 'd' : 'm'))
+            fr.append(el('span', 'st ' + cls, code), el('span', 'fp', f.path))
+            if (f.added !== null) fr.append(el('span', 'ln', '+' + f.added + ' \u2212' + f.removed))
+            fr.onclick = () => { openFile(f.path) }
+            filesBox.append(fr)
+          }
+          if (s.filesTruncated) filesBox.append(el('div', 'gt-hint', '变更过多，仅显示前 200 条'))
+        }
         planList.replaceChildren()
         const hasPlans = s.plans.length > 0
         for (const p of s.plans) {

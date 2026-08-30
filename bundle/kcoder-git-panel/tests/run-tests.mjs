@@ -9,16 +9,21 @@
 
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, writeFile, utimes } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, writeFile, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
   firstLine, wsName, relTime,
   parseStatusLines, parseNumstatLines,
+  unquotePath, parseStatusEntries, parseNumstatMap,
+  parseWorktreesPorcelain, parseAheadBehind, isValidBranchName,
+  remoteRepoUrl, compareUrl,
   countUntrackedLines, scanPlans,
   probeWorkspace, emptySnapshot,
   handleSnapshot, handleOpenPlan,
+  handleBranches, handleCheckout, handleCreateBranch, handleDeleteBranch,
+  handleCommit, handlePush, handleOpenCompare,
   RPC_PREFIX,
 } from '../entry.js'
 
@@ -115,6 +120,9 @@ await test('emptySnapshot 形状', () => {
   assert.deepEqual(emptySnapshot(), {
     workspace: null, isRepo: false,
     staged: 0, changed: 0, untracked: 0, added: 0, removed: 0, plans: [],
+    branch: null, ahead: 0, behind: 0, hasUpstream: false,
+    remoteUrl: null, defaultBranch: null, worktrees: [], root: null,
+    files: [], filesTruncated: false,
     error: null,
   })
 })
@@ -130,6 +138,75 @@ await test('handleOpenPlan：绝对路径白名单外拒开', async () => {
   assert.equal((await handleOpenPlan({ path: 'relative/a.md' })).ok, false)
   assert.equal((await handleOpenPlan({ path: '/tmp/a.exe' })).ok, false)
   // 白名单内才真正拉起系统应用——不在此真开（跳过 ok 断言，仅验证拒绝分支）
+})
+
+await test('unquotePath：普通/引号转义/八进制 UTF-8', () => {
+  assert.equal(unquotePath('plain.txt'), 'plain.txt')
+  assert.equal(unquotePath('"a\\tb.txt"'), 'a\tb.txt')
+  assert.equal(unquotePath('"a\\"q.txt"'), 'a"q.txt')
+  // 中文：E4 B8 AD = 中
+  assert.equal(unquotePath('"\\344\\270\\255.txt"'), '中.txt')
+  assert.equal(unquotePath('"'), '"') // 单引号字符不当引号路径
+})
+
+await test('parseStatusEntries：逐文件 + rename 取新路径', () => {
+  const es = parseStatusEntries('M  a.txt\n M b.txt\n?? new.txt\nR  old.txt -> new2.txt\n')
+  assert.equal(es.length, 4)
+  assert.deepEqual(es[0], { path: 'a.txt', x: 'M', y: ' ', untracked: false, staged: true, changed: false })
+  assert.equal(es[1].staged, false)
+  assert.equal(es[1].changed, true)
+  assert.equal(es[2].untracked, true)
+  assert.equal(es[3].path, 'new2.txt')
+  assert.equal(parseStatusEntries('').length, 0)
+})
+
+await test('parseNumstatMap：rename 两形态归一 + 二进制记 0', () => {
+  const m = parseNumstatMap('3\t1\ta.txt\n-\t-\tbin.png\n1\t0\tdir/{old.js => new.js}\n2\t0\tx => y\n')
+  assert.deepEqual(m.get('a.txt'), { added: 3, removed: 1 })
+  assert.deepEqual(m.get('bin.png'), { added: 0, removed: 0 })
+  assert.deepEqual(m.get('dir/new.js'), { added: 1, removed: 0 })
+  assert.deepEqual(m.get('y'), { added: 2, removed: 0 })
+})
+
+await test('parseWorktreesPorcelain：branch/detached/bare 剔除', () => {
+  const out = [
+    'worktree /r/main', 'HEAD aaa', 'branch refs/heads/main', '',
+    'worktree /r/wt1', 'HEAD bbb', 'detached', '',
+    'worktree /r/bare1', 'bare', '',
+  ].join('\n')
+  const ws = parseWorktreesPorcelain(out)
+  assert.equal(ws.length, 2)
+  assert.deepEqual(ws[0], { path: '/r/main', branch: 'main', detached: false })
+  assert.equal(ws[1].detached, true)
+})
+
+await test('parseAheadBehind：< > 前缀剥离与坏输入', () => {
+  assert.deepEqual(parseAheadBehind('<3\t>1\n'), { ahead: 3, behind: 1 })
+  assert.deepEqual(parseAheadBehind('0\t0\n'), { ahead: 0, behind: 0 })
+  assert.deepEqual(parseAheadBehind('fatal: no upstream'), { ahead: 0, behind: 0 })
+})
+
+await test('isValidBranchName：高频拒绝项', () => {
+  assert.equal(isValidBranchName('feature/x'), true)
+  assert.equal(isValidBranchName('v0.5.0'), true)
+  assert.equal(isValidBranchName(''), false)
+  assert.equal(isValidBranchName('bad name'), false)
+  assert.equal(isValidBranchName('-lead'), false)
+  assert.equal(isValidBranchName('a..b'), false)
+  assert.equal(isValidBranchName('x.lock'), false)
+  assert.equal(isValidBranchName('a^b'), false)
+  assert.equal(isValidBranchName(null), false)
+})
+
+await test('remoteRepoUrl/compareUrl：scp/https/ssh/坏输入', () => {
+  assert.deepEqual(remoteRepoUrl('git@github.com:kkutysllb/dsh-plugins.git'), { host: 'github.com', path: 'kkutysllb/dsh-plugins' })
+  assert.deepEqual(remoteRepoUrl('https://github.com/a/b.git'), { host: 'github.com', path: 'a/b' })
+  assert.deepEqual(remoteRepoUrl('ssh://git@github.com/a/b'), { host: 'github.com', path: 'a/b' })
+  assert.equal(remoteRepoUrl('ftp://x/a/b'), null)
+  assert.equal(remoteRepoUrl('git@github.com:solo.git'), null) // 单段不视为 owner/repo
+  assert.equal(compareUrl('git@github.com:a/b.git', 'main', 'feat/x'), 'https://github.com/a/b/compare/main...feat/x')
+  assert.equal(compareUrl('not a url', 'main', 'b'), null)
+  assert.equal(compareUrl('git@github.com:a/b.git', null, 'b'), null)
 })
 
 /* ---------------- 集成（真 git 临时仓库） ---------------- */
@@ -229,9 +306,124 @@ if (await gitAvailable()) {
     assert.equal(s.isRepo, false)
     assert.equal(s.workspace, dir.split('/').filter(Boolean).pop())
   })
+
+  await test('集成：clone 仓库快照扩展字段（branch/root/worktrees/files/ahead）', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'kc-git-panel-origin-'))
+    const origin = join(base, 'o.git')
+    const src = join(base, 'src')
+    await mkdir(src, { recursive: true })
+    await execFileP('git', ['init', '-b', 'main'], src)
+    await execFileP('git', ['config', 'user.email', 't@t.local'], src)
+    await execFileP('git', ['config', 'user.name', 't'], src)
+    await writeFile(join(src, 'a.txt'), '1\n')
+    await execFileP('git', ['add', '.'], src)
+    await execFileP('git', ['commit', '-m', 'init'], src)
+    await execFileP('git', ['init', '--bare', '-b', 'main', origin], base)
+    await execFileP('git', ['remote', 'add', 'origin', origin], src)
+    await execFileP('git', ['push', '-u', 'origin', 'main'], src)
+    const repo = join(base, 'clone')
+    await execFileP('git', ['clone', origin, repo], base)
+    await execFileP('git', ['config', 'user.email', 't@t.local'], repo)
+    await execFileP('git', ['config', 'user.name', 't'], repo)
+    // 工作区变更：修改 + 新文件
+    await writeFile(join(repo, 'a.txt'), '1\n2\n')
+    await writeFile(join(repo, 'b.txt'), 'x\n')
+
+    const s = await probeWorkspace(repo)
+    assert.equal(s.isRepo, true)
+    assert.equal(s.branch, 'main')
+    // macOS /var → /private/var 符号链接：git 返回 realpath
+    assert.equal(s.root, await realpath(repo))
+    assert.equal(s.hasUpstream, true)
+    assert.equal(s.ahead, 0)
+    assert.equal(s.defaultBranch, 'main') // clone 设 origin/HEAD
+    assert.equal(s.worktrees.length, 1)
+    assert.equal(s.worktrees[0]?.branch, 'main')
+    assert.equal(s.remoteUrl, origin)
+    // files：修改 + untracked 两条
+    const paths = s.files.map(f => f.path).sort()
+    assert.deepEqual(paths, ['a.txt', 'b.txt'])
+    const a = s.files.find(f => f.path === 'a.txt')
+    assert.deepEqual({ added: a.added, removed: a.removed }, { added: 1, removed: 0 })
+    const b = s.files.find(f => f.path === 'b.txt')
+    assert.equal(b.untracked, true)
+    assert.equal(b.added, null)
+  })
+
+  await test('集成：分支/检出/新建/提交/推送 全链路', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'kc-git-panel-flow-'))
+    const origin = join(base, 'o.git')
+    const src = join(base, 'src')
+    await mkdir(src, { recursive: true })
+    await execFileP('git', ['init', '-b', 'main'], src)
+    await execFileP('git', ['config', 'user.email', 't@t.local'], src)
+    await execFileP('git', ['config', 'user.name', 't'], src)
+    await writeFile(join(src, 'a.txt'), '1\n')
+    await execFileP('git', ['add', '.'], src)
+    await execFileP('git', ['commit', '-m', 'init'], src)
+    await execFileP('git', ['init', '--bare', '-b', 'main', origin], base)
+    await execFileP('git', ['remote', 'add', 'origin', origin], src)
+    await execFileP('git', ['push', '-u', 'origin', 'main'], src)
+
+    // branches 清单
+    const bl = await handleBranches({ cwd: src })
+    assert.equal(bl.ok, true)
+    assert.equal(bl.current, 'main')
+    assert.deepEqual(bl.branches, ['main'])
+    // 非法分支名拒绝
+    assert.equal((await handleCheckout({ cwd: src, branch: 'bad name' })).ok, false)
+    assert.equal((await handleCreateBranch({ cwd: src, name: '-x' })).ok, false)
+    // 新建并检出
+    const cb = await handleCreateBranch({ cwd: src, name: 'feature/x' })
+    assert.equal(cb.ok, true)
+    assert.equal((await handleBranches({ cwd: src })).current, 'feature/x')
+    // 切回 main
+    assert.equal((await handleCheckout({ cwd: src, branch: 'main' })).ok, true)
+    // 提交：空信息拒绝；暂存后成功
+    assert.equal((await handleCommit({ cwd: src, message: '  ' })).ok, false)
+    await writeFile(join(src, 'c.txt'), 'c\n')
+    await execFileP('git', ['add', 'c.txt'], src)
+    const cm = await handleCommit({ cwd: src, message: 'add c' })
+    assert.equal(cm.ok, true)
+    // ahead=1 → push → ahead=0
+    const s1 = await probeWorkspace(src)
+    assert.equal(s1.ahead, 1)
+    assert.equal(s1.branch, 'main')
+    assert.equal((await handlePush({ cwd: src })).ok, true)
+    const s2 = await probeWorkspace(src)
+    assert.equal(s2.ahead, 0)
+    // open-compare：本地路径 remote 不可派生 compare URL
+    const oc = await handleOpenCompare({ cwd: src })
+    assert.equal(oc.ok, false)
+    // 无暂存提交：仅 unstaged 变更 → 自动 add -A 后提交
+    await writeFile(join(src, 'd.txt'), 'd\n')
+    const cm2 = await handleCommit({ cwd: src, message: 'add d' })
+    assert.equal(cm2.ok, true)
+    const s3 = await probeWorkspace(src)
+    assert.equal(s3.ahead, 1)
+    assert.equal(s3.untracked, 0) // 自动暂存并入提交
+    assert.equal((await handlePush({ cwd: src })).ok, true)
+    // 无任何变更拒绝提交
+    assert.equal((await handleCommit({ cwd: src, message: 'noop' })).ok, false)
+    // 删除分支：非法名/当前分支拒绝；已合并安全删（-d）
+    assert.equal((await handleDeleteBranch({ cwd: src, name: '-x' })).ok, false)
+    assert.equal((await handleDeleteBranch({ cwd: src, name: 'main' })).ok, false)
+    assert.equal((await handleDeleteBranch({ cwd: src, name: 'feature/x' })).ok, true)
+    assert.deepEqual((await handleBranches({ cwd: src })).branches, ['main'])
+    // 未合并分支：-d 拒绝并带 merged 标记，force 走 -D
+    await handleCreateBranch({ cwd: src, name: 'wip' })
+    await writeFile(join(src, 'w.txt'), 'w\n')
+    assert.equal((await handleCommit({ cwd: src, message: 'wip' })).ok, true)
+    assert.equal((await handleCheckout({ cwd: src, branch: 'main' })).ok, true)
+    const dw = await handleDeleteBranch({ cwd: src, name: 'wip' })
+    assert.equal(dw.ok, false)
+    assert.equal(dw.merged, true)
+    assert.equal((await handleDeleteBranch({ cwd: src, name: 'wip', force: true })).ok, true)
+    assert.deepEqual((await handleBranches({ cwd: src })).branches, ['main'])
+  })
 } else {
-  skipped = 5
-  console.log('SKIP git 集成用例 ×5（git 不可用）')
+  skipped = 7
+  console.log('SKIP git 集成用例 ×7（git 不可用）')
 }
 
 /* ---------------- 汇总 ---------------- */

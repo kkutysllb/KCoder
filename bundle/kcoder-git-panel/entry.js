@@ -31,6 +31,10 @@ export const RPC_PREFIX = '/kc-git-panel/api'
 
 /** 单条 git 命令超时（毫秒；探测四路并行，整体最长约一个超时周期）。 */
 const GIT_TIMEOUT_MS = 5000
+/** 写操作超时（毫秒；push/commit 可能涉及网络与磁盘，放宽）。 */
+const WRITE_TIMEOUT_MS = 30000
+/** 变更文件列表上限（超出截断，防巨型工作区撑爆面板 DOM）。 */
+const FILES_MAX = 200
 /** 计划列表上限（按 mtime 新→旧截断）。 */
 const PLAN_MAX = 6
 /** 计划文档约定目录（一层 .md）。 */
@@ -103,6 +107,169 @@ export function parseNumstatLines(out) {
     if (m[2] !== '-') removed += Number(m[2])
   }
   return { added, removed }
+}
+
+/** git 引号路径还原（porcelain 对含特殊字符路径加 " 并 C 转义；
+ *  非 ASCII 为八进制字节序列，按 UTF-8 字节解码）。 */
+export function unquotePath(p) {
+  if (p.length < 2 || p[0] !== '"' || p[p.length - 1] !== '"') return p
+  const body = p.slice(1, -1)
+  const bytes = []
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i] ?? ''
+    if (c === '\\' && i + 1 < body.length) {
+      const n = body[i + 1] ?? ''
+      if (n >= '0' && n <= '7') {
+        let j = i + 1
+        let v = 0
+        let k = 0
+        while (j < body.length && k < 3 && (body[j] ?? '') >= '0' && (body[j] ?? '') <= '7') {
+          v = v * 8 + ((body[j] ?? '').charCodeAt(0) - 48)
+          j++
+          k++
+        }
+        bytes.push(v)
+        i = j - 1
+      } else {
+        const map = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 }
+        bytes.push(map[n] !== undefined ? map[n] : n.charCodeAt(0))
+        i++
+      }
+    } else {
+      for (const b of new TextEncoder().encode(c)) bytes.push(b)
+    }
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes))
+}
+
+/** status --porcelain=v1 逐文件解析（rename 行取新路径；引号路径还原）。 */
+export function parseStatusEntries(out) {
+  const entries = []
+  for (const l of out.split('\n')) {
+    if (l.length < 4) continue
+    const x = l[0] ?? ' '
+    const y = l[1] ?? ' '
+    let path = l.slice(3)
+    const arrow = path.indexOf(' -> ')
+    if (arrow !== -1) path = path.slice(arrow + 4)
+    path = unquotePath(path).trim()
+    if (path === '') continue
+    entries.push({
+      path,
+      x,
+      y,
+      untracked: x === '?' && y === '?',
+      staged: x !== ' ' && x !== '?',
+      changed: y !== ' ' && y !== '?',
+    })
+  }
+  return entries
+}
+
+/** numstat 逐文件映射（rename 两种形态归一到新路径；二进制 '-' 记 0）。 */
+export function parseNumstatMap(out) {
+  const map = new Map()
+  for (const l of out.split('\n')) {
+    const m = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(l)
+    if (m === null) continue
+    let path = m[3] ?? ''
+    const brace = /\{([^{}]*) => ([^{}]*)\}/.exec(path)
+    if (brace !== null) {
+      path = path.replace(brace[0], brace[2] ?? '').replace(/\/{2,}/g, '/')
+    } else {
+      const arrow = path.indexOf(' => ')
+      if (arrow !== -1) path = path.slice(arrow + 4)
+    }
+    path = unquotePath(path).trim()
+    if (path === '') continue
+    map.set(path, {
+      added: m[1] === '-' ? 0 : Number(m[1]),
+      removed: m[2] === '-' ? 0 : Number(m[2]),
+    })
+  }
+  return map
+}
+
+/** worktree list --porcelain 解析（bare 仓库剔除）。 */
+export function parseWorktreesPorcelain(out) {
+  const list = []
+  let cur = null
+  for (const l of out.split('\n')) {
+    if (l.startsWith('worktree ')) {
+      if (cur !== null) list.push(cur)
+      cur = { path: l.slice(9), branch: null, detached: false }
+    } else if (cur === null) {
+      continue
+    } else if (l.startsWith('branch ')) {
+      cur.branch = l.slice(7).replace(/^refs\/heads\//, '')
+    } else if (l === 'detached') {
+      cur.detached = true
+    } else if (l === 'bare') {
+      cur.bare = true
+    }
+  }
+  if (cur !== null) list.push(cur)
+  return list.filter(w => w.bare !== true)
+}
+
+/** rev-list --left-right --count 输出解析（左=ahead 右=behind；< > 前缀剥离）。 */
+export function parseAheadBehind(out) {
+  const m = /^([<>]?\d+)\s+([<>]?\d+)\s*$/.exec(out.trim())
+  if (m === null) return { ahead: 0, behind: 0 }
+  return {
+    ahead: parseInt(m[1]?.replace(/[<>]/g, '') ?? '0', 10),
+    behind: parseInt(m[2]?.replace(/[<>]/g, '') ?? '0', 10),
+  }
+}
+
+/** 分支名基础校验（execFile 无 shell 注入面，此层拦误操作；
+ *  规则取 git check-ref-format 高频拒绝项子集）。 */
+export function isValidBranchName(name) {
+  if (typeof name !== 'string') return false
+  if (name === '' || name.length > 200) return false
+  if (/\s/.test(name)) return false
+  if (name.startsWith('-') || name.startsWith('.') || name.startsWith('/')) return false
+  if (name.endsWith('/') || name.endsWith('.') || name.endsWith('.lock')) return false
+  if (name.includes('..') || name.includes('//') || name.includes('@{')) return false
+  if (/[~^:?*[\]\\]/.test(name)) return false
+  return true
+}
+
+/** 仓库路径清洗（剥 .git 与首尾斜杠；单段路径不视为 owner/repo）。 */
+function cleanRepoPath(p) {
+  const s = String(p).replace(/\.git\/?$/, '').replace(/^\/+/, '').replace(/\/+$/, '')
+  if (s === '' || !s.includes('/')) return null
+  return s
+}
+
+/** remote URL → {host, path}（scp 形式 git@host:owner/repo 与
+ *  http(s)/ssh/git 协议形式；其余 null）。 */
+export function remoteRepoUrl(remoteUrl) {
+  if (typeof remoteUrl !== 'string') return null
+  const u = remoteUrl.trim()
+  if (u === '') return null
+  const scp = /^[a-zA-Z0-9._-]+@([a-zA-Z0-9._-]+):(.+)$/.exec(u)
+  if (scp !== null) {
+    const path = cleanRepoPath(scp[2] ?? '')
+    return path === null ? null : { host: scp[1] ?? '', path }
+  }
+  try {
+    const url = new URL(u)
+    if (!['http:', 'https:', 'ssh:', 'git:'].includes(url.protocol)) return null
+    const path = cleanRepoPath(url.pathname)
+    return path === null ? null : { host: url.hostname, path }
+  } catch {
+    return null
+  }
+}
+
+/** 比较分支外链（GitHub 风格 compare URL；remote 不可解析 null）。 */
+export function compareUrl(remoteUrl, base, branch) {
+  const repo = remoteRepoUrl(remoteUrl)
+  if (repo === null) return null
+  if (typeof base !== 'string' || base === '') return null
+  if (typeof branch !== 'string' || branch === '') return null
+  return `https://${repo.host}/${repo.path}/compare/${base}...${branch}`
 }
 
 /** execFile 包装：失败不抛（ok/err 由调用方消化；stderr 优先作错误文案）。 */
@@ -195,6 +362,9 @@ export function emptySnapshot() {
   return {
     workspace: null, isRepo: false,
     staged: 0, changed: 0, untracked: 0, added: 0, removed: 0, plans: [],
+    branch: null, ahead: 0, behind: 0, hasUpstream: false,
+    remoteUrl: null, defaultBranch: null, worktrees: [], root: null,
+    files: [], filesTruncated: false,
     error: null,
   }
 }
@@ -210,7 +380,7 @@ export function emptySnapshot() {
  */
 export async function probeWorkspace(cwd) {
   const name = wsName(cwd)
-  const [status, numstat, plans, untrackedList] = await Promise.all([
+  const [status, numstat, plans, untrackedList, branchRef, aheadBehind, remoteRes, originHead, worktreesRes, topRes] = await Promise.all([
     runGit(['status', '--porcelain=v1'], cwd, GIT_TIMEOUT_MS),
     // 相对 HEAD 的全部已跟踪变更（staged + unstaged）；行数统计源
     runGit(['diff', 'HEAD', '--numstat'], cwd, GIT_TIMEOUT_MS),
@@ -219,19 +389,37 @@ export async function probeWorkspace(cwd) {
     // untracked 文件清单（--exclude-standard 走 .gitignore，避免把
     // venv/node_modules/build 产物算进去）
     runGit(['ls-files', '--others', '--exclude-standard'], cwd, GIT_TIMEOUT_MS),
+    // 当前分支（detached 时失败 → null）
+    runGit(['symbolic-ref', '--short', 'HEAD'], cwd, GIT_TIMEOUT_MS),
+    // ahead/behind（无上游失败 → 0/0 + hasUpstream=false）
+    runGit(['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'], cwd, GIT_TIMEOUT_MS),
+    runGit(['remote', 'get-url', 'origin'], cwd, GIT_TIMEOUT_MS),
+    runGit(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'], cwd, GIT_TIMEOUT_MS),
+    runGit(['worktree', 'list', '--porcelain'], cwd, GIT_TIMEOUT_MS),
+    runGit(['rev-parse', '--show-toplevel'], cwd, GIT_TIMEOUT_MS),
   ])
+  const branch = branchRef.ok ? branchRef.out.trim() : null
+  const ab = aheadBehind.ok ? parseAheadBehind(aheadBehind.out) : { ahead: 0, behind: 0 }
+  const remoteUrl = remoteRes.ok ? remoteRes.out.trim() : null
+  const defaultBranch = await resolveDefaultBranch(originHead, remoteUrl, cwd)
+  const worktrees = worktreesRes.ok ? parseWorktreesPorcelain(worktreesRes.out) : []
+  const root = topRes.ok ? topRes.out.trim() : null
   if (!status.ok) {
     // not a git repository 是正常态（无 error 文案）；其余（git 缺失等）透出
     const benign = status.err.includes('not a git repository')
     return {
       workspace: name, isRepo: false,
       staged: 0, changed: 0, untracked: 0, added: 0, removed: 0, plans,
+      branch: null, ahead: 0, behind: 0, hasUpstream: false,
+      remoteUrl: null, defaultBranch: null, worktrees: [], root: null,
+      files: [], filesTruncated: false,
       error: benign ? null : firstLine(status.err),
     }
   }
   const counts = parseStatusLines(status.out)
   let added = 0
   let removed = 0
+  const numMap = numstat.ok ? parseNumstatMap(numstat.out) : new Map()
   if (numstat.ok) {
     const lines = parseNumstatLines(numstat.out)
     added = lines.added
@@ -241,12 +429,41 @@ export async function probeWorkspace(cwd) {
   if (untrackedList.ok) {
     added += await countUntrackedLines(cwd, untrackedList.out)
   }
+  // 逐文件变更列表（numstat 行数挂到跟踪文件；untracked 只标新文件）
+  const all = parseStatusEntries(status.out)
+  const files = []
+  for (const e of all) {
+    const nm = numMap.get(e.path)
+    files.push({
+      path: e.path, x: e.x, y: e.y, untracked: e.untracked, staged: e.staged,
+      added: e.untracked ? null : (nm?.added ?? 0),
+      removed: e.untracked ? null : (nm?.removed ?? 0),
+    })
+    if (files.length >= FILES_MAX) break
+  }
   return {
     workspace: name, isRepo: true,
     staged: counts.staged, changed: counts.changed, untracked: counts.untracked,
     added, removed, plans,
+    branch, ahead: ab.ahead, behind: ab.behind, hasUpstream: aheadBehind.ok,
+    remoteUrl, defaultBranch, worktrees, root,
+    files, filesTruncated: all.length > files.length,
     error: null,
   }
+}
+
+/** 默认分支：origin/HEAD 符号引用优先，缺席时试探 origin/main、origin/master。 */
+async function resolveDefaultBranch(originHead, remoteUrl, cwd) {
+  if (originHead.ok) {
+    const b = originHead.out.trim().replace(/^refs\/remotes\/origin\//, '')
+    if (b !== '') return b
+  }
+  if (remoteUrl === null) return null
+  for (const cand of ['main', 'master']) {
+    const v = await runGit(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${cand}`], cwd, GIT_TIMEOUT_MS)
+    if (v.ok) return cand
+  }
+  return null
 }
 
 /* ---------------------------------------------------------------- *
@@ -309,6 +526,110 @@ export async function handleSnapshot(body) {
   return probeWorkspace(cwd)
 }
 
+/** 写操作 RPC 公共 cwd 校验（缺席/相对路径拒绝）。 */
+function absCwd(body) {
+  return typeof body?.cwd === 'string' && isAbsolute(body.cwd) ? body.cwd : ''
+}
+
+/** branches：当前分支 + 本地分支清单（选择器数据源）。 */
+export async function handleBranches(body) {
+  const cwd = absCwd(body)
+  if (cwd === '') return { ok: false, error: 'bad cwd' }
+  const [cur, list] = await Promise.all([
+    runGit(['symbolic-ref', '--short', 'HEAD'], cwd, GIT_TIMEOUT_MS),
+    runGit(['for-each-ref', 'refs/heads', '--format=%(refname:short)'], cwd, GIT_TIMEOUT_MS),
+  ])
+  if (!list.ok) return { ok: false, error: firstLine(list.err) ?? 'git failed' }
+  return {
+    ok: true,
+    current: cur.ok ? cur.out.trim() : null,
+    branches: list.out.split('\n').map(s => s.trim()).filter(s => s !== ''),
+  }
+}
+
+/** checkout：切到已存在分支（分支名基础校验前置）。 */
+export async function handleCheckout(body) {
+  const cwd = absCwd(body)
+  if (cwd === '') return { ok: false, error: 'bad cwd' }
+  const branch = typeof body?.branch === 'string' ? body.branch.trim() : ''
+  if (!isValidBranchName(branch)) return { ok: false, error: 'invalid branch name' }
+  const r = await runGit(['checkout', branch], cwd, WRITE_TIMEOUT_MS)
+  return r.ok ? { ok: true } : { ok: false, error: firstLine(r.err) ?? 'checkout failed' }
+}
+
+/** create-branch：创建并检出新分支（checkout -b）。 */
+export async function handleCreateBranch(body) {
+  const cwd = absCwd(body)
+  if (cwd === '') return { ok: false, error: 'bad cwd' }
+  const name = typeof body?.name === 'string' ? body.name.trim() : ''
+  if (!isValidBranchName(name)) return { ok: false, error: 'invalid branch name' }
+  const r = await runGit(['checkout', '-b', name], cwd, WRITE_TIMEOUT_MS)
+  return r.ok ? { ok: true } : { ok: false, error: firstLine(r.err) ?? 'create branch failed' }
+}
+
+/** delete-branch：删除本地分支。默认安全删（`branch -d`，未合并拒绝并
+ *  带 merged 标记供 UI 升级强制确认）；`force` 走 `branch -D`；
+ *  当前检出分支拒绝。 */
+export async function handleDeleteBranch(body) {
+  const cwd = absCwd(body)
+  if (cwd === '') return { ok: false, error: 'bad cwd' }
+  const name = typeof body?.name === 'string' ? body.name.trim() : ''
+  if (!isValidBranchName(name)) return { ok: false, error: 'invalid branch name' }
+  const cur = await runGit(['symbolic-ref', '--short', 'HEAD'], cwd, GIT_TIMEOUT_MS)
+  if (cur.ok && cur.out.trim() === name) return { ok: false, error: 'cannot delete current branch' }
+  const r = await runGit(['branch', body?.force === true ? '-D' : '-d', name], cwd, WRITE_TIMEOUT_MS)
+  if (r.ok) return { ok: true }
+  return { ok: false, error: firstLine(r.err) ?? 'delete failed', merged: /not fully merged/i.test(r.err ?? '') }
+}
+
+/** commit：提交待提交变更（已有暂存仅提暂存；无暂存但有
+ *  changed/untracked 时先 add -A 全量暂存——对齐 Codex 提交或推送语义；
+ *  无任何变更拒绝；信息非空且 ≤2000 字）。 */
+export async function handleCommit(body) {
+  const cwd = absCwd(body)
+  if (cwd === '') return { ok: false, error: 'bad cwd' }
+  const message = typeof body?.message === 'string' ? body.message.trim() : ''
+  if (message === '' || message.length > 2000) return { ok: false, error: 'empty or too long message' }
+  const st = await runGit(['status', '--porcelain=v1'], cwd, GIT_TIMEOUT_MS)
+  if (!st.ok) return { ok: false, error: firstLine(st.err) ?? 'status failed' }
+  const counts = parseStatusLines(st.out)
+  if (counts.staged + counts.changed + counts.untracked === 0) {
+    return { ok: false, error: 'nothing to commit' }
+  }
+  if (counts.staged === 0) {
+    const add = await runGit(['add', '-A'], cwd, WRITE_TIMEOUT_MS)
+    if (!add.ok) return { ok: false, error: firstLine(add.err) ?? 'stage failed' }
+  }
+  const r = await runGit(['commit', '-m', message], cwd, WRITE_TIMEOUT_MS)
+  return r.ok ? { ok: true } : { ok: false, error: firstLine(r.err) ?? 'commit failed' }
+}
+
+/** push：按已配置上游推送（无上游时 git 报错透出）。 */
+export async function handlePush(body) {
+  const cwd = absCwd(body)
+  if (cwd === '') return { ok: false, error: 'bad cwd' }
+  const r = await runGit(['push'], cwd, WRITE_TIMEOUT_MS)
+  return r.ok ? { ok: true } : { ok: false, error: firstLine(r.err) ?? 'push failed' }
+}
+
+/** open-compare：派生 GitHub 风格 compare URL 并系统浏览器打开。 */
+export async function handleOpenCompare(body) {
+  const cwd = absCwd(body)
+  if (cwd === '') return { ok: false, error: 'bad cwd' }
+  const [remoteRes, originHead, branchRef] = await Promise.all([
+    runGit(['remote', 'get-url', 'origin'], cwd, GIT_TIMEOUT_MS),
+    runGit(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'], cwd, GIT_TIMEOUT_MS),
+    runGit(['symbolic-ref', '--short', 'HEAD'], cwd, GIT_TIMEOUT_MS),
+  ])
+  if (!remoteRes.ok) return { ok: false, error: 'no origin remote' }
+  const branch = branchRef.ok ? branchRef.out.trim() : null
+  const base = await resolveDefaultBranch(originHead, remoteRes.out.trim(), cwd)
+  const url = compareUrl(remoteRes.out.trim(), base, branch)
+  if (url === null) return { ok: false, error: 'unsupported remote url' }
+  await openWithSystemApp(url)
+  return { ok: true, url }
+}
+
 /** 系统默认应用打开（macOS open / Windows start / Linux xdg-open）。 */
 function openWithSystemApp(path) {
   const cmd = process.platform === 'darwin'
@@ -363,6 +684,34 @@ export function apply(ctx) {
             }
             if (method === 'open-plan') {
               writeJson(res, 200, await handleOpenPlan(body))
+              return
+            }
+            if (method === 'branches') {
+              writeJson(res, 200, await handleBranches(body))
+              return
+            }
+            if (method === 'checkout') {
+              writeJson(res, 200, await handleCheckout(body))
+              return
+            }
+            if (method === 'create-branch') {
+              writeJson(res, 200, await handleCreateBranch(body))
+              return
+            }
+            if (method === 'delete-branch') {
+              writeJson(res, 200, await handleDeleteBranch(body))
+              return
+            }
+            if (method === 'commit') {
+              writeJson(res, 200, await handleCommit(body))
+              return
+            }
+            if (method === 'push') {
+              writeJson(res, 200, await handlePush(body))
+              return
+            }
+            if (method === 'open-compare') {
+              writeJson(res, 200, await handleOpenCompare(body))
               return
             }
             writeJson(res, 404, { ok: false, error: 'unknown method' })
