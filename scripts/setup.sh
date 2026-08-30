@@ -11,7 +11,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UPSTREAM="${KCODER_UPSTREAM_DIR:-/Users/libing/kk_Projects/deepseek-harness}"
-UPSTREAM_REPO="git@github.com:kkutysllb/deepseek-harness.git"
+UPSTREAM_REPO="${KCODER_UPSTREAM_REPO:-git@github.com:kkutysllb/deepseek-harness.git}"
 UPSTREAM_BRANCH="kcoder/alpha.1"
 
 say() { printf '\033[1;34m[setup]\033[0m %s\n' "$*"; }

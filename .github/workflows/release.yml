@@ -47,9 +47,21 @@ jobs:
       - name: 安装桌面端依赖
         run: pnpm install --frozen-lockfile
       - name: 克隆并构建上游 deepseek-harness
-        # 上游克隆被 .gitignore 排除，CI 每次现拉现建（install + 三阶段 build）
+        # 上游克隆被 .gitignore 排除，CI 每次现拉现建（install + 三阶段 build）。
+        # KCODER_UPSTREAM_DIR 必须指向 runner 工作区内：setup.sh 的默认值是本机
+        # 仓外路径（/Users/...），runner 上无权创建会 Permission denied；且后续
+        # deploy 步骤用相对路径 deepseek-harness，两者必须同址。
         timeout-minutes: 40
-        run: bash scripts/setup.sh
+        env:
+          KCODER_UPSTREAM_DIR: ${{ github.workspace }}/deepseek-harness
+          # runner 无用户 SSH key，走匿名 HTTPS（fork 为公开仓）
+          KCODER_UPSTREAM_REPO: https://github.com/kkutysllb/deepseek-harness.git
+        run: |
+          # 全局改写：克隆的 origin 及上游包内任何 git+ssh 依赖都转 HTTPS，
+          # 否则后续 pnpm install/deploy 物化 git 依赖时仍会撞 SSH 无 key 失败
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          bash scripts/setup.sh
       - name: 物化上游运行时（开箱即用的核心）
         # pnpm deploy 生产依赖闭包 → staging/kcoder-runtime，
         # 再用 materialize-peers 补齐 deploy 的盲区（peer 声明 +
