@@ -30,10 +30,10 @@ if [[ "$(pnpm --version 2>/dev/null | cut -d. -f1)" != "11" ]]; then
 fi
 
 if [[ ! -d "$UPSTREAM/.git" && "${1:-}" != "--skip-clone" ]]; then
-  say "克隆上游 fork deepseek-harness（分支 $UPSTREAM_BRANCH）…"
+  say "克隆上游 fork deepseek-harness（分支 ${UPSTREAM_BRANCH}）…"
   git clone -b "$UPSTREAM_BRANCH" "$UPSTREAM_REPO" "$UPSTREAM"
 fi
-[[ -d "$UPSTREAM/.git" ]] || die "上游克隆不存在：$UPSTREAM（重试不带 --skip-clone，或设 KCODER_UPSTREAM_DIR）"
+[[ -d "$UPSTREAM/.git" ]] || die "上游克隆不存在：${UPSTREAM}（重试不带 --skip-clone，或设 KCODER_UPSTREAM_DIR）"
 
 cd "$UPSTREAM"
 
