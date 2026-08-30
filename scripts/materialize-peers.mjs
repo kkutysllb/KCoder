@@ -32,7 +32,14 @@ import { createGzip } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const upstream = join(root, 'deepseek-harness')
+// 上游工作树（fork 锚定后本地消费态在仓外）：env 对齐 release.sh /
+// setup.sh / dsh-contract.ts 的 KCODER_UPSTREAM_DIR；仓内嵌路径保留为
+// CI 兼容回退（release.yml 把 fork 克隆到工作区内与 deploy 同址）；
+// 都不成立时落到 fork 的本机仓外克隆。
+const upstream = process.env.KCODER_UPSTREAM_DIR
+  ?? (existsSync(join(root, 'deepseek-harness'))
+    ? join(root, 'deepseek-harness')
+    : '/Users/libing/kk_Projects/deepseek-harness')
 const staging = join(root, 'staging', 'kcoder-runtime')
 const topNM = join(staging, 'node_modules')
 
