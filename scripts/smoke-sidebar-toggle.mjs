@@ -6,20 +6,22 @@
  * - 上游 toggle（logoRow 内 button.iconButton.toggle）仅展开态隐藏
  *   （收起态恢复显示——railMark 内 brand-injector 注入的 K logo 即
  *   "折叠后 rail 顶部的 logo K"，点击展开，标题栏按钮不重复隐藏它）；
- * - 标题栏注入三个 26x26 按钮（macOS：折叠 84px / 左箭头 128px /
- *   右箭头 174px，紧邻红绿灯区域右侧；垂直居中、在 bar 内）；
- * - Windows 场景：最左注入 K logo（24px，与 rail K 同尺寸；按钮带
- *   右移——折叠 44 / 左箭头 78 / 右箭头 112，extra 134）断言 logo
- *   尺寸/位置/垂直居中 + 新坐标；macOS 断言无 logo（红绿灯区域）；
+ * - 标题栏注入三个 26x26 按钮（双平台同坐标：折叠 84px / 左箭头
+ *   128px / 右箭头 174px，紧邻红绿灯区域右侧；垂直居中、在 bar 内）；
+ * - Windows 场景：左角注入装饰红绿灯（三颗 12px 圆点、间距 8，占
+ *   12~64px，与 macOS 原生红绿灯同几何；extra 196）断言圆点尺寸/
+ *   位置/垂直居中 + 按钮同 macOS 坐标；macOS 断言无装饰圆点（原生
+ *   红绿灯区域）；
  * - 点击折叠按钮 → 上游 toggle 的 click 被触发（React 合成事件
  *   路径照常）；
  * - 图标实时克隆上游 toggle 的 panelIcon svg、aria-label 同步；
  * - 箭头按钮 → 会话树（role="tree" 内 role="treeitem" 的 sessionRow，
  *   aria-selected 标记当前会话）相邻行 click：左=上一个、右=下一个；
  *   收起态无会话列表（列表仅展开态挂载）→ 先触发 toggle 展开；
- * - --dsh-titlebar-extra-left=130px（右箭头右缘 174+26=200 + 间距 8
- *   - leftPad 78）：侧边栏宽 280 时标题仍在侧边栏右缘（292px），收起
- *   （56px）/探针失效（0）时标题退到按钮右侧（208px）不重叠；
+ * - --dsh-titlebar-extra-left（macOS 130px / Windows 196px = 右箭头
+ *   右缘 174+26=200 + 间距 8 - leftPad 78/12）：侧边栏宽 280 时标题
+ *   仍在侧边栏右缘（292px），收起（56px）/探针失效（0）时标题退到
+ *   按钮右侧（208px）不重叠；
  * - 自愈：模拟 React 重建 toggle（收起态：brand 移除 + railMark
  *   svg + aria-label 变化）→ 收起态 toggle 恢复显示（rail K logo
  *   可见可点）、按钮图标/语义自动跟随；
@@ -38,19 +40,17 @@ import { join, resolve } from 'node:path'
 const ROOT = resolve(import.meta.dirname, '..')
 const BT = String.fromCharCode(96)
 
-// 从源码提取 PAGE_JS 模板串原文，占位符替换出两套平台值：
-// - macOS（红绿灯右侧）：折叠 84 / 左箭头 128 / 右箭头 174，EXTRA
-//   130 = 最右按钮右缘 200 + 间距 8 - leftPad 78，logo -1 不注入；
-// - Windows（K logo 布局）：logo 12（24px 宽 + 间距 8）+ 按钮带右移
-//   折叠 44 / 左箭头 78 / 右箭头 112，EXTRA 134 = 138 + 8 - 12（与
-//   主进程 attachSidebarToggle 的 win32 分支一致）。LOGO_IMG 用占位
-//   dataURL（断言不校验像素内容，只验注入与几何）。
+// 从源码提取 PAGE_JS 模板串原文，占位符替换出两套平台值（按钮坐标双
+// 平台一致，仅装饰红绿灯开关与 EXTRA 不同，与主进程 attachSidebarToggle
+// 平台分支一致）：
+// - macOS：EXTRA 130 = 最右按钮右缘 200 + 间距 8 - leftPad 78，装饰
+//   红绿灯 false（原生红绿灯在场）；
+// - Windows：EXTRA 196 = 208 - leftPad 12，装饰红绿灯 true。
 const src = readFileSync(join(ROOT, 'desktop/main/sidebar-toggle.ts'), 'utf8')
 const decl = 'const PAGE_JS = ' + BT
 const from = src.indexOf(decl) + decl.length
 const endTick = src.indexOf('\n})()`', from)
 if (from < decl.length || endTick < 0) throw new Error('无法提取 PAGE_JS')
-const LOGO_TINY = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAFElEQVR4nGP8z8Dwn4EIwESMolEAAGJpAgEqGvm/AAAAAElFTkSuQmCC'
 const baseJs = src.slice(from, endTick + 5)
 // 折叠按钮静态图标：PAGE_JS 里 TOGGLE_ICON_PLACEHOLDER（源码插值原文）
 // 需替换为 TOGGLE_ICON_SVG 常量的求值结果——该常量是多段单引号拼接
@@ -66,16 +66,14 @@ const pageJs = baseJs
   .replaceAll('${ARROW_NEXT_PLACEHOLDER}', '174')
   .replaceAll('${EXTRA_PLACEHOLDER}', '130')
   .replaceAll('${TOGGLE_ICON_PLACEHOLDER}', JSON.stringify(toggleIconSvg))
-  .replaceAll('${LOGO_LEFT_PLACEHOLDER}', '-1')
-  .replaceAll('${LOGO_IMG_PLACEHOLDER}', JSON.stringify(LOGO_TINY))
+  .replaceAll('${DOTS_PLACEHOLDER}', 'false')
 const pageJsWin = baseJs
-  .replaceAll('${PLACEHOLDER}', '44')
-  .replaceAll('${ARROW_PREV_PLACEHOLDER}', '78')
-  .replaceAll('${ARROW_NEXT_PLACEHOLDER}', '112')
-  .replaceAll('${EXTRA_PLACEHOLDER}', '134')
+  .replaceAll('${PLACEHOLDER}', '84')
+  .replaceAll('${ARROW_PREV_PLACEHOLDER}', '128')
+  .replaceAll('${ARROW_NEXT_PLACEHOLDER}', '174')
+  .replaceAll('${EXTRA_PLACEHOLDER}', '196')
   .replaceAll('${TOGGLE_ICON_PLACEHOLDER}', JSON.stringify(toggleIconSvg))
-  .replaceAll('${LOGO_LEFT_PLACEHOLDER}', '12')
-  .replaceAll('${LOGO_IMG_PLACEHOLDER}', JSON.stringify(LOGO_TINY))
+  .replaceAll('${DOTS_PLACEHOLDER}', 'true')
 
 // 手搓上游 sidebar（.logoRow/.iconButton 对齐 SidebarRoot.module.css）
 // + 自绘标题栏（#bar/.ttl 对齐 theme-watcher SHELL_TITLEBAR_JS：
@@ -149,7 +147,8 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
     const btn = document.getElementById(ID)
     const prevBtn = document.getElementById(PREV)
     const nextBtn = document.getElementById(NEXT)
-    const logo = document.getElementById('__dsh_desktop_title_logo')
+    const dots = document.getElementById('__dsh_desktop_deco_lights')
+    const dot0 = dots !== null ? dots.firstElementChild : null
     const bar = document.getElementById('__dsh_desktop_titlebar')
     const toggle = document.querySelector('button[class*="toggle"]')
     const ttl = document.getElementById('ttl')
@@ -180,9 +179,11 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
     prevBtn !== null && prevBtn.click()
     nextBtn !== null && nextBtn.click()
     return JSON.stringify({
-      logoExists: logo !== null,
-      logoInBar: logo !== null && bar !== null && bar.contains(logo),
-      logoRect: r(logo),
+      dotsExists: dots !== null,
+      dotsInBar: dots !== null && bar !== null && bar.contains(dots),
+      dotsRect: r(dots),
+      dotsCount: dots !== null ? dots.children.length : 0,
+      dot0Rect: r(dot0),
       btnExists: btn !== null,
       btnInBar: btn !== null && bar !== null && bar.contains(btn),
       btnRect: r(btn),
@@ -210,24 +211,25 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
   const fails = []
   const barTop = probe.barRect.top
   const expectTop = barTop + (48 - 26) / 2
-  // 平台布局期望（与 attachSidebarToggle 平台分支一致）：macOS 红绿灯
-  // 右侧 84/128/174、extra 130、无 logo；Windows K logo 12 + 按钮带
-  // 右移 44/78/112、extra 134；label 让位 = leftPad(12/78) + extra
+  // 平台布局期望（与 attachSidebarToggle 平台分支一致）：按钮双平台同
+  // 坐标 84/128/174；macOS extra 130、无装饰圆点（原生红绿灯在场）；
+  // Windows extra 196、装饰圆点占 12~64px；label 让位 = leftPad + extra
   const L = win32
-    ? { toggle: 44, prev: 78, next: 112, extra: '134px', ttl0: 146, ttl280: 292, ttl56: 146 }
+    ? { toggle: 84, prev: 128, next: 174, extra: '196px', ttl0: 208, ttl280: 292, ttl56: 208 }
     : { toggle: 84, prev: 128, next: 174, extra: '130px', ttl0: 208, ttl280: 292, ttl56: 208 }
   if (win32) {
-    if (!probe.logoExists) fails.push('Windows 标题栏 K logo 未注入')
+    if (!probe.dotsExists) fails.push('Windows 标题栏装饰红绿灯未注入')
     else {
-      if (!probe.logoInBar) fails.push('K logo 不在标题栏 bar 内')
-      if (Math.abs(probe.logoRect.left - 12) > 1) fails.push(`K logo left=${probe.logoRect.left} 应 ≈12（折叠按钮左侧）`)
-      if (Math.abs(probe.logoRect.width - 24) > 1 || Math.abs(probe.logoRect.height - 24) > 1)
-        fails.push(`K logo 尺寸=${probe.logoRect.width}x${probe.logoRect.height} 应为 24x24（与 rail K 同尺寸）`)
-      const logoTop = barTop + (48 - 24) / 2
-      if (Math.abs(probe.logoRect.top - logoTop) > 1) fails.push(`K logo top=${probe.logoRect.top} 应 ≈${logoTop}（垂直居中）`)
+      if (!probe.dotsInBar) fails.push('装饰红绿灯不在标题栏 bar 内')
+      if (Math.abs(probe.dotsRect.left - 12) > 1) fails.push(`装饰红绿灯 left=${probe.dotsRect.left} 应 ≈12（与 macOS 红绿灯同位）`)
+      if (probe.dotsCount !== 3) fails.push(`装饰红绿灯圆点数=${probe.dotsCount} 应为 3`)
+      if (probe.dot0Rect !== null && (Math.abs(probe.dot0Rect.width - 12) > 1 || Math.abs(probe.dot0Rect.height - 12) > 1))
+        fails.push(`装饰圆点尺寸=${probe.dot0Rect.width}x${probe.dot0Rect.height} 应为 12x12`)
+      const dotsTop = barTop + (48 - 12) / 2
+      if (Math.abs(probe.dotsRect.top - dotsTop) > 1) fails.push(`装饰红绿灯 top=${probe.dotsRect.top} 应 ≈${dotsTop}（垂直居中）`)
     }
-  } else if (probe.logoExists) {
-    fails.push('macOS 不应注入 K logo（红绿灯区域不可侵占）')
+  } else if (probe.dotsExists) {
+    fails.push('macOS 不应注入装饰红绿灯（原生红绿灯在场）')
   }
   if (!probe.btnExists) fails.push('标题栏折叠按钮未注入')
   else {
@@ -357,8 +359,8 @@ app.whenReady().then(async () => {
   // 收起态场景：fixture 初始即 rail（railMark 内 K logo img + panelIcon），
   // 断言 toggle 显示、K logo 可见、点击可展开 + 截图
   results.push(await runScenario(win, 'dark', true, true))
-  // Windows 场景：K logo + 按钮带右移布局（展开态深色一档；收起态行为
-  // 平台无关，已由上面 macOS 收起场景覆盖）
+  // Windows 场景：装饰红绿灯 + 双平台同坐标按钮（展开态深色一档；收起
+  // 态行为平台无关，已由上面 macOS 收起场景覆盖）
   results.push(await runScenario(win, 'win-dark', true, false, true))
   console.log(results.every(Boolean) ? 'ALL PASS' : 'FAILED')
   app.exit(results.every(Boolean) ? 0 : 1)
