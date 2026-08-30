@@ -31,3 +31,5 @@ app.asar.*.bak
 .dsh/
 .drops/
 .patches/discussion-body.md
+.patches/
+.workbuddy/
