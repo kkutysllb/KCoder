@@ -46,6 +46,9 @@ export const KCODER_LANGUAGE_BUNDLE = '@kcoder/language-bundle'
 /** git 工作区面板 bundle 包名（独立插件，见 bundle/kcoder-git-panel）。 */
 export const KCODER_GIT_PANEL_BUNDLE = '@kcoder/git-panel'
 
+/** 会话统计图表面板 bundle 包名（独立插件，见 bundle/kcoder-stats-panel）。 */
+export const KCODER_STATS_PANEL_BUNDLE = '@kcoder/stats-panel'
+
 /** 嵌入式终端 bundle 包名（独立插件，见 bundle/kcoder-terminal）。 */
 export const KCODER_TERMINAL_BUNDLE = '@kcoder/terminal'
 
@@ -72,6 +75,7 @@ const BUNDLES: BundledPlugin[] = [
   { pkg: KCODER_SKILLS_BUNDLE, dir: 'kcoder-skills', entry: 'entry.js', intactFiles: [join('skills', 'manifest.json')] },
   { pkg: KCODER_LANGUAGE_BUNDLE, dir: 'kcoder-language', entry: 'entry.js', intactFiles: [] },
   { pkg: KCODER_GIT_PANEL_BUNDLE, dir: 'kcoder-git-panel', entry: 'entry.js', intactFiles: ['client.js'] },
+  { pkg: KCODER_STATS_PANEL_BUNDLE, dir: 'kcoder-stats-panel', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: KCODER_TERMINAL_BUNDLE, dir: 'kcoder-terminal', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: KCODER_FILE_REVIEW_BUNDLE, dir: 'kcoder-file-review', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
 ]

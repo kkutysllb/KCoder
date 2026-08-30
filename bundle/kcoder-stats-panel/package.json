@@ -1,0 +1,32 @@
+{
+  "name": "@kcoder/stats-panel",
+  "version": "0.1.0",
+  "description": "KCoder in-box dsh bundle: session stats panel. Hovering the StatsLine strip under the composer pops a bottom-sheet visualization (turns/steps, TTFT avg, decode speed, LLM/tool-call time split, input/output token bars, cache-hit ring) replacing the upstream plain-text tooltip. Zero-intrusion: DOM text parsing, zh/en dual duration formats.",
+  "license": "MIT",
+  "type": "module",
+  "main": "entry.js",
+  "exports": {
+    ".": "./entry.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "entry.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  }
+}

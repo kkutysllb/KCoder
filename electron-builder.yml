@@ -19,6 +19,7 @@ extraResources:
   # —— kcoder-skills（方法论技能包）/ kcoder-language（强制中文回答
   # system-prompt section，默认 disabled，home patch 层热切换）/
   # kcoder-git-panel（独立 git 工作区面板）/ kcoder-terminal（嵌入式终端）
+  # / kcoder-stats-panel（会话统计图表面板，hover 缩略条底部弹出）
   - from: bundle/kcoder-skills
     to: kcoder-skills
   - from: bundle/kcoder-language
@@ -27,6 +28,8 @@ extraResources:
     to: kcoder-git-panel
   - from: bundle/kcoder-terminal
     to: kcoder-terminal
+  - from: bundle/kcoder-stats-panel
+    to: kcoder-stats-panel
   # kcoder-file-review（文件审查，fork 自 Lzh3070/dsh-file-review-tab）
   - from: bundle/kcoder-file-review
     to: kcoder-file-review
