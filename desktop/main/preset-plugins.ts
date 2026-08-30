@@ -1,6 +1,6 @@
 /**
- * 预置第三方插件（dsh-vision-router / dsh-context / dsh-better-sidebar）
- * 的开箱物化。
+ * 预置第三方插件（dsh-context / dsh-better-sidebar / archify /
+ * drag-to-attachment）的开箱物化。
  *
  * 这三个插件是 KCoder 发行物的一部分：Windows 全新安装后 profile 是
  * 上游空模板（只有 dsh-base / dsh-web-app 内置层），第三方插件不会自动
@@ -22,8 +22,11 @@
  *
  * 版本策略：预置 spec 锁定开箱已验证 patch 兼容的版本线（^ 对 0.x 仅
  * patch 级跟随，minor 升级不自动跟进）；用户主动“更新”经插件管理
- * update --latest 升线。vision-router 精确锁定（keyed slot 契约适配版，
- * 防破坏性变更混入）。
+ * update --latest 升线。破坏性敏感的包装层插件用精确锁定（如 archify）。
+ *
+ * 预置冻结（2026-08-30）：第三方插件不再新增预置——用户按需经插件
+ * 管理页自装（github 源一键安装）。现有四个维持现状（含缺陷补丁与
+ * 版本锁）；退役走 RETIRED_PRESETS 三清自愈（见 dsh-vision-router）。
  *
  * dsh-better-sidebar（2026-08-20 预置，全面替代自研功能面：文件树
  *   面板、内嵌终端与状态栏四面板——文件预览/会话轨迹/日志导出/Git
@@ -47,7 +50,7 @@
  * tt-a1i/archify v2.15.0（MIT，14.5K★）的官方 DSH 包装，community
  * opt-in，无遥测。纯技能 bundle：零依赖零 peer、无原生构建、无
  * settings——除声明外无任何物化项。锁精确 0.1.0（包装层唯一版本，
- * 按 rc.6 发布；同 vision-router 惯例防后续版本破坏性变更混入）。
+ * 按 rc.6 发布，防后续版本破坏性变更混入）。
  * 调用：会话内 “Use the archify skill to map this repository's
  * runtime architecture.”；产物单文件 HTML 可在 better-sidebar
  * 预览面板直接打开。
@@ -62,10 +65,15 @@
  * rc.8 return 补丁三层链精确对齐）；升级走显式改预置。无额外物化
  * 项（补丁链由 ensureProfilePatches 按需自愈）。
  *
+ * dsh-vision-router（2026-08-30 退役）：预置清单摘除并自愈清理。
+ * 工具式识图与多模态主模型的原生视觉能力抢调用——模型优先走插件
+ * 识图工具，效果反而一般；多模态已成主流，原生能力优先，退役不再
+ * 预置（历史锁定 2.0.1 keyed slot 契约适配版）。
+ *
  * @module desktop/main/preset-plugins
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { WEB_PROFILE, dshHome, runPnpm } from './dsh-contract'
 import { ensureProfilePatches, healLog } from './profile-patches'
@@ -73,12 +81,18 @@ import { SHELL_TITLEBAR_HEIGHT } from './theme-watcher'
 
 /** 预置插件：bundle 名 → 依赖 spec（键顺序即层叠顺序，对齐 mac 开发机）。 */
 export const PRESET_PLUGINS: Record<string, string> = {
-  'dsh-vision-router': '2.0.1',
   'dsh-context': '^0.37.0',
   'dsh-better-sidebar': '^0.17.0',
   '@tt-a1i/archify-dsh': '0.1.0',
   '@dsh-external/dsh-drag-to-attachment': 'github:djt889/dsh-drag-to-attachment#v1.0.3',
 }
+
+/**
+ * 退役预置插件：不再预置，也不留在用户 profile——dependencies 声明、
+ * bundles 层叠声明与 node_modules 实体三处自愈移除（见
+ * ensurePresetPlugins 的退役清理步骤）。
+ */
+const RETIRED_PRESETS = ['dsh-vision-router']
 
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */
 const TEMPLATE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
@@ -217,6 +231,39 @@ export function ensurePresetPlugins(): void {
       writeFileSync(workspacePath, PROFILE_PNPM_WORKSPACE)
       console.log('[preset-plugins] pnpm-workspace.yaml 丢失，已补写上游同款模板')
       healLog('[preset] pnpm-workspace.yaml 丢失，已补写上游同款模板')
+    }
+
+    // 1.8) 退役预置清理（幂等，先于补写/对账）：老 profile 里已装的
+    //      退役包三处摘除——dependencies 声明（不摘则 pnpm install 反复
+    //      重装）、bundles 声明（dsh 唯一消费口，不摘则 loader 继续加
+    //      载）、node_modules 实体（hoisted 顶层真目录，删除断解析）。
+    //      对照 kcoder-skills-bundle 的 RETIRED_PLUGINS 模式
+    const preBundles = bundlesOf(m)
+    const keptBundles = preBundles.filter((p) => !RETIRED_PRESETS.includes(p))
+    const depsMap = (m['dependencies'] ?? {}) as Record<string, unknown>
+    const retiredDeps = RETIRED_PRESETS.filter((r) => r in depsMap)
+    if (keptBundles.length !== preBundles.length || retiredDeps.length > 0) {
+      if (keptBundles.length !== preBundles.length) {
+        const dshSec = (m['dsh'] ?? {}) as { profile?: Record<string, unknown> }
+        const profileSec = (dshSec.profile ?? {}) as Record<string, unknown>
+        m['dsh'] = { ...dshSec, profile: { ...profileSec, bundles: keptBundles } }
+      }
+      if (retiredDeps.length > 0) {
+        for (const r of retiredDeps) delete depsMap[r]
+        m['dependencies'] = depsMap
+      }
+      writeFileSync(manifestPath, `${JSON.stringify(m, undefined, 2)}\n`)
+      const cleaned = [...new Set([...retiredDeps, ...preBundles.filter((p) => RETIRED_PRESETS.includes(p))])]
+      console.log(`[preset-plugins] 退役预置声明已清理: ${cleaned.join(', ')}`)
+      healLog(`[preset] 退役预置声明已清理: ${cleaned.join(', ')}`)
+    }
+    for (const r of RETIRED_PRESETS) {
+      const dir = join(profileDir, 'node_modules', r)
+      if (existsSync(dir)) {
+        rmSync(dir, { recursive: true, force: true })
+        console.log(`[preset-plugins] 已删除退役插件实体: ${r}`)
+        healLog(`[preset] 已删除退役插件实体: ${r}`)
+      }
     }
 
     // 2) 补写 dependencies 缺项（可先行——dsh 不查 dependencies，

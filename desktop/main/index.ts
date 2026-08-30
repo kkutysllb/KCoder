@@ -41,7 +41,7 @@ if (process.env.KC_REMOTE_DEBUG_PORT !== undefined) {
 // 动均 recursive mkdir。
 
 // npm registry 透传：GUI 应用不经 shell 启动，引擎进程拿不到用户 npm
-// 配置；插件（如 dsh-vision-router）的更新检查读 npm_config_registry，
+// 配置；预置插件（如 dsh-context）的更新检查读 npm_config_registry，
 // 缺省时直连 registry.npmjs.org——国内网络/代理环境下间歇超时即报
 //「更新检查失败：unknown」。从 ~/.npmrc 读镜像源预置给引擎（pnpm
 // 安装本身会自行读 npmrc，这里只为进程内 fetch）。未配置则不干预。
@@ -229,7 +229,8 @@ app.whenReady().then(() => {
   // 的唯一通道；插件已装但补丁未生效时触发一次 pnpm install）
   ensureProfilePatches()
   // 预置第三方插件物化（幂等；Windows 全新安装 profile 为空模板，开箱
-  // 即预置 vision-router / context / better-sidebar，含缺陷补丁自动应用）
+  // 即预置 context / better-sidebar / archify / drag-to-attachment，
+  // 含缺陷补丁自动应用）
   ensurePresetPlugins()
   dshManager.start()
 
