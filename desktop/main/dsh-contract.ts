@@ -266,6 +266,9 @@ export interface DshCommand {
   env: NodeJS.ProcessEnv
   /** 人类可读描述（诊断面板展示）。 */
   describe: string
+  /** 面向终端用户的脱敏描述（关于页等）：与 describe 同语义但不含本机
+   * 绝对路径——开发者目录 / userData 路径属个人机器信息，不对外暴露。 */
+  describePublic: string
 }
 
 /** 目录内 dsh 仓的版本号（monorepo 根 package.json 的 version）；读不到/非 semver 返回 null。
@@ -315,6 +318,7 @@ export function resolveDshCommand(): DshCommand | null {
       cwd: UPSTREAM_DIR,
       env: {},
       describe: `$DSH_BIN: ${envBin}`,
+      describePublic: '环境变量 $DSH_BIN',
     }
   }
 
@@ -333,6 +337,7 @@ export function resolveDshCommand(): DshCommand | null {
       cwd: bundled,
       env: cmd.isElectron ? { ELECTRON_RUN_AS_NODE: '1' } : {},
       describe: `内置运行时: ${cmd.isElectron ? 'Electron node' : '系统 node'} ${join(bundled, BUNDLED_BIN)}`,
+      describePublic: `内置运行时: ${cmd.isElectron ? 'Electron node' : '系统 node'}`,
     }
   }
 
@@ -349,6 +354,7 @@ export function resolveDshCommand(): DshCommand | null {
         cwd: UPSTREAM_DIR,
         env: runtime.isElectron ? { ELECTRON_RUN_AS_NODE: '1' } : {},
         describe: `本地克隆: ${runtime.isElectron ? 'Electron node' : '系统 node'} ${join(UPSTREAM_DIR, UPSTREAM_BIN)}`,
+        describePublic: `本地克隆: ${runtime.isElectron ? 'Electron node' : '系统 node'}`,
       }
     }
     return null
@@ -367,6 +373,7 @@ export function resolveDshCommand(): DshCommand | null {
       cwd: UPSTREAM_DIR,
       env: {},
       describe: 'PATH 中的 dsh',
+      describePublic: 'PATH 中的 dsh',
     }
   }
   return null

@@ -1,12 +1,18 @@
 /**
- * 关于注入器：设置对话框导航列末尾注入「关于」分区——产品介绍 + 版本
- * 信息卡，与技能 / MCP 分区同款机制（navList 尾部克隆按钮 + 自绘内容
- * 容器 + 对话框级 marker 类切换显隐 + MutationObserver 自愈）。
+ * 关于注入器：设置对话框导航列末尾注入「关于」分区——品牌头（与
+ * workspace 侧边栏顶部商标同款构成：K 图标 + "Coder" 字标 + 「桌面版
+ * v<产品版本>」徽章）+ 产品介绍 + 版本信息卡，与技能 / MCP 分区同款
+ * 机制（navList 尾部克隆按钮 + 自绘内容容器 + 对话框级 marker 类切换
+ * 显隐 + MutationObserver 自愈）。
  *
  * 信息全部运行时派生，发布跟随自动同步（无任何硬编码版本号）：
+ * - 品牌头徽章版本号：appVersion（app.getVersion()，随产品发布自动
+ *   更新，与侧边栏徽章同源同语义）；
  * - 产品版本：app.getVersion()（= package.json version，打包自动带）；
  * - 上游运行时版本：从实际解析出的运行时目录（内置运行时 / 本地克隆）
  *   读 package.json（dsh-contract.upstreamVersionIn）；
+ * - 运行时来源：dsh-contract.describePublic 脱敏展示（仅来源类型 +
+ *   解释器，不含本机绝对路径，不暴露开发者机器信息）；
  * - fork 分支信息：消费锚点常量（dsh-contract 的 UPSTREAM_REPO /
  *   UPSTREAM_BRANCH，升级仪式改锚点即随代码发布同步）；本地克隆在场时
  *   附带当前分支 + HEAD 短哈希（打包用户无克隆则省略）；
@@ -26,7 +32,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { consoleMessageText } from './console-channel'
-import { PROJECT_ROOT, resolveDshCommand, UPSTREAM_BRANCH, UPSTREAM_DIR, UPSTREAM_REPO, upstreamVersionIn } from './dsh-contract'
+import { PROJECT_ROOT, resolveAsset, resolveDshCommand, UPSTREAM_BRANCH, UPSTREAM_DIR, UPSTREAM_REPO, upstreamVersionIn } from './dsh-contract'
 
 /** console 通道前缀。 */
 const PREFIX = '__dsh_about__:'
@@ -34,10 +40,20 @@ const PREFIX = '__dsh_about__:'
 /** fork 信息的展示名（仓库地址剥协议前缀）。 */
 const FORK_DISPLAY = UPSTREAM_REPO.replace(/^git@github\.com:/, 'github.com/').replace(/\.git$/, '')
 
+/**
+ * 品牌头资产（与 brand-injector 侧边栏顶部商标同源同款）：64px 透明 K
+ * 图标 + "Coder" 字标（深色主题白字版 / 浅色主题深字版），base64 内嵌
+ * 注入脚本；页面侧两张字标都渲染，按 body 主题属性 CSS 切换显隐。
+ */
+const BRAND_K_DATA_URL = `data:image/png;base64,${readFileSync(resolveAsset('brand-k.png')).toString('base64')}`
+const BRAND_CODER_DARK_DATA_URL = `data:image/png;base64,${readFileSync(resolveAsset('brand-coder-dark.png')).toString('base64')}`
+const BRAND_CODER_LIGHT_DATA_URL = `data:image/png;base64,${readFileSync(resolveAsset('brand-coder-light.png')).toString('base64')}`
+
 /** 「关于」页数据（全部运行时派生，页面侧按字段渲染）。 */
 export interface AboutInfo {
   appVersion: string
   runtimeVersion: string | null
+  /** 运行时来源（脱敏展示，dsh-contract.describePublic，不含本机路径）。 */
   runtimeSource: string | null
   forkBranch: string | null
   forkHead: string | null
@@ -92,7 +108,7 @@ function collectAboutInfo(): AboutInfo {
   const info: AboutInfo = {
     appVersion: app.getVersion(),
     runtimeVersion,
-    runtimeSource: cmd !== null ? cmd.describe : null,
+    runtimeSource: cmd !== null ? cmd.describePublic : null,
     forkBranch: branch ?? UPSTREAM_BRANCH,
     forkHead: head,
     baselineSha: readBaselineSha(),
@@ -113,6 +129,10 @@ const PAGE_JS = `(() => {
   var SEC_ID = '__dsh_desktop_about_section'
   var MARKER = '__dsh_ab_on'
   var PREFIX = '__dsh_about__:'
+
+  var BRAND_K = ${JSON.stringify(BRAND_K_DATA_URL)}
+  var CODER_DARK = ${JSON.stringify(BRAND_CODER_DARK_DATA_URL)}
+  var CODER_LIGHT = ${JSON.stringify(BRAND_CODER_LIGHT_DATA_URL)}
 
   var info = null       // 主进程推送的版本数据
   var dialog = null     // 当前挂载的设置对话框
@@ -148,6 +168,34 @@ const PAGE_JS = `(() => {
     var sec = document.getElementById(SEC_ID)
     if (sec === null) return
     sec.replaceChildren()
+
+    // 品牌头：与 workspace 侧边栏顶部商标同款构成（brand-injector 同源
+    // 资产）——K 图标 + "Coder" 字标（深浅两版同位渲染，CSS 按主题切显隐）
+    // + 「桌面版 v」徽章；徽章版本号取 info.appVersion（= app.getVersion()，
+    // 随产品发布自动更新）。info 未到达时先渲染无徽章形态，到达后
+    // __dshAboutInfo 触发重渲染补齐。
+    var brand = document.createElement('div')
+    brand.className = 'ak-brand'
+    var k = document.createElement('img')
+    k.className = 'ak-brand-k'
+    k.src = BRAND_K
+    k.alt = 'KCoder'
+    var cd = document.createElement('img')
+    cd.className = 'ak-coder-img ak-coder-dark'
+    cd.src = CODER_DARK
+    cd.alt = ''
+    var cl = document.createElement('img')
+    cl.className = 'ak-coder-img ak-coder-light'
+    cl.src = CODER_LIGHT
+    cl.alt = ''
+    brand.append(k, cd, cl)
+    if (info !== null) {
+      var ver = document.createElement('span')
+      ver.className = 'ak-brand-ver'
+      ver.textContent = '桌面版 v' + info.appVersion
+      brand.appendChild(ver)
+    }
+    sec.appendChild(brand)
 
     var lead = document.createElement('div')
     lead.className = 'ak-lead'
@@ -269,6 +317,15 @@ const PAGE_JS = `(() => {
         // 激活时隐藏原生 React 分区、显示自绘容器（同 skills/mcp 机制）
         '[role="dialog"].' + MARKER + ' [class*="_options"] > div[data-slot="settings.section"] { display: none !important; }',
         '[role="dialog"].' + MARKER + ' #' + SEC_ID + ' { display: block; width: 100%; max-width: 960px; margin: 0 auto; box-sizing: border-box; }',
+        // 品牌头（关于内容区顶部居中）：尺寸与侧边栏一致（K / 字标 22px
+        // 等高沉底，徽章上标位与字标字形顶齐平，同 badgeEl 几何）；字标
+        // 深浅两版按 body 主题属性纯 CSS 切换，无需 observer
+        '.ak-brand { display: flex; align-items: flex-end; justify-content: center; margin: 2px 0 22px; }',
+        '.ak-brand-k { height: 22px; width: 22px; flex: none; }',
+        '.ak-coder-img { height: 22px; width: auto; flex: none; }',
+        'body[data-ds-dark-theme] .ak-coder-light { display: none; }',
+        'body:not([data-ds-dark-theme]) .ak-coder-dark { display: none; }',
+        '.ak-brand-ver { align-self: flex-start; margin-top: 1px; margin-left: 5px; flex: none; font-size: 10px; line-height: 1; padding: 2px 6px; border-radius: 4px; background: var(--dsw-alias-bg-layer-2, rgba(128,128,128,.12)); color: var(--dsw-alias-label-tertiary, #999); border: 1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.2)); white-space: nowrap; }',
         '.ak-lead { margin: 2px 0 20px; color: var(--dsw-alias-label-secondary, #888); font-size: 13px; line-height: 1.65; }',
         '.ak-card { box-sizing: border-box; width: 100%; margin: 0 0 14px; padding: 20px 24px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 16px; background: var(--dsw-alias-bg-module-platform); box-shadow: 0 2px 10px rgba(9,16,29,.035); }',
         'body[data-ds-dark-theme] .ak-card { box-shadow: 0 2px 12px rgba(0,0,0,.16); }',
