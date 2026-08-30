@@ -52,7 +52,7 @@ export const KCODER_STATS_PANEL_BUNDLE = '@kcoder/stats-panel'
 /** 嵌入式终端 bundle 包名（独立插件，见 bundle/kcoder-terminal）。 */
 export const KCODER_TERMINAL_BUNDLE = '@kcoder/terminal'
 
-/** 文件审查 bundle 包名（独立插件，fork 自 Lzh3070/dsh-file-review-tab，源码见 plugin-forks/dsh-file-review-tab）。 */
+/** 文件审查 bundle 包名（独立插件，fork 自 Lzh3070/dsh-file-review-tab；源码在 dsh-plugins 仓，sync-bundles.mjs 同步产物）。 */
 export const KCODER_FILE_REVIEW_BUNDLE = '@kcoder/file-review'
 
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */

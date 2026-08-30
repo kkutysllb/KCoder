@@ -1,7 +1,7 @@
 {
   "name": "@kcoder/file-review",
   "description": "KCoder in-box fork of Lzh3070/dsh-file-review-tab (originally a port of left0ver/dsh-file-review): review agent-produced file changes (line-level red/green diff + undo) as a chat turn-tail row and a dsh-better-sidebar tab. Maintained in-tree; adapted to dsh 0.1.2-alpha.1+ conversation snapshot routing.",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "keywords": [
     "deepseek-harness",
     "dsh-plugin",

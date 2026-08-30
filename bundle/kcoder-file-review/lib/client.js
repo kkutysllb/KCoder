@@ -5369,26 +5369,26 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var UnifiedDiff_module_css_default = {
-			"unifiedLineNumber": "R1EYoa_unifiedLineNumber",
-			"unifiedRemoved": "R1EYoa_unifiedRemoved",
-			"unifiedStatus": "R1EYoa_unifiedStatus",
-			"unifiedText": "R1EYoa_unifiedText",
-			"unified_add": "R1EYoa_unified_add",
 			"unifiedEmbedded": "R1EYoa_unifiedEmbedded",
-			"unifiedLine": "R1EYoa_unifiedLine",
-			"unifiedGap": "R1EYoa_unifiedGap",
-			"unifiedHunkHeader": "R1EYoa_unifiedHunkHeader",
-			"unified_context": "R1EYoa_unified_context",
-			"unifiedAdded": "R1EYoa_unifiedAdded",
-			"unifiedHeader": "R1EYoa_unifiedHeader",
-			"unifiedOmitted": "R1EYoa_unifiedOmitted",
-			"unifiedCopyButton": "R1EYoa_unifiedCopyButton",
-			"unifiedBlock": "R1EYoa_unifiedBlock",
 			"unifiedPath": "R1EYoa_unifiedPath",
-			"unified_del": "R1EYoa_unified_del",
+			"unifiedHeader": "R1EYoa_unifiedHeader",
+			"unifiedStatus": "R1EYoa_unifiedStatus",
+			"unifiedHunkHeader": "R1EYoa_unifiedHunkHeader",
+			"unifiedBlock": "R1EYoa_unifiedBlock",
 			"unifiedSign": "R1EYoa_unifiedSign",
+			"unifiedFile": "R1EYoa_unifiedFile",
+			"unifiedCopyButton": "R1EYoa_unifiedCopyButton",
+			"unifiedOmitted": "R1EYoa_unifiedOmitted",
+			"unifiedLine": "R1EYoa_unifiedLine",
+			"unifiedRemoved": "R1EYoa_unifiedRemoved",
+			"unifiedLineNumber": "R1EYoa_unifiedLineNumber",
+			"unified_add": "R1EYoa_unified_add",
+			"unified_del": "R1EYoa_unified_del",
+			"unifiedAdded": "R1EYoa_unifiedAdded",
+			"unifiedText": "R1EYoa_unifiedText",
 			"unifiedBody": "R1EYoa_unifiedBody",
-			"unifiedFile": "R1EYoa_unifiedFile"
+			"unified_context": "R1EYoa_unified_context",
+			"unifiedGap": "R1EYoa_unifiedGap"
 		};
 		//#endregion
 		//#region src/client/UnifiedDiff.tsx
@@ -5798,44 +5798,44 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var FileReviewTab_module_css_default = {
-			"archiveSection": "f6ZLOa_archiveSection",
-			"refreshButton": "f6ZLOa_refreshButton",
-			"notice": "f6ZLOa_notice",
-			"noticeError": "f6ZLOa_noticeError",
-			"header": "f6ZLOa_header",
-			"fileList": "f6ZLOa_fileList",
-			"badgeUndone": "f6ZLOa_badgeUndone",
-			"diffWrap": "f6ZLOa_diffWrap",
-			"chevronOpen": "f6ZLOa_chevronOpen",
-			"turnCount": "f6ZLOa_turnCount",
-			"turnHeader": "f6ZLOa_turnHeader",
-			"chevron": "f6ZLOa_chevron",
-			"stateBadge": "f6ZLOa_stateBadge",
-			"reviewDiff": "f6ZLOa_reviewDiff",
-			"fileName": "f6ZLOa_fileName",
 			"editorButton": "f6ZLOa_editorButton",
-			"turnTitle": "f6ZLOa_turnTitle",
-			"fileItem": "f6ZLOa_fileItem",
-			"buttonIcon": "f6ZLOa_buttonIcon",
-			"stats": "f6ZLOa_stats",
-			"turnGroup": "f6ZLOa_turnGroup",
-			"archiveHeader": "f6ZLOa_archiveHeader",
-			"actionButton": "f6ZLOa_actionButton",
-			"noticeSuccess": "f6ZLOa_noticeSuccess",
-			"added": "f6ZLOa_added",
-			"smallButton": "f6ZLOa_smallButton",
-			"badgeMuted": "f6ZLOa_badgeMuted",
-			"archiveTitle": "f6ZLOa_archiveTitle",
-			"liveBadge": "f6ZLOa_liveBadge",
-			"root": "f6ZLOa_root",
-			"badgeError": "f6ZLOa_badgeError",
-			"fileRow": "f6ZLOa_fileRow",
-			"empty": "f6ZLOa_empty",
 			"headerTitle": "f6ZLOa_headerTitle",
-			"deletedBadge": "f6ZLOa_deletedBadge",
+			"stateBadge": "f6ZLOa_stateBadge",
+			"turnCount": "f6ZLOa_turnCount",
 			"removed": "f6ZLOa_removed",
+			"chevronOpen": "f6ZLOa_chevronOpen",
+			"added": "f6ZLOa_added",
+			"noticeError": "f6ZLOa_noticeError",
+			"archiveTitle": "f6ZLOa_archiveTitle",
+			"badgeUndone": "f6ZLOa_badgeUndone",
+			"fileItem": "f6ZLOa_fileItem",
+			"archiveHeader": "f6ZLOa_archiveHeader",
+			"deletedBadge": "f6ZLOa_deletedBadge",
+			"refreshButton": "f6ZLOa_refreshButton",
+			"turnGroup": "f6ZLOa_turnGroup",
+			"stats": "f6ZLOa_stats",
+			"badgeError": "f6ZLOa_badgeError",
+			"notice": "f6ZLOa_notice",
+			"liveBadge": "f6ZLOa_liveBadge",
+			"actionButton": "f6ZLOa_actionButton",
+			"fileName": "f6ZLOa_fileName",
+			"diffUnavailable": "f6ZLOa_diffUnavailable",
+			"reviewDiff": "f6ZLOa_reviewDiff",
+			"chevron": "f6ZLOa_chevron",
+			"header": "f6ZLOa_header",
+			"buttonIcon": "f6ZLOa_buttonIcon",
+			"smallButton": "f6ZLOa_smallButton",
+			"turnHeader": "f6ZLOa_turnHeader",
+			"noticeSuccess": "f6ZLOa_noticeSuccess",
+			"archiveSection": "f6ZLOa_archiveSection",
+			"root": "f6ZLOa_root",
+			"badgeMuted": "f6ZLOa_badgeMuted",
 			"body": "f6ZLOa_body",
-			"diffUnavailable": "f6ZLOa_diffUnavailable"
+			"turnTitle": "f6ZLOa_turnTitle",
+			"fileList": "f6ZLOa_fileList",
+			"diffWrap": "f6ZLOa_diffWrap",
+			"fileRow": "f6ZLOa_fileRow",
+			"empty": "f6ZLOa_empty"
 		};
 		//#endregion
 		//#region src/client/FileReviewTab.tsx
@@ -6569,65 +6569,68 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var ProducedFiles_module_css_default = {
-			"icon": "KiILGG_icon",
-			"toggleButton": "KiILGG_toggleButton",
-			"drawerTitle": "KiILGG_drawerTitle",
-			"deletedBadge": "KiILGG_deletedBadge",
-			"toastTitle": "KiILGG_toastTitle",
-			"reviewFileHeader": "KiILGG_reviewFileHeader",
-			"reviewFile": "KiILGG_reviewFile",
 			"reviewDiff": "KiILGG_reviewDiff",
-			"drawer-enter": "KiILGG_drawer-enter",
-			"fileIconWrap": "KiILGG_fileIconWrap",
+			"noticeFileButton": "KiILGG_noticeFileButton",
+			"cardHeader": "KiILGG_cardHeader",
+			"reviewUnavailable": "KiILGG_reviewUnavailable",
+			"reviewPath": "KiILGG_reviewPath",
+			"noticeIcon": "KiILGG_noticeIcon",
+			"drawer": "KiILGG_drawer",
+			"drawerSplit": "KiILGG_drawerSplit",
+			"drawerHeading": "KiILGG_drawerHeading",
+			"buttonIcon": "KiILGG_buttonIcon",
+			"toastCopy": "KiILGG_toastCopy",
+			"reviewFile": "KiILGG_reviewFile",
+			"closeIcon": "KiILGG_closeIcon",
+			"cardTitle": "KiILGG_cardTitle",
+			"noticeFiles": "KiILGG_noticeFiles",
+			"card": "KiILGG_card",
+			"icon": "KiILGG_icon",
+			"drawerTitle": "KiILGG_drawerTitle",
+			"cardTitleBlock": "KiILGG_cardTitleBlock",
+			"fileList": "KiILGG_fileList",
+			"toastHeader": "KiILGG_toastHeader",
+			"fileRow": "KiILGG_fileRow",
+			"toastTitle": "KiILGG_toastTitle",
+			"stats": "KiILGG_stats",
+			"toastSuccess": "KiILGG_toastSuccess",
+			"reviewStatus": "KiILGG_reviewStatus",
+			"deletedBadge": "KiILGG_deletedBadge",
+			"added": "KiILGG_added",
+			"toolbarButton": "KiILGG_toolbarButton",
+			"noticeIconSvg": "KiILGG_noticeIconSvg",
 			"noticeFileArrow": "KiILGG_noticeFileArrow",
 			"moreFiles": "KiILGG_moreFiles",
-			"fileName": "KiILGG_fileName",
-			"resizeHandle": "KiILGG_resizeHandle",
-			"cardTitleBlock": "KiILGG_cardTitleBlock",
-			"drawerSubtitle": "KiILGG_drawerSubtitle",
-			"buttonIcon": "KiILGG_buttonIcon",
 			"toast": "KiILGG_toast",
-			"toastSuccess": "KiILGG_toastSuccess",
-			"toolbarButton": "KiILGG_toolbarButton",
-			"cardHeader": "KiILGG_cardHeader",
-			"drawer": "KiILGG_drawer",
-			"drawerHeader": "KiILGG_drawerHeader",
-			"stats": "KiILGG_stats",
-			"fileRow": "KiILGG_fileRow",
-			"noticeIconSvg": "KiILGG_noticeIconSvg",
+			"noticeFilePath": "KiILGG_noticeFilePath",
+			"fileName": "KiILGG_fileName",
+			"drawerSubtitle": "KiILGG_drawerSubtitle",
+			"reviewFileHeader": "KiILGG_reviewFileHeader",
+			"closeButton": "KiILGG_closeButton",
 			"toastError": "KiILGG_toastError",
-			"fileList": "KiILGG_fileList",
-			"toastCopy": "KiILGG_toastCopy",
-			"added": "KiILGG_added",
-			"drawerHeading": "KiILGG_drawerHeading",
-			"reviewUnavailable": "KiILGG_reviewUnavailable",
-			"toastHeader": "KiILGG_toastHeader",
-			"noticeFileButton": "KiILGG_noticeFileButton",
-			"drawerSplit": "KiILGG_drawerSplit",
+			"resizeHandle": "KiILGG_resizeHandle",
 			"toastDescription": "KiILGG_toastDescription",
-			"reviewStatus": "KiILGG_reviewStatus",
+			"reviewButton": "KiILGG_reviewButton",
+			"fileIconWrap": "KiILGG_fileIconWrap",
 			"openButton": "KiILGG_openButton",
-			"closeIcon": "KiILGG_closeIcon",
+			"toggleButton": "KiILGG_toggleButton",
 			"noticeFileListLabel": "KiILGG_noticeFileListLabel",
+			"drawer-enter": "KiILGG_drawer-enter",
+			"toastCloseButton": "KiILGG_toastCloseButton",
 			"drawerResizing": "KiILGG_drawerResizing",
-			"card": "KiILGG_card",
+			"drawerHeader": "KiILGG_drawerHeader",
 			"noticeDismissButton": "KiILGG_noticeDismissButton",
 			"noticeFileList": "KiILGG_noticeFileList",
-			"cardTitle": "KiILGG_cardTitle",
-			"closeButton": "KiILGG_closeButton",
-			"noticeIcon": "KiILGG_noticeIcon",
-			"noticeFilePath": "KiILGG_noticeFilePath",
-			"toastCloseButton": "KiILGG_toastCloseButton",
 			"removed": "KiILGG_removed",
-			"reviewButton": "KiILGG_reviewButton",
-			"noticeFiles": "KiILGG_noticeFiles",
-			"drawerBody": "KiILGG_drawerBody",
-			"reviewPath": "KiILGG_reviewPath"
+			"drawerBody": "KiILGG_drawerBody"
 		};
 		//#endregion
 		//#region src/client/ProducedFiles.tsx
 		/** Keep the turn-tail card compact; the sidebar tab always lists every file. */
 		const SHOWN_LIMIT = 6;
+		/** useSyncExternalStore fallbacks for carriers without a changes store. */
+		const subscribeNever = () => () => {};
+		const getNullSnapshot = () => null;
 		const SUCCESS_NOTICE_DURATION = 2e3;
 		const ERROR_NOTICE_DURATION = 5e3;
 		const unavailableChanges = async (request) => ({ files: request.files.map((file) => ({
@@ -6772,8 +6775,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			});
 		}
 		/** Render one turn's produced files as a summary card opening the sidebar tab. */
-		function ProducedFiles({ matched, collectReviews, openFile, turn: turnLocation, inspectChanges = unavailableChanges, applyChanges = unavailableChanges, openInSidebarTab, t }) {
+		function ProducedFiles({ matched, collectReviews, changesStore, openFile, turn: turnLocation, inspectChanges = unavailableChanges, applyChanges = unavailableChanges, openInSidebarTab, t }) {
 			const turnNumber = turnLocation.turn;
+			const changesVersion = (0, react.useSyncExternalStore)(changesStore?.subscribe ?? subscribeNever, changesStore?.getSnapshot ?? getNullSnapshot);
 			const reviews = (0, react.useMemo)(() => {
 				const derived = collectReviews?.(turnNumber);
 				const byPath = new Map((derived ?? []).map((review) => [review.path, review]));
@@ -6784,7 +6788,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			}, [
 				collectReviews,
 				turnNumber,
-				matched
+				matched,
+				changesVersion
 			]);
 			const [toggleAction, setToggleAction] = (0, react.useState)("undo");
 			const [statusPending, setStatusPending] = (0, react.useState)(true);
@@ -7220,8 +7225,15 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						if (!result.ok) throw new Error(result.error.message);
 						return result.value;
 					};
-					const face = resolveConversationStore(ctx, sessionId)?.getSnapshot() ?? null;
+					let cachedStore;
+					const getStore = () => {
+						if (cachedStore !== void 0) return cachedStore;
+						const store = resolveConversationStore(ctx, sessionId);
+						if (store !== void 0) cachedStore = store;
+						return store;
+					};
 					const collectReviews = (turn) => {
+						const face = getStore()?.getSnapshot() ?? null;
 						const files = (face?.timeline?.turns.get(turn)?.data.get("fileReviewChanges"))?.files ?? deriveTimelineChanges(face).find((entry) => entry.turn === turn)?.files;
 						if (files === void 0) return [];
 						return files.map((file) => ({
@@ -7235,6 +7247,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						inspectChanges: (request) => invoke("status", request),
 						applyChanges: (request) => invoke("apply", request),
 						collectReviews,
+						changesStore: {
+							getSnapshot: () => getStore()?.getSnapshot() ?? null,
+							subscribe: (listener) => getStore()?.subscribe(listener) ?? (() => {})
+						},
 						openInSidebarTab: (paths, turn) => {
 							const sidebar = ctx.betterSidebar;
 							const first = paths[0];

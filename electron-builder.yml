@@ -30,7 +30,8 @@ extraResources:
     to: kcoder-terminal
   - from: bundle/kcoder-stats-panel
     to: kcoder-stats-panel
-  # kcoder-file-review（文件审查，fork 自 Lzh3070/dsh-file-review-tab）
+  # kcoder-file-review（文件审查，fork 自 Lzh3070/dsh-file-review-tab；
+  # 源码在 dsh-plugins 仓，sync-bundles.mjs 同步产物）
   - from: bundle/kcoder-file-review
     to: kcoder-file-review
   # 插件热补丁（name-only patchedDependencies，主进程启动时幂等物化进

@@ -1,8 +1,0 @@
-node_modules/
-*.tgz
-*.log
-.DS_Store
-coverage/
-dist/
-lib/*.map
-lib/types/

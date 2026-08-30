@@ -172,6 +172,14 @@ cmd_verify() {
   [[ $pmiss -eq 0 ]] || die "校验失败：profile-patches 与仓库补丁清单不一致"
   ok "插件热补丁：$(ls "$pdir"/*.patch | wc -l | tr -d ' ') 个 patch 全部在位"
 
+  # 1.6) 内置插件 bundle 对账：bundle/ 是 dsh-plugins 仓（唯一真源，
+  #      2026-08-30 迁址）的同步副本，改动未 sync 就打包则发布物带旧
+  #      插件（同 fork-push 时序教训）。真源仓在位必须零差异；不在位
+  #      （纯 CI 场景）脚本内警告放行
+  node "$ROOT/scripts/sync-bundles.mjs" --check \
+    || die "校验失败：bundle/ 与 dsh-plugins 真源不一致（先跑 sync-bundles.mjs 同步再发版）"
+  ok "内置插件 bundle 对账：与 dsh-plugins 真源一致"
+
   # 2) 解压 + 真实起服冒烟（模拟首启解压，包内运行时全链路验收）；
   #    macOS 上另跑 Electron node 形态——真机 GUI 启动时 PATH 无系统
   #    node，回退 Electron 内置 node（v0.1.0 曾挂：HMR 需 internal
