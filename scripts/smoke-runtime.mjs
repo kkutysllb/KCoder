@@ -79,7 +79,10 @@ const child = spawn(exec, ['--expose-internals', 'lib/bin.js', 'web', '--port', 
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 let buf = ''
-const READY = /dsh web: http:\/\/127\.0\.0\.1:(\d+)/
+// 0.1.2-alpha.1 起就绪行携一次性启动 token（首页鉴权，丢了即 401）；
+// 捕获完整 URL 而非从端口重建。token 是进程级稳定值，首访铸 cookie 后
+// 后续请求靠 cookie（browser-auth 同款链路）。
+const READY = /dsh web: (http:\/\/127\.0\.0\.1:\d+\/?(?:\?[^\s]*)?)/
 const timer = setTimeout(() => fail('60s 内未出现就绪行'), 60_000)
 
 let done = false
@@ -103,13 +106,17 @@ child.on('exit', (code) => fail(`进程提前退出（code=${code}）`))
 function poll() {
   const m = READY.exec(buf)
   if (m === null) { setTimeout(poll, 500); return }
-  const url = `http://127.0.0.1:${m[1]}`
-  fetch(`${url}/`)
+  // authUrl = 就绪行整段（可能携 token）；旧基线无鉴权时即裸首页。
+  // 单请求验收：携 token 首访必须 200（303 铸 cookie 链路的终点页）。
+  // 不另验裸 origin：node 全局 fetch 无 cookie jar，cookie 不会跨请求携带，
+  // 而真实用户路径（浏览器）的 cookie 链路由桌面端 shell 窗口自有验收覆盖。
+  const authUrl = m[1]
+  fetch(authUrl, { redirect: 'follow' })
     .then((res) => {
-      if (res.status !== 200) fail(`首页 HTTP ${res.status}`)
+      if (res.status !== 200) fail(`首页 HTTP ${res.status}（${authUrl.replace(/token=[^&\s]+/, 'token=<redacted>')}）`)
       clearTimeout(timer)
       done = true // 主动收尾，exit 事件不再视为失败
-      console.log(`[smoke] 通过：就绪行 + 首页 200（${url}）`)
+      console.log(`[smoke] 通过：就绪行 + 首页 200（${authUrl.replace(/\?token=[^&\s]+/, '')}）`)
       child.kill('SIGTERM')
       setTimeout(() => { child.kill('SIGKILL'); cleanup(); process.exit(0) }, 300)
     })
