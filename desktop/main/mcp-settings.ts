@@ -196,9 +196,10 @@ const PAGE_JS = `(() => {
     send({ op: 'save', entry: entry })
   }
 
-  /** 服务器行（启停开关 + 名称 + transport 徽标 + 描述 + 编辑/删除）。 */
+  /** 服务器卡片：头行（启停 + 名称 + 徽标 + 操作）+ 命令/URL 明细行。 */
   function rowEl(s) {
-    var row = el('div', 'dmi-row' + (s.enabled ? '' : ' off'))
+    var isBuiltin = builtinNames.indexOf(s.serverName) >= 0
+    var card = el('div', 'dmi-card' + (s.enabled ? '' : ' off'))
 
     var toggle = el('input', 'dmi-toggle'); toggle.type = 'checkbox'
     toggle.checked = s.enabled
@@ -212,11 +213,8 @@ const PAGE_JS = `(() => {
       send({ op: 'save', entry: next })
     })
 
-    var badge = el('span', 'dmi-badge', s.transport === 'streamable-http' ? 'http' : 'stdio')
     var name = el('span', 'dmi-name', s.serverName)
-    var desc = el('span', 'dmi-desc',
-      s.transport === 'stdio' ? [s.command].concat(s.args).filter(Boolean).join(' ') : s.url)
-    desc.title = desc.textContent
+    var badge = el('span', 'dmi-badge', s.transport === 'streamable-http' ? 'http' : 'stdio')
 
     var editBtn = el('button', 'dmi-btn', '编辑'); editBtn.type = 'button'
     editBtn.addEventListener('click', function () {
@@ -229,11 +227,21 @@ const PAGE_JS = `(() => {
       send({ op: 'delete', id: s.id })
     })
 
-    var isBuiltin = builtinNames.indexOf(s.serverName) >= 0
-    if (isBuiltin) row.appendChild(el('span', 'dmi-builtin', '\u5185\u7f6e'))
-    row.append(toggle, name, badge, desc, editBtn)
-    if (!isBuiltin) row.appendChild(delBtn)
-    return row
+    var top = el('div', 'dmi-cardtop')
+    top.appendChild(toggle)
+    top.appendChild(name)
+    if (isBuiltin) top.appendChild(el('span', 'dmi-builtin', '\u5185\u7f6e'))
+    top.appendChild(badge)
+    top.appendChild(el('span', 'dmi-grow', ''))
+    top.appendChild(editBtn)
+    if (!isBuiltin) top.appendChild(delBtn)
+
+    var desc = el('div', 'dmi-desc',
+      s.transport === 'stdio' ? [s.command].concat(s.args).filter(Boolean).join(' ') : s.url)
+    desc.title = desc.textContent
+
+    card.append(top, desc)
+    return card
   }
 
   function render() {
@@ -380,13 +388,15 @@ const PAGE_JS = `(() => {
         '.dmi-status { margin: 0 0 12px; font-size: 12px; color: var(--dsw-alias-label-secondary, #888); }',
         '.dmi-head { display: flex; align-items: center; margin: 0 0 6px; }',
         '.dmi-title { flex: 1; font-size: 15px; font-weight: 600; color: var(--dsw-alias-label-primary, #222); }',
-        '.dmi-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; }',
-        '.dmi-row:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,.1)); }',
-        '.dmi-row.off .dmi-name, .dmi-row.off .dmi-desc { opacity: .45; }',
+        '.dmi-card { display: flex; flex-direction: column; gap: 7px; margin: 0 0 10px; padding: 12px 14px; border: 1px solid var(--dsw-alias-border-l2, #e2e2e4); border-radius: 10px; background: var(--dsw-alias-bg-layer-1, transparent); transition: border-color .15s ease, background .15s ease, opacity .15s ease; }',
+        '.dmi-card:hover { border-color: var(--dsw-alias-border-l3, #c8c8cc); background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,.06)); }',
+        '.dmi-card.off { opacity: .55; }',
+        '.dmi-card.off:hover { opacity: .75; }',
+        '.dmi-cardtop { display: flex; align-items: center; gap: 10px; min-width: 0; }',
         '.dmi-toggle { flex: none; width: 15px; height: 15px; accent-color: var(--dsw-alias-brand-primary, #2f6fed); cursor: pointer; }',
-        '.dmi-name { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--dsw-alias-label-primary, #222); }',
+        '.dmi-name { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary, #222); }',
         '.dmi-badge { flex: none; font-size: 10px; line-height: 1; padding: 3px 7px; border-radius: 5px; background: var(--dsw-alias-bg-layer-2, #eee); color: var(--dsw-alias-label-secondary, #666); }',
-        '.dmi-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dsw-alias-label-secondary, #888); }',
+        '.dmi-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dsw-alias-label-secondary, #888); }',
         '.dmi-empty { padding: 14px 2px; color: var(--dsw-alias-label-tertiary, #999); font-size: 12.5px; }',
         '.dmi-form { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 14px; padding: 14px; border: 1px solid var(--dsw-alias-border-l2, #e2e2e4); border-radius: 10px; }',
         '.dmi-fr { display: flex; gap: 12px; flex-wrap: wrap; }',
