@@ -82,13 +82,14 @@ const BUNDLES: BundledPlugin[] = [
 
 /**
  * 退役插件包名：不再内置、不再维护，也不留在用户 profile——曾收编过的
- * @kcoder/* 物化目录、用户曾从 registry 装过的 dependencies 声明与 bundles
- * 层叠项全部自愈移除，目录一并删除，禁止 loader 再加载任何副本。
- * dsh-flowglass（流镜）：上游只发布产物无源码，host/client 双侧 inject
- * 声明缺失在 alpha.1 严格解析下无法安全补丁维护，2026-08-30 决策放弃
- * 内置，等上游作者自行修复后再由用户按需安装。
+ * @kcoder/* 物化目录自愈移除，目录一并删除，禁止 loader 再加载任何副本。
+ * 仅收 @kcoder/flowglass（旧收编物化目录）；上游 npm 包 dsh-flowglass
+ * 不封禁：2026-08-30 曾因上游只发产物无源码、host/client 双侧 inject
+ * 声明缺失（alpha.1 严格解析下无法安全补丁维护）决定不内置，但当时误
+ * 把它列入本清单把「用户按需安装」路径也一并封死；上游已迭代到 0.4.x
+ * （声明面已补齐 peer），2026-08-31 起放开——不预置、不禁装。
  */
-const RETIRED_PLUGINS = ['dsh-flowglass', '@kcoder/flowglass']
+const RETIRED_PLUGINS = ['@kcoder/flowglass']
 
 /** 分发的 bundle 源目录（开发态仓库内；打包态 extraResources）。 */
 export function bundleSource(dir: string): string {
