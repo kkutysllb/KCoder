@@ -160,14 +160,22 @@ const chipJs = (username: string): string => `(() => {
       '#' + CHIP + ' > span:first-child{width:22px;height:22px;font-size:11px;font-weight:600}',
       '#' + CHIP + ':hover{background:var(--dsw-specific-sidebar-nav-item-hover)}',
       '#' + CHIP + ':active{background:var(--dsw-specific-sidebar-nav-item-active)}',
+      // settingsArea 定位锚：折叠态头像行改为绝对居中（见下）。
       '[class*="settingsArea"] [data-kcoder-hidden-settings="true"]{display:none !important}',
+      '[class*="settingsArea"]{position:relative}',
+      // 折叠态容器自撑占位：上游设置钮（触发行）被隐藏后 triggerRow
+      // 塌缩为 0 高，绝对定位的 top:50% 会失去参照（头像贴底沿）。
+      // 54px = 上游折叠态 railRow 原生占位（margin 8 + 钮 36 +
+      // margin 10），头像中心与原钮位重合（中心差 ≤1px，实测定案）。
+      '[class*="collapsed"] [class*="settingsArea"]{min-height:54px}',
       // 折叠态（kcoder-folded 由 ensureChip 按容器实宽维护；旧
       // [class*="collapsed"] 前缀规则保留作双保险，两条规则终态一致）：
-      // 固定 36×36 盒 + margin:0 auto 居中——不依赖行宽传播，对上游
-      // settingsArea 的块/flex 任意布局形态都成立（flex 交叉轴上
-      // margin auto 会接管 stretch，同样是标准居中手法）；头像圈
-      // 28px 与上游折叠圆钮列（36×36 钮）视觉同形。
-      '#' + CHIP + '.kcoder-folded,[class*="collapsed"] #' + CHIP + '{width:36px;height:36px;margin:0 auto;padding:0;gap:0;border-radius:10px;justify-content:center;align-items:center}',
+      // 行内元素参与上游 flex 布局会把 settingsArea 撑出双倍宽导致
+      // margin auto / justify 全部失效（实测定案），故脱离文档流用
+      // 绝对定位居中——left/top 50% + translate 反向半身，对上游任意
+      // 布局形态免疫；头像圈 28px 与上游折叠圆钮列（36×36 钮）
+      // 视觉同形。
+      '#' + CHIP + '.kcoder-folded,[class*="collapsed"] #' + CHIP + '{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:36px;height:36px;margin:0;padding:0;gap:0;border-radius:10px;justify-content:center;align-items:center}',
       '#' + CHIP + '.kcoder-folded > span + span,[class*="collapsed"] #' + CHIP + ' > span + span{display:none}',
       '#' + CHIP + '.kcoder-folded > span:first-child,[class*="collapsed"] #' + CHIP + ' > span:first-child{width:28px;height:28px;font-size:14px}',
     ].join('')
