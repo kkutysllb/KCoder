@@ -73,6 +73,30 @@
 # 完整性断言：kcoder/alpha.1↔alpha.2 差异文件列表与上游 alpha.1→alpha.2 完全
 # 一致（1604=1604，comm 零差）。
 #
+# 升级记录：2026-09-01 alpha.2(0a53fb55) → 0.1.2-alpha.3(dd6322d6，上游 tag
+# dsh-v0.1.2-alpha.3 落在此提交)，集成分支重建为 kcoder/alpha.3（= dd6322d6 + 五修复分支
+# merge：pi-ai 0.84.3 / codex 协议回退 / markdown 跨行合并 / projection-cache 隔离 /
+# pi-ai 0.84.4，+ cherry-pick 品牌化 6b734b13、imageRequestPricing 6f6f806e）。
+# 117 提交/1034 文件 diff 逐项核对，KCoder 注入锚点全部存活：railMark/brandName
+# （ui-sidebar src 零改动）、turnTail（TurnTailNodeView 未动）、settings.plugin.item
+# slot 契约、sendSession 5 参签名（hub.ts:183/service.ts:199 两版同位）、
+# webServer.register 路由契约（rpc-host.ts 不在 diff）、composer 骨架
+# data-composer-card=InputBar.tsx（锚点行未动）/ data-composer-input=
+# ComposerContentEditable.tsx（零改动）、selectProducedFiles/producedForClosing
+# （ui-deliverables src 仅版本戳）、sidebarCol/centerCol（ui-layout AppFrame 零改动）。
+# 上游新功能：长会话右侧导航预览/跳转未载入分页轮次（新组件 TurnNavigator +
+# turn-rail-items，slots 增 loadThrough；conversation slots 增 openView/selectView，
+# 均纯增量非破坏）、长会话渲染内存与代码高亮流畅度优化、权限标签多语言、运行中
+# 排队图片可靠回显投递（含持续子代理后续消息）、read_image 按内容识别无扩展名
+# 图片、命令菜单 Tab 补全、后端卡顿误判断连修复、定时计划列表窄视口修复。
+# 上游移除 opt-in SQLite Session 持久化后端（session-persistence-sqlite 整包删除；
+# KCoder 默认 JSONL 未启用，无影响）。
+# 集成冲突 2 处（均两侧合并）：llm-pi-ai/package.json×2（上游新增 dsh-brand/
+# dsh-util-values 依赖 × 我们的 pi-ai 范围声明；0.84.3 声明收口为 ^0.84.4）、
+# projection-cache 测试类型声明 map（secret 与 bad-only 各自保留）。cherry-pick
+# 零冲突。完整性断言：kcoder/alpha.2↔alpha.3 差异文件列表与上游 alpha.2→alpha.3
+# 完全一致（1034=1034，comm 零差）。
+#
 # 升级基线的正确姿势（fork 锚定形态）：
 #   1. 改本文件为新提交 SHA（fork 上存在的基线提交）
 #   2. 在 fork 本地克隆重建集成分支：基于新基线建 kcoder/<版本> +
@@ -82,4 +106,4 @@
 #   4. 全量回归（重点：第三方插件加载、Web UI 冒烟、打包链 smoke）
 #   5. 提交本文件（及分支名相关改动）
 #
-0a53fb55bea101816fa226bb964ae2bed71c343b
+dd6322d604e00eec1ba5e0c8541159906a21094a
