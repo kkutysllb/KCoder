@@ -105,7 +105,11 @@ const chipJs = (username: string): string => `(() => {
   }
 
   // 账号行：头像圈（首字符）+ 用户名；navCell 同款交互 token
-  //（settings-page 返回按钮同款盒模型）
+  //（settings-page 返回按钮同款盒模型）。折叠态（rail 收起）切
+  // kcoder-folded 类：判定用容器实际宽度（≤64px 即窄条），不依赖
+  // 上游折叠类名（alpha.2 的 CSS modules 编译形态不再含 "collapsed"
+  // 子串，前缀选择器会落空）；折叠/展开均伴随 foot 区 DOM 重建，
+  // 下方 observer 驱动 ensureChip 重跑即同步。
   const ensureChip = () => {
     const area = document.querySelector('div[class*="settingsArea"]')
     if (area === null) return
@@ -113,17 +117,22 @@ const chipJs = (username: string): string => `(() => {
     // 可以继续复用上游真实触发链路，但视觉上不再与账号行重复。
     const settingsTrigger = area.querySelector('button[class*="_trigger"][aria-haspopup="dialog"]')
     if (settingsTrigger !== null) settingsTrigger.setAttribute('data-kcoder-hidden-settings', 'true')
-    if (document.getElementById(CHIP) !== null) return
-    const row = document.createElement('button')
+    let row = document.getElementById(CHIP)
+    if (row !== null) {
+      row.classList.toggle('kcoder-folded', area.clientWidth <= 64)
+      return
+    }
+    row = document.createElement('button')
     row.type = 'button'
     row.id = CHIP
     row.title = NAME
+    row.className = area.clientWidth <= 64 ? 'kcoder-folded' : ''
     const avatar = document.createElement('span')
     avatar.textContent = Array.from(NAME)[0]?.toUpperCase() ?? '?'
     avatar.style.cssText = [
-      'flex:none;display:grid;place-items:center',
-      'width:22px;height:22px;border-radius:50%',
-      'font-size:11px;font-weight:600',
+      'flex:none;display:grid;place-items:center;border-radius:50%',
+      // 尺寸/字号走样式表（#CHIP > span:first-child 基础 22px、
+      // 折叠态 28px），避免行内样式压住折叠覆盖规则
       'color:var(--dsw-alias-accent-normal, #4c8dff)',
       'background:color-mix(in srgb, var(--dsw-alias-accent-normal, #4c8dff) 14%, transparent)',
     ].join(';')
@@ -148,11 +157,19 @@ const chipJs = (username: string): string => `(() => {
     style.id = CHIP + '_style'
     style.textContent = [
       '#' + CHIP + '{display:flex;align-items:center;gap:8px;width:100%;height:40px;padding:9px 16px 9px 12px;box-sizing:border-box;border:none;border-radius:12px;background:transparent;cursor:pointer;font-family:inherit;font-size:14px;font-weight:400;line-height:22px;color:var(--dsw-alias-label-primary);text-align:left}',
+      '#' + CHIP + ' > span:first-child{width:22px;height:22px;font-size:11px;font-weight:600}',
       '#' + CHIP + ':hover{background:var(--dsw-specific-sidebar-nav-item-hover)}',
       '#' + CHIP + ':active{background:var(--dsw-specific-sidebar-nav-item-active)}',
       '[class*="settingsArea"] [data-kcoder-hidden-settings="true"]{display:none !important}',
-      '[class*="collapsed"] #' + CHIP + '{height:36px;justify-content:center;padding:0;gap:0;border-radius:10px}',
-      '[class*="collapsed"] #' + CHIP + ' > span + span{display:none}',
+      // 折叠态（kcoder-folded 由 ensureChip 按容器实宽维护；旧
+      // [class*="collapsed"] 前缀规则保留作双保险，两条规则终态一致）：
+      // 固定 36×36 盒 + margin:0 auto 居中——不依赖行宽传播，对上游
+      // settingsArea 的块/flex 任意布局形态都成立（flex 交叉轴上
+      // margin auto 会接管 stretch，同样是标准居中手法）；头像圈
+      // 28px 与上游折叠圆钮列（36×36 钮）视觉同形。
+      '#' + CHIP + '.kcoder-folded,[class*="collapsed"] #' + CHIP + '{width:36px;height:36px;margin:0 auto;padding:0;gap:0;border-radius:10px;justify-content:center;align-items:center}',
+      '#' + CHIP + '.kcoder-folded > span + span,[class*="collapsed"] #' + CHIP + ' > span + span{display:none}',
+      '#' + CHIP + '.kcoder-folded > span:first-child,[class*="collapsed"] #' + CHIP + ' > span:first-child{width:28px;height:28px;font-size:14px}',
     ].join('')
     document.head.append(style)
   }
