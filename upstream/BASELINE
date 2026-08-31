@@ -52,6 +52,27 @@
 # glm-5.3 目录缺失问题继续由 settings.yaml 显式声明兑底）。
 # 升级记录：2026-08-29 rc.2(b150a551) → 0.1.2-alpha.1(cd5ef814)，同时上游锚定从官方仓切到自有 fork（kkutysllb/deepseek-harness）：修复不再走 upstream/*.patch 应用，而是以提交落 fork 集成分支 kcoder/alpha.1（= 基线 + 六修复分支 merge：pi-ai 0.84.3 升级 / codex 协议回退 / codex relay accountId / markdown 跨行合并 / relay 终端事件 / projection-cache 隔离）。消费工作树移到仓外 /Users/libing/kk_Projects/deepseek-harness（KCODER_UPSTREAM_DIR 可覆盖），KCoder 内嵌 deepseek-harness/ 退役。本次为二次升 alpha.1：首轮（08-28）因破坏面过大整体回退，后因交付审查需 file-review-tab 0.4.0（仅 alpha.1 有 uiConversation 服务）重启升级。
 #
+# 升级记录：2026-08-31 alpha.1(cd5ef814) → 0.1.2-alpha.2(0a53fb5，上游 tag
+# dsh-v0.1.2-alpha.2)，集成分支重建为 kcoder/alpha.2（= 0a53fb5 + 五修复分支
+# merge：pi-ai 0.84.3 / codex 协议回退 / markdown 跨行合并 / projection-cache
+# 隔离 / pi-ai 0.84.4，+ cherry-pick 品牌化 b11bd42、imageRequestPricing 0e9953c）。
+# 234 提交/1604 文件 diff 逐项核对，KCoder 注入锚点全部存活：settings.plugin.item
+# slot 契约、ui-conversation 包、sendSession 5 参签名（hub.ts:183/service.ts:199
+# 两版同位）、webServer.register 路由契约（rpc-host.ts:173）、composer 骨架
+# data-composer-card=InputBar.tsx:390 / data-composer-input=ComposerContentEditable.tsx:46
+# 两版同位。上游新功能：连接异常状态显示与自动重连、会话定时计划展示、插件列表
+# 按会话/全局分组、回答末尾 token 用量与耗时、SessionEvent.ignorable 恢复（此前
+# 认证门禁坑的 ignorable 事件毒化日志问题随之缓解）、Node 24 启动修复、macOS/Linux
+# 会话加载减负、长会话与密集消息效率优化。
+# 集成冲突 3 处（均两侧合并）：llm-pi-ai/package.json×2（上游新增 dsh-brand/
+# dsh-util-values 依赖 × 我们的 pi-ai 范围声明）、projection-cache 类型声明 map
+#（secret 与 bad-only 各自保留）。cherry-pick 零冲突（imageRequestPricing 未与
+# token 统计同线）。坑：fork 克隆内 vendor/KCoder 空壳残留会绊倒 lefthook
+# third-party notices（readFileUtf8 ENOENT），commit 前删除即可；pnpm 检测到
+# lock 变化时无 TTY 下「reinstall from scratch」确认死等，需 yes | pnpm install。
+# 完整性断言：kcoder/alpha.1↔alpha.2 差异文件列表与上游 alpha.1→alpha.2 完全
+# 一致（1604=1604，comm 零差）。
+#
 # 升级基线的正确姿势（fork 锚定形态）：
 #   1. 改本文件为新提交 SHA（fork 上存在的基线提交）
 #   2. 在 fork 本地克隆重建集成分支：基于新基线建 kcoder/<版本> +
@@ -61,4 +82,4 @@
 #   4. 全量回归（重点：第三方插件加载、Web UI 冒烟、打包链 smoke）
 #   5. 提交本文件（及分支名相关改动）
 #
-cd5ef8148158c3a752a658978873241fdf8e2bbc
+0a53fb55bea101816fa226bb964ae2bed71c343b

@@ -43,6 +43,7 @@ const PATCHES = [
   '@dsh-external__dsh-drag-to-attachment@1.0.3.patch',
   'dsh-video-preview@0.1.1.patch',
   'dsh-context@0.38.2.patch',
+  'dsh-better-sidebar@0.17.1.patch',
 ]
 const WORKSPACE_YAML = join(PROFILE, 'pnpm-workspace.yaml')
 
