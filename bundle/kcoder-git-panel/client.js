@@ -657,8 +657,11 @@ window.__ModuleLoader__.load({
         actionHint('推送中…')
         try {
           const res = await api('push', { cwd: effectiveCwd() })
-          if (res.ok) actionHint('已推送')
-          else actionHint(res.error ?? '推送失败')
+          if (res.ok) {
+            actionHint('已推送')
+            commitOpen = false
+            commitBox.style.display = 'none'
+          } else { actionHint(res.error ?? '推送失败') }
         } catch { actionHint('网络异常') }
         busyAction = false
         void refresh()
