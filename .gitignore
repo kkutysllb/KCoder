@@ -33,3 +33,4 @@ app.asar.*.bak
 .patches/discussion-body.md
 .patches/
 .workbuddy/
+.tmp/
