@@ -740,8 +740,8 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
         btn.setAttribute('aria-label', '切换内嵌终端')
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
         svg.setAttribute('viewBox', '0 0 16 16')
-        svg.setAttribute('width', '15')
-        svg.setAttribute('height', '15')
+        svg.setAttribute('width', '16')
+        svg.setAttribute('height', '16')
         svg.setAttribute('fill', 'none')
         svg.innerHTML = '<rect x="2" y="2.5" width="12" height="11" rx="1.75" stroke="currentColor" stroke-width="1.2"/><path d="M4.9 6.3 6.6 8l-1.7 1.7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.3 9.9h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>'
         btn.append(svg)
