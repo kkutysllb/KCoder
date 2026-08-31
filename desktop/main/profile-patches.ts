@@ -41,14 +41,15 @@
  *   （-100））。补丁删 "ts" 保留 m2ts；快照归档 .patches/dsh-video-preview。
  *   0.3.5 曾随「插件方已迭代吸收」误判退役，8-25 现场 0.1.1 复测
  *   "ts" 仍在——未吸收，复役
- * - dsh-better-sidebar@0.17.1（收编插件自有真源 dsh-plugins/DSH-better-sidebar
- *   已出 0.17.2，本 patch 兑住 profile 仍指上游 github:omdsh-dev@0.17.1 的
- *   过渡期 + CI 打包链）：alpha.2 移除 @deepseek-ai/dsh-settings 的
- *   settingsNamespace 工厂（register 直接收 string、内部 parseSettingsNamespace
- *   校验）→ 插件 import 即 SyntaxError 整链拒绝加载（启动崩）。patch 删该
- *   import + ns 改用 SIDEBAR_PREFS_NS 裸字符串；descriptor.ns === ns 比较不受
- *   影响（branded 仅类型标记，运行时同值）。profile deps 切到自有 0.17.2 后
- *   本 patch 可随“未用声明”退役。
+ * - dsh-better-sidebar（0.4.8 前后已改消费源，无需 patch）：alpha.2 移除
+ *   @deepseek-ai/dsh-settings 的 settingsNamespace 工厂（register 直接收
+ *   string、内部 parseSettingsNamespace 校验）→ 上游 github:omdsh-dev
+ *   @0.17.1 import 即 SyntaxError 启动崩。收编真源 dsh-plugins/
+ *   DSH-better-sidebar 已出 0.17.2（修复 + devDeps 对齐 alpha.2 + 包内
+ *   .npmrc legacy-peer-deps 兑 pnpm prepare 的孤离 npm install），profile
+ *   deps 已切 git+ssh 子目录引用（kkutysllb/dsh-plugins#path:）；曾备的
+ *   dsh-better-sidebar@0.17.1.patch 未入任何发版即退役（网络断续期间
+ *   的临时兑子）。若回退消费源需重新出 patch。
  * - dsh-context（2026-08-30 复役再入——新缺陷而非旧补丁回滚）：0.38 的
  *   agents 森林图 stage 组件以 ResizeObserver 观察 stage 宽驱动
  *   layoutForest 量化布局（perLevel=floor(stageWidth/SLOT_MIN)，输出宽
