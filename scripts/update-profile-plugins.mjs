@@ -29,10 +29,11 @@
  *   node scripts/update-profile-plugins.mjs --sync    同步仓库 patch 到 profile 并 pnpm install（默认）
  *   node scripts/update-profile-plugins.mjs --update  检查 npm 上游版本并 pnpm update 全部插件
  *   node scripts/update-profile-plugins.mjs --check   只打印本地/上游版本对比，不写任何文件
+ *   node scripts/update-profile-plugins.mjs --align   只执行收编产物版本对齐（见 VERSION_ALIGNS）
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, unlinkSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -73,6 +74,53 @@ const PATCH_MARKS = {
   // dsh-context RO 回路冷却特征（Windows 打开上下文冻结白屏修复；与
   // desktop/main/profile-patches.ts 同步更新）
   'dsh-context': [['lib/client.js', 'kcRoHits']],
+}
+
+/**
+ * 收编物化后的版本对齐清单：上游产物内硬编码的服务版本常量与包
+ * package.json 版本不一致（作者 bump 版本时漏改常量或未重建提交进仓的
+ * lib/），而设置 UI 的版本 chip 读的正是常量 → 显示落后于实装版本。
+ * 以包 package.json 为权威，物化后幂等改写；上游未来改从 package.json
+ * 读版本或自行修正后，marker 不再命中、对齐自动变空操作。
+ */
+const VERSION_ALIGNS = [
+  {
+    pkg: 'dsh-better-sidebar',
+    // 0.17.2 实装：package.json 已 bump 而产物内 SIDEBAR_SERVICE_VERSION
+    // 仍停 0.17.1（「侧边卡片」设置分区头部 chip 显示版本的来源）
+    files: ['lib/client.js', 'lib/client-registry.js'],
+    marker: 'SIDEBAR_SERVICE_VERSION',
+  },
+]
+
+/** 对齐产物内硬编码版本常量到包版本。原地 write 会透过 pnpm store 硬链接
+ *  污染 store 正本，必须 unlink 打断后写新 inode；上游修复后自动变空操作。 */
+function alignVersions() {
+  for (const a of VERSION_ALIGNS) {
+    const dir = join(PROFILE, 'node_modules', a.pkg)
+    const pkgJson = join(dir, 'package.json')
+    if (!existsSync(pkgJson)) {
+      say(`${a.pkg}：未安装，跳过版本对齐`)
+      continue
+    }
+    const version = JSON.parse(readFileSync(pkgJson, 'utf8')).version
+    const re = new RegExp(`(${a.marker}\\s*=\\s*\")([^\"]+)(\")`, 'g')
+    let touched = false
+    for (const rel of a.files) {
+      const f = join(dir, rel)
+      if (!existsSync(f)) continue
+      const src = readFileSync(f, 'utf8')
+      const next = src.replace(re, (m, head, cur, tail) => (cur === version ? m : head + version + tail))
+      if (next !== src) {
+        unlinkSync(f)
+        writeFileSync(f, next)
+        touched = true
+      }
+    }
+    say(touched
+      ? `${a.pkg}：产物内 ${a.marker} 已对齐包版本 v${version}`
+      : `${a.pkg}：产物版本已一致（v${version}）`)
+  }
 }
 function resolveRepoRoot() {
   const here = dirname(fileURLToPath(import.meta.url))
@@ -297,12 +345,17 @@ switch (mode) {
   case '--update':
     ensurePatchDeclared()
     updatePlugin()
+    alignVersions()
     verify()
     break
   case '--sync':
     syncPatch()
+    alignVersions()
     verify()
     break
+  case '--align':
+    alignVersions()
+    break
   default:
-    die(`未知模式 ${mode}（可用：--sync / --update / --check）`)
+    die(`未知模式 ${mode}（可用：--sync / --update / --check / --align）`)
 }
