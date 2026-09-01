@@ -217,7 +217,8 @@ app.whenReady().then(() => {
     bootstrap?.close()
     bootstrap = showBootstrap('setup')
   }
-  // KCoder 内置 dsh bundle（技能包 + 语言指令）物化进 web profile
+  // KCoder 内置 dsh bundle（技能包/语言指令/面板系/侧边栏等，见
+  // kcoder-skills-bundle.ts BUNDLES 表）物化进 web profile
   // （幂等；dsh 读取 profile 清单在此之前完成注册）
   ensureKcoderBundles()
   // 「强制中文回答」开关同步 home patch 层（幂等；必须在 dsh 启动前，
@@ -229,9 +230,13 @@ app.whenReady().then(() => {
   // 的唯一通道；插件已装但补丁未生效时触发一次 pnpm install）
   ensureProfilePatches()
   // 预置第三方插件物化（幂等；Windows 全新安装 profile 为空模板，开箱
-  // 即预置 context / better-sidebar / archify / drag-to-attachment，
+  // 即预置 context / coding-sidebar / drag-to-attachment，
   // 含缺陷补丁自动应用）
   ensurePresetPlugins()
+  // preset install 可能以 npm 实体重建 dsh-coding-sidebar（^1.0.0 牵
+  // 引依赖树）；终态是 bundle 物化的版本——install 后二调纠偏
+  // （幂等：版本一致时零拷贝，dsh-* 自有系列全部跳过）
+  ensureKcoderBundles()
   dshManager.start()
 
   app.on('activate', () => {

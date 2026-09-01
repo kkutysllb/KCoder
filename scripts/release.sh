@@ -84,6 +84,12 @@ cmd_build() {
   command -v node >/dev/null 2>&1 || die "需要 node"
   command -v pnpm >/dev/null 2>&1 || die "需要 pnpm"
 
+  # 0) 上游 vendor/ 纯净 preflight：物化/手工 deploy 的残留目录会被 tsdown
+  #    workspace glob vendor/* 当成假成员，以根包名义报 Cannot find entry
+  #    炸掉上游构建（rc.5/alpha.2/alpha.3 三次复发）。无条件过闸——上游
+  #    「已构建」时残留同样可能出现（v0.5.0 期：bin.js 01:13 在、残留 01:19 来）
+  bash "$ROOT/scripts/verify-vendor-purity.sh"
+
   # 1) 上游就绪（克隆 + 构建；已就绪则跳过）
   if [[ ! -f "$UPSTREAM/apps/cli/lib/bin.js" ]]; then
     say "上游未构建，执行 setup（克隆 + install + build）…"
@@ -179,6 +185,19 @@ cmd_verify() {
   node "$ROOT/scripts/sync-bundles.mjs" --check \
     || die "校验失败：bundle/ 与 dsh-plugins 真源不一致（先跑 sync-bundles.mjs 同步再发版）"
   ok "内置插件 bundle 对账：与 dsh-plugins 真源一致"
+
+  # 1.7) 包内 bundle 目录在位（extraResources 目录映射漂移拦截）：
+  #      kcoder-skills-bundle 物化门按 resources/<dir> 判源存在，漏配
+  #      映射会让物化静默跳过——coding-sidebar 退回 npm 实体（不再被
+  #      纠偏覆盖），dsh-* 自有系列功能整块消失
+  local bd bcount=0
+  for bd in "$ROOT"/bundle/*/; do
+    bd="$(basename "$bd")"
+    [[ -d "$res/$bd" ]] || die "校验失败：包内缺 $bd/（extraResources 映射断供）"
+    bcount=$((bcount + 1))
+  done
+  [[ $bcount -gt 0 ]] || die "校验失败：仓库 bundle/ 目录为空（同步链异常）"
+  ok "内置 bundle 目录：$bcount 个全部随包在位"
 
   # 2) 解压 + 真实起服冒烟（模拟首启解压，包内运行时全链路验收）；
   #    macOS 上另跑 Electron node 形态——真机 GUI 启动时 PATH 无系统

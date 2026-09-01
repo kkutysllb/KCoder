@@ -1,18 +1,22 @@
 #!/usr/bin/env node
 /**
- * 内置插件 bundle 同步：dsh-plugins 仓库（唯一真源）→ KCoder bundle/。
+ * 内置插件 bundle 同步：dsh-plugins 仓库（镜像真源）→ KCoder bundle/。
  *
  * 2026-08-30 迁址后，KCoder 仓 bundle/ 目录只是随包分发的同步副本；
- * 全部内置插件源码/产物维护在 kkutysllb/dsh-plugins（monorepo，一个
- * 子目录一个独立 bundle）。改插件先改 dsh-plugins，提交推送后回
- * KCoder 跑本脚本同步进 bundle/ 再发版——方向单向，禁止反向手改。
+ * 插件开发真源在各自独立仓（2026-09-01 起：dsh-git-panel/dsh-stats-panel/
+ * dsh-terminal/dsh-language-bundle/dsh-skills-bundle/dsh-file-review-kcoder/
+ * dsh-coding-sidebar，全部 dsh 标准命名 npm 包）→ dsh-plugins/<同名目录>
+ * 镜像 → 本脚本同步进 bundle/ 再发版——方向单向，禁止反向手改。
  *
- * 同步映射（dsh-plugins/<src> → bundle/<dst>）：
- * - 五个产物直提包全镜像（git-panel/stats-panel/terminal/language/skills）
- * - dsh-file-review-tab 选择面映射为 bundle/kcoder-file-review
- *   （lib/package.json/cordis.patch.yml/README.md/LICENSE；src/tests 等
- *   构建面不进 bundle）
- * - DSH-better-sidebar 不参与 sync（npm 包维护源码仓）
+ * 同步映射（dsh-plugins/<src> → bundle/<dst>，目录名与包名同名）：
+ * - 产物直提包全镜像（git-panel/stats-panel/terminal/language-bundle/
+ *   skills-bundle，排除式镜像）
+ * - dsh-file-review-kcoder 选择面映射（lib/package.json/cordis.patch.yml/
+ *   README.md/LICENSE；src/tests 等构建面不进 bundle）
+ * - dsh-coding-sidebar 同款选择面映射：侧边栏自立仓（fork 自
+ *   DSH-better-sidebar 0.17.2，底面板移除），发布链为两级镜像
+ *   （独立仓 → dsh-plugins/dsh-coding-sidebar → 本 bundle），
+ *   profile deps 的 ^1.0.0 仅牵引依赖树，实体由 kcoder-skills-bundle 物化覆盖
  *
  * 用法：
  *   node scripts/sync-bundles.mjs            # 执行同步（rm+cp 镜像）
@@ -42,14 +46,19 @@ const EXCLUDE = new Set(['.git', 'node_modules'])
  * 相对路径（目录递归 / 文件直拷）。
  */
 const MAPPINGS = [
-  { src: 'kcoder-git-panel', dst: 'kcoder-git-panel', select: [] },
-  { src: 'kcoder-stats-panel', dst: 'kcoder-stats-panel', select: [] },
-  { src: 'kcoder-terminal', dst: 'kcoder-terminal', select: [] },
-  { src: 'kcoder-language', dst: 'kcoder-language', select: [] },
-  { src: 'kcoder-skills', dst: 'kcoder-skills', select: [] },
+  { src: 'dsh-git-panel', dst: 'dsh-git-panel', select: [] },
+  { src: 'dsh-stats-panel', dst: 'dsh-stats-panel', select: [] },
+  { src: 'dsh-terminal', dst: 'dsh-terminal', select: [] },
+  { src: 'dsh-language-bundle', dst: 'dsh-language-bundle', select: [] },
+  { src: 'dsh-skills-bundle', dst: 'dsh-skills-bundle', select: [] },
   {
-    src: 'dsh-file-review-tab',
-    dst: 'kcoder-file-review',
+    src: 'dsh-file-review-kcoder',
+    dst: 'dsh-file-review-kcoder',
+    select: ['lib', 'package.json', 'cordis.patch.yml', 'README.md', 'LICENSE'],
+  },
+  {
+    src: 'dsh-coding-sidebar',
+    dst: 'dsh-coding-sidebar',
     select: ['lib', 'package.json', 'cordis.patch.yml', 'README.md', 'LICENSE'],
   },
 ]

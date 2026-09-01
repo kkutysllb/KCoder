@@ -3,8 +3,8 @@
  *
  * 背景（Windows titleBarOverlay 遮挡缺陷）：四枚面板按钮
  * （sidebar-cluster/context-button 注入，`position:absolute;
- * right:12/76px`；终端由 @kcoder/terminal 插件 client 注入 right:44px、
- * git 由 @kcoder/git-panel 插件 client 注入 right:108px）挂在自绘
+ * right:12/76px`；终端由 dsh-terminal 插件 client 注入 right:44px、
+ * git 由 dsh-git-panel 插件 client 注入 right:108px）挂在自绘
  * 标题栏内——absolute 定位基于包含块 padding box（≈窗口右缘），
  * 标题栏为避让原生控制按钮区（titleBarOverlay 右侧 138px，绘制在
  * 窗口层最顶）加的 padding-right:138px 对 absolute 子元素无效 →
@@ -23,7 +23,8 @@
  *
  * 历史：内嵌终端曾以 WebContentsView 承载，页面 DOM 下拉菜单盖不
  * 到 compositor 层，需经 console 通道临时收视图（yieldForMenu）。
- * 2026-08 终端已插件化（页面内 DOM 面板，@kcoder/terminal），
+ * 2026-08 终端已插件化（页面内 DOM 面板，dsh-terminal，前身
+ * @kcoder/terminal），
  * compositor 冲突不存在，让位协议整体摘除。
  *
  * @module desktop/main/panel-buttons

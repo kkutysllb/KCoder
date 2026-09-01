@@ -197,8 +197,8 @@ export interface UpdateStatus {
 
 /* ---------- 内嵌终端（已退役） ----------
  * TerminalTheme/TerminalTab 契约与 terminal:* bridge 已随宿主终端
- * 面板退役（2026-08）：@kcoder/terminal 插件自带 webServer RPC
- * （/kc-terminal/api/rpc + SSE 输出流）替代，见 bundle/kcoder-terminal。 */
+ * 面板退役（2026-08）：@kkutysllb/dsh-terminal 插件自带 webServer RPC
+ * （/dsh-terminal/api/rpc + SSE 输出流）替代，见 bundle/dsh-terminal。 */
 
 /* ---------- 文件活动 ---------- */
 
@@ -224,7 +224,7 @@ export interface PreviewEntry {
   focus?: boolean
 }
 
-/* git 环境面板契约已退役（2026-08）：@kcoder/git-panel 插件自带
+/* git 环境面板契约已退役（2026-08）：@kkutysllb/dsh-git-panel 插件自带
  * webServer RPC 快照/计划打开，不再走主进程 IPC。 */
 
 /* ---------- 本地账户鉴权 ---------- */

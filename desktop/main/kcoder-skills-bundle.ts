@@ -1,26 +1,43 @@
 /**
  * KCoder 自有 dsh bundle 的物化与注册（out-of-tree bundle 随桌面端分发）。
  *
- * 当前三个 bundle：
- * - @kcoder/skills-bundle（bundle/kcoder-skills）：方法论技能包（适配自
+ * 当前七个 bundle（2026-09-01 起全部 dsh 标准命名，开发真源在各自独立仓 →
+ * dsh-plugins 镜像 → sync-bundles.mjs 同步进 bundle/）：
+ * - dsh-skills-bundle（bundle/dsh-skills-bundle）：方法论技能包（适配自
  *   KSkills 仓库），激活时注册 runtime skill；
- * - @kcoder/language-bundle（bundle/kcoder-language）：「强制中文回答」
+ * - dsh-language-bundle（bundle/dsh-language-bundle）：「强制中文回答」
  *   system-prompt section 插件，默认 disabled，由 language-settings.ts
  *   在 home patch 层热切换；
- * - @kcoder/git-panel（bundle/kcoder-git-panel）：独立 git 工作区面板
+ * - dsh-git-panel（bundle/dsh-git-panel）：独立 git 工作区面板
  *   （server 只读快照 RPC + client 页面内浮动面板）。2026-08 起整体替代
  *   已退役的 Electron 宿主 git-panel.ts（旧 IPC/视图/让位协议已摘除）。
- * - @kcoder/terminal（bundle/kcoder-terminal）：侧边栏嵌入式终端。
- * - @kcoder/file-review（bundle/kcoder-file-review）：文件审查 fork。
- *   自有 bundle 里唯一的**包型**产物（fork 自 Lzh3070/dsh-file-review-tab，
- *   保留上游 pnpm 布局：main=lib/index.js + dsh.bundle.patch 补丁清单 +
- *   dsh.client 段），没有 entry.js 四件套里的那个 entry.js——物化门按
- *   各自的 entry 字段判存在性，漏配会让自动物化永远跳过（0.5.0 接线
- *   教训：手动 cp 掩盖了断链，换机/重建 profile 即缺插件）。
+ *   npm 包名 @kkutysllb/dsh-git-panel（无 scope 名被社区第三方占用；
+ *   @dsh-external org 被 npm 注册政策拦截，定稿用户名 scope）。
+ * - dsh-terminal（bundle/dsh-terminal）：侧边栏嵌入式终端。npm 包名
+ *   @kkutysllb/dsh-terminal（同上）。
+ * - dsh-file-review-kcoder（bundle/dsh-file-review-kcoder）：改动审查
+ *   （完全自立维护，不再以 fork 形态延续；血缘 left0ver/dsh-file-review）。
+ *   **包型**产物（保留 pnpm 布局：main=lib/index.js + dsh.bundle.patch
+ *   补丁清单 + dsh.client 段），没有 entry.js 四件套里的那个 entry.js
+ *   ——物化门按各自的 entry 字段判存在性，漏配会让自动物化永远跳过
+ *   （0.5.0 接线教训：手动 cp 掩盖了断链，换机/重建 profile 即缺插件）。
+ * - dsh-coding-sidebar（bundle/dsh-coding-sidebar）：侧边栏工作台
+ *   自立包产物（fork 自 DSH-better-sidebar 0.17.2，底面板移除；真源
+ *   kkutysllb/dsh-coding-sidebar，两级镜像 dsh-plugins → 本 bundle），
+ *   第二个**包型**产物。收编线的 npm 上游版本漂移病（0.17.1 坏版启动崩）
+ *   随独立发布线（1.0.0 起，版本常量构建期注入）根治——PRESET deps 的
+ *   ^1.0.0 只负责牵引依赖树（pnpm install 把 codemirror/ws/node-pty 等
+ *   hoist 到 profile 顶层）+ bundles 注册，实体由本模块覆盖为终态；
+ *   满足 ^1.0.0 的安装实体不会被 pnpm 回滚，index.ts 在
+ *   ensurePresetPlugins（install 可能重建实体）之后二调本模块兑现纠偏。
+ *
+ * 前身 @kcoder/* 五包 + @kcoder/file-review（2026-08 内置命名）已于
+ * 2026-09-01 全部改名自立并发布 npm（1.0.0 起步）；旧名全部列入
+ * RETIRED_PLUGINS 自愈三清（旧物化目录与 bundles 层叠残留）。
  *
  * 本模块在 dsh 启动前把各 bundle 幂等物化进 web profile：
  *
- * - 文件：`<bundle 源> → $DSH_HOME/profiles/web/node_modules/@kcoder/<name>`
+ * - 文件：`<bundle 源> → $DSH_HOME/profiles/web/node_modules/<包名>`
  *   （版本号变化才重拷；pnpm 布局下真实目录同样可被 Node 父链 resolve）
  * - 注册：profile package.json 的 `dsh.profile.bundles` 数组插入
  *   （紧跟 dsh-web-app 之后）。上游 loadProfile
@@ -38,22 +55,31 @@ import { join } from 'node:path'
 import { PROJECT_ROOT, WEB_PROFILE, dshHome } from './dsh-contract'
 
 /** bundle 包名（profile bundles 数组与 node_modules 目录名）。 */
-export const KCODER_SKILLS_BUNDLE = '@kcoder/skills-bundle'
+export const DSH_SKILLS_BUNDLE = 'dsh-skills-bundle'
 
 /** 语言指令 bundle 包名（开关热切换见 language-settings.ts）。 */
-export const KCODER_LANGUAGE_BUNDLE = '@kcoder/language-bundle'
+export const DSH_LANGUAGE_BUNDLE = 'dsh-language-bundle'
 
-/** git 工作区面板 bundle 包名（独立插件，见 bundle/kcoder-git-panel）。 */
-export const KCODER_GIT_PANEL_BUNDLE = '@kcoder/git-panel'
+/** git 工作区面板 bundle 包名（npm 无 scope 名被社区占用；@dsh-external
+ * org 被 npm 注册政策拦截，定稿用户名 scope；bundle/ 目录名保持平铺）。 */
+export const DSH_GIT_PANEL_BUNDLE = '@kkutysllb/dsh-git-panel'
 
-/** 会话统计图表面板 bundle 包名（独立插件，见 bundle/kcoder-stats-panel）。 */
-export const KCODER_STATS_PANEL_BUNDLE = '@kcoder/stats-panel'
+/** 会话统计图表面板 bundle 包名（独立插件，见 bundle/dsh-stats-panel）。 */
+export const DSH_STATS_PANEL_BUNDLE = 'dsh-stats-panel'
 
-/** 嵌入式终端 bundle 包名（独立插件，见 bundle/kcoder-terminal）。 */
-export const KCODER_TERMINAL_BUNDLE = '@kcoder/terminal'
+/** 嵌入式终端 bundle 包名（scope 定稿理由同 git-panel，见其常量注释）。 */
+export const DSH_TERMINAL_BUNDLE = '@kkutysllb/dsh-terminal'
 
-/** 文件审查 bundle 包名（独立插件，fork 自 Lzh3070/dsh-file-review-tab；源码在 dsh-plugins 仓，sync-bundles.mjs 同步产物）。 */
-export const KCODER_FILE_REVIEW_BUNDLE = '@kcoder/file-review'
+/** 改动审查 bundle 包名（独立自立插件 dsh-file-review-kcoder；真源在同名独立仓，sync-bundles.mjs 同步产物）。 */
+export const DSH_FILE_REVIEW_BUNDLE = 'dsh-file-review-kcoder'
+
+/**
+ * 侧边栏工作台自立包包名（fork 自 DSH-better-sidebar 0.17.2，独立
+ * 发布线；真源 kkutysllb/dsh-coding-sidebar，sync-bundles 经 dsh-plugins
+ * 镜像同步产物）。实体以本 bundle 物化为终态；profile deps 里的同名
+ * 声明是依赖树牵引，不是残留接线（见 materialize 的 removable 过滤例外）。
+ */
+export const DSH_CODING_SIDEBAR = 'dsh-coding-sidebar'
 
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */
 const TEMPLATE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
@@ -72,24 +98,48 @@ interface BundledPlugin {
 
 /** 全部内置 bundle（物化顺序即注册顺序）。 */
 const BUNDLES: BundledPlugin[] = [
-  { pkg: KCODER_SKILLS_BUNDLE, dir: 'kcoder-skills', entry: 'entry.js', intactFiles: [join('skills', 'manifest.json')] },
-  { pkg: KCODER_LANGUAGE_BUNDLE, dir: 'kcoder-language', entry: 'entry.js', intactFiles: [] },
-  { pkg: KCODER_GIT_PANEL_BUNDLE, dir: 'kcoder-git-panel', entry: 'entry.js', intactFiles: ['client.js'] },
-  { pkg: KCODER_STATS_PANEL_BUNDLE, dir: 'kcoder-stats-panel', entry: 'entry.js', intactFiles: ['client.js'] },
-  { pkg: KCODER_TERMINAL_BUNDLE, dir: 'kcoder-terminal', entry: 'entry.js', intactFiles: ['client.js'] },
-  { pkg: KCODER_FILE_REVIEW_BUNDLE, dir: 'kcoder-file-review', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
+  { pkg: DSH_SKILLS_BUNDLE, dir: 'dsh-skills-bundle', entry: 'entry.js', intactFiles: [join('skills', 'manifest.json')] },
+  { pkg: DSH_LANGUAGE_BUNDLE, dir: 'dsh-language-bundle', entry: 'entry.js', intactFiles: [] },
+  { pkg: DSH_GIT_PANEL_BUNDLE, dir: 'dsh-git-panel', entry: 'entry.js', intactFiles: ['client.js'] },
+  { pkg: DSH_STATS_PANEL_BUNDLE, dir: 'dsh-stats-panel', entry: 'entry.js', intactFiles: ['client.js'] },
+  { pkg: DSH_TERMINAL_BUNDLE, dir: 'dsh-terminal', entry: 'entry.js', intactFiles: ['client.js'] },
+  { pkg: DSH_FILE_REVIEW_BUNDLE, dir: 'dsh-file-review-kcoder', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
+  { pkg: DSH_CODING_SIDEBAR, dir: 'dsh-coding-sidebar', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
 ]
 
 /**
- * 退役插件包名：不再内置、不再维护，也不留在用户 profile——曾收编过的
- * @kcoder/* 物化目录自愈移除，目录一并删除，禁止 loader 再加载任何副本。
- * 仅收 @kcoder/flowglass（旧收编物化目录）；上游 npm 包 dsh-flowglass
- * 不封禁：2026-08-30 曾因上游只发产物无源码、host/client 双侧 inject
- * 声明缺失（alpha.1 严格解析下无法安全补丁维护）决定不内置，但当时误
- * 把它列入本清单把「用户按需安装」路径也一并封死；上游已迭代到 0.4.x
- * （声明面已补齐 peer），2026-08-31 起放开——不预置、不禁装。
+ * 退役插件包名：不再内置、不再维护，也不留在用户 profile——曾物化过的
+ * 目录自愈移除，目录一并删除，禁止 loader 再加载任何副本。
+ *
+ * - @kcoder/flowglass：旧收编物化目录；上游 npm 包 dsh-flowglass
+ *   不封禁：2026-08-30 曾因上游只发产物无源码、host/client 双侧 inject
+ *   声明缺失（alpha.1 严格解析下无法安全补丁维护）决定不内置，但当时误
+ *   把它列入本清单把「用户按需安装」路径也一并封死；上游已迭代到 0.4.x
+ *   （声明面已补齐 peer），2026-08-31 起放开——不预置、不禁装。
+ * - @kcoder/skills-bundle、@kcoder/language-bundle、@kcoder/git-panel、
+ *   @kcoder/stats-panel、@kcoder/terminal、@kcoder/file-review
+ *   （2026-09-01）：全部改名自立并发布 npm（dsh-skills-bundle /
+ *   dsh-language-bundle / dsh-git-panel / dsh-stats-panel / dsh-terminal /
+ *   dsh-file-review-kcoder，1.0.0 起步），旧名物化目录与 bundles 层叠
+ *   残留自愈三清（file-review 曾被钉 deps "0.4.1" 一并摘除）。
  */
-const RETIRED_PLUGINS = ['@kcoder/flowglass']
+const RETIRED_PLUGINS = [
+  '@kcoder/flowglass',
+  '@kcoder/skills-bundle',
+  '@kcoder/language-bundle',
+  '@kcoder/git-panel',
+  '@kcoder/stats-panel',
+  '@kcoder/terminal',
+  '@kcoder/file-review',
+  // 2026-09-01 改名中间态×3：dsh-git-panel/dsh-terminal 曾以无 scope 名
+  // 短暂物化/注册（npm 与社区第三方同名 E403）；改 @dsh-external scope 后
+  // org 名又被 npm 注册政策拦截，定稿 @kkutysllb——两轮中间态全部退役，
+  // 残留自愈清理（scope 形态的空壳清理逻辑同样生效）
+  'dsh-git-panel',
+  'dsh-terminal',
+  '@dsh-external/dsh-git-panel',
+  '@dsh-external/dsh-terminal',
+]
 
 /** 分发的 bundle 源目录（开发态仓库内；打包态 extraResources）。 */
 export function bundleSource(dir: string): string {
@@ -144,7 +194,10 @@ function materialize(profileDir: string, b: BundledPlugin): void {
   const intact = existsSync(join(target, b.entry))
     && b.intactFiles.every((f) => existsSync(join(target, f)))
   if (!intact || srcVersion !== dstVersion) {
-    mkdirSync(join(profileDir, 'node_modules', '@kcoder'), { recursive: true })
+    // scope 父目录按包名动态建（@kcoder/* 与非 scope 的
+    // dsh-coding-sidebar 共用此物化路径）
+    const scope = b.pkg.startsWith('@') ? b.pkg.split('/')[0] : ''
+    if (scope !== '') mkdirSync(join(profileDir, 'node_modules', scope), { recursive: true })
     rmSync(target, { recursive: true, force: true })
     cpSync(source, target, { recursive: true })
     console.log(`[kcoder-bundle] 物化 ${b.pkg} ${srcVersion}: ${target}`)
@@ -172,7 +225,10 @@ function materialize(profileDir: string, b: BundledPlugin): void {
   // 双跑。注册 bundles 时顺手拔除；退役插件的 bundles 层叠项与物化/安装
   // 目录一并移除，只留内置 bundle 这一条加载面。
   const dependencies = (manifest['dependencies'] ?? {}) as Record<string, unknown>
+  // dsh-coding-sidebar 例外：deps 声明是依赖树牵引（pnpm 图 hoist
+  // node-pty/ws/codemirror；见文件头），不是残留接线，不清除
   const removable = [...BUNDLES.map((x) => x.pkg), ...RETIRED_PLUGINS]
+    .filter((x) => x !== DSH_CODING_SIDEBAR)
   const staleDeps = removable.filter((x) => x in dependencies)
   const staleBundles = RETIRED_PLUGINS.filter((x) => bundlesOf(manifest).includes(x))
   if (staleDeps.length > 0 || staleBundles.length > 0) {

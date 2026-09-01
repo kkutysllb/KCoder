@@ -161,7 +161,7 @@ export function installMenu(): void {
             const w = getShellWindow()
             if (w === null || w.isDestroyed()) return
             w.show()
-            // 终端已插件化（@kcoder/terminal）：转发页面内插件按钮
+            // 终端已插件化（dsh-terminal）：转发页面内插件按钮
             // 点击（onclick 不依赖可见性，win32 display:none 照常触发）
             void w.webContents
               .executeJavaScript(

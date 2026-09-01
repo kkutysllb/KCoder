@@ -169,12 +169,12 @@ export function showShellWindow(dshUrl: string): void {
     // trigger 真实契约，不发送消息）；打开态拉满主页面区域 + 右上角
     // 「返回任务」按钮
     attachContextButton(shellWindow)
-    // 内嵌终端已插件化（2026-08）：由 @kcoder/terminal 客户端插件
-    // （bundle/kcoder-terminal，dsh client-modules 加载）整体替代——
+    // 内嵌终端已插件化（2026-08）：由 dsh-terminal 客户端插件
+    // （bundle/dsh-terminal，dsh client-modules 加载）整体替代——
     // 页面内底部 DOM 面板 + node-pty 服务端 RPC/SSE，按钮 right 44
     // 由插件注入；旧 WebContentsView 形态（terminal-panel.ts）已退役
-    // git 环境面板已退役（2026-08）：由 @kcoder/git-panel 客户端插件
-    // （bundle/kcoder-git-panel，dsh client-modules 加载）整体替代——
+    // git 环境面板已退役（2026-08）：由 dsh-git-panel 客户端插件
+    // （bundle/dsh-git-panel，dsh client-modules 加载）整体替代——
     // 按钮 right 108 由插件注入，数据走插件自带 webServer RPC
     // 消息样式覆盖层：排版 token/气泡/代码块微调（零侵入，token 改名静默失效）
     attachStyleOverlay(shellWindow)

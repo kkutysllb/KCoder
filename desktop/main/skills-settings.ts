@@ -140,7 +140,7 @@ const PAGE_JS = `(() => {
 
   // ── 目录数据 → DOM ─────────────────────────────────────────────
   var SUBS = {
-    builtin: '随 KCoder 分发并已注册生效的方法论技能（@kcoder/skills-bundle，随版本更新）。',
+    builtin: '随 KCoder 分发并已注册生效的方法论技能（dsh-skills-bundle，随版本更新）。',
     project: '当前工作区 .dsh/skills 与 .agents/skills 目录（优先级最高，可覆盖同名内置技能）。',
     user: '用户级技能目录：$DSH_HOME/skills 与 ~/.agents/skills（后者为跨工具共享目录，Claude Code 等同样读取）。',
     optional: '随包分发但未启用的长尾技能（不占会话上下文）。点行尾「启用」按钮装到用户目录；新开会话后 agent 可用。'

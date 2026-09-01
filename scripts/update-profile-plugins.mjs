@@ -29,7 +29,7 @@
  *   node scripts/update-profile-plugins.mjs --sync    同步仓库 patch 到 profile 并 pnpm install（默认）
  *   node scripts/update-profile-plugins.mjs --update  检查 npm 上游版本并 pnpm update 全部插件
  *   node scripts/update-profile-plugins.mjs --check   只打印本地/上游版本对比，不写任何文件
- *   node scripts/update-profile-plugins.mjs --align   只执行收编产物版本对齐（见 VERSION_ALIGNS）
+ *   node scripts/update-profile-plugins.mjs --align   只执行内置产物版本对齐（见 VERSION_ALIGNS）
  */
 
 import { execFileSync } from 'node:child_process'
@@ -66,6 +66,9 @@ const PATCH_MARKS = {
     ['lib/index.js', "child.on('error', () => {})"],
     // 编辑区自适应增强特征（气泡扩宽 + textarea 随内容长高）
     ['lib/client.js', 'autoGrowEditBox'],
+    // alpha.3 守卫适配重写的影子注册特征（shadow reclaim 为 KCoder
+    // 引入串；与 profile-patches.ts 同步更新）
+    ['lib/client.js', '[dta] shadow reclaim'],
     // alpha.1 composer 适配特征（findComposer 锚 data-composer-card 限定
     // 查询 + findRail 限定 card 范围；与 profile-patches.ts 同步更新）
     ['lib/client.js', "document.querySelector('[data-composer-card] textarea')"],
@@ -85,9 +88,11 @@ const PATCH_MARKS = {
  */
 const VERSION_ALIGNS = [
   {
-    pkg: 'dsh-better-sidebar',
-    // 0.17.2 实装：package.json 已 bump 而产物内 SIDEBAR_SERVICE_VERSION
-    // 仍停 0.17.1（「侧边卡片」设置分区头部 chip 显示版本的来源）
+    pkg: 'dsh-coding-sidebar',
+    // 兜底对账：1.0.0 起产物常量已由 tsdown define 从 package.json
+    // version 构建期注入（单一事实源），正常发布链不再脱节；保留以
+    // 覆盖手工替换 bundle 物料等旁路（「侧边卡片」设置分区头部 chip
+    // 显示版本的来源）
     files: ['lib/client.js', 'lib/client-registry.js'],
     marker: 'SIDEBAR_SERVICE_VERSION',
   },

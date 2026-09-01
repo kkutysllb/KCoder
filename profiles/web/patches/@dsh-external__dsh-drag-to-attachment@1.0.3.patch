@@ -208,6 +208,100 @@ index cb6bf08..9cc6bfb 100644
              ),
              actions,
            ),
+@@ -1730,16 +1827,83 @@ window.__ModuleLoader__.load({
+     }
+ 
+     function registerUserMessageView(ctx) {
+-      var slots = ctx.get('slots')
+-      if (slots === undefined || React === null) return function () { /* no-op */ }
+-      return slots.inject('conversation.chat.node', function* () {
+-        yield slots.register(
+-          // Shadow the shipped 'user' renderer: keyed slots resolve the
+-          // LOWEST priority occupant, so a negative priority wins.
+-          { name: 'conversation.chat.node', key: 'user', priority: -100 },
+-          UserMessageView
+-        )
+-      })
++      try {
++        var slots = ctx.get('slots')
++        if (slots === undefined || React === null) return function () { /* no-op */ }
++        // [KCoder alpha.3] The client-runner slot guard discards dynamic
++        // plugins' explicit priorities (it reassigns registration-order
++        // ranks), so priority: -100 below is advisory only — any LATER lazy
++        // registrant for a cell silently wins the election (the 08-29 bare
++        // bubble root cause). So: claim BOTH the 'user' cell and the new
++        // 'steering' cell, verify our component actually heads each cell,
++        // and on losing dispose + re-register (a fresh rank is always lower
++        // and wins), kept under watch via the slot's public subscribe()
++        // (plus a bounded self-check loop when subscribe is unavailable).
++        var KEYS = ['user', 'steering']
++        var disposers = []
++        var disposeSub = null
++        var beltTimer = null
++        var beltTries = 0
++        function claimAll() {
++          KEYS.forEach(function (key) {
++            try {
++              disposers.push(slots.register(
++                { name: 'conversation.chat.node', key: key, priority: -100 },
++                UserMessageView
++              ))
++            } catch (error) { /* exact-priority clash: the election check re-claims */ }
++          })
++        }
++        function headIsOurs(key) {
++          try {
++            if (typeof slots.entriesOfSlot !== 'function') return true // cannot inspect: assume ours
++            var heads = slots.entriesOfSlot('conversation.chat.node')
++            for (var i = 0; i < heads.length; i++) {
++              var head = heads[i]
++              if (head && head.options && head.options.key === key) return head.component === UserMessageView
++            }
++            return true // cell empty (or not declared yet): nothing stole it
++          } catch (error) { return true }
++        }
++        function reclaimIfNeeded() {
++          var lost = false
++          KEYS.forEach(function (key) { if (!headIsOurs(key)) lost = true })
++          if (!lost) return
++          var stale = disposers
++          disposers = []
++          stale.forEach(function (dispose) { try { dispose() } catch (error) { /* noop */ } })
++          claimAll()
++          try { console.log('[dta] shadow reclaim: re-registered after losing the cell election') } catch (error) { /* noop */ }
++        }
++        function scheduleBelt() {
++          if (beltTimer !== null || typeof slots.subscribe === 'function') return
++          if (beltTries >= 5) return
++          beltTries += 1
++          beltTimer = setTimeout(function () {
++            beltTimer = null
++            reclaimIfNeeded()
++            scheduleBelt()
++          }, 800 * beltTries)
++        }
++        return slots.inject('conversation.chat.node', function () {
++          claimAll()
++          reclaimIfNeeded()
++          try { console.log('[dta] shadow registered (user+steering cells)') } catch (error) { /* noop */ }
++          try { if (typeof slots.subscribe === 'function') disposeSub = slots.subscribe('conversation.chat.node', reclaimIfNeeded) } catch (error) { disposeSub = null }
++          scheduleBelt()
++          return function () {
++            if (disposeSub !== null) { try { disposeSub() } catch (error) { /* noop */ } disposeSub = null }
++            if (beltTimer !== null) { clearTimeout(beltTimer); beltTimer = null }
++            beltTries = 0
++            var stale = disposers
++            disposers = []
++            stale.forEach(function (dispose) { try { dispose() } catch (error) { /* noop */ } })
++          }
++        })
++      } catch (error) {
++        try { console.error('[dta] shadow registration failed:', error) } catch (err) { /* noop */ }
++        return function () { /* no-op */ }
++      }
+     }
+ 
+     // =========================================================================
 diff --git a/lib/index.js b/lib/index.js
 index f50ebd7..497b81d 100644
 --- a/lib/index.js

@@ -1,8 +1,8 @@
 /**
- * 预置第三方插件（dsh-context / dsh-better-sidebar / archify /
+ * 预置第三方插件（dsh-context / dsh-coding-sidebar /
  * drag-to-attachment）的开箱物化。
  *
- * 这三个插件是 KCoder 发行物的一部分：Windows 全新安装后 profile 是
+ * 这两个插件是 KCoder 发行物的一部分：Windows 全新安装后 profile 是
  * 上游空模板（只有 dsh-base / dsh-web-app 内置层），第三方插件不会自动
  * 出现（mac 开发机上它们存在于用户 profile，属用户数据不随包分发）。
  * 本模块在 dsh 启动前幂等物化：
@@ -22,38 +22,39 @@
  *
  * 版本策略：预置 spec 锁定开箱已验证 patch 兼容的版本线（^ 对 0.x 仅
  * patch 级跟随，minor 升级不自动跟进）；用户主动“更新”经插件管理
- * update --latest 升线。破坏性敏感的包装层插件用精确锁定（如 archify）。
+ * update --latest 升线。破坏性敏感的包装层插件用锁定形态（如
+ * drag-to-attachment 的 github tag）。
  *
  * 预置冻结（2026-08-30）：第三方插件不再新增预置——用户按需经插件
- * 管理页自装（github 源一键安装）。现有四个维持现状（含缺陷补丁与
- * 版本锁）；退役走 RETIRED_PRESETS 三清自愈（见 dsh-vision-router）。
+ * 管理页自装（github 源一键安装）。现有两个维持现状（含缺陷补丁与
+ * 版本锁）；退役走 RETIRED_PRESETS 三清自愈（见 dsh-vision-router、
+ * dsh-better-sidebar、@tt-a1i/archify-dsh）。
  *
- * dsh-better-sidebar（2026-08-20 预置，全面替代自研功能面：文件树
- *   面板、内嵌终端与状态栏四面板——文件预览/会话轨迹/日志导出/Git
- *   ——已删除）：侧边栏工作台底座（文件树/CM6 编辑器/图片·MD 预览/
- *   终端/Git/子代理，服务化扩展点）。原生兼容 rc.8 无需补丁；两项额外物化：
- * - pnpm-workspace.yaml 补写 onlyBuiltDependencies: [node-pty,
- *   dsh-better-sidebar]（pnpm 10 默认拦截构建脚本：不许可则插件终端
- *   缺 node-pty 二进制，git 源版本（0.15.0+）直接装不上）；
- * - $DSH_HOME/settings.yaml 补写 dsh-better-sidebar.titleBarCompat:
- *   true + titleBarStripPx——面板顶部让位 KCoder 自绘状态栏（插件
- *   自动探测只认 win32 advanced 标题栏，mac 需手动开；实测
- *   2026-08-20）。开关簇不下移：由 sidebar-cluster.ts 注入器隐藏
- *   并在状态栏代理接管（代理一枚 right 12 + 自研终端 44 + 上下文 76；
- *   插件底面板产品侧弃用——agent 运行态黑屏无唤醒信号，sidebar-cluster
- *   压制看门狗自动收回一切打开路径，热补丁/挤压垫片已随终端回归
- *   自研而拆除）。
+ * dsh-coding-sidebar（2026-08-20 以 dsh-better-sidebar 预置，2026-09-01
+ *   切换自立包）：侧边栏工作台底座（文件树/CM6 编辑器/图片·MD 预览/
+ *   终端/Git/子代理，服务化扩展点）。fork 自 DSH-better-sidebar 0.17.2
+ *   的独立发布线（1.0.0 起，底面板源码级移除，版本常量构建期注入），
+ *   收编线的上游版本漂移病（0.17.1 settingsNamespace 坏版启动崩）随之
+ *   终结；实体由 bundle/dsh-coding-sidebar 物化覆盖为终态（见
+ *   kcoder-skills-bundle.ts）——本清单的 ^1.0.0 仅牵引依赖树
+ *   （codemirror/ws/node-pty 等 hoist 到 profile 顶层）；两项额外物化：
+ * - pnpm 构建脚本门：白名单（onlyBuiltDependencies: [node-pty,
+ *   dsh-better-sidebar]）路线已证伪，现由 dangerouslyAllowAllBuilds
+ *   放行（见 ensurePnpmBuildsAllowed）；
+ * - $DSH_HOME/settings.yaml 补写 dsh-coding-sidebar.titleBarCompat:
+ *   true + titleBarStripPx——面板顶部让位 KCoder 自绘状态栏（键名
+ *   跟随新包 SIDEBAR_PREFS_NS；插件自动探测只认 win32 advanced 标题栏，
+ *   mac 需手动开；实测 2026-08-20）。开关簇不下移：由 sidebar-cluster.ts
+ *   注入器隐藏并在状态栏代理接管（代理一枚 right 12 + 自研终端 44 +
+ *   上下文 76；旧收编线底面板已在 fork 源码级移除，热补丁/挤压垫片
+ *   随终端回归自研而拆除）。
  *
- * @tt-a1i/archify-dsh（2026-08-20 预置）：架构图 agent skill——把
- * 代码库/系统描述变成自包含交互 HTML 技术图（架构/工作流/时序/
- * 数据流/生命周期五型，类型化 JSON IR + 确定性校验管线）。本体
- * tt-a1i/archify v2.15.0（MIT，14.5K★）的官方 DSH 包装，community
- * opt-in，无遥测。纯技能 bundle：零依赖零 peer、无原生构建、无
- * settings——除声明外无任何物化项。锁精确 0.1.0（包装层唯一版本，
- * 按 rc.6 发布，防后续版本破坏性变更混入）。
- * 调用：会话内 “Use the archify skill to map this repository's
- * runtime architecture.”；产物单文件 HTML 可在 better-sidebar
- * 预览面板直接打开。
+ * @tt-a1i/archify-dsh（2026-08-20 预置 → 2026-09-01 退役）：架构图
+ * agent skill——把代码库/系统描述变成自包含交互 HTML 技术图（架构/
+ * 工作流/时序/数据流/生命周期五型）。退役理由：架构图能力已由自有
+ * 插件 dsh-super-ppts 覆盖，后续 dsh-animation 插件同样具备该能力，
+ * 第三方重复能力不再预置（按需可经插件管理页自装，纯技能包装零
+ * 迁移）。
  *
  * @dsh-external/dsh-drag-to-attachment（2026-08-20 预置）：附件上传
  * 宿主插件——输入框 📎 按钮由它注入 conversation.input.left 槽位，
@@ -73,26 +74,52 @@
  * @module desktop/main/preset-plugins
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { WEB_PROFILE, dshHome, runPnpm } from './dsh-contract'
 import { ensureProfilePatches, healLog } from './profile-patches'
 import { SHELL_TITLEBAR_HEIGHT } from './theme-watcher'
 
-/** 预置插件：bundle 名 → 依赖 spec（键顺序即层叠顺序，对齐 mac 开发机）。 */
+/**
+ * 预置插件：bundle 名 → 依赖 spec（键顺序即层叠顺序，对齐 mac 开发机）。
+ * spec 变化由 ensurePresetPlugins 的漂移对账推送到已装 profile（只升
+ * 不降）；semver 下界可提取的 spec（含 github tag 形态 github:…#v1.0.3）
+ * 参与对账，link: 等无版本形态不参与。
+ */
 export const PRESET_PLUGINS: Record<string, string> = {
-  'dsh-context': '^0.37.0',
-  'dsh-better-sidebar': '^0.17.0',
-  '@tt-a1i/archify-dsh': '0.1.0',
+  // 0.38.5 起 index.js 不再 import settingsNamespace（alpha.2 的
+  // dsh-settings 已移除该导出）——0.37.x 与 alpha.2 引擎组合启动即
+  // SyntaxError 全局崩（0.4.9 Windows 升级现场实证）
+  'dsh-context': '^0.38.5',
+  // 自立 npm 包（fork 自 DSH-better-sidebar 0.17.2，发版节奏自控），
+  // 本声明仅牵引依赖树（codemirror/ws/node-pty 等 hoist 到 profile
+  // 顶层）+ bundles 注册；实体终态由 bundle/dsh-coding-sidebar
+  // 物化覆盖——满足本 spec 的安装实体不会被 pnpm 回滚，index.ts 在
+  // preset install 后二调 ensureKcoderBundles 兑现纠偏
+  'dsh-coding-sidebar': '^1.0.0',
   '@dsh-external/dsh-drag-to-attachment': 'github:djt889/dsh-drag-to-attachment#v1.0.3',
 }
 
 /**
  * 退役预置插件：不再预置，也不留在用户 profile——dependencies 声明、
  * bundles 层叠声明与 node_modules 实体三处自愈移除（见
- * ensurePresetPlugins 的退役清理步骤）。
+ * ensurePresetPlugins 的退役清理步骤；摘 deps + 删实体后由 pnpm
+ * install 重放按新依赖图收敛，图与磁盘一致不漂移——不走
+ * kcoder-skills-bundle RETIRED_PLUGINS 的纯 rm 路径，那会让 pnpm 图
+ * 与磁盘漂移，后续 install 报错）。
+ *
+ * - dsh-vision-router（2026-08-30）：原生视觉优先，识图插件退役。
+ * - dsh-better-sidebar（2026-09-01）：消费源切换自立包
+ *   dsh-coding-sidebar（见 PRESET_PLUGINS），旧收编线整线退役——
+ *   含历史 git+ssh 子目录引用形态的 deps 声明（值形态不限，摘键即
+ *   清）。退役后衍生插件重装时其 peer `dsh-better-sidebar@^0.6.0`
+ *   会从 npm 拉上游真包实体：该实体不进 bundles 层叠不会被加载
+ *   （无双跑），仅作 peer 满足与类型来源。
+ * - @tt-a1i/archify-dsh（2026-09-01）：架构图能力由自有插件
+ *   dsh-super-ppts 覆盖（后续 dsh-animation 亦具备），第三方重复
+ *   能力不再预置；纯技能包装，摘键即清无迁移。
  */
-const RETIRED_PRESETS = ['dsh-vision-router']
+const RETIRED_PRESETS = ['dsh-vision-router', 'dsh-better-sidebar', '@tt-a1i/archify-dsh']
 
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */
 const TEMPLATE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
@@ -154,26 +181,28 @@ function ensurePnpmBuildsAllowed(workspacePath: string): void {
 }
 
 /**
- * 幂等补写 better-sidebar 标题栏避让配置（$DSH_HOME/settings.yaml）：
+ * 幂等补写 coding-sidebar 标题栏避让配置（$DSH_HOME/settings.yaml）：
  * 面板顶部让位 KCoder 自绘状态栏（48px，取 SHELL_TITLEBAR_HEIGHT 防魔
  * 数漂移；开关簇本体由 sidebar-cluster.ts 隐藏代理，不消费下移效果）。
- * 整块缺失才追加——用户/插件设置页改过则不动；调用时序在 dsh 启动前，
- * 无并发写风险。tabsEnabled 不写：终端/Git 等重功能保持插件默认，
- * 用户经设置页自选（KCoder 内置终端面板已删除，预览面板不互斥）。
+ * 整块缺失才追加——用户/插件设置页改过则不动（旧收编线
+ * dsh-better-sidebar 块不删：旧包退役后无人读，残留无害）；调用时序在
+ * dsh 启动前，无并发写风险。tabsEnabled 不写：终端/Git 等重功能保持
+ * 插件默认，用户经设置页自选（KCoder 内置终端面板已删除，预览面板
+ * 不互斥）。
  */
 function ensureSidebarCompatSettings(): void {
   try {
     const settingsPath = join(dshHome(), 'settings.yaml')
     if (!existsSync(settingsPath)) return
     const yaml = readFileSync(settingsPath, 'utf8')
-    if (/^dsh-better-sidebar:/m.test(yaml)) return
-    const block = `dsh-better-sidebar:\n  titleBarCompat: true\n  titleBarStripPx: ${SHELL_TITLEBAR_HEIGHT}\n`
+    if (/^dsh-coding-sidebar:/m.test(yaml)) return
+    const block = `dsh-coding-sidebar:\n  titleBarCompat: true\n  titleBarStripPx: ${SHELL_TITLEBAR_HEIGHT}\n`
     writeFileSync(settingsPath, yaml.endsWith('\n') ? yaml + block : yaml + '\n' + block)
-    console.log('[preset-plugins] 已补写 better-sidebar 标题栏避让配置')
-    healLog('[preset] 已补写 better-sidebar 标题栏避让配置')
+    console.log('[preset-plugins] 已补写 coding-sidebar 标题栏避让配置')
+    healLog('[preset] 已补写 coding-sidebar 标题栏避让配置')
   } catch (error) {
-    console.error('[preset-plugins] better-sidebar 避让配置补写失败:', error)
-    healLog(`[preset] better-sidebar 避让配置补写异常：${String(error)}`)
+    console.error('[preset-plugins] coding-sidebar 避让配置补写失败:', error)
+    healLog(`[preset] coding-sidebar 避让配置补写异常：${String(error)}`)
   }
 }
 
@@ -182,6 +211,36 @@ function bundlesOf(manifest: Record<string, unknown>): string[] {
   const dsh = manifest['dsh'] as { profile?: { bundles?: unknown } } | undefined
   const list = dsh?.profile?.bundles
   return Array.isArray(list) ? (list as string[]) : []
+}
+
+/**
+ * spec/版本共用的 semver 三元组提取：`^0.38.5`/`0.1.0`/`github:…#v1.0.3`
+ * （tag 版本）→ [0,38,5]/[1,0,3]；link: 等无版本形态 → null。预置 spec
+ * 与实装版本同一解析，漂移对账口径一致。
+ */
+function specMinVer(spec: string): [number, number, number] | null {
+  const m = /[~^]?(\d+)\.(\d+)\.(\d+)/.exec(spec)
+  return m === null ? null : [Number(m[1]), Number(m[2]), Number(m[3])]
+}
+
+/** 三元组序比较：a<b → -1，a=b → 0，a>b → 1。 */
+function cmpVer(a: [number, number, number], b: [number, number, number]): number {
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1
+  }
+  return 0
+}
+
+/** node_modules 实体的 version（缺失/损坏返回 null）。 */
+function installedVersionOf(profileDir: string, name: string): string | null {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(join(profileDir, 'node_modules', name, 'package.json'), 'utf8'),
+    ) as { version?: unknown }
+    return typeof pkg.version === 'string' ? pkg.version : null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -264,6 +323,18 @@ export function ensurePresetPlugins(): void {
         console.log(`[preset-plugins] 已删除退役插件实体: ${r}`)
         healLog(`[preset] 已删除退役插件实体: ${r}`)
       }
+      // @scope/name 形态：包删除后空 scope 壳目录一并清（pnpm 图收敛
+      // 不管空壳，残留会误导排查）
+      if (r.includes('/')) {
+        const scopeDir = join(profileDir, 'node_modules', r.split('/')[0])
+        try {
+          if (existsSync(scopeDir) && readdirSync(scopeDir).length === 0) {
+            rmSync(scopeDir, { recursive: true, force: true })
+            console.log(`[preset-plugins] 已清理空 scope 目录: ${r.split('/')[0]}`)
+            healLog(`[preset] 已清理空 scope 目录: ${r.split('/')[0]}`)
+          }
+        } catch { /* 目录并发变动时跳过，下次幂等重试 */ }
+      }
     }
 
     // 2) 补写 dependencies 缺项（可先行——dsh 不查 dependencies，
@@ -276,6 +347,33 @@ export function ensurePresetPlugins(): void {
       writeFileSync(manifestPath, `${JSON.stringify(m, undefined, 2)}\n`)
       console.log(`[preset-plugins] 已补写依赖声明: ${missingDeps.join(', ')}`)
       healLog(`[preset] 已补写依赖声明: ${missingDeps.join(', ')}`)
+    }
+
+    // 2.5) spec 漂移对账（只升不降）：实体版本低于预置 spec 下界时，
+    //      改写 deps spec 为预置值并摘除旧实体，交第 3 步重装。这是
+    //      「预置 spec 升级推不到已装用户」的机制补丁——0.4.9 实证：
+    //      alpha.2 引擎移除 dsh-settings 的 settingsNamespace 导出，
+    //      升级用户 profile 里的 dsh-context 0.37.x 仍 import 该导出，
+    //      启动即 SyntaxError 全局崩。实体版本满足下界则不动（用户
+    //      update --latest 升线、mac git 源收编 0.17.2 均不被降级覆写）
+    for (const p of presetNames) {
+      const min = specMinVer(PRESET_PLUGINS[p])
+      if (min === null) continue
+      const cur = specMinVer(installedVersionOf(profileDir, p) ?? '')
+      const entityDir = join(profileDir, 'node_modules', p)
+      const staleEntity = existsSync(entityDir) && (cur === null || cmpVer(cur, min) < 0)
+      if (!staleEntity && cur !== null) continue
+      if (deps[p] !== PRESET_PLUGINS[p]) {
+        deps[p] = PRESET_PLUGINS[p]
+        writeFileSync(manifestPath, `${JSON.stringify(m, undefined, 2)}\n`)
+        console.log(`[preset-plugins] 预置 spec 已对齐: ${p} → ${PRESET_PLUGINS[p]}`)
+        healLog(`[preset] 预置 spec 已对齐: ${p} → ${PRESET_PLUGINS[p]}`)
+      }
+      if (staleEntity) {
+        rmSync(entityDir, { recursive: true, force: true })
+        console.log(`[preset-plugins] 已摘除过旧实体（版本低于预置下界）: ${p}`)
+        healLog(`[preset] 已摘除过旧实体（版本低于预置下界）: ${p}`)
+      }
     }
 
     // 3) 安装：任何预置包缺席 → pnpm install（先确保 patch 声明与
@@ -307,7 +405,7 @@ export function ensurePresetPlugins(): void {
     }
 
     // 4) bundles 声明对账（dsh 启动的唯一消费口）：已装未声明 → 补
-    //    （锚点 dsh-web-app / @kcoder/skills-bundle 之后，与 mac 开发机
+    //    （锚点 dsh-web-app / dsh-skills-bundle 之后，与 mac 开发机
     //    层叠一致）；已声明未装（install 失败/半装）→ 摘除，防 dsh 启动
     //    崩溃，下次启动重试重装
     const bundles = bundlesOf(m)
@@ -315,7 +413,7 @@ export function ensurePresetPlugins(): void {
     const undeclared = presetNames.filter((p) => !bundles.includes(p) && installed(p))
     if (ghost.length > 0 || undeclared.length > 0) {
       const kept = bundles.filter((p) => !ghost.includes(p))
-      let anchor = kept.indexOf('@kcoder/skills-bundle')
+      let anchor = kept.indexOf('dsh-skills-bundle')
       if (anchor === -1) anchor = kept.indexOf(TEMPLATE_BUNDLES[1])
       let offset = 0
       for (const p of undeclared) {

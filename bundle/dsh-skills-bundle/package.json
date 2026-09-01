@@ -1,0 +1,33 @@
+{
+  "name": "dsh-skills-bundle",
+  "version": "1.0.0",
+  "description": "dsh-external in-box dsh bundle: methodology + multimedia + research skill packs adapted from the KSkills repository, registered as runtime skills for every agent session.",
+  "license": "MIT",
+  "type": "module",
+  "main": "entry.js",
+  "exports": {
+    ".": "./entry.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "entry.js",
+    "cordis.patch.yml",
+    "skills"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "smoke": "node scripts/smoke-plugin.mjs",
+    "sync:mirror": "node scripts/sync-to-dsh-plugins.mjs",
+    "sync:check": "node scripts/sync-to-dsh-plugins.mjs --check",
+    "prepack": "pnpm smoke"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kkutysllb/dsh-skills-bundle.git"
+  }
+}

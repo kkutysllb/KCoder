@@ -1,0 +1,46 @@
+{
+  "name": "@kkutysllb/dsh-terminal",
+  "version": "1.0.0",
+  "description": "dsh-external in-box dsh bundle: embedded terminal panel (node-pty backed multi-tab shells, per-workspace buckets, xterm.js UI) as a bottom dock inside the dsh web page, replacing the retired Electron host terminal-panel.",
+  "license": "MIT",
+  "type": "module",
+  "main": "entry.js",
+  "exports": {
+    ".": "./entry.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "entry.js",
+    "client.js",
+    "vendor",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "smoke": "node scripts/smoke-plugin.mjs",
+    "sync:mirror": "node scripts/sync-to-dsh-plugins.mjs",
+    "sync:check": "node scripts/sync-to-dsh-plugins.mjs --check",
+    "prepack": "pnpm smoke"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kkutysllb/dsh-terminal.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

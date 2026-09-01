@@ -1,0 +1,19 @@
+# dsh-language-bundle bundle layer（KCoder「强制中文回答」指令）。
+#
+# 声明于 package.json 的 dsh.bundle.patch，由 KCoder 主进程物化到
+# web profile 的 node_modules 并注册进 dsh.profile.bundles。本层只挂
+# 一个 system-prompt section 插件（entry.js：全局 'kcoder:language'
+# section，order 1），并对所有 agent 会话生效。
+#
+# 默认 disabled：保持上游「跟随模型」原样。用户在上游设置面板「通用」
+# 区打开「强制中文回答」时，KCoder 主进程在 $DSH_HOME/cordis.patch.yml
+# （home 用户层，被 dsh watchUserPatches 热重载）追加：
+#   - id: kcoder-language
+#     disabled: false
+# 覆盖本层默认（cordis patch 语义：id 定位、显式键覆盖、后层赢）。
+# 关闭时移除该行——回落到本层默认 disabled。
+
+- insert:
+    - id: kcoder-language
+      name: 'dsh-language-bundle'
+      disabled: true

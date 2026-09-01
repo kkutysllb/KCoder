@@ -1,7 +1,7 @@
 /**
  * 渲染端入口：极简 hash 路由（#/landing、#/splash、#/setup、#/diagnostics、
  * #/sync、#/plugins、#/preferences）。无框架零运行时依赖——桌面壳页面
- * 保持轻量。（#/terminal 已随宿主终端面板退役：@kcoder/terminal 插件
+ * 保持轻量。（#/terminal 已随宿主终端面板退役：dsh-terminal 插件
  * 在 dsh shell 页面内自渲染，不经本渲染端。）
  *
  * @module desktop/renderer/src/main

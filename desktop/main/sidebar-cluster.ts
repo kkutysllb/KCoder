@@ -1,5 +1,5 @@
 /**
- * better-sidebar 开关簇收纳（零侵入代理注入器）：插件右上角的开关簇
+ * coding-sidebar 开关簇收纳（零侵入代理注入器）：插件右上角的开关簇
  * （fixed 宿主层内 absolute，z-45）与 KCoder 自绘状态栏（z 最高、48px）
  * 在同一区域叠死，且层级被状态栏物理盖住——纯 CSS 挪位进状态栏不可行。
  * 因此与 sidebar-toggle（上游折叠按钮迁移）同构：
@@ -30,7 +30,7 @@
  * git 互斥让位协议已随宿主面板退役（2026-08）：旧版曾在本脚本暴露
  * window.__dshPanelOpen/Toggle/__dshOpenPlan 并经 MutationObserver
  * 上报开合沿供旧 git 卡片反向让位与计划预览点火；git 面板已由
- * @kcoder/git-panel 客户端插件整体替代（软依赖 betterSidebar.openTab
+ * dsh-git-panel 客户端插件整体替代（软依赖 betterSidebar.openTab
  * 直连预览，无需 DOM 模拟），上述暴露与 observer 一并摘除。
  *
  * 上游契约（全部运行时探测，哈希前缀无关）：
@@ -45,7 +45,7 @@
  * - 按钮宿主：theme-watcher 注入的自绘状态栏（#__dsh_desktop_titlebar）。
  *
  * right 序：侧栏面板 12（本注入器）/ 内嵌终端 44（terminal-panel）/
- * 上下文 76（context-button）/ git 108（@kcoder/git-panel 插件）；
+ * 上下文 76（context-button）/ git 108（dsh-git-panel 插件）；
  * 标题避让带同步见 theme-watcher。
  *
  * 宿主时序不保证：bar 由 theme-watcher 注入（同 did-finish-load，

@@ -232,7 +232,7 @@ export function themeBackgroundColor(pref: 'system' | 'light' | 'dark' = getSett
  *   sidebar-toggle 设置 = 按钮宽 26 + 间距 8）叠加上最小让位，收起态
  *   标题不与红绿灯右侧的折叠按钮重叠）；max-width 自适应避让：右侧取
  *   按钮带（134px = 四枚 26px 按钮：侧栏面板 12/内嵌终端 44/上下文 76/
- *   git 108px 序——终端由 @kcoder/terminal、git 面板由 @kcoder/git-panel
+ *   git 108px 序——终端由 dsh-terminal、git 面板由 dsh-git-panel
  *   插件 client 注入，上下文入口见 context-button；Windows 另加 padRight
  *   让位原生控制按钮区），长标题省略号截断；
  * - 背景直接解析上游 token `--dsw-specific-sidebar-fill`（body 计算值），

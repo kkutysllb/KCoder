@@ -20,7 +20,7 @@
  *
  * 打开态接管（无论 GUI 还是手输 /context 打开，一律接管）：
  * - 沉浸模式：modal 开 → html 加 __dsh_ctx_mode class（三个让位层
- *   CSS display:none：better-sidebar 面板 host、上游侧栏列、上游
+ *   CSS display:none：coding-sidebar 面板 host、上游侧栏列、上游
  *   overlay 层——它们 z 均低于 backdrop:200，DOM 已被盖，display:none
  *   消除半透明 backdrop 下的透出杂音；退出零状态记录，class 移除即
  *   复原）+ console 上报主进程隐藏终端 view（WebContentsView 在
@@ -50,7 +50,7 @@
  * 不换树），旧版 [data-composer-card] textarea 兜底；modal 锚
  * .lc-modal-backdrop /
  * .lc-modal-close（dsh-context 私有 lc- 前缀，不与他插件冲突）；
- * 让位锄 [data-dsh-better-sidebar]（插件面板 host——dsh-better-sidebar
+ * 让位锄 [data-dsh-better-sidebar]（DOM 属性沿用旧包名——coding-sidebar
  * 自己 appendChild 到 body 直下的独立 div，不在 frame 内；插件带
  * 守护 observer 会在 host 被移出 body 时重挂，故只能 CSS 让位不能
  * 动 DOM，display:none 不触发重挂）/[class*="sidebarCol"]（上游侧栏

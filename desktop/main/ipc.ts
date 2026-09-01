@@ -105,11 +105,11 @@ export function registerIpc(): void {
     return Promise.resolve()
   })
 
-  /* git 面板 IPC 已退役（2026-08）：@kcoder/git-panel 插件自带
-   * webServer RPC（/kc-git-panel/api/snapshot|open-plan）替代。 */
+  /* git 面板 IPC 已退役（2026-08）：@kkutysllb/dsh-git-panel 插件自带
+   * webServer RPC（/dsh-git-panel/api/snapshot|open-plan）替代。 */
 
-  /* 内嵌终端 IPC 已退役（2026-08）：@kcoder/terminal 插件自带
-   * webServer RPC（/kc-terminal/api/rpc + SSE 输出流）替代。 */
+  /* 内嵌终端 IPC 已退役（2026-08）：@kkutysllb/dsh-terminal 插件自带
+   * webServer RPC（/dsh-terminal/api/rpc + SSE 输出流）替代。 */
 
   /* ---- 本地账户鉴权（门禁数据源；登出连带窗口收场） ---- */
   ipcMain.handle('auth:status', () => authStatus())

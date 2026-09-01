@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * KSkills → kcoder-skills bundle 适配脚本（两档分发）。
+ * KSkills → dsh-skills-bundle 适配脚本（两档分发）。
  *
  * 从本地 KSkills 仓库（默认 ~/kk_Projects/KSkills）选取知识型技能，
- * dsh 兼容清洗后物化到 bundle/kcoder-skills/skills/：
+ * dsh 兼容清洗后物化到 bundle/dsh-skills-bundle/skills/：
  *
  * - 核心批 → skills/<name>/，进 manifest.json（entry.js 注册生效，
  *   目录常驻会话上下文）
@@ -159,7 +159,7 @@ const MANIFEST_ORDER = [
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const DEFAULT_SRC = join(homedir(), 'kk_Projects', 'KSkills')
-const DEFAULT_OUT = join(REPO_ROOT, 'bundle', 'kcoder-skills', 'skills')
+const DEFAULT_OUT = join(REPO_ROOT, 'bundle', 'dsh-skills-bundle', 'skills')
 
 // ── 参数 ────────────────────────────────────────────────────────────────────
 
@@ -236,7 +236,7 @@ function cleanBody(body) {
 
 /** bundle 物化后的技能根（$DSH_HOME 由 KCoder 主进程预置并随 dsh
  * 进程传给 agent 的 bash，双引号内可展开；resourceBase 同指此处）。 */
-const BUNDLE_SKILLS = '$DSH_HOME/profiles/web/node_modules/@kcoder/skills-bundle/skills'
+const BUNDLE_SKILLS = '$DSH_HOME/profiles/web/node_modules/dsh-skills-bundle/skills'
 
 /** media 技能正文头部的环境说明（桌面端统一配置，免手动 export）。 */
 const MEDIA_ENV_NOTE = [

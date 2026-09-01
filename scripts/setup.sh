@@ -58,6 +58,10 @@ git merge-base --is-ancestor "$BASELINE_SHA" HEAD \
 # 上游修复已在集成分支中以提交存在（六修复分支的 merge），无需再 apply。
 # upstream/*.patch 仅留作历史参照；旧克隆带应用态残留时用 git checkout 恢复。
 
+# vendor/ 纯净守卫：物化残留会被 tsdown workspace 当假成员（Cannot find
+# entry 炸 build）——构建前强制过闸（rc.5/alpha.2/alpha.3 三次复发）
+bash "$ROOT/scripts/verify-vendor-purity.sh"
+
 say "安装依赖（pnpm install）…"
 pnpm install
 

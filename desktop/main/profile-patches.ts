@@ -35,6 +35,13 @@
  *      renderSlot 机制，原版 findComposer 恒 null、findRail 全局盲选
  *      误命中 file-review-tab 嵌套旧包的附件容器（chips 渲染进 git
  *      面板的现场实证）
+ *   4) alpha.3 keyed 槽位守卫适配（registerUserMessageView 整块重写，
+ *      08-29 气泡裸文本根因）：客户端 runner 的槽位守卫丢弃动态插件
+ *      的显式 priority（按注册顺序重排名次），-100 影子注册退化为
+ *      先到先得——任何更晚懒注册 user 格位者无声赢得选举。重写为
+ *      user+steering 双键占位（覆盖 alpha.3 新增 steering 格位）+
+ *      entriesOfSlot 选举自查 + 被抢弃注重注（新名次必更低必胜）+
+ *      slots.subscribe 盯防（无 subscribe 时有限自检循环兜底）
  * - dsh-video-preview（用户自装，genui 同款「自装也覆盖」）：VIDEO_EXTS
  *   把 "ts" 当 MPEG-TS 流抢先声明，TypeScript 源码全被视频播放器接管
  *   （matchFileViewer 按 priority 降序，video（0）压过内置 code 兑底
@@ -49,7 +56,9 @@
  *   .npmrc legacy-peer-deps 兑 pnpm prepare 的孤离 npm install），profile
  *   deps 已切 git+ssh 子目录引用（kkutysllb/dsh-plugins#path:）；曾备的
  *   dsh-better-sidebar@0.17.1.patch 未入任何发版即退役（网络断续期间
- *   的临时兑子）。若回退消费源需重新出 patch。
+ *   的临时兑子）。若回退消费源需重新出 patch。2026-09-01 消费源切换
+ *   自立包 dsh-coding-sidebar（fork 自 0.17.2 的独立发布线，版本常量
+ *   构建期注入，无 patch 负担）；本段为收编线历史记录。
  * - dsh-context（2026-08-30 复役再入——新缺陷而非旧补丁回滚）：0.38 的
  *   agents 森林图 stage 组件以 ResizeObserver 观察 stage 宽驱动
  *   layoutForest 量化布局（perLevel=floor(stageWidth/SLOT_MIN)，输出宽
@@ -146,6 +155,10 @@ const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
     // 编辑区自适应增强特征（气泡扩宽 + textarea 随内容长高；旧版
     // 编辑区固定 60px 高过小，此 mark 缺失 → 自愈链重放新 patch）
     ['lib/client.js', 'autoGrowEditBox'],
+    // alpha.3 守卫适配重写的影子注册特征（shadow reclaim 为 KCoder
+    // 引入串：被懒注册者抢格位后弃注重注的 beacon；缺失 → 自愈链
+    // 重放新 patch / 锄点整块替换）
+    ['lib/client.js', '[dta] shadow reclaim'],
   ],
   // 修复特征：扩展表无 ts（原版 "3g2", "ts", "m2ts"；根级 client.js）
   'dsh-video-preview': [['client.js', '"3g2", "m2ts"']],
@@ -261,6 +274,26 @@ const PATCH_FALLBACKS: PatchFallback[] = [
     mark: 'kcRoHits',
     anchor: '\t\t\t\t\tconst observer = new ResizeObserver(() => {\n\t\t\t\t\t\tsetStageWidth(el.clientWidth);\n\t\t\t\t\t});',
     replace: '\t\t\t\t\tlet kcRoHits = [];\n\t\t\t\t\tlet kcRoSkipUntil = 0;\n\t\t\t\t\tconst observer = new ResizeObserver(() => {\n\t\t\t\t\t\t/* KCoder：RO 回路冷却——Windows DPI 取整/经典滚动条占位可令\n\t\t\t\t\t\t * stage 尺寸振荡（量化宽反馈）：RO 触发 → setStageWidth →\n\t\t\t\t\t\t * 重渲染 → 布局再变 → RO 再触发，失控吃满主线程直至白屏。\n\t\t\t\t\t\t * 500ms 内触发超 12 次即静默 1s：跳过 setState 即断振荡回路，\n\t\t\t\t\t\t * 冷却后自动重试，不永久失效 */\n\t\t\t\t\t\tconst now = Date.now();\n\t\t\t\t\t\tif (now < kcRoSkipUntil) return;\n\t\t\t\t\t\tkcRoHits = kcRoHits.filter((t) => now - t < 500);\n\t\t\t\t\t\tkcRoHits.push(now);\n\t\t\t\t\t\tif (kcRoHits.length > 12) {\n\t\t\t\t\t\t\tkcRoHits = [];\n\t\t\t\t\t\t\tkcRoSkipUntil = now + 1000;\n\t\t\t\t\t\t\treturn;\n\t\t\t\t\t\t}\n\t\t\t\t\t\tsetStageWidth(el.clientWidth);\n\t\t\t\t\t});',
+  },
+  {
+    // alpha.3 keyed 槽位守卫适配（08-29 气泡裸文本根因）：客户端 runner
+    // 的守卫丢弃动态插件显式 priority（按注册顺序重排名次），-100 影子
+    // 注册退化为先到先得——更晚懒注册 user 格位者无声赢得选举。锄点把
+    // 基座单键 generator 注册整块替换为 user+steering 双键 + entriesOfSlot
+    // 选举自查 + 被抢弃注重注（新名次必更低必胜）+ subscribe 盯防。
+    // 本条按 CRLF 锚（v1.0.3 tarball 原始字节：patch 未应用的全新解包现场）
+    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
+    mark: '[dta] shadow reclaim',
+    anchor: "    function registerUserMessageView(ctx) {\r\n      var slots = ctx.get('slots')\r\n      if (slots === undefined || React === null) return function () { /* no-op */ }\r\n      return slots.inject('conversation.chat.node', function* () {\r\n        yield slots.register(\r\n          // Shadow the shipped 'user' renderer: keyed slots resolve the\r\n          // LOWEST priority occupant, so a negative priority wins.\r\n          { name: 'conversation.chat.node', key: 'user', priority: -100 },\r\n          UserMessageView\r\n        )\r\n      })\r\n    }",
+    replace: "    function registerUserMessageView(ctx) {\r\n      try {\r\n        var slots = ctx.get('slots')\r\n        if (slots === undefined || React === null) return function () { /* no-op */ }\r\n        // [KCoder alpha.3] The client-runner slot guard discards dynamic\r\n        // plugins' explicit priorities (it reassigns registration-order\r\n        // ranks), so priority: -100 below is advisory only — any LATER lazy\r\n        // registrant for a cell silently wins the election (the 08-29 bare\r\n        // bubble root cause). So: claim BOTH the 'user' cell and the new\r\n        // 'steering' cell, verify our component actually heads each cell,\r\n        // and on losing dispose + re-register (a fresh rank is always lower\r\n        // and wins), kept under watch via the slot's public subscribe()\r\n        // (plus a bounded self-check loop when subscribe is unavailable).\r\n        var KEYS = ['user', 'steering']\r\n        var disposers = []\r\n        var disposeSub = null\r\n        var beltTimer = null\r\n        var beltTries = 0\r\n        function claimAll() {\r\n          KEYS.forEach(function (key) {\r\n            try {\r\n              disposers.push(slots.register(\r\n                { name: 'conversation.chat.node', key: key, priority: -100 },\r\n                UserMessageView\r\n              ))\r\n            } catch (error) { /* exact-priority clash: the election check re-claims */ }\r\n          })\r\n        }\r\n        function headIsOurs(key) {\r\n          try {\r\n            if (typeof slots.entriesOfSlot !== 'function') return true // cannot inspect: assume ours\r\n            var heads = slots.entriesOfSlot('conversation.chat.node')\r\n            for (var i = 0; i < heads.length; i++) {\r\n              var head = heads[i]\r\n              if (head && head.options && head.options.key === key) return head.component === UserMessageView\r\n            }\r\n            return true // cell empty (or not declared yet): nothing stole it\r\n          } catch (error) { return true }\r\n        }\r\n        function reclaimIfNeeded() {\r\n          var lost = false\r\n          KEYS.forEach(function (key) { if (!headIsOurs(key)) lost = true })\r\n          if (!lost) return\r\n          var stale = disposers\r\n          disposers = []\r\n          stale.forEach(function (dispose) { try { dispose() } catch (error) { /* noop */ } })\r\n          claimAll()\r\n          try { console.log('[dta] shadow reclaim: re-registered after losing the cell election') } catch (error) { /* noop */ }\r\n        }\r\n        function scheduleBelt() {\r\n          if (beltTimer !== null || typeof slots.subscribe === 'function') return\r\n          if (beltTries >= 5) return\r\n          beltTries += 1\r\n          beltTimer = setTimeout(function () {\r\n            beltTimer = null\r\n            reclaimIfNeeded()\r\n            scheduleBelt()\r\n          }, 800 * beltTries)\r\n        }\r\n        return slots.inject('conversation.chat.node', function () {\r\n          claimAll()\r\n          reclaimIfNeeded()\r\n          try { console.log('[dta] shadow registered (user+steering cells)') } catch (error) { /* noop */ }\r\n          try { if (typeof slots.subscribe === 'function') disposeSub = slots.subscribe('conversation.chat.node', reclaimIfNeeded) } catch (error) { disposeSub = null }\r\n          scheduleBelt()\r\n          return function () {\r\n            if (disposeSub !== null) { try { disposeSub() } catch (error) { /* noop */ } disposeSub = null }\r\n            if (beltTimer !== null) { clearTimeout(beltTimer); beltTimer = null }\r\n            beltTries = 0\r\n            var stale = disposers\r\n            disposers = []\r\n            stale.forEach(function (dispose) { try { dispose() } catch (error) { /* noop */ } })\r\n          }\r\n        })\r\n      } catch (error) {\r\n        try { console.error('[dta] shadow registration failed:', error) } catch (err) { /* noop */ }\r\n        return function () { /* no-op */ }\r\n      }\r\n    }",
+  },
+  {
+    // 同上，按 LF 锚（patch 曾应用过又被 pnpm 静默跳过重放的残留现场：
+    // 应用器写回产物为 LF）。mark 幂等，两规则先中先跳
+    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
+    mark: '[dta] shadow reclaim',
+    anchor: "    function registerUserMessageView(ctx) {\n      var slots = ctx.get('slots')\n      if (slots === undefined || React === null) return function () { /* no-op */ }\n      return slots.inject('conversation.chat.node', function* () {\n        yield slots.register(\n          // Shadow the shipped 'user' renderer: keyed slots resolve the\n          // LOWEST priority occupant, so a negative priority wins.\n          { name: 'conversation.chat.node', key: 'user', priority: -100 },\n          UserMessageView\n        )\n      })\n    }",
+    replace: "    function registerUserMessageView(ctx) {\n      try {\n        var slots = ctx.get('slots')\n        if (slots === undefined || React === null) return function () { /* no-op */ }\n        // [KCoder alpha.3] The client-runner slot guard discards dynamic\n        // plugins' explicit priorities (it reassigns registration-order\n        // ranks), so priority: -100 below is advisory only — any LATER lazy\n        // registrant for a cell silently wins the election (the 08-29 bare\n        // bubble root cause). So: claim BOTH the 'user' cell and the new\n        // 'steering' cell, verify our component actually heads each cell,\n        // and on losing dispose + re-register (a fresh rank is always lower\n        // and wins), kept under watch via the slot's public subscribe()\n        // (plus a bounded self-check loop when subscribe is unavailable).\n        var KEYS = ['user', 'steering']\n        var disposers = []\n        var disposeSub = null\n        var beltTimer = null\n        var beltTries = 0\n        function claimAll() {\n          KEYS.forEach(function (key) {\n            try {\n              disposers.push(slots.register(\n                { name: 'conversation.chat.node', key: key, priority: -100 },\n                UserMessageView\n              ))\n            } catch (error) { /* exact-priority clash: the election check re-claims */ }\n          })\n        }\n        function headIsOurs(key) {\n          try {\n            if (typeof slots.entriesOfSlot !== 'function') return true // cannot inspect: assume ours\n            var heads = slots.entriesOfSlot('conversation.chat.node')\n            for (var i = 0; i < heads.length; i++) {\n              var head = heads[i]\n              if (head && head.options && head.options.key === key) return head.component === UserMessageView\n            }\n            return true // cell empty (or not declared yet): nothing stole it\n          } catch (error) { return true }\n        }\n        function reclaimIfNeeded() {\n          var lost = false\n          KEYS.forEach(function (key) { if (!headIsOurs(key)) lost = true })\n          if (!lost) return\n          var stale = disposers\n          disposers = []\n          stale.forEach(function (dispose) { try { dispose() } catch (error) { /* noop */ } })\n          claimAll()\n          try { console.log('[dta] shadow reclaim: re-registered after losing the cell election') } catch (error) { /* noop */ }\n        }\n        function scheduleBelt() {\n          if (beltTimer !== null || typeof slots.subscribe === 'function') return\n          if (beltTries >= 5) return\n          beltTries += 1\n          beltTimer = setTimeout(function () {\n            beltTimer = null\n            reclaimIfNeeded()\n            scheduleBelt()\n          }, 800 * beltTries)\n        }\n        return slots.inject('conversation.chat.node', function () {\n          claimAll()\n          reclaimIfNeeded()\n          try { console.log('[dta] shadow registered (user+steering cells)') } catch (error) { /* noop */ }\n          try { if (typeof slots.subscribe === 'function') disposeSub = slots.subscribe('conversation.chat.node', reclaimIfNeeded) } catch (error) { disposeSub = null }\n          scheduleBelt()\n          return function () {\n            if (disposeSub !== null) { try { disposeSub() } catch (error) { /* noop */ } disposeSub = null }\n            if (beltTimer !== null) { clearTimeout(beltTimer); beltTimer = null }\n            beltTries = 0\n            var stale = disposers\n            disposers = []\n            stale.forEach(function (dispose) { try { dispose() } catch (error) { /* noop */ } })\n          }\n        })\n      } catch (error) {\n        try { console.error('[dta] shadow registration failed:', error) } catch (err) { /* noop */ }\n        return function () { /* no-op */ }\n      }\n    }",
   },
 ]
 

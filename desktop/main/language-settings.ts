@@ -2,7 +2,7 @@
  * 「强制中文回答」设置：通用区注入器 + home patch 层热切换。
  *
  * 生效链（零侵入上游）：
- * - 指令本体在 @kcoder/language-bundle（bundle/kcoder-language）：全局
+ * - 指令本体在 dsh-language-bundle（bundle/dsh-language-bundle）：全局
  *   system-prompt section 'kcoder:language'（order 1，persona 之后）。
  *   bundle patch 层默认 disabled（上游「跟随模型」原样）；
  * - 本模块按用户偏好维护 $DSH_HOME/cordis.patch.yml（dsh home 用户

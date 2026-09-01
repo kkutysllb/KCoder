@@ -4,7 +4,7 @@
  * 按来源分区，与插件页严格分开（插件=引擎组成层；技能=提示词能力包，
  * 模型按 description 匹配加载或用户 `/name` 调用）：
  *
- * - builtin：@kcoder/skills-bundle 随包分发的核心批（读 bundle 源的
+ * - builtin：dsh-skills-bundle 随包分发的核心批（读 bundle 源的
  *   skills/manifest.json，不依赖 dsh 是否已物化）
  * - optional：bundle 的 skills/optional/ 长尾批（随包但不注册，
  *   零目录税；拷到 ~/.dsh/skills/<name>/ 即启用）
@@ -111,7 +111,7 @@ export function listSkills(): SkillCatalogGroup[] {
   // 1) KCoder 内置：bundle 源 manifest 是单一事实源（含版本）
   const builtin: SkillCatalogEntry[] = []
   try {
-    const bundleDir = join(bundleSource('kcoder-skills'), 'skills')
+    const bundleDir = join(bundleSource('dsh-skills-bundle'), 'skills')
     const manifest = JSON.parse(readFileSync(join(bundleDir, 'manifest.json'), 'utf8')) as {
       skills: Array<{ dir: string; name: string; description: string }>
     }
@@ -142,7 +142,7 @@ export function listSkills(): SkillCatalogGroup[] {
   //    否则刷新后「未启用」区原地残留同一技能造成两区重复显示
   const active = new Set(entries.map((e) => e.name))
   const optional: SkillCatalogEntry[] = []
-  scanRoot(join(bundleSource('kcoder-skills'), 'skills', 'optional'), 'optional', optional)
+  scanRoot(join(bundleSource('dsh-skills-bundle'), 'skills', 'optional'), 'optional', optional)
   const enabledOptional = optional.filter((e) => !active.has(e.name))
 
   knownPaths = new Set([...builtin, ...enabledOptional, ...entries].map((e) => e.path))
