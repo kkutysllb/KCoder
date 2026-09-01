@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: kkutysllb <46704313+kkutysllb@users.noreply.github.com>
 Date: Wed, 26 Aug 2026 16:00:00 +0800
-Subject: [PATCH] chore(llm): upgrade pi-ai 0.82.1 -> 0.84.3 and adapt drift gates
+Subject: [PATCH] chore(llm): upgrade pi-ai 0.82.1 -> 0.84.4 and adapt drift gates
 
 The locked @earendil-works/pi-ai was two minor versions behind: its
 model catalog missed recent releases (e.g. glm-5.3) and lagged the
@@ -29,6 +29,25 @@ builtin provider mixes protocols anymore).
 Verified: pnpm -w run build:lib:host clean; vitest packages/llm +
 packages/bundle/base 940/940 green.
 ---
+Archive note (KCoder upstream/ bookkeeping, 2026-09-01):
+This archive now covers BOTH pi-ai upgrade commits on the fork
+integration branches, renamed 0.84.3 -> 0.84.4 to match the final state:
+
+- Segment 1 (below, unchanged): 0.82.1 -> 0.84.3 (dbb80cc08f,
+  chore/pi-ai-0.84.3-upgrade) — all adapter/catalog/stream adaptations.
+- Segment 2 (appended): 0.84.3 -> 0.84.4 (ed5871ff61,
+  chore/pi-ai-0.84.4-upgrade) — dependency declaration narrowed to
+  ^0.84.4 and a duplicated dsh-launch-environment row removed; the
+  lockfile / patchedDependencies-key / THIRD_PARTY_NOTICES changes of
+  that commit live in the fork repo, not in this source archive (the
+  relay patches over the pi-ai package itself are archived as 0003/0004).
+
+Reference-only: setup.sh consumes the kcoder/alpha.3 integration branch
+directly. This file does NOT apply cleanly onto the upstream alpha.3
+baseline tree (two merge conflicts were resolved manually on the
+integration branch: llm-pi-ai/package.json x2); kept as a faithful
+record of what the fork changes, in commit order.
+
 diff --git a/packages/llm/llm-pi-ai/package.json b/packages/llm/llm-pi-ai/package.json
 index 0fd59afaa1..b0bdc281c8 100644
 --- a/packages/llm/llm-pi-ai/package.json
@@ -2861,3 +2880,54 @@ index 737a21eea6..c71839c4d9 100644
    yoctocolors@2.1.2: {}
  
    zod-to-json-schema@3.25.2(zod@4.4.3):
+
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: kkutysllb <46704313+kkutysllb@users.noreply.github.com>
+Date: Sat, 29 Aug 2026 08:51:33 +0800
+Subject: [PATCH] chore(deps): bump @earendil-works/pi-ai to 0.84.4 (adds
+ glm-5.3-flash/highspeed catalog)
+
+- lock 0.84.3 -> 0.84.4; patchedDependencies key renamed, local relay
+  patch (codex accountId fallback + terminal-event synthesis) applies
+  cleanly to 0.84.4 (verified via git apply --check and patch_hash hit)
+- minimumReleaseAgeExclude: 0.84.2 -> 0.84.4; pi-telemetry 0.84.4 and
+  node-addon-require-builtin platform closures auto-exempted by pnpm
+- new model ids: glm-5.3-flash / glm-5.3-highspeed (zai-coding-cn et al.)
+---
+ packages/llm/llm-pi-ai/package.json | 6 ++----
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/packages/llm/llm-pi-ai/package.json b/packages/llm/llm-pi-ai/package.json
+index 4c79840c70..bc11d587b9 100644
+--- a/packages/llm/llm-pi-ai/package.json
++++ b/packages/llm/llm-pi-ai/package.json
+@@ -37,7 +37,6 @@
+     "@deepseek-ai/dsh-authorization": "workspace:^",
+     "@deepseek-ai/dsh-credentials": "workspace:^",
+     "@deepseek-ai/dsh-fs": "workspace:^",
+-    "@deepseek-ai/dsh-launch-environment": "workspace:^",
+     "@deepseek-ai/dsh-invariants": "workspace:^",
+     "@deepseek-ai/dsh-launch-environment": "workspace:^",
+     "@deepseek-ai/dsh-llm": "workspace:^",
+@@ -45,8 +44,8 @@
+     "@deepseek-ai/dsh-timeout": "workspace:^"
+   },
+   "dependencies": {
+-    "@earendil-works/pi-ai": ">=0.84.3 <1.0.0",
+-    "@deepseek-ai/schemastery": "workspace:^"
++    "@deepseek-ai/schemastery": "workspace:^",
++    "@earendil-works/pi-ai": "^0.84.4"
+   },
+   "devDependencies": {
+     "@deepseek-ai/cordis": "workspace:^",
+@@ -54,7 +53,6 @@
+     "@deepseek-ai/dsh-authorization": "workspace:^",
+     "@deepseek-ai/dsh-credentials": "workspace:^",
+     "@deepseek-ai/dsh-fs": "workspace:^",
+-    "@deepseek-ai/dsh-launch-environment": "workspace:^",
+     "@deepseek-ai/dsh-invariants": "workspace:^",
+     "@deepseek-ai/dsh-launch-environment": "workspace:^",
+     "@deepseek-ai/dsh-llm": "workspace:^",
+-- 
+2.50.1 (Apple Git-155)
+
