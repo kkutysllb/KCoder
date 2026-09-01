@@ -38,7 +38,9 @@
  * 本模块在 dsh 启动前把各 bundle 幂等物化进 web profile：
  *
  * - 文件：`<bundle 源> → $DSH_HOME/profiles/web/node_modules/<包名>`
- *   （版本号变化才重拷；pnpm 布局下真实目录同样可被 Node 父链 resolve）
+ *   （物化让位：随包版本 ≥ 实装版本才落盘——实装是用户从 registry 更新
+ *   出的更高版本时保留不降级，见 materialize；pnpm 布局下真实目录同样
+ *   可被 Node 父链 resolve）
  * - 注册：profile package.json 的 `dsh.profile.bundles` 数组插入
  *   （紧跟 dsh-web-app 之后）。上游 loadProfile
  *   只在清单不存在时写模板（packages/boot/app-boot profile.ts initProfile），
@@ -52,6 +54,7 @@
 
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { gt, valid } from 'semver'
 import { PROJECT_ROOT, WEB_PROFILE, dshHome } from './dsh-contract'
 
 /** bundle 包名（profile bundles 数组与 node_modules 目录名）。 */
@@ -111,6 +114,9 @@ const BUNDLES: BundledPlugin[] = [
   { pkg: DSH_FILE_REVIEW_BUNDLE, dir: 'dsh-file-review-kcoder', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
   { pkg: DSH_CODING_SIDEBAR, dir: 'dsh-coding-sidebar', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
 ]
+
+/** 物化 bundle 包名清单（plugins 页内置清单与更新选路共用）。 */
+export const MATERIALIZED_BUNDLES: string[] = BUNDLES.map((b) => b.pkg)
 
 /**
  * 退役插件包名：不再内置、不再维护，也不留在用户 profile——曾物化过的
@@ -193,12 +199,20 @@ function materialize(profileDir: string, b: BundledPlugin): void {
   }
   const target = join(profileDir, 'node_modules', b.pkg)
 
-  // 1) 文件物化：版本一致且入口齐全则跳过
+  // 1) 文件物化：入口齐全且实装不落后于随包版本时跳过。物化让位
+  //    （2026-09-02）：实装已是更高的 registry 版本（用户经插件管理页 /
+  //    `dsh plugin add` 更新过）时保留本机副本——旧规则「版本不一致即
+  //    覆盖」会把用户装上的新版在下一次启动打回随包旧版，内置插件等于
+  //    永远无法更新；随包版本更高（应用发版携带新版）仍照常覆盖升级，
+  //    实体缺失/损坏（intact 门）与版本不可读照常重建
   const srcVersion = (readJson(join(source, 'package.json'))?.['version'] as string) ?? ''
   const dstVersion = (readJson(join(target, 'package.json'))?.['version'] as string) ?? ''
   const intact = existsSync(join(target, b.entry))
     && b.intactFiles.every((f) => existsSync(join(target, f)))
-  if (!intact || srcVersion !== dstVersion) {
+  const staleTarget = !intact
+    || valid(dstVersion) === null
+    || (valid(srcVersion) !== null && gt(srcVersion, dstVersion))
+  if (staleTarget) {
     // scope 父目录按包名动态建（@kcoder/* 与非 scope 的
     // dsh-coding-sidebar 共用此物化路径）
     const scope = b.pkg.startsWith('@') ? b.pkg.split('/')[0] : ''
@@ -232,9 +246,21 @@ function materialize(profileDir: string, b: BundledPlugin): void {
   const dependencies = (manifest['dependencies'] ?? {}) as Record<string, unknown>
   // dsh-coding-sidebar 例外：deps 声明是依赖树牵引（pnpm 图 hoist
   // node-pty/ws/codemirror；见文件头），不是残留接线，不清除
+  // registry 顶替例外（2026-09-02）：实体已被用户更新出的更高 registry
+  // 版本顶替的 bundle，其 deps 声明保留——实体已归 pnpm 图管，摘声明会
+  // 造成图与磁盘漂移，后续 pnpm install 可能把实体当 extraneous 清掉
+  // （终端/面板类内置件缺实体即崩）。仍 ≤ 随包版本的（本模块自管实体）
+  // 照旧摘除
+  const registryNewer = (pkg: string): boolean => {
+    const b = BUNDLES.find((x) => x.pkg === pkg)
+    if (b === undefined) return false
+    const shipped = (readJson(join(bundleSource(b.dir), 'package.json'))?.['version'] as string) ?? ''
+    const live = (readJson(join(profileDir, 'node_modules', pkg, 'package.json'))?.['version'] as string) ?? ''
+    return valid(live) !== null && valid(shipped) !== null && gt(live, shipped)
+  }
   const removable = [...BUNDLES.map((x) => x.pkg), ...RETIRED_PLUGINS]
     .filter((x) => x !== DSH_CODING_SIDEBAR)
-  const staleDeps = removable.filter((x) => x in dependencies)
+  const staleDeps = removable.filter((x) => x in dependencies && !registryNewer(x))
   const staleBundles = RETIRED_PLUGINS.filter((x) => bundlesOf(manifest).includes(x))
   if (staleDeps.length > 0 || staleBundles.length > 0) {
     for (const pkg of staleDeps) delete dependencies[pkg]

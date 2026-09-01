@@ -19,7 +19,7 @@ import { join } from 'node:path'
 import { net } from 'electron'
 import { WEB_PROFILE, dshHome, resolveDshCommand, vendoredPnpmEntry } from './dsh-contract'
 import { ensureProfilePatches, healLog } from './profile-patches'
-import { DSH_FILE_REVIEW_BUNDLE, DSH_GIT_PANEL_BUNDLE, DSH_LANGUAGE_BUNDLE, DSH_SKILLS_BUNDLE, DSH_TERMINAL_BUNDLE } from './kcoder-skills-bundle'
+import { MATERIALIZED_BUNDLES } from './kcoder-skills-bundle'
 import { PRESET_PLUGINS } from './preset-plugins'
 import type {
   CommunityPlugin,
@@ -29,17 +29,17 @@ import type {
   PluginCommandResult,
 } from '@shared/ipc-contract'
 
-/** 发行版模板内置层 + KCoder 物化注册层（预置第三方插件与技能/面板 bundle，
- *  UI 均展示为内置且禁卸载）。 */
+/** 发行版模板引擎层：与内置运行时（kcoder-runtime.tar.gz）整体版本耦合，
+ *  不随插件管理页单独更新（卸载/更新均不开放，随应用发版整包升级）。 */
+const ENGINE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
+
+/** 内置清单：引擎层 + KCoder 物化 bundle（含 stats-panel / file-attach，
+ *  此前漏列会被当成「用户安装」误可卸载）+ 预置第三方插件（coding-sidebar
+ *  已在物化清单，去重）。UI 展示为内置、禁卸载；除引擎层外均可更新。 */
 const IN_BOX_BUNDLES = [
-  '@deepseek-ai/dsh-base',
-  '@deepseek-ai/dsh-web-app',
-  DSH_SKILLS_BUNDLE,
-  DSH_LANGUAGE_BUNDLE,
-  DSH_GIT_PANEL_BUNDLE,
-  DSH_TERMINAL_BUNDLE,
-  DSH_FILE_REVIEW_BUNDLE,
-  ...Object.keys(PRESET_PLUGINS),
+  ...ENGINE_BUNDLES,
+  ...MATERIALIZED_BUNDLES,
+  ...Object.keys(PRESET_PLUGINS).filter((n) => !MATERIALIZED_BUNDLES.includes(n)),
 ]
 
 /**
@@ -104,6 +104,7 @@ export function installedPlugins(): InstalledPlugin[] {
     name,
     layer: i,
     inBox: true,
+    updatable: !ENGINE_BUNDLES.includes(name),
     version: installedVersion(dir, name),
   }))
   const manifestPath = join(dir, 'package.json')
@@ -114,12 +115,12 @@ export function installedPlugins(): InstalledPlugin[] {
     for (const name of bundles) {
       // KCoder 物化注册的 bundle 已在内置层展示，跳过避免重复
       if (IN_BOX_BUNDLES.includes(name)) continue
-      result.push({ name, layer: result.length, inBox: false, version: installedVersion(dir, name) })
+      result.push({ name, layer: result.length, inBox: false, updatable: true, version: installedVersion(dir, name) })
     }
     // 依赖了但还没被 dsh 识别为 bundle 的包（安装中途态）也列出
     for (const name of Object.keys(manifest.dependencies ?? {})) {
       if (!result.some((p) => p.name === name)) {
-        result.push({ name, layer: result.length, inBox: false, version: installedVersion(dir, name) })
+        result.push({ name, layer: result.length, inBox: false, updatable: true, version: installedVersion(dir, name) })
       }
     }
   } catch (error) {
@@ -245,6 +246,27 @@ function ensureProfilePeerRules(profileDirPath: string): void {
 }
 
 /**
+ * 更新一个插件（统一入口，按包属选路）：
+ * - 内置可更新层（KCoder 物化 bundle 与预置插件）：`add <pkg>@latest`。
+ *   物化 bundle 不在 profile dependencies（kcoder-skills-bundle 按「残留
+ *   接线」摘除非 registry 顶替的声明），pnpm update 对它们无从谈起；
+ *   add 幂等升线并把实体交给 registry 管理——配合物化让位规则，更新
+ *   结果重启后不被随包副本打回，deps 声明也因「registry 顶替」判定得以
+ *   保留（图与磁盘不漂移）。
+ * - 用户安装插件：沿用 `update --latest`（deps 管理，pnpm 原生语义）。
+ *
+ * 引擎层（dsh-base / dsh-web-app）不在此开放：与内置运行时整体版本
+ * 耦合，单独升级易撞 loader/契约漂移（UI 侧 updatable=false 已隐藏入口，
+ * 此处再挡一道）。
+ */
+export function updatePlugin(pkg: string): Promise<PluginCommandResult> {
+  if (IN_BOX_BUNDLES.includes(pkg) && !ENGINE_BUNDLES.includes(pkg)) {
+    return runPluginCommand(['add', `${pkg}@latest`])
+  }
+  return runPluginCommand(['update', '--latest', pkg])
+}
+
+/**
  * 执行 `dsh plugin --profile web <args...>`，收集输出。
  * 插件变更属于 profile 组合，重启 dsh 侧车后生效（由 UI 提示）。
  */
@@ -259,8 +281,11 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
     const shimDir = ensurePnpmShim()
     const env: NodeJS.ProcessEnv = { ...process.env, ...command.env }
     if (shimDir !== null) env.PATH = `${shimDir};${process.env.PATH ?? ''}`
-    const pkg = args[args.length - 1] ?? ''
-    const tracking = args[0] === 'update'
+    // 实装追踪覆盖两条更新路径：update --latest <pkg>（用户插件）与
+    // add <pkg>@latest（内置可更新层，见 updatePlugin 选路）
+    const isLatestAdd = args[0] === 'add' && (args[1] ?? '').endsWith('@latest')
+    const pkg = isLatestAdd ? args[1].slice(0, -'@latest'.length) : (args[args.length - 1] ?? '')
+    const tracking = args[0] === 'update' || isLatestAdd
     const before = tracking ? installedVersion(profileDir(), pkg) : null
     healLog(
       `[plugin-cmd] dsh plugin ${args.join(' ')}（${command.describe}；pnpm ${shimDir !== null ? 'vendored shim' : 'PATH 系统源'}；registry ${registryHints()}）`,

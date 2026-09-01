@@ -104,6 +104,9 @@ export interface InstalledPlugin {
   layer: number
   /** 是否随发行版模板内置（不可卸载）。 */
   inBox: boolean
+  /** 是否开放更新：内置层中仅引擎层（dsh-base / dsh-web-app，与内置
+   *  运行时整体版本耦合）为 false，其余内置与用户安装均 true。 */
+  updatable: boolean
   /** 实装版本（node_modules 内 package.json；内置层无实体为 null）。 */
   version: string | null
 }

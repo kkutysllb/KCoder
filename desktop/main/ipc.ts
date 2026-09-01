@@ -13,7 +13,7 @@ import { authLogin, authLoggedIn, authRegister, authStatus } from './auth'
 import { applyLandingTheme, currentLandingTheme } from './theme-watcher'
 import { dshManager } from './dsh-manager'
 import { progressEvents, setupUpstream, syncUpstream, upstreamStatus } from './upstream'
-import { communityPlugins, installedPlugins, latestVersions, runPluginCommand } from './plugins'
+import { communityPlugins, installedPlugins, latestVersions, runPluginCommand, updatePlugin } from './plugins'
 import { checkForUpdates, getReleaseNotes, installUpdate, updateEvents, updateStatus } from './updater'
 import { refreshStyleOverlay } from './style-overlay'
 import { getSettings, saveSettings } from './store'
@@ -66,10 +66,13 @@ export function registerIpc(): void {
   ipcMain.handle('plugins:community', (_event, query?: string, page?: number) => communityPlugins(query, page))
   ipcMain.handle('plugins:add', (_event, pkg: string) => runPluginCommand(['add', pkg]))
   ipcMain.handle('plugins:remove', (_event, pkg: string) => runPluginCommand(['remove', pkg]))
-  // --latest 必须显式：pnpm update 遵守 package.json 范围，而 0.x 包的
-  // ^ 只允许 patch 级（^0.12.2 不含 0.13.0）——不加会在范围内空转
-  // 成功，版本纹丝不动（v0.1.9 mac 点击“更新”显示成功但仍提示更新的根因）
-  ipcMain.handle('plugins:update', (_event, pkg: string) => runPluginCommand(['update', '--latest', pkg]))
+  // 统一更新入口（主进程按包属选路）：内置可更新层走 add <pkg>@latest
+  // （物化 bundle 不在 deps，pnpm update 无从谈起），用户插件走
+  // update --latest。--latest 必须显式：pnpm update 遵守 package.json
+  // 范围，而 0.x 包的 ^ 只允许 patch 级（^0.12.2 不含 0.13.0）——不加会在
+  // 范围内空转成功，版本纹丝不动（v0.1.9 mac 点击“更新”显示成功但仍
+  // 提示更新的根因）
+  ipcMain.handle('plugins:update', (_event, pkg: string) => updatePlugin(pkg))
 
   /* ---- 应用自动更新 ---- */
   ipcMain.handle('update:status', () => updateStatus())

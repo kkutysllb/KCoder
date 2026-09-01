@@ -143,14 +143,29 @@ export function mountPlugins(root: HTMLElement): void {
       body.append(el('tr', '', [el('td', '', '无匹配（换个关键词，或点击下方“刷新”）')]))
     }
     for (const plugin of filtered) {
-      const removeButton = document.createElement('button')
-      removeButton.textContent = '卸载'
-      removeButton.className = 'danger'
-      removeButton.disabled = plugin.inBox
-      removeButton.addEventListener('click', () => {
-        void run(`卸载 ${plugin.name}`, () => bridge.pluginRemove(plugin.name)).then(renderInstalled)
-      })
+      // 操作位单按钮互换：检出 registry 新版 → 「更新」（内置可更新层与
+      // 用户安装共用 pluginUpdate，主进程按包属选路 add@latest /
+      // update --latest）；否则回落「卸载」（内置禁用）。两动作同位展示，
+      // 不并排挤占行宽
       const newest = latest[plugin.name]
+      const hasUpdate =
+        plugin.updatable && plugin.version !== null
+        && newest !== undefined && versionGt(newest, plugin.version)
+      const actionButton = document.createElement('button')
+      if (hasUpdate) {
+        actionButton.textContent = '更新'
+        actionButton.className = 'primary'
+        actionButton.addEventListener('click', () => {
+          void run(`更新 ${plugin.name}`, () => bridge.pluginUpdate(plugin.name)).then(renderInstalled)
+        })
+      } else {
+        actionButton.textContent = '卸载'
+        actionButton.className = 'danger'
+        actionButton.disabled = plugin.inBox
+        actionButton.addEventListener('click', () => {
+          void run(`卸载 ${plugin.name}`, () => bridge.pluginRemove(plugin.name)).then(renderInstalled)
+        })
+      }
       const versionText =
         plugin.version === null
           ? '—'
@@ -163,7 +178,7 @@ export function mountPlugins(root: HTMLElement): void {
           el('td', '', plugin.name),
           el('td', '', versionText),
           el('td', '', plugin.inBox ? '内置' : '用户安装'),
-          el('td', '', [removeButton]),
+          el('td', '', [actionButton]),
         ]),
       )
     }
