@@ -26,7 +26,6 @@ import { attachContextButton } from './context-button'
 import { attachStyleOverlay } from './style-overlay'
 import { attachSettingsPage } from './settings-page'
 import { attachWorkspaceHeader } from './workspace-header'
-import { attachPicker } from './attach-picker'
 import { attachWorkspaceProbe } from './workspace-probe'
 import { attachStyleSettingsInjector } from './style-settings'
 import { attachLanguageSettingsInjector } from './language-settings'
@@ -184,9 +183,6 @@ export function showShellWindow(dshUrl: string): void {
     // workspace 顶栏收纳：会话标题/标签/日志按钮迁至状态栏与抽屉，
     // 上游头部隐藏 + 轨迹视图兜底回对话（零侵入，类改名静默失效）
     attachWorkspaceHeader(shellWindow)
-    // 附件选择器：drag-to-attachment 插件的模式切换按钮 → 点击改为
-    // 打开原生文件对话框（真实路径经插件 fast path 直接入队）
-    attachPicker(shellWindow)
     // 工作区探针：选中会话 → workspace.list 解析 → 标题栏工作区名/按钮
     // + file-activity 工作区基准；附带正文文件徽章（类型徽章 + edit
     // 增删行数）与历史会话补拉拦截（预览/Git 面板删除后独立存续）
@@ -238,8 +234,8 @@ export function showShellWindow(dshUrl: string): void {
     })
     // dsh Web UI 无需任何浏览器特权。唯一放行：剪贴板写入权限——对话上
     // 「复制」按钮用 navigator.clipboard.writeText，沙箱窗口默认拒绝该
-    // 权限会导致复制持续无效果（drag-to-attachment 插件 copyUserText 静默
-    // 吞错）。仅放行 clipboard-sanitized-write，其余照旧拒绝。
+    // 权限会导致复制持续无效果。仅放行 clipboard-sanitized-write，
+    // 其余照旧拒绝。
     shellWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
       callback(permission === 'clipboard-sanitized-write')
     })

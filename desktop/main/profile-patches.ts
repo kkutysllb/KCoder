@@ -2,46 +2,24 @@
  * 上游插件缺陷补丁（profiles/web/patches）的跨平台物化。
  *
  * 已覆盖：
- * - @dsh-external/dsh-drag-to-attachment：两处缺陷：
- *   1) wrap 的 sendSession 附件分支发送成功后无 return（resolve
- *      undefined）。rc.7 时代 defaultSink 是 fire-and-forget（void），
- *      无返回值无害；rc.8 把提交事务硬化为消费 `Promise<SubmitOutcome>`
- *      （settleSubmit 读 outcome.kind），undefined 直接 TypeError 且 then
- *      回调内抛出无人接 → submit-settled 永不派发 → machine 卡
- *      submitting → 输入框 readOnly + 草稿保留（发带附件/图片后输入框
- *      锁死的根因）。补丁补一行 return 对齐原版契约（patch 文件分发）。
- *   2) v1.0.3 的 npm files 白名单不含 vendor/everything，node_modules
- *      里恒缺 Everything.exe；ensureEverything 对缺失 exe 的 spawn 无
- *      error 监听（try/catch 包不住异步 'error' 事件）→ unhandled
- *      'error' 直接崩掉整个 dsh 进程（Windows 打包版启动失败根因）。
- *      注入存在性检查（缺失走 PowerShell 兜底搜索）+ child error 监听。
- *      注：两个产物文件均为 CRLF（v1.0.3 tarball 固定字节）；git apply
- *      对 LF patch + CRLF 文件会拒应用，但 pnpm 的应用器行尾宽容
- *      （实证：client.js 的 return 修复即此路径落地），patch 文件照常
- *      分发，锄点兑底按 CRLF 字节锄入。
- * - @dsh-external/dsh-drag-to-attachment（用户消息气泡的两项 KCoder
- *   增强，0.2.7 加）：① 复制按钮 — windows.ts 拒绝所有权限导致
- *   navigator.clipboard.writeText 静默失败，原版 copyUserText 吞错
- *   无 execCommand 兜底 → 修复兜底 + 错误处理；② 编辑按钮 — 原本点击
- *   把用户消息复制到输入框（方案 A 改为就地编辑：点击铅笔气泡内
- *   变 textarea + 发送/取消，发送直接调 conversation.send(newText) 走新
- *   一轮，session 落定无删除能力故保留原消息实际展示+新轮并存的方案）。
- *   patches 文件已并入宿主 @1.0.3.patch（曾有独立 __edit-copy@x.patch：
- *   其键名 pkgNameOf 产出带 __edit-copy 后缀、恒不匹配 dependencies，
- *   声明从未写入——0.2.7 至 0.2.10 增强实际从未应用的根因；同包
- *   pnpm 仅支持一个 patchedDependencies 声明，合并是唯一正解）
- *   3) alpha.1 composer 适配（findComposer fallback + renderChips 挂载
- *      限定）：上游把输入框换 contenteditable div 且附件预览槽改
- *      renderSlot 机制，原版 findComposer 恒 null、findRail 全局盲选
- *      误命中 file-review-tab 嵌套旧包的附件容器（chips 渲染进 git
- *      面板的现场实证）
- *   4) alpha.3 keyed 槽位守卫适配（registerUserMessageView 整块重写，
- *      08-29 气泡裸文本根因）：客户端 runner 的槽位守卫丢弃动态插件
- *      的显式 priority（按注册顺序重排名次），-100 影子注册退化为
- *      先到先得——任何更晚懒注册 user 格位者无声赢得选举。重写为
- *      user+steering 双键占位（覆盖 alpha.3 新增 steering 格位）+
- *      entriesOfSlot 选举自查 + 被抢弃注重注（新名次必更低必胜）+
- *      slots.subscribe 盯防（无 subscribe 时有限自检循环兜底）
+ * - @dsh-external/dsh-drag-to-attachment（2026-09-01 整线退役，本段为
+ *   历史记录）：附件「仅引用真实路径」模式插件，宿主曾覆盖其缺陷与
+ *   适配——1) rc.8 wrap sendSession 附件分支漏 return：rc.7 时代
+ *   defaultSink fire-and-forget（void）无害，rc.8 提交事务硬化为消费
+ *   `Promise<SubmitOutcome>`，undefined 使 settleSubmit 读 outcome.kind
+ *   抛 TypeError → submit-settled 永不派发 → machine 卡 submitting →
+ *   输入框 readOnly + 草稿保留（带图发送锁死根因）；补一行 return
+ *   对齐契约。2) Everything.exe 恒缺（npm files 白名单排除
+ *   vendor/everything）时 spawn 无 error 监听 → unhandled 'error'
+ *   崩 dsh 进程；注入存在性检查 + child error 监听。3) alpha.1
+ *   composer 适配（contenteditable findComposer + findRail 限定 card
+ *   范围，chips 误渲染进 git 面板根因）；4) alpha.3 keyed 槽位守卫
+ *   适配（user+steering 双键影子注册 + entriesOfSlot 选举自查 + 被抢
+ *   弃注重注，08-29 气泡裸文本根因）；5) 用户气泡复制/就地编辑增强
+ *   （并入宿主 @1.0.3.patch 分发）。上游原生附件链完备后整线退役：
+ *   PATCH_MARKS/PATCH_FALLBACKS/分发补丁全摘，转入 RETIRED_PATCH_PKGS
+ *   （现场 patch 文件与声明由自愈链回收，实体由 preset-plugins 的
+ *   RETIRED_PRESETS 三清）。
  * - dsh-video-preview（用户自装，genui 同款「自装也覆盖」）：VIDEO_EXTS
  *   把 "ts" 当 MPEG-TS 流抢先声明，TypeScript 源码全被视频播放器接管
  *   （matchFileViewer 按 priority 降序，video（0）压过内置 code 兑底
@@ -136,30 +114,6 @@ function patchFiles(source: string): string[] {
  * 补丁时同步更新）。
  */
 const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
-  // 修复特征：附件分支的 return（原版 1.0.3 无此串；clearFiles 组合锚定
-  // 防上游未来自己加同款串时误判）
-  // KCoder 编辑/复制增强标记（已并入宿主 patch；commitEditInPlace /
-  // editBtnStyle.PRIMARY 都是 KCoder 引入，足够稳定不可误判）
-  '@dsh-external/dsh-drag-to-attachment': [
-    ['lib/client.js', "clearFiles()\n        return { kind: 'success' }"],
-    // alpha.1 contenteditable composer 适配特征（findRail 限定 card 范围；
-    // 原版 findRail 无 card.querySelector 组合，不可误判）
-    ['lib/client.js', "card.querySelector('[class*=\"_attachments\"]')"],
-    // Everything spawn 防崩修复（单行 mark：即便无读侧行尾归一化也不受
-    // CRLF 产物影响）
-    ['lib/index.js', "child.on('error', () => {})"],
-    ['lib/client.js', "editBtnStyle.PRIMARY = 'kcoder-edit-primary'"],
-    // 就地编辑发送修复版特征：scoped conversation 获取（旧版根 ctx 直取
-    // send 恒落空，此 mark 缺失 → 自愈链重放新 patch）
-    ['lib/client.js', 'activeCtx.sessions.scope(curId)'],
-    // 编辑区自适应增强特征（气泡扩宽 + textarea 随内容长高；旧版
-    // 编辑区固定 60px 高过小，此 mark 缺失 → 自愈链重放新 patch）
-    ['lib/client.js', 'autoGrowEditBox'],
-    // alpha.3 守卫适配重写的影子注册特征（shadow reclaim 为 KCoder
-    // 引入串：被懒注册者抢格位后弃注重注的 beacon；缺失 → 自愈链
-    // 重放新 patch / 锄点整块替换）
-    ['lib/client.js', '[dta] shadow reclaim'],
-  ],
   // 修复特征：扩展表无 ts（原版 "3g2", "ts", "m2ts"；根级 client.js）
   'dsh-video-preview': [['client.js', '"3g2", "m2ts"']],
   // 修复特征：RO 回路冷却（kcRoHits 为 KCoder 引入变量名，原版无此串
@@ -173,8 +127,15 @@ const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
  * + ensurePatchDeclared 的缺失文件声明摘除）。dsh-context 曾在此列
  * （早前补丁随上游迭代退役），2026-08-30 因 RO 回路缺陷复役再入
  * PATCH_MARKS 与分发（见文件头），自列中摘除。
+ * @dsh-external/dsh-drag-to-attachment（2026-09-01）：插件整线退役
+ * （见文件头历史记录），分发补丁随之回收；实体清理由 preset-plugins
+ * 的 RETIRED_PRESETS 承担。
  */
-const RETIRED_PATCH_PKGS = ['dsh-plugin-genui', 'dsh-better-sidebar']
+const RETIRED_PATCH_PKGS = [
+  'dsh-plugin-genui',
+  'dsh-better-sidebar',
+  '@dsh-external/dsh-drag-to-attachment',
+]
 
 /**
  * mark 缺失时的锄点注入兑底（与 patch 内容等价；pnpm patch 机制在任何
@@ -195,76 +156,12 @@ interface PatchFallback {
 
 const PATCH_FALLBACKS: PatchFallback[] = [
   {
-    // alpha.1 把输入框从 <textarea> 换成 contenteditable div。只加
-    // contenteditable fallback 还不够（996df95 的教训）：composer 不再是
-    // textarea 后，全局 querySelector('textarea') 命中的是 git-panel 的
-    // 提交信息输入框——|| 短路，fallback 分支根本走不到，ta 从源头就选
-    // 错对象（chips 渲染进 git 面板的完整根因）。锚上游官方属性
-    // data-composer-card（产物 JSX 实证）限定查询范围。两条规则分别
-    // 锚定原版与 996df95 形态的现场，replace 均为终态。
-    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
-    mark: "document.querySelector('[data-composer-card] textarea')",
-    anchor: "function findComposer() { return document.querySelector('textarea') }",
-    replace: "function findComposer() { return document.querySelector('[data-composer-card] textarea') || document.querySelector('[data-composer-card] [contenteditable=\"true\"]') }",
-  },
-  {
-    // 同上，锚 996df95 形态（已应用过 contenteditable fallback 的现场）
-    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
-    mark: "document.querySelector('[data-composer-card] textarea')",
-    anchor: "function findComposer() { return document.querySelector('textarea') || document.querySelector('[contenteditable=\"true\"]') }",
-    replace: "function findComposer() { return document.querySelector('[data-composer-card] textarea') || document.querySelector('[data-composer-card] [contenteditable=\"true\"]') }",
-  },
-  {
-    // findComposer 修复后的第二断点（现场实证：chips 渲染进了 git 面板）：
-    // alpha.1 的附件预览槽已改 renderSlot('conversation.input.attachments')
-    // 机制、composer 内不再有 *_attachments 类名的 rail；renderChips 的
-    // findRail 仍是全局 querySelector('[class*="_attachments"]')，命中的
-    // 是 file-review-tab 嵌套旧版 conversation 包的附件卡容器——chips 全
-    // 塞进 git 面板。rail 查询限定 composer card 范围内：card 内无 rail
-    // 则回退 insertBefore 到 scroll 之前（与上游 attachments slot 同位，
-    // input→grow→scroll→card 层级已按 alpha.1 产物实证）。
-    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
-    mark: "card.querySelector('[class*=\"_attachments\"]')",
-    anchor: "function findRail() { return document.querySelector('[class*=\"_attachments\"]') }",
-    replace: "function findRail(ta) {\n      var card = findCard(ta)\n      return card ? card.querySelector('[class*=\"_attachments\"]') : null\n    }",
-  },
-  {
-    // findRail 改签名（ta → card 范围查询）后调用点同步传 ta；与上一规则
-    // 成对，单行锚不受产物行尾影响
-    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
-    mark: 'var rail = findRail(ta)',
-    anchor: 'var rail = findRail()',
-    replace: 'var rail = findRail(ta)',
-  },
-  {
     // video-preview 复役锄点：原版扩展表含 "ts"（单次出现），删之留
     // m2ts——与 patch 内容等价的第三层兑底
     pkg: 'dsh-video-preview', file: 'client.js',
     mark: '"3g2", "m2ts"',
     anchor: '"3g2", "ts", "m2ts"',
     replace: '"3g2", "m2ts"',
-  },
-  {
-    // rc.8 提交事务硬化后 wrap 的附件分支必须返回 SubmitOutcome，
-    // 否则 settleSubmit 读 undefined.kind 炸 → 输入框永久锁死。
-    // 目标文件 CRLF（v1.0.3 tarball 固定字节），锄点与注入均按 \r\n
-    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
-    mark: "clearFiles()\n        return { kind: 'success' }",
-    anchor: "this.releaseDraftImages(attachments)\r\n        clearFiles()",
-    inject: "\r\n        return { kind: 'success' }",
-  },
-  {
-    // v1.0.3 npm files 白名单排除 vendor/everything → node_modules 恒缺
-    // Everything.exe，ensureEverything 对缺失 exe 的 spawn 无 error 监听
-    // → unhandled 'error' 崩掉 dsh 进程（spawn ENOENT 异步派发，try/catch
-    // 包不住）。锄入：spawn 前存在性检查（缺失则跳过，windowsSearch 有
-    // PATH es.exe / PowerShell 兜底）+ child.on('error') 接异步失败。
-    // 目标文件 CRLF（v1.0.3 tarball 固定字节），锄点与注入均按 \r\n；
-    // patch 文件同步分发此修复（pnpm 应用器行尾宽容）
-    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/index.js',
-    mark: "child.on('error', () => {})",
-    anchor: "  try {\r\n    const child = spawn(EVERYTHING_EXE, ['-startup'], {\r\n      detached: true, stdio: 'ignore', windowsHide: true,\r\n    })\r\n    child.unref()\r\n  } catch (error) {",
-    replace: "  try {\r\n    await access(EVERYTHING_EXE, constants.F_OK)\r\n  } catch (error) {\r\n    return\r\n  }\r\n  try {\r\n    const child = spawn(EVERYTHING_EXE, ['-startup'], {\r\n      detached: true, stdio: 'ignore', windowsHide: true,\r\n    })\r\n    child.on('error', () => {})\r\n    child.unref()\r\n  } catch (error) {",
   },
   {
     // dsh-context 0.38.2 agents 森林图 RO 回路冷却（Windows 打开上下文
@@ -274,26 +171,6 @@ const PATCH_FALLBACKS: PatchFallback[] = [
     mark: 'kcRoHits',
     anchor: '\t\t\t\t\tconst observer = new ResizeObserver(() => {\n\t\t\t\t\t\tsetStageWidth(el.clientWidth);\n\t\t\t\t\t});',
     replace: '\t\t\t\t\tlet kcRoHits = [];\n\t\t\t\t\tlet kcRoSkipUntil = 0;\n\t\t\t\t\tconst observer = new ResizeObserver(() => {\n\t\t\t\t\t\t/* KCoder：RO 回路冷却——Windows DPI 取整/经典滚动条占位可令\n\t\t\t\t\t\t * stage 尺寸振荡（量化宽反馈）：RO 触发 → setStageWidth →\n\t\t\t\t\t\t * 重渲染 → 布局再变 → RO 再触发，失控吃满主线程直至白屏。\n\t\t\t\t\t\t * 500ms 内触发超 12 次即静默 1s：跳过 setState 即断振荡回路，\n\t\t\t\t\t\t * 冷却后自动重试，不永久失效 */\n\t\t\t\t\t\tconst now = Date.now();\n\t\t\t\t\t\tif (now < kcRoSkipUntil) return;\n\t\t\t\t\t\tkcRoHits = kcRoHits.filter((t) => now - t < 500);\n\t\t\t\t\t\tkcRoHits.push(now);\n\t\t\t\t\t\tif (kcRoHits.length > 12) {\n\t\t\t\t\t\t\tkcRoHits = [];\n\t\t\t\t\t\t\tkcRoSkipUntil = now + 1000;\n\t\t\t\t\t\t\treturn;\n\t\t\t\t\t\t}\n\t\t\t\t\t\tsetStageWidth(el.clientWidth);\n\t\t\t\t\t});',
-  },
-  {
-    // alpha.3 keyed 槽位守卫适配（08-29 气泡裸文本根因）：客户端 runner
-    // 的守卫丢弃动态插件显式 priority（按注册顺序重排名次），-100 影子
-    // 注册退化为先到先得——更晚懒注册 user 格位者无声赢得选举。锄点把
-    // 基座单键 generator 注册整块替换为 user+steering 双键 + entriesOfSlot
-    // 选举自查 + 被抢弃注重注（新名次必更低必胜）+ subscribe 盯防。
-    // 本条按 CRLF 锚（v1.0.3 tarball 原始字节：patch 未应用的全新解包现场）
-    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
-    mark: '[dta] shadow reclaim',
-    anchor: "    function registerUserMessageView(ctx) {\r\n      var slots = ctx.get('slots')\r\n      if (slots === undefined || React === null) return function () { /* no-op */ }\r\n      return slots.inject('conversation.chat.node', function* () {\r\n        yield slots.register(\r\n          // Shadow the shipped 'user' renderer: keyed slots resolve the\r\n          // LOWEST priority occupant, so a negative priority wins.\r\n          { name: 'conversation.chat.node', key: 'user', priority: -100 },\r\n          UserMessageView\r\n        )\r\n      })\r\n    }",
-    replace: "    function registerUserMessageView(ctx) {\r\n      try {\r\n        var slots = ctx.get('slots')\r\n        if (slots === undefined || React === null) return function () { /* no-op */ }\r\n        // [KCoder alpha.3] The client-runner slot guard discards dynamic\r\n        // plugins' explicit priorities (it reassigns registration-order\r\n        // ranks), so priority: -100 below is advisory only — any LATER lazy\r\n        // registrant for a cell silently wins the election (the 08-29 bare\r\n        // bubble root cause). So: claim BOTH the 'user' cell and the new\r\n        // 'steering' cell, verify our component actually heads each cell,\r\n        // and on losing dispose + re-register (a fresh rank is always lower\r\n        // and wins), kept under watch via the slot's public subscribe()\r\n        // (plus a bounded self-check loop when subscribe is unavailable).\r\n        var KEYS = ['user', 'steering']\r\n        var disposers = []\r\n        var disposeSub = null\r\n        var beltTimer = null\r\n        var beltTries = 0\r\n        function claimAll() {\r\n          KEYS.forEach(function (key) {\r\n            try {\r\n              disposers.push(slots.register(\r\n                { name: 'conversation.chat.node', key: key, priority: -100 },\r\n                UserMessageView\r\n              ))\r\n            } catch (error) { /* exact-priority clash: the election check re-claims */ }\r\n          })\r\n        }\r\n        function headIsOurs(key) {\r\n          try {\r\n            if (typeof slots.entriesOfSlot !== 'function') return true // cannot inspect: assume ours\r\n            var heads = slots.entriesOfSlot('conversation.chat.node')\r\n            for (var i = 0; i < heads.length; i++) {\r\n              var head = heads[i]\r\n              if (head && head.options && head.options.key === key) return head.component === UserMessageView\r\n            }\r\n            return true // cell empty (or not declared yet): nothing stole it\r\n          } catch (error) { return true }\r\n        }\r\n        function reclaimIfNeeded() {\r\n          var lost = false\r\n          KEYS.forEach(function (key) { if (!headIsOurs(key)) lost = true })\r\n          if (!lost) return\r\n          var stale = disposers\r\n          disposers = []\r\n          stale.forEach(function (dispose) { try { dispose() } catch (error) { /* noop */ } })\r\n          claimAll()\r\n          try { console.log('[dta] shadow reclaim: re-registered after losing the cell election') } catch (error) { /* noop */ }\r\n        }\r\n        function scheduleBelt() {\r\n          if (beltTimer !== null || typeof slots.subscribe === 'function') return\r\n          if (beltTries >= 5) return\r\n          beltTries += 1\r\n          beltTimer = setTimeout(function () {\r\n            beltTimer = null\r\n            reclaimIfNeeded()\r\n            scheduleBelt()\r\n          }, 800 * beltTries)\r\n        }\r\n        return slots.inject('conversation.chat.node', function () {\r\n          claimAll()\r\n          reclaimIfNeeded()\r\n          try { console.log('[dta] shadow registered (user+steering cells)') } catch (error) { /* noop */ }\r\n          try { if (typeof slots.subscribe === 'function') disposeSub = slots.subscribe('conversation.chat.node', reclaimIfNeeded) } catch (error) { disposeSub = null }\r\n          scheduleBelt()\r\n          return function () {\r\n            if (disposeSub !== null) { try { disposeSub() } catch (error) { /* noop */ } disposeSub = null }\r\n            if (beltTimer !== null) { clearTimeout(beltTimer); beltTimer = null }\r\n            beltTries = 0\r\n            var stale = disposers\r\n            disposers = []\r\n            stale.forEach(function (dispose) { try { dispose() } catch (error) { /* noop */ } })\r\n          }\r\n        })\r\n      } catch (error) {\r\n        try { console.error('[dta] shadow registration failed:', error) } catch (err) { /* noop */ }\r\n        return function () { /* no-op */ }\r\n      }\r\n    }",
-  },
-  {
-    // 同上，按 LF 锚（patch 曾应用过又被 pnpm 静默跳过重放的残留现场：
-    // 应用器写回产物为 LF）。mark 幂等，两规则先中先跳
-    pkg: '@dsh-external/dsh-drag-to-attachment', file: 'lib/client.js',
-    mark: '[dta] shadow reclaim',
-    anchor: "    function registerUserMessageView(ctx) {\n      var slots = ctx.get('slots')\n      if (slots === undefined || React === null) return function () { /* no-op */ }\n      return slots.inject('conversation.chat.node', function* () {\n        yield slots.register(\n          // Shadow the shipped 'user' renderer: keyed slots resolve the\n          // LOWEST priority occupant, so a negative priority wins.\n          { name: 'conversation.chat.node', key: 'user', priority: -100 },\n          UserMessageView\n        )\n      })\n    }",
-    replace: "    function registerUserMessageView(ctx) {\n      try {\n        var slots = ctx.get('slots')\n        if (slots === undefined || React === null) return function () { /* no-op */ }\n        // [KCoder alpha.3] The client-runner slot guard discards dynamic\n        // plugins' explicit priorities (it reassigns registration-order\n        // ranks), so priority: -100 below is advisory only — any LATER lazy\n        // registrant for a cell silently wins the election (the 08-29 bare\n        // bubble root cause). So: claim BOTH the 'user' cell and the new\n        // 'steering' cell, verify our component actually heads each cell,\n        // and on losing dispose + re-register (a fresh rank is always lower\n        // and wins), kept under watch via the slot's public subscribe()\n        // (plus a bounded self-check loop when subscribe is unavailable).\n        var KEYS = ['user', 'steering']\n        var disposers = []\n        var disposeSub = null\n        var beltTimer = null\n        var beltTries = 0\n        function claimAll() {\n          KEYS.forEach(function (key) {\n            try {\n              disposers.push(slots.register(\n                { name: 'conversation.chat.node', key: key, priority: -100 },\n                UserMessageView\n              ))\n            } catch (error) { /* exact-priority clash: the election check re-claims */ }\n          })\n        }\n        function headIsOurs(key) {\n          try {\n            if (typeof slots.entriesOfSlot !== 'function') return true // cannot inspect: assume ours\n            var heads = slots.entriesOfSlot('conversation.chat.node')\n            for (var i = 0; i < heads.length; i++) {\n              var head = heads[i]\n              if (head && head.options && head.options.key === key) return head.component === UserMessageView\n            }\n            return true // cell empty (or not declared yet): nothing stole it\n          } catch (error) { return true }\n        }\n        function reclaimIfNeeded() {\n          var lost = false\n          KEYS.forEach(function (key) { if (!headIsOurs(key)) lost = true })\n          if (!lost) return\n          var stale = disposers\n          disposers = []\n          stale.forEach(function (dispose) { try { dispose() } catch (error) { /* noop */ } })\n          claimAll()\n          try { console.log('[dta] shadow reclaim: re-registered after losing the cell election') } catch (error) { /* noop */ }\n        }\n        function scheduleBelt() {\n          if (beltTimer !== null || typeof slots.subscribe === 'function') return\n          if (beltTries >= 5) return\n          beltTries += 1\n          beltTimer = setTimeout(function () {\n            beltTimer = null\n            reclaimIfNeeded()\n            scheduleBelt()\n          }, 800 * beltTries)\n        }\n        return slots.inject('conversation.chat.node', function () {\n          claimAll()\n          reclaimIfNeeded()\n          try { console.log('[dta] shadow registered (user+steering cells)') } catch (error) { /* noop */ }\n          try { if (typeof slots.subscribe === 'function') disposeSub = slots.subscribe('conversation.chat.node', reclaimIfNeeded) } catch (error) { disposeSub = null }\n          scheduleBelt()\n          return function () {\n            if (disposeSub !== null) { try { disposeSub() } catch (error) { /* noop */ } disposeSub = null }\n            if (beltTimer !== null) { clearTimeout(beltTimer); beltTimer = null }\n            beltTries = 0\n            var stale = disposers\n            disposers = []\n            stale.forEach(function (dispose) { try { dispose() } catch (error) { /* noop */ } })\n          }\n        })\n      } catch (error) {\n        try { console.error('[dta] shadow registration failed:', error) } catch (err) { /* noop */ }\n        return function () { /* no-op */ }\n      }\n    }",
   },
 ]
 
@@ -336,8 +213,8 @@ function enforcePatchFallbacks(profileDir: string): void {
  * 补丁是否已生效：逐 patch 按包名特征校验；插件未安装视为已满足
  * （后续 dsh plugin install 时 pnpm 对匹配版本自动应用）；带版本的
  * 声明在版本漂移时不应用（「未用」），锄点兑底与自愈链据此跳过。
- * mark 匹配前把产物行尾归一化为 LF——drag-to-attachment 的 lib 是
- * CRLF 文件（v1.0.3 tarball 固定字节），跨行组合 mark 按字节匹配会恒
+ * mark 匹配前把产物行尾归一化为 LF——CRLF 产物（如已退役的
+ * drag-to-attachment v1.0.3 tarball）的跨行组合 mark 按字节匹配会恒
  * 失配，导致每次启动误判未生效而反复 install 重放（阻塞主进程）。
  */
 function patchApplied(profileDir: string, files: string[]): boolean {
@@ -521,10 +398,7 @@ ${entries}
  * files 不可用（patch 源缺失）时的全量校验哨兵：`@x.patch` 尾巴的唯一
  * 用途是喂给 patchApplied 的包名提取器，覆盖 PATCH_MARKS 全部包。
  */
-const KNOWN_PATCH_SENTINELS = [
-  '@dsh-external__dsh-drag-to-attachment@x.patch',
-  'dsh-video-preview@x.patch',
-]
+const KNOWN_PATCH_SENTINELS = ['dsh-video-preview@x.patch']
 
 /**
  * 从 patch 文件名提取包名：剥 `@version.patch` 尾巴；scoped 包用 pnpm
@@ -543,8 +417,8 @@ function pkgNameOf(patchFile: string): string {
  * pnpm install（用户把插件升到 patch 目标版本之外：better-sidebar npm
  * 0.14.0 → git 0.15.2 实证，0.15.2 无 diff pill 功能属产品取舍而非自愈
  * 缺口——该补丁已于 2026-08-25 随迭代退役，见 RETIRED_PATCH_PKGS）。
- * @x 后缀（无版本约束：drag-to-attachment 增强/KNOWN 哨兵）不
- * 设门；package.json 不可读时放行，交 marks 校验兑底判定。
+ * @x 后缀（无版本约束：KNOWN 哨兵）不设门；package.json 不可读时
+ * 放行，交 marks 校验兑底判定。
  */
 function patchVersionMatches(patchFile: string, modDir: string): boolean {
   const m = /@([^@]+)\.patch$/.exec(patchFile)

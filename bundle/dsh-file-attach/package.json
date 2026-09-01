@@ -1,0 +1,46 @@
+{
+  "name": "@kkutysllb/dsh-file-attach",
+  "version": "1.0.1",
+  "description": "dsh file attachment plugin: attach files and folders to conversation via a locate-then-reference chain (browser file picker + server-side locate RPC), injecting [attachment] path lines into the prompt. Images stay fully native — paste/drop of images is never touched.",
+  "license": "MIT",
+  "type": "module",
+  "main": "entry.js",
+  "exports": {
+    ".": "./entry.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "entry.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "test": "node tests/run-tests.mjs",
+    "smoke": "node scripts/smoke-plugin.mjs",
+    "sync:mirror": "node scripts/sync-to-dsh-plugins.mjs",
+    "sync:check": "node scripts/sync-to-dsh-plugins.mjs --check",
+    "prepack": "pnpm smoke"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kkutysllb/dsh-file-attach.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

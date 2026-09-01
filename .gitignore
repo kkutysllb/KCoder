@@ -18,6 +18,10 @@ staging/
 
 # 本地给已安装版本打 asar 热补丁的临时产物（ship 前 git add -A 不应收进）
 .tmp-*
+
+# 插件独立仓（真源在仓外）的开发暂存镜像——Write 工具只能写工作区内，
+# 改 bundle/ 直提包时先落 <名>-staging/ 再同步到真源仓，不入库
+*-staging/
 patched-app.asar
 app.asar.*.bak
 

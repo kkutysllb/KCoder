@@ -70,6 +70,10 @@ export const DSH_STATS_PANEL_BUNDLE = 'dsh-stats-panel'
 /** 嵌入式终端 bundle 包名（scope 定稿理由同 git-panel，见其常量注释）。 */
 export const DSH_TERMINAL_BUNDLE = '@kkutysllb/dsh-terminal'
 
+/** 文件/文件夹附件 bundle 包名（scope 定稿理由同 git-panel，见其常量注释；
+ * 真源同名独立仓，sync-bundles 经 dsh-plugins 镜像同步产物）。 */
+export const DSH_FILE_ATTACH_BUNDLE = '@kkutysllb/dsh-file-attach'
+
 /** 改动审查 bundle 包名（独立自立插件 dsh-file-review-kcoder；真源在同名独立仓，sync-bundles.mjs 同步产物）。 */
 export const DSH_FILE_REVIEW_BUNDLE = 'dsh-file-review-kcoder'
 
@@ -103,6 +107,7 @@ const BUNDLES: BundledPlugin[] = [
   { pkg: DSH_GIT_PANEL_BUNDLE, dir: 'dsh-git-panel', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: DSH_STATS_PANEL_BUNDLE, dir: 'dsh-stats-panel', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: DSH_TERMINAL_BUNDLE, dir: 'dsh-terminal', entry: 'entry.js', intactFiles: ['client.js'] },
+  { pkg: DSH_FILE_ATTACH_BUNDLE, dir: 'dsh-file-attach', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: DSH_FILE_REVIEW_BUNDLE, dir: 'dsh-file-review-kcoder', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
   { pkg: DSH_CODING_SIDEBAR, dir: 'dsh-coding-sidebar', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
 ]

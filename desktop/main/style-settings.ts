@@ -13,7 +13,7 @@
  *   group/title/cubeRow/cube/selected 类名（CSS modules 哈希前缀
  *   不影响语义匹配），样式与原生行零差。
  *
- * 通信（console 通道，同 attach-picker）：
+ * 通信（console 通道，同 skills-settings 等注入器）：
  * - 页面 → 主进程：console.log('__dsh_style__:' + JSON.stringify({style}))
  * - 主进程 → 页面：executeJavaScript 调 window.__dshStyleSync(state)
  *   （注入后与每次写回后各推一次权威状态）

@@ -1,6 +1,5 @@
 /**
- * 预置第三方插件（dsh-context / dsh-coding-sidebar /
- * drag-to-attachment）的开箱物化。
+ * 预置第三方插件（dsh-context / dsh-coding-sidebar）的开箱物化。
  *
  * 这两个插件是 KCoder 发行物的一部分：Windows 全新安装后 profile 是
  * 上游空模板（只有 dsh-base / dsh-web-app 内置层），第三方插件不会自动
@@ -22,8 +21,8 @@
  *
  * 版本策略：预置 spec 锁定开箱已验证 patch 兼容的版本线（^ 对 0.x 仅
  * patch 级跟随，minor 升级不自动跟进）；用户主动“更新”经插件管理
- * update --latest 升线。破坏性敏感的包装层插件用锁定形态（如
- * drag-to-attachment 的 github tag）。
+ * update --latest 升线。破坏性敏感的包装层插件用锁定形态
+ * （github tag / pinned 版本；现存预置均为 semver 形态）。
  *
  * 预置冻结（2026-08-30）：第三方插件不再新增预置——用户按需经插件
  * 管理页自装（github 源一键安装）。现有两个维持现状（含缺陷补丁与
@@ -56,15 +55,16 @@
  * 第三方重复能力不再预置（按需可经插件管理页自装，纯技能包装零
  * 迁移）。
  *
- * @dsh-external/dsh-drag-to-attachment（2026-08-20 预置）：附件上传
- * 宿主插件——输入框 📎 按钮由它注入 conversation.input.left 槽位，
- * attach-picker.ts 把其模式切换按钮改造成原生文件选择入口（点击开
- * 对话框→合成 drop→fast path 入队）。原为用户态安装：2026-08-20
- * 用户数据目录统一 ~/.dsh 后 profile 全新物化，用户态安装不随迁，
- * 附件按钮作为输入框产品功能随之消失（实测）——收归预置根治。
- * GitHub 源无 semver，锁 tag v1.0.3（与 profile-patches.ts 的
- * rc.8 return 补丁三层链精确对齐）；升级走显式改预置。无额外物化
- * 项（补丁链由 ensureProfilePatches 按需自愈）。
+ * @dsh-external/dsh-drag-to-attachment（2026-08-20 预置 → 2026-09-01
+ *   退役）：附件插件——「附件仅引用真实路径、不随消息携带图片数据」
+ * 模式（拖拽/粘贴落盘 .drops 定位 → 发送时 wrap sendSession 把附件
+ * 改写为 [附件] 路径行），输入框 📎 按钮亦由它注入。宿主曾深度改造
+ * （attach-picker 按钮拦截 + rc.8 漏 return 补丁三层链 + alpha.1/3
+ * 适配）。退役理由：上游原生附件链已完备（composer 原生
+ * draftImages/imageIds，粘贴图片随消息携带真实图片数据直达多模态），
+ * 插件的路径引用模式反而是「带图发送丢图」的现场根因；整线退役
+ * （预置清单摘除 + RETIRED_PRESETS 三清 + 补丁链回收，
+ * attach-picker.ts 一并拆除）。
  *
  * dsh-vision-router（2026-08-30 退役）：预置清单摘除并自愈清理。
  * 工具式识图与多模态主模型的原生视觉能力抢调用——模型优先走插件
@@ -97,7 +97,6 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // 物化覆盖——满足本 spec 的安装实体不会被 pnpm 回滚，index.ts 在
   // preset install 后二调 ensureKcoderBundles 兑现纠偏
   'dsh-coding-sidebar': '^1.0.0',
-  '@dsh-external/dsh-drag-to-attachment': 'github:djt889/dsh-drag-to-attachment#v1.0.3',
 }
 
 /**
@@ -118,8 +117,17 @@ export const PRESET_PLUGINS: Record<string, string> = {
  * - @tt-a1i/archify-dsh（2026-09-01）：架构图能力由自有插件
  *   dsh-super-ppts 覆盖（后续 dsh-animation 亦具备），第三方重复
  *   能力不再预置；纯技能包装，摘键即清无迁移。
+ * - @dsh-external/dsh-drag-to-attachment（2026-09-01）：上游原生附件
+ *   链已完备（粘贴图片随消息携带真实数据），插件的路径引用模式退役
+ *   （详见文件头）；连带补丁链回收（RETIRED_PATCH_PKGS）与
+ *   attach-picker.ts 拆除。
  */
-const RETIRED_PRESETS = ['dsh-vision-router', 'dsh-better-sidebar', '@tt-a1i/archify-dsh']
+const RETIRED_PRESETS = [
+  'dsh-vision-router',
+  'dsh-better-sidebar',
+  '@tt-a1i/archify-dsh',
+  '@dsh-external/dsh-drag-to-attachment',
+]
 
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */
 const TEMPLATE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']

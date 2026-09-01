@@ -15,7 +15,7 @@
  * - React 重渲染会移除注入节点 → observer 重建；对话框重新打开 →
  *   检测 dialog 元素更换，重置为非激活态。
  *
- * 通信（console 通道，同 style-settings / attach-picker）：
+ * 通信（console 通道，同 style-settings 等注入器）：
  * - 页面 → 主进程：console.log('__dsh_skills__:' + JSON 载荷)
  *   {op:'cat'} 请求目录 / {op:'body', path} 请求正文 /
  *   {op:'enable', path} 启用 optional 技能（拷到用户目录）；

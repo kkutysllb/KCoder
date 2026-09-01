@@ -5,12 +5,13 @@
  * 2026-08-30 迁址后，KCoder 仓 bundle/ 目录只是随包分发的同步副本；
  * 插件开发真源在各自独立仓（2026-09-01 起：dsh-git-panel/dsh-stats-panel/
  * dsh-terminal/dsh-language-bundle/dsh-skills-bundle/dsh-file-review-kcoder/
- * dsh-coding-sidebar，全部 dsh 标准命名 npm 包）→ dsh-plugins/<同名目录>
- * 镜像 → 本脚本同步进 bundle/ 再发版——方向单向，禁止反向手改。
+ * dsh-coding-sidebar/dsh-file-attach，全部 dsh 标准命名 npm 包）→
+ * dsh-plugins/<同名目录> 镜像 → 本脚本同步进 bundle/ 再发版——方向单向，
+ * 禁止反向手改。
  *
  * 同步映射（dsh-plugins/<src> → bundle/<dst>，目录名与包名同名）：
  * - 产物直提包全镜像（git-panel/stats-panel/terminal/language-bundle/
- *   skills-bundle，排除式镜像）
+ *   skills-bundle/file-attach，排除式镜像）
  * - dsh-file-review-kcoder 选择面映射（lib/package.json/cordis.patch.yml/
  *   README.md/LICENSE；src/tests 等构建面不进 bundle）
  * - dsh-coding-sidebar 同款选择面映射：侧边栏自立仓（fork 自
@@ -51,6 +52,7 @@ const MAPPINGS = [
   { src: 'dsh-terminal', dst: 'dsh-terminal', select: [] },
   { src: 'dsh-language-bundle', dst: 'dsh-language-bundle', select: [] },
   { src: 'dsh-skills-bundle', dst: 'dsh-skills-bundle', select: [] },
+  { src: 'dsh-file-attach', dst: 'dsh-file-attach', select: [] },
   {
     src: 'dsh-file-review-kcoder',
     dst: 'dsh-file-review-kcoder',

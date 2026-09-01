@@ -3,16 +3,12 @@
  * Profile 插件同步与上游更新脚本（KCoder 发布物 ↔ 用户 DSH profile）。
  *
  * 已覆盖插件缺陷补丁（profiles/web/patches/*.patch）：
- * - @dsh-external/dsh-drag-to-attachment：两处缺陷：
- *   1) wrap 的 sendSession 附件分支发送成功后无 return（resolve
- *      undefined）——rc.8 提交事务硬化后 settleSubmit 读 undefined.kind
- *      炸 TypeError，machine 卡 submitting，带附件/图片发送后输入框永久
- *      锁死。补丁补一行 return（github 源插件，不在 npm，update 模式
- *      自动跳过）
- *   2) v1.0.3 npm files 白名单排除 vendor/everything（Everything.exe
- *      恒缺），ensureEverything 的 spawn ENOENT 无 error 监听 →
- *      unhandled 'error' 崩掉 dsh 进程。修复在 patch 文件内（pnpm 应用
- *      器对 CRLF 产物行尾宽容），app 启动链另有 CRLF 锄点注入兑底
+ * - @dsh-external/dsh-drag-to-attachment（2026-09-01 退役，历史记录）：
+ *   曾补两处缺陷（rc.8 wrap sendSession 附件分支漏 return 致输入框
+ *   锁死；Everything.exe 恒缺时 spawn ENOENT 无 error 监听崩 dsh）。
+ *   插件整线退役后补丁摘除，现场文件与声明由自愈链回收
+ *   （见 profile-patches.ts RETIRED_PATCH_PKGS / preset-plugins.ts
+ *   RETIRED_PRESETS）
  * - dsh-context：0.38 的 agents 森林图 stage 以 ResizeObserver 驱动
  *   量化布局，Windows DPI 取整/经典滚动条占位下尺寸振荡不收敛，渲染
  *   失控吃满主线程直至白屏（打开上下文即冻结的根因；mac 天然收敛）。
@@ -41,7 +37,6 @@ import { fileURLToPath } from 'node:url'
 const ROOT = resolveRepoRoot()
 const PROFILE = process.env.DSH_HOME ? join(process.env.DSH_HOME, 'profiles/web') : join(homedir(), '.dsh/profiles/web')
 const PATCHES = [
-  '@dsh-external__dsh-drag-to-attachment@1.0.3.patch',
   'dsh-video-preview@0.1.1.patch',
   'dsh-context@0.38.2.patch',
 ]
@@ -60,20 +55,6 @@ function yamlKeyOf(pkg) {
 
 /** 各插件补丁生效特征（与 desktop/main/profile-patches.ts 保持一致）。 */
 const PATCH_MARKS = {
-  '@dsh-external/dsh-drag-to-attachment': [
-    ['lib/client.js', "clearFiles()\n        return { kind: 'success' }"],
-    // Everything spawn 防崩修复（单行 mark，不受 CRLF 产物行尾影响）
-    ['lib/index.js', "child.on('error', () => {})"],
-    // 编辑区自适应增强特征（气泡扩宽 + textarea 随内容长高）
-    ['lib/client.js', 'autoGrowEditBox'],
-    // alpha.3 守卫适配重写的影子注册特征（shadow reclaim 为 KCoder
-    // 引入串；与 profile-patches.ts 同步更新）
-    ['lib/client.js', '[dta] shadow reclaim'],
-    // alpha.1 composer 适配特征（findComposer 锚 data-composer-card 限定
-    // 查询 + findRail 限定 card 范围；与 profile-patches.ts 同步更新）
-    ['lib/client.js', "document.querySelector('[data-composer-card] textarea')"],
-    ['lib/client.js', "card.querySelector('[class*=\"_attachments\"]')"],
-  ],
   // dsh-context RO 回路冷却特征（Windows 打开上下文冻结白屏修复；与
   // desktop/main/profile-patches.ts 同步更新）
   'dsh-context': [['lib/client.js', 'kcRoHits']],
@@ -155,7 +136,7 @@ function latestVersion(pkg) {
     const out = run('npm', ['view', pkg, 'version'], ROOT)
     return out.trim()
   } catch {
-    return undefined // github 源插件不在 npm（如 drag-to-attachment）
+    return undefined // github 源插件不在 npm，无 latest 可查
   }
 }
 
@@ -175,8 +156,8 @@ function patchVersionMatches(patchFile, modDir) {
 /** 返回未生效的特征（{pkg}/{file} 列表）；空数组 = 全部生效。与
  *  desktop/main/profile-patches.ts 的 patchApplied 保持一致：未安装的包
  *  跳过（后续安装时 pnpm 自动应用）；版本漂移的 patch 跳过（门控）；
- *  mark 匹配前行尾归一化为 LF（drag-to-attachment 的 lib 是 CRLF 产物，
- *  跨行 mark 按字节匹配恒失配）。 */
+ *  mark 匹配前行尾归一化为 LF（CRLF 产物——如已退役的
+ *  drag-to-attachment v1.0.3 tarball——跨行 mark 按字节匹配恒失配）。 */
 function patchApplied() {
   const missing = []
   for (const f of PATCHES) {

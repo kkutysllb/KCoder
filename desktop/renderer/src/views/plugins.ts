@@ -229,8 +229,8 @@ export function mountPlugins(root: HTMLElement): void {
     const installedList: InstalledPlugin[] = await bridge.pluginsInstalled()
     for (const plugin of communityItems) {
       // 社区发现给出 GitHub full_name（owner/repo），已装列表是 npm 包名
-      // （可能带 scope，如 @dsh-external/dsh-drag-to-attachment）。按最后一段
-      // （repo 名）匹配：ysr666/dsh-vision-router ↔ dsh-vision-router。
+      // （可能带 scope）。按最后一段（repo 名）匹配：
+      // ysr666/dsh-vision-router ↔ dsh-vision-router。
       const repo = plugin.fullName.includes('/') ? plugin.fullName.split('/').pop()! : plugin.fullName
       const matched = installedList.find((n) => n.name === plugin.fullName || n.name.split('/').pop() === repo)
       const isInstalled = matched !== undefined
