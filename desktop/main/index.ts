@@ -20,6 +20,7 @@ import { syncLanguagePatch } from './language-settings'
 import { ensureBuiltinMcpServers } from './mcp-builtin'
 import { ensureProfilePatches } from './profile-patches'
 import { ensurePresetPlugins } from './preset-plugins'
+import { migrateProjcache } from './projcache-migrate'
 import { initUpdater } from './updater'
 import { applyNativeTheme, currentLandingTheme, currentThemePref } from './theme-watcher'
 import { getSettings } from './store'
@@ -236,6 +237,9 @@ app.whenReady().then(() => {
   // 引依赖树）；终态是 bundle 物化的版本——install 后二调纠偏
   // （幂等：版本一致时零拷贝，dsh-* 自有系列全部跳过）
   ensureKcoderBundles()
+  // session_projcache 域迁移（alpha.4 身份换代，幂等）：必须在引擎读缓
+  // 存前完成，否则历史任务列表初载全部缓存 miss，标题回退显示目录名
+  migrateProjcache()
   dshManager.start()
 
   app.on('activate', () => {
