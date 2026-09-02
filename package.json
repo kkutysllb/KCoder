@@ -2,7 +2,7 @@
   "name": "kcoder",
   "productName": "KCoder",
   "description": "KCoder 桌面端：基于 DSH-Desktop 基线的 AI 编码工作台，零修改复用 deepseek-harness 引擎、Web UI 与插件生态",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "private": true,
   "main": "out/main/index.js",
   "author": "kkutysllb <kkutysllb@users.noreply.github.com>",
