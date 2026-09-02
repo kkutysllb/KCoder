@@ -97,6 +97,40 @@
 # 零冲突。完整性断言：kcoder/alpha.2↔alpha.3 差异文件列表与上游 alpha.2→alpha.3
 # 完全一致（1034=1034，comm 零差）。
 #
+# 升级记录：2026-09-02 alpha.3(dd6322d6) → 0.1.2-alpha.4(4e84901e，上游 tag
+# dsh-v0.1.2-alpha.4 落在此提交)，集成分支重建为 kcoder/alpha.4（= 4e84901e +
+# 五修复分支 merge：pi-ai 0.84.3 / codex 协议回退 / markdown 跨行合并 /
+# projection-cache 隔离 / pi-ai 0.84.4，+ cherry-pick 品牌化 98a16b24、
+# imageRequestPricing e6fe08a3，+ 测试适配 a52870ab）。297 提交/2371 文件
+# diff 逐项核对，KCoder 注入锚点全部存活：railMark/brandName（SidebarRoot
+# .tsx 未动，module.css 仅 +corner-shape: round——CSS 哈希随之变化）、
+# turnTail（TurnTailNodeView 不在 diff）、settings.plugin.item slot 契约
+# （ui-settings-plugins src 仅 CSS+invariant.ts）、webServer.register 路由
+# 契约（rpc-host.ts 不在 diff）、composer 骨架 data-composer-card=
+# InputBar.tsx:390 / data-composer-input=ComposerContentEditable.tsx（零
+# 改动）、selectProducedFiles/producedForClosing（turn-deliverables.ts 被
+# 动但两导出存活，buildLocationData 增 previous 参数）、sidebarCol/
+# centerCol（AppFrame.tsx 零改动）、data-conversation-composer-overlay
+#（TrajectoryView.tsx:507 同位）。上游内部重构（KCoder 无感）：InputBar
+# 移除 overlay/leftItems/rightItems/footer props 改 slot（conversation.
+# input.overlay/left/right、conversation.composer.dock）；sendSession 无活
+# 依赖（drag-to-attachment 已退役）。上游新功能/变化：PTC 模式 omit
+# workflow 插件（#3425）、会话渲染性能（#3391）、turn rail 预览层（#3415）、
+# session 格式 seq 品牌化（#3346）、superellipse 圆角与发丝描边（#3411）、
+# SDK/headless/base 默认暴露 web fetch（#3382）、模型发现 profile headers
+# 修复（#3403）、steer 统并相邻 agent 投递（#3250）、invariants 精简
+#（#3367：llm-pi-ai 移除 dsh-invariants peer 与 ./invariant 导出）、
+# CPython 子进程 code-runtime 后端（#1148）、session log 读 API（#2907）。
+# 集成冲突 3 处：llm-pi-ai/package.json×2（peer/dev 的 dsh-invariants——
+# alpha.4 起丢弃，与 alpha.3 解法不同；dependencies 范围收口 ^0.84.4 且
+# 上游 brand/util-values 两侧保留）、projection-cache 测试类型声明 map
+#（secret 与 bad-only 各自保留）。cherry-pick 零冲突。pre-push typecheck
+# 门拦下 1 处：隔离测试 cachedSnapshot 单参旧签名（alpha.4 加必选第二参
+# SessionLogOffset）→ 补 SessionLogOffset(0)（a52870ab，集成分支适配提交，
+# 与品牌化/imageRequestPricing 同例随基线前进）。
+# 完整性断言：kcoder/alpha.3↔alpha.4 差异文件列表与上游 alpha.3→alpha.4
+# 完全一致（2371=2371，comm 零差）。pi-ai lock 收敛 0.84.4。
+#
 # 升级基线的正确姿势（fork 锚定形态）：
 #   1. 改本文件为新提交 SHA（fork 上存在的基线提交）
 #   2. 在 fork 本地克隆重建集成分支：基于新基线建 kcoder/<版本> +
@@ -106,4 +140,4 @@
 #   4. 全量回归（重点：第三方插件加载、Web UI 冒烟、打包链 smoke）
 #   5. 提交本文件（及分支名相关改动）
 #
-dd6322d604e00eec1ba5e0c8541159906a21094a
+4e84901e6471b79ec0338099867ebb4606d12bb5

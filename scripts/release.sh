@@ -104,12 +104,12 @@ cmd_build() {
 
   # 3) 物化上游运行时（开箱即用的核心）：pnpm deploy 生产闭包
   #    + peer/平台二进制补齐（materialize-peers，deploy 的盲区）
-  #    基线断言（fork 锚定）：消费态 = 集成分支 kcoder/alpha.3，历史必须含
+  #    基线断言（fork 锚定）：消费态 = 集成分支 kcoder/alpha.4，历史必须含
   #    钉版基线（upstream/BASELINE）——手动改集成分支忘同步基线文件时在
   #    此拦下，未验证代码不进产物。
   BASELINE_SHA="$(grep -vE '^[[:space:]]*(#|$)' "$ROOT/upstream/BASELINE" | head -1 | tr -d '[:space:]')"
-  [[ "$(git -C "$UPSTREAM" branch --show-current)" == "kcoder/alpha.3" ]] \
-    || die "上游克隆不在集成分支 kcoder/alpha.3 上（先 bash scripts/setup.sh，或更新 upstream/BASELINE）"
+  [[ "$(git -C "$UPSTREAM" branch --show-current)" == "kcoder/alpha.4" ]] \
+    || die "上游克隆不在集成分支 kcoder/alpha.4 上（先 bash scripts/setup.sh，或更新 upstream/BASELINE）"
   git -C "$UPSTREAM" merge-base --is-ancestor "$BASELINE_SHA" HEAD \
     || die "集成分支不含基线 ${BASELINE_SHA:0:7}（在 fork 上重建集成分支或更新 upstream/BASELINE）"
   say "物化上游运行时（deploy --prod + peer 补齐）→ staging/kcoder-runtime …"
