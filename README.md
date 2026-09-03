@@ -1,5 +1,7 @@
 # KCoder
 
+![KCoder 欢迎屏（landing）](docs/landing.png)
+
 KCoder 桌面端：AI 编码工作台。基于 [DSH-Desktop](https://github.com/kkutysllb/DSH-Desktop) v0.1.4 基线构建，引擎为 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）——"一切皆插件"的开源 agent harness，运行时是由 profile 组装出的 Cordis 插件树。
 
 

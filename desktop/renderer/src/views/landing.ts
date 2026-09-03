@@ -158,10 +158,10 @@ export function mountLanding(root: HTMLElement): void {
               <div class="preview-editor">
                 <div class="preview-editor-heading"><span>Connect authentication</span><b data-ready-badge>Ready</b></div>
                 <div class="preview-editor-sub">3 files · local engine · last run just now</div>
-                <pre><span class="code-line" style="--row: 0"><span class="line-number">12</span><span class="code-text"><span class="syntax-keyword">async function</span> <span class="syntax-fn">signIn</span>(email, password) {'{'}<span class="row-caret" aria-hidden="true"></span></span></span>
+                <pre><span class="code-line" style="--row: 0"><span class="line-number">12</span><span class="code-text"><span class="syntax-keyword">async function</span> <span class="syntax-fn">signIn</span>(email, password) {<span class="row-caret" aria-hidden="true"></span></span></span>
 <span class="code-line" style="--row: 1"><span class="line-number">13</span><span class="code-text line-add">+  const session = await engine.authLogin(...)<span class="row-caret" aria-hidden="true"></span></span></span>
 <span class="code-line" style="--row: 2"><span class="line-number">14</span><span class="code-text line-add">+  persistSession(session.access_token)<span class="row-caret" aria-hidden="true"></span></span></span>
-<span class="code-line" style="--row: 3"><span class="line-number">15</span><span class="code-text">{'}'}<span class="row-caret" aria-hidden="true"></span></span></span></pre>
+<span class="code-line" style="--row: 3"><span class="line-number">15</span><span class="code-text">}<span class="row-caret" aria-hidden="true"></span></span></span></pre>
                 <div class="preview-result"><span>✓</span> Engine session connected</div>
               </div>
             </div>
