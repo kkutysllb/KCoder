@@ -24,6 +24,11 @@
  * 半迁移残留会让版本仍落后而在此重入，分片侧补丁逐条 no-op）；单条
  * identity 已含字段时不覆盖。挂载：dshManager.start() 之前——引擎读
  * 缓存前的串行窗口，无并发写。
+ *
+ * 上游 rc.1（0.1.2-rc.1）起引擎自带 compatibleVersions:[3,4] 读兼容
+ * （identity 字段改 optional，缺字段读作未播种谱系），本模块从唯一解
+ * 变双保险：迁移先把旧文档抬成规范 v5 形态（零重算直接恢复命中），
+ * 未迁移场景由引擎读兼容兜底；继续保留。域版本仍 5，无需改动。
  */
 
 import { copyFileSync, existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'

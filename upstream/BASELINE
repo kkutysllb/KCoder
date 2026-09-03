@@ -131,6 +131,32 @@
 # 完整性断言：kcoder/alpha.3↔alpha.4 差异文件列表与上游 alpha.3→alpha.4
 # 完全一致（2371=2371，comm 零差）。pi-ai lock 收敛 0.84.4。
 #
+# 升级记录：2026-09-03 alpha.4(4e84901e) → 0.1.2-rc.1(a66e4702，上游 tag
+# dsh-v0.1.2-rc.1 落在此提交)，集成分支重建为 kcoder/rc.1（= a66e4702 +
+# 五修复分支 merge：pi-ai 0.84.3 / codex 协议回退 / markdown 跨行合并 /
+# projection-cache 隔离 / pi-ai 0.84.4，+ cherry-pick 品牌化 98a16b24、
+# imageRequestPricing e6fe08a3、测试适配 a52870ab）。上游 rc.1 = alpha.5
+# + 纯版本戳（alpha.5..rc.1 仅 252 个 package.json 版本号 1+/1-，零代码），
+# 实质变更 280 文件全部在 storage/projcache 读兼容（compatibleVersions:
+# [3,4]、identity 字段改 optional、identityMatches 缺字段读作 ??false/??0、
+# invalidRecords:'backup-and-skip' 坏档移 .bak.<stamp> 后冷读重建）+
+# tool-cordis api-catalog 纯文档同步；域版本仍 5 不 bump——与 KCoder
+# projcache-migrate.ts（v0.5.3 就地迁移 v3→v5）完全兼容，迁移在先 +
+# 引擎读兼容兜底 = 双保险，迁移模块无需改动。KCoder 注入锚点零触碰
+#（变更全在 storage/session 后端层，无 UI/协议/路由文件）。集成冲突
+# 2 处：llm-pi-ai/package.json×2（dsh-invariants 丢弃照旧 + pi-ai 一步
+# 收口 ^0.84.4）、projection-cache 测试类型声明 map（secret/marks3 与
+# bad-only 双边保留）。cherry-pick 零冲突。fork 仓坑：alpha.4→rc.1 快进
+# 跨包移动/删除（code-runtime-python→experimental、tool-subagent-report/
+# examples 删除）后旧目录留 ignored 壳（lib/node_modules 残留），tsdown
+# workspace 扫描撞无 pkg 壳目录解析异常 → 根包误报 Cannot find entry，
+# git clean -fdX 清壳即愈；另清理 alpha.4 集成误提交的根目录截图垃圾
+# 6 枚（aac71359c6），rc.1 集成天然不带。隔离测试 28/28（含 rc.1 新增
+# fixtures v3 读兼容 6 例）；完整性断言：kcoder/alpha.4↔rc.1 差异文件
+# 与上游 alpha.4→rc.1 完全一致（上游独有 = 空）。rc.1 tag 后上游 master
+# 已漂移（596 文件，含 session-persistence handle 重构 breaking），本版
+# 不追，等 0.1.2 正式 tag 再评估。
+#
 # 升级基线的正确姿势（fork 锚定形态）：
 #   1. 改本文件为新提交 SHA（fork 上存在的基线提交）
 #   2. 在 fork 本地克隆重建集成分支：基于新基线建 kcoder/<版本> +
@@ -140,4 +166,4 @@
 #   4. 全量回归（重点：第三方插件加载、Web UI 冒烟、打包链 smoke）
 #   5. 提交本文件（及分支名相关改动）
 #
-4e84901e6471b79ec0338099867ebb4606d12bb5
+a66e4702047846cdaa10c66c9d3df3951f5ea70d
