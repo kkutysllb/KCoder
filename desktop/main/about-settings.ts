@@ -3,7 +3,9 @@
  * workspace 侧边栏顶部商标同款构成：K 图标 + "Coder" 字标 + 「桌面版
  * v<产品版本>」徽章）+ 产品介绍 + 版本信息卡，与技能 / MCP 分区同款
  * 机制（navList 尾部克隆按钮 + 自绘内容容器 + 对话框级 marker 类切换
- * 显隐 + MutationObserver 自愈）。
+ * 显隐 + MutationObserver 自愈）；导航图标换成上游 IconQuestionOutline14
+ * path 零误差复制（上游无 info 形，问号圈与 info 圈视觉同构），不再
+ * 与通用设置的齿轮同形。
  *
  * 信息全部运行时派生，发布跟随自动同步（无任何硬编码版本号）：
  * - 品牌头徽章版本号：appVersion（app.getVersion()，随产品发布自动
@@ -129,6 +131,34 @@ const PAGE_JS = `(() => {
   var SEC_ID = '__dsh_desktop_about_section'
   var MARKER = '__dsh_ab_on'
   var PREFIX = '__dsh_about__:'
+
+  // 导航图标工厂：上游 IconQuestionOutline14 path 零误差复制（DOM 构造，
+  // 不用 innerHTML——防 svg 序列化微任务风暴）；class 抄被替换的旧
+  // svg（上游 navIcon 编译类，对齐随上游样式走）。14 网格图形跟随上游
+  // 设计尺寸渲染 14px（suffix 14 = 设计像素），与 16px 图标视觉重量相
+  // 当。
+  function navIcon(old) {
+    var NS = 'http://www.w3.org/2000/svg'
+    var svg = document.createElementNS(NS, 'svg')
+    svg.setAttribute('width', '14')
+    svg.setAttribute('height', '14')
+    svg.setAttribute('viewBox', '0 0 14 14')
+    svg.setAttribute('fill', 'none')
+    var cls = old.getAttribute('class')
+    if (cls !== null) svg.setAttribute('class', cls)
+    var ds = [
+      'M12.5757 7.00012C12.5757 3.92085 10.0794 1.42463 7.00012 1.42456C3.9208 1.42456 1.42456 3.9208 1.42456 7.00012C1.42463 10.0794 3.92085 12.5757 7.00012 12.5757C10.0793 12.5756 12.5756 10.0793 12.5757 7.00012ZM13.8002 7.00012C13.8001 10.7559 10.7559 13.8001 7.00012 13.8002C3.2443 13.8002 0.199291 10.7559 0.199219 7.00012C0.199219 3.24426 3.24426 0.199219 7.00012 0.199219C10.7559 0.199291 13.8002 3.2443 13.8002 7.00012Z',
+      'M6.18042 8.68184C6.18043 8.09153 6.32893 7.34655 6.92127 6.8481C7.28566 6.54148 7.76104 6.27318 8.0022 6.10811C8.28964 5.91137 8.42234 5.76562 8.48328 5.58944C8.57774 5.31609 8.53121 5.00904 8.34912 4.76741C8.17409 4.53522 7.83879 4.32222 7.28186 4.32222C5.99668 4.32225 5.46969 5.11832 5.46949 5.78939H4.24414C4.24436 4.39942 5.36327 3.09691 7.28186 3.09688C8.17773 3.09688 8.89489 3.45606 9.32752 4.02999C9.75287 4.59438 9.86938 5.32775 9.64026 5.99019C9.44847 6.5444 9.04722 6.87743 8.69434 7.11898C8.29506 7.39226 8.02318 7.52192 7.70996 7.78548C7.51943 7.94582 7.40577 8.24899 7.40577 8.68184V8.75533H6.18042V8.68184Z',
+      'M7.39455 9.44026V10.8109H6.16921V9.44026H7.39455Z'
+    ]
+    for (var i = 0; i < ds.length; i++) {
+      var p = document.createElementNS(NS, 'path')
+      p.setAttribute('d', ds[i])
+      p.setAttribute('fill', 'currentColor')
+      svg.appendChild(p)
+    }
+    return svg
+  }
 
   var BRAND_K = ${JSON.stringify(BRAND_K_DATA_URL)}
   var CODER_DARK = ${JSON.stringify(BRAND_CODER_DARK_DATA_URL)}
@@ -357,6 +387,8 @@ const PAGE_JS = `(() => {
         mine.removeAttribute('aria-current')
         var label = mine.querySelector('span')
         if (label !== null) label.textContent = '关于'
+        var oldIcon = mine.querySelector('svg')
+        if (oldIcon !== null) oldIcon.replaceWith(navIcon(oldIcon))
         mine.addEventListener('click', function (ev) { ev.stopPropagation(); activate() })
         seed.parentNode.appendChild(mine)
       }
