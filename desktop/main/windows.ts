@@ -32,6 +32,7 @@ import { attachLanguageSettingsInjector } from './language-settings'
 import { attachSkillsSettingsInjector } from './skills-settings'
 import { attachMcpSettingsInjector } from './mcp-settings'
 import { attachAboutSettingsInjector } from './about-settings'
+import { attachHomeMigrationInjector } from './home-migration'
 import { attachPanelButtons } from './panel-buttons'
 import { getSettings, saveSettings } from './store'
 
@@ -202,6 +203,9 @@ export function showShellWindow(dshUrl: string): void {
     // 关于：设置面板导航列末尾注入「关于」分区（产品介绍 + 版本信息卡；
     // 版本全部运行时派生：应用元数据/运行时目录/fork 锚点，发布自动同步）
     attachAboutSettingsInjector(shellWindow)
+    // 数据迁移：设置面板导航列注入「数据迁移」入口（仅老用户未迁移时
+    // 出现；整库搬移 ~/.dsh → ~/.kcoder 零重建，完成后旧目录自动移除）
+    attachHomeMigrationInjector(shellWindow)
     // win32 四钮平铺让位：原生控制按钮区盖住右侧面板按钮，
     // 四钮 right 整体平移 +138px 至原生区左侧安全位（2026-08-30 起
     // 取代下拉收纳方案，无转发层；其他平台 no-op 不注入）

@@ -7,7 +7,7 @@
  * - builtin：dsh-skills-bundle 随包分发的核心批（读 bundle 源的
  *   skills/manifest.json，不依赖 dsh 是否已物化）
  * - optional：bundle 的 skills/optional/ 长尾批（随包但不注册，
- *   零目录税；拷到 ~/.dsh/skills/<name>/ 即启用）
+ *   零目录税；拷到 ~/.kcoder/skills/<name>/ 即启用）
  * - project：当前工作区 `.dsh/skills` / `.agents/skills`（dsh rank 100/200）
  * - user：`$DSH_HOME/skills`（rank 400）与 `~/.agents/skills`（rank 500，
  *   agents.md 生态跨工具共享目录——Claude Code 等同样读取）

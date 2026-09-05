@@ -14,8 +14,8 @@
  * - 源码运行：根 package.json script `dsh = node --import tsx/esm apps/cli/src/bin.ts`
  *   （SRC 回退模式，Web UI 仍需 `pnpm run build` 产物）
  * - Harness home：packages/util/home-paths `DSH_HOME` 环境变量，上游默认
- *   `~/.dsh`；KCoder 不预置（与 dsh CLI / 插件市场全链共享同一套
- *   数据，见 index.ts）
+ *   `~/.dsh`；KCoder 启动时预置为自有 `~/.kcoder`（老用户未迁移时暂用
+ *   ~/.dsh，见 home-migration.ts 的决策与一键迁移）
  * - 插件管理：apps/cli/src/plugin.ts `dsh plugin --profile <name> <pnpm args>`
  *   （pnpm 转发器；声明 `dsh.bundle` 的依赖自动进入层叠）
  * - Profile 清单：`$DSH_HOME/profiles/web/package.json` 的
@@ -148,9 +148,10 @@ export const BUNDLED_BIN = join('lib', 'bin.js')
 /** 上游 web profile 名称。 */
 export const WEB_PROFILE = 'web'
 
-/** dsh Harness home（上游默认 `~/.dsh`，与 dsh CLI 共享；用户显式设置 DSH_HOME 时从之）。 */
+/** dsh Harness home（KCoder 默认自有 `~/.kcoder`，启动决策见
+ * home-migration.ts：用户显式设置 DSH_HOME 时从之，老用户未迁移暂为 ~/.dsh）。 */
 export function dshHome(): string {
-  return process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  return process.env.DSH_HOME ?? join(homedir(), '.kcoder')
 }
 
 /**

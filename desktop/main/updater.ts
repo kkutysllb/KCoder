@@ -59,9 +59,9 @@ let updaterLogStream: ReturnType<typeof createWriteStream> | null = null
 function updaterLog(level: 'info' | 'warn' | 'error' | 'debug', message?: unknown): void {
   try {
     if (updaterLogStream === null) {
-      // 首次写日志时才解析 DSH_HOME（用户显式设置时从之，否则上游
-      // 默认 ~/.dsh——与 dshHome() 同步；不走其引用避免循环依赖）
-      const logDir = join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'logs')
+      // 首次写日志时才解析 DSH_HOME（用户显式设置时从之，否则 KCoder
+      // 默认 ~/.kcoder——与 dshHome() 同步；不走其引用避免循环依赖）
+      const logDir = join(process.env.DSH_HOME ?? join(homedir(), '.kcoder'), 'logs')
       mkdirSync(logDir, { recursive: true })
       updaterLogStream = createWriteStream(join(logDir, 'updater.log'), { flags: 'a' })
     }

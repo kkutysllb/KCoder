@@ -53,7 +53,7 @@ export function mountSetup(root: HTMLElement): void {
       parts.push(`构建产物：${status.built ? '已构建' : '未构建'}`)
       if (status.nodeRange !== null) parts.push(`上游 Node 要求：${status.nodeRange}`)
     }
-    parts.push(`会话数据目录：~/.dsh（DSH_HOME 可覆盖）`)
+    parts.push(`会话数据目录：~/.kcoder（DSH_HOME 可覆盖）`)
     statusText.textContent = parts.join('　·　')
     startButton.disabled = !status.cloned ? false : !status.built
     startButton.textContent = !status.cloned ? '初始化上游（克隆 + 安装依赖 + 构建）' : '重新构建上游'

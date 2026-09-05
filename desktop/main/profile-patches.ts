@@ -72,7 +72,7 @@ import { join } from 'node:path'
 import { PROJECT_ROOT, WEB_PROFILE, dshHome, runPnpm } from './dsh-contract'
 
 /**
- * 插件自愈日志（~/.dsh/logs/plugins-heal.log）：GUI 打包态看不到主
+ * 插件自愈日志（~/.kcoder/logs/plugins-heal.log）：GUI 打包态看不到主
  * 进程 console，Windows 现场自愈链是否执行/在哪一步失败完全黑盒
  * （v0.2.0 的教训）。超 1MB 轮转为 .old；写失败不影响主流程。
  */

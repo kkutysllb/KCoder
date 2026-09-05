@@ -5,7 +5,7 @@
  * - 深色时 `body` 带 `data-ds-dark-theme` 属性（官方注释：以该字段为准，
  *   "body[data-ds-dark-theme] from this field — never from the id"）；
  * - 同时 `documentElement.style.colorScheme = 'dark' | 'light'`；
- * - 偏好（light/dark/system）持久化在 dsh 服务端 settings（~/.dsh），
+ * - 偏好（light/dark/system）持久化在 dsh 服务端 settings（~/.kcoder），
  *   随机端口不丢偏好。
  *
  * 桌面端链路（shell 窗口是纯浏览器载体，无 preload）：
