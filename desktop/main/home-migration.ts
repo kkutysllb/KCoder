@@ -192,7 +192,10 @@ let migrating = false
 export async function performHomeMigration(win: BrowserWindow | null): Promise<HomeMigrationResult> {
   if (migrating) return { ok: false, error: '迁移正在进行中', warnings: [] }
   if (!migrationEligible(homedir(), process.env.DSH_HOME, homeDecided())) {
-    return { ok: false, error: '没有可迁移的旧数据（~/.dsh 不存在，或已迁移过）', warnings: [] }
+    const message = homeDecided()
+      ? '已迁移过，无需重复迁移'
+      : '没有可迁移的旧数据（~/.dsh 不存在）'
+    return { ok: false, error: message, warnings: [] }
   }
   migrating = true
   try {
@@ -236,7 +239,9 @@ export function pushHomeMigrationStatus(win: BrowserWindow | null): void {
   void win.webContents.executeJavaScript(
     `window.__dshHomeMigration && window.__dshHomeMigration(${JSON.stringify(homeMigrationStatus())})`,
     true,
-  ).catch(() => {})
+  ).catch((error) => {
+    console.error('[home-migration] 状态推送失败:', error)
+  })
 }
 
 /* ---------- 设置页注入器 ---------- */
@@ -278,7 +283,8 @@ const PAGE_JS = `(() => {
     return svg
   }
 
-  var status = null      // 主进程推送的迁移状态
+  var status = window.__dshHomeMigrationLast || null
+                // 主进程推送的迁移状态（null = 尚未送达；同页会话内复用上次结果）
   var dialog = null      // 当前挂载的设置对话框
   var navList = null
   var activeExtra = []   // 哈希激活类（激活按钮类集 - 普通按钮类集）
@@ -316,35 +322,58 @@ const PAGE_JS = `(() => {
     }
   }
 
-  /** 入口显隐随状态走：可迁移才注入 nav + section；不可迁移即拆除。 */
+  /** 入口与面板的唯一 Owner：
+   *  - 状态明确不可迁移（status 已送达且 available=false）→ 拆除；
+   *  - 其余情形（可迁移，或状态未送达）→ 保底注入（fail-visible）。
+   *  不能把入口门控在主进程推送上——推送链任何一环失手（时序、通道）
+   *  都让入口凭空消失且用户无感知（v1 事故第二课）。状态未送达时面板
+   *  渲染检测中占位，nav 点击会补发一次 status 请求。
+   *  所有 DOM 变更以 getElementById 幂等阀门把守——本观察器内任何无
+   *  阀门的增删都是无限微任务循环（v1 事故第一课）。 */
   function syncNav() {
-    var available = status !== null && status.available === true
+    var knownUnavailable = status !== null && status.available !== true
     var mine = document.getElementById(NAV_ID)
-    if (!available) {
+    var sec = document.getElementById(SEC_ID)
+    if (knownUnavailable) {
       if (mine !== null) mine.remove()
-      var sec = document.getElementById(SEC_ID)
       if (sec !== null) sec.remove()
       if (on) { deactivate() }
       return
     }
-    if (mine !== null || dialog === null || navList === null) return
-    var seeds = Array.from(navList.querySelectorAll('button'))
-    var seed = seeds[seeds.length - 1]
-    if (seed === undefined) return
-    var btn = seed.cloneNode(true)
-    btn.id = NAV_ID
-    btn.removeAttribute('aria-current')
-    var label = btn.querySelector('span')
-    if (label !== null) label.textContent = '数据迁移'
-    var oldIcon = btn.querySelector('svg')
-    if (oldIcon !== null) oldIcon.replaceWith(navIcon(oldIcon))
-    btn.addEventListener('click', function (ev) { ev.stopPropagation(); activate() })
-    // 排在「关于」之后（同族注入器按挂载序占位，锚定而非抢尾）
-    var about = document.getElementById('__dsh_desktop_about_nav')
-    if (about !== null && about.parentNode === seed.parentNode) {
-      seed.parentNode.insertBefore(btn, about.nextSibling)
-    } else {
-      seed.parentNode.appendChild(btn)
+    if (dialog === null || navList === null) return
+    if (mine === null) {
+      var seeds = Array.from(navList.querySelectorAll('button'))
+      var seed = seeds[seeds.length - 1]
+      if (seed !== undefined) {
+        var btn = seed.cloneNode(true)
+        btn.id = NAV_ID
+        btn.removeAttribute('aria-current')
+        var label = btn.querySelector('span')
+        if (label !== null) label.textContent = '数据迁移'
+        var oldIcon = btn.querySelector('svg')
+        if (oldIcon !== null) oldIcon.replaceWith(navIcon(oldIcon))
+        btn.addEventListener('click', function (ev) {
+          ev.stopPropagation()
+          if (status === null) send({ op: 'status' }) // 点击时补发检测请求
+          activate()
+        })
+        // 排在「关于」之后（同族注入器按挂载序占位，锚定而非抢尾）
+        var about = document.getElementById('__dsh_desktop_about_nav')
+        if (about !== null && about.parentNode === seed.parentNode) {
+          seed.parentNode.insertBefore(btn, about.nextSibling)
+        } else {
+          seed.parentNode.appendChild(btn)
+        }
+      }
+    }
+    if (sec === null) {
+      var slot = dialog.querySelector('div[data-slot="settings.section"]')
+      if (slot !== null && slot.parentElement !== null) {
+        sec = document.createElement('div')
+        sec.id = SEC_ID
+        slot.parentElement.appendChild(sec)
+        render()
+      }
     }
   }
 
@@ -367,8 +396,28 @@ const PAGE_JS = `(() => {
 
   function render() {
     var sec = document.getElementById(SEC_ID)
-    if (sec === null || status === null) return
+    if (sec === null) return
     sec.replaceChildren()
+
+    // 状态未送达：检测中占位 + 直迁按钮（主进程执行时现场判定资格，
+    // 不合格会弹窗说明——推送链失手也不再阻塞迁移动作本身）
+    if (status === null) {
+      var detecting = document.createElement('div')
+      detecting.className = 'hm-lead'
+      detecting.textContent = '正在检测旧数据目录（~/.dsh）…'
+      sec.appendChild(detecting)
+      var hint = document.createElement('div')
+      hint.className = 'hm-hint'
+      hint.textContent = '检测长时间未完成时也可直接发起迁移：是否执行以主进程实际检测结果为准。'
+      sec.appendChild(hint)
+      var directBtn = document.createElement('button')
+      directBtn.type = 'button'
+      directBtn.className = 'hm-btn'
+      directBtn.textContent = '迁移到 ~/.kcoder'
+      directBtn.addEventListener('click', function () { openConfirm() })
+      sec.appendChild(directBtn)
+      return
+    }
 
     var lead = document.createElement('div')
     lead.className = 'hm-lead'
@@ -403,10 +452,7 @@ const PAGE_JS = `(() => {
     btn.disabled = busy
     btn.addEventListener('click', function () {
       if (busy) return
-      busy = true
-      btn.textContent = '迁移中…'
-      btn.disabled = true
-      send({ op: 'migrate' })
+      openConfirm()
     })
     sec.appendChild(btn)
 
@@ -416,17 +462,91 @@ const PAGE_JS = `(() => {
     sec.appendChild(hint)
   }
 
-  /** 主进程 → 页面：状态推送（含迁移结果后的最新状态）。 */
+  /* ── 确认模态框：迁移影响说明 + 用户确认后才执行 ── */
+
+  var CONFIRM_ID = '__dsh_desktop_home_migration_confirm'
+
+  function closeConfirm() {
+    var m = document.getElementById(CONFIRM_ID)
+    if (m !== null) m.remove()
+  }
+
+  function confirmRow(text, strong) {
+    var p = document.createElement('div')
+    p.className = 'hmc-row'
+    p.textContent = (strong ? '· ' : '') + text
+    if (strong) p.className += ' hmc-strong'
+    return p
+  }
+
+  function openConfirm() {
+    closeConfirm()
+    var mask = document.createElement('div')
+    mask.id = CONFIRM_ID
+    var box = document.createElement('div')
+    box.className = 'hmc-box'
+    var title = document.createElement('div')
+    title.className = 'hmc-title'
+    title.textContent = '确认迁移数据？'
+    box.appendChild(title)
+    var body = document.createElement('div')
+    body.className = 'hmc-body'
+    body.appendChild(confirmRow('把 ' + (status !== null ? status.from : '~/.dsh') + ' 整体搬移到 ' + (status !== null ? status.to : '~/.kcoder') + '（同一块盘，瞬时完成）', true))
+    body.appendChild(confirmRow('会话记录、已装插件及其依赖、技能、登录凭据、各项设置全部原样保留，不需要任何重建'))
+    body.appendChild(confirmRow('完成后旧目录自动移除；qilin-accounts（非 KCoder 数据）将一并清理'))
+    body.appendChild(confirmRow('迁移中引擎短暂重启，进行中的回答会中断；请先关闭正在使用旧目录的其他程序'))
+    box.appendChild(body)
+    var actions = document.createElement('div')
+    actions.className = 'hmc-actions'
+    var cancel = document.createElement('button')
+    cancel.type = 'button'
+    cancel.className = 'hmc-cancel'
+    cancel.textContent = '取消'
+    cancel.addEventListener('click', function (e) { e.stopPropagation(); closeConfirm() })
+    var sure = document.createElement('button')
+    sure.type = 'button'
+    sure.className = 'hm-btn'
+    sure.textContent = '确认迁移'
+    sure.addEventListener('click', function (e) {
+      e.stopPropagation()
+      closeConfirm()
+      if (busy) return
+      busy = true
+      var b = document.getElementById('__dsh_desktop_home_migration_btn')
+      if (b !== null) { b.textContent = '迁移中…'; b.disabled = true }
+      send({ op: 'migrate' })
+    })
+    actions.append(cancel, sure)
+    box.appendChild(actions)
+    mask.appendChild(box)
+    // 点击遮罩空白处 = 取消（点盒子内不冒泡关闭）
+    mask.addEventListener('click', function (ev) {
+      if (ev.target === mask) closeConfirm()
+    })
+    document.body.appendChild(mask)
+  }
+
+  /** 主进程 → 页面：状态推送（含迁移结果后的最新状态）。同时留档到
+   *  window，供对话框重开时免闪烁复用（页面重载自然复位）。 */
   window.__dshHomeMigration = function (data) {
     status = data && typeof data === 'object' ? data : null
+    window.__dshHomeMigrationLast = status
     busy = false
     syncNav()
-    render()
+    var sec = document.getElementById(SEC_ID)
+    if (sec !== null) render()
   }
 
   function build() {
-    var dlg = document.querySelector('[role="dialog"][aria-modal="true"]')
-    if (dlg === null || dlg.querySelector('div[data-slot="settings.section"]') === null) {
+    // 设置对话框特异性识别：在所有 [role=dialog][aria-modal=true] 里选
+    // 含 settings.section 的那个（本注入器的确认模态框、上游其他对话框
+    // 在场时不误认；误认会走 reset 分支反复抖状态）
+    var dlg = null
+    var candidates = document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+    for (var ci = 0; ci < candidates.length; ci++) {
+      if (candidates[ci].querySelector('div[data-slot="settings.section"]') !== null) { dlg = candidates[ci]; break }
+    }
+    if (dlg === null) {
       if (dialog !== null) { on = false; dialog = null; navList = null }
       return
     }
@@ -466,12 +586,22 @@ const PAGE_JS = `(() => {
         '.hm-btn { display: inline-block; margin: 4px 0 14px; padding: 9px 22px; border: none; border-radius: 12px; background: var(--dsw-alias-label-primary, #222); color: var(--dsw-alias-bg-module-platform, #fff); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }',
         '.hm-btn:hover { opacity: .88; }',
         '.hm-btn:disabled { opacity: .5; cursor: default; }',
-        '.hm-hint { font-size: 12px; color: var(--dsw-alias-label-tertiary, #aaa); }'
+        '.hm-hint { font-size: 12px; color: var(--dsw-alias-label-tertiary, #aaa); }',
+        '#' + CONFIRM_ID + ' { position: fixed; inset: 0; z-index: 2147483000; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.45); }',
+        '.hmc-box { box-sizing: border-box; width: min(92vw, 560px); padding: 24px 28px; border-radius: 16px; background: var(--dsw-alias-bg-layer-2, #fff); border: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,.25)); box-shadow: 0 16px 48px rgba(0,0,0,.3); }',
+        '.hmc-title { font-size: 16px; font-weight: 600; color: var(--dsw-alias-label-primary, #222); margin: 0 0 14px; }',
+        '.hmc-body { margin: 0 0 18px; }',
+        '.hmc-row { font-size: 13px; line-height: 1.7; color: var(--dsw-alias-label-secondary, #888); padding: 4px 0; }',
+        '.hmc-row.hmc-strong { color: var(--dsw-alias-label-primary, #222); font-weight: 500; }',
+        '.hmc-actions { display: flex; justify-content: flex-end; gap: 10px; }',
+        '.hmc-cancel { padding: 8px 18px; border-radius: 10px; border: 1px solid var(--dsw-alias-border-l2); background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; cursor: pointer; }'
       ].join('\\n')
       document.head.appendChild(style)
     }
 
     if (navList === null) return
+    // nav + section 的建立/拆除全部由 syncNav 幂等负责（见其头注释：
+    // 任何无阀门的本观察器内 DOM 变更 = 无限微任务循环）
     syncNav()
 
     if (on) activate()
@@ -485,16 +615,6 @@ const PAGE_JS = `(() => {
         if (btn.id === NAV_ID) return
         if (on) deactivate()
       }, true)
-    }
-
-    if (document.getElementById(SEC_ID) === null) {
-      var slot = dlg.querySelector('div[data-slot="settings.section"]')
-      if (slot !== null && slot.parentElement !== null) {
-        var sec = document.createElement('div')
-        sec.id = SEC_ID
-        slot.parentElement.appendChild(sec)
-        render()
-      }
     }
   }
 
@@ -521,11 +641,18 @@ export function attachHomeMigrationInjector(win: BrowserWindow): void {
     }
     if (payload.op === 'migrate') {
       void performHomeMigration(win).then((result) => {
-        if (!result.ok && !win.isDestroyed()) {
+        if (win.isDestroyed()) return
+        if (!result.ok) {
           // 失败就地反馈：状态打回（busy 复位），错误经 alert 通道最直白
           pushHomeMigrationStatus(win)
           void webContents.executeJavaScript(
             `window.alert(${JSON.stringify(result.error ?? '迁移失败')})`,
+            true,
+          ).catch(() => {})
+        } else if (result.warnings.length > 0) {
+          // 成功但有非致命告警（残骸备份位置等）：引擎重启换页前告知
+          void webContents.executeJavaScript(
+            `window.alert(${JSON.stringify(result.warnings.join('\n'))})`,
             true,
           ).catch(() => {})
         }
@@ -536,8 +663,9 @@ export function attachHomeMigrationInjector(win: BrowserWindow): void {
   webContents.on('console-message', onConsole)
   webContents.on('did-finish-load', () => {
     if (win.isDestroyed()) return
-    void webContents.executeJavaScript(PAGE_JS, true).catch(() => {
-      // 页面跳转间隙执行失败属正常，下次加载会重试
+    void webContents.executeJavaScript(PAGE_JS, true).catch((error) => {
+      // 注入失败绝不能静默——v1 事故里菜单消失就是链路故障被吞了
+      console.error('[home-migration] 页面脚本注入失败:', error)
     })
     pushHomeMigrationStatus(win)
   })
