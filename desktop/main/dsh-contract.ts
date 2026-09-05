@@ -50,14 +50,14 @@ export const MAX_AUTO_RESTARTS = 3
 
 /**
  * 上游锚定 = 自有 fork（kkutysllb/deepseek-harness）：上游修复直接以提交
- * 落集成分支 `kcoder/rc.1`（= 基线 + 修复分支的 merge），不再用
+ * 落集成分支 `kcoder/0.1.3-alpha.1`（= 基线 + 修复分支的 merge），不再用
  * KCoder 仓内 *.patch 归档应用。消费工作树在仓外单一路径（可用环境变
  * 量 KCODER_UPSTREAM_DIR 覆盖）。
  */
 export const UPSTREAM_REPO = 'git@github.com:kkutysllb/deepseek-harness.git'
 
 /** 消费分支：基线 + 上游修复合入（setup.sh / release.sh 断言同一分支）。 */
-export const UPSTREAM_BRANCH = 'kcoder/rc.1'
+export const UPSTREAM_BRANCH = 'kcoder/0.1.3-alpha.1'
 
 const DEFAULT_UPSTREAM_DIR = '/Users/libing/kk_Projects/deepseek-harness'
 

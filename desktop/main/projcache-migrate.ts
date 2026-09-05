@@ -25,10 +25,12 @@
  * identity 已含字段时不覆盖。挂载：dshManager.start() 之前——引擎读
  * 缓存前的串行窗口，无并发写。
  *
- * 上游 rc.1（0.1.2-rc.1）起引擎自带 compatibleVersions:[3,4] 读兼容
- * （identity 字段改 optional，缺字段读作未播种谱系），本模块从唯一解
- * 变双保险：迁移先把旧文档抬成规范 v5 形态（零重算直接恢复命中），
- * 未迁移场景由引擎读兼容兜底；继续保留。域版本仍 5，无需改动。
+ * 上游 rc.1（0.1.2-rc.1）起引擎自带 compatibleVersions 读兼容（identity
+ * 字段改 optional，缺字段读作未播种谱系），本模块从唯一解变双保险：
+ * 迁移先把旧文档抬成规范 v5 形态（零重算直接恢复命中），未迁移场景由
+ * 引擎读兼容兜底；继续保留。0.1.3-alpha.1 起读兼容扩为 [3,4,5,6]、域
+ * 版本 bump 7（v5 写入仍可读），引擎回写后文档版本 7 > TARGET_VERSION，
+ * 由下方未来版本守卫就地早退，不会降档；模块逻辑无需改动。
  */
 
 import { copyFileSync, existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'

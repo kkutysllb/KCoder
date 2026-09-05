@@ -157,6 +157,46 @@
 # 已漂移（596 文件，含 session-persistence handle 重构 breaking），本版
 # 不追，等 0.1.2 正式 tag 再评估。
 #
+# 升级记录：2026-09-05 rc.1(a66e4702) → 0.1.3-alpha.1(d347e7039，上游 tag
+# dsh-v0.1.3-alpha.1 = 届时 master 尖端，Merge PR #3554)，集成分支重建为
+# kcoder/0.1.3-alpha.1（0.1.2 系 kcoder/alpha.1 分支名尚存，本版起分支名带
+# 完整版本号；= d347e7039 + 五修复分支 merge：pi-ai 0.84.3 / codex 协议回退 /
+# markdown 跨行合并 / projection-cache 隔离 / pi-ai 0.84.4，+ cherry-pick
+# 品牌化 f70234a8ca、imageRequestPricing 028e70e905、测试适配 d805af4fdd）。
+# 328 提交/2051 文件 diff 逐项核对（rc.1 tag 后 master 漂移与 release 收口
+# 一并吸收），KCoder 注入锚点全部存活：railMark/brandName（ui-sidebar src
+# 零改动）、turnTail（TurnTailNodeView 同位）、settings.plugin.item keyed
+# 契约、composer 全套 DOM 锚点（data-composer-card 移至 InputBar.tsx:411，
+# data-composer-input 原位）、conversation.input.*/composer.dock slot 体系
+# 零改动（apply.ts 不在 diff）、sendSession 5 参签名（attachmentIds 语义由
+# 图片扩为通用附件，KCoder 无活依赖）、webServer.register 路由存活（新增
+# requestBodyMode 契约，KCoder 未消费该 API）、selectProducedFiles/
+# producedForClosing、sidebarCol/centerCol（AppFrame.module.css 25/32 同位）、
+# data-conversation-composer-overlay、dsw 变量体系、就绪行格式与 --no-open
+# 旗标（web-app startup.ts 自解析）。上游大变化/风险面：① composer 图片→
+# 通用文件附件重构（#3109，InputBar props addImages→addFiles 系内部化改造，
+# 插件面 slot/锚点不变，dsh-file-attach 兼容）；② projcache 域版本 5→7、
+# compatibleVersions:[3,4,5,6]（#3455 v6 兼容并入后域再 bump），v5 写入仍
+# 可读，projcache-migrate.ts 未来版本守卫（version>5 早退）可挡引擎回写 v7，
+# 双保险成立、模块无需改动；③ SESSION_FORMAT_VERSION 0→2（session-format-
+# catalog 新包 + v0→v1→v2 迁移链，引擎读旧会话自动迁移，KCoder 不直解会话
+# 文件）；④ session-persistence handle-seam 重构（#3266）+ write-lease
+#（#3362），默认 JSONL 未启用 SQLite，回归会话 CRUD 即可；⑤ 消息编辑功能
+# 加即撤（#3452/#3459，净零）。集成冲突 4 处：merge#1 llm-pi-ai/package.json
+# ×3 块（invariants 丢弃 + dependencies 保上游 brand/util-values + devDeps
+# 保含新增 dsh-http-proxy 的上游集合）、merge#2 pnpm-workspace/lock 的
+# patchedDependencies map（yao-pkg 与 pi-ai 0.84.3 补丁双边保留）、merge#4
+# projection-cache 测试类型声明 map（secret/marks3 与 bad-only 双边保留）、
+# merge#5 llm-pi-ai package.json×3 块 + pnpm-workspace/lock（0.84.3→0.84.4
+# 补丁换键，lock 以我方为底 pnpm install 重收敛）。cherry-pick 零冲突。
+# 坑：merge 引入新依赖（@types/fs-ext 等）须先 pnpm install 再提交，否则
+# lefthook third-party notices 读 node_modules 元数据失败拦 commit；notices
+# 脚本解析 lock，lock 带冲突标记时同样失败（先解 lock 再提交）。完整性
+# 断言：kcoder/rc.1↔0.1.3-alpha.1 差异文件列表与上游 rc.1→alpha.1 完全一致
+#（2051=2051，comm 零差）。定向回归 vitest llm-pi-ai + projection-cache +
+# ui-chat = 645/645。pi-ai 收敛 ^0.84.4（上游 lock 仍钉 0.84.2，glm-5.3 目录
+# 继续由修复分支供给）。
+#
 # 升级基线的正确姿势（fork 锚定形态）：
 #   1. 改本文件为新提交 SHA（fork 上存在的基线提交）
 #   2. 在 fork 本地克隆重建集成分支：基于新基线建 kcoder/<版本> +
@@ -166,4 +206,4 @@
 #   4. 全量回归（重点：第三方插件加载、Web UI 冒烟、打包链 smoke）
 #   5. 提交本文件（及分支名相关改动）
 #
-a66e4702047846cdaa10c66c9d3df3951f5ea70d
+d347e703908d0406b7a7ef80e3a0e594d86b2215
