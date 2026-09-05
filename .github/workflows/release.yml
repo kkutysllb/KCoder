@@ -136,6 +136,23 @@ jobs:
         # 证书时不签名：app-update.yml 无 publisherName → electron-updater
         # 对 win 包自动跳过签名校验（NsisUpdater.verifySignature 空配置放行）。
         run: pnpm exec electron-builder --publish never
+      - name: 校验内置 bundle 随包（extraResources 漂移拦截）
+        # release.sh verify 1.7 的 CI 平价版：bundle/ ↔ 包内 resources 逐
+        # 目录对账 + profile-patches 对账。bundle/dsh-file-attach 漏配
+        # extraResources 连续五个版本没拦住（0.5.1-0.5.5，Windows 全新
+        # 安装引擎启动即崩 cannot resolve profile bundle）——本地 verify
+        # 有此闸，CI-only 发布链没有
+        run: |
+          set -euo pipefail
+          case "${{ runner.os }}" in
+            macOS)
+              RESOURCES="$(find dist -maxdepth 4 -type d -path '*KCoder.app/Contents/Resources' | head -1)" ;;
+            Windows)
+              RESOURCES="dist/win-unpacked/resources" ;;
+            Linux)
+              RESOURCES="dist/linux-unpacked/resources" ;;
+          esac
+          node scripts/verify-bundles-shipped.mjs "$RESOURCES"
       - name: 校验 macOS 签名与公证（防静默发布损坏包）
         if: runner.os == 'macOS'
         run: |

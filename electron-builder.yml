@@ -31,6 +31,14 @@ extraResources:
     to: dsh-terminal
   - from: bundle/dsh-stats-panel
     to: dsh-stats-panel
+  # dsh-file-attach（文件/文件夹附件，包名 @kkutysllb/dsh-file-attach；
+  # 真源同名独立仓，sync-bundles 经 dsh-plugins 镜像同步产物）。
+  # ⚠️ 0.5.1-0.5.5 漏配本映射：打包应用 resources 源缺失 → 物化静默
+  # 跳过，引用此 bundle 的 profile 引擎启动即崩（cannot resolve profile
+  # bundle），CI 无 bundle 对账闸一直没拦住（2026-09-05 Windows 现场）。
+  # CI 侧对账闸见 release.yml 的 verify-bundles-shipped 步
+  - from: bundle/dsh-file-attach
+    to: dsh-file-attach
   # dsh-file-review-kcoder（改动审查，完全自立维护；血缘
   # left0ver/dsh-file-review；真源同名独立仓，sync-bundles.mjs 同步产物）
   - from: bundle/dsh-file-review-kcoder

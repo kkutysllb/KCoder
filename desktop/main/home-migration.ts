@@ -132,6 +132,25 @@ export function migrationEligible(
   return existsSync(defaultLegacyHome(osHome))
 }
 
+/** 带重试的 rename：Windows 上任何进程持有树内句柄（引擎孙进程退场
+ *  延迟、杀软/索引器扫描）都会 EPERM/EBUSY——POSIX 无此约束，rename
+ *  整库在 mac/Linux 从不失败、Windows 却是常见现场。stop 只等主进程
+ *  exit，句柄释放有延迟，指数退避重试通常一两次内过。 */
+function renameWithRetry(from: string, to: string, attempts = 6): void {
+  for (let i = 0; ; i++) {
+    try {
+      renameSync(from, to)
+      return
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code
+      const retriable = i < attempts - 1
+        && (code === 'EPERM' || code === 'EBUSY' || code === 'EACCES')
+      if (!retriable) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250 * (i + 1))
+    }
+  }
+}
+
 /** 迁移核心：残骸挪边 + 整库 rename + 清理误入目录 + 落迁移标记。 */
 export function performMigrationPaths(from: string, to: string): string[] {
   if (!existsSync(from)) throw new Error(`旧数据目录不存在：${from}`)
@@ -142,10 +161,10 @@ export function performMigrationPaths(from: string, to: string): string[] {
     const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19)
     let aside = `${to}.stray-${stamp}`
     for (let i = 0; existsSync(aside); i++) aside = `${to}.stray-${stamp}-${String(i)}`
-    renameSync(to, aside)
+    renameWithRetry(to, aside)
     warnings.push(`既有 ${to} 已备份为 ${aside}（非本次迁移内容，确认无用后可删除）`)
   }
-  renameSync(from, to)
+  renameWithRetry(from, to)
   for (const name of FOREIGN_DIRS) {
     try {
       rmSync(join(to, name), { recursive: true, force: true })
@@ -234,7 +253,11 @@ export async function performHomeMigration(win: BrowserWindow | null): Promise<H
     } catch (error) {
       // 引擎原地恢复（env 未动，仍指旧 home），迁移可重试
       dshManager.start()
-      return { ok: false, error: `迁移失败：${String(error)}`, warnings: [] }
+      const code = (error as NodeJS.ErrnoException)?.code
+      const hint = (code === 'EPERM' || code === 'EBUSY') && process.platform === 'win32'
+        ? '（Windows 下旧目录被其他程序占用会报无权限：关闭正在使用它的程序（如终端里的 dsh 命令、杀毒软件实时扫描）后重试）'
+        : ''
+      return { ok: false, error: `迁移失败：${String(error)}${hint}`, warnings: [] }
     }
     saveSettings({ homeDecided: true })
     process.env.DSH_HOME = defaultKcoderHome()
