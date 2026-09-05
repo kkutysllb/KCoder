@@ -73,10 +73,6 @@ export const DSH_STATS_PANEL_BUNDLE = 'dsh-stats-panel'
 /** 嵌入式终端 bundle 包名（scope 定稿理由同 git-panel，见其常量注释）。 */
 export const DSH_TERMINAL_BUNDLE = '@kkutysllb/dsh-terminal'
 
-/** 文件/文件夹附件 bundle 包名（scope 定稿理由同 git-panel，见其常量注释；
- * 真源同名独立仓，sync-bundles 经 dsh-plugins 镜像同步产物）。 */
-export const DSH_FILE_ATTACH_BUNDLE = '@kkutysllb/dsh-file-attach'
-
 /** 改动审查 bundle 包名（独立自立插件 dsh-file-review-kcoder；真源在同名独立仓，sync-bundles.mjs 同步产物）。 */
 export const DSH_FILE_REVIEW_BUNDLE = 'dsh-file-review-kcoder'
 
@@ -110,7 +106,6 @@ const BUNDLES: BundledPlugin[] = [
   { pkg: DSH_GIT_PANEL_BUNDLE, dir: 'dsh-git-panel', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: DSH_STATS_PANEL_BUNDLE, dir: 'dsh-stats-panel', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: DSH_TERMINAL_BUNDLE, dir: 'dsh-terminal', entry: 'entry.js', intactFiles: ['client.js'] },
-  { pkg: DSH_FILE_ATTACH_BUNDLE, dir: 'dsh-file-attach', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: DSH_FILE_REVIEW_BUNDLE, dir: 'dsh-file-review-kcoder', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
   { pkg: DSH_CODING_SIDEBAR, dir: 'dsh-coding-sidebar', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
 ]
@@ -150,6 +145,13 @@ const RETIRED_PLUGINS = [
   'dsh-terminal',
   '@dsh-external/dsh-git-panel',
   '@dsh-external/dsh-terminal',
+  // 2026-09-05 退役：当前基线（0.1.3-alpha.1）composer 已原生集成附件
+  // 上传入口（引擎 web-app bundle 注册的 ui-attachment + file-upload
+  // 链路），内置 dsh-file-attach 能力被原生覆盖，整线退役三清。退役
+  // 同时即修复：该插件 0.5.1 起漏配随包资源映射（安装包无实体），引用
+  // 它的 profile 引擎启动解析失败即崩，本清单自愈摘除层叠注册后不再
+  // 触达 resolve
+  '@kkutysllb/dsh-file-attach',
 ]
 
 /** 分发的 bundle 源目录（开发态仓库内；打包态 extraResources）。 */

@@ -33,9 +33,10 @@ import type {
  *  不随插件管理页单独更新（卸载/更新均不开放，随应用发版整包升级）。 */
 const ENGINE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
 
-/** 内置清单：引擎层 + KCoder 物化 bundle（含 stats-panel / file-attach，
- *  此前漏列会被当成「用户安装」误可卸载）+ 预置第三方插件（coding-sidebar
- *  已在物化清单，去重）。UI 展示为内置、禁卸载；除引擎层外均可更新。 */
+/** 内置清单：引擎层 + KCoder 物化 bundle（含 stats-panel，此前漏列会被
+ *  当成「用户安装」误可卸载；file-attach 已于 0.5.6 退役）+ 预置第三方
+ *  插件（coding-sidebar 已在物化清单，去重）。UI 展示为内置、禁卸载；
+ *  除引擎层外均可更新。 */
 const IN_BOX_BUNDLES = [
   ...ENGINE_BUNDLES,
   ...MATERIALIZED_BUNDLES,
