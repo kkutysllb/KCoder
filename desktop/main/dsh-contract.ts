@@ -233,6 +233,10 @@ export function upstreamBuilt(): boolean {
  * 优先系统 node（与用户构建上游时的版本一致），其版本必须满足上游
  * engines.node；不满足时退回 Electron 内置 node（ELECTRON_RUN_AS_NODE）；
  * 都不满足时返回 null（应引导用户修环境）。
+ *
+ * 适用面：本地克隆（resolveDshCommand 源 3）与 vendored pnpm 等纯 JS
+ * 子进程——它们的原生依赖按本机 node 编译/或为 N-API，与解释器自洽。
+ * 打包内置运行时不走本函数（ABI 配对要求，见源 2 的固定 Electron node）。
  */
 export function resolveRuntime(): { command: string; args: string[]; isElectron: boolean } | null {
   const range = upstreamNodeRange()
@@ -293,7 +297,9 @@ function parseVersionOutput(stdout: string): string | null {
  * 解析启动 dsh 的命令，优先级：
  * 1. `DSH_BIN` 环境变量（可执行文件或 `node script.js` 形式）
  * 2. 打包内置运行时（resources/kcoder-runtime.tar.gz 首启解压到
- *    userData；系统 node 满足版本要求时用系统，否则用 Electron 内置 node）
+ *    userData；解释器固定 Electron 内置 node——运行时原生模块由物化链
+ *    统一按桌面端 Electron ABI 重编，系统 node 版本不受控、ABI 可能不
+ *    配对，v0.5.5 mac 发布即被 fs-ext 的 ABI 错配拦下）
  * 3. 本地克隆的构建产物（`node apps/cli/lib/bin.js`，开发态）
  * 4. PATH 中的 `dsh`
  *
@@ -323,12 +329,17 @@ export function resolveDshCommand(): DshCommand | null {
     }
   }
 
-  // 2) 打包内置运行时（物化产物是纯 JS，不挑 node 小版本；
-  //    系统 node 缺失或不满足 range 时无条件用 Electron 内置 node）
+  // 2) 打包内置运行时（解释器固定 Electron 内置 node）：运行时含 ABI
+  //    锁定的原生模块（fs-ext 的 flock，NAN 族按编译时解释器 ABI 绑定），
+  //    物化链已统一按桌面端 electron 版本重编（materialize-peers 的 ABI
+  //    对齐步），只有随包分发的 Electron node 能保证配对——系统 node
+  //    版本不受我们控制（ABI 115/127/137… 皆可能），v0.5.5 mac CI 的
+  //    Electron node 形态冒烟即拦下 ABI 127 二进制撞 ABI 140 加载器。
+  //    --expose-internals：Electron node 下 HMR 的 internal loader 回退
+  //    不可用，必须显式给 flag（v0.1.0 真机教训）。
   const bundled = ensureBundledRuntime()
   if (bundled !== null) {
-    const runtime = resolveRuntime()
-    const cmd = runtime ?? { command: process.execPath, args: ['--expose-internals'], isElectron: true }
+    const cmd = { command: process.execPath, args: ['--expose-internals'], isElectron: true }
     const version = upstreamVersionIn(bundled)
     return {
       source: 'checkout',

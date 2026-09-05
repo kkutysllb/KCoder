@@ -126,10 +126,12 @@ cmd_build() {
   say "品牌断言（chat.deepDiving 终值）…"
   node "$ROOT/scripts/brand-assert.mjs" "$ROOT/staging/kcoder-runtime.tar.gz" || die "品牌断言未通过"
 
-  # 4) 运行时冒烟：真实起 Web 服务（就绪行 + 首页 200），
+  # 4) 运行时冒烟：真实起 Web 服务（就绪行 + 首页 200），用 Electron
+  #    node 形态——产物唯一解释器（内置运行时原生模块按 Electron ABI
+  #    重编，见 materialize-peers；系统 node 冒烟验证不了真机路径），
   #    不过全关的检查绝不进入下一步
-  say "运行时冒烟（真实起服）…"
-  node "$ROOT/scripts/smoke-runtime.mjs" --dir "$STAGING"
+  say "运行时冒烟（Electron node 形态，真实起服）…"
+  node "$ROOT/scripts/smoke-runtime.mjs" --dir "$STAGING" --exec "$(cd "$ROOT" && node -p 'require("electron")')"
 
   # 5) electron-builder（本地签名自动发现；公证凭据齐则自动公证）
   if [[ -n "${APPLE_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" && -n "${APPLE_TEAM_ID:-}" ]]; then
@@ -199,16 +201,16 @@ cmd_verify() {
   [[ $bcount -gt 0 ]] || die "校验失败：仓库 bundle/ 目录为空（同步链异常）"
   ok "内置 bundle 目录：$bcount 个全部随包在位"
 
-  # 2) 解压 + 真实起服冒烟（模拟首启解压，包内运行时全链路验收）；
-  #    macOS 上另跑 Electron node 形态——真机 GUI 启动时 PATH 无系统
-  #    node，回退 Electron 内置 node（v0.1.0 曾挂：HMR 需 internal
-  #    loader），系统 node 冒烟覆盖不到该路径
+  # 2) 解压 + 真实起服冒烟（模拟首启解压，包内运行时全链路验收），
+  #    Electron node 形态——产物唯一解释器（真机 GUI 启动即回退
+  #    Electron 内置 node，v0.1.0 曾挂：HMR 需 internal loader；v0.5.5
+  #    又拦下 fs-ext ABI 错配），系统 node 冒烟覆盖不到该路径
   local xdir; xdir="$(mktemp -d)"
   tar -xzf "$tarball" -C "$xdir" \
     || { rm -rf "$xdir"; die "校验失败：归档损坏无法解压"; }
   [[ -f "$xdir/lib/bin.js" ]] \
     || { rm -rf "$xdir"; die "校验失败：归档解压后缺 lib/bin.js"; }
-  node "$ROOT/scripts/smoke-runtime.mjs" --dir "$xdir" \
+  node "$ROOT/scripts/smoke-runtime.mjs" --dir "$xdir" --exec "$(cd "$ROOT" && node -p 'require("electron")')" \
     || { rm -rf "$xdir"; die "校验失败：包内运行时无法起服"; }
   if [[ "$(uname)" == "Darwin" ]]; then
     local bin="$app/Contents/MacOS/${APP_NAME%.app}"

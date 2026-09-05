@@ -87,9 +87,16 @@ jobs:
         # 发布直接红（与本地 release.sh 共用脚本）。
         timeout-minutes: 2
         run: node scripts/brand-assert.mjs staging/kcoder-runtime.tar.gz
-      - name: 运行时冒烟（真实起服，禁止打包坏运行时）
+      - name: 运行时冒烟（Electron node 形态 = 产物唯一解释器）
+        # 产物解释器固定为 Electron 内置 node（内置运行时的原生模块已在
+        # materialize-peers 的 ABI 对齐步按 Electron ABI 重编）；系统 node
+        # 冒烟验证不了真机路径——v0.5.5 mac 发布即被「系统 node 冒烟绿、
+        # Electron node 形态 fs-ext dlopen 崩」拦下。electron dist 若缺
+        # （pnpm 构建脚本门未放行 postinstall）由 materialize-peers 自举。
         timeout-minutes: 5
-        run: node scripts/smoke-runtime.mjs --dir "$PWD/staging/kcoder-runtime"
+        run: |
+          ELECTRON_BIN="$(node -p 'require("electron")')"
+          node scripts/smoke-runtime.mjs --dir "$PWD/staging/kcoder-runtime" --exec "$ELECTRON_BIN"
       - name: 构建桌面端产物（electron-vite build）
         run: pnpm exec electron-vite build
       - name: 打包安装包（macOS 签名 + 公证）

@@ -24,7 +24,7 @@
  *
  * @module scripts/materialize-peers
  */
-import { execSync } from 'node:child_process'
+import { execSync, spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { closeSync, cpSync, createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
@@ -468,6 +468,145 @@ const walk = (dir) => {
 }
 walk(staging)
 console.log(`[materialize] 瘦身：删 ${pruned} 个 .map/.d.ts`)
+
+// —— 原生模块 ABI 对齐（Electron node 形态）——
+// 打包内置运行时的解释器固定为 Electron 内置 node（ELECTRON_RUN_AS_NODE，
+// 见 dsh-contract resolveDshCommand 源 2）：系统 node 版本不受我们控制
+// （ABI 115/127/137… 皆可能），而 NAN 族原生模块按编译时解释器的 ABI
+// 锁定加载。deploy 按物化机 node（22 → ABI 127）现编译，Electron 39
+// （ABI 140）下 dlopen 即崩——上游基线 0.1.3-alpha.1 的 fs-ext（session
+// write-lease 的 flock）是首个此类依赖，v0.5.5 mac CI「Electron node
+// 形态冒烟」拦下。本步把全部 ABI 锁定模块（node-gyp build/Release 布局）
+// 按桌面端 electron 版本重编，并用该 electron 二进制实载验证；
+// N-API 模块（node-pty / sharp / koffi / reflink 等）ABI 稳定，不落
+// build/Release 布局，天然不进重编清单。
+{
+  const require_ = createRequire(join(root, 'package.json'))
+  const electronPkg = dirname(require_.resolve('electron/package.json'))
+  const electronVersion = JSON.parse(readFileSync(join(electronPkg, 'package.json'), 'utf8')).version
+  // electron dist 自举：桌面端 electron 是 devDependency，其 postinstall
+  // （二进制下载）受 pnpm 构建脚本门控制，CI 可能未执行；ABI 实载检查与
+  // 后续 Electron node 形态冒烟都需要这个二进制。
+  let electronBin = require_('electron')
+  if (!existsSync(electronBin)) {
+    console.log('[materialize] electron dist 缺失（构建脚本门未放行 postinstall），执行 install.js 下载 …')
+    try {
+      execSync('node install.js', { cwd: electronPkg, stdio: 'inherit', shell: process.platform === 'win32', timeout: 600_000 })
+    } catch (err) {
+      console.error(`[materialize] electron dist 下载失败：${String(err?.message ?? err)}`)
+      process.exit(1)
+    }
+  }
+  if (!existsSync(electronBin)) {
+    console.error('[materialize] electron dist 仍缺失（install.js 未产出二进制），无法做 ABI 对齐')
+    process.exit(1)
+  }
+
+  const loadUnderElectron = (name) => spawnSync(electronBin, ['-e', `require(${JSON.stringify(name)})`], {
+    cwd: staging,
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    encoding: 'utf8',
+    timeout: 120_000,
+  })
+  const gypArgs = [
+    'rebuild',
+    '--runtime=electron',
+    `--target=${electronVersion}`,
+    '--dist-url=https://electronjs.org/headers',
+    // devdir 重定向到仓内：node-gyp 默认把头文件缓存在 ~/Library/Caches/
+    // node-gyp（macOS）/ ~/.cache/node-gyp（Linux），GUI 启动的宿主进程、
+    // 受限 shell 沙箱等场景 HOME 缓存目录可能不可写；仓内缓存与
+    // .npm-cache 同款文化（独立、可复用、可整目录清理）
+    `--devdir=${join(root, 'staging', '.node-gyp-cache')}`,
+  ]
+  const runGyp = (cwd) => {
+    let res = spawnSync('node-gyp', gypArgs, { cwd, stdio: 'inherit', shell: process.platform === 'win32', timeout: 900_000 })
+    if (res.error?.code === 'ENOENT') {
+      // PATH 无 node-gyp（setup-node 的 CI runner）：npx 兜底拉取
+      res = spawnSync('npx', ['--yes', 'node-gyp', ...gypArgs], { cwd, stdio: 'inherit', shell: true, timeout: 900_000 })
+    }
+    return res
+  }
+
+  // 收集重编候选（两类并集，按包目录去重）：
+  // a) 已有 build/Release/*.node 产物——node-gyp 产物布局，可能 ABI 不符
+  //    （fresh deploy 即此形态：按物化机 node 编译的现成二进制）；
+  // b) 有 binding.gyp 且无 N-API 兜底且无平台二进制 optionalDependencies
+  //    的包——二进制可能整包缺失（node-gyp 失败 rollback 会清掉 build/，
+  //    deploy 中断同样），静默放过 = 坏包出门。排除项：node-pty 带
+  //    prebuilds/（N-API 预编译优先加载）；sharp 走 @img/* 平台包
+  //    optionalDependencies + 自有 loader（binding.gyp 只是源码备胎）。
+  //    真正运行时加载 build/Release 的只剩 fs-ext 一类 NAN 族。
+  const candidates = new Map() // pkgDir → true
+  const noteCandidate = (pkgDir) => {
+    if (!pkgDir.startsWith(staging) || !existsSync(join(pkgDir, 'package.json'))) {
+      console.error(`[materialize] ABI 对齐中止：${pkgDir} 找不到所属包 manifest`)
+      process.exit(1)
+    }
+    candidates.set(pkgDir, true)
+  }
+  const walkNm = (dir, onDir) => {
+    let entries
+    try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return }
+    for (const e of entries) {
+      if (e.name === '.bin' || e.name.startsWith('.')) continue
+      const p = join(dir, e.name)
+      if (e.isDirectory()) { onDir(p); walkNm(p, onDir) }
+    }
+  }
+  walkNm(topNM, (p) => {
+    // a) 产物扫描：build/Release 目录下的 .node 产物
+    let entries
+    try { entries = readdirSync(p, { withFileTypes: true }) } catch { return }
+    if (p.includes(join('build', 'Release')) && entries.some((e) => e.isFile() && e.name.endsWith('.node'))) {
+      let pkgDir = p
+      while (pkgDir.startsWith(staging) && !existsSync(join(pkgDir, 'package.json'))) pkgDir = dirname(pkgDir)
+      noteCandidate(pkgDir)
+    }
+    // b) 源码扫描：binding.gyp 在包根（manifest 同目录才算；sharp/src
+    //    这类源码头文件子目录不算——其根 manifest 无 binding.gyp）
+    if (!existsSync(join(p, 'binding.gyp'))) return
+    const pjPath = join(p, 'package.json')
+    if (!existsSync(pjPath)) return
+    if (existsSync(join(p, 'prebuilds'))) return
+    try {
+      const pkg = JSON.parse(readFileSync(pjPath, 'utf8'))
+      const opt = pkg.optionalDependencies ?? {}
+      if (Object.keys(opt).some((n) => n.includes('/'))) return // 平台二进制策略（sharp/@img/* 一类）
+    } catch { return }
+    noteCandidate(p)
+  })
+
+  if (candidates.size === 0) {
+    console.log('[materialize] ABI 对齐：无 build/Release 布局的原生模块，跳过')
+  }
+  for (const pkgDir of [...candidates.keys()].sort()) {
+    const name = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8')).name
+    if (loadUnderElectron(name).status === 0) {
+      console.log(`[materialize] ABI 对齐：${name} 已可在 Electron node 下加载，跳过重编`)
+      continue
+    }
+    console.log(`[materialize] ABI 对齐：${name} 按 electron@${electronVersion} 重编（node-gyp --runtime=electron）…`)
+    const gyp = runGyp(pkgDir)
+    if (gyp.status !== 0) {
+      console.error(`[materialize] ABI 对齐失败：${name} node-gyp 重编未通过（exit=${gyp.status}）`)
+      process.exit(1)
+    }
+    // 重编后二进制必须真实落盘（rollback 会清 build/，防静默缺二进制）
+    const binDir = join(pkgDir, 'build', 'Release')
+    const produced = existsSync(binDir) && readdirSync(binDir).some((f) => f.endsWith('.node'))
+    if (!produced) {
+      console.error(`[materialize] ABI 对齐失败：${name} 重编后 build/Release 下无 .node 产物`)
+      process.exit(1)
+    }
+    const check = loadUnderElectron(name)
+    if (check.status !== 0) {
+      console.error(`[materialize] ABI 对齐失败：${name} 重编后在 Electron node 下仍不可加载\n${check.stderr ?? ''}`)
+      process.exit(1)
+    }
+    console.log(`[materialize] ABI 对齐：${name} 重编后 Electron node 实载通过`)
+  }
+}
 
 // macOS：签名运行时内全部 Mach-O 二进制（公证硬要求）。Apple 公证
 // 会解开嵌套归档逐个校验：rg / pty.node / sharp 的 libvips dylib /
