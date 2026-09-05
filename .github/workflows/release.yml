@@ -103,16 +103,18 @@ jobs:
         if: runner.os == 'macOS'
         timeout-minutes: 60
         env:
-          # 无签名 secrets 时绝不自动发现本机签名身份；CSC_LINK 显式
-          # 提供时仍正常走 p12 签名。
+          # 无签名 secrets 时绝不自动发现本机签名身份；显式身份名固定取
+          # 下面的 CSC_NAME。
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-          # .app 外壳签名（electron-builder 原生读取）：
-          CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PWD }}
-          # 关键：CSC_IDENTITY_AUTO_DISCOVERY=false 且 CSC_LINK 导入的
-          # 证书不会被自动发现——必须显式给身份名（不含
-          # "Developer ID Application:" 前缀）。值与钥匙串证书名一致。
+          # 签名钥匙串：复用 materialize-peers 已备好的
+          # dsh-materialize.keychain-db（p12 导入 + 解锁 + partition-list
+          # 完成，本 run 物化步已在同一 runner 用它签完运行时全部二进制）。
+          # 不再给 electron-builder CSC_LINK 让它自建钥匙串：macos 镜像
+          # 25.6.0 起 security set-key-partition-list 对自建钥匙串解锁报
+          # SecKeychainUnlock not correct（v0.5.5 二次发布现场；25.5.0 同
+          # 流程可用），而物化链同款命令同镜像可用。
           CSC_NAME: "Bing Li (DHV5D72JNF)"
+          CSC_KEYCHAIN_PATH: ${{ github.workspace }}/dsh-materialize.keychain-db
           # notarization（electron-builder 三者齐全时自动公证）：
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}

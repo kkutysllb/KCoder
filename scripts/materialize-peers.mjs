@@ -519,14 +519,40 @@ console.log(`[materialize] 瘦身：删 ${pruned} 个 .map/.d.ts`)
     // .npm-cache 同款文化（独立、可复用、可整目录清理）
     `--devdir=${join(root, 'staging', '.node-gyp-cache')}`,
   ]
-  const runGyp = (cwd) => {
-    let res = spawnSync('node-gyp', gypArgs, { cwd, stdio: 'inherit', shell: process.platform === 'win32', timeout: 900_000 })
-    if (res.error?.code === 'ENOENT') {
-      // PATH 无 node-gyp（setup-node 的 CI runner）：npx 兜底拉取
-      res = spawnSync('npx', ['--yes', 'node-gyp', ...gypArgs], { cwd, stdio: 'inherit', shell: true, timeout: 900_000 })
+  // node-gyp 供给：钉版 npm 装进 scratch 目录后以 `node node-gyp.js` 直调。
+  // 不赌 PATH：ubuntu runner 恰好预装 node-gyp、macOS 靠 ENOENT 触发 npx
+  // 兜底，而 Windows 的 shell:true 会吞掉 ENOENT（cmd 报「不是内部或外部
+  // 命令」但 exit 1）——v0.5.5 二次发布三平台两红一绿即此因。独立
+  // --cache 与 .npm-cache / .pnpm-vendor 同款文化。
+  const NODE_GYP_VERSION = '12.3.0'
+  const gypScratch = join(root, 'staging', '.node-gyp')
+  const nodeGypJs = join(gypScratch, 'node_modules', 'node-gyp', 'bin', 'node-gyp.js')
+  if (!existsSync(nodeGypJs)) {
+    rmSync(gypScratch, { recursive: true, force: true })
+    mkdirSync(gypScratch, { recursive: true })
+    writeFileSync(join(gypScratch, 'package.json'), JSON.stringify({
+      name: 'kcoder-node-gyp-runner',
+      private: true,
+    }, null, 2))
+    try {
+      execSync(`npm install node-gyp@${NODE_GYP_VERSION} --no-audit --no-fund --no-package-lock --cache .npm-cache`, {
+        cwd: gypScratch,
+        stdio: 'inherit',
+        shell: process.platform === 'win32',
+        timeout: 300_000,
+      })
+    } catch (err) {
+      console.error(`[materialize] node-gyp@${NODE_GYP_VERSION} 供给失败：${String(err?.message ?? err)}`)
+      process.exit(1)
     }
-    return res
   }
+  if (!existsSync(nodeGypJs)) {
+    console.error(`[materialize] node-gyp 供给异常：${nodeGypJs} 不存在`)
+    process.exit(1)
+  }
+  const runGyp = (cwd) => spawnSync(process.execPath, [nodeGypJs, ...gypArgs], {
+    cwd, stdio: 'inherit', timeout: 1_200_000,
+  })
 
   // 收集重编候选（两类并集，按包目录去重）：
   // a) 已有 build/Release/*.node 产物——node-gyp 产物布局，可能 ABI 不符
