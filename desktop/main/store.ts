@@ -41,6 +41,9 @@ export interface DesktopSettings {
   style: StyleSettings
   /** Agent 回答语言定制（home patch 层热切换，见 language-settings）。 */
   language: LanguageSettings
+  /** dsh home 决策锁：迁移完成或首次全新启动后置 true（见 home-migration.ts）。
+   *  置位后启动恒用 ~/.kcoder，不再被后出现的 ~/.dsh 翻回旧家。 */
+  homeDecided: boolean
 }
 
 const DEFAULTS: DesktopSettings = {
@@ -51,6 +54,7 @@ const DEFAULTS: DesktopSettings = {
   terminalHeight: null,
   style: DEFAULT_STYLE,
   language: DEFAULT_LANGUAGE,
+  homeDecided: false,
 }
 
 let cache: DesktopSettings | null = null

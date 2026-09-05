@@ -11,16 +11,23 @@
  * 子进程（引擎侧车 / dsh plugin / pnpm 物化链）经 spawn 继承，插件安装
  * 必然落新家。
  *
- * 无状态启动决策（不落任何存储，按文件系统现状判定）：
+ * 启动决策（桌面设置存 `homeDecided` 锁，见 store.ts）：
  * 1. 用户显式设置 DSH_HOME → 绝对尊重（自管 home，不出迁移入口）；
- * 2. ~/.kcoder 已存在 → 用它（新用户 / 已迁移用户）；
- * 3. 否则 ~/.dsh 存在 → 老用户未迁移：引擎继续跑 ~/.dsh，一切照旧
+ * 2. 已决策（迁移完成过 / 首次全新启动锁定）→ ~/.kcoder；
+ * 3. 未决策且 ~/.dsh 存在 → 老用户未迁移：引擎继续跑 ~/.dsh，一切照旧
  *    （无缝），设置页出现「数据迁移」入口；
- * 4. 都不存在 → 全新 ~/.kcoder。
+ * 4. 都不成立 → 全新 ~/.kcoder，并落锁。
+ *
+ * 教训（决策规则 v2）：不能拿「~/.kcoder 存在」当「已迁移」——残存的
+ * 空 ~/.kcoder（如早前手工 DSH_HOME 试验产物、import 期副作用）会把老
+ * 用户劫持到空家（16:10 现场事故：~/.dsh 完好却全量重新物化 + 引擎
+ * onboarding 门把设置页顶没反应）。故「未决策 + 旧目录在」恒优先回
+ * 旧家，~/.kcoder 是否存在只在迁移执行时作为残骸挪边处理。
  *
  * 迁移 = 整库 rename：`~/.dsh` → `~/.kcoder`（同卷原子操作，瞬时完成；
  * 派生物——插件 node_modules、Python venvs、投影缓存——全部原样保留，
- * 用户零重建；rename 即搬移即删除，旧目录自然消失）。仅有的数据取舍：
+ * 用户零重建；rename 即搬移即删除，旧目录自然消失）。既有 ~/.kcoder 残
+ * 骸先挪至 `~/.kcoder.stray-<时间戳>` 备份。仅有的数据取舍：
  * qilin-accounts（同源其他项目误写入 home 的目录，非 KCoder 数据）迁移
  * 时直接清除。KCoder 自身的登录账号存 Electron userData（kcoder-auth.json，
  * auth.ts），与本次搬移无关。
@@ -35,11 +42,12 @@
  */
 
 import type { BrowserWindow } from 'electron'
-import { existsSync, renameSync, rmSync } from 'node:fs'
+import { existsSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { consoleMessageText } from './console-channel'
 import { dshManager } from './dsh-manager'
+import { getSettings, saveSettings } from './store'
 
 /* ---------- 核心（无 Electron 依赖） ---------- */
 
@@ -48,6 +56,9 @@ export const KCODER_HOME_DIR = '.kcoder'
 
 /** 上游默认数据目录名（老用户存量所在）。 */
 export const LEGACY_HOME_DIR = '.dsh'
+
+/** 迁移完成标记（写入新 home 根；自描述 + 排障线索）。 */
+const MARKER_FILE = '.kcoder-home.json'
 
 /** 误写入 home 的第三方目录（非 KCoder 数据）：迁移时顺带清除。 */
 const FOREIGN_DIRS = ['qilin-accounts']
@@ -78,32 +89,46 @@ export interface BootHome {
   pendingMigration: boolean
 }
 
-/** 无状态启动决策（见模块头注释的四种情形）。 */
-export function resolveBootHome(osHome: string = homedir(), envHome?: string): BootHome {
+/** 无状态启动决策（已决策锁由调用方从桌面设置读入，见模块头注释）。 */
+export function resolveBootHome(
+  osHome: string = homedir(),
+  envHome?: string,
+  decided = false,
+): BootHome {
   const user = userEnvHome(envHome ?? process.env.DSH_HOME)
   if (user !== null) return { home: user, userOverride: true, pendingMigration: false }
   const kcoder = defaultKcoderHome(osHome)
-  if (existsSync(kcoder)) return { home: kcoder, userOverride: false, pendingMigration: false }
+  if (decided) return { home: kcoder, userOverride: false, pendingMigration: false }
   const legacy = defaultLegacyHome(osHome)
   if (existsSync(legacy)) return { home: legacy, userOverride: false, pendingMigration: true }
   return { home: kcoder, userOverride: false, pendingMigration: false }
 }
 
-/** 迁移可用性：用户未自管 home，且旧目录在、新目录不在。 */
-export function migrationEligible(osHome: string = homedir(), envHome?: string): boolean {
+/** 迁移可用性：用户未自管 home、未决策过，且旧目录在。 */
+export function migrationEligible(
+  osHome: string = homedir(),
+  envHome?: string,
+  decided = false,
+): boolean {
   if (userEnvHome(envHome ?? process.env.DSH_HOME) !== null) return false
-  return existsSync(defaultLegacyHome(osHome)) && !existsSync(defaultKcoderHome(osHome))
+  if (decided) return false
+  return existsSync(defaultLegacyHome(osHome))
 }
 
-/**
- * 迁移核心：整库 rename + 清理误入目录。抛错时调用方负责把引擎恢复到
- * 旧 home（env 未动即原地 start）。rename 同卷原子，无半态。
- */
+/** 迁移核心：残骸挪边 + 整库 rename + 清理误入目录 + 落迁移标记。 */
 export function performMigrationPaths(from: string, to: string): string[] {
-  if (existsSync(to)) throw new Error(`目标目录已存在：${to}（请先处理后再迁移）`)
   if (!existsSync(from)) throw new Error(`旧数据目录不存在：${from}`)
-  renameSync(from, to)
   const warnings: string[] = []
+  if (existsSync(to)) {
+    // 残骸挪边（如早前手工 DSH_HOME 试验的空壳）：备份而非删除，用户
+    // 自行处置；同秒重名以 -N 递增兜底
+    const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19)
+    let aside = `${to}.stray-${stamp}`
+    for (let i = 0; existsSync(aside); i++) aside = `${to}.stray-${stamp}-${String(i)}`
+    renameSync(to, aside)
+    warnings.push(`既有 ${to} 已备份为 ${aside}（非本次迁移内容，确认无用后可删除）`)
+  }
+  renameSync(from, to)
   for (const name of FOREIGN_DIRS) {
     try {
       rmSync(join(to, name), { recursive: true, force: true })
@@ -111,10 +136,16 @@ export function performMigrationPaths(from: string, to: string): string[] {
       warnings.push(`清理 ${name} 失败（不影响使用，可手动删除）：${String(error)}`)
     }
   }
+  writeFileSync(join(to, MARKER_FILE), `${JSON.stringify({ migratedAt: new Date().toISOString() })}\n`)
   return warnings
 }
 
 /* ---------- 状态与编排（Electron 侧） ---------- */
+
+/** 桌面设置里的 home 决策锁（迁移完成 / 首次全新启动后置 true）。 */
+function homeDecided(): boolean {
+  return getSettings().homeDecided === true
+}
 
 /** 设置页迁移面板的状态载荷。 */
 export interface HomeMigrationStatus {
@@ -130,13 +161,13 @@ export interface HomeMigrationStatus {
 
 /** 当前状态快照（设置页每次打开时拉取）。 */
 export function homeMigrationStatus(): HomeMigrationStatus {
-  const boot = resolveBootHome()
+  const boot = resolveBootHome(homedir(), process.env.DSH_HOME, homeDecided())
   const symbolic = (home: string): string =>
     home === defaultKcoderHome() ? `~/${KCODER_HOME_DIR}`
       : home === defaultLegacyHome() ? `~/${LEGACY_HOME_DIR}`
         : home
   return {
-    available: migrationEligible(),
+    available: migrationEligible(homedir(), process.env.DSH_HOME, homeDecided()),
     home: symbolic(boot.home),
     from: defaultLegacyHome(),
     to: defaultKcoderHome(),
@@ -147,20 +178,21 @@ export function homeMigrationStatus(): HomeMigrationStatus {
 export interface HomeMigrationResult {
   ok: boolean
   error: string | null
-  /** 非致命警告（如误入目录清理失败），迁移本体已成功。 */
+  /** 非致命警告（残骸备份、误入目录清理失败等），迁移本体已成功。 */
   warnings: string[]
 }
 
 let migrating = false
 
 /**
- * 执行迁移：优雅停引擎 → 整库 rename → 清理误入目录 → 切 env → 重启
- * 引擎。失败时引擎在旧 home 原地恢复，状态不变可重试。
+ * 执行迁移：优雅停引擎 → 残骸挪边 + 整库 rename → 清理误入目录 → 落
+ * 标记与决策锁 → 切 env → 重启引擎。失败时引擎在旧 home 原地恢复，状态
+ * 不变可重试。
  */
 export async function performHomeMigration(win: BrowserWindow | null): Promise<HomeMigrationResult> {
   if (migrating) return { ok: false, error: '迁移正在进行中', warnings: [] }
-  if (!migrationEligible()) {
-    return { ok: false, error: '没有可迁移的旧数据（~/.dsh 不存在，或 ~/.kcoder 已在使用）', warnings: [] }
+  if (!migrationEligible(homedir(), process.env.DSH_HOME, homeDecided())) {
+    return { ok: false, error: '没有可迁移的旧数据（~/.dsh 不存在，或已迁移过）', warnings: [] }
   }
   migrating = true
   try {
@@ -173,6 +205,7 @@ export async function performHomeMigration(win: BrowserWindow | null): Promise<H
       dshManager.start()
       return { ok: false, error: `迁移失败：${String(error)}`, warnings: [] }
     }
+    saveSettings({ homeDecided: true })
     process.env.DSH_HOME = defaultKcoderHome()
     dshManager.start()
     pushHomeMigrationStatus(win)
@@ -180,6 +213,21 @@ export async function performHomeMigration(win: BrowserWindow | null): Promise<H
   } finally {
     migrating = false
   }
+}
+
+/**
+ * 启动期 home 决策与注入（index.ts 模块顶层调用）：决策写入本进程 env
+ * 供全部子进程继承，并打一行决策日志（dev 终端可见，排障锚点）。
+ */
+export function applyBootHomeEnv(): void {
+  const boot = resolveBootHome(homedir(), process.env.DSH_HOME, homeDecided())
+  if (!boot.userOverride) process.env.DSH_HOME = boot.home
+  const why = boot.userOverride
+    ? '用户 DSH_HOME 自管'
+    : boot.pendingMigration
+      ? '旧目录待迁移（设置页可一键迁移）'
+      : 'KCoder 自有数据目录'
+  console.log(`[home] dsh home = ${boot.home}（${why}）`)
 }
 
 /** 把最新状态推给设置页（注入脚本据此显隐入口）。 */

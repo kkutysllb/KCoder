@@ -17,7 +17,7 @@ import { authLoggedIn, initAuthSession } from './auth'
 import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-contract'
 import { ensureKcoderBundles } from './kcoder-skills-bundle'
 import { syncLanguagePatch } from './language-settings'
-import { resolveBootHome } from './home-migration'
+import { applyBootHomeEnv } from './home-migration'
 import { ensureBuiltinMcpServers } from './mcp-builtin'
 import { ensureProfilePatches } from './profile-patches'
 import { ensurePresetPlugins } from './preset-plugins'
@@ -36,15 +36,12 @@ if (process.env.KC_REMOTE_DEBUG_PORT !== undefined) {
 }
 
 // 引擎用户数据目录（dsh home）决策：新用户/已迁移用户用自有 ~/.kcoder，
-// 老用户（存在 ~/.dsh 且尚无 ~/.kcoder）继续跑 ~/.dsh 保持无缝，设置页
-// 提供「数据迁移」一键搬移；用户显式设置的 DSH_HOME 绝对尊重。决策只写
-// 本进程 env，所有子进程（引擎侧车 / dsh plugin / pnpm 物化链）经 spawn
-// 继承——插件安装必然落当前 home。机制与迁移见 home-migration.ts。目录
-// 创建无需干预：各物化链与 dsh 启动均 recursive mkdir。
-{
-  const boot = resolveBootHome()
-  if (!boot.userOverride) process.env.DSH_HOME = boot.home
-}
+// 老用户（未决策且 ~/.dsh 存在）继续跑 ~/.dsh 保持无缝，设置页提供「数据
+// 迁移」一键搬移；用户显式设置的 DSH_HOME 绝对尊重。决策只写本进程 env，
+// 所有子进程（引擎侧车 / dsh plugin / pnpm 物化链）经 spawn 继承——插件
+// 安装必然落当前 home。机制、决策锁与迁移见 home-migration.ts。目录创建
+// 无需干预：各物化链与 dsh 启动均 recursive mkdir。
+applyBootHomeEnv()
 
 // npm registry 透传：GUI 应用不经 shell 启动，引擎进程拿不到用户 npm
 // 配置；预置插件（如 dsh-context）的更新检查读 npm_config_registry，
