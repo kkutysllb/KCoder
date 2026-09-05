@@ -24,6 +24,12 @@
  * onboarding 门把设置页顶没反应）。故「未决策 + 旧目录在」恒优先回
  * 旧家，~/.kcoder 是否存在只在迁移执行时作为残骸挪边处理。
  *
+ * 教训（决策规则 v3）：本模块启动会把决策结果写回 process.env.DSH_HOME
+ * 供子进程继承，这份自写 env 不得反过来自证「用户自管」——否则 pending
+ * 场景自写的旧家路径（恰为 ~/.dsh）让资格判定永久误判为自管，迁移入口
+ * 永不出现（设置页不见「数据迁移」菜单事故），直迁按钮也会被拒。外部
+ * env 只在改写前捕获一次（externalUserHome），后续判定一律用捕获值。
+ *
  * 迁移 = 整库 rename：`~/.dsh` → `~/.kcoder`（同卷原子操作，瞬时完成；
  * 派生物——插件 node_modules、Python venvs、投影缓存——全部原样保留，
  * 用户零重建；rename 即搬移即删除，旧目录自然消失）。既有 ~/.kcoder 残
@@ -89,13 +95,23 @@ export interface BootHome {
   pendingMigration: boolean
 }
 
-/** 无状态启动决策（已决策锁由调用方从桌面设置读入，见模块头注释）。 */
+/** env 自管判定：envHome 显式给定（null = 调用方确认外部未设置）时以
+ *  其为准；仅 undefined 时回读进程 env（直接调用便利——应用侧一律显式
+ *  传值，见 applyBootHomeEnv 的捕获纪律）。 */
+function judgeUserHome(envHome: string | null | undefined): string | null {
+  return envHome === undefined ? userEnvHome(process.env.DSH_HOME)
+    : envHome === null ? null : userEnvHome(envHome)
+}
+
+/** 无状态启动决策（已决策锁由调用方从桌面设置读入，见模块头注释）。
+ *  envHome 传 null 表示「确认外部未设置」——应用把决策写回 env 之后，
+ *  绝不能让本函数再回读 env（自写路径会被误判成用户自管，v3 事故）。 */
 export function resolveBootHome(
   osHome: string = homedir(),
-  envHome?: string,
+  envHome?: string | null,
   decided = false,
 ): BootHome {
-  const user = userEnvHome(envHome ?? process.env.DSH_HOME)
+  const user = judgeUserHome(envHome)
   if (user !== null) return { home: user, userOverride: true, pendingMigration: false }
   const kcoder = defaultKcoderHome(osHome)
   if (decided) return { home: kcoder, userOverride: false, pendingMigration: false }
@@ -104,13 +120,14 @@ export function resolveBootHome(
   return { home: kcoder, userOverride: false, pendingMigration: false }
 }
 
-/** 迁移可用性：用户未自管 home、未决策过，且旧目录在。 */
+/** 迁移可用性：用户未自管 home、未决策过，且旧目录在。envHome 语义同
+ *  resolveBootHome（null = 确认外部未设置）。 */
 export function migrationEligible(
   osHome: string = homedir(),
-  envHome?: string,
+  envHome?: string | null,
   decided = false,
 ): boolean {
-  if (userEnvHome(envHome ?? process.env.DSH_HOME) !== null) return false
+  if (judgeUserHome(envHome) !== null) return false
   if (decided) return false
   return existsSync(defaultLegacyHome(osHome))
 }
@@ -142,6 +159,16 @@ export function performMigrationPaths(from: string, to: string): string[] {
 
 /* ---------- 状态与编排（Electron 侧） ---------- */
 
+/** 用户在应用外显式设置的 DSH_HOME：applyBootHomeEnv 改写 env 前捕获
+ *  一次（undefined = 尚未捕获，退回读 env 兜底；null = 确认外部未设置）。
+ *  应用随后写入 env 的决策结果只供子进程继承，资格判定绝不回读。 */
+let externalUserHome: string | null | undefined = undefined
+
+/** 传给纯判定函数的 envHome：一律用启动捕获的外部值。 */
+function userEnvOverride(): string | null | undefined {
+  return externalUserHome === undefined ? process.env.DSH_HOME : externalUserHome
+}
+
 /** 桌面设置里的 home 决策锁（迁移完成 / 首次全新启动后置 true）。 */
 function homeDecided(): boolean {
   return getSettings().homeDecided === true
@@ -161,13 +188,14 @@ export interface HomeMigrationStatus {
 
 /** 当前状态快照（设置页每次打开时拉取）。 */
 export function homeMigrationStatus(): HomeMigrationStatus {
-  const boot = resolveBootHome(homedir(), process.env.DSH_HOME, homeDecided())
+  const envHome = userEnvOverride()
+  const boot = resolveBootHome(homedir(), envHome, homeDecided())
   const symbolic = (home: string): string =>
     home === defaultKcoderHome() ? `~/${KCODER_HOME_DIR}`
       : home === defaultLegacyHome() ? `~/${LEGACY_HOME_DIR}`
         : home
   return {
-    available: migrationEligible(homedir(), process.env.DSH_HOME, homeDecided()),
+    available: migrationEligible(homedir(), envHome, homeDecided()),
     home: symbolic(boot.home),
     from: defaultLegacyHome(),
     to: defaultKcoderHome(),
@@ -191,7 +219,7 @@ let migrating = false
  */
 export async function performHomeMigration(win: BrowserWindow | null): Promise<HomeMigrationResult> {
   if (migrating) return { ok: false, error: '迁移正在进行中', warnings: [] }
-  if (!migrationEligible(homedir(), process.env.DSH_HOME, homeDecided())) {
+  if (!migrationEligible(homedir(), userEnvOverride(), homeDecided())) {
     const message = homeDecided()
       ? '已迁移过，无需重复迁移'
       : '没有可迁移的旧数据（~/.dsh 不存在）'
@@ -223,7 +251,8 @@ export async function performHomeMigration(win: BrowserWindow | null): Promise<H
  * 供全部子进程继承，并打一行决策日志（dev 终端可见，排障锚点）。
  */
 export function applyBootHomeEnv(): void {
-  const boot = resolveBootHome(homedir(), process.env.DSH_HOME, homeDecided())
+  externalUserHome = userEnvHome(process.env.DSH_HOME)
+  const boot = resolveBootHome(homedir(), userEnvOverride(), homeDecided())
   if (!boot.userOverride) process.env.DSH_HOME = boot.home
   const why = boot.userOverride
     ? '用户 DSH_HOME 自管'
