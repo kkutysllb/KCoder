@@ -176,9 +176,15 @@
 # 旗标（web-app startup.ts 自解析）。上游大变化/风险面：① composer 图片→
 # 通用文件附件重构（#3109，InputBar props addImages→addFiles 系内部化改造，
 # 插件面 slot/锚点不变，dsh-file-attach 兼容）；② projcache 域版本 5→7、
-# compatibleVersions:[3,4,5,6]（#3455 v6 兼容并入后域再 bump），v5 写入仍
-# 可读，projcache-migrate.ts 未来版本守卫（version>5 早退）可挡引擎回写 v7，
-# 双保险成立、模块无需改动；③ SESSION_FORMAT_VERSION 0→2（session-format-
+# compatibleVersions:[3,4,5,6]（#3455 v6 兼容并入后域再 bump）——上游读兼容
+# 设计（.agents/notes projcache-cross-version-
+# read-compat）明确「启动期零迁移」：v3–v6 记录缺 formatVersion 一律不做
+# fold shortcut，title 经 cachedPredecessorTitle listing 提示照常显示，冷读
+# 重建回写 v7。我们的迁移产物（补 isSeeded/inheritedEventCount、无
+# formatVersion）与未迁移旧文档待遇完全等同，projcache-migrate.ts 收益归零，
+# 就此退役删除（升级路径全被引擎覆盖：v3 single-file legacy bootstrap 门 +
+# v4/v5/v6 结构性读取 + backup-and-skip；上游笔记将我们迁移产物描述为
+# poisoned state 并显式兜底）；③ SESSION_FORMAT_VERSION 0→2（session-format-
 # catalog 新包 + v0→v1→v2 迁移链，引擎读旧会话自动迁移，KCoder 不直解会话
 # 文件）；④ session-persistence handle-seam 重构（#3266）+ write-lease
 #（#3362），默认 JSONL 未启用 SQLite，回归会话 CRUD 即可；⑤ 消息编辑功能
