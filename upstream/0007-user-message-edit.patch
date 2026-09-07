@@ -1,0 +1,309 @@
+From b13e950d9445ffdcb05333c056b4a36825f40fc5 Mon Sep 17 00:00:00 2001
+From: kkutysllb <46704313+kkutysllb@users.noreply.github.com>
+Date: Mon, 7 Sep 2026 23:54:49 +0800
+Subject: [PATCH] feat(ui-chat,ui-conversation): revive sent-message edit as
+ composer draft refill
+
+A transcript edit entry on user bubbles disappeared with the retired
+attachment-plugin host patch chain; upstream never shipped message
+editing (#3452 was added and reverted the same day). Restore the common
+gesture as an engine-side, UI-only feature: an edit action on durable
+user bubbles replaces the composer draft with that message's text (the
+user revises and resends a new turn), leaving session storage and the
+agent loop untouched.
+
+- ui-conversation: scope-addressed ctx.conversation.fillDraft(text)
+  resolves the caller session's input shell and rewrites the whole draft
+  (SessionInput.setDraft, which lands the caret at the end).
+- ui-chat: ChatViewInjected/ChatNodeOwnerProps gain editUserMessage,
+  wired in apply() over the session binding ctx; MessageIconActions
+  gains an optional onEdit control (pencil, copy position); the user/
+  steering message view passes the bubble text through.
+- i18n zh/en, plus one component spec per package.
+
+Client specs: ui-chat 51/51 + ui-conversation fill-draft; oxlint clean.
+Wiring-level typecheck rides the release build (workspace libs are
+stale without it).
+---
+ packages/client/ui-chat/src/client/apply.ts   |  5 +++
+ .../ui-chat/src/client/chat/ChatNodeSeat.tsx  |  5 ++-
+ .../ui-chat/src/client/chat/ChatView.tsx      |  3 +-
+ .../src/client/chat/MessageIconActions.tsx    | 13 +++++-
+ .../ui-chat/src/client/chat/MessageItem.tsx   |  3 +-
+ .../ui-chat/src/client/contract/slots.ts      | 13 ++++++
+ packages/client/ui-chat/src/client/locale.ts  |  2 +
+ .../message-icon-actions.client.spec.tsx      | 42 +++++++++++++++++++
+ .../src/client/conversation/assembly.ts       | 19 +++++++++
+ 9 files changed, 99 insertions(+), 6 deletions(-)
+ create mode 100644 packages/client/ui-chat/tests/message-icon-actions.client.spec.tsx
+
+diff --git a/packages/client/ui-chat/src/client/apply.ts b/packages/client/ui-chat/src/client/apply.ts
+index 0c7d87f344..87886d134a 100644
+--- a/packages/client/ui-chat/src/client/apply.ts
++++ b/packages/client/ui-chat/src/client/apply.ts
+@@ -146,6 +146,11 @@ export function apply(ctx: Context): void {
+                 // Fork or child-title failure leaves the source view unchanged.
+               })
+           },
++          editUserMessage: (text) => {
++            // SessionId-explicit conversation route (like imageUrl): avoids a
++            // scope-addressed service inject that cordis would reject here.
++            ctx.uiConversation.fillDraft(sessionId, text)
++          },
+         }
+       },
+     }, ChatView)
+diff --git a/packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx b/packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx
+index e342836fe5..f9ebb5961b 100644
+--- a/packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx
++++ b/packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx
+@@ -37,7 +37,7 @@ function turnOf(node: ChatNode | undefined): number | undefined {
+ /** Subscribe, apply Turn-process visibility, and dispatch one stable Context key. */
+ export const ChatNodeSeat = memo(function ChatNodeSeat({
+   nodeKey, useChatNode, useChatNodeProcess, historyIncomplete, compactTranscript,
+-  selectedCallId, cwd, openFile, inspectCall, forkAt,
++  selectedCallId, cwd, openFile, inspectCall, forkAt, editUserMessage,
+   loadImage, renderMessageImages, fileMentions, useStore, actions, renderSlot, t,
+ }: ChatNodeSeatProps) {
+   const node = useChatNode(nodeKey)
+@@ -108,12 +108,13 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
+       openFile,
+       inspectCall,
+       forkAt,
++      editUserMessage,
+       loadImage,
+       renderMessageImages,
+       fileMentions,
+       turnProcess,
+     }, [
+-    node, selectedCallId, cwd, openFile, inspectCall, forkAt,
++    node, selectedCallId, cwd, openFile, inspectCall, forkAt, editUserMessage,
+     loadImage, renderMessageImages, fileMentions, turnProcess,
+   ])
+   if (routedNode === undefined || owner === null) return null
+diff --git a/packages/client/ui-chat/src/client/chat/ChatView.tsx b/packages/client/ui-chat/src/client/chat/ChatView.tsx
+index 21e1f78a29..8f574ed298 100644
+--- a/packages/client/ui-chat/src/client/chat/ChatView.tsx
++++ b/packages/client/ui-chat/src/client/chat/ChatView.tsx
+@@ -221,7 +221,7 @@ const ChatNodeList = memo(function ChatNodeList({ order, ...seatProps }: ChatNod
+  */
+ export function ChatView({
+   useSession, useChat, useChatNode, useChatNodeProcess, useSessions, useStore, actions, renderSlot,
+-  sessionId, openFile, loadOlder, loadThrough, loadImage, openView, chatScroll, forkAt, fileMentions,
++  sessionId, openFile, loadOlder, loadThrough, loadImage, openView, chatScroll, forkAt, editUserMessage, fileMentions,
+   useTranscriptView, useProjection, t,
+ }: ChatViewSlotProps) {
+   const order = useChat(s => s.order)
+@@ -800,6 +800,7 @@ export function ChatView({
+             openFile={requestOpenFile}
+             inspectCall={inspectCall}
+             forkAt={forkAt}
++            editUserMessage={editUserMessage}
+             loadImage={loadImage}
+             renderMessageImages={renderMessageImages}
+             fileMentions={fileMentions}
+diff --git a/packages/client/ui-chat/src/client/chat/MessageIconActions.tsx b/packages/client/ui-chat/src/client/chat/MessageIconActions.tsx
+index 5476f1a5c0..66b465f8d6 100644
+--- a/packages/client/ui-chat/src/client/chat/MessageIconActions.tsx
++++ b/packages/client/ui-chat/src/client/chat/MessageIconActions.tsx
+@@ -3,7 +3,7 @@
+ 
+ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+ import {
+-  IconBranchOutline16, IconCheckOutline16, IconCopyOutline16, Tooltip, writeClipboard,
++  IconBranchOutline16, IconCheckOutline16, IconCopyOutline16, IconEditOutline16, Tooltip, writeClipboard,
+ } from '@deepseek-ai/dsh-client-ui-primitives'
+ import type { ChatViewSlotProps } from '../contract/slots.ts'
+ import { formatMessageClock } from './message-chrome.ts'
+@@ -19,6 +19,8 @@ export interface MessageIconActionsProps {
+   clock: 'start' | 'end'
+   /** Fork the session at this message; omission hides the branch action. */
+   onBranch?: (() => void) | undefined
++  /** Revise this message: replace the composer draft with its text; omission hides the edit action. */
++  onEdit?: (() => void) | undefined
+   /** The message is not a completed transcript tail, so branch stays visible but unavailable. */
+   branchUnavailable?: boolean | undefined
+   /** Parent layout class composed onto the actions row. */
+@@ -43,7 +45,7 @@ export interface MessageIconActionsProps {
+  * @returns The actions row element.
+  */
+ export function MessageIconActions({
+-  text, time, clock, onBranch, branchUnavailable = false, className,
++  text, time, clock, onBranch, onEdit, branchUnavailable = false, className,
+   extraActions, usageAction, t,
+ }: MessageIconActionsProps) {
+   const day = useCalendarDay()
+@@ -82,6 +84,13 @@ export function MessageIconActions({
+   return (
+     <div className={className === undefined ? css.actions : `${css.actions} ${className}`}>
+       {clock === 'start' ? clockEl : null}
++      {onEdit !== undefined && (
++        <Tooltip label={t('message.edit')} side="bottom">
++          <button type="button" className={css.action} aria-label={t('message.edit')} onClick={onEdit}>
++            <IconEditOutline16 />
++          </button>
++        </Tooltip>
++      )}
+       <Tooltip label={copied ? t('copied') : t('copy')} side="bottom">
+         <button type="button" className={css.action} aria-label={copied ? t('copied') : t('copy')} onClick={onCopy}>
+           {copied ? <IconCheckOutline16 /> : <IconCopyOutline16 />}
+diff --git a/packages/client/ui-chat/src/client/chat/MessageItem.tsx b/packages/client/ui-chat/src/client/chat/MessageItem.tsx
+index fc4f257048..2d51e7cb3b 100644
+--- a/packages/client/ui-chat/src/client/chat/MessageItem.tsx
++++ b/packages/client/ui-chat/src/client/chat/MessageItem.tsx
+@@ -318,7 +318,7 @@ export function PendingSubmissionBubble({ submission, renderMessageImages, t }:
+ 
+ /** User and admitted-steering keyed Chat renderer. */
+ export const UserMessageNodeView = memo(function UserMessageNodeView({
+-  node, renderMessageImages, t,
++  node, editUserMessage, renderMessageImages, t,
+ }: ChatNodeViewProps<'user' | 'steering'>) {
+   const data = node.data
+   return (
+@@ -334,6 +334,7 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
+           time={data.time}
+           clock="start"
+           className={css.actions}
++          onEdit={editUserMessage === undefined ? undefined : () => { editUserMessage(text) }}
+           t={t}
+         />
+       )}
+diff --git a/packages/client/ui-chat/src/client/contract/slots.ts b/packages/client/ui-chat/src/client/contract/slots.ts
+index eb2ed7cf83..b1012f1f1d 100644
+--- a/packages/client/ui-chat/src/client/contract/slots.ts
++++ b/packages/client/ui-chat/src/client/contract/slots.ts
+@@ -76,6 +76,13 @@ export interface ChatNodeOwnerProps {
+   openFile: (path: string) => void
+   inspectCall: (callId: ToolCallId) => void
+   forkAt: (seq: number) => void
++  /**
++   * Revise one sent user message: replace the composer draft with its text
++   * (the user edits the bubble and resends a new turn). User bubbles only;
++   * absent for owners that do not provide the wiring.
++   * @param text - the user message's plain text.
++   */
++  editUserMessage?: ((text: string) => void) | undefined
+   /**
+    * Session-authorized image loader, down-threaded from the Chat view so a
+    * chat-node renderer can render the attachment presentation slot directly
+@@ -149,6 +156,12 @@ export interface ChatViewInjected {
+     read: () => ChatScrollPosition | null
+   }
+   forkAt: (seq: number) => void
++  /**
++   * Revise one sent user message: replace the composer draft with its text.
++   * Implemented by the composition wiring over the conversation service.
++   * @param text - the user message's plain text.
++   */
++  editUserMessage?: ((text: string) => void) | undefined
+   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
+ }
+ 
+diff --git a/packages/client/ui-chat/src/client/locale.ts b/packages/client/ui-chat/src/client/locale.ts
+index 8f21d2f2e1..5c1a43145d 100644
+--- a/packages/client/ui-chat/src/client/locale.ts
++++ b/packages/client/ui-chat/src/client/locale.ts
+@@ -76,6 +76,7 @@ export const zh = {
+   'message.turnProcess.separator': ' · ',
+   'message.stopped': '已停止',
+   'message.branch': '在新对话中分支',
++  'message.edit': '编辑此消息并重新发送',
+   'message.branchUnavailable': '仅可从已完成轮次的最后一条消息分支',
+   'message.retry.active': '正在重试模型请求',
+   'message.retry.cancelled': '模型请求重试已取消',
+@@ -193,6 +194,7 @@ export const en = {
+   'message.turnProcess.separator': ' · ',
+   'message.stopped': 'Stopped',
+   'message.branch': 'Branch into a new conversation',
++  'message.edit': 'Edit this message and resend',
+   'message.branchUnavailable': 'Available only on the last message of a completed turn',
+   'message.retry.active': 'Retrying model request',
+   'message.retry.cancelled': 'Model request retry cancelled',
+diff --git a/packages/client/ui-chat/tests/message-icon-actions.client.spec.tsx b/packages/client/ui-chat/tests/message-icon-actions.client.spec.tsx
+new file mode 100644
+index 0000000000..c263c3dffa
+--- /dev/null
++++ b/packages/client/ui-chat/tests/message-icon-actions.client.spec.tsx
+@@ -0,0 +1,42 @@
++// @vitest-environment jsdom
++/**
++ * The message icon row's optional edit control: present only when the owner
++ * supplies an edit callback, and it invokes that callback with the message
++ * text when clicked (the transcript bubble "edit and resend" entry).
++ */
++
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { cleanup, fireEvent, render } from '@testing-library/react'
++import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
++import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
++import { MessageIconActions } from '../src/client/chat/MessageIconActions.tsx'
++import { en } from '../src/client/locale.ts'
++
++const t = makeTranslate(en, commonEn)
++
++afterEach(cleanup)
++
++const renderActions = (props: Partial<Parameters<typeof MessageIconActions>[0]> = {}) => render(
++  <MessageIconActions text="hello world" clock="start" t={t} {...props} />,
++)
++
++describe('MessageIconActions edit control', () => {
++  it('renders no edit button without an edit callback', () => {
++    const view = renderActions()
++    expect(view.queryByRole('button', { name: t('message.edit') })).toBeNull()
++  })
++
++  it('renders an edit button when an edit callback is supplied and invokes it on click', () => {
++    const onEdit = vi.fn()
++    const view = renderActions({ onEdit })
++    const edit = view.getByRole('button', { name: t('message.edit') })
++    expect(edit.querySelector('svg')).not.toBeNull()
++    fireEvent.click(edit)
++    expect(onEdit).toHaveBeenCalledTimes(1)
++  })
++
++  it('keeps copy available beside the edit control', () => {
++    const view = renderActions({ onEdit: vi.fn() })
++    expect(view.getByRole('button', { name: t('copy') })).not.toBeNull()
++  })
++})
+diff --git a/packages/client/ui-conversation/src/client/conversation/assembly.ts b/packages/client/ui-conversation/src/client/conversation/assembly.ts
+index a0bab0cb19..4f552c16c5 100644
+--- a/packages/client/ui-conversation/src/client/conversation/assembly.ts
++++ b/packages/client/ui-conversation/src/client/conversation/assembly.ts
+@@ -19,6 +19,7 @@ import { ConversationNodeAssembler } from './assembler.ts'
+ import { ConversationEventRegistry } from './event-registry.ts'
+ import { HistoricalImageCache } from './historical-images.ts'
+ import { ConversationViewRegistry } from './view-registry.ts'
++import type { SessionInputResolver } from '../contract/input.ts'
+ 
+ /** Observable faces published for one Session's Conversation assembly. */
+ export interface ConversationBinding {
+@@ -235,6 +236,24 @@ export class UiConversation extends Service {
+     return binding
+   }
+ 
++  /**
++   * Replace one Session's composer draft with `text` — the transcript
++   * "edit this message and resend" entry. Resolves the Session's resident
++   * input shell through the conversation service's input registry; no-op
++   * when the session has no shell. SessionId-explicit, like {@link imageUrl},
++   * so a call from any package needs no scope-addressed service inject.
++   * @param sessionId - target Session.
++   * @param text - full draft text.
++   */
++  fillDraft(sessionId: SessionId, text: string): void {
++    const owner = this.sessions.binding(sessionId)
++    if (owner === undefined) return
++    const conversation = this.ctx.get('conversation') as
++      | { readonly input: SessionInputResolver }
++      | undefined
++    conversation?.input.for(owner.ctx).setDraft(text)
++  }
++
+   /**
+    * Resolve one session-authorized durable image URL, cached per Session so
+    * every Conversation target shares one read and one browser URL.
+-- 
+2.50.1 (Apple Git-155)
+

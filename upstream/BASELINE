@@ -203,6 +203,56 @@
 # ui-chat = 645/645。pi-ai 收敛 ^0.84.4（上游 lock 仍钉 0.84.2，glm-5.3 目录
 # 继续由修复分支供给）。
 #
+# 升级记录：2026-09-07 0.1.3-alpha.1(d347e7039) → 0.1.3-alpha.2(82a5fd61，上游 tag
+# dsh-v0.1.3-alpha.2)，集成分支重建为 kcoder/0.1.3-alpha.2（本地分支 = 原 alpha.1
+# 集成树 + fix/opencode-session-header 提交 facdc190a2 + merge 上游 alpha.2 51ac894c；
+# 分支待 push fork，推送后按“正确姿势”同步 setup.sh/release.sh 分支名与断言）。
+# 316 提交/3790 文件 diff（.agents/notes 笔记 2317 占大头，真代码 ~1400）逐项核对，
+# KCoder 注入锚点全部存活：railMark/brandName（ui-sidebar 零改动）、turnTail
+#（TurnTailNodeView/slot 契约未动；turn-tail.ts 实现被上游性能重构——"avoid
+# replaying settled assistant streams"：删 expandAssistantStream 展开与
+# isAppendSurfaceEvent 判断改 event.surfaceOp==='append' 直读，行为面回归点）、
+# settings.plugin.item keyed 契约（ui-settings-plugins 仅 PluginCard 图标/Tag 纯 UI）、
+# sendSession 5 参签名（hub.ts/service.ts 仅 strict-steer→Steer 术语文案，签名零变化）、
+# composer DOM 锚点（ui-conversation hub/service 同仅注释）、selectProducedFiles/
+# producedForClosing（ui-deliverables 零改动）、sidebarCol/centerCol（ui-layout 零改动）。
+# 上游大变化/风险面：① subprocess code-runtime 原生容器化大重构（PR #2825，69 fix +
+# 9 refactor + native/landlock-run linux 包）——桌面打包链 Electron ABI 物化回归
+#（v0.5.5 起打包链已按 Electron node 形态物化，须 smoke landlock/fs-ext 系原生模块）；
+# ② session-persistence 流式迁移/观察事件物化读取（session-query）——上游读兼容设计，
+# KCoder 无感（projcache-migrate 已退役同理）；③ agent-loop/chat perf：proven message
+# freezes、settled assistant streams 不再展开回放。llm-pi-ai：上游原生 pi-ai
+# ^0.84.2→^0.85.1 适配（catalog 0.85 drift gate：thinkingTokenBudgetField/vllmPriority/
+# supportsMaxOutputTokens offer、supportsMidConvoEffort/allowedFallbackModels withhold、
+# 'thinking.budget'；toStreamChunks 四参 model.id；replay Anthropic resolved model +
+# providerThinkingLevel 持久化；自带 compat-upgrade.spec.ts）——0002 适配被上游吸收退役。
+# 集成冲突 6 处（全部 llm-pi-ai 与 pnpm 元数据）：package.json（^0.85.1 + peer/dev
+# 集合取上游）、src/adapter.ts（保留我方 codex 降级 0005 + opencode 会话头 0006 +
+# imageRequestPricing，采纳上游 toStreamChunks 四参）、src/catalog.ts（0002 残留
+# thinkingTokenBudgetField: 'withhold' 与上游 'offer' 同键去重→保留 offer）、
+# tests/catalog.spec.ts（0.84 xai 断言语义在 0.85.1 下失效——上游已用 opencode
+# 混合目录用例取代，逐字对齐上游并删 0.84 旧用例）、pnpm-workspace.yaml
+#（minimumReleaseAgeExclude 0.84.4→0.85.1 + pi-telemetry 0.85.1；patchedDependencies
+# pi-ai 换键 0.85.1）、pnpm-lock.yaml（以我方为底 pnpm install 重收敛）。
+# 0003/0004 pnpm patch 换键重打 pi-ai@0.85.1：补丁内容零漂移（codex 协议层
+# 0.84→0.85 逐字保留），dry-run + 真装验证通过，patch hash 4e4bd7a9 不变；上游
+# alpha.2 lock 未带 patch，必须由我方集成引入。回归：vitest llm-pi-ai 326/326
+#（真 0.85.1 + patch + opencode-session spec 10/10）+ projection-cache 33/33 +
+# ui-chat conversation-node 48/48；oxlint staged 0 error。坑：vendor/KCoder 空壳
+# 残留绊 lefthook third-party notices（ENOENT，commit 前 rm -rf）；merge 解
+# catalog.spec.ts 冲突时勿凭冲突块拼接——断言行须对照上游原版逐字（曾两处拼接
+# 错位致 Unexpected token 与断言错，oxlint/vitest 各自暴露）；pnpm install 无 TTY
+# 需 CI=true + --no-frozen-lockfile + confirmModulesPurge=false。fork 上 0006 归档
+# 分支 fix/opencode-session-header 待建（本地已含于 facdc190a2）。
+# 追加 2026-09-07 晚：0007 用户气泡「编辑并重发」回归（提交 b13e950d94 已直接并入
+# 本地集成分支 kcoder/0.1.3-alpha.2，与 0006 同形态）：引擎纯 UI——ui-conversation 增
+# ctx.uiConversation.fillDraft(sessionId, text)（显式会话 id，绕开 scope 注入限制；
+# 经 SessionInput.setDraft 整稿替换 + caret 落位，scope-addressed ctx.conversation 版
+# 因未 inject 抛错已删）+ ui-chat MessageIconActions onEdit 铅笔与 editUserMessage
+# 接线链；随 v0.5.7 一起发布（上游无原生同会话编辑，将来有再撤）。
+# ui-chat/ui-conversation 全量 spec 绿（0007 相关 message-icon-actions 3 例）、oxlint 0/0；
+# 接线级类型检查随发布链全量 build（tsc client 已绿）。
+#
 # 升级基线的正确姿势（fork 锚定形态）：
 #   1. 改本文件为新提交 SHA（fork 上存在的基线提交）
 #   2. 在 fork 本地克隆重建集成分支：基于新基线建 kcoder/<版本> +
@@ -212,4 +262,4 @@
 #   4. 全量回归（重点：第三方插件加载、Web UI 冒烟、打包链 smoke）
 #   5. 提交本文件（及分支名相关改动）
 #
-d347e703908d0406b7a7ef80e3a0e594d86b2215
+82a5fd61a7cf5c293cec4bdff68f455398d685e9
