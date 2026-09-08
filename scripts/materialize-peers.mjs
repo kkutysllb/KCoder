@@ -30,6 +30,7 @@ import { closeSync, cpSync, createReadStream, createWriteStream, existsSync, lst
 import { dirname, join, resolve, sep } from 'node:path'
 import { createGzip } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
+import { applyRuntimeSandboxHotfix } from './runtime-sandbox-hotfix.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 // 上游工作树（fork 锚定后本地消费态在仓外）：env 对齐 release.sh /
@@ -468,6 +469,11 @@ const walk = (dir) => {
 }
 walk(staging)
 console.log(`[materialize] 瘦身：删 ${pruned} 个 .map/.d.ts`)
+
+const sandboxHotfix = applyRuntimeSandboxHotfix(staging)
+if (sandboxHotfix.status !== 'skipped') {
+  console.log(`[materialize] 沙箱升级幂等修复：${sandboxHotfix.status}`)
+}
 
 // —— 原生模块 ABI 对齐（Electron node 形态）——
 // 打包内置运行时的解释器固定为 Electron 内置 node（ELECTRON_RUN_AS_NODE，

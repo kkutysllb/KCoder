@@ -4,7 +4,7 @@
 
 ## 约定
 
-1. **文件命名**：每个版本一个文件，命名为 `v<主.次.补丁>.md`（如 `v0.4.3.md`），与 git tag 一一对应。
+1. **文件命名**：每个版本一个文件，命名为 `v<主.次.补丁>[-<预发布标识>].md`（如 `v0.4.3.md`、`v0.5.7-rc.1.md`），与 git tag 一一对应。
 2. **发布前必备**：`scripts/release.sh ship` 会校验 `release/<tag>.md` 存在，缺失即拒绝发布。说明文件随 `release: x.y.z` 提交一并入库。
 3. **GitHub Release 同步**：
    - CI（`.github/workflows/release.yml`）发布时自动读取本目录对应文件作为 Release 正文；
