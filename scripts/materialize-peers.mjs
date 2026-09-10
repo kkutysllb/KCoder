@@ -56,10 +56,11 @@ function scanWorkspace() {
     ['vendor', 1],
     ['packages', 2],
     ['apps', 1],
-    // pnpm-workspace.yaml：native/landlock-run 自身（…-workspace 壳）
-    // 与其 packages/*（entry = JS 本体；linux-* = 平台子包）都是独立成员
-    ['native/landlock-run', 1],
-    ['native/landlock-run/packages', 1],
+    // pnpm-workspace.yaml：native/system（0.1.5 起，原 landlock-run 改名；
+    // …-workspace 壳）与其 packages/*（entry = JS 本体 + flock 预编译；
+    // darwin-arm64/x64、linux-* = 平台子包）都是独立成员
+    ['native/system', 1],
+    ['native/system/packages', 1],
     ['python', 2],
   ]
   const walk = (dir, depth) => {

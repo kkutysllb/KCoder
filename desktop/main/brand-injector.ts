@@ -157,7 +157,7 @@ const INJECT_JS = `(() => {
       '}',
       // hero headline 首列从固定 34px 改 auto：组合 Logo（K+Coder，宽约
       // 140px）替换鲸鱼后需撑开首列，否则溢出盖住 slogan 文字；
-      // div 精确匹配 headline 容器（headlineText/previewBadge 均为 span）
+      // div 精确匹配 headline 容器（titleGroup/previewBadge 均为 span）
       'div[class*="headline"]{',
       '  grid-template-columns: auto auto auto;',
       '}',
@@ -307,8 +307,9 @@ const INJECT_JS = `(() => {
       svg.insertAdjacentElement('afterend', img)
     }
     // headline：换为产品 slogan（中英自适应；只改文本节点 .data，
-    // 不动 DOM 结构，见文件头注释）
-    const head = document.querySelector('span[class*="headlineText"]')
+    // 不动 DOM 结构，见文件头注释）。0.1.5 起 headlineText 单层 span
+    // 重构为 titleGroup 包裹（文本 span 无类名 + previewBadge 平铺）
+    const head = document.querySelector('span[class*="titleGroup"] > span:not([class])')
     const node = head?.firstChild
     if (node?.nodeType === Node.TEXT_NODE
       && node.nodeValue !== TAGLINE_ZH && node.nodeValue !== TAGLINE_EN) {

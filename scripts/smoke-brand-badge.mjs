@@ -81,8 +81,7 @@ const html = (vars, dark) => `<!doctype html><html><head><meta charset="utf-8"><
 <div class="heroStack">
   <div class="headline">
     <svg class="EmptyHero_fish__x" width="34" height="34" viewBox="0 0 34 34"><rect width="34" height="34" fill="currentColor" opacity=".15"/></svg>
-    <span class="headlineText">Good to see you.</span>
-    <span class="previewBadge">preview</span>
+    <span class="titleGroup"><span>Good to see you.</span><span class="previewBadge">preview</span></span>
   </div>
 </div>
 </body></html>`
@@ -104,7 +103,7 @@ async function runScenario(win, label, vars, dark) {
     const ver = document.getElementById(ID + '_ver')
     const svg = btn?.querySelector('svg')
     const heroImg = document.getElementById(ID + '_hero')
-    const heroText = document.querySelector('span[class*="headlineText"]')
+    const heroText = document.querySelector('span[class*="titleGroup"] > span:not([class])')
     const heroBadge = document.querySelector('span[class*="previewBadge"]')
     const fish = document.querySelector('svg[class*="fish"]')
     const r = (el) => el === null ? null : el.getBoundingClientRect().toJSON()

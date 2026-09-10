@@ -28,6 +28,8 @@ if (m === null) {
   process.exit(1)
 }
 const showJs = m[1].replaceAll('${JSON.stringify(BTN_ID)}', JSON.stringify('__dsh_desktop_update_btn'))
+  // 与主进程注入口同款占位替换（update-injector.ts:281），否则 __DATA__ 裸标识符直接抛错
+  .split('__DATA__').join(JSON.stringify({ stage: 'downloaded', version: '0.0.0-verify', notes: '# 验证\n- 注入契约自检' }))
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ width: 1400, height: 900, show: false })
