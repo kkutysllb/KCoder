@@ -90,7 +90,7 @@ function alignVersions() {
       continue
     }
     const version = JSON.parse(readFileSync(pkgJson, 'utf8')).version
-    const re = new RegExp(`(${a.marker}\\s*=\\s*\")([^\"]+)(\")`, 'g')
+    const re = new RegExp(`(${a.marker}\\s*=\\s*")([^"]+)(")`, 'g')
     let touched = false
     for (const rel of a.files) {
       const f = join(dir, rel)

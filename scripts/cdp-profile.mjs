@@ -21,7 +21,8 @@ ws.onmessage = (ev) => {
   if (msg.id !== undefined && pending.has(msg.id)) {
     const { res, rej } = pending.get(msg.id)
     pending.delete(msg.id)
-    msg.error !== undefined ? rej(new Error(JSON.stringify(msg.error))) : res(msg.result)
+    if (msg.error !== undefined) rej(new Error(JSON.stringify(msg.error)))
+    else res(msg.result)
   }
 }
 

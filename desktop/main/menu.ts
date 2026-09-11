@@ -15,7 +15,6 @@ import { dshManager } from './dsh-manager'
 import { resolveAsset } from './dsh-contract'
 import { checkForUpdates, installUpdate, updateEvents, updateStatus } from './updater'
 import { getShellWindow, openPanel, showShellWindow } from './windows'
-import type { UpdateStatus } from '@shared/ipc-contract'
 
 let tray: Tray | null = null
 

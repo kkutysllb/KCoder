@@ -19,6 +19,7 @@ const endTick = src.indexOf(BT, tail + 1)
 const template = src.slice(from, endTick) // 纯内容（不含两端反引号）
 
 // 按模板字符串语义解析（eval 字面量；处理反斜杠/换行转义）
+// oxlint-disable-next-line no-eval -- 测试夹具:按模板字符串语义还原页面注入源码
 const pageJs = eval(BT + template + BT)
 new Function(pageJs) // 语法校验（不执行）
 

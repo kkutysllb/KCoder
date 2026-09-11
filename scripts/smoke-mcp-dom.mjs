@@ -16,6 +16,7 @@ const decl = 'const PAGE_JS = ' + BT
 const from = src.indexOf(decl) + decl.length
 const tail = src.indexOf('\n})()' + BT, from)
 const endTick = src.indexOf(BT, tail + 1)
+// oxlint-disable-next-line no-eval -- 测试夹具:按模板字符串语义还原页面注入源码
 const pageJs = eval(BT + src.slice(from, endTick) + BT)
 
 // 上游深色主题真实值（design-platform.css :root[data-theme=dark] 块）
@@ -186,14 +187,14 @@ async function runScenario(win, label, vars) {
   if (delOp === undefined || delOp.id !== 'mcp-verify') fails.push(`删除载荷=${JSON.stringify(delOp)}`)
 
   // radio 切换：http 选中后字段组互换
-  const radioProbe = JSON.parse(await win.webContents.executeJavaScript(`(() => {
+  await win.webContents.executeJavaScript(`(() => {
     document.querySelector('#__dsh_desktop_mcp_section .dmi-head .dmi-save').click()
     const form = document.querySelector('.dmi-form')
     const groups = form.querySelectorAll('.dmi-fgroup')
     const httpRadio = form.querySelector('input[value="streamable-http"]')
     httpRadio.click()
     return JSON.stringify({ stdioHiddenBefore: groups[0].hidden })
-  })()`, true))
+  })()`, true)
   await new Promise((r) => setTimeout(r, 100))
   const radioProbe2 = JSON.parse(await win.webContents.executeJavaScript(`(() => {
     const groups = document.querySelectorAll('.dmi-form .dmi-fgroup')

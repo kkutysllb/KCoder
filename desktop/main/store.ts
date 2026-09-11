@@ -7,7 +7,7 @@
  * @module desktop/main/store
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { LanguageSettings, StyleSettings } from '@shared/ipc-contract'

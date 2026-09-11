@@ -19,12 +19,7 @@ const from = src.indexOf(decl) + decl.length
 const tail = src.indexOf('\n})()' + BT, from)
 const endTick = src.indexOf(BT, tail + 1)
 // PAGE_JS 插值 ${JSON.stringify(MEDIA_MODEL_GROUPS)} 在 eval 作用域求值：
-// 从 media-models.ts 抠真实字段表（纯数据可 eval；不含函数/类型）
-const mts = readFileSync('desktop/main/media-models.ts', 'utf8')
-const mAnchor = 'export const MEDIA_MODEL_GROUPS: readonly MediaModelGroup[] = '
-const mStart = mts.indexOf(mAnchor) + mAnchor.length
-const mEnd = mts.indexOf('\n]', mStart) + 2
-const MEDIA_MODEL_GROUPS = eval(mts.slice(mStart, mEnd))
+// oxlint-disable-next-line no-eval -- 测试夹具:按模板字符串语义还原页面注入源码
 const pageJs = eval(BT + src.slice(from, endTick) + BT)
 
 // 上游深色主题真实值（design-platform.css :root[data-theme=dark] 块）

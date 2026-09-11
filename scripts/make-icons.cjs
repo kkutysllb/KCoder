@@ -12,7 +12,7 @@
  * 前置：上游克隆存在（图标取自上游，不自行设计）。
  */
 
-const { app, BrowserWindow, nativeImage } = require('electron')
+const { app, BrowserWindow } = require('electron')
 const { mkdirSync, readFileSync, writeFileSync } = require('node:fs')
 const { join, resolve } = require('node:path')
 
