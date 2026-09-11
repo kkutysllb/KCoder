@@ -287,6 +287,18 @@
 # 与上游 tag 逐文件比对零差）。回归：vitest llm-pi-ai + projection-cache 372 +
 # ui-chat/ui-conversation 737 全绿；oxlint 0 error。
 #
+# 升级记录：2026-09-11 0.1.5-rc.1(183f08e9) → 0.1.5-rc.2(fb2c4b9e，上游 tag
+# dsh-v0.1.5-rc.2)，集成分支重建为 kcoder/0.1.5-rc.2（= fb2c4b9e + merge
+# kcoder/0.1.5-rc.1 集成树整体重放，fork 尖端 94bbde10b3）。4 提交/334 文件
+# diff（版本戳+文档+反馈特性），实质改动：新增 ui-message-feedback 包（消息
+# 反馈对话框/动作/slots）、ui-primitives 代码文件图标 artwork、ui-deliverables
+# 交付卡片打磨、TurnTailNodeView.module.css +4px margin。KCoder 注入锚点
+# 零触碰：ui-conversation/ui-sidebar/ui-settings-plugins/connection/web-app/
+# llm-pi-ai/session/projcache 均不在 diff。集成零冲突，lock 零变化。
+# 完整性断言：334=334 comm 零差；CSS 专项全量零漂移；回归 vitest
+# llm-pi-ai + projection-cache + ui-chat + ui-conversation 1110 全绿；
+# oxlint 0 error。集成分支已推 fork 远端。
+#
 # 升级基线的正确姿势（fork 锚定形态）：
 #   1. 改本文件为新提交 SHA（fork 上存在的基线提交）
 #   2. 在 fork 本地克隆重建集成分支：基于新基线建 kcoder/<版本> +
@@ -296,4 +308,4 @@
 #   4. 全量回归（重点：第三方插件加载、Web UI 冒烟、打包链 smoke）
 #   5. 提交本文件（及分支名相关改动）
 #
-183f08e9c6dde7e36cd2318eaee70b0da08fb35e
+fb2c4b9e698e30edb738bca4cf0618587db7d203
