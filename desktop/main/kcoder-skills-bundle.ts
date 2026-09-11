@@ -67,8 +67,6 @@ export const DSH_LANGUAGE_BUNDLE = 'dsh-language-bundle'
  * org 被 npm 注册政策拦截，定稿用户名 scope；bundle/ 目录名保持平铺）。 */
 export const DSH_GIT_PANEL_BUNDLE = '@kkutysllb/dsh-git-panel'
 
-/** 会话统计图表面板 bundle 包名（独立插件，见 bundle/dsh-stats-panel）。 */
-export const DSH_STATS_PANEL_BUNDLE = 'dsh-stats-panel'
 
 /** 嵌入式终端 bundle 包名（scope 定稿理由同 git-panel，见其常量注释）。 */
 export const DSH_TERMINAL_BUNDLE = '@kkutysllb/dsh-terminal'
@@ -104,7 +102,6 @@ const BUNDLES: BundledPlugin[] = [
   { pkg: DSH_SKILLS_BUNDLE, dir: 'dsh-skills-bundle', entry: 'entry.js', intactFiles: [join('skills', 'manifest.json')] },
   { pkg: DSH_LANGUAGE_BUNDLE, dir: 'dsh-language-bundle', entry: 'entry.js', intactFiles: [] },
   { pkg: DSH_GIT_PANEL_BUNDLE, dir: 'dsh-git-panel', entry: 'entry.js', intactFiles: ['client.js'] },
-  { pkg: DSH_STATS_PANEL_BUNDLE, dir: 'dsh-stats-panel', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: DSH_TERMINAL_BUNDLE, dir: 'dsh-terminal', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: DSH_FILE_REVIEW_BUNDLE, dir: 'dsh-file-review-kcoder', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
   { pkg: DSH_CODING_SIDEBAR, dir: 'dsh-coding-sidebar', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
@@ -125,7 +122,7 @@ export const MATERIALIZED_BUNDLES: string[] = BUNDLES.map((b) => b.pkg)
  * - @kcoder/skills-bundle、@kcoder/language-bundle、@kcoder/git-panel、
  *   @kcoder/stats-panel、@kcoder/terminal、@kcoder/file-review
  *   （2026-09-01）：全部改名自立并发布 npm（dsh-skills-bundle /
- *   dsh-language-bundle / dsh-git-panel / dsh-stats-panel / dsh-terminal /
+ *   dsh-language-bundle / dsh-git-panel / dsh-terminal /
  *   dsh-file-review-kcoder，1.0.0 起步），旧名物化目录与 bundles 层叠
  *   残留自愈三清（file-review 曾被钉 deps "0.4.1" 一并摘除）。
  */
@@ -145,6 +142,12 @@ const RETIRED_PLUGINS = [
   'dsh-terminal',
   '@dsh-external/dsh-git-panel',
   '@dsh-external/dsh-terminal',
+  // 2026-09-11 退役：当前基线（0.1.5-rc.2）composer dock 已原生挂载
+  // StatsPills 会话统计（gauge/database 双 pill：轮次/步数+输出速度、
+  // 总 token+缓存命中，点击开时间速度与 token 用量对话框，projection
+  // 一等数据源），内置 dsh-stats-panel 的 DOM 文本解析方案被原生完整
+  // 覆盖，整线退役三清（旧物化目录与 bundles 层叠残留自愈移除）
+  'dsh-stats-panel',
   // 2026-09-05 退役：当前基线（0.1.3-alpha.1）composer 已原生集成附件
   // 上传入口（引擎 web-app bundle 注册的 ui-attachment + file-upload
   // 链路），内置 dsh-file-attach 能力被原生覆盖，整线退役三清。退役
