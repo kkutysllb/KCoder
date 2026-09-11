@@ -8,9 +8,22 @@
  * - POST /dsh-git-panel/api/open-plan {path} → 系统默认应用打开
  *   （client 侧 better-sidebar 缺席时的回退链末端；仅文本计划扩展名）
  *
+ * GitHub 管理 RPC（v1.0.1；gh CLI 软依赖，缺席/未登录返回可读错误，
+ * git 面板本体不受影响）：
+ * - POST /dsh-git-panel/api/gh-list         {cwd} → 仓库识别 + 开放
+ *   PR/Issue 清单（当前分支命中的 PR 打 current 标）
+ * - POST /dsh-git-panel/api/gh-create-pr    {cwd,title,body,base?} →
+ *   当前分支创建 PR；分支未推送/落后时先 push -u（base 缺省仓库默认分支）
+ * - POST /dsh-git-panel/api/gh-merge-pr     {cwd,number,method} → 合并
+ *   PR（method ∈ merge|squash|rebase，缺省 squash）
+ * - POST /dsh-git-panel/api/gh-create-issue {cwd,title,body} → 新建 Issue
+ * - POST /dsh-git-panel/api/open-url        {url} → http(s) 白名单，
+ *   系统浏览器打开（PR/Issue 行点击跳转）
+ *
  * 安全边界与 dsh-git-forge 同款：isTrusted（loopback 放行 +
  * webRuntime.trustedHosts）+ POST-only + JSON body。cwd 由 client
  * 按当前会话传入（多窗口各自跟随自己的工作区），无 cwd 返回空快照。
+ * gh 全部 execFile 直调（无 shell 拼接），标题/描述走参数传递。
  *
  * 纯逻辑（解析/扫描/探测）全部导出，tests/run-tests.mjs 以 node
  * 直跑覆盖（真 git 临时仓库集成用例）。逻辑平移自退役宿主
@@ -33,6 +46,8 @@ export const RPC_PREFIX = '/dsh-git-panel/api'
 const GIT_TIMEOUT_MS = 5000
 /** 写操作超时（毫秒；push/commit 可能涉及网络与磁盘，放宽）。 */
 const WRITE_TIMEOUT_MS = 30000
+/** gh 命令超时（毫秒；GitHub API 网络调用，比本地 git 放宽）。 */
+const GH_TIMEOUT_MS = 20000
 /** 变更文件列表上限（超出截断，防巨型工作区撑爆面板 DOM）。 */
 const FILES_MAX = 200
 /** 计划列表上限（按 mtime 新→旧截断）。 */
@@ -467,7 +482,7 @@ async function resolveDefaultBranch(originHead, remoteUrl, cwd) {
 }
 
 /* ---------------------------------------------------------------- *
- * RPC（/dsh-git-panel/api/{snapshot,open-plan}）
+ * RPC（/dsh-git-panel/api/{snapshot,open-plan,branches,...,gh-*}）
  * ---------------------------------------------------------------- */
 
 function isLoopbackHostname(hostname) {
@@ -612,6 +627,157 @@ export async function handlePush(body) {
   return r.ok ? { ok: true } : { ok: false, error: firstLine(r.err) ?? 'push failed' }
 }
 
+/* ---------------------------------------------------------------- *
+ * GitHub 管理（gh CLI 软依赖；execFile 直调，无 shell 拼接）
+ * ---------------------------------------------------------------- */
+
+/** execFile 包装（gh）：失败不抛；ENOENT（未安装）归一为可读文案。 */
+export function runGh(args, cwd, timeoutMs) {
+  return new Promise(resolve => {
+    execFile('gh', args, { cwd, timeout: timeoutMs, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error !== null) {
+        const err = error.code === 'ENOENT'
+          ? 'gh CLI 未安装（https://cli.github.com）'
+          : (stderr !== '' ? stderr : (typeof error.message === 'string' ? error.message : 'gh failed'))
+        resolve({ ok: false, out: '', err })
+        return
+      }
+      resolve({ ok: true, out: stdout, err: stderr })
+    })
+  })
+}
+
+/** gh --json 清单解析（坏输出回退空数组）。 */
+export function parseGhJsonList(out) {
+  try {
+    const v = JSON.parse(out)
+    return Array.isArray(v) ? v : []
+  } catch {
+    return []
+  }
+}
+
+/** gh pr create / issue create 输出提取结果 URL（末个 http(s) 链接）。 */
+export function parseCreatedUrl(out) {
+  let last = null
+  for (const m of String(out ?? '').matchAll(/https:\/\/[^\s]+/g)) last = m[0]
+  return last
+}
+
+/** gh-list：仓库识别 + 开放 PR/Issue 清单（--limit 50 截断防巨型面板）。 */
+export async function handleGhList(body) {
+  const cwd = absCwd(body)
+  if (cwd === '') return { ok: false, error: 'bad cwd', repo: null, prs: [], issues: [] }
+  const [repoRes, prRes, issueRes, branchRef] = await Promise.all([
+    runGh(['repo', 'view', '--json', 'nameWithOwner'], cwd, GH_TIMEOUT_MS),
+    runGh(['pr', 'list', '--json', 'number,title,headRefName,isDraft,url,author', '--limit', '50'], cwd, GH_TIMEOUT_MS),
+    runGh(['issue', 'list', '--json', 'number,title,url,author', '--limit', '50'], cwd, GH_TIMEOUT_MS),
+    runGit(['symbolic-ref', '--short', 'HEAD'], cwd, GIT_TIMEOUT_MS),
+  ])
+  if (!repoRes.ok) {
+    // 仓库不可识别（含未登录/无远端）：降级文案优先透出
+    return { ok: false, error: firstLine(repoRes.err) ?? 'gh failed', repo: null, prs: [], issues: [] }
+  }
+  let repo = null
+  try { repo = JSON.parse(repoRes.out)?.nameWithOwner ?? null } catch { repo = null }
+  const fail = [prRes, issueRes].find(r => !r.ok)
+  if (fail !== undefined) {
+    return { ok: false, error: firstLine(fail.err) ?? 'gh failed', repo, prs: [], issues: [] }
+  }
+  const current = branchRef.ok ? branchRef.out.trim() : null
+  const prs = parseGhJsonList(prRes.out)
+    .map(p => ({
+      number: p.number ?? 0,
+      title: typeof p.title === 'string' ? p.title : '',
+      head: typeof p.headRefName === 'string' ? p.headRefName : '',
+      isDraft: p.isDraft === true,
+      url: typeof p.url === 'string' ? p.url : null,
+      author: typeof p.author?.login === 'string' ? p.author.login : null,
+      current: current !== null && p.headRefName === current,
+    }))
+    .filter(p => p.number > 0)
+  const issues = parseGhJsonList(issueRes.out)
+    .map(i => ({
+      number: i.number ?? 0,
+      title: typeof i.title === 'string' ? i.title : '',
+      url: typeof i.url === 'string' ? i.url : null,
+      author: typeof i.author?.login === 'string' ? i.author.login : null,
+    }))
+    .filter(i => i.number > 0)
+  return { ok: true, error: null, repo, current, prs, issues }
+}
+
+/** 标题/描述公共校验（gh 创建类 RPC 共用；超限拒绝在触 gh 之前）。 */
+function ghTitleBody(body) {
+  const title = typeof body?.title === 'string' ? body.title.trim() : ''
+  if (title === '' || title.length > 500) return null
+  const desc = typeof body?.body === 'string' ? body.body.trim() : ''
+  if (desc.length > 4000) return null
+  return { title, desc }
+}
+
+/** gh-create-pr：当前分支 → base（缺省仓库默认分支）创建 PR。
+ *  分支未推送/落后上游时先 push -u（对齐面板「提交或推送」一键语义）。 */
+export async function handleGhCreatePr(body) {
+  const cwd = absCwd(body)
+  if (cwd === '') return { ok: false, error: 'bad cwd' }
+  const tb = ghTitleBody(body)
+  if (tb === null) return { ok: false, error: 'empty or too long title/body' }
+  const base = typeof body?.base === 'string' && body.base.trim() !== '' ? body.base.trim() : null
+  if (base !== null && !isValidBranchName(base)) return { ok: false, error: 'invalid base branch' }
+  const branchRef = await runGit(['symbolic-ref', '--short', 'HEAD'], cwd, GIT_TIMEOUT_MS)
+  if (!branchRef.ok) return { ok: false, error: 'detached HEAD' }
+  const branch = branchRef.out.trim()
+  const ab = await runGit(['rev-list', '--left-right', '--count', branch + '...@{upstream}'], cwd, GIT_TIMEOUT_MS)
+  if (!ab.ok || parseAheadBehind(ab.out).ahead > 0) {
+    const p = await runGit(['push', '-u', 'origin', branch], cwd, WRITE_TIMEOUT_MS)
+    if (!p.ok) return { ok: false, error: firstLine(p.err) ?? 'push failed' }
+  }
+  const args = ['pr', 'create', '--title', tb.title, '--head', branch]
+  if (base !== null) args.push('--base', base)
+  args.push('--body', tb.desc)
+  const r = await runGh(args, cwd, WRITE_TIMEOUT_MS)
+  if (!r.ok) return { ok: false, error: firstLine(r.err) ?? 'create pr failed' }
+  return { ok: true, url: parseCreatedUrl(r.out) }
+}
+
+/** gh-merge-pr：合并 PR（method ∈ merge|squash|rebase，缺省 squash；
+ *  非 TTY 直调 gh 不会进交互提示）。 */
+const MERGE_METHODS = new Set(['merge', 'squash', 'rebase'])
+export async function handleGhMergePr(body) {
+  const cwd = absCwd(body)
+  if (cwd === '') return { ok: false, error: 'bad cwd' }
+  const n = Number(body?.number)
+  if (!Number.isInteger(n) || n <= 0 || n > 1_000_000_000) return { ok: false, error: 'invalid pr number' }
+  const method = MERGE_METHODS.has(body?.method) ? body.method : 'squash'
+  const r = await runGh(['pr', 'merge', String(n), '--' + method], cwd, WRITE_TIMEOUT_MS)
+  return r.ok ? { ok: true } : { ok: false, error: firstLine(r.err) ?? 'merge failed' }
+}
+
+/** gh-create-issue：新建 Issue（仓库上下文取自 cwd）。 */
+export async function handleGhCreateIssue(body) {
+  const cwd = absCwd(body)
+  if (cwd === '') return { ok: false, error: 'bad cwd' }
+  const tb = ghTitleBody(body)
+  if (tb === null) return { ok: false, error: 'empty or too long title/body' }
+  const r = await runGh(['issue', 'create', '--title', tb.title, '--body', tb.desc], cwd, WRITE_TIMEOUT_MS)
+  if (!r.ok) return { ok: false, error: firstLine(r.err) ?? 'create issue failed' }
+  return { ok: true, url: parseCreatedUrl(r.out) }
+}
+
+/** open-url：http(s) 白名单外链系统浏览器打开（PR/Issue 行点击跳转；
+ *  file:/javascript: 等协议一律拒绝）。 */
+export async function handleOpenUrl(body) {
+  const raw = typeof body?.url === 'string' ? body.url.trim() : ''
+  let url = null
+  try { url = new URL(raw) } catch { url = null }
+  if (url === null || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
+    return { ok: false, error: 'bad url' }
+  }
+  await openWithSystemApp(url.toString())
+  return { ok: true }
+}
+
 /** open-compare：派生 GitHub 风格 compare URL 并系统浏览器打开。 */
 export async function handleOpenCompare(body) {
   const cwd = absCwd(body)
@@ -712,6 +878,26 @@ export function apply(ctx) {
             }
             if (method === 'open-compare') {
               writeJson(res, 200, await handleOpenCompare(body))
+              return
+            }
+            if (method === 'gh-list') {
+              writeJson(res, 200, await handleGhList(body))
+              return
+            }
+            if (method === 'gh-create-pr') {
+              writeJson(res, 200, await handleGhCreatePr(body))
+              return
+            }
+            if (method === 'gh-merge-pr') {
+              writeJson(res, 200, await handleGhMergePr(body))
+              return
+            }
+            if (method === 'gh-create-issue') {
+              writeJson(res, 200, await handleGhCreateIssue(body))
+              return
+            }
+            if (method === 'open-url') {
+              writeJson(res, 200, await handleOpenUrl(body))
               return
             }
             writeJson(res, 404, { ok: false, error: 'unknown method' })

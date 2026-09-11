@@ -23,7 +23,11 @@
  *   click 派发，React 合成事件照常），git 手动关闭时履约开回；反向
  *   让位收起即解除正向义务，防交叉残留。
  * - 开关按钮 id __dsh_kc_git_btn / 位置 right:108px（旧宿主按钮
- *   __dsh_desktop_git_btn 已随宿主退役同步摘除，本按钮接替原位）。
+ *   __dsh_desktop_git_btn 已随宿主退役同步摘除，本按钮接替原位）；
+ * - v1.0.1 GitHub 区块（gh CLI 软依赖）：PR/Issue 开放清单（懒加载
+ *   gh-list，不参与轮询；行点击经 open-url 系统浏览器打开）、创建 PR
+ *   （flyout 标题/描述；未推送分支由 server 自动 push -u）、Squash
+ *   合并（行内二次确认）、新建 Issue；gh 缺席/未登录降级为安装提示。
  *
  * @module @kkutysllb/dsh-git-panel/client
  */
@@ -73,11 +77,18 @@ window.__ModuleLoader__.load({
       let cwdOverride = null
       let changesOpen = false
       let commitOpen = false
-      /** flyout 模式：null | 'location' | 'branch' | 'create'。 */
+      /** flyout 模式：null | 'location' | 'branch' | 'create' | 'gh-pr' | 'gh-issue'。 */
       let flyMode = null
       let branchCache = null
       let busyAction = false
       let hintMsg = ''
+      /** GitHub 区块（懒加载，不参与轮询）：prOpen/issueOpen 展开态；
+       *  ghCache = null | {state:'loading'|'ok'|'err', data?, error?}；
+       *  lastGhRoot 记缓存归属仓库（worktree 切换即失效重拉）。 */
+      let prOpen = false
+      let issueOpen = false
+      let ghCache = null
+      let lastGhRoot
 
       const SVG = {
         branch: '<svg viewBox="0 0 16 16" fill="none"><path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Z" fill="currentColor"/></svg>',
@@ -94,6 +105,8 @@ window.__ModuleLoader__.load({
         github: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5a6.5 6.5 0 0 0-2.06 12.67c.33.06.45-.14.45-.32v-1.13c-1.8.39-2.19-.87-2.19-.87-.3-.76-.72-.96-.72-.96-.6-.4.04-.4.04-.4.66.05 1.01.68 1.01.68.59 1 1.55.72 1.93.55.06-.43.23-.72.42-.89-1.44-.16-2.96-.72-2.96-3.2 0-.71.25-1.29.67-1.74-.07-.17-.29-.83.06-1.72 0 0 .55-.17 1.8.66a6.2 6.2 0 0 1 3.28 0c1.24-.83 1.79-.66 1.79-.66.36.89.13 1.55.07 1.72.42.45.66 1.03.66 1.74 0 2.49-1.52 3.04-2.97 3.2.24.2.44.6.44 1.22v1.8c0 .18.12.39.46.32A6.5 6.5 0 0 0 8 1.5Z"/></svg>',
         external: '<svg viewBox="0 0 16 16" fill="none"><path d="M6.5 4H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V9.5M9 3h4v4M13 3L7.5 8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
         changes: '<svg viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M8 5.5v5M5.5 8h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+        pr: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></svg>',
+        issue: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/></svg>',
       }
 
       /* ---- 样式：面板（git.ts PAGE_CSS 平移 + fixed 外壳）+ 标题栏按钮/徽章 ---- */
@@ -170,19 +183,27 @@ window.__ModuleLoader__.load({
         'body[data-ds-dark-theme] #' + PANEL_ID + ' .gt-file .st.m{color:#D29922}',
         '#' + PANEL_ID + ' .gt-file .fp{flex:1;min-width:0;font:400 11px/1.6 var(--gt-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
         '#' + PANEL_ID + ' .gt-file .ln{flex:none;font:600 10px/1.6 var(--gt-mono);color:var(--gt-muted)}',
+        // GitHub 区块行内件：#num 徽标 / 状态 chip / 悬停动作（合并/确认）
+        '#' + PANEL_ID + ' .gt-file .num{flex:none;font:650 10px/1.6 var(--gt-mono);color:var(--gt-add)}',
+        '#' + PANEL_ID + ' .gt-file .tag{flex:none;font-size:9px;line-height:1;padding:2px 4px;border-radius:4px;background:var(--gt-chip);color:var(--gt-muted);white-space:nowrap}',
+        '#' + PANEL_ID + ' .gt-file .act{flex:none;font-size:10px;line-height:1;color:var(--gt-muted);cursor:pointer;padding:2px 4px;border-radius:4px;user-select:none;white-space:nowrap}',
+        '#' + PANEL_ID + ' .gt-file .act:hover{background:var(--gt-hover);color:var(--gt-fg)}',
+        '#' + PANEL_ID + ' .gt-file .act.danger{color:#e5534b}',
+        '#' + PANEL_ID + ' .gt-file.off{opacity:.45}',
         // 提交盒
         '#' + PANEL_ID + ' .gt-cbox{margin:2px 8px 8px 23px;display:flex;flex-direction:column;gap:6px}',
         '#' + PANEL_ID + ' .gt-msg{resize:vertical;min-height:44px;max-height:120px;border-radius:8px;border:1px solid var(--gt-border);background:transparent;color:var(--gt-fg);font:400 12px/1.5 -apple-system,"PingFang SC","Segoe UI",sans-serif;padding:6px 8px;outline:none}',
         '#' + PANEL_ID + ' .gt-cbtns{display:flex;gap:6px;align-items:center}',
-        '#' + PANEL_ID + ' .gt-abtn{all:unset;box-sizing:border-box;height:24px;padding:0 10px;border-radius:6px;background:var(--gt-accent);color:#FFF;font-size:11px;cursor:pointer}',
-        '#' + PANEL_ID + ' .gt-abtn:disabled{opacity:.4;cursor:default}',
-        '#' + PANEL_ID + ' .gt-abtn.sec{background:var(--gt-chip);color:var(--gt-fg)}',
+        '#' + PANEL_ID + ' .gt-abtn,#' + FLY_ID + ' .gt-abtn{all:unset;box-sizing:border-box;height:24px;padding:0 10px;border-radius:6px;background:var(--gt-accent);color:#FFF;font-size:11px;cursor:pointer}',
+        '#' + PANEL_ID + ' .gt-abtn:disabled,#' + FLY_ID + ' .gt-abtn:disabled{opacity:.4;cursor:default}',
+        '#' + PANEL_ID + ' .gt-abtn.sec,#' + FLY_ID + ' .gt-abtn.sec{background:var(--gt-chip);color:var(--gt-fg)}',
         '#' + PANEL_ID + ' .gt-hintline{font-size:10px;color:var(--gt-muted);min-height:12px}',
         // ---- flyout（工作位置 / 分支选择器） ----
         '#' + FLY_ID + '{position:fixed;z-index:2147483647;width:264px;max-height:420px;display:flex;flex-direction:column;border-radius:12px;border:1px solid var(--gt-border);background:var(--gt-bg);color:var(--gt-fg);box-shadow:0 14px 44px rgba(9,16,29,.22),0 2px 8px rgba(9,16,29,.10);overflow:hidden;--gt-bg:#FFFFFF;--gt-fg:#1A1D21;--gt-border:rgba(0,0,0,.10);--gt-muted:rgba(26,29,33,.55);--gt-chip:rgba(128,128,128,.14);--gt-hover:rgba(128,128,128,.12);--gt-accent:#2F6FED;--gt-mono:ui-monospace,Menlo,Monaco,monospace}',
         'body[data-ds-dark-theme] #' + FLY_ID + '{--gt-bg:#1B1B1C;--gt-fg:#E8EAED;--gt-border:#2C2C2E;--gt-muted:rgba(232,234,237,.55);--gt-chip:rgba(128,128,128,.18);--gt-hover:rgba(128,128,128,.16);--gt-accent:#7C9BFF;box-shadow:0 14px 44px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.4)}',
         '#' + FLY_ID + ' .fly-cap{padding:10px 12px 4px;font-size:10px;color:var(--gt-muted);letter-spacing:.5px;user-select:none}',
         '#' + FLY_ID + ' .fly-search{all:unset;box-sizing:border-box;margin:6px 10px;display:flex;height:28px;padding:0 8px;border-radius:7px;border:1px solid var(--gt-border);color:var(--gt-fg);font-size:12px}',
+        '#' + FLY_ID + ' .fly-msg{all:unset;box-sizing:border-box;margin:0 10px 6px;display:block;height:64px;padding:6px 8px;border-radius:7px;border:1px solid var(--gt-border);color:var(--gt-fg);font:400 12px/1.5 -apple-system,"PingFang SC","Segoe UI",sans-serif;resize:none;outline:none}',
         '#' + FLY_ID + ' .fly-list{flex:1;min-height:0;overflow-y:auto;padding:2px 6px 6px}',
         '#' + FLY_ID + ' .fly-row{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:12px}',
         '#' + FLY_ID + ' .fly-row:hover{background:var(--gt-hover)}',
@@ -291,11 +312,27 @@ window.__ModuleLoader__.load({
       const cmpExt = el('span', 'chev')
       cmpExt.innerHTML = SVG.external
       cmpRow.r.append(cmpExt)
+      // GitHub 区块（gh CLI 软依赖；标题展示 owner/repo，懒加载不进轮询）
+      const ghCaps = el('div', 'gt-caps', 'GitHub')
+      const prRow = mkRow(SVG.pr, 'Pull Requests')
+      const prCnt = el('span', 'cnt', '—')
+      const prChev = mkChev()
+      prRow.r.append(prCnt, prChev)
+      const prBox = el('div', 'gt-files')
+      prBox.style.display = 'none'
+      const isRow = mkRow(SVG.issue, 'Issues')
+      const isCnt = el('span', 'cnt', '—')
+      const isChev = mkChev()
+      isRow.r.append(isCnt, isChev)
+      const isBox = el('div', 'gt-files')
+      isBox.style.display = 'none'
+      const ghMsg = el('div', 'gt-hint')
+      ghMsg.style.display = 'none'
       // 任务计划（约定位置扫到的 agent 计划文档；点击走软依赖预览链）
       const planCaps = el('div', 'gt-caps', '任务计划')
       const planList = el('div')
       const empty = el('div', 'gt-empty')
-      body.append(envCaps, chRow.r, filesBox, locRow.r, brRow.r, cpRow.r, commitBox, cmpRow.r, planCaps, planList, empty)
+      body.append(envCaps, chRow.r, filesBox, locRow.r, brRow.r, cpRow.r, commitBox, cmpRow.r, ghCaps, prRow.r, prBox, isRow.r, isBox, ghMsg, planCaps, planList, empty)
 
       card.append(header, status, body)
       panel.append(card)
@@ -335,6 +372,7 @@ window.__ModuleLoader__.load({
         }
         render(snapshot)
         renderBadge()
+        maybeLoadGh()
       }
 
       const schedule = () => {
@@ -468,7 +506,7 @@ window.__ModuleLoader__.load({
         return segs.length > 0 ? (segs[segs.length - 1] ?? p) : p
       }
 
-      const closeFly = () => { flyMode = null; fly.style.display = 'none'; fly.replaceChildren() }
+      const closeFly = () => { flyMode = null; fly.style.display = 'none'; fly.replaceChildren(); ghHint('') }
       const positionFly = (anchor) => {
         const pr = panel.getBoundingClientRect()
         const ar = anchor.getBoundingClientRect()
@@ -673,6 +711,205 @@ window.__ModuleLoader__.load({
         busyAction = false
       }
 
+      /* ---- GitHub 区块（gh CLI 软依赖；懒加载，不参与轮询） ---- */
+      const ghHint = (text) => {
+        ghMsg.textContent = text
+        ghMsg.style.display = text !== '' && snapshot.isRepo ? '' : 'none'
+      }
+      const updateGhCounts = () => {
+        const st = ghCache?.state ?? null
+        const mark = st === 'ok' ? null : st === 'loading' ? '…' : st === 'err' ? '!' : '—'
+        prCnt.textContent = mark ?? String(ghCache.data?.prs.length ?? 0)
+        isCnt.textContent = mark ?? String(ghCache.data?.issues.length ?? 0)
+      }
+      const loadGh = async () => {
+        const cwd = effectiveCwd()
+        if (cwd === null || cwd === '' || !snapshot.isRepo) return
+        ghCache = { state: 'loading' }
+        renderGh()
+        try {
+          const res = await api('gh-list', { cwd })
+          ghCache = res?.ok === true
+            ? { state: 'ok', data: res }
+            : { state: 'err', error: res?.error ?? 'gh 调用失败' }
+        } catch { ghCache = { state: 'err', error: '网络异常' } }
+        renderGh()
+      }
+      /** root 变化（worktree/会话切换）即失效重拉；开板且是仓库才拉。 */
+      const maybeLoadGh = () => {
+        if (!open || !snapshot.isRepo) return
+        if (snapshot.root !== lastGhRoot) { lastGhRoot = snapshot.root; ghCache = null }
+        if (ghCache === null) void loadGh()
+      }
+      const canCreatePr = () => snapshot.isRepo
+        && snapshot.branch !== null && snapshot.defaultBranch !== null
+        && snapshot.branch !== snapshot.defaultBranch
+      const doMergePr = async (pr) => {
+        if (busyAction) return
+        busyAction = true
+        try {
+          const res = await api('gh-merge-pr', { cwd: effectiveCwd(), number: pr.number, method: 'squash' })
+          ghHint(res.ok === true ? '已合并 #' + pr.number : (res.error ?? '合并失败'))
+        } catch { ghHint('网络异常') }
+        busyAction = false
+        void loadGh()
+        void refresh()
+      }
+      /** 合并行内二次确认（同分支删除 zone 语义：合并 → 确认/取消）。 */
+      const mkMergeZone = (pr) => {
+        const zone = el('span')
+        const confirm2 = () => {
+          zone.replaceChildren()
+          const q = el('span', 'tag', 'Squash 合并?')
+          const yes = el('span', 'act danger', '确认')
+          yes.onclick = (ev) => { ev.stopPropagation(); void doMergePr(pr) }
+          const no = el('span', 'act', '取消')
+          no.onclick = (ev) => { ev.stopPropagation(); idle() }
+          zone.append(q, yes, no)
+        }
+        const idle = () => {
+          zone.replaceChildren()
+          const a = el('span', 'act', '合并')
+          a.title = 'Squash 合并 #' + pr.number
+          a.onclick = (ev) => { ev.stopPropagation(); confirm2() }
+          zone.append(a)
+        }
+        idle()
+        return zone
+      }
+      const buildPrBox = () => {
+        prBox.replaceChildren()
+        const st = ghCache?.state
+        if (st === 'loading') { prBox.append(el('div', 'fly-none', '加载中…')); return }
+        if (st === 'err') {
+          prBox.append(el('div', 'fly-none', ghCache.error ?? 'gh 调用失败'))
+          prBox.append(el('div', 'gt-hint', '需要 gh CLI（安装后 gh auth login）'))
+          const retry = el('button', 'gt-file')
+          retry.append(el('span', 'st a', '↻'), el('span', 'fp', '重试'))
+          retry.onclick = () => { ghCache = null; void loadGh() }
+          prBox.append(retry)
+          return
+        }
+        if (st !== 'ok') return
+        const prs = ghCache.data?.prs ?? []
+        if (prs.length === 0) prBox.append(el('div', 'fly-none', '无开放 PR'))
+        for (const pr of prs) {
+          const row = el('button', 'gt-file')
+          row.title = '#' + pr.number + ' ' + pr.title + (pr.head !== '' ? ' · ' + pr.head : '') + (pr.author !== null ? ' · @' + pr.author : '')
+          row.append(el('span', 'num', '#' + pr.number), el('span', 'fp', pr.title === '' ? '(无标题)' : pr.title))
+          if (pr.current) row.append(el('span', 'tag', '当前'))
+          if (!pr.isDraft) row.append(mkMergeZone(pr))
+          else row.append(el('span', 'tag', '草稿'))
+          row.onclick = () => { if (pr.url !== null) void api('open-url', { url: pr.url }).catch(() => {}) }
+          prBox.append(row)
+        }
+        // footer：创建 PR（当前分支 ≠ 默认分支才有意义）
+        const can = canCreatePr()
+        const cr = el('button', 'gt-file' + (can ? '' : ' off'))
+        cr.title = can
+          ? '当前分支创建 PR → ' + snapshot.defaultBranch
+          : '当前分支即默认分支（或 detached），无法创建 PR'
+        cr.append(el('span', 'st a', '+'), el('span', 'fp', '创建 PR…（' + (snapshot.branch ?? '?') + ' → ' + (snapshot.defaultBranch ?? '?') + '）'))
+        cr.onclick = () => {
+          if (!canCreatePr()) { ghHint('当前分支即默认分支，无法创建 PR'); return }
+          openGhPrFly(prRow.r)
+        }
+        prBox.append(cr)
+      }
+      const buildIssueBox = () => {
+        isBox.replaceChildren()
+        const st = ghCache?.state
+        if (st === 'loading') { isBox.append(el('div', 'fly-none', '加载中…')); return }
+        if (st === 'err') {
+          isBox.append(el('div', 'fly-none', ghCache.error ?? 'gh 调用失败'))
+          return
+        }
+        if (st !== 'ok') return
+        const issues = ghCache.data?.issues ?? []
+        if (issues.length === 0) isBox.append(el('div', 'fly-none', '无开放 Issue'))
+        for (const it of issues) {
+          const row = el('button', 'gt-file')
+          row.title = '#' + it.number + ' ' + it.title + (it.author !== null ? ' · @' + it.author : '')
+          row.append(el('span', 'num', '#' + it.number), el('span', 'fp', it.title === '' ? '(无标题)' : it.title))
+          row.onclick = () => { if (it.url !== null) void api('open-url', { url: it.url }).catch(() => {}) }
+          isBox.append(row)
+        }
+        const cr = el('button', 'gt-file')
+        cr.title = '新建 Issue'
+        cr.append(el('span', 'st a', '+'), el('span', 'fp', '新建 Issue…'))
+        cr.onclick = () => { openGhIssueFly(isRow.r) }
+        isBox.append(cr)
+      }
+      const renderGh = () => {
+        ghCaps.textContent = ghCache?.state === 'ok' && ghCache.data?.repo ? ghCache.data.repo : 'GitHub'
+        updateGhCounts()
+        buildPrBox()
+        buildIssueBox()
+      }
+      const doCreatePr = async (title, desc) => {
+        if (busyAction) return
+        if (String(title ?? '').trim() === '') { ghHint('请输入 PR 标题'); return }
+        busyAction = true
+        try {
+          const res = await api('gh-create-pr', { cwd: effectiveCwd(), title: String(title).trim(), body: String(desc ?? '').trim() })
+          if (res.ok === true) { closeFly(); ghHint('已创建 PR') } else { ghHint(res.error ?? '创建 PR 失败') }
+        } catch { ghHint('网络异常') }
+        busyAction = false
+        void loadGh()
+        void refresh()
+      }
+      const doCreateIssue = async (title, desc) => {
+        if (busyAction) return
+        if (String(title ?? '').trim() === '') { ghHint('请输入 Issue 标题'); return }
+        busyAction = true
+        try {
+          const res = await api('gh-create-issue', { cwd: effectiveCwd(), title: String(title).trim(), body: String(desc ?? '').trim() })
+          if (res.ok === true) { closeFly(); ghHint('已新建 Issue') } else { ghHint(res.error ?? '新建 Issue 失败') }
+        } catch { ghHint('网络异常') }
+        busyAction = false
+        void loadGh()
+      }
+      const openGhPrFly = (anchor) => {
+        flyMode = 'gh-pr'
+        fly.replaceChildren()
+        fly.append(el('div', 'fly-cap', '创建 PR：' + (snapshot.branch ?? '?') + ' → ' + (snapshot.defaultBranch ?? '?')))
+        const title = document.createElement('input')
+        title.className = 'fly-search'
+        title.placeholder = 'PR 标题'
+        const desc = document.createElement('textarea')
+        desc.className = 'fly-msg'
+        desc.placeholder = '描述（可空）'
+        const btn = el('button', 'gt-abtn', '创建 PR')
+        const foot = el('div', 'fly-foot')
+        foot.append(btn)
+        fly.append(title, desc, foot)
+        const go = () => { void doCreatePr(title.value, desc.value) }
+        btn.onclick = (ev) => { ev.stopPropagation(); go() }
+        title.onkeydown = (ev) => { if (ev.key === 'Enter') go() }
+        positionFly(anchor)
+        title.focus()
+      }
+      const openGhIssueFly = (anchor) => {
+        flyMode = 'gh-issue'
+        fly.replaceChildren()
+        fly.append(el('div', 'fly-cap', '新建 Issue'))
+        const title = document.createElement('input')
+        title.className = 'fly-search'
+        title.placeholder = 'Issue 标题'
+        const desc = document.createElement('textarea')
+        desc.className = 'fly-msg'
+        desc.placeholder = '描述（可空）'
+        const btn = el('button', 'gt-abtn', '创建')
+        const foot = el('div', 'fly-foot')
+        foot.append(btn)
+        fly.append(title, desc, foot)
+        const go = () => { void doCreateIssue(title.value, desc.value) }
+        btn.onclick = (ev) => { ev.stopPropagation(); go() }
+        title.onkeydown = (ev) => { if (ev.key === 'Enter') go() }
+        positionFly(anchor)
+        title.focus()
+      }
+
       // 变更文件点击 → better-sidebar editor 预览（软依赖；缺席不动作）
       const openFile = (path) => {
         let sidebar = null
@@ -701,6 +938,20 @@ window.__ModuleLoader__.load({
         actionHint('')
       }
       cmpRow.r.onclick = () => { if (!cmpRow.r.classList.contains('dim')) void doCompare() }
+      prRow.r.onclick = () => {
+        if (!snapshot.isRepo) return
+        if (flyMode === 'gh-pr' || flyMode === 'gh-issue') closeFly()
+        prOpen = !prOpen
+        if (prOpen) { if (ghCache === null) void loadGh(); else renderGh() }
+        render(snapshot)
+      }
+      isRow.r.onclick = () => {
+        if (!snapshot.isRepo) return
+        if (flyMode === 'gh-pr' || flyMode === 'gh-issue') closeFly()
+        issueOpen = !issueOpen
+        if (issueOpen) { if (ghCache === null) void loadGh(); else renderGh() }
+        render(snapshot)
+      }
       doCommitBtn.onclick = () => { void doCommit() }
       doPushBtn.onclick = () => { void doPush() }
 
@@ -735,6 +986,15 @@ window.__ModuleLoader__.load({
           ? '提交或推送（' + s.ahead + ' 待推送）'
           : '提交或推送'
         cmpRow.r.classList.toggle('dim', !(s.isRepo && s.remoteUrl !== null && s.defaultBranch !== null && s.branch !== null))
+        // GitHub 区块（内容只在 loadGh/展开时重建，轮询 render 不碰，
+        // 防止 15s 刷新打断合并确认等行内交互态）
+        ghCaps.style.display = s.isRepo ? '' : 'none'
+        prRow.r.classList.toggle('dim', !s.isRepo)
+        isRow.r.classList.toggle('dim', !s.isRepo)
+        prBox.style.display = prOpen && s.isRepo ? '' : 'none'
+        isBox.style.display = issueOpen && s.isRepo ? '' : 'none'
+        ghMsg.style.display = ghMsg.textContent !== '' && s.isRepo ? '' : 'none'
+        updateGhCounts()
         doCommitBtn.disabled = !(totalChanges(s) > 0) || busyAction
         doPushBtn.disabled = !(s.hasUpstream && s.ahead > 0) || busyAction
         hintLine.textContent = hintMsg
@@ -829,7 +1089,7 @@ window.__ModuleLoader__.load({
       setInterval(() => { injectBtn() }, 500)
 
       closeBtn.onclick = () => { yielded = false; settingsYielded = false; setOpen(false) } // 手动清义务
-      refreshBtn.onclick = () => { void refresh() }
+      refreshBtn.onclick = () => { ghCache = null; void refresh() }
 
       // 开合 API（外部编排入口）
       window.__dshGitPanelOpen = () => { if (!open) { yielded = false; settingsYielded = false; setOpen(true) } }

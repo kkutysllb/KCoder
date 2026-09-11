@@ -1,7 +1,7 @@
 {
   "name": "@kkutysllb/dsh-git-panel",
-  "version": "1.0.0",
-  "description": "dsh-external in-box dsh bundle: standalone git workspace panel as an independent right-side floating panel. v0.5.0 adds a Codex-style environment section (change file list, work-location/worktree switch, branch picker with create+checkout, commit or push, compare-branch external link) on top of change stats + task plans; plan documents previewed through dsh-better-sidebar when present.",
+  "version": "1.0.1",
+  "description": "dsh-external in-box dsh bundle: standalone git workspace panel as an independent right-side floating panel. v1.0.1 adds a GitHub section backed by the gh CLI: open PR/issue lists with counts, one-click create PR (auto-pushes the current branch), squash merge with inline confirm, create issue, and browser-open links; degrades gracefully when gh is absent.",
   "license": "MIT",
   "type": "module",
   "main": "entry.js",

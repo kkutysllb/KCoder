@@ -1340,7 +1340,7 @@ window.__ModuleLoader__.load({
 				if (claimed) return tab;
 			}
 		}
-		const SIDEBAR_SERVICE_VERSION = "1.0.1";
+		const SIDEBAR_SERVICE_VERSION = "1.1.0";
 		/**
 		* Monotonic capability list consumers use to gate new API usage (features
 		* are never removed). Each string names a v0.12.0+ capability:
@@ -2124,6 +2124,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "未サポートのエントリ",
 			subagentDiagUnavailable: "利用不可",
 			subagentThinking: "思考中…",
+			subagentShowHistory: "前のサブエージェント {count} 件を表示",
+			subagentHideHistory: "前のサブエージェントを折りたたむ",
 			sideChat: "サイドチャット(beta)",
 			sideChatNew: "新規スレッド",
 			sideChatUntitled: "新規スレッド",
@@ -2151,6 +2153,8 @@ window.__ModuleLoader__.load({
 			jobs: "バックグラウンドタスク",
 			jobsCount: "{count} 個のバックグラウンドタスク",
 			jobsCountRunning: "{count} 個のバックグラウンドタスク ・ {running} 個実行中",
+			jobsShowHistory: "前のバックグラウンドタスク {count} 件を表示",
+			jobsHideHistory: "前のバックグラウンドタスクを折りたたむ",
 			jobStatusRunning: "実行中",
 			jobStatusStopping: "停止中",
 			jobStatusCompleted: "完了",
@@ -2479,6 +2483,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "Nicht unterstützt",
 			subagentDiagUnavailable: "Nicht verfügbar",
 			subagentThinking: "Denkt nach…",
+			subagentShowHistory: "{count} ältere Subagenten anzeigen",
+			subagentHideHistory: "Ältere Subagenten einklappen",
 			sideChat: "Seitenchat (beta)",
 			sideChatNew: "Neuer Thread",
 			sideChatUntitled: "Neuer Thread",
@@ -2506,6 +2512,8 @@ window.__ModuleLoader__.load({
 			jobs: "Hintergrundaufgaben",
 			jobsCount: "{count} Hintergrundaufgaben",
 			jobsCountRunning: "{count} Hintergrundaufgaben · {running} läuft",
+			jobsShowHistory: "{count} ältere Hintergrundaufgaben anzeigen",
+			jobsHideHistory: "Ältere Hintergrundaufgaben einklappen",
 			jobStatusRunning: "Läuft",
 			jobStatusStopping: "Wird beendet",
 			jobStatusCompleted: "Abgeschlossen",
@@ -2840,6 +2848,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "Entrée non prise en charge",
 			subagentDiagUnavailable: "Indisponible",
 			subagentThinking: "Réflexion…",
+			subagentShowHistory: "Afficher {count} sous-agents plus anciens",
+			subagentHideHistory: "Réduire les sous-agents plus anciens",
 			sideChat: "Discussion latérale (bêta)",
 			sideChatNew: "Nouvelle discussion",
 			sideChatUntitled: "Nouvelle discussion",
@@ -2867,6 +2877,8 @@ window.__ModuleLoader__.load({
 			jobs: "Tâches d’arrière-plan",
 			jobsCount: "{count} tâche(s) d’arrière-plan",
 			jobsCountRunning: "{count} tâche(s) d’arrière-plan · {running} en cours",
+			jobsShowHistory: "Afficher {count} tâches d’arrière-plan plus anciennes",
+			jobsHideHistory: "Réduire les tâches d’arrière-plan plus anciennes",
 			jobStatusRunning: "En cours",
 			jobStatusStopping: "Arrêt en cours",
 			jobStatusCompleted: "Terminée",
@@ -3192,6 +3204,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "Não suportado",
 			subagentDiagUnavailable: "Indisponível",
 			subagentThinking: "Pensando…",
+			subagentShowHistory: "Mostrar {count} subagentes anteriores",
+			subagentHideHistory: "Recolher subagentes anteriores",
 			sideChat: "Chat lateral (beta)",
 			sideChatNew: "Novo tópico",
 			sideChatUntitled: "Novo tópico",
@@ -3219,6 +3233,8 @@ window.__ModuleLoader__.load({
 			jobs: "Tarefas em segundo plano",
 			jobsCount: "{count} tarefas em segundo plano",
 			jobsCountRunning: "{count} tarefas em segundo plano · {running} executando",
+			jobsShowHistory: "Mostrar {count} tarefas em segundo plano anteriores",
+			jobsHideHistory: "Recolher tarefas em segundo plano anteriores",
 			jobStatusRunning: "Executando",
 			jobStatusStopping: "Parando",
 			jobStatusCompleted: "Concluída",
@@ -3552,6 +3568,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "지원되지 않는 항목",
 			subagentDiagUnavailable: "사용할 수 없음",
 			subagentThinking: "생각하는 중…",
+			subagentShowHistory: "이전 서브 에이전트 {count}개 표시",
+			subagentHideHistory: "이전 서브 에이전트 접기",
 			sideChat: "사이드 채팅(beta)",
 			sideChatNew: "새 대화",
 			sideChatUntitled: "새 대화",
@@ -3579,6 +3597,8 @@ window.__ModuleLoader__.load({
 			jobs: "백그라운드 작업",
 			jobsCount: "백그라운드 작업 {count}개",
 			jobsCountRunning: "백그라운드 작업 {count}개 · {running} 실행 중",
+			jobsShowHistory: "이전 백그라운드 작업 {count}개 표시",
+			jobsHideHistory: "이전 백그라운드 작업 접기",
 			jobStatusRunning: "실행 중",
 			jobStatusStopping: "종료 중",
 			jobStatusCompleted: "완료됨",
@@ -3921,6 +3941,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "غير مدعوم",
 			subagentDiagUnavailable: "غير متاح",
 			subagentThinking: "جارٍ التفكير…",
+			subagentShowHistory: "عرض {count} من الوكلاء الفرعيين الأقدم",
+			subagentHideHistory: "طي الوكلاء الفرعيين الأقدم",
 			sideChat: "محادثة جانبية (تجريبية)",
 			sideChatNew: "خيط جديد",
 			sideChatUntitled: "خيط جديد",
@@ -3948,6 +3970,8 @@ window.__ModuleLoader__.load({
 			jobs: "المهام الخلفية",
 			jobsCount: "{count} مهمة خلفية",
 			jobsCountRunning: "{count} مهمة خلفية · {running} قيد التشغيل",
+			jobsShowHistory: "عرض {count} من المهام الخلفية الأقدم",
+			jobsHideHistory: "طي المهام الخلفية الأقدم",
 			jobStatusRunning: "قيد التشغيل",
 			jobStatusStopping: "جارٍ الإيقاف",
 			jobStatusCompleted: "اكتمل",
@@ -4289,6 +4313,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "असमर्थित",
 			subagentDiagUnavailable: "अनुपलब्ध",
 			subagentThinking: "सोच रहा…",
+			subagentShowHistory: "पुराने {count} सबएजेंट दिखाएँ",
+			subagentHideHistory: "पुराने सबएजेंट छिपाएँ",
 			sideChat: "साइड चैट (बीटा)",
 			sideChatNew: "नया थ्रेड",
 			sideChatUntitled: "नया थ्रेड",
@@ -4316,6 +4342,8 @@ window.__ModuleLoader__.load({
 			jobs: "बैकग्राउंड कार्य",
 			jobsCount: "{count} बैकग्राउंड कार्य",
 			jobsCountRunning: "{count} बैकग्राउंड कार्य · {running} चल रहे",
+			jobsShowHistory: "पुराने {count} बैकग्राउंड कार्य दिखाएँ",
+			jobsHideHistory: "पुराने बैकग्राउंड कार्य छिपाएँ",
 			jobStatusRunning: "चल रहा",
 			jobStatusStopping: "रुक रहा",
 			jobStatusCompleted: "पूर्ण",
@@ -4655,6 +4683,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "Tidak didukung",
 			subagentDiagUnavailable: "Tidak tersedia",
 			subagentThinking: "Berpikir…",
+			subagentShowHistory: "Tampilkan {count} subagen sebelumnya",
+			subagentHideHistory: "Ciutkan subagen sebelumnya",
 			sideChat: "Side Chat (beta)",
 			sideChatNew: "Thread baru",
 			sideChatUntitled: "Thread baru",
@@ -4682,6 +4712,8 @@ window.__ModuleLoader__.load({
 			jobs: "Tugas latar",
 			jobsCount: "{count} tugas latar",
 			jobsCountRunning: "{count} tugas latar · {running} berjalan",
+			jobsShowHistory: "Tampilkan {count} tugas latar sebelumnya",
+			jobsHideHistory: "Ciutkan tugas latar sebelumnya",
 			jobStatusRunning: "Berjalan",
 			jobStatusStopping: "Menghentikan",
 			jobStatusCompleted: "Selesai",
@@ -5023,6 +5055,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "Desteklenmiyor",
 			subagentDiagUnavailable: "Kullanılamıyor",
 			subagentThinking: "Düşünüyor…",
+			subagentShowHistory: "Önceki {count} alt aracıyı göster",
+			subagentHideHistory: "Önceki alt araçları daralt",
 			sideChat: "Yan sohbet (beta)",
 			sideChatNew: "Yeni iş parçacığı",
 			sideChatUntitled: "Yeni iş parçacığı",
@@ -5050,6 +5084,8 @@ window.__ModuleLoader__.load({
 			jobs: "Arka plan işleri",
 			jobsCount: "{count} arka plan işi",
 			jobsCountRunning: "{count} arka plan işi · {running} çalışıyor",
+			jobsShowHistory: "Önceki {count} arka plan işini göster",
+			jobsHideHistory: "Önceki arka plan işlerini daralt",
 			jobStatusRunning: "Çalışıyor",
 			jobStatusStopping: "Durduruluyor",
 			jobStatusCompleted: "Tamamlandı",
@@ -5391,6 +5427,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "Không hỗ trợ",
 			subagentDiagUnavailable: "Không khả dụng",
 			subagentThinking: "Đang suy nghĩ…",
+			subagentShowHistory: "Hiện {count} tác nhân con cũ hơn",
+			subagentHideHistory: "Thu gọn tác nhân con cũ hơn",
 			sideChat: "Chat bên (beta)",
 			sideChatNew: "Luồng mới",
 			sideChatUntitled: "Luồng mới",
@@ -5418,6 +5456,8 @@ window.__ModuleLoader__.load({
 			jobs: "Tác vụ nền",
 			jobsCount: "{count} tác vụ nền",
 			jobsCountRunning: "{count} tác vụ nền · {running} đang chạy",
+			jobsShowHistory: "Hiện {count} tác vụ nền cũ hơn",
+			jobsHideHistory: "Thu gọn tác vụ nền cũ hơn",
 			jobStatusRunning: "Đang chạy",
 			jobStatusStopping: "Đang dừng",
 			jobStatusCompleted: "Đã hoàn thành",
@@ -5759,6 +5799,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "ไม่รองรับ",
 			subagentDiagUnavailable: "ไม่พร้อมใช้งาน",
 			subagentThinking: "กำลังคิด…",
+			subagentShowHistory: "แสดงตัวแทนย่อยก่อนหน้า {count} รายการ",
+			subagentHideHistory: "ย่อตัวแทนย่อยก่อนหน้า",
 			sideChat: "แชทด้านข้าง (เบต้า)",
 			sideChatNew: "เธรดใหม่",
 			sideChatUntitled: "เธรดใหม่",
@@ -5786,6 +5828,8 @@ window.__ModuleLoader__.load({
 			jobs: "งานเบื้องหลัง",
 			jobsCount: "{count} งานเบื้องหลัง",
 			jobsCountRunning: "{count} งานเบื้องหลัง · {running} กำลังทำงาน",
+			jobsShowHistory: "แสดงงานเบื้องหลังก่อนหน้า {count} รายการ",
+			jobsHideHistory: "ย่องานเบื้องหลังก่อนหน้า",
 			jobStatusRunning: "กำลังทำงาน",
 			jobStatusStopping: "กำลังหยุด",
 			jobStatusCompleted: "เสร็จสิ้น",
@@ -6123,6 +6167,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "Не поддерживается",
 			subagentDiagUnavailable: "Недоступен",
 			subagentThinking: "Размышляет…",
+			subagentShowHistory: "Показать {count} более ранних субагентов",
+			subagentHideHistory: "Свернуть более ранних субагентов",
 			sideChat: "Боковой чат (бета)",
 			sideChatNew: "Новый поток",
 			sideChatUntitled: "Новый поток",
@@ -6150,6 +6196,8 @@ window.__ModuleLoader__.load({
 			jobs: "Фоновые задачи",
 			jobsCount: "{count} фоновых задач",
 			jobsCountRunning: "{count} фоновых задач · {running} выполняется",
+			jobsShowHistory: "Показать {count} более ранних фоновых задач",
+			jobsHideHistory: "Свернуть более ранние фоновые задачи",
 			jobStatusRunning: "Выполняется",
 			jobStatusStopping: "Останавливается",
 			jobStatusCompleted: "Завершено",
@@ -6482,6 +6530,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "Non supportato",
 			subagentDiagUnavailable: "Non disponibile",
 			subagentThinking: "In pensiero…",
+			subagentShowHistory: "Mostra {count} sottoagenti precedenti",
+			subagentHideHistory: "Comprimi sottoagenti precedenti",
 			sideChat: "Chat laterale (beta)",
 			sideChatNew: "Nuova conversazione",
 			sideChatUntitled: "Nuova conversazione",
@@ -6509,6 +6559,8 @@ window.__ModuleLoader__.load({
 			jobs: "Attività in background",
 			jobsCount: "{count} attività in background",
 			jobsCountRunning: "{count} attività in background · {running} in esecuzione",
+			jobsShowHistory: "Mostra {count} attività in background precedenti",
+			jobsHideHistory: "Comprimi attività in background precedenti",
 			jobStatusRunning: "In esecuzione",
 			jobStatusStopping: "Arresto in corso",
 			jobStatusCompleted: "Completata",
@@ -6849,6 +6901,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "Niet ondersteund",
 			subagentDiagUnavailable: "Niet beschikbaar",
 			subagentThinking: "Nadenken…",
+			subagentShowHistory: "{count} eerdere subagents weergeven",
+			subagentHideHistory: "Eerdere subagents samenvouwen",
 			sideChat: "Side Chat (bèta)",
 			sideChatNew: "Nieuwe thread",
 			sideChatUntitled: "Nieuwe thread",
@@ -6876,6 +6930,8 @@ window.__ModuleLoader__.load({
 			jobs: "Achtergrondtaken",
 			jobsCount: "{count} achtergrondtaken",
 			jobsCountRunning: "{count} achtergrondtaken · {running} actief",
+			jobsShowHistory: "{count} eerdere achtergrondtaken weergeven",
+			jobsHideHistory: "Eerdere achtergrondtaken samenvouwen",
 			jobStatusRunning: "Actief",
 			jobStatusStopping: "Stoppen",
 			jobStatusCompleted: "Voltooid",
@@ -7201,6 +7257,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "Stöds ej",
 			subagentDiagUnavailable: "Otillgänglig",
 			subagentThinking: "Tänker…",
+			subagentShowHistory: "Visa {count} tidigare subagenter",
+			subagentHideHistory: "Fäll ihop tidigare subagenter",
 			sideChat: "Sidochatt (beta)",
 			sideChatNew: "Ny tråd",
 			sideChatUntitled: "Ny tråd",
@@ -7228,6 +7286,8 @@ window.__ModuleLoader__.load({
 			jobs: "Bakgrundsjobb",
 			jobsCount: "{count} bakgrundsjobb",
 			jobsCountRunning: "{count} bakgrundsjobb · {running} kör",
+			jobsShowHistory: "Visa {count} tidigare bakgrundsjobb",
+			jobsHideHistory: "Fäll ihop tidigare bakgrundsjobb",
 			jobStatusRunning: "Kör",
 			jobStatusStopping: "Stoppar",
 			jobStatusCompleted: "Klar",
@@ -7571,6 +7631,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "Nieobsługiwany",
 			subagentDiagUnavailable: "Niedostępny",
 			subagentThinking: "Myśli…",
+			subagentShowHistory: "Pokaż {count} starszych podagentów",
+			subagentHideHistory: "Zwiń starszych podagentów",
 			sideChat: "Czat boczny (beta)",
 			sideChatNew: "Nowy wątek",
 			sideChatUntitled: "Nowy wątek",
@@ -7598,6 +7660,8 @@ window.__ModuleLoader__.load({
 			jobs: "Zadania w tle",
 			jobsCount: "{count} zadań w tle",
 			jobsCountRunning: "{count} zadań w tle · {running} działa",
+			jobsShowHistory: "Pokaż {count} starszych zadań w tle",
+			jobsHideHistory: "Zwiń starsze zadania w tle",
 			jobStatusRunning: "Działa",
 			jobStatusStopping: "Zatrzymywanie",
 			jobStatusCompleted: "Ukończono",
@@ -7954,6 +8018,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "不支援的條目",
 			subagentDiagUnavailable: "不可用",
 			subagentThinking: "思考中…",
+			subagentShowHistory: "展開較早的 {count} 個子代理",
+			subagentHideHistory: "收起較早的子代理",
 			sideChat: "側邊對話(beta)",
 			sideChatNew: "新增對話",
 			sideChatUntitled: "新對話",
@@ -7981,6 +8047,8 @@ window.__ModuleLoader__.load({
 			jobs: "背景任務",
 			jobsCount: "{count} 個背景任務",
 			jobsCountRunning: "{count} 個背景任務 · {running} 執行中",
+			jobsShowHistory: "展開較早的 {count} 個背景任務",
+			jobsHideHistory: "收起較早的背景任務",
 			jobStatusRunning: "執行中",
 			jobStatusStopping: "終止中",
 			jobStatusCompleted: "已完成",
@@ -8337,6 +8405,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "不支援的條目",
 			subagentDiagUnavailable: "不可用",
 			subagentThinking: "思考中…",
+			subagentShowHistory: "展開較早的 {count} 個子代理",
+			subagentHideHistory: "收起較早的子代理",
 			sideChat: "側邊對話(beta)",
 			sideChatNew: "新增對話",
 			sideChatUntitled: "新對話",
@@ -8364,6 +8434,8 @@ window.__ModuleLoader__.load({
 			jobs: "背景任務",
 			jobsCount: "{count} 個背景任務",
 			jobsCountRunning: "{count} 個背景任務 · {running} 執行中",
+			jobsShowHistory: "展開較早的 {count} 個背景任務",
+			jobsHideHistory: "收起較早的背景任務",
 			jobStatusRunning: "執行中",
 			jobStatusStopping: "終止中",
 			jobStatusCompleted: "已完成",
@@ -8720,6 +8792,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "不支援的條目",
 			subagentDiagUnavailable: "不可用",
 			subagentThinking: "思考中…",
+			subagentShowHistory: "展開較早的 {count} 個子代理",
+			subagentHideHistory: "收起較早的子代理",
 			sideChat: "側邊對話(beta)",
 			sideChatNew: "新增對話",
 			sideChatUntitled: "新對話",
@@ -8747,6 +8821,8 @@ window.__ModuleLoader__.load({
 			jobs: "背景任務",
 			jobsCount: "{count} 個背景任務",
 			jobsCountRunning: "{count} 個背景任務 · {running} 執行中",
+			jobsShowHistory: "展開較早的 {count} 個背景任務",
+			jobsHideHistory: "收起較早的背景任務",
 			jobStatusRunning: "執行中",
 			jobStatusStopping: "終止中",
 			jobStatusCompleted: "已完成",
@@ -9095,6 +9171,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "不支持的条目",
 			subagentDiagUnavailable: "不可用",
 			subagentThinking: "思考中…",
+			subagentShowHistory: "展开更早的 {count} 个子代理",
+			subagentHideHistory: "收起更早的子代理",
 			sideChat: "侧边对话(beta)",
 			sideChatNew: "新建对话",
 			sideChatUntitled: "新对话",
@@ -9122,6 +9200,8 @@ window.__ModuleLoader__.load({
 			jobs: "后台任务",
 			jobsCount: "{count} 个后台任务",
 			jobsCountRunning: "{count} 个后台任务 · {running} 运行中",
+			jobsShowHistory: "展开更早的 {count} 个后台任务",
+			jobsHideHistory: "收起更早的后台任务",
 			jobStatusRunning: "运行中",
 			jobStatusStopping: "终止中",
 			jobStatusCompleted: "已完成",
@@ -9446,6 +9526,8 @@ window.__ModuleLoader__.load({
 			subagentDiagUnsupported: "Unsupported",
 			subagentDiagUnavailable: "Unavailable",
 			subagentThinking: "Thinking…",
+			subagentShowHistory: "Show {count} earlier subagents",
+			subagentHideHistory: "Collapse earlier subagents",
 			sideChat: "Side Chat (beta)",
 			sideChatNew: "New thread",
 			sideChatUntitled: "New thread",
@@ -9473,6 +9555,8 @@ window.__ModuleLoader__.load({
 			jobs: "Background jobs",
 			jobsCount: "{count} background jobs",
 			jobsCountRunning: "{count} background jobs · {running} running",
+			jobsShowHistory: "Show {count} earlier jobs",
+			jobsHideHistory: "Collapse earlier jobs",
 			jobStatusRunning: "Running",
 			jobStatusStopping: "Stopping",
 			jobStatusCompleted: "Completed",
@@ -9882,241 +9966,241 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var sidebar_module_css_default = {
-			"gitDiffTab": "S5HVoW_gitDiffTab",
-			"tocFlash": "S5HVoW_tocFlash",
-			"explorerHeader": "S5HVoW_explorerHeader",
-			"uploadOverlay": "S5HVoW_uploadOverlay",
-			"editorPdfDragShieldActive": "S5HVoW_editorPdfDragShieldActive",
-			"explorerRow": "S5HVoW_explorerRow",
-			"tabBar": "S5HVoW_tabBar",
-			"terminalRepairCommand": "S5HVoW_terminalRepairCommand",
-			"dirtyDot": "S5HVoW_dirtyDot",
-			"gitLogMeta": "S5HVoW_gitLogMeta",
-			"gitLogRow": "S5HVoW_gitLogRow",
-			"gitDiffAdd": "S5HVoW_gitDiffAdd",
-			"mermaidWrap": "S5HVoW_mermaidWrap",
-			"paneTabHidden": "S5HVoW_paneTabHidden",
-			"browserStart": "S5HVoW_browserStart",
-			"sandboxDot": "S5HVoW_sandboxDot",
-			"terminal": "S5HVoW_terminal",
-			"boundaryError": "S5HVoW_boundaryError",
-			"editorBody": "S5HVoW_editorBody",
-			"terminalDepsActions": "S5HVoW_terminalDepsActions",
-			"terminalDepsBanner": "S5HVoW_terminalDepsBanner",
-			"floatDropHintLabel": "S5HVoW_floatDropHintLabel",
-			"sandboxStatusOff": "S5HVoW_sandboxStatusOff",
-			"gitDiffNum": "S5HVoW_gitDiffNum",
-			"uploadOverlayProgressFill": "S5HVoW_uploadOverlayProgressFill",
-			"browserFrame": "S5HVoW_browserFrame",
-			"tocBar": "S5HVoW_tocBar",
-			"producedRow": "S5HVoW_producedRow",
-			"git": "S5HVoW_git",
-			"explorer": "S5HVoW_explorer",
-			"gitName": "S5HVoW_gitName",
-			"editor": "S5HVoW_editor",
-			"gitSection": "S5HVoW_gitSection",
-			"editorBanner": "S5HVoW_editorBanner",
-			"editorTreePanel": "S5HVoW_editorTreePanel",
-			"floatWindowDragging": "S5HVoW_floatWindowDragging",
-			"tocPanel": "S5HVoW_tocPanel",
-			"openWithChevron": "S5HVoW_openWithChevron",
-			"mermaidCopy": "S5HVoW_mermaidCopy",
-			"dividerRow": "S5HVoW_dividerRow",
-			"editorHtmlBlock": "S5HVoW_editorHtmlBlock",
-			"dsh-row-in": "S5HVoW_dsh-row-in",
-			"gitBranchSelect": "S5HVoW_gitBranchSelect",
-			"openWithPin": "S5HVoW_openWithPin",
-			"editorMain": "S5HVoW_editorMain",
-			"editorSearchHint": "S5HVoW_editorSearchHint",
-			"uploadDropZone": "S5HVoW_uploadDropZone",
-			"selectionPopup": "S5HVoW_selectionPopup",
-			"openWithPinActive": "S5HVoW_openWithPinActive",
-			"gitLogMore": "S5HVoW_gitLogMore",
-			"editorPathInput": "S5HVoW_editorPathInput",
-			"editorTreeDock": "S5HVoW_editorTreeDock",
-			"dsh-toc-flash": "S5HVoW_dsh-toc-flash",
-			"openWithLabel": "S5HVoW_openWithLabel",
-			"dropOverlay": "S5HVoW_dropOverlay",
-			"panelResizeActive": "S5HVoW_panelResizeActive",
-			"terminalRetry": "S5HVoW_terminalRetry",
-			"explorerRoot": "S5HVoW_explorerRoot",
-			"gitPlaceholder": "S5HVoW_gitPlaceholder",
-			"dropRight": "S5HVoW_dropRight",
-			"editorPptxButton": "S5HVoW_editorPptxButton",
-			"orphanedType": "S5HVoW_orphanedType",
-			"paneTab": "S5HVoW_paneTab",
-			"mermaidModalButton": "S5HVoW_mermaidModalButton",
-			"gitCommit": "S5HVoW_gitCommit",
-			"floatContent": "S5HVoW_floatContent",
-			"terminalDepsTitle": "S5HVoW_terminalDepsTitle",
-			"explorerHidden": "S5HVoW_explorerHidden",
-			"gitDiffMetaText": "S5HVoW_gitDiffMetaText",
-			"openWithName": "S5HVoW_openWithName",
-			"divider": "S5HVoW_divider",
-			"browserBlockedActions": "S5HVoW_browserBlockedActions",
-			"explorerDir": "S5HVoW_explorerDir",
-			"uploadOverlayCard": "S5HVoW_uploadOverlayCard",
-			"gitDiffTabTitle": "S5HVoW_gitDiffTabTitle",
-			"editorTreeSearch": "S5HVoW_editorTreeSearch",
-			"panel": "S5HVoW_panel",
-			"panelResize": "S5HVoW_panelResize",
-			"sandboxAction": "S5HVoW_sandboxAction",
-			"gitRowMain": "S5HVoW_gitRowMain",
-			"browserBar": "S5HVoW_browserBar",
-			"tabTitle": "S5HVoW_tabTitle",
-			"terminalWrap": "S5HVoW_terminalWrap",
-			"gitDiffCode": "S5HVoW_gitDiffCode",
 			"uploadDropHero": "S5HVoW_uploadDropHero",
-			"tabActive": "S5HVoW_tabActive",
-			"sandboxStatusText": "S5HVoW_sandboxStatusText",
-			"gitDiffHunkHeader": "S5HVoW_gitDiffHunkHeader",
-			"editorTreeToggleActive": "S5HVoW_editorTreeToggleActive",
-			"browserBlockedButton": "S5HVoW_browserBlockedButton",
-			"editorPlaceholder": "S5HVoW_editorPlaceholder",
-			"browserMessage": "S5HVoW_browserMessage",
-			"floatClose": "S5HVoW_floatClose",
-			"editorPdfDragShield": "S5HVoW_editorPdfDragShield",
-			"gitRowSelected": "S5HVoW_gitRowSelected",
-			"gitLogHash": "S5HVoW_gitLogHash",
-			"terminalDepsNote": "S5HVoW_terminalDepsNote",
-			"gitDiffFile": "S5HVoW_gitDiffFile",
-			"gitConfirmDesc": "S5HVoW_gitConfirmDesc",
-			"explorerBody": "S5HVoW_explorerBody",
-			"mermaidInfo": "S5HVoW_mermaidInfo",
-			"mermaidModal": "S5HVoW_mermaidModal",
-			"editorModeActive": "S5HVoW_editorModeActive",
-			"explorerCopied": "S5HVoW_explorerCopied",
-			"paneDrop": "S5HVoW_paneDrop",
-			"gitDiffCtx": "S5HVoW_gitDiffCtx",
-			"gitDiffMeta": "S5HVoW_gitDiffMeta",
-			"mermaidCode": "S5HVoW_mermaidCode",
-			"explorerRef": "S5HVoW_explorerRef",
-			"gitDiffFileChevron": "S5HVoW_gitDiffFileChevron",
-			"splitCol": "S5HVoW_splitCol",
-			"tabBoundaryError": "S5HVoW_tabBoundaryError",
-			"gitDiffFileChevronExpanded": "S5HVoW_gitDiffFileChevronExpanded",
-			"terminalBannerUrl": "S5HVoW_terminalBannerUrl",
-			"splitChild": "S5HVoW_splitChild",
-			"toggleCluster": "S5HVoW_toggleCluster",
-			"editorPdfFrame": "S5HVoW_editorPdfFrame",
-			"floatHeader": "S5HVoW_floatHeader",
-			"editorTreePanelFull": "S5HVoW_editorTreePanelFull",
-			"editorStatusError": "S5HVoW_editorStatusError",
 			"mermaidModalHint": "S5HVoW_mermaidModalHint",
-			"gitWorktreeRow": "S5HVoW_gitWorktreeRow",
-			"uploadOverlayStatus": "S5HVoW_uploadOverlayStatus",
-			"gitError": "S5HVoW_gitError",
-			"panelBody": "S5HVoW_panelBody",
-			"explorerSymlink": "S5HVoW_explorerSymlink",
-			"editorCmHidden": "S5HVoW_editorCmHidden",
-			"producedLabel": "S5HVoW_producedLabel",
-			"gitHeader": "S5HVoW_gitHeader",
-			"gitDiffDel": "S5HVoW_gitDiffDel",
-			"gitDiffHunk": "S5HVoW_gitDiffHunk",
-			"gitEmpty": "S5HVoW_gitEmpty",
-			"editorPdfToolbar": "S5HVoW_editorPdfToolbar",
-			"workbench": "S5HVoW_workbench",
-			"gitLogLine2": "S5HVoW_gitLogLine2",
-			"browserInput": "S5HVoW_browserInput",
-			"editorTreeResize": "S5HVoW_editorTreeResize",
-			"terminalBanner": "S5HVoW_terminalBanner",
-			"producedChip": "S5HVoW_producedChip",
-			"tabBarPlus": "S5HVoW_tabBarPlus",
-			"editorBinaryNotice": "S5HVoW_editorBinaryNotice",
-			"editorModeButton": "S5HVoW_editorModeButton",
-			"gitLogLine1": "S5HVoW_gitLogLine1",
-			"gitDiffFileOld": "S5HVoW_gitDiffFileOld",
-			"gitRow": "S5HVoW_gitRow",
-			"browserBlockedTitle": "S5HVoW_browserBlockedTitle",
-			"tab": "S5HVoW_tab",
-			"gitDiffLine": "S5HVoW_gitDiffLine",
-			"dropLeft": "S5HVoW_dropLeft",
-			"gitLink": "S5HVoW_gitLink",
-			"floatResize": "S5HVoW_floatResize",
-			"dividerCol": "S5HVoW_dividerCol",
-			"editorImageWrap": "S5HVoW_editorImageWrap",
-			"split": "S5HVoW_split",
-			"tocItem": "S5HVoW_tocItem",
-			"tocItemText": "S5HVoW_tocItemText",
-			"editorDownloadLink": "S5HVoW_editorDownloadLink",
-			"uploadOverlayProgress": "S5HVoW_uploadOverlayProgress",
-			"mermaidBody": "S5HVoW_mermaidBody",
-			"editorPdfStage": "S5HVoW_editorPdfStage",
-			"toggleButton": "S5HVoW_toggleButton",
-			"explorerError": "S5HVoW_explorerError",
-			"gitDiffFileTag": "S5HVoW_gitDiffFileTag",
-			"gitBadge": "S5HVoW_gitBadge",
-			"pinnedTab": "S5HVoW_pinnedTab",
-			"editorPdfFrameBlocked": "S5HVoW_editorPdfFrameBlocked",
-			"gitLogSubject": "S5HVoW_gitLogSubject",
-			"editorHeader": "S5HVoW_editorHeader",
-			"terminalDepsCommandRow": "S5HVoW_terminalDepsCommandRow",
-			"mermaidModalToolbar": "S5HVoW_mermaidModalToolbar",
-			"tocButton": "S5HVoW_tocButton",
-			"tabClose": "S5HVoW_tabClose",
-			"editorBinary": "S5HVoW_editorBinary",
-			"floatDropHint": "S5HVoW_floatDropHint",
-			"gitLogRef": "S5HVoW_gitLogRef",
-			"gitDiffFilePath": "S5HVoW_gitDiffFilePath",
-			"gitWorktreeLabel": "S5HVoW_gitWorktreeLabel",
-			"producedMore": "S5HVoW_producedMore",
-			"editorError": "S5HVoW_editorError",
-			"mermaidError": "S5HVoW_mermaidError",
-			"tabBarDrop": "S5HVoW_tabBarDrop",
-			"paneContent": "S5HVoW_paneContent",
-			"explorerEmpty": "S5HVoW_explorerEmpty",
-			"editorPdf": "S5HVoW_editorPdf",
-			"sandboxStatusOn": "S5HVoW_sandboxStatusOn",
-			"floatTitle": "S5HVoW_floatTitle",
-			"dropCenter": "S5HVoW_dropCenter",
-			"terminalDepsHint": "S5HVoW_terminalDepsHint",
-			"mermaidHeader": "S5HVoW_mermaidHeader",
-			"pane": "S5HVoW_pane",
-			"explorerBroken": "S5HVoW_explorerBroken",
-			"browserBlockedDesc": "S5HVoW_browserBlockedDesc",
-			"gitDiffHunkSection": "S5HVoW_gitDiffHunkSection",
-			"dividerActive": "S5HVoW_dividerActive",
-			"editorCm": "S5HVoW_editorCm",
-			"gitCommitInput": "S5HVoW_gitCommitInput",
-			"tabBadge": "S5HVoW_tabBadge",
-			"floatWindow": "S5HVoW_floatWindow",
-			"browser": "S5HVoW_browser",
-			"editorSearchInput": "S5HVoW_editorSearchInput",
-			"editorStatus": "S5HVoW_editorStatus",
-			"mermaidModalStage": "S5HVoW_mermaidModalStage",
-			"gitDiffExpand": "S5HVoW_gitDiffExpand",
-			"gitSectionHeader": "S5HVoW_gitSectionHeader",
-			"paneEmptyCards": "S5HVoW_paneEmptyCards",
-			"tabList": "S5HVoW_tabList",
-			"explorerRowDropTarget": "S5HVoW_explorerRowDropTarget",
-			"editorModeToggle": "S5HVoW_editorModeToggle",
-			"dropUp": "S5HVoW_dropUp",
-			"explorerName": "S5HVoW_explorerName",
-			"uploadDropZonePill": "S5HVoW_uploadDropZonePill",
-			"splitRow": "S5HVoW_splitRow",
-			"dropDown": "S5HVoW_dropDown",
-			"editorTitle": "S5HVoW_editorTitle",
-			"paneCard": "S5HVoW_paneCard",
-			"uploadDropZoneText": "S5HVoW_uploadDropZoneText",
-			"uploadOverlayCancel": "S5HVoW_uploadOverlayCancel",
-			"editorSearchResult": "S5HVoW_editorSearchResult",
 			"gitDiffTabHeader": "S5HVoW_gitDiffTabHeader",
-			"editorImage": "S5HVoW_editorImage",
-			"iconButton": "S5HVoW_iconButton",
-			"gitCommitButton": "S5HVoW_gitCommitButton",
-			"editorMd": "S5HVoW_editorMd",
-			"panelHidden": "S5HVoW_panelHidden",
-			"uploadDropChatCard": "S5HVoW_uploadDropChatCard",
-			"sandboxStatus": "S5HVoW_sandboxStatus",
+			"tabClose": "S5HVoW_tabClose",
 			"editorDocxZoomRange": "S5HVoW_editorDocxZoomRange",
-			"explorerRowRevealed": "S5HVoW_explorerRowRevealed",
-			"editorHtml": "S5HVoW_editorHtml",
+			"workbench": "S5HVoW_workbench",
+			"editorModeButton": "S5HVoW_editorModeButton",
 			"browserBlocked": "S5HVoW_browserBlocked",
-			"uploadDropChatHint": "S5HVoW_uploadDropChatHint",
-			"uploadOverlayTitle": "S5HVoW_uploadOverlayTitle",
-			"mermaidMarkdown": "S5HVoW_mermaidMarkdown",
+			"gitDiffHunk": "S5HVoW_gitDiffHunk",
+			"browserMessage": "S5HVoW_browserMessage",
+			"dropCenter": "S5HVoW_dropCenter",
+			"gitLogSubject": "S5HVoW_gitLogSubject",
+			"producedLabel": "S5HVoW_producedLabel",
+			"split": "S5HVoW_split",
+			"dropDown": "S5HVoW_dropDown",
+			"dropOverlay": "S5HVoW_dropOverlay",
+			"gitName": "S5HVoW_gitName",
+			"gitDiffFileOld": "S5HVoW_gitDiffFileOld",
+			"dividerActive": "S5HVoW_dividerActive",
+			"uploadDropZoneText": "S5HVoW_uploadDropZoneText",
+			"editorHeader": "S5HVoW_editorHeader",
+			"gitLogLine2": "S5HVoW_gitLogLine2",
+			"gitDiffHunkSection": "S5HVoW_gitDiffHunkSection",
+			"terminal": "S5HVoW_terminal",
+			"editorTreePanel": "S5HVoW_editorTreePanel",
+			"mermaidModalButton": "S5HVoW_mermaidModalButton",
+			"explorerHeader": "S5HVoW_explorerHeader",
+			"gitSection": "S5HVoW_gitSection",
+			"pane": "S5HVoW_pane",
+			"mermaidCode": "S5HVoW_mermaidCode",
+			"tabList": "S5HVoW_tabList",
+			"gitDiffFileTag": "S5HVoW_gitDiffFileTag",
+			"editorSearchInput": "S5HVoW_editorSearchInput",
 			"gitDiff": "S5HVoW_gitDiff",
-			"tocItemLevel": "S5HVoW_tocItemLevel"
+			"editorPdfFrame": "S5HVoW_editorPdfFrame",
+			"gitDiffHunkHeader": "S5HVoW_gitDiffHunkHeader",
+			"paneTabHidden": "S5HVoW_paneTabHidden",
+			"openWithChevron": "S5HVoW_openWithChevron",
+			"mermaidModal": "S5HVoW_mermaidModal",
+			"terminalDepsActions": "S5HVoW_terminalDepsActions",
+			"explorerRow": "S5HVoW_explorerRow",
+			"floatDropHint": "S5HVoW_floatDropHint",
+			"editorModeToggle": "S5HVoW_editorModeToggle",
+			"panel": "S5HVoW_panel",
+			"gitRowMain": "S5HVoW_gitRowMain",
+			"producedChip": "S5HVoW_producedChip",
+			"pinnedTab": "S5HVoW_pinnedTab",
+			"gitDiffMetaText": "S5HVoW_gitDiffMetaText",
+			"explorerRowDropTarget": "S5HVoW_explorerRowDropTarget",
+			"explorerSymlink": "S5HVoW_explorerSymlink",
+			"explorerRoot": "S5HVoW_explorerRoot",
+			"tocFlash": "S5HVoW_tocFlash",
+			"editorPdfToolbar": "S5HVoW_editorPdfToolbar",
+			"dividerRow": "S5HVoW_dividerRow",
+			"editorPdfFrameBlocked": "S5HVoW_editorPdfFrameBlocked",
+			"tabBadge": "S5HVoW_tabBadge",
+			"dividerCol": "S5HVoW_dividerCol",
+			"mermaidBody": "S5HVoW_mermaidBody",
+			"dropUp": "S5HVoW_dropUp",
+			"gitLink": "S5HVoW_gitLink",
+			"editorPptxButton": "S5HVoW_editorPptxButton",
+			"iconButton": "S5HVoW_iconButton",
+			"browserInput": "S5HVoW_browserInput",
+			"editorCmHidden": "S5HVoW_editorCmHidden",
+			"gitCommit": "S5HVoW_gitCommit",
+			"openWithName": "S5HVoW_openWithName",
+			"explorerBroken": "S5HVoW_explorerBroken",
+			"producedMore": "S5HVoW_producedMore",
+			"gitConfirmDesc": "S5HVoW_gitConfirmDesc",
+			"explorerDir": "S5HVoW_explorerDir",
+			"explorerName": "S5HVoW_explorerName",
+			"editorPdfStage": "S5HVoW_editorPdfStage",
+			"editorMain": "S5HVoW_editorMain",
+			"gitPlaceholder": "S5HVoW_gitPlaceholder",
+			"gitDiffNum": "S5HVoW_gitDiffNum",
+			"editorImage": "S5HVoW_editorImage",
+			"uploadOverlayProgress": "S5HVoW_uploadOverlayProgress",
+			"editorDownloadLink": "S5HVoW_editorDownloadLink",
+			"terminalWrap": "S5HVoW_terminalWrap",
+			"editorPlaceholder": "S5HVoW_editorPlaceholder",
+			"sandboxAction": "S5HVoW_sandboxAction",
+			"gitBranchSelect": "S5HVoW_gitBranchSelect",
+			"editorMd": "S5HVoW_editorMd",
+			"gitHeader": "S5HVoW_gitHeader",
+			"editorModeActive": "S5HVoW_editorModeActive",
+			"gitDiffFile": "S5HVoW_gitDiffFile",
+			"boundaryError": "S5HVoW_boundaryError",
+			"gitCommitInput": "S5HVoW_gitCommitInput",
+			"gitDiffFileChevron": "S5HVoW_gitDiffFileChevron",
+			"gitWorktreeLabel": "S5HVoW_gitWorktreeLabel",
+			"editorHtml": "S5HVoW_editorHtml",
+			"dropLeft": "S5HVoW_dropLeft",
+			"editor": "S5HVoW_editor",
+			"terminalRetry": "S5HVoW_terminalRetry",
+			"editorSearchHint": "S5HVoW_editorSearchHint",
+			"sandboxDot": "S5HVoW_sandboxDot",
+			"editorTreeToggleActive": "S5HVoW_editorTreeToggleActive",
+			"uploadOverlayTitle": "S5HVoW_uploadOverlayTitle",
+			"explorerError": "S5HVoW_explorerError",
+			"editorBanner": "S5HVoW_editorBanner",
+			"uploadDropZonePill": "S5HVoW_uploadDropZonePill",
+			"editorStatus": "S5HVoW_editorStatus",
+			"floatResize": "S5HVoW_floatResize",
+			"gitDiffDel": "S5HVoW_gitDiffDel",
+			"gitError": "S5HVoW_gitError",
+			"editorTreeSearch": "S5HVoW_editorTreeSearch",
+			"mermaidHeader": "S5HVoW_mermaidHeader",
+			"terminalDepsNote": "S5HVoW_terminalDepsNote",
+			"producedRow": "S5HVoW_producedRow",
+			"uploadOverlayProgressFill": "S5HVoW_uploadOverlayProgressFill",
+			"gitDiffCode": "S5HVoW_gitDiffCode",
+			"gitDiffExpand": "S5HVoW_gitDiffExpand",
+			"browserStart": "S5HVoW_browserStart",
+			"dirtyDot": "S5HVoW_dirtyDot",
+			"tocBar": "S5HVoW_tocBar",
+			"tocItem": "S5HVoW_tocItem",
+			"sandboxStatusOff": "S5HVoW_sandboxStatusOff",
+			"toggleButton": "S5HVoW_toggleButton",
+			"uploadDropChatHint": "S5HVoW_uploadDropChatHint",
+			"browserBlockedButton": "S5HVoW_browserBlockedButton",
+			"panelResizeActive": "S5HVoW_panelResizeActive",
+			"toggleCluster": "S5HVoW_toggleCluster",
+			"editorError": "S5HVoW_editorError",
+			"sandboxStatusText": "S5HVoW_sandboxStatusText",
+			"explorerCopied": "S5HVoW_explorerCopied",
+			"editorPathInput": "S5HVoW_editorPathInput",
+			"tabActive": "S5HVoW_tabActive",
+			"paneEmptyCards": "S5HVoW_paneEmptyCards",
+			"browserBlockedDesc": "S5HVoW_browserBlockedDesc",
+			"uploadOverlayCancel": "S5HVoW_uploadOverlayCancel",
+			"terminalDepsBanner": "S5HVoW_terminalDepsBanner",
+			"floatTitle": "S5HVoW_floatTitle",
+			"gitBadge": "S5HVoW_gitBadge",
+			"explorerRef": "S5HVoW_explorerRef",
+			"mermaidInfo": "S5HVoW_mermaidInfo",
+			"tocButton": "S5HVoW_tocButton",
+			"explorerBody": "S5HVoW_explorerBody",
+			"orphanedType": "S5HVoW_orphanedType",
+			"dsh-row-in": "S5HVoW_dsh-row-in",
+			"sandboxStatusOn": "S5HVoW_sandboxStatusOn",
+			"tab": "S5HVoW_tab",
+			"uploadOverlayCard": "S5HVoW_uploadOverlayCard",
+			"gitRow": "S5HVoW_gitRow",
+			"gitLogMeta": "S5HVoW_gitLogMeta",
+			"terminalDepsHint": "S5HVoW_terminalDepsHint",
+			"browser": "S5HVoW_browser",
+			"editorCm": "S5HVoW_editorCm",
+			"dropRight": "S5HVoW_dropRight",
+			"dsh-toc-flash": "S5HVoW_dsh-toc-flash",
+			"splitRow": "S5HVoW_splitRow",
+			"browserBlockedActions": "S5HVoW_browserBlockedActions",
+			"floatClose": "S5HVoW_floatClose",
+			"sandboxStatus": "S5HVoW_sandboxStatus",
+			"editorImageWrap": "S5HVoW_editorImageWrap",
+			"mermaidModalStage": "S5HVoW_mermaidModalStage",
+			"panelResize": "S5HVoW_panelResize",
+			"browserBar": "S5HVoW_browserBar",
+			"tocItemLevel": "S5HVoW_tocItemLevel",
+			"paneContent": "S5HVoW_paneContent",
+			"editorTitle": "S5HVoW_editorTitle",
+			"explorerHidden": "S5HVoW_explorerHidden",
+			"tabTitle": "S5HVoW_tabTitle",
+			"panelHidden": "S5HVoW_panelHidden",
+			"mermaidMarkdown": "S5HVoW_mermaidMarkdown",
+			"openWithLabel": "S5HVoW_openWithLabel",
+			"splitChild": "S5HVoW_splitChild",
+			"floatHeader": "S5HVoW_floatHeader",
+			"gitSectionHeader": "S5HVoW_gitSectionHeader",
+			"uploadOverlay": "S5HVoW_uploadOverlay",
+			"tabBarDrop": "S5HVoW_tabBarDrop",
+			"editorPdfDragShield": "S5HVoW_editorPdfDragShield",
+			"tabBoundaryError": "S5HVoW_tabBoundaryError",
+			"gitEmpty": "S5HVoW_gitEmpty",
+			"editorHtmlBlock": "S5HVoW_editorHtmlBlock",
+			"tocPanel": "S5HVoW_tocPanel",
+			"divider": "S5HVoW_divider",
+			"git": "S5HVoW_git",
+			"explorerRowRevealed": "S5HVoW_explorerRowRevealed",
+			"terminalRepairCommand": "S5HVoW_terminalRepairCommand",
+			"gitDiffFileChevronExpanded": "S5HVoW_gitDiffFileChevronExpanded",
+			"editorBinaryNotice": "S5HVoW_editorBinaryNotice",
+			"editorTreeDock": "S5HVoW_editorTreeDock",
+			"mermaidError": "S5HVoW_mermaidError",
+			"mermaidWrap": "S5HVoW_mermaidWrap",
+			"gitDiffLine": "S5HVoW_gitDiffLine",
+			"gitLogHash": "S5HVoW_gitLogHash",
+			"uploadOverlayStatus": "S5HVoW_uploadOverlayStatus",
+			"floatWindow": "S5HVoW_floatWindow",
+			"tabBar": "S5HVoW_tabBar",
+			"editorBinary": "S5HVoW_editorBinary",
+			"mermaidModalToolbar": "S5HVoW_mermaidModalToolbar",
+			"editorTreeResize": "S5HVoW_editorTreeResize",
+			"terminalDepsCommandRow": "S5HVoW_terminalDepsCommandRow",
+			"selectionPopup": "S5HVoW_selectionPopup",
+			"gitDiffTabTitle": "S5HVoW_gitDiffTabTitle",
+			"floatContent": "S5HVoW_floatContent",
+			"floatDropHintLabel": "S5HVoW_floatDropHintLabel",
+			"gitCommitButton": "S5HVoW_gitCommitButton",
+			"browserBlockedTitle": "S5HVoW_browserBlockedTitle",
+			"tabBarPlus": "S5HVoW_tabBarPlus",
+			"uploadDropZone": "S5HVoW_uploadDropZone",
+			"gitDiffCtx": "S5HVoW_gitDiffCtx",
+			"editorTreePanelFull": "S5HVoW_editorTreePanelFull",
+			"mermaidCopy": "S5HVoW_mermaidCopy",
+			"panelBody": "S5HVoW_panelBody",
+			"explorerEmpty": "S5HVoW_explorerEmpty",
+			"explorer": "S5HVoW_explorer",
+			"editorSearchResult": "S5HVoW_editorSearchResult",
+			"editorStatusError": "S5HVoW_editorStatusError",
+			"editorPdfDragShieldActive": "S5HVoW_editorPdfDragShieldActive",
+			"paneDrop": "S5HVoW_paneDrop",
+			"paneCard": "S5HVoW_paneCard",
+			"editorPdf": "S5HVoW_editorPdf",
+			"gitDiffAdd": "S5HVoW_gitDiffAdd",
+			"paneTab": "S5HVoW_paneTab",
+			"gitLogRow": "S5HVoW_gitLogRow",
+			"terminalBanner": "S5HVoW_terminalBanner",
+			"openWithPin": "S5HVoW_openWithPin",
+			"tocItemText": "S5HVoW_tocItemText",
+			"splitCol": "S5HVoW_splitCol",
+			"terminalDepsTitle": "S5HVoW_terminalDepsTitle",
+			"gitLogLine1": "S5HVoW_gitLogLine1",
+			"gitDiffFilePath": "S5HVoW_gitDiffFilePath",
+			"uploadDropChatCard": "S5HVoW_uploadDropChatCard",
+			"gitLogMore": "S5HVoW_gitLogMore",
+			"browserFrame": "S5HVoW_browserFrame",
+			"openWithPinActive": "S5HVoW_openWithPinActive",
+			"floatWindowDragging": "S5HVoW_floatWindowDragging",
+			"gitRowSelected": "S5HVoW_gitRowSelected",
+			"gitDiffTab": "S5HVoW_gitDiffTab",
+			"gitDiffMeta": "S5HVoW_gitDiffMeta",
+			"editorBody": "S5HVoW_editorBody",
+			"gitLogRef": "S5HVoW_gitLogRef",
+			"terminalBannerUrl": "S5HVoW_terminalBannerUrl",
+			"gitWorktreeRow": "S5HVoW_gitWorktreeRow"
 		};
 		//#endregion
 		//#region src/client/intercept.tsx
@@ -13123,7 +13207,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:/Users/libing/kk_Projects/dsh-coding-sidebar/src/client/SideCardSection.module.css.mjs
-		const css$3 = ".AC9POW_section{flex-direction:column;gap:16px;width:100%;max-width:760px;display:flex}.AC9POW_intro{color:var(--dsw-alias-label-tertiary);margin:0;padding:0 2px;font-size:13px;line-height:20px}.AC9POW_group{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:16px;flex-direction:column;flex:none;gap:8px;padding:20px;display:flex}.AC9POW_groupHeading{color:var(--dsw-alias-label-primary);align-items:baseline;gap:7px;padding:0 2px 6px;font-size:13px;font-weight:600;line-height:20px;display:flex}.AC9POW_count{background:var(--dsw-alias-accent-soft,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;line-height:16px}.AC9POW_grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;display:grid}.AC9POW_card{border:1px solid var(--dsw-alias-border-l2);min-height:106px;font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:12px;flex-direction:column;transition:background .12s,border-color .12s;display:flex;position:relative;overflow:hidden}.AC9POW_card:not(.AC9POW_cardOn):hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-label-dimmed)}.AC9POW_cardOn{border-color:color-mix(in srgb, var(--dsw-alias-button-primary-fill) 45%, transparent);background:var(--dsw-alias-interactive-bg-active)}.AC9POW_cardMain{border-radius:inherit;width:100%;font:inherit;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;flex-direction:column;flex:1;gap:6px;padding:12px;display:flex}.AC9POW_cardMain:focus-visible,.AC9POW_cardSettings:focus-visible,.AC9POW_rowGear:focus-visible{outline:2px solid var(--dsw-alias-border-l4);outline-offset:2px}.AC9POW_cardTop{align-items:center;gap:8px;min-width:0;min-height:28px;display:flex}.AC9POW_cardIconChip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);width:28px;height:28px;color:var(--dsw-alias-label-tertiary);border-radius:8px;flex:none;justify-content:center;align-items:center;display:inline-flex}.AC9POW_cardOn .AC9POW_cardIconChip{border-color:color-mix(in srgb, var(--dsw-alias-button-primary-fill) 35%, transparent);background:color-mix(in srgb, var(--dsw-alias-button-primary-fill) 12%, transparent);color:var(--dsw-alias-button-primary-fill)}.AC9POW_cardTitle{min-width:0;color:var(--dsw-alias-label-secondary);white-space:nowrap;text-overflow:ellipsis;flex:1;font-size:13px;font-weight:600;line-height:20px;overflow:hidden}.AC9POW_cardOn .AC9POW_cardTitle{color:var(--dsw-alias-label-primary)}.AC9POW_cardSwitch{flex:none;align-items:center;display:inline-flex}.AC9POW_cardSwitchTrack{box-sizing:border-box;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;align-items:center;width:30px;height:16px;padding:2px;transition:background .15s,border-color .15s;display:inline-flex}.AC9POW_cardSwitchThumb{background:var(--dsw-alias-label-tertiary);border-radius:50%;width:10px;height:10px;transition:transform .15s,background .15s;display:block}.AC9POW_cardOn .AC9POW_cardSwitchTrack{border-color:var(--dsw-alias-button-primary-fill);background:var(--dsw-alias-button-primary-fill)}.AC9POW_cardOn .AC9POW_cardSwitchThumb{background:var(--dsw-alias-bg-layer-3);transform:translate(14px)}.AC9POW_cardDesc{color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;font-size:11px;line-height:16px;overflow:hidden}.AC9POW_addCard{border-style:dashed;border-color:var(--dsw-alias-border-l2);text-align:left;align-items:flex-start;padding:12px}.AC9POW_addCard:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-label-primary)}.AC9POW_addCard:hover .AC9POW_cardTitle{color:var(--dsw-alias-label-primary)}.AC9POW_addCard:hover .AC9POW_cardIconChip{border-color:color-mix(in srgb, var(--dsw-alias-button-primary-fill) 35%, transparent);color:var(--dsw-alias-button-primary-fill)}.AC9POW_addCard:focus-visible{outline:2px solid var(--dsw-alias-border-l4);outline-offset:2px}.AC9POW_cardOn .AC9POW_cardDesc{color:var(--dsw-alias-label-secondary)}.AC9POW_cardSettings{border:0;border-top:1px solid var(--dsw-alias-border-l1);width:100%;color:var(--dsw-alias-label-secondary);font:inherit;text-align:left;cursor:pointer;background:0 0;align-items:center;gap:6px;padding:6px 12px;font-size:11px;font-weight:500;line-height:16px;transition:background .12s,color .12s;display:flex}.AC9POW_cardOn .AC9POW_cardSettings{border-top-color:color-mix(in srgb, var(--dsw-alias-button-primary-fill) 18%, transparent)}.AC9POW_cardSettings:hover{background:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-brand-primary)}.AC9POW_rowGear{border:1px solid var(--dsw-alias-border-l2);width:22px;height:22px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:6px;flex:none;justify-content:center;align-items:center;padding:0;transition:background .12s,border-color .12s,color .12s;display:inline-flex}.AC9POW_rowGear:hover{border-color:var(--dsw-alias-interactive-bg-hover-accent);background:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-brand-primary)}.AC9POW_row{border-bottom:1px solid var(--dsw-alias-border-l2);justify-content:space-between;align-items:center;gap:16px;padding:12px 2px;display:flex}.AC9POW_row:last-child{border-bottom:none}.AC9POW_rowText{flex-direction:column;gap:4px;min-width:0;display:flex}.AC9POW_title{color:var(--dsw-alias-label-primary);font-size:14px;line-height:22px}.AC9POW_desc{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.AC9POW_switch{cursor:pointer;flex:none;display:inline-flex;position:relative}.AC9POW_switchInput{opacity:0;width:1px;height:1px;margin:0;position:absolute}.AC9POW_switchTrack{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:10px;align-items:center;width:36px;height:20px;padding:2px;transition:background .15s,border-color .15s;display:inline-flex}.AC9POW_switchThumb{background:var(--dsw-alias-label-tertiary);border-radius:50%;width:14px;height:14px;transition:transform .15s,background .15s;display:block}.AC9POW_switch:hover .AC9POW_switchTrack{border-color:var(--dsw-alias-label-dimmed)}.AC9POW_switchInput:checked+.AC9POW_switchTrack{border-color:var(--dsw-alias-button-primary-fill);background:var(--dsw-alias-button-primary-fill)}.AC9POW_switchInput:checked+.AC9POW_switchTrack .AC9POW_switchThumb{background:var(--dsw-alias-bg-layer-3);transform:translate(16px)}.AC9POW_switchInput:focus-visible+.AC9POW_switchTrack{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.AC9POW_control{flex:none;align-items:center;gap:6px;display:flex}.AC9POW_percentInput{width:76px}.AC9POW_typedInput{width:200px}.AC9POW_typedInputNumber{width:76px}.AC9POW_selectAnchor{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);max-width:220px;color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:8px;align-items:center;gap:6px;padding:4px 8px;font-size:13px;line-height:20px;display:flex}.AC9POW_selectAnchor:hover{border-color:var(--dsw-alias-label-dimmed)}.AC9POW_selectAnchorIcon{flex:none;display:inline-flex}.AC9POW_selectAnchorText{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.AC9POW_selectOption{align-items:center;gap:10px;min-width:200px;display:flex}.AC9POW_selectOptionIcon{color:var(--dsw-alias-label-secondary);flex:none;display:inline-flex}.AC9POW_selectOptionText{flex-direction:column;min-width:0;display:flex}.AC9POW_suffix{color:var(--dsw-alias-label-secondary);font-size:14px;line-height:22px}.AC9POW_cssTextArea{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);width:100%;min-height:120px;color:var(--dsw-alias-label-primary);font-family:var(--ds-font-family-code,monospace);resize:vertical;border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.6}.AC9POW_cssTextArea:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.AC9POW_popupDialog.AC9POW_popupDialog{width:min(460px,100%)}.AC9POW_popupRows{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2,transparent) transparent;flex-direction:column;gap:8px;width:100%;max-height:min(52vh,440px);padding-right:4px;display:flex;overflow:hidden auto}.AC9POW_popupRows::-webkit-scrollbar{width:6px}.AC9POW_popupRows::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2,var(--dsw-alias-border-l2));border-radius:3px}.AC9POW_popupRows::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-scrollbar-hover-l2,var(--dsw-alias-label-dimmed))}.AC9POW_popupRow{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:12px;flex:none;justify-content:space-between;align-items:center;gap:16px;min-width:0;padding:12px 14px;transition:border-color .16s,background .16s;display:flex}.AC9POW_popupRow:hover{border-color:var(--dsw-alias-label-dimmed)}.AC9POW_done{appearance:none;font:inherit;cursor:pointer;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3);border:1px solid #0000;border-radius:8px;padding:5px 14px;font-size:13px;line-height:1.5}.AC9POW_done:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}.AC9POW_error{color:var(--dsw-alias-state-error-primary);padding:10px 0 2px;font-size:12px;line-height:17px}.AC9POW_pluginModal.AC9POW_pluginModal{width:min(560px,100%)}.AC9POW_pluginList{flex-direction:column;gap:12px;width:100%;display:flex}.AC9POW_pluginTopicBtn{appearance:none;border:1px solid var(--dsw-alias-border-l2);width:100%;font:inherit;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);cursor:pointer;border-radius:8px;padding:6px 12px;font-size:12px;line-height:18px}.AC9POW_pluginTopicBtn:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-label-primary)}.AC9POW_pluginTopicBtn:focus-visible{outline:2px solid var(--dsw-alias-border-l4);outline-offset:1px}.AC9POW_pluginEmpty{color:var(--dsw-alias-label-tertiary);padding:20px 2px;font-size:12px;line-height:18px}.AC9POW_pluginEntry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);border-radius:12px;flex-direction:column;gap:4px;padding:12px;display:flex}.AC9POW_pluginEntryHead{justify-content:space-between;align-items:center;gap:12px;display:flex}.AC9POW_pluginEntryActions{flex:none;align-items:center;gap:6px;display:inline-flex}.AC9POW_pluginJumpBtn{appearance:none;border:1px solid var(--dsw-alias-border-l2);font:inherit;cursor:pointer;color:var(--dsw-alias-label-secondary);background:0 0;border-radius:8px;flex:none;padding:3px 12px;font-size:12px;line-height:1.5}.AC9POW_pluginJumpBtn:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-label-primary)}.AC9POW_pluginJumpBtn:focus-visible{outline:2px solid var(--dsw-alias-border-l4);outline-offset:1px}.AC9POW_pluginName{appearance:none;min-width:0;font:inherit;color:var(--dsw-alias-label-primary);text-align:left;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;background:0 0;border:0;padding:0;font-size:13px;font-weight:600;line-height:20px;text-decoration:none;overflow:hidden}.AC9POW_pluginName:hover{color:var(--dsw-alias-button-primary-fill);text-decoration:underline}.AC9POW_pluginDesc{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}.AC9POW_pluginInstall{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);white-space:nowrap;border-radius:8px;padding:6px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;display:block;overflow-x:auto}.AC9POW_pluginCopyBtn{appearance:none;font:inherit;cursor:pointer;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3);border:1px solid #0000;border-radius:8px;flex:none;padding:3px 12px;font-size:12px;line-height:1.5}.AC9POW_pluginCopyBtn:hover{background:var(--dsw-alias-button-primary-hover)}.AC9POW_pluginCopyBtn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}@media (prefers-reduced-motion:reduce){.AC9POW_card,.AC9POW_cardSettings,.AC9POW_cardSwitchTrack,.AC9POW_cardSwitchThumb,.AC9POW_rowGear,.AC9POW_popupRow,.AC9POW_switchTrack,.AC9POW_switchThumb{transition:none}}.AC9POW_versionBadge{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:999px;align-self:flex-start;align-items:center;gap:8px;padding:4px 12px 4px 14px;font-size:12px;line-height:18px;display:inline-flex}.AC9POW_versionBadgeName{color:var(--dsw-alias-label-primary);font-weight:600}.AC9POW_versionBadgeTag{background:var(--dsw-alias-accent-soft,var(--dsw-alias-border-l2));color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;border-radius:999px;padding:1px 8px}.AC9POW_pluginSearch{box-sizing:border-box;appearance:none;border:1px solid var(--dsw-alias-border-l2);width:100%;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border-radius:8px;padding:6px 10px;font-size:12px;line-height:18px}.AC9POW_pluginSearch::placeholder{color:var(--dsw-alias-label-tertiary)}.AC9POW_pluginSearch:focus-visible{outline:2px solid var(--dsw-alias-border-l4);outline-offset:1px}.AC9POW_pluginEntries{flex-direction:column;gap:10px;max-height:46vh;padding-right:2px;display:flex;overflow:hidden auto}.AC9POW_pluginGroup{flex-direction:column;gap:8px;display:flex}.AC9POW_pluginGroupHeading{color:var(--dsw-alias-label-secondary);padding:2px 2px 0;font-size:12px;font-weight:600;line-height:18px}.AC9POW_openWithEditorRow{grid-template-columns:1fr 1.5fr auto auto;align-items:center;gap:8px;min-width:0;display:grid}.AC9POW_openWithEditorInput,.AC9POW_openWithEditorTemplate{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);width:100%;min-width:0;color:var(--dsw-alias-label-primary);font:inherit;border-radius:8px;padding:5px 8px;font-size:13px;line-height:20px}.AC9POW_openWithEditorInput:focus-visible,.AC9POW_openWithEditorTemplate:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.AC9POW_openWithFamily{color:var(--dsw-alias-label-secondary);white-space:nowrap;cursor:pointer;align-items:center;gap:5px;font-size:12px;display:inline-flex}.AC9POW_openWithRemove{color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:8px;justify-content:center;align-items:center;padding:4px;display:inline-flex}.AC9POW_openWithRemove:hover{color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-bg-layer-2)}.AC9POW_openWithHint{color:var(--dsw-alias-state-error-primary);padding:0 2px;font-size:12px;line-height:17px}";
+		const css$3 = ".AC9POW_section{flex-direction:column;gap:16px;width:100%;max-width:760px;display:flex}.AC9POW_intro{color:var(--dsw-alias-label-tertiary);margin:0;padding:0 2px;font-size:13px;line-height:20px}.AC9POW_group{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:16px;flex-direction:column;flex:none;gap:8px;padding:20px;display:flex}.AC9POW_groupHeading{color:var(--dsw-alias-label-primary);align-items:baseline;gap:7px;padding:0 2px 6px;font-size:13px;font-weight:600;line-height:20px;display:flex}.AC9POW_count{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;line-height:16px}.AC9POW_grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;display:grid}.AC9POW_card{border:1px solid var(--dsw-alias-border-l2);min-height:106px;font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:12px;flex-direction:column;transition:background .12s,border-color .12s;display:flex;position:relative;overflow:hidden}.AC9POW_card:not(.AC9POW_cardOn):hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-label-dimmed)}.AC9POW_cardOn{border-color:color-mix(in srgb, var(--dsw-alias-button-primary-fill) 45%, transparent);background:var(--dsw-alias-interactive-bg-active)}.AC9POW_cardMain{border-radius:inherit;width:100%;font:inherit;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;flex-direction:column;flex:1;gap:6px;padding:12px;display:flex}.AC9POW_cardMain:focus-visible,.AC9POW_cardSettings:focus-visible,.AC9POW_rowGear:focus-visible{outline:2px solid var(--dsw-alias-border-l4);outline-offset:2px}.AC9POW_cardTop{align-items:center;gap:8px;min-width:0;min-height:28px;display:flex}.AC9POW_cardIconChip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);width:28px;height:28px;color:var(--dsw-alias-label-tertiary);border-radius:8px;flex:none;justify-content:center;align-items:center;display:inline-flex}.AC9POW_cardOn .AC9POW_cardIconChip{border-color:color-mix(in srgb, var(--dsw-alias-button-primary-fill) 35%, transparent);background:color-mix(in srgb, var(--dsw-alias-button-primary-fill) 12%, transparent);color:var(--dsw-alias-button-primary-fill)}.AC9POW_cardTitle{min-width:0;color:var(--dsw-alias-label-secondary);white-space:nowrap;text-overflow:ellipsis;flex:1;font-size:13px;font-weight:600;line-height:20px;overflow:hidden}.AC9POW_cardOn .AC9POW_cardTitle{color:var(--dsw-alias-label-primary)}.AC9POW_cardSwitch{flex:none;align-items:center;display:inline-flex}.AC9POW_cardSwitchTrack{box-sizing:border-box;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;align-items:center;width:30px;height:16px;padding:2px;transition:background .15s,border-color .15s;display:inline-flex}.AC9POW_cardSwitchThumb{background:var(--dsw-alias-label-tertiary);border-radius:50%;width:10px;height:10px;transition:transform .15s,background .15s;display:block}.AC9POW_cardOn .AC9POW_cardSwitchTrack{border-color:var(--dsw-alias-button-primary-fill);background:var(--dsw-alias-button-primary-fill)}.AC9POW_cardOn .AC9POW_cardSwitchThumb{background:var(--dsw-alias-bg-layer-3);transform:translate(14px)}.AC9POW_cardDesc{color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;font-size:11px;line-height:16px;overflow:hidden}.AC9POW_addCard{border-style:dashed;border-color:var(--dsw-alias-border-l2);text-align:left;align-items:flex-start;padding:12px}.AC9POW_addCard:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-label-primary)}.AC9POW_addCard:hover .AC9POW_cardTitle{color:var(--dsw-alias-label-primary)}.AC9POW_addCard:hover .AC9POW_cardIconChip{border-color:color-mix(in srgb, var(--dsw-alias-button-primary-fill) 35%, transparent);color:var(--dsw-alias-button-primary-fill)}.AC9POW_addCard:focus-visible{outline:2px solid var(--dsw-alias-border-l4);outline-offset:2px}.AC9POW_cardOn .AC9POW_cardDesc{color:var(--dsw-alias-label-secondary)}.AC9POW_cardSettings{border:0;border-top:1px solid var(--dsw-alias-border-l1);width:100%;color:var(--dsw-alias-label-secondary);font:inherit;text-align:left;cursor:pointer;background:0 0;align-items:center;gap:6px;padding:6px 12px;font-size:11px;font-weight:500;line-height:16px;transition:background .12s,color .12s;display:flex}.AC9POW_cardOn .AC9POW_cardSettings{border-top-color:color-mix(in srgb, var(--dsw-alias-button-primary-fill) 18%, transparent)}.AC9POW_cardSettings:hover{background:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-brand-primary)}.AC9POW_rowGear{border:1px solid var(--dsw-alias-border-l2);width:22px;height:22px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:6px;flex:none;justify-content:center;align-items:center;padding:0;transition:background .12s,border-color .12s,color .12s;display:inline-flex}.AC9POW_rowGear:hover{border-color:var(--dsw-alias-interactive-bg-hover-accent);background:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-brand-primary)}.AC9POW_row{border-bottom:1px solid var(--dsw-alias-border-l2);justify-content:space-between;align-items:center;gap:16px;padding:12px 2px;display:flex}.AC9POW_row:last-child{border-bottom:none}.AC9POW_rowText{flex-direction:column;gap:4px;min-width:0;display:flex}.AC9POW_title{color:var(--dsw-alias-label-primary);font-size:14px;line-height:22px}.AC9POW_desc{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.AC9POW_switch{cursor:pointer;flex:none;display:inline-flex;position:relative}.AC9POW_switchInput{opacity:0;width:1px;height:1px;margin:0;position:absolute}.AC9POW_switchTrack{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:10px;align-items:center;width:36px;height:20px;padding:2px;transition:background .15s,border-color .15s;display:inline-flex}.AC9POW_switchThumb{background:var(--dsw-alias-label-tertiary);border-radius:50%;width:14px;height:14px;transition:transform .15s,background .15s;display:block}.AC9POW_switch:hover .AC9POW_switchTrack{border-color:var(--dsw-alias-label-dimmed)}.AC9POW_switchInput:checked+.AC9POW_switchTrack{border-color:var(--dsw-alias-button-primary-fill);background:var(--dsw-alias-button-primary-fill)}.AC9POW_switchInput:checked+.AC9POW_switchTrack .AC9POW_switchThumb{background:var(--dsw-alias-bg-layer-3);transform:translate(16px)}.AC9POW_switchInput:focus-visible+.AC9POW_switchTrack{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.AC9POW_control{flex:none;align-items:center;gap:6px;display:flex}.AC9POW_percentInput{width:76px}.AC9POW_typedInput{width:200px}.AC9POW_typedInputNumber{width:76px}.AC9POW_selectAnchor{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);max-width:220px;color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:8px;align-items:center;gap:6px;padding:4px 8px;font-size:13px;line-height:20px;display:flex}.AC9POW_selectAnchor:hover{border-color:var(--dsw-alias-label-dimmed)}.AC9POW_selectAnchorIcon{flex:none;display:inline-flex}.AC9POW_selectAnchorText{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.AC9POW_selectOption{align-items:center;gap:10px;min-width:200px;display:flex}.AC9POW_selectOptionIcon{color:var(--dsw-alias-label-secondary);flex:none;display:inline-flex}.AC9POW_selectOptionText{flex-direction:column;min-width:0;display:flex}.AC9POW_suffix{color:var(--dsw-alias-label-secondary);font-size:14px;line-height:22px}.AC9POW_cssTextArea{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);width:100%;min-height:120px;color:var(--dsw-alias-label-primary);font-family:var(--ds-font-family-code,monospace);resize:vertical;border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.6}.AC9POW_cssTextArea:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.AC9POW_popupDialog.AC9POW_popupDialog{width:min(460px,100%)}.AC9POW_popupRows{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2,transparent) transparent;flex-direction:column;gap:8px;width:100%;max-height:min(52vh,440px);padding-right:4px;display:flex;overflow:hidden auto}.AC9POW_popupRows::-webkit-scrollbar{width:6px}.AC9POW_popupRows::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2,var(--dsw-alias-border-l2));border-radius:3px}.AC9POW_popupRows::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-scrollbar-hover-l2,var(--dsw-alias-label-dimmed))}.AC9POW_popupRow{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:12px;flex:none;justify-content:space-between;align-items:center;gap:16px;min-width:0;padding:12px 14px;transition:border-color .16s,background .16s;display:flex}.AC9POW_popupRow:hover{border-color:var(--dsw-alias-label-dimmed)}.AC9POW_done{appearance:none;font:inherit;cursor:pointer;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3);border:1px solid #0000;border-radius:8px;padding:5px 14px;font-size:13px;line-height:1.5}.AC9POW_done:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}.AC9POW_error{color:var(--dsw-alias-state-error-primary);padding:10px 0 2px;font-size:12px;line-height:17px}.AC9POW_pluginModal.AC9POW_pluginModal{width:min(560px,100%)}.AC9POW_pluginList{flex-direction:column;gap:12px;width:100%;display:flex}.AC9POW_pluginTopicBtn{appearance:none;border:1px solid var(--dsw-alias-border-l2);width:100%;font:inherit;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);cursor:pointer;border-radius:8px;padding:6px 12px;font-size:12px;line-height:18px}.AC9POW_pluginTopicBtn:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-label-primary)}.AC9POW_pluginTopicBtn:focus-visible{outline:2px solid var(--dsw-alias-border-l4);outline-offset:1px}.AC9POW_pluginEmpty{color:var(--dsw-alias-label-tertiary);padding:20px 2px;font-size:12px;line-height:18px}.AC9POW_pluginEntry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);border-radius:12px;flex-direction:column;gap:4px;padding:12px;display:flex}.AC9POW_pluginEntryHead{justify-content:space-between;align-items:center;gap:12px;display:flex}.AC9POW_pluginEntryActions{flex:none;align-items:center;gap:6px;display:inline-flex}.AC9POW_pluginJumpBtn{appearance:none;border:1px solid var(--dsw-alias-border-l2);font:inherit;cursor:pointer;color:var(--dsw-alias-label-secondary);background:0 0;border-radius:8px;flex:none;padding:3px 12px;font-size:12px;line-height:1.5}.AC9POW_pluginJumpBtn:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-label-primary)}.AC9POW_pluginJumpBtn:focus-visible{outline:2px solid var(--dsw-alias-border-l4);outline-offset:1px}.AC9POW_pluginName{appearance:none;min-width:0;font:inherit;color:var(--dsw-alias-label-primary);text-align:left;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;background:0 0;border:0;padding:0;font-size:13px;font-weight:600;line-height:20px;text-decoration:none;overflow:hidden}.AC9POW_pluginName:hover{color:var(--dsw-alias-button-primary-fill);text-decoration:underline}.AC9POW_pluginDesc{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}.AC9POW_pluginInstall{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);white-space:nowrap;border-radius:8px;padding:6px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;display:block;overflow-x:auto}.AC9POW_pluginCopyBtn{appearance:none;font:inherit;cursor:pointer;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3);border:1px solid #0000;border-radius:8px;flex:none;padding:3px 12px;font-size:12px;line-height:1.5}.AC9POW_pluginCopyBtn:hover{background:var(--dsw-alias-button-primary-hover)}.AC9POW_pluginCopyBtn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}@media (prefers-reduced-motion:reduce){.AC9POW_card,.AC9POW_cardSettings,.AC9POW_cardSwitchTrack,.AC9POW_cardSwitchThumb,.AC9POW_rowGear,.AC9POW_popupRow,.AC9POW_switchTrack,.AC9POW_switchThumb{transition:none}}.AC9POW_versionBadge{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:999px;align-self:flex-start;align-items:center;gap:8px;padding:4px 12px 4px 14px;font-size:12px;line-height:18px;display:inline-flex}.AC9POW_versionBadgeName{color:var(--dsw-alias-label-primary);font-weight:600}.AC9POW_versionBadgeTag{background:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;border-radius:999px;padding:1px 8px}.AC9POW_pluginSearch{box-sizing:border-box;appearance:none;border:1px solid var(--dsw-alias-border-l2);width:100%;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border-radius:8px;padding:6px 10px;font-size:12px;line-height:18px}.AC9POW_pluginSearch::placeholder{color:var(--dsw-alias-label-tertiary)}.AC9POW_pluginSearch:focus-visible{outline:2px solid var(--dsw-alias-border-l4);outline-offset:1px}.AC9POW_pluginEntries{flex-direction:column;gap:10px;max-height:46vh;padding-right:2px;display:flex;overflow:hidden auto}.AC9POW_pluginGroup{flex-direction:column;gap:8px;display:flex}.AC9POW_pluginGroupHeading{color:var(--dsw-alias-label-secondary);padding:2px 2px 0;font-size:12px;font-weight:600;line-height:18px}.AC9POW_openWithEditorRow{grid-template-columns:1fr 1.5fr auto auto;align-items:center;gap:8px;min-width:0;display:grid}.AC9POW_openWithEditorInput,.AC9POW_openWithEditorTemplate{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);width:100%;min-width:0;color:var(--dsw-alias-label-primary);font:inherit;border-radius:8px;padding:5px 8px;font-size:13px;line-height:20px}.AC9POW_openWithEditorInput:focus-visible,.AC9POW_openWithEditorTemplate:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.AC9POW_openWithFamily{color:var(--dsw-alias-label-secondary);white-space:nowrap;cursor:pointer;align-items:center;gap:5px;font-size:12px;display:inline-flex}.AC9POW_openWithRemove{color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:8px;justify-content:center;align-items:center;padding:4px;display:inline-flex}.AC9POW_openWithRemove:hover{color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-bg-layer-2)}.AC9POW_openWithHint{color:var(--dsw-alias-state-error-primary);padding:0 2px;font-size:12px;line-height:17px}";
 		const tagId$3 = "dsh-external/dsh-coding-sidebar/SideCardSection.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$3) + "]") === null) {
 			const tag = document.createElement("style");
@@ -13133,75 +13217,75 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var SideCardSection_module_css_default = {
-			"switchThumb": "AC9POW_switchThumb",
 			"pluginModal": "AC9POW_pluginModal",
-			"pluginInstall": "AC9POW_pluginInstall",
-			"suffix": "AC9POW_suffix",
-			"openWithRemove": "AC9POW_openWithRemove",
-			"pluginGroupHeading": "AC9POW_pluginGroupHeading",
-			"cssTextArea": "AC9POW_cssTextArea",
-			"cardSwitchThumb": "AC9POW_cardSwitchThumb",
-			"pluginGroup": "AC9POW_pluginGroup",
-			"title": "AC9POW_title",
-			"cardSwitch": "AC9POW_cardSwitch",
-			"switchInput": "AC9POW_switchInput",
-			"percentInput": "AC9POW_percentInput",
-			"pluginEntries": "AC9POW_pluginEntries",
-			"pluginTopicBtn": "AC9POW_pluginTopicBtn",
-			"selectAnchorText": "AC9POW_selectAnchorText",
-			"cardTop": "AC9POW_cardTop",
-			"cardDesc": "AC9POW_cardDesc",
-			"pluginName": "AC9POW_pluginName",
-			"intro": "AC9POW_intro",
+			"switchThumb": "AC9POW_switchThumb",
+			"cardTitle": "AC9POW_cardTitle",
+			"popupRow": "AC9POW_popupRow",
 			"typedInput": "AC9POW_typedInput",
-			"openWithEditorInput": "AC9POW_openWithEditorInput",
+			"suffix": "AC9POW_suffix",
+			"cardMain": "AC9POW_cardMain",
+			"error": "AC9POW_error",
+			"pluginEntry": "AC9POW_pluginEntry",
+			"openWithEditorRow": "AC9POW_openWithEditorRow",
+			"addCard": "AC9POW_addCard",
+			"pluginEntryHead": "AC9POW_pluginEntryHead",
+			"pluginGroupHeading": "AC9POW_pluginGroupHeading",
+			"control": "AC9POW_control",
+			"typedInputNumber": "AC9POW_typedInputNumber",
+			"pluginGroup": "AC9POW_pluginGroup",
+			"switchInput": "AC9POW_switchInput",
+			"pluginJumpBtn": "AC9POW_pluginJumpBtn",
+			"pluginName": "AC9POW_pluginName",
+			"selectOptionText": "AC9POW_selectOptionText",
+			"openWithFamily": "AC9POW_openWithFamily",
+			"intro": "AC9POW_intro",
+			"groupHeading": "AC9POW_groupHeading",
+			"switch": "AC9POW_switch",
+			"switchTrack": "AC9POW_switchTrack",
 			"done": "AC9POW_done",
 			"pluginList": "AC9POW_pluginList",
-			"pluginEntryActions": "AC9POW_pluginEntryActions",
-			"openWithHint": "AC9POW_openWithHint",
-			"popupDialog": "AC9POW_popupDialog",
-			"popupRows": "AC9POW_popupRows",
-			"row": "AC9POW_row",
-			"typedInputNumber": "AC9POW_typedInputNumber",
-			"pluginCopyBtn": "AC9POW_pluginCopyBtn",
-			"versionBadge": "AC9POW_versionBadge",
-			"versionBadgeTag": "AC9POW_versionBadgeTag",
-			"cardSwitchTrack": "AC9POW_cardSwitchTrack",
-			"error": "AC9POW_error",
-			"grid": "AC9POW_grid",
-			"rowGear": "AC9POW_rowGear",
-			"addCard": "AC9POW_addCard",
-			"pluginEntry": "AC9POW_pluginEntry",
-			"openWithFamily": "AC9POW_openWithFamily",
-			"pluginJumpBtn": "AC9POW_pluginJumpBtn",
-			"cardMain": "AC9POW_cardMain",
-			"count": "AC9POW_count",
-			"selectAnchorIcon": "AC9POW_selectAnchorIcon",
-			"selectOptionIcon": "AC9POW_selectOptionIcon",
-			"card": "AC9POW_card",
-			"group": "AC9POW_group",
-			"pluginEmpty": "AC9POW_pluginEmpty",
-			"pluginDesc": "AC9POW_pluginDesc",
-			"cardIconChip": "AC9POW_cardIconChip",
-			"control": "AC9POW_control",
-			"popupRow": "AC9POW_popupRow",
-			"versionBadgeName": "AC9POW_versionBadgeName",
-			"pluginSearch": "AC9POW_pluginSearch",
 			"cardOn": "AC9POW_cardOn",
 			"cardSettings": "AC9POW_cardSettings",
-			"cardTitle": "AC9POW_cardTitle",
-			"rowText": "AC9POW_rowText",
-			"selectOption": "AC9POW_selectOption",
-			"pluginEntryHead": "AC9POW_pluginEntryHead",
-			"desc": "AC9POW_desc",
+			"selectOptionIcon": "AC9POW_selectOptionIcon",
+			"popupRows": "AC9POW_popupRows",
+			"group": "AC9POW_group",
+			"percentInput": "AC9POW_percentInput",
+			"cardIconChip": "AC9POW_cardIconChip",
+			"cardSwitch": "AC9POW_cardSwitch",
+			"versionBadgeTag": "AC9POW_versionBadgeTag",
+			"grid": "AC9POW_grid",
+			"cardSwitchThumb": "AC9POW_cardSwitchThumb",
+			"selectAnchor": "AC9POW_selectAnchor",
+			"openWithRemove": "AC9POW_openWithRemove",
+			"selectAnchorIcon": "AC9POW_selectAnchorIcon",
+			"pluginCopyBtn": "AC9POW_pluginCopyBtn",
+			"card": "AC9POW_card",
+			"openWithHint": "AC9POW_openWithHint",
+			"pluginInstall": "AC9POW_pluginInstall",
 			"section": "AC9POW_section",
-			"groupHeading": "AC9POW_groupHeading",
-			"selectOptionText": "AC9POW_selectOptionText",
-			"switchTrack": "AC9POW_switchTrack",
-			"openWithEditorRow": "AC9POW_openWithEditorRow",
+			"title": "AC9POW_title",
+			"popupDialog": "AC9POW_popupDialog",
+			"versionBadge": "AC9POW_versionBadge",
+			"versionBadgeName": "AC9POW_versionBadgeName",
+			"cardTop": "AC9POW_cardTop",
+			"cardSwitchTrack": "AC9POW_cardSwitchTrack",
+			"cardDesc": "AC9POW_cardDesc",
+			"pluginEntryActions": "AC9POW_pluginEntryActions",
+			"selectOption": "AC9POW_selectOption",
 			"openWithEditorTemplate": "AC9POW_openWithEditorTemplate",
-			"switch": "AC9POW_switch",
-			"selectAnchor": "AC9POW_selectAnchor"
+			"pluginTopicBtn": "AC9POW_pluginTopicBtn",
+			"pluginSearch": "AC9POW_pluginSearch",
+			"selectAnchorText": "AC9POW_selectAnchorText",
+			"cssTextArea": "AC9POW_cssTextArea",
+			"count": "AC9POW_count",
+			"desc": "AC9POW_desc",
+			"openWithEditorInput": "AC9POW_openWithEditorInput",
+			"pluginDesc": "AC9POW_pluginDesc",
+			"row": "AC9POW_row",
+			"rowText": "AC9POW_rowText",
+			"rowGear": "AC9POW_rowGear",
+			"pluginEmpty": "AC9POW_pluginEmpty",
+			"pluginEntries": "AC9POW_pluginEntries"
 		};
 		//#endregion
 		//#region src/client/open-with-settings.tsx
@@ -14992,7 +15076,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		}
 		//#endregion
 		//#region \0dsh-css:/Users/libing/kk_Projects/dsh-coding-sidebar/src/client/SubagentView.module.css.mjs
-		const css$2 = ".F2T6aa_subagent{flex-direction:column;flex:1;min-height:0;display:flex}.F2T6aa_subagentHeader{flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.F2T6aa_subagentTitle{min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.F2T6aa_subagentCount{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.F2T6aa_subagentRefresh{width:24px;height:24px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;justify-content:center;align-items:center;display:inline-flex}.F2T6aa_subagentRefresh:hover{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_subagentBody{flex:1;min-height:0;padding:2px 6px 8px;overflow-y:auto}.F2T6aa_subagentRow{box-sizing:border-box;width:100%;min-height:50px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:8px;outline:none;align-items:flex-start;gap:8px;padding:7px 8px 7px 11px;display:flex;position:relative}.F2T6aa_subagentRow:hover,.F2T6aa_subagentRow:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_subagentRowActive,.F2T6aa_subagentRowActive:hover,.F2T6aa_subagentRowActive:focus-visible{background:var(--dsw-alias-interactive-bg-active)}.F2T6aa_subagentRowDisabled{color:var(--dsw-alias-label-dimmed);cursor:not-allowed}.F2T6aa_subagentRowDisabled:hover{background:0 0}.F2T6aa_subagentRowLoading{cursor:default}.F2T6aa_subagentDot{margin-top:4px}.F2T6aa_subagentContent{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.F2T6aa_subagentLabel,.F2T6aa_subagentSecondary{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.F2T6aa_subagentLabel{color:inherit;font-weight:400}.F2T6aa_subagentSecondary{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.F2T6aa_subagentLive{min-width:0;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);align-items:baseline;gap:4px;display:flex;overflow:hidden}.F2T6aa_subagentLiveTool{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);flex:none}.F2T6aa_subagentLiveArgs{min-width:0;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);line-height:var(--dsw-font-xxxs-11-line-height);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.F2T6aa_subagentLiveText{-webkit-line-clamp:2;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary);-webkit-box-orient:vertical;display:-webkit-box;overflow:hidden}.F2T6aa_subagentNode{min-width:0;position:relative}.F2T6aa_subagentChildren{margin-left:18px;padding-left:4px;position:relative}.F2T6aa_subagentChildren:before{content:\"\";border-left:1px solid var(--dsw-alias-border-l2);height:26px;position:absolute;top:-26px;left:0}.F2T6aa_subagentChildren[aria-busy=true]:before{content:none}.F2T6aa_subagentChildren>.F2T6aa_subagentNode:before{content:\"\";border-left:1px solid var(--dsw-alias-border-l2);position:absolute;top:0;bottom:0;left:-4px}.F2T6aa_subagentChildren>.F2T6aa_subagentNode:last-child:before{height:17px;bottom:auto}.F2T6aa_subagentChildren>.F2T6aa_subagentNode>.F2T6aa_subagentRow:before{content:\"\";border-top:1px solid var(--dsw-alias-border-l2);width:14px;position:absolute;top:16px;left:-4px}.F2T6aa_subagentEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex-direction:column;gap:2px;padding:16px;display:flex}.F2T6aa_subagentEmptyHint{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-dimmed)}.F2T6aa_subagentError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;display:flex}.F2T6aa_subagentErrorRetry{height:24px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;align-items:center;gap:4px;padding:0 8px;display:inline-flex}.F2T6aa_subagentErrorRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.F2T6aa_jobs{border-top:1px solid var(--dsw-alias-border-l2);margin-top:10px;padding-top:8px}.F2T6aa_jobsHeader{align-items:center;gap:8px;height:26px;padding:0 2px;display:flex}.F2T6aa_jobsTitle{min-width:0;font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.F2T6aa_jobsCount{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.F2T6aa_jobsList{flex-direction:column;gap:2px;margin:0;padding:0;list-style:none;display:flex}.F2T6aa_jobsRow{border-radius:8px;align-items:center;gap:4px;display:flex}.F2T6aa_jobsRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_jobsRowSettled{opacity:.8}.F2T6aa_jobsRowSelected,.F2T6aa_jobsRowSelected:hover{background:var(--dsw-alias-interactive-bg-active)}.F2T6aa_jobsRowMain{min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:8px;outline:none;flex:1;align-items:flex-start;gap:8px;padding:6px 8px 6px 11px;display:flex}.F2T6aa_jobsRowMain:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_jobsDot{margin-top:5px}.F2T6aa_jobsContent{flex-direction:column;gap:1px;min-width:0;display:flex}.F2T6aa_jobsLabelLine{align-items:center;gap:6px;min-width:0;display:flex}.F2T6aa_jobsKind{text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--dsw-alias-border-l2);max-width:90px;font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);border-radius:4px;flex:none;padding:0 5px;line-height:14px;overflow:hidden}.F2T6aa_jobsLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);line-height:var(--dsw-font-xxxs-11-line-height);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.F2T6aa_jobsSecondary{text-overflow:ellipsis;white-space:nowrap;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);overflow:hidden}.F2T6aa_jobsKill{width:22px;height:22px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;justify-content:center;align-items:center;margin-right:4px;display:inline-flex}.F2T6aa_jobsKill:hover{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);color:var(--dsw-alias-state-error-primary)}.F2T6aa_jobsKillArmed,.F2T6aa_jobsKillArmed:hover{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);width:auto;height:20px;color:var(--dsw-alias-state-error-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;padding:0 8px}.F2T6aa_jobsKill:disabled{opacity:.5;cursor:default}.F2T6aa_jobsKillError{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-error-primary);flex:none;margin-right:4px}.F2T6aa_jobsPane{z-index:1;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);border-radius:8px;margin-top:4px;position:sticky;bottom:0;overflow:hidden;box-shadow:0 -6px 12px -8px #00000059}.F2T6aa_jobsPaneHeader{border-bottom:1px solid var(--dsw-alias-border-l1);align-items:center;gap:6px;height:28px;padding:0 4px 0 10px;display:flex}.F2T6aa_jobsPaneDot{flex:none}.F2T6aa_jobsPaneLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);line-height:var(--dsw-font-xxxs-11-line-height);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.F2T6aa_jobsPaneStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.F2T6aa_jobsPaneClose{width:20px;height:20px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:5px;flex:none;justify-content:center;align-items:center;display:inline-flex}.F2T6aa_jobsPaneClose:hover{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_jobsPanePre{max-height:200px;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;margin:0;padding:6px 10px;line-height:1.5;overflow:auto}.F2T6aa_jobsPaneHint{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);padding:8px 10px}.F2T6aa_jobsPaneError{color:var(--dsw-alias-state-error-primary)}";
+		const css$2 = ".F2T6aa_subagent{flex-direction:column;flex:1;min-height:0;display:flex}.F2T6aa_subagentHeader{flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.F2T6aa_subagentTitle{min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.F2T6aa_subagentCount{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.F2T6aa_subagentRefresh{width:24px;height:24px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;justify-content:center;align-items:center;display:inline-flex}.F2T6aa_subagentRefresh:hover{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_subagentBody{flex:1;min-height:0;padding:2px 6px 8px;overflow-y:auto}.F2T6aa_subagentRow{box-sizing:border-box;width:100%;min-height:50px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:8px;outline:none;align-items:flex-start;gap:8px;padding:7px 8px 7px 11px;display:flex;position:relative}.F2T6aa_subagentRow:hover,.F2T6aa_subagentRow:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_subagentRowActive,.F2T6aa_subagentRowActive:hover,.F2T6aa_subagentRowActive:focus-visible{background:var(--dsw-alias-interactive-bg-active)}.F2T6aa_subagentRowDisabled{color:var(--dsw-alias-label-dimmed);cursor:not-allowed}.F2T6aa_subagentRowDisabled:hover{background:0 0}.F2T6aa_subagentRowLoading{cursor:default}.F2T6aa_subagentDot{margin-top:4px}.F2T6aa_subagentContent{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.F2T6aa_subagentLabel,.F2T6aa_subagentSecondary{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.F2T6aa_subagentLabel{color:inherit;font-weight:400}.F2T6aa_subagentSecondary{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.F2T6aa_subagentLive{min-width:0;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);align-items:baseline;gap:4px;display:flex;overflow:hidden}.F2T6aa_subagentLiveTool{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);flex:none}.F2T6aa_subagentLiveArgs{min-width:0;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);line-height:var(--dsw-font-xxxs-11-line-height);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.F2T6aa_subagentLiveText{-webkit-line-clamp:2;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary);-webkit-box-orient:vertical;display:-webkit-box;overflow:hidden}.F2T6aa_subagentNode{min-width:0;position:relative}.F2T6aa_subagentChildren{margin-left:18px;padding-left:4px;position:relative}.F2T6aa_subagentChildren:before{content:\"\";border-left:1px solid var(--dsw-alias-border-l2);height:26px;position:absolute;top:-26px;left:0}.F2T6aa_subagentChildren[aria-busy=true]:before{content:none}.F2T6aa_subagentChildren>.F2T6aa_subagentNode:before{content:\"\";border-left:1px solid var(--dsw-alias-border-l2);position:absolute;top:0;bottom:0;left:-4px}.F2T6aa_subagentChildren>.F2T6aa_subagentNode:last-child:before{height:17px;bottom:auto}.F2T6aa_subagentChildren>.F2T6aa_subagentNode>.F2T6aa_subagentRow:before{content:\"\";border-top:1px solid var(--dsw-alias-border-l2);width:14px;position:absolute;top:16px;left:-4px}.F2T6aa_subagentEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex-direction:column;gap:2px;padding:16px;display:flex}.F2T6aa_subagentEmptyHint{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-dimmed)}.F2T6aa_subagentError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;display:flex}.F2T6aa_subagentErrorRetry{height:24px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;align-items:center;gap:4px;padding:0 8px;display:inline-flex}.F2T6aa_subagentErrorRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.F2T6aa_historyToggle{box-sizing:border-box;width:100%;min-height:26px;font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:8px;outline:none;align-items:center;gap:5px;padding:3px 8px 3px 11px;display:flex}.F2T6aa_historyToggle:hover,.F2T6aa_historyToggle:focus-visible{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.F2T6aa_historyToggle svg{flex:none}.F2T6aa_jobs .F2T6aa_historyToggle{margin-top:2px}.F2T6aa_jobs{border-top:1px solid var(--dsw-alias-border-l2);margin-top:10px;padding-top:8px}.F2T6aa_jobsHeader{align-items:center;gap:8px;height:26px;padding:0 2px;display:flex}.F2T6aa_jobsTitle{min-width:0;font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.F2T6aa_jobsCount{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.F2T6aa_jobsList{flex-direction:column;gap:2px;margin:0;padding:0;list-style:none;display:flex}.F2T6aa_jobsRow{border-radius:8px;align-items:center;gap:4px;display:flex}.F2T6aa_jobsRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_jobsRowSettled{opacity:.8}.F2T6aa_jobsRowSelected,.F2T6aa_jobsRowSelected:hover{background:var(--dsw-alias-interactive-bg-active)}.F2T6aa_jobsRowMain{min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:8px;outline:none;flex:1;align-items:flex-start;gap:8px;padding:6px 8px 6px 11px;display:flex}.F2T6aa_jobsRowMain:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_jobsDot{margin-top:5px}.F2T6aa_jobsContent{flex-direction:column;gap:1px;min-width:0;display:flex}.F2T6aa_jobsLabelLine{align-items:center;gap:6px;min-width:0;display:flex}.F2T6aa_jobsKind{text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--dsw-alias-border-l2);max-width:90px;font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);border-radius:4px;flex:none;padding:0 5px;line-height:14px;overflow:hidden}.F2T6aa_jobsLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);line-height:var(--dsw-font-xxxs-11-line-height);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.F2T6aa_jobsSecondary{text-overflow:ellipsis;white-space:nowrap;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);overflow:hidden}.F2T6aa_jobsKill{width:22px;height:22px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;justify-content:center;align-items:center;margin-right:4px;display:inline-flex}.F2T6aa_jobsKill:hover{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);color:var(--dsw-alias-state-error-primary)}.F2T6aa_jobsKillArmed,.F2T6aa_jobsKillArmed:hover{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);width:auto;height:20px;color:var(--dsw-alias-state-error-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;padding:0 8px}.F2T6aa_jobsKill:disabled{opacity:.5;cursor:default}.F2T6aa_jobsKillError{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-error-primary);flex:none;margin-right:4px}.F2T6aa_jobsPane{z-index:1;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);border-radius:8px;margin-top:4px;position:sticky;bottom:0;overflow:hidden;box-shadow:0 -6px 12px -8px #00000059}.F2T6aa_jobsPaneHeader{border-bottom:1px solid var(--dsw-alias-border-l1);align-items:center;gap:6px;height:28px;padding:0 4px 0 10px;display:flex}.F2T6aa_jobsPaneDot{flex:none}.F2T6aa_jobsPaneLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);line-height:var(--dsw-font-xxxs-11-line-height);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.F2T6aa_jobsPaneStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.F2T6aa_jobsPaneClose{width:20px;height:20px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:5px;flex:none;justify-content:center;align-items:center;display:inline-flex}.F2T6aa_jobsPaneClose:hover{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_jobsPanePre{max-height:200px;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;margin:0;padding:6px 10px;line-height:1.5;overflow:auto}.F2T6aa_jobsPaneHint{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);padding:8px 10px}.F2T6aa_jobsPaneError{color:var(--dsw-alias-state-error-primary)}";
 		const tagId$2 = "dsh-external/dsh-coding-sidebar/SubagentView.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$2) + "]") === null) {
 			const tag = document.createElement("style");
@@ -15002,57 +15086,58 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			document.head.appendChild(tag);
 		}
 		var SubagentView_module_css_default = {
-			"jobsRowSettled": "F2T6aa_jobsRowSettled",
-			"jobsLabelLine": "F2T6aa_jobsLabelLine",
-			"jobsCount": "F2T6aa_jobsCount",
-			"subagentRowActive": "F2T6aa_subagentRowActive",
-			"subagentError": "F2T6aa_subagentError",
-			"subagentChildren": "F2T6aa_subagentChildren",
-			"subagent": "F2T6aa_subagent",
-			"subagentLiveArgs": "F2T6aa_subagentLiveArgs",
-			"subagentBody": "F2T6aa_subagentBody",
-			"subagentTitle": "F2T6aa_subagentTitle",
-			"jobsPaneStatus": "F2T6aa_jobsPaneStatus",
-			"subagentEmptyHint": "F2T6aa_subagentEmptyHint",
-			"jobsPaneHint": "F2T6aa_jobsPaneHint",
-			"jobsRowSelected": "F2T6aa_jobsRowSelected",
-			"subagentContent": "F2T6aa_subagentContent",
-			"jobsList": "F2T6aa_jobsList",
-			"jobsSecondary": "F2T6aa_jobsSecondary",
-			"jobsTitle": "F2T6aa_jobsTitle",
-			"jobsContent": "F2T6aa_jobsContent",
-			"subagentNode": "F2T6aa_subagentNode",
-			"jobsRow": "F2T6aa_jobsRow",
 			"subagentLabel": "F2T6aa_subagentLabel",
-			"subagentRowDisabled": "F2T6aa_subagentRowDisabled",
-			"jobsKillArmed": "F2T6aa_jobsKillArmed",
-			"jobsPanePre": "F2T6aa_jobsPanePre",
-			"jobsKillError": "F2T6aa_jobsKillError",
-			"subagentLive": "F2T6aa_subagentLive",
+			"subagentRowActive": "F2T6aa_subagentRowActive",
+			"jobsCount": "F2T6aa_jobsCount",
+			"subagentCount": "F2T6aa_subagentCount",
 			"subagentEmpty": "F2T6aa_subagentEmpty",
+			"jobsList": "F2T6aa_jobsList",
+			"jobsRowSelected": "F2T6aa_jobsRowSelected",
+			"subagentHeader": "F2T6aa_subagentHeader",
+			"subagentRowDisabled": "F2T6aa_subagentRowDisabled",
+			"jobsSecondary": "F2T6aa_jobsSecondary",
+			"subagentLiveTool": "F2T6aa_subagentLiveTool",
+			"historyToggle": "F2T6aa_historyToggle",
+			"jobsKill": "F2T6aa_jobsKill",
 			"jobsPane": "F2T6aa_jobsPane",
 			"jobsPaneDot": "F2T6aa_jobsPaneDot",
-			"subagentSecondary": "F2T6aa_subagentSecondary",
-			"jobsPaneError": "F2T6aa_jobsPaneError",
-			"subagentRow": "F2T6aa_subagentRow",
-			"subagentRowLoading": "F2T6aa_subagentRowLoading",
-			"subagentDot": "F2T6aa_subagentDot",
-			"subagentLiveTool": "F2T6aa_subagentLiveTool",
-			"jobsDot": "F2T6aa_jobsDot",
+			"jobsRow": "F2T6aa_jobsRow",
+			"jobsPaneHint": "F2T6aa_jobsPaneHint",
+			"jobsContent": "F2T6aa_jobsContent",
 			"jobsRowMain": "F2T6aa_jobsRowMain",
-			"jobsLabel": "F2T6aa_jobsLabel",
-			"jobs": "F2T6aa_jobs",
-			"jobsKill": "F2T6aa_jobsKill",
-			"jobsPaneLabel": "F2T6aa_jobsPaneLabel",
-			"subagentCount": "F2T6aa_subagentCount",
 			"jobsPaneClose": "F2T6aa_jobsPaneClose",
-			"jobsHeader": "F2T6aa_jobsHeader",
-			"jobsKind": "F2T6aa_jobsKind",
-			"subagentErrorRetry": "F2T6aa_subagentErrorRetry",
-			"jobsPaneHeader": "F2T6aa_jobsPaneHeader",
-			"subagentLiveText": "F2T6aa_subagentLiveText",
+			"jobsLabel": "F2T6aa_jobsLabel",
+			"jobsLabelLine": "F2T6aa_jobsLabelLine",
+			"subagent": "F2T6aa_subagent",
 			"subagentRefresh": "F2T6aa_subagentRefresh",
-			"subagentHeader": "F2T6aa_subagentHeader"
+			"subagentEmptyHint": "F2T6aa_subagentEmptyHint",
+			"jobsKind": "F2T6aa_jobsKind",
+			"subagentLiveText": "F2T6aa_subagentLiveText",
+			"jobsTitle": "F2T6aa_jobsTitle",
+			"subagentNode": "F2T6aa_subagentNode",
+			"subagentError": "F2T6aa_subagentError",
+			"jobsHeader": "F2T6aa_jobsHeader",
+			"jobsKillError": "F2T6aa_jobsKillError",
+			"subagentLiveArgs": "F2T6aa_subagentLiveArgs",
+			"subagentBody": "F2T6aa_subagentBody",
+			"subagentSecondary": "F2T6aa_subagentSecondary",
+			"subagentErrorRetry": "F2T6aa_subagentErrorRetry",
+			"jobsDot": "F2T6aa_jobsDot",
+			"subagentContent": "F2T6aa_subagentContent",
+			"subagentRow": "F2T6aa_subagentRow",
+			"subagentDot": "F2T6aa_subagentDot",
+			"jobs": "F2T6aa_jobs",
+			"jobsRowSettled": "F2T6aa_jobsRowSettled",
+			"jobsKillArmed": "F2T6aa_jobsKillArmed",
+			"jobsPaneHeader": "F2T6aa_jobsPaneHeader",
+			"jobsPaneStatus": "F2T6aa_jobsPaneStatus",
+			"jobsPaneError": "F2T6aa_jobsPaneError",
+			"subagentRowLoading": "F2T6aa_subagentRowLoading",
+			"subagentChildren": "F2T6aa_subagentChildren",
+			"jobsPanePre": "F2T6aa_jobsPanePre",
+			"subagentTitle": "F2T6aa_subagentTitle",
+			"jobsPaneLabel": "F2T6aa_jobsPaneLabel",
+			"subagentLive": "F2T6aa_subagentLive"
 		};
 		//#endregion
 		//#region src/client/SubagentView.tsx
@@ -15070,6 +15155,12 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		* highlighted in place. Every branch is expanded automatically (lazy
 		* catalogs hydrate on demand and consume live membership while visible).
 		*
+		* To keep long histories browsable, each catalog level shows only its
+		* LATEST {@link SUBAGENT_VISIBLE} children by default — earlier rows fold
+		* behind a history toggle — and the jobs section shows its latest
+		* {@link JOBS_VISIBLE} rows the same way. Collapsing is view-only: the
+		* header counts, the output dock and live observation still see every row.
+		*
 		* Each node card carries live status (state dot, durable label, mode and
 		* activity); while a child RUNS, its card additionally shows the LAST text
 		* output and LAST tool call pulled from its history tail, auto-refreshing
@@ -15085,6 +15176,15 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		const JOB_POLL_MS = 2e3;
 		/** How long the kill button stays armed before it needs re-confirming. */
 		const JOB_KILL_ARM_MS = 3e3;
+		/**
+		* How many of the LATEST rows stay visible by default before the earlier
+		* (history) rows collapse behind a toggle: {@link SUBAGENT_VISIBLE} for the
+		* topology's child rows, {@link JOBS_VISIBLE} for the background-job list.
+		* Collapsing is view-only — counts, the output dock and live observation
+		* keep seeing every entry.
+		*/
+		const SUBAGENT_VISIBLE = 5;
+		const JOBS_VISIBLE = 3;
 		/** The direct subagent children of one parent (durable `origin` rows;
 		*  Side Chat threads ride the same origin but are tab-strip conversations,
 		*  never topology). */
@@ -15215,13 +15315,21 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			}, [rootId, active]);
 			return live;
 		}
-		/** Render one topology level; branches are always expanded (lazy catalogs). */
+		/**
+		* Render one topology level; branches are always expanded (lazy catalogs).
+		* When a level lists more than {@link SUBAGENT_VISIBLE} children, only the
+		* LATEST ones render by default — the earlier rows collapse behind a
+		* history toggle (per-level state; a fresh catalog page collapses again).
+		*/
 		function CatalogRows({ parentSessionId, catalog, catalogs, byId, level, currentSessionId, live, openChild, refresh }) {
 			const emptyLoading = catalog?.state === "loading" && catalog.entries.length === 0;
 			const visibleEntries = (catalog?.entries ?? []).filter((entry) => {
 				if (entry.kind === "child") return !(entry.label?.startsWith("Side: ") ?? false);
 				return !(byId[entry.id]?.displayTitle.startsWith("Side: ") ?? false);
 			});
+			const [historyOpen, setHistoryOpen] = (0, react.useState)(false);
+			const historyCount = visibleEntries.length - SUBAGENT_VISIBLE;
+			const renderEntries = historyCount > 0 && !historyOpen ? visibleEntries.slice(-5) : visibleEntries;
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
 				emptyLoading && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CatalogLoadingRows, {
 					parentSessionId,
@@ -15239,7 +15347,16 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRefreshOutline14, {}), t("retry")]
 					})]
 				}),
-				visibleEntries.map((entry) => {
+				historyCount > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+					type: "button",
+					className: SubagentView_module_css_default.historyToggle,
+					"aria-expanded": historyOpen,
+					onClick: () => {
+						setHistoryOpen((open) => !open);
+					},
+					children: [historyOpen ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, {}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutline14, {}), historyOpen ? t("subagentHideHistory") : t("subagentShowHistory", { count: historyCount })]
+				}),
+				renderEntries.map((entry) => {
 					if (entry.kind === "diagnostic") return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: SubagentView_module_css_default.subagentNode,
 						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
@@ -15443,10 +15560,12 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		/**
 		* The background-job section of the Subagent page: every job of the whole
 		* current tree (main agent + subagents, owner-labeled), fed by the harness
-		* `session/jobs` push mirror. Clicking a row feeds its model-read output to
-		* the shared bottom dock (event replay — never the model's cursor); live
-		* rows carry a two-click-confirm kill button. Renders nothing while the
-		* tree has no jobs.
+		* `session/jobs` push mirror. When more than {@link JOBS_VISIBLE} jobs
+		* exist, only the head of the standard order (live rows, then newest
+		* settled) stays visible — earlier rows collapse behind a history toggle.
+		* Clicking a row feeds its model-read output to the shared bottom dock
+		* (event replay — never the model's cursor); live rows carry a
+		* two-click-confirm kill button. Renders nothing while the tree has no jobs.
 		*/
 		function JobsSection(props) {
 			const { byId, jobsBySession, rootId, active } = props;
@@ -15456,6 +15575,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				rootId
 			]);
 			const [selectedId, setSelectedId] = (0, react.useState)(void 0);
+			const [historyOpen, setHistoryOpen] = (0, react.useState)(false);
 			const [armedId, setArmedId] = (0, react.useState)(void 0);
 			const [killingId, setKillingId] = (0, react.useState)(void 0);
 			const [killErrorId, setKillErrorId] = (0, react.useState)(void 0);
@@ -15502,88 +15622,102 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				count: rows.length,
 				running: liveCount
 			}) : t("jobsCount", { count: rows.length });
+			const historyCount = rows.length - JOBS_VISIBLE;
+			const visibleRows = historyCount > 0 && !historyOpen ? rows.slice(0, JOBS_VISIBLE) : rows;
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 				className: SubagentView_module_css_default.jobs,
 				"aria-label": t("jobs"),
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: SubagentView_module_css_default.jobsHeader,
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: SubagentView_module_css_default.jobsTitle,
-						children: t("jobs")
-					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: SubagentView_module_css_default.jobsCount,
-						children: countLabel
-					})]
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-					className: SubagentView_module_css_default.jobsList,
-					"aria-label": t("jobs"),
-					children: rows.map((row) => {
-						const { job } = row;
-						const live = isJobLive(job);
-						const selected = selectedId === job.id;
-						const armed = armedId === job.id;
-						const killing = killingId === job.id;
-						const killFailed = killErrorId === job.id;
-						const elapsed = live ? now - job.startedAt : (job.finishedAt ?? job.startedAt) - job.startedAt;
-						const secondary = [
-							...multiOwner ? [row.ownerTitle] : [],
-							jobStatusLabel(job.status, t),
-							...job.detail !== void 0 && job.detail !== "" ? [job.detail] : [],
-							formatJobDuration(elapsed, t)
-						].filter(Boolean).join(" · ");
-						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
-							className: clsx(SubagentView_module_css_default.jobsRow, !live && SubagentView_module_css_default.jobsRowSettled, selected && SubagentView_module_css_default.jobsRowSelected),
-							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-									type: "button",
-									className: SubagentView_module_css_default.jobsRowMain,
-									"aria-pressed": selected,
-									"aria-label": `${job.label} ${secondary}`,
-									onClick: () => {
-										setSelectedId(selected ? void 0 : job.id);
-									},
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, {
-										state: jobDotState(job.status),
-										className: SubagentView_module_css_default.jobsDot
-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-										className: SubagentView_module_css_default.jobsContent,
-										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-											className: SubagentView_module_css_default.jobsLabelLine,
-											children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-												className: SubagentView_module_css_default.jobsKind,
-												children: job.kind
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: SubagentView_module_css_default.jobsHeader,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: SubagentView_module_css_default.jobsTitle,
+							children: t("jobs")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: SubagentView_module_css_default.jobsCount,
+							children: countLabel
+						})]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+						className: SubagentView_module_css_default.jobsList,
+						"aria-label": t("jobs"),
+						children: visibleRows.map((row) => {
+							const { job } = row;
+							const live = isJobLive(job);
+							const selected = selectedId === job.id;
+							const armed = armedId === job.id;
+							const killing = killingId === job.id;
+							const killFailed = killErrorId === job.id;
+							const elapsed = live ? now - job.startedAt : (job.finishedAt ?? job.startedAt) - job.startedAt;
+							const secondary = [
+								...multiOwner ? [row.ownerTitle] : [],
+								jobStatusLabel(job.status, t),
+								...job.detail !== void 0 && job.detail !== "" ? [job.detail] : [],
+								formatJobDuration(elapsed, t)
+							].filter(Boolean).join(" · ");
+							return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
+								className: clsx(SubagentView_module_css_default.jobsRow, !live && SubagentView_module_css_default.jobsRowSettled, selected && SubagentView_module_css_default.jobsRowSelected),
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+										type: "button",
+										className: SubagentView_module_css_default.jobsRowMain,
+										"aria-pressed": selected,
+										"aria-label": `${job.label} ${secondary}`,
+										onClick: () => {
+											setSelectedId(selected ? void 0 : job.id);
+										},
+										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, {
+											state: jobDotState(job.status),
+											className: SubagentView_module_css_default.jobsDot
+										}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+											className: SubagentView_module_css_default.jobsContent,
+											children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+												className: SubagentView_module_css_default.jobsLabelLine,
+												children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+													className: SubagentView_module_css_default.jobsKind,
+													children: job.kind
+												}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+													className: SubagentView_module_css_default.jobsLabel,
+													title: job.label,
+													children: job.label
+												})]
 											}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-												className: SubagentView_module_css_default.jobsLabel,
-												title: job.label,
-												children: job.label
+												className: SubagentView_module_css_default.jobsSecondary,
+												children: secondary
 											})]
-										}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-											className: SubagentView_module_css_default.jobsSecondary,
-											children: secondary
 										})]
-									})]
-								}),
-								job.status === "running" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "button",
-									className: armed ? `${SubagentView_module_css_default.jobsKill} ${SubagentView_module_css_default.jobsKillArmed}` : SubagentView_module_css_default.jobsKill,
-									"aria-label": armed ? t("jobKillConfirm") : t("jobKill"),
-									title: armed ? t("jobKillConfirm") : t("jobKill"),
-									disabled: killing,
-									onClick: (event) => {
-										event.stopPropagation();
-										if (armed) kill(row);
-										else setArmedId(job.id);
-									},
-									children: armed ? t("jobKillConfirm") : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconStopOutline16, { size: 12 })
-								}),
-								killFailed && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: SubagentView_module_css_default.jobsKillError,
-									children: t("jobKillError")
-								})
-							]
-						}, job.id);
+									}),
+									job.status === "running" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: armed ? `${SubagentView_module_css_default.jobsKill} ${SubagentView_module_css_default.jobsKillArmed}` : SubagentView_module_css_default.jobsKill,
+										"aria-label": armed ? t("jobKillConfirm") : t("jobKill"),
+										title: armed ? t("jobKillConfirm") : t("jobKill"),
+										disabled: killing,
+										onClick: (event) => {
+											event.stopPropagation();
+											if (armed) kill(row);
+											else setArmedId(job.id);
+										},
+										children: armed ? t("jobKillConfirm") : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconStopOutline16, { size: 12 })
+									}),
+									killFailed && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: SubagentView_module_css_default.jobsKillError,
+										children: t("jobKillError")
+									})
+								]
+							}, job.id);
+						})
+					}),
+					historyCount > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+						type: "button",
+						className: SubagentView_module_css_default.historyToggle,
+						"aria-expanded": historyOpen,
+						onClick: () => {
+							setHistoryOpen((open) => !open);
+						},
+						children: [historyOpen ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, {}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutline14, {}), historyOpen ? t("jobsHideHistory") : t("jobsShowHistory", { count: historyCount })]
 					})
-				})]
+				]
 			}), selectedRow !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(JobOutputPane, {
 				ownerSessionId: selectedRow.ownerSessionId,
 				job: selectedRow.job,
@@ -16100,7 +16234,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		}
 		//#endregion
 		//#region \0dsh-css:/Users/libing/kk_Projects/dsh-coding-sidebar/src/client/SideChatView.module.css.mjs
-		const css$1 = "._64UoUa_sidechat{flex-direction:column;flex:1;min-height:0;display:flex}._64UoUa_sidechatDetailHeader{border-bottom:1px solid var(--dsw-alias-hairline);flex:none;align-items:center;gap:4px;min-height:36px;padding:4px 8px 4px 12px;display:flex}._64UoUa_sidechatHeaderDot{flex:none}._64UoUa_sidechatHeaderSpacer{flex:1;min-width:0}._64UoUa_sidechatAgentBadge{border:1px solid var(--dsw-alias-hairline);max-width:55%;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;border-radius:999px;flex:none;padding:1px 8px;overflow:hidden}._64UoUa_sidechatIconBtn{width:26px;height:26px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;justify-content:center;align-items:center;padding:0;transition:background-color .1s ease-out,color .1s ease-out;display:inline-flex}._64UoUa_sidechatIconBtn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}._64UoUa_sidechatIconBtn:disabled{opacity:.4;cursor:default}._64UoUa_sidechatHero{min-height:0;color:var(--dsw-alias-label-tertiary);text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:8px;padding:24px 20px;animation:.2s ease-out _64UoUa_sidechatFadeIn;display:flex}._64UoUa_sidechatHeroTitle{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);font-weight:500}._64UoUa_sidechatHeroDesc{max-width:300px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);line-height:1.6}._64UoUa_sidechatPrimaryBtn{background:var(--dsw-alias-button-info-fill,var(--dsw-alias-accent));color:var(--dsw-alias-button-info-label,var(--dsw-alias-accent-ink,#fff));font:var(--dsw-font-s-13);cursor:pointer;border:none;border-radius:999px;flex:none;margin-top:4px;padding:6px 14px;transition:opacity .1s ease-out}._64UoUa_sidechatPrimaryBtn:hover:not(:disabled){opacity:.88}._64UoUa_sidechatPrimaryBtn:disabled{opacity:.4;cursor:default}._64UoUa_sidechatHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);flex:none;padding:4px 12px}._64UoUa_sidechatError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-danger);flex:none;padding:4px 12px}._64UoUa_sidechatScroll{flex-direction:column;flex:1;gap:10px;min-height:0;padding:10px 12px;display:flex;overflow-y:auto}._64UoUa_sidechatScroll>*{animation:.18s ease-out _64UoUa_sidechatRowIn}._64UoUa_sidechatUser{background:var(--dsw-specific-bubble,var(--dsw-alias-bg-base));max-width:88%;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;border-radius:18px;align-self:flex-end;padding:8px 14px}._64UoUa_sidechatAssistant{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;align-self:stretch}._64UoUa_sidechatRow{align-self:stretch}._64UoUa_sidechatRowLine{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);align-items:center;gap:6px;padding:1px 0;display:flex}._64UoUa_sidechatRowSummary{cursor:pointer;user-select:none;list-style:none}._64UoUa_sidechatRowSummary::-webkit-details-marker{display:none}._64UoUa_sidechatRowSummary:hover{color:var(--dsw-alias-label-secondary)}._64UoUa_sidechatRowStatic{cursor:default}._64UoUa_sidechatRowChevron{flex:none;align-items:center;transition:transform .1s ease-out;display:inline-flex}._64UoUa_sidechatRow[open] ._64UoUa_sidechatRowChevron{transform:rotate(90deg)}._64UoUa_sidechatRowLabel{text-overflow:ellipsis;white-space:nowrap;max-width:60%;color:var(--dsw-alias-label-secondary);flex:none;overflow:hidden}._64UoUa_sidechatRowMono{font-family:var(--dsw-font-mono)}._64UoUa_sidechatRowMeta{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:var(--dsw-font-mono);color:var(--dsw-alias-label-tertiary);flex:1;overflow:hidden}._64UoUa_sidechatRowFailed ._64UoUa_sidechatRowLabel,._64UoUa_sidechatRowFailed ._64UoUa_sidechatRowMeta{color:var(--dsw-alias-danger)}._64UoUa_sidechatRowBody{border-left:1px solid var(--dsw-alias-hairline);margin:2px 0 4px 7px;padding:2px 0 2px 10px}._64UoUa_sidechatRowProse{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow-y:auto}._64UoUa_sidechatRowCode{font:var(--dsw-font-xxs-12);font-family:var(--dsw-font-mono);color:var(--dsw-alias-label-secondary);white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;margin:0;padding:4px 0;overflow-y:auto}._64UoUa_sidechatRowCode+._64UoUa_sidechatRowCode{border-top:1px solid var(--dsw-alias-hairline)}._64UoUa_sidechatShimmerText{background-image:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-primary) 50%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-size:200% 100%;-webkit-background-clip:text;background-clip:text;animation:2.6s linear infinite _64UoUa_sidechatSweep}._64UoUa_sidechatStatus{flex:none;align-items:center;gap:8px;padding:2px 14px 6px;animation:.16s ease-out _64UoUa_sidechatFadeIn;display:flex}._64UoUa_sidechatStatusText{font:var(--dsw-font-xxs-12);background-image:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-primary) 50%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-size:200% 100%;-webkit-background-clip:text;background-clip:text;animation:2.6s linear infinite _64UoUa_sidechatSweep}._64UoUa_sidechatComposer{border:1px solid var(--dsw-alias-border-l2-darkmode-thin,var(--dsw-alias-hairline));background:var(--dsw-specific-input-major,var(--dsw-alias-bg-base));box-shadow:var(--dsw-shadow-lv2,none);border-radius:16px;flex-direction:column;flex:none;gap:4px;margin:0 8px 8px;padding:8px 8px 6px 14px;display:flex}._64UoUa_sidechatComposerInput{box-sizing:border-box;width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);resize:none;background:0 0;border:none;outline:none;max-height:132px;padding:2px 0;line-height:22px}._64UoUa_sidechatComposerInput::placeholder{color:var(--dsw-alias-label-tertiary)}._64UoUa_sidechatComposerBar{flex:none;align-items:center;gap:8px;min-height:28px;display:flex}._64UoUa_sidechatComposerMeta{min-width:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}._64UoUa_sidechatSendBtn{background:var(--dsw-alias-button-info-fill,var(--dsw-alias-accent));width:28px;height:28px;color:var(--dsw-alias-button-info-label,var(--dsw-alias-accent-ink,#fff));cursor:pointer;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;transition:opacity .1s ease-out;animation:.12s ease-out _64UoUa_sidechatBtnIn;display:inline-flex}._64UoUa_sidechatSendBtn:hover:not(:disabled){opacity:.88}._64UoUa_sidechatSendBtn:disabled{opacity:.35;cursor:default}@keyframes _64UoUa_sidechatRowIn{0%{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}@keyframes _64UoUa_sidechatFadeIn{0%{opacity:0}to{opacity:1}}@keyframes _64UoUa_sidechatBtnIn{0%{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}@keyframes _64UoUa_sidechatSweep{0%{background-position:200% 0}to{background-position:-200% 0}}@media (prefers-reduced-motion:reduce){._64UoUa_sidechatScroll>*,._64UoUa_sidechatHero,._64UoUa_sidechatStatus,._64UoUa_sidechatSendBtn{animation:none}._64UoUa_sidechatStatusText,._64UoUa_sidechatShimmerText{color:var(--dsw-alias-label-tertiary);background-image:none;animation:none}._64UoUa_sidechatRowChevron{transition:none}}";
+		const css$1 = "._64UoUa_sidechat{flex-direction:column;flex:1;min-height:0;display:flex}._64UoUa_sidechatDetailHeader{border-bottom:1px solid var(--dsw-alias-border-l);flex:none;align-items:center;gap:4px;min-height:36px;padding:4px 8px 4px 12px;display:flex}._64UoUa_sidechatHeaderDot{flex:none}._64UoUa_sidechatHeaderSpacer{flex:1;min-width:0}._64UoUa_sidechatAgentBadge{border:1px solid var(--dsw-alias-border-l);max-width:55%;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;border-radius:999px;flex:none;padding:1px 8px;overflow:hidden}._64UoUa_sidechatIconBtn{width:26px;height:26px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;justify-content:center;align-items:center;padding:0;transition:background-color .1s ease-out,color .1s ease-out;display:inline-flex}._64UoUa_sidechatIconBtn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}._64UoUa_sidechatIconBtn:disabled{opacity:.4;cursor:default}._64UoUa_sidechatHero{min-height:0;color:var(--dsw-alias-label-tertiary);text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:8px;padding:24px 20px;animation:.2s ease-out _64UoUa_sidechatFadeIn;display:flex}._64UoUa_sidechatHeroTitle{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);font-weight:500}._64UoUa_sidechatHeroDesc{max-width:300px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);line-height:1.6}._64UoUa_sidechatPrimaryBtn{background:var(--dsw-alias-button-info-fill,var(--dsw-alias-interactive-bg-hover-solid));color:#fff;font:var(--dsw-font-s-14);cursor:pointer;border:none;border-radius:999px;flex:none;margin-top:4px;padding:6px 14px;transition:opacity .1s ease-out}._64UoUa_sidechatPrimaryBtn:hover:not(:disabled){opacity:.88}._64UoUa_sidechatPrimaryBtn:disabled{opacity:.4;cursor:default}._64UoUa_sidechatHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);flex:none;padding:4px 12px}._64UoUa_sidechatError{font:var(--dsw-font-xxs-12);color:#d5304d;flex:none;padding:4px 12px}._64UoUa_sidechatScroll{flex-direction:column;flex:1;gap:10px;min-height:0;padding:10px 12px;display:flex;overflow-y:auto}._64UoUa_sidechatScroll>*{animation:.18s ease-out _64UoUa_sidechatRowIn}._64UoUa_sidechatUser{background:var(--dsw-specific-bubble,var(--dsw-alias-bg-base));max-width:88%;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;border-radius:18px;align-self:flex-end;padding:8px 14px}._64UoUa_sidechatAssistant{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;align-self:stretch}._64UoUa_sidechatRow{align-self:stretch}._64UoUa_sidechatRowLine{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);align-items:center;gap:6px;padding:1px 0;display:flex}._64UoUa_sidechatRowSummary{cursor:pointer;user-select:none;list-style:none}._64UoUa_sidechatRowSummary::-webkit-details-marker{display:none}._64UoUa_sidechatRowSummary:hover{color:var(--dsw-alias-label-secondary)}._64UoUa_sidechatRowStatic{cursor:default}._64UoUa_sidechatRowChevron{flex:none;align-items:center;transition:transform .1s ease-out;display:inline-flex}._64UoUa_sidechatRow[open] ._64UoUa_sidechatRowChevron{transform:rotate(90deg)}._64UoUa_sidechatRowLabel{text-overflow:ellipsis;white-space:nowrap;max-width:60%;color:var(--dsw-alias-label-secondary);flex:none;overflow:hidden}._64UoUa_sidechatRowMono{font-family:var(--dsw-font-mono)}._64UoUa_sidechatRowMeta{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:var(--dsw-font-mono);color:var(--dsw-alias-label-tertiary);flex:1;overflow:hidden}._64UoUa_sidechatRowFailed ._64UoUa_sidechatRowLabel,._64UoUa_sidechatRowFailed ._64UoUa_sidechatRowMeta{color:#d5304d}._64UoUa_sidechatRowBody{border-left:1px solid var(--dsw-alias-border-l);margin:2px 0 4px 7px;padding:2px 0 2px 10px}._64UoUa_sidechatRowProse{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow-y:auto}._64UoUa_sidechatRowCode{font:var(--dsw-font-xxs-12);font-family:var(--dsw-font-mono);color:var(--dsw-alias-label-secondary);white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;margin:0;padding:4px 0;overflow-y:auto}._64UoUa_sidechatRowCode+._64UoUa_sidechatRowCode{border-top:1px solid var(--dsw-alias-border-l)}._64UoUa_sidechatShimmerText{background-image:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-primary) 50%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-size:200% 100%;-webkit-background-clip:text;background-clip:text;animation:2.6s linear infinite _64UoUa_sidechatSweep}._64UoUa_sidechatStatus{flex:none;align-items:center;gap:8px;padding:2px 14px 6px;animation:.16s ease-out _64UoUa_sidechatFadeIn;display:flex}._64UoUa_sidechatStatusText{font:var(--dsw-font-xxs-12);background-image:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-primary) 50%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-size:200% 100%;-webkit-background-clip:text;background-clip:text;animation:2.6s linear infinite _64UoUa_sidechatSweep}._64UoUa_sidechatComposer{border:1px solid var(--dsw-alias-border-l2-darkmode-thin,var(--dsw-alias-border-l));background:var(--dsw-specific-input-major,var(--dsw-alias-bg-base));box-shadow:var(--dsw-shadow-lv2,none);border-radius:16px;flex-direction:column;flex:none;gap:4px;margin:0 8px 8px;padding:8px 8px 6px 14px;display:flex}._64UoUa_sidechatComposerInput{box-sizing:border-box;width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);resize:none;background:0 0;border:none;outline:none;max-height:132px;padding:2px 0;line-height:22px}._64UoUa_sidechatComposerInput::placeholder{color:var(--dsw-alias-label-tertiary)}._64UoUa_sidechatComposerBar{flex:none;align-items:center;gap:8px;min-height:28px;display:flex}._64UoUa_sidechatComposerMeta{min-width:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}._64UoUa_sidechatSendBtn{background:var(--dsw-alias-button-info-fill,var(--dsw-alias-interactive-bg-hover-solid));color:#fff;cursor:pointer;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;width:28px;height:28px;padding:0;transition:opacity .1s ease-out;animation:.12s ease-out _64UoUa_sidechatBtnIn;display:inline-flex}._64UoUa_sidechatSendBtn:hover:not(:disabled){opacity:.88}._64UoUa_sidechatSendBtn:disabled{opacity:.35;cursor:default}@keyframes _64UoUa_sidechatRowIn{0%{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}@keyframes _64UoUa_sidechatFadeIn{0%{opacity:0}to{opacity:1}}@keyframes _64UoUa_sidechatBtnIn{0%{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}@keyframes _64UoUa_sidechatSweep{0%{background-position:200% 0}to{background-position:-200% 0}}@media (prefers-reduced-motion:reduce){._64UoUa_sidechatScroll>*,._64UoUa_sidechatHero,._64UoUa_sidechatStatus,._64UoUa_sidechatSendBtn{animation:none}._64UoUa_sidechatStatusText,._64UoUa_sidechatShimmerText{color:var(--dsw-alias-label-tertiary);background-image:none;animation:none}._64UoUa_sidechatRowChevron{transition:none}}";
 		const tagId$1 = "dsh-external/dsh-coding-sidebar/SideChatView.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$1) + "]") === null) {
 			const tag = document.createElement("style");
@@ -16110,45 +16244,45 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			document.head.appendChild(tag);
 		}
 		var SideChatView_module_css_default = {
-			"sidechatRowSummary": "_64UoUa_sidechatRowSummary",
-			"sidechatError": "_64UoUa_sidechatError",
-			"sidechatFadeIn": "_64UoUa_sidechatFadeIn",
-			"sidechatHint": "_64UoUa_sidechatHint",
 			"sidechatStatus": "_64UoUa_sidechatStatus",
-			"sidechatRowIn": "_64UoUa_sidechatRowIn",
-			"sidechatAgentBadge": "_64UoUa_sidechatAgentBadge",
-			"sidechatRowLine": "_64UoUa_sidechatRowLine",
-			"sidechatHeaderSpacer": "_64UoUa_sidechatHeaderSpacer",
-			"sidechatIconBtn": "_64UoUa_sidechatIconBtn",
-			"sidechatHeroTitle": "_64UoUa_sidechatHeroTitle",
-			"sidechatComposer": "_64UoUa_sidechatComposer",
-			"sidechatHeroDesc": "_64UoUa_sidechatHeroDesc",
-			"sidechatComposerBar": "_64UoUa_sidechatComposerBar",
-			"sidechatAssistant": "_64UoUa_sidechatAssistant",
-			"sidechatStatusText": "_64UoUa_sidechatStatusText",
-			"sidechatSendBtn": "_64UoUa_sidechatSendBtn",
-			"sidechatHeaderDot": "_64UoUa_sidechatHeaderDot",
-			"sidechatHero": "_64UoUa_sidechatHero",
-			"sidechatRowStatic": "_64UoUa_sidechatRowStatic",
-			"sidechatRowCode": "_64UoUa_sidechatRowCode",
-			"sidechatDetailHeader": "_64UoUa_sidechatDetailHeader",
-			"sidechatSweep": "_64UoUa_sidechatSweep",
-			"sidechatRowFailed": "_64UoUa_sidechatRowFailed",
-			"sidechatRowBody": "_64UoUa_sidechatRowBody",
-			"sidechatComposerInput": "_64UoUa_sidechatComposerInput",
 			"sidechatUser": "_64UoUa_sidechatUser",
-			"sidechatRowProse": "_64UoUa_sidechatRowProse",
-			"sidechatShimmerText": "_64UoUa_sidechatShimmerText",
-			"sidechatScroll": "_64UoUa_sidechatScroll",
-			"sidechatRowMono": "_64UoUa_sidechatRowMono",
-			"sidechatPrimaryBtn": "_64UoUa_sidechatPrimaryBtn",
-			"sidechatRowMeta": "_64UoUa_sidechatRowMeta",
-			"sidechatComposerMeta": "_64UoUa_sidechatComposerMeta",
-			"sidechatRow": "_64UoUa_sidechatRow",
-			"sidechat": "_64UoUa_sidechat",
-			"sidechatRowLabel": "_64UoUa_sidechatRowLabel",
 			"sidechatRowChevron": "_64UoUa_sidechatRowChevron",
-			"sidechatBtnIn": "_64UoUa_sidechatBtnIn"
+			"sidechatBtnIn": "_64UoUa_sidechatBtnIn",
+			"sidechatComposer": "_64UoUa_sidechatComposer",
+			"sidechatHero": "_64UoUa_sidechatHero",
+			"sidechatRowFailed": "_64UoUa_sidechatRowFailed",
+			"sidechatIconBtn": "_64UoUa_sidechatIconBtn",
+			"sidechatRowMeta": "_64UoUa_sidechatRowMeta",
+			"sidechatAgentBadge": "_64UoUa_sidechatAgentBadge",
+			"sidechatRowSummary": "_64UoUa_sidechatRowSummary",
+			"sidechatRowMono": "_64UoUa_sidechatRowMono",
+			"sidechatSweep": "_64UoUa_sidechatSweep",
+			"sidechatRowStatic": "_64UoUa_sidechatRowStatic",
+			"sidechatPrimaryBtn": "_64UoUa_sidechatPrimaryBtn",
+			"sidechatHeaderSpacer": "_64UoUa_sidechatHeaderSpacer",
+			"sidechatDetailHeader": "_64UoUa_sidechatDetailHeader",
+			"sidechatHint": "_64UoUa_sidechatHint",
+			"sidechatRowProse": "_64UoUa_sidechatRowProse",
+			"sidechatFadeIn": "_64UoUa_sidechatFadeIn",
+			"sidechatComposerInput": "_64UoUa_sidechatComposerInput",
+			"sidechatComposerMeta": "_64UoUa_sidechatComposerMeta",
+			"sidechatSendBtn": "_64UoUa_sidechatSendBtn",
+			"sidechatScroll": "_64UoUa_sidechatScroll",
+			"sidechatShimmerText": "_64UoUa_sidechatShimmerText",
+			"sidechatComposerBar": "_64UoUa_sidechatComposerBar",
+			"sidechatHeaderDot": "_64UoUa_sidechatHeaderDot",
+			"sidechatRowIn": "_64UoUa_sidechatRowIn",
+			"sidechatRowCode": "_64UoUa_sidechatRowCode",
+			"sidechatRowLine": "_64UoUa_sidechatRowLine",
+			"sidechatRowLabel": "_64UoUa_sidechatRowLabel",
+			"sidechatRow": "_64UoUa_sidechatRow",
+			"sidechatError": "_64UoUa_sidechatError",
+			"sidechatRowBody": "_64UoUa_sidechatRowBody",
+			"sidechatHeroDesc": "_64UoUa_sidechatHeroDesc",
+			"sidechatStatusText": "_64UoUa_sidechatStatusText",
+			"sidechatAssistant": "_64UoUa_sidechatAssistant",
+			"sidechatHeroTitle": "_64UoUa_sidechatHeroTitle",
+			"sidechat": "_64UoUa_sidechat"
 		};
 		//#endregion
 		//#region src/client/SideChatView.tsx

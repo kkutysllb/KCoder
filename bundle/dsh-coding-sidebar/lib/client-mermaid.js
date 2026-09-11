@@ -1167,8 +1167,8 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 		init_methods();
 	}));
 	//#endregion
-	//#region node_modules/.pnpm/dompurify@3.4.14/node_modules/dompurify/dist/purify.es.mjs
-	/*! @license DOMPurify 3.4.14 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.4.14/LICENSE */
+	//#region node_modules/.pnpm/dompurify@3.4.15/node_modules/dompurify/dist/purify.es.mjs
+	/*! @license DOMPurify 3.4.15 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.4.15/LICENSE */
 	function _arrayLikeToArray$1(r, a) {
 		(null == a || a > r.length) && (a = r.length);
 		for (var e = 0, n = Array(a); e < a; e++) n[e] = r[e];
@@ -1350,7 +1350,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 	function createDOMPurify() {
 		let window = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : getGlobal();
 		const DOMPurify = (root) => createDOMPurify(root);
-		DOMPurify.version = "3.4.14";
+		DOMPurify.version = "3.4.15";
 		DOMPurify.removed = [];
 		if (!window || !window.document || window.document.nodeType !== NODE_TYPE.document || !window.Element) {
 			DOMPurify.isSupported = false;
@@ -1367,6 +1367,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 		const ElementPrototype = Element.prototype;
 		const cloneNode = lookupGetter(ElementPrototype, "cloneNode");
 		const remove = lookupGetter(ElementPrototype, "remove");
+		const removeAttributeNode = lookupGetter(ElementPrototype, "removeAttributeNode");
 		const getNextSibling = lookupGetter(ElementPrototype, "nextSibling");
 		const getChildNodes = lookupGetter(ElementPrototype, "childNodes");
 		const getParentNode = lookupGetter(ElementPrototype, "parentNode");
@@ -1821,7 +1822,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 		*/
 		const _stripAttributeNode = function _stripAttributeNode(element, attribute, name) {
 			try {
-				element.removeAttributeNode(attribute);
+				removeAttributeNode(element, attribute);
 			} catch (_) {
 				try {
 					element.removeAttribute(name);
@@ -1894,7 +1895,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 				from: element
 			});
 			try {
-				if (attr) element.removeAttributeNode(attr);
+				if (attr) removeAttributeNode(element, attr);
 				else element.removeAttribute(name);
 			} catch (_) {
 				try {
@@ -2140,7 +2141,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 			const realTagName = getNodeName ? getNodeName(element) : null;
 			if (typeof realTagName !== "string") return false;
 			if (transformCaseFunc(realTagName) !== "form") return false;
-			return typeof element.nodeName !== "string" || typeof element.textContent !== "string" || typeof element.removeChild !== "function" || element.attributes !== getAttributes(element) || typeof element.removeAttribute !== "function" || typeof element.setAttribute !== "function" || typeof element.namespaceURI !== "string" || typeof element.insertBefore !== "function" || typeof element.hasChildNodes !== "function" || element.nodeType !== getNodeType(element) || element.childNodes !== getChildNodes(element);
+			return typeof element.nodeName !== "string" || typeof element.textContent !== "string" || typeof element.removeChild !== "function" || element.attributes !== getAttributes(element) || typeof element.removeAttribute !== "function" || typeof element.removeAttributeNode !== "function" || typeof element.getAttributeNode !== "function" || typeof element.setAttribute !== "function" || typeof element.namespaceURI !== "string" || typeof element.insertBefore !== "function" || typeof element.hasChildNodes !== "function" || element.nodeType !== getNodeType(element) || element.childNodes !== getChildNodes(element);
 		};
 		/**
 		* Checks whether the given value is a DocumentFragment from any realm.
@@ -2425,24 +2426,38 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 		/**
 		* Write a modified attribute value back onto the element. On
 		* success, re-probe for clobbering introduced by the new value and
-		* remove the element when found; otherwise pop the removal entry
-		* recorded by the earlier _removeAttribute (long-standing pairing
-		* with the SANITIZE_NAMED_PROPS path - do not "fix" casually). On
+		* remove the element when found; otherwise, when this writeback is the
+		* recreate half of the SANITIZE_NAMED_PROPS remove-and-recreate, pop the
+		* removal entry that path recorded so it does not show as removed. On
 		* failure, remove the attribute instead.
+		*
+		* Returns true only on a clean write (the value was set and the new value
+		* introduced no clobbering). The caller uses that, together with its own
+		* knowledge of whether this attribute pushed a DOMPurify.removed record, to
+		* decide whether to pop that record. The pop must happen ONLY for the
+		* named-prop remove-and-recreate; popping on any other value change (trim,
+		* template scrubbing, Trusted Types) would consume an unrelated _forceRemove
+		* subtree-cleanup record and let that detached subtree keep a live event
+		* handler through the IN_PLACE neutralization pass (SO-001).
 		*
 		* @param currentNode the element carrying the attribute
 		* @param name the attribute name as present on the element
 		* @param namespaceURI the attribute's namespace, if any
 		* @param value the new attribute value
+		* @return true if the value was written without introducing clobbering
 		*/
 		const _setAttributeValue = function _setAttributeValue(currentNode, name, namespaceURI, value) {
 			try {
 				if (namespaceURI) currentNode.setAttributeNS(namespaceURI, name, value);
 				else currentNode.setAttribute(name, value);
-				if (_isClobbered(currentNode)) _forceRemove(currentNode);
-				else arrayPop(DOMPurify.removed);
+				if (_isClobbered(currentNode)) {
+					_forceRemove(currentNode);
+					return false;
+				}
+				return true;
 			} catch (_) {
 				_removeAttribute(name, currentNode);
+				return false;
 			}
 		};
 		/**
@@ -2475,6 +2490,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 				const lcName = transformCaseFunc(name);
 				const initValue = attrValue;
 				let value = name === "value" ? initValue : stringTrim(initValue);
+				let recreatedNamedProp = false;
 				hookEvent.attrName = lcName;
 				hookEvent.attrValue = value;
 				hookEvent.keepAttr = true;
@@ -2484,6 +2500,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 				if (SANITIZE_NAMED_PROPS && (lcName === "id" || lcName === "name") && stringIndexOf(value, SANITIZE_NAMED_PROPS_PREFIX) !== 0) {
 					_removeAttribute(name, currentNode, attr);
 					value = SANITIZE_NAMED_PROPS_PREFIX + value;
+					recreatedNamedProp = true;
 				}
 				if (SAFE_FOR_XML && regExpTest(/((--!?|])>)|<\/(style|script|title|xmp|textarea|noscript|iframe|noembed|noframes)/i, value)) {
 					_removeAttribute(name, currentNode, attr);
@@ -2508,7 +2525,9 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 					continue;
 				}
 				value = _applyTrustedTypesToAttribute(lcTag, lcName, namespaceURI, value);
-				if (value !== initValue) _setAttributeValue(currentNode, name, namespaceURI, value);
+				if (value !== initValue) {
+					if (_setAttributeValue(currentNode, name, namespaceURI, value) && recreatedNamedProp) arrayPop(DOMPurify.removed);
+				}
 			}
 			_executeHooks(hooks.afterSanitizeAttributes, currentNode, null);
 		};
@@ -2642,7 +2661,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 				if (importedNode.nodeType === NODE_TYPE.element && importedNode.nodeName === "BODY") body = importedNode;
 				else if (importedNode.nodeName === "HTML") body = importedNode;
 				else body.appendChild(importedNode);
-				_sanitizeAttachedShadowRoots(importedNode);
+				_sanitizeAttachedShadowRoots(body);
 			} else {
 				if (!RETURN_DOM && !SAFE_FOR_TEMPLATES && !WHOLE_DOCUMENT && dirty.indexOf("<") === -1) return trustedTypesPolicy && RETURN_TRUSTED_TYPE ? _createTrustedHTML(dirty) : dirty;
 				body = _initDocument(dirty);
@@ -37715,8 +37734,8 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 	//#endregion
 	//#region node_modules/.pnpm/d3-interpolate@3.0.1/node_modules/d3-interpolate/src/array.js
 	function genericArray(a, b) {
-		var nb = b ? b.length : 0, na = a ? Math.min(nb, a.length) : 0, x = new Array(na), c = new Array(nb), i;
-		for (i = 0; i < na; ++i) x[i] = value_default(a[i], b[i]);
+		var nb = b ? b.length : 0, na = a ? Math.min(nb, a.length) : 0, x = new Array(na), c = new Array(nb), i = 0;
+		for (; i < na; ++i) x[i] = value_default(a[i], b[i]);
 		for (; i < nb; ++i) c[i] = b[i];
 		return function(t) {
 			for (i = 0; i < na; ++i) c[i] = x[i](t);
@@ -42625,7 +42644,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 		}, "getStrokeDashArray");
 	}));
 	//#endregion
-	//#region node_modules/.pnpm/@iconify+utils@3.1.4/node_modules/@iconify/utils/lib/icon/defaults.js
+	//#region node_modules/.pnpm/@iconify+utils@3.1.7/node_modules/@iconify/utils/lib/icon/defaults.js
 	var defaultIconDimensions, defaultIconTransformations, defaultIconProps, defaultExtendedIconProps;
 	var init_defaults$2 = __esmMin((() => {
 		defaultIconDimensions = Object.freeze({
@@ -42650,7 +42669,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 		});
 	}));
 	//#endregion
-	//#region node_modules/.pnpm/@iconify+utils@3.1.4/node_modules/@iconify/utils/lib/customisations/defaults.js
+	//#region node_modules/.pnpm/@iconify+utils@3.1.7/node_modules/@iconify/utils/lib/customisations/defaults.js
 	var defaultIconSizeCustomisations, defaultIconCustomisations;
 	var init_defaults$1 = __esmMin((() => {
 		init_defaults$2();
@@ -42664,7 +42683,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 		});
 	}));
 	//#endregion
-	//#region node_modules/.pnpm/@iconify+utils@3.1.4/node_modules/@iconify/utils/lib/icon/name.js
+	//#region node_modules/.pnpm/@iconify+utils@3.1.7/node_modules/@iconify/utils/lib/icon/name.js
 	var stringToIcon, validateIconName;
 	var init_name = __esmMin((() => {
 		stringToIcon = (value, validate, allowSimpleName, provider = "") => {
@@ -42710,7 +42729,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 		};
 	}));
 	//#endregion
-	//#region node_modules/.pnpm/@iconify+utils@3.1.4/node_modules/@iconify/utils/lib/icon/transformations.js
+	//#region node_modules/.pnpm/@iconify+utils@3.1.7/node_modules/@iconify/utils/lib/icon/transformations.js
 	/**
 	* Merge transformations
 	*/
@@ -42724,7 +42743,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 	}
 	var init_transformations = __esmMin((() => {}));
 	//#endregion
-	//#region node_modules/.pnpm/@iconify+utils@3.1.4/node_modules/@iconify/utils/lib/icon/merge.js
+	//#region node_modules/.pnpm/@iconify+utils@3.1.7/node_modules/@iconify/utils/lib/icon/merge.js
 	/**
 	* Merge icon and alias
 	*
@@ -42743,7 +42762,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 		init_transformations();
 	}));
 	//#endregion
-	//#region node_modules/.pnpm/@iconify+utils@3.1.4/node_modules/@iconify/utils/lib/icon-set/tree.js
+	//#region node_modules/.pnpm/@iconify+utils@3.1.7/node_modules/@iconify/utils/lib/icon-set/tree.js
 	/**
 	* Resolve icon set icons
 	*
@@ -42768,7 +42787,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 	}
 	var init_tree = __esmMin((() => {}));
 	//#endregion
-	//#region node_modules/.pnpm/@iconify+utils@3.1.4/node_modules/@iconify/utils/lib/icon-set/get-icon.js
+	//#region node_modules/.pnpm/@iconify+utils@3.1.7/node_modules/@iconify/utils/lib/icon-set/get-icon.js
 	/**
 	* Get icon data, using prepared aliases tree
 	*/
@@ -42796,7 +42815,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 		init_tree();
 	}));
 	//#endregion
-	//#region node_modules/.pnpm/@iconify+utils@3.1.4/node_modules/@iconify/utils/lib/svg/size.js
+	//#region node_modules/.pnpm/@iconify+utils@3.1.7/node_modules/@iconify/utils/lib/svg/size.js
 	function calculateSize(size, ratio, precision) {
 		if (ratio === 1) return size;
 		precision = precision || 100;
@@ -42824,7 +42843,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 		unitsTest = /^-?[0-9.]*[0-9]+[0-9.]*$/g;
 	}));
 	//#endregion
-	//#region node_modules/.pnpm/@iconify+utils@3.1.4/node_modules/@iconify/utils/lib/svg/defs.js
+	//#region node_modules/.pnpm/@iconify+utils@3.1.7/node_modules/@iconify/utils/lib/svg/defs.js
 	function splitSVGDefs(content, tag = "defs") {
 		let defs = "";
 		const index = content.indexOf("<" + tag);
@@ -42857,7 +42876,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 	}
 	var init_defs = __esmMin((() => {}));
 	//#endregion
-	//#region node_modules/.pnpm/@iconify+utils@3.1.4/node_modules/@iconify/utils/lib/svg/build.js
+	//#region node_modules/.pnpm/@iconify+utils@3.1.7/node_modules/@iconify/utils/lib/svg/build.js
 	/**
 	* Get SVG attributes and content from icon + customisations
 	*
@@ -42889,13 +42908,14 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 			const hFlip = props.hFlip;
 			const vFlip = props.vFlip;
 			let rotation = props.rotate;
-			if (hFlip) if (vFlip) rotation += 2;
-			else {
-				transformations.push("translate(" + (box.width + box.left).toString() + " " + (0 - box.top).toString() + ")");
-				transformations.push("scale(-1 1)");
-				box.top = box.left = 0;
-			}
-			else if (vFlip) {
+			if (hFlip) {
+				if (vFlip) rotation += 2;
+				else {
+					transformations.push("translate(" + (box.width + box.left).toString() + " " + (0 - box.top).toString() + ")");
+					transformations.push("scale(-1 1)");
+					box.top = box.left = 0;
+				}
+			} else if (vFlip) {
 				transformations.push("translate(" + (0 - box.left).toString() + " " + (box.height + box.top).toString() + ")");
 				transformations.push("scale(1 -1)");
 				box.top = box.left = 0;
@@ -42970,7 +42990,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 		isUnsetKeyword = (value) => value === "unset" || value === "undefined" || value === "none";
 	}));
 	//#endregion
-	//#region node_modules/.pnpm/@iconify+utils@3.1.4/node_modules/@iconify/utils/lib/svg/id.js
+	//#region node_modules/.pnpm/@iconify+utils@3.1.7/node_modules/@iconify/utils/lib/svg/id.js
 	/**
 	* Get unique new ID
 	*/
@@ -43003,7 +43023,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 		counters = /* @__PURE__ */ new Map();
 	}));
 	//#endregion
-	//#region node_modules/.pnpm/@iconify+utils@3.1.4/node_modules/@iconify/utils/lib/svg/html.js
+	//#region node_modules/.pnpm/@iconify+utils@3.1.7/node_modules/@iconify/utils/lib/svg/html.js
 	/**
 	* Generate <svg>
 	*/
@@ -43014,7 +43034,7 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 	}
 	var init_html = __esmMin((() => {}));
 	//#endregion
-	//#region node_modules/.pnpm/@iconify+utils@3.1.4/node_modules/@iconify/utils/lib/index.js
+	//#region node_modules/.pnpm/@iconify+utils@3.1.7/node_modules/@iconify/utils/lib/index.js
 	var init_lib = __esmMin((() => {
 		init_name();
 		init_get_icon();
@@ -45454,8 +45474,8 @@ globalThis.__dshChunks__["mermaid"] = (require) => {
 `).split(`
 `), r = "", i = "", s = [];
 					for (; n.length > 0;) {
-						let a = !1, o = [], p;
-						for (p = 0; p < n.length; p++) if (this.rules.other.blockquoteStart.test(n[p])) o.push(n[p]), a = !0;
+						let a = !1, o = [], p = 0;
+						for (; p < n.length; p++) if (this.rules.other.blockquoteStart.test(n[p])) o.push(n[p]), a = !0;
 						else if (!a) o.push(n[p]);
 						else break;
 						n = n.slice(p);
@@ -66431,8 +66451,8 @@ raf(cb) {
 		*/
 		/** @type {Attrs | undefined} */
 		var attrs = void 0;
-		var dummy, i;
-		for (i = 0, ++vRank; vRank < wRank; ++i, ++vRank) {
+		var dummy, i = 0;
+		for (++vRank; vRank < wRank; ++i, ++vRank) {
 			edgeLabel.points = [];
 			attrs = {
 				width: 0,
@@ -75661,7 +75681,7 @@ EPSILON: 1e-6 };
 		});
 	}));
 	//#endregion
-	//#region node_modules/.pnpm/cytoscape@3.34.2/node_modules/cytoscape/dist/cytoscape.esm.mjs
+	//#region node_modules/.pnpm/cytoscape@3.34.3/node_modules/cytoscape/dist/cytoscape.esm.mjs
 	/**
 	* Copyright (c) 2016-2026, The Cytoscape Consortium.
 	*
@@ -83563,8 +83583,8 @@ EPSILON: 1e-6 };
 			}
 			var e = new Array(n * opts.minIterations);
 			for (var _i7 = 0; _i7 < e.length; _i7++) e[_i7] = 0;
-			var iter;
-			for (iter = 0; iter < opts.maxIterations; iter++) {
+			var iter = 0;
+			for (; iter < opts.maxIterations; iter++) {
 				for (var _i8 = 0; _i8 < n; _i8++) {
 					var max = -Infinity, max2 = -Infinity, maxI = -1, AS = 0;
 					for (var _j = 0; _j < n; _j++) {
@@ -84585,8 +84605,8 @@ EPSILON: 1e-6 };
 		tokens.value = tokens.string + "|" + tokens.number;
 		tokens.id = tokens.variable;
 		(function() {
-			var ops = tokens.comparatorOp.split("|"), op, i;
-			for (i = 0; i < ops.length; i++) {
+			var ops = tokens.comparatorOp.split("|"), op, i = 0;
+			for (; i < ops.length; i++) {
 				op = ops[i];
 				tokens.comparatorOp += "|@" + op;
 			}
@@ -89819,8 +89839,8 @@ EPSILON: 1e-6 };
 		styfn$5.getNonDefaultPropertiesHash = function(ele, propNames, seed) {
 			var hash = seed.slice();
 			var name, val, strVal, chVal;
-			var i, j;
-			for (i = 0; i < propNames.length; i++) {
+			var i = 0, j;
+			for (; i < propNames.length; i++) {
 				name = propNames[i];
 				val = ele.pstyle(name, false);
 				if (val == null) continue;
@@ -103502,7 +103522,7 @@ EPSILON: 1e-6 };
 			}
 			return style;
 		};
-		version = "3.34.2";
+		version = "3.34.3";
 		cytoscape$1 = function cytoscape(options) {
 			if (options === void 0) options = {};
 			if (plainObject(options)) return new Core(options);
@@ -106713,8 +106733,8 @@ EPSILON: 1e-6 };
 						var graph;
 						var graphs = this.graphManager.getGraphs();
 						var size = graphs.length;
-						var i;
-						for (i = 0; i < size; i++) {
+						var i = 0;
+						for (; i < size; i++) {
 							graph = graphs[i];
 							graph.updateConnected();
 							if (!graph.isConnected) nodeList = nodeList.concat(graph.getNodes());
@@ -106725,8 +106745,8 @@ EPSILON: 1e-6 };
 						var edges = [];
 						edges = edges.concat(this.graphManager.getAllEdges());
 						var visited = /* @__PURE__ */ new Set();
-						var i;
-						for (i = 0; i < edges.length; i++) {
+						var i = 0;
+						for (; i < edges.length; i++) {
 							var edge = edges[i];
 							if (!visited.has(edge)) {
 								var source = edge.getSource();
@@ -106742,8 +106762,8 @@ EPSILON: 1e-6 };
 									edgeList = edgeList.concat(target.getEdgeListToNode(source));
 									if (!visited.has(edgeList[0])) {
 										if (edgeList.length > 1) {
-											var k;
-											for (k = 0; k < edgeList.length; k++) {
+											var k = 0;
+											for (; k < edgeList.length; k++) {
 												var multiEdge = edgeList[k];
 												multiEdge.getBendpoints().push(new PointD());
 												this.createDummyNodesForBendpoints(multiEdge);
@@ -107261,7 +107281,7 @@ EPSILON: 1e-6 };
 		});
 	}));
 	//#endregion
-	//#region node_modules/.pnpm/cytoscape-cose-bilkent@4.1.0_cytoscape@3.34.2/node_modules/cytoscape-cose-bilkent/cytoscape-cose-bilkent.js
+	//#region node_modules/.pnpm/cytoscape-cose-bilkent@4.1.0_cytoscape@3.34.3/node_modules/cytoscape-cose-bilkent/cytoscape-cose-bilkent.js
 	var require_cytoscape_cose_bilkent = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 		(function webpackUniversalModuleDefinition(root, factory) {
 			if (typeof exports === "object" && typeof module === "object") module.exports = factory(require_cose_base$1());
@@ -148949,8 +148969,8 @@ ${content}`;
 					var s = this.$ms, n = m(t);
 					return "milliseconds" === n ? s %= 1e3 : s = "weeks" === n ? $(s / h[n]) : this.$d[n], s || 0;
 				}, y.add = function(t, s, n) {
-					var i;
-					return i = s ? t * h[m(s)] : c(t) ? t.$ms : f(t, this).$ms, f(this.$ms + i * (n ? -1 : 1), this);
+					var i = s ? t * h[m(s)] : c(t) ? t.$ms : f(t, this).$ms;
+					return f(this.$ms + i * (n ? -1 : 1), this);
 				}, y.subtract = function(t, s) {
 					return this.add(t, s, !0);
 				}, y.locale = function(t) {
@@ -176726,6 +176746,9 @@ g.stateGroup line {
 				}
 				return value;
 			}
+			function keyof(value) {
+				return value !== null && typeof value === "object" ? value.valueOf() : value;
+			}
 			function identity(x) {
 				return x;
 			}
@@ -186874,8 +186897,8 @@ ${prefix}${Math.round(value * 100) / 100}${suffix}`;
 								}
 								if (CoSEConstants.RELAX_MOVEMENT_ON_CONSTRAINTS) {
 									this.shuffle = function(array) {
-										var j, x, i;
-										for (i = array.length - 1; i >= 2 * array.length / 3; i--) {
+										var j, x, i = array.length - 1;
+										for (; i >= 2 * array.length / 3; i--) {
 											j = Math.floor(Math.random() * (i + 1));
 											x = array[i];
 											array[i] = array[j];
@@ -187144,8 +187167,8 @@ ${prefix}${Math.round(value * 100) / 100}${suffix}`;
 							var graph;
 							var graphs = this.graphManager.getGraphs();
 							var size = graphs.length;
-							var i;
-							for (i = 0; i < size; i++) {
+							var i = 0;
+							for (; i < size; i++) {
 								graph = graphs[i];
 								graph.updateConnected();
 								if (!graph.isConnected) nodeList = nodeList.concat(graph.getNodes());
@@ -187156,8 +187179,8 @@ ${prefix}${Math.round(value * 100) / 100}${suffix}`;
 							var edges = [];
 							edges = edges.concat(this.graphManager.getAllEdges());
 							var visited = /* @__PURE__ */ new Set();
-							var i;
-							for (i = 0; i < edges.length; i++) {
+							var i = 0;
+							for (; i < edges.length; i++) {
 								var edge = edges[i];
 								if (!visited.has(edge)) {
 									var source = edge.getSource();
@@ -187173,8 +187196,8 @@ ${prefix}${Math.round(value * 100) / 100}${suffix}`;
 										edgeList = edgeList.concat(target.getEdgeListToNode(source));
 										if (!visited.has(edgeList[0])) {
 											if (edgeList.length > 1) {
-												var k;
-												for (k = 0; k < edgeList.length; k++) {
+												var k = 0;
+												for (; k < edgeList.length; k++) {
 													var multiEdge = edgeList[k];
 													multiEdge.getBendpoints().push(new PointD());
 													this.createDummyNodesForBendpoints(multiEdge);
@@ -188644,7 +188667,7 @@ ${prefix}${Math.round(value * 100) / 100}${suffix}`;
 		});
 	}));
 	//#endregion
-	//#region node_modules/.pnpm/cytoscape-fcose@2.2.0_cytoscape@3.34.2/node_modules/cytoscape-fcose/cytoscape-fcose.js
+	//#region node_modules/.pnpm/cytoscape-fcose@2.2.0_cytoscape@3.34.3/node_modules/cytoscape-fcose/cytoscape-fcose.js
 	var require_cytoscape_fcose = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 		(function webpackUniversalModuleDefinition(root, factory) {
 			if (typeof exports === "object" && typeof module === "object") module.exports = factory(require_cose_base());
@@ -199582,6 +199605,8 @@ ${prefix}${Math.round(value * 100) / 100}${suffix}`;
 		subagentDiagUnsupported: "不支持的条目",
 		subagentDiagUnavailable: "不可用",
 		subagentThinking: "思考中…",
+		subagentShowHistory: "展开更早的 {count} 个子代理",
+		subagentHideHistory: "收起更早的子代理",
 		sideChat: "侧边对话(beta)",
 		sideChatNew: "新建对话",
 		sideChatUntitled: "新对话",
@@ -199609,6 +199634,8 @@ ${prefix}${Math.round(value * 100) / 100}${suffix}`;
 		jobs: "后台任务",
 		jobsCount: "{count} 个后台任务",
 		jobsCountRunning: "{count} 个后台任务 · {running} 运行中",
+		jobsShowHistory: "展开更早的 {count} 个后台任务",
+		jobsHideHistory: "收起更早的后台任务",
 		jobStatusRunning: "运行中",
 		jobStatusStopping: "终止中",
 		jobStatusCompleted: "已完成",
@@ -199933,6 +199960,8 @@ ${prefix}${Math.round(value * 100) / 100}${suffix}`;
 		subagentDiagUnsupported: "Unsupported",
 		subagentDiagUnavailable: "Unavailable",
 		subagentThinking: "Thinking…",
+		subagentShowHistory: "Show {count} earlier subagents",
+		subagentHideHistory: "Collapse earlier subagents",
 		sideChat: "Side Chat (beta)",
 		sideChatNew: "New thread",
 		sideChatUntitled: "New thread",
@@ -199960,6 +199989,8 @@ ${prefix}${Math.round(value * 100) / 100}${suffix}`;
 		jobs: "Background jobs",
 		jobsCount: "{count} background jobs",
 		jobsCountRunning: "{count} background jobs · {running} running",
+		jobsShowHistory: "Show {count} earlier jobs",
+		jobsHideHistory: "Collapse earlier jobs",
 		jobStatusRunning: "Running",
 		jobStatusStopping: "Stopping",
 		jobStatusCompleted: "Completed",
@@ -200112,241 +200143,241 @@ ${prefix}${Math.round(value * 100) / 100}${suffix}`;
 		document.head.appendChild(tag);
 	}
 	var sidebar_module_css_default = {
-		"floatTitle": "S5HVoW_floatTitle",
-		"mermaidInfo": "S5HVoW_mermaidInfo",
-		"gitDiffMeta": "S5HVoW_gitDiffMeta",
-		"explorer": "S5HVoW_explorer",
-		"uploadOverlayTitle": "S5HVoW_uploadOverlayTitle",
-		"gitLink": "S5HVoW_gitLink",
-		"sandboxDot": "S5HVoW_sandboxDot",
-		"editorHtml": "S5HVoW_editorHtml",
-		"paneContent": "S5HVoW_paneContent",
-		"producedChip": "S5HVoW_producedChip",
-		"browserMessage": "S5HVoW_browserMessage",
-		"gitHeader": "S5HVoW_gitHeader",
-		"gitDiffNum": "S5HVoW_gitDiffNum",
-		"editorModeActive": "S5HVoW_editorModeActive",
-		"producedLabel": "S5HVoW_producedLabel",
-		"gitDiffFileChevronExpanded": "S5HVoW_gitDiffFileChevronExpanded",
-		"browserBlockedDesc": "S5HVoW_browserBlockedDesc",
-		"gitWorktreeRow": "S5HVoW_gitWorktreeRow",
-		"editorPdfStage": "S5HVoW_editorPdfStage",
-		"terminal": "S5HVoW_terminal",
-		"tocItemLevel": "S5HVoW_tocItemLevel",
-		"floatHeader": "S5HVoW_floatHeader",
-		"split": "S5HVoW_split",
-		"editorDownloadLink": "S5HVoW_editorDownloadLink",
-		"panelBody": "S5HVoW_panelBody",
-		"floatDropHint": "S5HVoW_floatDropHint",
-		"splitCol": "S5HVoW_splitCol",
 		"dropLeft": "S5HVoW_dropLeft",
-		"explorerName": "S5HVoW_explorerName",
-		"editorImage": "S5HVoW_editorImage",
-		"terminalBannerUrl": "S5HVoW_terminalBannerUrl",
-		"gitRow": "S5HVoW_gitRow",
-		"gitCommitButton": "S5HVoW_gitCommitButton",
-		"gitDiff": "S5HVoW_gitDiff",
-		"uploadOverlayStatus": "S5HVoW_uploadOverlayStatus",
-		"splitChild": "S5HVoW_splitChild",
-		"tocBar": "S5HVoW_tocBar",
-		"dividerActive": "S5HVoW_dividerActive",
-		"tabBarPlus": "S5HVoW_tabBarPlus",
 		"sandboxAction": "S5HVoW_sandboxAction",
-		"editorBinary": "S5HVoW_editorBinary",
-		"explorerRoot": "S5HVoW_explorerRoot",
-		"tabList": "S5HVoW_tabList",
-		"editorTreeToggleActive": "S5HVoW_editorTreeToggleActive",
-		"explorerCopied": "S5HVoW_explorerCopied",
-		"browserFrame": "S5HVoW_browserFrame",
-		"paneTabHidden": "S5HVoW_paneTabHidden",
-		"editorPdfFrameBlocked": "S5HVoW_editorPdfFrameBlocked",
-		"boundaryError": "S5HVoW_boundaryError",
-		"gitBadge": "S5HVoW_gitBadge",
-		"browserBlocked": "S5HVoW_browserBlocked",
-		"gitDiffAdd": "S5HVoW_gitDiffAdd",
-		"editorPdfFrame": "S5HVoW_editorPdfFrame",
-		"floatContent": "S5HVoW_floatContent",
-		"mermaidHeader": "S5HVoW_mermaidHeader",
-		"mermaidMarkdown": "S5HVoW_mermaidMarkdown",
-		"uploadDropChatCard": "S5HVoW_uploadDropChatCard",
-		"gitDiffHunkSection": "S5HVoW_gitDiffHunkSection",
-		"editorModeButton": "S5HVoW_editorModeButton",
-		"terminalRetry": "S5HVoW_terminalRetry",
-		"explorerBroken": "S5HVoW_explorerBroken",
-		"editorBinaryNotice": "S5HVoW_editorBinaryNotice",
-		"editorCmHidden": "S5HVoW_editorCmHidden",
-		"gitSection": "S5HVoW_gitSection",
-		"iconButton": "S5HVoW_iconButton",
-		"mermaidModalToolbar": "S5HVoW_mermaidModalToolbar",
-		"panelResizeActive": "S5HVoW_panelResizeActive",
-		"sandboxStatus": "S5HVoW_sandboxStatus",
-		"tabBarDrop": "S5HVoW_tabBarDrop",
-		"editorPlaceholder": "S5HVoW_editorPlaceholder",
-		"gitCommitInput": "S5HVoW_gitCommitInput",
-		"editorMain": "S5HVoW_editorMain",
-		"toggleButton": "S5HVoW_toggleButton",
-		"editor": "S5HVoW_editor",
-		"paneTab": "S5HVoW_paneTab",
-		"mermaidCode": "S5HVoW_mermaidCode",
-		"floatDropHintLabel": "S5HVoW_floatDropHintLabel",
-		"panelResize": "S5HVoW_panelResize",
-		"gitDiffLine": "S5HVoW_gitDiffLine",
-		"mermaidModal": "S5HVoW_mermaidModal",
-		"explorerError": "S5HVoW_explorerError",
-		"tabTitle": "S5HVoW_tabTitle",
-		"uploadDropZone": "S5HVoW_uploadDropZone",
-		"paneEmptyCards": "S5HVoW_paneEmptyCards",
-		"editorHeader": "S5HVoW_editorHeader",
-		"openWithChevron": "S5HVoW_openWithChevron",
-		"terminalDepsBanner": "S5HVoW_terminalDepsBanner",
-		"paneCard": "S5HVoW_paneCard",
-		"browserInput": "S5HVoW_browserInput",
-		"browser": "S5HVoW_browser",
-		"mermaidError": "S5HVoW_mermaidError",
-		"editorPdfToolbar": "S5HVoW_editorPdfToolbar",
-		"editorDocxZoomRange": "S5HVoW_editorDocxZoomRange",
-		"browserBar": "S5HVoW_browserBar",
-		"browserBlockedActions": "S5HVoW_browserBlockedActions",
-		"mermaidModalHint": "S5HVoW_mermaidModalHint",
-		"terminalDepsCommandRow": "S5HVoW_terminalDepsCommandRow",
-		"gitDiffFileChevron": "S5HVoW_gitDiffFileChevron",
-		"gitDiffTabTitle": "S5HVoW_gitDiffTabTitle",
-		"editorPdfDragShield": "S5HVoW_editorPdfDragShield",
-		"tabBoundaryError": "S5HVoW_tabBoundaryError",
-		"tabBadge": "S5HVoW_tabBadge",
-		"editorPdfDragShieldActive": "S5HVoW_editorPdfDragShieldActive",
-		"mermaidModalButton": "S5HVoW_mermaidModalButton",
-		"editorHtmlBlock": "S5HVoW_editorHtmlBlock",
-		"browserBlockedButton": "S5HVoW_browserBlockedButton",
-		"editorSearchInput": "S5HVoW_editorSearchInput",
-		"tabActive": "S5HVoW_tabActive",
-		"dsh-row-in": "S5HVoW_dsh-row-in",
-		"mermaidWrap": "S5HVoW_mermaidWrap",
-		"gitLogMore": "S5HVoW_gitLogMore",
-		"editorTreeDock": "S5HVoW_editorTreeDock",
-		"gitDiffDel": "S5HVoW_gitDiffDel",
-		"gitCommit": "S5HVoW_gitCommit",
-		"panelHidden": "S5HVoW_panelHidden",
-		"mermaidCopy": "S5HVoW_mermaidCopy",
-		"gitDiffTab": "S5HVoW_gitDiffTab",
-		"uploadOverlayProgress": "S5HVoW_uploadOverlayProgress",
-		"terminalDepsActions": "S5HVoW_terminalDepsActions",
-		"editorModeToggle": "S5HVoW_editorModeToggle",
-		"dividerCol": "S5HVoW_dividerCol",
-		"openWithPin": "S5HVoW_openWithPin",
-		"gitDiffCtx": "S5HVoW_gitDiffCtx",
-		"explorerRow": "S5HVoW_explorerRow",
-		"gitPlaceholder": "S5HVoW_gitPlaceholder",
-		"gitBranchSelect": "S5HVoW_gitBranchSelect",
-		"floatResize": "S5HVoW_floatResize",
-		"editorTreeResize": "S5HVoW_editorTreeResize",
-		"editorBanner": "S5HVoW_editorBanner",
-		"explorerRef": "S5HVoW_explorerRef",
-		"mermaidModalStage": "S5HVoW_mermaidModalStage",
-		"gitEmpty": "S5HVoW_gitEmpty",
-		"panel": "S5HVoW_panel",
-		"workbench": "S5HVoW_workbench",
-		"gitDiffFilePath": "S5HVoW_gitDiffFilePath",
-		"explorerEmpty": "S5HVoW_explorerEmpty",
-		"gitLogRow": "S5HVoW_gitLogRow",
-		"editorError": "S5HVoW_editorError",
-		"dirtyDot": "S5HVoW_dirtyDot",
-		"dropRight": "S5HVoW_dropRight",
-		"dropCenter": "S5HVoW_dropCenter",
-		"dividerRow": "S5HVoW_dividerRow",
-		"editorSearchResult": "S5HVoW_editorSearchResult",
-		"divider": "S5HVoW_divider",
-		"openWithPinActive": "S5HVoW_openWithPinActive",
-		"uploadOverlayCard": "S5HVoW_uploadOverlayCard",
-		"editorBody": "S5HVoW_editorBody",
-		"explorerHeader": "S5HVoW_explorerHeader",
-		"splitRow": "S5HVoW_splitRow",
-		"explorerRowRevealed": "S5HVoW_explorerRowRevealed",
-		"gitRowMain": "S5HVoW_gitRowMain",
-		"mermaidBody": "S5HVoW_mermaidBody",
-		"dropOverlay": "S5HVoW_dropOverlay",
-		"uploadOverlay": "S5HVoW_uploadOverlay",
-		"editorMd": "S5HVoW_editorMd",
-		"orphanedType": "S5HVoW_orphanedType",
-		"gitDiffHunk": "S5HVoW_gitDiffHunk",
-		"gitDiffTabHeader": "S5HVoW_gitDiffTabHeader",
-		"openWithName": "S5HVoW_openWithName",
-		"tocFlash": "S5HVoW_tocFlash",
 		"terminalDepsNote": "S5HVoW_terminalDepsNote",
-		"explorerBody": "S5HVoW_explorerBody",
-		"uploadDropHero": "S5HVoW_uploadDropHero",
-		"tocButton": "S5HVoW_tocButton",
-		"gitLogSubject": "S5HVoW_gitLogSubject",
-		"tabClose": "S5HVoW_tabClose",
-		"uploadOverlayProgressFill": "S5HVoW_uploadOverlayProgressFill",
-		"editorStatus": "S5HVoW_editorStatus",
-		"editorPathInput": "S5HVoW_editorPathInput",
-		"tab": "S5HVoW_tab",
-		"editorCm": "S5HVoW_editorCm",
-		"gitLogLine2": "S5HVoW_gitLogLine2",
-		"tocItemText": "S5HVoW_tocItemText",
-		"terminalWrap": "S5HVoW_terminalWrap",
-		"gitName": "S5HVoW_gitName",
-		"explorerHidden": "S5HVoW_explorerHidden",
-		"browserBlockedTitle": "S5HVoW_browserBlockedTitle",
-		"gitDiffCode": "S5HVoW_gitDiffCode",
-		"gitDiffExpand": "S5HVoW_gitDiffExpand",
+		"workbench": "S5HVoW_workbench",
 		"tabBar": "S5HVoW_tabBar",
-		"producedRow": "S5HVoW_producedRow",
-		"editorImageWrap": "S5HVoW_editorImageWrap",
-		"gitDiffHunkHeader": "S5HVoW_gitDiffHunkHeader",
-		"editorTreePanelFull": "S5HVoW_editorTreePanelFull",
-		"floatWindowDragging": "S5HVoW_floatWindowDragging",
-		"gitDiffMetaText": "S5HVoW_gitDiffMetaText",
-		"selectionPopup": "S5HVoW_selectionPopup",
-		"editorSearchHint": "S5HVoW_editorSearchHint",
-		"sandboxStatusOn": "S5HVoW_sandboxStatusOn",
-		"pinnedTab": "S5HVoW_pinnedTab",
-		"gitLogHash": "S5HVoW_gitLogHash",
-		"gitLogRef": "S5HVoW_gitLogRef",
-		"pane": "S5HVoW_pane",
-		"editorTitle": "S5HVoW_editorTitle",
-		"tocItem": "S5HVoW_tocItem",
-		"editorPdf": "S5HVoW_editorPdf",
-		"uploadDropZoneText": "S5HVoW_uploadDropZoneText",
-		"paneDrop": "S5HVoW_paneDrop",
-		"gitDiffFile": "S5HVoW_gitDiffFile",
-		"gitRowSelected": "S5HVoW_gitRowSelected",
-		"producedMore": "S5HVoW_producedMore",
-		"gitLogLine1": "S5HVoW_gitLogLine1",
-		"uploadDropChatHint": "S5HVoW_uploadDropChatHint",
+		"floatContent": "S5HVoW_floatContent",
+		"dropRight": "S5HVoW_dropRight",
+		"terminalDepsCommandRow": "S5HVoW_terminalDepsCommandRow",
+		"gitName": "S5HVoW_gitName",
 		"gitDiffFileTag": "S5HVoW_gitDiffFileTag",
-		"terminalDepsTitle": "S5HVoW_terminalDepsTitle",
-		"explorerDir": "S5HVoW_explorerDir",
+		"explorerCopied": "S5HVoW_explorerCopied",
+		"floatResize": "S5HVoW_floatResize",
+		"mermaidWrap": "S5HVoW_mermaidWrap",
+		"producedLabel": "S5HVoW_producedLabel",
+		"gitDiffExpand": "S5HVoW_gitDiffExpand",
+		"splitChild": "S5HVoW_splitChild",
+		"editorPdfDragShieldActive": "S5HVoW_editorPdfDragShieldActive",
+		"browserBlockedActions": "S5HVoW_browserBlockedActions",
+		"gitDiffHunkHeader": "S5HVoW_gitDiffHunkHeader",
+		"paneCard": "S5HVoW_paneCard",
+		"toggleCluster": "S5HVoW_toggleCluster",
+		"explorerRow": "S5HVoW_explorerRow",
+		"terminalBannerUrl": "S5HVoW_terminalBannerUrl",
+		"gitDiffTabTitle": "S5HVoW_gitDiffTabTitle",
+		"uploadOverlayCancel": "S5HVoW_uploadOverlayCancel",
+		"explorerHidden": "S5HVoW_explorerHidden",
+		"gitDiffHunkSection": "S5HVoW_gitDiffHunkSection",
+		"gitCommitButton": "S5HVoW_gitCommitButton",
+		"gitCommit": "S5HVoW_gitCommit",
+		"openWithPin": "S5HVoW_openWithPin",
+		"gitLogRef": "S5HVoW_gitLogRef",
+		"paneDrop": "S5HVoW_paneDrop",
+		"uploadDropZone": "S5HVoW_uploadDropZone",
+		"uploadDropZonePill": "S5HVoW_uploadDropZonePill",
+		"editorStatusError": "S5HVoW_editorStatusError",
+		"uploadOverlay": "S5HVoW_uploadOverlay",
+		"splitRow": "S5HVoW_splitRow",
+		"paneContent": "S5HVoW_paneContent",
+		"boundaryError": "S5HVoW_boundaryError",
+		"terminalRetry": "S5HVoW_terminalRetry",
+		"editorSearchHint": "S5HVoW_editorSearchHint",
+		"editorTreeDock": "S5HVoW_editorTreeDock",
+		"dividerActive": "S5HVoW_dividerActive",
+		"openWithName": "S5HVoW_openWithName",
+		"explorerBroken": "S5HVoW_explorerBroken",
+		"uploadOverlayProgressFill": "S5HVoW_uploadOverlayProgressFill",
+		"gitWorktreeRow": "S5HVoW_gitWorktreeRow",
+		"gitDiffLine": "S5HVoW_gitDiffLine",
+		"gitLogMeta": "S5HVoW_gitLogMeta",
+		"tabTitle": "S5HVoW_tabTitle",
+		"tabBadge": "S5HVoW_tabBadge",
+		"editorTreeResize": "S5HVoW_editorTreeResize",
+		"gitDiffCode": "S5HVoW_gitDiffCode",
+		"sandboxStatus": "S5HVoW_sandboxStatus",
+		"editorPathInput": "S5HVoW_editorPathInput",
+		"gitPlaceholder": "S5HVoW_gitPlaceholder",
+		"editorPdfFrameBlocked": "S5HVoW_editorPdfFrameBlocked",
+		"browserBlocked": "S5HVoW_browserBlocked",
+		"tabBarPlus": "S5HVoW_tabBarPlus",
+		"editorTreePanelFull": "S5HVoW_editorTreePanelFull",
+		"selectionPopup": "S5HVoW_selectionPopup",
 		"dsh-toc-flash": "S5HVoW_dsh-toc-flash",
 		"browserStart": "S5HVoW_browserStart",
-		"explorerRowDropTarget": "S5HVoW_explorerRowDropTarget",
-		"git": "S5HVoW_git",
-		"openWithLabel": "S5HVoW_openWithLabel",
-		"editorStatusError": "S5HVoW_editorStatusError",
-		"editorTreeSearch": "S5HVoW_editorTreeSearch",
-		"terminalBanner": "S5HVoW_terminalBanner",
-		"floatClose": "S5HVoW_floatClose",
-		"uploadDropZonePill": "S5HVoW_uploadDropZonePill",
-		"toggleCluster": "S5HVoW_toggleCluster",
-		"gitWorktreeLabel": "S5HVoW_gitWorktreeLabel",
-		"gitSectionHeader": "S5HVoW_gitSectionHeader",
+		"editorSearchInput": "S5HVoW_editorSearchInput",
+		"editorMd": "S5HVoW_editorMd",
 		"gitDiffFileOld": "S5HVoW_gitDiffFileOld",
-		"terminalDepsHint": "S5HVoW_terminalDepsHint",
-		"dropDown": "S5HVoW_dropDown",
-		"sandboxStatusOff": "S5HVoW_sandboxStatusOff",
-		"dropUp": "S5HVoW_dropUp",
-		"tocPanel": "S5HVoW_tocPanel",
-		"sandboxStatusText": "S5HVoW_sandboxStatusText",
 		"gitConfirmDesc": "S5HVoW_gitConfirmDesc",
-		"editorPptxButton": "S5HVoW_editorPptxButton",
+		"paneEmptyCards": "S5HVoW_paneEmptyCards",
+		"gitLogSubject": "S5HVoW_gitLogSubject",
+		"terminalWrap": "S5HVoW_terminalWrap",
+		"editorBinaryNotice": "S5HVoW_editorBinaryNotice",
+		"explorerDir": "S5HVoW_explorerDir",
+		"sandboxStatusOn": "S5HVoW_sandboxStatusOn",
+		"editorDocxZoomRange": "S5HVoW_editorDocxZoomRange",
+		"explorerRowRevealed": "S5HVoW_explorerRowRevealed",
+		"editorTreeSearch": "S5HVoW_editorTreeSearch",
+		"mermaidModalToolbar": "S5HVoW_mermaidModalToolbar",
+		"gitDiffFile": "S5HVoW_gitDiffFile",
+		"uploadDropChatHint": "S5HVoW_uploadDropChatHint",
+		"splitCol": "S5HVoW_splitCol",
+		"gitDiffMetaText": "S5HVoW_gitDiffMetaText",
+		"gitDiffFileChevronExpanded": "S5HVoW_gitDiffFileChevronExpanded",
+		"mermaidMarkdown": "S5HVoW_mermaidMarkdown",
+		"explorerError": "S5HVoW_explorerError",
+		"gitLogLine1": "S5HVoW_gitLogLine1",
+		"explorer": "S5HVoW_explorer",
+		"gitDiffMeta": "S5HVoW_gitDiffMeta",
+		"tocItemLevel": "S5HVoW_tocItemLevel",
+		"panel": "S5HVoW_panel",
+		"editorImageWrap": "S5HVoW_editorImageWrap",
+		"producedMore": "S5HVoW_producedMore",
+		"floatClose": "S5HVoW_floatClose",
+		"mermaidModalHint": "S5HVoW_mermaidModalHint",
+		"explorerName": "S5HVoW_explorerName",
+		"tocPanel": "S5HVoW_tocPanel",
+		"uploadOverlayStatus": "S5HVoW_uploadOverlayStatus",
+		"gitDiffFilePath": "S5HVoW_gitDiffFilePath",
+		"panelBody": "S5HVoW_panelBody",
+		"gitDiffDel": "S5HVoW_gitDiffDel",
+		"sandboxStatusText": "S5HVoW_sandboxStatusText",
+		"panelHidden": "S5HVoW_panelHidden",
+		"tabActive": "S5HVoW_tabActive",
+		"editorTreeToggleActive": "S5HVoW_editorTreeToggleActive",
+		"editorBinary": "S5HVoW_editorBinary",
+		"divider": "S5HVoW_divider",
+		"paneTab": "S5HVoW_paneTab",
+		"tabBoundaryError": "S5HVoW_tabBoundaryError",
+		"tocFlash": "S5HVoW_tocFlash",
+		"floatDropHint": "S5HVoW_floatDropHint",
+		"editorModeActive": "S5HVoW_editorModeActive",
+		"gitDiffAdd": "S5HVoW_gitDiffAdd",
+		"editorModeButton": "S5HVoW_editorModeButton",
+		"editorPdfToolbar": "S5HVoW_editorPdfToolbar",
+		"gitWorktreeLabel": "S5HVoW_gitWorktreeLabel",
+		"gitDiffTab": "S5HVoW_gitDiffTab",
+		"tocItemText": "S5HVoW_tocItemText",
+		"browserFrame": "S5HVoW_browserFrame",
+		"gitLogRow": "S5HVoW_gitLogRow",
+		"pinnedTab": "S5HVoW_pinnedTab",
+		"editorPdf": "S5HVoW_editorPdf",
+		"browser": "S5HVoW_browser",
+		"editorPdfFrame": "S5HVoW_editorPdfFrame",
+		"browserBlockedTitle": "S5HVoW_browserBlockedTitle",
+		"floatTitle": "S5HVoW_floatTitle",
+		"gitDiffHunk": "S5HVoW_gitDiffHunk",
+		"uploadDropChatCard": "S5HVoW_uploadDropChatCard",
+		"explorerHeader": "S5HVoW_explorerHeader",
+		"terminalBanner": "S5HVoW_terminalBanner",
+		"openWithChevron": "S5HVoW_openWithChevron",
 		"editorTreePanel": "S5HVoW_editorTreePanel",
-		"terminalRepairCommand": "S5HVoW_terminalRepairCommand",
-		"explorerSymlink": "S5HVoW_explorerSymlink",
-		"gitLogMeta": "S5HVoW_gitLogMeta",
+		"editorPlaceholder": "S5HVoW_editorPlaceholder",
+		"gitEmpty": "S5HVoW_gitEmpty",
+		"editorCm": "S5HVoW_editorCm",
+		"dsh-row-in": "S5HVoW_dsh-row-in",
+		"editorHtmlBlock": "S5HVoW_editorHtmlBlock",
+		"editorHeader": "S5HVoW_editorHeader",
+		"mermaidCode": "S5HVoW_mermaidCode",
+		"explorerRowDropTarget": "S5HVoW_explorerRowDropTarget",
+		"browserBlockedButton": "S5HVoW_browserBlockedButton",
+		"mermaidModalStage": "S5HVoW_mermaidModalStage",
+		"editorPptxButton": "S5HVoW_editorPptxButton",
+		"gitRow": "S5HVoW_gitRow",
+		"gitLogMore": "S5HVoW_gitLogMore",
+		"editorSearchResult": "S5HVoW_editorSearchResult",
+		"browserInput": "S5HVoW_browserInput",
+		"mermaidModalButton": "S5HVoW_mermaidModalButton",
+		"iconButton": "S5HVoW_iconButton",
+		"floatWindowDragging": "S5HVoW_floatWindowDragging",
+		"tabList": "S5HVoW_tabList",
+		"editorPdfDragShield": "S5HVoW_editorPdfDragShield",
+		"toggleButton": "S5HVoW_toggleButton",
+		"editorTitle": "S5HVoW_editorTitle",
+		"floatDropHintLabel": "S5HVoW_floatDropHintLabel",
+		"editor": "S5HVoW_editor",
+		"git": "S5HVoW_git",
+		"explorerBody": "S5HVoW_explorerBody",
+		"uploadOverlayCard": "S5HVoW_uploadOverlayCard",
+		"editorBody": "S5HVoW_editorBody",
+		"split": "S5HVoW_split",
+		"panelResize": "S5HVoW_panelResize",
+		"terminalDepsBanner": "S5HVoW_terminalDepsBanner",
+		"editorError": "S5HVoW_editorError",
+		"pane": "S5HVoW_pane",
+		"editorStatus": "S5HVoW_editorStatus",
+		"dividerRow": "S5HVoW_dividerRow",
+		"tocBar": "S5HVoW_tocBar",
+		"dropDown": "S5HVoW_dropDown",
+		"mermaidBody": "S5HVoW_mermaidBody",
+		"editorImage": "S5HVoW_editorImage",
+		"gitBranchSelect": "S5HVoW_gitBranchSelect",
+		"dirtyDot": "S5HVoW_dirtyDot",
+		"gitDiffFileChevron": "S5HVoW_gitDiffFileChevron",
+		"uploadOverlayProgress": "S5HVoW_uploadOverlayProgress",
+		"browserBar": "S5HVoW_browserBar",
+		"openWithPinActive": "S5HVoW_openWithPinActive",
+		"editorMain": "S5HVoW_editorMain",
+		"gitRowMain": "S5HVoW_gitRowMain",
+		"explorerEmpty": "S5HVoW_explorerEmpty",
+		"gitDiff": "S5HVoW_gitDiff",
+		"tocButton": "S5HVoW_tocButton",
+		"dividerCol": "S5HVoW_dividerCol",
+		"dropOverlay": "S5HVoW_dropOverlay",
+		"gitRowSelected": "S5HVoW_gitRowSelected",
+		"tabBarDrop": "S5HVoW_tabBarDrop",
+		"producedChip": "S5HVoW_producedChip",
+		"editorBanner": "S5HVoW_editorBanner",
+		"producedRow": "S5HVoW_producedRow",
 		"floatWindow": "S5HVoW_floatWindow",
+		"explorerRoot": "S5HVoW_explorerRoot",
+		"editorCmHidden": "S5HVoW_editorCmHidden",
+		"explorerRef": "S5HVoW_explorerRef",
+		"tabClose": "S5HVoW_tabClose",
+		"editorHtml": "S5HVoW_editorHtml",
+		"gitLogLine2": "S5HVoW_gitLogLine2",
+		"mermaidInfo": "S5HVoW_mermaidInfo",
+		"gitHeader": "S5HVoW_gitHeader",
+		"terminalDepsActions": "S5HVoW_terminalDepsActions",
+		"gitSection": "S5HVoW_gitSection",
+		"mermaidCopy": "S5HVoW_mermaidCopy",
+		"editorPdfStage": "S5HVoW_editorPdfStage",
+		"gitCommitInput": "S5HVoW_gitCommitInput",
+		"mermaidError": "S5HVoW_mermaidError",
+		"gitLogHash": "S5HVoW_gitLogHash",
 		"gitError": "S5HVoW_gitError",
-		"uploadOverlayCancel": "S5HVoW_uploadOverlayCancel"
+		"gitDiffNum": "S5HVoW_gitDiffNum",
+		"uploadDropHero": "S5HVoW_uploadDropHero",
+		"dropCenter": "S5HVoW_dropCenter",
+		"dropUp": "S5HVoW_dropUp",
+		"browserBlockedDesc": "S5HVoW_browserBlockedDesc",
+		"gitBadge": "S5HVoW_gitBadge",
+		"gitDiffTabHeader": "S5HVoW_gitDiffTabHeader",
+		"openWithLabel": "S5HVoW_openWithLabel",
+		"terminalRepairCommand": "S5HVoW_terminalRepairCommand",
+		"sandboxDot": "S5HVoW_sandboxDot",
+		"terminalDepsTitle": "S5HVoW_terminalDepsTitle",
+		"tab": "S5HVoW_tab",
+		"panelResizeActive": "S5HVoW_panelResizeActive",
+		"explorerSymlink": "S5HVoW_explorerSymlink",
+		"floatHeader": "S5HVoW_floatHeader",
+		"gitDiffCtx": "S5HVoW_gitDiffCtx",
+		"terminal": "S5HVoW_terminal",
+		"tocItem": "S5HVoW_tocItem",
+		"mermaidModal": "S5HVoW_mermaidModal",
+		"sandboxStatusOff": "S5HVoW_sandboxStatusOff",
+		"gitLink": "S5HVoW_gitLink",
+		"orphanedType": "S5HVoW_orphanedType",
+		"uploadDropZoneText": "S5HVoW_uploadDropZoneText",
+		"browserMessage": "S5HVoW_browserMessage",
+		"paneTabHidden": "S5HVoW_paneTabHidden",
+		"terminalDepsHint": "S5HVoW_terminalDepsHint",
+		"mermaidHeader": "S5HVoW_mermaidHeader",
+		"gitSectionHeader": "S5HVoW_gitSectionHeader",
+		"uploadOverlayTitle": "S5HVoW_uploadOverlayTitle",
+		"editorDownloadLink": "S5HVoW_editorDownloadLink",
+		"editorModeToggle": "S5HVoW_editorModeToggle"
 	};
 	//#endregion
 	//#region src/client/mermaid.tsx

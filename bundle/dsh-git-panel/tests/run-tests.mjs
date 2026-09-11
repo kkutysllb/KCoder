@@ -19,11 +19,13 @@ import {
   unquotePath, parseStatusEntries, parseNumstatMap,
   parseWorktreesPorcelain, parseAheadBehind, isValidBranchName,
   remoteRepoUrl, compareUrl,
+  parseGhJsonList, parseCreatedUrl,
   countUntrackedLines, scanPlans,
   probeWorkspace, emptySnapshot,
-  handleSnapshot, handleOpenPlan,
+  handleSnapshot, handleOpenPlan, handleOpenUrl,
   handleBranches, handleCheckout, handleCreateBranch, handleDeleteBranch,
   handleCommit, handlePush, handleOpenCompare,
+  handleGhCreatePr, handleGhMergePr, handleGhCreateIssue, handleGhList,
   RPC_PREFIX,
 } from '../entry.js'
 
@@ -207,6 +209,52 @@ await test('remoteRepoUrl/compareUrl：scp/https/ssh/坏输入', () => {
   assert.equal(compareUrl('git@github.com:a/b.git', 'main', 'feat/x'), 'https://github.com/a/b/compare/main...feat/x')
   assert.equal(compareUrl('not a url', 'main', 'b'), null)
   assert.equal(compareUrl('git@github.com:a/b.git', null, 'b'), null)
+})
+
+await test('parseGhJsonList：数组/非数组/坏 JSON 回退空数组', () => {
+  assert.deepEqual(parseGhJsonList('[{"number":1}]'), [{ number: 1 }])
+  assert.deepEqual(parseGhJsonList('{"a":1}'), [])
+  assert.deepEqual(parseGhJsonList('oops'), [])
+  assert.deepEqual(parseGhJsonList(''), [])
+})
+
+await test('parseCreatedUrl：取末个 http(s) URL；无 URL null', () => {
+  assert.equal(parseCreatedUrl('https://github.com/a/b/pull/9\n'), 'https://github.com/a/b/pull/9')
+  assert.equal(parseCreatedUrl('Creating pull request...\nhttps://x.io/1\nsee https://x.io/2\n'), 'https://x.io/2')
+  assert.equal(parseCreatedUrl('no url here'), null)
+  assert.equal(parseCreatedUrl(null), null)
+})
+
+await test('gh 创建/合并 RPC：入参校验前置（不触 git/gh）', async () => {
+  // bad cwd
+  assert.equal((await handleGhCreatePr({})).ok, false)
+  assert.equal((await handleGhMergePr({})).ok, false)
+  assert.equal((await handleGhCreateIssue({})).ok, false)
+  assert.equal((await handleGhList({})).ok, false)
+  // 标题/描述边界
+  assert.equal((await handleGhCreatePr({ cwd: '/tmp', title: '' })).ok, false)
+  assert.equal((await handleGhCreatePr({ cwd: '/tmp', title: 'x'.repeat(501) })).ok, false)
+  assert.equal((await handleGhCreatePr({ cwd: '/tmp', title: 't', body: 'b'.repeat(4001) })).ok, false)
+  assert.equal((await handleGhCreateIssue({ cwd: '/tmp', title: '  ' })).ok, false)
+  assert.equal((await handleGhCreateIssue({ cwd: '/tmp', title: 't', body: 'b'.repeat(4001) })).ok, false)
+  // base 分支名校验
+  assert.equal((await handleGhCreatePr({ cwd: '/tmp', title: 't', base: 'bad name' })).ok, false)
+  assert.equal((await handleGhCreatePr({ cwd: '/tmp', title: 't', base: '-x' })).ok, false)
+  // PR 号边界
+  assert.equal((await handleGhMergePr({ cwd: '/tmp', number: 0 })).ok, false)
+  assert.equal((await handleGhMergePr({ cwd: '/tmp', number: -1 })).ok, false)
+  assert.equal((await handleGhMergePr({ cwd: '/tmp', number: 1.5 })).ok, false)
+  assert.equal((await handleGhMergePr({ cwd: '/tmp', number: 'x' })).ok, false)
+  assert.equal((await handleGhMergePr({ cwd: '/tmp' })).ok, false)
+})
+
+await test('handleOpenUrl：非 http(s) 协议拒开', async () => {
+  assert.equal((await handleOpenUrl({})).ok, false)
+  assert.equal((await handleOpenUrl({ url: '' })).ok, false)
+  assert.equal((await handleOpenUrl({ url: 'not a url' })).ok, false)
+  assert.equal((await handleOpenUrl({ url: 'file:///etc/passwd' })).ok, false)
+  assert.equal((await handleOpenUrl({ url: 'javascript:alert(1)' })).ok, false)
+  // 白名单内才真正拉起系统浏览器——不在此真开（仅验证拒绝分支）
 })
 
 /* ---------------- 集成（真 git 临时仓库） ---------------- */
