@@ -6,11 +6,16 @@
 
 1. **文件命名**：每个版本一个文件，命名为 `v<主.次.补丁>[-<预发布标识>].md`（如 `v0.4.3.md`、`v0.5.7-rc.1.md`），与 git tag 一一对应。
 2. **发布前必备**：`scripts/release.sh ship` 会校验 `release/<tag>.md` 存在，缺失即拒绝发布。说明文件随 `release: x.y.z` 提交一并入库。
-3. **GitHub Release 同步**：
+3. **发版前置审计（2026-09-11 规定，ship 强制校验）**：发版前必须完成全仓库审计——
+   `bash scripts/release.sh audit`（typecheck / lint / 生产依赖安全漏洞三门硬性失败即拒绝；
+   死代码 / 冗余依赖报告项逐条修复或在报告中豁免），处置完成后写
+   `release/audit-v<版本>.md`（发现项清单 + 修复/豁免理由）随发版提交入库；
+   ship 会重跑审计与全量构建（pre-push 门），任一失败即拒绝发布。缺失报告文件同样拒绝发布。
+4. **GitHub Release 同步**：
    - CI（`.github/workflows/release.yml`）发布时自动读取本目录对应文件作为 Release 正文；
    - 手动发布（`release.sh release create`）优先使用本目录文件；
    - 补录/修订历史版本正文：`gh release edit v<版本> -R kkutysllb/KCoder -F release/v<版本>.md`。
-4. **正文内容**：写给用户看的变更摘要——新特性、修复、上游基线变化、升级注意事项；不堆提交日志。
+5. **正文内容**：写给用户看的变更摘要——新特性、修复、上游基线变化、升级注意事项；不堆提交日志。
 
 ## 模板
 

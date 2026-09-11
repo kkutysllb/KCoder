@@ -17,10 +17,6 @@ import type { UpstreamProgress, UpstreamStatus } from '@shared/ipc-contract'
 /** 同步中标志：同步进行时拒绝重复触发与 dsh 启动竞争。 */
 let syncing = false
 
-export function isSyncing(): boolean {
-  return syncing
-}
-
 /* ---------- git 小工具 ---------- */
 
 function git(args: string[], options: { timeout?: number } = {}): { ok: boolean; out: string } {

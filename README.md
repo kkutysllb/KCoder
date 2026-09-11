@@ -54,7 +54,10 @@ pnpm build && pnpm start
 1. 三平台（macOS / Windows / Linux）matrix 并行构建：CI 现拉上游 `deepseek-harness` 并构建（`scripts/setup.sh`），再 electron-builder 打包；
 2. macOS 产物 Developer ID 签名 + 公证（secrets 同基线）；构建后自动校验签名与公证票据，坏包直接失败；
 3. 产物汇合后统一发布 GitHub Release（安装包 + `latest*.yml` + blockmap，electron-updater 的发现/增量更新入口）；
-4. 发布流程：`package.json` 版本号 → 提交 → `git tag v<x.y.z> && git push origin v<x.y.z>`；
+4. 发布流程（2026-09-11 起含发版前置审计规定）：先 `bash scripts/release.sh audit` 做全仓库审计
+   （typecheck / lint / 生产依赖安全漏洞为硬门；死代码 / 冗余依赖报告项逐条修复或豁免），处置后写
+   `release/audit-v<版本>.md` 随发版入库；`bash scripts/release.sh ship <版本>` 会重跑审计与全量
+   构建（pre-push 门），通过后自动 bump 版本号 → 提交 → tag → 推送；
 5. 自动更新：应用启动 8s 后静默检测 → 后台下载 → 侧边栏安装按钮/菜单 → 重启安装。
 
 ## 图标

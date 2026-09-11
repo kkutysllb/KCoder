@@ -15,7 +15,12 @@
 # 常用流程（一键，KStock 同款）：
 #   先写发布说明（约定见 release/README.md，ship 会强制校验）：
 #     新建 release/v0.2.0.md（模板在 release/README.md）
-#   bash scripts/release.sh ship 0.2.0   # bump+提交+tag+推送，CI 全自动三平台发布
+#   bash scripts/release.sh ship 0.2.0   # 发版前置门（审计报告+审计+构建）通过后 bump+提交+tag+推送
+#
+#   发版前置（2026-09-11 规定）：先跑全仓库审计并写报告：
+#     bash scripts/release.sh audit        # typecheck/lint/安全漏洞门 + 死代码/冗余依赖报告
+#     处置发现项后写 release/audit-v<版本>.md（ship 强制校验，缺失即拒绝发布）
+#     bash scripts/release.sh prepush      # 全仓库 pre-push 门（审计 + 全量构建），可单独跑
 #
 # 本地调试/应急（可选）：
 #   bash scripts/release.sh build        # 本地打包 + 校验（含公证，需凭据）
@@ -269,6 +274,20 @@ cmd_bump() {
 
 # ─────────────────────────── ship（一键发布） ───────────────────────────
 
+# 全仓库审计（发版前置规定 2026-09-11）：typecheck/lint/安全漏洞三门 +
+# 死代码/冗余依赖报告。发现项修复或在 release/audit-v<版本>.md 中豁免。
+cmd_audit() {
+  node "$ROOT/scripts/audit.mjs"
+}
+
+# 全仓库 pre-push 门：审计 + 全量构建（main/preload/renderer）。
+cmd_prepush() {
+  say "全仓库 pre-push 门：审计 + 全量构建…"
+  cmd_audit
+  pnpm --dir "$ROOT" run build
+  ok "全仓库 pre-push 通过"
+}
+
 cmd_ship() {
   [[ $# -eq 1 ]] || die "用法：release.sh ship <version>（例：0.1.0）"
   local t; t="$(norm_tag "$1")"; local v; v="$(bare_version "$t")"
@@ -277,6 +296,13 @@ cmd_ship() {
   # 一并入库，CI 发布时作为 GitHub Release 正文——缺失即拒绝发布。
   [[ -f "$ROOT/release/$t.md" ]] \
     || die "缺发布说明 release/$t.md（约定与模板见 release/README.md：先写好说明再 ship）"
+
+  # 发版前置（2026-09-11 规定）：全仓库审计 + 审计报告 + 全仓库 pre-push。
+  # 审计项（死代码/冗余/漏洞等）修复或在报告中豁免；报告随发版提交入库；
+  # 本命令会重跑审计与全量构建，任一失败即拒绝发布。
+  [[ -f "$ROOT/release/audit-$t.md" ]] \
+    || die "缺全仓库审计报告 release/audit-$t.md（先跑 bash scripts/release.sh audit，逐条处置后写报告再 ship）"
+  cmd_prepush
 
   # 前置检查：不覆盖已有 tag；本地不落后远程
   if git -C "$ROOT" rev-parse -q --verify "refs/tags/$t" >/dev/null; then
@@ -432,6 +458,8 @@ main() {
   local cmd="$1"; shift
   case "$cmd" in
     status)  cmd_status "$@" ;;
+    audit)   cmd_audit "$@" ;;
+    prepush) cmd_prepush "$@" ;;
     ship)    cmd_ship "$@" ;;
     build)   cmd_build "$@" ;;
     verify)  cmd_verify "$@" ;;
@@ -439,7 +467,7 @@ main() {
     tag)     cmd_tag "$@" ;;
     release) cmd_release "$@" ;;
     help|-h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}" ;;
-    *) die "未知命令：${cmd}（可用：status ship build verify bump tag release help）" ;;
+    *) die "未知命令：${cmd}（可用：status audit prepush ship build verify bump tag release help）" ;;
   esac
 }
 
