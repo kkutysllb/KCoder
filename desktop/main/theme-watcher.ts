@@ -81,13 +81,17 @@ const WATCH_JS = `(() => {
       : document.body.hasAttribute('data-ds-dark-theme')
         || document.documentElement.style.colorScheme === 'dark'
     console.log('__dsh_theme__:' + (dark ? 'dark' : 'light'))
-    reportPref()
+    reportPref(dark ? 'dark' : 'light')
   }
   // 偏好档探测：上游不把偏好落在 DOM（仅实色），但服务端渲染 index 时
   // 内嵌 boot 内联脚本 const preference = "light|dark|system"
   //（boot-theme.ts，每次请求读持久化值）。同源 fetch 首页解析即可。
-  // 实色变化（偏好切换/系统翻转）都重探一次；失败静默，下次变化重试
-  const reportPref = () => {
+  // 一致性门：点主题时上游先乐观翻 DOM、后异步持久化，紧跟的 fetch 会
+  // 读到持久化前的旧偏好——直接上报会把主进程的 themeSource/overlay
+  // 打回上一档（0.6.1 Windows 实测点击深色按钮区变浅、点浅变深的反转
+  // 根因）。偏好必须与当前实色自洽（system 恒自洽），不一致延迟重读等
+  // 持久化落盘；失败静默，下次变化重试
+  const reportPref = (concrete, attempt) => {
     // 必须保留 ?token= 查询串：相对路径 './' 会把 query 丢掉，服务端
     // 401 后偏好永远无法上报，nativeTheme 停留在上次手动实色，
     // 「跟随系统」档随之失效（0.5.9 实测根因，Windows 未复现只是
@@ -95,8 +99,13 @@ const WATCH_JS = `(() => {
     fetch(location.pathname + location.search, { cache: 'no-store' })
       .then((res) => (res.ok ? res.text() : ''))
       .then((html) => {
-        const m = /const[ \t]+preference[ \t]*=[ \t]*"(light|dark|system)"/.exec(html)
-        if (m !== null) console.log('__dsh_theme_pref__:' + m[1])
+        const m = /const[ \\t]+preference[ \\t]*=[ \\t]*"(light|dark|system)"/.exec(html)
+        if (m === null) return
+        if (m[1] !== 'system' && m[1] !== concrete) {
+          if ((attempt || 0) < 3) setTimeout(() => reportPref(concrete, (attempt || 0) + 1), 500)
+          return
+        }
+        console.log('__dsh_theme_pref__:' + m[1])
       })
       .catch(() => {})
   }
@@ -174,8 +183,12 @@ export function attachThemeWatcher(win: BrowserWindow): void {
     if (message.startsWith(THEME_PREF_PREFIX)) {
       const value = message.slice(THEME_PREF_PREFIX.length)
       if (value === 'system' || value === 'light' || value === 'dark') {
+        // 偏好档只驱动 nativeTheme（三态/跟随系统语义）。窗口 chrome 一律
+        // 跟随实色通道（DOM 权威，且每次偏好上报前都伴随实色上报）：
+        // 拿偏好画 chrome 会与实色赛跑——乐观更新期间读到旧偏好就会把
+        // overlay 打回上一档（0.6.1 深↔浅反转根因）；跟随系统档的系统
+        // 翻转由下方 nativeTheme 'updated' 重同步兜底
         applyNativeTheme(value)
-        applyShellChromeTheme(win, value)
       }
       return
     }
