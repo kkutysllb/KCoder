@@ -97,6 +97,9 @@ export async function ensureBrowserHost(): Promise<boolean> {
     '--headless=new',
     `--user-data-dir=${dataDir}`,
     '--remote-debugging-port=0',
+    // Chrome 111+ 起 DevTools WS 会拒带 Origin 头的连接(页面 renderer
+    // 的 WebSocket 必带)——官方开关放行全部来源;端口仅绑 127.0.0.1
+    '--remote-allow-origins=*',
     '--no-first-run',
     '--no-default-browser-check',
     '--window-size=1440,900',
