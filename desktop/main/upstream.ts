@@ -21,6 +21,7 @@ let syncing = false
 
 function git(args: string[], options: { timeout?: number } = {}): { ok: boolean; out: string } {
   const result = spawnSync('git', ['-C', UPSTREAM_DIR, ...args], {
+    windowsHide: true,
     encoding: 'utf8',
     timeout: options.timeout ?? 30_000,
   })

@@ -109,6 +109,9 @@ export class DshManager extends EventEmitter {
     this.appendLog('stdout', `$ ${command.describe}\n$ ${command.command} ${args.join(' ')}`)
     const child = spawn(command.command, args, {
       cwd: command.cwd,
+      // Windows:GUI 应用派生控制台子进程默认弹 cmd 窗口;隐藏后引擎的
+      // 工具子进程继承同一(隐藏)控制台,任务执行期不再闪烁弹窗
+      windowsHide: true,
       // mediaSpawnEnv：多媒体技能模型凭据（$DSH_HOME/media-models.env，
       // 设置→技能→多媒体模型维护），随侧车传给 agent 的工具子进程
       env: { ...process.env, ...command.env, ...mediaSpawnEnv() },

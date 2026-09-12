@@ -295,6 +295,7 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
     const full = [...command.baseArgs, 'plugin', '--profile', WEB_PROFILE, ...args]
     const child = spawn(command.command, full, {
       cwd: command.cwd,
+      windowsHide: true,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     })

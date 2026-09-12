@@ -129,7 +129,7 @@ export function ensureBundledRuntime(): string | null {
     mkdirSync(tmp, { recursive: true })
     // macOS/Linux/Windows 10+ 均自带 tar（bsdtar 兼容 -xzf）；失败回退
     // 到克隆/PATH 分支而非崩溃
-    const res = spawnSync('tar', ['-xzf', tar, '-C', tmp], { timeout: 180_000 })
+    const res = spawnSync('tar', ['-xzf', tar, '-C', tmp], { timeout: 180_000, windowsHide: true })
     const root = existsSync(join(tmp, BUNDLED_BIN)) ? tmp : join(tmp, 'kcoder-runtime')
     if (res.status !== 0 || !existsSync(join(root, BUNDLED_BIN))) {
       console.error(`[dsh-contract] 内置运行时解压失败：${String(res.stderr)}`)
@@ -209,6 +209,7 @@ export function runPnpm(
       cwd,
       encoding: 'utf8',
       timeout: timeoutMs,
+      windowsHide: true,
       env: runtime.isElectron ? { ...process.env, ELECTRON_RUN_AS_NODE: '1' } : process.env,
     })
   }
@@ -216,6 +217,7 @@ export function runPnpm(
     cwd,
     encoding: 'utf8',
     timeout: timeoutMs,
+    windowsHide: true,
     shell: process.platform === 'win32',
   })
 }
@@ -261,7 +263,7 @@ export function upstreamBuilt(): boolean {
  */
 export function resolveRuntime(): { command: string; args: string[]; isElectron: boolean } | null {
   const range = upstreamNodeRange()
-  const sysNode = spawnSync('node', ['--version'], { encoding: 'utf8', timeout: 5_000 })
+  const sysNode = spawnSync('node', ['--version'], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
   const sysOk =
     sysNode.status === 0 && typeof sysNode.stdout === 'string'
     && (range === null || satisfies(sysNode.stdout.trim().slice(1), range))
@@ -336,6 +338,7 @@ export function resolveDshCommand(): DshCommand | null {
     const probe = spawnSync(parts[0], [...parts.slice(1), '--version'], {
       encoding: 'utf8',
       timeout: 10_000,
+      windowsHide: true,
     })
     const version = probe.status === 0 ? parseVersionOutput(probe.stdout) : null
     return {
@@ -395,7 +398,7 @@ export function resolveDshCommand(): DshCommand | null {
 
   // 4) PATH 中的 dsh（用户全局安装了 @deepseek-ai/dsh 或自行链接；
   //    存在性探测顺手的 --version stdout 决定 --no-open 门）
-  const probe = spawnSync('dsh', ['--version'], { encoding: 'utf8', timeout: 10_000 })
+  const probe = spawnSync('dsh', ['--version'], { encoding: 'utf8', timeout: 10_000, windowsHide: true })
   if (probe.status === 0) {
     const version = parseVersionOutput(probe.stdout)
     return {

@@ -180,7 +180,7 @@ function commandAvailable(command: string): boolean {
     } else {
       const probe = process.platform === 'win32'
         ? spawnSync('where.exe', [command], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
-        : spawnSync('which', [command], { encoding: 'utf8', timeout: 5_000 })
+        : spawnSync('which', [command], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
       ok = probe.status === 0
     }
   }

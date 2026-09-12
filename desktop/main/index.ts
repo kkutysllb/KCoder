@@ -71,7 +71,7 @@ if (process.env.npm_config_registry === undefined) {
   if (process.platform !== 'win32') {
     const sh = process.platform === 'darwin' && existsSync('/bin/zsh') ? '/bin/zsh' : '/bin/bash'
     try {
-      const r = spawnSync(sh, ['-l', '-c', 'printf %s "$PATH"'], { timeout: 3000, encoding: 'utf8' })
+      const r = spawnSync(sh, ['-l', '-c', 'printf %s "$PATH"'], { timeout: 3000, encoding: 'utf8', windowsHide: true })
       if (r.status === 0 && typeof r.stdout === 'string') {
         for (const dir of r.stdout.split(delim)) if (dir !== '') extra.add(dir)
       }
