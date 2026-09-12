@@ -88,10 +88,14 @@ const WATCH_JS = `(() => {
   //（boot-theme.ts，每次请求读持久化值）。同源 fetch 首页解析即可。
   // 实色变化（偏好切换/系统翻转）都重探一次；失败静默，下次变化重试
   const reportPref = () => {
-    fetch('./', { cache: 'no-store' })
+    // 必须保留 ?token= 查询串：相对路径 './' 会把 query 丢掉，服务端
+    // 401 后偏好永远无法上报，nativeTheme 停留在上次手动实色，
+    // 「跟随系统」档随之失效（0.5.9 实测根因，Windows 未复现只是
+    // 因为该机 themeSource 恰好未被手动实色钉死）
+    fetch(location.pathname + location.search, { cache: 'no-store' })
       .then((res) => (res.ok ? res.text() : ''))
       .then((html) => {
-        const m = /const preference = "(light|dark|system)"/.exec(html)
+        const m = /const\s+preference\s*=\s*"(light|dark|system)"/.exec(html)
         if (m !== null) console.log('__dsh_theme_pref__:' + m[1])
       })
       .catch(() => {})
@@ -130,6 +134,10 @@ function driveNativeTheme(pref: 'system' | 'light' | 'dark'): void {
   nativeTheme.themeSource = pref
   themeEvents.emit('theme-changed', pref)
 }
+
+/** 已挂主题观察的 shell 窗口（系统翻转时的 chrome 重同步面）。 */
+const watchedShellWindows = new Set<BrowserWindow>()
+let nativeThemeHooked = false
 
 /** shell 链路主题应用：上游实色/偏好档 → themeSource + lastTheme 持久化（变化才写盘）。 */
 export function applyNativeTheme(pref: 'system' | 'light' | 'dark'): void {
@@ -194,10 +202,21 @@ export function attachThemeWatcher(win: BrowserWindow): void {
   }
   webContents.on('console-message', onConsole)
   webContents.on('did-finish-load', onDidLoad)
+  watchedShellWindows.add(win)
   win.once('closed', () => {
+    watchedShellWindows.delete(win)
     webContents.removeListener('console-message', onConsole)
     webContents.removeListener('did-finish-load', onDidLoad)
   })
+  // 跟随系统档：OS 外观翻转不产生页面导航，chrome 底色在主进程侧
+  // 主动重同步（页面 DOM 由上游 prefers-color-scheme 自行翻转）
+  if (!nativeThemeHooked) {
+    nativeThemeHooked = true
+    nativeTheme.on('updated', () => {
+      if (currentThemePref() !== 'system') return
+      for (const w of watchedShellWindows) applyShellChromeTheme(w, 'system')
+    })
+  }
 }
 
 /**
@@ -387,10 +406,21 @@ export function applyShellChromeTheme(win: BrowserWindow, pref: 'system' | 'ligh
   // 主题同步底色与符号色（创建时经 options 预置，主题切换后这里刷新）
   if (process.platform === 'win32') {
     const dark = pref === 'system' ? nativeTheme.shouldUseDarkColors : pref === 'dark'
-    win.setTitleBarOverlay({
+    const overlay = {
       color: themeBackgroundColor(pref),
       symbolColor: overlaySymbolColor(dark),
       height: SHELL_TITLEBAR_HEIGHT,
-    })
+    }
+    // Windows 已知问题：深→浅→深连续切换时，后续 setTitleBarOverlay
+    // 可能被 DWM/Electron 丢弃（overlay 卡在浅色直到重启）。立即一次 +
+    // 60/200ms 两次幂等重放，覆盖调用丢弃与 DWM 应用延迟两种时序
+    try { win.setTitleBarOverlay(overlay) } catch { /* 窗口销毁竞态 */ }
+    for (const delay of [60, 200]) {
+      setTimeout(() => {
+        try {
+          if (!win.isDestroyed()) win.setTitleBarOverlay(overlay)
+        } catch { /* 同上 */ }
+      }, delay)
+    }
   }
 }
