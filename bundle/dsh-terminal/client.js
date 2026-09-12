@@ -13,6 +13,12 @@
  *   （client 直设，无需主进程 executeJavaScript）；
  * - 多标签：每标签一个 shell（server PtyHost 会话），"+" 新建、× 关闭、
  *   restart 重建；隐藏标签持续收数据（SSE 全量广播按桶路由）；
+ * - 真实终端回放（模式平移自 dsh-coding-sidebar）：注册标签即拉服务端
+ *   transcript（snapshot RPC）回放历史——页面刷新/面板重建不再丢输出；
+ *   回放在途期间到达的 SSE 新帧进 pending 队列，历史写完再 flush（严格
+ *   保序，不重不漏）；
+ * - 依赖降级：开面板前探 /api/deps，node-pty 缺失/损坏时渲染降级卡
+ *   （原因 + 可复制的修复命令 + 重试），不再无声失败；
  * - header 上缘 4px 拖条调高（clamp + localStorage 持久化）；
  * - 右键菜单：复制/粘贴/清屏/新建/关闭（navigator.clipboard，页面
  *   同源权限；宿主 bridge IPC 不再存在）。
@@ -285,6 +291,16 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
 .kt-menu button:hover{background:rgba(128,128,128,.18)}
 .kt-menu button:disabled{opacity:.35;cursor:default}
 .kt-menu .kt-sep{height:1px;margin:4px 6px}
+.kt-deps{position:absolute;inset:0;display:flex;flex-direction:column;gap:8px;padding:16px 20px;overflow:auto}
+.kt-deps-title{font-weight:700;font-size:13px}
+.kt-deps-cause{opacity:.75;font-size:12px;word-break:break-all}
+.kt-deps-cmd{display:flex;align-items:center;gap:8px}
+.kt-deps-cmd code{flex:0 1 auto;max-width:100%;overflow-x:auto;padding:4px 8px;border-radius:6px;background:rgba(128,128,128,.14);font:500 12px Menlo,Monaco,monospace;white-space:nowrap}
+.kt-deps-cmd button{all:unset;box-sizing:border-box;cursor:pointer;padding:3px 10px;border-radius:6px;font-weight:600;flex:none}
+.kt-deps-cmd button:hover{background:rgba(128,128,128,.25)}
+.kt-deps-note{opacity:.6;font-size:11px;max-width:640px}
+.kt-deps-retry{all:unset;box-sizing:border-box;cursor:pointer;align-self:flex-start;padding:5px 14px;border-radius:7px;font-weight:600;background:rgba(77,107,254,.15);color:#4D6BFE}
+.kt-deps-retry:hover{background:rgba(77,107,254,.28)}
 `
       document.head.append(style)
 
@@ -297,6 +313,23 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
         })
         if (!res.ok) throw new Error(`rpc ${res.status}`)
         return res.json()
+      }
+
+      /* ---- node-pty 依赖状态（ok:true 缓存；不 ok 每次重查，修复后自然恢复） ---- */
+      let depsOk = null // null = 尚未查询
+      const fetchDeps = async () => {
+        if (depsOk === true) return { ok: true }
+        try {
+          const res = await fetch(`${API}/deps`)
+          const body = res.ok ? await res.json() : null
+          depsOk = body !== null && body !== undefined && body.ok === true
+          if (depsOk) return { ok: true }
+          return body != null && body.ok === false
+            ? body
+            : { ok: false, cause: 'deps ' + res.status, command: '' }
+        } catch (error) {
+          return { ok: false, cause: String(error?.message ?? error), command: '' }
+        }
       }
 
       /* ---- 单工作区面板（平移 WorkspaceView + mountTerminal） ---- */
@@ -334,6 +367,50 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
         for (const st of panel.tabs.values()) st.term.options.theme = p.xterm
       }
 
+      /** 依赖降级面板（panel-shaped：与 layout/applyPalette/开合协议兼容）。 */
+      const ensureDepsPanel = (bucket, deps) => {
+        const root = el('div', 'kt-panel')
+        root.id = bucket === NO_WORKSPACE_KEY ? '__dsh_kc_term_panel' : '__dsh_kc_term_panel_deps_' + panels.size
+        const grip = el('div', 'kt-grip')
+        const header = el('div', 'kt-header')
+        const termHost = el('div', 'kt-term')
+        const exitBar = el('div', 'kt-exit')
+        const menu = el('div', 'kt-menu')
+        menu.style.display = 'none'
+        const card = el('div', 'kt-deps')
+        card.append(el('div', 'kt-deps-title', '终端依赖不可用（降级模式）'))
+        card.append(el('div', 'kt-deps-cause', deps.cause || 'node-pty 加载失败'))
+        const cmdRow = el('div', 'kt-deps-cmd')
+        const code = el('code', '', deps.command || 'dsh plugin install')
+        const copy = el('button', '', '复制')
+        copy.type = 'button'
+        copy.onclick = () => { void navigator.clipboard?.writeText(code.textContent ?? '').catch(() => {}) }
+        cmdRow.append(code, copy)
+        card.append(cmdRow)
+        if (deps.note) card.append(el('div', 'kt-deps-note', deps.note))
+        const retry = el('button', 'kt-deps-retry', '重试')
+        retry.type = 'button'
+        retry.onclick = () => {
+          depsOk = null
+          panels.delete(bucket)
+          root.remove()
+          show(bucket)
+        }
+        card.append(retry)
+        termHost.append(card)
+        root.append(grip, header, termHost, exitBar, menu)
+        // 挂 documentElement：上游 SPA 重渲染重写 body 不清外部节点（同教训）。
+        document.documentElement.append(root)
+        const panel = {
+          bucket, root, grip, header, termHost, exitBar, menu,
+          tabs: new Map(), activeId: -1, open: false, shown: false, loaded: true,
+          palette: null, depsMode: true,
+          resyncTabs: () => {},
+        }
+        panels.set(bucket, panel)
+        return panel
+      }
+
       /** 懒建指定工作区面板 DOM（vendor 就绪后；已存在直接返回）。 */
       const ensurePanel = async (bucket) => {
         let panel = panels.get(bucket)
@@ -344,6 +421,10 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
           panel = undefined
         }
         if (panel !== undefined) return panel
+        // 依赖预检：node-pty 缺失/损坏时渲染降级卡（原因 + 修复命令 + 重试），
+        // 不再无声失败；修复后重试自然恢复。
+        const deps = await fetchDeps()
+        if (!deps.ok) return ensureDepsPanel(bucket, deps)
         // 现取而非用预热常量：预热失败置空 vendorPromise 后，这里重拉新 promise
         const { Terminal, FitAddon } = await ensureXterm()
         const root = el('div', 'kt-panel')
@@ -413,13 +494,29 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
           x.innerHTML = '<svg viewBox="0 0 16 16" width="10" height="10" fill="none"><path d="m4.5 4.5 7 7m0-7-7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'
           tabEl.append(label, x)
           tabsBar.append(tabEl)
-          const st = { id: tab.id, term, fit, host, el: tabEl, exited: !tab.alive }
+          const st = { id: tab.id, term, fit, host, el: tabEl, exited: !tab.alive, replaying: true, pending: [], disposed: false }
           tabEl.dataset.exited = st.exited ? '1' : '0'
           tabEl.onclick = () => setActive(panel, st.id)
           x.onclick = e => { e.stopPropagation(); void closeTab(panel, st.id) }
           term.onData(data => { void rpc({ op: 'write', id: st.id, data }).catch(() => {}) })
           term.onResize(({ cols, rows }) => { void rpc({ op: 'resize', id: st.id, cols, rows }).catch(() => {}) })
           panel.tabs.set(st.id, st)
+          // 真实终端回放：注册即拉服务端 transcript 写历史（页面刷新/面板
+          // 重建后不再丢输出）。回放在途期间到达的 SSE 新帧进 pending，
+          // 历史写完统一 flush——严格保序，不重不漏。
+          void rpc({ op: 'snapshot', id: st.id }).then(out => {
+            if (st.disposed) return
+            if (out != null && out.ok && typeof out.chunk === 'string' && out.chunk !== '') {
+              try { st.term.write(out.chunk) } catch { /* term 已释放 */ }
+            }
+          }).catch(() => {}).finally(() => {
+            st.replaying = false
+            if (st.pending.length > 0) {
+              const queued = st.pending
+              st.pending = []
+              for (const c of queued) { try { st.term.write(c) } catch { break } }
+            }
+          })
           return st
         }
 
@@ -453,6 +550,7 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
           if (st === undefined) return
           const out = await rpc({ op: 'close', id, cwd: p.bucket === NO_WORKSPACE_KEY ? '' : p.bucket }).catch(() => null)
           if (out === null) return
+          st.disposed = true
           st.term.dispose()
           st.host.remove()
           st.el.remove()
@@ -460,7 +558,7 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
           // 对齐服务端剩余标签（防御：本地与远端应一致）
           const ids = new Set((out.tabs ?? []).map(t => t.id))
           for (const [kid, kst] of [...p.tabs]) {
-            if (!ids.has(kid)) { kst.term.dispose(); kst.host.remove(); kst.el.remove(); p.tabs.delete(kid) }
+            if (!ids.has(kid)) { kst.disposed = true; kst.term.dispose(); kst.host.remove(); kst.el.remove(); p.tabs.delete(kid) }
           }
           if (p.tabs.size === 0) {
             // 全部关闭 → 收起面板（下次打开 ensureFirst 新建全新会话）
@@ -476,7 +574,17 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
 
         const newTab = async (p) => {
           const out = await rpc({ op: 'new', cwd: p.bucket === NO_WORKSPACE_KEY ? '' : p.bucket }).catch(() => null)
-          if (out === null || out.tab === undefined) return
+          if (out === null || out.tab === undefined) {
+            // 新建失败可能是 node-pty 缺失/损坏（spawn 加载失败）：探测 deps，
+            // 确认缺失则把面板替换为降级卡（修复命令 + 重试）。
+            const deps = await fetchDeps().catch(() => null)
+            if (deps !== null && !deps.ok) {
+              panels.delete(p.bucket)
+              if (p.root.isConnected) p.root.remove()
+              show(p.bucket)
+            }
+            return
+          }
           const st = registerTab(out.tab)
           setActive(p, st.id)
           st.term.focus()
@@ -491,6 +599,7 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
           const freshIds = new Set(fresh.map(t => t.id))
           for (const [kid, kst] of [...p.tabs]) {
             if (!freshIds.has(kid)) {
+              kst.disposed = true
               kst.term.dispose(); kst.host.remove(); kst.el.remove(); p.tabs.delete(kid)
             }
           }
@@ -692,7 +801,13 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
           if (msg === null || msg === undefined) return
           const p = panels.get(msg.bucket)
           if (p === undefined) return
-          if (msg.type === 'data') p.tabs.get(msg.id)?.term.write(msg.chunk)
+          if (msg.type === 'data') {
+            const st = p.tabs.get(msg.id)
+            if (st === undefined || st.disposed) return
+            // 回放在途：新帧先入 pending 队列，snapshot 历史写完再 flush。
+            if (st.replaying) st.pending.push(msg.chunk)
+            else st.term.write(msg.chunk)
+          }
           else if (msg.type === 'exit') {
             const st = p.tabs.get(msg.id)
             if (st === undefined) return

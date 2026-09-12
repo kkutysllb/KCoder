@@ -15,7 +15,7 @@ import * as assert from 'node:assert'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PtyHost, dispatchRpc, isTrusted, clampH, usableDir, PANEL_MIN_H, PANEL_MAX_H } from '../entry.js'
+import { PtyHost, dispatchRpc, isTrusted, clampH, usableDir, PANEL_MIN_H, PANEL_MAX_H, loadNodePty, nodePtyLoadCause, depsStatus, buildRepairCommand, findProfileDir, defaultShell, shellSpawnArgs, shellDisplayName, appendTranscript, TRANSCRIPT_LIMIT, ensureSpawnHelper } from '../entry.js'
 
 let passed = 0
 const test = (name, fn) => {
@@ -158,6 +158,119 @@ await test('PtyHost: exit 事件与 alive 翻转（杀 shell 后）', async () =
     host.dispose()
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+/* ---------------- 依赖层：loadNodePty / depsStatus / buildRepairCommand ---------------- */
+await test('依赖层: loadNodePty 真环境可载入，depsStatus 形态完整', () => {
+  // 真环境（profiles/web 或开发机）装载成功 → module + ok:true；
+  // 装载失败的部署则返回降级形态（cause + 可粘贴修复命令）。
+  const status = depsStatus()
+  if (status.ok === true) {
+    assert.ok(loadNodePty() !== null, '载入成功时应返回模块')
+    assert.strictEqual(nodePtyLoadCause(), undefined)
+  } else {
+    assert.strictEqual(typeof status.cause, 'string')
+    assert.ok(status.command.includes('dsh plugin'), '修复命令应可粘贴执行')
+  }
+})
+
+await test('依赖层: buildRepairCommand 兜底与 profile 注入', () => {
+  const fallback = buildRepairCommand({ profileDir: null })
+  assert.ok(fallback.command.includes('--profile "web"'), '无 profile 时默认 web')
+  const named = buildRepairCommand({ profileDir: '/x/.dsh/profiles/web' })
+  assert.ok(named.command.includes('--profile "web"'))
+  assert.ok(named.note.includes('allowBuilds'), '应附 allowBuilds 提示')
+})
+
+await test('依赖层: findProfileDir 双证探测 + 回退', async () => {
+  const { mkdirSync, writeFileSync } = await import('node:fs')
+  const dir = mkdtempSync(join(tmpdir(), 'kc-prof-'))
+  try {
+    // 无双证：向上找不到 profile 根 → null 或标准 web 兜底
+    const bare = findProfileDir(join(dir, 'entry.js'))
+    assert.ok(bare === null || (typeof bare === 'string' && bare.length > 0))
+    // 造双证祖先（package.json + pnpm-workspace.yaml）→ 探测命中
+    writeFileSync(join(dir, 'package.json'), '{}')
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), 'packages: []')
+    assert.strictEqual(findProfileDir(join(dir, 'node_modules', 'x', 'entry.js')), dir)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/* ---------------- shell 解析链 ---------------- */
+await test('shell 链: win32 env 覆盖 → pwsh 探测 → powershell 兜底', () => {
+  assert.strictEqual(
+    defaultShell({ platform: 'win32', env: { DSH_TERMINAL_SHELL: 'C:/pwsh/pwsh.exe' }, exists: () => false }),
+    'C:/pwsh/pwsh.exe')
+  assert.strictEqual(
+    defaultShell({
+      platform: 'win32',
+      env: { PATH: 'C:/a;C:/b', ProgramFiles: 'C:/PF', LOCALAPPDATA: 'C:/LAD' },
+      exists: (p) => p === join('C:/PF', 'PowerShell', '7', 'pwsh.exe'),
+    }),
+    join('C:/PF', 'PowerShell', '7', 'pwsh.exe'),
+    '应命中已知安装目录的 pwsh')
+  assert.strictEqual(
+    defaultShell({ platform: 'win32', env: {}, exists: () => false }),
+    'powershell.exe',
+    '全未命中时兜底 5.1')
+})
+
+await test('shell 链: posix $SHELL 优先；spawn 参数与短名', () => {
+  assert.strictEqual(
+    defaultShell({ platform: 'darwin', env: { SHELL: '/bin/ksh' }, exists: () => false }),
+    '/bin/ksh')
+  // 真平台语义：darwin/linux 登录旗标 -l；win32 无旗标
+  if (process.platform === 'win32') assert.deepStrictEqual(shellSpawnArgs(), [])
+  else assert.deepStrictEqual(shellSpawnArgs(), ['-l'])
+  assert.deepStrictEqual(shellSpawnArgs(['--noprofile']), ['--noprofile'], '显式参数整体替换')
+  assert.strictEqual(shellDisplayName('/bin/zsh'), 'zsh')
+  assert.strictEqual(shellDisplayName('C:\\\\Dir\\\\pwsh.exe'), 'pwsh')
+  assert.strictEqual(shellDisplayName('fish'), 'fish')
+})
+
+/* ---------------- transcript 回放 ---------------- */
+await test('transcript: appendTranscript 丢头保尾裁剪', () => {
+  assert.strictEqual(appendTranscript('', 'abc'), 'abc')
+  const big = 'x'.repeat(TRANSCRIPT_LIMIT + 10)
+  const out = appendTranscript('y'.repeat(5), big)
+  assert.strictEqual(out.length, TRANSCRIPT_LIMIT)
+  assert.ok(out.startsWith('x'), '超限后旧头部被丢弃')
+})
+
+await test('transcript: 真会话回放 + restart 清空 + snapshot rpc', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kc-term-t-'))
+  const host = new PtyHost()
+  try {
+    const t = host.create(dir)
+    assert.strictEqual(dispatchRpc(host, { op: 'snapshot', id: 'x' }).ok, false, '坏 id 拒绝')
+    host.write(t.id, 'echo KC_REPLAY_7Q_MARKER\\r')
+    // 轮询等 transcript 收到回显
+    let snap = null
+    for (let i = 0; i < 80; i++) {
+      snap = host.snapshot(t.id)
+      if (snap !== null && snap.includes('KC_REPLAY_7Q_MARKER')) break
+      await wait(100)
+    }
+    assert.ok(snap !== null && snap.includes('KC_REPLAY_7Q_MARKER'), 'transcript 应含输出')
+    const viaRpc = dispatchRpc(host, { op: 'snapshot', id: t.id })
+    assert.strictEqual(viaRpc.ok, true)
+    assert.ok(viaRpc.chunk.includes('KC_REPLAY_7Q_MARKER'), 'rpc snapshot 可回放')
+    // restart 清空历史（新 shell 新 transcript）
+    host.restart(t.id, dir)
+    await wait(200)
+    const after = host.snapshot(t.id)
+    assert.ok(!after.includes('KC_REPLAY_7Q_MARKER'), 'restart 后旧历史清空')
+  } finally {
+    host.dispose()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+await test('ensureSpawnHelper: 真环境幂等执行不抛', () => {
+  ensureSpawnHelper()
+  ensureSpawnHelper()
 })
 
 console.log(`\n${passed} passed, ${process.exitCode ? 'FAILED' : 'all ok'}`)
