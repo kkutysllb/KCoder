@@ -9089,6 +9089,12 @@ window.__ModuleLoader__.load({
 			browserBack: "后退",
 			browserForward: "前进",
 			browserStart: "输入网址开始浏览（沙箱模式）",
+			browserLive: "Agent 实况",
+			browserLiveFree: "自由浏览",
+			browserLiveConnecting: "连接 agent 浏览器宿主…",
+			browserLiveDown: "宿主不可达：确认 KCoder 已启动（端口 9223）",
+			browserLiveTargetNone: "暂无打开的页面——agent 发起浏览后此处实时显示",
+			browserLiveFollowLatest: "跟随最新页面",
 			browserBlockedScheme: "已阻止：仅支持 http/https 链接",
 			browserBlockedLoopback: "已阻止：不允许在浏览器中访问本机或内部地址",
 			browserInvalid: "无效的网址",
@@ -9418,6 +9424,12 @@ window.__ModuleLoader__.load({
 			browserBack: "Back",
 			browserForward: "Forward",
 			browserStart: "Enter a URL to start browsing (sandbox mode)",
+			browserLive: "Agent live",
+			browserLiveFree: "Free browse",
+			browserLiveConnecting: "connecting to the agent browser host…",
+			browserLiveDown: "host unreachable: make sure KCoder is running (port 9223)",
+			browserLiveTargetNone: "No open pages yet — they appear here live once the agent browses",
+			browserLiveFollowLatest: "Follow latest",
 			browserBlockedScheme: "Blocked: only http/https URLs are allowed",
 			browserBlockedLoopback: "Blocked: local and internal addresses cannot be browsed here",
 			browserInvalid: "Invalid URL",
@@ -9880,7 +9892,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:/Users/libing/kk_Projects/dsh-coding-sidebar/src/client/sidebar.module.css.mjs
-		const css$4 = "[data-dsh-panel-host]{z-index:25;pointer-events:none;position:fixed;inset:0;overflow:hidden}[data-dsh-panel-host][data-dsh-panel-host-degraded]{position:absolute;top:0;left:0}.S5HVoW_toggleCluster{top:calc(3px + env(safe-area-inset-top));z-index:45;pointer-events:auto;flex-direction:row;gap:4px;display:flex;position:absolute;right:10px}.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:72px}.S5HVoW_toggleButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), color var(--ds-transition-duration-slow) var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;justify-content:center;align-items:center;display:flex}.S5HVoW_toggleButton:hover:not(:disabled):not([aria-disabled=true]){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_toggleButton:disabled,.S5HVoW_toggleButton[aria-disabled=true]{opacity:.4;cursor:default}.S5HVoW_panel{box-sizing:border-box;z-index:40;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);padding-bottom:env(safe-area-inset-bottom);transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out);flex-direction:column;display:flex;position:absolute;top:0;bottom:0;right:0}.S5HVoW_panelHidden{pointer-events:none;visibility:hidden;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);transform:translate(102%)}.S5HVoW_panel[data-dragging]{transition:none}.S5HVoW_panelResize{cursor:col-resize;z-index:2;touch-action:none;width:8px;position:absolute;top:0;bottom:0;left:-4px}.S5HVoW_panelResizeActive{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_panelBody{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_panel{contain:layout style}body[data-dsh-sidebar-dragging] .S5HVoW_panel{will-change:transform}.S5HVoW_floatWindow{z-index:42;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-lv3);contain:layout style;border-radius:8px;flex-direction:column;display:flex;position:absolute;overflow:hidden}.S5HVoW_floatWindowDragging{will-change:left, top, width, height}.S5HVoW_floatHeader{height:34px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1);cursor:grab;user-select:none;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_floatWindowDragging .S5HVoW_floatHeader{cursor:grabbing}.S5HVoW_floatTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_floatClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_floatClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_floatContent{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden}.S5HVoW_floatResize{z-index:2;cursor:nwse-resize;touch-action:none;width:14px;height:14px;position:absolute;bottom:0;right:0}.S5HVoW_floatResize:hover{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane[data-dsh-float-dock-over]{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px}.S5HVoW_floatDropHint{z-index:46;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 12%, transparent);border-radius:8px;justify-content:center;align-items:center;display:flex;position:absolute}.S5HVoW_floatDropHintLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:4px 12px}.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tabBar,.S5HVoW_floatHeader{-webkit-app-region:no-drag}body[data-dsh-title-bar-compat] .S5HVoW_toggleCluster{top:calc(var(--dsh-title-bar-strip,40px) + 3px)}body[data-dsh-title-bar-compat] .S5HVoW_panel{padding-top:var(--dsh-title-bar-strip,40px)}.S5HVoW_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_iconButton:disabled{opacity:.4;cursor:default}.S5HVoW_workbench,.S5HVoW_split{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_splitRow{flex-direction:row}.S5HVoW_splitCol{flex-direction:column}.S5HVoW_splitChild{display:flex;position:relative;overflow:hidden}.S5HVoW_divider{z-index:3;touch-action:none;flex:none;position:relative}.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{content:\"\";background:var(--dsw-alias-border-l2);transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out);position:absolute}.S5HVoW_dividerRow{cursor:col-resize;width:7px;margin:0 -2px}.S5HVoW_dividerRow:after{width:1px;top:0;bottom:0;left:50%;transform:translate(-50%)}.S5HVoW_dividerCol{cursor:row-resize;height:7px;margin:-2px 0}.S5HVoW_dividerCol:after{height:1px;top:50%;left:0;right:0;transform:translateY(-50%)}.S5HVoW_divider:hover:after,.S5HVoW_dividerActive:after{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_paneDrop{outline:1px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_dropOverlay{z-index:6;pointer-events:none;background:var(--dsw-alias-interactive-bg-hover-accent);opacity:.5;position:absolute}.S5HVoW_dropLeft{width:25%;top:0;bottom:0;left:0}.S5HVoW_dropRight{width:25%;top:0;bottom:0;right:0}.S5HVoW_dropUp{height:25%;top:0;left:0;right:0}.S5HVoW_dropDown{height:25%;bottom:0;left:0;right:0}.S5HVoW_dropCenter{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px;background:0 0;inset:25%}.S5HVoW_paneContent{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden}.S5HVoW_paneTab{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_paneTabHidden{display:none}.S5HVoW_paneEmptyCards{flex:1;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));align-content:start;gap:8px;min-height:0;padding:12px;display:grid;overflow:hidden}.S5HVoW_paneCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;text-align:center;border-radius:8px;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:12px 8px;display:flex}.S5HVoW_paneCard:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}.S5HVoW_paneCard:disabled{opacity:.45;cursor:default}.S5HVoW_tabBar{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:stretch;height:34px;display:flex}.S5HVoW_tabBarDrop{outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_tabList{scrollbar-width:none;flex:1;min-width:0;display:flex;overflow-x:auto}.S5HVoW_tabList::-webkit-scrollbar{display:none}.S5HVoW_tab{min-width:64px;max-width:160px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);border-right:1px solid var(--dsw-alias-border-l1);cursor:pointer;user-select:none;background:0 0;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_tabActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_tabTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_tabBadge{min-width:16px;height:15px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);border-radius:8px;flex:none;justify-content:center;align-items:center;padding:0 4px;display:inline-flex}.S5HVoW_tabClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_tabClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tabBarPlus{background:var(--dsw-alias-bg-layer-1);width:22px;height:22px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border:none;border-radius:5px;flex:none;justify-content:center;align-self:center;align-items:center;margin:0 6px;padding:0;display:inline-flex;position:sticky;right:0}.S5HVoW_tabBarPlus:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_pinnedTab{color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_pinnedTab:hover{color:var(--dsw-alias-label-secondary)}.S5HVoW_explorer{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_explorerHeader{flex:none;justify-content:space-between;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_explorerRoot{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_explorerBody{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden auto}.S5HVoW_explorerRow{box-sizing:border-box;width:100%;max-width:100%;height:34px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;white-space:nowrap;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);background:0 0;border:none;border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.S5HVoW_explorerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_explorerRowRevealed{background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 18%, transparent);box-shadow:inset 2px 0 0 var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_explorerDir{font:var(--dsw-font-s-strong-14)}.S5HVoW_explorerHidden{opacity:.45}.S5HVoW_explorerSymlink{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerBroken .S5HVoW_explorerName{color:var(--dsw-alias-state-error-primary)}.S5HVoW_explorerName{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.S5HVoW_explorerRef{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:20px;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;align-items:center;padding:0 8px;display:none}.S5HVoW_explorerRef:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_explorerRow:hover .S5HVoW_explorerRef,.S5HVoW_explorerRow:focus-within .S5HVoW_explorerRef{display:inline-flex}.S5HVoW_explorerCopied{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);cursor:default}@keyframes S5HVoW_dsh-row-in{0%{opacity:0}}.S5HVoW_explorerEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_explorerRowDropTarget{background:var(--dsw-alias-interactive-bg-hover);outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_uploadDropZone{z-index:1001;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);box-shadow:0 0 0 200vmax var(--dsw-alias-bg-mask-drop);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:10px;justify-content:center;align-items:flex-start;padding:12px;display:flex;position:fixed}.S5HVoW_uploadDropHero{flex-direction:column;align-items:center;gap:10px;max-width:100%;padding-top:8px;display:flex}.S5HVoW_uploadDropZonePill{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:100%;box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);border-radius:999px;align-items:center;gap:6px;padding:6px 12px;display:flex}.S5HVoW_uploadDropZoneText{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadDropChatHint{z-index:1002;pointer-events:none;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;padding:24px;display:flex;position:fixed;top:0;bottom:0;left:0}.S5HVoW_uploadDropChatCard{text-align:center;max-width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-strong-14);flex-direction:column;align-items:center;gap:12px;display:flex}.S5HVoW_uploadOverlay{z-index:30;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;display:flex;position:absolute;inset:0}.S5HVoW_uploadOverlayCard{border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-alias-bg-layer-2);min-width:280px;max-width:min(420px,100% - 48px);box-shadow:var(--dsw-shadow-lv3);border-radius:24px;flex-direction:column;gap:12px;padding:20px 24px;display:flex}.S5HVoW_uploadOverlayTitle{font:var(--dsw-font-s-strong-14);color:var(--dsw-alias-label-primary);align-items:center;gap:8px;display:flex}.S5HVoW_uploadOverlayTitle>svg{flex:none}.S5HVoW_uploadOverlayTitle>span{white-space:nowrap;text-overflow:ellipsis;min-width:0;overflow:hidden}.S5HVoW_uploadOverlayProgress{background:var(--dsw-alias-border-l2);border-radius:3px;height:6px;overflow:hidden}.S5HVoW_uploadOverlayProgressFill{background:var(--dsw-alias-interactive-bg-hover-accent);height:100%;transition:width .15s var(--ds-ease-in-out);border-radius:3px}.S5HVoW_uploadOverlayStatus{min-height:1em;font:var(--dsw-font-xxs-12);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadOverlayCancel{border:1px solid var(--dsw-alias-border-l2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;background:0 0;border-radius:8px;align-self:flex-end;padding:0 14px}.S5HVoW_uploadOverlayCancel:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_uploadOverlayCancel:disabled{opacity:.4;cursor:default}.S5HVoW_editor{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorTitle{min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.S5HVoW_editorPathInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorPathInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorTreeToggleActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_editorBody{flex:1;min-height:0;display:flex}.S5HVoW_editorMain{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_editorTreeDock{border-left:1px solid var(--dsw-alias-border-l1);flex:none;min-height:0;display:flex;position:relative}.S5HVoW_editorTreeResize{cursor:col-resize;touch-action:none;z-index:3;width:6px;position:absolute;top:0;bottom:0;left:0}.S5HVoW_editorTreeResize:hover{background:var(--dsw-alias-border-l2)}.S5HVoW_editorTreePanel{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_editorTreePanelFull{flex:1}.S5HVoW_editorTreeSearch{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorSearchInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorSearchInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorSearchHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:8px 12px}.S5HVoW_editorSearchResult{width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;text-overflow:ellipsis;white-space:nowrap;background:0 0;border:none;border-radius:6px;padding:4px 8px;display:block;overflow:hidden}.S5HVoW_editorSearchResult:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorStatusError{color:var(--dsw-alias-state-error-primary)}.S5HVoW_dirtyDot{background:var(--dsw-alias-state-warn-primary);border-radius:50%;flex:none;width:7px;height:7px}.S5HVoW_editorPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex:1;justify-content:center;align-items:center;padding:16px;display:flex}.S5HVoW_orphanedType{opacity:.7;overflow-wrap:anywhere;margin-top:8px;font-size:12px;display:block}.S5HVoW_editorBinary{text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:12px;padding:24px 16px;display:flex}.S5HVoW_editorBinaryNotice{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorDownloadLink{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:6px;align-items:center;gap:6px;padding:6px 14px;text-decoration:none;display:inline-flex}.S5HVoW_editorDownloadLink:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_editorError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);padding:12px 16px}.S5HVoW_editorBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 8px}.S5HVoW_sandboxStatus{font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sandboxStatusOn{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sandboxStatusOff{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}.S5HVoW_sandboxDot{background:var(--dsw-alias-state-success-primary);border-radius:50%;flex:none;width:6px;height:6px}.S5HVoW_sandboxStatusOff .S5HVoW_sandboxDot{background:var(--dsw-alias-state-error-primary)}.S5HVoW_sandboxStatusText{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_sandboxAction{border:1px solid var(--dsw-alias-border-l2);font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:6px;flex:none;padding:2px 8px}.S5HVoW_sandboxAction:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_browser{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_browserBar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:4px;padding:6px 8px;display:flex}.S5HVoW_browserInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_browserInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_browserMessage{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 12px}.S5HVoW_browserFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_browserStart{text-align:center;min-height:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);flex:1;justify-content:center;align-items:center;padding:20px;display:flex}.S5HVoW_browserBlocked{text-align:center;min-height:0;color:var(--dsw-alias-state-warn-primary);flex-direction:column;flex:1;justify-content:center;align-items:center;gap:6px;padding:24px;display:flex}.S5HVoW_browserBlockedTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary)}.S5HVoW_browserBlockedDesc{max-width:280px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary)}.S5HVoW_browserBlockedActions{gap:8px;margin-top:6px;display:flex}.S5HVoW_browserBlockedButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);cursor:pointer;border-radius:6px;padding:4px 12px}.S5HVoW_browserBlockedButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorCm{background:0 0;flex:1;min-height:0;overflow:hidden}.S5HVoW_editorCm .cm-editor{height:100%}.S5HVoW_editorCm .cm-scroller{padding:12px 16px}.S5HVoW_editorCm .cm-editor.cm-focused{outline:none}.S5HVoW_selectionPopup{z-index:60;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;cursor:pointer;border-radius:6px;align-items:center;padding:0 10px;display:inline-flex;position:fixed;transform:translate(-50%,calc(-100% - 8px))}.S5HVoW_selectionPopup:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_terminalWrap{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;position:relative}.S5HVoW_terminal{flex:1;min-height:0;padding:6px 4px 6px 8px}.S5HVoW_terminal .xterm{height:100%}.S5HVoW_terminalBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-wrap:wrap;flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalBannerUrl{word-break:break-all;opacity:.85;flex-basis:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.S5HVoW_boundaryError{z-index:50;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;align-items:flex-start;gap:8px;padding:16px;display:flex;position:fixed;top:0;bottom:0;right:0;overflow:auto}.S5HVoW_terminalRetry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;padding:1px 8px}.S5HVoW_terminalRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_terminalDepsBanner{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-direction:column;flex:none;gap:6px;padding:10px;display:flex}.S5HVoW_terminalDepsTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-state-warn-primary)}.S5HVoW_terminalDepsHint{opacity:.9}.S5HVoW_terminalDepsCommandRow{align-items:flex-start;gap:8px;display:flex}.S5HVoW_terminalRepairCommand{white-space:pre-wrap;word-break:break-all;user-select:text;min-width:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:4px;flex:1;max-height:160px;margin:0;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;overflow:auto}.S5HVoW_terminalDepsNote{opacity:.85}.S5HVoW_terminalDepsActions{align-items:center;gap:8px;display:flex}.S5HVoW_tabBoundaryError{min-height:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;flex:1;align-items:flex-start;gap:8px;padding:12px 16px;display:flex;overflow:auto}.S5HVoW_git{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitHeader{flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitWorktreeRow{flex:none;align-items:center;gap:8px;padding:6px 8px 0 12px;display:flex}.S5HVoW_gitWorktreeLabel{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none}.S5HVoW_gitBranchSelect{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 6px}.S5HVoW_gitSection{border-top:1px solid var(--dsw-alias-border-l1)}.S5HVoW_gitSectionHeader{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);text-transform:uppercase;justify-content:space-between;align-items:center;padding:6px 12px 4px;display:flex}.S5HVoW_gitLink{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-brand-primary);cursor:pointer;background:0 0;border:none;padding:0}.S5HVoW_gitLink:hover:not(:disabled){text-decoration:underline}.S5HVoW_gitLink:disabled{opacity:.4;cursor:default}.S5HVoW_gitRow{min-height:34px;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:8px;align-items:center;gap:6px;margin:0 6px;padding:0 8px;display:flex}.S5HVoW_gitRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitRowSelected{background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_gitRowMain{cursor:pointer;text-align:left;background:0 0;border:none;flex:1;align-items:center;gap:8px;min-width:0;padding:3px 0;display:flex}.S5HVoW_gitBadge{width:20px;height:16px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_gitName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:4px 12px 8px}.S5HVoW_gitPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_gitError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap;padding:8px 12px}.S5HVoW_gitDiff{border-top:1px solid var(--dsw-alias-border-l1);padding:8px}.S5HVoW_gitDiffTab{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitDiffTabHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitDiffTabTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitDiffFile{width:100%;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;align-items:baseline;gap:6px;padding:8px 2px 2px;display:flex}.S5HVoW_gitDiffFile:disabled{cursor:default}.S5HVoW_gitDiffFile:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitDiffFileChevron{color:var(--dsw-alias-label-tertiary);flex:none;transform:rotate(0)}.S5HVoW_gitDiffFileChevronExpanded{transform:rotate(90deg)}.S5HVoW_gitDiffFilePath{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffFileOld{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:none;max-width:40%;overflow:hidden}.S5HVoW_gitDiffFileTag{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:0 6px}.S5HVoW_gitDiffHunk{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);gap:8px;padding:3px 2px;display:flex}.S5HVoW_gitDiffHunkHeader{color:var(--dsw-alias-label-secondary);flex:none}.S5HVoW_gitDiffHunkSection{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffLine{font:var(--dsw-font-markdown-code-block-small);white-space:pre-wrap;overflow-wrap:anywhere;align-items:stretch;min-width:0;line-height:20px;display:flex}.S5HVoW_gitDiffNum{text-align:right;width:36px;color:var(--dsw-alias-label-tertiary);user-select:none;flex:none;padding-right:8px}.S5HVoW_gitDiffCode{flex:1;min-width:0;overflow:visible}.S5HVoW_gitDiffCtx{color:var(--dsw-alias-label-primary)}.S5HVoW_gitDiffDel{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}.S5HVoW_gitDiffAdd{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent)}.S5HVoW_gitDiffMeta{padding-left:2px}.S5HVoW_gitDiffMetaText{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_gitDiffExpand{width:100%;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-brand-primary);cursor:pointer;text-align:center;background:0 0;border:none;margin:4px 0;display:block}.S5HVoW_gitDiffExpand:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitConfirmDesc{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);white-space:pre-wrap;margin:0}.S5HVoW_gitCommit{border-top:1px solid var(--dsw-alias-border-l1);align-items:center;gap:6px;padding:8px 12px;display:flex}.S5HVoW_gitCommitInput{flex:1;min-width:0}.S5HVoW_gitCommitButton{background:var(--dsw-alias-button-primary-fill);height:26px;color:var(--dsw-alias-label-primary-inverted);font:var(--dsw-font-xxs-strong-12);cursor:pointer;border:none;border-radius:6px;flex:none;padding:0 12px}.S5HVoW_gitCommitButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.S5HVoW_gitCommitButton:disabled{opacity:.45;cursor:default}.S5HVoW_gitLogRow{cursor:pointer;border-radius:8px;flex-direction:column;gap:2px;padding:5px 12px;display:flex}.S5HVoW_gitLogRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitLogLine1{align-items:baseline;gap:8px;min-width:0;display:flex}.S5HVoW_gitLogHash{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_gitLogLine2{flex-wrap:wrap;align-items:center;gap:6px;min-width:0;display:flex}.S5HVoW_gitLogRef{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-brand-primary);white-space:nowrap;border-radius:999px;flex:none;padding:0 5px}.S5HVoW_gitLogSubject{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitLogMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_gitLogMore{border:1px solid var(--dsw-alias-border-l2);width:calc(100% - 24px);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:6px;margin:4px 12px 8px;padding:6px 0;display:block}.S5HVoW_gitLogMore:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitLogMore:disabled{opacity:.5;cursor:default}.S5HVoW_producedRow{flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0;display:flex}.S5HVoW_producedLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_producedChip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:200px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;display:inline-flex;overflow:hidden}.S5HVoW_producedChip:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_producedChip span{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_producedMore{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_toggleButton:focus-visible,.S5HVoW_iconButton:focus-visible,.S5HVoW_tab:focus-visible,.S5HVoW_tabClose:focus-visible,.S5HVoW_tabBarPlus:focus-visible,.S5HVoW_paneCard:focus-visible,.S5HVoW_explorerRow:focus-visible,.S5HVoW_explorerRef:focus-visible,.S5HVoW_gitRowMain:focus-visible,.S5HVoW_gitLink:focus-visible,.S5HVoW_gitCommitButton:focus-visible,.S5HVoW_gitLogRow:focus-visible,.S5HVoW_gitLogMore:focus-visible,.S5HVoW_gitDiffFile:focus-visible,.S5HVoW_gitDiffExpand:focus-visible,.S5HVoW_terminalRetry:focus-visible,.S5HVoW_editorDownloadLink:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}@media (prefers-reduced-motion:reduce){.S5HVoW_panel,.S5HVoW_panelHidden,.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tab,.S5HVoW_tabBarPlus,.S5HVoW_paneCard,.S5HVoW_explorerRow,.S5HVoW_gitRow,.S5HVoW_divider,.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{transition:none;animation:none}}@media (width<=767px){.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:40px}.S5HVoW_tab{min-width:48px;max-width:128px}}.S5HVoW_openWithLabel{align-items:center;gap:8px;width:100%;min-width:0;display:flex}.S5HVoW_openWithName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}.S5HVoW_openWithChevron{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_openWithPin{width:20px;height:20px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:6px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_openWithPin:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_openWithPinActive{color:var(--dsw-alias-state-business-primary)}@keyframes S5HVoW_dsh-toc-flash{0%,60%{background:var(--dsw-alias-interactive-bg-hover)}to{background:0 0}}";
+		const css$4 = "[data-dsh-panel-host]{z-index:25;pointer-events:none;position:fixed;inset:0;overflow:hidden}[data-dsh-panel-host][data-dsh-panel-host-degraded]{position:absolute;top:0;left:0}.S5HVoW_toggleCluster{top:calc(3px + env(safe-area-inset-top));z-index:45;pointer-events:auto;flex-direction:row;gap:4px;display:flex;position:absolute;right:10px}.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:72px}.S5HVoW_toggleButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), color var(--ds-transition-duration-slow) var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;justify-content:center;align-items:center;display:flex}.S5HVoW_toggleButton:hover:not(:disabled):not([aria-disabled=true]){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_toggleButton:disabled,.S5HVoW_toggleButton[aria-disabled=true]{opacity:.4;cursor:default}.S5HVoW_panel{box-sizing:border-box;z-index:40;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);padding-bottom:env(safe-area-inset-bottom);transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out);flex-direction:column;display:flex;position:absolute;top:0;bottom:0;right:0}.S5HVoW_panelHidden{pointer-events:none;visibility:hidden;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);transform:translate(102%)}.S5HVoW_panel[data-dragging]{transition:none}.S5HVoW_panelResize{cursor:col-resize;z-index:2;touch-action:none;width:8px;position:absolute;top:0;bottom:0;left:-4px}.S5HVoW_panelResizeActive{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_panelBody{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_panel{contain:layout style}body[data-dsh-sidebar-dragging] .S5HVoW_panel{will-change:transform}.S5HVoW_floatWindow{z-index:42;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-lv3);contain:layout style;border-radius:8px;flex-direction:column;display:flex;position:absolute;overflow:hidden}.S5HVoW_floatWindowDragging{will-change:left, top, width, height}.S5HVoW_floatHeader{height:34px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1);cursor:grab;user-select:none;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_floatWindowDragging .S5HVoW_floatHeader{cursor:grabbing}.S5HVoW_floatTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_floatClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_floatClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_floatContent{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden}.S5HVoW_floatResize{z-index:2;cursor:nwse-resize;touch-action:none;width:14px;height:14px;position:absolute;bottom:0;right:0}.S5HVoW_floatResize:hover{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane[data-dsh-float-dock-over]{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px}.S5HVoW_floatDropHint{z-index:46;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 12%, transparent);border-radius:8px;justify-content:center;align-items:center;display:flex;position:absolute}.S5HVoW_floatDropHintLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:4px 12px}.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tabBar,.S5HVoW_floatHeader{-webkit-app-region:no-drag}body[data-dsh-title-bar-compat] .S5HVoW_toggleCluster{top:calc(var(--dsh-title-bar-strip,40px) + 3px)}body[data-dsh-title-bar-compat] .S5HVoW_panel{padding-top:var(--dsh-title-bar-strip,40px)}.S5HVoW_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_iconButton:disabled{opacity:.4;cursor:default}.S5HVoW_workbench,.S5HVoW_split{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_splitRow{flex-direction:row}.S5HVoW_splitCol{flex-direction:column}.S5HVoW_splitChild{display:flex;position:relative;overflow:hidden}.S5HVoW_divider{z-index:3;touch-action:none;flex:none;position:relative}.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{content:\"\";background:var(--dsw-alias-border-l2);transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out);position:absolute}.S5HVoW_dividerRow{cursor:col-resize;width:7px;margin:0 -2px}.S5HVoW_dividerRow:after{width:1px;top:0;bottom:0;left:50%;transform:translate(-50%)}.S5HVoW_dividerCol{cursor:row-resize;height:7px;margin:-2px 0}.S5HVoW_dividerCol:after{height:1px;top:50%;left:0;right:0;transform:translateY(-50%)}.S5HVoW_divider:hover:after,.S5HVoW_dividerActive:after{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_paneDrop{outline:1px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_dropOverlay{z-index:6;pointer-events:none;background:var(--dsw-alias-interactive-bg-hover-accent);opacity:.5;position:absolute}.S5HVoW_dropLeft{width:25%;top:0;bottom:0;left:0}.S5HVoW_dropRight{width:25%;top:0;bottom:0;right:0}.S5HVoW_dropUp{height:25%;top:0;left:0;right:0}.S5HVoW_dropDown{height:25%;bottom:0;left:0;right:0}.S5HVoW_dropCenter{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px;background:0 0;inset:25%}.S5HVoW_paneContent{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden}.S5HVoW_paneTab{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_paneTabHidden{display:none}.S5HVoW_paneEmptyCards{flex:1;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));align-content:start;gap:8px;min-height:0;padding:12px;display:grid;overflow:hidden}.S5HVoW_paneCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;text-align:center;border-radius:8px;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:12px 8px;display:flex}.S5HVoW_paneCard:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}.S5HVoW_paneCard:disabled{opacity:.45;cursor:default}.S5HVoW_tabBar{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:stretch;height:34px;display:flex}.S5HVoW_tabBarDrop{outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_tabList{scrollbar-width:none;flex:1;min-width:0;display:flex;overflow-x:auto}.S5HVoW_tabList::-webkit-scrollbar{display:none}.S5HVoW_tab{min-width:64px;max-width:160px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);border-right:1px solid var(--dsw-alias-border-l1);cursor:pointer;user-select:none;background:0 0;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_tabActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_tabTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_tabBadge{min-width:16px;height:15px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);border-radius:8px;flex:none;justify-content:center;align-items:center;padding:0 4px;display:inline-flex}.S5HVoW_tabClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_tabClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tabBarPlus{background:var(--dsw-alias-bg-layer-1);width:22px;height:22px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border:none;border-radius:5px;flex:none;justify-content:center;align-self:center;align-items:center;margin:0 6px;padding:0;display:inline-flex;position:sticky;right:0}.S5HVoW_tabBarPlus:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_pinnedTab{color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_pinnedTab:hover{color:var(--dsw-alias-label-secondary)}.S5HVoW_explorer{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_explorerHeader{flex:none;justify-content:space-between;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_explorerRoot{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_explorerBody{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden auto}.S5HVoW_explorerRow{box-sizing:border-box;width:100%;max-width:100%;height:34px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;white-space:nowrap;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);background:0 0;border:none;border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.S5HVoW_explorerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_explorerRowRevealed{background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 18%, transparent);box-shadow:inset 2px 0 0 var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_explorerDir{font:var(--dsw-font-s-strong-14)}.S5HVoW_explorerHidden{opacity:.45}.S5HVoW_explorerSymlink{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerBroken .S5HVoW_explorerName{color:var(--dsw-alias-state-error-primary)}.S5HVoW_explorerName{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.S5HVoW_explorerRef{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:20px;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;align-items:center;padding:0 8px;display:none}.S5HVoW_explorerRef:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_explorerRow:hover .S5HVoW_explorerRef,.S5HVoW_explorerRow:focus-within .S5HVoW_explorerRef{display:inline-flex}.S5HVoW_explorerCopied{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);cursor:default}@keyframes S5HVoW_dsh-row-in{0%{opacity:0}}.S5HVoW_explorerEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_explorerRowDropTarget{background:var(--dsw-alias-interactive-bg-hover);outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_uploadDropZone{z-index:1001;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);box-shadow:0 0 0 200vmax var(--dsw-alias-bg-mask-drop);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:10px;justify-content:center;align-items:flex-start;padding:12px;display:flex;position:fixed}.S5HVoW_uploadDropHero{flex-direction:column;align-items:center;gap:10px;max-width:100%;padding-top:8px;display:flex}.S5HVoW_uploadDropZonePill{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:100%;box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);border-radius:999px;align-items:center;gap:6px;padding:6px 12px;display:flex}.S5HVoW_uploadDropZoneText{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadDropChatHint{z-index:1002;pointer-events:none;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;padding:24px;display:flex;position:fixed;top:0;bottom:0;left:0}.S5HVoW_uploadDropChatCard{text-align:center;max-width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-strong-14);flex-direction:column;align-items:center;gap:12px;display:flex}.S5HVoW_uploadOverlay{z-index:30;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;display:flex;position:absolute;inset:0}.S5HVoW_uploadOverlayCard{border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-alias-bg-layer-2);min-width:280px;max-width:min(420px,100% - 48px);box-shadow:var(--dsw-shadow-lv3);border-radius:24px;flex-direction:column;gap:12px;padding:20px 24px;display:flex}.S5HVoW_uploadOverlayTitle{font:var(--dsw-font-s-strong-14);color:var(--dsw-alias-label-primary);align-items:center;gap:8px;display:flex}.S5HVoW_uploadOverlayTitle>svg{flex:none}.S5HVoW_uploadOverlayTitle>span{white-space:nowrap;text-overflow:ellipsis;min-width:0;overflow:hidden}.S5HVoW_uploadOverlayProgress{background:var(--dsw-alias-border-l2);border-radius:3px;height:6px;overflow:hidden}.S5HVoW_uploadOverlayProgressFill{background:var(--dsw-alias-interactive-bg-hover-accent);height:100%;transition:width .15s var(--ds-ease-in-out);border-radius:3px}.S5HVoW_uploadOverlayStatus{min-height:1em;font:var(--dsw-font-xxs-12);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadOverlayCancel{border:1px solid var(--dsw-alias-border-l2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;background:0 0;border-radius:8px;align-self:flex-end;padding:0 14px}.S5HVoW_uploadOverlayCancel:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_uploadOverlayCancel:disabled{opacity:.4;cursor:default}.S5HVoW_editor{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorTitle{min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.S5HVoW_editorPathInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorPathInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorTreeToggleActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_editorBody{flex:1;min-height:0;display:flex}.S5HVoW_editorMain{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_editorTreeDock{border-left:1px solid var(--dsw-alias-border-l1);flex:none;min-height:0;display:flex;position:relative}.S5HVoW_editorTreeResize{cursor:col-resize;touch-action:none;z-index:3;width:6px;position:absolute;top:0;bottom:0;left:0}.S5HVoW_editorTreeResize:hover{background:var(--dsw-alias-border-l2)}.S5HVoW_editorTreePanel{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_editorTreePanelFull{flex:1}.S5HVoW_editorTreeSearch{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorSearchInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorSearchInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorSearchHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:8px 12px}.S5HVoW_editorSearchResult{width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;text-overflow:ellipsis;white-space:nowrap;background:0 0;border:none;border-radius:6px;padding:4px 8px;display:block;overflow:hidden}.S5HVoW_editorSearchResult:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorStatusError{color:var(--dsw-alias-state-error-primary)}.S5HVoW_dirtyDot{background:var(--dsw-alias-state-warn-primary);border-radius:50%;flex:none;width:7px;height:7px}.S5HVoW_editorPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex:1;justify-content:center;align-items:center;padding:16px;display:flex}.S5HVoW_orphanedType{opacity:.7;overflow-wrap:anywhere;margin-top:8px;font-size:12px;display:block}.S5HVoW_editorBinary{text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:12px;padding:24px 16px;display:flex}.S5HVoW_editorBinaryNotice{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorDownloadLink{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:6px;align-items:center;gap:6px;padding:6px 14px;text-decoration:none;display:inline-flex}.S5HVoW_editorDownloadLink:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_editorError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);padding:12px 16px}.S5HVoW_editorBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 8px}.S5HVoW_sandboxStatus{font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sandboxStatusOn{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sandboxStatusOff{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}.S5HVoW_sandboxDot{background:var(--dsw-alias-state-success-primary);border-radius:50%;flex:none;width:6px;height:6px}.S5HVoW_sandboxStatusOff .S5HVoW_sandboxDot{background:var(--dsw-alias-state-error-primary)}.S5HVoW_sandboxStatusText{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_sandboxAction{border:1px solid var(--dsw-alias-border-l2);font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:6px;flex:none;padding:2px 8px}.S5HVoW_sandboxAction:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_browser{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_browserBar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:4px;padding:6px 8px;display:flex}.S5HVoW_browserInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_browserInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_browserMessage{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 12px}.S5HVoW_browserFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_browserStart{text-align:center;min-height:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);flex:1;justify-content:center;align-items:center;padding:20px;display:flex}.S5HVoW_browserBlocked{text-align:center;min-height:0;color:var(--dsw-alias-state-warn-primary);flex-direction:column;flex:1;justify-content:center;align-items:center;gap:6px;padding:24px;display:flex}.S5HVoW_browserBlockedTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary)}.S5HVoW_browserBlockedDesc{max-width:280px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary)}.S5HVoW_browserBlockedActions{gap:8px;margin-top:6px;display:flex}.S5HVoW_browserBlockedButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);cursor:pointer;border-radius:6px;padding:4px 12px}.S5HVoW_browserBlockedButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorCm{background:0 0;flex:1;min-height:0;overflow:hidden}.S5HVoW_editorCm .cm-editor{height:100%}.S5HVoW_editorCm .cm-scroller{padding:12px 16px}.S5HVoW_editorCm .cm-editor.cm-focused{outline:none}.S5HVoW_selectionPopup{z-index:60;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;cursor:pointer;border-radius:6px;align-items:center;padding:0 10px;display:inline-flex;position:fixed;transform:translate(-50%,calc(-100% - 8px))}.S5HVoW_selectionPopup:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_terminalWrap{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;position:relative}.S5HVoW_terminal{flex:1;min-height:0;padding:6px 4px 6px 8px}.S5HVoW_terminal .xterm{height:100%}.S5HVoW_terminalBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-wrap:wrap;flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalBannerUrl{word-break:break-all;opacity:.85;flex-basis:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.S5HVoW_boundaryError{z-index:50;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;align-items:flex-start;gap:8px;padding:16px;display:flex;position:fixed;top:0;bottom:0;right:0;overflow:auto}.S5HVoW_terminalRetry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;padding:1px 8px}.S5HVoW_terminalRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_terminalDepsBanner{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-direction:column;flex:none;gap:6px;padding:10px;display:flex}.S5HVoW_terminalDepsTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-state-warn-primary)}.S5HVoW_terminalDepsHint{opacity:.9}.S5HVoW_terminalDepsCommandRow{align-items:flex-start;gap:8px;display:flex}.S5HVoW_terminalRepairCommand{white-space:pre-wrap;word-break:break-all;user-select:text;min-width:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:4px;flex:1;max-height:160px;margin:0;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;overflow:auto}.S5HVoW_terminalDepsNote{opacity:.85}.S5HVoW_terminalDepsActions{align-items:center;gap:8px;display:flex}.S5HVoW_tabBoundaryError{min-height:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;flex:1;align-items:flex-start;gap:8px;padding:12px 16px;display:flex;overflow:auto}.S5HVoW_git{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitHeader{flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitWorktreeRow{flex:none;align-items:center;gap:8px;padding:6px 8px 0 12px;display:flex}.S5HVoW_gitWorktreeLabel{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none}.S5HVoW_gitBranchSelect{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 6px}.S5HVoW_gitSection{border-top:1px solid var(--dsw-alias-border-l1)}.S5HVoW_gitSectionHeader{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);text-transform:uppercase;justify-content:space-between;align-items:center;padding:6px 12px 4px;display:flex}.S5HVoW_gitLink{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-brand-primary);cursor:pointer;background:0 0;border:none;padding:0}.S5HVoW_gitLink:hover:not(:disabled){text-decoration:underline}.S5HVoW_gitLink:disabled{opacity:.4;cursor:default}.S5HVoW_gitRow{min-height:34px;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:8px;align-items:center;gap:6px;margin:0 6px;padding:0 8px;display:flex}.S5HVoW_gitRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitRowSelected{background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_gitRowMain{cursor:pointer;text-align:left;background:0 0;border:none;flex:1;align-items:center;gap:8px;min-width:0;padding:3px 0;display:flex}.S5HVoW_gitBadge{width:20px;height:16px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_gitName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:4px 12px 8px}.S5HVoW_gitPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_gitError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap;padding:8px 12px}.S5HVoW_gitDiff{border-top:1px solid var(--dsw-alias-border-l1);padding:8px}.S5HVoW_gitDiffTab{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitDiffTabHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitDiffTabTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitDiffFile{width:100%;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;align-items:baseline;gap:6px;padding:8px 2px 2px;display:flex}.S5HVoW_gitDiffFile:disabled{cursor:default}.S5HVoW_gitDiffFile:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitDiffFileChevron{color:var(--dsw-alias-label-tertiary);flex:none;transform:rotate(0)}.S5HVoW_gitDiffFileChevronExpanded{transform:rotate(90deg)}.S5HVoW_gitDiffFilePath{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffFileOld{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:none;max-width:40%;overflow:hidden}.S5HVoW_gitDiffFileTag{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:0 6px}.S5HVoW_gitDiffHunk{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);gap:8px;padding:3px 2px;display:flex}.S5HVoW_gitDiffHunkHeader{color:var(--dsw-alias-label-secondary);flex:none}.S5HVoW_gitDiffHunkSection{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffLine{font:var(--dsw-font-markdown-code-block-small);white-space:pre-wrap;overflow-wrap:anywhere;align-items:stretch;min-width:0;line-height:20px;display:flex}.S5HVoW_gitDiffNum{text-align:right;width:36px;color:var(--dsw-alias-label-tertiary);user-select:none;flex:none;padding-right:8px}.S5HVoW_gitDiffCode{flex:1;min-width:0;overflow:visible}.S5HVoW_gitDiffCtx{color:var(--dsw-alias-label-primary)}.S5HVoW_gitDiffDel{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}.S5HVoW_gitDiffAdd{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent)}.S5HVoW_gitDiffMeta{padding-left:2px}.S5HVoW_gitDiffMetaText{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_gitDiffExpand{width:100%;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-brand-primary);cursor:pointer;text-align:center;background:0 0;border:none;margin:4px 0;display:block}.S5HVoW_gitDiffExpand:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitConfirmDesc{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);white-space:pre-wrap;margin:0}.S5HVoW_gitCommit{border-top:1px solid var(--dsw-alias-border-l1);align-items:center;gap:6px;padding:8px 12px;display:flex}.S5HVoW_gitCommitInput{flex:1;min-width:0}.S5HVoW_gitCommitButton{background:var(--dsw-alias-button-primary-fill);height:26px;color:var(--dsw-alias-label-primary-inverted);font:var(--dsw-font-xxs-strong-12);cursor:pointer;border:none;border-radius:6px;flex:none;padding:0 12px}.S5HVoW_gitCommitButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.S5HVoW_gitCommitButton:disabled{opacity:.45;cursor:default}.S5HVoW_gitLogRow{cursor:pointer;border-radius:8px;flex-direction:column;gap:2px;padding:5px 12px;display:flex}.S5HVoW_gitLogRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitLogLine1{align-items:baseline;gap:8px;min-width:0;display:flex}.S5HVoW_gitLogHash{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_gitLogLine2{flex-wrap:wrap;align-items:center;gap:6px;min-width:0;display:flex}.S5HVoW_gitLogRef{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-brand-primary);white-space:nowrap;border-radius:999px;flex:none;padding:0 5px}.S5HVoW_gitLogSubject{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitLogMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_gitLogMore{border:1px solid var(--dsw-alias-border-l2);width:calc(100% - 24px);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:6px;margin:4px 12px 8px;padding:6px 0;display:block}.S5HVoW_gitLogMore:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitLogMore:disabled{opacity:.5;cursor:default}.S5HVoW_producedRow{flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0;display:flex}.S5HVoW_producedLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_producedChip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:200px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;display:inline-flex;overflow:hidden}.S5HVoW_producedChip:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_producedChip span{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_producedMore{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_toggleButton:focus-visible,.S5HVoW_iconButton:focus-visible,.S5HVoW_tab:focus-visible,.S5HVoW_tabClose:focus-visible,.S5HVoW_tabBarPlus:focus-visible,.S5HVoW_paneCard:focus-visible,.S5HVoW_explorerRow:focus-visible,.S5HVoW_explorerRef:focus-visible,.S5HVoW_gitRowMain:focus-visible,.S5HVoW_gitLink:focus-visible,.S5HVoW_gitCommitButton:focus-visible,.S5HVoW_gitLogRow:focus-visible,.S5HVoW_gitLogMore:focus-visible,.S5HVoW_gitDiffFile:focus-visible,.S5HVoW_gitDiffExpand:focus-visible,.S5HVoW_terminalRetry:focus-visible,.S5HVoW_editorDownloadLink:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}@media (prefers-reduced-motion:reduce){.S5HVoW_panel,.S5HVoW_panelHidden,.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tab,.S5HVoW_tabBarPlus,.S5HVoW_paneCard,.S5HVoW_explorerRow,.S5HVoW_gitRow,.S5HVoW_divider,.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{transition:none;animation:none}}@media (width<=767px){.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:40px}.S5HVoW_tab{min-width:48px;max-width:128px}}.S5HVoW_openWithLabel{align-items:center;gap:8px;width:100%;min-width:0;display:flex}.S5HVoW_openWithName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}.S5HVoW_openWithChevron{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_openWithPin{width:20px;height:20px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:6px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_openWithPin:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_openWithPinActive{color:var(--dsw-alias-state-business-primary)}@keyframes S5HVoW_dsh-toc-flash{0%,60%{background:var(--dsw-alias-interactive-bg-hover)}to{background:0 0}}.S5HVoW_browserLive{flex-direction:column;gap:6px;padding:8px 10px;display:flex;position:absolute;inset:0;overflow:hidden}.S5HVoW_browserLiveStatus{opacity:.75;align-items:center;gap:8px;font-size:12px;display:flex}.S5HVoW_browserLiveCanvas{object-fit:contain;border:1px solid var(--dsw-alias-border-l,#80808040);cursor:crosshair;background:#fff;border-radius:8px;flex:1;width:100%;min-height:0}.S5HVoW_browserLiveTarget{max-width:260px;font-size:12px}";
 		const tagId$4 = "dsh-coding-sidebar/sidebar.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$4) + "]") === null) {
 			const tag = document.createElement("style");
@@ -9890,203 +9902,207 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var sidebar_module_css_default = {
-			"uploadDropZonePill": "S5HVoW_uploadDropZonePill",
-			"panelBody": "S5HVoW_panelBody",
-			"editorTreeResize": "S5HVoW_editorTreeResize",
-			"paneDrop": "S5HVoW_paneDrop",
-			"editorTreeDock": "S5HVoW_editorTreeDock",
-			"editorCm": "S5HVoW_editorCm",
-			"paneTabHidden": "S5HVoW_paneTabHidden",
-			"gitDiffFileTag": "S5HVoW_gitDiffFileTag",
-			"panelResizeActive": "S5HVoW_panelResizeActive",
-			"explorerBroken": "S5HVoW_explorerBroken",
-			"explorerHidden": "S5HVoW_explorerHidden",
-			"explorerRowDropTarget": "S5HVoW_explorerRowDropTarget",
-			"uploadDropChatCard": "S5HVoW_uploadDropChatCard",
-			"editorPathInput": "S5HVoW_editorPathInput",
-			"uploadOverlay": "S5HVoW_uploadOverlay",
-			"editorTreeToggleActive": "S5HVoW_editorTreeToggleActive",
-			"workbench": "S5HVoW_workbench",
-			"gitRowMain": "S5HVoW_gitRowMain",
-			"gitBadge": "S5HVoW_gitBadge",
-			"gitName": "S5HVoW_gitName",
-			"floatWindowDragging": "S5HVoW_floatWindowDragging",
-			"gitPlaceholder": "S5HVoW_gitPlaceholder",
-			"gitLogMore": "S5HVoW_gitLogMore",
-			"gitDiffFile": "S5HVoW_gitDiffFile",
-			"terminalRetry": "S5HVoW_terminalRetry",
-			"editorMain": "S5HVoW_editorMain",
-			"editorStatus": "S5HVoW_editorStatus",
-			"uploadDropHero": "S5HVoW_uploadDropHero",
-			"browserMessage": "S5HVoW_browserMessage",
-			"editorTreeSearch": "S5HVoW_editorTreeSearch",
-			"gitDiffHunkSection": "S5HVoW_gitDiffHunkSection",
-			"gitDiffDel": "S5HVoW_gitDiffDel",
+			"floatWindow": "S5HVoW_floatWindow",
 			"gitDiffAdd": "S5HVoW_gitDiffAdd",
-			"gitDiffMeta": "S5HVoW_gitDiffMeta",
-			"gitDiffCode": "S5HVoW_gitDiffCode",
-			"split": "S5HVoW_split",
-			"editorSearchResult": "S5HVoW_editorSearchResult",
-			"editorBanner": "S5HVoW_editorBanner",
-			"terminalDepsBanner": "S5HVoW_terminalDepsBanner",
-			"floatClose": "S5HVoW_floatClose",
-			"panel": "S5HVoW_panel",
-			"gitEmpty": "S5HVoW_gitEmpty",
-			"dividerRow": "S5HVoW_dividerRow",
-			"sandboxStatusOff": "S5HVoW_sandboxStatusOff",
-			"paneCard": "S5HVoW_paneCard",
-			"dropCenter": "S5HVoW_dropCenter",
+			"gitLogRow": "S5HVoW_gitLogRow",
+			"terminalRetry": "S5HVoW_terminalRetry",
+			"pane": "S5HVoW_pane",
+			"tabClose": "S5HVoW_tabClose",
+			"explorerRowRevealed": "S5HVoW_explorerRowRevealed",
+			"gitRowMain": "S5HVoW_gitRowMain",
 			"floatResize": "S5HVoW_floatResize",
-			"dsh-toc-flash": "S5HVoW_dsh-toc-flash",
-			"gitWorktreeRow": "S5HVoW_gitWorktreeRow",
-			"explorer": "S5HVoW_explorer",
-			"uploadDropZoneText": "S5HVoW_uploadDropZoneText",
-			"tabBarDrop": "S5HVoW_tabBarDrop",
+			"terminalDepsCommandRow": "S5HVoW_terminalDepsCommandRow",
+			"pinnedTab": "S5HVoW_pinnedTab",
+			"paneDrop": "S5HVoW_paneDrop",
+			"uploadOverlayTitle": "S5HVoW_uploadOverlayTitle",
+			"explorerBroken": "S5HVoW_explorerBroken",
+			"gitDiffNum": "S5HVoW_gitDiffNum",
+			"editorStatus": "S5HVoW_editorStatus",
+			"gitDiffLine": "S5HVoW_gitDiffLine",
+			"sandboxStatusOff": "S5HVoW_sandboxStatusOff",
+			"explorerRowDropTarget": "S5HVoW_explorerRowDropTarget",
+			"panelResize": "S5HVoW_panelResize",
+			"floatContent": "S5HVoW_floatContent",
+			"editorMain": "S5HVoW_editorMain",
+			"editorError": "S5HVoW_editorError",
+			"terminalBanner": "S5HVoW_terminalBanner",
+			"panel": "S5HVoW_panel",
+			"explorerRef": "S5HVoW_explorerRef",
+			"gitDiffTabHeader": "S5HVoW_gitDiffTabHeader",
+			"gitDiffFilePath": "S5HVoW_gitDiffFilePath",
+			"gitDiffFileOld": "S5HVoW_gitDiffFileOld",
+			"gitDiffTab": "S5HVoW_gitDiffTab",
+			"sandboxDot": "S5HVoW_sandboxDot",
+			"gitDiffHunkHeader": "S5HVoW_gitDiffHunkHeader",
+			"editorTreeToggleActive": "S5HVoW_editorTreeToggleActive",
+			"paneContent": "S5HVoW_paneContent",
+			"terminalDepsBanner": "S5HVoW_terminalDepsBanner",
+			"gitWorktreeLabel": "S5HVoW_gitWorktreeLabel",
+			"gitCommitInput": "S5HVoW_gitCommitInput",
+			"floatClose": "S5HVoW_floatClose",
+			"split": "S5HVoW_split",
+			"dropOverlay": "S5HVoW_dropOverlay",
+			"tabBarPlus": "S5HVoW_tabBarPlus",
+			"uploadDropChatHint": "S5HVoW_uploadDropChatHint",
+			"uploadOverlayCard": "S5HVoW_uploadOverlayCard",
 			"tabBoundaryError": "S5HVoW_tabBoundaryError",
+			"explorerSymlink": "S5HVoW_explorerSymlink",
+			"editorTreeSearch": "S5HVoW_editorTreeSearch",
+			"git": "S5HVoW_git",
+			"gitDiffFileChevronExpanded": "S5HVoW_gitDiffFileChevronExpanded",
+			"gitRow": "S5HVoW_gitRow",
+			"editorPlaceholder": "S5HVoW_editorPlaceholder",
+			"editorCm": "S5HVoW_editorCm",
+			"gitError": "S5HVoW_gitError",
+			"gitDiffHunk": "S5HVoW_gitDiffHunk",
+			"gitLogLine1": "S5HVoW_gitLogLine1",
+			"gitWorktreeRow": "S5HVoW_gitWorktreeRow",
+			"tabTitle": "S5HVoW_tabTitle",
+			"gitLogRef": "S5HVoW_gitLogRef",
+			"gitLogSubject": "S5HVoW_gitLogSubject",
+			"sandboxAction": "S5HVoW_sandboxAction",
+			"browserMessage": "S5HVoW_browserMessage",
+			"gitHeader": "S5HVoW_gitHeader",
+			"gitDiffTabTitle": "S5HVoW_gitDiffTabTitle",
+			"producedRow": "S5HVoW_producedRow",
+			"openWithLabel": "S5HVoW_openWithLabel",
+			"openWithName": "S5HVoW_openWithName",
+			"browserLiveCanvas": "S5HVoW_browserLiveCanvas",
+			"editorSearchHint": "S5HVoW_editorSearchHint",
+			"openWithChevron": "S5HVoW_openWithChevron",
+			"gitLogHash": "S5HVoW_gitLogHash",
+			"gitEmpty": "S5HVoW_gitEmpty",
+			"floatDropHintLabel": "S5HVoW_floatDropHintLabel",
+			"editorTreePanel": "S5HVoW_editorTreePanel",
+			"browserLiveTarget": "S5HVoW_browserLiveTarget",
+			"uploadOverlay": "S5HVoW_uploadOverlay",
+			"divider": "S5HVoW_divider",
+			"browserInput": "S5HVoW_browserInput",
+			"editorBody": "S5HVoW_editorBody",
+			"gitBranchSelect": "S5HVoW_gitBranchSelect",
+			"workbench": "S5HVoW_workbench",
+			"splitChild": "S5HVoW_splitChild",
+			"gitDiffDel": "S5HVoW_gitDiffDel",
+			"editorPathInput": "S5HVoW_editorPathInput",
+			"explorerRow": "S5HVoW_explorerRow",
+			"gitDiffExpand": "S5HVoW_gitDiffExpand",
+			"tab": "S5HVoW_tab",
+			"paneEmptyCards": "S5HVoW_paneEmptyCards",
+			"explorer": "S5HVoW_explorer",
+			"editorBinary": "S5HVoW_editorBinary",
+			"editorHeader": "S5HVoW_editorHeader",
+			"openWithPinActive": "S5HVoW_openWithPinActive",
+			"tabList": "S5HVoW_tabList",
+			"uploadDropHero": "S5HVoW_uploadDropHero",
+			"explorerDir": "S5HVoW_explorerDir",
+			"iconButton": "S5HVoW_iconButton",
+			"terminalDepsNote": "S5HVoW_terminalDepsNote",
+			"uploadOverlayProgressFill": "S5HVoW_uploadOverlayProgressFill",
+			"editorBinaryNotice": "S5HVoW_editorBinaryNotice",
+			"orphanedType": "S5HVoW_orphanedType",
+			"terminalWrap": "S5HVoW_terminalWrap",
+			"gitBadge": "S5HVoW_gitBadge",
+			"gitPlaceholder": "S5HVoW_gitPlaceholder",
+			"gitDiffMeta": "S5HVoW_gitDiffMeta",
+			"uploadOverlayStatus": "S5HVoW_uploadOverlayStatus",
+			"terminalRepairCommand": "S5HVoW_terminalRepairCommand",
+			"gitDiffMetaText": "S5HVoW_gitDiffMetaText",
+			"producedLabel": "S5HVoW_producedLabel",
+			"openWithPin": "S5HVoW_openWithPin",
+			"browserLiveStatus": "S5HVoW_browserLiveStatus",
+			"dirtyDot": "S5HVoW_dirtyDot",
+			"toggleCluster": "S5HVoW_toggleCluster",
+			"dropLeft": "S5HVoW_dropLeft",
+			"gitLink": "S5HVoW_gitLink",
+			"gitCommit": "S5HVoW_gitCommit",
+			"dropDown": "S5HVoW_dropDown",
+			"floatHeader": "S5HVoW_floatHeader",
+			"selectionPopup": "S5HVoW_selectionPopup",
+			"gitDiffFileTag": "S5HVoW_gitDiffFileTag",
+			"terminalBannerUrl": "S5HVoW_terminalBannerUrl",
+			"panelResizeActive": "S5HVoW_panelResizeActive",
+			"dividerCol": "S5HVoW_dividerCol",
+			"dropUp": "S5HVoW_dropUp",
+			"explorerRoot": "S5HVoW_explorerRoot",
+			"editorTitle": "S5HVoW_editorTitle",
+			"sandboxStatusOn": "S5HVoW_sandboxStatusOn",
+			"dropCenter": "S5HVoW_dropCenter",
+			"uploadDropZoneText": "S5HVoW_uploadDropZoneText",
+			"browserBlockedTitle": "S5HVoW_browserBlockedTitle",
+			"browserFrame": "S5HVoW_browserFrame",
+			"terminalDepsHint": "S5HVoW_terminalDepsHint",
+			"tabActive": "S5HVoW_tabActive",
+			"floatTitle": "S5HVoW_floatTitle",
+			"dropRight": "S5HVoW_dropRight",
+			"editorStatusError": "S5HVoW_editorStatusError",
+			"gitSectionHeader": "S5HVoW_gitSectionHeader",
+			"gitDiffFileChevron": "S5HVoW_gitDiffFileChevron",
+			"gitLogLine2": "S5HVoW_gitLogLine2",
+			"producedMore": "S5HVoW_producedMore",
+			"browserLive": "S5HVoW_browserLive",
+			"boundaryError": "S5HVoW_boundaryError",
 			"explorerName": "S5HVoW_explorerName",
 			"dividerActive": "S5HVoW_dividerActive",
-			"editor": "S5HVoW_editor",
-			"gitLink": "S5HVoW_gitLink",
-			"paneEmptyCards": "S5HVoW_paneEmptyCards",
-			"tabClose": "S5HVoW_tabClose",
-			"gitRow": "S5HVoW_gitRow",
-			"pane": "S5HVoW_pane",
-			"gitHeader": "S5HVoW_gitHeader",
-			"gitCommit": "S5HVoW_gitCommit",
-			"gitCommitButton": "S5HVoW_gitCommitButton",
-			"openWithLabel": "S5HVoW_openWithLabel",
-			"producedLabel": "S5HVoW_producedLabel",
-			"tabActive": "S5HVoW_tabActive",
-			"explorerBody": "S5HVoW_explorerBody",
-			"editorBinary": "S5HVoW_editorBinary",
-			"selectionPopup": "S5HVoW_selectionPopup",
-			"gitRowSelected": "S5HVoW_gitRowSelected",
-			"producedRow": "S5HVoW_producedRow",
-			"floatDropHintLabel": "S5HVoW_floatDropHintLabel",
-			"dropUp": "S5HVoW_dropUp",
-			"uploadOverlayTitle": "S5HVoW_uploadOverlayTitle",
-			"uploadOverlayCancel": "S5HVoW_uploadOverlayCancel",
-			"terminalDepsTitle": "S5HVoW_terminalDepsTitle",
-			"openWithName": "S5HVoW_openWithName",
-			"dropLeft": "S5HVoW_dropLeft",
-			"explorerError": "S5HVoW_explorerError",
-			"gitDiffFileOld": "S5HVoW_gitDiffFileOld",
-			"openWithPinActive": "S5HVoW_openWithPinActive",
-			"dropRight": "S5HVoW_dropRight",
-			"tabTitle": "S5HVoW_tabTitle",
-			"editorDownloadLink": "S5HVoW_editorDownloadLink",
-			"browserInput": "S5HVoW_browserInput",
-			"floatDropHint": "S5HVoW_floatDropHint",
+			"toggleButton": "S5HVoW_toggleButton",
 			"explorerHeader": "S5HVoW_explorerHeader",
-			"browserStart": "S5HVoW_browserStart",
-			"terminalDepsHint": "S5HVoW_terminalDepsHint",
-			"gitDiffTabTitle": "S5HVoW_gitDiffTabTitle",
-			"tabBar": "S5HVoW_tabBar",
-			"gitDiffExpand": "S5HVoW_gitDiffExpand",
-			"terminalRepairCommand": "S5HVoW_terminalRepairCommand",
-			"producedMore": "S5HVoW_producedMore",
-			"gitDiffHunk": "S5HVoW_gitDiffHunk",
-			"gitLogRow": "S5HVoW_gitLogRow",
-			"explorerRow": "S5HVoW_explorerRow",
-			"editorHeader": "S5HVoW_editorHeader",
-			"uploadDropZone": "S5HVoW_uploadDropZone",
-			"uploadDropChatHint": "S5HVoW_uploadDropChatHint",
-			"sandboxDot": "S5HVoW_sandboxDot",
-			"uploadOverlayProgressFill": "S5HVoW_uploadOverlayProgressFill",
-			"uploadOverlayStatus": "S5HVoW_uploadOverlayStatus",
-			"editorSearchInput": "S5HVoW_editorSearchInput",
-			"paneContent": "S5HVoW_paneContent",
-			"tabBarPlus": "S5HVoW_tabBarPlus",
-			"floatHeader": "S5HVoW_floatHeader",
-			"browserBlockedDesc": "S5HVoW_browserBlockedDesc",
-			"gitBranchSelect": "S5HVoW_gitBranchSelect",
-			"gitLogHash": "S5HVoW_gitLogHash",
-			"floatContent": "S5HVoW_floatContent",
-			"divider": "S5HVoW_divider",
-			"dropOverlay": "S5HVoW_dropOverlay",
-			"tab": "S5HVoW_tab",
-			"terminalBanner": "S5HVoW_terminalBanner",
-			"gitSection": "S5HVoW_gitSection",
-			"explorerCopied": "S5HVoW_explorerCopied",
-			"browserBlocked": "S5HVoW_browserBlocked",
-			"gitDiffNum": "S5HVoW_gitDiffNum",
-			"gitDiffTab": "S5HVoW_gitDiffTab",
-			"gitLogLine1": "S5HVoW_gitLogLine1",
-			"openWithChevron": "S5HVoW_openWithChevron",
-			"gitWorktreeLabel": "S5HVoW_gitWorktreeLabel",
-			"sandboxStatusText": "S5HVoW_sandboxStatusText",
-			"producedChip": "S5HVoW_producedChip",
-			"paneTab": "S5HVoW_paneTab",
-			"explorerEmpty": "S5HVoW_explorerEmpty",
-			"orphanedType": "S5HVoW_orphanedType",
-			"gitDiffLine": "S5HVoW_gitDiffLine",
-			"sandboxStatus": "S5HVoW_sandboxStatus",
-			"gitError": "S5HVoW_gitError",
-			"editorTitle": "S5HVoW_editorTitle",
-			"iconButton": "S5HVoW_iconButton",
-			"gitSectionHeader": "S5HVoW_gitSectionHeader",
-			"toggleCluster": "S5HVoW_toggleCluster",
-			"dsh-row-in": "S5HVoW_dsh-row-in",
-			"explorerRoot": "S5HVoW_explorerRoot",
-			"editorTreePanelFull": "S5HVoW_editorTreePanelFull",
-			"browserFrame": "S5HVoW_browserFrame",
-			"gitLogMeta": "S5HVoW_gitLogMeta",
-			"pinnedTab": "S5HVoW_pinnedTab",
-			"splitRow": "S5HVoW_splitRow",
-			"explorerRowRevealed": "S5HVoW_explorerRowRevealed",
-			"editorError": "S5HVoW_editorError",
-			"dropDown": "S5HVoW_dropDown",
-			"editorBinaryNotice": "S5HVoW_editorBinaryNotice",
-			"gitLogSubject": "S5HVoW_gitLogSubject",
+			"explorerError": "S5HVoW_explorerError",
+			"editorTreeResize": "S5HVoW_editorTreeResize",
 			"browserBar": "S5HVoW_browserBar",
-			"gitDiff": "S5HVoW_gitDiff",
-			"panelHidden": "S5HVoW_panelHidden",
-			"sandboxAction": "S5HVoW_sandboxAction",
-			"gitDiffFileChevronExpanded": "S5HVoW_gitDiffFileChevronExpanded",
-			"floatTitle": "S5HVoW_floatTitle",
-			"terminalDepsNote": "S5HVoW_terminalDepsNote",
-			"explorerSymlink": "S5HVoW_explorerSymlink",
+			"panelBody": "S5HVoW_panelBody",
+			"browserBlockedActions": "S5HVoW_browserBlockedActions",
+			"gitDiffCtx": "S5HVoW_gitDiffCtx",
+			"dsh-toc-flash": "S5HVoW_dsh-toc-flash",
+			"uploadOverlayProgress": "S5HVoW_uploadOverlayProgress",
+			"uploadOverlayCancel": "S5HVoW_uploadOverlayCancel",
+			"uploadDropZonePill": "S5HVoW_uploadDropZonePill",
+			"editor": "S5HVoW_editor",
+			"explorerEmpty": "S5HVoW_explorerEmpty",
+			"editorDownloadLink": "S5HVoW_editorDownloadLink",
+			"tabBar": "S5HVoW_tabBar",
+			"editorBanner": "S5HVoW_editorBanner",
+			"editorSearchResult": "S5HVoW_editorSearchResult",
+			"uploadDropZone": "S5HVoW_uploadDropZone",
+			"tabBarDrop": "S5HVoW_tabBarDrop",
+			"tabBadge": "S5HVoW_tabBadge",
+			"sandboxStatus": "S5HVoW_sandboxStatus",
+			"browserStart": "S5HVoW_browserStart",
+			"browserBlockedDesc": "S5HVoW_browserBlockedDesc",
 			"browserBlockedButton": "S5HVoW_browserBlockedButton",
+			"terminal": "S5HVoW_terminal",
+			"terminalDepsActions": "S5HVoW_terminalDepsActions",
+			"dsh-row-in": "S5HVoW_dsh-row-in",
+			"gitLogMore": "S5HVoW_gitLogMore",
+			"producedChip": "S5HVoW_producedChip",
+			"floatWindowDragging": "S5HVoW_floatWindowDragging",
+			"floatDropHint": "S5HVoW_floatDropHint",
+			"explorerCopied": "S5HVoW_explorerCopied",
+			"editorTreeDock": "S5HVoW_editorTreeDock",
+			"gitName": "S5HVoW_gitName",
+			"paneTab": "S5HVoW_paneTab",
+			"gitDiffFile": "S5HVoW_gitDiffFile",
+			"gitDiffCode": "S5HVoW_gitDiffCode",
+			"terminalDepsTitle": "S5HVoW_terminalDepsTitle",
+			"gitCommitButton": "S5HVoW_gitCommitButton",
+			"panelHidden": "S5HVoW_panelHidden",
 			"splitCol": "S5HVoW_splitCol",
 			"browser": "S5HVoW_browser",
-			"splitChild": "S5HVoW_splitChild",
-			"terminalBannerUrl": "S5HVoW_terminalBannerUrl",
-			"git": "S5HVoW_git",
-			"editorPlaceholder": "S5HVoW_editorPlaceholder",
-			"editorSearchHint": "S5HVoW_editorSearchHint",
-			"tabBadge": "S5HVoW_tabBadge",
-			"boundaryError": "S5HVoW_boundaryError",
-			"dividerCol": "S5HVoW_dividerCol",
-			"gitDiffFilePath": "S5HVoW_gitDiffFilePath",
-			"gitDiffCtx": "S5HVoW_gitDiffCtx",
-			"gitLogRef": "S5HVoW_gitLogRef",
-			"tabList": "S5HVoW_tabList",
-			"uploadOverlayCard": "S5HVoW_uploadOverlayCard",
-			"editorStatusError": "S5HVoW_editorStatusError",
-			"terminal": "S5HVoW_terminal",
-			"browserBlockedTitle": "S5HVoW_browserBlockedTitle",
-			"editorBody": "S5HVoW_editorBody",
-			"gitDiffFileChevron": "S5HVoW_gitDiffFileChevron",
-			"editorTreePanel": "S5HVoW_editorTreePanel",
-			"explorerRef": "S5HVoW_explorerRef",
-			"dirtyDot": "S5HVoW_dirtyDot",
-			"gitDiffMetaText": "S5HVoW_gitDiffMetaText",
+			"paneCard": "S5HVoW_paneCard",
+			"gitDiff": "S5HVoW_gitDiff",
+			"dividerRow": "S5HVoW_dividerRow",
+			"splitRow": "S5HVoW_splitRow",
+			"explorerHidden": "S5HVoW_explorerHidden",
+			"uploadDropChatCard": "S5HVoW_uploadDropChatCard",
+			"gitLogMeta": "S5HVoW_gitLogMeta",
+			"sandboxStatusText": "S5HVoW_sandboxStatusText",
+			"explorerBody": "S5HVoW_explorerBody",
+			"editorTreePanelFull": "S5HVoW_editorTreePanelFull",
+			"gitRowSelected": "S5HVoW_gitRowSelected",
+			"gitDiffHunkSection": "S5HVoW_gitDiffHunkSection",
+			"browserBlocked": "S5HVoW_browserBlocked",
+			"paneTabHidden": "S5HVoW_paneTabHidden",
 			"gitConfirmDesc": "S5HVoW_gitConfirmDesc",
-			"terminalWrap": "S5HVoW_terminalWrap",
-			"gitCommitInput": "S5HVoW_gitCommitInput",
-			"openWithPin": "S5HVoW_openWithPin",
-			"floatWindow": "S5HVoW_floatWindow",
-			"terminalDepsCommandRow": "S5HVoW_terminalDepsCommandRow",
-			"toggleButton": "S5HVoW_toggleButton",
-			"explorerDir": "S5HVoW_explorerDir",
-			"terminalDepsActions": "S5HVoW_terminalDepsActions",
-			"gitDiffTabHeader": "S5HVoW_gitDiffTabHeader",
-			"gitLogLine2": "S5HVoW_gitLogLine2",
-			"gitDiffHunkHeader": "S5HVoW_gitDiffHunkHeader",
-			"uploadOverlayProgress": "S5HVoW_uploadOverlayProgress",
-			"panelResize": "S5HVoW_panelResize",
-			"browserBlockedActions": "S5HVoW_browserBlockedActions",
-			"sandboxStatusOn": "S5HVoW_sandboxStatusOn"
+			"gitSection": "S5HVoW_gitSection",
+			"editorSearchInput": "S5HVoW_editorSearchInput"
 		};
 		//#endregion
 		//#region src/client/intercept.tsx
@@ -10433,6 +10449,8 @@ window.__ModuleLoader__.load({
 			/** Probe a URL's response headers (the sidebar browser's embeddability
 			*  check; see the host's browser.probe route). */
 			browserProbe: (url, signal) => call("browser.probe", { url }, signal),
+			/** Agent 浏览器宿主的 page target 列表（host 代理 CDP /json/list）。 */
+			cdpTargets: (signal) => call("cdp.targets", {}, signal),
 			/** External open for the file tree's "open with" menu: reveal a path in
 			*  the OS file manager, or hand a custom-scheme URL (vscode://, cursor://,
 			*  zed://, custom editors) to its registered handler. The host launches
@@ -10613,6 +10631,24 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region node_modules/.pnpm/react-icons@5.7.0_react@18.3.1/node_modules/react-icons/vsc/index.mjs
+		function VscRemoteExplorer(props) {
+			return GenIcon({
+				"tag": "svg",
+				"attr": {
+					"viewBox": "0 0 24 25",
+					"fill": "currentColor"
+				},
+				"child": [{
+					"tag": "path",
+					"attr": {
+						"fillRule": "evenodd",
+						"clipRule": "evenodd",
+						"d": "M9.32 20.0677C9.469 20.5907 9.667 21.0917 9.911 21.5677H3.759C3.345 21.5677 3.009 21.2317 3.009 20.8177C3.009 20.4037 3.345 20.0677 3.759 20.0677H6.008V18.5517H3C1.343 18.5517 0 17.2087 0 15.5517V5.06775C0 3.41075 1.343 2.06775 3 2.06775H16.5C18.157 2.06775 19.5 3.41075 19.5 5.06775V9.88775C19.016 9.74975 18.516 9.65275 18 9.60575V5.06775C18 4.23975 17.328 3.56775 16.5 3.56775H3C2.172 3.56775 1.5 4.23975 1.5 5.06775V15.5517C1.5 16.3797 2.172 17.0517 3 17.0517H9.039C9.016 17.3047 9 17.5587 9 17.8177C9 18.0657 9.016 18.3097 9.037 18.5517H7.507V20.0677H9.32ZM24 17.8177C24 21.5457 20.978 24.5677 17.25 24.5677C13.522 24.5677 10.5 21.5457 10.5 17.8177C10.5 14.0897 13.522 11.0677 17.25 11.0677C20.978 11.0677 24 14.0897 24 17.8177ZM17.251 19.3177C17.251 19.2187 17.231 19.1217 17.194 19.0307C17.156 18.9397 17.101 18.8567 17.031 18.7867L14.781 16.5367C14.64 16.3957 14.449 16.3167 14.25 16.3167C14.051 16.3167 13.86 16.3957 13.719 16.5367C13.578 16.6777 13.499 16.8687 13.499 17.0677C13.499 17.2667 13.578 17.4577 13.719 17.5987L15.44 19.3177L13.719 21.0367C13.578 21.1777 13.499 21.3687 13.499 21.5677C13.499 21.7667 13.578 21.9577 13.719 22.0987C13.86 22.2397 14.051 22.3187 14.25 22.3187C14.449 22.3187 14.64 22.2397 14.781 22.0987L17.031 19.8487C17.101 19.7787 17.156 19.6967 17.194 19.6057C17.232 19.5147 17.251 19.4167 17.251 19.3177ZM19.06 16.3177L20.78 14.5987C20.921 14.4577 21 14.2667 21 14.0677C21 13.8687 20.921 13.6777 20.78 13.5367C20.639 13.3957 20.448 13.3167 20.249 13.3167C20.05 13.3167 19.859 13.3957 19.718 13.5367L17.468 15.7867C17.398 15.8567 17.343 15.9387 17.305 16.0307C17.267 16.1217 17.248 16.2197 17.248 16.3177C17.248 16.4157 17.268 16.5137 17.305 16.6057C17.343 16.6967 17.398 16.7797 17.468 16.8487L19.718 19.0987C19.859 19.2397 20.05 19.3187 20.249 19.3187C20.448 19.3187 20.639 19.2397 20.78 19.0987C20.921 18.9577 21 18.7667 21 18.5677C21 18.3687 20.921 18.1777 20.78 18.0367L19.06 16.3177Z"
+					},
+					"child": []
+				}]
+			})(props);
+		}
 		function VscPinned(props) {
 			return GenIcon({
 				"tag": "svg",
@@ -12920,75 +12956,75 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var SideCardSection_module_css_default = {
-			"cardTitle": "AC9POW_cardTitle",
-			"cardSettings": "AC9POW_cardSettings",
-			"versionBadgeTag": "AC9POW_versionBadgeTag",
 			"openWithEditorTemplate": "AC9POW_openWithEditorTemplate",
-			"pluginEntry": "AC9POW_pluginEntry",
-			"openWithEditorRow": "AC9POW_openWithEditorRow",
-			"pluginList": "AC9POW_pluginList",
-			"row": "AC9POW_row",
-			"count": "AC9POW_count",
-			"switchInput": "AC9POW_switchInput",
-			"rowGear": "AC9POW_rowGear",
-			"selectAnchor": "AC9POW_selectAnchor",
-			"card": "AC9POW_card",
-			"selectOptionIcon": "AC9POW_selectOptionIcon",
 			"selectAnchorText": "AC9POW_selectAnchorText",
-			"control": "AC9POW_control",
-			"cssTextArea": "AC9POW_cssTextArea",
-			"done": "AC9POW_done",
-			"error": "AC9POW_error",
-			"pluginInstall": "AC9POW_pluginInstall",
-			"pluginGroupHeading": "AC9POW_pluginGroupHeading",
-			"pluginEntryActions": "AC9POW_pluginEntryActions",
-			"pluginGroup": "AC9POW_pluginGroup",
 			"cardSwitchThumb": "AC9POW_cardSwitchThumb",
-			"intro": "AC9POW_intro",
-			"popupRows": "AC9POW_popupRows",
-			"cardDesc": "AC9POW_cardDesc",
-			"cardMain": "AC9POW_cardMain",
-			"pluginModal": "AC9POW_pluginModal",
-			"cardTop": "AC9POW_cardTop",
-			"openWithRemove": "AC9POW_openWithRemove",
-			"versionBadgeName": "AC9POW_versionBadgeName",
-			"typedInputNumber": "AC9POW_typedInputNumber",
-			"suffix": "AC9POW_suffix",
-			"title": "AC9POW_title",
-			"cardIconChip": "AC9POW_cardIconChip",
-			"cardOn": "AC9POW_cardOn",
-			"rowText": "AC9POW_rowText",
-			"pluginEntryHead": "AC9POW_pluginEntryHead",
-			"pluginSearch": "AC9POW_pluginSearch",
-			"pluginEntries": "AC9POW_pluginEntries",
 			"pluginDesc": "AC9POW_pluginDesc",
-			"cardSwitch": "AC9POW_cardSwitch",
-			"pluginCopyBtn": "AC9POW_pluginCopyBtn",
-			"versionBadge": "AC9POW_versionBadge",
-			"switchTrack": "AC9POW_switchTrack",
-			"openWithHint": "AC9POW_openWithHint",
-			"typedInput": "AC9POW_typedInput",
-			"popupRow": "AC9POW_popupRow",
-			"groupHeading": "AC9POW_groupHeading",
-			"switchThumb": "AC9POW_switchThumb",
-			"selectOptionText": "AC9POW_selectOptionText",
-			"selectOption": "AC9POW_selectOption",
-			"group": "AC9POW_group",
-			"pluginTopicBtn": "AC9POW_pluginTopicBtn",
+			"rowText": "AC9POW_rowText",
+			"versionBadgeTag": "AC9POW_versionBadgeTag",
 			"openWithFamily": "AC9POW_openWithFamily",
-			"cardSwitchTrack": "AC9POW_cardSwitchTrack",
-			"pluginName": "AC9POW_pluginName",
+			"openWithHint": "AC9POW_openWithHint",
+			"cardOn": "AC9POW_cardOn",
+			"switchTrack": "AC9POW_switchTrack",
+			"typedInput": "AC9POW_typedInput",
+			"rowGear": "AC9POW_rowGear",
+			"pluginTopicBtn": "AC9POW_pluginTopicBtn",
+			"pluginEntryActions": "AC9POW_pluginEntryActions",
+			"pluginList": "AC9POW_pluginList",
+			"popupRow": "AC9POW_popupRow",
+			"pluginCopyBtn": "AC9POW_pluginCopyBtn",
+			"selectAnchor": "AC9POW_selectAnchor",
+			"cardTop": "AC9POW_cardTop",
+			"selectOptionText": "AC9POW_selectOptionText",
 			"pluginJumpBtn": "AC9POW_pluginJumpBtn",
-			"grid": "AC9POW_grid",
-			"switch": "AC9POW_switch",
-			"percentInput": "AC9POW_percentInput",
-			"section": "AC9POW_section",
-			"popupDialog": "AC9POW_popupDialog",
+			"cardSettings": "AC9POW_cardSettings",
 			"addCard": "AC9POW_addCard",
-			"selectAnchorIcon": "AC9POW_selectAnchorIcon",
-			"desc": "AC9POW_desc",
+			"cardSwitch": "AC9POW_cardSwitch",
+			"title": "AC9POW_title",
+			"suffix": "AC9POW_suffix",
+			"pluginName": "AC9POW_pluginName",
+			"pluginInstall": "AC9POW_pluginInstall",
+			"section": "AC9POW_section",
+			"card": "AC9POW_card",
+			"switchInput": "AC9POW_switchInput",
 			"pluginEmpty": "AC9POW_pluginEmpty",
-			"openWithEditorInput": "AC9POW_openWithEditorInput"
+			"versionBadgeName": "AC9POW_versionBadgeName",
+			"openWithRemove": "AC9POW_openWithRemove",
+			"selectOptionIcon": "AC9POW_selectOptionIcon",
+			"pluginEntries": "AC9POW_pluginEntries",
+			"intro": "AC9POW_intro",
+			"group": "AC9POW_group",
+			"cssTextArea": "AC9POW_cssTextArea",
+			"pluginGroup": "AC9POW_pluginGroup",
+			"row": "AC9POW_row",
+			"cardTitle": "AC9POW_cardTitle",
+			"selectAnchorIcon": "AC9POW_selectAnchorIcon",
+			"pluginModal": "AC9POW_pluginModal",
+			"pluginSearch": "AC9POW_pluginSearch",
+			"pluginGroupHeading": "AC9POW_pluginGroupHeading",
+			"done": "AC9POW_done",
+			"selectOption": "AC9POW_selectOption",
+			"popupRows": "AC9POW_popupRows",
+			"pluginEntryHead": "AC9POW_pluginEntryHead",
+			"cardIconChip": "AC9POW_cardIconChip",
+			"percentInput": "AC9POW_percentInput",
+			"pluginEntry": "AC9POW_pluginEntry",
+			"switch": "AC9POW_switch",
+			"switchThumb": "AC9POW_switchThumb",
+			"cardMain": "AC9POW_cardMain",
+			"grid": "AC9POW_grid",
+			"desc": "AC9POW_desc",
+			"versionBadge": "AC9POW_versionBadge",
+			"error": "AC9POW_error",
+			"openWithEditorInput": "AC9POW_openWithEditorInput",
+			"groupHeading": "AC9POW_groupHeading",
+			"count": "AC9POW_count",
+			"typedInputNumber": "AC9POW_typedInputNumber",
+			"cardSwitchTrack": "AC9POW_cardSwitchTrack",
+			"cardDesc": "AC9POW_cardDesc",
+			"control": "AC9POW_control",
+			"popupDialog": "AC9POW_popupDialog",
+			"openWithEditorRow": "AC9POW_openWithEditorRow"
 		};
 		//#endregion
 		//#region src/client/open-with-settings.tsx
@@ -14706,58 +14742,58 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			document.head.appendChild(tag);
 		}
 		var SubagentView_module_css_default = {
-			"subagentLabel": "F2T6aa_subagentLabel",
-			"subagentLiveTool": "F2T6aa_subagentLiveTool",
-			"jobsDot": "F2T6aa_jobsDot",
-			"jobsPaneError": "F2T6aa_jobsPaneError",
-			"subagentBody": "F2T6aa_subagentBody",
-			"subagentRowLoading": "F2T6aa_subagentRowLoading",
-			"subagentError": "F2T6aa_subagentError",
-			"subagentRowDisabled": "F2T6aa_subagentRowDisabled",
-			"jobsLabelLine": "F2T6aa_jobsLabelLine",
-			"jobsPaneHeader": "F2T6aa_jobsPaneHeader",
-			"subagentRowActive": "F2T6aa_subagentRowActive",
-			"jobsHeader": "F2T6aa_jobsHeader",
-			"jobsRowMain": "F2T6aa_jobsRowMain",
-			"jobsPanePre": "F2T6aa_jobsPanePre",
-			"jobsPaneHint": "F2T6aa_jobsPaneHint",
-			"subagentLiveText": "F2T6aa_subagentLiveText",
-			"subagentHeader": "F2T6aa_subagentHeader",
-			"subagentCount": "F2T6aa_subagentCount",
-			"jobsContent": "F2T6aa_jobsContent",
-			"jobsPane": "F2T6aa_jobsPane",
-			"subagentDot": "F2T6aa_subagentDot",
-			"subagentTitle": "F2T6aa_subagentTitle",
-			"jobsPaneLabel": "F2T6aa_jobsPaneLabel",
-			"jobsPaneStatus": "F2T6aa_jobsPaneStatus",
-			"subagentErrorRetry": "F2T6aa_subagentErrorRetry",
-			"jobsCount": "F2T6aa_jobsCount",
-			"jobsLabel": "F2T6aa_jobsLabel",
-			"historyToggle": "F2T6aa_historyToggle",
-			"jobsKillError": "F2T6aa_jobsKillError",
-			"subagentLive": "F2T6aa_subagentLive",
-			"jobsList": "F2T6aa_jobsList",
-			"jobsKind": "F2T6aa_jobsKind",
-			"subagentRow": "F2T6aa_subagentRow",
-			"jobsRow": "F2T6aa_jobsRow",
-			"jobsRowSelected": "F2T6aa_jobsRowSelected",
-			"jobsKillArmed": "F2T6aa_jobsKillArmed",
-			"subagentEmpty": "F2T6aa_subagentEmpty",
-			"jobsKill": "F2T6aa_jobsKill",
-			"subagentSecondary": "F2T6aa_subagentSecondary",
-			"jobsPaneDot": "F2T6aa_jobsPaneDot",
-			"subagentEmptyHint": "F2T6aa_subagentEmptyHint",
-			"subagent": "F2T6aa_subagent",
-			"jobs": "F2T6aa_jobs",
-			"jobsTitle": "F2T6aa_jobsTitle",
-			"subagentChildren": "F2T6aa_subagentChildren",
-			"jobsRowSettled": "F2T6aa_jobsRowSettled",
-			"subagentNode": "F2T6aa_subagentNode",
-			"subagentContent": "F2T6aa_subagentContent",
-			"subagentRefresh": "F2T6aa_subagentRefresh",
 			"subagentLiveArgs": "F2T6aa_subagentLiveArgs",
+			"jobsKill": "F2T6aa_jobsKill",
+			"jobsPaneHeader": "F2T6aa_jobsPaneHeader",
+			"subagent": "F2T6aa_subagent",
+			"subagentCount": "F2T6aa_subagentCount",
+			"subagentErrorRetry": "F2T6aa_subagentErrorRetry",
+			"jobsRowSettled": "F2T6aa_jobsRowSettled",
+			"subagentEmpty": "F2T6aa_subagentEmpty",
+			"jobsList": "F2T6aa_jobsList",
+			"subagentRowActive": "F2T6aa_subagentRowActive",
+			"subagentError": "F2T6aa_subagentError",
+			"jobsDot": "F2T6aa_jobsDot",
+			"jobsRow": "F2T6aa_jobsRow",
+			"jobsContent": "F2T6aa_jobsContent",
+			"jobsLabel": "F2T6aa_jobsLabel",
+			"jobsPaneLabel": "F2T6aa_jobsPaneLabel",
+			"jobsRowMain": "F2T6aa_jobsRowMain",
+			"jobsKillError": "F2T6aa_jobsKillError",
+			"subagentLiveText": "F2T6aa_subagentLiveText",
+			"subagentRowDisabled": "F2T6aa_subagentRowDisabled",
+			"subagentNode": "F2T6aa_subagentNode",
+			"jobsPaneHint": "F2T6aa_jobsPaneHint",
+			"jobsLabelLine": "F2T6aa_jobsLabelLine",
+			"subagentLabel": "F2T6aa_subagentLabel",
+			"jobsTitle": "F2T6aa_jobsTitle",
+			"subagentLiveTool": "F2T6aa_subagentLiveTool",
+			"subagentRefresh": "F2T6aa_subagentRefresh",
+			"jobsKillArmed": "F2T6aa_jobsKillArmed",
+			"subagentChildren": "F2T6aa_subagentChildren",
+			"subagentSecondary": "F2T6aa_subagentSecondary",
+			"jobsPane": "F2T6aa_jobsPane",
+			"jobsPaneDot": "F2T6aa_jobsPaneDot",
+			"jobsPaneError": "F2T6aa_jobsPaneError",
+			"subagentContent": "F2T6aa_subagentContent",
+			"subagentHeader": "F2T6aa_subagentHeader",
+			"jobsPaneStatus": "F2T6aa_jobsPaneStatus",
+			"subagentLive": "F2T6aa_subagentLive",
+			"subagentEmptyHint": "F2T6aa_subagentEmptyHint",
+			"jobsCount": "F2T6aa_jobsCount",
+			"jobsPaneClose": "F2T6aa_jobsPaneClose",
+			"subagentTitle": "F2T6aa_subagentTitle",
+			"subagentDot": "F2T6aa_subagentDot",
+			"jobsRowSelected": "F2T6aa_jobsRowSelected",
+			"jobsKind": "F2T6aa_jobsKind",
+			"jobsPanePre": "F2T6aa_jobsPanePre",
 			"jobsSecondary": "F2T6aa_jobsSecondary",
-			"jobsPaneClose": "F2T6aa_jobsPaneClose"
+			"jobs": "F2T6aa_jobs",
+			"jobsHeader": "F2T6aa_jobsHeader",
+			"historyToggle": "F2T6aa_historyToggle",
+			"subagentRow": "F2T6aa_subagentRow",
+			"subagentRowLoading": "F2T6aa_subagentRowLoading",
+			"subagentBody": "F2T6aa_subagentBody"
 		};
 		//#endregion
 		//#region src/client/SubagentView.tsx
@@ -15864,44 +15900,44 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			document.head.appendChild(tag);
 		}
 		var SideChatView_module_css_default = {
-			"sidechatFadeIn": "_64UoUa_sidechatFadeIn",
-			"sidechatRowMono": "_64UoUa_sidechatRowMono",
-			"sidechatSendBtn": "_64UoUa_sidechatSendBtn",
-			"sidechatHeroTitle": "_64UoUa_sidechatHeroTitle",
-			"sidechatHeroDesc": "_64UoUa_sidechatHeroDesc",
-			"sidechatPrimaryBtn": "_64UoUa_sidechatPrimaryBtn",
 			"sidechatHero": "_64UoUa_sidechatHero",
-			"sidechatRowStatic": "_64UoUa_sidechatRowStatic",
-			"sidechatComposerMeta": "_64UoUa_sidechatComposerMeta",
-			"sidechatRowMeta": "_64UoUa_sidechatRowMeta",
-			"sidechatHeaderSpacer": "_64UoUa_sidechatHeaderSpacer",
-			"sidechatBtnIn": "_64UoUa_sidechatBtnIn",
-			"sidechatComposerBar": "_64UoUa_sidechatComposerBar",
-			"sidechatSweep": "_64UoUa_sidechatSweep",
+			"sidechatHeroTitle": "_64UoUa_sidechatHeroTitle",
 			"sidechatComposer": "_64UoUa_sidechatComposer",
-			"sidechatAssistant": "_64UoUa_sidechatAssistant",
-			"sidechatRowBody": "_64UoUa_sidechatRowBody",
-			"sidechatRowFailed": "_64UoUa_sidechatRowFailed",
-			"sidechatAgentBadge": "_64UoUa_sidechatAgentBadge",
-			"sidechatRowIn": "_64UoUa_sidechatRowIn",
-			"sidechatDetailHeader": "_64UoUa_sidechatDetailHeader",
-			"sidechatStatus": "_64UoUa_sidechatStatus",
-			"sidechatUser": "_64UoUa_sidechatUser",
-			"sidechatError": "_64UoUa_sidechatError",
 			"sidechatComposerInput": "_64UoUa_sidechatComposerInput",
-			"sidechatStatusText": "_64UoUa_sidechatStatusText",
-			"sidechatRowLabel": "_64UoUa_sidechatRowLabel",
-			"sidechatRowLine": "_64UoUa_sidechatRowLine",
-			"sidechatRow": "_64UoUa_sidechatRow",
-			"sidechatScroll": "_64UoUa_sidechatScroll",
-			"sidechatHint": "_64UoUa_sidechatHint",
-			"sidechatHeaderDot": "_64UoUa_sidechatHeaderDot",
-			"sidechatIconBtn": "_64UoUa_sidechatIconBtn",
-			"sidechatShimmerText": "_64UoUa_sidechatShimmerText",
-			"sidechatRowProse": "_64UoUa_sidechatRowProse",
+			"sidechatSendBtn": "_64UoUa_sidechatSendBtn",
 			"sidechatRowSummary": "_64UoUa_sidechatRowSummary",
+			"sidechatRowLabel": "_64UoUa_sidechatRowLabel",
+			"sidechatIconBtn": "_64UoUa_sidechatIconBtn",
 			"sidechat": "_64UoUa_sidechat",
+			"sidechatUser": "_64UoUa_sidechatUser",
+			"sidechatRowMono": "_64UoUa_sidechatRowMono",
+			"sidechatAgentBadge": "_64UoUa_sidechatAgentBadge",
+			"sidechatRowMeta": "_64UoUa_sidechatRowMeta",
+			"sidechatRowBody": "_64UoUa_sidechatRowBody",
+			"sidechatSweep": "_64UoUa_sidechatSweep",
+			"sidechatStatusText": "_64UoUa_sidechatStatusText",
+			"sidechatComposerMeta": "_64UoUa_sidechatComposerMeta",
+			"sidechatRowLine": "_64UoUa_sidechatRowLine",
+			"sidechatFadeIn": "_64UoUa_sidechatFadeIn",
 			"sidechatRowChevron": "_64UoUa_sidechatRowChevron",
+			"sidechatHeroDesc": "_64UoUa_sidechatHeroDesc",
+			"sidechatHeaderSpacer": "_64UoUa_sidechatHeaderSpacer",
+			"sidechatHint": "_64UoUa_sidechatHint",
+			"sidechatRowFailed": "_64UoUa_sidechatRowFailed",
+			"sidechatHeaderDot": "_64UoUa_sidechatHeaderDot",
+			"sidechatDetailHeader": "_64UoUa_sidechatDetailHeader",
+			"sidechatPrimaryBtn": "_64UoUa_sidechatPrimaryBtn",
+			"sidechatRowProse": "_64UoUa_sidechatRowProse",
+			"sidechatBtnIn": "_64UoUa_sidechatBtnIn",
+			"sidechatScroll": "_64UoUa_sidechatScroll",
+			"sidechatAssistant": "_64UoUa_sidechatAssistant",
+			"sidechatRow": "_64UoUa_sidechatRow",
+			"sidechatRowStatic": "_64UoUa_sidechatRowStatic",
+			"sidechatError": "_64UoUa_sidechatError",
+			"sidechatShimmerText": "_64UoUa_sidechatShimmerText",
+			"sidechatStatus": "_64UoUa_sidechatStatus",
+			"sidechatComposerBar": "_64UoUa_sidechatComposerBar",
+			"sidechatRowIn": "_64UoUa_sidechatRowIn",
 			"sidechatRowCode": "_64UoUa_sidechatRowCode"
 		};
 		//#endregion
@@ -16651,6 +16687,268 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			});
 		}
 		//#endregion
+		//#region src/client/LiveView.tsx
+		/**
+		* Agent 浏览器实况（CDP screencast + 输入回传，2026-09-12 方案 2）。
+		*
+		* 数据面：KCoder 桌面端 browser-host 维护一个无头 Chromium（固定 CDP
+		* 转发地址 127.0.0.1:9223，与 playwright MCP `--cdp-endpoint` 共用）。
+		* 本组件作为第二个 CDP 客户端：
+		* - target 列表经宿主代理 `/sidebar/api`（CDP HTTP 无 CORS 头）；
+		* - screencast/输入走 renderer 直连 `ws://127.0.0.1:9223/devtools/page/<id>`
+		*   （WebSocket 不受 CORS 约束，宿主未设 CSP）。
+		*
+		* 连接模型：`attachedId`（用户显式选择）优先，否则自动跟随「最新创建的
+		* page target」；连接按 effectiveId 建立与重建，列表仅在内容变化时更新
+		* state（JSON 比对），避免轮询引起重连抖动。
+		*
+		* 交互：screencast 帧绘到 canvas；指针/滚轮按 canvas→viewport 比例回传
+		* （Input.dispatchMouseEvent）；可打印字符经 Input.insertText，控制键走
+		* rawKeyDown/keyUp。视口统一 1280×800（Emulation.setDeviceMetricsOverride），
+		* canvas 等比缩放显示。
+		*/
+		/** 与 KCoder desktop/main/browser-host.ts 的 BROWSER_HOST_PORT 一致。 */
+		const CDP_WS = "ws://127.0.0.1:9223";
+		/** 实况视口（CDP 侧强制，帧与输入坐标以此为基准）。 */
+		const VIEW_W = 1280;
+		const VIEW_H = 800;
+		function LiveView() {
+			const canvasRef = (0, react.useRef)(null);
+			const wsRef = (0, react.useRef)(null);
+			const [status, setStatus] = (0, react.useState)("connecting");
+			const [targets, setTargets] = (0, react.useState)([]);
+			const [hostDown, setHostDown] = (0, react.useState)(false);
+			/** 用户显式钉住的 target（null = 自动跟随最新）。 */
+			const [pinnedId, setPinnedId] = (0, react.useState)(null);
+			/** 连接代数：手动重连/换 target 时 +1。 */
+			const [epoch, setEpoch] = (0, react.useState)(0);
+			(0, react.useEffect)(() => {
+				let alive = true;
+				const poll = async () => {
+					try {
+						const { targets: list } = await api.cdpTargets();
+						if (!alive) return;
+						setHostDown(false);
+						setTargets((prev) => JSON.stringify(prev) === JSON.stringify(list) ? prev : list);
+					} catch {
+						if (alive) setHostDown(true);
+					}
+				};
+				poll();
+				const timer = setInterval(() => {
+					poll();
+				}, 3e3);
+				return () => {
+					alive = false;
+					clearInterval(timer);
+				};
+			}, []);
+			/** 实际附加的 target:id 钉住且存活 → 它;否则自动跟随最新页。 */
+			const effectiveId = (0, react.useMemo)(() => {
+				if (pinnedId !== null && targets.some((tg) => tg.id === pinnedId)) return pinnedId;
+				return targets.length > 0 ? targets[targets.length - 1].id : null;
+			}, [pinnedId, targets]);
+			(0, react.useEffect)(() => {
+				if (effectiveId === null) {
+					setStatus("idle");
+					return;
+				}
+				let cancelled = false;
+				let socket = null;
+				let msgId = 0;
+				setStatus("connecting");
+				socket = new WebSocket(`${CDP_WS}/devtools/page/${effectiveId}`);
+				wsRef.current = socket;
+				const send = (method, params) => {
+					if (socket !== null && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({
+						id: ++msgId,
+						method,
+						params: params ?? {}
+					}));
+				};
+				const draw = (data) => {
+					const el = canvasRef.current;
+					if (el === null || cancelled) return;
+					const img = new Image();
+					img.onload = () => {
+						if (cancelled) return;
+						el.width = img.naturalWidth;
+						el.height = img.naturalHeight;
+						el.getContext("2d")?.drawImage(img, 0, 0);
+					};
+					img.src = `data:image/jpeg;base64,${data}`;
+				};
+				socket.onopen = () => {
+					if (cancelled) return;
+					setStatus("live");
+					send("Page.enable");
+					send("Runtime.enable");
+					send("Emulation.setDeviceMetricsOverride", {
+						width: VIEW_W,
+						height: VIEW_H,
+						deviceScaleFactor: 1,
+						mobile: false
+					});
+					send("Page.startScreencast", {
+						format: "jpeg",
+						quality: 62,
+						maxWidth: VIEW_W,
+						maxHeight: VIEW_H,
+						everyNthFrame: 1
+					});
+				};
+				socket.onmessage = (event) => {
+					const msg = JSON.parse(event.data);
+					if (msg.method === "Page.screencastFrameReceived") {
+						const p = msg.params ?? {};
+						if (typeof p.data === "string") draw(p.data);
+						if (typeof p.screencastFrameId === "string") send("Page.screencastFrameAck", { screencastFrameId: p.screencastFrameId });
+					}
+				};
+				socket.onclose = () => {
+					if (!cancelled) setStatus("connecting");
+				};
+				socket.onerror = () => {
+					if (!cancelled) setStatus("down");
+				};
+				return () => {
+					cancelled = true;
+					socket?.close();
+					wsRef.current = null;
+				};
+			}, [effectiveId]);
+			const sendInput = (method, params) => {
+				wsRef.current?.send(JSON.stringify({
+					id: Math.floor(Math.random() * 1e9),
+					method,
+					params
+				}));
+			};
+			const scaleOf = (el) => {
+				const shown = el.getBoundingClientRect().width;
+				return shown > 0 ? VIEW_W / shown : 1;
+			};
+			const posOf = (e) => {
+				const rect = e.currentTarget.getBoundingClientRect();
+				const k = scaleOf(e.currentTarget);
+				return {
+					x: (e.clientX - rect.left) * k,
+					y: (e.clientY - rect.top) * k
+				};
+			};
+			const onPointerDown = (e) => {
+				const p = posOf(e);
+				sendInput("Input.dispatchMouseEvent", {
+					type: "mousePressed",
+					x: p.x,
+					y: p.y,
+					button: "left",
+					clickCount: 1
+				});
+			};
+			const onPointerUp = (e) => {
+				const p = posOf(e);
+				sendInput("Input.dispatchMouseEvent", {
+					type: "mouseReleased",
+					x: p.x,
+					y: p.y,
+					button: "left",
+					clickCount: 1
+				});
+			};
+			const onPointerMove = (e) => {
+				if (e.buttons === 0) return;
+				const p = posOf(e);
+				sendInput("Input.dispatchMouseEvent", {
+					type: "mouseMoved",
+					x: p.x,
+					y: p.y,
+					button: "left"
+				});
+			};
+			const onWheel = (e) => {
+				const p = posOf(e);
+				sendInput("Input.dispatchMouseEvent", {
+					type: "mouseWheel",
+					x: p.x,
+					y: p.y,
+					deltaX: e.deltaX,
+					deltaY: e.deltaY
+				});
+			};
+			const onKeyDown = (e) => {
+				const code = {
+					Enter: 13,
+					Backspace: 8,
+					Tab: 9,
+					Escape: 27,
+					ArrowUp: 38,
+					ArrowDown: 40,
+					ArrowLeft: 37,
+					ArrowRight: 39
+				}[e.key];
+				if (code !== void 0) {
+					sendInput("Input.dispatchKeyEvent", {
+						type: "rawKeyDown",
+						windowsVirtualKeyCode: code,
+						key: e.key
+					});
+					sendInput("Input.dispatchKeyEvent", {
+						type: "keyUp",
+						windowsVirtualKeyCode: code,
+						key: e.key
+					});
+					return;
+				}
+				if (e.key.length === 1) sendInput("Input.insertText", { text: e.key });
+			};
+			const statusText = hostDown || status === "down" ? t("browserLiveDown") : status === "live" ? targets.find((tg) => tg.id === effectiveId)?.url ?? t("browserLiveTargetNone") : effectiveId === null ? t("browserLiveTargetNone") : t("browserLiveConnecting");
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: "browserLive",
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: "browserLiveStatus",
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							onClick: () => {
+								setEpoch((e) => e + 1);
+							},
+							children: t("refresh")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
+							className: "browserLiveTarget",
+							value: effectiveId ?? "",
+							onChange: (e) => {
+								setPinnedId(e.target.value === "" ? null : e.target.value);
+							},
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+								value: "",
+								children: t("browserLiveFollowLatest")
+							}), targets.map((tg) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+								value: tg.id,
+								children: tg.title || tg.url
+							}, tg.id))]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: statusText })
+					]
+				}), effectiveId !== null && status !== "idle" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("canvas", {
+					ref: canvasRef,
+					className: "browserLiveCanvas",
+					width: VIEW_W,
+					height: VIEW_H,
+					tabIndex: 0,
+					onPointerDown,
+					onPointerUp,
+					onPointerMove,
+					onWheel,
+					onKeyDown
+				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: "browserStart",
+					children: hostDown ? t("browserLiveDown") : t("browserLiveTargetNone")
+				})]
+			});
+		}
+		//#endregion
 		//#region src/client/BrowserView.tsx
 		/**
 		* The built-in browser tab: an address bar plus a sandboxed iframe.
@@ -16729,6 +17027,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			const [embedBlocked, setEmbedBlocked] = (0, react.useState)(null);
 			/** The user asked to load the refused site anyway (keeps the plain iframe). */
 			const [forceEmbed, setForceEmbed] = (0, react.useState)(false);
+			/** Agent 实况模式（CDP screencast）：开启后本 tab 只显示 agent 无头
+			*  浏览器的实况画面，地址栏/iframe 暂停。会话态开关，不持久化。 */
+			const [live, setLive] = (0, react.useState)(false);
 			(0, react.useEffect)(() => {
 				if (url === void 0) return;
 				let cancelled = false;
@@ -16841,6 +17142,17 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
 								className: sidebar_module_css_default.iconButton,
+								"aria-label": t("browserLive"),
+								title: t("browserLive"),
+								"aria-pressed": live,
+								onClick: () => {
+									setLive((value) => !value);
+								},
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscRemoteExplorer, { size: 15 })
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: sidebar_module_css_default.iconButton,
 								"aria-label": t("browserOpenExternal"),
 								title: t("browserOpenExternal"),
 								disabled: url === void 0,
@@ -16866,7 +17178,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 							setLocalUnlock(false);
 						}
 					}),
-					url === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					live ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LiveView, {}) : url === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: sidebar_module_css_default.browserStart,
 						children: t("browserStart")
 					}) : embedBlocked !== null && !forceEmbed ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(BrowserEmbedBlocked, {
