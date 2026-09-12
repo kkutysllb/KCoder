@@ -53,6 +53,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { join } from 'node:path'
 import { gt, valid } from 'semver'
 import { PROJECT_ROOT, WEB_PROFILE, dshHome } from './dsh-contract'
+import { parse as parseYaml } from 'yaml'
 
 /** bundle 包名（profile bundles 数组与 node_modules 目录名）。 */
 export const DSH_SKILLS_BUNDLE = 'dsh-skills-bundle'
@@ -273,7 +274,13 @@ function materialize(profileDir: string, b: BundledPlugin): void {
         const endMark = '# ---- kcoder-language END ----'
         const end = text.indexOf(endMark, begin)
         const stripped = (end === -1 ? text.slice(0, begin) : text.slice(0, begin) + text.slice(end + endMark.length))
-          .replace(/\n{3,}$/, '\n\n')
+        // 硬性自检:剥离结果必须是合法顶层数组,否则拒绝写盘保留原文件
+        // （0.5.9 现场教训:无守卫的剥离曾把整份补丁写成空文档,引擎启动即崩）
+        const parsed = parseYaml(stripped === '' || !stripped.endsWith('\n') ? stripped + '\n' : stripped)
+        if (!Array.isArray(parsed)) {
+          console.error('[kcoder-bundle] 语言 patch 块剥离结果非顶层数组,放弃写盘保留原文件')
+          return
+        }
         writeFileSync(patchPath, stripped.endsWith('\n') || stripped === '' ? stripped : stripped + '\n', 'utf8')
         console.log('[kcoder-bundle] 已剥离退役语言插件的 patch 托管块')
       }
