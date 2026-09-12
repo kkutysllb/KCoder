@@ -95,7 +95,7 @@ const WATCH_JS = `(() => {
     fetch(location.pathname + location.search, { cache: 'no-store' })
       .then((res) => (res.ok ? res.text() : ''))
       .then((html) => {
-        const m = /const\s+preference\s*=\s*"(light|dark|system)"/.exec(html)
+        const m = /const[ \t]+preference[ \t]*=[ \t]*"(light|dark|system)"/.exec(html)
         if (m !== null) console.log('__dsh_theme_pref__:' + m[1])
       })
       .catch(() => {})

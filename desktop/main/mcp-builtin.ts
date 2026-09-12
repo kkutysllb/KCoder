@@ -33,35 +33,6 @@ import { mcpServerDelete, mcpServerSave, mcpServers, type McpServerEntry } from 
 const BUILTIN_VERSION = 5
 
 /**
- * 系统 Chrome 常见安装位置（跨平台）。
- *
- * 注意：以下三个辅助函数被 BUILTIN_MCP_SERVERS 在模块加载期急切引用，
- * 声明（含 chromeAvailableCache 的 let）必须位于数组字面量之前，
- * 否则启动时 TDZ ReferenceError（v4 曾踩）。
- */
-function chromeCandidates(): string[] {
-  switch (process.platform) {
-    case 'darwin':
-      return ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
-    case 'win32':
-      return [
-        join(process.env['PROGRAMFILES'] ?? 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-        join(process.env['PROGRAMFILES(X86)'] ?? 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-        join(process.env['LOCALAPPDATA'] ?? '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-      ]
-    default:
-      return ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/snap/bin/chromium']
-  }
-}
-
-/** 系统是否装了 Chrome（探测结果单次启动内缓存）。 */
-let chromeAvailableCache: boolean | undefined
-function chromeAvailable(): boolean {
-  chromeAvailableCache ??= chromeCandidates().some((p) => p !== '' && existsSync(p))
-  return chromeAvailableCache
-}
-
-/**
  * playwright MCP 浏览器参数：连接 KCoder 浏览器宿主（browser-host.ts
  * 维护的无头 Chromium，固定 CDP 转发地址）。agent 浏览不再弹本机浏览器
  * 窗口；侧边栏浏览器 tab 连同一端点做实况观看。
