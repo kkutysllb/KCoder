@@ -5,9 +5,6 @@
  * dsh-plugins 镜像 → sync-bundles.mjs 同步进 bundle/）：
  * - dsh-skills-bundle（bundle/dsh-skills-bundle）：方法论技能包（适配自
  *   KSkills 仓库），激活时注册 runtime skill；
- * - dsh-language-bundle（bundle/dsh-language-bundle）：「强制中文回答」
- *   system-prompt section 插件，默认 disabled，由 language-settings.ts
- *   在 home patch 层热切换；
  * - dsh-git-panel（bundle/dsh-git-panel）：独立 git 工作区面板
  *   （server 只读快照 RPC + client 页面内浮动面板）。2026-08 起整体替代
  *   已退役的 Electron 宿主 git-panel.ts（旧 IPC/视图/让位协议已摘除）。
@@ -60,9 +57,6 @@ import { PROJECT_ROOT, WEB_PROFILE, dshHome } from './dsh-contract'
 /** bundle 包名（profile bundles 数组与 node_modules 目录名）。 */
 export const DSH_SKILLS_BUNDLE = 'dsh-skills-bundle'
 
-/** 语言指令 bundle 包名（开关热切换见 language-settings.ts）。 */
-export const DSH_LANGUAGE_BUNDLE = 'dsh-language-bundle'
-
 /** git 工作区面板 bundle 包名（npm 无 scope 名被社区占用；@dsh-external
  * org 被 npm 注册政策拦截，定稿用户名 scope；bundle/ 目录名保持平铺）。 */
 export const DSH_GIT_PANEL_BUNDLE = '@kkutysllb/dsh-git-panel'
@@ -100,7 +94,6 @@ interface BundledPlugin {
 /** 全部内置 bundle（物化顺序即注册顺序）。 */
 const BUNDLES: BundledPlugin[] = [
   { pkg: DSH_SKILLS_BUNDLE, dir: 'dsh-skills-bundle', entry: 'entry.js', intactFiles: [join('skills', 'manifest.json')] },
-  { pkg: DSH_LANGUAGE_BUNDLE, dir: 'dsh-language-bundle', entry: 'entry.js', intactFiles: [] },
   { pkg: DSH_GIT_PANEL_BUNDLE, dir: 'dsh-git-panel', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: DSH_TERMINAL_BUNDLE, dir: 'dsh-terminal', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: DSH_FILE_REVIEW_BUNDLE, dir: 'dsh-file-review-kcoder', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
@@ -122,7 +115,7 @@ export const MATERIALIZED_BUNDLES: string[] = BUNDLES.map((b) => b.pkg)
  * - @kcoder/skills-bundle、@kcoder/language-bundle、@kcoder/git-panel、
  *   @kcoder/stats-panel、@kcoder/terminal、@kcoder/file-review
  *   （2026-09-01）：全部改名自立并发布 npm（dsh-skills-bundle /
- *   dsh-language-bundle / dsh-git-panel / dsh-terminal /
+ *   dsh-git-panel / dsh-terminal /
  *   dsh-file-review-kcoder，1.0.0 起步），旧名物化目录与 bundles 层叠
  *   残留自愈三清（file-review 曾被钉 deps "0.4.1" 一并摘除）。
  */
@@ -142,6 +135,11 @@ const RETIRED_PLUGINS = [
   'dsh-terminal',
   '@dsh-external/dsh-git-panel',
   '@dsh-external/dsh-terminal',
+  // 2026-09-11 退役：dsh-language-bundle（强制中文回答指令包）——产品
+  // 决策移除该能力；配套的「回答语言」通用设置行/patch 托管块/契约
+  // 类型一并退役，用户 profile 残留的托管块由启动自愈剥离（见
+  // stripRetiredLanguagePatch，块引用已退役插件会导致引擎解析失败）
+  'dsh-language-bundle',
   // 2026-09-11 退役：当前基线（0.1.5-rc.2）composer dock 已原生挂载
   // StatsPills 会话统计（gauge/database 双 pill：轮次/步数+输出速度、
   // 总 token+缓存命中，点击开时间速度与 token 用量对话框，projection
@@ -263,6 +261,27 @@ function materialize(profileDir: string, b: BundledPlugin): void {
     const live = (readJson(join(profileDir, 'node_modules', pkg, 'package.json'))?.['version'] as string) ?? ''
     return valid(live) !== null && valid(shipped) !== null && gt(live, shipped)
   }
+  // dsh-language-bundle 退役（2026-09-11）：剥离用户 profile home patch
+  // 层的 kcoder-language 托管块——块内容 disabled:false 引用已退役插件,
+  // 不剥离则引擎启动解析失败（file-attach 同款教训）。幂等:无块即空转
+  try {
+    const patchPath = join(dshHome(), 'cordis.patch.yml')
+    if (existsSync(patchPath)) {
+      const text = readFileSync(patchPath, 'utf8')
+      const begin = text.indexOf('# ---- kcoder-language BEGIN')
+      if (begin !== -1) {
+        const endMark = '# ---- kcoder-language END ----'
+        const end = text.indexOf(endMark, begin)
+        const stripped = (end === -1 ? text.slice(0, begin) : text.slice(0, begin) + text.slice(end + endMark.length))
+          .replace(/\n{3,}$/, '\n\n')
+        writeFileSync(patchPath, stripped.endsWith('\n') || stripped === '' ? stripped : stripped + '\n', 'utf8')
+        console.log('[kcoder-bundle] 已剥离退役语言插件的 patch 托管块')
+      }
+    }
+  } catch (error) {
+    console.error('[kcoder-bundle] 语言 patch 块剥离失败:', error)
+  }
+
   const removable = [...BUNDLES.map((x) => x.pkg), ...RETIRED_PLUGINS]
     .filter((x) => x !== DSH_CODING_SIDEBAR)
   const staleDeps = removable.filter((x) => x in dependencies && !registryNewer(x))

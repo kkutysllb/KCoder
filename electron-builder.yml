@@ -16,15 +16,13 @@ extraResources:
     to: kcoder-runtime.tar.gz
   # KCoder 自有 dsh bundle：主进程启动时幂等物化到
   # $DSH_HOME/profiles/web/node_modules 并注册层叠（kcoder-skills-bundle.ts）
-  # —— dsh-skills-bundle（方法论技能包）/ dsh-language-bundle（强制中文回答
+  # —— dsh-skills-bundle（方法论技能包）
   # system-prompt section，默认 disabled，home patch 层热切换）/
   # dsh-git-panel（独立 git 工作区面板）/ dsh-terminal（嵌入式终端）
 
   # 全部 dsh 标准命名（2026-09-01 改名自立，原 @kcoder/*）
   - from: bundle/dsh-skills-bundle
     to: dsh-skills-bundle
-  - from: bundle/dsh-language-bundle
-    to: dsh-language-bundle
   - from: bundle/dsh-git-panel
     to: dsh-git-panel
   - from: bundle/dsh-terminal

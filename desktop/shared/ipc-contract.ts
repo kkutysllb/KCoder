@@ -50,12 +50,6 @@ export interface StyleSettings {
   fontSize: 'auto' | number
 }
 
-/** Agent 回答语言定制（生效链见 language-settings.ts）。 */
-export interface LanguageSettings {
-  /** 强制 agent 正文用简体中文回答（false = 跟随模型默认）。 */
-  forceChinese: boolean
-}
-
 /** 偏好设置页可读写的全部桌面壳偏好（样式 + 通用）。 */
 export interface Preferences {
   style: StyleSettings

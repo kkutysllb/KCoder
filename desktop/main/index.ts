@@ -16,7 +16,6 @@ import { closePanels, markQuitting, showBootstrap, showLanding, showShellWindow 
 import { authLoggedIn, initAuthSession } from './auth'
 import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-contract'
 import { ensureKcoderBundles } from './kcoder-skills-bundle'
-import { syncLanguagePatch } from './language-settings'
 import { applyBootHomeEnv } from './home-migration'
 import { ensureBuiltinMcpServers } from './mcp-builtin'
 import { ensureProfilePatches } from './profile-patches'
@@ -226,7 +225,6 @@ app.whenReady().then(() => {
   ensureKcoderBundles()
   // 「强制中文回答」开关同步 home patch 层（幂等；必须在 dsh 启动前，
   // 组合树首次挂载即带上该行覆盖）
-  syncLanguagePatch()
   // 内置 MCP 服务器物化（幂等；首次启动写入全部条目，升级时只追加新增项）
   ensureBuiltinMcpServers()
   // 上游插件缺陷补丁物化（幂等；跨平台——Windows 无 launchd，随包分发

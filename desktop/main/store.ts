@@ -10,7 +10,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
-import type { LanguageSettings, StyleSettings } from '@shared/ipc-contract'
+import type { StyleSettings } from '@shared/ipc-contract'
 
 /** 样式定制的默认档（与 style-overlay 定值表一致：紧凑密度 + 1080 列宽）。 */
 export const DEFAULT_STYLE: StyleSettings = {
@@ -21,10 +21,6 @@ export const DEFAULT_STYLE: StyleSettings = {
 }
 
 /** 回答语言的默认档（跟随模型，不干预）。 */
-export const DEFAULT_LANGUAGE: LanguageSettings = {
-  forceChinese: false,
-}
-
 /** 持久化的设置形状。 */
 export interface DesktopSettings {
   /** 主窗口（承载上游 Web UI 的窗口）上次的 bounds。 */
@@ -39,8 +35,6 @@ export interface DesktopSettings {
   terminalHeight: number | null
   /** 界面样式定制（预设档位，见 style-overlay）。 */
   style: StyleSettings
-  /** Agent 回答语言定制（home patch 层热切换，见 language-settings）。 */
-  language: LanguageSettings
   /** dsh home 决策锁：迁移完成或首次全新启动后置 true（见 home-migration.ts）。
    *  置位后启动恒用 ~/.kcoder，不再被后出现的 ~/.dsh 翻回旧家。 */
   homeDecided: boolean
@@ -53,7 +47,6 @@ const DEFAULTS: DesktopSettings = {
   landingTheme: 'system',
   terminalHeight: null,
   style: DEFAULT_STYLE,
-  language: DEFAULT_LANGUAGE,
   homeDecided: false,
 }
 
@@ -72,7 +65,6 @@ export function getSettings(): DesktopSettings {
       ...DEFAULTS,
       ...raw,
       style: { ...DEFAULT_STYLE, ...raw.style },
-      language: { ...DEFAULT_LANGUAGE, ...raw.language },
     }
   } catch {
     cache = { ...DEFAULTS }

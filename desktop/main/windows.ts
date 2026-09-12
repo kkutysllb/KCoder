@@ -28,7 +28,6 @@ import { attachSettingsPage } from './settings-page'
 import { attachWorkspaceHeader } from './workspace-header'
 import { attachWorkspaceProbe } from './workspace-probe'
 import { attachStyleSettingsInjector } from './style-settings'
-import { attachLanguageSettingsInjector } from './language-settings'
 import { attachSkillsSettingsInjector } from './skills-settings'
 import { attachMcpSettingsInjector } from './mcp-settings'
 import { attachAboutSettingsInjector } from './about-settings'
@@ -193,7 +192,6 @@ export function showShellWindow(dshUrl: string): void {
     attachStyleSettingsInjector(shellWindow)
     // 回答语言：设置面板通用区注入「回答语言」行（跟随模型/强制中文；
     // 写回经 home patch 层热重载即时生效，无需重启引擎）
-    attachLanguageSettingsInjector(shellWindow)
     // 技能设置：设置面板导航列注入「技能」分区（三来源技能目录 +
     // 行展开正文；console 通道拉目录/正文，白名单读取）
     attachSkillsSettingsInjector(shellWindow)
