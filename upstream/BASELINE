@@ -299,6 +299,19 @@
 # llm-pi-ai + projection-cache + ui-chat + ui-conversation 1110 全绿；
 # oxlint 0 error。集成分支已推 fork 远端。
 #
+# 追加 2026-09-12：集成分支 kcoder/0.1.5-rc.2 尖端 94bbde10b3 → 1fc823f08d
+#（merge fix/win32-console-window-hide，基线钉版 SHA 不变——上游 tag 提交
+# fb2c4b9e 仍是祖先，断言照常通过）。修 Windows 打包版任务执行逐条弹黑窗：
+# 宿主引擎以 Electron(RUN_AS_NODE, GUI 子系统)运行无控制台可继承，沙箱链
+# CreateProcessAsUserW 三处补 CREATE_NO_WINDOW（win32-process：piped 0→
+# NO_WINDOW、inherited/current-token 载体 →+NO_WINDOW，abi 表新增常量，
+# 测试断言同步），另 7 处引擎内 child_process 补 windowsHide（sdk client、
+# apps/cli plugin、code-runtime-python、web-app 开浏览器、process-inspector、
+# sandbox-local 三探测）。上游 CLI（控制台子系统）IO 全走句柄管道行为不变；
+# 定向回归 win32-process + subprocess-local + sandbox 492/492 + sdk/python/
+# web-app 376/376，oxlint 0/0，typecheck 绿。随 v0.6.1 发布，runtime tarball
+# 以新尖端重物化。
+#
 # 升级基线的正确姿势（fork 锚定形态）：
 #   1. 改本文件为新提交 SHA（fork 上存在的基线提交）
 #   2. 在 fork 本地克隆重建集成分支：基于新基线建 kcoder/<版本> +

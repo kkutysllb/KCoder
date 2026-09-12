@@ -137,6 +137,8 @@ function driveNativeTheme(pref: 'system' | 'light' | 'dark'): void {
 
 /** 已挂主题观察的 shell 窗口（系统翻转时的 chrome 重同步面）。 */
 const watchedShellWindows = new Set<BrowserWindow>()
+/** 各 shell 窗口最近一次算出的 Windows overlay 参数（focus/restore 重放用）。 */
+const lastOverlay = new WeakMap<BrowserWindow, { color: string; symbolColor: string; height: number }>()
 let nativeThemeHooked = false
 
 /** shell 链路主题应用：上游实色/偏好档 → themeSource + lastTheme 持久化（变化才写盘）。 */
@@ -203,6 +205,19 @@ export function attachThemeWatcher(win: BrowserWindow): void {
   webContents.on('console-message', onConsole)
   webContents.on('did-finish-load', onDidLoad)
   watchedShellWindows.add(win)
+  // Windows：主题切换发生在窗口后台时（用户在系统设置里切主题），
+  // setTitleBarOverlay 会被 DWM 丢弃且定时重放也一并丢掉；回前台时用
+  // 最近一次算出的参数整体重放，是唯一可靠的补画时机
+  if (process.platform === 'win32') {
+    const replayOverlay = (): void => {
+      const overlay = lastOverlay.get(win)
+      if (overlay === undefined) return
+      try { win.setTitleBarOverlay(overlay) } catch { /* 窗口销毁竞态 */ }
+    }
+    win.on('focus', replayOverlay)
+    win.on('restore', replayOverlay)
+    win.on('show', replayOverlay)
+  }
   win.once('closed', () => {
     watchedShellWindows.delete(win)
     webContents.removeListener('console-message', onConsole)
@@ -377,17 +392,31 @@ const SHELL_TITLEBAR_JS = `(() => {
     presetTag.textContent = preset
     presetTag.style.display = preset !== '' ? '' : 'none'
   }
+  /* 主题异步落定自愈：@property 过渡/上游延迟落色时，突变瞬间读到的
+     可能还是旧值，而过渡本身不再产生 DOM 变化——每次变化后 120/400ms
+     各重读重画一次兜底。主进程在主题事件时也会经 __dshTitlebarApply
+     poke 本函数；deep→浅→深卡浅色（Windows 打包版实测）由此治愈 */
+  let settleTimers = []
+  const applyWithSettle = () => {
+    apply()
+    for (const t of settleTimers) clearTimeout(t)
+    settleTimers = [120, 400].map((d) => setTimeout(apply, d))
+  }
+  window.__dshTitlebarApply = applyWithSettle
+  // 跟随系统档的系统翻转可以不经过上游 DOM 属性，媒体查询直达
+  try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyWithSettle) } catch {}
+
   const mount = () => {
     document.body.append(bar)
-    apply()
-    new MutationObserver(apply).observe(document.documentElement, {
-      attributes: true, attributeFilter: ['style'],
+    applyWithSettle()
+    new MutationObserver(applyWithSettle).observe(document.documentElement, {
+      attributes: true, attributeFilter: ['style', 'class'],
     })
-    new MutationObserver(apply).observe(document.body, {
-      attributes: true, attributeFilter: ['data-ds-dark-theme'],
+    new MutationObserver(applyWithSettle).observe(document.body, {
+      attributes: true, attributeFilter: ['data-ds-dark-theme', 'class'],
     })
     const titleEl = document.querySelector('title')
-    if (titleEl) new MutationObserver(apply).observe(titleEl, {
+    if (titleEl) new MutationObserver(applyWithSettle).observe(titleEl, {
       childList: true, characterData: true, subtree: true,
     })
   }
@@ -412,15 +441,26 @@ export function applyShellChromeTheme(win: BrowserWindow, pref: 'system' | 'ligh
       height: SHELL_TITLEBAR_HEIGHT,
     }
     // Windows 已知问题：深→浅→深连续切换时，后续 setTitleBarOverlay
-    // 可能被 DWM/Electron 丢弃（overlay 卡在浅色直到重启）。立即一次 +
-    // 60/200ms 两次幂等重放，覆盖调用丢弃与 DWM 应用延迟两种时序
+    // 可能被 DWM 丢弃（切主题时本窗口通常在后台，是最常见的丢弃场景；
+    // 窗口回前台也不重放，overlay 就卡死到重启）。立即一次 + 250/800ms
+    // 两次幂等重放；窗口 focus/restore/show 时再整体重放（见
+    // attachThemeWatcher），覆盖后台丢弃的所有时序
     try { win.setTitleBarOverlay(overlay) } catch { /* 窗口销毁竞态 */ }
-    for (const delay of [60, 200]) {
+    for (const delay of [250, 800]) {
       setTimeout(() => {
         try {
           if (!win.isDestroyed()) win.setTitleBarOverlay(overlay)
         } catch { /* 同上 */ }
       }, delay)
     }
+    lastOverlay.set(win, overlay)
+    // 自绘标题栏条（页面 div）的自愈：主题落点变化后上游 CSS 变量可能
+    // 异步落定（@property 过渡等），让页面在 120/400ms 后各重读重画一次；
+    // 主进程只在主题事件时 poke，平时由页面自身的观察器驱动
+    try {
+      void win.webContents.executeJavaScript(
+        'window.__dshTitlebarApply && window.__dshTitlebarApply()', true,
+      ).catch(() => {})
+    } catch { /* webContents 已销毁 */ }
   }
 }
