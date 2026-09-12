@@ -4,11 +4,21 @@
 
 自 KCoder 内置包独立发布的 dsh 插件（v1.0.0 起独立版本线）。
 
-## 安装
+## 安装 / Install
 
 ```bash
-dsh plugin install dsh-skills-bundle
+# npm registry（推荐：版本可被插件管理检测，用户手动更新）
+# npm registry (recommended: version detection with manual updates)
+dsh plugin --profile web add dsh-skills-bundle
+
+# GitHub 直装 / install straight from GitHub
+dsh plugin --profile web add github:kkutysllb/dsh-skills-bundle
+
+# 或从 dsh-plugins 真源仓 / or from the dsh-plugins monorepo
+dsh plugin --profile web add github:kkutysllb/dsh-plugins#dsh-skills-bundle
 ```
+
+> KCoder 桌面版内置本包（随版本分发，无需安装）。/ Bundled with KCoder desktop — no install needed there.
 
 ## 形态
 
