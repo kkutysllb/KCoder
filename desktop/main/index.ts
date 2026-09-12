@@ -22,6 +22,7 @@ import { ensureProfilePatches } from './profile-patches'
 import { ensurePresetPlugins } from './preset-plugins'
 import { initUpdater } from './updater'
 import { applyNativeTheme, currentLandingTheme, currentThemePref } from './theme-watcher'
+import { startBrowserHost, stopBrowserHost } from './browser-host'
 import { getSettings } from './store'
 import { homedir } from 'node:os'
 import { readFileSync, existsSync } from 'node:fs'
@@ -188,6 +189,8 @@ app.whenReady().then(() => {
   // 原生标题栏/菜单栏在首个窗口出现前就对色
   initAuthSession()
   applyNativeTheme(authLoggedIn() ? currentThemePref() : currentLandingTheme())
+  // agent 浏览器宿主:无头 Chromium + 固定 CDP 转发器(playwright/侧边栏实况共用)
+  startBrowserHost()
   registerIpc()
   installMenu()
   installTray()
@@ -280,6 +283,7 @@ autoUpdater.on('before-quit-for-update', () => {
 })
 
 app.on('before-quit', (event) => {
+  stopBrowserHost()
   markQuitting() // 首位置位：主窗口 close 拦截放行，退出不被托盘保活挡死
   if (dshManager.status.state === 'stopped' || dshManager.status.state === 'failed') return
   event.preventDefault()

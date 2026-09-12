@@ -23,13 +23,14 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { dshHome } from './dsh-contract'
+import { BROWSER_HOST_PORT } from './browser-host'
 import { mcpServerDelete, mcpServerSave, mcpServers, type McpServerEntry } from './mcp-store'
 
 /**
  * 内置定义版本。修改任何内置条目（命令/参数/新增/删除）时递增，触发
  * 已安装用户的全量重写（确保旧错误配置被修正）。
  */
-const BUILTIN_VERSION = 4
+const BUILTIN_VERSION = 5
 
 /**
  * 系统 Chrome 常见安装位置（跨平台）。
@@ -61,12 +62,12 @@ function chromeAvailable(): boolean {
 }
 
 /**
- * playwright MCP 浏览器参数：有系统 Chrome 时用 channel 直驱（零下载）；
- * 缺失时不传 --browser，回落官方默认 chromium（首次使用时自动下载
- * 一次，而非每次会话重试）。
+ * playwright MCP 浏览器参数：连接 KCoder 浏览器宿主（browser-host.ts
+ * 维护的无头 Chromium，固定 CDP 转发地址）。agent 浏览不再弹本机浏览器
+ * 窗口；侧边栏浏览器 tab 连同一端点做实况观看。
  */
 function playwrightBrowserArgs(): string[] {
-  return chromeAvailable() ? ['--browser', 'chrome'] : []
+  return ['--cdp-endpoint', `http://127.0.0.1:${BROWSER_HOST_PORT}`]
 }
 
 /** 内置 MCP 服务器定义。 */
