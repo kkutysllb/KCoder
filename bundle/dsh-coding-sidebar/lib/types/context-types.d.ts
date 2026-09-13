@@ -430,10 +430,12 @@ export interface SidebarLocaleService {
 }
 /** The composer draft face the sidebar reaches through `ctx.conversation.input`. */
 export interface SidebarSessionInput {
-    /** The live input store (draft read for append). */
+    /** The live input store (draft read for append). `draftRev` is the machine's
+     *  span-CAS revision — required to mint a structured file-reference chip. */
     state: {
         getSnapshot(): {
             draft: string;
+            draftRev?: number;
         };
     };
     /** Replace the draft text (the input machine's single public write path). */
@@ -444,6 +446,30 @@ export interface SidebarConversation {
     input: {
         for(actx: Context): SidebarSessionInput;
     };
+}
+/**
+ * One per-Session observable published by a Conversation view target (mirror
+ * of the host `ObservableSnapshot`). The trajectory graph consumes the host
+ * `ui-trajectory` plugin's target through it; the sidebar never imports the
+ * host view types (see src/client/trajectory-source.ts).
+ */
+export interface SidebarConversationTarget {
+    /** Latest target-owned snapshot, or null/undefined before assembly. */
+    getSnapshot(): unknown;
+    subscribe(listener: () => void): () => void;
+}
+/** One Session's Conversation binding (mirror of the host `ConversationBinding`). */
+export interface SidebarConversationBinding {
+    /** Resolve one registered view target's observable face. */
+    target(name: string): SidebarConversationTarget;
+}
+/**
+ * The target-neutral Conversation assembly face (mirror of the host
+ * `UiConversation`): per-Session bindings over every registered view target.
+ * Optional — every probe must tolerate a host without it.
+ */
+export interface SidebarConversationAssembly {
+    binding(sessionId: string): SidebarConversationBinding;
 }
 /**
  * The client workspaces service face (mirror of the runtime IWorkspaces). Only
@@ -581,6 +607,13 @@ export interface SidebarContextShape {
     sessionPersistence: SidebarSessionPersistenceService;
     /** The composer draft face (client ui-conversation, lazy `ctx.get` probe). */
     conversation: SidebarConversation;
+    /**
+     * The target-neutral Conversation assembly (client ui-conversation, lazy
+     * `ctx.get` probe). Optional: the trajectory graph degrades to its
+     * "unavailable" state on a host without it, and on a host whose
+     * `ui-trajectory` plugin never registered the target.
+     */
+    uiConversation?: SidebarConversationAssembly;
     /**
      * The client-side sidebar registry: external plugins register tab types
      * and file previewers here. Provided by the client half (see

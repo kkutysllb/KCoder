@@ -48,6 +48,9 @@ type CallRecord = {
 } | {
     readonly kind: 'deletion';
     readonly paths: readonly string[];
+} | {
+    readonly kind: 'artifact';
+    readonly paths: readonly string[];
 } | null;
 /** Per-turn accumulator state (immutable updates, engine-reduced). */
 interface FileReviewState {

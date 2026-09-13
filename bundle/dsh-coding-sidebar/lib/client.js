@@ -129,7 +129,7 @@ window.__ModuleLoader__.load({
 		}
 		/**
 		* The largest numeric suffix across a raw persisted state's counter ids
-		* (`pane:N` / `tab:N` / `split:N`). The uid counter is module-global and
+		* (`pane:N` / `tab:N` / `split:N` / `float:N`). The uid counter is module-global and
 		* resets on every reload, so a split minted AFTER a reload would collide
 		* with the persisted ids (a fresh "pane:1" beside the persisted "pane:1");
 		* mapLeaf would then visit BOTH leaves and every open would land in both
@@ -140,7 +140,7 @@ window.__ModuleLoader__.load({
 			let max = 0;
 			const consider = (id) => {
 				if (typeof id !== "string") return;
-				const match = /^(?:pane|tab|split):(\d+)$/.exec(id);
+				const match = /^(?:pane|tab|split|float):(\d+)$/.exec(id);
 				if (match !== null) max = Math.max(max, Number(match[1]));
 			};
 			const walk = (node) => {
@@ -194,7 +194,8 @@ window.__ModuleLoader__.load({
 				expanded: [],
 				revealed: [],
 				splits: leaf,
-				floats: []
+				floats: [],
+				agentWaits: {}
 			};
 		}
 		/** Whether a tree node (or any descendant) carries the given pane/split id. */
@@ -809,6 +810,19 @@ window.__ModuleLoader__.load({
 		function agentTabId(uuid) {
 			return `${AGENT_TAB_PREFIX}${uuid}`;
 		}
+		/** Shallow equality of two agent-wait maps (same keys, same needle+since). */
+		function sameAgentWaits(a, b) {
+			if (a === void 0) return Object.keys(b).length === 0;
+			const aKeys = Object.keys(a);
+			if (aKeys.length !== Object.keys(b).length) return false;
+			for (const key of aKeys) {
+				const av = a[key];
+				const bv = b[key];
+				if (av === void 0 || bv === void 0) return false;
+				if (av.needle !== bv.needle || av.since !== bv.since) return false;
+			}
+			return true;
+		}
 		/**
 		* Reconcile the sidebar's agent-terminal tabs with the host's live list.
 		* The host pushes the current list of agent terminals (created by the model
@@ -827,7 +841,12 @@ window.__ModuleLoader__.load({
 			const serverUuids = new Set(agentTerminals.map((t) => t.uuid));
 			const toAdd = agentTerminals.filter((t) => !existingUuids.has(t.uuid));
 			const toRemove = existingAgentTabs.filter((tab) => !serverUuids.has(agentUuidOf(tab.id)) && tab.pin === void 0);
-			if (toAdd.length === 0 && toRemove.length === 0) return state;
+			const serverWaits = {};
+			for (const terminal of agentTerminals) if (terminal.waiting !== void 0 && terminal.waiting !== null) serverWaits[terminal.uuid] = {
+				needle: terminal.waiting.needle,
+				since: terminal.waiting.since
+			};
+			if (toAdd.length === 0 && toRemove.length === 0 && sameAgentWaits(state.agentWaits, serverWaits)) return state;
 			let splits = state.splits;
 			let floats = state.floats;
 			for (const tab of toRemove) {
@@ -841,7 +860,8 @@ window.__ModuleLoader__.load({
 			let next = {
 				...state,
 				splits,
-				floats
+				floats,
+				agentWaits: serverWaits
 			};
 			for (const terminal of toAdd) {
 				const tab = {
@@ -908,6 +928,7 @@ window.__ModuleLoader__.load({
 		}
 		function loadState(sessionId, prefs) {
 			const reset = resetRequested();
+			const viewport = typeof window !== "undefined" ? window.innerWidth : void 0;
 			if (reset) try {
 				localStorage.removeItem(`${STORAGE_PREFIX}:${sessionId}`);
 				localStorage.removeItem(GLOBAL_WIDTH_KEY);
@@ -919,13 +940,18 @@ window.__ModuleLoader__.load({
 					const parsed = JSON.parse(raw);
 					nextIdCounter = maxCounterId(parsed);
 					const sanitized = sanitizeState(parsed);
-					if (sanitized !== void 0) return globalWidth === void 0 ? sanitized : {
-						...sanitized,
-						width: globalWidth
-					};
+					if (sanitized !== void 0) {
+						const restored = globalWidth === void 0 ? sanitized : {
+							...sanitized,
+							width: globalWidth
+						};
+						return viewport !== void 0 && isNarrowWidth(viewport) && restored.panelOpen ? {
+							...restored,
+							panelOpen: false
+						} : restored;
+					}
 				}
 			} catch {}
-			const viewport = typeof window !== "undefined" ? window.innerWidth : void 0;
 			return makeDefaultState(globalWidth ?? (viewport === void 0 ? 400 : defaultWidthFor(viewport, prefs.defaultWidthPercent)), prefs.openByDefault && (viewport === void 0 || !isNarrowWidth(viewport)), prefs.tabsEnabled["editor"] === false ? "none" : "editor-home");
 		}
 		/**
@@ -987,7 +1013,8 @@ window.__ModuleLoader__.load({
 				expanded: record.expanded,
 				revealed: [],
 				splits: migratedSplits,
-				floats
+				floats,
+				agentWaits: {}
 			};
 		}
 		/** Collapse persisted split panes left empty after ephemeral diff tabs are dropped. */
@@ -1431,6 +1458,157 @@ window.__ModuleLoader__.load({
 			};
 		}
 		//#endregion
+		//#region src/client/file-icon-registry.ts
+		/**
+		* Reserved `exts` values that claim DIRECTORY rows instead of file
+		* extensions: `'folder'` matches a closed directory, `'folder-open'` an
+		* expanded one ({@link FileIconRegistry.folderIcon} resolves them). They are
+		* filtered out of real-extension matching, so a file literally named
+		* `x.folder` is NOT claimed by a folder registration.
+		*/
+		const FOLDER_EXT = "folder";
+		const FOLDER_OPEN_EXT = "folder-open";
+		/** The basename of a '/'- or '\'-separated path (trailing separators trimmed). */
+		function baseNameOf$1(path) {
+			const trimmed = path.replace(/[\\/]+$/, "");
+			const at = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+			return at === -1 ? trimmed : trimmed.slice(at + 1);
+		}
+		/**
+		* The lowercased extension of a path ('' when none), the dot having to sit
+		* inside the last segment: a dot in a directory name is not an extension.
+		* A leading dot starts a suffix (`.gitignore` → `'gitignore'`), mirroring
+		* the host classifier's own `fileExtension`.
+		*/
+		function extOf(path) {
+			const at = path.lastIndexOf(".");
+			if (at === -1) return "";
+			const base = path.slice(at + 1).toLowerCase();
+			return base.includes("/") || base.includes("\\") ? "" : base;
+		}
+		/**
+		* Create one file-icon registry.
+		* @param builtins - the built-in glyph pair the chain ends on.
+		* @param onChange - called after every effective registry change (register
+		* or dispose; a repeated dispose is a no-op and stays silent) so mounted
+		* rows re-resolve their icons without a reload.
+		* @returns the registry, whose six methods are the public service face.
+		*/
+		function createFileIconRegistry(builtins, onChange) {
+			const fileIcons = /* @__PURE__ */ new Map();
+			const notify = () => {
+				onChange?.();
+			};
+			const registerFileIcon = (descriptor) => {
+				if (fileIcons.has(descriptor.id)) throw new Error(`[dsh-coding-sidebar] file icons "${descriptor.id}" already registered`);
+				fileIcons.set(descriptor.id, descriptor);
+				notify();
+				return () => {
+					if (fileIcons.get(descriptor.id) === descriptor) {
+						fileIcons.delete(descriptor.id);
+						notify();
+					}
+				};
+			};
+			const getFileIcons = () => Array.from(fileIcons.values());
+			const ranked = () => Array.from(fileIcons.values()).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+			const matchFileIcon = (path) => {
+				const ext = extOf(path);
+				const reserved = ext === "folder" || ext === "folder-open";
+				const name = baseNameOf$1(path).toLowerCase();
+				const list = ranked();
+				for (const d of list) if (d.names?.some((entry) => entry.toLowerCase() === name) === true) return d;
+				if (reserved) return void 0;
+				for (const d of list) if (d.exts?.includes(ext) === true) return d;
+			};
+			const matchFolderIcon = (open, name) => {
+				const list = ranked();
+				if (name !== void 0) {
+					const wanted = name.toLowerCase();
+					for (const d of list) if (d.folderNames?.some((entry) => entry.toLowerCase() === wanted) === true) return d;
+				}
+				const want = open ? FOLDER_OPEN_EXT : FOLDER_EXT;
+				for (const d of list) if (d.exts?.includes(want) === true) return d;
+			};
+			/** Run one registered factory; a throw is logged and declines the row. */
+			const safeIcon = (d, path, size, open) => {
+				try {
+					return d.icon(path, size, open);
+				} catch (error) {
+					console.error(`[dsh-coding-sidebar] file icon factory "${d.id}" error:`, error);
+					return;
+				}
+			};
+			const fileIcon = (path, size) => {
+				const specific = matchFileIcon(path);
+				if (specific !== void 0) {
+					const icon = safeIcon(specific, path, size);
+					if (icon !== void 0) return icon;
+				}
+				for (const d of ranked()) if (d.exts !== void 0 && d.exts.length === 0) {
+					const icon = safeIcon(d, path, size);
+					if (icon !== void 0) return icon;
+				}
+				return builtins.file(path, size);
+			};
+			const folderIcon = (path, open, size) => {
+				const registered = matchFolderIcon(open, baseNameOf$1(path));
+				if (registered !== void 0) {
+					const icon = safeIcon(registered, path, size, open);
+					if (icon !== void 0) return icon;
+				}
+				return builtins.folder(open, size);
+			};
+			return {
+				registerFileIcon,
+				getFileIcons,
+				matchFileIcon,
+				matchFolderIcon,
+				fileIcon,
+				folderIcon
+			};
+		}
+		//#endregion
+		//#region src/client/file-icons.tsx
+		/**
+		* A file row: the host's own classifier and artwork for any path. Unknown
+		* extensions land on the generic document glyph, exactly like the host's
+		* explorer.
+		* @param path - the row's path (any separator; the classifier reads the basename).
+		* @param size - the square edge in px.
+		* @returns the host's file-type glyph.
+		*/
+		function builtinFileIcon(path, size) {
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.FileTypeIcon, {
+				path,
+				size
+			});
+		}
+		/**
+		* A directory row: the host's folder glyph.
+		*
+		* The host ships one folder drawing (`kind: 'folder'` resolves to its own
+		* monochrome folder icon, which rides `currentColor` and therefore still
+		* follows the skin), and its classifier never returns a folder category of
+		* its own. The expansion state is already legible from the tree's own
+		* chevron and row affordances, so this deliberately does not invent a second
+		* folder drawing.
+		* @param _open - whether the row is expanded (accepted for API compatibility).
+		* @param size - the square edge in px.
+		* @returns the host's folder glyph.
+		*/
+		function builtinFolderIcon(_open, size) {
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.FileTypeIcon, {
+				kind: "folder",
+				size
+			});
+		}
+		/** The built-in pair the registry falls back to (DSH's own artwork). */
+		const HOST_FILE_ICONS = {
+			file: builtinFileIcon,
+			folder: builtinFolderIcon
+		};
+		//#endregion
 		//#region src/client/service.ts
 		/** The file name of a path (both separators). */
 		function baseNameOf(path) {
@@ -1462,7 +1640,7 @@ window.__ModuleLoader__.load({
 				if (claimed) return tab;
 			}
 		}
-		const SIDEBAR_SERVICE_VERSION = "1.0.5";
+		const SIDEBAR_SERVICE_VERSION = "1.0.12";
 		/**
 		* Monotonic capability list consumers use to gate new API usage (features
 		* are never removed). Each string names a v0.12.0+ capability:
@@ -1476,6 +1654,11 @@ window.__ModuleLoader__.load({
 		* - 'pluginSettings': SidebarSettingsDeclaration.pluginToggles/render
 		* - 'urlTarget' (v0.13.0): TabDescriptor.urlTarget (external-link claims)
 		* - 'settingSelect': SidebarSettingToggle type 'select' (options/multi)
+		* - 'fileIcons' (v1.0.12): registerFileIcon/getFileIcons/matchFileIcon —
+		*   external file-tree icons overriding the built-in artwork, matched by
+		*   extension (`exts`), exact file name (`names`), or directory name
+		*   (`folderNames`). Built-in glyphs are the host's own `FileTypeIcon`
+		*   artwork (no plugin-side extension table).
 		* - 'floatWindows' (v0.16.0): tabs float as free windows — openTab's dedupe/
 		*   id focus targets RAISE the floating window (never duplicate the tab or
 		*   expand panels), closeTab on a floating tab closes it with its window.
@@ -1491,6 +1674,7 @@ window.__ModuleLoader__.load({
 			"pluginSettings",
 			"urlTarget",
 			"settingSelect",
+			"fileIcons",
 			"floatWindows"
 		];
 		/** Run one plugin callback; a throw is logged and never breaks the caller. */
@@ -1512,6 +1696,7 @@ window.__ModuleLoader__.load({
 			const notify = () => {
 				for (const fn of [...listeners]) fn();
 			};
+			const icons = createFileIconRegistry(HOST_FILE_ICONS, notify);
 			const subscribe = (listener) => {
 				listeners.add(listener);
 				return () => {
@@ -1677,7 +1862,8 @@ window.__ModuleLoader__.load({
 				subscribeState,
 				updateTab,
 				activateTab: activateTab$1,
-				openFile
+				openFile,
+				...icons
 			};
 		}
 		/**
@@ -1916,6931 +2102,376 @@ window.__ModuleLoader__.load({
 			return task;
 		}
 		//#endregion
-		//#region src/client/locales-ja.ts
+		//#region node_modules/.pnpm/react-icons@5.7.0_react@18.3.1/node_modules/react-icons/lib/iconContext.mjs
+		var DefaultContext = {
+			color: void 0,
+			size: void 0,
+			className: void 0,
+			style: void 0,
+			attr: void 0
+		};
+		var IconContext = react.default.createContext && /*#__PURE__*/ react.default.createContext(DefaultContext);
+		//#endregion
+		//#region node_modules/.pnpm/react-icons@5.7.0_react@18.3.1/node_modules/react-icons/lib/iconBase.mjs
+		var _excluded = [
+			"attr",
+			"size",
+			"title"
+		];
+		function _objectWithoutProperties(e, t) {
+			if (null == e) return {};
+			var o, r, i = _objectWithoutPropertiesLoose(e, t);
+			if (Object.getOwnPropertySymbols) {
+				var n = Object.getOwnPropertySymbols(e);
+				for (r = 0; r < n.length; r++) o = n[r], -1 === t.indexOf(o) && {}.propertyIsEnumerable.call(e, o) && (i[o] = e[o]);
+			}
+			return i;
+		}
+		function _objectWithoutPropertiesLoose(r, e) {
+			if (null == r) return {};
+			var t = {};
+			for (var n in r) if ({}.hasOwnProperty.call(r, n)) {
+				if (-1 !== e.indexOf(n)) continue;
+				t[n] = r[n];
+			}
+			return t;
+		}
+		function _extends() {
+			return _extends = Object.assign ? Object.assign.bind() : function(n) {
+				for (var e = 1; e < arguments.length; e++) {
+					var t = arguments[e];
+					for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]);
+				}
+				return n;
+			}, _extends.apply(null, arguments);
+		}
+		function ownKeys(e, r) {
+			var t = Object.keys(e);
+			if (Object.getOwnPropertySymbols) {
+				var o = Object.getOwnPropertySymbols(e);
+				r && (o = o.filter(function(r) {
+					return Object.getOwnPropertyDescriptor(e, r).enumerable;
+				})), t.push.apply(t, o);
+			}
+			return t;
+		}
+		function _objectSpread(e) {
+			for (var r = 1; r < arguments.length; r++) {
+				var t = null != arguments[r] ? arguments[r] : {};
+				r % 2 ? ownKeys(Object(t), !0).forEach(function(r) {
+					_defineProperty(e, r, t[r]);
+				}) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function(r) {
+					Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r));
+				});
+			}
+			return e;
+		}
+		function _defineProperty(e, r, t) {
+			return (r = _toPropertyKey(r)) in e ? Object.defineProperty(e, r, {
+				value: t,
+				enumerable: !0,
+				configurable: !0,
+				writable: !0
+			}) : e[r] = t, e;
+		}
+		function _toPropertyKey(t) {
+			var i = _toPrimitive(t, "string");
+			return "symbol" == typeof i ? i : i + "";
+		}
+		function _toPrimitive(t, r) {
+			if ("object" != typeof t || !t) return t;
+			var e = t[Symbol.toPrimitive];
+			if (void 0 !== e) {
+				var i = e.call(t, r || "default");
+				if ("object" != typeof i) return i;
+				throw new TypeError("@@toPrimitive must return a primitive value.");
+			}
+			return ("string" === r ? String : Number)(t);
+		}
+		function Tree2Element(tree) {
+			return tree && tree.map((node, i) => /*#__PURE__*/ react.default.createElement(node.tag, _objectSpread({ key: i }, node.attr), Tree2Element(node.child)));
+		}
+		function GenIcon(data) {
+			return (props) => /*#__PURE__*/ react.default.createElement(IconBase, _extends({ attr: _objectSpread({}, data.attr) }, props), Tree2Element(data.child));
+		}
+		function IconBase(props) {
+			var elem = (conf) => {
+				var attr = props.attr, size = props.size, title = props.title, svgProps = _objectWithoutProperties(props, _excluded);
+				var computedSize = size || conf.size || "1em";
+				var className;
+				if (conf.className) className = conf.className;
+				if (props.className) className = (className ? className + " " : "") + props.className;
+				return /*#__PURE__*/ react.default.createElement("svg", _extends({
+					stroke: "currentColor",
+					fill: "currentColor",
+					strokeWidth: "0"
+				}, conf.attr, attr, svgProps, {
+					className,
+					style: _objectSpread(_objectSpread({ color: props.color || conf.color }, conf.style), props.style),
+					height: computedSize,
+					width: computedSize,
+					xmlns: "http://www.w3.org/2000/svg"
+				}), title && /*#__PURE__*/ react.default.createElement("title", null, title), props.children);
+			};
+			return IconContext !== void 0 ? /*#__PURE__*/ react.default.createElement(IconContext.Consumer, null, (conf) => elem(conf)) : elem(DefaultContext);
+		}
+		//#endregion
+		//#region node_modules/.pnpm/react-icons@5.7.0_react@18.3.1/node_modules/react-icons/vsc/index.mjs
+		function VscTerminal(props) {
+			return GenIcon({
+				"tag": "svg",
+				"attr": {
+					"viewBox": "0 0 24 24",
+					"fill": "currentColor"
+				},
+				"child": [{
+					"tag": "path",
+					"attr": { "d": "M18.75 1.5H5.25C3.1815 1.5 1.5 3.183 1.5 5.25V18.75C1.5 20.8185 3.1815 22.5 5.25 22.5H18.75C20.8185 22.5 22.5 20.8185 22.5 18.75V5.25C22.5 3.183 20.8185 1.5 18.75 1.5ZM21 18.75C21 19.9905 19.9905 21 18.75 21H5.25C4.0095 21 3 19.9905 3 18.75V5.25C3 4.0095 4.0095 3 5.25 3H18.75C19.9905 3 21 4.0095 21 5.25V18.75ZM10.281 13.281L5.781 17.781C5.634 17.928 5.442 18 5.25 18C5.058 18 4.866 17.9265 4.719 17.781C4.4265 17.4885 4.4265 17.013 4.719 16.7205L8.688 12.7515L4.719 8.7825C4.4265 8.49 4.4265 8.0145 4.719 7.722C5.0115 7.4295 5.487 7.4295 5.7795 7.722L10.2795 12.222C10.572 12.5145 10.572 12.99 10.2795 13.2825L10.281 13.281ZM19.5 17.25C19.5 17.664 19.164 18 18.75 18H11.25C10.836 18 10.5 17.664 10.5 17.25C10.5 16.836 10.836 16.5 11.25 16.5H18.75C19.164 16.5 19.5 16.836 19.5 17.25Z" },
+					"child": []
+				}]
+			})(props);
+		}
+		function VscRemoteExplorer(props) {
+			return GenIcon({
+				"tag": "svg",
+				"attr": {
+					"viewBox": "0 0 24 25",
+					"fill": "currentColor"
+				},
+				"child": [{
+					"tag": "path",
+					"attr": {
+						"fillRule": "evenodd",
+						"clipRule": "evenodd",
+						"d": "M9.32 20.0677C9.469 20.5907 9.667 21.0917 9.911 21.5677H3.759C3.345 21.5677 3.009 21.2317 3.009 20.8177C3.009 20.4037 3.345 20.0677 3.759 20.0677H6.008V18.5517H3C1.343 18.5517 0 17.2087 0 15.5517V5.06775C0 3.41075 1.343 2.06775 3 2.06775H16.5C18.157 2.06775 19.5 3.41075 19.5 5.06775V9.88775C19.016 9.74975 18.516 9.65275 18 9.60575V5.06775C18 4.23975 17.328 3.56775 16.5 3.56775H3C2.172 3.56775 1.5 4.23975 1.5 5.06775V15.5517C1.5 16.3797 2.172 17.0517 3 17.0517H9.039C9.016 17.3047 9 17.5587 9 17.8177C9 18.0657 9.016 18.3097 9.037 18.5517H7.507V20.0677H9.32ZM24 17.8177C24 21.5457 20.978 24.5677 17.25 24.5677C13.522 24.5677 10.5 21.5457 10.5 17.8177C10.5 14.0897 13.522 11.0677 17.25 11.0677C20.978 11.0677 24 14.0897 24 17.8177ZM17.251 19.3177C17.251 19.2187 17.231 19.1217 17.194 19.0307C17.156 18.9397 17.101 18.8567 17.031 18.7867L14.781 16.5367C14.64 16.3957 14.449 16.3167 14.25 16.3167C14.051 16.3167 13.86 16.3957 13.719 16.5367C13.578 16.6777 13.499 16.8687 13.499 17.0677C13.499 17.2667 13.578 17.4577 13.719 17.5987L15.44 19.3177L13.719 21.0367C13.578 21.1777 13.499 21.3687 13.499 21.5677C13.499 21.7667 13.578 21.9577 13.719 22.0987C13.86 22.2397 14.051 22.3187 14.25 22.3187C14.449 22.3187 14.64 22.2397 14.781 22.0987L17.031 19.8487C17.101 19.7787 17.156 19.6967 17.194 19.6057C17.232 19.5147 17.251 19.4167 17.251 19.3177ZM19.06 16.3177L20.78 14.5987C20.921 14.4577 21 14.2667 21 14.0677C21 13.8687 20.921 13.6777 20.78 13.5367C20.639 13.3957 20.448 13.3167 20.249 13.3167C20.05 13.3167 19.859 13.3957 19.718 13.5367L17.468 15.7867C17.398 15.8567 17.343 15.9387 17.305 16.0307C17.267 16.1217 17.248 16.2197 17.248 16.3177C17.248 16.4157 17.268 16.5137 17.305 16.6057C17.343 16.6967 17.398 16.7797 17.468 16.8487L19.718 19.0987C19.859 19.2397 20.05 19.3187 20.249 19.3187C20.448 19.3187 20.639 19.2397 20.78 19.0987C20.921 18.9577 21 18.7667 21 18.5677C21 18.3687 20.921 18.1777 20.78 18.0367L19.06 16.3177Z"
+					},
+					"child": []
+				}]
+			})(props);
+		}
+		function VscPinned(props) {
+			return GenIcon({
+				"tag": "svg",
+				"attr": {
+					"viewBox": "0 0 16 16",
+					"fill": "currentColor"
+				},
+				"child": [{
+					"tag": "path",
+					"attr": { "d": "M10.0589 2.44511C9.34701 1.73063 8.14697 1.90829 7.67261 2.79839L5.6526 6.58878L2.8419 7.52568C2.6775 7.58048 2.5532 7.71649 2.51339 7.88514C2.47357 8.0538 2.52392 8.23104 2.64646 8.35357L4.79291 10.5L2.14645 13.1465L2 14L2.85356 13.8536L5.50002 11.2071L7.64646 13.3536C7.76899 13.4761 7.94623 13.5265 8.11489 13.4866C8.28354 13.4468 8.41955 13.3225 8.47435 13.1581L9.41143 10.3469L13.1897 8.32423C14.0759 7.84982 14.2538 6.6551 13.5443 5.94305L10.0589 2.44511ZM8.55511 3.2687C8.71323 2.972 9.11324 2.91278 9.35055 3.15094L12.836 6.64889C13.0725 6.88624 13.0131 7.28448 12.7178 7.44262L8.76403 9.55921C8.65137 9.61952 8.56608 9.72068 8.52567 9.84191L7.7815 12.0744L3.92562 8.21853L6.15812 7.47436C6.27966 7.43385 6.38101 7.34823 6.44126 7.23518L8.55511 3.2687Z" },
+					"child": []
+				}]
+			})(props);
+		}
+		function VscPin(props) {
+			return GenIcon({
+				"tag": "svg",
+				"attr": {
+					"viewBox": "0 0 16 16",
+					"fill": "currentColor"
+				},
+				"child": [{
+					"tag": "path",
+					"attr": { "d": "M13.5 3C13.303 3 13.109 3.038 12.923 3.114L8.481 4.967L5.659 4.026C5.505 3.976 5.339 4.001 5.209 4.095C5.078 4.189 5.001 4.339 5.001 4.5V7H1.257L0.5 7.5L1.257 8H5V10.5C5 10.661 5.077 10.812 5.208 10.905C5.338 11 5.504 11.023 5.658 10.974L8.48 10.033L12.925 11.887C13.109 11.962 13.302 12 13.499 12C14.326 12 14.999 11.327 14.999 10.5V4.5C14.999 3.673 14.326 3 13.499 3H13.5ZM14 10.5C14 10.843 13.615 11.09 13.308 10.962L8.693 9.038C8.631 9.013 8.566 9 8.501 9C8.447 9 8.395 9.009 8.343 9.025L6.001 9.806V5.193L8.343 5.974C8.457 6.011 8.581 6.007 8.694 5.961L13.306 4.038C13.629 3.902 14.001 4.156 14.001 4.499V10.499L14 10.5Z" },
+					"child": []
+				}]
+			})(props);
+		}
+		function VscLinkExternal(props) {
+			return GenIcon({
+				"tag": "svg",
+				"attr": {
+					"viewBox": "0 0 16 16",
+					"fill": "currentColor"
+				},
+				"child": [{
+					"tag": "path",
+					"attr": { "d": "M15 9.5V12.5C15 13.879 13.879 15 12.5 15H3.5C2.121 15 1 13.879 1 12.5V3.5C1 2.121 2.121 1 3.5 1H6.5C6.776 1 7 1.224 7 1.5C7 1.776 6.776 2 6.5 2H3.5C2.673 2 2 2.673 2 3.5V12.5C2 13.327 2.673 14 3.5 14H12.5C13.327 14 14 13.327 14 12.5V9.5C14 9.224 14.224 9 14.5 9C14.776 9 15 9.224 15 9.5ZM14.5 1H9.5C9.224 1 9 1.224 9 1.5C9 1.776 9.224 2 9.5 2H13.293L9.147 6.146C8.952 6.341 8.952 6.658 9.147 6.853C9.245 6.951 9.373 6.999 9.501 6.999C9.629 6.999 9.757 6.95 9.855 6.853L14.001 2.707V6.5C14.001 6.776 14.225 7 14.501 7C14.777 7 15.001 6.776 15.001 6.5V1.5C15.001 1.224 14.777 1 14.501 1H14.5Z" },
+					"child": []
+				}]
+			})(props);
+		}
+		function VscLayers(props) {
+			return GenIcon({
+				"tag": "svg",
+				"attr": {
+					"viewBox": "0 0 16 16",
+					"fill": "currentColor"
+				},
+				"child": [
+					{
+						"tag": "path",
+						"attr": { "d": "M8 8.99993C7.819 8.99993 7.643 8.95093 7.486 8.85793L2.486 5.85693C2.186 5.67793 2 5.34893 2 4.99993C2 4.65093 2.187 4.32093 2.486 4.14193L7.486 1.14293C7.789 0.95693 8.207 0.95493 8.517 1.14493L13.513 4.14293C13.813 4.32293 13.999 4.65093 13.999 4.99993C13.999 5.34893 13.812 5.67893 13.513 5.85793L8.513 8.85693C8.357 8.95093 8.181 8.99993 8 8.99993ZM8 1.99993L3 4.99993L8 7.99993L13 4.99993L8 1.99993Z" },
+						"child": []
+					},
+					{
+						"tag": "path",
+						"attr": { "d": "M2.146 6.9873L8 10.5003L13.854 6.9873C13.946 7.1413 14 7.3173 14 7.5003C14 7.8493 13.814 8.1783 13.514 8.3583L8.514 11.3573C8.357 11.4513 8.181 11.5003 8 11.5003C7.819 11.5003 7.642 11.4513 7.486 11.3583L2.486 8.35731C2.187 8.17931 2 7.8503 2 7.5003C2 7.3163 2.054 7.1403 2.146 6.9873Z" },
+						"child": []
+					},
+					{
+						"tag": "path",
+						"attr": { "d": "M2.146 9.4873L8 13.0003L13.854 9.4873C13.946 9.6413 14 9.8173 14 10.0003C14 10.3493 13.814 10.6783 13.514 10.8583L8.514 13.8573C8.357 13.9513 8.181 14.0003 8 14.0003C7.819 14.0003 7.642 13.9513 7.486 13.8583L2.486 10.8573C2.187 10.6793 2 10.3503 2 10.0003C2 9.8163 2.054 9.6403 2.146 9.4873Z" },
+						"child": []
+					}
+				]
+			})(props);
+		}
+		function VscGraph(props) {
+			return GenIcon({
+				"tag": "svg",
+				"attr": {
+					"viewBox": "0 0 16 16",
+					"fill": "currentColor"
+				},
+				"child": [
+					{
+						"tag": "path",
+						"attr": {
+							"fillRule": "evenodd",
+							"clipRule": "evenodd",
+							"d": "M12.25 15L13.75 15C14.439 15 15 14.439 15 13.75L15 2.25C15 1.561 14.439 1 13.75 1L12.25 1C11.561 1 11 1.561 11 2.25L11 13.75C11 14.439 11.561 15 12.25 15ZM12 2.25C12 2.112 12.112 2 12.25 2L13.75 2C13.888 2 14 2.112 14 2.25L14 13.75C14 13.888 13.888 14 13.75 14L12.25 14C12.112 14 12 13.888 12 13.75L12 2.25Z"
+						},
+						"child": []
+					},
+					{
+						"tag": "path",
+						"attr": {
+							"fillRule": "evenodd",
+							"clipRule": "evenodd",
+							"d": "M8.75 15L7.25 15C6.561 15 6 14.439 6 13.75L6 6.25C6 5.561 6.561 5 7.25 5L8.75 5C9.439 5 10 5.561 10 6.25L10 13.75C10 14.439 9.439 15 8.75 15ZM7.25 6C7.112 6 7 6.112 7 6.25L7 13.75C7 13.888 7.112 14 7.25 14L8.75 14C8.888 14 9 13.888 9 13.75L9 6.25C9 6.112 8.888 6 8.75 6L7.25 6Z"
+						},
+						"child": []
+					},
+					{
+						"tag": "path",
+						"attr": {
+							"fillRule": "evenodd",
+							"clipRule": "evenodd",
+							"d": "M3.75 15L2.25 15C1.561 15 1 14.439 1 13.75L1 8.25C1 7.561 1.561 7 2.25 7L3.75 7C4.439 7 5 7.561 5 8.25L5 13.75C5 14.439 4.439 15 3.75 15ZM2.25 8C2.112 8 2 8.112 2 8.25L2 13.75C2 13.888 2.112 14 2.25 14L3.75 14C3.888 14 4 13.888 4 13.75L4 8.25C4 8.112 3.888 8 3.75 8L2.25 8Z"
+						},
+						"child": []
+					}
+				]
+			})(props);
+		}
+		function VscGlobe(props) {
+			return GenIcon({
+				"tag": "svg",
+				"attr": {
+					"viewBox": "0 0 16 16",
+					"fill": "currentColor"
+				},
+				"child": [{
+					"tag": "path",
+					"attr": { "d": "M8 1C4.141 1 1 4.141 1 8C1 11.859 4.141 15 8 15C11.859 15 15 11.859 15 8C15 4.141 11.859 1 8 1ZM8 14C7.422 14 6.686 12.906 6.288 11H9.713C9.315 12.906 8.579 14 8.001 14H8ZM6.121 10C6.044 9.392 6 8.723 6 8C6 7.277 6.044 6.608 6.121 6H9.878C9.955 6.608 9.999 7.277 9.999 8C9.999 8.723 9.955 9.392 9.878 10H6.121ZM2 8C2 7.299 2.121 6.626 2.343 6H5.121C5.041 6.656 5 7.332 5 8C5 8.668 5.041 9.344 5.121 10H2.343C2.121 9.374 2 8.701 2 8ZM8 2C8.578 2 9.314 3.094 9.712 5H6.287C6.685 3.094 7.422 2 8 2ZM10.879 6H13.657C13.879 6.626 14 7.299 14 8C14 8.701 13.879 9.374 13.657 10H10.879C10.959 9.344 11 8.668 11 8C11 7.332 10.959 6.656 10.879 6ZM13.195 5H10.722C10.516 3.938 10.199 2.98 9.775 2.268C11.228 2.719 12.446 3.707 13.195 5ZM6.226 2.268C5.802 2.98 5.484 3.938 5.279 5H2.806C3.556 3.707 4.774 2.718 6.226 2.268ZM2.805 11H5.278C5.484 12.062 5.801 13.02 6.225 13.732C4.772 13.281 3.554 12.293 2.805 11ZM9.774 13.732C10.198 13.02 10.516 12.062 10.721 11H13.194C12.444 12.293 11.226 13.282 9.774 13.732Z" },
+					"child": []
+				}]
+			})(props);
+		}
+		function VscGitCommit(props) {
+			return GenIcon({
+				"tag": "svg",
+				"attr": {
+					"viewBox": "0 0 16 16",
+					"fill": "currentColor"
+				},
+				"child": [{
+					"tag": "path",
+					"attr": { "d": "M11.5 8C11.5 6.24 10.194 4.779 8.5 4.536V1.5C8.5 1.224 8.276 1 8 1C7.724 1 7.5 1.224 7.5 1.5V4.536C5.806 4.779 4.5 6.24 4.5 8C4.5 9.76 5.806 11.221 7.5 11.464V14.5C7.5 14.776 7.724 15 8 15C8.276 15 8.5 14.776 8.5 14.5V11.464C10.194 11.221 11.5 9.76 11.5 8ZM8 10.5C6.621 10.5 5.5 9.378 5.5 8C5.5 6.622 6.621 5.5 8 5.5C9.379 5.5 10.5 6.622 10.5 8C10.5 9.378 9.379 10.5 8 10.5Z" },
+					"child": []
+				}]
+			})(props);
+		}
+		function VscFolderOpened(props) {
+			return GenIcon({
+				"tag": "svg",
+				"attr": {
+					"viewBox": "0 0 16 16",
+					"fill": "currentColor"
+				},
+				"child": [{
+					"tag": "path",
+					"attr": { "d": "M2 4.5V9.10022L2.92389 7.5C3.45979 6.5718 4.45017 6 5.52196 6L11.9146 6C11.7087 5.4174 11.1531 5 10.5 5H7C6.86739 5 6.74021 4.94732 6.64645 4.85355L4.93934 3.14645C4.84557 3.05268 4.71839 3 4.58579 3H3.5C2.67157 3 2 3.67157 2 4.5ZM7.06895 13.9953C7.04641 13.9984 7.02339 14 7 14H3.5C2.11929 14 1 12.8807 1 11.5V4.5C1 3.11929 2.11929 2 3.5 2H4.58579C4.98361 2 5.36514 2.15804 5.64645 2.43934L7.20711 4H10.5C11.724 4 12.7426 4.87965 12.958 6.04127C14.605 6.34148 15.5443 8.22106 14.6616 9.75L13.0766 12.4953C12.5407 13.4235 11.5503 13.9953 10.4785 13.9953H7.06895ZM5.52196 7C4.80743 7 4.14718 7.3812 3.78991 8L2.20492 10.7453C1.62757 11.7453 2.34926 12.9953 3.50396 12.9953L10.4785 12.9953C11.193 12.9953 11.8533 12.6141 12.2105 11.9953L13.7955 9.25C14.3729 8.25 13.6512 7 12.4965 7L5.52196 7Z" },
+					"child": []
+				}]
+			})(props);
+		}
+		function VscCommentDiscussion(props) {
+			return GenIcon({
+				"tag": "svg",
+				"attr": {
+					"viewBox": "0 0 16 16",
+					"fill": "currentColor"
+				},
+				"child": [{
+					"tag": "path",
+					"attr": { "d": "M14.56 7.44049C14.28 7.16049 13.9 7.00049 13.5 7.00049H13V4.00049C13 2.90049 12.1 2.00049 11 2.00049H3C1.9 2.00049 1 2.90049 1 4.00049V9.00049C1 10.1005 1.9 11.0005 3 11.0005V12.0005C3 12.8205 3.93 13.2905 4.59 12.8105L7 11.0505V11.5005C7 11.9005 7.16 12.2805 7.44 12.5605C7.72 12.8405 8.1 13.0005 8.5 13.0005H10.29L12.15 14.8505C12.19 14.9005 12.25 14.9405 12.31 14.9605C12.37 14.9905 12.43 15.0005 12.5 15.0005C12.57 15.0005 12.63 14.9905 12.69 14.9605C12.78 14.9205 12.86 14.8605 12.92 14.7805C12.97 14.7005 13 14.6005 13 14.5005V13.0005H13.5C13.9 13.0005 14.28 12.8405 14.56 12.5605C14.84 12.2805 15 11.9005 15 11.5005V8.50049C15 8.10049 14.84 7.72049 14.56 7.44049ZM6.75 10.0005L4 12.0005V10.0005H3C2.45 10.0005 2 9.55049 2 9.00049V4.00049C2 3.45049 2.45 3.00049 3 3.00049H11C11.55 3.00049 12 3.45049 12 4.00049V7.00049H8.5C8.1 7.00049 7.72 7.16049 7.44 7.44049C7.16 7.72049 7 8.10049 7 8.50049V10.0005H6.75ZM14 11.5005C14 11.6305 13.95 11.7605 13.85 11.8505C13.76 11.9505 13.63 12.0005 13.5 12.0005H12.5C12.37 12.0005 12.24 12.0505 12.15 12.1505C12.05 12.2405 12 12.3705 12 12.5005V13.2905L10.85 12.1505C10.81 12.1005 10.75 12.0605 10.69 12.0405C10.63 12.0105 10.57 12.0005 10.5 12.0005H8.5C8.37 12.0005 8.24 11.9505 8.15 11.8505C8.05 11.7605 8 11.6305 8 11.5005V8.50049C8 8.37049 8.05 8.24049 8.15 8.15049C8.24 8.05049 8.37 8.00049 8.5 8.00049H13.5C13.63 8.00049 13.76 8.05049 13.85 8.15049C13.95 8.24049 14 8.37049 14 8.50049V11.5005Z" },
+					"child": []
+				}]
+			})(props);
+		}
+		//#endregion
+		//#region \0dsh-css:/Users/libing/kk_Projects/dsh-coding-sidebar/src/client/builtins/tab-icons.module.css.mjs
+		const css$6 = ".wDi0EW_files{color:var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary))}.wDi0EW_changes{color:var(--dsw-alias-state-success-primary,var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary)))}.wDi0EW_tasks{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-primary))}.wDi0EW_sidechat{color:var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary)))}.wDi0EW_terminal{color:var(--dsw-alias-label-primary)}.wDi0EW_browser{color:var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary)))}.wDi0EW_trajectory{color:var(--dsw-alias-state-success-primary,var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary)))}";
+		const tagId$5 = "dsh-coding-sidebar/tab-icons.module.css";
+		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$5) + "]") === null) {
+			const tag = document.createElement("style");
+			tag.dataset.plugin = "dsh-coding-sidebar";
+			tag.dataset.pluginCss = tagId$5;
+			tag.textContent = css$6;
+			document.head.appendChild(tag);
+		}
+		//#endregion
+		//#region src/client/builtins/tab-icons.tsx
+		/** The styled wrapper classes; typed so a renamed rule fails the build. */
+		const css$5 = {
+			"browser": "wDi0EW_browser",
+			"changes": "wDi0EW_changes",
+			"files": "wDi0EW_files",
+			"sidechat": "wDi0EW_sidechat",
+			"tasks": "wDi0EW_tasks",
+			"terminal": "wDi0EW_terminal",
+			"trajectory": "wDi0EW_trajectory"
+		};
+		/** Surround a glyph with the class that hands it its token-driven color. */
+		function themed(className, glyph) {
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className,
+				children: glyph
+			});
+		}
+		/** The Files tab: the host's folder artwork, like the rows it opens. */
+		const filesTabIcon = (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+			className: css$5.files,
+			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.FileTypeIcon, {
+				kind: "folder",
+				size
+			})
+		});
+		/** Changes / diff: the commit glyph, green like the diff affordances. */
+		const changesTabIcon = (size) => themed(css$5.changes, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscGitCommit, { size }));
 		/**
-		* The ja (Japanese) dictionary for the betterSidebar namespace.
-		*
-		* Mirrors the key set of `zh` in `locales.ts`. The sidebar's `t()`
-		* consults this dict when `attachBetterLocale(store)` has been called
-		* with an active better-locale store whose `active` is `'ja'`; absent
-		* that, the existing zh/en chain runs unchanged.
-		*
-		* Translation conventions:
-		* - Common dev-tool loanwords stay in katakana (ターミナル, ブラウザー, サンドボックス).
-		* - Git vocabulary follows the GitHub Japan style guide (ステージ, コミット, ブランチ).
-		* - Settings labels end in する/名/方法 to mirror the zh 「…行为/方式」 cadence.
-		* - Placeholders keep `{name}` verbatim (interpolation runs after lookup).
-		* - English brand names (VS Code, Cursor, Zed, SSH) stay as-is.
+		* Tasks (subagents and background jobs) — the live-activity amber. The glyph
+		* is layered sheets, not a checklist: this page lists RUNNING work (subagent
+		* sessions plus the host's background jobs), not a to-do list.
 		*/
-		/** The ja dictionary (key-set-equal to zh, enforced by the type annotation in locales.ts). */
-		const ja$1 = {
-			files: "ファイル",
-			explorer: "エクスプローラー",
-			git: "ソース管理",
-			terminal: "ターミナル",
-			editor: "エディター",
-			editorExplorer: "ファイルの開き方",
-			editorExplorerDesc: "ファイルを開く方法を制御",
-			editorExplorerMerged: "統合",
-			editorExplorerMergedDesc: "同じウィンドウ内でファイルを切り替え。新しいウィンドウはファイルツューを展開した状態で開く",
-			editorExplorerSplit: "個別",
-			editorExplorerSplitDesc: "パスなしウィンドウはエクスプローラー単体（ツリーのみ）。各ファイルは別ウィンドウで開く（ツリーは格納済み、デフォルトで折りたたみ）",
-			editorTreeToggle: "ファイルツリーパネル",
-			editorPathPlaceholder: "ファイルパス（セッションディレクトリからの相対 or 絶対）、Enter で開く",
-			editorSearchPlaceholder: "ファイル名で検索…",
-			editorSearchNoResults: "一致するファイルはありません",
-			editorSearchTruncated: "結果が多すぎます — 一部のみ表示",
-			editorEmptyHint: "右のファイルツリーまたは上のパス入力欄からファイルを選んでプレビュー",
-			openFileNewTab: "新しいタブで開く",
-			openFileSide: "横に開く",
-			openWithMenu: "アプリで開く",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "メニューに固定",
-			unpinOpenWith: "固定を解除",
-			openWithExplorer: "エクスプローラー",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "SSH リモートホスト",
-			openWithSettingsSshDesc: "空欄 = ローカルワークスペース。user@host または SSH エイリアスを入力すると、VSCode 系の起動方法は vscode-remote/ssh-remote プロトコルに切り替わり、エクスプローラー / Zed / 非 VSCode 系カスタムエディターはメニューから非表示になります",
-			openWithSettingsSshPlaceholder: "user@host または SSH エイリアス",
-			openWithSettingsCustomTitle: "カスタムエディター",
-			openWithSettingsCustomDesc: "名前 + URL テンプレート（{path} プレースホルダー）+ VSCode 系かどうか。SSH モードでは VSCode 系のみリモートパスを開けます",
-			openWithSettingsAdd: "追加",
-			openWithSettingsName: "名前",
-			openWithSettingsTemplate: "例: cursor://file/{path}",
-			openWithSettingsFamily: "VSCode 系",
-			openWithSettingsFamilyDesc: "このエディターは VSCode の URL プロトコルを使います（SSH リモートオープンをサポート）",
-			openWithSettingsRemove: "削除",
-			openWithSettingsInvalidHint: "名前またはテンプレート（{path} を含み scheme:// で始まる必要あり）が未入力の編集者はメニューに表示されません",
-			newTab: "新しいタブ",
-			openExplorer: "エクスプローラー",
-			brokenSymlink: "無効なシンボリックリンク",
-			openGit: "Git パネル",
-			newTerminal: "新しいターミナル",
-			terminalLimit: "ターミナル数が上限に達しました (3)",
-			close: "閉じる",
-			closeOtherTabs: "他のタブを閉じる",
-			closeLeftTabs: "左のタブを閉じる",
-			closeRightTabs: "右のタブを閉じる",
-			moveToFreeWindow: "フリーウィンドウへ移動",
-			floatDropHint: "離すとフリーウィンドウで開きます",
-			dockToSidebar: "サイドバーへ戻す",
-			pinTerminal: "ターミナルを固定",
-			pinAgentTerminal: "Agent ターミナルを固定",
-			pinToWorkspace: "ワークスペースに固定",
-			pinToGlobal: "グローバルに固定",
-			unpinTerminal: "固定を解除",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "UI ターミナル",
-			pinnedTerminalKindAgent: "Agent ターミナル",
-			pinnedTerminalScopeWorkspace: "ワークスペースに固定",
-			pinnedTerminalScopeGlobal: "グローバルに固定",
-			pinnedRailLabel: "固定されたターミナル",
-			closePinnedTerminal: "ターミナルを閉じる",
-			collapse: "サイドバーを折りたたむ",
-			expand: "サイドバーを展開",
-			terminalError: "ターミナル接続に失敗",
-			terminalConnectFailed: "ターミナル接続が繰り返し失敗しました",
-			terminalRetry: "再試行",
-			terminalDepsFailed: "ターミナル依存関係 node-pty の読み込みに失敗",
-			terminalDepsHint: "DSH 環境のターミナルまたは cmd で以下のコマンドを実行して修復し、再試行してください（node-pty は DSH コアと同じバージョンを維持）：",
-			terminalDepsProfile: "（検出された profile：{profile}）",
-			preview: "プレビュー",
-			edit: "編集",
-			refresh: "更新",
-			showInFolder: "フォルダーで表示",
-			refreshUnsavedConfirm: "ディスク上のファイルが変更されました。更新すると未保存の編集が失われます。続行しますか？",
-			save: "保存",
-			saved: "保存済み",
-			unsaved: "未保存",
-			saveFailed: "保存に失敗",
-			truncation: "ファイルが大きすぎます — 最初の 512KB のみ表示",
-			binary: "バイナリファイル、プレビュー不可",
-			loading: "読み込み中…",
-			error: "読み込みに失敗",
-			retry: "再試行",
-			splitLeft: "左に分割",
-			splitRight: "右に分割",
-			splitUp: "上に分割",
-			splitDown: "下に分割",
-			notRepo: "このディレクトリは git リポジトリではありません",
-			noChanges: "変更はありません",
-			statusTruncated: "変更が多すぎるため、最初の 2000 件のみ表示しています",
-			stage: "ステージ",
-			unstage: "ステージ解除",
-			stageAll: "すべてステージ",
-			unstageAll: "すべてステージ解除",
-			commitPlaceholder: "コミットメッセージ (Ctrl+Enter)",
-			commit: "コミット",
-			commitError: "コミット失敗",
-			branch: "ブランチ",
-			worktree: "ワークツリー",
-			checkoutError: "ブランチ切り替えに失敗",
-			history: "履歴",
-			changes: "変更",
-			staged: "ステージ済み",
-			unstaged: "未ステージ",
-			cancel: "キャンセル",
-			diffEmpty: "テキスト差分はありません",
-			diffLoadError: "差分の読み込みに失敗",
-			diffBinary: "バイナリ",
-			diffAdded: "追加",
-			diffDeleted: "削除",
-			diffRenamed: "名前変更",
-			diffExpand: "残り {count} 行を展開",
-			diffCollapse: "折りたたむ",
-			discard: "変更を破棄",
-			discardTitle: "変更を破棄",
-			discardDesc: "「{path}」のワークツリー変更を破棄します（復元不可）。",
-			viewCommitDiff: "コミット差分を表示",
-			copyShortHash: "短いハッシュをコピー",
-			copyFullHash: "完全なハッシュをコピー",
-			copySubject: "コミットメッセージをコピー",
-			revertCommit: "このコミットを取り消す",
-			revertTitle: "このコミットを取り消す",
-			revertDesc: "現在のブランチに「{subject}」を取り消す新しいコミットを作成します。",
-			cherryPickCommit: "このコミットをチェリーピック",
-			cherryPickTitle: "このコミットをチェリーピック",
-			cherryPickDesc: "「{subject}」の変更を現在のブランチに適用します。",
-			timeJustNow: "たった今",
-			timeMinutesAgo: "{n} 分前",
-			timeHoursAgo: "{n} 時間前",
-			timeYesterday: "昨日",
-			loadMore: "もっと読み込む",
-			historyLoadError: "履歴の追加読み込みに失敗",
-			produced: "今回の産物",
-			producedOpen: "サイドバーで開く",
-			disconnected: "ターミナル接続が切れました、再接続中…",
-			exited: "ターミナルプロセスが終了しました",
-			noSession: "サイドバーを使うには会話を選択してください",
-			pluginNotLoaded: "プラグイン未読み込み、タブは一時的に利用不可：",
-			hiddenFiles: "隠しファイル",
-			parent: "上位ディレクトリ",
-			copied: "コピーしました",
-			copy: "コピー",
-			newFile: "新規ファイル",
-			openEditor: "エディターで開く",
-			gitDetail: "変更詳細を表示",
-			referenceFile: "@ファイル",
-			addToConversation: "会話に追加",
-			copyRelative: "相対パスをコピー",
-			copyAbsolute: "絶対パスをコピー",
-			download: "ダウンロード",
-			uploadFiles: "ファイルをアップロード",
-			uploadFolder: "フォルダーをアップロード",
-			uploadHere: "ここにアップロード",
-			uploadDropHint: "ファイル/フォルダーをここにドロップしてアップロード",
-			uploadDropChat: "チャットにドロップで画像を会話に追加",
-			uploadTo: "{dir} にアップロード",
-			uploadingTo: "{dir} にアップロード中…",
-			uploadProgress: "アップロード中 {done}/{total}: {name}",
-			uploadDone: "{count} 個のファイルをアップロードしました",
-			uploadFailed: "アップロード失敗：{error}",
-			uploadFailedUnknown: "不明なエラー",
-			uploadTooLarge: "ファイルが大きすぎます（アップロード上限超過）",
-			uploadCancelled: "アップロードはキャンセルされました",
-			settingsNav: "サイドカード",
-			settingsIntro: "サイドカードの表示内容とデフォルト挙動を管理",
-			settingsPopupDesc: "「{feature}」の関連オプションを設定",
-			settingsDone: "完了",
-			settingsOpenTitle: "新規会話でデフォルト展開",
-			settingsOpenDesc: "新規会話時にサイドカードを自動展開。既存の会話はそれぞれのレイアウトを維持",
-			settingsWidthTitle: "デフォルト幅の比率",
-			settingsWidthDesc: "新規会話時のサイドカードがウィンドウ幅に占める割合 (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "チャット内ファイルをサイドバーで開く",
-			settingsOpenPathDesc: "チャット内のファイルリンク（ツール行、産物リスト、ファイル言及）クリック時に、システム既定アプリではなくサイドバーエディターで開く",
-			settingsOpenToolsTitle: "モデルにサイドバー開くツールを注入",
-			settingsOpenToolsDesc: "オンにすると、モデルは sidebar_open ツールでサイドバーにファイル・フォルダー・HTTP(S) ページを開ける（デフォルトオフ）",
-			settingsTitleBarTitle: "位置互換モード",
-			settingsTitleBarDesc: "タイトルバー互換スキームを選択：自動検出（デフォルト、控えめ）/ DSH 公式 Web / 既知のデスクトップシェル / カスタムスキーム（下移動距離 + カスタム CSS）",
-			settingsTitleBarStripTitle: "下移動距離",
-			settingsTitleBarStripDesc: "タイトルバー帯の高さ：サイドバーボタンとコンテンツが下に移動するピクセル数 (0–120、デフォルト 40。カスタムスキーム下で有効)",
-			settingsSchemeAutoTitle: "自動検出",
-			settingsSchemeAutoDesc: "控えめなスキーム：Window Controls Overlay 標準 API が利用可能な場合のみ実際のタイトルバー高さ分譲る。通常の Web 環境では何も変更しない",
-			settingsSchemeWebTitle: "DSH 公式 Web",
-			settingsSchemeWebDesc: "公式 Web 版で動いていることを明示：一切適用しない（標準 WCO 幾何も適用外）",
-			settingsSchemeCustomTitle: "カスタム",
-			settingsSchemeCustomDesc: "完全に制御：カスタム CSS を注入（内置スタイルも上書き可）し、タイトルバーの下移動距離を指定",
-			settingsSchemeDetectedSuffix: "検出済み",
-			settingsCustomCssTitle: "カスタム CSS",
-			settingsCustomCssDesc: "ページ末尾に追加されるスタイル（同優先度では後勝ち。JS 起点のインライン変数を上書きするには !important を使用）",
-			settingsCustomCssPlaceholder: "/* 例：自描きタイトルバーのシェルに 36px を予約 */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "保存に失敗",
-			settingsConflict: "設定が別のウィンドウで変更されました、再試行してください",
-			binaryNoPreview: "このファイル形式はプレビューできません",
-			downloadToView: "ダウンロードして表示",
-			settingsSubagentTitle: "サブエージェント検出時に自動展開",
-			settingsSubagentDesc: "現在の会話で新しいサブエージェントが発生した際、サイドバーを自動展開してタスク管理ページを開く。オフ時は手動で開く必要あり",
-			settingsJobsTitle: "新規バックグラウンドタスク時に自動展開",
-			settingsJobsDesc: "現在の会話で新しいバックグラウンドタスクが発生するたびにサイドバーを展開してタスクページを開く（新規タスクごとに発火）。オフ時は手動で開く必要あり",
-			settingsToolsTitle: "モデルにターミナルツールを注入",
-			settingsToolsDesc: "オンにすると、モデルが terminal_create 等 8 個のツールでサイドバーターミナルを作成・操作可能（デフォルトオフ）",
-			settingsFontFamilyTitle: "ターミナルフォント",
-			settingsFontFamilyDesc: "ターミナルのカスタムフォントファミリー（CSS font-family、例: \"JetBrains Mono\", monospace。空欄でテーマの等幅フォントに追従）",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "ターミナルフォントサイズ",
-			settingsFontSizeDesc: "ターミナルのフォントサイズ (px、9–32、デフォルト 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "シェルパス",
-			settingsShellDesc: "UI とモデルのターミナルが起動するシェル（絶対パス or 実行ファイル名）。空欄時は従来順で解決: yaml の config.shell → $SHELL / ログインシェル / Windows の powershell.exe。以降に開くターミナルに適用",
-			settingsShellPlaceholder: "例: /bin/zsh（空欄で自動解決）",
-			settingsShellArgsTitle: "シェル引数",
-			settingsShellArgsDesc: "明示的なシェル起動引数（スペース区切り）。非空の場合デフォルト引数を完全に置き換え（yaml の shellArgs 契約と同じ）",
-			settingsShellArgsPlaceholder: "例: -l（空欄でデフォルト引数）",
-			settingsTabsTitle: "サイドバーの内容",
-			settingsViewersTitle: "ファイルプレビュー",
-			settingsGeneralTitle: "一般",
-			settingsPopup: "機能設定",
-			settingsViewerCatchAll: "フォールバック：任意のファイル",
-			viewerImage: "画像",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "コード",
-			viewerBinary: "バイナリダウンロード",
-			viewerHtml: "HTML",
-			browser: "ブラウザー",
-			browserPlaceholder: "URL を入力、例: example.com",
-			browserGo: "開く",
-			browserBack: "戻る",
-			browserForward: "進む",
-			browserStart: "URL を入力してブラウズ開始（サンドボックスモード）",
-			browserBlockedScheme: "ブロック：http/https リンクのみ許可",
-			browserBlockedLoopback: "ブロック：ローカルや内部アドレスはブラウズできません",
-			browserInvalid: "無効な URL",
-			browserNoSandboxWarning: "サンドボックスオフ：現在のページは GUI と同一オリジンで、完全な会話権限を持ちます（設定で復元可）",
-			htmlNoSandboxWarning: "サンドボックスオフ：この HTML は GUI と同一オリジンで、会話ファイルや内部 API を読み取れます（設定で復元可）",
-			sandboxStatusOn: "サンドボックスモード：オン ・ ページは GUI のデータやローカルファイルにアクセス不可。ログイン状態とサードパーティ Cookie は利用できない場合あり",
-			sandboxUnlock: "一時的に解除（非安全）",
-			sandboxRestore: "サンドボックスを復元",
-			settingsHtmlDefaultUnsafeTitle: "HTML プレビューをデフォルトで非サンドボックスで開く（非安全）",
-			settingsHtmlDefaultUnsafeDesc: "オンにすると、新しく開く HTML プレビューは非サンドボックス状態で起動（GUI と同一オリジン、会話ファイルや内部 API を読み取り可）。ステータス行から一時的にサンドボックスを復元可能",
-			settingsHtmlSandboxTitle: "HTML プレビューのサンドボックスを無効化（非安全）",
-			settingsHtmlSandboxDesc: "サンドボックスをオフにすると、プレビューされる HTML は GUI と同一オリジンで動作し、会話ファイル・ローカルストレージ・内部 API にアクセス可能。完全に信頼できるファイルのみで有効化",
-			settingsBrowserSandboxTitle: "ブラウザーサンドボックスを無効化（非安全）",
-			settingsBrowserSandboxDesc: "サンドボックスをオフにすると、訪問するあらゆるサイトが GUI と同一オリジンで動作し、会話データを読み取ったりログイン状態を偽装したりできます。完全に信頼できるサイトのみで有効化",
-			settingsBrowserLinksTitle: "チャット内の外部リンクをサイドバーで開く",
-			settingsBrowserLinksDesc: "オンにすると、チャットや GUI の外部リンククリック時に新しいウィンドウではなくサイドバーで開く。HTTP と HTTPS は下のスイッチで個別制御。Ctrl/Cmd+クリックで一時的にバイパス",
-			settingsBrowserHttpTitle: "HTTP ページをサイドバーで開く",
-			settingsBrowserHttpDesc: "オンにすると、チャットや GUI の HTTP 外部リンククリック時にサイドバーで開く（urlTarget を宣言したプラグインページが優先）。Ctrl/Cmd+クリックで一時的にバイパス",
-			settingsBrowserHttpsTitle: "HTTPS ページをサイドバーで開く",
-			settingsBrowserHttpsDesc: "オンにすると、チャットや GUI の HTTPS 外部リンククリック時にサイドバーで開く。デフォルトオフ：大半の HTTPS サイトは埋め込みを拒否するため、システムブラウザーの方がスムーズ",
-			settingsBrowserLoopbackTitle: "許可されたローカルアドレス",
-			settingsBrowserLoopbackDesc: "サイドバーブラウザがアクセスできるループバックアドレスのカンマ区切り許可リスト（例：localhost:5174 や 127.0.0.1:8080）。空の場合、デフォルトですべてのローカルアドレスをブロックします。サンドボックスは引き続き適用され、ページは GUI データを読み取れません",
-			settingsBrowserLoopbackPlaceholder: "例 localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "ブラウザーで開く",
-			browserEmbedBlocked: "{host} は埋め込みを拒否しました",
-			browserEmbedBlockedDesc: "このサイトは X-Frame-Options / frame-ancestors で他ページ内での表示を禁止しているため、サイドバー内で読み込めません。ブラウザーで直接開いてください",
-			browserEmbedAnyway: "それでも読み込む",
-			subagent: "タスク管理",
-			openSubagent: "タスク管理",
-			subagentMainAgent: "メインエージェント",
-			subagentEmpty: "サブエージェントなし",
-			subagentEmptyDesc: "メインエージェントが派生したサブエージェントはここに表示されます",
-			subagentRunning: "実行中",
-			subagentInactive: "アイドル",
-			subagentModeOneShot: "ワンショット",
-			subagentModeContinuable: "継続可",
-			subagentCount: "{count} 個のサブエージェント",
-			subagentCountRunning: "{count} 個のサブエージェント ・ {running} 個実行中",
-			subagentDiagCorrupt: "ディレクトリ破損",
-			subagentDiagUnsupported: "未サポートのエントリ",
-			subagentDiagUnavailable: "利用不可",
-			subagentThinking: "思考中…",
-			subagentShowHistory: "前のサブエージェント {count} 件を表示",
-			subagentHideHistory: "前のサブエージェントを折りたたむ",
-			sideChat: "サイドチャット(beta)",
-			sideChatNew: "新規スレッド",
-			sideChatUntitled: "新規スレッド",
-			sideChatEmpty: "サイド会話なし",
-			sideChatEmptyDesc: "各サイド会話はタブバーの独立 Tab で、現在の会話のコンテキストを継承し、メイン会話には入りません",
-			sideChatCreating: "サイド会話を作成中…",
-			sideChatRetry: "再試行",
-			sideChatThreads: "スレッド切替 / 新規",
-			sideChatSave: "新規会話として保存",
-			sideChatSaveTitle: "このスレッドをトップレベルの会話に昇格、メイン会話リストに表示",
-			sideChatSaved: "新規会話として保存しました",
-			sideChatNoTurn: "最初のターンを完了してから保存可能",
-			sideChatPendingDrop: "最後の未回答フォローアップは保存される会話に含まれません",
-			sideChatFirstPlaceholder: "最初の質問を入力、コンテキスト継承済み…",
-			sideChatComposerPlaceholder: "フォローアップを質問…",
-			sideChatThinking: "深掘り中…",
-			sideChatThink: "思考プロセス",
-			sideChatInjection: "コンテキスト注入済み",
-			sideChatSend: "送信",
-			sideChatCancel: "停止",
-			sideChatCancelTitle: "現在のターンを中止（キューは保持）",
-			sideChatClose: "スレッドを閉じる",
-			sideChatCloseTitle: "スレッドの agent を解放（履歴は保持）",
-			sideChatError: "サイド会話エラー：{message}",
-			jobs: "バックグラウンドタスク",
-			jobsCount: "{count} 個のバックグラウンドタスク",
-			jobsCountRunning: "{count} 個のバックグラウンドタスク ・ {running} 個実行中",
-			jobsShowHistory: "前のバックグラウンドタスク {count} 件を表示",
-			jobsHideHistory: "前のバックグラウンドタスクを折りたたむ",
-			jobStatusRunning: "実行中",
-			jobStatusStopping: "停止中",
-			jobStatusCompleted: "完了",
-			jobStatusKilled: "終了",
-			jobStatusFailed: "失敗",
-			jobDurationSeconds: "{seconds} 秒",
-			jobDurationMinutes: "{minutes} 分 {seconds} 秒",
-			jobDurationHours: "{hours} 時間 {minutes} 分",
-			jobViewOutput: "出力を表示",
-			jobHideOutput: "出力を隠す",
-			jobNoOutput: "まだ出力なし",
-			jobNotReadYet: "モデルがこのタスクの出力を読み取るのを待機中（モデルが job_output を実行すると、出力がここに表示されます）",
-			jobOutputTruncated: "出力が長すぎるため表示を切り詰めました",
-			jobOutputError: "出力の読み取りに失敗",
-			jobKill: "終了",
-			jobKillConfirm: "もう一度クリックして終了を確認",
-			jobKillError: "終了に失敗",
-			addPluginsTabCard: "Tab プラグインを追加",
-			addPluginsTabCardDesc: "新しいサイドバーページを登録",
-			addPluginsViewerCard: "プレビュープラグインを追加",
-			addPluginsViewerCardDesc: "新しいファイル種別プレビューを登録",
-			addPluginsTabDesc: "サイドバーページ（Tab）はプラグインで拡張可能。プラグインは ctx.betterSidebar サービス経由で登録。「インストール」をクリックしてインストールコマンドをコピー、DSH 環境のターミナルに貼り付けて実行。",
-			addPluginsViewerDesc: "ファイルプレビューアーはプラグインで拡張可能。プラグインは ctx.betterSidebar サービス経由で登録。「インストール」をクリックしてインストールコマンドをコピー、DSH 環境のターミナルに貼り付けて実行。",
-			addPluginsBrowseMore: "GitHub でプラグинをさらに閲覧（topic: dsh-coding-sidebar）",
-			addPluginsSearch: "プラグイン名 / 説明で検索…",
-			addPluginsNoMatch: "一致するプラグインなし",
-			addPluginsRecommended: "推奨プラグイン",
-			addPluginsEmpty: "まだプラグインが収録されていません、GitHub topic であなたのプラグインを公開してください",
-			openPlugin: "開く",
-			copyInstall: "インストールコマンドをコピー",
-			pluginOfficeDesc: "dsh-coding-sidebar エディター向け Office スイートプレビュー（.docx / .xlsx / .pptx）。重い Office レンダリングライブラリをコアバンドルから分離、必要に応じてインストール",
-			pluginFlowglassDesc: "ライブセッションフローグラフ：ユーザー、アシスタント、ツール呼び出しの 3 レーン泳道、並列グループ、サブエージェント支線、ドリルダウン、ライブ状態をサポート。dsh-coding-sidebar インストール時にネイティブ「Flowglass」Tab を登録、未インストール時は独立ドロワーを保持",
-			pluginGitForgeDesc: "dsh-coding-sidebar「Git Forge」Tab：GitHub/Gitea 等 Forge アカウントライブラリ + プロジェクト単位の認可 + push ポリシー硬核拒絶。token はローカル secrets のみ、モデルコンテキストに入らない。読み取り専用 GitForge ツールと agent HTTPS credential helper を提供",
-			pluginGitRemotesDesc: "dsh-coding-sidebar Git リモート Tab：ブランチ/アップストリーム/ahead-behind 表示、fetch（prune 可）、ff-only pull、確認後のみ push。内蔵 Git のステージ/コミットは置き換えず、force-push やモデル自動 push ツールは提供しない",
-			pluginSentinelDesc: "条件駆動の agent 起動システム：ファイル/プロセス/ポート/HTTP/コマンド/webhook センサーが条件達成時に休眠会話を自動起動。「Sentinel」Tab を登録しサーバー全体の監視テーブルを表示",
-			pluginSidebarQaDesc: "dsh-coding-sidebar ベースの選択して質問 Tab：会話選択 → 右パネルで質問 → 同ワークスペースの独立追問会話（❓追問・主題）。高速 no-thinking モデルが主対話コンテキストを圧縮し引用と一緒に注入、主対話を中断しない。追問はネスト、継続、アーカイブ可能",
-			pluginSshTunnelDesc: "dsh-coding-sidebar「SSH トンネル」Tab：複数ホストインベントリ + プロジェクト単位の認可 + 鍵のローカル保管。モデルツール SSHManager（exec/SFTP/セッション戦略）。中央対話ターミナルと双欄 SFTP",
-			pluginTurnReviewDesc: "「直近のターン」の diff に Approve / Request changes のヒューマンゲート。直前ターンのみ審査、会話を fork しない。ファイルをメイン会話/サブエージェント/未帰属グループ分け、ファイル単位でチェックして差し戻し + 任意コメント、ファイルをクリックするとターン開始スナップショット vs 現在の diff を先に表示。/rewind ではない",
-			pluginVideoPreviewDesc: "dsh-coding-sidebar エディター内で動画ファイルをインラインプレビュー（.mp4/.webm/.mov/.mkv/.avi 等）。HTTP Range (206) をサポートする専用 /video ホストルートを搭載、プログレスバードラッグ可、20MB mediaLimit 制限なし",
-			pluginDocsPanelDesc: "DSH サイドバー内の「グローバルドキュメント」：任意のワークスペースから読めるグローバル Markdown ノート。リストで選んで閲覧、ホバーでアウトラインジャンプ、Chrome / VS Code で外部オープン、コードコピー。ディレクトリは設定可（デフォルト ~/.dsh/docs）",
-			pluginEgoBrowserDesc: "DeepSeek Harness 用エージェントブラウザ：32 個の ego_* ツールが本物の Chromium を操作し、サイドバーのネイティブ「ego ブラウザ」Tab がエージェントの訪れる全ページをライブ表示。クリック・ドラッグ・入力で操作を引き継げます。dsh-coding-sidebar があれば Tab を自動登録、なければフローティングバブルにフォールバック"
-		};
-		//#endregion
-		//#region src/client/locales-de.ts
+		const tasksTabIcon = (size) => themed(css$5.tasks, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscLayers, { size }));
+		/** Side chat — the conversational/secondary accent. */
+		const sidechatTabIcon = (size) => themed(css$5.sidechat, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscCommentDiscussion, { size }));
 		/**
-		* German dictionary for dsh-coding-sidebar.
+		* Terminal — primary ink, the shell is text. Rendered one step down from the
+		* strip's 14px: the VSCodicon terminal is a wide filled rectangle and read
+		* heavier than its neighbours at full size.
 		*/
-		const de$1 = {
-			files: "Dateien",
-			explorer: "Explorer",
-			git: "Quellcodeverwaltung",
-			terminal: "Terminal",
-			editor: "Editor",
-			editorExplorer: "Dateiöffnungsverhalten",
-			editorExplorerDesc: "Steuert, wie Dateien geöffnet werden",
-			editorExplorerMerged: "Zusammengeführt",
-			editorExplorerMergedDesc: "Dateien wechseln im selben Fenster; neue Fenster starten mit geöffneter Baumansicht",
-			editorExplorerSplit: "Getrennt",
-			editorExplorerSplitDesc: "Fenster ohne Pfad sind der eigenständige Explorer (nur Dateibaum); jede Datei öffnet ein eigenes Fenster (mit angedocktem, standardmäßig eingeklapptem Baum)",
-			editorTreeToggle: "Dateibaum-Panel",
-			editorPathPlaceholder: "Dateipfad (relativ zum Sitzungsverzeichnis oder absolut), Enter zum Öffnen",
-			editorSearchPlaceholder: "Nach Dateiname suchen…",
-			editorSearchNoResults: "Keine passenden Dateien",
-			editorSearchTruncated: "Zu viele Ergebnisse – nur ein Teil wird angezeigt",
-			editorEmptyHint: "Wählen Sie eine Datei aus dem Dateibaum rechts oder dem Pfadeingabefeld oben, um mit der Vorschau zu beginnen",
-			openFileNewTab: "In neuem Tab öffnen",
-			openFileSide: "Seitlich öffnen",
-			openWithMenu: "Öffnen mit",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "Im Menü anheften",
-			unpinOpenWith: "Lösen",
-			openWithExplorer: "Dateimanager",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "SSH-Remote-Host",
-			openWithSettingsSshDesc: "Leer = lokaler Arbeitsbereich; bei Angabe von user@host oder eines SSH-Alias verwenden die VSCode-Familienöffner das vscode-remote/ssh-remote-Protokoll, und Dateimanager / Zed / benutzerdefinierte Editoren außerhalb der VSCode-Familie werden im Menü ausgeblendet",
-			openWithSettingsSshPlaceholder: "user@host oder SSH-Alias",
-			openWithSettingsCustomTitle: "Benutzerdefinierte Editoren",
-			openWithSettingsCustomDesc: "Name + URL-Vorlage ({path}-Platzhalter) + VSCode-Familien-Kennzeichen; im SSH-Modus können nur Editoren der VSCode-Familie Remote-Pfade öffnen",
-			openWithSettingsAdd: "Hinzufügen",
-			openWithSettingsName: "Name",
-			openWithSettingsTemplate: "z. B. cursor://file/{path}",
-			openWithSettingsFamily: "VSCode-Familie",
-			openWithSettingsFamilyDesc: "Dieser Editor spricht das VSCode-URL-Protokoll (unterstützt SSH-Remote-Öffnen)",
-			openWithSettingsRemove: "Entfernen",
-			openWithSettingsInvalidHint: "Editoren ohne Namen oder mit Vorlage ohne {path} / scheme:// erscheinen nicht im Menü",
-			newTab: "Neuer Tab",
-			openExplorer: "Explorer",
-			brokenSymlink: "Defekter Symlink",
-			openGit: "Git-Panel",
-			newTerminal: "Neues Terminal",
-			terminalLimit: "Terminal-Limit erreicht (3)",
-			close: "Schließen",
-			closeOtherTabs: "Andere Tabs schließen",
-			closeLeftTabs: "Tabs links schließen",
-			closeRightTabs: "Tabs rechts schließen",
-			moveToFreeWindow: "In freies Fenster verschieben",
-			floatDropHint: "Loslassen, um in einem freien Fenster zu öffnen",
-			dockToSidebar: "Zurück zur Seitenleiste",
-			pinTerminal: "Terminal anheften",
-			pinAgentTerminal: "Agent-Terminal anheften",
-			pinToWorkspace: "An Arbeitsbereich anheften",
-			pinToGlobal: "Global anheften",
-			unpinTerminal: "Lösen",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "UI-Terminal",
-			pinnedTerminalKindAgent: "Agent-Terminal",
-			pinnedTerminalScopeWorkspace: "An Arbeitsbereich angeheftet",
-			pinnedTerminalScopeGlobal: "Global angeheftet",
-			pinnedRailLabel: "Angeheftete Terminals",
-			closePinnedTerminal: "Terminal schließen",
-			collapse: "Seitenleiste einklappen",
-			expand: "Seitenleiste ausklappen",
-			terminalError: "Terminalverbindung fehlgeschlagen",
-			terminalConnectFailed: "Terminal konnte wiederholt keine Verbindung herstellen",
-			terminalRetry: "Erneut versuchen",
-			terminalDepsFailed: "Die Terminal-Abhängigkeit node-pty konnte nicht geladen werden",
-			terminalDepsHint: "Führen Sie den folgenden Befehl in einem Terminal oder in cmd auf dem DSH-System aus, um dies zu beheben, und klicken Sie dann auf „Erneut versuchen“ (node-pty bleibt mit der DSH-Core-Version synchron):",
-			terminalDepsProfile: " (erkanntes Profil: {profile})",
-			preview: "Vorschau",
-			edit: "Bearbeiten",
-			refresh: "Aktualisieren",
-			showInFolder: "Im Ordner anzeigen",
-			refreshUnsavedConfirm: "Die Datei wurde geändert. Beim Aktualisieren gehen ungespeicherte Änderungen verloren. Fortfahren?",
-			save: "Speichern",
-			saved: "Gespeichert",
-			unsaved: "Nicht gespeichert",
-			saveFailed: "Speichern fehlgeschlagen",
-			truncation: "Datei zu groß – nur die ersten 512KB werden angezeigt",
-			binary: "Binärdatei, Vorschau nicht verfügbar",
-			loading: "Wird geladen…",
-			error: "Laden fehlgeschlagen",
-			retry: "Erneut versuchen",
-			splitLeft: "Nach links teilen",
-			splitRight: "Nach rechts teilen",
-			splitUp: "Nach oben teilen",
-			splitDown: "Nach unten teilen",
-			notRepo: "Dieses Verzeichnis ist kein Git-Repository",
-			noChanges: "Keine Änderungen",
-			statusTruncated: "Zu viele Änderungen; nur die ersten 2000 Einträge werden angezeigt",
-			stage: "Stagen",
-			unstage: "Unstagen",
-			stageAll: "Alle stagen",
-			unstageAll: "Alle unstagen",
-			commitPlaceholder: "Commit-Nachricht (Ctrl+Enter)",
-			commit: "Committen",
-			commitError: "Commit fehlgeschlagen",
-			branch: "Branch",
-			worktree: "Worktree",
-			checkoutError: "Branchenwechsel fehlgeschlagen",
-			history: "Verlauf",
-			changes: "Änderungen",
-			staged: "Gestaged",
-			unstaged: "Nicht gestaged",
-			cancel: "Abbrechen",
-			diffEmpty: "Keine Textunterschiede",
-			diffLoadError: "Diff konnte nicht geladen werden",
-			diffBinary: "Binär",
-			diffAdded: "Hinzugefügt",
-			diffDeleted: "Gelöscht",
-			diffRenamed: "Umbenannt",
-			diffExpand: "{count} weitere Zeilen ausklappen",
-			diffCollapse: "Einklappen",
-			discard: "Änderungen verwerfen",
-			discardTitle: "Änderungen verwerfen",
-			discardDesc: "Dadurch werden die Arbeitsbereichsänderungen von „{path}“ verworfen (nicht wiederherstellbar).",
-			viewCommitDiff: "Commit-Diff ansehen",
-			copyShortHash: "Kurzen Hash kopieren",
-			copyFullHash: "Vollständigen Hash kopieren",
-			copySubject: "Commit-Titel kopieren",
-			revertCommit: "Commit zurücknehmen",
-			revertTitle: "Commit zurücknehmen",
-			revertDesc: "Erstellt einen neuen Commit im aktuellen Branch, der „{subject}“ rückgängig macht.",
-			cherryPickCommit: "Commit cherripicken",
-			cherryPickTitle: "Commit cherripicken",
-			cherryPickDesc: "Wendet die Änderungen von „{subject}“ auf den aktuellen Branch an.",
-			timeJustNow: "gerade eben",
-			timeMinutesAgo: "vor {n} Min.",
-			timeHoursAgo: "vor {n} Std.",
-			timeYesterday: "gestern",
-			loadMore: "Mehr laden",
-			historyLoadError: "Laden weiterer Verlaufseinträge fehlgeschlagen",
-			produced: "Erstellt",
-			producedOpen: "In der Seitenleiste öffnen",
-			disconnected: "Terminalverbindung getrennt, Verbindung wird wiederhergestellt…",
-			exited: "Terminalprozess beendet",
-			noSession: "Wählen Sie eine Sitzung, um die Seitenleiste zu verwenden",
-			pluginNotLoaded: "Plugin nicht geladen; Tab vorübergehend nicht verfügbar:",
-			hiddenFiles: "Versteckte Dateien",
-			parent: "Übergeordnetes Verzeichnis",
-			copied: "Kopiert",
-			copy: "Kopieren",
-			newFile: "Neue Datei",
-			openEditor: "Editor öffnen",
-			gitDetail: "Änderungsdetails ansehen",
-			referenceFile: "@Datei",
-			addToConversation: "Zur Unterhaltung hinzufügen",
-			copyRelative: "Relativen Pfad kopieren",
-			copyAbsolute: "Absoluten Pfad kopieren",
-			download: "Herunterladen",
-			uploadFiles: "Dateien hochladen",
-			uploadFolder: "Ordner hochladen",
-			uploadHere: "Hierher hochladen",
-			uploadDropHint: "Dateien/Ordner hierher ziehen, um sie hochzuladen",
-			uploadDropChat: "In den Chatbereich ziehen: Bilder zur Unterhaltung hinzufügen",
-			uploadTo: "Nach {dir} hochladen",
-			uploadingTo: "Wird nach {dir} hochgeladen…",
-			uploadProgress: "Lade {done}/{total} hoch: {name}",
-			uploadDone: "{count} Dateien hochgeladen",
-			uploadFailed: "Upload fehlgeschlagen: {error}",
-			uploadFailedUnknown: "Unbekannter Fehler",
-			uploadTooLarge: "Datei zu groß (über dem Upload-Limit)",
-			uploadCancelled: "Upload abgebrochen",
-			settingsNav: "Seitenkarte",
-			settingsIntro: "Verwalten Sie, was die Seitenkarte anzeigt und wie sie sich verhält",
-			settingsPopupDesc: "Optionen für „{feature}“ konfigurieren",
-			settingsDone: "Fertig",
-			settingsOpenTitle: "Für neue Unterhaltungen standardmäßig geöffnet",
-			settingsOpenDesc: "Die Seitenkarte wird für brandneue Unterhaltungen automatisch ausgeklappt; bestehende Unterhaltungen behalten ihr eigenes Layout",
-			settingsWidthTitle: "Standardbreite",
-			settingsWidthDesc: "Standardanteil der Seitenkarte an der Fensterbreite für neue Unterhaltungen (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "Chat-Dateien in der Seitenleiste öffnen",
-			settingsOpenPathDesc: "Dateilinks im Chat (Werkzeugzeilen, erstellte Dateien, Erwähnungen) werden im Seitenleisten-Editor geöffnet statt in der System-Standardanwendung",
-			settingsOpenToolsTitle: "Seitenleisten-Öffnungswerkzeug für das Modell bereitstellen",
-			settingsOpenToolsDesc: "Wenn aktiviert, kann das Modell über das sidebar_open-Werkzeug Dateien, Ordner und HTTP(S)-Seiten in der Seitenleiste öffnen (standardmäßig deaktiviert)",
-			settingsTitleBarTitle: "Kompatibilitätsmodus der Position",
-			settingsTitleBarDesc: "Kompatibilitätsschema der Titelleiste wählen: automatische Erkennung (Standard, konservativ) / offizielles DSH-Web / bekannte Desktop-Shells / benutzerdefiniert (Verschiebung + benutzerdefiniertes CSS)",
-			settingsTitleBarStripTitle: "Verschiebungsabstand",
-			settingsTitleBarStripDesc: "Höhe des Titelleisten-Streifens: um wie viele Pixel Seitenleisten-Buttons und -Inhalt nach unten rutschen (0–120, Standard 40; wirkt beim benutzerdefinierten Schema)",
-			settingsSchemeAutoTitle: "Automatische Erkennung",
-			settingsSchemeAutoDesc: "Konservativ: nur die Standard-API „Window Controls Overlay“ trägt bei (echte Caption-Overlay-Höhe); reine Web-Umgebungen erhalten keine Anpassung",
-			settingsSchemeWebTitle: "Offizielles DSH-Web",
-			settingsSchemeWebDesc: "Explizit die offizielle Webversion erklären: keinerlei Anpassung (nicht einmal die Standard-WCO-Geometrie)",
-			settingsSchemeCustomTitle: "Benutzerdefiniert",
-			settingsSchemeCustomDesc: "Volle Kontrolle: benutzerdefiniertes CSS einspielen (kann eingebaute Stile überschreiben) und den Verschiebungsabstand der Titelleiste festlegen",
-			settingsSchemeDetectedSuffix: "erkannt",
-			settingsCustomCssTitle: "Benutzerdefiniertes CSS",
-			settingsCustomCssDesc: "Am Seitenende angehängte Stile (bei gleicher Priorität gewinnt der spätere; zum Überschreiben von JS-Inline-Variablen ist !important nötig)",
-			settingsCustomCssPlaceholder: "/* z. B. 36px für eine Shell mit selbst gezeichneter Titelleiste reservieren */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "Speichern fehlgeschlagen",
-			settingsConflict: "Die Einstellung wurde in einem anderen Fenster geändert – bitte erneut versuchen",
-			binaryNoPreview: "Dieser Dateityp kann nicht in der Vorschau angezeigt werden",
-			downloadToView: "Zum Ansehen herunterladen",
-			settingsSubagentTitle: "Aufgaben-Seite bei einem Subagenten automatisch öffnen",
-			settingsSubagentDesc: "Die Seitenkarte wird ausgeklappt und die Aufgaben-Seite geöffnet, wenn die aktuelle Unterhaltung einen neuen Subagenten erzeugt; ausschalten, um sie manuell zu öffnen",
-			settingsJobsTitle: "Aufgaben-Seite bei einer neuen Hintergrundaufgabe automatisch öffnen",
-			settingsJobsDesc: "Die Seitenkarte wird ausgeklappt und die Aufgaben-Seite geöffnet, sobald für die aktuelle Unterhaltung eine neue Hintergrundaufgabe erscheint (jede neue Aufgabe löst dies aus); ausschalten, um sie manuell zu öffnen",
-			settingsToolsTitle: "Terminal-Werkzeuge für das Modell bereitstellen",
-			settingsToolsDesc: "Wenn aktiviert, kann das Modell über die 8 terminal_*-Werkzeuge Terminale in der Seitenleiste erstellen und steuern (standardmäßig deaktiviert)",
-			settingsFontFamilyTitle: "Terminal-Schriftart",
-			settingsFontFamilyDesc: "Benutzerdefinierte Terminal-Schriftfamilie (ein CSS-font-family-Stapel wie \"JetBrains Mono\", monospace; leer lassen, um der Monospace-Schrift des Themas zu folgen)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "Terminal-Schriftgröße",
-			settingsFontSizeDesc: "Terminal-Schriftgröße in px (9–32, Standard 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Shell-Pfad",
-			settingsShellDesc: "Shell für UI- und Modell-Terminals (absoluter Pfad oder ausführbarer Name). Leer lassen für die bestehende Reihenfolge: config.shell aus der yaml → $SHELL / Login-Shell / powershell.exe unter Windows. Wirkt für danach geöffnete Terminals",
-			settingsShellPlaceholder: "z. B. /bin/zsh (leer = automatisch)",
-			settingsShellArgsTitle: "Shell-Argumente",
-			settingsShellArgsDesc: "Explizite Shell-Startargumente, durch Leerzeichen getrennt; wenn nicht leer, ersetzen sie die Standardargumente vollständig (gleicher Vertrag wie shellArgs in der yaml)",
-			settingsShellArgsPlaceholder: "z. B. -l (leer = Standardargumente)",
-			settingsTabsTitle: "Seitenleisten-Inhalt",
-			settingsViewersTitle: "Datei-Viewer",
-			settingsGeneralTitle: "Allgemein",
-			settingsPopup: "Funktionseinstellungen",
-			settingsViewerCatchAll: "Catch-all: beliebige Datei",
-			viewerImage: "Bild",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "Code",
-			viewerBinary: "Binär-Download",
-			viewerHtml: "HTML",
-			browser: "Browser",
-			browserPlaceholder: "URL eingeben, z. B. example.com",
-			browserGo: "Los",
-			browserBack: "Zurück",
-			browserForward: "Vor",
-			browserStart: "URL eingeben, um mit dem Browsen zu beginnen (Sandbox-Modus)",
-			browserBlockedScheme: "Blockiert: nur http/https-Links sind erlaubt",
-			browserBlockedLoopback: "Blockiert: lokale und interne Adressen können hier nicht aufgerufen werden",
-			browserInvalid: "Ungültige URL",
-			browserNoSandboxWarning: "Sandbox aus: Die aktuelle Seite läuft mit vollen Benutzeroberflächen-Rechten (in den Einstellungen wieder aktivierbar)",
-			htmlNoSandboxWarning: "Sandbox aus: Dieses HTML läuft mit vollen Benutzeroberflächen-Rechten (in den Einstellungen wieder aktivierbar)",
-			sandboxStatusOn: "Sandbox-Modus: aktiviert · Seiten können weder auf die Daten der Oberfläche noch auf lokale Dateien zugreifen; Anmeldungen und Drittanbieter-Cookies funktionieren möglicherweise nicht",
-			sandboxUnlock: "Vorübergehend deaktivieren (unsicher)",
-			sandboxRestore: "Sandbox wiederherstellen",
-			settingsHtmlDefaultUnsafeTitle: "HTML-Vorschauen standardmäßig ohne Sandbox öffnen (unsicher)",
-			settingsHtmlDefaultUnsafeDesc: "Wenn aktiviert, startet jede neu geöffnete HTML-Vorschau ohne Sandbox (gleiche Herkunft wie die Oberfläche – sie kann Sitzungsdateien und interne APIs lesen); die Statuszeile bietet weiterhin eine einmalige Wiederherstellung",
-			settingsHtmlSandboxTitle: "HTML-Vorschau-Sandbox deaktivieren (unsicher)",
-			settingsHtmlSandboxDesc: "Ohne Sandbox läuft das angezeigte HTML mit der gleichen Herkunft wie die Oberfläche: Es kann Sitzungsdateien und lokalen Speicher lesen und interne APIs aufrufen. Nur für vollständig vertrauenswürdige Dateien aktivieren",
-			settingsBrowserSandboxTitle: "Browser-Sandbox deaktivieren (unsicher)",
-			settingsBrowserSandboxDesc: "Ohne Sandbox läuft jede besuchte Website mit der gleichen Herkunft wie die Oberfläche: Sie kann Sitzungsdaten lesen und sich als Ihre Anmeldung ausgeben. Nur für vollständig vertrauenswürdige Websites aktivieren",
-			settingsBrowserLinksTitle: "Externe Links aus dem Chat in der Seitenleiste öffnen",
-			settingsBrowserLinksDesc: "Wenn aktiviert, öffnet ein Klick auf einen externen Link im Chat oder in der Oberfläche die Seitenleiste statt eines neuen Fensters; HTTP und HTTPS werden getrennt über die Schalter unten gesteuert; Ctrl/Cmd-Klick umgeht dies immer",
-			settingsBrowserHttpTitle: "HTTP-Seiten in der Seitenleiste öffnen",
-			settingsBrowserHttpDesc: "Wenn aktiviert, öffnet ein Klick auf einen HTTP-Externlink im Chat oder in der Oberfläche die Seitenleiste (Plugin-Seiten mit urlTarget gewinnen); Ctrl/Cmd-Klick umgeht dies immer",
-			settingsBrowserHttpsTitle: "HTTPS-Seiten in der Seitenleiste öffnen",
-			settingsBrowserHttpsDesc: "Wenn aktiviert, öffnet ein Klick auf einen HTTPS-Externlink im Chat oder in der Oberfläche die Seitenleiste. Standardmäßig deaktiviert: Die meisten HTTPS-Sites verweigern die Einbettung, der Systembrowser ist der reibungslosere Standard",
-			settingsBrowserLoopbackTitle: "Erlaubte lokale Adressen",
-			settingsBrowserLoopbackDesc: "Kommagetrennte Allowlist von Loopback-Adressen (z. B. localhost:5174 oder 127.0.0.1:8080), die der Seitenleisten-Browser besuchen darf; leer blockiert standardmäßig alle lokalen Adressen. Die Sandbox bleibt aktiv — Seiten können keine GUI-Daten lesen",
-			settingsBrowserLoopbackPlaceholder: "z. B. localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "Im Browser öffnen",
-			browserEmbedBlocked: "{host} hat die Einbettung verweigert",
-			browserEmbedBlockedDesc: "Die Site verbietet die Anzeige in anderen Seiten (X-Frame-Options / frame-ancestors) und kann daher nicht in der Seitenleiste geladen werden. Öffnen Sie sie stattdessen direkt im Browser.",
-			browserEmbedAnyway: "Trotzdem laden",
-			subagent: "Aufgaben",
-			openSubagent: "Aufgaben",
-			subagentMainAgent: "Hauptagent",
-			subagentEmpty: "Keine Subagenten",
-			subagentEmptyDesc: "Subagenten, die unter dem Hauptagenten erzeugt werden, erscheinen hier",
-			subagentRunning: "Läuft",
-			subagentInactive: "Inaktiv",
-			subagentModeOneShot: "Einmalig",
-			subagentModeContinuable: "Fortsetzbar",
-			subagentCount: "{count} Subagenten",
-			subagentCountRunning: "{count} Subagenten · {running} läuft",
-			subagentDiagCorrupt: "Beschädigt",
-			subagentDiagUnsupported: "Nicht unterstützt",
-			subagentDiagUnavailable: "Nicht verfügbar",
-			subagentThinking: "Denkt nach…",
-			subagentShowHistory: "{count} ältere Subagenten anzeigen",
-			subagentHideHistory: "Ältere Subagenten einklappen",
-			sideChat: "Seitenchat (beta)",
-			sideChatNew: "Neuer Thread",
-			sideChatUntitled: "Neuer Thread",
-			sideChatEmpty: "Keine Seitenunterhaltungen",
-			sideChatEmptyDesc: "Jede Seitenunterhaltung ist ein eigener Tab in der Tab-Leiste – sie erbt den Kontext der aktuellen Sitzung und wird nie Teil der Hauptunterhaltung",
-			sideChatCreating: "Seitenunterhaltung wird erstellt…",
-			sideChatRetry: "Erneut versuchen",
-			sideChatThreads: "Thread wechseln / neu",
-			sideChatSave: "Als neue Sitzung speichern",
-			sideChatSaveTitle: "Diesen Thread in der Hauptsitzungsliste zu einer Top-Level-Sitzung erheben",
-			sideChatSaved: "Als neue Sitzung gespeichert",
-			sideChatNoTurn: "Das Speichern ist nach der ersten abgeschlossenen Runde verfügbar",
-			sideChatPendingDrop: "Die letzte unbeantwortete Nachfrage wird in der gespeicherten Sitzung nicht enthalten sein",
-			sideChatFirstPlaceholder: "Stellen Sie die erste Frage – der Kontext ist geerbt…",
-			sideChatComposerPlaceholder: "Nachfrage stellen…",
-			sideChatThinking: "Denkt vertieft…",
-			sideChatThink: "Denkvorgang",
-			sideChatInjection: "Kontext eingespielt",
-			sideChatSend: "Senden",
-			sideChatCancel: "Stoppen",
-			sideChatCancelTitle: "Laufende Runde abbrechen (wartende Nachrichten bleiben erhalten)",
-			sideChatClose: "Thread schließen",
-			sideChatCloseTitle: "Den Agenten des Threads freigeben (Verlauf bleibt erhalten)",
-			sideChatError: "Seitenchat-Fehler: {message}",
-			jobs: "Hintergrundaufgaben",
-			jobsCount: "{count} Hintergrundaufgaben",
-			jobsCountRunning: "{count} Hintergrundaufgaben · {running} läuft",
-			jobsShowHistory: "{count} ältere Hintergrundaufgaben anzeigen",
-			jobsHideHistory: "Ältere Hintergrundaufgaben einklappen",
-			jobStatusRunning: "Läuft",
-			jobStatusStopping: "Wird beendet",
-			jobStatusCompleted: "Abgeschlossen",
-			jobStatusKilled: "Beendet",
-			jobStatusFailed: "Fehlgeschlagen",
-			jobDurationSeconds: "{seconds} s",
-			jobDurationMinutes: "{minutes} m {seconds} s",
-			jobDurationHours: "{hours} h {minutes} m",
-			jobViewOutput: "Ausgabe ansehen",
-			jobHideOutput: "Ausgabe ausblenden",
-			jobNoOutput: "Noch keine Ausgabe",
-			jobNotReadYet: "Warten, bis das Modell die Ausgabe dieser Aufgabe liest (nach Ausführung von job_output durch das Modell erscheint die Ausgabe hier)",
-			jobOutputTruncated: "Ausgabe zu lang, gekürzt angezeigt",
-			jobOutputError: "Ausgabe konnte nicht gelesen werden",
-			jobKill: "Beenden",
-			jobKillConfirm: "Zum Bestätigen erneut klicken",
-			jobKillError: "Beenden fehlgeschlagen",
-			addPluginsTabCard: "Tab-Plugins hinzufügen",
-			addPluginsTabCardDesc: "Eine neue Seitenleisten-Seite registrieren",
-			addPluginsViewerCard: "Vorschau-Plugins hinzufügen",
-			addPluginsViewerCardDesc: "Eine Dateityp-Vorschau registrieren",
-			addPluginsTabDesc: "Seitenleisten-Seiten (Tabs) können durch Plugins erweitert werden. Plugins registrieren sich über den ctx.betterSidebar-Dienst; ein Klick auf „Installieren“ kopiert den Installationsbefehl – fügen Sie ihn in einem Terminal ein, in dem Ihr DSH-Profil liegt, und führen Sie ihn aus.",
-			addPluginsViewerDesc: "Datei-Viewer können durch Plugins erweitert werden. Plugins registrieren sich über den ctx.betterSidebar-Dienst; ein Klick auf „Installieren“ kopiert den Installationsbefehl – fügen Sie ihn in einem Terminal ein, in dem Ihr DSH-Profil liegt, und führen Sie ihn aus.",
-			addPluginsBrowseMore: "Weitere Plugins auf GitHub durchsuchen (Topic: dsh-coding-sidebar)",
-			addPluginsSearch: "Nach Plugin-Name oder -Beschreibung suchen…",
-			addPluginsNoMatch: "Keine passenden Plugins",
-			addPluginsRecommended: "Empfohlene Plugins",
-			addPluginsEmpty: "Noch keine Plugins katalogisiert – veröffentlichen Sie Ihre Plugin unter dem GitHub-Topic",
-			openPlugin: "Öffnen",
-			copyInstall: "Installationsbefehl kopieren",
-			pluginOfficeDesc: "Office-Suite-Vorschau (.docx / .xlsx / .pptx) für den dsh-coding-sidebar-Editor, die die schweren Office-Render-Bibliotheken aus dem Kernbundle heraushält",
-			pluginFlowglassDesc: "Live-Sitzungsflussdiagramm: dreispurige Darstellung von Benutzer, Assistent und Werkzeugaufrufen mit parallelen Gruppen, Subagent-Zweigen, Drill-down und Live-Status; registriert bei installiertem dsh-coding-sidebar einen nativen „Flowglass“-Tab und behält sonst eine eigenständige Schublade",
-			pluginGitForgeDesc: "„Git-Anmeldedaten“-Tab: Konto-Bibliothek für Forges wie GitHub/Gitea + projektbezogene Freigaben + harte Push-Richtlinie; Tokens liegen nur in lokalen Secrets, nie im Modellkontext; bietet ein schreibgeschütztes GitForge-Werkzeug und einen HTTPS-Credential-Helper für den Agenten",
-			pluginGitRemotesDesc: "„Git-Remotes“-Tab: Branches/Upstream/ahead-behind ansehen, fetch (optional prune), ff-only pull und push erst nach Bestätigung im Tab. Ersetzt nicht den eingebauten Stagen/Commit-Tab und bietet weder force-push noch automatisches Push-Werkzeug für das Modell",
-			pluginSentinelDesc: "Bedingungsgesteuertes Wecksystem für Agenten: Datei-/Prozess-/Port-/HTTP-/Befehls-/Webhook-Sensoren wecken ruhende Sitzungen, wenn Bedingungen zutreffen; registriert einen „Sentinel“-Tab mit der serverweiten Überwachungstabelle",
-			pluginSidebarQaDesc: "Auswählen-und-Fragen mit Tab-Aufteilung: Text in der Unterhaltung auswählen → rechts im Panel fragen → eine eigene Folgesitzung (❓Nachfrage) im selben Arbeitsbereich; ein schnelles Modell ohne Denkvorgang komprimiert den Hauptkontext und spielt ihn samt Zitat ein, ohne die Hauptunterhaltung zu unterbrechen. Nachfragen lassen sich verschachteln, fortsetzen und archivieren",
-			pluginSshTunnelDesc: "„SSH-Tunnel“-Tab: Multi-Host-Inventar + projektbezogene Freigaben + lokale Schlüsselverwahrung; Modellwerkzeug SSHManager (exec/SFTP/Sitzungsstrategien); zentrales interaktives Terminal und zweispaltiges SFTP",
-			pluginTurnReviewDesc: "Eine menschliche Freigabestufe für den Diff der „gerade abgeschlossenen Runde“: Approve / Request changes pro Pfad mit optionalem Kommentar; Pfade gruppiert nach Hauptsitzung / Subagent / nicht zugeordnet; Inline-Diff von Snapshot-vs-jetzt, bevor Sie entscheiden. Kein Fork, kein /rewind",
-			pluginVideoPreviewDesc: "Inline-Videovorschau (.mp4/.webm/.mov/.mkv/.avi usw.) für den dsh-coding-sidebar-Editor, gestützt auf eine eigene /video-Hostroute mit HTTP-Range-Unterstützung (206) – das Scrubbing funktioniert und Dateien unterliegen nicht dem 20MB-mediaLimit",
-			pluginDocsPanelDesc: "„Globale Dokumente“ in der DSH-Seitenleiste: eigene Markdown-Notizen aus jedem Arbeitsbereich lesen – Dateiliste, Gliederung, Öffnen in Chrome / VS Code und Kopieren-Buttons; das Dokumentenverzeichnis ist konfigurierbar (Standard ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "Der Agent-Browser für DeepSeek Harness: 32 ego_*-Tools steuern ein echtes Chromium; ein nativer „ego-Browser“-Tab in der Seitenleiste zeigt live jede Seite, die der Agent besucht – Klicken, Ziehen und Tippen zum Übernehmen. Registriert den Tab automatisch, wenn dsh-coding-sidebar vorhanden ist, sonst eine schwebende Blase"
-		};
-		//#endregion
-		//#region src/client/locales-fr.ts
+		const terminalTabIcon = (size) => themed(css$5.terminal, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscTerminal, { size: Math.max(10, Math.round(size * .85)) }));
+		/** Browser — the same secondary accent as the side chat's sibling surfaces. */
+		const browserTabIcon = (size) => themed(css$5.browser, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscGlobe, { size }));
 		/**
-		* French translation of the dsh-coding-sidebar copy.
-		*
-		* Mirrors the key set of the zh dictionary in `locales.ts` (enforced by
-		* the `Record<keyof typeof zh, string>` type annotation). The better-locale
-		* override store registers this dict under the `betterSidebar` namespace,
-		* so it takes effect when the user has selected the `fr` override.
+		* Trajectory — the flow glyph, in the model/request accent: this page and the
+		* green request chips of the graph it draws are the same subject.
 		*/
-		/** fr dictionary for the `betterSidebar` namespace. */
-		const fr$1 = {
-			files: "Fichiers",
-			explorer: "Explorateur",
-			git: "Gestion de code source",
-			terminal: "Terminal",
-			editor: "Éditeur",
-			editorExplorer: "Comportement d’ouverture des fichiers",
-			editorExplorerDesc: "Contrôle la façon dont les fichiers s’ouvrent",
-			editorExplorerMerged: "Fusionné",
-			editorExplorerMergedDesc: "Les fichiers se remplacent dans la même fenêtre ; les nouvelles fenêtres ouvrent l’arborescence par défaut",
-			editorExplorerSplit: "Séparé",
-			editorExplorerSplitDesc: "Les fenêtres sans chemin sont l’explorateur autonome (arborescence uniquement) ; chaque fichier ouvre sa propre fenêtre (avec arborescence, réduite par défaut)",
-			editorTreeToggle: "Panneau d’arborescence",
-			editorPathPlaceholder: "Saisissez un chemin de fichier (relatif au répertoire de session ou absolu), Entrée pour ouvrir",
-			editorSearchPlaceholder: "Rechercher par nom de fichier…",
-			editorSearchNoResults: "Aucun fichier correspondant",
-			editorSearchTruncated: "Trop de résultats, seule une partie des correspondances est affichée",
-			editorEmptyHint: "Choisissez un fichier dans l’arborescence à droite ou dans le champ de chemin ci-dessus pour commencer l’aperçu",
-			openFileNewTab: "Ouvrir dans un nouvel onglet",
-			openFileSide: "Ouvrir de côté",
-			openWithMenu: "Ouvrir avec",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "Épingler au menu",
-			unpinOpenWith: "Désépingler",
-			openWithExplorer: "Explorateur de fichiers",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "Hôte distant SSH",
-			openWithSettingsSshDesc: "Vide = espace de travail local ; avec un user@host ou un alias SSH, les ouvreurs de la famille VSCode passent aux protocoles vscode-remote/ssh-remote, et l’explorateur de fichiers / Zed / les éditeurs personnalisés hors famille VSCode sont masqués du menu",
-			openWithSettingsSshPlaceholder: "user@host ou alias SSH",
-			openWithSettingsCustomTitle: "Éditeurs personnalisés",
-			openWithSettingsCustomDesc: "Nom + modèle d’URL (placeholder {path}) + famille VSCode ou non ; en mode SSH, seuls les éditeurs de la famille VSCode peuvent ouvrir un distant",
-			openWithSettingsAdd: "Ajouter",
-			openWithSettingsName: "Nom",
-			openWithSettingsTemplate: "ex. cursor://file/{path}",
-			openWithSettingsFamily: "Famille VSCode",
-			openWithSettingsFamilyDesc: "Cet éditeur utilise le protocole d’URL de VSCode (prend en charge l’ouverture à distance via SSH)",
-			openWithSettingsRemove: "Supprimer",
-			openWithSettingsInvalidHint: "Les éditeurs sans nom ou sans modèle (contenant {path} et commençant par scheme://) n’apparaissent pas dans le menu",
-			newTab: "Nouvel onglet",
-			openExplorer: "Explorateur",
-			brokenSymlink: "Lien symbolique cassé",
-			openGit: "Panneau Git",
-			newTerminal: "Nouveau terminal",
-			terminalLimit: "Nombre maximal de terminaux atteint (3)",
-			close: "Fermer",
-			closeOtherTabs: "Fermer les autres onglets",
-			closeLeftTabs: "Fermer les onglets à gauche",
-			closeRightTabs: "Fermer les onglets à droite",
-			moveToFreeWindow: "Déplacer vers la fenêtre flottante",
-			floatDropHint: "Relâchez pour ouvrir dans une fenêtre flottante",
-			dockToSidebar: "Revenir à la barre latérale",
-			pinTerminal: "Épingler le terminal",
-			pinAgentTerminal: "Épingler le terminal Agent",
-			pinToWorkspace: "Épingler à l'espace de travail",
-			pinToGlobal: "Épingler globalement",
-			unpinTerminal: "Désépingler",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "Terminal UI",
-			pinnedTerminalKindAgent: "Terminal Agent",
-			pinnedTerminalScopeWorkspace: "Épinglé à l'espace de travail",
-			pinnedTerminalScopeGlobal: "Épinglé globalement",
-			pinnedRailLabel: "Terminaux épinglés",
-			closePinnedTerminal: "Fermer le terminal",
-			collapse: "Réduire la barre latérale",
-			expand: "Déployer la barre latérale",
-			terminalError: "Échec de la connexion au terminal",
-			terminalConnectFailed: "Le terminal a échoué à se connecter à plusieurs reprises",
-			terminalRetry: "Réessayer",
-			terminalDepsFailed: "Échec du chargement de la dépendance terminal node-pty",
-			terminalDepsHint: "Exécutez la commande suivante dans un terminal ou cmd de l’environnement DSH pour réparer, puis cliquez sur Réessayer (node-pty reste à la même version que le cœur DSH) :",
-			terminalDepsProfile: " (profil détecté : {profile})",
-			preview: "Aperçu",
-			edit: "Modifier",
-			refresh: "Actualiser",
-			showInFolder: "Afficher dans le dossier",
-			refreshUnsavedConfirm: "Le fichier a changé sur le disque. Actualiser supprimera les modifications non enregistrées. Continuer ?",
-			save: "Enregistrer",
-			saved: "Enregistré",
-			unsaved: "Non enregistré",
-			saveFailed: "Échec de l’enregistrement",
-			truncation: "Fichier trop volumineux, seuls les 512 premiers Ko sont affichés",
-			binary: "Fichier binaire, aperçu impossible",
-			loading: "Chargement…",
-			error: "Échec du chargement",
-			retry: "Réessayer",
-			splitLeft: "Diviser à gauche",
-			splitRight: "Diviser à droite",
-			splitUp: "Diviser en haut",
-			splitDown: "Diviser en bas",
-			notRepo: "Ce répertoire n’est pas un dépôt git",
-			noChanges: "Aucune modification",
-			statusTruncated: "Trop de modifications ; seules les 2000 premières entrées sont affichées",
-			stage: "Mettre en scène",
-			unstage: "Annuler la mise en scène",
-			stageAll: "Tout mettre en scène",
-			unstageAll: "Tout retirer de la scène",
-			commitPlaceholder: "Message de commit (Ctrl+Entrée)",
-			commit: "Valider",
-			commitError: "Échec du commit",
-			branch: "Branche",
-			worktree: "Arborescence de travail",
-			checkoutError: "Échec du changement de branche",
-			history: "Historique",
-			changes: "Modifications",
-			staged: "En scène",
-			unstaged: "Hors scène",
-			cancel: "Annuler",
-			diffEmpty: "Aucune différence textuelle",
-			diffLoadError: "Échec du chargement de la différence",
-			diffBinary: "Binaire",
-			diffAdded: "Ajouté",
-			diffDeleted: "Supprimé",
-			diffRenamed: "Renommé",
-			diffExpand: "Déployer les {count} lignes restantes",
-			diffCollapse: "Réduire",
-			discard: "Abandonner les modifications",
-			discardTitle: "Abandonner les modifications",
-			discardDesc: "Les modifications de l’espace de travail de « {path} » seront abandonnées (irréversible).",
-			viewCommitDiff: "Voir la différence du commit",
-			copyShortHash: "Copier le hash court",
-			copyFullHash: "Copier le hash complet",
-			copySubject: "Copier le message du commit",
-			revertCommit: "Annuler ce commit",
-			revertTitle: "Annuler ce commit",
-			revertDesc: "Un nouveau commit inversant « {subject} » sera créé sur la branche actuelle.",
-			cherryPickCommit: "Cherry-pick de ce commit",
-			cherryPickTitle: "Cherry-pick de ce commit",
-			cherryPickDesc: "Les modifications de « {subject} » seront appliquées à la branche actuelle.",
-			timeJustNow: "à l’instant",
-			timeMinutesAgo: "il y a {n} min",
-			timeHoursAgo: "il y a {n} h",
-			timeYesterday: "hier",
-			loadMore: "Charger plus",
-			historyLoadError: "Échec du chargement de davantage d’historique",
-			produced: "Produits de cette exécution",
-			producedOpen: "Ouvrir dans la barre latérale",
-			disconnected: "Connexion du terminal perdue, reconnexion…",
-			exited: "Le processus du terminal s’est terminé",
-			noSession: "Sélectionnez une session pour utiliser la barre latérale",
-			pluginNotLoaded: "Plugin non chargé, onglet indisponible pour le moment :",
-			hiddenFiles: "Fichiers cachés",
-			parent: "Répertoire parent",
-			copied: "Copié",
-			copy: "Copier",
-			newFile: "Nouveau fichier",
-			openEditor: "Ouvrir l’éditeur",
-			gitDetail: "Voir le détail des modifications",
-			referenceFile: "@fichier",
-			addToConversation: "Ajouter à la discussion",
-			copyRelative: "Copier le chemin relatif",
-			copyAbsolute: "Copier le chemin absolu",
-			download: "Télécharger",
-			uploadFiles: "Importer des fichiers",
-			uploadFolder: "Importer un dossier",
-			uploadHere: "Importer ici",
-			uploadDropHint: "Glissez des fichiers/dossiers ici pour les importer",
-			uploadDropChat: "Glissez dans la zone de discussion : ajouter des images à la discussion",
-			uploadTo: "Importer dans {dir}",
-			uploadingTo: "Import en cours vers {dir}…",
-			uploadProgress: "Import de {done}/{total} : {name}",
-			uploadDone: "{count} fichier(s) importé(s)",
-			uploadFailed: "Échec de l’import : {error}",
-			uploadFailedUnknown: "Erreur inconnue",
-			uploadTooLarge: "Fichier trop volumineux, limite d’import dépassée",
-			uploadCancelled: "Import annulé",
-			settingsNav: "Carte latérale",
-			settingsIntro: "Gérer le contenu affiché par la carte latérale et son comportement par défaut",
-			settingsPopupDesc: "Configurer les options liées à « {feature} »",
-			settingsDone: "Terminé",
-			settingsOpenTitle: "Ouvert par défaut pour les nouvelles sessions",
-			settingsOpenDesc: "Déployer automatiquement la carte latérale lors de la création d’une session ; les sessions existantes conservent chacune leur disposition",
-			settingsWidthTitle: "Part de largeur par défaut",
-			settingsWidthDesc: "Pourcentage de la largeur de la fenêtre occupé par la carte latérale pour les nouvelles sessions (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "Ouvrir les fichiers de discussion dans la barre latérale",
-			settingsOpenPathDesc: "À la place de l’application par défaut du système, ouvrir dans l’éditeur de la barre latérale les liens vers les fichiers du chat (lignes d’outils, listes de produits, mentions de fichiers)",
-			settingsOpenToolsTitle: "Injecter l'outil d'ouverture latérale pour le modèle",
-			settingsOpenToolsDesc: "Une fois activé, le modèle peut ouvrir des fichiers, dossiers et pages HTTP(S) dans la barre latérale via l'outil sidebar_open (désactivé par défaut)",
-			settingsTitleBarTitle: "Mode de compatibilité de position",
-			settingsTitleBarDesc: "Choisissez le schéma de compatibilité de la barre de titre : détection automatique (par défaut, conservateur) / Web officiel DSH / coquilles de bureau connues / schéma personnalisé (distance de décalage + CSS personnalisé)",
-			settingsTitleBarStripTitle: "Distance de décalage",
-			settingsTitleBarStripDesc: "Hauteur de la bande de la barre de titre : nombre de pixels dont les boutons et le contenu de la barre latérale descendent (0–120, défaut 40 ; s’applique en schéma personnalisé)",
-			settingsSchemeAutoTitle: "Détection automatique",
-			settingsSchemeAutoDesc: "Schéma conservateur : ne cède de la place selon la hauteur réelle de la barre de titre que lorsque l’API standard Window Controls Overlay est disponible ; aucune modification dans un environnement web",
-			settingsSchemeWebTitle: "Web officiel DSH",
-			settingsSchemeWebDesc: "Déclare explicitement l’exécution dans la version web officielle : aucune adaptation (même la géométrie standard WCO n’est pas appliquée)",
-			settingsSchemeCustomTitle: "Schéma personnalisé",
-			settingsSchemeCustomDesc: "Entièrement à votre contrôle : injecter du CSS personnalisé (pouvant remplacer les styles intégrés) et définir la distance de décalage de la barre de titre",
-			settingsSchemeDetectedSuffix: "détecté",
-			settingsCustomCssTitle: "CSS personnalisé",
-			settingsCustomCssDesc: "Styles ajoutés à la fin de la page (à priorité égale, le dernier écrit gagne ; utilisez !important pour remplacer les variables en ligne écrites par JS)",
-			settingsCustomCssPlaceholder: "/* ex. : réserver 36px pour une coquille à barre de titre dessinée */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "Échec de l’enregistrement",
-			settingsConflict: "Les réglages ont été modifiés par une autre fenêtre, veuillez réessayer",
-			binaryNoPreview: "Ce type de fichier ne prend pas en charge l’aperçu",
-			downloadToView: "Télécharger pour consulter",
-			settingsSubagentTitle: "Déployer automatiquement la page de gestion des tâches à la détection d’un sous-agent",
-			settingsSubagentDesc: "Lorsque la session actuelle produit un nouveau sous-agent, déployer automatiquement la barre latérale et ouvrir la page de gestion des tâches ; une fois désactivé, l’ouverture est manuelle",
-			settingsJobsTitle: "Déployer automatiquement la page des tâches d’arrière-plan sur nouvelle tâche",
-			settingsJobsDesc: "Lorsque la session actuelle produit une nouvelle tâche d’arrière-plan, déployer automatiquement la barre latérale et ouvrir la page des tâches (déclenché à chaque nouvelle tâche) ; une fois désactivé, l’ouverture est manuelle",
-			settingsToolsTitle: "Injecter des outils de terminal au modèle",
-			settingsToolsDesc: "Une fois activé, le modèle peut créer et piloter des terminaux de la barre latérale via les 8 outils terminal_* (désactivé par défaut)",
-			settingsFontFamilyTitle: "Police du terminal",
-			settingsFontFamilyDesc: "Famille de polices personnalisée du terminal (CSS font-family, ex. \"JetBrains Mono\", monospace ; vide = suit la police monospace du thème)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "Taille de police du terminal",
-			settingsFontSizeDesc: "Taille de police du terminal (9–32, défaut 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Chemin du shell",
-			settingsShellDesc: "Shell lancé pour les terminaux de l’interface et du modèle (chemin absolu ou nom d’exécutable). Vide = résolution dans l’ordre existant : config.shell du yaml → $SHELL / shell de connexion / powershell.exe sur Windows. S’applique aux terminaux ouverts ensuite",
-			settingsShellPlaceholder: "ex. /bin/zsh (vide = résolution automatique)",
-			settingsShellArgsTitle: "Arguments du shell",
-			settingsShellArgsDesc: "Arguments explicites de lancement du shell, séparés par des espaces ; non vide = remplacement complet des arguments par défaut (contrat identique aux shellArgs du yaml)",
-			settingsShellArgsPlaceholder: "ex. -l (vide = arguments par défaut)",
-			settingsTabsTitle: "Contenu de la barre latérale",
-			settingsViewersTitle: "Aperçus de fichiers",
-			settingsGeneralTitle: "Général",
-			settingsPopup: "Réglages de la fonctionnalité",
-			settingsViewerCatchAll: "Par défaut : n’importe quel fichier",
-			viewerImage: "Image",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "Code",
-			viewerBinary: "Téléchargement binaire",
-			viewerHtml: "HTML",
-			browser: "Navigateur",
-			browserPlaceholder: "Saisissez une adresse, ex. example.com",
-			browserGo: "Aller",
-			browserBack: "Précédent",
-			browserForward: "Suivant",
-			browserStart: "Saisissez une adresse pour commencer à naviguer (mode bac à sable)",
-			browserBlockedScheme: "Bloqué : seuls les liens http/https sont pris en charge",
-			browserBlockedLoopback: "Bloqué : l’accès aux adresses locales ou internes n’est pas autorisé dans le navigateur",
-			browserInvalid: "Adresse invalide",
-			browserNoSandboxWarning: "Bac à sable désactivé : la page actuelle partage l’origine de l’interface et dispose de l’ensemble des droits de session (restauration possible dans les réglages)",
-			htmlNoSandboxWarning: "Bac à sable désactivé : ce HTML partage l’origine de l’interface, peut lire les fichiers de session et les interfaces internes (restauration possible dans les réglages)",
-			sandboxStatusOn: "Mode bac à sable : activé · la page ne peut pas accéder aux données de l’interface ni aux fichiers locaux ; l’état de connexion et les cookies tiers peuvent être indisponibles",
-			sandboxUnlock: "Déverrouiller temporairement (non sécurisé)",
-			sandboxRestore: "Restaurer le bac à sable",
-			settingsHtmlDefaultUnsafeTitle: "Ouvrir l’aperçu HTML en mode non bac à sable par défaut (non sécurisé)",
-			settingsHtmlDefaultUnsafeDesc: "Une fois activé, chaque ouverture d’un fichier HTML démarre l’aperçu en état non bac à sable (même origine que l’interface, pouvant lire les fichiers de session et les interfaces internes) ; la barre d’état permet de restaurer temporairement le bac à sable",
-			settingsHtmlSandboxTitle: "Désactiver le bac à sable de l’aperçu HTML (non sécurisé)",
-			settingsHtmlSandboxDesc: "Une fois désactivé, le HTML de l’aperçu s’exécute avec la même origine que l’interface, peut lire les fichiers de session, le stockage local et appeler les interfaces internes. À activer uniquement pour des fichiers entièrement fiables",
-			settingsBrowserSandboxTitle: "Désactiver le bac à sable du navigateur (non sécurisé)",
-			settingsBrowserSandboxDesc: "Une fois désactivé, tout site visité s’exécute avec la même origine que l’interface, peut lire les données de session et usurper votre état de connexion. À activer uniquement pour des sites entièrement fiables",
-			settingsBrowserLinksTitle: "Ouvrir les liens externes du chat dans la barre latérale",
-			settingsBrowserLinksDesc: "Une fois activé, cliquer sur un lien externe dans le chat ou l’interface l’ouvre dans la barre latérale au lieu d’une nouvelle fenêtre ; HTTP et HTTPS sont contrôlés séparément par les interrupteurs ci-dessous ; Ctrl/Cmd+clic autorise temporairement",
-			settingsBrowserHttpTitle: "Ouvrir les pages HTTP de côté",
-			settingsBrowserHttpDesc: "Une fois activé, cliquer sur un lien externe HTTP du chat ou de l’interface l’ouvre dans la barre latérale (les pages de plugin déclarant urlTarget sont prioritaires) ; Ctrl/Cmd+clic autorise temporairement",
-			settingsBrowserHttpsTitle: "Ouvrir les pages HTTPS de côté",
-			settingsBrowserHttpsDesc: "Une fois activé, cliquer sur un lien externe HTTPS du chat ou de l’interface l’ouvre dans la barre latérale. Désactivé par défaut : la plupart des sites HTTPS refusent l’encapsulation, le navigateur système est plus fluide",
-			settingsBrowserLoopbackTitle: "Adresses locales autorisées",
-			settingsBrowserLoopbackDesc: "Liste blanche séparée par des virgules des adresses de bouclage (ex. localhost:5174 ou 127.0.0.1:8080) que le navigateur de la barre latérale peut visiter ; vide bloque toutes les adresses locales par défaut. Le bac à sable reste actif — les pages ne peuvent pas lire les données de l interface",
-			settingsBrowserLoopbackPlaceholder: "ex. localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "Ouvrir dans le navigateur",
-			browserEmbedBlocked: "{host} a refusé la demande d’encapsulation",
-			browserEmbedBlockedDesc: "Ce site interdit son affichage dans d’autres pages (X-Frame-Options / frame-ancestors) et ne peut donc pas être chargé dans la barre latérale. Vous pouvez l’ouvrir directement dans le navigateur",
-			browserEmbedAnyway: "Charger quand même",
-			subagent: "Gestion des tâches",
-			openSubagent: "Gestion des tâches",
-			subagentMainAgent: "Agent principal",
-			subagentEmpty: "Aucun sous-agent pour l’instant",
-			subagentEmptyDesc: "Les sous-agents dérivés de l’agent principal actuel s’afficheront ici",
-			subagentRunning: "En cours",
-			subagentInactive: "Inactif",
-			subagentModeOneShot: "À usage unique",
-			subagentModeContinuable: "Reprenable",
-			subagentCount: "{count} sous-agent(s)",
-			subagentCountRunning: "{count} sous-agent(s) · {running} en cours",
-			subagentDiagCorrupt: "Répertoire corrompu",
-			subagentDiagUnsupported: "Entrée non prise en charge",
-			subagentDiagUnavailable: "Indisponible",
-			subagentThinking: "Réflexion…",
-			subagentShowHistory: "Afficher {count} sous-agents plus anciens",
-			subagentHideHistory: "Réduire les sous-agents plus anciens",
-			sideChat: "Discussion latérale (bêta)",
-			sideChatNew: "Nouvelle discussion",
-			sideChatUntitled: "Nouvelle discussion",
-			sideChatEmpty: "Aucune discussion latérale pour l’instant",
-			sideChatEmptyDesc: "Chaque discussion latérale est un onglet indépendant de la barre d’onglets, qui hérite du contexte de la session actuelle et n’entre jamais dans la session principale",
-			sideChatCreating: "Création de la discussion latérale…",
-			sideChatRetry: "Réessayer",
-			sideChatThreads: "Changer de fil / nouveau",
-			sideChatSave: "Enregistrer comme nouvelle session",
-			sideChatSaveTitle: "Promouvoir ce fil en session de premier niveau, visible dans la liste des sessions principales",
-			sideChatSaved: "Enregistré comme nouvelle session",
-			sideChatNoTurn: "Au moins un tour de discussion doit être terminé avant l’enregistrement",
-			sideChatPendingDrop: "La dernière relance inachevée ne sera pas incluse dans la nouvelle session",
-			sideChatFirstPlaceholder: "Saisissez la première question, le contexte de la session actuelle est hérité…",
-			sideChatComposerPlaceholder: "Relance…",
-			sideChatThinking: "Approfondissement…",
-			sideChatThink: "Processus de réflexion",
-			sideChatInjection: "Contexte injecté",
-			sideChatSend: "Envoyer",
-			sideChatCancel: "Arrêter",
-			sideChatCancelTitle: "Interrompre le tour en cours (la file d’attente est conservée)",
-			sideChatClose: "Fermer le fil",
-			sideChatCloseTitle: "Libérer l’agent du fil (l’historique est conservé)",
-			sideChatError: "Erreur de la discussion latérale : {message}",
-			jobs: "Tâches d’arrière-plan",
-			jobsCount: "{count} tâche(s) d’arrière-plan",
-			jobsCountRunning: "{count} tâche(s) d’arrière-plan · {running} en cours",
-			jobsShowHistory: "Afficher {count} tâches d’arrière-plan plus anciennes",
-			jobsHideHistory: "Réduire les tâches d’arrière-plan plus anciennes",
-			jobStatusRunning: "En cours",
-			jobStatusStopping: "Arrêt en cours",
-			jobStatusCompleted: "Terminée",
-			jobStatusKilled: "Interrompue",
-			jobStatusFailed: "Échouée",
-			jobDurationSeconds: "{seconds} s",
-			jobDurationMinutes: "{minutes} min {seconds} s",
-			jobDurationHours: "{hours} h {minutes} min",
-			jobViewOutput: "Voir la sortie",
-			jobHideOutput: "Réduire la sortie",
-			jobNoOutput: "Aucune sortie pour l’instant",
-			jobNotReadYet: "En attente que le modèle lise la sortie de cette tâche (la sortie s’affichera ici une fois que le modèle aura exécuté job_output)",
-			jobOutputTruncated: "Sortie trop longue, affichage tronqué",
-			jobOutputError: "Échec de la lecture de la sortie",
-			jobKill: "Interrompre",
-			jobKillConfirm: "Cliquez à nouveau pour confirmer l’interruption",
-			jobKillError: "Échec de l’interruption",
-			addPluginsTabCard: "Ajouter un plugin d’onglet",
-			addPluginsTabCardDesc: "Enregistrer une nouvelle page de la barre latérale",
-			addPluginsViewerCard: "Ajouter un plugin d’aperçu",
-			addPluginsViewerCardDesc: "Enregistrer un aperçu d’un type de fichier",
-			addPluginsTabDesc: "Les pages de la barre latérale (onglets) peuvent être étendues par des plugins. Les plugins s’enregistrent via le service ctx.betterSidebar ; cliquez sur « Installer » pour copier la commande d’installation, collez-la dans un terminal de l’environnement DSH et exécutez-la.",
-			addPluginsViewerDesc: "Les aperçus de fichiers peuvent être étendus par des plugins. Les plugins s’enregistrent via le service ctx.betterSidebar ; cliquez sur « Installer » pour copier la commande d’installation, collez-la dans un terminal de l’environnement DSH et exécutez-la.",
-			addPluginsBrowseMore: "Parcourir plus de plugins sur GitHub (topic : dsh-coding-sidebar)",
-			addPluginsSearch: "Rechercher par nom / description de plugin…",
-			addPluginsNoMatch: "Aucun plugin correspondant",
-			addPluginsRecommended: "Plugins recommandés",
-			addPluginsEmpty: "Aucun plugin référencé pour l’instant, publiez le vôtre sous le topic GitHub",
-			openPlugin: "Aller",
-			copyInstall: "Copier la commande d’installation",
-			pluginOfficeDesc: "Aperçu de la suite Office (.docx / .xlsx / .pptx) pour l’éditeur dsh-coding-sidebar, avec les lourdes bibliothèques de rendu Office extraites du package principal et installées à la demande",
-			pluginFlowglassDesc: "Schéma de flux de session en temps réel : trois couloirs pour l’utilisateur, l’assistant et les appels d’outils, avec regroupement en parallèle, branches de sous-agents, exploration par niveau et états en temps réel ; enregistre l’onglet natif « Flowglass » une fois dsh-coding-sidebar installé, sinon conserve un tiroir indépendant",
-			pluginGitForgeDesc: "Onglet « Identifiants Git » de dsh-coding-sidebar : bibliothèque de comptes GitHub/Gitea (et autres forges) + autorisations par projet + blocage strict des stratégies push ; les tokens restent dans les secrets locaux, jamais dans le contexte du modèle ; fournit un outil GitForge en lecture seule et un helper HTTPS de credentials pour l’agent",
-			pluginGitRemotesDesc: "Onglet Git Remotes de dsh-coding-sidebar : branches/amonts/ahead-behind, fetch (avec prune possible), pull en ff-only, push seulement après confirmation. Ne remplace pas la mise en scène/les commits du Git intégré et ne fournit pas de force-push ni de push automatique par le modèle",
-			pluginSentinelDesc: "Système de réveil d’agent piloté par conditions : capteurs fichier/processus/port/HTTP/commande/webhook, les sessions en veille se réveillent automatiquement lorsque les conditions sont remplies ; enregistre l’onglet « Sentinel » affichant le tableau de surveillance global du serveur",
-			pluginSidebarQaDesc: "Onglet de questions sur sélection basé sur dsh-coding-sidebar : sélection dans la discussion → question dans le panneau de droite → session de relance indépendante du même espace de travail (❓ relance · thème) : un modèle rapide sans réflexion compresse le contexte de la discussion principale puis l’injecte avec la citation, sans interrompre la discussion principale ; les relances peuvent être imbriquées, poursuivies et archivées",
-			pluginSshTunnelDesc: "Onglet « Tunnel SSH » de dsh-coding-sidebar : inventaire multi-machines + autorisations par projet + clés conservées localement ; outil de modèle SSHManager (exec/SFTP/stratégies de session) ; terminal interactif central et SFTP à deux volets",
-			pluginTurnReviewDesc: "Passerelle humaine sur le diff de « ce dernier tour » : Approve / Request changes, sans forker la session ; fichiers regroupés par session principale / sous-agent / non attribués, cochez les fichiers pour renvoyer + commentaire facultatif ; cliquez un fichier pour voir le diff entre l’instantané de début de tour et maintenant. Ce n’est pas /rewind",
-			pluginVideoPreviewDesc: "Aperçu vidéo en ligne dans l’éditeur dsh-coding-sidebar (.mp4/.webm/.mov/.mkv/.avi, etc.), avec une route hôte /video prenant en charge HTTP Range (206) ; barre de progression déplaçable, non limité par la mediaLimit de 20 Mo",
-			pluginDocsPanelDesc: "« Documentation globale » dans la barre latérale DSH : notes Markdown globales, lisibles depuis n’importe quel espace de travail — sélection dans la liste, saut via le plan flottant, ouverture externe Chrome / VS Code, copie de code, répertoire configurable (défaut ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "Le navigateur d’agent pour DeepSeek Harness : 32 outils ego_* pilotent un vrai Chromium ; un onglet natif « ego browser » dans la barre latérale montre en direct chaque page visitée par l’agent — cliquez, glissez et tapez pour reprendre la main. Enregistre l’onglet automatiquement si dsh-coding-sidebar est présent, sinon une bulle flottante"
-		};
-		//#endregion
-		//#region src/client/locales-pt.ts
-		const pt$1 = {
-			files: "Arquivos",
-			explorer: "Explorador",
-			git: "Controle de código-fonte",
-			terminal: "Terminal",
-			editor: "Editor",
-			editorExplorer: "Comportamento de abertura de arquivos",
-			editorExplorerDesc: "Controla como os arquivos são abertos",
-			editorExplorerMerged: "Mesclado",
-			editorExplorerMergedDesc: "Arquivos alternam no mesmo lugar na mesma janela; novas janelas começam com a árvore de arquivos aberta",
-			editorExplorerSplit: "Separado",
-			editorExplorerSplitDesc: "Janelas sem caminho são o explorador independente (somente árvore de arquivos); cada arquivo abre sua própria janela (com árvore encaixada, fechada por padrão)",
-			editorTreeToggle: "Painel da árvore de arquivos",
-			editorPathPlaceholder: "Caminho do arquivo (relativo ao diretório da sessão ou absoluto), Enter para abrir",
-			editorSearchPlaceholder: "Pesquisar arquivos por nome…",
-			editorSearchNoResults: "Nenhum arquivo correspondente",
-			editorSearchTruncated: "Resultados demais — exibindo lista parcial",
-			editorEmptyHint: "Escolha um arquivo na árvore do painel ou no campo de caminho acima para começar a pré-visualizar",
-			openFileNewTab: "Abrir em nova aba",
-			openFileSide: "Abrir ao lado",
-			openWithMenu: "Abrir com",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "Fixar no menu",
-			unpinOpenWith: "Desafixar",
-			openWithExplorer: "Gerenciador de arquivos",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "Host remoto SSH",
-			openWithSettingsSshDesc: "Vazio = workspace local; com user@host ou um alias SSH, os abridores da família VSCode passam a usar o protocolo vscode-remote/ssh-remote e o Gerenciador de arquivos / Zed / editores personalizados fora da família VSCode ficam ocultos do menu",
-			openWithSettingsSshPlaceholder: "user@host ou alias SSH",
-			openWithSettingsCustomTitle: "Editores personalizados",
-			openWithSettingsCustomDesc: "Nome + modelo de URL (espaço reservado {path}) + sinalizador de família VSCode; no modo remoto, apenas editores da família VSCode podem abrir um caminho remoto",
-			openWithSettingsAdd: "Adicionar",
-			openWithSettingsName: "Nome",
-			openWithSettingsTemplate: "ex.: cursor://file/{path}",
-			openWithSettingsFamily: "Família VSCode",
-			openWithSettingsFamilyDesc: "Este editor fala o dialeto de URL do VSCode (suporta aberturas SSH remotas)",
-			openWithSettingsRemove: "Remover",
-			openWithSettingsInvalidHint: "Editores com nome ausente ou modelo sem {path} / scheme:// não aparecem no menu",
-			newTab: "Nova aba",
-			openExplorer: "Explorador",
-			brokenSymlink: "Symlink quebrado",
-			openGit: "Painel Git",
-			newTerminal: "Novo terminal",
-			terminalLimit: "Limite de terminais atingido (3)",
-			close: "Fechar",
-			closeOtherTabs: "Fechar outras abas",
-			closeLeftTabs: "Fechar abas à esquerda",
-			closeRightTabs: "Fechar abas à direita",
-			moveToFreeWindow: "Mover para janela flutuante",
-			floatDropHint: "Solte para abrir em uma janela flutuante",
-			dockToSidebar: "Voltar para a barra lateral",
-			pinTerminal: "Fixar Terminal",
-			pinAgentTerminal: "Fixar Terminal do Agent",
-			pinToWorkspace: "Fixar no Workspace",
-			pinToGlobal: "Fixar Globalmente",
-			unpinTerminal: "Desafixar",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "Terminal de UI",
-			pinnedTerminalKindAgent: "Terminal do Agent",
-			pinnedTerminalScopeWorkspace: "Fixado no workspace",
-			pinnedTerminalScopeGlobal: "Fixado globalmente",
-			pinnedRailLabel: "Terminais Fixados",
-			closePinnedTerminal: "Fechar Terminal",
-			collapse: "Recolher barra lateral",
-			expand: "Expandir barra lateral",
-			terminalError: "Falha na conexão do terminal",
-			terminalConnectFailed: "O terminal falhou ao conectar repetidamente",
-			terminalRetry: "Tentar novamente",
-			terminalDepsFailed: "A dependência do terminal node-pty falhou ao carregar",
-			terminalDepsHint: "Execute o comando abaixo em um terminal ou cmd na máquina do DSH para reparar e tente novamente (node-pty permanece em sincronia com a versão do núcleo do DSH):",
-			terminalDepsProfile: " (perfil detectado: {profile})",
-			preview: "Pré-visualizar",
-			edit: "Editar",
-			refresh: "Atualizar",
-			showInFolder: "Mostrar na pasta",
-			refreshUnsavedConfirm: "O arquivo mudou no disco. Atualizar descartará edições não salvas. Continuar?",
-			save: "Salvar",
-			saved: "Salvo",
-			unsaved: "Não salvo",
-			saveFailed: "Falha ao salvar",
-			truncation: "Arquivo grande demais — exibindo os primeiros 512KB",
-			binary: "Arquivo binário, pré-visualização indisponível",
-			loading: "Carregando…",
-			error: "Falha ao carregar",
-			retry: "Tentar novamente",
-			splitLeft: "Dividir à esquerda",
-			splitRight: "Dividir à direita",
-			splitUp: "Dividir acima",
-			splitDown: "Dividir abaixo",
-			notRepo: "Este diretório não é um repositório git",
-			noChanges: "Sem alterações",
-			statusTruncated: "Muitas alterações; exibindo apenas as primeiras 2000 entradas",
-			stage: "Preparar (stage)",
-			unstage: "Desfazer stage",
-			stageAll: "Preparar tudo",
-			unstageAll: "Desfazer stage de tudo",
-			commitPlaceholder: "Mensagem de commit (Ctrl+Enter)",
-			commit: "Commit",
-			commitError: "Falha no commit",
-			branch: "Branch",
-			worktree: "Worktree",
-			checkoutError: "Falha ao alternar de branch",
-			history: "Histórico",
-			changes: "Alterações",
-			staged: "Preparadas",
-			unstaged: "Não preparadas",
-			cancel: "Cancelar",
-			diffEmpty: "Sem alterações de texto",
-			diffLoadError: "Falha ao carregar o diff",
-			diffBinary: "Binário",
-			diffAdded: "Adicionado",
-			diffDeleted: "Excluído",
-			diffRenamed: "Renomeado",
-			diffExpand: "Expandir mais {count} linhas",
-			diffCollapse: "Recolher",
-			discard: "Descartar alterações",
-			discardTitle: "Descartar alterações",
-			discardDesc: "Isso descarta as alterações do diretório de trabalho de \"{path}\" (não recuperável).",
-			viewCommitDiff: "Ver diff do commit",
-			copyShortHash: "Copiar hash curto",
-			copyFullHash: "Copiar hash completo",
-			copySubject: "Copiar assunto",
-			revertCommit: "Reverter commit",
-			revertTitle: "Reverter commit",
-			revertDesc: "Crie um novo commit no branch atual que reverte \"{subject}\".",
-			cherryPickCommit: "Cherry-pick deste commit",
-			cherryPickTitle: "Cherry-pick deste commit",
-			cherryPickDesc: "Aplicar as alterações de \"{subject}\" ao branch atual.",
-			timeJustNow: "agora mesmo",
-			timeMinutesAgo: "há {n} min",
-			timeHoursAgo: "há {n} h",
-			timeYesterday: "ontem",
-			loadMore: "Carregar mais",
-			historyLoadError: "Falha ao carregar mais histórico",
-			produced: "Produzidos",
-			producedOpen: "Abrir na barra lateral",
-			disconnected: "Terminal desconectado, reconectando…",
-			exited: "O processo do terminal saiu",
-			noSession: "Selecione uma conversa para usar a barra lateral",
-			pluginNotLoaded: "Plugin não carregado; aba indisponível:",
-			hiddenFiles: "Arquivos ocultos",
-			parent: "Diretório pai",
-			copied: "Copiado",
-			copy: "Copiar",
-			newFile: "Novo arquivo",
-			openEditor: "Abrir editor",
-			gitDetail: "Ver detalhes das alterações",
-			referenceFile: "@arquivo",
-			addToConversation: "Adicionar à conversa",
-			copyRelative: "Copiar caminho relativo",
-			copyAbsolute: "Copiar caminho absoluto",
-			download: "Baixar",
-			uploadFiles: "Enviar arquivos",
-			uploadFolder: "Enviar pasta",
-			uploadHere: "Enviar aqui",
-			uploadDropHint: "Solte arquivos/pastas aqui para enviar",
-			uploadDropChat: "Solte no chat para adicionar imagens",
-			uploadTo: "Enviar para {dir}",
-			uploadingTo: "Enviando para {dir}…",
-			uploadProgress: "Enviando {done}/{total}: {name}",
-			uploadDone: "{count} arquivo(s) enviado(s)",
-			uploadFailed: "Falha no envio: {error}",
-			uploadFailedUnknown: "Erro desconhecido",
-			uploadTooLarge: "Arquivo grande demais (acima do limite de envio)",
-			uploadCancelled: "Envio cancelado",
-			settingsNav: "Cartão lateral",
-			settingsIntro: "Gerencie o que o cartão lateral mostra e como ele se comporta",
-			settingsPopupDesc: "Configurar opções relacionadas para {feature}",
-			settingsDone: "Concluído",
-			settingsOpenTitle: "Abrir por padrão em novas conversas",
-			settingsOpenDesc: "Expandir o cartão lateral automaticamente em conversas totalmente novas; conversas existentes mantêm seus próprios layouts",
-			settingsWidthTitle: "Participação padrão na largura",
-			settingsWidthDesc: "Participação padrão do cartão lateral na largura da janela em novas conversas (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "Abrir arquivos do chat na barra lateral",
-			settingsOpenPathDesc: "Abrir links de arquivos no chat (linhas de ferramentas, arquivos produzidos, menções) no editor da barra lateral em vez do aplicativo padrão do sistema",
-			settingsOpenToolsTitle: "Injetar a ferramenta de abertura na barra lateral para o modelo",
-			settingsOpenToolsDesc: "Quando ativado, o modelo pode abrir arquivos, pastas e páginas HTTP(S) na barra lateral pela ferramenta sidebar_open (desativado por padrão)",
-			settingsTitleBarTitle: "Modo de compatibilidade de posição",
-			settingsTitleBarDesc: "Escolha o esquema de compatibilidade da barra de título: detecção automática (padrão, conservador) / web oficial do DSH / shells de desktop conhecidos / personalizado (distância de deslocamento + CSS personalizado)",
-			settingsTitleBarStripTitle: "Distância de deslocamento",
-			settingsTitleBarStripDesc: "Altura da faixa da barra de título: quantos pixels os botões e o conteúdo da barra lateral descem (0–120, padrão 40; aplica-se no esquema personalizado)",
-			settingsSchemeAutoTitle: "Detecção automática",
-			settingsSchemeAutoDesc: "Conservador: somente a API padrão Window Controls Overlay contribui (altura real da sobreposição de título); ambientes web comuns não recebem nenhuma modificação",
-			settingsSchemeWebTitle: "Web oficial do DSH",
-			settingsSchemeWebDesc: "Declare explicitamente a interface web oficial: nenhuma adaptação (nem mesmo a geometria padrão do WCO)",
-			settingsSchemeCustomTitle: "Personalizado",
-			settingsSchemeCustomDesc: "Controle total: injete CSS personalizado (pode sobrescrever estilos internos) e defina a distância de deslocamento da barra de título",
-			settingsSchemeDetectedSuffix: "detectado",
-			settingsCustomCssTitle: "CSS personalizado",
-			settingsCustomCssDesc: "Estilos anexados ao final da página (quem vem depois vence em empate de cascata; use !important para sobrescrever variáveis inline escritas por JS)",
-			settingsCustomCssPlaceholder: "/* ex.: reserve 36px para um shell com barra de título desenhada por conta própria */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "Falha ao salvar",
-			settingsConflict: "A configuração foi alterada em outra janela — tente novamente",
-			binaryNoPreview: "Este tipo de arquivo não pode ser pré-visualizado",
-			downloadToView: "Baixar para ver",
-			settingsSubagentTitle: "Abrir automaticamente a página de Tarefas quando um subagente aparecer",
-			settingsSubagentDesc: "Expandir o cartão lateral e abrir a página de Tarefas quando a conversa atual gerar um novo subagente; desative para abrir manualmente",
-			settingsJobsTitle: "Abrir automaticamente a página de Tarefas em segundo plano quando houver uma nova tarefa",
-			settingsJobsDesc: "Expandir o cartão lateral e abrir a página de Tarefas sempre que uma nova tarefa em segundo plano aparecer para a conversa atual (cada nova tarefa dispara); desative para abrir manualmente",
-			settingsToolsTitle: "Injetar ferramentas de terminal para o modelo",
-			settingsToolsDesc: "Quando ativado, o modelo pode criar e operar terminais da barra lateral por meio das 8 ferramentas terminal_* (desativado por padrão)",
-			settingsFontFamilyTitle: "Família de fonte do terminal",
-			settingsFontFamilyDesc: "Família de fonte personalizada do terminal (uma pilha CSS font-family como \"JetBrains Mono\", monospace; deixe vazio para seguir a fonte monoespaçada do tema)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "Tamanho da fonte do terminal",
-			settingsFontSizeDesc: "Tamanho da fonte do terminal em px (9–32, padrão 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Caminho do shell",
-			settingsShellDesc: "Shell iniciado para terminais de UI e do modelo (caminho absoluto ou executável puro). Vazio mantém a ordem legada: config.shell do yaml → $SHELL / shell de login / powershell.exe no Windows. Aplica-se aos terminais abertos depois",
-			settingsShellPlaceholder: "ex.: /bin/zsh (vazio = automático)",
-			settingsShellArgsTitle: "Argumentos do shell",
-			settingsShellArgsDesc: "Argumentos explícitos do shell, separados por espaço; quando não vazios, substituem totalmente os padrões (mesmo contrato do shellArgs do yaml)",
-			settingsShellArgsPlaceholder: "ex.: -l (vazio = padrões)",
-			settingsTabsTitle: "Conteúdo da barra lateral",
-			settingsViewersTitle: "Visualizadores de arquivos",
-			settingsGeneralTitle: "Geral",
-			settingsPopup: "Configurações do recurso",
-			settingsViewerCatchAll: "Curinga: qualquer arquivo",
-			viewerImage: "Imagem",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "Código",
-			viewerBinary: "Download binário",
-			viewerHtml: "HTML",
-			browser: "Navegador",
-			browserPlaceholder: "Digite uma URL, ex.: example.com",
-			browserGo: "Ir",
-			browserBack: "Voltar",
-			browserForward: "Avançar",
-			browserStart: "Digite uma URL para começar a navegar (modo sandbox)",
-			browserBlockedScheme: "Bloqueado: apenas URLs http/https são permitidas",
-			browserBlockedLoopback: "Bloqueado: endereços locais e internos não podem ser navegados aqui",
-			browserInvalid: "URL inválida",
-			browserNoSandboxWarning: "Sandbox desativado: a página atual roda com privilégios completos da interface (reative nas configurações)",
-			htmlNoSandboxWarning: "Sandbox desativado: este HTML roda com privilégios completos da interface (reative nas configurações)",
-			sandboxStatusOn: "Modo sandbox: ativado · as páginas não podem acessar os dados da interface nem arquivos locais; logins e cookies de terceiros podem não funcionar",
-			sandboxUnlock: "Desativar temporariamente (inseguro)",
-			sandboxRestore: "Restaurar sandbox",
-			settingsHtmlDefaultUnsafeTitle: "Abrir pré-visualizações de HTML sem sandbox por padrão (inseguro)",
-			settingsHtmlDefaultUnsafeDesc: "Quando ativado, toda pré-visualização de HTML recém-aberta começa sem sandbox (mesma origem da interface — pode ler arquivos de sessão e APIs internas); a linha de status ainda oferece restauração em um toque",
-			settingsHtmlSandboxTitle: "Desativar o sandbox da pré-visualização de HTML (inseguro)",
-			settingsHtmlSandboxDesc: "Com o sandbox desativado, o HTML pré-visualizado roda com a mesma origem da interface: pode ler arquivos de sessão, armazenamento local e chamar APIs internas. Ative apenas para arquivos totalmente confiáveis",
-			settingsBrowserSandboxTitle: "Desativar o sandbox do navegador (inseguro)",
-			settingsBrowserSandboxDesc: "Com o sandbox desativado, qualquer site visitado roda com a mesma origem da interface: pode ler dados da sessão e agir como sua sessão conectada. Ative apenas para sites totalmente confiáveis",
-			settingsBrowserLinksTitle: "Abrir links externos do chat na barra lateral",
-			settingsBrowserLinksDesc: "Quando ativado, clicar em um link externo no chat ou na interface abre na barra lateral em vez de uma nova janela; HTTP e HTTPS são controlados separadamente pelos interruptores abaixo; Ctrl/Cmd+clique sempre ignora",
-			settingsBrowserHttpTitle: "Abrir páginas HTTP na barra lateral",
-			settingsBrowserHttpDesc: "Quando ativado, clicar em um link externo HTTP no chat ou na interface abre na barra lateral (páginas de plugins que declaram urlTarget vencem); Ctrl/Cmd+clique sempre ignora",
-			settingsBrowserHttpsTitle: "Abrir páginas HTTPS na barra lateral",
-			settingsBrowserHttpsDesc: "Quando ativado, clicar em um link externo HTTPS no chat ou na interface abre na barra lateral. Desativado por padrão: a maioria dos sites HTTPS se recusa a ser incorporada, então o navegador do sistema é o padrão mais suave",
-			settingsBrowserLoopbackTitle: "Endereços locais permitidos",
-			settingsBrowserLoopbackDesc: "Lista de permissões separada por vírgulas de endereços de loopback (ex. localhost:5174 ou 127.0.0.1:8080) que o navegador da barra lateral pode visitar; vazio bloqueia todos os endereços locais por padrão. A sandbox ainda se aplica — as páginas não podem ler dados da GUI",
-			settingsBrowserLoopbackPlaceholder: "ex. localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "Abrir no navegador",
-			browserEmbedBlocked: "{host} se recusou a ser incorporado",
-			browserEmbedBlockedDesc: "O site proíbe ser exibido dentro de outras páginas (X-Frame-Options / frame-ancestors), então não pode carregar na barra lateral. Abra-o diretamente no navegador.",
-			browserEmbedAnyway: "Carregar mesmo assim",
-			subagent: "Tarefas",
-			openSubagent: "Tarefas",
-			subagentMainAgent: "Agente principal",
-			subagentEmpty: "Nenhum subagente",
-			subagentEmptyDesc: "Subagentes gerados sob o agente principal aparecerão aqui",
-			subagentRunning: "Executando",
-			subagentInactive: "Inativo",
-			subagentModeOneShot: "De uso único",
-			subagentModeContinuable: "Continuável",
-			subagentCount: "{count} subagentes",
-			subagentCountRunning: "{count} subagentes · {running} executando",
-			subagentDiagCorrupt: "Corrompido",
-			subagentDiagUnsupported: "Não suportado",
-			subagentDiagUnavailable: "Indisponível",
-			subagentThinking: "Pensando…",
-			subagentShowHistory: "Mostrar {count} subagentes anteriores",
-			subagentHideHistory: "Recolher subagentes anteriores",
-			sideChat: "Chat lateral (beta)",
-			sideChatNew: "Novo tópico",
-			sideChatUntitled: "Novo tópico",
-			sideChatEmpty: "Nenhuma conversa lateral",
-			sideChatEmptyDesc: "Cada conversa lateral é uma aba própria na faixa de abas — ela herda o contexto da sessão atual e nunca entra na conversa principal",
-			sideChatCreating: "Criando conversa lateral…",
-			sideChatRetry: "Tentar novamente",
-			sideChatThreads: "Alternar tópico / novo",
-			sideChatSave: "Salvar como nova sessão",
-			sideChatSaveTitle: "Promover este tópico a uma sessão de nível superior na lista principal de sessões",
-			sideChatSaved: "Salvo como nova sessão",
-			sideChatNoTurn: "O salvamento está disponível após o primeiro turno concluído",
-			sideChatPendingDrop: "A última pergunta não respondida não será incluída na sessão salva",
-			sideChatFirstPlaceholder: "Faça a primeira pergunta — contexto herdado…",
-			sideChatComposerPlaceholder: "Fazer uma pergunta de acompanhamento…",
-			sideChatThinking: "Mergulhando fundo…",
-			sideChatThink: "Pensamento",
-			sideChatInjection: "Contexto injetado",
-			sideChatSend: "Enviar",
-			sideChatCancel: "Parar",
-			sideChatCancelTitle: "Abortar o turno em execução (o trabalho na fila é mantido)",
-			sideChatClose: "Fechar tópico",
-			sideChatCloseTitle: "Liberar o agente do tópico (o histórico é mantido)",
-			sideChatError: "Erro no chat lateral: {message}",
-			jobs: "Tarefas em segundo plano",
-			jobsCount: "{count} tarefas em segundo plano",
-			jobsCountRunning: "{count} tarefas em segundo plano · {running} executando",
-			jobsShowHistory: "Mostrar {count} tarefas em segundo plano anteriores",
-			jobsHideHistory: "Recolher tarefas em segundo plano anteriores",
-			jobStatusRunning: "Executando",
-			jobStatusStopping: "Parando",
-			jobStatusCompleted: "Concluída",
-			jobStatusKilled: "Encerrada",
-			jobStatusFailed: "Falhou",
-			jobDurationSeconds: "{seconds}s",
-			jobDurationMinutes: "{minutes}m {seconds}s",
-			jobDurationHours: "{hours}h {minutes}m",
-			jobViewOutput: "Ver saída",
-			jobHideOutput: "Ocultar saída",
-			jobNoOutput: "Sem saída ainda",
-			jobNotReadYet: "Aguardando o modelo ler esta tarefa; a saída aparece aqui quando o modelo executa job_output",
-			jobOutputTruncated: "Saída truncada",
-			jobOutputError: "Falha ao ler a saída",
-			jobKill: "Encerrar",
-			jobKillConfirm: "Clique novamente para confirmar o encerramento",
-			jobKillError: "Falha ao encerrar",
-			addPluginsTabCard: "Adicionar plugins de aba",
-			addPluginsTabCardDesc: "Registrar uma nova página da barra lateral",
-			addPluginsViewerCard: "Adicionar plugins de pré-visualização",
-			addPluginsViewerCardDesc: "Registrar uma pré-visualização de tipo de arquivo",
-			addPluginsTabDesc: "As páginas da barra lateral (abas) podem ser estendidas por plugins. Os plugins registram pelo serviço ctx.betterSidebar; clicar em Instalar copia o comando de instalação — cole-o em um terminal onde seu perfil do DSH vive e execute.",
-			addPluginsViewerDesc: "Os visualizadores de arquivos podem ser estendidos por plugins. Os plugins registram pelo serviço ctx.betterSidebar; clicar em Instalar copia o comando de instalação — cole-o em um terminal onde seu perfil do DSH vive e execute.",
-			addPluginsBrowseMore: "Navegue por mais plugins no GitHub (topic: dsh-coding-sidebar)",
-			addPluginsSearch: "Pesquisar por nome ou descrição do plugin…",
-			addPluginsNoMatch: "Nenhum plugin corresponde",
-			addPluginsRecommended: "Plugins recomendados",
-			addPluginsEmpty: "Nenhum plugin selecionado ainda — publique o seu sob o topic do GitHub",
-			openPlugin: "Abrir",
-			copyInstall: "Copiar comando de instalação",
-			pluginOfficeDesc: "Pré-visualização do pacote Office (.docx / .xlsx / .pptx) para o editor do dsh-coding-sidebar, mantendo as bibliotecas pesadas de renderização do Office fora do bundle principal",
-			pluginFlowglassDesc: "Fluxograma de sessão ao vivo com três faixas para usuário, assistente e chamadas de ferramenta, além de grupos paralelos, ramos de subagentes, drill-down e status ao vivo; registra uma aba nativa \"Fluxograma\" quando o dsh-coding-sidebar está instalado e mantém a gaveta independente como fallback",
-			pluginGitForgeDesc: "Aba Git Forge: biblioteca de contas GitHub/Gitea (e outras forges) + concessões por projeto + política rígida de push; os tokens ficam em secrets locais (nunca no contexto do modelo); ferramenta GitForge somente leitura e helper de credenciais HTTPS do agente",
-			pluginGitRemotesDesc: "Aba de remotos Git: branch/upstream/ahead-behind, fetch (prune opcional), pull ff-only e push apenas após confirmar na aba. Não substitui a aba interna de stage/commit do Git e não oferece force-push nem push automático pelo modelo",
-			pluginSentinelDesc: "Despertar de agentes dirigido por condições: sensores de arquivo/processo/porta/HTTP/comando/webhook acordam sessões adormecidas quando as condições disparam; registra uma aba \"Sentinelas\" com a tabela de monitoramento global do servidor",
-			pluginSidebarQaDesc: "Selecionar e perguntar: selecione o texto da conversa → pergunte no painel à direita → uma sessão de acompanhamento dedicada (❓acompanhamento) no mesmo workspace; um modelo rápido sem pensamento comprime o contexto principal e o injeta com a citação, sem interromper a conversa principal. Acompanhamentos aninham, continuam e arquivam",
-			pluginSshTunnelDesc: "Aba de túnel SSH: inventário de múltiplos hosts + concessões por projeto + chaves locais; ferramenta SSHManager (exec/SFTP/estratégias de sessão); terminal interativo central e SFTP de dois painéis",
-			pluginTurnReviewDesc: "Um portão humano no diff do turno recém-terminado: Approve / Request changes por caminho com comentário opcional; caminhos agrupados por sessão principal / subagente / não atribuído; diff inline de snapshot-vs-atual antes de decidir. Sem fork, sem /rewind",
-			pluginVideoPreviewDesc: "Pré-visualização inline de vídeo (.mp4/.webm/.mov/.mkv/.avi etc.) para o editor do dsh-coding-sidebar, respaldada por uma rota de host /video dedicada com suporte a HTTP Range (206) — a barra de progresso funciona e os arquivos não são limitados pelo mediaLimit de 20MB",
-			pluginDocsPanelDesc: "Documentos globais na barra lateral do DSH: leia suas próprias notas Markdown de qualquer workspace — uma lista de arquivos, um sumário, abrir no Chrome / VS Code e botões de copiar; o diretório de documentos é configurável (padrão ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "O navegador de agente para o DeepSeek Harness: 32 ferramentas ego_* controlam um Chromium real; uma aba nativa «ego browser» na barra lateral mostra ao vivo cada página visitada pelo agente — você pode clicar, arrastar e digitar para assumir. Registra a aba automaticamente quando o dsh-coding-sidebar está presente; caso contrário, uma bolha flutuante"
-		};
-		//#endregion
-		//#region src/client/locales-ko.ts
-		/**
-		* Korean dictionary for the dsh-coding-sidebar plugin (LOCALE_NS `betterSidebar`).
-		*
-		* Key-set-equal to the zh dictionary in `./locales.ts` (zh is the source of
-		* truth). Registered through the better-locale override store when that
-		* plugin is installed; the override borrows DSH's English slot, so it takes
-		* effect only while DSH's active locale is `'en'`.
-		*/
-		const ko$1 = {
-			files: "파일",
-			explorer: "탐색기",
-			git: "소스 제어",
-			terminal: "터미널",
-			editor: "편집기",
-			editorExplorer: "파일 열기 방식",
-			editorExplorerDesc: "파일이 열리는 방식을 제어합니다",
-			editorExplorerMerged: "병합",
-			editorExplorerMergedDesc: "파일이 같은 창에서 그 자리로 전환됩니다. 새 창은 기본으로 파일 트리가 펼쳐집니다",
-			editorExplorerSplit: "분리",
-			editorExplorerSplitDesc: "경로가 없는 창은 파일 탐색기(파일 트리만)입니다. 파일은 각자 새 창(파일 트리 포함, 기본 접힘)으로 열립니다",
-			editorTreeToggle: "파일 트리 패널",
-			editorPathPlaceholder: "파일 경로 입력(세션 디렉터리 기준 상대 경로 또는 절대 경로), Enter로 열기",
-			editorSearchPlaceholder: "파일 이름으로 검색…",
-			editorSearchNoResults: "일치하는 파일 없음",
-			editorSearchTruncated: "결과가 너무 많아 일부 일치 항목만 표시합니다",
-			editorEmptyHint: "오른쪽 파일 트리나 위쪽 경로 입력란에서 파일을 선택해 미리보기를 시작하세요",
-			openFileNewTab: "새 Tab으로 열기",
-			openFileSide: "측면에 열기",
-			openWithMenu: "앱에서 열기",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "메뉴에 고정",
-			unpinOpenWith: "고정 해제",
-			openWithExplorer: "파일 탐색기",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "SSH 원격 호스트",
-			openWithSettingsSshDesc: "비워두면 로컬 작업 공간입니다. user@host 또는 SSH 별칭을 입력하면 VSCode 계열 열기 방식이 vscode-remote/ssh-remote 프로토콜을 사용하게 되며, 파일 탐색기 / Zed / 비 VSCode 계열 사용자 지정 편집기는 메뉴에서 숨겨집니다",
-			openWithSettingsSshPlaceholder: "user@host 또는 SSH 별칭",
-			openWithSettingsCustomTitle: "사용자 지정 편집기",
-			openWithSettingsCustomDesc: "이름 + URL 템플릿({path} 자리 표시자) + VSCode 계열 여부. SSH 모드에서는 VSCode 계열만 원격을 열 수 있습니다",
-			openWithSettingsAdd: "추가",
-			openWithSettingsName: "이름",
-			openWithSettingsTemplate: "예: cursor://file/{path}",
-			openWithSettingsFamily: "VSCode 계열",
-			openWithSettingsFamilyDesc: "이 편집기는 VSCode의 URL 프로토콜을 사용합니다(SSH 원격 열기 지원)",
-			openWithSettingsRemove: "삭제",
-			openWithSettingsInvalidHint: "이름이나 템플릿({path} 포함, scheme:// 로 시작해야 함)을 입력하지 않은 편집기는 메뉴에 표시되지 않습니다",
-			newTab: "새 탭",
-			openExplorer: "파일 탐색기",
-			brokenSymlink: "깨진 심볼릭 링크",
-			openGit: "Git 패널",
-			newTerminal: "새 터미널",
-			terminalLimit: "터미널 개수가 최대치에 도달했습니다 (3)",
-			close: "닫기",
-			closeOtherTabs: "다른 탭 닫기",
-			closeLeftTabs: "왼쪽 탭 닫기",
-			closeRightTabs: "오른쪽 탭 닫기",
-			moveToFreeWindow: "자유 창으로 이동",
-			floatDropHint: "놓으면 자유 창에서 열립니다",
-			dockToSidebar: "사이드바로 돌아가기",
-			pinTerminal: "터미널 고정",
-			pinAgentTerminal: "Agent 터미널 고정",
-			pinToWorkspace: "워크스페이스에 고정",
-			pinToGlobal: "전역에 고정",
-			unpinTerminal: "고정 해제",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "UI 터미널",
-			pinnedTerminalKindAgent: "Agent 터미널",
-			pinnedTerminalScopeWorkspace: "워크스페이스에 고정됨",
-			pinnedTerminalScopeGlobal: "전역에 고정됨",
-			pinnedRailLabel: "고정된 터미널",
-			closePinnedTerminal: "터미널 닫기",
-			collapse: "사이드바 접기",
-			expand: "사이드바 펼치기",
-			terminalError: "터미널 연결 실패",
-			terminalConnectFailed: "터미널 연결이 여러 번 실패했습니다",
-			terminalRetry: "다시 시도",
-			terminalDepsFailed: "터미널 의존성 node-pty 로드 실패",
-			terminalDepsHint: "DSH가 설치된 환경의 터미널 또는 cmd에서 아래 명령을 실행하여 복구한 후 다시 시도를 클릭하세요(node-pty는 DSH 코어와 동일한 버전을 유지합니다):",
-			terminalDepsProfile: " (profile 감지됨: {profile})",
-			preview: "미리보기",
-			edit: "편집",
-			refresh: "새로고침",
-			showInFolder: "폴더에서 표시",
-			refreshUnsavedConfirm: "디스크의 파일이 변경되었습니다. 새로고침하면 저장되지 않은 편집 내용이 손실됩니다. 계속하시겠습니까?",
-			save: "저장",
-			saved: "저장됨",
-			unsaved: "저장 안 됨",
-			saveFailed: "저장 실패",
-			truncation: "파일이 너무 커 앞의 512KB만 표시합니다",
-			binary: "이진 파일이라 미리보기를 할 수 없습니다",
-			loading: "불러오는 중…",
-			error: "불러오기 실패",
-			retry: "다시 시도",
-			splitLeft: "왼쪽으로 분할",
-			splitRight: "오른쪽으로 분할",
-			splitUp: "위로 분할",
-			splitDown: "아래로 분할",
-			notRepo: "현재 디렉터리는 git 저장소가 아닙니다",
-			noChanges: "변경 사항 없음",
-			statusTruncated: "변경 사항이 너무 많아 처음 2000개만 표시합니다",
-			stage: "스테이징",
-			unstage: "스테이징 해제",
-			stageAll: "모두 스테이징",
-			unstageAll: "모두 스테이징 해제",
-			commitPlaceholder: "커밋 메시지 (Ctrl+Enter)",
-			commit: "커밋",
-			commitError: "커밋 실패",
-			branch: "브랜치",
-			worktree: "워크트리",
-			checkoutError: "브랜치 전환 실패",
-			history: "기록",
-			changes: "변경 사항",
-			staged: "스테이징됨",
-			unstaged: "스테이징 안 됨",
-			cancel: "취소",
-			diffEmpty: "텍스트 차이 없음",
-			diffLoadError: "차이(diff) 불러오기 실패",
-			diffBinary: "이진",
-			diffAdded: "추가됨",
-			diffDeleted: "삭제됨",
-			diffRenamed: "이름 변경됨",
-			diffExpand: "나머지 {count}줄 펼치기",
-			diffCollapse: "접기",
-			discard: "변경 사항 버리기",
-			discardTitle: "변경 사항 버리기",
-			discardDesc: "\"{path}\"의 작업 공간 수정을 버립니다(복구 불가).",
-			viewCommitDiff: "커밋 차이 보기",
-			copyShortHash: "짧은 해시 복사",
-			copyFullHash: "전체 해시 복사",
-			copySubject: "커밋 메시지 복사",
-			revertCommit: "이 커밋 되돌리기",
-			revertTitle: "이 커밋 되돌리기",
-			revertDesc: "현재 브랜치에 \"{subject}\"을(를) 되돌리는 새 커밋을 만듭니다.",
-			cherryPickCommit: "이 커밋 체리픽",
-			cherryPickTitle: "이 커밋 체리픽",
-			cherryPickDesc: "\"{subject}\"의 변경 사항을 현재 브랜치에 적용합니다.",
-			timeJustNow: "방금",
-			timeMinutesAgo: "{n}분 전",
-			timeHoursAgo: "{n}시간 전",
-			timeYesterday: "어제",
-			loadMore: "더 불러오기",
-			historyLoadError: "더 많은 기록 불러오기 실패",
-			produced: "이번 산출물",
-			producedOpen: "사이드바에서 열기",
-			disconnected: "터미널 연결이 끊겨 다시 연결하는 중…",
-			exited: "터미널 프로세스가 종료되었습니다",
-			noSession: "사이드바를 사용하려면 대화를 선택하세요",
-			pluginNotLoaded: "플러그인이 로드되지 않아 탭을 지금 사용할 수 없습니다:",
-			hiddenFiles: "숨김 파일",
-			parent: "상위 디렉터리",
-			copied: "복사됨",
-			copy: "복사",
-			newFile: "새 파일",
-			openEditor: "편집기 열기",
-			gitDetail: "변경 사항 세부 정보 보기",
-			referenceFile: "@파일",
-			addToConversation: "대화에 추가",
-			copyRelative: "상대 경로 복사",
-			copyAbsolute: "절대 경로 복사",
-			download: "다운로드",
-			uploadFiles: "파일 업로드",
-			uploadFolder: "폴더 업로드",
-			uploadHere: "여기에 업로드",
-			uploadDropHint: "파일/폴더를 여기로 끌어다 놓아 업로드",
-			uploadDropChat: "채팅 영역에 끌어다 놓기: 대화에 이미지 추가",
-			uploadTo: "{dir}에 업로드",
-			uploadingTo: "{dir}에 업로드 중…",
-			uploadProgress: "{done}/{total} 업로드 중: {name}",
-			uploadDone: "파일 {count}개 업로드됨",
-			uploadFailed: "업로드 실패: {error}",
-			uploadFailedUnknown: "알 수 없는 오류",
-			uploadTooLarge: "파일이 너무 커 업로드 상한을 초과했습니다",
-			uploadCancelled: "업로드가 취소됨",
-			settingsNav: "사이드 카드",
-			settingsIntro: "사이드 카드의 표시 내용과 기본 동작을 관리합니다",
-			settingsPopupDesc: "\"{feature}\" 관련 옵션을 구성합니다",
-			settingsDone: "완료",
-			settingsOpenTitle: "새 대화 기본 열림",
-			settingsOpenDesc: "새 대화를 만들 때 사이드 카드를 자동으로 펼칩니다. 기존 대화는 각자의 레이아웃을 유지합니다",
-			settingsWidthTitle: "기본 너비 비율",
-			settingsWidthDesc: "새 대화에서 사이드 카드가 창 너비에서 차지하는 비율(%) (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "채팅 영역 파일을 사이드바에서 열기",
-			settingsOpenPathDesc: "채팅에서 파일 링크(도구 행, 산출물 목록, 파일 언급)를 클릭하면 사이드바 편집기에서 열고, 시스템 기본 앱은 호출하지 않습니다",
-			settingsOpenToolsTitle: "모델에 사이드바 열기 도구 주입",
-			settingsOpenToolsDesc: "켜면 모델이 sidebar_open 도구로 사이드바에서 파일·폴더·HTTP(S) 페이지를 열 수 있습니다(기본 꺼짐)",
-			settingsTitleBarTitle: "위치 호환 모드",
-			settingsTitleBarDesc: "상단 바 호환 방식을 선택하세요: 자동 감지(기본, 보수적) / DSH 공식 Web / 알려진 데스크톱 셸 / 사용자 지정 방식(하강 거리 + 사용자 지정 CSS)",
-			settingsTitleBarStripTitle: "하강 거리",
-			settingsTitleBarStripDesc: "타이틀 바 스트립 높이: 사이드바 버튼과 콘텐츠가 아래로 내려가는 픽셀 수(0–120, 기본 40. 사용자 지정 방식에서 적용)",
-			settingsSchemeAutoTitle: "자동 감지",
-			settingsSchemeAutoDesc: "보수적 방식: Window Controls Overlay 표준 API를 사용할 수 있을 때만 실제 타이틀 바 높이만큼 양보합니다. 웹 환경에서는 아무 것도 수정하지 않습니다",
-			settingsSchemeWebTitle: "DSH 공식 Web",
-			settingsSchemeWebDesc: "공식 웹 버전에서 실행 중임을 명시적으로 선언합니다. 어떤 적응도 하지 않습니다(표준 WCO 기하 정보도 적용하지 않음)",
-			settingsSchemeCustomTitle: "사용자 지정 방식",
-			settingsSchemeCustomDesc: "전적으로 사용자가 제어합니다. 사용자 지정 CSS(내장 스타일 덮어쓰기 가능)를 주입하고 타이틀 바 하강 거리를 지정합니다",
-			settingsSchemeDetectedSuffix: "감지됨",
-			settingsCustomCssTitle: "사용자 지정 CSS",
-			settingsCustomCssDesc: "페이지 끝에 추가되는 스타일(동일 우선순위에서는 나중에 쓴 것이 이깁니다. JS 인라인 변수를 덮으려면 !important를 사용해야 합니다)",
-			settingsCustomCssPlaceholder: "/* 예: 직접 그린 타이틀 바의 셸을 위해 36px 확보 */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "저장 실패",
-			settingsConflict: "설정이 다른 창에서 수정되었습니다. 다시 시도하세요",
-			binaryNoPreview: "이 파일 형식은 미리보기를 지원하지 않습니다",
-			downloadToView: "다운로드하여 보기",
-			settingsSubagentTitle: "서브 에이전트를 감지하면 작업 관리 페이지를 자동으로 펼치기",
-			settingsSubagentDesc: "현재 대화에 새 서브 에이전트가 생기면 사이드바를 자동으로 펼치고 작업 관리 페이지를 엽니다. 끄면 수동으로 열어야 합니다",
-			settingsJobsTitle: "새 백그라운드 작업이 있으면 백그라운드 작업 페이지를 자동으로 펼치기",
-			settingsJobsDesc: "현재 대화에 새 백그라운드 작업이 생기면 사이드바를 자동으로 펼치고 백그라운드 작업 페이지를 엽니다(새 작업마다 트리거됨). 끄면 수동으로 열어야 합니다",
-			settingsToolsTitle: "모델에 터미널 도구 주입",
-			settingsToolsDesc: "켜면 모델이 terminal_create 등 8개 도구로 사이드바 터미널을 만들고 조작할 수 있습니다(기본 꺼짐)",
-			settingsFontFamilyTitle: "터미널 글꼴",
-			settingsFontFamilyDesc: "터미널 글꼴 모음을 지정합니다(CSS font-family, 예: \"JetBrains Mono\", monospace. 비워두면 테마의 고정폭 글꼴을 따릅니다)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "터미널 글꼴 크기",
-			settingsFontSizeDesc: "터미널 글꼴 크기(9–32, 기본 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Shell 경로",
-			settingsShellDesc: "UI와 모델 터미널이 시작하는 shell(절대 경로 또는 실행 파일 이름). 비워두면 기존 순서로 해석합니다: yaml의 config.shell → $SHELL / 로그인 shell / Windows의 powershell.exe. 이후에 여는 터미널부터 적용됩니다",
-			settingsShellPlaceholder: "예: /bin/zsh (비워두면 자동 해석)",
-			settingsShellArgsTitle: "Shell 인수",
-			settingsShellArgsDesc: "명시적 shell 시작 인수, 공백으로 구분. 비어 있지 않으면 기본 인수를 완전히 대체합니다(yaml의 shellArgs 계약과 동일)",
-			settingsShellArgsPlaceholder: "예: -l (비워두면 기본 인수 사용)",
-			settingsTabsTitle: "사이드바 콘텐츠",
-			settingsViewersTitle: "파일 미리보기",
-			settingsGeneralTitle: "일반",
-			settingsPopup: "기능 설정",
-			settingsViewerCatchAll: "폴백: 모든 파일",
-			viewerImage: "이미지",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "코드",
-			viewerBinary: "이진 다운로드",
-			viewerHtml: "HTML",
-			browser: "브라우저",
-			browserPlaceholder: "URL 입력, 예: example.com",
-			browserGo: "이동",
-			browserBack: "뒤로",
-			browserForward: "앞으로",
-			browserStart: "URL을 입력하여 탐색 시작(샌드박스 모드)",
-			browserBlockedScheme: "차단됨: http/https 링크만 지원합니다",
-			browserBlockedLoopback: "차단됨: 브라우저에서 로컬 또는 내부 주소에 접근할 수 없습니다",
-			browserInvalid: "잘못된 URL",
-			browserNoSandboxWarning: "샌드박스가 꺼짐: 현재 페이지가 인터페이스와 동일 출처로 전체 세션 권한을 가집니다(설정에서 복원 가능)",
-			htmlNoSandboxWarning: "샌드박스가 꺼짐: 이 HTML이 인터페이스와 동일 출처로 세션 파일과 내부 인터페이스를 읽을 수 있습니다(설정에서 복원 가능)",
-			sandboxStatusOn: "샌드박스 모드: 사용 중 · 페이지가 인터페이스 데이터와 로컬 파일에 접근할 수 없으며, 로그인 상태와 타사 Cookie는 동작하지 않을 수 있습니다",
-			sandboxUnlock: "임시 해제(안전하지 않음)",
-			sandboxRestore: "샌드박스 복원",
-			settingsHtmlDefaultUnsafeTitle: "HTML 미리보기를 기본적으로 샌드박스 없이 열기(안전하지 않음)",
-			settingsHtmlDefaultUnsafeDesc: "켜면 HTML 파일을 열 때마다 미리보기가 기본적으로 샌드박스 없이 열립니다(인터페이스와 동일 출처로 세션 파일과 내부 인터페이스를 읽을 수 있음). 상태 표시줄에서 임시로 샌드박스를 복원할 수 있습니다",
-			settingsHtmlSandboxTitle: "HTML 미리보기 샌드박스 끄기(안전하지 않음)",
-			settingsHtmlSandboxDesc: "끄면 미리보기 HTML이 인터페이스와 동일 출처로 실행되어 세션 파일, 로컬 저장소를 읽고 내부 인터페이스를 호출할 수 있습니다. 완전히 신뢰하는 파일에서만 켜세요",
-			settingsBrowserSandboxTitle: "브라우저 샌드박스 끄기(안전하지 않음)",
-			settingsBrowserSandboxDesc: "끄면 방문하는 모든 사이트가 인터페이스와 동일 출처로 실행되어 세션 데이터를 읽고 사용자의 로그인 상태를 가장할 수 있습니다. 완전히 신뢰하는 사이트에서만 켜세요",
-			settingsBrowserLinksTitle: "채팅 영역 외부 링크를 사이드바에서 열기",
-			settingsBrowserLinksDesc: "켜면 채팅이나 인터페이스에서 외부 링크를 클릭할 때 새 창 대신 사이드바에서 엽니다. HTTP와 HTTPS는 아래 스위치로 각각 제어할 수 있습니다. Ctrl/Cmd 클릭으로 임시 허용할 수 있습니다",
-			settingsBrowserHttpTitle: "HTTP 페이지를 사이드바에서 열기",
-			settingsBrowserHttpDesc: "켜면 채팅이나 인터페이스에서 HTTP 외부 링크를 클릭할 때 사이드바에서 엽니다(urlTarget을 선언한 플러그인 페이지가 우선). Ctrl/Cmd 클릭으로 임시 허용할 수 있습니다",
-			settingsBrowserHttpsTitle: "HTTPS 페이지를 사이드바에서 열기",
-			settingsBrowserHttpsDesc: "켜면 채팅이나 인터페이스에서 HTTPS 외부 링크를 클릭할 때 사이드바에서 엽니다. 기본 꺼짐: 대부분의 HTTPS 사이트가 임베드를 거부하므로 시스템 브라우저가 더 원활합니다",
-			settingsBrowserLoopbackTitle: "허용된 로컬 주소",
-			settingsBrowserLoopbackDesc: "사이드바 브라우저가 방문할 수 있는 루프백 주소의 쉼표로 구분된 허용 목록(예: localhost:5174 또는 127.0.0.1:8080). 비어 있으면 기본적으로 모든 로컬 주소를 차단합니다. 샌드박스는 계속 적용되며, 페이지는 GUI 데이터를 읽을 수 없습니다",
-			settingsBrowserLoopbackPlaceholder: "예: localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "브라우저에서 열기",
-			browserEmbedBlocked: "{host} 가(이) 임베드 요청을 거부했습니다",
-			browserEmbedBlockedDesc: "이 사이트는 X-Frame-Options / frame-ancestors로 다른 페이지에 표시되는 것을 금지하여 사이드바에서 로드할 수 없습니다. 브라우저에서 직접 열 수 있습니다",
-			browserEmbedAnyway: "그래도 로드",
-			subagent: "작업 관리",
-			openSubagent: "작업 관리",
-			subagentMainAgent: "주 에이전트",
-			subagentEmpty: "서브 에이전트 없음",
-			subagentEmptyDesc: "현재 주 에이전트에서 파생된 서브 에이전트가 여기에 표시됩니다",
-			subagentRunning: "실행 중",
-			subagentInactive: "대기 중",
-			subagentModeOneShot: "일회성",
-			subagentModeContinuable: "이어서 가능",
-			subagentCount: "서브 에이전트 {count}개",
-			subagentCountRunning: "서브 에이전트 {count}개 · {running} 실행 중",
-			subagentDiagCorrupt: "기록 손상",
-			subagentDiagUnsupported: "지원되지 않는 항목",
-			subagentDiagUnavailable: "사용할 수 없음",
-			subagentThinking: "생각하는 중…",
-			subagentShowHistory: "이전 서브 에이전트 {count}개 표시",
-			subagentHideHistory: "이전 서브 에이전트 접기",
-			sideChat: "사이드 채팅(beta)",
-			sideChatNew: "새 대화",
-			sideChatUntitled: "새 대화",
-			sideChatEmpty: "사이드 대화 없음",
-			sideChatEmptyDesc: "각 사이드 대화는 탭 바의 독립된 Tab입니다. 현재 세션의 컨텍스트를 상속받아 실행되며, 주 대화에 들어가지 않습니다",
-			sideChatCreating: "사이드 대화를 만드는 중…",
-			sideChatRetry: "다시 시도",
-			sideChatThreads: "스레드 전환 / 새로 만들기",
-			sideChatSave: "새 세션으로 저장",
-			sideChatSaveTitle: "이 스레드를 최상위 세션으로 승격하여 주 세션 목록에 표시합니다",
-			sideChatSaved: "새 세션으로 저장됨",
-			sideChatNoTurn: "최소 한 턴의 대화를 완료해야 저장할 수 있습니다",
-			sideChatPendingDrop: "마지막으로 완료되지 않은 후속 질문은 새 세션에 포함되지 않습니다",
-			sideChatFirstPlaceholder: "첫 번째 질문 입력, 현재 세션 컨텍스트가 상속됨…",
-			sideChatComposerPlaceholder: "후속 질문…",
-			sideChatThinking: "더 파고드는 중…",
-			sideChatThink: "생각 과정",
-			sideChatInjection: "컨텍스트 주입됨",
-			sideChatSend: "보내기",
-			sideChatCancel: "중지",
-			sideChatCancelTitle: "현재 턴 중단(대기열 유지)",
-			sideChatClose: "스레드 닫기",
-			sideChatCloseTitle: "스레드의 agent를 해제합니다(기록은 유지)",
-			sideChatError: "사이드 대화 오류: {message}",
-			jobs: "백그라운드 작업",
-			jobsCount: "백그라운드 작업 {count}개",
-			jobsCountRunning: "백그라운드 작업 {count}개 · {running} 실행 중",
-			jobsShowHistory: "이전 백그라운드 작업 {count}개 표시",
-			jobsHideHistory: "이전 백그라운드 작업 접기",
-			jobStatusRunning: "실행 중",
-			jobStatusStopping: "종료 중",
-			jobStatusCompleted: "완료됨",
-			jobStatusKilled: "종료됨",
-			jobStatusFailed: "실패",
-			jobDurationSeconds: "{seconds}초",
-			jobDurationMinutes: "{minutes}분 {seconds}초",
-			jobDurationHours: "{hours}시간 {minutes}분",
-			jobViewOutput: "출력 보기",
-			jobHideOutput: "출력 접기",
-			jobNoOutput: "출력 없음",
-			jobNotReadYet: "모델이 이 작업의 출력을 읽기를 기다리는 중입니다(모델이 job_output을 실행하면 출력이 여기에 표시됩니다)",
-			jobOutputTruncated: "출력이 너무 길어 잘라서 표시합니다",
-			jobOutputError: "출력 읽기 실패",
-			jobKill: "종료",
-			jobKillConfirm: "다시 클릭하여 종료 확인",
-			jobKillError: "종료 실패",
-			addPluginsTabCard: "Tab 플러그인 추가",
-			addPluginsTabCardDesc: "새 사이드바 페이지 등록",
-			addPluginsViewerCard: "미리보기 플러그인 추가",
-			addPluginsViewerCardDesc: "새 파일 형식 미리보기 등록",
-			addPluginsTabDesc: "사이드바 페이지(Tab)는 플러그인으로 확장할 수 있습니다. 플러그인은 ctx.betterSidebar 서비스를 통해 등록합니다. \"설치\"를 클릭하면 설치 명령이 복사되며, DSH가 설치된 환경의 터미널에 붙여넣어 실행하세요.",
-			addPluginsViewerDesc: "파일 미리보기는 플러그인으로 확장할 수 있습니다. 플러그인은 ctx.betterSidebar 서비스를 통해 등록합니다. \"설치\"를 클릭하면 설치 명령이 복사되며, DSH가 설치된 환경의 터미널에 붙여넣어 실행하세요.",
-			addPluginsBrowseMore: "GitHub에서 더 많은 플러그인 보기(topic: dsh-coding-sidebar)",
-			addPluginsSearch: "플러그인 이름 / 설명 검색…",
-			addPluginsNoMatch: "일치하는 플러그인 없음",
-			addPluginsRecommended: "추천 플러그인",
-			addPluginsEmpty: "아직 플러그인이 등록되지 않았습니다. GitHub topic 아래에 플러그인을 공개해 주세요",
-			openPlugin: "이동",
-			copyInstall: "설치 명령 복사",
-			pluginOfficeDesc: "dsh-coding-sidebar 편집기에 Office 3종 미리보기(.docx / .xlsx / .pptx)를 제공하며, 무거운 Office 렌더링 라이브러리를 메인 패키지에서 분리하여 필요할 때 설치합니다",
-			pluginFlowglassDesc: "실시간 세션 흐름도: 사용자, 어시스턴트, 도구 호출을 3열 레인으로 표시하며, 병렬 그룹, 서브 에이전트 지선, 단계별 드릴다운과 실시간 상태를 지원합니다. dsh-coding-sidebar 설치 시 기본 \"흐름 거울(流镜)\" Tab을 등록하고, 미설치 시 독립 서랍을 유지합니다",
-			pluginGitForgeDesc: "dsh-coding-sidebar \"Git 자격 증명\" Tab: GitHub/Gitea 등 Forge 계정 라이브러리 + 프로젝트별 권한 + push 정책 하드 차단. 토큰은 로컬 secrets에만 저장되고 모델 컨텍스트에 들어가지 않습니다. 읽기 전용 GitForge 도구와 agent HTTPS credential helper를 제공합니다",
-			pluginGitRemotesDesc: "dsh-coding-sidebar Git 원격 Tab: 브랜치/업스트림/ahead-behind 확인, fetch(prune 가능), ff-only pull, 확인 후에만 push. 내장 Git의 스테이징/커밋을 대체하지 않으며, force-push나 모델 자동 push도 제공하지 않습니다",
-			pluginSentinelDesc: "조건 기반 agent 웨이크업 시스템: 파일/프로세스/포트/HTTP/명령/webhook 센서가 조건을 충족하면 휴면 세션을 자동으로 깨웁니다. \"센티널(哨兵)\" Tab을 등록하여 서버 전역 모니터링 표를 보여줍니다",
-			pluginSidebarQaDesc: "dsh-coding-sidebar 기반 드래그 선택 질문 탭: 대화 드래그 선택 → 오른쪽 패널 질문 → 같은 작업 공간의 독립 후속 질문 세션(❓후속 질문·주제). 빠른 무사고 모델이 주 대화 컨텍스트를 압축한 후 인용과 함께 주입하며, 주 대화를 방해하지 않습니다. 후속 질문은 중첩, 계속, 보관이 가능합니다",
-			pluginSshTunnelDesc: "dsh-coding-sidebar \"SSH 터널\" Tab: 다중 호스트 목록 + 프로젝트별 권한 + 키 로컬 보관. 모델 도구 SSHManager(exec/SFTP/세션 전략). 중앙 대화형 터미널과 이중 창 SFTP",
-			pluginTurnReviewDesc: "방금 끝난 턴의 diff에 대해 Approve / Request changes를 하는 사람 게이트: 지난 턴만 검토하며 세션을 fork하지 않습니다. 파일을 주 세션/서브 에이전트/미귀속으로 그룹화하고, 파일별로 선택하여 반려 + 선택적 코멘트. 파일을 클릭하면 턴 시작 스냅샷 vs 현재 diff를 먼저 봅니다. /rewind가 아닙니다",
-			pluginVideoPreviewDesc: "dsh-coding-sidebar 편집기에서 비디오 파일(.mp4/.webm/.mov/.mkv/.avi 등)을 인라인 미리보기합니다. HTTP Range(206)를 지원하는 /video 호스트 라우트를 내장하며, 진행 바를 드래그할 수 있고 20MB mediaLimit 제한을 받지 않습니다",
-			pluginDocsPanelDesc: "DSH 사이드바의 \"전역 문서\": 전역 Markdown 메모로, 어떤 작업 공간에서든 언제든 읽을 수 있습니다. 목록을 클릭해 읽기, 마우스를 올리면 개요로 이동, Chrome / VS Code에서 외부 열기, 코드 복사. 디렉터리를 설정할 수 있습니다(기본 ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "DeepSeek Harness용 에이전트 브라우저: 32개의 ego_* 도구가 실제 Chromium을 구동하며, 사이드바의 네이티브 «ego 브라우저» 탭에서 에이전트가 방문하는 모든 페이지를 실시간으로 볼 수 있습니다 — 클릭, 드래그, 타이핑으로 직접 조작할 수 있습니다. dsh-coding-sidebar가 있으면 탭을 자동 등록하고, 없으면 플로팅 버블로 대체합니다"
-		};
-		//#endregion
-		//#region src/client/locales-ar.ts
-		/**
-		* The ar (Arabic) dictionary for the betterSidebar namespace.
-		*
-		* Mirrors the key set of `zh` in `locales.ts`. The sidebar's `t()`
-		* consults this dict when `attachBetterLocale(store)` has been called
-		* with an active better-locale store whose `active` is `'ar'`; absent
-		* that, the existing zh/en chain runs unchanged.
-		*
-		* Translation conventions:
-		* - Modern Standard Arabic (فصحى); UI text is RTL-ready (the framework
-		*   handles direction).
-		* - Git vocabulary follows standard Arabic localizations (إدراج، تثبيت، فرع).
-		* - Placeholders keep `{name}` verbatim (interpolation runs after lookup).
-		* - English brand names (VS Code, Cursor, Zed, SSH, Git, HTML, PDF, Markdown)
-		*   stay as-is.
-		*/
-		/** The ar dictionary (key-set-equal to zh, enforced by the type annotation in locales.ts). */
-		const ar$1 = {
-			files: "الملفات",
-			explorer: "المستكشف",
-			git: "إدارة المصدر",
-			terminal: "الطرفية",
-			editor: "المحرّر",
-			editorExplorer: "سلوك فتح الملفات",
-			editorExplorerDesc: "يتحكّم في كيفية فتح الملفات",
-			editorExplorerMerged: "مدمج",
-			editorExplorerMergedDesc: "الملفات تتبدّل في مكانها داخل نفس النافذة؛ النوافذ الجديدة تبدأ بالشجرة مفتوحة",
-			editorExplorerSplit: "منفصل",
-			editorExplorerSplitDesc: "النوافذ بلا مسار هي المستكشف المستقل (شجرة فقط)؛ كل ملف يفتح نافذته الخاصة (الشجرة مرساة، مغلقة افتراضياً)",
-			editorTreeToggle: "لوحة شجرة الملفات",
-			editorPathPlaceholder: "مسار الملف (نسبي لدليل الجلسة أو مطلق)، Enter للفتح",
-			editorSearchPlaceholder: "البحث في الملفات بالاسم…",
-			editorSearchNoResults: "لا ملفات مطابقة",
-			editorSearchTruncated: "نتائج كثيرة جداً — عرض قائمة جزئية",
-			editorEmptyHint: "اختر ملفاً من لوحة الشجرة أو من حقل المسار بالأعلى لبدء المعاينة",
-			openFileNewTab: "فتح في تبويب جديد",
-			openFileSide: "فتح إلى الجانب",
-			openWithMenu: "فتح بواسطة",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "تثبيت في القائمة",
-			unpinOpenWith: "إلغاء التثبيت",
-			openWithExplorer: "مدير الملفات",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "مضيف SSH البعيد",
-			openWithSettingsSshDesc: "فارغ = مساحة عمل محلية؛ مع user@host أو اسم مستعار SSH، تتحوّل فواتح عائلة VSCode إلى بروتوكول vscode-remote/ssh-remote ويُخفى مدير الملفات وZed والمحرّرات المخصّصة غير التابعة لعائلة VSCode من القائمة",
-			openWithSettingsSshPlaceholder: "user@host أو اسم مستعار SSH",
-			openWithSettingsCustomTitle: "محرّرات مخصّصة",
-			openWithSettingsCustomDesc: "اسم + قالب URL (عنصر نائب {path}) + علامة عائلة VSCode؛ في الوضع البعيد، يمكن فقط لمحرّرات عائلة VSCode فتح مسار بعيد",
-			openWithSettingsAdd: "إضافة",
-			openWithSettingsName: "الاسم",
-			openWithSettingsTemplate: "مثل cursor://file/{path}",
-			openWithSettingsFamily: "عائلة VSCode",
-			openWithSettingsFamilyDesc: "يتحدّث هذا المحرّر لهجة URL لـ VSCode (يدعم الفتح عبر SSH البعيد)",
-			openWithSettingsRemove: "إزالة",
-			openWithSettingsInvalidHint: "لن تظهر المحرّرات التي تفتقر إلى الاسم أو القالب (يلزم أن يحتوي على {path} ويبدأ بـ scheme://) في القائمة",
-			newTab: "تبويب جديد",
-			openExplorer: "المستكشف",
-			brokenSymlink: "رابط رمزي معطوب",
-			openGit: "لوحة Git",
-			newTerminal: "طرفية جديدة",
-			terminalLimit: "تم بلوغ حد الطرفيات (3)",
-			close: "إغلاق",
-			closeOtherTabs: "إغلاق التبويبات الأخرى",
-			closeLeftTabs: "إغلاق التبويبات على اليسار",
-			closeRightTabs: "إغلاق التبويبات على اليمين",
-			moveToFreeWindow: "النقل إلى نافذة حرة",
-			floatDropHint: "حرّك للفتح في نافذة حرة",
-			dockToSidebar: "العودة إلى الشريط الجانبي",
-			pinTerminal: "تثبيت الطرفية",
-			pinAgentTerminal: "تثبيت طرفية Agent",
-			pinToWorkspace: "تثبيت إلى مساحة العمل",
-			pinToGlobal: "تثبيت عام",
-			unpinTerminal: "إلغاء التثبيت",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "واجهة طرفية",
-			pinnedTerminalKindAgent: "طرفية Agent",
-			pinnedTerminalScopeWorkspace: "مثبتة في مساحة العمل",
-			pinnedTerminalScopeGlobal: "مثبتة عام",
-			pinnedRailLabel: "الطرفيات المثبتة",
-			closePinnedTerminal: "إغلاق الطرفية",
-			collapse: "طي الشريط الجانبي",
-			expand: "توسيع الشريط الجانبي",
-			terminalError: "فشل اتصال الطرفية",
-			terminalConnectFailed: "فشل اتصال الطرفية عدة مرات",
-			terminalRetry: "إعادة المحاولة",
-			terminalDepsFailed: "فشل تحميل تبعية الطرفية node-pty",
-			terminalDepsHint: "شغّل الأمر التالي في طرفية أو cmd على جهاز DSH للإصلاح، ثم أعد المحاولة (يبقى node-pty متزامناً مع إصدار نواة DSH):",
-			terminalDepsProfile: " (الملف الشخصي المكتشف: {profile})",
-			preview: "معاينة",
-			edit: "تحرير",
-			refresh: "تحديث",
-			showInFolder: "إظهار في المجلد",
-			refreshUnsavedConfirm: "تغيّر الملف على القرص. سيؤدي التحديث إلى فقدان التعديلات غير المحفوظة. متابعة؟",
-			save: "حفظ",
-			saved: "تم الحفظ",
-			unsaved: "غير محفوظ",
-			saveFailed: "فشل الحفظ",
-			truncation: "الملف كبير جداً — عرض أول 512KB",
-			binary: "ملف ثنائي، المعاينة غير متاحة",
-			loading: "جارٍ التحميل…",
-			error: "فشل التحميل",
-			retry: "إعادة المحاولة",
-			splitLeft: "تقسيم يساراً",
-			splitRight: "تقسيم يميناً",
-			splitUp: "تقسيم لأعلى",
-			splitDown: "تقسيم لأسفل",
-			notRepo: "هذا الدليل ليس مستودع git",
-			noChanges: "لا تغييرات",
-			statusTruncated: "التغييرات كثيرة جدًا؛ يتم عرض أول 2000 إدخال فقط",
-			stage: "إدراج",
-			unstage: "إلغاء الإدراج",
-			stageAll: "إدراج الكل",
-			unstageAll: "إلغاء إدراج الكل",
-			commitPlaceholder: "رسالة التثبيت (Ctrl+Enter)",
-			commit: "تثبيت",
-			commitError: "فشل التثبيت",
-			branch: "الفرع",
-			worktree: "شجرة العمل",
-			checkoutError: "فشل تبديل الفرع",
-			history: "السجل",
-			changes: "التغييرات",
-			staged: "مُدرج",
-			unstaged: "غير مُدرج",
-			cancel: "إلغاء",
-			diffEmpty: "لا تغييرات نصية",
-			diffLoadError: "فشل تحميل الفرق",
-			diffBinary: "ثنائي",
-			diffAdded: "مُضاف",
-			diffDeleted: "محذوف",
-			diffRenamed: "إعادة تسمية",
-			diffExpand: "إظهار {count} صفوف أخرى",
-			diffCollapse: "طي",
-			discard: "تجاهل التغييرات",
-			discardTitle: "تجاهل التغييرات",
-			discardDesc: "هذا يتجاهل تغييرات مساحة العمل في \"{path}\" (غير قابل للاستعادة).",
-			viewCommitDiff: "عرض فرق التثبيت",
-			copyShortHash: "نسخ الهاش القصير",
-			copyFullHash: "نسخ الهاش الكامل",
-			copySubject: "نسخ موضوع التثبيت",
-			revertCommit: "عكس التثبيت",
-			revertTitle: "عكس التثبيت",
-			revertDesc: "ينشئ تثبيتاً جديداً على الفرع الحالي يعكس \"{subject}\".",
-			cherryPickCommit: "اقتطاف التثبيت",
-			cherryPickTitle: "اقتطاف التثبيت",
-			cherryPickDesc: "يطبّق تغييرات \"{subject}\" على الفرع الحالي.",
-			timeJustNow: "الآن",
-			timeMinutesAgo: "منذ {n} دقيقة",
-			timeHoursAgo: "منذ {n} ساعة",
-			timeYesterday: "أمس",
-			loadMore: "تحميل المزيد",
-			historyLoadError: "فشل تحميل المزيد من السجل",
-			produced: "النواتج",
-			producedOpen: "فتح في الشريط الجانبي",
-			disconnected: "انقطع اتصال الطرفية، جارٍ إعادة الاتصال…",
-			exited: "خرجت عملية الطرفية",
-			noSession: "اختر محادثة لاستخدام الشريط الجانبي",
-			pluginNotLoaded: "الإضافة غير محمّلة؛ التبويب غير متاح:",
-			hiddenFiles: "ملفات مخفية",
-			parent: "الدليل الأصل",
-			copied: "تم النسخ",
-			copy: "نسخ",
-			newFile: "ملف جديد",
-			openEditor: "فتح المحرّر",
-			gitDetail: "عرض تفاصيل التغيير",
-			referenceFile: "@ملف",
-			addToConversation: "إضافة إلى المحادثة",
-			copyRelative: "نسخ المسار النسبي",
-			copyAbsolute: "نسخ المسار المطلق",
-			download: "تنزيل",
-			uploadFiles: "رفع ملفات",
-			uploadFolder: "رفع مجلد",
-			uploadHere: "ارفع هنا",
-			uploadDropHint: "أسقط الملفات/المجلدات هنا للرفع",
-			uploadDropChat: "الإسقاط على منطقة المحادثة: إضافة صور إلى المحادثة",
-			uploadTo: "رفع إلى {dir}",
-			uploadingTo: "جارٍ الرفع إلى {dir}…",
-			uploadProgress: "جارٍ الرفع {done}/{total}: {name}",
-			uploadDone: "تم رفع {count} ملف",
-			uploadFailed: "فشل الرفع: {error}",
-			uploadFailedUnknown: "خطأ غير معروف",
-			uploadTooLarge: "الملف كبير جداً (يتجاوز حد الرفع)",
-			uploadCancelled: "تم إلغاء الرفع",
-			settingsNav: "البطاقة الجانبية",
-			settingsIntro: "إدارة ما تعرضه البطاقة الجانبية وكيف تتصرف",
-			settingsPopupDesc: "تكوين خيارات ذات صلة بـ {feature}",
-			settingsDone: "تم",
-			settingsOpenTitle: "فتح افتراضياً للمحادثات الجديدة",
-			settingsOpenDesc: "توسيع البطاقة الجانبية تلقائياً للمحادثات الجديدة تماماً؛ المحادثات الموجودة تحتفظ بتخطيطاتها",
-			settingsWidthTitle: "الحصة الافتراضية للعرض",
-			settingsWidthDesc: "الحصة الافتراضية للبطاقة الجانبية من عرض النافذة للمحادثات الجديدة (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "فتح ملفات المحادثة في الشريط الجانبي",
-			settingsOpenPathDesc: "فتح روابط الملفات في المحادثة (صفوف الأدوات، الملفات الناتجة، الإشارات) في محرّر الشريط الجانبي بدلاً من التطبيق الافتراضي للنظام",
-			settingsOpenToolsTitle: "حقن أداة فتح الشريط الجانبي للنموذج",
-			settingsOpenToolsDesc: "عند التفعيل، يمكن للنموذج فتح الملفات والمجلدات وصفحات HTTP(S) في الشريط الجانبي عبر أداة sidebar_open (معطّل افتراضياً)",
-			settingsTitleBarTitle: "وضع توافق الموضع",
-			settingsTitleBarDesc: "اختر نظام توافق الشريط العلوي: كشف تلقائي (افتراضي، محافظ) / ويب DSH الرسمي / أغلفة سطح المكتب المعروفة / مخصّص (مسافة الإزاحة + CSS مخصّص)",
-			settingsTitleBarStripTitle: "مسافة الإزاحة",
-			settingsTitleBarStripDesc: "ارتفاع شريط الشريط العلوي: كم بكسل تتحرك به أزرار الشريط الجانبي والمحتوى للأسفل (0–120، افتراضي 40؛ يسري تحت النظام المخصّص)",
-			settingsSchemeAutoTitle: "كشف تلقائي",
-			settingsSchemeAutoDesc: "محافظ: يساهم فقط معيار Window Controls Overlay API (ارتفاع التسمية التوضيحية الحقيقي)؛ بيئات الويب العادية لا تعدّل شيئاً",
-			settingsSchemeWebTitle: "ويب DSH الرسمي",
-			settingsSchemeWebDesc: "صراحة: الإعلان عن تشغيل في واجهة الويب الرسمية: لا أي تكيّف (حتى هندسة WCO القياسية لا تطبّق)",
-			settingsSchemeCustomTitle: "مخصّص",
-			settingsSchemeCustomDesc: "تحكّم كامل: حقن CSS مخصّص (يمكن أن يلغي الأنماط المدمجة) وتحديد مسافة إزاحة الشريط العلوي",
-			settingsSchemeDetectedSuffix: "تم الكشف",
-			settingsCustomCssTitle: "CSS مخصّص",
-			settingsCustomCssDesc: "أنماط تُضاف في نهاية الصفحة (المكتوب لاحقاً يكسر التعادل في نفس الأولوية؛ استخدم !important لتلغي المتغيرات المكتوبة بواسطة JS)",
-			settingsCustomCssPlaceholder: "/* مثال: حجز 36px لغلاف له شريط علوي مرسوم ذاتياً */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "فشل الحفظ",
-			settingsConflict: "تغيّر الإعداد في نافذة أخرى — يُرجى إعادة المحاولة",
-			binaryNoPreview: "لا يمكن معاينة هذا النوع من الملفات",
-			downloadToView: "تنزيل للعرض",
-			settingsSubagentTitle: "فتح صفحة المهام تلقائياً عند ظهور وكيل فرعي",
-			settingsSubagentDesc: "توسيع البطاقة الجانبية وفتح صفحة المهام عند توليد المحادثة الحالية لوكيل فرعي جديد؛ أوقفها للفتح يدوياً",
-			settingsJobsTitle: "فتح صفحة المهام الخلفية تلقائياً عند مهمة خلفية جديدة",
-			settingsJobsDesc: "توسيع البطاقة الجانبية وفتح صفحة المهام الخلفية عند ظهور مهمة خلفية جديدة للمحادثة الحالية (كل مهمة جديدة تُطلق ذلك)؛ أوقفها للفتح يدوياً",
-			settingsToolsTitle: "حقن أدوات الطرفية للنموذج",
-			settingsToolsDesc: "عند التفعيل، يمكن للنموذج إنشاء وتشغيل طرفيات الشريط الجانبي عبر أدوات terminal_* الثمانية (معطّل افتراضياً)",
-			settingsFontFamilyTitle: "عائلة خط الطرفية",
-			settingsFontFamilyDesc: "عائلة خط الطرفية المخصّصة (مكدس CSS font-family مثل \"JetBrains Mono\", monospace؛ اتركه فارغاً لاتّباع خط السمة أحادي المسافة)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "حجم خط الطرفية",
-			settingsFontSizeDesc: "حجم خط الطرفية بالبكسل (9–32، افتراضي 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "مسار الصدفة",
-			settingsShellDesc: "الصدفة التي تُطلق لطرفيات الواجهة والنموذج (مسار مطلق أو اسم تنفيذي مجرّد). الفراغ يحافظ على الترتيب القائم: yaml config.shell ← $SHELL / صدفة الدخول / Windows powershell.exe. يسري على الطرفيات المفتوحة لاحقاً",
-			settingsShellPlaceholder: "مثل /bin/zsh (فارغ = تلقائي)",
-			settingsShellArgsTitle: "وسائط الصدفة",
-			settingsShellArgsDesc: "وسائط صدفة صريحة، مفصولة بمسافات؛ عند عدم الفراغ تستبدل الافتراضيات بالكامل (نفس عقد yaml shellArgs)",
-			settingsShellArgsPlaceholder: "مثل -l (فارغ = الافتراضيات)",
-			settingsTabsTitle: "محتوى الشريط الجانبي",
-			settingsViewersTitle: "عارضات الملفات",
-			settingsGeneralTitle: "عام",
-			settingsPopup: "إعدادات الميزة",
-			settingsViewerCatchAll: "شامل: أي ملف",
-			viewerImage: "صورة",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "كود",
-			viewerBinary: "تنزيل ثنائي",
-			viewerHtml: "HTML",
-			browser: "المتصفح",
-			browserPlaceholder: "أدخل عنوان URL، مثل example.com",
-			browserGo: "اذهب",
-			browserBack: "للخلف",
-			browserForward: "للأمام",
-			browserStart: "أدخل عنوان URL لبدء التصفح (وضع الحماية)",
-			browserBlockedScheme: "محظور: يُسمح فقط بعناوين URL من نوع http/https",
-			browserBlockedLoopback: "محظور: لا يمكن تصفّح العناوين المحلية والداخلية هنا",
-			browserInvalid: "عنوان URL غير صالح",
-			browserNoSandboxWarning: "الحماية معطّلة: الصفحة الحالية تعمل بكامل صلاحيات الواجهة (يمكن إعادة تفعيلها في الإعدادات)",
-			htmlNoSandboxWarning: "الحماية معطّلة: يعمل هذا HTML بنفس أصل الواجهة — يمكنه قراءة ملفات الجلسة وواجهات API الداخلية (يمكن إعادة تفعيلها في الإعدادات)",
-			sandboxStatusOn: "وضع الحماية: مفعّل · لا يمكن للصفحات الوصول إلى بيانات الواجهة أو الملفات المحلية؛ قد لا تعمل تسجيلات الدخول وملفات الارتباط التابعة لجهات خارجية",
-			sandboxUnlock: "تعطيل مؤقت (غير آمن)",
-			sandboxRestore: "استعادة الحماية",
-			settingsHtmlDefaultUnsafeTitle: "فتح معاينات HTML بدون حماية افتراضياً (غير آمن)",
-			settingsHtmlDefaultUnsafeDesc: "عند التفعيل، تبدأ كل معاينة HTML مفتوحة حديثاً في الحالة غير المحمية (نفس أصل الواجهة — يمكنها قراءة ملفات الجلسة وواجهات API الداخلية)؛ يوفر صف الحالة استعادة بلمسة واحدة",
-			settingsHtmlSandboxTitle: "تعطيل حماية معاينة HTML (غير آمن)",
-			settingsHtmlSandboxDesc: "مع تعطيل الحماية، يعمل HTML المعاين بنفس أصل الواجهة: يمكنه قراءة ملفات الجلسة والتخزين المحلي واستدعاء واجهات API الداخلية. فعّله فقط للملفات الموثوقة بالكامل",
-			settingsBrowserSandboxTitle: "تعطيل حماية المتصفح (غير آمن)",
-			settingsBrowserSandboxDesc: "مع تعطيل الحماية، يعمل أي موقع تزوره بنفس أصل الواجهة: يمكنه قراءة بيانات الجلسة وانتحال جلسة تسجيل الدخول الخاصة بك. فعّله فقط للمواقع الموثوقة بالكامل",
-			settingsBrowserLinksTitle: "فتح الروابط الخارجية للمحادثة في الشريط الجانبي",
-			settingsBrowserLinksDesc: "عند التفعيل، النقر على رابط خارجي في المحادثة أو الواجهة يفتح الشريط الجانبي بدلاً من نافذة جديدة؛ يتحكّم في HTTP وHTTPS بشكل منفصل بالمبدلات بالأسفل؛ Ctrl/Cmd+نقر يتجاوز دائماً",
-			settingsBrowserHttpTitle: "فتح صفحات HTTP في الشريط الجانبي",
-			settingsBrowserHttpDesc: "عند التفعيل، النقر على رابط HTTP خارجي في المحادثة أو الواجهة يفتح الشريط الجانبي (صفحات الإضافات المعرّفة عن urlTarget تفوز)؛ Ctrl/Cmd+نقر يتجاوز دائماً",
-			settingsBrowserHttpsTitle: "فتح صفحات HTTPS في الشريط الجانبي",
-			settingsBrowserHttpsDesc: "عند التفعيل، النقر على رابط HTTPS خارجي في المحادثة أو الواجهة يفتح الشريط الجانبي. معطّل افتراضياً: معظم مواقع HTTPS ترفض التضمين، لذا فالمتصفح الافتراضي للنظام هو الخيار الأنسب",
-			settingsBrowserLoopbackTitle: "العناوين المحلية المسموح بها",
-			settingsBrowserLoopbackDesc: "قائمة بيضاء مفصولة بفواصل لعناوين الاسترجاع المحلي (مثل localhost:5174 أو 127.0.0.1:8080) يمكن للمتصفح الجانبي زيارتها؛ فارغة افتراضيًا تمنع جميع العناوين المحلية. تظل صندوق الحماية سارية — لا يمكن للصفحات قراءة بيانات الواجهة",
-			settingsBrowserLoopbackPlaceholder: "مثال localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "فتح في المتصفح",
-			browserEmbedBlocked: "رفض {host} التضمين",
-			browserEmbedBlockedDesc: "يحظر الموقع عرضه داخل صفحات أخرى (X-Frame-Options / frame-ancestors)، لذا لا يمكن تحميله في الشريط الجانبي. افتحه مباشرة في متصفحك بدلاً من ذلك.",
-			browserEmbedAnyway: "تحميل على أي حال",
-			subagent: "المهام",
-			openSubagent: "المهام",
-			subagentMainAgent: "الوكيل الرئيسي",
-			subagentEmpty: "لا وكلاء فرعيون",
-			subagentEmptyDesc: "الوكلاء الفرعيون المُنتَجون تحت الوكيل الرئيسي سيظهرون هنا",
-			subagentRunning: "قيد التشغيل",
-			subagentInactive: "خامل",
-			subagentModeOneShot: "مرة واحدة",
-			subagentModeContinuable: "قابل للاستئناف",
-			subagentCount: "{count} وكلاء فرعيون",
-			subagentCountRunning: "{count} وكلاء فرعيون · {running} قيد التشغيل",
-			subagentDiagCorrupt: "تالف",
-			subagentDiagUnsupported: "غير مدعوم",
-			subagentDiagUnavailable: "غير متاح",
-			subagentThinking: "جارٍ التفكير…",
-			subagentShowHistory: "عرض {count} من الوكلاء الفرعيين الأقدم",
-			subagentHideHistory: "طي الوكلاء الفرعيين الأقدم",
-			sideChat: "محادثة جانبية (تجريبية)",
-			sideChatNew: "خيط جديد",
-			sideChatUntitled: "خيط جديد",
-			sideChatEmpty: "لا محادثات جانبية",
-			sideChatEmptyDesc: "كل محادثة جانبية هي تبويب مستقل في شريط التبويبات — ترث سياق الجلسة الحالية ولا تدخل المحادثة الرئيسية",
-			sideChatCreating: "جارٍ إنشاء محادثة جانبية…",
-			sideChatRetry: "إعادة المحاولة",
-			sideChatThreads: "تبديل خيط / جديد",
-			sideChatSave: "حفظ كجلسة جديدة",
-			sideChatSaveTitle: "ترقية هذا الخيط إلى جلسة عالية المستوى في قائمة الجلسات الرئيسية",
-			sideChatSaved: "تم الحفظ كجلسة جديدة",
-			sideChatNoTurn: "الحفظ متاح بعد أول دور مكتمل",
-			sideChatPendingDrop: "لن يُضمَّ آخر متابعة لم يُجَب عنها في الجلسة المحفوظة",
-			sideChatFirstPlaceholder: "اطرح السؤال الأول — السياق موروث…",
-			sideChatComposerPlaceholder: "متابعة…",
-			sideChatThinking: "جارٍ التعمّق…",
-			sideChatThink: "التفكير",
-			sideChatInjection: "تم حقن السياق",
-			sideChatSend: "إرسال",
-			sideChatCancel: "إيقاف",
-			sideChatCancelTitle: "إلغاء الدور الجاري (يُحتفظ بالعمل في قائمة الانتظار)",
-			sideChatClose: "إغلاق الخيط",
-			sideChatCloseTitle: "تحرير وكيل الخيط (يُحتفظ بالسجل)",
-			sideChatError: "خطأ في المحادثة الجانبية: {message}",
-			jobs: "المهام الخلفية",
-			jobsCount: "{count} مهمة خلفية",
-			jobsCountRunning: "{count} مهمة خلفية · {running} قيد التشغيل",
-			jobsShowHistory: "عرض {count} من المهام الخلفية الأقدم",
-			jobsHideHistory: "طي المهام الخلفية الأقدم",
-			jobStatusRunning: "قيد التشغيل",
-			jobStatusStopping: "جارٍ الإيقاف",
-			jobStatusCompleted: "اكتمل",
-			jobStatusKilled: "تم الإنهاء",
-			jobStatusFailed: "فشل",
-			jobDurationSeconds: "{seconds}ث",
-			jobDurationMinutes: "{minutes}د {seconds}ث",
-			jobDurationHours: "{hours}س {minutes}د",
-			jobViewOutput: "عرض الإخراج",
-			jobHideOutput: "إخفاء الإخراج",
-			jobNoOutput: "لا إخراج بعد",
-			jobNotReadYet: "في انتظار قراءة النموذج لإخراج هذه المهمة؛ سيظهر الإخراج هنا بمجرد أن يشغّل النموذج job_output",
-			jobOutputTruncated: "الإخراج مقطوع",
-			jobOutputError: "فشل قراءة الإخراج",
-			jobKill: "إنهاء",
-			jobKillConfirm: "انقر مجدداً للتأكيد على الإنهاء",
-			jobKillError: "فشل الإنهاء",
-			addPluginsTabCard: "إضافة إضافات تبويب",
-			addPluginsTabCardDesc: "تسجيل صفحة شريط جانبي جديدة",
-			addPluginsViewerCard: "إضافة إضافات معاينة",
-			addPluginsViewerCardDesc: "تسجيل معاينة نوع ملف",
-			addPluginsTabDesc: "يمكن توسيع صفحات الشريط الجانبي (التبويبات) بواسطة الإضافات. تُسجَّل الإضافات عبر خدمة ctx.betterSidebar؛ النقر على «تثبيت» ينسخ أمر التثبيت — الصقه في طرفية حيث يقيم ملف DSH الشخصي وشغّله.",
-			addPluginsViewerDesc: "يمكن توسيع عارضات الملفات بواسطة الإضافات. تُسجَّل الإضافات عبر خدمة ctx.betterSidebar؛ النقر على «تثبيت» ينسخ أمر التثبيت — الصقه في طرفية حيث يقيم ملف DSH الشخصي وشغّله.",
-			addPluginsBrowseMore: "تصفّح المزيد من الإضافات على GitHub (topic: dsh-coding-sidebar)",
-			addPluginsSearch: "البحث باسم الإضافة / الوصف…",
-			addPluginsNoMatch: "لا إضافات مطابقة",
-			addPluginsRecommended: "إضافات موصى بها",
-			addPluginsEmpty: "لا إضافات منسّقة بعد — انشر إضافتك تحت موضوع GitHub",
-			openPlugin: "فتح",
-			copyInstall: "نسخ أمر التثبيت",
-			pluginOfficeDesc: "معاينة حزمة Office (.docx / .xlsx / .pptx) لمحرّر dsh-coding-sidebar، مع إبقاء مكتبات عرض Office الثقيلة خارج الحزمة الأساسية، تُثبَّت عند الطلب",
-			pluginFlowglassDesc: "مخطط تدفق جلسة حيّ بثلاثة مسارات للمستخدم والمساعد واستدعاءات الأدوات، مع مجموعات متوازية وفروع وكلاء فرعيين وتعمّق تدريجي وحالة حيّة؛ يُسجِّل تبويب Flowglass الأصلي عند تثبيت dsh-coding-sidebar ويحتفظ بدرجه المستقل كاحتياط",
-			pluginGitForgeDesc: "تبويب Git Forge: مكتبة حسابات GitHub/Gitea (وغيرها من Forges) + منح لكل مشروع + سياسة دفع صارمة؛ تبقى الرموز في الأسرار المحلية (لا تدخل سياق النموذج)؛ أداة GitForge للقراءة فقط ومساعد بيانات اعتماد HTTPS للوكيل",
-			pluginGitRemotesDesc: "تبويب Git Remotes: فرع/أصل/أمام-خلف، fetch (مع prune اختياري)، ff-only pull، والدفع فقط بعد تأكيد داخل التبويب. لا يستبدل تبويب Git المدمج للإدراج/التثبيت، ولا يقدّم force-push أو أداة دفع آلي للنموذج",
-			pluginSentinelDesc: "نظام إيقاظ وكيل يحرّكه تحقّق الشروط: مستشعرات ملف/عملية/منفذ/HTTP/أمر/webhook توقظ الجلسات الخاملة عند تحقّق الشرط؛ يُسجِّل تبويب «Sentinel» مع جدول مراقبة شامل للخادم",
-			pluginSidebarQaDesc: "حدِّد واسأل: تحديد نص المحادثة ← السؤال في اللوحة اليمنى ← جلسة متابعات مخصّصة في نفس مساحة العمل (❓ متابعة · موضوع): نموذج سريع بلا تفكير يضغط سياق المحادثة الرئيسي ويحقنه مع الاقتباس دون مقاطعة المحادثة الرئيسية؛ المتابعات تتداخل وتستمر وتُؤرشف",
-			pluginSshTunnelDesc: "تبويب «SSH Tunnel»: قائمة مضيفين متعددين + منح لكل مشروع + أسرار محلية؛ أداة SSHManager للنموذج (exec/SFTP/استراتيجيات الجلسة)؛ طرفية تفاعلية مركزية وSFTP ذو عمودين",
-			pluginTurnReviewDesc: "بوابة بشرية على فرق «الدور المنتهي للتو»: Approve / Request changes لكل مسار مع تعليق اختياري؛ المسارات مجمّعة حسب الجلسة الرئيسية / الوكيل الفرعي / غير منسوب؛ فرق snapshot-vs-now مضمّن قبل القرار. لا تفريع، لا /rewind",
-			pluginVideoPreviewDesc: "معاينة فيديو مضمّنة (.mp4/.webm/.mov/.mkv/.avi إلخ) في محرّر dsh-coding-sidebar، مدعومة بمسار /video مخصّص يدعم HTTP Range (206) — التحكم بالتشغيل يعمل والملفات غير مقيدة بحد mediaLimit البالغ 20MB",
-			pluginDocsPanelDesc: "«وثائق عامة» في شريط DSH الجانبي: ملاحظات Markdown عامة، قابلة للقراءة من أي مساحة عمل — قائمة ملفات، مخطط تفصيلي، فتح في Chrome / VS Code، وأزرار نسخ؛ دليل الوثائق قابل للتكوين (الافتراضي ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "متصفح الوكيل لـ DeepSeek Harness: 32 أداة ego_* تقود متصفح Chromium حقيقي، مع تبويب «متصفح ego» أصلي في الشريط الجانبي يعرض مباشرة كل صفحة يزورها الوكيل — يمكنك النقر والسحب والكتابة لتولي التحكم. يسجّل التبويب تلقائيًا عند وجود dsh-coding-sidebar، وإلا يظهر كفقاعة عائمة"
-		};
-		//#endregion
-		//#region src/client/locales-hi.ts
-		/**
-		* The hi (Hindi) dictionary for the betterSidebar namespace.
-		*
-		* Mirrors the key set of `zh` in `locales.ts`. The sidebar's `t()`
-		* consults this dict when `attachBetterLocale(store)` has been called
-		* with an active better-locale store whose `active` is `'hi'`; absent
-		* that, the existing zh/en chain runs unchanged.
-		*
-		* Translation conventions:
-		* - Technical terms (Git, SSH, HTTP, URL, Markdown, PDF, VS Code, API, etc.) stay in English.
-		* - Common dev-tool terms use Devanagari transliterations (टर्मिनल, ब्राउज़र, सैंडबॉक्स).
-		* - Git vocabulary follows English loanwords (स्टेज, कमिट, ब्रांच, चेरी-पिक).
-		* - Placeholders keep `{name}` verbatim (interpolation runs after lookup).
-		* - English brand names (VS Code, Cursor, Zed, SSH, Chrome) stay as-is.
-		*/
-		/** The hi dictionary (key-set-equal to zh, enforced by the type annotation in locales.ts). */
-		const hi$1 = {
-			files: "फ़ाइलें",
-			explorer: "एक्सप्लोरर",
-			git: "सोर्स कंट्रोल",
-			terminal: "टर्मिनल",
-			editor: "एडिटर",
-			editorExplorer: "फ़ाइल खोलने का तरीका",
-			editorExplorerDesc: "फ़ाइल खोलने के तरीके को नियंत्रित करें",
-			editorExplorerMerged: "मर्ज किया",
-			editorExplorerMergedDesc: "फ़ाइलें उसी विंडो में स्थान पर स्विच होती हैं; नई विंडो फ़ाइल ट्री खुला हुआ शुरू होती है",
-			editorExplorerSplit: "अलग",
-			editorExplorerSplitDesc: "पथ-रहित विंडो एक्सप्लोरर है (केवल ट्री); प्रत्येक फ़ाइल अपनी नई विंडो खोलती है (ट्री साथ, डिफ़ॉल्ट रूप से संक्षिप्त)",
-			editorTreeToggle: "फ़ाइल ट्री पैनल",
-			editorPathPlaceholder: "फ़ाइल पथ दर्ज करें (सत्र डायरेक्टरी के सापेक्ष या निरपेक्ष), Enter से खोलें",
-			editorSearchPlaceholder: "फ़ाइल नाम से खोजें…",
-			editorSearchNoResults: "कोई मेल खाती फ़ाइल नहीं",
-			editorSearchTruncated: "परिणाम बहुत अधिक — आंशिक सूची दिखाई जा रही",
-			editorEmptyHint: "पूर्वावलोकन शुरू करने के लिए दाएँ फ़ाइल ट्री या ऊपर पथ इनपुट से फ़ाइल चुनें",
-			openFileNewTab: "नए टैब में खोलें",
-			openFileSide: "बाजू में खोलें",
-			openWithMenu: "इसके साथ खोलें",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "मेन्यू पर पिन करें",
-			unpinOpenWith: "पिन हटाएं",
-			openWithExplorer: "फ़ाइल मैनेजर",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "SSH रिमोट होस्ट",
-			openWithSettingsSshDesc: "खाली = स्थानीय वर्कस्पेस; user@host या SSH उपनाम के साथ, VSCode-परिवार ओपनर vscode-remote/ssh-remote प्रोटोकॉल पर स्विच हो जाते हैं और फ़ाइल मैनेजर / Zed / ग़ैर-VSCode-परिवार कस्टम एडिटर मेन्यू से छिप जाते हैं",
-			openWithSettingsSshPlaceholder: "user@host या SSH उपनाम",
-			openWithSettingsCustomTitle: "कस्टम एडिटर",
-			openWithSettingsCustomDesc: "नाम + URL टेम्पलेट ({path} प्लेसहोल्डर) + VSCode-परिवार फ़्लैग; रिमोट मोड में केवल VSCode-परिवार एडिटर रिमोट पथ खोल सकते हैं",
-			openWithSettingsAdd: "जोड़ें",
-			openWithSettingsName: "नाम",
-			openWithSettingsTemplate: "जैसे cursor://file/{path}",
-			openWithSettingsFamily: "VSCode-परिवार",
-			openWithSettingsFamilyDesc: "यह एडिटर VSCode URL बोली बोलता है (SSH-रिमोट खोलने का समर्थन)",
-			openWithSettingsRemove: "हटाएं",
-			openWithSettingsInvalidHint: "नाम या {path} / scheme:// के बिना टेम्पलेट वाले एडिटर मेन्यू में नहीं दिखते",
-			newTab: "नया टैब",
-			openExplorer: "एक्सप्लोरर",
-			brokenSymlink: "टूटा सिमलिंक",
-			openGit: "Git पैनल",
-			newTerminal: "नया टर्मिनल",
-			terminalLimit: "टर्मिनल सीमा पहुँची (3)",
-			close: "बंद करें",
-			closeOtherTabs: "अन्य टैब बंद करें",
-			closeLeftTabs: "बाएँ टैब बंद करें",
-			closeRightTabs: "दाएँ टैब बंद करें",
-			moveToFreeWindow: "फ़्री विंडो में ले जाएँ",
-			floatDropHint: "फ़्री विंडो में खोलने के लिए छोड़ें",
-			dockToSidebar: "साइडबार पर वापस जाएँ",
-			pinTerminal: "टर्मिनल पिन करें",
-			pinAgentTerminal: "Agent टर्मिनल पिन करें",
-			pinToWorkspace: "वर्कस्पेस पर पिन करें",
-			pinToGlobal: "वैश्विक रूप से पिन करें",
-			unpinTerminal: "पिन हटाएँ",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "UI टर्मिनल",
-			pinnedTerminalKindAgent: "Agent टर्मिनल",
-			pinnedTerminalScopeWorkspace: "वर्कस्पेस पर पिन किया गया",
-			pinnedTerminalScopeGlobal: "वैश्विक रूप से पिन किया गया",
-			pinnedRailLabel: "पिन किए गए टर्मिनल",
-			closePinnedTerminal: "टर्मिनल बंद करें",
-			collapse: "साइडबार संक्षिप्त करें",
-			expand: "साइडबार विस्तृत करें",
-			terminalError: "टर्मिनल कनेक्शन विफल",
-			terminalConnectFailed: "टर्मिनल बार-बार कनेक्ट विफल",
-			terminalRetry: "पुनः प्रयास",
-			terminalDepsFailed: "टर्मिनल निर्भरता node-pty लोड विफल",
-			terminalDepsHint: "DSH मशीन पर एक टर्मिनल या cmd में नीचे दिया गया कमांड चलाएँ, फिर पुनः प्रयास करें (node-pty DSH कोर संस्करण के साथ सिंक रहता है):",
-			terminalDepsProfile: " (पहचाना गया प्रोफ़ाइल: {profile})",
-			preview: "पूर्वावलोकन",
-			edit: "संपादित करें",
-			refresh: "ताज़ा करें",
-			showInFolder: "फ़ोल्डर में दिखाएँ",
-			refreshUnsavedConfirm: "डिस्क पर फ़ाइल बदल गई है। रीफ़्रेश करने पर असहेज किए गए संपादन खो जाएँगे। जारी रखें?",
-			save: "सहेजें",
-			saved: "सहेजा गया",
-			unsaved: "असहेजित",
-			saveFailed: "सहेजना विफल",
-			truncation: "फ़ाइल बहुत बड़ी — पहले 512KB दिखाए जा रहे",
-			binary: "बाइनरी फ़ाइल, पूर्वावलोकन अनुपलब्ध",
-			loading: "लोड हो रहा…",
-			error: "लोड विफल",
-			retry: "पुनः प्रयास",
-			splitLeft: "बाएँ स्प्लिट",
-			splitRight: "दाएँ स्प्लिट",
-			splitUp: "ऊपर स्प्लिट",
-			splitDown: "नीचे स्प्लिट",
-			notRepo: "यह डायरेक्टरी एक git रिपॉज़िटरी नहीं है",
-			noChanges: "कोई बदलाव नहीं",
-			statusTruncated: "बहुत अधिक बदलाव; केवल पहली 2000 प्रविष्टियाँ दिखाई जा रही हैं",
-			stage: "स्टेज",
-			unstage: "अनस्टेज",
-			stageAll: "सभी स्टेज करें",
-			unstageAll: "सभी अनस्टेज करें",
-			commitPlaceholder: "कमिट संदेश (Ctrl+Enter)",
-			commit: "कमिट",
-			commitError: "कमिट विफल",
-			branch: "ब्रांच",
-			worktree: "वर्कट्री",
-			checkoutError: "ब्रांच स्विच विफल",
-			history: "इतिहास",
-			changes: "बदलाव",
-			staged: "स्टेज किया",
-			unstaged: "अनस्टेज",
-			cancel: "रद्द करें",
-			diffEmpty: "कोई पाठ बदलाव नहीं",
-			diffLoadError: "डिफ लोड विफल",
-			diffBinary: "बाइनरी",
-			diffAdded: "जोड़ा",
-			diffDeleted: "हटाया",
-			diffRenamed: "नाम बदला",
-			diffExpand: "{count} और पंक्तियाँ विस्तृत करें",
-			diffCollapse: "संक्षिप्त करें",
-			discard: "बदलाव त्यागें",
-			discardTitle: "बदलाव त्यागें",
-			discardDesc: "यह \"{path}\" के वर्कट्री बदलाव त्याग देगा (पुनर्प्राप्त नहीं)।",
-			viewCommitDiff: "कमिट डिफ देखें",
-			copyShortHash: "शॉर्ट हैश कॉपी",
-			copyFullHash: "पूर्ण हैश कॉपी",
-			copySubject: "सब्जेक्ट कॉपी",
-			revertCommit: "कमिट रिवर्ट",
-			revertTitle: "कमिट रिवर्ट",
-			revertDesc: "वर्तमान ब्रांच पर \"{subject}\" को रिवर्ट करता हुआ नया कमिट बनाएगा।",
-			cherryPickCommit: "चेरी-पिक कमिट",
-			cherryPickTitle: "चेरी-पिक कमिट",
-			cherryPickDesc: "\"{subject}\" के बदलाव वर्तमान ब्रांच पर लागू करेगा।",
-			timeJustNow: "अभी",
-			timeMinutesAgo: "{n} मिनट पहले",
-			timeHoursAgo: "{n} घंटे पहले",
-			timeYesterday: "कल",
-			loadMore: "और लोड करें",
-			historyLoadError: "और इतिहास लोड विफल",
-			produced: "उत्पादित",
-			producedOpen: "साइडबार में खोलें",
-			disconnected: "टर्मिनल डिस्कनेक्ट हो गया, पुनः कनेक्ट हो रहा…",
-			exited: "टर्मिनल प्रक्रिया बाहर निकली",
-			noSession: "साइडबार उपयोग करने के लिए एक वार्तालाप चुनें",
-			pluginNotLoaded: "प्लगइन लोड नहीं; टैब अनुपलब्ध:",
-			hiddenFiles: "छिपी फ़ाइलें",
-			parent: "मूल डायरेक्टरी",
-			copied: "कॉपी हो गया",
-			copy: "कॉपी",
-			newFile: "नई फ़ाइल",
-			openEditor: "एडिटर खोलें",
-			gitDetail: "बदलाव विवरण देखें",
-			referenceFile: "@फ़ाइल",
-			addToConversation: "वार्तालाप में जोड़ें",
-			copyRelative: "सापेक्ष पथ कॉपी",
-			copyAbsolute: "निरपेक्ष पथ कॉपी",
-			download: "डाउनलोड",
-			uploadFiles: "फ़ाइलें अपलोड करें",
-			uploadFolder: "फ़ोल्डर अपलोड करें",
-			uploadHere: "यहाँ अपलोड करें",
-			uploadDropHint: "फ़ाइलें/फ़ोल्डर यहाँ छोड़कर अपलोड करें",
-			uploadDropChat: "चैट पर छोड़ें: वार्तालाप में छवियाँ जोड़ें",
-			uploadTo: "{dir} में अपलोड करें",
-			uploadingTo: "{dir} में अपलोड हो रहा…",
-			uploadProgress: "अपलोड हो रहा {done}/{total}: {name}",
-			uploadDone: "{count} फ़ाइल(ें) अपलोड हुई",
-			uploadFailed: "अपलोड विफल: {error}",
-			uploadFailedUnknown: "अज्ञात त्रुटि",
-			uploadTooLarge: "फ़ाइल बहुत बड़ी (अपलोड सीमा से अधिक)",
-			uploadCancelled: "अपलोड रद्द",
-			settingsNav: "साइड कार्ड",
-			settingsIntro: "साइड कार्ड क्या दिखाता है और कैसे व्यवहार करता है प्रबंधित करें",
-			settingsPopupDesc: "{feature} के लिए संबंधित विकल्प कॉन्फ़िगर करें",
-			settingsDone: "पूर्ण",
-			settingsOpenTitle: "नए वार्तालाप के लिए डिफ़ॉल्ट रूप से खोलें",
-			settingsOpenDesc: "बिल्कुल नए वार्तालाप के लिए साइड कार्ड स्वतः विस्तृत करें; मौजूदा वार्तालाप अपना लेआउट रखते हैं",
-			settingsWidthTitle: "डिफ़ॉल्ट चौड़ाई हिस्सा",
-			settingsWidthDesc: "नए वार्तालाप के लिए साइड कार्ड की विंडो चौड़ाई का डिफ़ॉल्ट हिस्सा (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "चैट फ़ाइलें साइडबार में खोलें",
-			settingsOpenPathDesc: "चैट में फ़ाइल लिंक (टूल पंक्ति, उत्पादित फ़ाइलें, उल्लेख) क्लिक करने पर सिस्टम डिफ़ॉल्ट ऐप के बजाय साइडबार एडिटर में खोलें",
-			settingsOpenToolsTitle: "मॉडल के लिए साइडबार ओपन टूल इंजेक्ट करें",
-			settingsOpenToolsDesc: "चालू होने पर, मॉडल sidebar_open टूल से साइडबार में फ़ाइलें, फ़ोल्डर और HTTP(S) पेज खोल सकता है (डिफ़ॉल्ट रूप से बंद)",
-			settingsTitleBarTitle: "स्थिति संगतता मोड",
-			settingsTitleBarDesc: "टाइटल-बार संगतता योजना चुनें: ऑटो-डिटेक्ट (डिफ़ॉल्ट, रूढ़िवादी) / DSH आधिकारिक वेब / ज्ञात डेस्कटॉप शेल / कस्टम (शिफ्ट दूरी + कस्टम CSS)",
-			settingsTitleBarStripTitle: "शिफ्ट दूरी",
-			settingsTitleBarStripDesc: "टाइटल-बार स्ट्रिप ऊँचाई: साइडबार बटन और सामग्री कितने px नीचे जाते हैं (0–120, डिफ़ॉल्ट 40; कस्टम योजना के तहत लागू)",
-			settingsSchemeAutoTitle: "ऑटो-डिटेक्ट",
-			settingsSchemeAutoDesc: "रूढ़िवादी: केवल मानक Window Controls Overlay API योगदान देता है (वास्तविक कैप्शन-ओवरले ऊँचाई); सादे वेब परिवेश में कोई संशोधन नहीं",
-			settingsSchemeWebTitle: "DSH आधिकारिक वेब",
-			settingsSchemeWebDesc: "स्पष्ट रूप से आधिकारिक वेब UI घोषित करें: कोई अनुकूलन नहीं (मानक WCO ज्यामिति भी नहीं)",
-			settingsSchemeCustomTitle: "कस्टम",
-			settingsSchemeCustomDesc: "पूर्ण नियंत्रण: कस्टम CSS इंजेक्ट करें (अंतर्निहित शैलियाँ ओवरराइड कर सकते हैं) और टाइटल-बार शिफ्ट दूरी सेट करें",
-			settingsSchemeDetectedSuffix: "पहचाना गया",
-			settingsCustomCssTitle: "कस्टम CSS",
-			settingsCustomCssDesc: "पृष्ठ के अंत में जोड़ी गई शैलियाँ (कैस्केड में बाद में टाई जीतता है; JS-लिखित इनलाइन चर ओवरराइड करने के लिए !important उपयोग करें)",
-			settingsCustomCssPlaceholder: "/* उदा.: कस्टम-तैयार टाइटल बार वाले शेल के लिए 36px आरक्षित करें */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "सहेजना विफल",
-			settingsConflict: "सेटिंग दूसरी विंडो में बदली — कृपया पुनः प्रयास करें",
-			binaryNoPreview: "इस फ़ाइल प्रकार का पूर्वावलोकन नहीं हो सकता",
-			downloadToView: "देखने के लिए डाउनलोड करें",
-			settingsSubagentTitle: "सबएजेंट दिखने पर स्वतः कार्य पृष्ठ खोलें",
-			settingsSubagentDesc: "वर्तमान वार्तालाप में नया सबएजेंट बनने पर साइडबार विस्तृत करें और कार्य पृष्ठ खोलें; बंद करने पर मैन्युअल रूप से खोलें",
-			settingsJobsTitle: "नया बैकग्राउंड कार्य आने पर स्वतः कार्य पृष्ठ खोलें",
-			settingsJobsDesc: "वर्तमान वार्तालाप में नया बैकग्राउंड कार्य दिखने पर साइडबार विस्तृत करें और कार्य पृष्ठ खोलें (हर नया कार्य ट्रिगर करता है); बंद करने पर मैन्युअल रूप से खोलें",
-			settingsToolsTitle: "मॉडल के लिए टर्मिनल टूल इंजेक्ट करें",
-			settingsToolsDesc: "सक्षम होने पर, मॉडल 8 terminal_* टूल्स से साइडबार टर्मिनल बना और चला सकता है (डिफ़ॉल्ट रूप से बंद)",
-			settingsFontFamilyTitle: "टर्मिनल फ़ॉन्ट परिवार",
-			settingsFontFamilyDesc: "कस्टम टर्मिनल फ़ॉन्ट परिवार (CSS font-family स्टैक जैसे \"JetBrains Mono\", monospace; थीम के मोनोस्पेस फ़ॉन्ट का पालन करने के लिए खाली छोड़ें)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "टर्मिनल फ़ॉन्ट आकार",
-			settingsFontSizeDesc: "टर्मिनल फ़ॉन्ट आकार px में (9–32, डिफ़ॉल्ट 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Shell पथ",
-			settingsShellDesc: "UI और मॉडल टर्मिनल के लिए शुरू किया गया shell (निरपेक्ष पथ या निष्पादन योग्य नाम)। खाली पुराना क्रम रखता है: yaml config.shell → $SHELL / लॉगिन shell / Windows powershell.exe। बाद में खुले टर्मिनल पर लागू",
-			settingsShellPlaceholder: "जैसे /bin/zsh (खाली = ऑटो)",
-			settingsShellArgsTitle: "Shell तर्क",
-			settingsShellArgsDesc: "स्पष्ट shell तर्क, स्पेस से अलग; ग़ैर-खाली होने पर डिफ़ॉल्ट को पूरी तरह बदलें (yaml shellArgs के समान अनुबंध)",
-			settingsShellArgsPlaceholder: "जैसे -l (खाली = डिफ़ॉल्ट)",
-			settingsTabsTitle: "साइडबार सामग्री",
-			settingsViewersTitle: "फ़ाइल दर्शक",
-			settingsGeneralTitle: "सामान्य",
-			settingsPopup: "सुविधा सेटिंग्स",
-			settingsViewerCatchAll: "कैच-ऑल: कोई भी फ़ाइल",
-			viewerImage: "छवि",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "कोड",
-			viewerBinary: "बाइनरी डाउनलोड",
-			viewerHtml: "HTML",
-			browser: "ब्राउज़र",
-			browserPlaceholder: "URL दर्ज करें, जैसे example.com",
-			browserGo: "जाएं",
-			browserBack: "पीछे",
-			browserForward: "आगे",
-			browserStart: "ब्राउज़िंग शुरू करने के लिए URL दर्ज करें (सैंडबॉक्स मोड)",
-			browserBlockedScheme: "रोका गया: केवल http/https URL अनुमत हैं",
-			browserBlockedLoopback: "रोका गया: स्थानीय और आंतरिक पते यहाँ ब्राउज़ नहीं किए जा सकते",
-			browserInvalid: "अमान्य URL",
-			browserNoSandboxWarning: "सैंडबॉक्स बंद: वर्तमान पृष्ठ GUI विशेषाधिकार के साथ चलता है (सेटिंग्स में पुनः सक्षम करें)",
-			htmlNoSandboxWarning: "सैंडबॉक्स बंद: यह HTML GUI विशेषाधिकार के साथ चलता है (सेटिंग्स में पुनः सक्षम करें)",
-			sandboxStatusOn: "सैंडबॉक्स मोड: चालू · पृष्ठ GUI के डेटा या स्थानीय फ़ाइलों तक नहीं पहुँच सकते; लॉगिन और थर्ड-पार्टी कुकीज़ काम नहीं कर सकतीं",
-			sandboxUnlock: "अस्थायी रूप से अक्षम (असुरक्षित)",
-			sandboxRestore: "सैंडबॉक्स पुनर्स्थापित करें",
-			settingsHtmlDefaultUnsafeTitle: "HTML पूर्वावलोकन डिफ़ॉल्ट रूप से अनसैंडबॉक्स्ड खोलें (असुरक्षित)",
-			settingsHtmlDefaultUnsafeDesc: "चालू होने पर, हर नया खुला HTML पूर्वावलोकन अनसैंडबॉक्स्ड स्थिति में शुरू होता है (GUI के समान मूल — सत्र फ़ाइलें और आंतरिक API पढ़ सकता है); स्थिति पंक्ति अभी भी एक-टैप पुनर्स्थापना देती है",
-			settingsHtmlSandboxTitle: "HTML पूर्वावलोकन सैंडबॉक्स अक्षम करें (असुरक्षित)",
-			settingsHtmlSandboxDesc: "सैंडबॉक्स बंद होने पर, पूर्वावलोकित HTML GUI के समान मूल के साथ चलता है: सत्र फ़ाइलें, स्थानीय स्टोरेज पढ़ सकता है और आंतरिक API कॉल कर सकता है। केवल पूर्ण विश्वसनीय फ़ाइलों के लिए सक्षम करें",
-			settingsBrowserSandboxTitle: "ब्राउज़र सैंडबॉक्स अक्षम करें (असुरक्षित)",
-			settingsBrowserSandboxDesc: "सैंडबॉक्स बंद होने पर, कोई भी विज़िट की गई साइट GUI के समान मूल के साथ चलती है: सत्र डेटा पढ़ सकती है और आपके लॉग-इन सत्र के रूप में कार्य कर सकती है। केवल पूर्ण विश्वसनीय साइटों के लिए सक्षम करें",
-			settingsBrowserLinksTitle: "चैट बाहरी लिंक साइडबार में खोलें",
-			settingsBrowserLinksDesc: "चालू होने पर, चैट या GUI में बाहरी लिंक क्लिक करने पर नई विंडो के बजाय साइडबार खुलता है; HTTP और HTTPS नीचे स्विच द्वारा अलग से नियंत्रित; Ctrl/Cmd+क्लिक हमेशा बायपास करता है",
-			settingsBrowserHttpTitle: "HTTP पृष्ठ साइडबार में खोलें",
-			settingsBrowserHttpDesc: "चालू होने पर, चैट या GUI में HTTP बाहरी लिंक क्लिक करने पर साइडबार खुलता है (urlTarget घोषित प्लगइन पृष्ठ जीतते हैं); Ctrl/Cmd+क्लिक हमेशा बायपास करता है",
-			settingsBrowserHttpsTitle: "HTTPS पृष्ठ साइडबार में खोलें",
-			settingsBrowserHttpsDesc: "चालू होने पर, चैट या GUI में HTTPS बाहरी लिंक क्लिक करने पर साइडबार खुलता है। डिफ़ॉल्ट रूप से बंद: अधिकांश HTTPS साइटें एम्बेड होने से इनकार करती हैं, सिस्टम ब्राउज़र चिकना डिफ़ॉल्ट है",
-			settingsBrowserLoopbackTitle: "अनुमत स्थानीय पते",
-			settingsBrowserLoopbackDesc: "लूपबैक पतों की कॉमा-सेपरेटेड अनुमति सूची (जैसे localhost:5174 या 127.0.0.1:8080) जिन्हें साइडबार ब्राउज़र देख सकता है; खाली डिफ़ॉल्ट रूप से सभी स्थानीय पते ब्लॉक करता है। सैंडबॉक्स लागू रहता है — पेज GUI डेटा नहीं पढ़ सकते",
-			settingsBrowserLoopbackPlaceholder: "जैसे localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "ब्राउज़र में खोलें",
-			browserEmbedBlocked: "{host} एम्बेड होने से इनकार",
-			browserEmbedBlockedDesc: "साइट अन्य पृष्ठों के अंदर प्रदर्शित होने से मना करती है (X-Frame-Options / frame-ancestors), इसलिए साइडबार में लोड नहीं हो सकती। इसे अपने ब्राउज़र में सीधे खोलें।",
-			browserEmbedAnyway: "फिर भी लोड करें",
-			subagent: "कार्य",
-			openSubagent: "कार्य",
-			subagentMainAgent: "मुख्य एजेंट",
-			subagentEmpty: "कोई सबएजेंट नहीं",
-			subagentEmptyDesc: "मुख्य एजेंट के अंतर्गत बने सबएजेंट यहाँ दिखेंगे",
-			subagentRunning: "चल रहा",
-			subagentInactive: "निष्क्रिय",
-			subagentModeOneShot: "एक-बार",
-			subagentModeContinuable: "जारी रखने योग्य",
-			subagentCount: "{count} सबएजेंट",
-			subagentCountRunning: "{count} सबएजेंट · {running} चल रहे",
-			subagentDiagCorrupt: "दूषित",
-			subagentDiagUnsupported: "असमर्थित",
-			subagentDiagUnavailable: "अनुपलब्ध",
-			subagentThinking: "सोच रहा…",
-			subagentShowHistory: "पुराने {count} सबएजेंट दिखाएँ",
-			subagentHideHistory: "पुराने सबएजेंट छिपाएँ",
-			sideChat: "साइड चैट (बीटा)",
-			sideChatNew: "नया थ्रेड",
-			sideChatUntitled: "नया थ्रेड",
-			sideChatEmpty: "कोई साइड वार्तालाप नहीं",
-			sideChatEmptyDesc: "हर साइड वार्तालाप टैब स्ट्रिप में अपना टैब है — यह वर्तमान सत्र के संदर्भ को विरासत में लेता है और कभी मुख्य वार्तालाप में नहीं जाता",
-			sideChatCreating: "साइड वार्तालाप बन रहा…",
-			sideChatRetry: "पुनः प्रयास",
-			sideChatThreads: "थ्रेड स्विच / नया",
-			sideChatSave: "नए सत्र के रूप में सहेजें",
-			sideChatSaveTitle: "इस थ्रेड को मुख्य सत्र सूची में शीर्ष-स्तरीय सत्र में प्रमोट करें",
-			sideChatSaved: "नए सत्र के रूप में सहेजा",
-			sideChatNoTurn: "पहला टर्न पूरा होने के बाद सहेजना उपलब्ध",
-			sideChatPendingDrop: "अंतिम अनुत्तरित फ़ॉलो-अप सहेजे गए सत्र में शामिल नहीं होगा",
-			sideChatFirstPlaceholder: "पहला प्रश्न पूछें — संदर्भ विरासत में मिला…",
-			sideChatComposerPlaceholder: "फ़ॉलो-अप पूछें…",
-			sideChatThinking: "गहराई से विचार…",
-			sideChatThink: "विचार",
-			sideChatInjection: "संदर्भ इंजेक्ट किया",
-			sideChatSend: "भेजें",
-			sideChatCancel: "रोकें",
-			sideChatCancelTitle: "चल रहे टर्न को रोकें (कतारबद्ध कार्य रखा जाता है)",
-			sideChatClose: "थ्रेड बंद करें",
-			sideChatCloseTitle: "थ्रेड का एजेंट रिलीज़ करें (इतिहास रखा जाता है)",
-			sideChatError: "साइड चैट त्रुटि: {message}",
-			jobs: "बैकग्राउंड कार्य",
-			jobsCount: "{count} बैकग्राउंड कार्य",
-			jobsCountRunning: "{count} बैकग्राउंड कार्य · {running} चल रहे",
-			jobsShowHistory: "पुराने {count} बैकग्राउंड कार्य दिखाएँ",
-			jobsHideHistory: "पुराने बैकग्राउंड कार्य छिपाएँ",
-			jobStatusRunning: "चल रहा",
-			jobStatusStopping: "रुक रहा",
-			jobStatusCompleted: "पूर्ण",
-			jobStatusKilled: "समाप्त",
-			jobStatusFailed: "विफल",
-			jobDurationSeconds: "{seconds}से",
-			jobDurationMinutes: "{minutes}मि {seconds}से",
-			jobDurationHours: "{hours}घं {minutes}मि",
-			jobViewOutput: "आउटपुट देखें",
-			jobHideOutput: "आउटपुट छिपाएं",
-			jobNoOutput: "अभी कोई आउटपुट नहीं",
-			jobNotReadYet: "मॉडल का इस कार्य का आउटपुट पढ़ने की प्रतीक्षा; मॉडल job_output चलाने पर आउटपुट यहाँ दिखेगा",
-			jobOutputTruncated: "आउटपुट कटा हुआ",
-			jobOutputError: "आउटपुट पढ़ना विफल",
-			jobKill: "समाप्त",
-			jobKillConfirm: "समाप्त की पुष्टि के लिए फिर क्लिक करें",
-			jobKillError: "समाप्त विफल",
-			addPluginsTabCard: "टैब प्लगइन जोड़ें",
-			addPluginsTabCardDesc: "नया साइडबार पृष्ठ पंजीकृत करें",
-			addPluginsViewerCard: "पूर्वावलोकन प्लगइन जोड़ें",
-			addPluginsViewerCardDesc: "फ़ाइल-प्रकार पूर्वावलोकन पंजीकृत करें",
-			addPluginsTabDesc: "साइडबार पृष्ठ (टैब) प्लगइन्स द्वारा विस्तारित हो सकते हैं। प्लगइन्स ctx.betterSidebar सेवा के माध्यम से पंजीकृत होते हैं; इंस्टॉल क्लिक करने पर इंस्टॉल कमांड कॉपी होता है — इसे उस टर्मिनल में पेस्ट करें जहाँ आपका DSH प्रोफ़ाइल है और चलाएँ।",
-			addPluginsViewerDesc: "फ़ाइल पूर्वावलोकक प्लगइन्स द्वारा विस्तारित हो सकते हैं। प्लगइन्स ctx.betterSidebar सेवा के माध्यम से पंजीकृत होते हैं; इंस्टॉल क्लिक करने पर इंस्टॉल कमांड कॉपी होता है — इसे उस टर्मिनल में पेस्ट करें जहाँ आपका DSH प्रोफ़ाइल है और चलाएँ।",
-			addPluginsBrowseMore: "GitHub पर और प्लगइन्स देखें (topic: dsh-coding-sidebar)",
-			addPluginsSearch: "प्लगइन नाम या विवरण से खोजें…",
-			addPluginsNoMatch: "कोई प्लगइन मेल नहीं खाता",
-			addPluginsRecommended: "अनुशंसित प्लगइन",
-			addPluginsEmpty: "अभी कोई प्लगइन संकलित नहीं — अपना प्लगइन GitHub topic के तहत प्रकाशित करें",
-			openPlugin: "खोलें",
-			copyInstall: "इंस्टॉल कमांड कॉपी",
-			pluginOfficeDesc: "dsh-coding-sidebar एडिटर के लिए Office-सूट पूर्वावलोकन (.docx / .xlsx / .pptx), भारी Office रेंडर लाइब्रेरीज़ को मुख्य बंडल से बाहर रखता है",
-			pluginFlowglassDesc: "लाइव सत्र फ़्लोग्राफ़: उपयोगकर्ता, सहायक और टूल कॉल के लिए तीन लेन, समानांतर समूह, सबएजेंट शाखाएँ, ड्रिल-डाउन और लाइव स्थिति; dsh-coding-sidebar इंस्टॉल होने पर देशी Flowglass टैब पंजीकृत करता है और फ़ॉलबैक के रूप में स्टैंडअलोन दराज रखता है",
-			pluginGitForgeDesc: "Git Forge टैब: GitHub/Gitea (और अन्य forge) खाता लाइब्रेरी + प्रोजेक्ट-वार अनुदान + सख्त push नीति; टोकन स्थानीय secrets में रहते हैं (कभी मॉडल संदर्भ में नहीं); केवल-पढ़ने GitForge टूल और एजेंट HTTPS क्रेडेंशियल हेल्पर",
-			pluginGitRemotesDesc: "Git Remotes टैब: ब्रांच/अपस्ट्रीम/ahead-behind, fetch (वैकल्पिक prune), ff-only pull, और केवल टैब-में पुष्टि के बाद push। अंतर्निहित Git स्टेज/कमिट टैब को प्रतिस्थापित नहीं करता, और force-push या मॉडल ऑटो-push टूल नहीं देता",
-			pluginSentinelDesc: "स्थिति-संचालित एजेंट जागरूकता: फ़ाइल/प्रक्रिया/पोर्ट/http/कमांड/webhook सेंसर स्थितियाँ पूरी होने पर निष्क्रिय सत्र जगाते हैं; सर्वर-व्यापी वॉच टेबल के साथ \"Sentinel\" टैब पंजीकृत करता है",
-			pluginSidebarQaDesc: "चुनें और पूछें: वार्तालाप पाठ चुनें → दाएँ पैनल में पूछें → उसी वर्कस्पेस में एक समर्पित फ़ॉलो-अप सत्र (❓फ़ॉलो-अप); एक तेज़ no-thinking मॉडल मुख्य संदर्भ को संक्षिप्त करता है और उद्धरण के साथ इंजेक्ट करता है, मुख्य वार्तालाप को बाधित किए बिना। फ़ॉलो-अप नेस्ट, जारी रखते और संग्रहित करते हैं",
-			pluginSshTunnelDesc: "SSH Tunnel टैब: मल्टी-होस्ट इन्वेंटरी + प्रोजेक्ट-वार अनुदान + स्थानीय secrets; SSHManager टूल (exec/SFTP/सत्र रणनीतियाँ); केंद्रीय इंटरैक्टिव टर्मिनल और दो-फलक SFTP",
-			pluginTurnReviewDesc: "अभी-समाप्त टर्न पर मानव गेट: प्रत्येक पथ के लिए वैकल्पिक टिप्पणी के साथ Approve / Request changes; मुख्य सत्र / सबएजेंट / अप्रत्यायित द्वारा समूहबद्ध पथ; निर्णय से पहले इनलाइन स्नैपशॉट-बनाम-अभी डिफ। कोई फ़ोर्क नहीं, कोई /rewind नहीं",
-			pluginVideoPreviewDesc: "dsh-coding-sidebar एडिटर के लिए इनलाइन वीडियो पूर्वावलोकन (.mp4/.webm/.mov/.mkv/.avi आदि), HTTP Range (206) समर्थन के साथ समर्पित /video होस्ट रूट द्वारा समर्थित — स्क्रबिंग काम करता है और फ़ाइलें 20MB mediaLimit द्वारा सीमित नहीं हैं",
-			pluginDocsPanelDesc: "DSH साइडबार में ग्लोबल डॉक्स: किसी भी वर्कस्पेस से अपने Markdown नोट्स पढ़ें — फ़ाइल सूची, रूपरेखा, Chrome / VS Code में खोलें, और कॉपी बटन; docs डायरेक्टरी कॉन्फ़िगर करने योग्य (डिफ़ॉल्ट ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "DeepSeek Harness के लिए एजेंट ब्राउज़र: 32 ego_* टूल असली Chromium चलाते हैं; साइडबार में नेटिव «ego browser» टैब एजेंट के हर विज़िट किए गए पेज को लाइव दिखाता है — आप क्लिक, ड्रैग और टाइप करके नियंत्रण ले सकते हैं। dsh-coding-sidebar मौजूद होने पर टैब स्वतः रजिस्टर होता है, अन्यथा फ्लोटिंग बबल के रूप में दिखता है"
-		};
-		//#endregion
-		//#region src/client/locales-id.ts
-		/**
-		* The id (Indonesian) dictionary for the betterSidebar namespace.
-		*
-		* Mirrors the key set of `zh` in `locales.ts`. The sidebar's `t()`
-		* consults this dict when `attachBetterLocale(store)` has been called
-		* with an active better-locale store whose `active` is `'id'`; absent
-		* that, the existing zh/en chain runs unchanged.
-		*
-		* Translation conventions:
-		* - Git vocabulary stays close to the English form (stage, commit, branch, fork).
-		* - Settings labels mirror the zh cadence (… perilaku / … cara).
-		* - Placeholders keep {name} verbatim (interpolation runs after lookup).
-		* - English brand names (VS Code, Cursor, Zed, SSH) stay as-is.
-		*/
-		const id$1 = {
-			files: "Berkas",
-			explorer: "Explorer",
-			git: "Source Control",
-			terminal: "Terminal",
-			editor: "Editor",
-			editorExplorer: "Perilaku buka berkas",
-			editorExplorerDesc: "Mengontrol cara berkas dibuka",
-			editorExplorerMerged: "Gabung",
-			editorExplorerMergedDesc: "Berkas beralih di tempat di jendela yang sama; jendela baru memulai dengan pohon terbuka",
-			editorExplorerSplit: "Terpisah",
-			editorExplorerSplitDesc: "Jendela tanpa path adalah explorer mandiri (pohon saja); setiap berkas membuka jendelanya sendiri (pohon terpasang, tertutup secara default)",
-			editorTreeToggle: "Panel pohon berkas",
-			editorPathPlaceholder: "Path berkas (relatif terhadap direktori sesi atau absolut), Enter untuk membuka",
-			editorSearchPlaceholder: "Cari berkas berdasarkan nama…",
-			editorSearchNoResults: "Tidak ada berkas yang cocok",
-			editorSearchTruncated: "Terlalu banyak hasil — menampilkan daftar parsial",
-			editorEmptyHint: "Pilih berkas dari panel pohon atau input path di atas untuk mulai pratinjau",
-			openFileNewTab: "Buka di Tab Baru",
-			openFileSide: "Buka di Samping",
-			openWithMenu: "Buka dengan",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "Sematkan ke menu",
-			unpinOpenWith: "Lepas sematan",
-			openWithExplorer: "File Manager",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "Host remote SSH",
-			openWithSettingsSshDesc: "Kosong = ruang kerja lokal; dengan user@host atau alias SSH, opener VSCode-family beralih ke protokol vscode-remote/ssh-remote dan File Manager / Zed / editor kustom non-VSCode-family disembunyikan dari menu",
-			openWithSettingsSshPlaceholder: "user@host atau alias SSH",
-			openWithSettingsCustomTitle: "Editor kustom",
-			openWithSettingsCustomDesc: "Nama + template URL (placeholder {path}) + flag VSCode-family; dalam mode remote hanya editor VSCode-family yang dapat membuka path remote",
-			openWithSettingsAdd: "Tambah",
-			openWithSettingsName: "Nama",
-			openWithSettingsTemplate: "mis. cursor://file/{path}",
-			openWithSettingsFamily: "VSCode-family",
-			openWithSettingsFamilyDesc: "Editor ini menggunakan dialek URL VSCode (mendukung pembukaan remote SSH)",
-			openWithSettingsRemove: "Hapus",
-			openWithSettingsInvalidHint: "Editor dengan nama hilang atau template tanpa {path} / scheme:// tidak ditampilkan di menu",
-			newTab: "Tab baru",
-			openExplorer: "Explorer",
-			brokenSymlink: "Symlink rusak",
-			openGit: "Panel Git",
-			newTerminal: "Terminal baru",
-			terminalLimit: "Batas terminal tercapai (3)",
-			close: "Tutup",
-			closeOtherTabs: "Tutup Tab Lain",
-			closeLeftTabs: "Tutup Tab di Kiri",
-			closeRightTabs: "Tutup Tab di Kanan",
-			moveToFreeWindow: "Pindahkan ke jendela bebas",
-			floatDropHint: "Lepaskan untuk membuka di jendela bebas",
-			dockToSidebar: "Kembali ke bilah samping",
-			pinTerminal: "Sematkan Terminal",
-			pinAgentTerminal: "Sematkan Terminal Agent",
-			pinToWorkspace: "Sematkan ke Workspace",
-			pinToGlobal: "Sematkan Global",
-			unpinTerminal: "Lepas Sematan",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "Terminal UI",
-			pinnedTerminalKindAgent: "Terminal Agent",
-			pinnedTerminalScopeWorkspace: "Disematkan ke workspace",
-			pinnedTerminalScopeGlobal: "Disematkan global",
-			pinnedRailLabel: "Terminal Tersemat",
-			closePinnedTerminal: "Tutup Terminal",
-			collapse: "Lipat sidebar",
-			expand: "Bentangkan sidebar",
-			terminalError: "Koneksi terminal gagal",
-			terminalConnectFailed: "Terminal gagal terhubung berulang kali",
-			terminalRetry: "Coba lagi",
-			terminalDepsFailed: "Dependensi terminal node-pty gagal dimuat",
-			terminalDepsHint: "Jalankan perintah di bawah ini di terminal atau cmd pada mesin DSH untuk memperbaikinya, lalu coba lagi (node-pty tetap sinkron dengan versi inti DSH):",
-			terminalDepsProfile: " (profil terdeteksi: {profile})",
-			preview: "Pratinjau",
-			edit: "Edit",
-			refresh: "Segarkan",
-			showInFolder: "Tampilkan di folder",
-			refreshUnsavedConfirm: "File berubah di disk. Menyegarkan akan membuang edit yang belum disimpan. Lanjutkan?",
-			save: "Simpan",
-			saved: "Tersimpan",
-			unsaved: "Belum disimpan",
-			saveFailed: "Gagal menyimpan",
-			truncation: "Berkas terlalu besar — menampilkan 512KB pertama",
-			binary: "Berkas biner, pratinjau tidak tersedia",
-			loading: "Memuat…",
-			error: "Gagal memuat",
-			retry: "Coba lagi",
-			splitLeft: "Bagi ke kiri",
-			splitRight: "Bagi ke kanan",
-			splitUp: "Bagi ke atas",
-			splitDown: "Bagi ke bawah",
-			notRepo: "Direktori ini bukan repositori git",
-			noChanges: "Tidak ada perubahan",
-			statusTruncated: "Terlalu banyak perubahan; hanya 2000 entri pertama yang ditampilkan",
-			stage: "Stage",
-			unstage: "Unstage",
-			stageAll: "Stage semua",
-			unstageAll: "Unstage semua",
-			commitPlaceholder: "Pesan commit (Ctrl+Enter)",
-			commit: "Commit",
-			commitError: "Commit gagal",
-			branch: "Branch",
-			worktree: "Worktree",
-			checkoutError: "Beralih branch gagal",
-			history: "Riwayat",
-			changes: "Perubahan",
-			staged: "Staged",
-			unstaged: "Unstaged",
-			cancel: "Batal",
-			diffEmpty: "Tidak ada perubahan teks",
-			diffLoadError: "Gagal memuat diff",
-			diffBinary: "Biner",
-			diffAdded: "Ditambahkan",
-			diffDeleted: "Dihapus",
-			diffRenamed: "Diubah nama",
-			diffExpand: "Bentangkan {count} baris lagi",
-			diffCollapse: "Lipat",
-			discard: "Buang perubahan",
-			discardTitle: "Buang perubahan",
-			discardDesc: "Ini membuang perubahan worktree \"{path}\" (tidak dapat dipulihkan).",
-			viewCommitDiff: "Lihat diff commit",
-			copyShortHash: "Salin hash pendek",
-			copyFullHash: "Salin hash lengkap",
-			copySubject: "Salin subjek",
-			revertCommit: "Revert commit",
-			revertTitle: "Revert commit",
-			revertDesc: "Membuat commit baru pada branch saat ini yang membalikkan \"{subject}\".",
-			cherryPickCommit: "Cherry-pick commit",
-			cherryPickTitle: "Cherry-pick commit",
-			cherryPickDesc: "Menerapkan perubahan dari \"{subject}\" ke branch saat ini.",
-			timeJustNow: "baru saja",
-			timeMinutesAgo: "{n} mnt lalu",
-			timeHoursAgo: "{n} j lalu",
-			timeYesterday: "kemarin",
-			loadMore: "Muat lebih banyak",
-			historyLoadError: "Gagal memuat lebih banyak riwayat",
-			produced: "Dihasilkan",
-			producedOpen: "Buka di sidebar",
-			disconnected: "Terminal terputus, menyambung ulang…",
-			exited: "Proses terminal keluar",
-			noSession: "Pilih obrolan untuk menggunakan sidebar",
-			pluginNotLoaded: "Plugin tidak dimuat; tab tidak tersedia untuk sementara:",
-			hiddenFiles: "Berkas tersembunyi",
-			parent: "Direktori induk",
-			copied: "Tersalin",
-			copy: "Salin",
-			newFile: "Berkas baru",
-			openEditor: "Buka editor",
-			gitDetail: "Lihat detail perubahan",
-			referenceFile: "@berkas",
-			addToConversation: "Tambahkan ke obrolan",
-			copyRelative: "Salin path relatif",
-			copyAbsolute: "Salin path absolut",
-			download: "Unduh",
-			uploadFiles: "Unggah berkas",
-			uploadFolder: "Unggah folder",
-			uploadHere: "Unggah di sini",
-			uploadDropHint: "Jatuhkan berkas/folder di sini untuk mengunggah",
-			uploadDropChat: "Jatuhkan ke area obrolan: tambahkan gambar ke obrolan",
-			uploadTo: "Unggah ke {dir}",
-			uploadingTo: "Mengunggah ke {dir}…",
-			uploadProgress: "Mengunggah {done}/{total}: {name}",
-			uploadDone: "Diunggah {count} berkas",
-			uploadFailed: "Unggahan gagal: {error}",
-			uploadFailedUnknown: "Galat tak dikenal",
-			uploadTooLarge: "Berkas terlalu besar (melebihi batas unggah)",
-			uploadCancelled: "Unggahan dibatalkan",
-			settingsNav: "Kartu samping",
-			settingsIntro: "Kelola apa yang ditampilkan kartu samping dan perilakunya",
-			settingsPopupDesc: "Konfigurasikan opsi terkait untuk {feature}",
-			settingsDone: "Selesai",
-			settingsOpenTitle: "Buka secara default untuk obrolan baru",
-			settingsOpenDesc: "Bentangkan kartu samping secara otomatis untuk obrolan baru; obrolan yang sudah ada mempertahankan tata letaknya",
-			settingsWidthTitle: "Porsi lebar default",
-			settingsWidthDesc: "Porsi lebar jendela default kartu samping untuk obrolan baru (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "Buka berkas obrolan di sidebar",
-			settingsOpenPathDesc: "Buka tautan berkas di obrolan (baris alat, berkas yang dihasilkan, mention) di editor sidebar alih-alih aplikasi default sistem",
-			settingsOpenToolsTitle: "Suntik alat buka sidebar untuk model",
-			settingsOpenToolsDesc: "Saat diaktifkan, model dapat membuka file, folder, dan halaman HTTP(S) di sidebar melalui alat sidebar_open (nonaktif secara default)",
-			settingsTitleBarTitle: "Mode kompatibilitas posisi",
-			settingsTitleBarDesc: "Pilih skema kompatibilitas title-bar: auto-detect (default, konservatif) / Web resmi DSH / shell desktop yang dikenal / kustom (jarak geser + CSS kustom)",
-			settingsTitleBarStripTitle: "Jarak geser",
-			settingsTitleBarStripDesc: "Tinggi strip title-bar: seberapa jauh tombol sidebar dan konten bergeser ke bawah dalam px (0–120, default 40; berlaku di bawah skema kustom)",
-			settingsSchemeAutoTitle: "Auto-detect",
-			settingsSchemeAutoDesc: "Konservatif: hanya API Window Controls Overlay standar yang berkontribusi (tinggi caption-overlay nyata); lingkungan web polos tidak dimodifikasi",
-			settingsSchemeWebTitle: "Web resmi DSH",
-			settingsSchemeWebDesc: "Deklarasikan secara eksplisit UI web resmi: tanpa adaptasi sama sekali (bahkan geometri WCO standar tidak berlaku)",
-			settingsSchemeCustomTitle: "Kustom",
-			settingsSchemeCustomDesc: "Kendali penuh: injeksikan CSS kustom (dapat menimpa style bawaan) dan atur jarak geser title-bar",
-			settingsSchemeDetectedSuffix: "terdeteksi",
-			settingsCustomCssTitle: "CSS kustom",
-			settingsCustomCssDesc: "Style yang ditambahkan di akhir halaman (yang ditulis kemudian menang pada seri; gunakan !important untuk menimpa variabel inline yang ditulis JS)",
-			settingsCustomCssPlaceholder: "/* mis. sediakan 36px untuk shell dengan title-bar yang digambar sendiri */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "Gagal menyimpan",
-			settingsConflict: "Pengaturan diubah di jendela lain — silakan coba lagi",
-			binaryNoPreview: "Tipe berkas ini tidak dapat dipratinjau",
-			downloadToView: "Unduh untuk melihat",
-			settingsSubagentTitle: "Buka otomatis halaman Tasks saat subagen muncul",
-			settingsSubagentDesc: "Bentangkan kartu samping dan buka halaman Tasks saat obrolan saat ini menelurkan subagen baru; matikan untuk membukanya secara manual",
-			settingsJobsTitle: "Buka otomatis halaman Jobs saat ada tugas latar baru",
-			settingsJobsDesc: "Bentangkan kartu samping dan buka halaman Jobs setiap kali tugas latar baru muncul untuk obrolan saat ini (setiap tugas baru memicu); matikan untuk membukanya secara manual",
-			settingsToolsTitle: "Suntik alat terminal untuk model",
-			settingsToolsDesc: "Saat diaktifkan, model dapat membuat dan mengendalikan terminal sidebar melalui 8 alat terminal_* (nonaktif secara default)",
-			settingsFontFamilyTitle: "Keluarga font terminal",
-			settingsFontFamilyDesc: "Keluarga font terminal kustom (stack CSS font-family seperti \"JetBrains Mono\", monospace; biarkan kosong untuk mengikuti font monospace tema)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "Ukuran font terminal",
-			settingsFontSizeDesc: "Ukuran font terminal dalam px (9–32, default 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Path shell",
-			settingsShellDesc: "Shell yang dibangkitkan untuk terminal UI dan model (path absolut atau executable polos). Kosong mempertahankan urutan lama: config.shell yaml → $SHELL / login shell / powershell.exe Windows. Berlaku untuk terminal yang dibuka setelahnya",
-			settingsShellPlaceholder: "mis. /bin/zsh (kosong = auto)",
-			settingsShellArgsTitle: "Argumen shell",
-			settingsShellArgsDesc: "Argumen shell eksplisit, dipisah spasi; jika tidak kosong, sepenuhnya menggantikan default (kontrak yang sama dengan shellArgs yaml)",
-			settingsShellArgsPlaceholder: "mis. -l (kosong = default)",
-			settingsTabsTitle: "Konten sidebar",
-			settingsViewersTitle: "Pratinjau berkas",
-			settingsGeneralTitle: "Umum",
-			settingsPopup: "Pengaturan fitur",
-			settingsViewerCatchAll: "Catch-all: berkas apa pun",
-			viewerImage: "Gambar",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "Kode",
-			viewerBinary: "Unduhan biner",
-			viewerHtml: "HTML",
-			browser: "Browser",
-			browserPlaceholder: "Masukkan URL, mis. example.com",
-			browserGo: "Buka",
-			browserBack: "Mundur",
-			browserForward: "Maju",
-			browserStart: "Masukkan URL untuk mulai menjelajah (mode sandbox)",
-			browserBlockedScheme: "Diblokir: hanya URL http/https yang diizinkan",
-			browserBlockedLoopback: "Diblokir: alamat lokal dan internal tidak dapat dijelajahi di sini",
-			browserInvalid: "URL tidak valid",
-			browserNoSandboxWarning: "Sandbox mati: halaman saat ini berjalan dengan hak penuh GUI (aktifkan kembali di pengaturan)",
-			htmlNoSandboxWarning: "Sandbox mati: HTML ini berjalan dengan hak penuh GUI (aktifkan kembali di pengaturan)",
-			sandboxStatusOn: "Mode sandbox: aktif · halaman tidak dapat mengakses data GUI atau berkas lokal; login dan cookie pihak ketiga mungkin tidak berfungsi",
-			sandboxUnlock: "Nonaktifkan sementara (tidak aman)",
-			sandboxRestore: "Pulihkan sandbox",
-			settingsHtmlDefaultUnsafeTitle: "Buka pratinjau HTML tanpa sandbox secara default (tidak aman)",
-			settingsHtmlDefaultUnsafeDesc: "Saat aktif, setiap pratinjau HTML yang baru dibuka dimulai dalam keadaan tanpa sandbox (asal yang sama dengan GUI — dapat membaca berkas sesi dan API internal); baris status masih menawarkan pemulihan sekali ketuk",
-			settingsHtmlSandboxTitle: "Nonaktifkan sandbox pratinjau HTML (tidak aman)",
-			settingsHtmlSandboxDesc: "Dengan sandbox mati, HTML yang dipratinjau berjalan dengan asal yang sama dengan GUI: dapat membaca berkas sesi, penyimpanan lokal, dan memanggil API internal. Hanya aktifkan untuk berkas yang sepenuhnya tepercaya",
-			settingsBrowserSandboxTitle: "Nonaktifkan sandbox browser (tidak aman)",
-			settingsBrowserSandboxDesc: "Dengan sandbox mati, situs yang dikunjungi berjalan dengan asal yang sama dengan GUI: dapat membaca data sesi dan menyamar sebagai sesi login Anda. Hanya aktifkan untuk situs yang sepenuhnya tepercaya",
-			settingsBrowserLinksTitle: "Buka tautan eksternal obrolan di sidebar",
-			settingsBrowserLinksDesc: "Saat aktif, mengeklik tautan eksternal di obrolan atau GUI membuka sidebar alih-alih jendela baru; HTTP dan HTTPS dikendalikan terpisah oleh sakelar di bawah; Ctrl/Cmd+klik selalu menembus",
-			settingsBrowserHttpTitle: "Buka halaman HTTP di sidebar",
-			settingsBrowserHttpDesc: "Saat aktif, mengeklik tautan eksternal HTTP di obrolan atau GUI membuka sidebar (halaman plugin yang mendeklarasikan urlTarget menang); Ctrl/Cmd+klik selalu menembus",
-			settingsBrowserHttpsTitle: "Buka halaman HTTPS di sidebar",
-			settingsBrowserHttpsDesc: "Saat aktif, mengeklik tautan eksternal HTTPS di obrolan atau GUI membuka sidebar. Nonaktif secara default: kebanyakan situs HTTPS menolak untuk disematkan, jadi browser sistem adalah default yang lebih mulus",
-			settingsBrowserLoopbackTitle: "Alamat lokal yang diizinkan",
-			settingsBrowserLoopbackDesc: "Daftar putih alamat loopback yang dipisahkan koma (mis. localhost:5174 atau 127.0.0.1:8080) yang dapat dikunjungi browser sidebar; kosong memblokir semua alamat lokal secara default. Sandbox tetap berlaku — halaman tidak dapat membaca data GUI",
-			settingsBrowserLoopbackPlaceholder: "mis. localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "Buka di browser",
-			browserEmbedBlocked: "{host} menolak untuk disematkan",
-			browserEmbedBlockedDesc: "Situs melarang ditampilkan di dalam halaman lain (X-Frame-Options / frame-ancestors), sehingga tidak dapat dimuat di sidebar. Buka langsung di browser Anda.",
-			browserEmbedAnyway: "Tetap muat",
-			subagent: "Tasks",
-			openSubagent: "Tasks",
-			subagentMainAgent: "Agen utama",
-			subagentEmpty: "Tidak ada subagen",
-			subagentEmptyDesc: "Subagen yang dibangkitkan di bawah agen utama akan muncul di sini",
-			subagentRunning: "Berjalan",
-			subagentInactive: "Menganggur",
-			subagentModeOneShot: "Sekali pakai",
-			subagentModeContinuable: "Dapat dilanjutkan",
-			subagentCount: "{count} subagen",
-			subagentCountRunning: "{count} subagen · {running} berjalan",
-			subagentDiagCorrupt: "Rusak",
-			subagentDiagUnsupported: "Tidak didukung",
-			subagentDiagUnavailable: "Tidak tersedia",
-			subagentThinking: "Berpikir…",
-			subagentShowHistory: "Tampilkan {count} subagen sebelumnya",
-			subagentHideHistory: "Ciutkan subagen sebelumnya",
-			sideChat: "Side Chat (beta)",
-			sideChatNew: "Thread baru",
-			sideChatUntitled: "Thread baru",
-			sideChatEmpty: "Tidak ada obrolan samping",
-			sideChatEmptyDesc: "Setiap obrolan samping adalah tab sendiri di strip tab — mewarisi konteks sesi saat ini dan tidak pernah masuk ke obrolan utama",
-			sideChatCreating: "Membuat obrolan samping…",
-			sideChatRetry: "Coba lagi",
-			sideChatThreads: "Beralih thread / baru",
-			sideChatSave: "Simpan sebagai sesi baru",
-			sideChatSaveTitle: "Promosikan thread ini ke sesi tingkat atas dalam daftar sesi utama",
-			sideChatSaved: "Tersimpan sebagai sesi baru",
-			sideChatNoTurn: "Simpan tersedia setelah giliran pertama selesai",
-			sideChatPendingDrop: "Tindak lanjut yang belum terjawab terakhir tidak akan disertakan dalam sesi yang disimpan",
-			sideChatFirstPlaceholder: "Ajukan pertanyaan pertama — konteks diwarisi…",
-			sideChatComposerPlaceholder: "Ajukan tindak lanjut…",
-			sideChatThinking: "Mendalami…",
-			sideChatThink: "Berpikir",
-			sideChatInjection: "Konteks disuntik",
-			sideChatSend: "Kirim",
-			sideChatCancel: "Hentikan",
-			sideChatCancelTitle: "Batalkan giliran yang berjalan (pekerjaan antrean dipertahankan)",
-			sideChatClose: "Tutup thread",
-			sideChatCloseTitle: "Lepaskan agen thread (riwayat dipertahankan)",
-			sideChatError: "Kesalahan Side Chat: {message}",
-			jobs: "Tugas latar",
-			jobsCount: "{count} tugas latar",
-			jobsCountRunning: "{count} tugas latar · {running} berjalan",
-			jobsShowHistory: "Tampilkan {count} tugas latar sebelumnya",
-			jobsHideHistory: "Ciutkan tugas latar sebelumnya",
-			jobStatusRunning: "Berjalan",
-			jobStatusStopping: "Menghentikan",
-			jobStatusCompleted: "Selesai",
-			jobStatusKilled: "Dihentikan",
-			jobStatusFailed: "Gagal",
-			jobDurationSeconds: "{seconds}d",
-			jobDurationMinutes: "{minutes}m {seconds}d",
-			jobDurationHours: "{hours}j {minutes}m",
-			jobViewOutput: "Lihat keluaran",
-			jobHideOutput: "Sembunyikan keluaran",
-			jobNoOutput: "Belum ada keluaran",
-			jobNotReadYet: "Menunggu model membaca tugas ini; keluarannya muncul di sini setelah model menjalankan job_output",
-			jobOutputTruncated: "Keluaran dipotong",
-			jobOutputError: "Gagal membaca keluaran",
-			jobKill: "Hentikan",
-			jobKillConfirm: "Klik lagi untuk mengonfirmasi penghentian",
-			jobKillError: "Penghentian gagal",
-			addPluginsTabCard: "Tambah plugin tab",
-			addPluginsTabCardDesc: "Daftarkan halaman sidebar baru",
-			addPluginsViewerCard: "Tambah plugin pratinjau",
-			addPluginsViewerCardDesc: "Daftarkan pratinjau tipe berkas",
-			addPluginsTabDesc: "Halaman sidebar (tab) dapat diperluas oleh plugin. Plugin mendaftar melalui layanan ctx.betterSidebar; klik Install menyalin perintah instalasi — tempel ke terminal tempat profil DSH Anda berada dan jalankan.",
-			addPluginsViewerDesc: "Pratinjau berkas dapat diperluas oleh plugin. Plugin mendaftar melalui layanan ctx.betterSidebar; klik Install menyalin perintah instalasi — tempel ke terminal tempat profil DSH Anda berada dan jalankan.",
-			addPluginsBrowseMore: "Jelajahi lebih banyak plugin di GitHub (topic: dsh-coding-sidebar)",
-			addPluginsSearch: "Cari berdasarkan nama / deskripsi plugin…",
-			addPluginsNoMatch: "Tidak ada plugin yang cocok",
-			addPluginsRecommended: "Plugin yang direkomendasikan",
-			addPluginsEmpty: "Belum ada plugin yang dikurasi — publikasikan plugin Anda di bawah topik GitHub",
-			openPlugin: "Buka",
-			copyInstall: "Salin perintah instalasi",
-			pluginOfficeDesc: "Pratinjau Office-suite (.docx / .xlsx / .pptx) untuk editor dsh-coding-sidebar, menjaga pustaka render Office yang berat tetap di luar bundle inti",
-			pluginFlowglassDesc: "Flowgraph sesi langsung dengan tiga lajur untuk pengguna, asisten, dan panggilan alat, plus grup paralel, cabang sub-agen, drill-down, dan status langsung; mendaftarkan tab Flowglass native saat dsh-coding-sidebar terpasang dan mempertahankan laci mandirinya sebagai fallback",
-			pluginGitForgeDesc: "Tab Git Forge: pustaka akun GitHub/Gitea (dan forge lain) + pemberian izin per proyek + kebijakan push yang ditegakkan keras; token tetap di rahasia lokal (tidak pernah dalam konteks model); alat GitForge hanya-baca dan helper kredensial HTTPS agen",
-			pluginGitRemotesDesc: "Tab Git Remotes: branch/upstream/ahead-behind, fetch (prune opsional), ff-only pull, dan push hanya setelah konfirmasi dalam tab. Tidak menggantikan tab stage/commit Git bawaan, dan tidak menawarkan force-push atau alat auto-push model",
-			pluginSentinelDesc: "Sistem bangun agen berbasis kondisi: sensor berkas/proses/port/http/perintah/webhook membangunkan sesi yang tidur saat kondisi terpicu; mendaftarkan tab \"Sentinel\" dengan tabel pengawasan server-wide",
-			pluginSidebarQaDesc: "Select-and-ask: Pilih teks obrolan → ajukan di panel kanan → sesi tindak lanjut khusus (❓追问) di ruang kerja yang sama; model no-thinking yang cepat mengompresi konteks utama dan menyuntiknya bersama kutipan, tanpa mengganggu obrolan utama. Tindak lanjut dapat bersarang, dilanjutkan, dan diarsipkan",
-			pluginSshTunnelDesc: "Tab SSH Tunnel: inventaris multi-host + pemberian izin per proyek + rahasia lokal; alat SSHManager (exec/SFTP/strategi sesi); terminal interaktif pusat dan SFTP dua panel",
-			pluginTurnReviewDesc: "Gerbang manusia pada giliran yang baru selesai: Approve / Request changes per path dengan komentar opsional; path dikelompokkan berdasarkan sesi utama / subagen / tidak teratribusi; diff snapshot-vs-now inline sebelum Anda memutuskan. Tanpa fork, tanpa /rewind",
-			pluginVideoPreviewDesc: "Pratinjau video inline (.mp4/.webm/.mov/.mkv/.avi dll.) untuk editor dsh-coding-sidebar, didukung oleh rute host /video khusus dengan dukungan HTTP Range (206) — scrubbing berfungsi dan berkas tidak dibatasi oleh mediaLimit 20MB",
-			pluginDocsPanelDesc: "Dokumen global di sidebar DSH: baca catatan Markdown Anda sendiri dari ruang kerja apa pun — daftar berkas, kerangka, buka di Chrome / VS Code, dan tombol salin; direktori docs dapat dikonfigurasi (default ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "Browser agen untuk DeepSeek Harness: 32 alat ego_* menggerakkan Chromium sungguhan; tab «ego browser» native di bilah samping menampilkan langsung setiap halaman yang dikunjungi agen — Anda bisa mengklik, menyeret, dan mengetik untuk mengambil alih. Tab terdaftar otomatis jika dsh-coding-sidebar terpasang; jika tidak, jatuh ke gelembung mengambang"
-		};
-		//#endregion
-		//#region src/client/locales-tr.ts
-		/**
-		* The tr (Turkish) dictionary for the betterSidebar namespace.
-		*
-		* Mirrors the key set of `zh` in `locales.ts`. The sidebar's `t()`
-		* consults this dict when `attachBetterLocale(store)` has been called
-		* with an active better-locale store whose `active` is `'tr'`; absent
-		* that, the existing zh/en chain runs unchanged.
-		*
-		* Translation conventions:
-		* - Common dev-tool loanwords stay in Turkish (Terminal, Tarayıcı, Klasör).
-		* - Git vocabulary follows standard Turkish usage ( Sahnele, İşle, Dal).
-		* - Settings labels end in noun/infinitive forms to mirror the zh cadence.
-		* - Placeholders keep `{name}` verbatim (interpolation runs after lookup).
-		* - English brand names (VS Code, Cursor, Zed, SSH) stay as-is.
-		*/
-		/** The tr dictionary (key-set-equal to zh, enforced by the type annotation in locales.ts). */
-		const tr$1 = {
-			files: "Dosyalar",
-			explorer: "Gezgin",
-			git: "Kaynak denetimi",
-			terminal: "Terminal",
-			editor: "Düzenleyici",
-			editorExplorer: "Dosya açma davranışı",
-			editorExplorerDesc: "Dosyaların açılma biçimini denetler",
-			editorExplorerMerged: "Birleşik",
-			editorExplorerMergedDesc: "Dosyalar aynı pencerede yerinde geçer; yeni pencereler ağaç açık başlar",
-			editorExplorerSplit: "Ayrı",
-			editorExplorerSplitDesc: "Yolsuz pencere tek başına gezgindir (yalnızca ağaç); her dosya kendi penceresini açar (ağaç yuvalanmış, varsayılan kapalı)",
-			editorTreeToggle: "Dosya ağacı paneli",
-			editorPathPlaceholder: "Dosya yolu (oturum dizinine göreli veya mutlak), Enter ile aç",
-			editorSearchPlaceholder: "Dosya adına göre ara…",
-			editorSearchNoResults: "Eşleşen dosya yok",
-			editorSearchTruncated: "Sonuç çok fazla — kısmi liste gösteriliyor",
-			editorEmptyHint: "Önizlemeye başlamak için sağdaki dosya ağacından veya yukarıdaki yol girişinden bir dosya seçin",
-			openFileNewTab: "Yeni sekmede aç",
-			openFileSide: "Yana aç",
-			openWithMenu: "Birlikte aç",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "Menüye sabitle",
-			unpinOpenWith: "Sabitlemeyi kaldır",
-			openWithExplorer: "Dosya yöneticisi",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "SSH uzak ana makine",
-			openWithSettingsSshDesc: "Boş = yerel çalışma alanı; bir user@host veya SSH rumuzu verilirse VSCode ailesi açıcılar vscode-remote/ssh-remote protokolüne geçer ve Dosya yöneticisi / Zed / VSCode ailesi olmayan özel düzenleyiciler menüden gizlenir",
-			openWithSettingsSshPlaceholder: "user@host veya SSH rumuzu",
-			openWithSettingsCustomTitle: "Özel düzenleyiciler",
-			openWithSettingsCustomDesc: "Ad + URL şablonu ({path} yer tutucusu) + VSCode ailesi bayrağı; uzak modda yalnızca VSCode ailesi düzenleyiciler uzak yolu açabilir",
-			openWithSettingsAdd: "Ekle",
-			openWithSettingsName: "Ad",
-			openWithSettingsTemplate: "ör. cursor://file/{path}",
-			openWithSettingsFamily: "VSCode ailesi",
-			openWithSettingsFamilyDesc: "Bu düzenleyici VSCode URL dilini konuşur (SSH uzak açmayı destekler)",
-			openWithSettingsRemove: "Kaldır",
-			openWithSettingsInvalidHint: "Adı eksik veya {path}/scheme:// içermeyen şablonlu düzenleyiciler menüde gösterilmez",
-			newTab: "Yeni sekme",
-			openExplorer: "Gezgin",
-			brokenSymlink: "Bozuk sembolik bağ",
-			openGit: "Git paneli",
-			newTerminal: "Yeni terminal",
-			terminalLimit: "Terminal sınırına ulaşıldı (3)",
-			close: "Kapat",
-			closeOtherTabs: "Diğer sekmeleri kapat",
-			closeLeftTabs: "Soldaki sekmeleri kapat",
-			closeRightTabs: "Sağdaki sekmeleri kapat",
-			moveToFreeWindow: "Serbest pencereye taşı",
-			floatDropHint: "Serbest pencerede açmak için bırakın",
-			dockToSidebar: "Kenar çubuğuna geri dön",
-			pinTerminal: "Terminali Sabitle",
-			pinAgentTerminal: "Agent Terminalini Sabitle",
-			pinToWorkspace: "Çalışma Alanına Sabitle",
-			pinToGlobal: "Genel Olarak Sabitle",
-			unpinTerminal: "Sabitlemeyi Kaldır",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "UI Terminali",
-			pinnedTerminalKindAgent: "Agent Terminali",
-			pinnedTerminalScopeWorkspace: "Çalışma alanına sabitlendi",
-			pinnedTerminalScopeGlobal: "Genel olarak sabitlendi",
-			pinnedRailLabel: "Sabitlenmiş Terminaller",
-			closePinnedTerminal: "Terminali Kapat",
-			collapse: "Kenar çubuğunu daralt",
-			expand: "Kenar çubuğunu genişlet",
-			terminalError: "Terminal bağlantısı başarısız",
-			terminalConnectFailed: "Terminal art arda bağlanamadı",
-			terminalRetry: "Yeniden dene",
-			terminalDepsFailed: "Terminal bağımlılığı node-pty yüklenemedi",
-			terminalDepsHint: "Onarmak için DSH makinesindeki bir terminalde veya cmd’de aşağıdaki komutu çalıştırın, sonra yeniden deneyin (node-pty, DSH çekirdek sürümüyle senkron kalır):",
-			terminalDepsProfile: " (algılanan profil: {profile})",
-			preview: "Önizleme",
-			edit: "Düzenle",
-			refresh: "Yenile",
-			showInFolder: "Klasörde göster",
-			refreshUnsavedConfirm: "Dosya diskte değişti. Yenileme kaydedilmemiş düzenlemeleri atar. Devam edilsin mi?",
-			save: "Kaydet",
-			saved: "Kaydedildi",
-			unsaved: "Kaydedilmedi",
-			saveFailed: "Kaydetme başarısız",
-			truncation: "Dosya çok büyük — ilk 512KB gösteriliyor",
-			binary: "İkili dosya, önizleme kullanılamıyor",
-			loading: "Yükleniyor…",
-			error: "Yükleme başarısız",
-			retry: "Yeniden dene",
-			splitLeft: "Sola böl",
-			splitRight: "Sağa böl",
-			splitUp: "Yukarı böl",
-			splitDown: "Aşağı böl",
-			notRepo: "Bu dizin bir git deposu değil",
-			noChanges: "Değişiklik yok",
-			statusTruncated: "Çok fazla değişiklik var; yalnızca ilk 2000 giriş gösteriliyor",
-			stage: "Sahnele",
-			unstage: "Sahnelemeden kaldır",
-			stageAll: "Tümünü sahnele",
-			unstageAll: "Tümünü sahnelemeden kaldır",
-			commitPlaceholder: "İşleme iletisi (Ctrl+Enter)",
-			commit: "İşle",
-			commitError: "İşleme başarısız",
-			branch: "Dal",
-			worktree: "Çalışma ağacı",
-			checkoutError: "Dal değiştirme başarısız",
-			history: "Geçmiş",
-			changes: "Değişiklikler",
-			staged: "Sahnelendi",
-			unstaged: "Sahnelenmedi",
-			cancel: "İptal",
-			diffEmpty: "Metin değişikliği yok",
-			diffLoadError: "Diff yüklenemedi",
-			diffBinary: "İkili",
-			diffAdded: "Eklendi",
-			diffDeleted: "Silindi",
-			diffRenamed: "Yeniden adlandırıldı",
-			diffExpand: "{count} satır daha göster",
-			diffCollapse: "Daralt",
-			discard: "Değişiklikleri at",
-			discardTitle: "Değişiklikleri at",
-			discardDesc: "Bu, «{path}» öğesinin çalışma ağacı değişikliklerini atar (geri alınamaz).",
-			viewCommitDiff: "İşleme diff’ini görüntüle",
-			copyShortHash: "Kısa karmayı kopyala",
-			copyFullHash: "Tam karmayı kopyala",
-			copySubject: "İşleme iletisini kopyala",
-			revertCommit: "İşlemeyi geri al",
-			revertTitle: "İşlemeyi geri al",
-			revertDesc: "«{subject}» işlemini geriye alan yeni bir işleme geçerli dalda oluşturur.",
-			cherryPickCommit: "İşlemeyi seç-al",
-			cherryPickTitle: "İşlemeyi seç-al",
-			cherryPickDesc: "«{subject}» değişikliklerini geçerli dala uygular.",
-			timeJustNow: "az önce",
-			timeMinutesAgo: "{n} dk önce",
-			timeHoursAgo: "{n} sa önce",
-			timeYesterday: "dün",
-			loadMore: "Daha fazla yükle",
-			historyLoadError: "Daha fazla geçmiş yüklenemedi",
-			produced: "Üretilenler",
-			producedOpen: "Kenar çubuğunda aç",
-			disconnected: "Terminal bağlantısı kesildi, yeniden bağlanılıyor…",
-			exited: "Terminal süreci sonlandı",
-			noSession: "Kenar çubuğunu kullanmak için bir oturum seçin",
-			pluginNotLoaded: "Eklenti yüklenmedi; sekme kullanılamıyor:",
-			hiddenFiles: "Gizli dosyalar",
-			parent: "Üst dizin",
-			copied: "Kopyalandı",
-			copy: "Kopyala",
-			newFile: "Yeni dosya",
-			openEditor: "Düzenleyiciyi aç",
-			gitDetail: "Değişiklik ayrıntılarını görüntüle",
-			referenceFile: "@dosya",
-			addToConversation: "Sohbete ekle",
-			copyRelative: "Göreli yolu kopyala",
-			copyAbsolute: "Mutlak yolu kopyala",
-			download: "İndir",
-			uploadFiles: "Dosyaları yükle",
-			uploadFolder: "Klasör yükle",
-			uploadHere: "Buraya yükle",
-			uploadDropHint: "Yüklemek için dosyaları/klasörleri buraya bırakın",
-			uploadDropChat: "Resim eklemek için sohbet alanına bırakın",
-			uploadTo: "{dir} içine yükle",
-			uploadingTo: "{dir} içine yükleniyor…",
-			uploadProgress: "Yükleniyor {done}/{total}: {name}",
-			uploadDone: "{count} dosya yüklendi",
-			uploadFailed: "Yükleme başarısız: {error}",
-			uploadFailedUnknown: "Bilinmeyen hata",
-			uploadTooLarge: "Dosya çok büyük (yükleme sınırını aşıyor)",
-			uploadCancelled: "Yükleme iptal edildi",
-			settingsNav: "Yan kart",
-			settingsIntro: "Yan kartın ne gösterdiğini ve nasıl davrandığını yönetin",
-			settingsPopupDesc: "«{feature}» için ilgili seçenekleri yapılandırın",
-			settingsDone: "Bitti",
-			settingsOpenTitle: "Yeni sohbetlerde varsayılan olarak aç",
-			settingsOpenDesc: "Yepyeni sohbetler için yan kartı otomatik genişlet; var olan sohbetler kendi düzenlerini korur",
-			settingsWidthTitle: "Varsayılan genişlik payı",
-			settingsWidthDesc: "Yeni sohbetler için yan kartın pencere genişliğindeki varsayılan payı (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "Sohbet dosyalarını kenar çubuğunda aç",
-			settingsOpenPathDesc: "Sohbetteki dosya bağlantılarını (araç satırları, üretilen dosyalar, anılmalar) sistem varsayılan uygulaması yerine kenar çubuğu düzenleyicisinde aç",
-			settingsOpenToolsTitle: "Model için kenar çubuğu açma aracı enjekte et",
-			settingsOpenToolsDesc: "Etkinleştirildiğinde model, sidebar_open aracıyla kenar çubuğunda dosyaları, klasörleri ve HTTP(S) sayfalarını açabilir (varsayılan kapalı)",
-			settingsTitleBarTitle: "Konum uyumluluk modu",
-			settingsTitleBarDesc: "Başlık çubuğu uyumluluk düzenini seçin: otomatik algıla (varsayılan, tutucu) / DSH resmi web / bilinen masaüstü kabukları / özel (kaydırma mesafesi + özel CSS)",
-			settingsTitleBarStripTitle: "Kaydırma mesafesi",
-			settingsTitleBarStripDesc: "Başlık çubuğu şerit yüksekliği: kenar çubuğu düğmelerinin ve içeriğin kaç px aşağı kayacağı (0–120, varsayılan 40; özel düzen altında geçerli)",
-			settingsSchemeAutoTitle: "Otomatik algıla",
-			settingsSchemeAutoDesc: "Tutucu: yalnızca standart Window Controls Overlay API’si katkıda bulunur (gerçek başlık katmanı yüksekliği); sade web ortamlarında hiçbir değişiklik yapılmaz",
-			settingsSchemeWebTitle: "DSH resmi web",
-			settingsSchemeWebDesc: "Resmi web arayüzünde çalıştığını açıkça bildir: hiçbir uyarlama yapılmaz (standart WCO geometrisi bile uygulanmaz)",
-			settingsSchemeCustomTitle: "Özel",
-			settingsSchemeCustomDesc: "Tam denetim: özel CSS enjekte et (yerleşik stilleri geçersiz kılabilir) ve başlık çubuğu kaydırma mesafesini ayarla",
-			settingsSchemeDetectedSuffix: "algılandı",
-			settingsCustomCssTitle: "Özel CSS",
-			settingsCustomCssDesc: "Sayfanın sonuna eklenen stiller (basamakta sonra yazılan kazanır; JS ile yazılmış satır içi değişkenleri geçersiz kılmak için !important kullanın)",
-			settingsCustomCssPlaceholder: "/* örn. özel çizili başlık çubuğu olan bir kabuk için 36px ayır */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "Kaydetme başarısız",
-			settingsConflict: "Ayar başka bir pencerede değiştirildi — lütfen yeniden deneyin",
-			binaryNoPreview: "Bu dosya türü önizlenemiyor",
-			downloadToView: "Görüntülemek için indir",
-			settingsSubagentTitle: "Bir alt aracı belirdiğinde Görevler sayfasını otomatik aç",
-			settingsSubagentDesc: "Geçerli sohbet yeni bir alt aracı doğurduğunda yan kartı genişlet ve Görevler sayfasını aç; elle açmak için kapatın",
-			settingsJobsTitle: "Yeni arka plan işinde İşler sayfasını otomatik aç",
-			settingsJobsDesc: "Geçerli sohbet için yeni bir arka plan işi belirdiğinde yan kartı genişlet ve İşler sayfasını aç (her yeni iş tetikler); elle açmak için kapatın",
-			settingsToolsTitle: "Model için terminal araçları enjekte et",
-			settingsToolsDesc: "Etkinleştirildiğinde model, 8 terminal_* aracı üzerinden kenar çubuğu terminalleri oluşturup kullanabilir (varsayılan kapalı)",
-			settingsFontFamilyTitle: "Terminal yazı tipi ailesi",
-			settingsFontFamilyDesc: "Özel terminal yazı tipi ailesi (bir CSS font-family yığını gibi \"JetBrains Mono\", monospace; temanın sabit genişlikli yazı tipini izlemek için boş bırakın)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "Terminal yazı boyutu",
-			settingsFontSizeDesc: "px cinsinden terminal yazı boyutu (9–32, varsayılan 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Kabuk yolu",
-			settingsShellDesc: "Arayüz ve model terminalleri için başlatılan kabuk (mutlak yol veya yalın yürütülebilir). Boş, eski sırayı korur: yaml config.shell → $SHELL / oturum açma kabuğu / Windows powershell.exe. Sonradan açılan terminaller için geçerli",
-			settingsShellPlaceholder: "ör. /bin/zsh (boş = otomatik)",
-			settingsShellArgsTitle: "Kabuk bağımsız değişkenleri",
-			settingsShellArgsDesc: "Açık kabuk bağımsız değişkenleri, boşlukla ayrılmış; boş olmadıklarında varsayılanları tamamen değiştirir (yaml shellArgs ile aynı sözleşme)",
-			settingsShellArgsPlaceholder: "ör. -l (boş = varsayılanlar)",
-			settingsTabsTitle: "Kenar çubuğu içeriği",
-			settingsViewersTitle: "Dosya önizleyicileri",
-			settingsGeneralTitle: "Genel",
-			settingsPopup: "Özellik ayarları",
-			settingsViewerCatchAll: "Hepsi yakala: herhangi bir dosya",
-			viewerImage: "Resim",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "Kod",
-			viewerBinary: "İkili indirme",
-			viewerHtml: "HTML",
-			browser: "Tarayıcı",
-			browserPlaceholder: "Bir URL girin, örn. example.com",
-			browserGo: "Git",
-			browserBack: "Geri",
-			browserForward: "İleri",
-			browserStart: "Gezinmeye başlamak için bir URL girin (kum modu)",
-			browserBlockedScheme: "Engellendi: yalnızca http/https URL’lerine izin verilir",
-			browserBlockedLoopback: "Engellendi: yerel ve iç adresler burada gezilemez",
-			browserInvalid: "Geçersiz URL",
-			browserNoSandboxWarning: "Kum kapalı: geçerli sayfa tam arayüz ayrıcalıklarıyla çalışır (ayarlardan yeniden etkinleştirin)",
-			htmlNoSandboxWarning: "Kum kapalı: bu HTML tam arayüz ayrıcalıklarıyla çalışır (ayarlardan yeniden etkinleştirin)",
-			sandboxStatusOn: "Kum modu: açık · sayfalar arayüzün verilerine veya yerel dosyalara erişemez; oturum açmalar ve üçüncü taraf çerezler çalışmayabilir",
-			sandboxUnlock: "Geçici olarak devre dışı bırak (güvenli değil)",
-			sandboxRestore: "Kumu geri yükle",
-			settingsHtmlDefaultUnsafeTitle: "HTML önizlemelerini varsayılan olarak kumsuz aç (güvenli değil)",
-			settingsHtmlDefaultUnsafeDesc: "Açıkken, yeni açılan her HTML önizlemesi kumsuz durumda başlar (arayüzle aynı kaynak — oturum dosyalarını ve iç API’leri okuyabilir); durum satırı yine tek dokunuşla geri yükleme sunar",
-			settingsHtmlSandboxTitle: "HTML önizleme kumunu devre dışı bırak (güvenli değil)",
-			settingsHtmlSandboxDesc: "Kum kapalıyken önizlenen HTML arayüzle aynı kaynakta çalışır: oturum dosyalarını, yerel depoyu okuyabilir ve iç API’leri çağırabilir. Yalnızca tamamen güvenilen dosyalar için etkinleştirin",
-			settingsBrowserSandboxTitle: "Tarayıcı kumunu devre dışı bırak (güvenli değil)",
-			settingsBrowserSandboxDesc: "Kum kapalıyken ziyaret edilen her site arayüzle aynı kaynakta çalışır: oturum verilerini okuyabilir ve oturum açmış halinize bürünebilir. Yalnızca tamamen güvenilen siteler için etkinleştirin",
-			settingsBrowserLinksTitle: "Sohbet dış bağlantılarını kenar çubuğunda aç",
-			settingsBrowserLinksDesc: "Açıkken sohbetteki veya arayüzdeki bir dış bağlantıya tıklamak yeni pencere yerine kenar çubuğunu açar; HTTP ve HTTPS aşağıdaki anahtarlarla ayrı ayrı denetlenir; Ctrl/Cmd+tıklama her zaman atlatır",
-			settingsBrowserHttpTitle: "HTTP sayfalarını kenar çubuğunda aç",
-			settingsBrowserHttpDesc: "Açıkken sohbetteki veya arayüzdeki bir HTTP dış bağlantısına tıklamak kenar çubuğunu açar (urlTarget bildiren eklenti sayfaları öncelikli); Ctrl/Cmd+tıklama her zaman atlatır",
-			settingsBrowserHttpsTitle: "HTTPS sayfalarını kenar çubuğunda aç",
-			settingsBrowserHttpsDesc: "Açıkken sohbetteki veya arayüzdeki bir HTTPS dış bağlantısına tıklamak kenar çubuğunu açar. Varsayılan kapalı: çoğu HTTPS sitesi gömülmeyi reddeder, bu yüzden sistem tarayıcısı daha akıcı varsayılandır",
-			settingsBrowserLoopbackTitle: "İzin verilen yerel adresler",
-			settingsBrowserLoopbackDesc: "Kenar çubuğu tarayıcısının ziyaret edebileceği geri döngü adreslerinin virgülle ayrılmış izin listesi (ör. localhost:5174 veya 127.0.0.1:8080); boş, varsayılan olarak tüm yerel adresleri engeller. Kum havuzu hala geçerlidir — sayfalar GUI verilerini okuyamaz",
-			settingsBrowserLoopbackPlaceholder: "ör. localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "Tarayıcıda aç",
-			browserEmbedBlocked: "{host} gömülmeyi reddetti",
-			browserEmbedBlockedDesc: "Site başka sayfalar içinde gösterilmeyi yasaklıyor (X-Frame-Options / frame-ancestors), bu yüzden kenar çubuğunda yüklenemiyor. Bunun yerine doğrudan tarayıcınızda açın.",
-			browserEmbedAnyway: "Yine de yükle",
-			subagent: "Görevler",
-			openSubagent: "Görevler",
-			subagentMainAgent: "Ana aracı",
-			subagentEmpty: "Alt aracı yok",
-			subagentEmptyDesc: "Ana aracının altında doğan alt aracılar burada görünür",
-			subagentRunning: "Çalışıyor",
-			subagentInactive: "Etkin değil",
-			subagentModeOneShot: "Tek seferlik",
-			subagentModeContinuable: "Sürdürülebilir",
-			subagentCount: "{count} alt aracı",
-			subagentCountRunning: "{count} alt aracı · {running} çalışıyor",
-			subagentDiagCorrupt: "Bozuk",
-			subagentDiagUnsupported: "Desteklenmiyor",
-			subagentDiagUnavailable: "Kullanılamıyor",
-			subagentThinking: "Düşünüyor…",
-			subagentShowHistory: "Önceki {count} alt aracıyı göster",
-			subagentHideHistory: "Önceki alt araçları daralt",
-			sideChat: "Yan sohbet (beta)",
-			sideChatNew: "Yeni iş parçacığı",
-			sideChatUntitled: "Yeni iş parçacığı",
-			sideChatEmpty: "Yan sohbet yok",
-			sideChatEmptyDesc: "Her yan sohbet sekme şeridindeki kendi sekmesidir — geçerli oturumun bağlamını miras alır ve asla ana sohbete girmez",
-			sideChatCreating: "Yan sohbet oluşturuluyor…",
-			sideChatRetry: "Yeniden dene",
-			sideChatThreads: "İş parçacığını değiştir / yeni",
-			sideChatSave: "Yeni oturum olarak kaydet",
-			sideChatSaveTitle: "Bu iş parçacığını ana oturum listesinde üst düzey oturuma yükselt",
-			sideChatSaved: "Yeni oturum olarak kaydedildi",
-			sideChatNoTurn: "Kaydetme ilk tamamlanan turdan sonra kullanılabilir",
-			sideChatPendingDrop: "Son yanıtlanmamış devam sorusu kaydedilen oturuma dahil edilmez",
-			sideChatFirstPlaceholder: "İlk soruyu sorun — bağlam miras alındı…",
-			sideChatComposerPlaceholder: "Devam sorusu sor…",
-			sideChatThinking: "Derin dalıyor…",
-			sideChatThink: "Düşünme",
-			sideChatInjection: "Bağlam enjekte edildi",
-			sideChatSend: "Gönder",
-			sideChatCancel: "Durdur",
-			sideChatCancelTitle: "Geçerli turu durdur (sıradaki iş korunur)",
-			sideChatClose: "İş parçacığını kapat",
-			sideChatCloseTitle: "İş parçacığının aracısını serbest bırak (geçmiş korunur)",
-			sideChatError: "Yan sohbet hatası: {message}",
-			jobs: "Arka plan işleri",
-			jobsCount: "{count} arka plan işi",
-			jobsCountRunning: "{count} arka plan işi · {running} çalışıyor",
-			jobsShowHistory: "Önceki {count} arka plan işini göster",
-			jobsHideHistory: "Önceki arka plan işlerini daralt",
-			jobStatusRunning: "Çalışıyor",
-			jobStatusStopping: "Durduruluyor",
-			jobStatusCompleted: "Tamamlandı",
-			jobStatusKilled: "Sonlandırıldı",
-			jobStatusFailed: "Başarısız",
-			jobDurationSeconds: "{seconds} sn",
-			jobDurationMinutes: "{minutes} dk {seconds} sn",
-			jobDurationHours: "{hours} sa {minutes} dk",
-			jobViewOutput: "Çıkışı görüntüle",
-			jobHideOutput: "Çıkışı gizle",
-			jobNoOutput: "Henüz çıkış yok",
-			jobNotReadYet: "Modelin bu işin çıkışını okuması bekleniyor; model job_output çalıştırdıktan sonra çıkış burada görünür",
-			jobOutputTruncated: "Çıkış kırpıldı",
-			jobOutputError: "Çıkış okunamadı",
-			jobKill: "Sonlandır",
-			jobKillConfirm: "Sonlandırmayı onaylamak için tekrar tıklayın",
-			jobKillError: "Sonlandırma başarısız",
-			addPluginsTabCard: "Sekme eklentileri ekle",
-			addPluginsTabCardDesc: "Yeni bir kenar çubuğu sayfası kaydet",
-			addPluginsViewerCard: "Önizleme eklentileri ekle",
-			addPluginsViewerCardDesc: "Yeni bir dosya türü önizlemesi kaydet",
-			addPluginsTabDesc: "Kenar çubuğu sayfaları (sekmeler) eklentilerce genişletilebilir. Eklentiler ctx.betterSidebar hizmeti aracılığıyla kaydolur; Yükle’ye tıklamak kurulum komutunu kopyalar — DSH profilinizin yaşadığı bir terminale yapıştırın ve çalıştırın.",
-			addPluginsViewerDesc: "Dosya önizleyicileri eklentilerce genişletilebilir. Eklentiler ctx.betterSidebar hizmeti aracılığıyla kaydolur; Yükle’ye tıklamak kurulum komutunu kopyalar — DSH profilinizin yaşadığı bir terminale yapıştırın ve çalıştırın.",
-			addPluginsBrowseMore: "GitHub’da daha fazla eklentiye göz atın (topic: dsh-coding-sidebar)",
-			addPluginsSearch: "Eklenti adı / açıklamasına göre ara…",
-			addPluginsNoMatch: "Eşleşen eklenti yok",
-			addPluginsRecommended: "Önerilen eklentiler",
-			addPluginsEmpty: "Henüz derlenen eklenti yok — eklentinizi GitHub topic’i altında yayınlayın",
-			openPlugin: "Aç",
-			copyInstall: "Kurulum komutunu kopyala",
-			pluginOfficeDesc: "dsh-coding-sidebar düzenleyicisi için Office üçlüsü önizlemesi (.docx / .xlsx / .pptx); ağır Office oluşturma kitaplıklarını çekirdek paketin dışında tutar, isteğe bağlı kurulur",
-			pluginFlowglassDesc: "Canlı oturum akış grafiği: kullanıcı, asistan ve araç çağrıları için üç şeritli kulvar; paralel gruplar, alt aracı dalları, derinlemesine inme ve canlı durum; dsh-coding-sidebar kuruluyken yerli «Flowglass» sekmesi kaydeder, kurulmadığında bağımsız çekmecesi korunur",
-			pluginGitForgeDesc: "Git Forge sekmesi: GitHub/Gitea (ve diğer formlar) hesap kitaplığı + proje başına yetkiler + sıkı itme ilkesi; token’lar yalnızca yerel sırlardadır (asla model bağlamında değil); salt okunur GitForge aracı ve aracı HTTPS kimlik bilgisi yardımcısı",
-			pluginGitRemotesDesc: "Git Remotes sekmesi: dal/yukarı akış/ahead-behind, fetch (isteğe bağlı prune), ff-only pull ve yalnızca sekme içi onaydan sonra push. Yerleşik Git sahnele/işle sekmesini değiştirmez; force-push veya model otomatik push aracı sunmaz",
-			pluginSentinelDesc: "Koşul odaklı aracı uyandırma: dosya/süreç/port/HTTP/komut/web algılayıcılar koşullar tetiklendiğinde uyuyan oturumları uyandırır; sunucu geneli izleme tablosuyla «Sentinel» sekmesi kaydeder",
-			pluginSidebarQaDesc: "Seç ve sor: Sohbet metnini seç → sağ panelde sor → aynı çalışma alanında özel devam oturumu (❓devam·konu): hızlı bir düşünmesiz model ana bağlamı sıkıştırıp alıntıyla birlikte enjekte eder, ana sohbeti bölmez. Devam soruları iç içe geçer, sürdürülebilir ve arşivlenebilir",
-			pluginSshTunnelDesc: "SSH Tunnel sekmesi: çok ana makinelik envanter + proje başına yetkiler + yerel sır saklama; SSHManager aracı (exec/SFTP/oturum stratejileri); merkez etkileşimli terminal ve çift panelli SFTP",
-			pluginTurnReviewDesc: "Az önce biten turun diff’i için Approve / Request changes insan kapısı: yalnızca son turu inceler, oturumu çatallamaz; dosyalar ana oturum / alt aracı / atfedilmemiş olarak gruplanır, dosya başına işaretle geri çevir + isteğe bağlı yorum, dosyaya tıklayınca tur başlangıcı anlık görüntüsü ile şimdiki diff gösterilir. /rewind değil",
-			pluginVideoPreviewDesc: "dsh-coding-sidebar düzenleyicisinde satır içi video önizlemesi (.mp4/.webm/.mov/.mkv/.avi vb.); HTTP Range (206) destekli özel /video sunucu rotasıyla — ilerleme çubuğu sürükleme çalışır ve 20MB mediaLimit ile sınırlanmaz",
-			pluginDocsPanelDesc: "DSH kenar çubuğunda «Genel belgeler»: herhangi bir çalışma alanından kendi Markdown notlarınızı okuyun — dosya listesi, ana hat, Chrome / VS Code’da açma ve kopyalama düğmeleri; belgeler dizini yapılandırılabilir (varsayılan ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "DeepSeek Harness için aracı tarayıcı: 32 ego_* aracı gerçek bir Chromium’u yönetir; kenar çubuğundaki yerel «ego tarayıcı» sekmesi aracının ziyaret ettiği her sayfayı canlı gösterir — tıklayarak, sürükleyerek ve yazarak kontrolü devralabilirsiniz. dsh-coding-sidebar varsa sekme otomatik kaydedilir, yoksa yüzen baloncuğa düşer"
-		};
-		//#endregion
-		//#region src/client/locales-vi.ts
-		/**
-		* The vi (Vietnamese) dictionary for the betterSidebar namespace.
-		*
-		* Mirrors the key set of `zh` in `locales.ts`. The sidebar's `t()`
-		* consults this dict when `attachBetterLocale(store)` has been called
-		* with an active better-locale store whose `active` is `'vi'`; absent
-		* that, the existing zh/en chain runs unchanged.
-		*
-		* Translation conventions:
-		* - Technical terms stay in English where appropriate (Git, SSH, HTTP, URL,
-		*   Markdown, PDF, VS Code, API Key, Base URL, token, etc.).
-		* - Placeholders keep {name} verbatim (interpolation runs after lookup).
-		* - Formal Vietnamese appropriate for software UI.
-		* - Terminology is kept consistent with the DSH core vi dictionary.
-		*/
-		/** The vi dictionary (key-set-equal to zh, enforced by the type annotation in locales.ts). */
-		const vi$1 = {
-			files: "Tệp",
-			explorer: "Trình khám phá",
-			git: "Quản lý mã nguồn",
-			terminal: "Terminal",
-			editor: "Trình soạn thảo",
-			editorExplorer: "Cách mở tệp",
-			editorExplorerDesc: "Kiểm soát cách mở tệp",
-			editorExplorerMerged: "Gộp",
-			editorExplorerMergedDesc: "Tệp chuyển tại chỗ trong cùng cửa sổ; cửa sổ mới mặc định mở cây tệp",
-			editorExplorerSplit: "Riêng biệt",
-			editorExplorerSplitDesc: "Cửa sổ không đường dẫn là trình khám phá (chỉ cây tệp); mỗi tệp mở cửa sổ riêng (có cây tệp, mặc định thu gọn)",
-			editorTreeToggle: "Panel cây tệp",
-			editorPathPlaceholder: "Nhập đường dẫn tệp (tương đối thư mục phiên hoặc tuyệt đối), Enter để mở",
-			editorSearchPlaceholder: "Tìm theo tên tệp…",
-			editorSearchNoResults: "Không có tệp phù hợp",
-			editorSearchTruncated: "Quá nhiều kết quả, chỉ hiển thị một phần",
-			editorEmptyHint: "Chọn tệp từ cây tệp bên phải hoặc ô nhập đường dẫn phía trên để xem trước",
-			openFileNewTab: "Mở trong Tab mới",
-			openFileSide: "Mở ở bên cạnh",
-			openWithMenu: "Mở bằng",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "Ghim vào menu",
-			unpinOpenWith: "Bỏ ghim",
-			openWithExplorer: "Trình quản lý tệp",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "Máy chủ từ xa SSH",
-			openWithSettingsSshDesc: "Để trống cho không gian làm việc cục bộ; nhập user@host hoặc alias SSH, các trình mở họ VSCode sẽ chuyển sang giao thức vscode-remote/ssh-remote, Trình quản lý tệp / Zed / trình soạn thảo tùy chỉnh không phải VSCode sẽ ẩn khỏi menu",
-			openWithSettingsSshPlaceholder: "user@host hoặc alias SSH",
-			openWithSettingsCustomTitle: "Trình soạn thảo tùy chỉnh",
-			openWithSettingsCustomDesc: "Tên + mẫu URL (placeholder {path}) + cờ họ VSCode; ở chế độ SSH chỉ họ VSCode mở được đường dẫn từ xa",
-			openWithSettingsAdd: "Thêm",
-			openWithSettingsName: "Tên",
-			openWithSettingsTemplate: "vd: cursor://file/{path}",
-			openWithSettingsFamily: "Họ VSCode",
-			openWithSettingsFamilyDesc: "Trình soạn thảo này dùng giao thức URL của VSCode (hỗ trợ mở từ xa qua SSH)",
-			openWithSettingsRemove: "Xóa",
-			openWithSettingsInvalidHint: "Trình soạn thảo thiếu tên hoặc mẫu (cần chứa {path} và bắt đầu bằng scheme://) sẽ không xuất hiện trong menu",
-			newTab: "Tab mới",
-			openExplorer: "Trình khám phá",
-			brokenSymlink: "Symlink hỏng",
-			openGit: "Panel Git",
-			newTerminal: "Terminal mới",
-			terminalLimit: "Đã đạt giới hạn terminal (3)",
-			close: "Đóng",
-			closeOtherTabs: "Đóng các tab khác",
-			closeLeftTabs: "Đóng tab bên trái",
-			closeRightTabs: "Đóng tab bên phải",
-			moveToFreeWindow: "Chuyển sang cửa sổ tự do",
-			floatDropHint: "Thả để mở trong cửa sổ tự do",
-			dockToSidebar: "Quay lại thanh bên",
-			pinTerminal: "Ghim Terminal",
-			pinAgentTerminal: "Ghim Terminal Agent",
-			pinToWorkspace: "Ghim vào Workspace",
-			pinToGlobal: "Ghim Toàn cục",
-			unpinTerminal: "Bỏ ghim",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "Terminal UI",
-			pinnedTerminalKindAgent: "Terminal Agent",
-			pinnedTerminalScopeWorkspace: "Đã ghim vào workspace",
-			pinnedTerminalScopeGlobal: "Đã ghim toàn cục",
-			pinnedRailLabel: "Terminal đã ghim",
-			closePinnedTerminal: "Đóng Terminal",
-			collapse: "Thu gọn thanh bên",
-			expand: "Mở rộng thanh bên",
-			terminalError: "Kết nối terminal thất bại",
-			terminalConnectFailed: "Terminal kết nối thất bại nhiều lần",
-			terminalRetry: "Thử lại",
-			terminalDepsFailed: "Dependency terminal node-pty tải thất bại",
-			terminalDepsHint: "Chạy lệnh sau trong terminal hoặc cmd trên máy DSH để sửa, rồi nhấn thử lại (node-pty đồng bộ phiên bản với lõi DSH):",
-			terminalDepsProfile: " (phát hiện profile: {profile})",
-			preview: "Xem trước",
-			edit: "Chỉnh sửa",
-			refresh: "Làm mới",
-			showInFolder: "Hiển thị trong thư mục",
-			refreshUnsavedConfirm: "Tệp đã thay đổi trên đĩa. Làm mới sẽ loại bỏ các chỉnh sửa chưa lưu. Tiếp tục?",
-			save: "Lưu",
-			saved: "Đã lưu",
-			unsaved: "Chưa lưu",
-			saveFailed: "Lưu thất bại",
-			truncation: "Tệp quá lớn, chỉ hiển thị 512KB đầu",
-			binary: "Tệp nhị phân, không xem trước được",
-			loading: "Đang tải…",
-			error: "Tải thất bại",
-			retry: "Thử lại",
-			splitLeft: "Chia bên trái",
-			splitRight: "Chia bên phải",
-			splitUp: "Chia lên trên",
-			splitDown: "Chia xuống dưới",
-			notRepo: "Thư mục hiện tại không phải repo git",
-			noChanges: "Không có thay đổi",
-			statusTruncated: "Quá nhiều thay đổi; chỉ hiển thị 2000 mục đầu tiên",
-			stage: "Stage",
-			unstage: "Unstage",
-			stageAll: "Stage tất cả",
-			unstageAll: "Unstage tất cả",
-			commitPlaceholder: "Thông điệp commit (Ctrl+Enter)",
-			commit: "Commit",
-			commitError: "Commit thất bại",
-			branch: "Branch",
-			worktree: "Worktree",
-			checkoutError: "Chuyển branch thất bại",
-			history: "Lịch sử",
-			changes: "Thay đổi",
-			staged: "Đã stage",
-			unstaged: "Chưa stage",
-			cancel: "Hủy",
-			diffEmpty: "Không có khác biệt văn bản",
-			diffLoadError: "Tải diff thất bại",
-			diffBinary: "Nhị phân",
-			diffAdded: "Thêm",
-			diffDeleted: "Xóa",
-			diffRenamed: "Đổi tên",
-			diffExpand: "Mở rộng {count} dòng còn lại",
-			diffCollapse: "Thu gọn",
-			discard: "Bỏ thay đổi",
-			discardTitle: "Bỏ thay đổi",
-			discardDesc: "Sẽ hủy các thay đổi worktree của «{path}» (không thể khôi phục).",
-			viewCommitDiff: "Xem diff commit",
-			copyShortHash: "Sao chép hash ngắn",
-			copyFullHash: "Sao chép hash đầy đủ",
-			copySubject: "Sao chép thông điệp commit",
-			revertCommit: "Revert commit",
-			revertTitle: "Revert commit",
-			revertDesc: "Sẽ tạo commit mới trên branch hiện tại đảo ngược «{subject}».",
-			cherryPickCommit: "Cherry-pick commit",
-			cherryPickTitle: "Cherry-pick commit",
-			cherryPickDesc: "Áp dụng các thay đổi của «{subject}» lên branch hiện tại.",
-			timeJustNow: "vừa xong",
-			timeMinutesAgo: "{n} phút trước",
-			timeHoursAgo: "{n} giờ trước",
-			timeYesterday: "hôm qua",
-			loadMore: "Tải thêm",
-			historyLoadError: "Tải thêm lịch sử thất bại",
-			produced: "Đã tạo",
-			producedOpen: "Mở trong thanh bên",
-			disconnected: "Terminal mất kết nối, đang kết nối lại…",
-			exited: "Tiến trình terminal đã thoát",
-			noSession: "Chọn một phiên để dùng thanh bên",
-			pluginNotLoaded: "Plugin chưa tải, tab tạm không khả dụng:",
-			hiddenFiles: "Tệp ẩn",
-			parent: "Thư mục cha",
-			copied: "Đã sao chép",
-			copy: "Sao chép",
-			newFile: "Tệp mới",
-			openEditor: "Mở trình soạn thảo",
-			gitDetail: "Xem chi tiết thay đổi",
-			referenceFile: "@tệp",
-			addToConversation: "Thêm vào cuộc trò chuyện",
-			copyRelative: "Sao chép đường dẫn tương đối",
-			copyAbsolute: "Sao chép đường dẫn tuyệt đối",
-			download: "Tải xuống",
-			uploadFiles: "Tải tệp lên",
-			uploadFolder: "Tải thư mục lên",
-			uploadHere: "Tải lên đây",
-			uploadDropHint: "Kéo tệp/thư mục vào đây để tải lên",
-			uploadDropChat: "Kéo vào khu vực chat: thêm hình ảnh vào cuộc trò chuyện",
-			uploadTo: "Tải lên {dir}",
-			uploadingTo: "Đang tải lên {dir}…",
-			uploadProgress: "Đang tải lên {done}/{total}: {name}",
-			uploadDone: "Đã tải lên {count} tệp",
-			uploadFailed: "Tải lên thất bại: {error}",
-			uploadFailedUnknown: "Lỗi không xác định",
-			uploadTooLarge: "Tệp quá lớn, vượt giới hạn tải lên",
-			uploadCancelled: "Đã hủy tải lên",
-			settingsNav: "Thẻ bên",
-			settingsIntro: "Quản lý nội dung hiển thị và hành vi mặc định của thẻ bên",
-			settingsPopupDesc: "Cấu hình tùy chọn cho «{feature}»",
-			settingsDone: "Xong",
-			settingsOpenTitle: "Mở mặc định cho phiên mới",
-			settingsOpenDesc: "Tự động mở rộng thẻ bên cho phiên mới; phiên đã có giữ nguyên bố cục",
-			settingsWidthTitle: "Tỷ lệ chiều rộng mặc định",
-			settingsWidthDesc: "Tỷ lệ phần trăm chiều rộng cửa sổ mà thẻ bên chiếm cho phiên mới (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "Mở tệp chat trong thanh bên",
-			settingsOpenPathDesc: "Khi nhấp link tệp trong chat (dòng công cụ, danh sách sản phẩm, nhắc tệp), mở trong trình soạn thảo thanh bên thay vì ứng dụng mặc định hệ thống",
-			settingsOpenToolsTitle: "Tiêm công cụ mở thanh bên cho mô hình",
-			settingsOpenToolsDesc: "Khi bật, mô hình có thể mở tệp, thư mục và trang HTTP(S) trong thanh bên qua công cụ sidebar_open (mặc định tắt)",
-			settingsTitleBarTitle: "Chế độ tương thích thanh tiêu đề",
-			settingsTitleBarDesc: "Chọn phương án tương thích thanh tiêu đề: tự động phát hiện (mặc định, bảo thủ) / Web DSH chính thức / shell desktop đã biết / tùy chỉnh (khoảng dịch chuyển + CSS tùy chỉnh)",
-			settingsTitleBarStripTitle: "Khoảng dịch chuyển",
-			settingsTitleBarStripDesc: "Chiều cao dải thanh tiêu đề: số pixel dịch xuống của nút và nội dung thanh bên (0–120, mặc định 40; áp dụng trong chế độ tùy chỉnh)",
-			settingsSchemeAutoTitle: "Tự động phát hiện",
-			settingsSchemeAutoDesc: "Bảo thủ: chỉ nhường chỗ theo chiều cao thanh tiêu đề thật khi API Window Controls Overlay chuẩn khả dụng; môi trường web thuần không sửa gì",
-			settingsSchemeWebTitle: "Web DSH chính thức",
-			settingsSchemeWebDesc: "Khai báo tường minh chạy trên web chính thức: không điều chỉnh gì cả (kể cả hình học WCO chuẩn)",
-			settingsSchemeCustomTitle: "Tùy chỉnh",
-			settingsSchemeCustomDesc: "Toàn quyền kiểm soát: chèn CSS tùy chỉnh (có thể ghi đè style built-in), và chỉ định khoảng dịch chuyển thanh tiêu đề",
-			settingsSchemeDetectedSuffix: "đã phát hiện",
-			settingsCustomCssTitle: "CSS tùy chỉnh",
-			settingsCustomCssDesc: "Style追加 vào cuối trang (cùng ưu tiên thì viết sau thắng; ghi đè biến inline JS cần !important)",
-			settingsCustomCssPlaceholder: "/* vd: dành sẵn 36px cho shell tự vẽ thanh tiêu đề */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "Lưu thất bại",
-			settingsConflict: "Cài đặt đã bị sửa bởi cửa sổ khác, vui lòng thử lại",
-			binaryNoPreview: "Loại tệp này không hỗ trợ xem trước",
-			downloadToView: "Tải xuống để xem",
-			settingsSubagentTitle: "Tự động mở trang Quản lý tác vụ khi phát hiện tác nhân con",
-			settingsSubagentDesc: "Khi phiên hiện tại tạo tác nhân con mới, tự động mở rộng thanh bên và mở trang Quản lý tác vụ; tắt thì phải mở thủ công",
-			settingsJobsTitle: "Tự động mở trang Tác vụ nền khi có tác vụ nền mới",
-			settingsJobsDesc: "Khi phiên hiện tại có tác vụ nền mới, tự động mở rộng thanh bên và mở trang Tác vụ nền (mỗi tác vụ mới đều kích hoạt); tắt thì phải mở thủ công",
-			settingsToolsTitle: "Tiêm công cụ terminal cho mô hình",
-			settingsToolsDesc: "Khi bật, mô hình có thể tạo và điều khiển terminal thanh bên qua 8 công cụ terminal_* (mặc định tắt)",
-			settingsFontFamilyTitle: "Font terminal",
-			settingsFontFamilyDesc: "Font terminal tùy chỉnh (CSS font-family, vd: \"JetBrains Mono\", monospace; để trống theo font mono của theme)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "Cỡ chữ terminal",
-			settingsFontSizeDesc: "Cỡ chữ terminal (9–32, mặc định 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Đường dẫn shell",
-			settingsShellDesc: "Shell khởi động cho terminal UI và mô hình (đường dẫn tuyệt đối hoặc tên thực thi). Để trống sẽ phân tích theo thứ tự: yaml config.shell → $SHELL / login shell / powershell.exe trên Windows. Áp dụng cho terminal mở sau đó",
-			settingsShellPlaceholder: "vd: /bin/zsh (để trống = tự động)",
-			settingsShellArgsTitle: "Tham số shell",
-			settingsShellArgsDesc: "Tham số shell tường minh, phân tách bằng dấu cách; khi không trống sẽ thay thế hoàn toàn mặc định (đồng bộ với contract shellArgs yaml)",
-			settingsShellArgsPlaceholder: "vd: -l (để trống = mặc định)",
-			settingsTabsTitle: "Nội dung thanh bên",
-			settingsViewersTitle: "Trình xem tệp",
-			settingsGeneralTitle: "Chung",
-			settingsPopup: "Cài đặt tính năng",
-			settingsViewerCatchAll: "Catch-all: mọi tệp",
-			viewerImage: "Hình ảnh",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "Mã",
-			viewerBinary: "Tải nhị phân",
-			viewerHtml: "HTML",
-			browser: "Trình duyệt",
-			browserPlaceholder: "Nhập URL, vd: example.com",
-			browserGo: "Đi",
-			browserBack: "Lùi",
-			browserForward: "Tiến",
-			browserStart: "Nhập URL để bắt đầu duyệt (chế độ sandbox)",
-			browserBlockedScheme: "Đã chặn: chỉ cho phép link http/https",
-			browserBlockedLoopback: "Đã chặn: không cho phép truy cập địa chỉ cục bộ hoặc nội bộ trong trình duyệt",
-			browserInvalid: "URL không hợp lệ",
-			browserNoSandboxWarning: "Sandbox đã tắt: trang hiện tại cùng nguồn với UI, có toàn quyền phiên (có thể bật lại trong cài đặt)",
-			htmlNoSandboxWarning: "Sandbox đã tắt: HTML này cùng nguồn với UI, có thể đọc tệp phiên và API nội bộ (có thể bật lại trong cài đặt)",
-			sandboxStatusOn: "Chế độ sandbox: đã bật · trang không thể truy cập dữ liệu UI và tệp cục bộ, đăng nhập và cookie bên thứ ba có thể không hoạt động",
-			sandboxUnlock: "Mở khóa tạm (không an toàn)",
-			sandboxRestore: "Khôi phục sandbox",
-			settingsHtmlDefaultUnsafeTitle: "Mở xem trước HTML không sandbox mặc định (không an toàn)",
-			settingsHtmlDefaultUnsafeDesc: "Khi bật, mỗi lần mở tệp HTML xem trước sẽ mặc định không sandbox (cùng nguồn UI, có thể đọc tệp phiên và API nội bộ); có thể khôi phục sandbox tạm thời trên thanh trạng thái",
-			settingsHtmlSandboxTitle: "Tắt sandbox xem trước HTML (không an toàn)",
-			settingsHtmlSandboxDesc: "Khi tắt, HTML xem trước sẽ chạy cùng nguồn với UI: có thể đọc tệp phiên, local storage và gọi API nội bộ. Chỉ bật cho tệp hoàn toàn đáng tin cậy",
-			settingsBrowserSandboxTitle: "Tắt sandbox trình duyệt (không an toàn)",
-			settingsBrowserSandboxDesc: "Khi tắt, mọi trang truy cập sẽ chạy cùng nguồn với UI: có thể đọc dữ liệu phiên và mạo danh phiên đăng nhập. Chỉ bật cho trang hoàn toàn đáng tin cậy",
-			settingsBrowserLinksTitle: "Mở link ngoài trong chat ở thanh bên",
-			settingsBrowserLinksDesc: "Khi bật, nhấp link ngoài trong chat hoặc UI sẽ mở trong thanh bên thay vì cửa sổ mới; HTTP và HTTPS được kiểm soát riêng bởi công tắc bên dưới; Ctrl/Cmd+nhấp luôn bỏ qua",
-			settingsBrowserHttpTitle: "Mở trang HTTP trong thanh bên",
-			settingsBrowserHttpDesc: "Khi bật, nhấp link HTTP ngoài trong chat hoặc UI sẽ mở trong thanh bên (trang plugin khai báo urlTarget ưu tiên); Ctrl/Cmd+nhấp luôn bỏ qua",
-			settingsBrowserHttpsTitle: "Mở trang HTTPS trong thanh bên",
-			settingsBrowserHttpsDesc: "Khi bật, nhấp link HTTPS ngoài trong chat hoặc UI sẽ mở trong thanh bên. Mặc định tắt: đa số trang HTTPS từ chối nhúng, trình duyệt hệ thống mượt mà hơn",
-			settingsBrowserLoopbackTitle: "Địa chỉ cục bộ được phép",
-			settingsBrowserLoopbackDesc: "Danh sách cho phép phân tách bằng dấu phẩy của địa chỉ loopback (vd. localhost:5174 hoặc 127.0.0.1:8080) mà trình duyệt thanh bên có thể truy cập; để trống sẽ chặn tất cả địa chỉ cục bộ theo mặc định. Hộp cát vẫn áp dụng — các trang không thể đọc dữ liệu GUI",
-			settingsBrowserLoopbackPlaceholder: "vd. localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "Mở trong trình duyệt",
-			browserEmbedBlocked: "{host} từ chối nhúng",
-			browserEmbedBlockedDesc: "Trang này cấm hiển thị trong trang khác qua X-Frame-Options / frame-ancestors, không thể tải trong thanh bên. Mở trực tiếp trong trình duyệt",
-			browserEmbedAnyway: "Vẫn tải",
-			subagent: "Quản lý tác vụ",
-			openSubagent: "Quản lý tác vụ",
-			subagentMainAgent: "Tác nhân chính",
-			subagentEmpty: "Không có tác nhân con",
-			subagentEmptyDesc: "Tác nhân con do tác nhân chính tạo ra sẽ hiển thị ở đây",
-			subagentRunning: "Đang chạy",
-			subagentInactive: "Nghỉ",
-			subagentModeOneShot: "Một lần",
-			subagentModeContinuable: "Có thể tiếp tục",
-			subagentCount: "{count} tác nhân con",
-			subagentCountRunning: "{count} tác nhân con · {running} đang chạy",
-			subagentDiagCorrupt: "Bị hỏng",
-			subagentDiagUnsupported: "Không hỗ trợ",
-			subagentDiagUnavailable: "Không khả dụng",
-			subagentThinking: "Đang suy nghĩ…",
-			subagentShowHistory: "Hiện {count} tác nhân con cũ hơn",
-			subagentHideHistory: "Thu gọn tác nhân con cũ hơn",
-			sideChat: "Chat bên (beta)",
-			sideChatNew: "Luồng mới",
-			sideChatUntitled: "Luồng mới",
-			sideChatEmpty: "Không có cuộc trò chuyện bên",
-			sideChatEmptyDesc: "Mỗi cuộc trò chuyện bên là một Tab riêng trong thanh tab, kế thừa ngữ cảnh phiên hiện tại, không vào phiên chính",
-			sideChatCreating: "Đang tạo cuộc trò chuyện bên…",
-			sideChatRetry: "Thử lại",
-			sideChatThreads: "Chuyển luồng / mới",
-			sideChatSave: "Lưu thành phiên mới",
-			sideChatSaveTitle: "Nâng luồng này thành phiên cấp cao nhất, xuất hiện trong danh sách phiên chính",
-			sideChatSaved: "Đã lưu thành phiên mới",
-			sideChatNoTurn: "Cần hoàn thành ít nhất một vòng trò chuyện trước khi lưu",
-			sideChatPendingDrop: "Tin nhắn theo dõi chưa hoàn thành cuối cùng sẽ không được đưa vào phiên đã lưu",
-			sideChatFirstPlaceholder: "Hỏi câu đầu tiên — ngữ cảnh đã kế thừa…",
-			sideChatComposerPlaceholder: "Hỏi tiếp…",
-			sideChatThinking: "Đang đào sâu…",
-			sideChatThink: "Suy nghĩ",
-			sideChatInjection: "Đã tiêm ngữ cảnh",
-			sideChatSend: "Gửi",
-			sideChatCancel: "Dừng",
-			sideChatCancelTitle: "Hủy vòng hiện tại (giữ hàng đợi)",
-			sideChatClose: "Đóng luồng",
-			sideChatCloseTitle: "Giải phóng agent của luồng (lịch sử được giữ)",
-			sideChatError: "Lỗi chat bên: {message}",
-			jobs: "Tác vụ nền",
-			jobsCount: "{count} tác vụ nền",
-			jobsCountRunning: "{count} tác vụ nền · {running} đang chạy",
-			jobsShowHistory: "Hiện {count} tác vụ nền cũ hơn",
-			jobsHideHistory: "Thu gọn tác vụ nền cũ hơn",
-			jobStatusRunning: "Đang chạy",
-			jobStatusStopping: "Đang dừng",
-			jobStatusCompleted: "Đã hoàn thành",
-			jobStatusKilled: "Đã hủy",
-			jobStatusFailed: "Thất bại",
-			jobDurationSeconds: "{seconds}s",
-			jobDurationMinutes: "{minutes}m {seconds}s",
-			jobDurationHours: "{hours}h {minutes}m",
-			jobViewOutput: "Xem đầu ra",
-			jobHideOutput: "Ẩn đầu ra",
-			jobNoOutput: "Chưa có đầu ra",
-			jobNotReadYet: "Đang chờ mô hình đọc đầu ra tác vụ này (sau khi mô hình chạy job_output, đầu ra sẽ hiển thị ở đây)",
-			jobOutputTruncated: "Đầu ra quá dài, đã cắt bớt",
-			jobOutputError: "Đọc đầu ra thất bại",
-			jobKill: "Hủy",
-			jobKillConfirm: "Nhấp lại để xác nhận hủy",
-			jobKillError: "Hủy thất bại",
-			addPluginsTabCard: "Thêm plugin tab",
-			addPluginsTabCardDesc: "Đăng ký trang thanh bên mới",
-			addPluginsViewerCard: "Thêm plugin xem trước",
-			addPluginsViewerCardDesc: "Đăng ký xem trước loại tệp mới",
-			addPluginsTabDesc: "Trang thanh bên (tab) có thể mở rộng qua plugin. Plugin đăng ký qua service ctx.betterSidebar; nhấp «Cài đặt» để sao chép lệnh cài, dán vào terminal nơi DSH chạy rồi thực thi.",
-			addPluginsViewerDesc: "Trình xem tệp có thể mở rộng qua plugin. Plugin đăng ký qua service ctx.betterSidebar; nhấp «Cài đặt» để sao chép lệnh cài, dán vào terminal nơi DSH chạy rồi thực thi.",
-			addPluginsBrowseMore: "Duyệt thêm plugin trên GitHub (topic: dsh-coding-sidebar)",
-			addPluginsSearch: "Tìm theo tên / mô tả plugin…",
-			addPluginsNoMatch: "Không có plugin phù hợp",
-			addPluginsRecommended: "Plugin đề xuất",
-			addPluginsEmpty: "Chưa có plugin nào, hoan nghênh bạn publish plugin dưới GitHub topic",
-			openPlugin: "Mở",
-			copyInstall: "Sao chép lệnh cài",
-			pluginOfficeDesc: "Xem trước bộ Office (.docx / .xlsx / .pptx) cho trình soạn thảo dsh-coding-sidebar, tách thư viện render Office nặng ra khỏi bundle chính, cài theo nhu cầu",
-			pluginFlowglassDesc: "Biểu đồ luồng phiên theo thời gian thực: ba lane cho user, assistant và tool call, hỗ trợ nhóm song song, nhánh tác nhân con, drill-down từng lớp và trạng thái trực tiếp; sau khi cài dsh-coding-sidebar đăng ký tab «Flowglass» native, khi chưa cài giữ drawer riêng",
-			pluginGitForgeDesc: "Tab «Git Forge» của dsh-coding-sidebar: kho tài khoản GitHub/Gitea và Forge khác + cấp quyền theo project + chặn cứng chính sách push; token chỉ lưu secrets cục bộ, không vào ngữ cảnh mô hình; cung cấp công cụ GitForge chỉ đọc và HTTPS credential helper cho agent",
-			pluginGitRemotesDesc: "Tab Git Remotes của dsh-coding-sidebar: xem branch/upstream/ahead-behind, fetch (có thể prune), pull ff-only, push chỉ sau khi xác nhận trong tab. Không thay thế tab stage/commit Git built-in, cũng không cung cấp force-push hay công cụ auto-push cho mô hình",
-			pluginSentinelDesc: "Hệ thống đánh thức agent theo điều kiện: cảm biến file/process/port/HTTP/command/webhook, khi điều kiện đạt sẽ tự đánh thức phiên ngủ; đăng ký tab «Sentinel» hiển thị bảng giám sát toàn server",
-			pluginSidebarQaDesc: "Tab chọn-đoạn-hỏi dựa trên dsh-coding-sidebar: chọn văn bản trò chuyện → hỏi ở panel phải → phiên theo dõi riêng trong cùng workspace (❓ theo dõi · chủ đề): mô hình nhanh không suy nghĩ nén ngữ cảnh chat chính rồi tiêm cùng trích dẫn, không gián đoạn chat chính; theo dõi có thể lồng nhau, tiếp tục, lưu trữ",
-			pluginSshTunnelDesc: "Tab «SSH Tunnel» của dsh-coding-sidebar: danh sách máy đa host + cấp quyền theo project + khóa lưu cục bộ; công cụ mô hình SSHManager (exec/SFTP/chiến lược phiên); terminal tương tác trung tâm và SFTP hai pane",
-			pluginTurnReviewDesc: "Cổng duyệt người cho diff «vừa rồi»: Approve / Request changes theo path kèm comment tùy chọn; path nhóm theo phiên chính / tác nhân con / không rõ nguồn; nhấp file xem diff snapshot đầu vòng vs hiện tại. Không fork, không /rewind",
-			pluginVideoPreviewDesc: "Xem trước video inline trong trình soạn thảo dsh-coding-sidebar (.mp4/.webm/.mov/.mkv/.avi v.v.), có route host /video hỗ trợ HTTP Range (206), có thể tua tiến độ, không bị giới hạn mediaLimit 20MB",
-			pluginDocsPanelDesc: "«Tài liệu toàn cục» trong thanh bên DSH: ghi chú Markdown toàn cục, đọc từ bất kỳ workspace nào — danh sách chọn để đọc, outline hover để nhảy, mở ngoài trong Chrome / VS Code, sao chép code, thư mục cấu hình được (mặc định ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "Trình duyệt agent cho DeepSeek Harness: 32 công cụ ego_* điều khiển Chromium thật; tab «ego browser» gốc trong thanh bên hiển thị trực tiếp mọi trang agent truy cập — bạn có thể bấm, kéo và gõ để tiếp quản. Tự động đăng ký tab khi có dsh-coding-sidebar, nếu không thì rơi về bong bóng nổi"
-		};
-		//#endregion
-		//#region src/client/locales-th.ts
-		/**
-		* The th (Thai) dictionary for the betterSidebar namespace.
-		*
-		* Mirrors the key set of `zh` in `locales.ts`. The sidebar's `t()`
-		* consults this dict when `attachBetterLocale(store)` has been called
-		* with an active better-locale store whose `active` is `'th'`; absent
-		* that, the existing zh/en chain runs unchanged.
-		*
-		* Translation conventions:
-		* - Technical terms stay in English where appropriate (Git, SSH, HTTP, URL,
-		*   Markdown, PDF, VS Code, API Key, Base URL, token, etc.).
-		* - Placeholders keep {name} verbatim (interpolation runs after lookup).
-		* - Formal Thai appropriate for software UI.
-		* - Terminology is kept consistent with the DSH core th dictionary.
-		*/
-		/** The th dictionary (key-set-equal to zh, enforced by the type annotation in locales.ts). */
-		const th$1 = {
-			files: "ไฟล์",
-			explorer: "ตัวสำรวจ",
-			git: "การควบคุมซอร์ส",
-			terminal: "เทอร์มินัล",
-			editor: "ตัวแก้ไข",
-			editorExplorer: "พฤติกรรมการเปิดไฟล์",
-			editorExplorerDesc: "ควบคุมวิธีเปิดไฟล์",
-			editorExplorerMerged: "รวม",
-			editorExplorerMergedDesc: "ไฟล์สลับในตำแหน่งเดิมในหน้าต่างเดียวกัน; หน้าต่างใหม่เริ่มต้นด้วยต้นไม้ไฟล์ที่เปิดอยู่",
-			editorExplorerSplit: "แยก",
-			editorExplorerSplitDesc: "หน้าต่างที่ไม่มีพาธคือตัวสำรวจแบบสแตนด์อโลน (ต้นไม้ไฟล์เท่านั้น); แต่ละไฟล์เปิดหน้าต่างของตัวเอง (ต้นไม้ไฟล์ docked, ปิดเป็นค่าเริ่มต้น)",
-			editorTreeToggle: "พาเนลต้นไม้ไฟล์",
-			editorPathPlaceholder: "พาธไฟล์ (สัมพันธ์กับไดเรกทอรีเซสชันหรือแบบ absolute), Enter เพื่อเปิด",
-			editorSearchPlaceholder: "ค้นหาไฟล์ตามชื่อ…",
-			editorSearchNoResults: "ไม่มีไฟล์ที่ตรง",
-			editorSearchTruncated: "ผลลัพธ์มากเกินไป — แสดงเพียงบางส่วน",
-			editorEmptyHint: "เลือกไฟล์จากพาเนลต้นไม้ไฟล์หรือช่องกรอกพาธด้านบนเพื่อเริ่มพรีวิว",
-			openFileNewTab: "เปิดใน Tab ใหม่",
-			openFileSide: "เปิดด้านข้าง",
-			openWithMenu: "เปิดด้วย",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "ปักหมุดในเมนู",
-			unpinOpenWith: "ยกเลิกการปักหมุด",
-			openWithExplorer: "ตัวจัดการไฟล์",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "โฮสต์ระยะไกล SSH",
-			openWithSettingsSshDesc: "ว่าง = พื้นที่ทำงานในเครื่อง; เมื่อกรอก user@host หรือ alias SSH ตัวเปิดตระกูล VSCode จะสลับไปใช้โปรโตคอล vscode-remote/ssh-remote และตัวจัดการไฟล์ / Zed / ตัวแก้ไขที่กำหนดเองที่ไม่ใช่ตระกูล VSCode จะถูกซ่อนจากเมนู",
-			openWithSettingsSshPlaceholder: "user@host หรือ alias SSH",
-			openWithSettingsCustomTitle: "ตัวแก้ไขที่กำหนดเอง",
-			openWithSettingsCustomDesc: "ชื่อ + เทมเพลต URL (placeholder {path}) + แฟล็กตระกูล VSCode; ในโหมดระยะไกลเฉพาะตัวแก้ไขตระกูล VSCode เท่านั้นที่เปิดพาธระยะไกลได้",
-			openWithSettingsAdd: "เพิ่ม",
-			openWithSettingsName: "ชื่อ",
-			openWithSettingsTemplate: "เช่น cursor://file/{path}",
-			openWithSettingsFamily: "ตระกูล VSCode",
-			openWithSettingsFamilyDesc: "ตัวแก้ไขนี้ใช้โปรโตคอล URL ของ VSCode (รองรับการเปิดจากระยะไกลผ่าน SSH)",
-			openWithSettingsRemove: "ลบ",
-			openWithSettingsInvalidHint: "ตัวแก้ไขที่ไม่มีชื่อหรือเทมเพลตที่ไม่มี {path} / scheme:// จะไม่ปรากฏในเมนู",
-			newTab: "Tab ใหม่",
-			openExplorer: "ตัวสำรวจ",
-			brokenSymlink: "Symlink เสีย",
-			openGit: "พาเนล Git",
-			newTerminal: "เทอร์มินัลใหม่",
-			terminalLimit: "ถึงขีดจำกัดเทอร์มินัลแล้ว (3)",
-			close: "ปิด",
-			closeOtherTabs: "ปิด Tab อื่น",
-			closeLeftTabs: "ปิด Tab ด้านซ้าย",
-			closeRightTabs: "ปิด Tab ด้านขวา",
-			moveToFreeWindow: "ย้ายไปยังหน้าต่างอิสระ",
-			floatDropHint: "ปล่อยเพื่อเปิดในหน้าต่างอิสระ",
-			dockToSidebar: "กลับไปที่แถบข้าง",
-			pinTerminal: "ปักหมุดเทอร์มินัล",
-			pinAgentTerminal: "ปักหมุดเทอร์มินัล Agent",
-			pinToWorkspace: "ปักหมุดไปยังพื้นที่ทำงาน",
-			pinToGlobal: "ปักหมุดแบบ Global",
-			unpinTerminal: "ยกเลิกการปักหมุด",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "เทอร์มินัล UI",
-			pinnedTerminalKindAgent: "เทอร์มินัล Agent",
-			pinnedTerminalScopeWorkspace: "ปักหมุดไปยังพื้นที่ทำงาน",
-			pinnedTerminalScopeGlobal: "ปักหมุดแบบ Global",
-			pinnedRailLabel: "เทอร์มินัลที่ปักหมุด",
-			closePinnedTerminal: "ปิดเทอร์มินัล",
-			collapse: "ย่อแถบด้านข้าง",
-			expand: "ขยายแถบด้านข้าง",
-			terminalError: "การเชื่อมต่อเทอร์มินัลล้มเหลว",
-			terminalConnectFailed: "เทอร์มินัลเชื่อมต่อล้มเหลวหลายครั้ง",
-			terminalRetry: "ลองอีกครั้ง",
-			terminalDepsFailed: "การอ้างอิงเทอร์มินัล node-pty โหลดล้มเหลว",
-			terminalDepsHint: "เรียกใช้คำสั่งด้านล่างในเทอร์มินัลหรือ cmd บนเครื่อง DSH เพื่อซ่อมแซม แล้วกดลองอีกครั้ง (node-pty ต้องซิงค์กับเวอร์ชันหลักของ DSH):",
-			terminalDepsProfile: " (ตรวจพบ profile: {profile})",
-			preview: "พรีวิว",
-			edit: "แก้ไข",
-			refresh: "รีเฟรช",
-			showInFolder: "แสดงในโฟลเดอร์",
-			refreshUnsavedConfirm: "ไฟล์เปลี่ยนบนดิสก์ การรีเฟรชจะทิ้งการแก้ไขที่ยังไม่ได้บันทึก ดำเนินการต่อหรือไม่",
-			save: "บันทึก",
-			saved: "บันทึกแล้ว",
-			unsaved: "ยังไม่ได้บันทึก",
-			saveFailed: "บันทึกล้มเหลว",
-			truncation: "ไฟล์ใหญ่เกินไป — แสดงเพียง 512KB แรก",
-			binary: "ไฟล์ไบนารี ไม่สามารถพรีวิวได้",
-			loading: "กำลังโหลด…",
-			error: "โหลดล้มเหลว",
-			retry: "ลองอีกครั้ง",
-			splitLeft: "แยกซ้าย",
-			splitRight: "แยกขวา",
-			splitUp: "แยกขึ้น",
-			splitDown: "แยกลง",
-			notRepo: "ไดเรกทอรีนี้ไม่ใช่ git repository",
-			noChanges: "ไม่มีการเปลี่ยนแปลง",
-			statusTruncated: "การเปลี่ยนแปลงมากเกินไป แสดงเพียง 2000 รายการแรก",
-			stage: "Stage",
-			unstage: "Unstage",
-			stageAll: "Stage ทั้งหมด",
-			unstageAll: "Unstage ทั้งหมด",
-			commitPlaceholder: "ข้อความ commit (Ctrl+Enter)",
-			commit: "Commit",
-			commitError: "Commit ล้มเหลว",
-			branch: "Branch",
-			worktree: "เวิร์กทรี",
-			checkoutError: "สลับ branch ล้มเหลว",
-			history: "ประวัติ",
-			changes: "การเปลี่ยนแปลง",
-			staged: "Staged",
-			unstaged: "Unstaged",
-			cancel: "ยกเลิก",
-			diffEmpty: "ไม่มีการเปลี่ยนแปลงข้อความ",
-			diffLoadError: "โหลด diff ล้มเหลว",
-			diffBinary: "ไบนารี",
-			diffAdded: "เพิ่ม",
-			diffDeleted: "ลบ",
-			diffRenamed: "เปลี่ยนชื่อ",
-			diffExpand: "ขยายอีก {count} บรรทัด",
-			diffCollapse: "ย่อ",
-			discard: "ยกเลิกการเปลี่ยนแปลง",
-			discardTitle: "ยกเลิกการเปลี่ยนแปลง",
-			discardDesc: "จะยกเลิกการเปลี่ยนแปลง worktree ของ \"{path}\" (ไม่สามารถกู้คืนได้)",
-			viewCommitDiff: "ดู diff ของ commit",
-			copyShortHash: "คัดลอก short hash",
-			copyFullHash: "คัดลอก full hash",
-			copySubject: "คัดลอกหัวข้อ commit",
-			revertCommit: "Revert commit",
-			revertTitle: "Revert commit",
-			revertDesc: "สร้าง commit ใหม่บน branch ปัจจุบันที่ revert \"{subject}\"",
-			cherryPickCommit: "Cherry-pick commit",
-			cherryPickTitle: "Cherry-pick commit",
-			cherryPickDesc: "นำการเปลี่ยนแปลงของ \"{subject}\" ไปใช้กับ branch ปัจจุบัน",
-			timeJustNow: "เมื่อสักครู่",
-			timeMinutesAgo: "{n} นาทีที่แล้ว",
-			timeHoursAgo: "{n} ชม. ที่แล้ว",
-			timeYesterday: "เมื่อวาน",
-			loadMore: "โหลดเพิ่มเติม",
-			historyLoadError: "โหลดประวัติเพิ่มเติมล้มเหลว",
-			produced: "ผลลัพธ์ที่สร้าง",
-			producedOpen: "เปิดในแถบด้านข้าง",
-			disconnected: "เทอร์มินัลถูกตัดการเชื่อมต่อ กำลังเชื่อมต่อใหม่…",
-			exited: "กระบวนการเทอร์มินัลออกแล้ว",
-			noSession: "เลือกแชทเพื่อใช้แถบด้านข้าง",
-			pluginNotLoaded: "ปลั๊กอินไม่ได้โหลด; tab ไม่พร้อมใช้งาน:",
-			hiddenFiles: "ไฟล์ที่ซ่อนอยู่",
-			parent: "ไดเรกทอรีหลัก",
-			copied: "คัดลอกแล้ว",
-			copy: "คัดลอก",
-			newFile: "ไฟล์ใหม่",
-			openEditor: "เปิดตัวแก้ไข",
-			gitDetail: "ดูรายละเอียดการเปลี่ยนแปลง",
-			referenceFile: "@ไฟล์",
-			addToConversation: "เพิ่มไปยังแชท",
-			copyRelative: "คัดลอกพาธสัมพัทธ์",
-			copyAbsolute: "คัดลอกพาธ absolute",
-			download: "ดาวน์โหลด",
-			uploadFiles: "อัปโหลดไฟล์",
-			uploadFolder: "อัปโหลดโฟลเดอร์",
-			uploadHere: "อัปโหลดที่นี่",
-			uploadDropHint: "ลากไฟล์/โฟลเดอร์มาที่นี่เพื่ออัปโหลด",
-			uploadDropChat: "ลากไปที่แชทเพื่อเพิ่มรูปภาพ",
-			uploadTo: "อัปโหลดไปยัง {dir}",
-			uploadingTo: "กำลังอัปโหลดไปยัง {dir}…",
-			uploadProgress: "กำลังอัปโหลด {done}/{total}: {name}",
-			uploadDone: "อัปโหลด {count} ไฟล์แล้ว",
-			uploadFailed: "อัปโหลดล้มเหลว: {error}",
-			uploadFailedUnknown: "ข้อผิดพลาดที่ไม่รู้จัก",
-			uploadTooLarge: "ไฟล์ใหญ่เกินไป (เกินขีดจำกัดการอัปโหลด)",
-			uploadCancelled: "การอัปโหลดถูกยกเลิก",
-			settingsNav: "การ์ดด้านข้าง",
-			settingsIntro: "จัดการสิ่งที่การ์ดด้านข้างแสดงและพฤติกรรมของมัน",
-			settingsPopupDesc: "กำหนดค่าตัวเลือกที่เกี่ยวข้องสำหรับ {feature}",
-			settingsDone: "เสร็จสิ้น",
-			settingsOpenTitle: "เปิดโดยค่าเริ่มต้นสำหรับแชทใหม่",
-			settingsOpenDesc: "ขยายการ์ดด้านข้างโดยอัตโนมัติสำหรับแชทใหม่; แชทที่มีอยู่แล้วยังคงเค้าโครงของตัวเอง",
-			settingsWidthTitle: "สัดส่วนความกว้างเริ่มต้น",
-			settingsWidthDesc: "สัดส่วนความกว้างเริ่มต้นของการ์ดด้านข้างจากความกว้างหน้าต่างสำหรับแชทใหม่ (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "เปิดไฟล์แชทในแถบด้านข้าง",
-			settingsOpenPathDesc: "เปิดลิงก์ไฟล์ในแชท (แถวเครื่องมือ, ไฟล์ที่สร้าง, การกล่าวถึง) ในตัวแก้ไขแถบด้านข้างแทนแอปเริ่มต้นของระบบ",
-			settingsOpenToolsTitle: "ฉีดเครื่องมือเปิดแถบด้านข้างสำหรับโมเดล",
-			settingsOpenToolsDesc: "เมื่อเปิดใช้ โมเดลสามารถเปิดไฟล์ โฟลเดอร์ และหน้า HTTP(S) ในแถบด้านข้างผ่านเครื่องมือ sidebar_open (ปิดเป็นค่าเริ่มต้น)",
-			settingsTitleBarTitle: "โหมดความเข้ากันได้ของตำแหน่ง",
-			settingsTitleBarDesc: "เลือกโครงร่างความเข้ากันได้ของไตเติลบาร์: ตรวจจับอัตโนมัติ (ค่าเริ่มต้น, อนุรักษ์นิยม) / DSH เว็บอย่างเป็นทางการ / เชลล์เดสก์ท็อปที่รู้จัก / กำหนดเอง (ระยะการเลื่อน + CSS ที่กำหนดเอง)",
-			settingsTitleBarStripTitle: "ระยะการเลื่อน",
-			settingsTitleBarStripDesc: "ความสูงของแถบไตเติลบาร์: จำนวนพิกเซลที่ปุ่มแถบด้านข้างและเนื้อหาเลื่อนลง (0–120, ค่าเริ่มต้น 40; มีผลภายใต้โครงร่างกำหนดเอง)",
-			settingsSchemeAutoTitle: "ตรวจจับอัตโนมัติ",
-			settingsSchemeAutoDesc: "อนุรักษ์นิยม: เฉพาะ API มาตรฐาน Window Controls Overlay เท่านั้นที่มีส่วนร่วม (ความสูง caption-overlay จริง); สภาพแวดล้อมเว็บธรรมดาไม่ได้รับการแก้ไข",
-			settingsSchemeWebTitle: "DSH เว็บอย่างเป็นทางการ",
-			settingsSchemeWebDesc: "ประกาศอย่างชัดเจนว่าเป็นเว็บ UI อย่างเป็นทางการ: ไม่มีการปรับตัวใดๆ (แม้แต่เรขาคณิต WCO มาตรฐาน)",
-			settingsSchemeCustomTitle: "กำหนดเอง",
-			settingsSchemeCustomDesc: "ควบคุมเต็ม: ฉีด CSS ที่กำหนดเอง (สามารถแทนที่สไตล์ built-in) และตั้งระยะการเลื่อนไตเติลบาร์",
-			settingsSchemeDetectedSuffix: "ตรวจพบแล้ว",
-			settingsCustomCssTitle: "CSS ที่กำหนดเอง",
-			settingsCustomCssDesc: "สไตล์ที่เพิ่มต่อท้ายหน้า (ที่มาทีหลังใน cascade ชนะ; ใช้ !important เพื่อแทนที่ตัวแปร inline ที่เขียนโดย JS)",
-			settingsCustomCssPlaceholder: "/* เช่น สำรอง 36px สำหรับเชลล์ที่มีไตเติลบาร์ที่วาดเอง */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "บันทึกล้มเหลว",
-			settingsConflict: "การตั้งค่าถูกเปลี่ยนในหน้าต่างอื่น — โปรดลองอีกครั้ง",
-			binaryNoPreview: "ไม่สามารถพรีวิวประเภทไฟล์นี้ได้",
-			downloadToView: "ดาวน์โหลดเพื่อดู",
-			settingsSubagentTitle: "เปิดหน้า Tasks อัตโนมัติเมื่อมีตัวแทนย่อยปรากฏ",
-			settingsSubagentDesc: "ขยายการ์ดด้านข้างและเปิดหน้า Tasks เมื่อแชทปัจจุบันสร้างตัวแทนย่อยใหม่; ปิดเพื่อเปิดเอง",
-			settingsJobsTitle: "เปิดหน้า Jobs อัตโนมัติเมื่อมีงานเบื้องหลังใหม่",
-			settingsJobsDesc: "ขยายการ์ดด้านข้างและเปิดหน้า Jobs เมื่อใดก็ตามที่มีงานเบื้องหลังใหม่ปรากฏสำหรับแชทปัจจุบัน (ทุกงานใหม่จะทริกเกอร์); ปิดเพื่อเปิดเอง",
-			settingsToolsTitle: "ฉีดเครื่องมือเทอร์มินัลสำหรับโมเดล",
-			settingsToolsDesc: "เมื่อเปิดใช้ โมเดลสามารถสร้างและควบคุมเทอร์มินัลแถบด้านข้างผ่านเครื่องมือ terminal_* 8 ตัว (ปิดเป็นค่าเริ่มต้น)",
-			settingsFontFamilyTitle: "ฟอนต์เทอร์มินัล",
-			settingsFontFamilyDesc: "ฟอนต์เทอร์มินัลที่กำหนดเอง (CSS font-family stack เช่น \"JetBrains Mono\", monospace; ปล่อยว่างเพื่อตามฟอนต์ monospace ของธีม)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "ขนาดฟอนต์เทอร์มินัล",
-			settingsFontSizeDesc: "ขนาดฟอนต์เทอร์มินัลเป็น px (9–32, ค่าเริ่มต้น 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "พาธ Shell",
-			settingsShellDesc: "Shell ที่เรียกสำหรับเทอร์มินัล UI และโมเดล (พาธ absolute หรือ executable ลำพัง) ว่างจะคงลำดับเดิม: yaml config.shell → $SHELL / login shell / Windows powershell.exe มีผลกับเทอร์มินัลที่เปิดภายหลัง",
-			settingsShellPlaceholder: "เช่น /bin/zsh (ว่าง = อัตโนมัติ)",
-			settingsShellArgsTitle: "อาร์กิวเมนต์ Shell",
-			settingsShellArgsDesc: "อาร์กิวเมนต์ shell ที่ชัดเจน คั่นด้วยช่องว่าง; เมื่อไม่ว่างจะแทนที่ค่าเริ่มต้นทั้งหมด (สัญญาณเดียวกับ yaml shellArgs)",
-			settingsShellArgsPlaceholder: "เช่น -l (ว่าง = ค่าเริ่มต้น)",
-			settingsTabsTitle: "เนื้อหาแถบด้านข้าง",
-			settingsViewersTitle: "ตัวพรีวิวไฟล์",
-			settingsGeneralTitle: "ทั่วไป",
-			settingsPopup: "การตั้งค่าคุณสมบัติ",
-			settingsViewerCatchAll: "Catch-all: ไฟล์ใดๆ",
-			viewerImage: "รูปภาพ",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "โค้ด",
-			viewerBinary: "ดาวน์โหลดไบนารี",
-			viewerHtml: "HTML",
-			browser: "เบราว์เซอร์",
-			browserPlaceholder: "กรอก URL เช่น example.com",
-			browserGo: "ไป",
-			browserBack: "ย้อนกลับ",
-			browserForward: "ไปข้างหน้า",
-			browserStart: "กรอก URL เพื่อเริ่มเรียกดู (โหมดแซนด์บ็อกซ์)",
-			browserBlockedScheme: "ถูกบล็อก: อนุญาตเฉพาะ URL http/https เท่านั้น",
-			browserBlockedLoopback: "ถูกบล็อก: ไม่สามารถเรียกดูที่อยู่ภายในเครื่องและภายในได้ที่นี่",
-			browserInvalid: "URL ไม่ถูกต้อง",
-			browserNoSandboxWarning: "แซนด์บ็อกซ์ปิด: หน้าปัจจุบันทำงานด้วยสิทธิ์ GUI เต็มรูปแบบ (เปิดใช้ใหม่ได้ในการตั้งค่า)",
-			htmlNoSandboxWarning: "แซนด์บ็อกซ์ปิด: HTML นี้ทำงานด้วยสิทธิ์ GUI เต็มรูปแบบ (เปิดใช้ใหม่ได้ในการตั้งค่า)",
-			sandboxStatusOn: "โหมดแซนด์บ็อกซ์: เปิด · หน้าเว็บไม่สามารถเข้าถึงข้อมูลหรือไฟล์ภายในของ GUI ได้; การล็อกอินและคุกกี้ของบุคคลที่สามอาจไม่ทำงาน",
-			sandboxUnlock: "ปิดใช้ชั่วคราว (ไม่ปลอดภัย)",
-			sandboxRestore: "คืนค่าแซนด์บ็อกซ์",
-			settingsHtmlDefaultUnsafeTitle: "เปิดพรีวิว HTML โดยไม่มีแซนด์บ็อกซ์เป็นค่าเริ่มต้น (ไม่ปลอดภัย)",
-			settingsHtmlDefaultUnsafeDesc: "เมื่อเปิด พรีวิว HTML ที่เปิดใหม่ทุกครั้งจะเริ่มในสถานะไม่มีแซนด์บ็อกซ์ (origin เดียวกับ GUI — สามารถอ่านไฟล์เซสชันและ API ภายในได้); แถวสถานะยังคงเสนอการคืนค่าแบบแตะครั้งเดียว",
-			settingsHtmlSandboxTitle: "ปิดแซนด์บ็อกซ์พรีวิว HTML (ไม่ปลอดภัย)",
-			settingsHtmlSandboxDesc: "เมื่อปิดแซนด์บ็อกซ์ HTML ที่พรีวิวจะทำงานด้วย origin เดียวกับ GUI: สามารถอ่านไฟล์เซสชัน, ที่เก็บข้อมูลในเครื่อง และเรียก API ภายในได้ เปิดใช้เฉพาะสำหรับไฟล์ที่เชื่อถือได้อย่างเต็มที่",
-			settingsBrowserSandboxTitle: "ปิดแซนด์บ็อกซ์เบราว์เซอร์ (ไม่ปลอดภัย)",
-			settingsBrowserSandboxDesc: "เมื่อปิดแซนด์บ็อกซ์ ไซต์ที่เยี่ยมชมใดๆ จะทำงานด้วย origin เดียวกับ GUI: สามารถอ่านข้อมูลเซสชันและแสดงเป็นเซสชันล็อกอินของคุณได้ เปิดใช้เฉพาะสำหรับไซต์ที่เชื่อถือได้อย่างเต็มที่",
-			settingsBrowserLinksTitle: "เปิดลิงก์ภายนอกของแชทในแถบด้านข้าง",
-			settingsBrowserLinksDesc: "เมื่อเปิด การคลิกลิงก์ภายนอกในแชทหรือ GUI จะเปิดแถบด้านข้างแทนหน้าต่างใหม่; HTTP และ HTTPS ถูกควบคุมแยกโดยสวิตช์ด้านล่าง; Ctrl/Cmd+click จะข้ามเสมอ",
-			settingsBrowserHttpTitle: "เปิดหน้า HTTP ในแถบด้านข้าง",
-			settingsBrowserHttpDesc: "เมื่อเปิด การคลิกลิงก์ HTTP ภายนอกในแชทหรือ GUI จะเปิดแถบด้านข้าง (หน้าปลั๊กอินที่ประกาศ urlTarget win มีความสำคัญก่อน); Ctrl/Cmd+click จะข้ามเสมอ",
-			settingsBrowserHttpsTitle: "เปิดหน้า HTTPS ในแถบด้านข้าง",
-			settingsBrowserHttpsDesc: "เมื่อเปิด การคลิกลิงก์ HTTPS ภายนอกในแชทหรือ GUI จะเปิดแถบด้านข้าง ปิดเป็นค่าเริ่มต้น: ไซต์ HTTPS ส่วนใหญ่ปฏิเสธที่จะฝัง ดังนั้นเบราว์เซอร์ระบบจะราบรื่นกว่าเป็นค่าเริ่มต้น",
-			settingsBrowserLoopbackTitle: "ที่อยู่ภายในเครื่องที่อนุญาต",
-			settingsBrowserLoopbackDesc: "รายการที่อนุญาตแบบคั่นด้วยจุลภาคของที่อยู่ลูปแบ็ก (เช่น localhost:5174 หรือ 127.0.0.1:8080) ที่เบราว์เซอร์แถบด้านข้างสามารถเยี่ยมชมได้ ค่าว่างจะบล็อกที่อยู่ภายในทั้งหมดโดยค่าเริ่มต้น แซนด์บ็อกซ์ยังคงมีผล — หน้าเว็บไม่สามารถอ่านข้อมูล GUI ได้",
-			settingsBrowserLoopbackPlaceholder: "เช่น localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "เปิดในเบราว์เซอร์",
-			browserEmbedBlocked: "{host} ปฏิเสธที่จะถูกฝัง",
-			browserEmbedBlockedDesc: "ไซต์ห้ามไม่ให้แสดงภายในหน้าอื่น (X-Frame-Options / frame-ancestors) จึงไม่สามารถโหลดในแถบด้านข้างได้ เปิดโดยตรงในเบราว์เซอร์ของคุณแทน",
-			browserEmbedAnyway: "โหลดต่อไป",
-			subagent: "งาน",
-			openSubagent: "งาน",
-			subagentMainAgent: "ตัวแทนหลัก",
-			subagentEmpty: "ไม่มีตัวแทนย่อย",
-			subagentEmptyDesc: "ตัวแทนย่อยที่สร้างภายใต้ตัวแทนหลักจะปรากฏที่นี่",
-			subagentRunning: "กำลังทำงาน",
-			subagentInactive: "ไม่ได้ทำงาน",
-			subagentModeOneShot: "ครั้งเดียว",
-			subagentModeContinuable: "ทำต่อได้",
-			subagentCount: "{count} ตัวแทนย่อย",
-			subagentCountRunning: "{count} ตัวแทนย่อย · {running} กำลังทำงาน",
-			subagentDiagCorrupt: "เสียหาย",
-			subagentDiagUnsupported: "ไม่รองรับ",
-			subagentDiagUnavailable: "ไม่พร้อมใช้งาน",
-			subagentThinking: "กำลังคิด…",
-			subagentShowHistory: "แสดงตัวแทนย่อยก่อนหน้า {count} รายการ",
-			subagentHideHistory: "ย่อตัวแทนย่อยก่อนหน้า",
-			sideChat: "แชทด้านข้าง (เบต้า)",
-			sideChatNew: "เธรดใหม่",
-			sideChatUntitled: "เธรดใหม่",
-			sideChatEmpty: "ไม่มีแชทด้านข้าง",
-			sideChatEmptyDesc: "แชทด้านข้างทุกรายการคือ tab ของตัวเองในแถบ tab — สืบทอดบริบทของเซสชันปัจจุบันและไม่เข้าสู่แชทหลัก",
-			sideChatCreating: "กำลังสร้างแชทด้านข้าง…",
-			sideChatRetry: "ลองอีกครั้ง",
-			sideChatThreads: "สลับเธรด / ใหม่",
-			sideChatSave: "บันทึกเป็นเซสชันใหม่",
-			sideChatSaveTitle: "เลื่อนเธรดนี้เป็นเซสชันระดับบนสุดในรายการเซสชันหลัก",
-			sideChatSaved: "บันทึกเป็นเซสชันใหม่แล้ว",
-			sideChatNoTurn: "การบันทึกพร้อมใช้งานหลังจากรอบแรกเสร็จสมบูรณ์",
-			sideChatPendingDrop: "การติดตามที่ยังไม่ได้ตอบครั้งสุดท้ายจะไม่รวมในเซสชันที่บันทึก",
-			sideChatFirstPlaceholder: "ถามคำถามแรก — บริบทที่สืบทอด…",
-			sideChatComposerPlaceholder: "ถามติดตาม…",
-			sideChatThinking: "กำลังดำดิ่ง…",
-			sideChatThink: "กำลังคิด",
-			sideChatInjection: "แทรกบริบทแล้ว",
-			sideChatSend: "ส่ง",
-			sideChatCancel: "หยุด",
-			sideChatCancelTitle: "ยกเลิกการทำงานรอบปัจจุบัน (งานในคิวยังคงอยู่)",
-			sideChatClose: "ปิดเธรด",
-			sideChatCloseTitle: "ปล่อยตัวแทนของเธรด (ประวัติยังคงอยู่)",
-			sideChatError: "ข้อผิดพลาดแชทด้านข้าง: {message}",
-			jobs: "งานเบื้องหลัง",
-			jobsCount: "{count} งานเบื้องหลัง",
-			jobsCountRunning: "{count} งานเบื้องหลัง · {running} กำลังทำงาน",
-			jobsShowHistory: "แสดงงานเบื้องหลังก่อนหน้า {count} รายการ",
-			jobsHideHistory: "ย่องานเบื้องหลังก่อนหน้า",
-			jobStatusRunning: "กำลังทำงาน",
-			jobStatusStopping: "กำลังหยุด",
-			jobStatusCompleted: "เสร็จสิ้น",
-			jobStatusKilled: "ถูก kill",
-			jobStatusFailed: "ล้มเหลว",
-			jobDurationSeconds: "{seconds} วิ",
-			jobDurationMinutes: "{minutes} นาที {seconds} วิ",
-			jobDurationHours: "{hours} ชม. {minutes} นาที",
-			jobViewOutput: "ดูเอาต์พุต",
-			jobHideOutput: "ซ่อนเอาต์พุต",
-			jobNoOutput: "ยังไม่มีเอาต์พุต",
-			jobNotReadYet: "รอให้โมเดลอ่านงานนี้; เอาต์พุตจะปรากฏที่นี่เมื่อโมเดลเรียก job_output",
-			jobOutputTruncated: "เอาต์พุตถูกตัดทิ้ง",
-			jobOutputError: "โหลดเอาต์พุตล้มเหลว",
-			jobKill: "Kill",
-			jobKillConfirm: "คลิกอีกครั้งเพื่อยืนยันการ kill",
-			jobKillError: "Kill ล้มเหลว",
-			addPluginsTabCard: "เพิ่มปลั๊กอิน tab",
-			addPluginsTabCardDesc: "ลงทะเบียนหน้าแถบด้านข้างใหม่",
-			addPluginsViewerCard: "เพิ่มปลั๊กอินพรีวิว",
-			addPluginsViewerCardDesc: "ลงทะเบียนพรีวิวประเภทไฟล์",
-			addPluginsTabDesc: "หน้าแถบด้านข้าง (tab) สามารถขยายได้ด้วยปลั๊กอิน ปลั๊กอินลงทะเบียนผ่านบริการ ctx.betterSidebar; การคลิก Install จะคัดลอกคำสั่งติดตั้ง — วางลงในเทอร์มินัลที่ DSH profile ของคุณอยู่แล้วเรียกใช้",
-			addPluginsViewerDesc: "ตัวพรีวิวไฟล์สามารถขยายได้ด้วยปลั๊กอิน ปลั๊กอินลงทะเบียนผ่านบริการ ctx.betterSidebar; การคลิก Install จะคัดลอกคำสั่งติดตั้ง — วางลงในเทอร์มินัลที่ DSH profile ของคุณอยู่แล้วเรียกใช้",
-			addPluginsBrowseMore: "เรียกดูปลั๊กอินเพิ่มเติมบน GitHub (topic: dsh-coding-sidebar)",
-			addPluginsSearch: "ค้นหาตามชื่อหรือคำอธิบายปลั๊กอิน…",
-			addPluginsNoMatch: "ไม่มีปลั๊กอินที่ตรง",
-			addPluginsRecommended: "ปลั๊กอินแนะนำ",
-			addPluginsEmpty: "ยังไม่มีปลั๊กอินที่คัดสรร — เผยแพร่ปลั๊กอินของคุณภายใต้ topic บน GitHub",
-			openPlugin: "เปิด",
-			copyInstall: "คัดลอกคำสั่งติดตั้ง",
-			pluginOfficeDesc: "พรีวิวชุด Office (.docx / .xlsx / .pptx) สำหรับตัวแก้ไข dsh-coding-sidebar โดยแยกไลบรารีเรนเดอร์ Office ที่หนักออกจาก bundle หลัก",
-			pluginFlowglassDesc: "กราฟโฟลว์เซสชันสดพร้อมเลนสามเลนสำหรับผู้ใช้, ผู้ช่วย และการเรียกเครื่องมือ พร้อมกลุ่มขนาน, สาขาตัวแทนย่อย, drill-down และสถานะสด; ลงทะเบียน tab Flowglass แบบ native เมื่อติดตั้ง dsh-coding-sidebar และคงลิ้นชักสแตนด์อโลนเป็นทางเลือกสำรอง",
-			pluginGitForgeDesc: "tab Git Forge: คลังบัญชี GitHub/Gitea (และ forge อื่นๆ) + การอนุญาตต่อโปรเจกต์ + นโยบาย push แบบเข้มงวด; token อยู่ใน secrets ในเครื่อง (ไม่เคยอยู่ในบริบทโมเดล); เครื่องมือ GitForge แบบอ่านอย่างเดียวและตัวช่วย credential HTTPS ของตัวแทน",
-			pluginGitRemotesDesc: "tab Git Remotes: branch/upstream/ahead-behind, fetch (optional prune), ff-only pull และ push หลังการยืนยันใน tab เท่านั้น ไม่แทนที่ tab stage/commit ของ Git แบบ built-in และไม่เสนอ force-push หรือเครื่องมือ auto-push ของโมเดล",
-			pluginSentinelDesc: "การปลุกตัวแทนที่ขับเคลื่อนด้วยเงื่อนไข: เซนเซอร์ file/process/port/http/command/webhook ปลุกเซสชันที่หลับเมื่อเงื่อนไขเกิดขึ้น; ลงทะเบียน tab \"Sentinel\" พร้อมตารางเฝ้าระวังทั่วทั้งเซิร์ฟเวอร์",
-			pluginSidebarQaDesc: "เลือกแล้วถาม: เลือกข้อความในแชท → ถามในพาเนลด้านขวา → เซสชันติดตามเฉพาะ (❓追问) ในพื้นที่ทำงานเดียวกัน; โมเดล no-thinking ที่รวดเร็วบีบอัดบริบทหลักและฉีดพร้อมกับคำพูดอ้างอิง โดยไม่หยุดแชทหลัก การติดตามสามารถซ้อน, ทำต่อ และเก็บถาวรได้",
-			pluginSshTunnelDesc: "tab SSH Tunnel: รายการโฮสต์หลายเครื่อง + การอนุญาตต่อโปรเจกต์ + secrets ในเครื่อง; เครื่องมือ SSHManager (exec/SFTP/กลยุทธ์เซสชัน); เทอร์มินัลโต้ตอบกลางและ SFTP แบบสองพาเนล",
-			pluginTurnReviewDesc: "ประตูมนุษย์บนรอบที่เพิ่งเสร็จสิ้น: Approve / Request changes ต่อพาธพร้อมความคิดเห็นที่ไม่บังคับ; พาธจัดกลุ่มตามเซสชันหลัก / ตัวแทนย่อย / ไม่ระบุแหล่งที่มา; diff แบบ snapshot-vs-now อินไลน์ก่อนตัดสินใจ ไม่มีการ fork, ไม่มี /rewind",
-			pluginVideoPreviewDesc: "พรีวิววิดีโอแบบอินไลน์ (.mp4/.webm/.mov/.mkv/.avi ฯลฯ) สำหรับตัวแก้ไข dsh-coding-sidebar โดยสนับสนุนด้วย route /video โฮสต์เฉพาะพร้อมรองรับ HTTP Range (206) — การ scrub ทำงานได้และไฟล์ไม่จำกัดโดย mediaLimit 20MB",
-			pluginDocsPanelDesc: "เอกสารส่วนกลางในแถบด้านข้าง DSH: อ่านบันทึก Markdown ของคุณเองจากพื้นที่ทำงานใดๆ — รายการไฟล์, เค้าโครง, เปิดใน Chrome / VS Code และปุ่มคัดลอก; ไดเรกทอรีเอกสารสามารถกำหนดค่าได้ (ค่าเริ่มต้น ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "เบราว์เซอร์เอเจนต์สำหรับ DeepSeek Harness: เครื่องมือ ego_* 32 ตัวขับเคลื่อน Chromium จริง แท็บ «ego browser» เนทีฟในแถบด้านข้างแสดงทุกหน้าที่เอเจนต์เยี่ยมชมแบบสด — คลิก ลาก และพิมพ์เพื่อเข้าไปควบคุมแทนได้ ลงทะเบียนแท็บอัตโนมัติเมื่อมี dsh-coding-sidebar มิฉะนั้นจะใช้บับเบิลลอย"
-		};
-		//#endregion
-		//#region src/client/locales-ru.ts
-		/**
-		* Russian (ru) dictionary for the dsh-coding-sidebar plugin.
-		*
-		* Translated from the Simplified-Chinese (zh) source-of-truth dictionary in
-		* `./locales.ts`. Placeholders like `{name}` / `{path}` / `{dir}` are
-		* preserved verbatim; technical terms (Git, SSH, HTTP, URL, Markdown, PDF,
-		* VS Code, Tab, cherry-pick, etc.) are kept in English where idiomatic in
-		* Russian product UI.
-		*
-		* Tone: formal «Вы». Key set is type-checked against `zh` via the import in
-		* `locales.ts` (`Record<keyof typeof zh, string>`).
-		*/
-		const ru$1 = {
-			files: "Файлы",
-			explorer: "Проводник",
-			git: "Контроль версий",
-			terminal: "Терминал",
-			editor: "Редактор",
-			editorExplorer: "Способ открытия файлов",
-			editorExplorerDesc: "Управление способом открытия файлов",
-			editorExplorerMerged: "Объединённый",
-			editorExplorerMergedDesc: "Файлы переключаются в том же окне; новые окна открываются с развёрнутым деревом",
-			editorExplorerSplit: "Раздельный",
-			editorExplorerSplitDesc: "Окно без пути — отдельный проводник (только дерево); каждый файл открывается в новом окне (с деревом, по умолчанию свёрнутым)",
-			editorTreeToggle: "Панель дерева файлов",
-			editorPathPlaceholder: "Введите путь к файлу (относительно каталога сессии или абсолютный), Enter, чтобы открыть",
-			editorSearchPlaceholder: "Поиск по имени файла…",
-			editorSearchNoResults: "Нет совпадающих файлов",
-			editorSearchTruncated: "Слишком много результатов — показана часть совпадений",
-			editorEmptyHint: "Выберите файл из дерева справа или введите путь выше, чтобы начать предпросмотр",
-			openFileNewTab: "Открыть в новой вкладке",
-			openFileSide: "Открыть сбоку",
-			openWithMenu: "Открыть в приложении",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "Закрепить в меню",
-			unpinOpenWith: "Открепить",
-			openWithExplorer: "Проводник",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "Удалённый хост SSH",
-			openWithSettingsSshDesc: "Пусто = локальная рабочая область; при указании user@host или псевдонима SSH способы открытия семейства VSCode переключаются на протокол vscode-remote/ssh-remote, а проводник / Zed / сторонние редакторы вне семейства VSCode скрываются из меню",
-			openWithSettingsSshPlaceholder: "user@host или псевдоним SSH",
-			openWithSettingsCustomTitle: "Собственные редакторы",
-			openWithSettingsCustomDesc: "Имя + шаблон URL (плейсхолдер {path}) + признак семейства VSCode; в режиме SSH только редакторы семейства VSCode могут открывать удалённые пути",
-			openWithSettingsAdd: "Добавить",
-			openWithSettingsName: "Имя",
-			openWithSettingsTemplate: "напр. cursor://file/{path}",
-			openWithSettingsFamily: "Семейство VSCode",
-			openWithSettingsFamilyDesc: "Этот редактор использует URL-протокол VSCode (поддерживает удалённое открытие по SSH)",
-			openWithSettingsRemove: "Удалить",
-			openWithSettingsInvalidHint: "Редакторы без имени или с шаблоном без {path} / scheme:// не появятся в меню",
-			newTab: "Новая вкладка",
-			openExplorer: "Проводник",
-			brokenSymlink: "Сломанная символическая ссылка",
-			openGit: "Панель Git",
-			newTerminal: "Новый терминал",
-			terminalLimit: "Достигнут лимит терминалов (3)",
-			close: "Закрыть",
-			closeOtherTabs: "Закрыть остальные вкладки",
-			closeLeftTabs: "Закрыть вкладки слева",
-			closeRightTabs: "Закрыть вкладки справа",
-			moveToFreeWindow: "Переместить в свободное окно",
-			floatDropHint: "Отпустите, чтобы открыть в свободном окне",
-			dockToSidebar: "Вернуть на боковую панель",
-			pinTerminal: "Закрепить терминал",
-			pinAgentTerminal: "Закрепить терминал Agent",
-			pinToWorkspace: "Закрепить в рабочей области",
-			pinToGlobal: "Закрепить глобально",
-			unpinTerminal: "Открепить",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "Терминал интерфейса",
-			pinnedTerminalKindAgent: "Терминал Agent",
-			pinnedTerminalScopeWorkspace: "Закреплён в рабочей области",
-			pinnedTerminalScopeGlobal: "Закреплён глобально",
-			pinnedRailLabel: "Закреплённые терминалы",
-			closePinnedTerminal: "Закрыть терминал",
-			collapse: "Свернуть боковую панель",
-			expand: "Развернуть боковую панель",
-			terminalError: "Сбой подключения терминала",
-			terminalConnectFailed: "Терминал не смог подключиться после нескольких попыток",
-			terminalRetry: "Повторить",
-			terminalDepsFailed: "Не удалось загрузить зависимость терминала node-pty",
-			terminalDepsHint: "Выполните приведённую ниже команду в терминале или cmd на машине DSH, затем нажмите «Повторить» (node-pty остаётся синхронизированным с версией ядра DSH):",
-			terminalDepsProfile: " (обнаружен profile: {profile})",
-			preview: "Предпросмотр",
-			edit: "Изменить",
-			refresh: "Обновить",
-			showInFolder: "Показать в папке",
-			refreshUnsavedConfirm: "Файл изменился на диске. Обновление отбросит несохранённые изменения. Продолжить?",
-			save: "Сохранить",
-			saved: "Сохранено",
-			unsaved: "Не сохранено",
-			saveFailed: "Не удалось сохранить",
-			truncation: "Файл слишком велик — показаны первые 512 КБ",
-			binary: "Бинарный файл — предпросмотр недоступен",
-			loading: "Загрузка…",
-			error: "Ошибка загрузки",
-			retry: "Повторить",
-			splitLeft: "Разделить влево",
-			splitRight: "Разделить вправо",
-			splitUp: "Разделить вверх",
-			splitDown: "Разделить вниз",
-			notRepo: "Этот каталог не является git-репозиторием",
-			noChanges: "Нет изменений",
-			statusTruncated: "Слишком много изменений; показаны только первые 2000 записей",
-			stage: "Индексировать",
-			unstage: "Убрать из индекса",
-			stageAll: "Индексировать всё",
-			unstageAll: "Убрать всё из индекса",
-			commitPlaceholder: "Сообщение коммита (Ctrl+Enter)",
-			commit: "Закоммитить",
-			commitError: "Сбой коммита",
-			branch: "Ветка",
-			worktree: "Рабочее дерево",
-			checkoutError: "Сбой переключения ветки",
-			history: "История",
-			changes: "Изменения",
-			staged: "В индексе",
-			unstaged: "Не в индексе",
-			cancel: "Отмена",
-			diffEmpty: "Нет текстовых отличий",
-			diffLoadError: "Не удалось загрузить diff",
-			diffBinary: "Бинарный",
-			diffAdded: "Добавлен",
-			diffDeleted: "Удалён",
-			diffRenamed: "Переименован",
-			diffExpand: "Показать оставшиеся {count} строк",
-			diffCollapse: "Свернуть",
-			discard: "Отменить изменения",
-			discardTitle: "Отменить изменения",
-			discardDesc: "Изменения «{path}» в рабочем дереве будут отброшены (восстановить нельзя).",
-			viewCommitDiff: "Просмотреть diff коммита",
-			copyShortHash: "Копировать короткий хеш",
-			copyFullHash: "Копировать полный хеш",
-			copySubject: "Копировать сообщение",
-			revertCommit: "Отменить коммит",
-			revertTitle: "Отменить коммит",
-			revertDesc: "В текущей ветке будет создан новый коммит, отменяющий «{subject}».",
-			cherryPickCommit: "Cherry-pick коммита",
-			cherryPickTitle: "Cherry-pick коммита",
-			cherryPickDesc: "Изменения «{subject}» будут применены к текущей ветке.",
-			timeJustNow: "только что",
-			timeMinutesAgo: "{n} мин назад",
-			timeHoursAgo: "{n} ч назад",
-			timeYesterday: "вчера",
-			loadMore: "Загрузить ещё",
-			historyLoadError: "Не удалось загрузить ещё историю",
-			produced: "Результаты",
-			producedOpen: "Открыть в боковой панели",
-			disconnected: "Терминал отключён, переподключение…",
-			exited: "Процесс терминала завершился",
-			noSession: "Выберите сессию, чтобы использовать боковую панель",
-			pluginNotLoaded: "Плагин не загружен — вкладка недоступна:",
-			hiddenFiles: "Скрытые файлы",
-			parent: "Родительский каталог",
-			copied: "Скопировано",
-			copy: "Копировать",
-			newFile: "Новый файл",
-			openEditor: "Открыть редактор",
-			gitDetail: "Просмотр изменений",
-			referenceFile: "@файл",
-			addToConversation: "Добавить в диалог",
-			copyRelative: "Копировать относительный путь",
-			copyAbsolute: "Копировать абсолютный путь",
-			download: "Скачать",
-			uploadFiles: "Загрузить файлы",
-			uploadFolder: "Загрузить папку",
-			uploadHere: "Загрузить сюда",
-			uploadDropHint: "Перетащите файлы/папки сюда, чтобы загрузить",
-			uploadDropChat: "Перетащите в чат, чтобы добавить изображения в диалог",
-			uploadTo: "Загрузить в {dir}",
-			uploadingTo: "Загрузка в {dir}…",
-			uploadProgress: "Загрузка {done}/{total}: {name}",
-			uploadDone: "Загружено файлов: {count}",
-			uploadFailed: "Сбой загрузки: {error}",
-			uploadFailedUnknown: "Неизвестная ошибка",
-			uploadTooLarge: "Файл слишком велик — превышен лимит загрузки",
-			uploadCancelled: "Загрузка отменена",
-			settingsNav: "Боковая карточка",
-			settingsIntro: "Управление содержимым и поведением боковой карточки по умолчанию",
-			settingsPopupDesc: "Настройка параметров «{feature}»",
-			settingsDone: "Готово",
-			settingsOpenTitle: "Открывать по умолчанию для новых сессий",
-			settingsOpenDesc: "Автоматически разворачивать боковую карточку для новых сессий; у существующих сессий сохраняется их собственная раскладка",
-			settingsWidthTitle: "Доля ширины по умолчанию",
-			settingsWidthDesc: "Доля боковой карточки в ширине окна для новых сессий, в процентах (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "Открывать файлы чата в боковой панели",
-			settingsOpenPathDesc: "При щелчке по ссылке на файл в чате (строки инструментов, списки результатов, упоминания) файл открывается в редакторе боковой панели, а не в системном приложении по умолчанию",
-			settingsOpenToolsTitle: "Внедрить инструмент открытия в боковой панели для модели",
-			settingsOpenToolsDesc: "Если включено, модель может открывать файлы, папки и HTTP(S)-страницы в боковой панели с помощью инструмента sidebar_open (по умолчанию выключено)",
-			settingsTitleBarTitle: "Режим совместимости заголовка",
-			settingsTitleBarDesc: "Выберите схему совместимости заголовка: автоопределение (по умолчанию, консервативно) / официальный Web DSH / известные десктоп-оболочки / своя схема (смещение + пользовательский CSS)",
-			settingsTitleBarStripTitle: "Величина смещения",
-			settingsTitleBarStripDesc: "Высота полосы заголовка: на сколько пикселей сдвигаются вниз кнопки и содержимое боковой панели (0–120, по умолчанию 40; действует при собственной схеме)",
-			settingsSchemeAutoTitle: "Автоопределение",
-			settingsSchemeAutoDesc: "Консервативно: отступ применяется только при доступности стандартного Window Controls Overlay API (по реальной высоте заголовка); в веб-среде изменения не вносятся",
-			settingsSchemeWebTitle: "Официальный Web DSH",
-			settingsSchemeWebDesc: "Явно объявляется официальный веб-интерфейс: адаптация не выполняется (даже стандартная геометрия WCO не применяется)",
-			settingsSchemeCustomTitle: "Своя схема",
-			settingsSchemeCustomDesc: "Полный контроль: внедряется пользовательский CSS (может перекрывать встроенные стили) и задаётся величина смещения заголовка",
-			settingsSchemeDetectedSuffix: "обнаружено",
-			settingsCustomCssTitle: "Пользовательский CSS",
-			settingsCustomCssDesc: "Стили, добавляемые в конец страницы (при равном приоритете побеждает более поздний; для перезаписи инлайновых переменных из JS используйте !important)",
-			settingsCustomCssPlaceholder: "/* напр.: зарезервировать 36px для оболочки с собственным заголовком */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "Не удалось сохранить",
-			settingsConflict: "Настройки были изменены в другом окне — повторите",
-			binaryNoPreview: "Этот тип файла не поддерживает предпросмотр",
-			downloadToView: "Скачать для просмотра",
-			settingsSubagentTitle: "Автоматически разворачивать страницу «Задачи» при появлении субагента",
-			settingsSubagentDesc: "При появлении нового субагента в текущей сессии боковая панель автоматически разворачивается и открывается страница «Задачи»; при отключении нужно открывать вручную",
-			settingsJobsTitle: "Автоматически разворачивать страницу «Фоновые задачи» при новой задаче",
-			settingsJobsDesc: "При появлении новой фоновой задачи в текущей сессии боковая панель автоматически разворачивается и открывается страница «Фоновые задачи» (срабатывает на каждую новую задачу); при отключении нужно открывать вручную",
-			settingsToolsTitle: "Внедрить терминальные инструменты для модели",
-			settingsToolsDesc: "Если включено, модель может через 8 инструментов (terminal_create и др.) создавать терминалы боковой панели и управлять ими (по умолчанию выключено)",
-			settingsFontFamilyTitle: "Шрифт терминала",
-			settingsFontFamilyDesc: "Семейство шрифта терминала (CSS font-family, напр. \"JetBrains Mono\", monospace; пусто — моноширинный шрифт темы)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "Размер шрифта терминала",
-			settingsFontSizeDesc: "Размер шрифта терминала в px (9–32, по умолчанию 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Путь к shell",
-			settingsShellDesc: "Shell для терминалов UI и модели (абсолютный путь или имя исполняемого файла). Пусто — сохраняется прежний порядок: config.shell из yaml → $SHELL / login shell / powershell.exe в Windows. Применяется к терминалам, открываемым позже",
-			settingsShellPlaceholder: "напр. /bin/zsh (пусто = авто)",
-			settingsShellArgsTitle: "Аргументы shell",
-			settingsShellArgsDesc: "Явные аргументы запуска shell, разделённые пробелами; при непустом значении полностью заменяют аргументы по умолчанию (тот же контракт, что у shellArgs из yaml)",
-			settingsShellArgsPlaceholder: "напр. -l (пусто = по умолчанию)",
-			settingsTabsTitle: "Содержимое боковой панели",
-			settingsViewersTitle: "Просмотрщики файлов",
-			settingsGeneralTitle: "Общие",
-			settingsPopup: "Настройки функции",
-			settingsViewerCatchAll: "Универсальный: любой файл",
-			viewerImage: "Изображение",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "Код",
-			viewerBinary: "Бинарная загрузка",
-			viewerHtml: "HTML",
-			browser: "Браузер",
-			browserPlaceholder: "Введите URL, например example.com",
-			browserGo: "Перейти",
-			browserBack: "Назад",
-			browserForward: "Вперёд",
-			browserStart: "Введите URL для начала просмотра (режим песочницы)",
-			browserBlockedScheme: "Заблокировано: разрешены только ссылки http/https",
-			browserBlockedLoopback: "Заблокировано: локальные и внутренние адреса недоступны для просмотра здесь",
-			browserInvalid: "Неверный URL",
-			browserNoSandboxWarning: "Песочница выключена: текущая страница работает с полными привилегиями интерфейса (можно включить заново в настройках)",
-			htmlNoSandboxWarning: "Песочница выключена: этот HTML работает с полными привилегиями интерфейса и может читать файлы сессии и внутренние API (можно включить заново в настройках)",
-			sandboxStatusOn: "Режим песочницы: включён · страницы не имеют доступа к данным интерфейса и локальным файлам; вход и сторонние cookie могут не работать",
-			sandboxUnlock: "Временно отключить (небезопасно)",
-			sandboxRestore: "Восстановить песочницу",
-			settingsHtmlDefaultUnsafeTitle: "Открывать HTML-предпросмотр без песочницы по умолчанию (небезопасно)",
-			settingsHtmlDefaultUnsafeDesc: "Если включено, каждый новый HTML-предпросмотр стартует без песочницы (тот же источник, что у интерфейса — может читать файлы сессии и внутренние API); в строке состояния можно временно включить песочницу",
-			settingsHtmlSandboxTitle: "Отключить песочницу HTML-предпросмотра (небезопасно)",
-			settingsHtmlSandboxDesc: "При отключении предпросматриваемый HTML работает в том же источнике, что интерфейс: может читать файлы сессии, локальное хранилище и вызывать внутренние API. Включайте только для полностью доверенных файлов",
-			settingsBrowserSandboxTitle: "Отключить песочницу браузера (небезопасно)",
-			settingsBrowserSandboxDesc: "При отключении любой посещаемый сайт работает в том же источнике, что интерфейс: может читать данные сессии и выдавать себя за ваш вход. Включайте только для полностью доверенных сайтов",
-			settingsBrowserLinksTitle: "Открывать внешние ссылки чата в боковой панели",
-			settingsBrowserLinksDesc: "Если включено, щелчок по внешней ссылке в чате или интерфейсе открывает её в боковой панели, а не в новом окне; HTTP и HTTPS управляются отдельно переключателями ниже; Ctrl/Cmd+щелчок всегда пропускает",
-			settingsBrowserHttpTitle: "Открывать HTTP-страницы в боковой панели",
-			settingsBrowserHttpDesc: "Если включено, щелчок по HTTP-ссылке в чате или интерфейсе открывает её в боковой панели (страницы плагинов с urlTarget имеют приоритет); Ctrl/Cmd+щелчок всегда пропускает",
-			settingsBrowserHttpsTitle: "Открывать HTTPS-страницы в боковой панели",
-			settingsBrowserHttpsDesc: "Если включено, щелчок по HTTPS-ссылке в чате или интерфейсе открывает её в боковой панели. По умолчанию выключено: большинство HTTPS-сайтов отказываются встраиваться, поэтому системный браузер работает плавнее",
-			settingsBrowserLoopbackTitle: "Разрешённые локальные адреса",
-			settingsBrowserLoopbackDesc: "Разделённый запятыми список разрешённых loopback-адресов (напр. localhost:5174 или 127.0.0.1:8080), которые может посещать браузер боковой панели; пустое значение по умолчанию блокирует все локальные адреса. Песочница продолжает действовать — страницы не могут читать данные интерфейса",
-			settingsBrowserLoopbackPlaceholder: "напр. localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "Открыть в браузере",
-			browserEmbedBlocked: "{host} отказал во встраивании",
-			browserEmbedBlockedDesc: "Сайт запрещает отображение внутри других страниц (X-Frame-Options / frame-ancestors), поэтому его нельзя загрузить в боковой панели. Откройте его напрямую в браузере",
-			browserEmbedAnyway: "Загрузить всё равно",
-			subagent: "Задачи",
-			openSubagent: "Задачи",
-			subagentMainAgent: "Главный агент",
-			subagentEmpty: "Нет субагентов",
-			subagentEmptyDesc: "Субагенты, порождённые главным агентом, появятся здесь",
-			subagentRunning: "Выполняется",
-			subagentInactive: "Простаивает",
-			subagentModeOneShot: "Одноразовый",
-			subagentModeContinuable: "Продолжаемый",
-			subagentCount: "{count} субагентов",
-			subagentCountRunning: "{count} субагентов · {running} выполняется",
-			subagentDiagCorrupt: "Повреждён",
-			subagentDiagUnsupported: "Не поддерживается",
-			subagentDiagUnavailable: "Недоступен",
-			subagentThinking: "Размышляет…",
-			subagentShowHistory: "Показать {count} более ранних субагентов",
-			subagentHideHistory: "Свернуть более ранних субагентов",
-			sideChat: "Боковой чат (бета)",
-			sideChatNew: "Новый поток",
-			sideChatUntitled: "Новый поток",
-			sideChatEmpty: "Нет боковых диалогов",
-			sideChatEmptyDesc: "Каждый боковой диалог — отдельная вкладка в полосе; наследует контекст текущей сессии и не попадает в основной диалог",
-			sideChatCreating: "Создание бокового диалога…",
-			sideChatRetry: "Повторить",
-			sideChatThreads: "Сменить поток / новый",
-			sideChatSave: "Сохранить как новую сессию",
-			sideChatSaveTitle: "Повысить поток до сессии верхнего уровня в основном списке сессий",
-			sideChatSaved: "Сохранено как новая сессия",
-			sideChatNoTurn: "Сохранение доступно после первого завершённого хода",
-			sideChatPendingDrop: "Последний незавершённый уточняющий вопрос не попадёт в сохранённую сессию",
-			sideChatFirstPlaceholder: "Задайте первый вопрос — контекст уже унаследован…",
-			sideChatComposerPlaceholder: "Уточняющий вопрос…",
-			sideChatThinking: "Углубляется…",
-			sideChatThink: "Размышления",
-			sideChatInjection: "Контекст внедрён",
-			sideChatSend: "Отправить",
-			sideChatCancel: "Остановить",
-			sideChatCancelTitle: "Прервать текущий ход (очередь сохраняется)",
-			sideChatClose: "Закрыть поток",
-			sideChatCloseTitle: "Освободить агента потока (история сохраняется)",
-			sideChatError: "Ошибка бокового чата: {message}",
-			jobs: "Фоновые задачи",
-			jobsCount: "{count} фоновых задач",
-			jobsCountRunning: "{count} фоновых задач · {running} выполняется",
-			jobsShowHistory: "Показать {count} более ранних фоновых задач",
-			jobsHideHistory: "Свернуть более ранние фоновые задачи",
-			jobStatusRunning: "Выполняется",
-			jobStatusStopping: "Останавливается",
-			jobStatusCompleted: "Завершено",
-			jobStatusKilled: "Уничтожен",
-			jobStatusFailed: "Сбой",
-			jobDurationSeconds: "{seconds} с",
-			jobDurationMinutes: "{minutes}м {seconds}с",
-			jobDurationHours: "{hours}ч {minutes}м",
-			jobViewOutput: "Показать вывод",
-			jobHideOutput: "Скрыть вывод",
-			jobNoOutput: "Пока нет вывода",
-			jobNotReadYet: "Ожидание, пока модель прочитает вывод этой задачи (после выполнения job_output вывод появится здесь)",
-			jobOutputTruncated: "Вывод обрезан",
-			jobOutputError: "Не удалось прочитать вывод",
-			jobKill: "Завершить",
-			jobKillConfirm: "Нажмите ещё раз, чтобы подтвердить завершение",
-			jobKillError: "Не удалось завершить",
-			addPluginsTabCard: "Добавить плагины вкладок",
-			addPluginsTabCardDesc: "Зарегистрировать новую страницу боковой панели",
-			addPluginsViewerCard: "Добавить плагины предпросмотра",
-			addPluginsViewerCardDesc: "Зарегистрировать предпросмотр типа файлов",
-			addPluginsTabDesc: "Страницы боковой панели (вкладки) расширяются плагинами. Плагины регистрируются через службу ctx.betterSidebar; щелчок по «Установить» копирует команду — вставьте её в терминал, где находится профиль DSH, и выполните.",
-			addPluginsViewerDesc: "Просмотрщики файлов расширяются плагинами. Плагины регистрируются через службу ctx.betterSidebar; щелчок по «Установить» копирует команду — вставьте её в терминал, где находится профиль DSH, и выполните.",
-			addPluginsBrowseMore: "Найти больше плагинов на GitHub (topic: dsh-coding-sidebar)",
-			addPluginsSearch: "Поиск по имени или описанию плагина…",
-			addPluginsNoMatch: "Нет совпадающих плагинов",
-			addPluginsRecommended: "Рекомендуемые плагины",
-			addPluginsEmpty: "Пока плагины не собраны — опубликуйте свой под топиком на GitHub",
-			openPlugin: "Открыть",
-			copyInstall: "Копировать команду установки",
-			pluginOfficeDesc: "Предпросмотр Office (.docx / .xlsx / .pptx) для редактора dsh-coding-sidebar; тяжёлые библиотеки рендеринга Office вынесены из основного пакета и устанавливаются по требованию",
-			pluginFlowglassDesc: "Живой граф потока сессии: три дорожки для пользователя, ассистента и вызовов инструментов, с параллельными группами, ветками субагентов, послойным раскрытием и статусом в реальном времени; регистрирует собственную вкладку «Flowglass» при установленном dsh-coding-sidebar и сохраняет отдельный лоток как запас",
-			pluginGitForgeDesc: "Вкладка «Git Forge»: библиотека аккаунтов GitHub/Gitea и других Forge + попроектные разрешения + жёсткая блокировка push; токены хранятся только в локальных секретах и не попадают в контекст модели; даёт инструмент GitForge (только чтение) и HTTPS credential helper для агента",
-			pluginGitRemotesDesc: "Вкладка Git Remotes: просмотр веток/апстрима/ahead-behind, fetch (с возможностью prune), ff-only pull и push только после подтверждения во вкладке. Не заменяет встроенную вкладку Git (индексирование/коммит), не предоставляет force-push и инструмент авто-push для модели",
-			pluginSentinelDesc: "Система пробуждения агента по условиям: сенсоры файлов/процессов/портов/HTTP/команд/webhook будят спящие сессии при срабатывании; регистрирует вкладку «Sentinel» с глобальной таблицей наблюдений сервера",
-			pluginSidebarQaDesc: "Вкладка «выделить и спросить» на базе dsh-coding-sidebar: выделение текста в диалоге → вопрос в правой панели → отдельная сессия уточняющих вопросов в той же рабочей области (❓вопросы·тема): быстрая модель без размышлений сжимает контекст основного диалога и внедряет его вместе с цитатой, не прерывая основной диалог; уточняющие вопросы вкладываются, продолжаются и архивируются",
-			pluginSshTunnelDesc: "Вкладка «SSH-туннель»: список хостов нескольких машин + попроектные разрешения + локальное хранение ключей; инструмент модели SSHManager (exec/SFTP/стратегии сессий); центральный интерактивный терминал и двухпанельный SFTP",
-			pluginTurnReviewDesc: "Человеческий шлюз Approve / Request changes для diff «только что завершённого хода»: рассматривается только предыдущий ход, без форка сессии; файлы группируются по основная сессия/субагент/без атрибуции, отметка возврата по файлам + необязательный комментарий; щелчок по файлу сначала показывает diff между снимком начала хода и текущим состоянием. Это не /rewind",
-			pluginVideoPreviewDesc: "Встроенный предпросмотр видеофайлов (.mp4/.webm/.mov/.mkv/.avi и др.) в редакторе dsh-coding-sidebar; обслуживается выделенным хост-маршрутом /video с поддержкой HTTP Range (206) — перемотка работает, а файлы не ограничены mediaLimit в 20 МБ",
-			pluginDocsPanelDesc: "«Глобальные документы» в боковой панели DSH: глобальные Markdown-заметки, доступные из любой рабочей области — список для чтения, навигация по плавающему оглавлению, открытие в Chrome / VS Code, копирование кода; каталог настраивается (по умолчанию ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "Браузер агента для DeepSeek Harness: 32 инструмента ego_* управляют настоящим Chromium; встроенная вкладка «ego browser» в боковой панели показывает в реальном времени каждую страницу, которую посещает агент — кликайте, перетаскивайте и вводите текст, чтобы перехватить управление. Вкладка регистрируется автоматически при наличии dsh-coding-sidebar, иначе используется плавающий пузырёк"
-		};
-		//#endregion
-		//#region src/client/locales-it.ts
-		/**
-		* Italian copy for the sidebar. Key-set-equal to `zh` in `locales.ts`;
-		* consumed by the better-locale override store (see `locales.ts` for the
-		* zh/en/ja lookup chain and the `attachBetterLocale` contract).
-		*
-		* @module dsh-coding-sidebar/client/locales-it
-		*/
-		const it$1 = {
-			files: "File",
-			explorer: "Esplora risorse",
-			git: "Controllo del codice sorgente",
-			terminal: "Terminale",
-			editor: "Editor",
-			editorExplorer: "Modalità di apertura dei file",
-			editorExplorerDesc: "Controlla come si aprono i file",
-			editorExplorerMerged: "Unito",
-			editorExplorerMergedDesc: "I file cambiano sul posto nella stessa finestra; le nuove finestre avviano l’albero espanso",
-			editorExplorerSplit: "Separato",
-			editorExplorerSplitDesc: "Le finestre senza percorso sono l’esplora risorse autonomo (solo albero dei file); ogni file apre la propria finestra (albero agganciato, chiuso per impostazione predefinita)",
-			editorTreeToggle: "Pannello dell’albero dei file",
-			editorPathPlaceholder: "Percorso del file (relativo alla directory della sessione o assoluto), Invio per aprire",
-			editorSearchPlaceholder: "Cerca file per nome…",
-			editorSearchNoResults: "Nessun file corrispondente",
-			editorSearchTruncated: "Troppi risultati — viene mostrato un elenco parziale",
-			editorEmptyHint: "Scelga un file dal pannello dell’albero a destra o dal campo del percorso in alto per iniziare l’anteprima",
-			openFileNewTab: "Apri in una nuova scheda",
-			openFileSide: "Apri a lato",
-			openWithMenu: "Apri con",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "Fissa al menu",
-			unpinOpenWith: "Rimuovi dal fisso",
-			openWithExplorer: "Esplora risorse",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "Host remoto SSH",
-			openWithSettingsSshDesc: "Vuoto = spazio di lavoro locale; con un user@host o un alias SSH, gli apritori della famiglia VSCode passano al protocollo vscode-remote/ssh-remote e l’Esplora risorse / Zed / gli editor personalizzati non VSCode vengono nascosti dal menu",
-			openWithSettingsSshPlaceholder: "user@host o alias SSH",
-			openWithSettingsCustomTitle: "Editor personalizzati",
-			openWithSettingsCustomDesc: "Nome + modello URL (segnaposto {path}) + flag famiglia VSCode; in modalità remota solo gli editor della famiglia VSCode possono aprire un percorso remoto",
-			openWithSettingsAdd: "Aggiungi",
-			openWithSettingsName: "Nome",
-			openWithSettingsTemplate: "es. cursor://file/{path}",
-			openWithSettingsFamily: "Famiglia VSCode",
-			openWithSettingsFamilyDesc: "Questo editor usa il protocollo URL di VSCode (supporta aperture SSH remote)",
-			openWithSettingsRemove: "Rimuovi",
-			openWithSettingsInvalidHint: "Gli editor con nome mancante o modello senza {path} / scheme:// non vengono mostrati nel menu",
-			newTab: "Nuova scheda",
-			openExplorer: "Esplora risorse",
-			brokenSymlink: "Collegamento simbolico interrotto",
-			openGit: "Pannello Git",
-			newTerminal: "Nuovo terminale",
-			terminalLimit: "Numero massimo di terminali raggiunto (3)",
-			close: "Chiudi",
-			closeOtherTabs: "Chiudi le altre schede",
-			closeLeftTabs: "Chiudi le schede a sinistra",
-			closeRightTabs: "Chiudi le schede a destra",
-			moveToFreeWindow: "Sposta in finestra libera",
-			floatDropHint: "Rilascia per aprire in una finestra libera",
-			dockToSidebar: "Torna alla barra laterale",
-			pinTerminal: "Blocca Terminale",
-			pinAgentTerminal: "Blocca Terminale Agent",
-			pinToWorkspace: "Blocca in Workspace",
-			pinToGlobal: "Blocca Globalmente",
-			unpinTerminal: "Sblocca",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "Terminale UI",
-			pinnedTerminalKindAgent: "Terminale Agent",
-			pinnedTerminalScopeWorkspace: "Bloccato in workspace",
-			pinnedTerminalScopeGlobal: "Bloccato globalmente",
-			pinnedRailLabel: "Terminali Bloccati",
-			closePinnedTerminal: "Chiudi Terminale",
-			collapse: "Comprimi barra laterale",
-			expand: "Espandi barra laterale",
-			terminalError: "Connessione del terminale non riuscita",
-			terminalConnectFailed: "Il terminale non è riuscito a connettersi più volte",
-			terminalRetry: "Riprova",
-			terminalDepsFailed: "Caricamento della dipendenza del terminale node-pty non riuscito",
-			terminalDepsHint: "Esegua il comando seguente in un terminale o cmd sul computer DSH per ripristinarlo, poi riprovi (node-pty resta sincronizzato con la versione del core DSH):",
-			terminalDepsProfile: " (rilevato profilo: {profile})",
-			preview: "Anteprima",
-			edit: "Modifica",
-			refresh: "Aggiorna",
-			showInFolder: "Mostra nella cartella",
-			refreshUnsavedConfirm: "Il file è cambiato su disco. Aggiornare scarterà le modifiche non salvate. Continuare?",
-			save: "Salva",
-			saved: "Salvato",
-			unsaved: "Non salvato",
-			saveFailed: "Salvataggio non riuscito",
-			truncation: "File troppo grande — vengono mostrati i primi 512KB",
-			binary: "File binario, anteprima non disponibile",
-			loading: "Caricamento…",
-			error: "Caricamento non riuscito",
-			retry: "Riprova",
-			splitLeft: "Dividi a sinistra",
-			splitRight: "Dividi a destra",
-			splitUp: "Dividi in alto",
-			splitDown: "Dividi in basso",
-			notRepo: "Questa directory non è un repository git",
-			noChanges: "Nessuna modifica",
-			statusTruncated: "Troppe modifiche; vengono mostrate solo le prime 2000 voci",
-			stage: "Prepara",
-			unstage: "Rimuovi dalla preparazione",
-			stageAll: "Prepara tutto",
-			unstageAll: "Rimuovi tutto dalla preparazione",
-			commitPlaceholder: "Messaggio di commit (Ctrl+Enter)",
-			commit: "Commit",
-			commitError: "Commit non riuscito",
-			branch: "Ramo",
-			worktree: "Albero di lavoro",
-			checkoutError: "Cambio di ramo non riuscito",
-			history: "Cronologia",
-			changes: "Modifiche",
-			staged: "In stage",
-			unstaged: "Non in stage",
-			cancel: "Annulla",
-			diffEmpty: "Nessuna modifica testuale",
-			diffLoadError: "Caricamento del diff non riuscito",
-			diffBinary: "Binario",
-			diffAdded: "Aggiunto",
-			diffDeleted: "Eliminato",
-			diffRenamed: "Rinominato",
-			diffExpand: "Espandi altre {count} righe",
-			diffCollapse: "Comprimi",
-			discard: "Annulla modifiche",
-			discardTitle: "Annulla modifiche",
-			discardDesc: "Questo annulla le modifiche della copia di lavoro di «{path}» (non recuperabile).",
-			viewCommitDiff: "Vedi il diff del commit",
-			copyShortHash: "Copia hash breve",
-			copyFullHash: "Copia hash completo",
-			copySubject: "Copia messaggio di commit",
-			revertCommit: "Ripristina questo commit",
-			revertTitle: "Ripristina questo commit",
-			revertDesc: "Crea un nuovo commit sul ramo attuale che inverte «{subject}».",
-			cherryPickCommit: "Cherry-pick di questo commit",
-			cherryPickTitle: "Cherry-pick di questo commit",
-			cherryPickDesc: "Applica le modifiche di «{subject}» al ramo attuale.",
-			timeJustNow: "adesso",
-			timeMinutesAgo: "{n} min fa",
-			timeHoursAgo: "{n} h fa",
-			timeYesterday: "ieri",
-			loadMore: "Carica altro",
-			historyLoadError: "Caricamento di altra cronologia non riuscito",
-			produced: "Prodotti",
-			producedOpen: "Apri nella barra laterale",
-			disconnected: "Terminale disconnesso, riconnessione…",
-			exited: "Il processo del terminale è terminato",
-			noSession: "Selezioni una conversazione per usare la barra laterale",
-			pluginNotLoaded: "Plugin non caricato; scheda non disponibile:",
-			hiddenFiles: "File nascosti",
-			parent: "Directory superiore",
-			copied: "Copiato",
-			copy: "Copia",
-			newFile: "Nuovo file",
-			openEditor: "Apri editor",
-			gitDetail: "Vedi i dettagli delle modifiche",
-			referenceFile: "@file",
-			addToConversation: "Aggiungi alla conversazione",
-			copyRelative: "Copia percorso relativo",
-			copyAbsolute: "Copia percorso assoluto",
-			download: "Scarica",
-			uploadFiles: "Carica file",
-			uploadFolder: "Carica cartella",
-			uploadHere: "Carica qui",
-			uploadDropHint: "Trascini file/cartelle qui per caricarli",
-			uploadDropChat: "Trascini sulla chat per aggiungere immagini alla conversazione",
-			uploadTo: "Carica in {dir}",
-			uploadingTo: "Caricamento in {dir}…",
-			uploadProgress: "Caricamento {done}/{total}: {name}",
-			uploadDone: "Caricati {count} file",
-			uploadFailed: "Caricamento non riuscito: {error}",
-			uploadFailedUnknown: "Errore sconosciuto",
-			uploadTooLarge: "File troppo grande (oltre il limite di caricamento)",
-			uploadCancelled: "Caricamento annullato",
-			settingsNav: "Scheda laterale",
-			settingsIntro: "Gestisca cosa mostra la scheda laterale e come si comporta",
-			settingsPopupDesc: "Configuri le opzioni relative a {feature}",
-			settingsDone: "Fatto",
-			settingsOpenTitle: "Apri per impostazione predefinita per le nuove conversazioni",
-			settingsOpenDesc: "Espande automaticamente la scheda laterale per le conversazioni nuove; le conversazioni esistenti mantengono il proprio layout",
-			settingsWidthTitle: "Quota di larghezza predefinita",
-			settingsWidthDesc: "La quota predefinita della scheda laterale sulla larghezza della finestra per le nuove conversazioni (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "Apri i file della chat nella barra laterale",
-			settingsOpenPathDesc: "Apre i collegamenti ai file nella chat (righe di strumenti, file prodotti, menzioni) nell’editor della barra laterale invece dell’app predefinita di sistema",
-			settingsOpenToolsTitle: "Iniettare lo strumento di apertura della barra laterale per il modello",
-			settingsOpenToolsDesc: "Se attivato, il modello può aprire file, cartelle e pagine HTTP(S) nella barra laterale tramite lo strumento sidebar_open (disattivato per impostazione predefinita)",
-			settingsTitleBarTitle: "Modalità di compatibilità della posizione",
-			settingsTitleBarDesc: "Scelga lo schema di compatibilità della barra del titolo: rilevamento automatico (predefinito, prudente) / DSH Web ufficiale / shell desktop note / personalizzato (distanza di scorrimento + CSS personalizzato)",
-			settingsTitleBarStripTitle: "Distanza di scorrimento",
-			settingsTitleBarStripDesc: "Altezza della striscia della barra del titolo: di quanti pixel scendono i pulsanti e i contenuti della barra laterale (0–120, predefinito 40; si applica con lo schema personalizzato)",
-			settingsSchemeAutoTitle: "Rilevamento automatico",
-			settingsSchemeAutoDesc: "Prudente: solo l’API standard Window Controls Overlay contribuisce (altezza reale della barra del titolo); gli ambienti web puri non subiscono modifiche",
-			settingsSchemeWebTitle: "DSH Web ufficiale",
-			settingsSchemeWebDesc: "Dichiara esplicitamente la web UI ufficiale: nessun adattamento (nemmeno la geometria WCO standard)",
-			settingsSchemeCustomTitle: "Personalizzato",
-			settingsSchemeCustomDesc: "Controllo totale: inietti CSS personalizzato (può sovrascrivere gli stili integrati) e imposti la distanza di scorrimento della barra del titolo",
-			settingsSchemeDetectedSuffix: "rilevato",
-			settingsCustomCssTitle: "CSS personalizzato",
-			settingsCustomCssDesc: "Stili accodati alla fine della pagina (in caso di parità vince chi è dopo; usi !important per sovrascrivere le variabili inline scritte da JS)",
-			settingsCustomCssPlaceholder: "/* es. riserva 36px per una shell con barra del titolo disegnata a mano */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "Salvataggio non riuscito",
-			settingsConflict: "L’impostazione è stata modificata in un’altra finestra — riprovi",
-			binaryNoPreview: "Questo tipo di file non può essere visualizzato in anteprima",
-			downloadToView: "Scarica per visualizzare",
-			settingsSubagentTitle: "Apri automaticamente la pagina Attività quando compare un sottoagente",
-			settingsSubagentDesc: "Espande la barra laterale e apre la pagina Attività quando la conversazione attuale genera un nuovo sottoagente; disattivato va aperta manualmente",
-			settingsJobsTitle: "Apri automaticamente la pagina Attività in background in caso di nuova attività",
-			settingsJobsDesc: "Espande la barra laterale e apre la pagina Attività in background ogni volta che compare una nuova attività in background per la conversazione attuale (ogni nuova attività la attiva); disattivato va aperta manualmente",
-			settingsToolsTitle: "Inietta strumenti del terminale per il modello",
-			settingsToolsDesc: "Se attivato, il modello può creare e gestire terminali della barra laterale attraverso gli 8 strumenti terminal_* (disattivato per impostazione predefinita)",
-			settingsFontFamilyTitle: "Famiglia di caratteri del terminale",
-			settingsFontFamilyDesc: "Famiglia di caratteri personalizzata del terminale (uno stack CSS font-family come \"JetBrains Mono\", monospace; lasci vuoto per seguire il carattere a spaziatura fissa del tema)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "Dimensione del carattere del terminale",
-			settingsFontSizeDesc: "Dimensione del carattere del terminale in px (9–32, predefinito 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Percorso della shell",
-			settingsShellDesc: "Shell avviata per i terminali dell’interfaccia e del modello (percorso assoluto o nome eseguibile). Vuoto mantiene l’ordine preesistente: config.shell di yaml → $SHELL / shell di login / powershell.exe di Windows. Si applica ai terminali aperti successivamente",
-			settingsShellPlaceholder: "es. /bin/zsh (vuoto = automatico)",
-			settingsShellArgsTitle: "Argomenti della shell",
-			settingsShellArgsDesc: "Argomenti espliciti della shell, separati da spazi; quando non vuoti sostituiscono completamente i predefiniti (stesso contratto di shellArgs di yaml)",
-			settingsShellArgsPlaceholder: "es. -l (vuoto = predefiniti)",
-			settingsTabsTitle: "Contenuto della barra laterale",
-			settingsViewersTitle: "Visualizzatori di file",
-			settingsGeneralTitle: "Generali",
-			settingsPopup: "Impostazioni della funzionalità",
-			settingsViewerCatchAll: "Raccoglitore: qualsiasi file",
-			viewerImage: "Immagine",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "Codice",
-			viewerBinary: "Download binario",
-			viewerHtml: "HTML",
-			browser: "Browser",
-			browserPlaceholder: "Inserisca un URL, es. example.com",
-			browserGo: "Vai",
-			browserBack: "Indietro",
-			browserForward: "Avanti",
-			browserStart: "Inserisca un URL per iniziare a navigare (modalità sandbox)",
-			browserBlockedScheme: "Bloccato: sono ammessi solo URL http/https",
-			browserBlockedLoopback: "Bloccato: gli indirizzi locali e interni non possono essere navigati qui",
-			browserInvalid: "URL non valido",
-			browserNoSandboxWarning: "Sandbox disattivata: la pagina attuale viene eseguita con i privilegi completi dell’interfaccia (può riattivarla nelle impostazioni)",
-			htmlNoSandboxWarning: "Sandbox disattivata: questo HTML viene eseguito con la stessa origine dell’interfaccia e può leggere i file di sessione e le API interne (può riattivarla nelle impostazioni)",
-			sandboxStatusOn: "Modalità sandbox: attiva · le pagine non possono accedere ai dati dell’interfaccia o ai file locali; i login e i cookie di terze parti potrebbero non funzionare",
-			sandboxUnlock: "Disattiva temporaneamente (non sicuro)",
-			sandboxRestore: "Ripristina sandbox",
-			settingsHtmlDefaultUnsafeTitle: "Apri le anteprime HTML senza sandbox per impostazione predefinita (non sicuro)",
-			settingsHtmlDefaultUnsafeDesc: "Se attivato, ogni anteprima HTML appena aperta inizia nello stato senza sandbox (stessa origine dell’interfaccia — può leggere i file di sessione e le API interne); la riga di stato offre ancora un ripristino con un tocco",
-			settingsHtmlSandboxTitle: "Disattiva la sandbox dell’anteprima HTML (non sicuro)",
-			settingsHtmlSandboxDesc: "Con la sandbox disattivata, l’HTML in anteprima viene eseguito con la stessa origine dell’interfaccia: può leggere i file di sessione, l’archiviazione locale e chiamare le API interne. Attivi solo per file completamente attendibili",
-			settingsBrowserSandboxTitle: "Disattiva la sandbox del browser (non sicuro)",
-			settingsBrowserSandboxDesc: "Con la sandbox disattivata, ogni sito visitato viene eseguito con la stessa origine dell’interfaccia: può leggere i dati di sessione e fingersi la sua sessione di login. Attivi solo per siti completamente attendibili",
-			settingsBrowserLinksTitle: "Apri i collegamenti esterni della chat nella barra laterale",
-			settingsBrowserLinksDesc: "Se attivato, cliccando un collegamento esterno nella chat o nell’interfaccia si apre la barra laterale invece di una nuova finestra; HTTP e HTTPS sono controllati separatamente dagli interruttori qui sotto; Ctrl/Cmd+clic li aggira sempre",
-			settingsBrowserHttpTitle: "Apri le pagine HTTP nella barra laterale",
-			settingsBrowserHttpDesc: "Se attivato, cliccando un collegamento HTTP esterno nella chat o nell’interfaccia si apre la barra laterale (le pagine dei plugin che dichiarano urlTarget vincono); Ctrl/Cmd+clic lo aggira sempre",
-			settingsBrowserHttpsTitle: "Apri le pagine HTTPS nella barra laterale",
-			settingsBrowserHttpsDesc: "Se attivato, cliccando un collegamento HTTPS esterno nella chat o nell’interfaccia si apre la barra laterale. Disattivato per impostazione predefinita: la maggior parte dei siti HTTPS rifiuta di essere incorporata, per cui il browser di sistema è l’impostazione più fluida",
-			settingsBrowserLoopbackTitle: "Indirizzi locali consentiti",
-			settingsBrowserLoopbackDesc: "Allowlist separata da virgole di indirizzi di loopback (es. localhost:5174 o 127.0.0.1:8080) che il browser della barra laterale può visitare; vuoto blocca tutti gli indirizzi locali per impostazione predefinita. La sandbox si applica ancora — le pagine non possono leggere i dati della GUI",
-			settingsBrowserLoopbackPlaceholder: "es. localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "Apri nel browser",
-			browserEmbedBlocked: "{host} ha rifiutato di essere incorporato",
-			browserEmbedBlockedDesc: "Il sito vieta di essere mostrato all’interno di altre pagine (X-Frame-Options / frame-ancestors), per cui non può essere caricato nella barra laterale. Lo apra direttamente nel browser.",
-			browserEmbedAnyway: "Carica comunque",
-			subagent: "Attività",
-			openSubagent: "Attività",
-			subagentMainAgent: "Agente principale",
-			subagentEmpty: "Nessun sottoagente",
-			subagentEmptyDesc: "I sottoagenti generati dall’agente principale compariranno qui",
-			subagentRunning: "In esecuzione",
-			subagentInactive: "Inattivo",
-			subagentModeOneShot: "Monouso",
-			subagentModeContinuable: "Proseguibile",
-			subagentCount: "{count} sottoagenti",
-			subagentCountRunning: "{count} sottoagenti · {running} in esecuzione",
-			subagentDiagCorrupt: "Danneggiato",
-			subagentDiagUnsupported: "Non supportato",
-			subagentDiagUnavailable: "Non disponibile",
-			subagentThinking: "In pensiero…",
-			subagentShowHistory: "Mostra {count} sottoagenti precedenti",
-			subagentHideHistory: "Comprimi sottoagenti precedenti",
-			sideChat: "Chat laterale (beta)",
-			sideChatNew: "Nuova conversazione",
-			sideChatUntitled: "Nuova conversazione",
-			sideChatEmpty: "Nessuna conversazione laterale",
-			sideChatEmptyDesc: "Ogni conversazione laterale è una scheda a sé nella striscia delle schede — eredita il contesto della sessione attuale e non entra mai nella conversazione principale",
-			sideChatCreating: "Creazione della conversazione laterale…",
-			sideChatRetry: "Riprova",
-			sideChatThreads: "Cambia conversazione / nuova",
-			sideChatSave: "Salva come nuova sessione",
-			sideChatSaveTitle: "Promuove questa conversazione a sessione di primo livello nella lista delle sessioni principali",
-			sideChatSaved: "Salvata come nuova sessione",
-			sideChatNoTurn: "Il salvataggio è disponibile dopo il primo turno completato",
-			sideChatPendingDrop: "L’ultima domanda di follow-up senza risposta non sarà inclusa nella sessione salvata",
-			sideChatFirstPlaceholder: "Ponga la prima domanda — contesto ereditato…",
-			sideChatComposerPlaceholder: "Ponga un follow-up…",
-			sideChatThinking: "Approfondimento…",
-			sideChatThink: "Pensiero",
-			sideChatInjection: "Contesto iniettato",
-			sideChatSend: "Invia",
-			sideChatCancel: "Arresta",
-			sideChatCancelTitle: "Interrompe il turno in corso (il lavoro in coda è conservato)",
-			sideChatClose: "Chiudi conversazione",
-			sideChatCloseTitle: "Rilascia l’agente della conversazione (la cronologia è conservata)",
-			sideChatError: "Errore della chat laterale: {message}",
-			jobs: "Attività in background",
-			jobsCount: "{count} attività in background",
-			jobsCountRunning: "{count} attività in background · {running} in esecuzione",
-			jobsShowHistory: "Mostra {count} attività in background precedenti",
-			jobsHideHistory: "Comprimi attività in background precedenti",
-			jobStatusRunning: "In esecuzione",
-			jobStatusStopping: "Arresto in corso",
-			jobStatusCompleted: "Completata",
-			jobStatusKilled: "Terminata",
-			jobStatusFailed: "Non riuscita",
-			jobDurationSeconds: "{seconds}s",
-			jobDurationMinutes: "{minutes}min {seconds}s",
-			jobDurationHours: "{hours}h {minutes}min",
-			jobViewOutput: "Vedi output",
-			jobHideOutput: "Nascondi output",
-			jobNoOutput: "Nessun output per ora",
-			jobNotReadYet: "In attesa che il modello legga questa attività; il suo output compare qui quando il modello esegue job_output",
-			jobOutputTruncated: "Output troncato",
-			jobOutputError: "Lettura dell’output non riuscita",
-			jobKill: "Termina",
-			jobKillConfirm: "Faccia di nuovo clic per confermare la terminazione",
-			jobKillError: "Terminazione non riuscita",
-			addPluginsTabCard: "Aggiungi plugin scheda",
-			addPluginsTabCardDesc: "Registri una nuova pagina della barra laterale",
-			addPluginsViewerCard: "Aggiungi plugin di anteprima",
-			addPluginsViewerCardDesc: "Registri un’anteprima di tipo di file",
-			addPluginsTabDesc: "Le pagine della barra laterale (schede) possono essere estese dai plugin. I plugin si registrano tramite il servizio ctx.betterSidebar; cliccando Installa viene copiato il comando di installazione — lo incolli in un terminale dove risiede il profilo DSH e lo esegua.",
-			addPluginsViewerDesc: "I visualizzatori di file possono essere estesi dai plugin. I plugin si registrano tramite il servizio ctx.betterSidebar; cliccando Installa viene copiato il comando di installazione — lo incolli in un terminale dove risiede il profilo DSH e lo esegua.",
-			addPluginsBrowseMore: "Sfogli altri plugin su GitHub (topic: dsh-coding-sidebar)",
-			addPluginsSearch: "Cerca per nome / descrizione del plugin…",
-			addPluginsNoMatch: "Nessun plugin corrispondente",
-			addPluginsRecommended: "Plugin consigliati",
-			addPluginsEmpty: "Nessun plugin curato per ora — pubblichi il suo sotto il topic GitHub",
-			openPlugin: "Apri",
-			copyInstall: "Copia comando di installazione",
-			pluginOfficeDesc: "Anteprima della suite Office (.docx / .xlsx / .pptx) per l’editor di dsh-coding-sidebar, tenendo le pesanti librerie di rendering Office fuori dal bundle principale, installabili su richiesta",
-			pluginFlowglassDesc: "Diagramma di flusso live della sessione con tre corsie per utente, assistente e chiamate agli strumenti, più gruppi paralleli, rami dei sottoagenti, drill-down e stato in tempo reale; registra una scheda nativa Flowglass quando dsh-coding-sidebar è installato e mantiene il suo cassetto autonomo come fallback",
-			pluginGitForgeDesc: "Scheda Git Forge: libreria di account GitHub/Gitea (e altri forge) + concessioni per progetto + blocco rigido della politica di push; i token restano nei segreti locali (mai nel contesto del modello); strumento GitForge in sola lettura e helper di credenziali HTTPS per l’agente",
-			pluginGitRemotesDesc: "Scheda Git Remotes: rami/upstream/ahead-behind, fetch (prune opzionale), pull ff-only e push solo dopo una conferma nella scheda. Non sostituisce la scheda stage/commit integrata di Git, e non offre force-push o uno strumento di push automatico del modello",
-			pluginSentinelDesc: "Sistema di risveglio dell’agente guidato da condizioni: sensori file/processo/porta/HTTP/comando/webhook risvegliano le sessioni dormienti quando le condizioni si verificano; registra una scheda «Sentinella» con la tabella di monitoraggio globale del server",
-			pluginSidebarQaDesc: "Selezione e domanda: selezioni il testo della conversazione → ponga la domanda nel pannello a destra → una sessione di follow-up dedicata (❓ follow-up) nello stesso spazio di lavoro; un modello veloce senza pensiero comprime il contesto principale e lo inietta con la citazione, senza interrompere la conversazione principale. I follow-up si annidano, proseguono e si archiviano",
-			pluginSshTunnelDesc: "Scheda SSH Tunnel: inventario multi-host + concessioni per progetto + chiavi locali; strumento SSHManager per il modello (exec/SFTP/strategie di sessione); terminale interattivo centrale e SFTP a due pannelli",
-			pluginTurnReviewDesc: "Una porta umana sul diff del turno appena concluso: Approve / Request changes per percorso con un commento facoltativo; percorsi raggruppati per sessione principale / sottoagente / non attribuito; diff snapshot-vs-ora in linea prima di decidere. Nessun fork, nessun /rewind",
-			pluginVideoPreviewDesc: "Anteprima video in linea nell’editor di dsh-coding-sidebar (.mp4/.webm/.mov/.mkv/.avi ecc.), supportata da una route host /video dedicata con supporto HTTP Range (206) — la barra di scorrimento funziona e i file non sono limitati dal mediaLimit di 20MB",
-			pluginDocsPanelDesc: "Documenti globali nella barra laterale di DSH: legga le sue note Markdown da qualsiasi spazio di lavoro — una lista di file, una struttura, apertura in Chrome / VS Code e pulsanti di copia; la directory dei documenti è configurabile (predefinita ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "Il browser agente per DeepSeek Harness: 32 strumenti ego_* pilotano un vero Chromium; una scheda nativa «ego browser» nella barra laterale mostra in tempo reale ogni pagina visitata dall’agente — puoi cliccare, trascinare e digitare per prendere il controllo. Registra la scheda automaticamente se dsh-coding-sidebar è presente, altrimenti una bolla flottante"
-		};
-		//#endregion
-		//#region src/client/locales-nl.ts
-		/**
-		* The nl (Dutch) dictionary for the betterSidebar namespace.
-		*
-		* Mirrors the key set of `zh` in `locales.ts`. The sidebar's `t()`
-		* consults this dict when `attachBetterLocale(store)` has been called
-		* with an active better-locale store whose `active` is `'nl'`; absent
-		* that, the existing zh/en chain runs unchanged.
-		*
-		* Translation conventions:
-		* - Formal "u" form for user-facing text.
-		* - Technical loanwords stay in English (Git, SSH, HTTP, URL, Markdown, PDF, VS Code).
-		* - Git vocabulary follows English-derived conventions (stagen, unstagen, commit, branch).
-		* - Placeholders keep `{name}` verbatim (interpolation runs after lookup).
-		* - English brand names (VS Code, Cursor, Zed, SSH) stay as-is.
-		*/
-		const nl$1 = {
-			files: "Bestanden",
-			explorer: "Verkenner",
-			git: "Bronbeheer",
-			terminal: "Terminal",
-			editor: "Editor",
-			editorExplorer: "Bestand openingsgedrag",
-			editorExplorerDesc: "Bepaalt hoe bestanden worden geopend",
-			editorExplorerMerged: "Samengevoegd",
-			editorExplorerMergedDesc: "Bestanden wisselen in-place in hetzelfde venster; nieuwe vensters beginnen met de boom open",
-			editorExplorerSplit: "Afzonderlijk",
-			editorExplorerSplitDesc: "Vensters zonder pad zijn de zelfstandige verkenner (alleen bestandsboom); elk bestand opent een eigen venster (boom gedockt, standaard gesloten)",
-			editorTreeToggle: "Bestandsboompaneel",
-			editorPathPlaceholder: "Voer een bestandspad in (relatief aan de sessiemap of absoluut), Enter om te openen",
-			editorSearchPlaceholder: "Zoek op bestandsnaam…",
-			editorSearchNoResults: "Geen overeenkomende bestanden",
-			editorSearchTruncated: "Te veel resultaten — een gedeeltelijke lijst wordt getoond",
-			editorEmptyHint: "Kies een bestand uit het boompaneel of het pad-invoerveld hierboven om te beginnen met previewen",
-			openFileNewTab: "Openen in nieuw tabblad",
-			openFileSide: "Openen aan de zijkant",
-			openWithMenu: "Openen met",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "Vastmaken aan menu",
-			unpinOpenWith: "Losmaken",
-			openWithExplorer: "Bestandsbeheerder",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "SSH externe host",
-			openWithSettingsSshDesc: "Leeg = lokale werkruimte; met een user@host of SSH-alias schakelen VSCode-familie-openers over op het vscode-remote/ssh-remote protocol en worden de Bestandsbeheerder / Zed / niet-VSCode-familie custom editors verborgen uit het menu",
-			openWithSettingsSshPlaceholder: "user@host of SSH-alias",
-			openWithSettingsCustomTitle: "Aangepaste editors",
-			openWithSettingsCustomDesc: "Naam + URL-sjabloon ({path} placeholder) + VSCode-familie-vlag; in externe modus kunnen alleen VSCode-familie-editors een extern pad openen",
-			openWithSettingsAdd: "Toevoegen",
-			openWithSettingsName: "Naam",
-			openWithSettingsTemplate: "bijv. cursor://file/{path}",
-			openWithSettingsFamily: "VSCode-familie",
-			openWithSettingsFamilyDesc: "Deze editor spreekt het VSCode URL-dialect (ondersteunt SSH-externe openingen)",
-			openWithSettingsRemove: "Verwijderen",
-			openWithSettingsInvalidHint: "Editors met een ontbrekende naam of een sjabloon zonder {path} / scheme:// worden niet in het menu getoond",
-			newTab: "Nieuw tabblad",
-			openExplorer: "Verkenner",
-			brokenSymlink: "Gebroken symlink",
-			openGit: "Git-paneel",
-			newTerminal: "Nieuwe terminal",
-			terminalLimit: "Terminallimiet bereikt (3)",
-			close: "Sluiten",
-			closeOtherTabs: "Andere tabbladen sluiten",
-			closeLeftTabs: "Tabbladen links sluiten",
-			closeRightTabs: "Tabbladen rechts sluiten",
-			moveToFreeWindow: "Naar vrij venster verplaatsen",
-			floatDropHint: "Loslaten om in een vrij venster te openen",
-			dockToSidebar: "Terug naar de zijbalk",
-			pinTerminal: "Terminal vastmaken",
-			pinAgentTerminal: "Agent-terminal vastmaken",
-			pinToWorkspace: "Vastmaken aan werkruimte",
-			pinToGlobal: "Wereldwijd vastmaken",
-			unpinTerminal: "Losmaken",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "UI-terminal",
-			pinnedTerminalKindAgent: "Agent-terminal",
-			pinnedTerminalScopeWorkspace: "Vastgemaakt aan werkruimte",
-			pinnedTerminalScopeGlobal: "Wereldwijd vastgemaakt",
-			pinnedRailLabel: "Vastgemaakte terminals",
-			closePinnedTerminal: "Terminal sluiten",
-			collapse: "Zijbalk inklappen",
-			expand: "Zijbalk uitklappen",
-			terminalError: "Terminalverbinding mislukt",
-			terminalConnectFailed: "Terminalverbinding herhaaldelijk mislukt",
-			terminalRetry: "Opnieuw proberen",
-			terminalDepsFailed: "Terminalafhankelijkheid node-pty kon niet worden geladen",
-			terminalDepsHint: "Voer het onderstaande commando uit in een terminal of cmd op de DSH-machine om het te herstellen en probeer het opnieuw (node-pty blijft in sync met de DSH-coreversie):",
-			terminalDepsProfile: " (gedetecteerde profile: {profile})",
-			preview: "Voorbeeld",
-			edit: "Bewerken",
-			refresh: "Vernieuwen",
-			showInFolder: "In map tonen",
-			refreshUnsavedConfirm: "Het bestand is op schijf gewijzigd. Vernieuwen gooit niet-opgeslagen wijzigingen weg. Doorgaan?",
-			save: "Opslaan",
-			saved: "Opgeslagen",
-			unsaved: "Niet opgeslagen",
-			saveFailed: "Opslaan mislukt",
-			truncation: "Bestand te groot — alleen de eerste 512KB worden getoond",
-			binary: "Binair bestand, geen voorbeeld beschikbaar",
-			loading: "Laden…",
-			error: "Laden mislukt",
-			retry: "Opnieuw proberen",
-			splitLeft: "Splitsen links",
-			splitRight: "Splitsen rechts",
-			splitUp: "Splitsen omhoog",
-			splitDown: "Splitsen omlaag",
-			notRepo: "Deze map is geen git-repository",
-			noChanges: "Geen wijzigingen",
-			statusTruncated: "Te veel wijzigingen; alleen de eerste 2000 items worden weergegeven",
-			stage: "Stagen",
-			unstage: "Unstagen",
-			stageAll: "Alles stagen",
-			unstageAll: "Alles unstagen",
-			commitPlaceholder: "Commitbericht (Ctrl+Enter)",
-			commit: "Commit",
-			commitError: "Commit mislukt",
-			branch: "Branch",
-			worktree: "Worktree",
-			checkoutError: "Wisselen van branch mislukt",
-			history: "Geschiedenis",
-			changes: "Wijzigingen",
-			staged: "Gestaged",
-			unstaged: "Niet gestaged",
-			cancel: "Annuleren",
-			diffEmpty: "Geen tekstwijzigingen",
-			diffLoadError: "Diff laden mislukt",
-			diffBinary: "Binair",
-			diffAdded: "Toegevoegd",
-			diffDeleted: "Verwijderd",
-			diffRenamed: "Hernoemd",
-			diffExpand: "{count} rijen extra uitklappen",
-			diffCollapse: "Inklappen",
-			discard: "Wijzigingen verwijderen",
-			discardTitle: "Wijzigingen verwijderen",
-			discardDesc: "Dit verwijdert de worktree-wijzigingen van \"{path}\" (niet terugdraaibaar).",
-			viewCommitDiff: "Commit-diff bekijken",
-			copyShortHash: "Korte hash kopiëren",
-			copyFullHash: "Volledige hash kopiëren",
-			copySubject: "Onderwerp kopiëren",
-			revertCommit: "Commit reverten",
-			revertTitle: "Commit reverten",
-			revertDesc: "Maakt een nieuwe commit op de huidige branch die \"{subject}\" revertd.",
-			cherryPickCommit: "Commit cherry-picken",
-			cherryPickTitle: "Commit cherry-picken",
-			cherryPickDesc: "Past de wijzigingen van \"{subject}\" toe op de huidige branch.",
-			timeJustNow: "zojuist",
-			timeMinutesAgo: "{n} min geleden",
-			timeHoursAgo: "{n} u geleden",
-			timeYesterday: "gisteren",
-			loadMore: "Meer laden",
-			historyLoadError: "Meer geschiedenis laden mislukt",
-			produced: "Geproduceerd",
-			producedOpen: "Openen in zijbalk",
-			disconnected: "Terminalverbinding verbroken, opnieuw verbinden…",
-			exited: "Terminalproces beëindigd",
-			noSession: "Selecteer een conversatie om de zijbalk te gebruiken",
-			pluginNotLoaded: "Plugin niet geladen; tabblad niet beschikbaar:",
-			hiddenFiles: "Verborgen bestanden",
-			parent: "Bovenliggende map",
-			copied: "Gekopieerd",
-			copy: "Kopiëren",
-			newFile: "Nieuw bestand",
-			openEditor: "Editor openen",
-			gitDetail: "Wijzigingsdetails bekijken",
-			referenceFile: "@bestand",
-			addToConversation: "Aan conversatie toevoegen",
-			copyRelative: "Relatief pad kopiëren",
-			copyAbsolute: "Absoluut pad kopiëren",
-			download: "Downloaden",
-			uploadFiles: "Bestanden uploaden",
-			uploadFolder: "Map uploaden",
-			uploadHere: "Hier uploaden",
-			uploadDropHint: "Sleep bestanden/mappen hierheen om te uploaden",
-			uploadDropChat: "Sleep naar de chat om afbeeldingen toe te voegen",
-			uploadTo: "Uploaden naar {dir}",
-			uploadingTo: "Uploaden naar {dir}…",
-			uploadProgress: "Uploaden {done}/{total}: {name}",
-			uploadDone: "{count} bestand(en) geüpload",
-			uploadFailed: "Uploaden mislukt: {error}",
-			uploadFailedUnknown: "Onbekende fout",
-			uploadTooLarge: "Bestand te groot (boven de uploadlimiet)",
-			uploadCancelled: "Upload geannuleerd",
-			settingsNav: "Zijkaart",
-			settingsIntro: "Beheer wat de zijkaart toont en hoe deze zich gedraagt",
-			settingsPopupDesc: "Gerelateerde opties voor {feature} configureren",
-			settingsDone: "Klaar",
-			settingsOpenTitle: "Standaard openen voor nieuwe conversaties",
-			settingsOpenDesc: "De zijkaart automatisch uitklappen voor gloednieuwe conversaties; bestaande conversaties behouden hun eigen layout",
-			settingsWidthTitle: "Standaard breedte-aandeel",
-			settingsWidthDesc: "Het standaard breedte-aandeel van de zijkaart voor nieuwe conversaties (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "Chatbestanden in de zijbalk openen",
-			settingsOpenPathDesc: "Bestandslinks in de chat (toolrijen, geproduceerde bestanden, vermeldingen) openen in de zijbalk-editor in plaats van de standaard systeemapp",
-			settingsOpenToolsTitle: "Zijbalk-openen-tool voor het model injecteren",
-			settingsOpenToolsDesc: "Indien ingeschakeld kan het model bestanden, mappen en HTTP(S)-pagina's in de zijbalk openen via de sidebar_open-tool (standaard uit)",
-			settingsTitleBarTitle: "Positiecompatibiliteitsmodus",
-			settingsTitleBarDesc: "Kies het titelbalk-compatibiliteitsschema: auto-detect (standaard, conservatief) / DSH officiële web / bekende desktop-shells / aangepast (verschuivingsafstand + aangepaste CSS)",
-			settingsTitleBarStripTitle: "Verschuivingsafstand",
-			settingsTitleBarStripDesc: "Titelbalk-striphoogte: hoeveel pixels de zijbalkknoppen en -inhoud naar beneden schuiven (0–120, standaard 40; geldt onder het aangepaste schema)",
-			settingsSchemeAutoTitle: "Auto-detect",
-			settingsSchemeAutoDesc: "Conservatief: alleen de standaard Window Controls Overlay API draagt bij (werkelijke caption-overlay-hoogte); gewone webomgevingen worden niet aangepast",
-			settingsSchemeWebTitle: "DSH officiële web",
-			settingsSchemeWebDesc: "Expliciet declareren dat u op de officiële web-UI draait: geen enkele aanpassing (ook de standaard WCO-geometrie niet)",
-			settingsSchemeCustomTitle: "Aangepast",
-			settingsSchemeCustomDesc: "Volledige controle: aangepaste CSS injecteren (kan ingebouwde stijlen overschrijven) en de verschuivingsafstand van de titelbalk instellen",
-			settingsSchemeDetectedSuffix: "gedetecteerd",
-			settingsCustomCssTitle: "Aangepaste CSS",
-			settingsCustomCssDesc: "Stijlen die aan het einde van de pagina worden toegevoegd (later in de cascade wint bij gelijke prioriteit; gebruik !important om JS-geschreven inline-variabelen te overschrijven)",
-			settingsCustomCssPlaceholder: "/* bijv. reserveer 36px voor een shell met een zelf-getekende titelbalk */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "Opslaan mislukt",
-			settingsConflict: "De instelling is in een ander venster gewijzigd — probeer het opnieuw",
-			binaryNoPreview: "Dit bestandstype kan niet worden gepreviewed",
-			downloadToView: "Downloaden om te bekijken",
-			settingsSubagentTitle: "Taken-pagina automatisch openen wanneer een subagent verschijnt",
-			settingsSubagentDesc: "De zijkaart uitklappen en de Taken-pagina openen wanneer de huidige conversatie een nieuwe subagent voortbrengt; schakel uit om het handmatig te openen",
-			settingsJobsTitle: "Jobs-pagina automatisch openen bij een nieuwe achtergrondtaak",
-			settingsJobsDesc: "De zijkaart uitklappen en de Jobs-pagina openen telkens een nieuwe achtergrondtaak verschijnt voor de huidige conversatie (elke nieuwe taak triggert); schakel uit om het handmatig te openen",
-			settingsToolsTitle: "Terminaltools voor het model injecteren",
-			settingsToolsDesc: "Indien ingeschakeld kan het model zijbalk-terminals aanmaken en besturen via de 8 terminal_*-tools (standaard uit)",
-			settingsFontFamilyTitle: "Terminallettertype-familie",
-			settingsFontFamilyDesc: "Aangepaste terminallettertype-familie (een CSS font-family-stack zoals \"JetBrains Mono\", monospace; leeg laten om het monospace-lettertype van het thema te volgen)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "Terminallettergrootte",
-			settingsFontSizeDesc: "Terminallettergrootte in px (9–32, standaard 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Shell-pad",
-			settingsShellDesc: "Shell die wordt gestart voor UI- en model-terminals (absoluut pad of kale executable). Leeg houden volgt de bestaande volgorde: yaml config.shell → $SHELL / inlog-shell / Windows powershell.exe. Geldt voor terminals die daarna worden geopend",
-			settingsShellPlaceholder: "bijv. /bin/zsh (leeg = auto)",
-			settingsShellArgsTitle: "Shell-argumenten",
-			settingsShellArgsDesc: "Expliciete shell-argumenten, spatiegescheiden; indien niet-leeg vervangen ze de standaardwaarden volledig (zelfde contract als de yaml shellArgs)",
-			settingsShellArgsPlaceholder: "bijv. -l (leeg = standaardwaarden)",
-			settingsTabsTitle: "Zijbalk-inhoud",
-			settingsViewersTitle: "Bestandsviewers",
-			settingsGeneralTitle: "Algemeen",
-			settingsPopup: "Functie-instellingen",
-			settingsViewerCatchAll: "Catch-all: elk bestand",
-			viewerImage: "Afbeelding",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "Code",
-			viewerBinary: "Binaire download",
-			viewerHtml: "HTML",
-			browser: "Browser",
-			browserPlaceholder: "Voer een URL in, bijv. example.com",
-			browserGo: "Ga",
-			browserBack: "Terug",
-			browserForward: "Vooruit",
-			browserStart: "Voer een URL in om te beginnen met browsen (sandbox-modus)",
-			browserBlockedScheme: "Geblokkeerd: alleen http/https-URL's zijn toegestaan",
-			browserBlockedLoopback: "Geblokkeerd: lokale en interne adressen kunnen hier niet worden bezocht",
-			browserInvalid: "Ongeldige URL",
-			browserNoSandboxWarning: "Sandbox uit: de huidige pagina draait met volledige GUI-privileges (herinschakelen in instellingen)",
-			htmlNoSandboxWarning: "Sandbox uit: deze HTML draait met volledige GUI-privileges (herinschakelen in instellingen)",
-			sandboxStatusOn: "Sandbox-modus: aan · pagina's kunnen de GUI-gegevens of lokale bestanden niet benaderen; logins en third-party cookies werken mogelijk niet",
-			sandboxUnlock: "Tijdelijk uitschakelen (onveilig)",
-			sandboxRestore: "Sandbox herstellen",
-			settingsHtmlDefaultUnsafeTitle: "HTML-voorbeelden standaard zonder sandbox openen (onveilig)",
-			settingsHtmlDefaultUnsafeDesc: "Indien aan, start elke nieuw geopende HTML-voorbeeld in de niet-gesandboxte staat (zelfde origin als de GUI — kan sessiebestanden en interne API's lezen); de statusbalk biedt nog een eenkliks-herstel",
-			settingsHtmlSandboxTitle: "HTML-voorbeeld-sandbox uitschakelen (onveilig)",
-			settingsHtmlSandboxDesc: "Met de sandbox uit draait gepreviewde HTML met dezelfde origin als de GUI: kan sessiebestanden, lokale opslag lezen en interne API's aanroepen. Alleen inschakelen voor volledig vertrouwde bestanden",
-			settingsBrowserSandboxTitle: "Browser-sandbox uitschakelen (onveilig)",
-			settingsBrowserSandboxDesc: "Met de sandbox uit draait elke bezochte site met dezelfde origin als de GUI: kan sessiegegevens lezen en zich voordoen als uw ingelogde sessie. Alleen inschakelen voor volledig vertrouwde sites",
-			settingsBrowserLinksTitle: "Externe chatlinks in de zijbalk openen",
-			settingsBrowserLinksDesc: "Indien aan, opent een klik op een externe link in de chat of GUI de zijbalk in plaats van een nieuw venster; HTTP en HTTPS worden apart bestuurd door de schakelaars hieronder; Ctrl/Cmd+klik omzeilt altijd",
-			settingsBrowserHttpTitle: "HTTP-pagina's in de zijbalk openen",
-			settingsBrowserHttpDesc: "Indien aan, opent een klik op een externe HTTP-link in de chat of GUI de zijbalk (plugin-pagina's die urlTarget declareren winnen); Ctrl/Cmd+klik omzeilt altijd",
-			settingsBrowserHttpsTitle: "HTTPS-pagina's in de zijbalk openen",
-			settingsBrowserHttpsDesc: "Indien aan, opent een klik op een externe HTTPS-link in de chat of GUI de zijbalk. Standaard uit: de meeste HTTPS-sites weigeren ingebed te worden, dus de systeembrowser is soepeler",
-			settingsBrowserLoopbackTitle: "Toegestane lokale adressen",
-			settingsBrowserLoopbackDesc: "Door komma gescheiden allowlist van loopback-adressen (bijv. localhost:5174 of 127.0.0.1:8080) die de zijbalk-browser kan bezoeken; leeg blokkeert standaard alle lokale adressen. De sandbox blijft van toepassing — pagina s kunnen geen GUI-gegevens lezen",
-			settingsBrowserLoopbackPlaceholder: "bijv. localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "Openen in browser",
-			browserEmbedBlocked: "{host} weigerde ingebed te worden",
-			browserEmbedBlockedDesc: "De site verbiedt weergave binnen andere pagina's (X-Frame-Options / frame-ancestors), dus kan niet in de zijbalk laden. Open de site direct in uw browser.",
-			browserEmbedAnyway: "Toch laden",
-			subagent: "Taken",
-			openSubagent: "Taken",
-			subagentMainAgent: "Hoofdagent",
-			subagentEmpty: "Geen subagents",
-			subagentEmptyDesc: "Subagents voortgebracht door de hoofdagent verschijnen hier",
-			subagentRunning: "Actief",
-			subagentInactive: "Inactief",
-			subagentModeOneShot: "One-shot",
-			subagentModeContinuable: "Vervolgbaar",
-			subagentCount: "{count} subagents",
-			subagentCountRunning: "{count} subagents · {running} actief",
-			subagentDiagCorrupt: "Corrupt",
-			subagentDiagUnsupported: "Niet ondersteund",
-			subagentDiagUnavailable: "Niet beschikbaar",
-			subagentThinking: "Nadenken…",
-			subagentShowHistory: "{count} eerdere subagents weergeven",
-			subagentHideHistory: "Eerdere subagents samenvouwen",
-			sideChat: "Side Chat (bèta)",
-			sideChatNew: "Nieuwe thread",
-			sideChatUntitled: "Nieuwe thread",
-			sideChatEmpty: "Geen side-conversaties",
-			sideChatEmptyDesc: "Elke side-conversatie is een eigen tabblad in de tabstrip — erft de context van de huidige sessie en komt nooit in de hoofdconversatie",
-			sideChatCreating: "Side-conversatie aanmaken…",
-			sideChatRetry: "Opnieuw proberen",
-			sideChatThreads: "Thread wisselen / nieuw",
-			sideChatSave: "Opslaan als nieuwe sessie",
-			sideChatSaveTitle: "Promoveer deze thread naar een top-level sessie in de hoofd-sessielijst",
-			sideChatSaved: "Opgeslagen als een nieuwe sessie",
-			sideChatNoTurn: "Opslaan is pas beschikbaar na de eerste voltooide beurt",
-			sideChatPendingDrop: "De laatste onbeantwoorde follow-up wordt niet meegenomen in de opgeslagen sessie",
-			sideChatFirstPlaceholder: "Stel de eerste vraag — context overgenomen…",
-			sideChatComposerPlaceholder: "Stel een follow-up…",
-			sideChatThinking: "Diep ingaan…",
-			sideChatThink: "Denken",
-			sideChatInjection: "Context geïnjecteerd",
-			sideChatSend: "Versturen",
-			sideChatCancel: "Stoppen",
-			sideChatCancelTitle: "De lopende beurt afbreken (wachtrij blijft behouden)",
-			sideChatClose: "Thread sluiten",
-			sideChatCloseTitle: "De agent van de thread vrijgeven (geschiedenis blijft behouden)",
-			sideChatError: "Side Chat-fout: {message}",
-			jobs: "Achtergrondtaken",
-			jobsCount: "{count} achtergrondtaken",
-			jobsCountRunning: "{count} achtergrondtaken · {running} actief",
-			jobsShowHistory: "{count} eerdere achtergrondtaken weergeven",
-			jobsHideHistory: "Eerdere achtergrondtaken samenvouwen",
-			jobStatusRunning: "Actief",
-			jobStatusStopping: "Stoppen",
-			jobStatusCompleted: "Voltooid",
-			jobStatusKilled: "Beëindigd",
-			jobStatusFailed: "Mislukt",
-			jobDurationSeconds: "{seconds}s",
-			jobDurationMinutes: "{minutes}m {seconds}s",
-			jobDurationHours: "{hours}u {minutes}m",
-			jobViewOutput: "Uitvoer bekijken",
-			jobHideOutput: "Uitvoer verbergen",
-			jobNoOutput: "Nog geen uitvoer",
-			jobNotReadYet: "Wachten tot het model deze taak leest; de uitvoer verschijnt hier zodra het model job_output uitvoert",
-			jobOutputTruncated: "Uitvoer afgekapt",
-			jobOutputError: "Uitvoer lezen mislukt",
-			jobKill: "Beëindigen",
-			jobKillConfirm: "Klik nogmaals om beëindigen te bevestigen",
-			jobKillError: "Beëindigen mislukt",
-			addPluginsTabCard: "Tabblad-plugins toevoegen",
-			addPluginsTabCardDesc: "Een nieuwe zijbalkpagina registreren",
-			addPluginsViewerCard: "Preview-plugins toevoegen",
-			addPluginsViewerCardDesc: "Een bestandstype-preview registreren",
-			addPluginsTabDesc: "Zijbalkpagina's (tabbladen) kunnen door plugins worden uitgebreid. Plugins registreren via de ctx.betterSidebar-service; op Installeren klikken kopieert het installatiecommando — plak het in een terminal waar uw DSH-profiel zich bevindt en voer het uit.",
-			addPluginsViewerDesc: "Bestandsviewers kunnen door plugins worden uitgebreid. Plugins registreren via de ctx.betterSidebar-service; op Installeren klikken kopieert het installatiecommando — plak het in een terminal waar uw DSH-profiel zich bevindt en voer het uit.",
-			addPluginsBrowseMore: "Meer plugins bekijken op GitHub (topic: dsh-coding-sidebar)",
-			addPluginsSearch: "Zoek op plugin-naam of -beschrijving…",
-			addPluginsNoMatch: "Geen plugins komen overeen",
-			addPluginsRecommended: "Aanbevolen plugins",
-			addPluginsEmpty: "Nog geen plugins samengesteld — publiceer de uwe onder het GitHub-topic",
-			openPlugin: "Openen",
-			copyInstall: "Installatiecommando kopiëren",
-			pluginOfficeDesc: "Office-suite-preview (.docx / .xlsx / .pptx) voor de dsh-coding-sidebar-editor, de zware Office-renderbibliotheken buiten de core-bundle houdend",
-			pluginFlowglassDesc: "Live sessie-flowgraph met drie banen voor gebruiker, assistent en tool-aanroepen, plus parallelle groepen, subagent-takken, drill-down en live status; registreert een native Flowglass-tabblad wanneer dsh-coding-sidebar is geïnstalleerd en behoudt zijn standalone lade als fallback",
-			pluginGitForgeDesc: "Git Forge-tabblad: GitHub/Gitea (en andere forge) accountbibliotheek + per-project grants + harde push-policy; tokens blijven in lokale secrets (nooit in model-context); alleen-lezen GitForge-tool en agent HTTPS-credential-helper",
-			pluginGitRemotesDesc: "Git Remotes-tabblad: branch/upstream/ahead-behind, fetch (optioneel prune), ff-only pull, en push pas na een bevestiging in het tabblad. Vervangt het ingebouwde Git stage/commit-tabblad niet, en biedt geen force-push of een model-auto-push-tool",
-			pluginSentinelDesc: "Conditie-gedreven agent-wakeupsysteem: bestands/proces/poort/http/command/webhook-sensoren wekken slapende sessies wanneer condities af gaan; registreert een \"Sentinel\"-tabblad met de serverbrede watch-tabel",
-			pluginSidebarQaDesc: "Select-and-ask: Selecteer conversatie-tekst → vraag in het rechterpaneel → een toegewijde follow-up-sessie (❓ follow-up) in dezelfde werkruimte; een snel no-thinking-model comprimeert de hoofdcontext en injecteert deze met de quote, zonder de hoofdconversatie te onderbreken. Follow-ups nesten, vervolgen en archiveren",
-			pluginSshTunnelDesc: "SSH Tunnel-tabblad: multi-host-inventaris + per-project grants + lokale secrets; SSHManager-tool (exec/SFTP/sessie-strategieën); centrale interactieve terminal en dubbelpanelig SFTP",
-			pluginTurnReviewDesc: "Een menselijke poort op de net voltooide beurt: Approve / Request changes per pad met een optionele opmerking; paden gegroepeerd op hoofd-sessie / subagent / niet-toegeschreven; inline snapshot-vs-nu diff voordat u beslist. Geen fork, geen /rewind",
-			pluginVideoPreviewDesc: "Inline videovoorbeeld (.mp4/.webm/.mov/.mkv/.avi enz.) voor de dsh-coding-sidebar-editor, ondersteund door een toegewijde /video-host-route met HTTP Range (206)-ondersteuning — scrubben werkt en bestanden worden niet beperkt door de 20MB mediaLimit",
-			pluginDocsPanelDesc: "Globale docs in de DSH-zijbalk: lees uw eigen Markdown-notities vanuit elke werkruimte — een bestandslijst, een outline, openen in Chrome / VS Code, en kopieerknoppen; de docs-map is configureerbaar (standaard ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "De agentbrowser voor DeepSeek Harness: 32 ego_*-tools besturen een echt Chromium; een native «ego-browser»-tab in de zijbalk toont live elke pagina die de agent bezoekt — u kunt klikken, slepen en typen om over te nemen. Registreert de tab automatisch als dsh-coding-sidebar aanwezig is, anders een zwevende bel"
-		};
-		//#endregion
-		//#region src/client/locales-sv.ts
-		const sv$1 = {
-			files: "Filer",
-			explorer: "Utforskare",
-			git: "Källkodshantering",
-			terminal: "Terminal",
-			editor: "Editor",
-			editorExplorer: "Filers öppningsbeteende",
-			editorExplorerDesc: "Styr hur filer öppnas",
-			editorExplorerMerged: "Sammanslagen",
-			editorExplorerMergedDesc: "Filer växlas på plats i samma fönster; nya fönster startar med trädet öppet",
-			editorExplorerSplit: "Separat",
-			editorExplorerSplitDesc: "Fönster utan sökväg är den fristående utforskaren (endast träd); varje fil öppnar ett eget fönster (träd dockat, stängt som standard)",
-			editorTreeToggle: "Filträdspanel",
-			editorPathPlaceholder: "Filsökväg (relativ sessionskatalogen eller absolut), Enter för att öppna",
-			editorSearchPlaceholder: "Sök filer efter namn…",
-			editorSearchNoResults: "Inga matchande filer",
-			editorSearchTruncated: "För många resultat — visar en delvis lista",
-			editorEmptyHint: "Välj en fil från trädpanelen eller sökvägsinmatningen ovan för att börja förhandsgranska",
-			openFileNewTab: "Öppna i ny flik",
-			openFileSide: "Öppna vid sidan",
-			openWithMenu: "Öppna med",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "Fäst i meny",
-			unpinOpenWith: "Lossa",
-			openWithExplorer: "Filhanterare",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "SSH-fjärrvärd",
-			openWithSettingsSshDesc: "Tomt = lokal arbetsyta; med user@host eller SSH-alias byter VSCode-familjens öppnare till vscode-remote/ssh-remote-protokollet och Filhanterare / Zed / icke-VSCode-familjens anpassade editorer döljs från menyn",
-			openWithSettingsSshPlaceholder: "user@host eller SSH-alias",
-			openWithSettingsCustomTitle: "Anpassade editorer",
-			openWithSettingsCustomDesc: "Namn + URL-mall ({path}-platshållare) + VSCode-familj-flagga; i fjärrläge kan endast VSCode-familjens editorer öppna en fjärrsökväg",
-			openWithSettingsAdd: "Lägg till",
-			openWithSettingsName: "Namn",
-			openWithSettingsTemplate: "t.ex. cursor://file/{path}",
-			openWithSettingsFamily: "VSCode-familj",
-			openWithSettingsFamilyDesc: "Denna editor talar VSCode:s URL-dialekt (stöder SSH-fjärröppning)",
-			openWithSettingsRemove: "Ta bort",
-			openWithSettingsInvalidHint: "Editorer med saknat namn eller en mall utan {path} / scheme:// visas inte i menyn",
-			newTab: "Ny flik",
-			openExplorer: "Utforskare",
-			brokenSymlink: "Bruten symbolisk länk",
-			openGit: "Git-panel",
-			newTerminal: "Ny terminal",
-			terminalLimit: "Terminalgräns nådd (3)",
-			close: "Stäng",
-			closeOtherTabs: "Stäng andra flikar",
-			closeLeftTabs: "Stäng flikar till vänster",
-			closeRightTabs: "Stäng flikar till höger",
-			moveToFreeWindow: "Flytta till fritt fönster",
-			floatDropHint: "Släpp för att öppna i ett fritt fönster",
-			dockToSidebar: "Tillbaka till sidopanelen",
-			pinTerminal: "Fäst Terminal",
-			pinAgentTerminal: "Fäst Agent-terminal",
-			pinToWorkspace: "Fäst på arbetsyta",
-			pinToGlobal: "Fäst globalt",
-			unpinTerminal: "Ta bort fästning",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "UI-terminal",
-			pinnedTerminalKindAgent: "Agent-terminal",
-			pinnedTerminalScopeWorkspace: "Fäst på arbetsyta",
-			pinnedTerminalScopeGlobal: "Fäst globalt",
-			pinnedRailLabel: "Fästa terminaler",
-			closePinnedTerminal: "Stäng terminal",
-			collapse: "Komprimera sidopanel",
-			expand: "Expandera sidopanel",
-			terminalError: "Terminalanslutning misslyckades",
-			terminalConnectFailed: "Terminal misslyckades att ansluta upprepade gånger",
-			terminalRetry: "Försök igen",
-			terminalDepsFailed: "Terminalberoendet node-pty kunde inte laddas",
-			terminalDepsHint: "Kör kommandot nedan i en terminal eller cmd på DSH-maskinen för att reparera det, försök sedan igen (node-pty hålls synkad med DSH-kärnversionen):",
-			terminalDepsProfile: " (upptäckt profil: {profile})",
-			preview: "Förhandsgranska",
-			edit: "Redigera",
-			refresh: "Uppdatera",
-			showInFolder: "Visa i mapp",
-			refreshUnsavedConfirm: "Filen ändrades på disken. Uppdatering kastar osparade ändringar. Fortsätta?",
-			save: "Spara",
-			saved: "Sparad",
-			unsaved: "Osparad",
-			saveFailed: "Kunde inte spara",
-			truncation: "Filen är för stor — visar de första 512KB",
-			binary: "Binärfil, förhandsgranskning otillgänglig",
-			loading: "Laddar…",
-			error: "Kunde inte ladda",
-			retry: "Försök igen",
-			splitLeft: "Dela vänster",
-			splitRight: "Dela höger",
-			splitUp: "Dela upp",
-			splitDown: "Dela ner",
-			notRepo: "Denna katalog är inte ett Git-arkiv",
-			noChanges: "Inga ändringar",
-			statusTruncated: "För många ändringar; endast de första 2000 posterna visas",
-			stage: "Köa",
-			unstage: "Avköa",
-			stageAll: "Köa alla",
-			unstageAll: "Avköa alla",
-			commitPlaceholder: "Commit-meddelande (Ctrl+Enter)",
-			commit: "Commit",
-			commitError: "Commit misslyckades",
-			branch: "Gren",
-			worktree: "Arbetsträd",
-			checkoutError: "Grenbyte misslyckades",
-			history: "Historik",
-			changes: "Ändringar",
-			staged: "Köade",
-			unstaged: "Avköade",
-			cancel: "Avbryt",
-			diffEmpty: "Inga textändringar",
-			diffLoadError: "Kunde inte ladda diff",
-			diffBinary: "Binär",
-			diffAdded: "Tillagd",
-			diffDeleted: "Borttagen",
-			diffRenamed: "Omdöpt",
-			diffExpand: "Expandera {count} fler rader",
-			diffCollapse: "Komprimera",
-			discard: "Förkasta ändringar",
-			discardTitle: "Förkasta ändringar",
-			discardDesc: "Detta förkastar arbetskopians ändringar av ”{path}” (kan inte ångras).",
-			viewCommitDiff: "Visa commit-diff",
-			copyShortHash: "Kopiera kort hash",
-			copyFullHash: "Kopiera full hash",
-			copySubject: "Kopiera ämne",
-			revertCommit: "Återställ commit",
-			revertTitle: "Återställ commit",
-			revertDesc: "Skapa en ny commit på aktuell gren som återställer ”{subject}”.",
-			cherryPickCommit: "Cherry-picka commit",
-			cherryPickTitle: "Cherry-picka commit",
-			cherryPickDesc: "Tillämpa ändringarna från ”{subject}” på aktuell gren.",
-			timeJustNow: "just nu",
-			timeMinutesAgo: "{n} min sedan",
-			timeHoursAgo: "{n} h sedan",
-			timeYesterday: "igår",
-			loadMore: "Ladda fler",
-			historyLoadError: "Kunde inte ladda mer historik",
-			produced: "Producerat",
-			producedOpen: "Öppna i sidopanelen",
-			disconnected: "Terminalen frånkopplad, ansluter igen…",
-			exited: "Terminalprocess avslutad",
-			noSession: "Välj en konversation för att använda sidopanelen",
-			pluginNotLoaded: "Plugin inte laddad; flik otillgänglig:",
-			hiddenFiles: "Dolda filer",
-			parent: "Överordnad katalog",
-			copied: "Kopierades",
-			copy: "Kopiera",
-			newFile: "Ny fil",
-			openEditor: "Öppna editor",
-			gitDetail: "Visa ändringsdetaljer",
-			referenceFile: "@fil",
-			addToConversation: "Lägg till i konversation",
-			copyRelative: "Kopiera relativ sökväg",
-			copyAbsolute: "Kopiera absolut sökväg",
-			download: "Ladda ner",
-			uploadFiles: "Ladda upp filer",
-			uploadFolder: "Ladda upp mapp",
-			uploadHere: "Ladda upp hit",
-			uploadDropHint: "Släpp filer/mappar här för att ladda upp",
-			uploadDropChat: "Släpp på chatareat för att lägga till bilder",
-			uploadTo: "Ladda upp till {dir}",
-			uploadingTo: "Laddar upp till {dir}…",
-			uploadProgress: "Laddar upp {done}/{total}: {name}",
-			uploadDone: "Laddade upp {count} fil(er)",
-			uploadFailed: "Uppladdning misslyckades: {error}",
-			uploadFailedUnknown: "Okänt fel",
-			uploadTooLarge: "Filen för stor (över uppladdningsgränsen)",
-			uploadCancelled: "Uppladdning avbruten",
-			settingsNav: "Sidokort",
-			settingsIntro: "Hantera vad sidokortet visar och hur det beter sig",
-			settingsPopupDesc: "Konfigurera relaterade alternativ för {feature}",
-			settingsDone: "Klar",
-			settingsOpenTitle: "Öppna som standard för nya konversationer",
-			settingsOpenDesc: "Expandera sidokortet automatiskt för helt nya konversationer; befintliga konversationer behåller sina egna layouter",
-			settingsWidthTitle: "Standardbreddandel",
-			settingsWidthDesc: "Sidokortets standardandel av fönsterbredden för nya konversationer (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "Öppna chattfiler i sidopanelen",
-			settingsOpenPathDesc: "Öppna fillänkar i chatten (verktygsrader, producerade filer, omnämnanden) i sidopanelens editor i stället för systemets standardapp",
-			settingsOpenToolsTitle: "Injicera sidopanel-öppningsverktyg för modellen",
-			settingsOpenToolsDesc: "När aktiverat kan modellen öppna filer, mappar och HTTP(S)-sidor i sidopanelen via sidebar_open-verktyget (av som standard)",
-			settingsTitleBarTitle: "Positions kompatibilitetsläge",
-			settingsTitleBarDesc: "Välj titelfälts kompatibilitetsschema: auto-detektera (standard, konservativt) / DSH officiella webb / kända skrivbordsskal / anpassat (förskjutningsavstånd + egen CSS)",
-			settingsTitleBarStripTitle: "Förskjutningsavstånd",
-			settingsTitleBarStripDesc: "Titelfältsremsans höjd: hur långt sidopanelens knappar och innehåll flyttas ner i px (0–120, standard 40; gäller under det anpassade schemat)",
-			settingsSchemeAutoTitle: "Auto-detektera",
-			settingsSchemeAutoDesc: "Konservativt: endast standard Window Controls Overlay API bidrar (reell caption-overlay-höjd); vanliga webbmiljöer får ingen ändring",
-			settingsSchemeWebTitle: "DSH officiella webb",
-			settingsSchemeWebDesc: "Explicit deklarera det officiella webbgränssnittet: ingen anpassning alls (inte ens standard WCO-geometri)",
-			settingsSchemeCustomTitle: "Anpassat",
-			settingsSchemeCustomDesc: "Full kontroll: injicera egen CSS (kan åsidosätta inbyggda stilar) och sätt titelfältets förskjutningsavstånd",
-			settingsSchemeDetectedSuffix: "upptäckt",
-			settingsCustomCssTitle: "Anpassad CSS",
-			settingsCustomCssDesc: "Stilar tillagda på slutet av sidan (senare i kaskaden vinner vid oavgjort; använd !important för att åsidosätta JS-skrivna inline-variabler)",
-			settingsCustomCssPlaceholder: "/* t.ex. reservera 36px för ett skal med egenritat titelfält */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "Kunde inte spara",
-			settingsConflict: "Inställningen ändrades i ett annat fönster — vänligen försök igen",
-			binaryNoPreview: "Denna filtyp kan inte förhandsgranskas",
-			downloadToView: "Ladda ner för att visa",
-			settingsSubagentTitle: "Öppna automatiskt Uppgiftssidan när en subagent dyker upp",
-			settingsSubagentDesc: "Expandera sidokortet och öppna Uppgiftssidan när aktuell konversation skapar en ny subagent; stäng av för att öppna manuellt",
-			settingsJobsTitle: "Öppna automatiskt Jobbsidan vid nytt bakgrundsjobb",
-			settingsJobsDesc: "Expandera sidokortet och öppna Jobbsidan när ett nytt bakgrundsjobb dyker upp för aktuell konversation (varje nytt jobb utlöser); stäng av för att öppna manuellt",
-			settingsToolsTitle: "Injicera terminalverktyg för modellen",
-			settingsToolsDesc: "När aktiverat kan modellen skapa och styra sidopanelsterminaler via de 8 terminal_*-verktygen (av som standard)",
-			settingsFontFamilyTitle: "Terminalens teckensnittsfamilj",
-			settingsFontFamilyDesc: "Anpassad teckensnittsfamilj för terminalen (en CSS font-family-stack som \"JetBrains Mono\", monospace; lämna tomt för att följa temats monospaced-teckensnitt)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "Terminalens teckenstorlek",
-			settingsFontSizeDesc: "Terminalens teckenstorlek i px (9–32, standard 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Skalsökväg",
-			settingsShellDesc: "Skal som startas för UI- och modellterminaler (absolut sökväg ellerbart körbart namn). Tomt behåller den äldre ordningen: yaml config.shell → $SHELL / inloggningsskal / Windows powershell.exe. Gäller terminaler som öppnas senare",
-			settingsShellPlaceholder: "t.ex. /bin/zsh (tomt = auto)",
-			settingsShellArgsTitle: "Skalargument",
-			settingsShellArgsDesc: "Uttryckliga skalargument, mellanslagsseparerade; när icke-tomma ersätter de helt standardvärdena (samma kontrakt som yaml shellArgs)",
-			settingsShellArgsPlaceholder: "t.ex. -l (tomt = standard)",
-			settingsTabsTitle: "Sidopanelens innehåll",
-			settingsViewersTitle: "Filvisare",
-			settingsGeneralTitle: "Allmänt",
-			settingsPopup: "Funktionsinställningar",
-			settingsViewerCatchAll: "Fånga alla: alla filer",
-			viewerImage: "Bild",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "Kod",
-			viewerBinary: "Binär nedladdning",
-			viewerHtml: "HTML",
-			browser: "Webbläsare",
-			browserPlaceholder: "Ange en URL, t.ex. example.com",
-			browserGo: "Gå",
-			browserBack: "Bakåt",
-			browserForward: "Framåt",
-			browserStart: "Ange en URL för att börja surfa (sandlådeläge)",
-			browserBlockedScheme: "Blockerat: endast http/https-URL:er är tillåtna",
-			browserBlockedLoopback: "Blockerat: lokala och interna adresser kan inte surfas här",
-			browserInvalid: "Ogiltig URL",
-			browserNoSandboxWarning: "Sandlåda av: den aktuella sidan kör med fullständiga GUI-privilegier (återaktivera i inställningarna)",
-			htmlNoSandboxWarning: "Sandlåda av: denna HTML kör med fullständiga GUI-privilegier (återaktivera i inställningarna)",
-			sandboxStatusOn: "Sandlådeläge: på · sidor kan inte komma åt GUI:ts data eller lokala filer; inloggningar och tredjepartscookies kanske inte fungerar",
-			sandboxUnlock: "Avaktivera tillfälligt (osäkert)",
-			sandboxRestore: "Återställ sandlåda",
-			settingsHtmlDefaultUnsafeTitle: "Öppna HTML-förhandsgranskningar osandlådade som standard (osäkert)",
-			settingsHtmlDefaultUnsafeDesc: "När på, startar varje nyöppnad HTML-förhandsgranskning i osandlådat tillstånd (samma ursprung som GUI — kan läsa sessionsfiler och interna API:er); statusraden erbjuder fortfarande en återställning med ett klick",
-			settingsHtmlSandboxTitle: "Avaktivera sandlåda för HTML-förhandsgranskning (osäkert)",
-			settingsHtmlSandboxDesc: "Med sandlådan av körs förhandsgranskad HTML med samma ursprung som GUI: kan läsa sessionsfiler, lokal lagring och anropa interna API:er. Aktivera endast för fullt betrodda filer",
-			settingsBrowserSandboxTitle: "Avaktivera webbläsarsandlåda (osäkert)",
-			settingsBrowserSandboxDesc: "Med sandlådan av körs alla besökta sajter med samma ursprung som GUI: kan läsa sessionsdata och agera som er inloggade session. Aktivera endast för fullt betrodda sajter",
-			settingsBrowserLinksTitle: "Öppna chattens externa länkar i sidopanelen",
-			settingsBrowserLinksDesc: "När på, klick på en extern länk i chatten eller GUI öppnar sidopanelen i stället för ett nytt fönster; HTTP och HTTPS styrs separat av knapparna nedan; Ctrl/Cmd+klick kringgår alltid",
-			settingsBrowserHttpTitle: "Öppna HTTP-sidor i sidopanelen",
-			settingsBrowserHttpDesc: "När på, klick på en extern HTTP-länk i chatten eller GUI öppnar sidopanelen (pluginsidor som deklarerar urlTarget vinner); Ctrl/Cmd+klick kringgår alltid",
-			settingsBrowserHttpsTitle: "Öppna HTTPS-sidor i sidopanelen",
-			settingsBrowserHttpsDesc: "När på, klick på en extern HTTPS-länk i chatten eller GUI öppnar sidopanelen. Av som standard: de flesta HTTPS-sajter vägrar bli inbäddade, så systemwebbläsaren är det smidigare standardvalet",
-			settingsBrowserLoopbackTitle: "Tillåtna lokala adresser",
-			settingsBrowserLoopbackDesc: "Kommaseparerad tillåten lista över loopback-adresser (t.ex. localhost:5174 eller 127.0.0.1:8080) som sidofältswebbläsaren kan besöka; tom blockerar alla lokala adresser som standard. Sandlådan gäller fortfarande — sidor kan inte läsa GUI-data",
-			settingsBrowserLoopbackPlaceholder: "t.ex. localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "Öppna i webbläsare",
-			browserEmbedBlocked: "{host} vägrade bli inbäddad",
-			browserEmbedBlockedDesc: "Sajten förbjuder att visas inuti andra sidor (X-Frame-Options / frame-ancestors), så den kan inte ladda i sidopanelen. Öppna den direkt i er webbläsare i stället.",
-			browserEmbedAnyway: "Ladda ändå",
-			subagent: "Uppgifter",
-			openSubagent: "Uppgifter",
-			subagentMainAgent: "Huvudagent",
-			subagentEmpty: "Inga subagenter",
-			subagentEmptyDesc: "Subagenter skapade under huvudagenten visas här",
-			subagentRunning: "Kör",
-			subagentInactive: "Inaktiv",
-			subagentModeOneShot: "Engångs",
-			subagentModeContinuable: "Fortsättbar",
-			subagentCount: "{count} subagenter",
-			subagentCountRunning: "{count} subagenter · {running} kör",
-			subagentDiagCorrupt: "Korrupt",
-			subagentDiagUnsupported: "Stöds ej",
-			subagentDiagUnavailable: "Otillgänglig",
-			subagentThinking: "Tänker…",
-			subagentShowHistory: "Visa {count} tidigare subagenter",
-			subagentHideHistory: "Fäll ihop tidigare subagenter",
-			sideChat: "Sidochatt (beta)",
-			sideChatNew: "Ny tråd",
-			sideChatUntitled: "Ny tråd",
-			sideChatEmpty: "Inga sidokonversationer",
-			sideChatEmptyDesc: "Varje sidokonversation är en egen flik i flikraden — den ärver den aktuella sessionens kontext och kommer aldrig in i huvudkonversationen",
-			sideChatCreating: "Skapar sidokonversation…",
-			sideChatRetry: "Försök igen",
-			sideChatThreads: "Byt tråd / ny",
-			sideChatSave: "Spara som ny session",
-			sideChatSaveTitle: "Höj denna tråd till en toppnivå-session i huvudsessionslistan",
-			sideChatSaved: "Sparad som ny session",
-			sideChatNoTurn: "Spara är tillgängligt efter den första slutförda vändan",
-			sideChatPendingDrop: "Den senaste obesvarade följdfrågan inkluderas inte i den sparade sessionen",
-			sideChatFirstPlaceholder: "Ställ den första frågan — kontext ärvd…",
-			sideChatComposerPlaceholder: "Ställ en följdfråga…",
-			sideChatThinking: "Dyk djupare…",
-			sideChatThink: "Tänker",
-			sideChatInjection: "Kontext injicerad",
-			sideChatSend: "Skicka",
-			sideChatCancel: "Stoppa",
-			sideChatCancelTitle: "Avbryt den pågående vändan (köat arbete behålls)",
-			sideChatClose: "Stäng tråd",
-			sideChatCloseTitle: "Frigör trådens agent (historik behålls)",
-			sideChatError: "Sidochattsfel: {message}",
-			jobs: "Bakgrundsjobb",
-			jobsCount: "{count} bakgrundsjobb",
-			jobsCountRunning: "{count} bakgrundsjobb · {running} kör",
-			jobsShowHistory: "Visa {count} tidigare bakgrundsjobb",
-			jobsHideHistory: "Fäll ihop tidigare bakgrundsjobb",
-			jobStatusRunning: "Kör",
-			jobStatusStopping: "Stoppar",
-			jobStatusCompleted: "Klar",
-			jobStatusKilled: "Dödad",
-			jobStatusFailed: "Misslyckades",
-			jobDurationSeconds: "{seconds}s",
-			jobDurationMinutes: "{minutes}m {seconds}s",
-			jobDurationHours: "{hours}t {minutes}m",
-			jobViewOutput: "Visa utdata",
-			jobHideOutput: "Dölj utdata",
-			jobNoOutput: "Ingen utdata än",
-			jobNotReadYet: "Väntar på att modellen ska läsa detta jobb; dess utdata visas här när modellen kör job_output",
-			jobOutputTruncated: "Utdata avkortad",
-			jobOutputError: "Kunde inte läsa utdata",
-			jobKill: "Döda",
-			jobKillConfirm: "Klicka igen för att bekräfta dödande",
-			jobKillError: "Kunde inte döda",
-			addPluginsTabCard: "Lägg till flik-plugins",
-			addPluginsTabCardDesc: "Registrera en ny sidopanelssida",
-			addPluginsViewerCard: "Lägg till förhandsgransknings-plugins",
-			addPluginsViewerCardDesc: "Registrera en filtypsförhandsgranskning",
-			addPluginsTabDesc: "Sidopanelens sidor (flikar) kan utökas av plugins. Plugins registreras via ctx.betterSidebar-tjänsten; att klicka på Installera kopierar installationskommandot — klistra in det i en terminal där er DSH-profil lever och kör det.",
-			addPluginsViewerDesc: "Filförhandsgranskare kan utökas av plugins. Plugins registreras via ctx.betterSidebar-tjänsten; att klicka på Installera kopierar installationskommandot — klistra in det i en terminal där er DSH-profil lever och kör det.",
-			addPluginsBrowseMore: "Bläddra bland fler plugins på GitHub (topic: dsh-coding-sidebar)",
-			addPluginsSearch: "Sök på plugin-namn eller beskrivning…",
-			addPluginsNoMatch: "Inga plugins matchar",
-			addPluginsRecommended: "Rekommenderade plugins",
-			addPluginsEmpty: "Inga plugins kurerade ännu — publicera er egen under GitHub-topic:n",
-			openPlugin: "Öppna",
-			copyInstall: "Kopiera installationskommando",
-			pluginOfficeDesc: "Office-svitförhandsgranskning (.docx / .xlsx / .pptx) för dsh-coding-sidebar-editorn, som håller de tunga Office-renderingsbiblioteken utanför kärnbundlen",
-			pluginFlowglassDesc: "Live sessionsflödesgraf med tre banor för användare, assistent och verktygsanrop, plus parallella grupper, subagent-grenar, djupdykning och live-status; registrerar en inbyggd Flowglass-flik när dsh-coding-sidebar är installerat och behåller sin fristående låda som reserv",
-			pluginGitForgeDesc: "Git Forge-flik: GitHub/Gitea (och andra forge) kontobibliotek + per-projekt-tillstånd + hård push-policy; token stannar i lokala secrets (aldrig i modellkontext); skrivskyddat GitForge-verktyg och agent-HTTPS credential helper",
-			pluginGitRemotesDesc: "Git Remotes-flik: gren/upstream/ahead-behind, fetch (valbar prune), ff-only pull och push endast efter bekräftelse i fliken. Ersätter inte den inbyggda Git-köa/commit-fliken, och erbjuder inte force-push eller ett model-auto-push-verktyg",
-			pluginSentinelDesc: "Villkorsdriven agentväckning: fil-/process-/port-/http-/kommando-/webhook-sensorer väcker vilande sessioner när villkor utlöses; registrerar en \"Sentinel\"-flik med serverns globala bevakningstabell",
-			pluginSidebarQaDesc: "Markera-och-fråga: Markera konversationstext → fråga i högra panelen → en dedikerad följdfrågesession (❓ följdfråga) i samma arbetsyta; en snabb no-thinking-modell komprimerar huvudkontexten och injicerar den tillsammans med citatet, utan att avbryta huvudkonversationen. Följdfrågor kan nästlas, fortsättas och arkiveras",
-			pluginSshTunnelDesc: "SSH Tunnel-flik: flervärd-inventering + per-projekt-tillstånd + lokala secrets; SSHManager-verktyg (exec/SFTP/sessionsstrategier); central interaktiv terminal och dubbelpanelig SFTP",
-			pluginTurnReviewDesc: "En mänsklig grinds för den just avslutade vändan: Godkänn / Begär ändringar per sökväg med valfri kommentar; sökvägar grupperade per huvudsession / subagent / oattribuerade; inline ögonblicksbild-mot-nu-diff innan ni bestämmer er. Ingen förgrening, ingen /rewind",
-			pluginVideoPreviewDesc: "Inline videoförhandsgranskning (.mp4/.webm/.mov/.mkv/.avi etc.) för dsh-coding-sidebar-editorn, backad av en dedikerad /video-värdroute med HTTP Range (206)-stöd — sökning fungerar och filer begränsas inte av 20MB mediaLimit",
-			pluginDocsPanelDesc: "Globala dokument i DSH-sidopanelen: läs era egna Markdown-anteckningar från valfri arbetsyta — en fillista, en översikt, öppna i Chrome / VS Code och kopieringsknappar; dokumentkatalogen är konfigurerbar (standard ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "Agentwebbläsaren för DeepSeek Harness: 32 ego_*-verktyg styr en riktig Chromium; en inbyggd «ego browser»-flik i sidopanelen visar varje sida agenten besöker i realtid — du kan klicka, dra och skriva för att ta över. Registrerar fliken automatiskt när dsh-coding-sidebar finns, annars en flytande bubbla"
-		};
-		//#endregion
-		//#region src/client/locales-pl.ts
-		/**
-		* The pl (Polish) dictionary for the betterSidebar namespace.
-		*
-		* Mirrors the key set of `zh` in `locales.ts`. The sidebar's `t()`
-		* consults this dict when `attachBetterLocale(store)` has been called
-		* with an active better-locale store whose `active` is `'pl'`; absent
-		* that, the existing zh/en chain runs unchanged.
-		*
-		* Translation conventions:
-		* - Formal register (Pan/Pani/Państwo) for user-facing copy.
-		* - Polish diacritics used throughout (ą, ć, ę, ł, ń, ó, ś, ź, ż).
-		* - {placeholder} patterns kept verbatim (interpolation runs after lookup).
-		* - Git vocabulary follows the English-leaning developer style
-		*   (commit, branch, stage, diff, cherry-pick, hash, push, fetch, pull).
-		* - English brand names (VS Code, Cursor, Zed, SSH, Mermaid, HTML, CSS,
-		*   PDF, Markdown, Cursor) stay as-is.
-		*/
-		/** The pl dictionary (key-set-equal to zh, enforced by the type annotation in locales.ts). */
-		const pl$1 = {
-			files: "Pliki",
-			explorer: "Eksplorator",
-			git: "Kontrola źródła",
-			terminal: "Terminal",
-			editor: "Edytor",
-			editorExplorer: "Sposób otwierania plików",
-			editorExplorerDesc: "Kontroluje sposób otwierania plików",
-			editorExplorerMerged: "Połączone",
-			editorExplorerMergedDesc: "Pliki przełączają się w miejscu w tym samym oknie; nowe okna zaczynają z rozwiniętym drzewem",
-			editorExplorerSplit: "Osobne",
-			editorExplorerSplitDesc: "Okna bez ścieżki to samodzielny eksplorator (tylko drzewo); każdy plik otwiera własne okno (drzewo zadokowane, domyślnie zwinięte)",
-			editorTreeToggle: "Panel drzewa plików",
-			editorPathPlaceholder: "Ścieżka pliku (względna do katalogu sesji lub bezwzględna), Enter, aby otworzyć",
-			editorSearchPlaceholder: "Szukaj po nazwie pliku…",
-			editorSearchNoResults: "Brak pasujących plików",
-			editorSearchTruncated: "Zbyt wiele wyników — pokazuję częściową listę",
-			editorEmptyHint: "Wybierz plik z panelu drzewa lub pola ścieżki powyżej, aby rozpocząć podgląd",
-			openFileNewTab: "Otwórz w nowej karcie",
-			openFileSide: "Otwórz z boku",
-			openWithMenu: "Otwórz za pomocą",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "Przypnij do menu",
-			unpinOpenWith: "Odepnij",
-			openWithExplorer: "Menedżer plików",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "Zdalny host SSH",
-			openWithSettingsSshDesc: "Puste = lokalny obszar roboczy; z user@host lub aliasem SSH otwieracze rodziny VSCode przełączają się na protokół vscode-remote/ssh-remote, a Menedżer plików / Zed / niestandardowe edytory spoza rodziny VSCode są ukrywane w menu",
-			openWithSettingsSshPlaceholder: "user@host lub alias SSH",
-			openWithSettingsCustomTitle: "Niestandardowe edytory",
-			openWithSettingsCustomDesc: "Nazwa + szablon URL (zastępnik {path}) + flaga rodziny VSCode; w trybie zdalnym tylko edytory rodziny VSCode mogą otwierać ścieżkę zdalną",
-			openWithSettingsAdd: "Dodaj",
-			openWithSettingsName: "Nazwa",
-			openWithSettingsTemplate: "np. cursor://file/{path}",
-			openWithSettingsFamily: "Rodzina VSCode",
-			openWithSettingsFamilyDesc: "Ten edytor używa dialektu URL VSCode (obsługuje otwieranie zdalne przez SSH)",
-			openWithSettingsRemove: "Usuń",
-			openWithSettingsInvalidHint: "Edytory z brakującą nazwą lub szablonem bez {path} / scheme:// nie są pokazywane w menu",
-			newTab: "Nowa karta",
-			openExplorer: "Eksplorator",
-			brokenSymlink: "Uszkodzone dowiązanie symboliczne",
-			openGit: "Panel Git",
-			newTerminal: "Nowy terminal",
-			terminalLimit: "Osiągnięto limit terminali (3)",
-			close: "Zamknij",
-			closeOtherTabs: "Zamknij inne karty",
-			closeLeftTabs: "Zamknij karty po lewej",
-			closeRightTabs: "Zamknij karty po prawej",
-			moveToFreeWindow: "Przenieś do wolnego okna",
-			floatDropHint: "Puść, aby otworzyć w wolnym oknie",
-			dockToSidebar: "Wróć do panelu bocznego",
-			pinTerminal: "Przypnij Terminal",
-			pinAgentTerminal: "Przypnij Terminal Agent",
-			pinToWorkspace: "Przypnij do obszaru roboczego",
-			pinToGlobal: "Przypnij globalnie",
-			unpinTerminal: "Odepnij",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "Terminal interfejsu",
-			pinnedTerminalKindAgent: "Terminal Agent",
-			pinnedTerminalScopeWorkspace: "Przypięty do obszaru roboczego",
-			pinnedTerminalScopeGlobal: "Przypięty globalnie",
-			pinnedRailLabel: "Przypięte terminale",
-			closePinnedTerminal: "Zamknij terminal",
-			collapse: "Zwiń panel boczny",
-			expand: "Rozwiń panel boczny",
-			terminalError: "Połączenie z terminalem nie powiodło się",
-			terminalConnectFailed: "Terminal nie mógł połączyć się wielokrotnie",
-			terminalRetry: "Ponów",
-			terminalDepsFailed: "Zależność terminala node-pty nie mogła się załadować",
-			terminalDepsHint: "Uruchom poniższe polecenie w terminalu lub cmd na maszynie DSH, aby to naprawić, a następnie ponów (node-pty pozostaje w synchronizacji z wersją rdzenia DSH):",
-			terminalDepsProfile: " (wykryty profil: {profile})",
-			preview: "Podgląd",
-			edit: "Edytuj",
-			refresh: "Odśwież",
-			showInFolder: "Pokaż w folderze",
-			refreshUnsavedConfirm: "Plik zmienił się na dysku. Odświeżenie odrzuci niezapisane zmiany. Kontynuować?",
-			save: "Zapisz",
-			saved: "Zapisano",
-			unsaved: "Niezapisane",
-			saveFailed: "Zapis nie powiódł się",
-			truncation: "Plik zbyt duży — pokazuję pierwsze 512 KB",
-			binary: "Plik binarny, podgląd niedostępny",
-			loading: "Ładowanie…",
-			error: "Ładowanie nie powiodło się",
-			retry: "Ponów",
-			splitLeft: "Podziel w lewo",
-			splitRight: "Podziel w prawo",
-			splitUp: "Podziel w górę",
-			splitDown: "Podziel w dół",
-			notRepo: "Ten katalog nie jest repozytorium git",
-			noChanges: "Brak zmian",
-			statusTruncated: "Zbyt wiele zmian; pokazywane jest tylko pierwsze 2000 wpisów",
-			stage: "Dodaj do indeksu",
-			unstage: "Usuń z indeksu",
-			stageAll: "Dodaj wszystko do indeksu",
-			unstageAll: "Usuń wszystko z indeksu",
-			commitPlaceholder: "Komunikat commitu (Ctrl+Enter)",
-			commit: "Commit",
-			commitError: "Commit nie powiódł się",
-			branch: "Gałąź",
-			worktree: "Drzewo robocze",
-			checkoutError: "Przełączenie gałęzi nie powiodło się",
-			history: "Historia",
-			changes: "Zmiany",
-			staged: "W indeksie",
-			unstaged: "Poza indeksem",
-			cancel: "Anuluj",
-			diffEmpty: "Brak zmian tekstowych",
-			diffLoadError: "Ładowanie diff nie powiodło się",
-			diffBinary: "Binarny",
-			diffAdded: "Dodany",
-			diffDeleted: "Usunięty",
-			diffRenamed: "Zmieniono nazwę",
-			diffExpand: "Rozwiń jeszcze {count} wierszy",
-			diffCollapse: "Zwiń",
-			discard: "Odrzuć zmiany",
-			discardTitle: "Odrzuć zmiany",
-			discardDesc: "To odrzuci zmiany w drzewie roboczym dla „{path}” (nieodwracalne).",
-			viewCommitDiff: "Pokaż diff commitu",
-			copyShortHash: "Kopiuj krótki hash",
-			copyFullHash: "Kopiuj pełny hash",
-			copySubject: "Kopiuj temat commitu",
-			revertCommit: "Cofnij commit",
-			revertTitle: "Cofnij commit",
-			revertDesc: "Utworzy nowy commit na bieżącej gałęzi, który cofa „{subject}”.",
-			cherryPickCommit: "Cherry-pick commit",
-			cherryPickTitle: "Cherry-pick commit",
-			cherryPickDesc: "Zastosuje zmiany z „{subject}” na bieżącej gałęzi.",
-			timeJustNow: "przed chwilą",
-			timeMinutesAgo: "{n} min temu",
-			timeHoursAgo: "{n} g temu",
-			timeYesterday: "wczoraj",
-			loadMore: "Wczytaj więcej",
-			historyLoadError: "Ładowanie dalszej historii nie powiodło się",
-			produced: "Wyprodukowane",
-			producedOpen: "Otwórz w panelu bocznym",
-			disconnected: "Terminal odłączony, ponowne łączenie…",
-			exited: "Proces terminala zakończony",
-			noSession: "Wybierz rozmowę, aby korzystać z panelu bocznego",
-			pluginNotLoaded: "Wtyczka niezaładowana; karta chwilowo niedostępna:",
-			hiddenFiles: "Ukryte pliki",
-			parent: "Katalog nadrzędny",
-			copied: "Skopiowano",
-			copy: "Kopiuj",
-			newFile: "Nowy plik",
-			openEditor: "Otwórz edytor",
-			gitDetail: "Zobacz szczegóły zmian",
-			referenceFile: "@plik",
-			addToConversation: "Dodaj do rozmowy",
-			copyRelative: "Kopiuj ścieżkę względną",
-			copyAbsolute: "Kopiuj ścieżkę bezwzględną",
-			download: "Pobierz",
-			uploadFiles: "Wgraj pliki",
-			uploadFolder: "Wgraj folder",
-			uploadHere: "Wgraj tutaj",
-			uploadDropHint: "Upuść pliki/foldery tutaj, aby wgrać",
-			uploadDropChat: "Upuść na obszar czatu, aby dodać obrazy do rozmowy",
-			uploadTo: "Wgraj do {dir}",
-			uploadingTo: "Wgrywanie do {dir}…",
-			uploadProgress: "Wgrywanie {done}/{total}: {name}",
-			uploadDone: "Wgrano {count} plików",
-			uploadFailed: "Wgrywanie nie powiodło się: {error}",
-			uploadFailedUnknown: "Nieznany błąd",
-			uploadTooLarge: "Plik zbyt duży (ponad limit wgrywania)",
-			uploadCancelled: "Wgrywanie anulowane",
-			settingsNav: "Karta boczna",
-			settingsIntro: "Zarządzaj tym, co pokazuje karta boczna i jak się zachowuje",
-			settingsPopupDesc: "Skonfiguruj opcje powiązane z: {feature}",
-			settingsDone: "Gotowe",
-			settingsOpenTitle: "Otwórz domyślnie dla nowych rozmów",
-			settingsOpenDesc: "Rozwiń kartę boczną automatycznie dla zupełnie nowych rozmów; istniejące rozmowy zachowują własne układy",
-			settingsWidthTitle: "Domyślny udział szerokości",
-			settingsWidthDesc: "Domyślny udział szerokości okna dla karty bocznej w nowych rozmowach (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "Otwieraj pliki czatu w panelu bocznym",
-			settingsOpenPathDesc: "Otwieraj linki plików na czacie (wiersze narzędzi, wyprodukowane pliki, wzmianki) w edytorze panelu bocznego zamiast w domyślnej aplikacji systemu",
-			settingsOpenToolsTitle: "Wstrzyknij narzędzie otwierania panelu bocznego dla modelu",
-			settingsOpenToolsDesc: "Po włączeniu model może otwierać pliki, foldery i strony HTTP(S) w panelu bocznym za pomocą narzędzia sidebar_open (domyślnie wyłączone)",
-			settingsTitleBarTitle: "Tryb zgodności pozycji",
-			settingsTitleBarDesc: "Wybierz schemat zgodności paska tytułu: automatyczne wykrywanie (domyślne, konserwatywne) / oficjalny web DSH / znane powłoki pulpitu / niestandardowy (przesunięcie + własne CSS)",
-			settingsTitleBarStripTitle: "Przesunięcie",
-			settingsTitleBarStripDesc: "Wysokość paska tytułu: o ile pikseli przyciski i treść panelu bocznego są przesunięte w dół (0–120, domyślnie 40; obowiązuje w schemacie niestandardowym)",
-			settingsSchemeAutoTitle: "Automatyczne wykrywanie",
-			settingsSchemeAutoDesc: "Konserwatywne: tylko standardowe API Window Controls Overlay się wlicza (rzeczywista wysokość nakładki); zwykłe środowiska web nie są modyfikowane",
-			settingsSchemeWebTitle: "Oficjalny web DSH",
-			settingsSchemeWebDesc: "Jawnie zadeklaruj oficjalny interfejs web: brak adaptacji (nawet standardowa geometria WCO nie ma zastosowania)",
-			settingsSchemeCustomTitle: "Niestandardowy",
-			settingsSchemeCustomDesc: "Pełna kontrola: wstrzykuj własne CSS (może nadpisać style wbudowane) i ustawiasz przesunięcie paska tytułu",
-			settingsSchemeDetectedSuffix: "wykryto",
-			settingsCustomCssTitle: "Niestandardowe CSS",
-			settingsCustomCssDesc: "Style dodawane na końcu strony (późniejsze w kaskadzie wygrywa remisy; użyj !important, aby nadpisać zmienne inline zapisane przez JS)",
-			settingsCustomCssPlaceholder: "/* np. zarezerwuj 36px dla powłoki z własnym paskiem tytułu */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "Zapis nie powiódł się",
-			settingsConflict: "Ustawienie zmienione w innym oknie — spróbuj ponownie",
-			binaryNoPreview: "Tego typu pliku nie można wyświetlić w podglądzie",
-			downloadToView: "Pobierz, aby zobaczyć",
-			settingsSubagentTitle: "Automatycznie otwieraj stronę Zadań przy pojawieniu się podagenta",
-			settingsSubagentDesc: "Gdy bieżąca rozmowa powoła nowego podagenta, rozwiń panel boczny i otwórz stronę Zadań; wyłącz, aby otwierać ręcznie",
-			settingsJobsTitle: "Automatycznie otwieraj stronę zadań w tle przy nowym zadaniu",
-			settingsJobsDesc: "Gdy w bieżącej rozmowie pojawi się nowe zadanie w tle, rozwiń panel boczny i otwórz stronę zadań w tle (każde nowe zadanie wyzwala); wyłącz, aby otwierać ręcznie",
-			settingsToolsTitle: "Wstrzyknij narzędzia terminala dla modelu",
-			settingsToolsDesc: "Po włączeniu model może tworzyć i sterować terminalami panelu bocznego przez 8 narzędzi terminal_* (domyślnie wyłączone)",
-			settingsFontFamilyTitle: "Krój czcionki terminala",
-			settingsFontFamilyDesc: "Niestandardowy krój czcionki terminala (stos font-family CSS, np. \"JetBrains Mono\", monospace; puste = krój monospace z motywu)",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "Rozmiar czcionki terminala",
-			settingsFontSizeDesc: "Rozmiar czcionki terminala w px (9–32, domyślnie 13)",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Ścieżka powłoki",
-			settingsShellDesc: "Powłoka uruchamiana dla terminali UI i modelu (ścieżka bezwzględna lub nazwa pliku). Puste zachowuje dawną kolejność: yaml config.shell → $SHELL / powłoka logowania / Windows powershell.exe. Dotyczy terminali otwieranych potem",
-			settingsShellPlaceholder: "np. /bin/zsh (puste = auto)",
-			settingsShellArgsTitle: "Argumenty powłoki",
-			settingsShellArgsDesc: "Jawne argumenty powłoki, oddzielone spacjami; niepuste w pełni zastępuje domyślne (zgodnie z kontraktem shellArgs w yaml)",
-			settingsShellArgsPlaceholder: "np. -l (puste = domyślne)",
-			settingsTabsTitle: "Treść panelu bocznego",
-			settingsViewersTitle: "Podglądy plików",
-			settingsGeneralTitle: "Ogólne",
-			settingsPopup: "Ustawienia funkcji",
-			settingsViewerCatchAll: "Zapasowy: dowolny plik",
-			viewerImage: "Obraz",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "Kod",
-			viewerBinary: "Pobieranie binarne",
-			viewerHtml: "HTML",
-			browser: "Przeglądarka",
-			browserPlaceholder: "Wpisz adres URL, np. example.com",
-			browserGo: "Przejdź",
-			browserBack: "Wstecz",
-			browserForward: "Naprzód",
-			browserStart: "Wpisz adres URL, aby rozpocząć przeglądanie (tryb piaskownicy)",
-			browserBlockedScheme: "Zablokowano: dozwolone są tylko adresy URL http/https",
-			browserBlockedLoopback: "Zablokowano: nie można tu przeglądać adresów lokalnych i wewnętrznych",
-			browserInvalid: "Nieprawidłowy adres URL",
-			browserNoSandboxWarning: "Piaskownica wyłączona: bieżąca strona działa z pełnymi uprawnieniami interfejsu (można przywrócić w ustawieniach)",
-			htmlNoSandboxWarning: "Piaskownica wyłączona: ten HTML działa z pełnymi uprawnieniami interfejsu (można przywrócić w ustawieniach)",
-			sandboxStatusOn: "Tryb piaskownicy: włączony · strony nie mogą dostępować danych interfejsu ani plików lokalnych; logowania i ciasteczka firm trzecich mogą nie działać",
-			sandboxUnlock: "Wyłącz tymczasowo (niebezpieczne)",
-			sandboxRestore: "Przywróć piaskownicę",
-			settingsHtmlDefaultUnsafeTitle: "Otwieraj podgląd HTML bez piaskownicy domyślnie (niebezpieczne)",
-			settingsHtmlDefaultUnsafeDesc: "Po włączeniu każdy nowo otwarty podgląd HTML zaczyna się bez piaskownicy (ten sam origin co interfejs — może czytać pliki sesji i wewnętrzne API); pasek stanu nadal pozwala przywrócić piaskownicę",
-			settingsHtmlSandboxTitle: "Wyłącz piaskownicę podglądu HTML (niebezpieczne)",
-			settingsHtmlSandboxDesc: "Po wyłączeniu podglądany HTML działa w tym samym originie co interfejs: może czytać pliki sesji, localStorage i wywoływać wewnętrzne API. Włączaj tylko dla w pełni zaufanych plików",
-			settingsBrowserSandboxTitle: "Wyłącz piaskownicę przeglądarki (niebezpieczne)",
-			settingsBrowserSandboxDesc: "Po wyłączeniu każda odwiedzana strona działa w tym samym originie co interfejs: może czytać dane sesji i podszywać się pod Twoją sesję logowania. Włączaj tylko dla w pełni zaufanych witryn",
-			settingsBrowserLinksTitle: "Otwieraj linki zewnętrzne z czatu w panelu bocznym",
-			settingsBrowserLinksDesc: "Po włączeniu kliknięcie linku zewnętrznego na czacie lub w interfejsie otwiera panel boczny zamiast nowego okna; HTTP i HTTPS sterowane są osobnymi przełącznikami poniżej; Ctrl/Cmd+klik zawsze pomija",
-			settingsBrowserHttpTitle: "Otwieraj strony HTTP w panelu bocznym",
-			settingsBrowserHttpDesc: "Po włączeniu kliknięcie zewnętrznego linku HTTP na czacie lub w interfejsie otwiera panel boczny (strony wtyczek deklarujące urlTarget mają pierwszeństwo); Ctrl/Cmd+klik zawsze pomija",
-			settingsBrowserHttpsTitle: "Otwieraj strony HTTPS w panelu bocznym",
-			settingsBrowserHttpsDesc: "Po włączeniu kliknięcie zewnętrznego linku HTTPS na czacie lub w interfejsie otwiera panel boczny. Domyślnie wyłączone: większość stron HTTPS odmawia osadzania, więc przeglądarka systemowa jest płynniejszym domyślnym wyborem",
-			settingsBrowserLoopbackTitle: "Dozwolone adresy lokalne",
-			settingsBrowserLoopbackDesc: "Rozdzielana przecinkami lista dozwolonych adresów loopback (np. localhost:5174 lub 127.0.0.1:8080), które może odwiedzać przeglądarka paska bocznego; puste domyślnie blokuje wszystkie adresy lokalne. Piaskownica nadal obowiązuje — strony nie mogą odczytywać danych GUI",
-			settingsBrowserLoopbackPlaceholder: "np. localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "Otwórz w przeglądarce",
-			browserEmbedBlocked: "{host} odmówił osadzenia",
-			browserEmbedBlockedDesc: "Witryna zabrania wyświetlania w innych stronach (X-Frame-Options / frame-ancestors), więc nie może się załadować w panelu bocznym. Otwórz ją bezpośrednio w przeglądarce.",
-			browserEmbedAnyway: "Załaduj mimo to",
-			subagent: "Zadania",
-			openSubagent: "Zadania",
-			subagentMainAgent: "Agent główny",
-			subagentEmpty: "Brak podagentów",
-			subagentEmptyDesc: "Podagenci powołani przez agenta głównego pojawią się tutaj",
-			subagentRunning: "Działa",
-			subagentInactive: "Bezczynny",
-			subagentModeOneShot: "Jednorazowy",
-			subagentModeContinuable: "Kontynuowalny",
-			subagentCount: "{count} podagentów",
-			subagentCountRunning: "{count} podagentów · {running} działa",
-			subagentDiagCorrupt: "Uszkodzony",
-			subagentDiagUnsupported: "Nieobsługiwany",
-			subagentDiagUnavailable: "Niedostępny",
-			subagentThinking: "Myśli…",
-			subagentShowHistory: "Pokaż {count} starszych podagentów",
-			subagentHideHistory: "Zwiń starszych podagentów",
-			sideChat: "Czat boczny (beta)",
-			sideChatNew: "Nowy wątek",
-			sideChatUntitled: "Nowy wątek",
-			sideChatEmpty: "Brak rozmów bocznych",
-			sideChatEmptyDesc: "Każda rozmowa boczna to własna karta w pasku kart — dziedziczy kontekst bieżącej sesji i nigdy nie trafia do rozmowy głównej",
-			sideChatCreating: "Tworzenie rozmowy bocznej…",
-			sideChatRetry: "Ponów",
-			sideChatThreads: "Przełącz wątek / nowy",
-			sideChatSave: "Zapisz jako nową sesję",
-			sideChatSaveTitle: "Promuj ten wątek do sesji najwyższego poziomu na głównej liście sesji",
-			sideChatSaved: "Zapisano jako nową sesję",
-			sideChatNoTurn: "Zapis jest dostępny po pierwszej ukończonej turze",
-			sideChatPendingDrop: "Ostatnie niezakończone pytanie następcze nie zostanie uwzględnione w zapisanej sesji",
-			sideChatFirstPlaceholder: "Zadaj pierwsze pytanie — kontekst odziedziczony…",
-			sideChatComposerPlaceholder: "Pytaj dalej…",
-			sideChatThinking: "Drążenie…",
-			sideChatThink: "Myślenie",
-			sideChatInjection: "Kontekst wstrzyknięty",
-			sideChatSend: "Wyślij",
-			sideChatCancel: "Zatrzymaj",
-			sideChatCancelTitle: "Przerwij bieżącą turę (kolejka jest zachowana)",
-			sideChatClose: "Zamknij wątek",
-			sideChatCloseTitle: "Zwolnij agenta wątku (historia jest zachowana)",
-			sideChatError: "Błąd czatu bocznego: {message}",
-			jobs: "Zadania w tle",
-			jobsCount: "{count} zadań w tle",
-			jobsCountRunning: "{count} zadań w tle · {running} działa",
-			jobsShowHistory: "Pokaż {count} starszych zadań w tle",
-			jobsHideHistory: "Zwiń starsze zadania w tle",
-			jobStatusRunning: "Działa",
-			jobStatusStopping: "Zatrzymywanie",
-			jobStatusCompleted: "Ukończono",
-			jobStatusKilled: "Zabito",
-			jobStatusFailed: "Nie powiodło się",
-			jobDurationSeconds: "{seconds}s",
-			jobDurationMinutes: "{minutes}m {seconds}s",
-			jobDurationHours: "{hours}g {minutes}m",
-			jobViewOutput: "Pokaż wyjście",
-			jobHideOutput: "Ukryj wyjście",
-			jobNoOutput: "Brak wyjścia",
-			jobNotReadYet: "Oczekiwanie, aż model odczyta to zadanie; wyjście pojawi się tutaj, gdy model uruchomi job_output",
-			jobOutputTruncated: "Wyjście skrócone",
-			jobOutputError: "Ładowanie wyjścia nie powiodło się",
-			jobKill: "Zabij",
-			jobKillConfirm: "Kliknij ponownie, aby potwierdzić zabicie",
-			jobKillError: "Zabicie nie powiodło się",
-			addPluginsTabCard: "Dodaj wtyczki kart",
-			addPluginsTabCardDesc: "Zarejestruj nową stronę panelu bocznego",
-			addPluginsViewerCard: "Dodaj wtyczki podglądu",
-			addPluginsViewerCardDesc: "Zarejestruj podgląd typu pliku",
-			addPluginsTabDesc: "Strony panelu bocznego (karty) mogą być rozszerzane przez wtyczki. Wtyczki rejestrują się przez usługę ctx.betterSidebar; kliknięcie „Zainstaluj” kopiuje polecenie instalacji — wklej je do terminala tam, gdzie żyje Twój profil DSH, i uruchom.",
-			addPluginsViewerDesc: "Podglądy plików mogą być rozszerzane przez wtyczki. Wtyczki rejestrują się przez usługę ctx.betterSidebar; kliknięcie „Zainstaluj” kopiuje polecenie instalacji — wklej je do terminala tam, gdzie żyje Twój profil DSH, i uruchom.",
-			addPluginsBrowseMore: "Przeglądaj więcej wtyczek na GitHub (topic: dsh-coding-sidebar)",
-			addPluginsSearch: "Szukaj po nazwie lub opisie wtyczki…",
-			addPluginsNoMatch: "Brak pasujących wtyczek",
-			addPluginsRecommended: "Zalecane wtyczki",
-			addPluginsEmpty: "Brak wyselekcjonowanych wtyczek — opublikuj swoją pod tematem na GitHub",
-			openPlugin: "Otwórz",
-			copyInstall: "Kopiuj polecenie instalacji",
-			pluginOfficeDesc: "Podgląd pakietu Office (.docx / .xlsx / .pptx) dla edytora dsh-coding-sidebar, utrzymujący ciężkie biblioteki renderujące Office poza rdzeniem głównego pakietu",
-			pluginFlowglassDesc: "Wykres przepływu sesji na żywo: trzy tory dla użytkownika, asystenta i wywołań narzędzi, z grupami równoległymi, gałęziami podagentów, drążeniem i statusem na żywo; rejestruje natywną kartę Flowglass po zainstalowaniu dsh-coding-sidebar, z fallbackiem do samodzielnej szuflady",
-			pluginGitForgeDesc: "Karta Git Forge: biblioteka kont GitHub/Gitea (i innych forges) + autoryzacja per projekt + twarda polityka push; tokeny zostają w lokalnych sekretach (nigdy w kontekście modelu); narzędzie GitForge tylko do odczytu i agentowy helper poświadczeń HTTPS",
-			pluginGitRemotesDesc: "Karta Git Remotes: gałąź/nadrzędne/ahead-behind, fetch (z opcjonalnym prune), ff-only pull i push dopiero po potwierdzeniu w karcie. Nie zastępuje wbudowanej karty Git stage/commit i nie oferuje force-push ani narzędzia auto-push modelu",
-			pluginSentinelDesc: "Budzenie agenta sterowane warunkami: czujniki plików/procesów/portów/HTTP/poleceń/webhooków wybudzają uśpione sesje, gdy warunek zajdzie; rejestruje kartę „Sentinel” z ogólnoserwerową tabelą obserwacji",
-			pluginSidebarQaDesc: "Wybierz-i-zapytaj: Zaznacz tekst rozmowy → zapytaj w prawym panelu → niezależna sesja pytań następczych (❓) w tym samym obszarze roboczym; szybki model bez myślenia kompresuje główny kontekst i wstrzykuje go z cytatem, nie przerywając głównej rozmowy; pytania następcze mogą zagnieżdżać się, kontynuować i być archiwizowane",
-			pluginSshTunnelDesc: "Karta SSH Tunnel: spis wielu hostów + autoryzacja per projekt + klucze trzymane lokalnie; narzędzie modelu SSHManager (exec/SFTP/strategie sesji); centralny interaktywny terminal i dwupanelowy SFTP",
-			pluginTurnReviewDesc: "Ludzka bramka na diffie „tej właśnie tury”: Approve / Request changes per ścieżka z opcjonalnym komentarzem; ścieżki pogrupowane wg sesji głównej / podagenta / nieprzypisane; wbudowany diff migawka-początku-tury vs teraz, zanim zdecydujesz. Bez forka, bez /rewind",
-			pluginVideoPreviewDesc: "Wbudowany podgląd plików wideo (.mp4/.webm/.mov/.mkv/.avi itp.) w edytorze dsh-coding-sidebar, wspierany przez dedykowaną trasę hosta /video z obsługą HTTP Range (206) — przewijanie działa, a pliki nie są ograniczane przez mediaLimit 20 MB",
-			pluginDocsPanelDesc: "Globalne dokumenty w panelu bocznym DSH: globalne notatki Markdown, czytelne z dowolnego obszaru roboczego — lista z kliknięciem, kontur z przejściami, otwieranie w Chrome / VS Code i przyciski kopiowania kodu; katalog konfigurowalny (domyślnie ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "Przeglądarka agenta dla DeepSeek Harness: 32 narzędzia ego_* sterują prawdziwym Chromium; natywna karta «ego browser» na pasku bocznym pokazuje na żywo każdą stronę odwiedzaną przez agenta — możesz klikać, przeciągać i pisać, aby przejąć kontrolę. Karta rejestruje się automatycznie, gdy dsh-coding-sidebar jest zainstalowany; w przeciwnym razie pływający dymek"
-		};
-		//#endregion
-		//#region src/client/locales-zh-HK.ts
-		/**
-		* The zh-HK (Traditional Chinese — Hong Kong) dictionary for the betterSidebar
-		* namespace.
-		*
-		* Mirrors the key set of `zh` in `locales.ts`. Consumed by better-locale's
-		* override store when the active override id is `'zh-HK'` (registered under
-		* the `betterSidebar` namespace). Absent that, the existing zh/en chain
-		* runs unchanged.
-		*
-		* Hong Kong regional conventions:
-		* - 软件 → 軟件 (NOT 軟體); 网络 → 網絡 (NOT 網路); 鼠标 → 滑鼠
-		* - 檔案 (file), 資料夾 (folder), 程式 (program), 程式碼 (code), 螢幕 (screen)
-		* - 預設 (default), 儲存 (save), 設定 (settings/config), 唯讀 (read-only)
-		* - 資源管理器 → 檔案總管; refresh → 重新整理; cache → 快取
-		* - timeout → 逾時; loop → 迴圈; override → 覆寫; built-in → 內建
-		* - adapter → 介面卡; interface → 介面; address → 位址; field → 欄位
-		* - byte → 位元組; binary → 二進位; character → 字元; hash → 雜湊
-		* - rename → 重新命名; archive → 歸檔; idle → 閒置; mount → 掛載
-		* - package → 套件; generate → 產生; fetch → 取得; export → 匯出
-		* - login → 登入; detect → 偵測; block → 封鎖; access → 存取
-		* - port → 連接埠; sensor → 感測器; server → 伺服器; global → 全域
-		* - nested → 巢狀; thread → 執行緒; queue → 佇列; tab → 標籤
-		* - source code → 原始碼; symlink → 符號連結; recover → 復原
-		* - placeholder → 佔位符; template → 範本; variable → 變數
-		* - through → 透過; paste → 貼上; project → 專案; account → 帳號
-		* - session (会话) → 工作階段; chat (对话) → 對話
-		* - quotation marks: "" → 「」
-		* - Placeholders keep `{name}` verbatim (interpolation runs after lookup).
-		* - English brand names (VS Code, Cursor, Zed, SSH, Git, Chrome) stay as-is.
-		*/
-		/** The zh-HK dictionary (key-set-equal to zh, enforced by the type annotation in locales.ts). */
-		const zhHK$1 = {
-			files: "檔案",
-			explorer: "檔案總管",
-			git: "原始碼管理",
-			terminal: "終端",
-			editor: "編輯器",
-			editorExplorer: "檔案開啟方式",
-			editorExplorerDesc: "控制檔案開啟方式",
-			editorExplorerMerged: "合併",
-			editorExplorerMergedDesc: "檔案在同一視窗內原地切換；新視窗預設展開檔案樹",
-			editorExplorerSplit: "獨立",
-			editorExplorerSplitDesc: "無路徑視窗即檔案總管（僅檔案樹）；檔案各自新開視窗（帶檔案樹，預設收起）",
-			editorTreeToggle: "檔案樹面板",
-			editorPathPlaceholder: "輸入檔案路徑（相對工作階段目錄或絕對路徑），Enter 開啟",
-			editorSearchPlaceholder: "按檔案名稱搜尋…",
-			editorSearchNoResults: "無匹配檔案",
-			editorSearchTruncated: "結果過多，僅顯示部分匹配",
-			editorEmptyHint: "從右側檔案樹或上方路徑輸入框選擇檔案開始預覽",
-			openFileNewTab: "在新 Tab 中開啟",
-			openFileSide: "在側邊開啟",
-			openWithMenu: "在應用程式中開啟",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "固定到選單",
-			unpinOpenWith: "取消固定",
-			openWithExplorer: "檔案總管",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "SSH 遠端主機",
-			openWithSettingsSshDesc: "留空為本地工作區；填入 user@host 或 SSH 別名後，VSCode 系開啟方式將改用 vscode-remote/ssh-remote 協議，檔案總管 / Zed / 非 VSCode 系自訂編輯器將從選單隱藏",
-			openWithSettingsSshPlaceholder: "user@host 或 SSH 別名",
-			openWithSettingsCustomTitle: "自訂編輯器",
-			openWithSettingsCustomDesc: "名稱 + URL 範本（{path} 佔位符）+ 是否 VSCode 系；SSH 模式下僅 VSCode 系可開啟遠端",
-			openWithSettingsAdd: "新增",
-			openWithSettingsName: "名稱",
-			openWithSettingsTemplate: "如 cursor://file/{path}",
-			openWithSettingsFamily: "VSCode 系",
-			openWithSettingsFamilyDesc: "該編輯器使用 VSCode 的 URL 協議（支援 SSH 遠端開啟）",
-			openWithSettingsRemove: "刪除",
-			openWithSettingsInvalidHint: "名稱或範本（需含 {path} 且以 scheme:// 開頭）未填寫的編輯器不會出現在選單中",
-			newTab: "新增標籤",
-			openExplorer: "檔案總管",
-			brokenSymlink: "失效的符號連結",
-			openGit: "Git 面板",
-			newTerminal: "新終端",
-			terminalLimit: "終端數量已達上限 (3)",
-			close: "關閉",
-			closeOtherTabs: "關閉其他標籤",
-			closeLeftTabs: "關閉左側標籤",
-			closeRightTabs: "關閉右側標籤",
-			moveToFreeWindow: "移動到自由視窗",
-			floatDropHint: "放開以在自由視窗中開啟",
-			dockToSidebar: "返回側邊欄",
-			pinTerminal: "固定終端",
-			pinAgentTerminal: "固定 Agent 終端",
-			pinToWorkspace: "固定到工作區",
-			pinToGlobal: "固定到全域",
-			unpinTerminal: "取消固定",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "UI 終端",
-			pinnedTerminalKindAgent: "Agent 終端",
-			pinnedTerminalScopeWorkspace: "固定到工作區",
-			pinnedTerminalScopeGlobal: "固定到全域",
-			pinnedRailLabel: "固定終端",
-			closePinnedTerminal: "關閉終端",
-			collapse: "收起側邊欄",
-			expand: "展開側邊欄",
-			terminalError: "終端連線失敗",
-			terminalConnectFailed: "終端多次連線失敗",
-			terminalRetry: "重試",
-			terminalDepsFailed: "終端依賴 node-pty 載入失敗",
-			terminalDepsHint: "在 DSH 所在環境的終端或 cmd 中執行以下命令修復，然後點重試（node-pty 與 DSH 核心保持同一版本）：",
-			terminalDepsProfile: "（偵測到 profile：{profile}）",
-			preview: "預覽",
-			edit: "編輯",
-			refresh: "重新整理",
-			showInFolder: "在文件夾中顯示",
-			refreshUnsavedConfirm: "檔案已在磁碟上變更。重新整理會丟失尚未儲存的編輯。繼續？",
-			save: "儲存",
-			saved: "已儲存",
-			unsaved: "未儲存",
-			saveFailed: "儲存失敗",
-			truncation: "檔案過大，僅顯示前 512KB",
-			binary: "二進位檔案，無法預覽",
-			loading: "載入中…",
-			error: "載入失敗",
-			retry: "重試",
-			splitLeft: "向左分欄",
-			splitRight: "向右分欄",
-			splitUp: "向上分欄",
-			splitDown: "向下分欄",
-			notRepo: "目前目錄不是 git 倉庫",
-			noChanges: "沒有變更",
-			statusTruncated: "變更過多，僅顯示前 2000 條",
-			stage: "暫存",
-			unstage: "取消暫存",
-			stageAll: "全部暫存",
-			unstageAll: "全部取消暫存",
-			commitPlaceholder: "提交訊息 (Ctrl+Enter)",
-			commit: "提交",
-			commitError: "提交失敗",
-			branch: "分支",
-			worktree: "工作樹",
-			checkoutError: "切換分支失敗",
-			history: "歷史",
-			changes: "變更",
-			staged: "已暫存",
-			unstaged: "未暫存",
-			cancel: "取消",
-			diffEmpty: "沒有文字差異",
-			diffLoadError: "載入差異失敗",
-			diffBinary: "二進位",
-			diffAdded: "新增",
-			diffDeleted: "刪除",
-			diffRenamed: "重新命名",
-			diffExpand: "展開其餘 {count} 行",
-			diffCollapse: "收起",
-			discard: "放棄變更",
-			discardTitle: "放棄變更",
-			discardDesc: "將丟棄「{path}」的工作區修改（不可復原）。",
-			viewCommitDiff: "檢視提交差異",
-			copyShortHash: "複製短雜湊",
-			copyFullHash: "複製完整雜湊",
-			copySubject: "複製提交訊息",
-			revertCommit: "還原此提交",
-			revertTitle: "還原此提交",
-			revertDesc: "將在目前分支建立一個反轉「{subject}」的新提交。",
-			cherryPickCommit: "撿取此提交",
-			cherryPickTitle: "撿取此提交",
-			cherryPickDesc: "將「{subject}」的變更套用到目前分支。",
-			timeJustNow: "剛剛",
-			timeMinutesAgo: "{n} 分鐘前",
-			timeHoursAgo: "{n} 小時前",
-			timeYesterday: "昨天",
-			loadMore: "載入更多",
-			historyLoadError: "載入更多歷史失敗",
-			produced: "本次產出",
-			producedOpen: "在側邊欄中開啟",
-			disconnected: "終端連線斷開，重新連線中…",
-			exited: "終端程序已退出",
-			noSession: "選擇一個工作階段以使用側邊欄",
-			pluginNotLoaded: "插件未載入，標籤暫不可用：",
-			hiddenFiles: "隱藏檔案",
-			parent: "上層目錄",
-			copied: "已複製",
-			copy: "複製",
-			newFile: "新檔案",
-			openEditor: "開啟編輯器",
-			gitDetail: "檢視變更詳情",
-			referenceFile: "@檔案",
-			addToConversation: "新增到對話",
-			copyRelative: "複製相對位址",
-			copyAbsolute: "複製絕對位址",
-			download: "下載",
-			uploadFiles: "上傳檔案",
-			uploadFolder: "上傳資料夾",
-			uploadHere: "上傳到此處",
-			uploadDropHint: "拖曳檔案/資料夾到此處上傳",
-			uploadDropChat: "拖放到聊天區：新增圖片到對話",
-			uploadTo: "上傳到 {dir}",
-			uploadingTo: "正在上傳到 {dir}…",
-			uploadProgress: "正在上傳 {done}/{total}: {name}",
-			uploadDone: "已上傳 {count} 個檔案",
-			uploadFailed: "上傳失敗：{error}",
-			uploadFailedUnknown: "未知錯誤",
-			uploadTooLarge: "檔案過大，超出上傳上限",
-			uploadCancelled: "上傳已取消",
-			settingsNav: "側邊卡片",
-			settingsIntro: "管理側邊卡片的顯示內容與預設行為",
-			settingsPopupDesc: "為「{feature}」設定相關選項",
-			settingsDone: "完成",
-			settingsOpenTitle: "新工作階段預設開啟",
-			settingsOpenDesc: "新增工作階段時自動展開側邊卡片；已存在的工作階段保持各自佈局",
-			settingsWidthTitle: "預設寬度佔比",
-			settingsWidthDesc: "新增工作階段時側邊卡片佔視窗寬度的百分比 (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "聊天區檔案在側邊欄開啟",
-			settingsOpenPathDesc: "在聊天裡點擊檔案連結（工具行、產物列表、檔案提及）時，在側邊欄編輯器中開啟，不再呼叫系統預設應用程式",
-			settingsOpenToolsTitle: "為模型注入側邊欄開啟工具",
-			settingsOpenToolsDesc: "開啟後，模型可透過 sidebar_open 工具在側邊欄主動開啟檔案、資料夾和 HTTP(S) 網頁（預設關閉）",
-			settingsTitleBarTitle: "位置相容模式",
-			settingsTitleBarDesc: "選擇頂欄相容方案：自動偵測（預設，保守）/ DSH官方Web / 已知桌面殼 / 自訂方案（下移距離 + 自訂 CSS）",
-			settingsTitleBarStripTitle: "下移距離",
-			settingsTitleBarStripDesc: "標題欄條帶高度：側邊欄按鈕與內容下移的像素數（0–120，預設 40；自訂方案下生效）",
-			settingsSchemeAutoTitle: "自動偵測",
-			settingsSchemeAutoDesc: "保守方案：僅在 Window Controls Overlay 標準 API 可用時按真實標題欄高度讓位；網頁環境下不做任何修改",
-			settingsSchemeWebTitle: "DSH官方Web",
-			settingsSchemeWebDesc: "顯式宣告執行在官方網頁版：不做任何適配（連標準 WCO 幾何也不適用）",
-			settingsSchemeCustomTitle: "自訂方案",
-			settingsSchemeCustomDesc: "完全由你控制：注入自訂 CSS（可覆寫內建樣式），並指定標題欄下移距離",
-			settingsSchemeDetectedSuffix: "已偵測",
-			settingsCustomCssTitle: "自訂 CSS",
-			settingsCustomCssDesc: "附加到頁面末尾的樣式（同優先級下後寫勝出；覆寫 JS 內聯變數需用 !important）",
-			settingsCustomCssPlaceholder: "/* 例：為自繪標題欄的殼預留 36px */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "儲存失敗",
-			settingsConflict: "設定已被其他視窗修改，請重試",
-			binaryNoPreview: "此檔案類型不支援預覽",
-			downloadToView: "下載檢視",
-			settingsSubagentTitle: "偵測到子代理時自動展開任務管理頁",
-			settingsSubagentDesc: "目前工作階段產生新的子代理時，自動展開側邊欄並開啟任務管理頁；關閉後需手動開啟",
-			settingsJobsTitle: "有新背景任務時自動展開背景任務頁",
-			settingsJobsDesc: "目前工作階段出現新的背景任務時，自動展開側邊欄並開啟背景任務頁（每個新任務都會觸發）；關閉後需手動開啟",
-			settingsToolsTitle: "為模型注入終端工具",
-			settingsToolsDesc: "開啟後，模型可透過 terminal_create 等 8 個工具建立並操作側邊欄終端（預設關閉）",
-			settingsFontFamilyTitle: "終端字體",
-			settingsFontFamilyDesc: "自訂終端字體族（CSS font-family，如 \"JetBrains Mono\", monospace；留空跟隨主題等寬字體）",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "終端字型大小",
-			settingsFontSizeDesc: "終端字型大小（9–32，預設 13）",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Shell 路徑",
-			settingsShellDesc: "UI 與模型終端啟動的 shell（絕對路徑或可執行名）。留空按既有順序解析：yaml 的 config.shell → $SHELL / 登入 shell / Windows 的 powershell.exe。對之後開啟的終端生效",
-			settingsShellPlaceholder: "如 /bin/zsh（留空自動解析）",
-			settingsShellArgsTitle: "Shell 參數",
-			settingsShellArgsDesc: "顯式 shell 啟動參數，空格分隔；非空時完全替換預設參數（與 yaml 的 shellArgs 契約一致）",
-			settingsShellArgsPlaceholder: "如 -l（留空用預設參數）",
-			settingsTabsTitle: "側邊欄內容",
-			settingsViewersTitle: "檔案預覽",
-			settingsGeneralTitle: "一般",
-			settingsPopup: "功能設定",
-			settingsViewerCatchAll: "兜底：任意檔案",
-			viewerImage: "圖片",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "程式碼",
-			viewerBinary: "二進位下載",
-			viewerHtml: "HTML",
-			browser: "瀏覽器",
-			browserPlaceholder: "輸入網址，例如 example.com",
-			browserGo: "前往",
-			browserBack: "上一頁",
-			browserForward: "下一頁",
-			browserStart: "輸入網址開始瀏覽（沙箱模式）",
-			browserBlockedScheme: "已封鎖：僅支援 http/https 連結",
-			browserBlockedLoopback: "已封鎖：不允許在瀏覽器中存取本機或內部位址",
-			browserInvalid: "無效的網址",
-			browserNoSandboxWarning: "沙箱已關閉：目前頁面與介面同源，擁有完整工作階段權限（可在設定中恢復）",
-			htmlNoSandboxWarning: "沙箱已關閉：此 HTML 與介面同源，可讀取工作階段檔案與內部介面（可在設定中恢復）",
-			sandboxStatusOn: "沙箱模式：已啟用 · 頁面無法存取介面資料與本地檔案，登入態與第三方 Cookie 可能不可用",
-			sandboxUnlock: "臨時解鎖（不安全）",
-			sandboxRestore: "恢復沙箱",
-			settingsHtmlDefaultUnsafeTitle: "HTML 預覽預設以非沙箱模式開啟（不安全）",
-			settingsHtmlDefaultUnsafeDesc: "開啟後，每次開啟 HTML 檔案時預覽預設處於非沙箱狀態（與介面同源，可讀取工作階段檔案與內部介面）；可在狀態列臨時恢復沙箱",
-			settingsHtmlSandboxTitle: "關閉 HTML 預覽沙箱（不安全）",
-			settingsHtmlSandboxDesc: "關閉後，預覽的 HTML 將與介面同源執行，可讀取工作階段檔案、本地儲存並呼叫內部介面。僅對完全可信的檔案開啟",
-			settingsBrowserSandboxTitle: "關閉瀏覽器沙箱（不安全）",
-			settingsBrowserSandboxDesc: "關閉後，存取的任何網站都將與介面同源執行，可讀取工作階段資料並冒充你的登入狀態。僅對完全可信的網站開啟",
-			settingsBrowserLinksTitle: "聊天區外鏈在側邊欄開啟",
-			settingsBrowserLinksDesc: "開啟後，點擊聊天或介面中的外鏈時在側邊欄開啟，不再彈出新視窗；HTTP 與 HTTPS 可分別透過下方開關控制；Ctrl/Cmd 點擊可臨時放行",
-			settingsBrowserHttpTitle: "側邊開啟HTTP網頁",
-			settingsBrowserHttpDesc: "開啟後，點擊聊天或介面中的 HTTP 外鏈時在側邊欄開啟（宣告了 urlTarget 的插件頁面優先）；Ctrl/Cmd 點擊可臨時放行",
-			settingsBrowserHttpsTitle: "側邊開啟HTTPS網頁",
-			settingsBrowserHttpsDesc: "開啟後，點擊聊天或介面中的 HTTPS 外鏈時在側邊欄開啟。預設關閉：多數 HTTPS 網站拒絕被嵌入，走系統瀏覽器更順暢",
-			settingsBrowserLoopbackTitle: "允許訪問的本機地址",
-			settingsBrowserLoopbackDesc: "逗號分隔的本機回環地址白名單（如 localhost:5174 或 127.0.0.1:8080），側邊欄瀏覽器可訪問這些本機服務；預設留空則本機地址全部攔截。沙箱隔離仍然生效，頁面無法讀取介面資料",
-			settingsBrowserLoopbackPlaceholder: "例如 localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "在瀏覽器中開啟",
-			browserEmbedBlocked: "{host} 拒絕了嵌入請求",
-			browserEmbedBlockedDesc: "該網站透過 X-Frame-Options / frame-ancestors 禁止在其它頁面中顯示，無法在側邊欄內載入。可在瀏覽器中直接開啟",
-			browserEmbedAnyway: "仍然載入",
-			subagent: "任務管理",
-			openSubagent: "任務管理",
-			subagentMainAgent: "主代理",
-			subagentEmpty: "暫無子代理",
-			subagentEmptyDesc: "目前主代理派生的子代理將顯示在這裡",
-			subagentRunning: "執行中",
-			subagentInactive: "閒置",
-			subagentModeOneShot: "一次性",
-			subagentModeContinuable: "可續接",
-			subagentCount: "{count} 個子代理",
-			subagentCountRunning: "{count} 個子代理 · {running} 執行中",
-			subagentDiagCorrupt: "目錄損壞",
-			subagentDiagUnsupported: "不支援的條目",
-			subagentDiagUnavailable: "不可用",
-			subagentThinking: "思考中…",
-			subagentShowHistory: "展開較早的 {count} 個子代理",
-			subagentHideHistory: "收起較早的子代理",
-			sideChat: "側邊對話(beta)",
-			sideChatNew: "新增對話",
-			sideChatUntitled: "新對話",
-			sideChatEmpty: "暫無側邊對話",
-			sideChatEmptyDesc: "每個側邊對話是標籤列裡的獨立 Tab，繼承目前工作階段的上下文執行，不會進入主工作階段",
-			sideChatCreating: "正在建立側邊對話…",
-			sideChatRetry: "重試",
-			sideChatThreads: "切換執行緒 / 新增",
-			sideChatSave: "儲存為新工作階段",
-			sideChatSaveTitle: "把該執行緒提升為頂層工作階段，出現在主工作階段列表中",
-			sideChatSaved: "已儲存為新工作階段",
-			sideChatNoTurn: "至少完成一輪對話後才能儲存",
-			sideChatPendingDrop: "最後一則未完成的追問不會包含在新工作階段中",
-			sideChatFirstPlaceholder: "輸入第一個問題，已繼承目前工作階段上下文…",
-			sideChatComposerPlaceholder: "追問…",
-			sideChatThinking: "正在深入…",
-			sideChatThink: "思考過程",
-			sideChatInjection: "已注入上下文",
-			sideChatSend: "發送",
-			sideChatCancel: "停止",
-			sideChatCancelTitle: "中止目前回合（保留佇列）",
-			sideChatClose: "關閉執行緒",
-			sideChatCloseTitle: "釋放執行緒的 agent（歷史保留）",
-			sideChatError: "側邊對話出錯：{message}",
-			jobs: "背景任務",
-			jobsCount: "{count} 個背景任務",
-			jobsCountRunning: "{count} 個背景任務 · {running} 執行中",
-			jobsShowHistory: "展開較早的 {count} 個背景任務",
-			jobsHideHistory: "收起較早的背景任務",
-			jobStatusRunning: "執行中",
-			jobStatusStopping: "終止中",
-			jobStatusCompleted: "已完成",
-			jobStatusKilled: "已終止",
-			jobStatusFailed: "失敗",
-			jobDurationSeconds: "{seconds} 秒",
-			jobDurationMinutes: "{minutes} 分 {seconds} 秒",
-			jobDurationHours: "{hours} 小時 {minutes} 分",
-			jobViewOutput: "檢視輸出",
-			jobHideOutput: "收起輸出",
-			jobNoOutput: "暫無輸出",
-			jobNotReadYet: "等待模型讀取該任務的輸出（模型執行 job_output 後，輸出會顯示在這裡）",
-			jobOutputTruncated: "輸出過長，已截斷顯示",
-			jobOutputError: "輸出讀取失敗",
-			jobKill: "終止",
-			jobKillConfirm: "再次點擊確認終止",
-			jobKillError: "終止失敗",
-			addPluginsTabCard: "新增 Tab 插件",
-			addPluginsTabCardDesc: "註冊新的側邊欄頁面",
-			addPluginsViewerCard: "新增預覽插件",
-			addPluginsViewerCardDesc: "註冊新的檔案類型預覽",
-			addPluginsTabDesc: "側邊欄頁面（Tab）可以由插件擴展。插件透過 ctx.betterSidebar 服務註冊；點擊「安裝」複製安裝命令，貼到 DSH 所在環境的終端執行。",
-			addPluginsViewerDesc: "檔案預覽器可以由插件擴展。插件透過 ctx.betterSidebar 服務註冊；點擊「安裝」複製安裝命令，貼到 DSH 所在環境的終端執行。",
-			addPluginsBrowseMore: "在 GitHub 上瀏覽更多插件（topic: dsh-coding-sidebar）",
-			addPluginsSearch: "搜尋插件名稱 / 描述…",
-			addPluginsNoMatch: "沒有匹配的插件",
-			addPluginsRecommended: "推薦插件",
-			addPluginsEmpty: "暫未收錄插件，歡迎在 GitHub topic 下發布你的插件",
-			openPlugin: "跳轉",
-			copyInstall: "複製安裝命令",
-			pluginOfficeDesc: "為 dsh-coding-sidebar 編輯器提供 Office 三件套預覽（.docx / .xlsx / .pptx），把重型 Office 渲染庫拆出主套件、按需安裝",
-			pluginFlowglassDesc: "即時工作階段流程圖：三列泳道展示使用者、助手與工具呼叫，支援並行分組、子代理支線、逐層鑽取和即時狀態；安裝 dsh-coding-sidebar 後註冊原生「流鏡」Tab，未安裝時保留獨立抽屜",
-			pluginGitForgeDesc: "dsh-coding-sidebar「Git 憑證」Tab：GitHub/Gitea 等 Forge 帳號庫 + 按專案授權 + push 策略硬攔；token 僅存本地 secrets，不進模型上下文；提供唯讀 GitForge 工具與 agent HTTPS credential helper",
-			pluginGitRemotesDesc: "dsh-coding-sidebar Git 遠端 Tab：看分支/上游/ahead-behind，fetch（可 prune）、ff-only pull、確認後才 push。不替換內建 Git 的暫存/提交，也不提供 force-push 或模型自動推送",
-			pluginSentinelDesc: "條件驅動的 agent 喚醒系統：檔案/程序/連接埠/HTTP/命令/webhook 感測器，條件達成自動喚醒休眠工作階段；註冊「哨兵」Tab 展示伺服器全域監控表",
-			pluginSidebarQaDesc: "基於 dsh-coding-sidebar 的劃選提問tab分頁: 對話劃選 → 右側面板提問 → 同工作區獨立追問工作階段（❓追問·主題）：快速無思考模型壓縮主對話上下文後與引文一起注入，不打斷主對話；追問可巢狀、可繼續、可歸檔",
-			pluginSshTunnelDesc: "dsh-coding-sidebar「SSH 隧道」Tab：多機主機清單 + 按專案授權 + 密鑰本地保管；模型工具 SSHManager（exec/SFTP/工作階段策略）；中央互動終端與雙欄 SFTP",
-			pluginTurnReviewDesc: "對「剛剛這一回合」的 diff 做 Approve / Request changes 的人閘門：只審上一回合，不 fork 工作階段；檔案按主工作階段/子代理/未歸因分組，按檔案勾選打回 + 可選評語，點檔案先看回合開始快照 vs 現在的 diff。不是 /rewind",
-			pluginVideoPreviewDesc: "在 dsh-coding-sidebar 編輯器內聯預覽影片檔案（.mp4/.webm/.mov/.mkv/.avi 等），自帶支援 HTTP Range（206）的 /video 宿主路由，可拖曳進度條、不受 20MB mediaLimit 限制",
-			pluginDocsPanelDesc: "DSH 側邊欄裡的「全域文件」：全域 Markdown 筆記，任何工作區隨時可讀——列表點選閱讀、懸浮大綱跳轉、Chrome / VS Code 外部開啟、程式碼複製，目錄可設定（預設 ~/.dsh/docs）",
-			pluginEgoBrowserDesc: "將 CitroLabs/ego-lite 接進 DeepSeek Harness 的 agent 瀏覽器：32 個 ego_* 工具驅動真實 Chromium，側邊欄原生「ego 瀏覽器」Tab 實時觀察 agent 逛的每個頁面，可直接點擊/拖拽/輸入接管；裝 dsh-coding-sidebar 時自動註冊 Tab，沒裝則退回浮動浮窗"
-		};
-		//#endregion
-		//#region src/client/locales-zh-TW.ts
-		/**
-		* The zh-HK (Traditional Chinese — Hong Kong) dictionary for the betterSidebar
-		* namespace.
-		*
-		* Mirrors the key set of `zh` in `locales.ts`. Consumed by better-locale's
-		* override store when the active override id is `'zh-HK'` (registered under
-		* the `betterSidebar` namespace). Absent that, the existing zh/en chain
-		* runs unchanged.
-		*
-		* Hong Kong regional conventions:
-		* - 软件 → 軟體 (NOT 軟體); 网络 → 網路 (NOT 網路); 鼠标 → 滑鼠
-		* - 檔案 (file), 資料夾 (folder), 程式 (program), 程式碼 (code), 螢幕 (screen)
-		* - 預設 (default), 儲存 (save), 設定 (settings/config), 唯讀 (read-only)
-		* - 資源管理器 → 檔案總管; refresh → 重新整理; cache → 快取
-		* - timeout → 逾時; loop → 迴圈; override → 覆寫; built-in → 內建
-		* - adapter → 介面卡; interface → 介面; address → 位址; field → 欄位
-		* - byte → 位元組; binary → 二進位; character → 字元; hash → 雜湊
-		* - rename → 重新命名; archive → 歸檔; idle → 閒置; mount → 掛載
-		* - package → 套件; generate → 產生; fetch → 取得; export → 匯出
-		* - login → 登入; detect → 偵測; block → 封鎖; access → 存取
-		* - port → 連接埠; sensor → 感測器; server → 伺服器; global → 全域
-		* - nested → 巢狀; thread → 執行緒; queue → 佇列; tab → 標籤
-		* - source code → 原始碼; symlink → 符號連結; recover → 復原
-		* - placeholder → 佔位符; template → 範本; variable → 變數
-		* - through → 透過; paste → 貼上; project → 專案; account → 帳號
-		* - session (会话) → 工作階段; chat (对话) → 對話
-		* - quotation marks: "" → 「」
-		* - Placeholders keep `{name}` verbatim (interpolation runs after lookup).
-		* - English brand names (VS Code, Cursor, Zed, SSH, Git, Chrome) stay as-is.
-		*/
-		/** The zh-HK dictionary (key-set-equal to zh, enforced by the type annotation in locales.ts). */
-		const zhTW$1 = {
-			files: "檔案",
-			explorer: "檔案總管",
-			git: "原始碼管理",
-			terminal: "終端",
-			editor: "編輯器",
-			editorExplorer: "檔案開啟方式",
-			editorExplorerDesc: "控制檔案開啟方式",
-			editorExplorerMerged: "合併",
-			editorExplorerMergedDesc: "檔案在同一視窗內原地切換；新視窗預設展開檔案樹",
-			editorExplorerSplit: "獨立",
-			editorExplorerSplitDesc: "無路徑視窗即檔案總管（僅檔案樹）；檔案各自新開視窗（帶檔案樹，預設收起）",
-			editorTreeToggle: "檔案樹面板",
-			editorPathPlaceholder: "輸入檔案路徑（相對工作階段目錄或絕對路徑），Enter 開啟",
-			editorSearchPlaceholder: "按檔案名稱搜尋…",
-			editorSearchNoResults: "無匹配檔案",
-			editorSearchTruncated: "結果過多，僅顯示部分匹配",
-			editorEmptyHint: "從右側檔案樹或上方路徑輸入框選擇檔案開始預覽",
-			openFileNewTab: "在新 Tab 中開啟",
-			openFileSide: "在側邊開啟",
-			openWithMenu: "在應用程式中開啟",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "固定到選單",
-			unpinOpenWith: "取消固定",
-			openWithExplorer: "檔案總管",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "SSH 遠端主機",
-			openWithSettingsSshDesc: "留空為本地工作區；填入 user@host 或 SSH 別名後，VSCode 系開啟方式將改用 vscode-remote/ssh-remote 協議，檔案總管 / Zed / 非 VSCode 系自訂編輯器將從選單隱藏",
-			openWithSettingsSshPlaceholder: "user@host 或 SSH 別名",
-			openWithSettingsCustomTitle: "自訂編輯器",
-			openWithSettingsCustomDesc: "名稱 + URL 範本（{path} 佔位符）+ 是否 VSCode 系；SSH 模式下僅 VSCode 系可開啟遠端",
-			openWithSettingsAdd: "新增",
-			openWithSettingsName: "名稱",
-			openWithSettingsTemplate: "如 cursor://file/{path}",
-			openWithSettingsFamily: "VSCode 系",
-			openWithSettingsFamilyDesc: "該編輯器使用 VSCode 的 URL 協議（支援 SSH 遠端開啟）",
-			openWithSettingsRemove: "刪除",
-			openWithSettingsInvalidHint: "名稱或範本（需含 {path} 且以 scheme:// 開頭）未填寫的編輯器不會出現在選單中",
-			newTab: "新增標籤",
-			openExplorer: "檔案總管",
-			brokenSymlink: "失效的符號連結",
-			openGit: "Git 面板",
-			newTerminal: "新終端",
-			terminalLimit: "終端數量已達上限 (3)",
-			close: "關閉",
-			closeOtherTabs: "關閉其他標籤",
-			closeLeftTabs: "關閉左側標籤",
-			closeRightTabs: "關閉右側標籤",
-			moveToFreeWindow: "移動到自由視窗",
-			floatDropHint: "放開以在自由視窗中開啟",
-			dockToSidebar: "返回側邊欄",
-			pinTerminal: "固定終端",
-			pinAgentTerminal: "固定 Agent 終端",
-			pinToWorkspace: "固定到工作區",
-			pinToGlobal: "固定到全域",
-			unpinTerminal: "取消固定",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "UI 終端",
-			pinnedTerminalKindAgent: "Agent 終端",
-			pinnedTerminalScopeWorkspace: "固定到工作區",
-			pinnedTerminalScopeGlobal: "固定到全域",
-			pinnedRailLabel: "固定終端",
-			closePinnedTerminal: "關閉終端",
-			collapse: "收起側邊欄",
-			expand: "展開側邊欄",
-			terminalError: "終端連線失敗",
-			terminalConnectFailed: "終端多次連線失敗",
-			terminalRetry: "重試",
-			terminalDepsFailed: "終端依賴 node-pty 載入失敗",
-			terminalDepsHint: "在 DSH 所在環境的終端或 cmd 中執行以下命令修復，然後點重試（node-pty 與 DSH 核心保持同一版本）：",
-			terminalDepsProfile: "（偵測到 profile：{profile}）",
-			preview: "預覽",
-			edit: "編輯",
-			refresh: "重新整理",
-			showInFolder: "在資料夾中顯示",
-			refreshUnsavedConfirm: "檔案已在磁碟上變更。重新整理會丟失尚未儲存的編輯。繼續？",
-			save: "儲存",
-			saved: "已儲存",
-			unsaved: "未儲存",
-			saveFailed: "儲存失敗",
-			truncation: "檔案過大，僅顯示前 512KB",
-			binary: "二進位檔案，無法預覽",
-			loading: "載入中…",
-			error: "載入失敗",
-			retry: "重試",
-			splitLeft: "向左分欄",
-			splitRight: "向右分欄",
-			splitUp: "向上分欄",
-			splitDown: "向下分欄",
-			notRepo: "目前目錄不是 git 倉庫",
-			noChanges: "沒有變更",
-			statusTruncated: "變更過多，僅顯示前 2000 條",
-			stage: "暫存",
-			unstage: "取消暫存",
-			stageAll: "全部暫存",
-			unstageAll: "全部取消暫存",
-			commitPlaceholder: "提交訊息 (Ctrl+Enter)",
-			commit: "提交",
-			commitError: "提交失敗",
-			branch: "分支",
-			worktree: "工作樹",
-			checkoutError: "切換分支失敗",
-			history: "歷史",
-			changes: "變更",
-			staged: "已暫存",
-			unstaged: "未暫存",
-			cancel: "取消",
-			diffEmpty: "沒有文字差異",
-			diffLoadError: "載入差異失敗",
-			diffBinary: "二進位",
-			diffAdded: "新增",
-			diffDeleted: "刪除",
-			diffRenamed: "重新命名",
-			diffExpand: "展開其餘 {count} 行",
-			diffCollapse: "收起",
-			discard: "放棄變更",
-			discardTitle: "放棄變更",
-			discardDesc: "將丟棄「{path}」的工作區修改（不可復原）。",
-			viewCommitDiff: "檢視提交差異",
-			copyShortHash: "複製短雜湊",
-			copyFullHash: "複製完整雜湊",
-			copySubject: "複製提交訊息",
-			revertCommit: "還原此提交",
-			revertTitle: "還原此提交",
-			revertDesc: "將在目前分支建立一個反轉「{subject}」的新提交。",
-			cherryPickCommit: "撿取此提交",
-			cherryPickTitle: "撿取此提交",
-			cherryPickDesc: "將「{subject}」的變更套用到目前分支。",
-			timeJustNow: "剛剛",
-			timeMinutesAgo: "{n} 分鐘前",
-			timeHoursAgo: "{n} 小時前",
-			timeYesterday: "昨天",
-			loadMore: "載入更多",
-			historyLoadError: "載入更多歷史失敗",
-			produced: "本次產出",
-			producedOpen: "在側邊欄中開啟",
-			disconnected: "終端連線斷開，重新連線中…",
-			exited: "終端程序已退出",
-			noSession: "選擇一個工作階段以使用側邊欄",
-			pluginNotLoaded: "插件未載入，標籤暫不可用：",
-			hiddenFiles: "隱藏檔案",
-			parent: "上層目錄",
-			copied: "已複製",
-			copy: "複製",
-			newFile: "新檔案",
-			openEditor: "開啟編輯器",
-			gitDetail: "檢視變更詳情",
-			referenceFile: "@檔案",
-			addToConversation: "新增到對話",
-			copyRelative: "複製相對位址",
-			copyAbsolute: "複製絕對位址",
-			download: "下載",
-			uploadFiles: "上傳檔案",
-			uploadFolder: "上傳資料夾",
-			uploadHere: "上傳到此處",
-			uploadDropHint: "拖曳檔案/資料夾到此處上傳",
-			uploadDropChat: "拖放到聊天區：新增圖片到對話",
-			uploadTo: "上傳到 {dir}",
-			uploadingTo: "正在上傳到 {dir}…",
-			uploadProgress: "正在上傳 {done}/{total}: {name}",
-			uploadDone: "已上傳 {count} 個檔案",
-			uploadFailed: "上傳失敗：{error}",
-			uploadFailedUnknown: "未知錯誤",
-			uploadTooLarge: "檔案過大，超出上傳上限",
-			uploadCancelled: "上傳已取消",
-			settingsNav: "側邊卡片",
-			settingsIntro: "管理側邊卡片的顯示內容與預設行為",
-			settingsPopupDesc: "為「{feature}」設定相關選項",
-			settingsDone: "完成",
-			settingsOpenTitle: "新工作階段預設開啟",
-			settingsOpenDesc: "新增工作階段時自動展開側邊卡片；已存在的工作階段保持各自佈局",
-			settingsWidthTitle: "預設寬度佔比",
-			settingsWidthDesc: "新增工作階段時側邊卡片佔視窗寬度的百分比 (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "聊天區檔案在側邊欄開啟",
-			settingsOpenPathDesc: "在聊天裡點擊檔案連結（工具行、產物列表、檔案提及）時，在側邊欄編輯器中開啟，不再呼叫系統預設應用程式",
-			settingsOpenToolsTitle: "為模型注入側邊欄開啟工具",
-			settingsOpenToolsDesc: "開啟後，模型可透過 sidebar_open 工具在側邊欄主動開啟檔案、資料夾和 HTTP(S) 網頁（預設關閉）",
-			settingsTitleBarTitle: "位置相容模式",
-			settingsTitleBarDesc: "選擇頂欄相容方案：自動偵測（預設，保守）/ DSH官方Web / 已知桌面殼 / 自訂方案（下移距離 + 自訂 CSS）",
-			settingsTitleBarStripTitle: "下移距離",
-			settingsTitleBarStripDesc: "標題欄條帶高度：側邊欄按鈕與內容下移的像素數（0–120，預設 40；自訂方案下生效）",
-			settingsSchemeAutoTitle: "自動偵測",
-			settingsSchemeAutoDesc: "保守方案：僅在 Window Controls Overlay 標準 API 可用時按真實標題欄高度讓位；網頁環境下不做任何修改",
-			settingsSchemeWebTitle: "DSH官方Web",
-			settingsSchemeWebDesc: "顯式宣告執行在官方網頁版：不做任何適配（連標準 WCO 幾何也不適用）",
-			settingsSchemeCustomTitle: "自訂方案",
-			settingsSchemeCustomDesc: "完全由你控制：注入自訂 CSS（可覆寫內建樣式），並指定標題欄下移距離",
-			settingsSchemeDetectedSuffix: "已偵測",
-			settingsCustomCssTitle: "自訂 CSS",
-			settingsCustomCssDesc: "附加到頁面末尾的樣式（同優先級下後寫勝出；覆寫 JS 內聯變數需用 !important）",
-			settingsCustomCssPlaceholder: "/* 例：為自繪標題欄的殼預留 36px */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "儲存失敗",
-			settingsConflict: "設定已被其他視窗修改，請重試",
-			binaryNoPreview: "此檔案類型不支援預覽",
-			downloadToView: "下載檢視",
-			settingsSubagentTitle: "偵測到子代理時自動展開任務管理頁",
-			settingsSubagentDesc: "目前工作階段產生新的子代理時，自動展開側邊欄並開啟任務管理頁；關閉後需手動開啟",
-			settingsJobsTitle: "有新背景任務時自動展開背景任務頁",
-			settingsJobsDesc: "目前工作階段出現新的背景任務時，自動展開側邊欄並開啟背景任務頁（每個新任務都會觸發）；關閉後需手動開啟",
-			settingsToolsTitle: "為模型注入終端工具",
-			settingsToolsDesc: "開啟後，模型可透過 terminal_create 等 8 個工具建立並操作側邊欄終端（預設關閉）",
-			settingsFontFamilyTitle: "終端字體",
-			settingsFontFamilyDesc: "自訂終端字體族（CSS font-family，如 \"JetBrains Mono\", monospace；留空跟隨主題等寬字體）",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "終端字型大小",
-			settingsFontSizeDesc: "終端字型大小（9–32，預設 13）",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Shell 路徑",
-			settingsShellDesc: "UI 與模型終端啟動的 shell（絕對路徑或可執行名）。留空按既有順序解析：yaml 的 config.shell → $SHELL / 登入 shell / Windows 的 powershell.exe。對之後開啟的終端生效",
-			settingsShellPlaceholder: "如 /bin/zsh（留空自動解析）",
-			settingsShellArgsTitle: "Shell 參數",
-			settingsShellArgsDesc: "顯式 shell 啟動參數，空格分隔；非空時完全替換預設參數（與 yaml 的 shellArgs 契約一致）",
-			settingsShellArgsPlaceholder: "如 -l（留空用預設參數）",
-			settingsTabsTitle: "側邊欄內容",
-			settingsViewersTitle: "檔案預覽",
-			settingsGeneralTitle: "一般",
-			settingsPopup: "功能設定",
-			settingsViewerCatchAll: "兜底：任意檔案",
-			viewerImage: "圖片",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "程式碼",
-			viewerBinary: "二進位下載",
-			viewerHtml: "HTML",
-			browser: "瀏覽器",
-			browserPlaceholder: "輸入網址，例如 example.com",
-			browserGo: "前往",
-			browserBack: "上一頁",
-			browserForward: "下一頁",
-			browserStart: "輸入網址開始瀏覽（沙箱模式）",
-			browserBlockedScheme: "已封鎖：僅支援 http/https 連結",
-			browserBlockedLoopback: "已封鎖：不允許在瀏覽器中存取本機或內部位址",
-			browserInvalid: "無效的網址",
-			browserNoSandboxWarning: "沙箱已關閉：目前頁面與介面同源，擁有完整工作階段權限（可在設定中恢復）",
-			htmlNoSandboxWarning: "沙箱已關閉：此 HTML 與介面同源，可讀取工作階段檔案與內部介面（可在設定中恢復）",
-			sandboxStatusOn: "沙箱模式：已啟用 · 頁面無法存取介面資料與本地檔案，登入態與第三方 Cookie 可能不可用",
-			sandboxUnlock: "臨時解鎖（不安全）",
-			sandboxRestore: "恢復沙箱",
-			settingsHtmlDefaultUnsafeTitle: "HTML 預覽預設以非沙箱模式開啟（不安全）",
-			settingsHtmlDefaultUnsafeDesc: "開啟後，每次開啟 HTML 檔案時預覽預設處於非沙箱狀態（與介面同源，可讀取工作階段檔案與內部介面）；可在狀態列臨時恢復沙箱",
-			settingsHtmlSandboxTitle: "關閉 HTML 預覽沙箱（不安全）",
-			settingsHtmlSandboxDesc: "關閉後，預覽的 HTML 將與介面同源執行，可讀取工作階段檔案、本地儲存並呼叫內部介面。僅對完全可信的檔案開啟",
-			settingsBrowserSandboxTitle: "關閉瀏覽器沙箱（不安全）",
-			settingsBrowserSandboxDesc: "關閉後，存取的任何網站都將與介面同源執行，可讀取工作階段資料並冒充你的登入狀態。僅對完全可信的網站開啟",
-			settingsBrowserLinksTitle: "聊天區外鏈在側邊欄開啟",
-			settingsBrowserLinksDesc: "開啟後，點擊聊天或介面中的外鏈時在側邊欄開啟，不再彈出新視窗；HTTP 與 HTTPS 可分別透過下方開關控制；Ctrl/Cmd 點擊可臨時放行",
-			settingsBrowserHttpTitle: "側邊開啟HTTP網頁",
-			settingsBrowserHttpDesc: "開啟後，點擊聊天或介面中的 HTTP 外鏈時在側邊欄開啟（宣告了 urlTarget 的插件頁面優先）；Ctrl/Cmd 點擊可臨時放行",
-			settingsBrowserHttpsTitle: "側邊開啟HTTPS網頁",
-			settingsBrowserHttpsDesc: "開啟後，點擊聊天或介面中的 HTTPS 外鏈時在側邊欄開啟。預設關閉：多數 HTTPS 網站拒絕被嵌入，走系統瀏覽器更順暢",
-			settingsBrowserLoopbackTitle: "允許存取的本機地址",
-			settingsBrowserLoopbackDesc: "逗號分隔的本機回環地址白名單（如 localhost:5174 或 127.0.0.1:8080），側邊欄瀏覽器可存取這些本機服務；預設留空則本機地址全部攔截。沙箱隔離仍然生效，頁面無法讀取介面資料",
-			settingsBrowserLoopbackPlaceholder: "例如 localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "在瀏覽器中開啟",
-			browserEmbedBlocked: "{host} 拒絕了嵌入請求",
-			browserEmbedBlockedDesc: "該網站透過 X-Frame-Options / frame-ancestors 禁止在其它頁面中顯示，無法在側邊欄內載入。可在瀏覽器中直接開啟",
-			browserEmbedAnyway: "仍然載入",
-			subagent: "任務管理",
-			openSubagent: "任務管理",
-			subagentMainAgent: "主代理",
-			subagentEmpty: "暫無子代理",
-			subagentEmptyDesc: "目前主代理派生的子代理將顯示在這裡",
-			subagentRunning: "執行中",
-			subagentInactive: "閒置",
-			subagentModeOneShot: "一次性",
-			subagentModeContinuable: "可續接",
-			subagentCount: "{count} 個子代理",
-			subagentCountRunning: "{count} 個子代理 · {running} 執行中",
-			subagentDiagCorrupt: "目錄損壞",
-			subagentDiagUnsupported: "不支援的條目",
-			subagentDiagUnavailable: "不可用",
-			subagentThinking: "思考中…",
-			subagentShowHistory: "展開較早的 {count} 個子代理",
-			subagentHideHistory: "收起較早的子代理",
-			sideChat: "側邊對話(beta)",
-			sideChatNew: "新增對話",
-			sideChatUntitled: "新對話",
-			sideChatEmpty: "暫無側邊對話",
-			sideChatEmptyDesc: "每個側邊對話是標籤列裡的獨立 Tab，繼承目前工作階段的上下文執行，不會進入主工作階段",
-			sideChatCreating: "正在建立側邊對話…",
-			sideChatRetry: "重試",
-			sideChatThreads: "切換執行緒 / 新增",
-			sideChatSave: "儲存為新工作階段",
-			sideChatSaveTitle: "把該執行緒提升為頂層工作階段，出現在主工作階段列表中",
-			sideChatSaved: "已儲存為新工作階段",
-			sideChatNoTurn: "至少完成一輪對話後才能儲存",
-			sideChatPendingDrop: "最後一則未完成的追問不會包含在新工作階段中",
-			sideChatFirstPlaceholder: "輸入第一個問題，已繼承目前工作階段上下文…",
-			sideChatComposerPlaceholder: "追問…",
-			sideChatThinking: "正在深入…",
-			sideChatThink: "思考過程",
-			sideChatInjection: "已注入上下文",
-			sideChatSend: "發送",
-			sideChatCancel: "停止",
-			sideChatCancelTitle: "中止目前回合（保留佇列）",
-			sideChatClose: "關閉執行緒",
-			sideChatCloseTitle: "釋放執行緒的 agent（歷史保留）",
-			sideChatError: "側邊對話出錯：{message}",
-			jobs: "背景任務",
-			jobsCount: "{count} 個背景任務",
-			jobsCountRunning: "{count} 個背景任務 · {running} 執行中",
-			jobsShowHistory: "展開較早的 {count} 個背景任務",
-			jobsHideHistory: "收起較早的背景任務",
-			jobStatusRunning: "執行中",
-			jobStatusStopping: "終止中",
-			jobStatusCompleted: "已完成",
-			jobStatusKilled: "已終止",
-			jobStatusFailed: "失敗",
-			jobDurationSeconds: "{seconds} 秒",
-			jobDurationMinutes: "{minutes} 分 {seconds} 秒",
-			jobDurationHours: "{hours} 小時 {minutes} 分",
-			jobViewOutput: "檢視輸出",
-			jobHideOutput: "收起輸出",
-			jobNoOutput: "暫無輸出",
-			jobNotReadYet: "等待模型讀取該任務的輸出（模型執行 job_output 後，輸出會顯示在這裡）",
-			jobOutputTruncated: "輸出過長，已截斷顯示",
-			jobOutputError: "輸出讀取失敗",
-			jobKill: "終止",
-			jobKillConfirm: "再次點擊確認終止",
-			jobKillError: "終止失敗",
-			addPluginsTabCard: "新增 Tab 插件",
-			addPluginsTabCardDesc: "註冊新的側邊欄頁面",
-			addPluginsViewerCard: "新增預覽插件",
-			addPluginsViewerCardDesc: "註冊新的檔案類型預覽",
-			addPluginsTabDesc: "側邊欄頁面（Tab）可以由插件擴展。插件透過 ctx.betterSidebar 服務註冊；點擊「安裝」複製安裝命令，貼到 DSH 所在環境的終端執行。",
-			addPluginsViewerDesc: "檔案預覽器可以由插件擴展。插件透過 ctx.betterSidebar 服務註冊；點擊「安裝」複製安裝命令，貼到 DSH 所在環境的終端執行。",
-			addPluginsBrowseMore: "在 GitHub 上瀏覽更多插件（topic: dsh-coding-sidebar）",
-			addPluginsSearch: "搜尋插件名稱 / 描述…",
-			addPluginsNoMatch: "沒有匹配的插件",
-			addPluginsRecommended: "推薦插件",
-			addPluginsEmpty: "暫未收錄插件，歡迎在 GitHub topic 下發布你的插件",
-			openPlugin: "跳轉",
-			copyInstall: "複製安裝命令",
-			pluginOfficeDesc: "為 dsh-coding-sidebar 編輯器提供 Office 三件套預覽（.docx / .xlsx / .pptx），把重型 Office 渲染庫拆出主套件、按需安裝",
-			pluginFlowglassDesc: "即時工作階段流程圖：三列泳道展示使用者、助手與工具呼叫，支援並行分組、子代理支線、逐層鑽取和即時狀態；安裝 dsh-coding-sidebar 後註冊原生「流鏡」Tab，未安裝時保留獨立抽屜",
-			pluginGitForgeDesc: "dsh-coding-sidebar「Git 憑證」Tab：GitHub/Gitea 等 Forge 帳號庫 + 按專案授權 + push 策略硬攔；token 僅存本地 secrets，不進模型上下文；提供唯讀 GitForge 工具與 agent HTTPS credential helper",
-			pluginGitRemotesDesc: "dsh-coding-sidebar Git 遠端 Tab：看分支/上游/ahead-behind，fetch（可 prune）、ff-only pull、確認後才 push。不替換內建 Git 的暫存/提交，也不提供 force-push 或模型自動推送",
-			pluginSentinelDesc: "條件驅動的 agent 喚醒系統：檔案/程序/連接埠/HTTP/命令/webhook 感測器，條件達成自動喚醒休眠工作階段；註冊「哨兵」Tab 展示伺服器全域監控表",
-			pluginSidebarQaDesc: "基於 dsh-coding-sidebar 的劃選提問tab分頁: 對話劃選 → 右側面板提問 → 同工作區獨立追問工作階段（❓追問·主題）：快速無思考模型壓縮主對話上下文後與引文一起注入，不打斷主對話；追問可巢狀、可繼續、可歸檔",
-			pluginSshTunnelDesc: "dsh-coding-sidebar「SSH 隧道」Tab：多機主機清單 + 按專案授權 + 密鑰本地保管；模型工具 SSHManager（exec/SFTP/工作階段策略）；中央互動終端與雙欄 SFTP",
-			pluginTurnReviewDesc: "對「剛剛這一回合」的 diff 做 Approve / Request changes 的人閘門：只審上一回合，不 fork 工作階段；檔案按主工作階段/子代理/未歸因分組，按檔案勾選打回 + 可選評語，點檔案先看回合開始快照 vs 現在的 diff。不是 /rewind",
-			pluginVideoPreviewDesc: "在 dsh-coding-sidebar 編輯器內聯預覽影片檔案（.mp4/.webm/.mov/.mkv/.avi 等），自帶支援 HTTP Range（206）的 /video 宿主路由，可拖曳進度條、不受 20MB mediaLimit 限制",
-			pluginDocsPanelDesc: "DSH 側邊欄裡的「全域文件」：全域 Markdown 筆記，任何工作區隨時可讀——列表點選閱讀、懸浮大綱跳轉、Chrome / VS Code 外部開啟、程式碼複製，目錄可設定（預設 ~/.dsh/docs）",
-			pluginEgoBrowserDesc: "將 CitroLabs/ego-lite 接進 DeepSeek Harness 的 agent 瀏覽器：32 個 ego_* 工具驅動真實 Chromium，側邊欄原生「ego 瀏覽器」Tab 實時觀察 agent 逛的每個頁面，可直接點擊/拖拽/輸入接管；裝 dsh-coding-sidebar 時自動註冊 Tab，沒裝則退回浮動浮窗"
-		};
-		//#endregion
-		//#region src/client/locales-zh-MO.ts
-		/**
-		* The zh-HK (Traditional Chinese — Hong Kong) dictionary for the betterSidebar
-		* namespace.
-		*
-		* Mirrors the key set of `zh` in `locales.ts`. Consumed by better-locale's
-		* override store when the active override id is `'zh-HK'` (registered under
-		* the `betterSidebar` namespace). Absent that, the existing zh/en chain
-		* runs unchanged.
-		*
-		* Hong Kong regional conventions:
-		* - 软件 → 軟件 (NOT 軟體); 网络 → 網絡 (NOT 網路); 鼠标 → 滑鼠
-		* - 檔案 (file), 資料夾 (folder), 程式 (program), 程式碼 (code), 螢幕 (screen)
-		* - 預設 (default), 儲存 (save), 設定 (settings/config), 唯讀 (read-only)
-		* - 資源管理器 → 檔案總管; refresh → 重新整理; cache → 快取
-		* - timeout → 逾時; loop → 迴圈; override → 覆寫; built-in → 內建
-		* - adapter → 介面卡; interface → 介面; address → 位址; field → 欄位
-		* - byte → 位元組; binary → 二進位; character → 字元; hash → 雜湊
-		* - rename → 重新命名; archive → 歸檔; idle → 閒置; mount → 掛載
-		* - package → 套件; generate → 產生; fetch → 取得; export → 匯出
-		* - login → 登入; detect → 偵測; block → 封鎖; access → 存取
-		* - port → 連接埠; sensor → 感測器; server → 伺服器; global → 全域
-		* - nested → 巢狀; thread → 執行緒; queue → 佇列; tab → 標籤
-		* - source code → 原始碼; symlink → 符號連結; recover → 復原
-		* - placeholder → 佔位符; template → 範本; variable → 變數
-		* - through → 透過; paste → 貼上; project → 專案; account → 帳號
-		* - session (会话) → 工作階段; chat (对话) → 對話
-		* - quotation marks: "" → 「」
-		* - Placeholders keep `{name}` verbatim (interpolation runs after lookup).
-		* - English brand names (VS Code, Cursor, Zed, SSH, Git, Chrome) stay as-is.
-		*/
-		/** The zh-HK dictionary (key-set-equal to zh, enforced by the type annotation in locales.ts). */
-		const zhMO$1 = {
-			files: "檔案",
-			explorer: "檔案總管",
-			git: "原始碼管理",
-			terminal: "終端",
-			editor: "編輯器",
-			editorExplorer: "檔案開啟方式",
-			editorExplorerDesc: "控制檔案開啟方式",
-			editorExplorerMerged: "合併",
-			editorExplorerMergedDesc: "檔案在同一視窗內原地切換；新視窗預設展開檔案樹",
-			editorExplorerSplit: "獨立",
-			editorExplorerSplitDesc: "無路徑視窗即檔案總管（僅檔案樹）；檔案各自新開視窗（帶檔案樹，預設收起）",
-			editorTreeToggle: "檔案樹面板",
-			editorPathPlaceholder: "輸入檔案路徑（相對工作階段目錄或絕對路徑），Enter 開啟",
-			editorSearchPlaceholder: "按檔案名稱搜尋…",
-			editorSearchNoResults: "無匹配檔案",
-			editorSearchTruncated: "結果過多，僅顯示部分匹配",
-			editorEmptyHint: "從右側檔案樹或上方路徑輸入框選擇檔案開始預覽",
-			openFileNewTab: "在新 Tab 中開啟",
-			openFileSide: "在側邊開啟",
-			openWithMenu: "在應用程式中開啟",
-			openWithSshSuffix: " (SSH)",
-			pinOpenWith: "固定到選單",
-			unpinOpenWith: "取消固定",
-			openWithExplorer: "檔案總管",
-			openWithVscode: "VS Code",
-			openWithCursor: "Cursor",
-			openWithZed: "Zed",
-			openWithSettingsSshTitle: "SSH 遠端主機",
-			openWithSettingsSshDesc: "留空為本地工作區；填入 user@host 或 SSH 別名後，VSCode 系開啟方式將改用 vscode-remote/ssh-remote 協議，檔案總管 / Zed / 非 VSCode 系自訂編輯器將從選單隱藏",
-			openWithSettingsSshPlaceholder: "user@host 或 SSH 別名",
-			openWithSettingsCustomTitle: "自訂編輯器",
-			openWithSettingsCustomDesc: "名稱 + URL 範本（{path} 佔位符）+ 是否 VSCode 系；SSH 模式下僅 VSCode 系可開啟遠端",
-			openWithSettingsAdd: "新增",
-			openWithSettingsName: "名稱",
-			openWithSettingsTemplate: "如 cursor://file/{path}",
-			openWithSettingsFamily: "VSCode 系",
-			openWithSettingsFamilyDesc: "該編輯器使用 VSCode 的 URL 協議（支援 SSH 遠端開啟）",
-			openWithSettingsRemove: "刪除",
-			openWithSettingsInvalidHint: "名稱或範本（需含 {path} 且以 scheme:// 開頭）未填寫的編輯器不會出現在選單中",
-			newTab: "新增標籤",
-			openExplorer: "檔案總管",
-			brokenSymlink: "失效的符號連結",
-			openGit: "Git 面板",
-			newTerminal: "新終端",
-			terminalLimit: "終端數量已達上限 (3)",
-			close: "關閉",
-			closeOtherTabs: "關閉其他標籤",
-			closeLeftTabs: "關閉左側標籤",
-			closeRightTabs: "關閉右側標籤",
-			moveToFreeWindow: "移動到自由視窗",
-			floatDropHint: "放開以在自由視窗中開啟",
-			dockToSidebar: "返回側邊欄",
-			pinTerminal: "固定終端",
-			pinAgentTerminal: "固定 Agent 終端",
-			pinToWorkspace: "固定到工作區",
-			pinToGlobal: "固定到全域",
-			unpinTerminal: "取消固定",
-			pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-			pinnedTerminalKindUi: "UI 終端",
-			pinnedTerminalKindAgent: "Agent 終端",
-			pinnedTerminalScopeWorkspace: "固定到工作區",
-			pinnedTerminalScopeGlobal: "固定到全域",
-			pinnedRailLabel: "固定終端",
-			closePinnedTerminal: "關閉終端",
-			collapse: "收起側邊欄",
-			expand: "展開側邊欄",
-			terminalError: "終端連線失敗",
-			terminalConnectFailed: "終端多次連線失敗",
-			terminalRetry: "重試",
-			terminalDepsFailed: "終端依賴 node-pty 載入失敗",
-			terminalDepsHint: "在 DSH 所在環境的終端或 cmd 中執行以下命令修復，然後點重試（node-pty 與 DSH 核心保持同一版本）：",
-			terminalDepsProfile: "（偵測到 profile：{profile}）",
-			preview: "預覽",
-			edit: "編輯",
-			refresh: "重新整理",
-			showInFolder: "在文件夾中顯示",
-			refreshUnsavedConfirm: "檔案已在磁碟上變更。重新整理會丟失尚未儲存的編輯。繼續？",
-			save: "儲存",
-			saved: "已儲存",
-			unsaved: "未儲存",
-			saveFailed: "儲存失敗",
-			truncation: "檔案過大，僅顯示前 512KB",
-			binary: "二進位檔案，無法預覽",
-			loading: "載入中…",
-			error: "載入失敗",
-			retry: "重試",
-			splitLeft: "向左分欄",
-			splitRight: "向右分欄",
-			splitUp: "向上分欄",
-			splitDown: "向下分欄",
-			notRepo: "目前目錄不是 git 倉庫",
-			noChanges: "沒有變更",
-			statusTruncated: "變更過多，僅顯示前 2000 條",
-			stage: "暫存",
-			unstage: "取消暫存",
-			stageAll: "全部暫存",
-			unstageAll: "全部取消暫存",
-			commitPlaceholder: "提交訊息 (Ctrl+Enter)",
-			commit: "提交",
-			commitError: "提交失敗",
-			branch: "分支",
-			worktree: "工作樹",
-			checkoutError: "切換分支失敗",
-			history: "歷史",
-			changes: "變更",
-			staged: "已暫存",
-			unstaged: "未暫存",
-			cancel: "取消",
-			diffEmpty: "沒有文字差異",
-			diffLoadError: "載入差異失敗",
-			diffBinary: "二進位",
-			diffAdded: "新增",
-			diffDeleted: "刪除",
-			diffRenamed: "重新命名",
-			diffExpand: "展開其餘 {count} 行",
-			diffCollapse: "收起",
-			discard: "放棄變更",
-			discardTitle: "放棄變更",
-			discardDesc: "將丟棄「{path}」的工作區修改（不可復原）。",
-			viewCommitDiff: "檢視提交差異",
-			copyShortHash: "複製短雜湊",
-			copyFullHash: "複製完整雜湊",
-			copySubject: "複製提交訊息",
-			revertCommit: "還原此提交",
-			revertTitle: "還原此提交",
-			revertDesc: "將在目前分支建立一個反轉「{subject}」的新提交。",
-			cherryPickCommit: "撿取此提交",
-			cherryPickTitle: "撿取此提交",
-			cherryPickDesc: "將「{subject}」的變更套用到目前分支。",
-			timeJustNow: "剛剛",
-			timeMinutesAgo: "{n} 分鐘前",
-			timeHoursAgo: "{n} 小時前",
-			timeYesterday: "昨天",
-			loadMore: "載入更多",
-			historyLoadError: "載入更多歷史失敗",
-			produced: "本次產出",
-			producedOpen: "在側邊欄中開啟",
-			disconnected: "終端連線斷開，重新連線中…",
-			exited: "終端程序已退出",
-			noSession: "選擇一個工作階段以使用側邊欄",
-			pluginNotLoaded: "插件未載入，標籤暫不可用：",
-			hiddenFiles: "隱藏檔案",
-			parent: "上層目錄",
-			copied: "已複製",
-			copy: "複製",
-			newFile: "新檔案",
-			openEditor: "開啟編輯器",
-			gitDetail: "檢視變更詳情",
-			referenceFile: "@檔案",
-			addToConversation: "新增到對話",
-			copyRelative: "複製相對位址",
-			copyAbsolute: "複製絕對位址",
-			download: "下載",
-			uploadFiles: "上傳檔案",
-			uploadFolder: "上傳資料夾",
-			uploadHere: "上傳到此處",
-			uploadDropHint: "拖曳檔案/資料夾到此處上傳",
-			uploadDropChat: "拖放到聊天區：新增圖片到對話",
-			uploadTo: "上傳到 {dir}",
-			uploadingTo: "正在上傳到 {dir}…",
-			uploadProgress: "正在上傳 {done}/{total}: {name}",
-			uploadDone: "已上傳 {count} 個檔案",
-			uploadFailed: "上傳失敗：{error}",
-			uploadFailedUnknown: "未知錯誤",
-			uploadTooLarge: "檔案過大，超出上傳上限",
-			uploadCancelled: "上傳已取消",
-			settingsNav: "側邊卡片",
-			settingsIntro: "管理側邊卡片的顯示內容與預設行為",
-			settingsPopupDesc: "為「{feature}」設定相關選項",
-			settingsDone: "完成",
-			settingsOpenTitle: "新工作階段預設開啟",
-			settingsOpenDesc: "新增工作階段時自動展開側邊卡片；已存在的工作階段保持各自佈局",
-			settingsWidthTitle: "預設寬度佔比",
-			settingsWidthDesc: "新增工作階段時側邊卡片佔視窗寬度的百分比 (20–60)",
-			settingsWidthSuffix: "%",
-			settingsOpenPathTitle: "聊天區檔案在側邊欄開啟",
-			settingsOpenPathDesc: "在聊天裡點擊檔案連結（工具行、產物列表、檔案提及）時，在側邊欄編輯器中開啟，不再呼叫系統預設應用程式",
-			settingsOpenToolsTitle: "為模型注入側邊欄開啟工具",
-			settingsOpenToolsDesc: "開啟後，模型可透過 sidebar_open 工具在側邊欄主動開啟檔案、資料夾和 HTTP(S) 網頁（預設關閉）",
-			settingsTitleBarTitle: "位置相容模式",
-			settingsTitleBarDesc: "選擇頂欄相容方案：自動偵測（預設，保守）/ DSH官方Web / 已知桌面殼 / 自訂方案（下移距離 + 自訂 CSS）",
-			settingsTitleBarStripTitle: "下移距離",
-			settingsTitleBarStripDesc: "標題欄條帶高度：側邊欄按鈕與內容下移的像素數（0–120，預設 40；自訂方案下生效）",
-			settingsSchemeAutoTitle: "自動偵測",
-			settingsSchemeAutoDesc: "保守方案：僅在 Window Controls Overlay 標準 API 可用時按真實標題欄高度讓位；網頁環境下不做任何修改",
-			settingsSchemeWebTitle: "DSH官方Web",
-			settingsSchemeWebDesc: "顯式宣告執行在官方網頁版：不做任何適配（連標準 WCO 幾何也不適用）",
-			settingsSchemeCustomTitle: "自訂方案",
-			settingsSchemeCustomDesc: "完全由你控制：注入自訂 CSS（可覆寫內建樣式），並指定標題欄下移距離",
-			settingsSchemeDetectedSuffix: "已偵測",
-			settingsCustomCssTitle: "自訂 CSS",
-			settingsCustomCssDesc: "附加到頁面末尾的樣式（同優先級下後寫勝出；覆寫 JS 內聯變數需用 !important）",
-			settingsCustomCssPlaceholder: "/* 例：為自繪標題欄的殼預留 36px */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-			settingsSaveFailed: "儲存失敗",
-			settingsConflict: "設定已被其他視窗修改，請重試",
-			binaryNoPreview: "此檔案類型不支援預覽",
-			downloadToView: "下載檢視",
-			settingsSubagentTitle: "偵測到子代理時自動展開任務管理頁",
-			settingsSubagentDesc: "目前工作階段產生新的子代理時，自動展開側邊欄並開啟任務管理頁；關閉後需手動開啟",
-			settingsJobsTitle: "有新背景任務時自動展開背景任務頁",
-			settingsJobsDesc: "目前工作階段出現新的背景任務時，自動展開側邊欄並開啟背景任務頁（每個新任務都會觸發）；關閉後需手動開啟",
-			settingsToolsTitle: "為模型注入終端工具",
-			settingsToolsDesc: "開啟後，模型可透過 terminal_create 等 8 個工具建立並操作側邊欄終端（預設關閉）",
-			settingsFontFamilyTitle: "終端字體",
-			settingsFontFamilyDesc: "自訂終端字體族（CSS font-family，如 \"JetBrains Mono\", monospace；留空跟隨主題等寬字體）",
-			settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-			settingsFontSizeTitle: "終端字型大小",
-			settingsFontSizeDesc: "終端字型大小（9–32，預設 13）",
-			settingsFontSizeSuffix: "px",
-			settingsShellTitle: "Shell 路徑",
-			settingsShellDesc: "UI 與模型終端啟動的 shell（絕對路徑或可執行名）。留空按既有順序解析：yaml 的 config.shell → $SHELL / 登入 shell / Windows 的 powershell.exe。對之後開啟的終端生效",
-			settingsShellPlaceholder: "如 /bin/zsh（留空自動解析）",
-			settingsShellArgsTitle: "Shell 參數",
-			settingsShellArgsDesc: "顯式 shell 啟動參數，空格分隔；非空時完全替換預設參數（與 yaml 的 shellArgs 契約一致）",
-			settingsShellArgsPlaceholder: "如 -l（留空用預設參數）",
-			settingsTabsTitle: "側邊欄內容",
-			settingsViewersTitle: "檔案預覽",
-			settingsGeneralTitle: "一般",
-			settingsPopup: "功能設定",
-			settingsViewerCatchAll: "兜底：任意檔案",
-			viewerImage: "圖片",
-			viewerPdf: "PDF",
-			viewerMarkdown: "Markdown",
-			viewerCode: "程式碼",
-			viewerBinary: "二進位下載",
-			viewerHtml: "HTML",
-			browser: "瀏覽器",
-			browserPlaceholder: "輸入網址，例如 example.com",
-			browserGo: "前往",
-			browserBack: "上一頁",
-			browserForward: "下一頁",
-			browserStart: "輸入網址開始瀏覽（沙箱模式）",
-			browserBlockedScheme: "已封鎖：僅支援 http/https 連結",
-			browserBlockedLoopback: "已封鎖：不允許在瀏覽器中存取本機或內部位址",
-			browserInvalid: "無效的網址",
-			browserNoSandboxWarning: "沙箱已關閉：目前頁面與介面同源，擁有完整工作階段權限（可在設定中恢復）",
-			htmlNoSandboxWarning: "沙箱已關閉：此 HTML 與介面同源，可讀取工作階段檔案與內部介面（可在設定中恢復）",
-			sandboxStatusOn: "沙箱模式：已啟用 · 頁面無法存取介面資料與本地檔案，登入態與第三方 Cookie 可能不可用",
-			sandboxUnlock: "臨時解鎖（不安全）",
-			sandboxRestore: "恢復沙箱",
-			settingsHtmlDefaultUnsafeTitle: "HTML 預覽預設以非沙箱模式開啟（不安全）",
-			settingsHtmlDefaultUnsafeDesc: "開啟後，每次開啟 HTML 檔案時預覽預設處於非沙箱狀態（與介面同源，可讀取工作階段檔案與內部介面）；可在狀態列臨時恢復沙箱",
-			settingsHtmlSandboxTitle: "關閉 HTML 預覽沙箱（不安全）",
-			settingsHtmlSandboxDesc: "關閉後，預覽的 HTML 將與介面同源執行，可讀取工作階段檔案、本地儲存並呼叫內部介面。僅對完全可信的檔案開啟",
-			settingsBrowserSandboxTitle: "關閉瀏覽器沙箱（不安全）",
-			settingsBrowserSandboxDesc: "關閉後，存取的任何網站都將與介面同源執行，可讀取工作階段資料並冒充你的登入狀態。僅對完全可信的網站開啟",
-			settingsBrowserLinksTitle: "聊天區外鏈在側邊欄開啟",
-			settingsBrowserLinksDesc: "開啟後，點擊聊天或介面中的外鏈時在側邊欄開啟，不再彈出新視窗；HTTP 與 HTTPS 可分別透過下方開關控制；Ctrl/Cmd 點擊可臨時放行",
-			settingsBrowserHttpTitle: "側邊開啟HTTP網頁",
-			settingsBrowserHttpDesc: "開啟後，點擊聊天或介面中的 HTTP 外鏈時在側邊欄開啟（宣告了 urlTarget 的插件頁面優先）；Ctrl/Cmd 點擊可臨時放行",
-			settingsBrowserHttpsTitle: "側邊開啟HTTPS網頁",
-			settingsBrowserHttpsDesc: "開啟後，點擊聊天或介面中的 HTTPS 外鏈時在側邊欄開啟。預設關閉：多數 HTTPS 網站拒絕被嵌入，走系統瀏覽器更順暢",
-			settingsBrowserLoopbackTitle: "允許訪問的本機地址",
-			settingsBrowserLoopbackDesc: "逗號分隔的本機回環地址白名單（如 localhost:5174 或 127.0.0.1:8080），側邊欄瀏覽器可訪問這些本機服務；預設留空則本機地址全部攔截。沙箱隔離仍然生效，頁面無法讀取介面資料",
-			settingsBrowserLoopbackPlaceholder: "例如 localhost:5174, 127.0.0.1:8080",
-			browserOpenExternal: "在瀏覽器中開啟",
-			browserEmbedBlocked: "{host} 拒絕了嵌入請求",
-			browserEmbedBlockedDesc: "該網站透過 X-Frame-Options / frame-ancestors 禁止在其它頁面中顯示，無法在側邊欄內載入。可在瀏覽器中直接開啟",
-			browserEmbedAnyway: "仍然載入",
-			subagent: "任務管理",
-			openSubagent: "任務管理",
-			subagentMainAgent: "主代理",
-			subagentEmpty: "暫無子代理",
-			subagentEmptyDesc: "目前主代理派生的子代理將顯示在這裡",
-			subagentRunning: "執行中",
-			subagentInactive: "閒置",
-			subagentModeOneShot: "一次性",
-			subagentModeContinuable: "可續接",
-			subagentCount: "{count} 個子代理",
-			subagentCountRunning: "{count} 個子代理 · {running} 執行中",
-			subagentDiagCorrupt: "目錄損壞",
-			subagentDiagUnsupported: "不支援的條目",
-			subagentDiagUnavailable: "不可用",
-			subagentThinking: "思考中…",
-			subagentShowHistory: "展開較早的 {count} 個子代理",
-			subagentHideHistory: "收起較早的子代理",
-			sideChat: "側邊對話(beta)",
-			sideChatNew: "新增對話",
-			sideChatUntitled: "新對話",
-			sideChatEmpty: "暫無側邊對話",
-			sideChatEmptyDesc: "每個側邊對話是標籤列裡的獨立 Tab，繼承目前工作階段的上下文執行，不會進入主工作階段",
-			sideChatCreating: "正在建立側邊對話…",
-			sideChatRetry: "重試",
-			sideChatThreads: "切換執行緒 / 新增",
-			sideChatSave: "儲存為新工作階段",
-			sideChatSaveTitle: "把該執行緒提升為頂層工作階段，出現在主工作階段列表中",
-			sideChatSaved: "已儲存為新工作階段",
-			sideChatNoTurn: "至少完成一輪對話後才能儲存",
-			sideChatPendingDrop: "最後一則未完成的追問不會包含在新工作階段中",
-			sideChatFirstPlaceholder: "輸入第一個問題，已繼承目前工作階段上下文…",
-			sideChatComposerPlaceholder: "追問…",
-			sideChatThinking: "正在深入…",
-			sideChatThink: "思考過程",
-			sideChatInjection: "已注入上下文",
-			sideChatSend: "發送",
-			sideChatCancel: "停止",
-			sideChatCancelTitle: "中止目前回合（保留佇列）",
-			sideChatClose: "關閉執行緒",
-			sideChatCloseTitle: "釋放執行緒的 agent（歷史保留）",
-			sideChatError: "側邊對話出錯：{message}",
-			jobs: "背景任務",
-			jobsCount: "{count} 個背景任務",
-			jobsCountRunning: "{count} 個背景任務 · {running} 執行中",
-			jobsShowHistory: "展開較早的 {count} 個背景任務",
-			jobsHideHistory: "收起較早的背景任務",
-			jobStatusRunning: "執行中",
-			jobStatusStopping: "終止中",
-			jobStatusCompleted: "已完成",
-			jobStatusKilled: "已終止",
-			jobStatusFailed: "失敗",
-			jobDurationSeconds: "{seconds} 秒",
-			jobDurationMinutes: "{minutes} 分 {seconds} 秒",
-			jobDurationHours: "{hours} 小時 {minutes} 分",
-			jobViewOutput: "檢視輸出",
-			jobHideOutput: "收起輸出",
-			jobNoOutput: "暫無輸出",
-			jobNotReadYet: "等待模型讀取該任務的輸出（模型執行 job_output 後，輸出會顯示在這裡）",
-			jobOutputTruncated: "輸出過長，已截斷顯示",
-			jobOutputError: "輸出讀取失敗",
-			jobKill: "終止",
-			jobKillConfirm: "再次點擊確認終止",
-			jobKillError: "終止失敗",
-			addPluginsTabCard: "新增 Tab 插件",
-			addPluginsTabCardDesc: "註冊新的側邊欄頁面",
-			addPluginsViewerCard: "新增預覽插件",
-			addPluginsViewerCardDesc: "註冊新的檔案類型預覽",
-			addPluginsTabDesc: "側邊欄頁面（Tab）可以由插件擴展。插件透過 ctx.betterSidebar 服務註冊；點擊「安裝」複製安裝命令，貼到 DSH 所在環境的終端執行。",
-			addPluginsViewerDesc: "檔案預覽器可以由插件擴展。插件透過 ctx.betterSidebar 服務註冊；點擊「安裝」複製安裝命令，貼到 DSH 所在環境的終端執行。",
-			addPluginsBrowseMore: "在 GitHub 上瀏覽更多插件（topic: dsh-coding-sidebar）",
-			addPluginsSearch: "搜尋插件名稱 / 描述…",
-			addPluginsNoMatch: "沒有匹配的插件",
-			addPluginsRecommended: "推薦插件",
-			addPluginsEmpty: "暫未收錄插件，歡迎在 GitHub topic 下發布你的插件",
-			openPlugin: "跳轉",
-			copyInstall: "複製安裝命令",
-			pluginOfficeDesc: "為 dsh-coding-sidebar 編輯器提供 Office 三件套預覽（.docx / .xlsx / .pptx），把重型 Office 渲染庫拆出主套件、按需安裝",
-			pluginFlowglassDesc: "即時工作階段流程圖：三列泳道展示使用者、助手與工具呼叫，支援並行分組、子代理支線、逐層鑽取和即時狀態；安裝 dsh-coding-sidebar 後註冊原生「流鏡」Tab，未安裝時保留獨立抽屜",
-			pluginGitForgeDesc: "dsh-coding-sidebar「Git 憑證」Tab：GitHub/Gitea 等 Forge 帳號庫 + 按專案授權 + push 策略硬攔；token 僅存本地 secrets，不進模型上下文；提供唯讀 GitForge 工具與 agent HTTPS credential helper",
-			pluginGitRemotesDesc: "dsh-coding-sidebar Git 遠端 Tab：看分支/上游/ahead-behind，fetch（可 prune）、ff-only pull、確認後才 push。不替換內建 Git 的暫存/提交，也不提供 force-push 或模型自動推送",
-			pluginSentinelDesc: "條件驅動的 agent 喚醒系統：檔案/程序/連接埠/HTTP/命令/webhook 感測器，條件達成自動喚醒休眠工作階段；註冊「哨兵」Tab 展示伺服器全域監控表",
-			pluginSidebarQaDesc: "基於 dsh-coding-sidebar 的劃選提問tab分頁: 對話劃選 → 右側面板提問 → 同工作區獨立追問工作階段（❓追問·主題）：快速無思考模型壓縮主對話上下文後與引文一起注入，不打斷主對話；追問可巢狀、可繼續、可歸檔",
-			pluginSshTunnelDesc: "dsh-coding-sidebar「SSH 隧道」Tab：多機主機清單 + 按專案授權 + 密鑰本地保管；模型工具 SSHManager（exec/SFTP/工作階段策略）；中央互動終端與雙欄 SFTP",
-			pluginTurnReviewDesc: "對「剛剛這一回合」的 diff 做 Approve / Request changes 的人閘門：只審上一回合，不 fork 工作階段；檔案按主工作階段/子代理/未歸因分組，按檔案勾選打回 + 可選評語，點檔案先看回合開始快照 vs 現在的 diff。不是 /rewind",
-			pluginVideoPreviewDesc: "在 dsh-coding-sidebar 編輯器內聯預覽影片檔案（.mp4/.webm/.mov/.mkv/.avi 等），自帶支援 HTTP Range（206）的 /video 宿主路由，可拖曳進度條、不受 20MB mediaLimit 限制",
-			pluginDocsPanelDesc: "DSH 側邊欄裡的「全域文件」：全域 Markdown 筆記，任何工作區隨時可讀——列表點選閱讀、懸浮大綱跳轉、Chrome / VS Code 外部開啟、程式碼複製，目錄可設定（預設 ~/.dsh/docs）",
-			pluginEgoBrowserDesc: "將 CitroLabs/ego-lite 接進 DeepSeek Harness 的 agent 瀏覽器：32 個 ego_* 工具驅動真實 Chromium，側邊欄原生「ego 瀏覽器」Tab 實時觀察 agent 逛的每個頁面，可直接點擊/拖拽/輸入接管；裝 dsh-coding-sidebar 時自動註冊 Tab，沒裝則退回浮動浮窗"
-		};
+		const trajectoryTabIcon = (size) => themed(css$5.trajectory, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscGraph, { size }));
 		//#endregion
 		//#region src/client/locales.ts
 		/**
@@ -8939,6 +2570,7 @@ window.__ModuleLoader__.load({
 			terminalDepsFailed: "终端依赖 node-pty 加载失败",
 			terminalDepsHint: "在 DSH 所在环境的终端或 cmd 中执行以下命令修复，然后点重试（node-pty 与 DSH 核心保持同一版本）：",
 			terminalDepsProfile: "（检测到 profile：{profile}）",
+			terminalShellNotFound: "未找到配置的 Shell：{name}，请到 设置 → 侧边卡片 → 终端 检查 Shell 路径",
 			refresh: "刷新",
 			refreshUnsavedConfirm: "文件已在磁盘更新，刷新将丢弃未保存编辑。继续吗？",
 			save: "保存",
@@ -9003,6 +2635,26 @@ window.__ModuleLoader__.load({
 			producedOpen: "在侧边栏中打开",
 			showInFolder: "在文件夹中显示",
 			disconnected: "终端连接断开，重连中…",
+			terminalWaitBanner: "Agent 正在等待 {needle}",
+			terminalSkipWait: "跳过等待",
+			gitFoldExpand: "展开 {count} 行上下文",
+			gitFoldLoading: "展开中…",
+			gitFoldFailed: "展开失败",
+			rename: "重命名",
+			renameInvalid: "名称不能为空，且不能包含路径分隔符。",
+			delete: "删除",
+			deleteTitle: "删除「{name}」？",
+			deleteDescFile: "将永久删除该文件，此操作不可撤销。",
+			deleteDescDir: "将永久删除该目录及其全部内容，此操作不可撤销。",
+			dismiss: "关闭",
+			changesSessionGit: "Git 变动",
+			changesSessionLens: "会话变动",
+			changesEmpty: "本会话尚无文件操作",
+			changesCount: "{count} 个文件操作",
+			changesRedacted: "[已脱敏]",
+			changesBinary: "二进制文件，无法预览",
+			changesPreviewError: "预览读取失败：{message}",
+			changesLens: "视角",
 			exited: "终端进程已退出",
 			noSession: "选择一个会话以使用侧边栏",
 			pluginNotLoaded: "插件未加载，标签页暂不可用：",
@@ -9062,10 +2714,10 @@ window.__ModuleLoader__.load({
 			settingsConflict: "设置已被其他窗口修改，请重试",
 			binaryNoPreview: "此文件类型不支持预览",
 			downloadToView: "下载查看",
-			settingsSubagentTitle: "检测到子代理时自动展开任务管理页",
-			settingsSubagentDesc: "当前会话产生新的子代理时，自动展开侧边栏并打开任务管理页；关闭后需手动打开",
-			settingsJobsTitle: "有新后台任务时自动展开后台任务页",
-			settingsJobsDesc: "当前会话出现新的后台任务时，自动展开侧边栏并打开后台任务页（每个新任务都会触发）；关闭后需手动打开",
+			settingsSubagentTitle: "检测到子代理时自动激活任务管理页",
+			settingsSubagentDesc: "当前会话产生新的子代理时，自动激活任务管理页；宽屏同时展开侧边栏，窄屏不强制展开全屏抽屉；关闭后需手动打开",
+			settingsJobsTitle: "有新后台任务时自动激活后台任务页",
+			settingsJobsDesc: "当前会话出现新的后台任务时，自动激活后台任务页（每个新任务都会触发）；宽屏同时展开侧边栏，窄屏不强制展开全屏抽屉；关闭后需手动打开",
 			settingsToolsTitle: "为模型注入终端工具",
 			settingsToolsDesc: "开启后，模型可通过 terminal_create 等 8 个工具创建并操作侧边栏终端（默认关闭）",
 			settingsFontFamilyTitle: "终端字体",
@@ -9198,7 +2850,35 @@ window.__ModuleLoader__.load({
 			pluginSshTunnelDesc: "dsh-coding-sidebar「SSH 隧道」Tab：多机主机清单 + 按项目授权 + 密钥本地保管；模型工具 SSHManager（exec/SFTP/会话策略）；中央交互终端与双栏 SFTP",
 			pluginTurnReviewDesc: "对「刚刚这一回合」的 diff 做 Approve / Request changes 的人闸门：只审上一回合，不 fork 会话；文件按主会话/子代理/未归因分组，按文件勾选打回 + 可选评语，点文件先看回合开始快照 vs 现在的 diff。不是 /rewind",
 			pluginDocsPanelDesc: "DSH 侧边栏里的「全局文档」：全局 Markdown 笔记，任何工作区随时可读——列表点选阅读、悬浮大纲跳转、Chrome / VS Code 外部打开、代码复制，目录可配置（默认 ~/.dsh/docs）",
-			pluginEgoBrowserDesc: "把 CitroLabs/ego-lite 接进 DeepSeek Harness 的 agent 浏览器：32 个 ego_* 工具驱动真实 Chromium，侧边栏原生「ego 浏览器」Tab 实时观察 agent 逛的每个页面，可直接点击/拖拽/输入接管；装 dsh-coding-sidebar 时自动注册 Tab，没装则退回浮动浮窗"
+			pluginEgoBrowserDesc: "把 CitroLabs/ego-lite 接进 DeepSeek Harness 的 agent 浏览器：32 个 ego_* 工具驱动真实 Chromium，侧边栏原生「ego 浏览器」Tab 实时观察 agent 逛的每个页面，可直接点击/拖拽/输入接管；装 dsh-coding-sidebar 时自动注册 Tab，没装则退回浮动浮窗",
+			trajectory: "轨迹图",
+			trajEmpty: "本会话还没有轨迹记录",
+			trajUnavailable: "轨迹数据不可用",
+			trajUnavailableHint: "宿主未提供轨迹视图（需要 DSH 的 ui-trajectory 插件，且当前会话已挂载）",
+			trajFollow: "跟随最新",
+			trajFit: "适应窗口",
+			trajZoomIn: "放大",
+			trajZoomOut: "缩小",
+			trajReplay: "回放",
+			trajPause: "暂停",
+			trajStop: "停止回放",
+			trajSpeed: "倍速",
+			trajStatsNodes: "{n} 节点",
+			trajStatsEdges: "{n} 条边",
+			trajStatsTurns: "{n} 轮",
+			trajStatsTokens: "{n} 令牌",
+			trajTurn: "第 {n} 轮",
+			trajCollapsed: "已折叠更早的 {n} 条记录",
+			trajInspectorHint: "点击节点查看详情",
+			trajSeq: "序号",
+			trajDuration: "耗时",
+			trajUsage: "输入 {input} · 输出 {output}",
+			trajLaneInput: "输入",
+			trajLaneModel: "模型",
+			trajLaneTool: "工具",
+			trajStatusRunning: "进行中",
+			trajStatusError: "失败",
+			trajStatusInterrupted: "已停止"
 		};
 		/** The en dictionary (key-set-equal to zh, enforced by the type annotation). */
 		const en = {
@@ -9274,6 +2954,7 @@ window.__ModuleLoader__.load({
 			terminalDepsFailed: "Terminal dependency node-pty failed to load",
 			terminalDepsHint: "Run the command below in a terminal or cmd on the DSH machine to repair it, then retry (node-pty stays in sync with the DSH core version):",
 			terminalDepsProfile: " (detected profile: {profile})",
+			terminalShellNotFound: "Configured shell not found: {name} — check the shell path under Settings → Side card → Terminal",
 			refresh: "Refresh",
 			refreshUnsavedConfirm: "The file changed on disk. Refreshing will discard unsaved edits. Continue?",
 			save: "Save",
@@ -9338,6 +3019,26 @@ window.__ModuleLoader__.load({
 			producedOpen: "Open in sidebar",
 			showInFolder: "Show in folder",
 			disconnected: "Terminal disconnected, reconnecting…",
+			terminalWaitBanner: "Agent is waiting for {needle}",
+			terminalSkipWait: "Skip wait",
+			gitFoldExpand: "Expand {count} context lines",
+			gitFoldLoading: "Expanding…",
+			gitFoldFailed: "Failed to expand",
+			rename: "Rename",
+			renameInvalid: "The name cannot be empty or contain path separators.",
+			delete: "Delete",
+			deleteTitle: "Delete \"{name}\"?",
+			deleteDescFile: "This permanently deletes the file. This cannot be undone.",
+			deleteDescDir: "This permanently deletes the directory and everything inside it. This cannot be undone.",
+			dismiss: "Dismiss",
+			changesSessionGit: "Git changes",
+			changesSessionLens: "Session changes",
+			changesEmpty: "No file operations in this session",
+			changesCount: "{count} file operations",
+			changesRedacted: "[REDACTED]",
+			changesBinary: "Binary file — no preview",
+			changesPreviewError: "Preview read failed: {message}",
+			changesLens: "Lens",
 			exited: "Terminal process exited",
 			noSession: "Select a conversation to use the sidebar",
 			pluginNotLoaded: "Plugin not loaded; tab unavailable:",
@@ -9397,10 +3098,10 @@ window.__ModuleLoader__.load({
 			settingsConflict: "The setting changed in another window — please retry",
 			binaryNoPreview: "This file type cannot be previewed",
 			downloadToView: "Download to view",
-			settingsSubagentTitle: "Auto-open the Tasks page when a subagent appears",
-			settingsSubagentDesc: "Expand the side card and open the Tasks page when the current conversation spawns a new subagent; turn off to open it manually",
-			settingsJobsTitle: "Auto-open the Jobs page on a new background job",
-			settingsJobsDesc: "Expand the side card and open the Jobs page whenever a new background job appears for the current conversation (every new job triggers); turn off to open it manually",
+			settingsSubagentTitle: "Auto-activate the Tasks page when a subagent appears",
+			settingsSubagentDesc: "Activate the Tasks page when the current conversation spawns a new subagent; on wide screens the side card expands with it, narrow screens never force the full-screen drawer; turn off to open it manually",
+			settingsJobsTitle: "Auto-activate the Jobs page on a new background job",
+			settingsJobsDesc: "Activate the Jobs page whenever a new background job appears for the current conversation (every new job triggers); on wide screens the side card expands with it, narrow screens never force the full-screen drawer; turn off to open it manually",
 			settingsToolsTitle: "Inject terminal tools for the model",
 			settingsToolsDesc: "When enabled, the model can create and drive sidebar terminals through the 8 terminal_* tools (off by default)",
 			settingsFontFamilyTitle: "Terminal font family",
@@ -9533,33 +3234,41 @@ window.__ModuleLoader__.load({
 			pluginSshTunnelDesc: "SSH Tunnel tab: multi-host inventory + per-project grants + local secrets; SSHManager tool (exec/SFTP/session strategies); center interactive terminal and dual-pane SFTP",
 			pluginTurnReviewDesc: "A human gate on the just-finished turn: Approve / Request changes per path with an optional comment; paths grouped by main session / subagent / unattributed; inline snapshot-vs-now diff before you decide. No fork, no /rewind",
 			pluginDocsPanelDesc: "Global docs in the DSH sidebar: read your own Markdown notes from any workspace — a file list, an outline, open in Chrome / VS Code, and copy buttons; the docs directory is configurable (default ~/.dsh/docs)",
-			pluginEgoBrowserDesc: "The agent browser for DeepSeek Harness: 32 ego_* tools drive a real Chromium, with a native sidebar \"ego browser\" tab giving a live view of every page the agent visits — you can click, drag, and type to take over. Registers the tab automatically when dsh-coding-sidebar is present, otherwise falls back to a floating bubble"
+			pluginEgoBrowserDesc: "The agent browser for DeepSeek Harness: 32 ego_* tools drive a real Chromium, with a native sidebar \"ego browser\" tab giving a live view of every page the agent visits — you can click, drag, and type to take over. Registers the tab automatically when dsh-coding-sidebar is present, otherwise falls back to a floating bubble",
+			trajectory: "Trajectory Graph",
+			trajEmpty: "No trajectory records in this session yet",
+			trajUnavailable: "Trajectory data unavailable",
+			trajUnavailableHint: "The host exposed no trajectory view (needs DSH's ui-trajectory plugin and a mounted session)",
+			trajFollow: "Follow latest",
+			trajFit: "Fit to width",
+			trajZoomIn: "Zoom in",
+			trajZoomOut: "Zoom out",
+			trajReplay: "Replay",
+			trajPause: "Pause",
+			trajStop: "Stop replay",
+			trajSpeed: "Playback speed",
+			trajStatsNodes: "{n} nodes",
+			trajStatsEdges: "{n} edges",
+			trajStatsTurns: "{n} turns",
+			trajStatsTokens: "{n} tokens",
+			trajTurn: "Turn {n}",
+			trajCollapsed: "{n} earlier records folded",
+			trajInspectorHint: "Click a node for details",
+			trajSeq: "seq",
+			trajDuration: "took",
+			trajUsage: "in {input} · out {output}",
+			trajLaneInput: "Input",
+			trajLaneModel: "Model",
+			trajLaneTool: "Tools",
+			trajStatusRunning: "running",
+			trajStatusError: "failed",
+			trajStatusInterrupted: "stopped"
 		};
 		/**
 		* The dictionary namespace this plugin owns in the DSH locale registry
 		* (`'sidebar'` is taken by DSH's own ui-sidebar, hence this distinct name).
 		*/
 		const LOCALE_NS = "betterSidebar";
-		/** The ja dictionary (key-set-equal to zh, enforced by the type annotation). */
-		const ja = ja$1;
-		const de = de$1;
-		const fr = fr$1;
-		const pt = pt$1;
-		const ko = ko$1;
-		const ar = ar$1;
-		const hi = hi$1;
-		const id = id$1;
-		const tr = tr$1;
-		const vi = vi$1;
-		const th = th$1;
-		const ru = ru$1;
-		const it = it$1;
-		const nl = nl$1;
-		const sv = sv$1;
-		const pl = pl$1;
-		const zhHK = zhHK$1;
-		const zhTW = zhTW$1;
-		const zhMO = zhMO$1;
 		/** The DSH locale service attached by the client apply (absent → browser detection). */
 		let localeService;
 		/**
@@ -9798,6 +3507,41 @@ window.__ModuleLoader__.load({
 			return `${base.replace(/[\\/]+$/, "")}${separator}${path}`;
 		}
 		//#endregion
+		//#region src/client/deliveries.ts
+		/** One entry is a declaration when it carries a non-blank path. */
+		function isDeclared(file) {
+			if (file === null || typeof file !== "object" || Array.isArray(file)) return false;
+			const { path } = file;
+			return typeof path === "string" && path.trim().length > 0;
+		}
+		/**
+		* Whether the closing turn declared explicit deliveries before its reply.
+		*
+		* Mirrors the built-in `presentedForClosing` boundary: a declaration settled at
+		* or after the closing Assistant belongs to a later reply and does not count.
+		* The record is read through a structural face on purpose — the @deepseek-ai
+		* type releases this plugin builds against predate the field, so the map's keyof
+		* constraint cannot name it — and every field is validated, because an older
+		* carrier publishes no `presented` key at all and a malformed row must never
+		* change the takeover decision.
+		* @param owner - the turn-tail owner currency ({turn, seq}).
+		* @returns `true` when this turn has at least one delivery to render.
+		*/
+		function hasDeclaredDeliveries(owner) {
+			const record = owner;
+			if (record === null || typeof record !== "object") return false;
+			const data = record.turn?.data?.get?.("deliverables");
+			if (data === null || typeof data !== "object" || !Array.isArray(data.presented)) return false;
+			const seq = typeof record.seq === "number" ? record.seq : Number.POSITIVE_INFINITY;
+			for (const file of data.presented) {
+				if (!isDeclared(file)) continue;
+				const at = file.seq;
+				if (typeof at === "number" && at >= seq) continue;
+				return true;
+			}
+			return false;
+		}
+		//#endregion
 		//#region src/client/openpath-intercept.ts
 		/**
 		* The success envelope ui-chat's openFile expects from the RPC
@@ -9890,9 +3634,89 @@ window.__ModuleLoader__.load({
 				Object.defineProperty(session, "openWorkspacePath", desc);
 			};
 		}
+		/** The scheme and type every file address opens with (mirror of the runtime grammar). */
+		const FILE_ADDRESS_PREFIX = "dsh-resource://file/";
+		/**
+		* Decode a `dsh-resource://file/…` address into the path it names.
+		*
+		* A dependency-free mirror of the runtime's `parseFileAddress`
+		* (`@deepseek-ai/dsh-util-workspace-path`): this module deliberately imports no
+		* runtime package so the takeover stays unit-testable, and the grammar is
+		* small and frozen by the address format itself. Both scopes are accepted —
+		* `session/<sessionId>/<path>` (what ui-chat's `openFile` builds, and the one
+		* that carries the Session a fork's file belongs to) and
+		* `absolute/<path>` (POSIX, drive-letter, and UNC spellings). Query/fragment
+		* suffixes are ignored and each segment is decoded; a malformed escape or an
+		* unknown scope declines rather than guessing.
+		* @param address - a candidate resource address.
+		* @returns the decoded target, or undefined when this is not a file address.
+		*/
+		function fileTargetOfAddress(address) {
+			if (typeof address !== "string" || !address.startsWith(FILE_ADDRESS_PREFIX)) return void 0;
+			try {
+				const end = address.search(/[?#]/);
+				const [scope, ...rest] = address.slice(20, end === -1 ? void 0 : end).split("/");
+				if (scope === "session") {
+					const [id, ...segments] = rest;
+					if (id === void 0 || id === "" || segments.length === 0) return void 0;
+					return {
+						sessionId: decodeURIComponent(id),
+						path: segments.map(decodeURIComponent).join("/")
+					};
+				}
+				if (scope === "absolute") {
+					const unc = rest[0] === "" && rest.length > 1;
+					const segments = (unc ? rest.slice(1) : rest).map(decodeURIComponent);
+					const first = segments[0];
+					if (first === void 0 || first === "") return void 0;
+					if (unc) return { path: `//${segments.join("/")}` };
+					return { path: /^[A-Za-z]:$/.test(first) ? segments.join("/") : `/${segments.join("/")}` };
+				}
+				return;
+			} catch {
+				return;
+			}
+		}
+		/**
+		* Wrap `sidebarRight.openResource` — the funnel dsh 0.1.5's chat uses for every
+		* file open it starts (tool-row links, prose mentions, the built-in
+		* produced-files chips, and the `present` delivery cards' preview gesture).
+		* The address is decoded and rerouted into the sidebar editor; the
+		* folder-reveal gesture reaches the explorer, exactly like the older doors.
+		*
+		* Two declines keep the wrapper honest: an address no file scope claims, and a
+		* call whose `options.kind` names the page type the caller demands (that caller
+		* is addressing the right Sidebar on purpose, so rerouting would silently
+		* ignore its request). The Session the address names wins over the current one
+		* — a fork's file belongs to the fork, and `ctx.sessions…current` is whatever
+		* conversation the user is looking at. `openResource` is a prototype method on
+		* the controller, so the raw reference is captured and reassigned; a remount
+		* that swaps the controller replaces the wrapper with the new instance's own.
+		* @param right - the `ctx.sidebarRight` face.
+		* @param deps - per-call takeover decisions (same face as the older doors).
+		* @returns the disposer restoring the original method (HMR-safe); a no-op when
+		*   the face or its method is absent (pre-0.1.5 baseline).
+		*/
+		function wrapSidebarRight(right, deps) {
+			const original = right.openResource;
+			if (typeof original !== "function") return () => {};
+			right.openResource = function(address, options) {
+				const target = deps.takeoverEnabled() && options?.kind === void 0 ? fileTargetOfAddress(address) : void 0;
+				const sessionId = target?.sessionId ?? deps.currentSessionId();
+				if (target !== void 0 && sessionId !== void 0) {
+					if (target.path === "" || isFolderRevealPath(target.path)) deps.revealInExplorer(target.path, sessionId);
+					else deps.openInSidebar(target.path, sessionId);
+					return;
+				}
+				return original.call(this, address, options);
+			};
+			return () => {
+				right.openResource = original;
+			};
+		}
 		//#endregion
 		//#region \0dsh-css:/Users/libing/kk_Projects/dsh-coding-sidebar/src/client/sidebar.module.css.mjs
-		const css$4 = "[data-dsh-panel-host]{z-index:25;pointer-events:none;position:fixed;inset:0;overflow:hidden}[data-dsh-panel-host][data-dsh-panel-host-degraded]{position:absolute;top:0;left:0}.S5HVoW_toggleCluster{top:calc(3px + env(safe-area-inset-top));z-index:45;pointer-events:auto;flex-direction:row;gap:4px;display:flex;position:absolute;right:10px}.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:72px}.S5HVoW_toggleButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), color var(--ds-transition-duration-slow) var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;justify-content:center;align-items:center;display:flex}.S5HVoW_toggleButton:hover:not(:disabled):not([aria-disabled=true]){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_toggleButton:disabled,.S5HVoW_toggleButton[aria-disabled=true]{opacity:.4;cursor:default}.S5HVoW_panel{box-sizing:border-box;z-index:40;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);padding-bottom:env(safe-area-inset-bottom);transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out);flex-direction:column;display:flex;position:absolute;top:0;bottom:0;right:0}.S5HVoW_panelHidden{pointer-events:none;visibility:hidden;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);transform:translate(102%)}.S5HVoW_panel[data-dragging]{transition:none}.S5HVoW_panelResize{cursor:col-resize;z-index:2;touch-action:none;width:8px;position:absolute;top:0;bottom:0;left:-4px}.S5HVoW_panelResizeActive{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_panelBody{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_panel{contain:layout style}body[data-dsh-sidebar-dragging] .S5HVoW_panel{will-change:transform}.S5HVoW_floatWindow{z-index:42;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-lv3);contain:layout style;border-radius:8px;flex-direction:column;display:flex;position:absolute;overflow:hidden}.S5HVoW_floatWindowDragging{will-change:left, top, width, height}.S5HVoW_floatHeader{height:34px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1);cursor:grab;user-select:none;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_floatWindowDragging .S5HVoW_floatHeader{cursor:grabbing}.S5HVoW_floatTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_floatClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_floatClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_floatContent{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden}.S5HVoW_floatResize{z-index:2;cursor:nwse-resize;touch-action:none;width:14px;height:14px;position:absolute;bottom:0;right:0}.S5HVoW_floatResize:hover{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane[data-dsh-float-dock-over]{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px}.S5HVoW_floatDropHint{z-index:46;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 12%, transparent);border-radius:8px;justify-content:center;align-items:center;display:flex;position:absolute}.S5HVoW_floatDropHintLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:4px 12px}.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tabBar,.S5HVoW_floatHeader{-webkit-app-region:no-drag}body[data-dsh-title-bar-compat] .S5HVoW_toggleCluster{top:calc(var(--dsh-title-bar-strip,40px) + 3px)}body[data-dsh-title-bar-compat] .S5HVoW_panel{padding-top:var(--dsh-title-bar-strip,40px)}.S5HVoW_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_iconButton:disabled{opacity:.4;cursor:default}.S5HVoW_workbench,.S5HVoW_split{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_splitRow{flex-direction:row}.S5HVoW_splitCol{flex-direction:column}.S5HVoW_splitChild{display:flex;position:relative;overflow:hidden}.S5HVoW_divider{z-index:3;touch-action:none;flex:none;position:relative}.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{content:\"\";background:var(--dsw-alias-border-l2);transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out);position:absolute}.S5HVoW_dividerRow{cursor:col-resize;width:7px;margin:0 -2px}.S5HVoW_dividerRow:after{width:1px;top:0;bottom:0;left:50%;transform:translate(-50%)}.S5HVoW_dividerCol{cursor:row-resize;height:7px;margin:-2px 0}.S5HVoW_dividerCol:after{height:1px;top:50%;left:0;right:0;transform:translateY(-50%)}.S5HVoW_divider:hover:after,.S5HVoW_dividerActive:after{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_paneDrop{outline:1px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_dropOverlay{z-index:6;pointer-events:none;background:var(--dsw-alias-interactive-bg-hover-accent);opacity:.5;position:absolute}.S5HVoW_dropLeft{width:25%;top:0;bottom:0;left:0}.S5HVoW_dropRight{width:25%;top:0;bottom:0;right:0}.S5HVoW_dropUp{height:25%;top:0;left:0;right:0}.S5HVoW_dropDown{height:25%;bottom:0;left:0;right:0}.S5HVoW_dropCenter{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px;background:0 0;inset:25%}.S5HVoW_paneContent{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden}.S5HVoW_paneTab{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_paneTabHidden{display:none}.S5HVoW_paneEmptyCards{flex:1;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));align-content:start;gap:8px;min-height:0;padding:12px;display:grid;overflow:hidden}.S5HVoW_paneCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;text-align:center;border-radius:8px;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:12px 8px;display:flex}.S5HVoW_paneCard:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}.S5HVoW_paneCard:disabled{opacity:.45;cursor:default}.S5HVoW_tabBar{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:stretch;height:34px;display:flex}.S5HVoW_tabBarDrop{outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_tabList{scrollbar-width:none;flex:1;min-width:0;display:flex;overflow-x:auto}.S5HVoW_tabList::-webkit-scrollbar{display:none}.S5HVoW_tab{min-width:64px;max-width:160px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);border-right:1px solid var(--dsw-alias-border-l1);cursor:pointer;user-select:none;background:0 0;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_tabActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_tabTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_tabBadge{min-width:16px;height:15px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);border-radius:8px;flex:none;justify-content:center;align-items:center;padding:0 4px;display:inline-flex}.S5HVoW_tabClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_tabClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tabBarPlus{background:var(--dsw-alias-bg-layer-1);width:22px;height:22px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border:none;border-radius:5px;flex:none;justify-content:center;align-self:center;align-items:center;margin:0 6px;padding:0;display:inline-flex;position:sticky;right:0}.S5HVoW_tabBarPlus:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_pinnedTab{color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_pinnedTab:hover{color:var(--dsw-alias-label-secondary)}.S5HVoW_explorer{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_explorerHeader{flex:none;justify-content:space-between;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_explorerRoot{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_explorerBody{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden auto}.S5HVoW_explorerRow{box-sizing:border-box;width:100%;max-width:100%;height:34px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;white-space:nowrap;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);background:0 0;border:none;border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.S5HVoW_explorerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_explorerRowRevealed{background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 18%, transparent);box-shadow:inset 2px 0 0 var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_explorerDir{font:var(--dsw-font-s-strong-14)}.S5HVoW_explorerHidden{opacity:.45}.S5HVoW_explorerSymlink{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerBroken .S5HVoW_explorerName{color:var(--dsw-alias-state-error-primary)}.S5HVoW_explorerName{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.S5HVoW_explorerRef{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:20px;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;align-items:center;padding:0 8px;display:none}.S5HVoW_explorerRef:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_explorerRow:hover .S5HVoW_explorerRef,.S5HVoW_explorerRow:focus-within .S5HVoW_explorerRef{display:inline-flex}.S5HVoW_explorerCopied{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);cursor:default}@keyframes S5HVoW_dsh-row-in{0%{opacity:0}}.S5HVoW_explorerEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_explorerRowDropTarget{background:var(--dsw-alias-interactive-bg-hover);outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_uploadDropZone{z-index:1001;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);box-shadow:0 0 0 200vmax var(--dsw-alias-bg-mask-drop);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:10px;justify-content:center;align-items:flex-start;padding:12px;display:flex;position:fixed}.S5HVoW_uploadDropHero{flex-direction:column;align-items:center;gap:10px;max-width:100%;padding-top:8px;display:flex}.S5HVoW_uploadDropZonePill{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:100%;box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);border-radius:999px;align-items:center;gap:6px;padding:6px 12px;display:flex}.S5HVoW_uploadDropZoneText{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadDropChatHint{z-index:1002;pointer-events:none;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;padding:24px;display:flex;position:fixed;top:0;bottom:0;left:0}.S5HVoW_uploadDropChatCard{text-align:center;max-width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-strong-14);flex-direction:column;align-items:center;gap:12px;display:flex}.S5HVoW_uploadOverlay{z-index:30;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;display:flex;position:absolute;inset:0}.S5HVoW_uploadOverlayCard{border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-alias-bg-layer-2);min-width:280px;max-width:min(420px,100% - 48px);box-shadow:var(--dsw-shadow-lv3);border-radius:24px;flex-direction:column;gap:12px;padding:20px 24px;display:flex}.S5HVoW_uploadOverlayTitle{font:var(--dsw-font-s-strong-14);color:var(--dsw-alias-label-primary);align-items:center;gap:8px;display:flex}.S5HVoW_uploadOverlayTitle>svg{flex:none}.S5HVoW_uploadOverlayTitle>span{white-space:nowrap;text-overflow:ellipsis;min-width:0;overflow:hidden}.S5HVoW_uploadOverlayProgress{background:var(--dsw-alias-border-l2);border-radius:3px;height:6px;overflow:hidden}.S5HVoW_uploadOverlayProgressFill{background:var(--dsw-alias-interactive-bg-hover-accent);height:100%;transition:width .15s var(--ds-ease-in-out);border-radius:3px}.S5HVoW_uploadOverlayStatus{min-height:1em;font:var(--dsw-font-xxs-12);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadOverlayCancel{border:1px solid var(--dsw-alias-border-l2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;background:0 0;border-radius:8px;align-self:flex-end;padding:0 14px}.S5HVoW_uploadOverlayCancel:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_uploadOverlayCancel:disabled{opacity:.4;cursor:default}.S5HVoW_editor{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorTitle{min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.S5HVoW_editorPathInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorPathInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorTreeToggleActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_editorBody{flex:1;min-height:0;display:flex}.S5HVoW_editorMain{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_editorTreeDock{border-left:1px solid var(--dsw-alias-border-l1);flex:none;min-height:0;display:flex;position:relative}.S5HVoW_editorTreeResize{cursor:col-resize;touch-action:none;z-index:3;width:6px;position:absolute;top:0;bottom:0;left:0}.S5HVoW_editorTreeResize:hover{background:var(--dsw-alias-border-l2)}.S5HVoW_editorTreePanel{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_editorTreePanelFull{flex:1}.S5HVoW_editorTreeSearch{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorSearchInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorSearchInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorSearchHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:8px 12px}.S5HVoW_editorSearchResult{width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;text-overflow:ellipsis;white-space:nowrap;background:0 0;border:none;border-radius:6px;padding:4px 8px;display:block;overflow:hidden}.S5HVoW_editorSearchResult:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorStatusError{color:var(--dsw-alias-state-error-primary)}.S5HVoW_dirtyDot{background:var(--dsw-alias-state-warn-primary);border-radius:50%;flex:none;width:7px;height:7px}.S5HVoW_editorPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex:1;justify-content:center;align-items:center;padding:16px;display:flex}.S5HVoW_orphanedType{opacity:.7;overflow-wrap:anywhere;margin-top:8px;font-size:12px;display:block}.S5HVoW_editorBinary{text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:12px;padding:24px 16px;display:flex}.S5HVoW_editorBinaryNotice{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorDownloadLink{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:6px;align-items:center;gap:6px;padding:6px 14px;text-decoration:none;display:inline-flex}.S5HVoW_editorDownloadLink:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_editorError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);padding:12px 16px}.S5HVoW_editorBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 8px}.S5HVoW_sandboxStatus{font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sandboxStatusOn{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sandboxStatusOff{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}.S5HVoW_sandboxDot{background:var(--dsw-alias-state-success-primary);border-radius:50%;flex:none;width:6px;height:6px}.S5HVoW_sandboxStatusOff .S5HVoW_sandboxDot{background:var(--dsw-alias-state-error-primary)}.S5HVoW_sandboxStatusText{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_sandboxAction{border:1px solid var(--dsw-alias-border-l2);font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:6px;flex:none;padding:2px 8px}.S5HVoW_sandboxAction:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_browser{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_browserBar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:4px;padding:6px 8px;display:flex}.S5HVoW_browserInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_browserInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_browserMessage{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 12px}.S5HVoW_browserFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_browserStart{text-align:center;min-height:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);flex:1;justify-content:center;align-items:center;padding:20px;display:flex}.S5HVoW_browserBlocked{text-align:center;min-height:0;color:var(--dsw-alias-state-warn-primary);flex-direction:column;flex:1;justify-content:center;align-items:center;gap:6px;padding:24px;display:flex}.S5HVoW_browserBlockedTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary)}.S5HVoW_browserBlockedDesc{max-width:280px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary)}.S5HVoW_browserBlockedActions{gap:8px;margin-top:6px;display:flex}.S5HVoW_browserBlockedButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);cursor:pointer;border-radius:6px;padding:4px 12px}.S5HVoW_browserBlockedButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorCm{background:0 0;flex:1;min-height:0;overflow:hidden}.S5HVoW_editorCm .cm-editor{height:100%}.S5HVoW_editorCm .cm-scroller{padding:12px 16px}.S5HVoW_editorCm .cm-editor.cm-focused{outline:none}.S5HVoW_selectionPopup{z-index:60;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;cursor:pointer;border-radius:6px;align-items:center;padding:0 10px;display:inline-flex;position:fixed;transform:translate(-50%,calc(-100% - 8px))}.S5HVoW_selectionPopup:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_terminalWrap{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;position:relative}.S5HVoW_terminal{flex:1;min-height:0;padding:6px 4px 6px 8px}.S5HVoW_terminal .xterm{height:100%}.S5HVoW_terminalBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-wrap:wrap;flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalBannerUrl{word-break:break-all;opacity:.85;flex-basis:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.S5HVoW_boundaryError{z-index:50;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;align-items:flex-start;gap:8px;padding:16px;display:flex;position:fixed;top:0;bottom:0;right:0;overflow:auto}.S5HVoW_terminalRetry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;padding:1px 8px}.S5HVoW_terminalRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_terminalDepsBanner{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-direction:column;flex:none;gap:6px;padding:10px;display:flex}.S5HVoW_terminalDepsTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-state-warn-primary)}.S5HVoW_terminalDepsHint{opacity:.9}.S5HVoW_terminalDepsCommandRow{align-items:flex-start;gap:8px;display:flex}.S5HVoW_terminalRepairCommand{white-space:pre-wrap;word-break:break-all;user-select:text;min-width:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:4px;flex:1;max-height:160px;margin:0;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;overflow:auto}.S5HVoW_terminalDepsNote{opacity:.85}.S5HVoW_terminalDepsActions{align-items:center;gap:8px;display:flex}.S5HVoW_tabBoundaryError{min-height:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;flex:1;align-items:flex-start;gap:8px;padding:12px 16px;display:flex;overflow:auto}.S5HVoW_git{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitHeader{flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitWorktreeRow{flex:none;align-items:center;gap:8px;padding:6px 8px 0 12px;display:flex}.S5HVoW_gitWorktreeLabel{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none}.S5HVoW_gitBranchSelect{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 6px}.S5HVoW_gitSection{border-top:1px solid var(--dsw-alias-border-l1)}.S5HVoW_gitSectionHeader{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);text-transform:uppercase;justify-content:space-between;align-items:center;padding:6px 12px 4px;display:flex}.S5HVoW_gitLink{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-brand-primary);cursor:pointer;background:0 0;border:none;padding:0}.S5HVoW_gitLink:hover:not(:disabled){text-decoration:underline}.S5HVoW_gitLink:disabled{opacity:.4;cursor:default}.S5HVoW_gitRow{min-height:34px;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:8px;align-items:center;gap:6px;margin:0 6px;padding:0 8px;display:flex}.S5HVoW_gitRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitRowSelected{background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_gitRowMain{cursor:pointer;text-align:left;background:0 0;border:none;flex:1;align-items:center;gap:8px;min-width:0;padding:3px 0;display:flex}.S5HVoW_gitBadge{width:20px;height:16px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_gitName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:4px 12px 8px}.S5HVoW_gitPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_gitError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap;padding:8px 12px}.S5HVoW_gitDiff{border-top:1px solid var(--dsw-alias-border-l1);padding:8px}.S5HVoW_gitDiffTab{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitDiffTabHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitDiffTabTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitDiffFile{width:100%;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;align-items:baseline;gap:6px;padding:8px 2px 2px;display:flex}.S5HVoW_gitDiffFile:disabled{cursor:default}.S5HVoW_gitDiffFile:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitDiffFileChevron{color:var(--dsw-alias-label-tertiary);flex:none;transform:rotate(0)}.S5HVoW_gitDiffFileChevronExpanded{transform:rotate(90deg)}.S5HVoW_gitDiffFilePath{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffFileOld{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:none;max-width:40%;overflow:hidden}.S5HVoW_gitDiffFileTag{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:0 6px}.S5HVoW_gitDiffHunk{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);gap:8px;padding:3px 2px;display:flex}.S5HVoW_gitDiffHunkHeader{color:var(--dsw-alias-label-secondary);flex:none}.S5HVoW_gitDiffHunkSection{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffLine{font:var(--dsw-font-markdown-code-block-small);white-space:pre-wrap;overflow-wrap:anywhere;align-items:stretch;min-width:0;line-height:20px;display:flex}.S5HVoW_gitDiffNum{text-align:right;width:36px;color:var(--dsw-alias-label-tertiary);user-select:none;flex:none;padding-right:8px}.S5HVoW_gitDiffCode{flex:1;min-width:0;overflow:visible}.S5HVoW_gitDiffCtx{color:var(--dsw-alias-label-primary)}.S5HVoW_gitDiffDel{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}.S5HVoW_gitDiffAdd{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent)}.S5HVoW_gitDiffMeta{padding-left:2px}.S5HVoW_gitDiffMetaText{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_gitDiffExpand{width:100%;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-brand-primary);cursor:pointer;text-align:center;background:0 0;border:none;margin:4px 0;display:block}.S5HVoW_gitDiffExpand:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitConfirmDesc{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);white-space:pre-wrap;margin:0}.S5HVoW_gitCommit{border-top:1px solid var(--dsw-alias-border-l1);align-items:center;gap:6px;padding:8px 12px;display:flex}.S5HVoW_gitCommitInput{flex:1;min-width:0}.S5HVoW_gitCommitButton{background:var(--dsw-alias-button-primary-fill);height:26px;color:var(--dsw-alias-label-primary-inverted);font:var(--dsw-font-xxs-strong-12);cursor:pointer;border:none;border-radius:6px;flex:none;padding:0 12px}.S5HVoW_gitCommitButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.S5HVoW_gitCommitButton:disabled{opacity:.45;cursor:default}.S5HVoW_gitLogRow{cursor:pointer;border-radius:8px;flex-direction:column;gap:2px;padding:5px 12px;display:flex}.S5HVoW_gitLogRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitLogLine1{align-items:baseline;gap:8px;min-width:0;display:flex}.S5HVoW_gitLogHash{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_gitLogLine2{flex-wrap:wrap;align-items:center;gap:6px;min-width:0;display:flex}.S5HVoW_gitLogRef{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-brand-primary);white-space:nowrap;border-radius:999px;flex:none;padding:0 5px}.S5HVoW_gitLogSubject{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitLogMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_gitLogMore{border:1px solid var(--dsw-alias-border-l2);width:calc(100% - 24px);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:6px;margin:4px 12px 8px;padding:6px 0;display:block}.S5HVoW_gitLogMore:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitLogMore:disabled{opacity:.5;cursor:default}.S5HVoW_producedRow{flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0;display:flex}.S5HVoW_producedLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_producedChip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:200px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;display:inline-flex;overflow:hidden}.S5HVoW_producedChip:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_producedChip span{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_producedMore{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_toggleButton:focus-visible,.S5HVoW_iconButton:focus-visible,.S5HVoW_tab:focus-visible,.S5HVoW_tabClose:focus-visible,.S5HVoW_tabBarPlus:focus-visible,.S5HVoW_paneCard:focus-visible,.S5HVoW_explorerRow:focus-visible,.S5HVoW_explorerRef:focus-visible,.S5HVoW_gitRowMain:focus-visible,.S5HVoW_gitLink:focus-visible,.S5HVoW_gitCommitButton:focus-visible,.S5HVoW_gitLogRow:focus-visible,.S5HVoW_gitLogMore:focus-visible,.S5HVoW_gitDiffFile:focus-visible,.S5HVoW_gitDiffExpand:focus-visible,.S5HVoW_terminalRetry:focus-visible,.S5HVoW_editorDownloadLink:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}@media (prefers-reduced-motion:reduce){.S5HVoW_panel,.S5HVoW_panelHidden,.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tab,.S5HVoW_tabBarPlus,.S5HVoW_paneCard,.S5HVoW_explorerRow,.S5HVoW_gitRow,.S5HVoW_divider,.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{transition:none;animation:none}}@media (width<=767px){.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:40px}.S5HVoW_tab{min-width:48px;max-width:128px}}.S5HVoW_openWithLabel{align-items:center;gap:8px;width:100%;min-width:0;display:flex}.S5HVoW_openWithName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}.S5HVoW_openWithChevron{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_openWithPin{width:20px;height:20px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:6px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_openWithPin:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_openWithPinActive{color:var(--dsw-alias-state-business-primary)}@keyframes S5HVoW_dsh-toc-flash{0%,60%{background:var(--dsw-alias-interactive-bg-hover)}to{background:0 0}}.S5HVoW_browserLive{flex-direction:column;gap:6px;padding:8px 10px;display:flex;position:absolute;inset:0;overflow:hidden}.S5HVoW_browserLiveStatus{opacity:.75;align-items:center;gap:8px;font-size:12px;display:flex}.S5HVoW_browserLiveCanvas{object-fit:contain;border:1px solid var(--dsw-alias-border-l,#80808040);cursor:crosshair;background:#fff;border-radius:8px;flex:1;width:100%;min-height:0}.S5HVoW_browserLiveTarget{max-width:260px;font-size:12px}";
+		const css$4 = "[data-dsh-panel-host]{z-index:25;pointer-events:none;position:fixed;inset:0;overflow:hidden}[data-dsh-panel-host][data-dsh-panel-host-degraded]{position:absolute;top:0;left:0}.S5HVoW_toggleCluster{top:calc(3px + env(safe-area-inset-top));z-index:45;pointer-events:auto;flex-direction:row;gap:4px;display:flex;position:absolute;right:10px}.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:72px}.S5HVoW_toggleButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), color var(--ds-transition-duration-slow) var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;justify-content:center;align-items:center;display:flex}.S5HVoW_toggleButton:hover:not(:disabled):not([aria-disabled=true]){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_toggleButton:disabled,.S5HVoW_toggleButton[aria-disabled=true]{opacity:.4;cursor:default}.S5HVoW_panel{box-sizing:border-box;z-index:40;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);padding-bottom:env(safe-area-inset-bottom);transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out);flex-direction:column;display:flex;position:absolute;top:0;bottom:0;right:0}.S5HVoW_panelHidden{pointer-events:none;visibility:hidden;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);transform:translate(102%)}.S5HVoW_panel[data-dragging]{transition:none}.S5HVoW_panelResize{cursor:col-resize;z-index:2;touch-action:none;width:8px;position:absolute;top:0;bottom:0;left:-4px}.S5HVoW_panelResizeActive{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_panelBody{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_panel{contain:layout style}body[data-dsh-sidebar-dragging] .S5HVoW_panel{will-change:transform}.S5HVoW_floatWindow{z-index:42;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-lv3);contain:layout style;border-radius:8px;flex-direction:column;display:flex;position:absolute;overflow:hidden}.S5HVoW_floatWindowDragging{will-change:left, top, width, height}.S5HVoW_floatHeader{height:34px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1);cursor:grab;user-select:none;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_floatWindowDragging .S5HVoW_floatHeader{cursor:grabbing}.S5HVoW_floatTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_floatClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_floatClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_floatContent{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden}.S5HVoW_floatResize{z-index:2;cursor:nwse-resize;touch-action:none;width:14px;height:14px;position:absolute;bottom:0;right:0}.S5HVoW_floatResize:hover{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane[data-dsh-float-dock-over]{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px}.S5HVoW_floatDropHint{z-index:46;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 12%, transparent);border-radius:8px;justify-content:center;align-items:center;display:flex;position:absolute}.S5HVoW_floatDropHintLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:4px 12px}.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tabBar,.S5HVoW_floatHeader{-webkit-app-region:no-drag}body[data-dsh-title-bar-compat] .S5HVoW_toggleCluster{top:calc(var(--dsh-title-bar-strip,40px) + 3px)}body[data-dsh-title-bar-compat] .S5HVoW_panel{padding-top:var(--dsh-title-bar-strip,40px)}.S5HVoW_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_iconButton:disabled{opacity:.4;cursor:default}.S5HVoW_workbench,.S5HVoW_split{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_splitRow{flex-direction:row}.S5HVoW_splitCol{flex-direction:column}.S5HVoW_splitChild{display:flex;position:relative;overflow:hidden}.S5HVoW_divider{z-index:3;touch-action:none;flex:none;position:relative}.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{content:\"\";background:var(--dsw-alias-border-l2);transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out);position:absolute}.S5HVoW_dividerRow{cursor:col-resize;width:7px;margin:0 -2px}.S5HVoW_dividerRow:after{width:1px;top:0;bottom:0;left:50%;transform:translate(-50%)}.S5HVoW_dividerCol{cursor:row-resize;height:7px;margin:-2px 0}.S5HVoW_dividerCol:after{height:1px;top:50%;left:0;right:0;transform:translateY(-50%)}.S5HVoW_divider:hover:after,.S5HVoW_dividerActive:after{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_paneDrop{outline:1px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_dropOverlay{z-index:6;pointer-events:none;background:var(--dsw-alias-interactive-bg-hover-accent);opacity:.5;position:absolute}.S5HVoW_dropLeft{width:25%;top:0;bottom:0;left:0}.S5HVoW_dropRight{width:25%;top:0;bottom:0;right:0}.S5HVoW_dropUp{height:25%;top:0;left:0;right:0}.S5HVoW_dropDown{height:25%;bottom:0;left:0;right:0}.S5HVoW_dropCenter{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px;background:0 0;inset:25%}.S5HVoW_paneContent{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden}.S5HVoW_paneTab{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_paneTabHidden{display:none}.S5HVoW_paneEmptyCards{flex:1;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));align-content:start;gap:8px;min-height:0;padding:12px;display:grid;overflow:hidden}.S5HVoW_paneCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;text-align:center;border-radius:8px;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:12px 8px;display:flex}.S5HVoW_paneCard:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}.S5HVoW_paneCard:disabled{opacity:.45;cursor:default}.S5HVoW_tabBar{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:stretch;height:34px;display:flex}.S5HVoW_tabBarDrop{outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_tabList{scrollbar-width:none;flex:1;min-width:0;display:flex;overflow-x:auto}.S5HVoW_tabList::-webkit-scrollbar{display:none}.S5HVoW_tab{min-width:64px;max-width:160px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);border-right:1px solid var(--dsw-alias-border-l1);cursor:pointer;user-select:none;background:0 0;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_tabActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_tabTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_tabBadge{min-width:16px;height:15px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);border-radius:8px;flex:none;justify-content:center;align-items:center;padding:0 4px;display:inline-flex}.S5HVoW_tabClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_tabClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tabBarPlus{background:var(--dsw-alias-bg-layer-1);width:22px;height:22px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border:none;border-radius:5px;flex:none;justify-content:center;align-self:center;align-items:center;margin:0 6px;padding:0;display:inline-flex;position:sticky;right:0}.S5HVoW_tabBarPlus:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_pinnedTab{color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_pinnedTab:hover{color:var(--dsw-alias-label-secondary)}.S5HVoW_explorer{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_explorerHeader{flex:none;justify-content:space-between;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_explorerRoot{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_explorerBody{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden auto}.S5HVoW_explorerRow{box-sizing:border-box;width:100%;max-width:100%;height:34px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;white-space:nowrap;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);background:0 0;border:none;border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.S5HVoW_explorerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_explorerRowRevealed{background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 18%, transparent);box-shadow:inset 2px 0 0 var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_explorerDir{font:var(--dsw-font-s-strong-14)}.S5HVoW_explorerHidden{opacity:.45}.S5HVoW_explorerSymlink{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerBroken .S5HVoW_explorerName{color:var(--dsw-alias-state-error-primary)}.S5HVoW_explorerName{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.S5HVoW_explorerRef{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:20px;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;align-items:center;padding:0 8px;display:none}.S5HVoW_explorerRef:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_explorerRow:hover .S5HVoW_explorerRef,.S5HVoW_explorerRow:focus-within .S5HVoW_explorerRef{display:inline-flex}.S5HVoW_explorerCopied{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);cursor:default}@keyframes S5HVoW_dsh-row-in{0%{opacity:0}}.S5HVoW_explorerEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_explorerRowDropTarget{background:var(--dsw-alias-interactive-bg-hover);outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_uploadDropZone{z-index:1001;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);box-shadow:0 0 0 200vmax var(--dsw-alias-bg-mask-drop);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:10px;justify-content:center;align-items:flex-start;padding:12px;display:flex;position:fixed}.S5HVoW_uploadDropHero{flex-direction:column;align-items:center;gap:10px;max-width:100%;padding-top:8px;display:flex}.S5HVoW_uploadDropZonePill{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:100%;box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);border-radius:999px;align-items:center;gap:6px;padding:6px 12px;display:flex}.S5HVoW_uploadDropZoneText{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadDropChatHint{z-index:1002;pointer-events:none;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;padding:24px;display:flex;position:fixed;top:0;bottom:0;left:0}.S5HVoW_uploadDropChatCard{text-align:center;max-width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-strong-14);flex-direction:column;align-items:center;gap:12px;display:flex}.S5HVoW_uploadOverlay{z-index:30;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;display:flex;position:absolute;inset:0}.S5HVoW_uploadOverlayCard{border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-alias-bg-layer-2);min-width:280px;max-width:min(420px,100% - 48px);box-shadow:var(--dsw-shadow-lv3);border-radius:24px;flex-direction:column;gap:12px;padding:20px 24px;display:flex}.S5HVoW_uploadOverlayTitle{font:var(--dsw-font-s-strong-14);color:var(--dsw-alias-label-primary);align-items:center;gap:8px;display:flex}.S5HVoW_uploadOverlayTitle>svg{flex:none}.S5HVoW_uploadOverlayTitle>span{white-space:nowrap;text-overflow:ellipsis;min-width:0;overflow:hidden}.S5HVoW_uploadOverlayProgress{background:var(--dsw-alias-border-l2);border-radius:3px;height:6px;overflow:hidden}.S5HVoW_uploadOverlayProgressFill{background:var(--dsw-alias-interactive-bg-hover-accent);height:100%;transition:width .15s var(--ds-ease-in-out);border-radius:3px}.S5HVoW_uploadOverlayStatus{min-height:1em;font:var(--dsw-font-xxs-12);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadOverlayCancel{border:1px solid var(--dsw-alias-border-l2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;background:0 0;border-radius:8px;align-self:flex-end;padding:0 14px}.S5HVoW_uploadOverlayCancel:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_uploadOverlayCancel:disabled{opacity:.4;cursor:default}.S5HVoW_editor{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorTitle{min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.S5HVoW_editorPathInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorPathInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorTreeToggleActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_editorBody{flex:1;min-height:0;display:flex}.S5HVoW_editorMain{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_editorTreeDock{border-left:1px solid var(--dsw-alias-border-l1);flex:none;min-height:0;display:flex;position:relative}.S5HVoW_editorTreeResize{cursor:col-resize;touch-action:none;z-index:3;width:6px;position:absolute;top:0;bottom:0;left:0}.S5HVoW_editorTreeResize:hover{background:var(--dsw-alias-border-l2)}.S5HVoW_editorTreePanel{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_editorTreePanelFull{flex:1}.S5HVoW_editorTreeSearch{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorSearchInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorSearchInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorSearchHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:8px 12px}.S5HVoW_editorSearchResult{width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;text-overflow:ellipsis;white-space:nowrap;background:0 0;border:none;border-radius:6px;padding:4px 8px;display:block;overflow:hidden}.S5HVoW_editorSearchResult:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorStatusError{color:var(--dsw-alias-state-error-primary)}.S5HVoW_dirtyDot{background:var(--dsw-alias-state-warn-primary);border-radius:50%;flex:none;width:7px;height:7px}.S5HVoW_editorPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex:1;justify-content:center;align-items:center;padding:16px;display:flex}.S5HVoW_orphanedType{opacity:.7;overflow-wrap:anywhere;margin-top:8px;font-size:12px;display:block}.S5HVoW_editorBinary{text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:12px;padding:24px 16px;display:flex}.S5HVoW_editorBinaryNotice{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorDownloadLink{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:6px;align-items:center;gap:6px;padding:6px 14px;text-decoration:none;display:inline-flex}.S5HVoW_editorDownloadLink:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_editorError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);padding:12px 16px}.S5HVoW_editorBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 8px}.S5HVoW_sandboxStatus{font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sandboxStatusOn{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sandboxStatusOff{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}.S5HVoW_sandboxDot{background:var(--dsw-alias-state-success-primary);border-radius:50%;flex:none;width:6px;height:6px}.S5HVoW_sandboxStatusOff .S5HVoW_sandboxDot{background:var(--dsw-alias-state-error-primary)}.S5HVoW_sandboxStatusText{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_sandboxAction{border:1px solid var(--dsw-alias-border-l2);font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:6px;flex:none;padding:2px 8px}.S5HVoW_sandboxAction:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_browser{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_browserBar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:4px;padding:6px 8px;display:flex}.S5HVoW_browserInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_browserInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_browserMessage{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 12px}.S5HVoW_browserFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_browserStart{text-align:center;min-height:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);flex:1;justify-content:center;align-items:center;padding:20px;display:flex}.S5HVoW_browserBlocked{text-align:center;min-height:0;color:var(--dsw-alias-state-warn-primary);flex-direction:column;flex:1;justify-content:center;align-items:center;gap:6px;padding:24px;display:flex}.S5HVoW_browserBlockedTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary)}.S5HVoW_browserBlockedDesc{max-width:280px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary)}.S5HVoW_browserBlockedActions{gap:8px;margin-top:6px;display:flex}.S5HVoW_browserBlockedButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);cursor:pointer;border-radius:6px;padding:4px 12px}.S5HVoW_browserBlockedButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorCm{background:0 0;flex:1;min-height:0;overflow:hidden}.S5HVoW_editorCm .cm-editor{height:100%}.S5HVoW_editorCm .cm-scroller{padding:12px 16px}.S5HVoW_editorCm .cm-editor.cm-focused{outline:none}.S5HVoW_selectionPopup{z-index:60;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;cursor:pointer;border-radius:6px;align-items:center;padding:0 10px;display:inline-flex;position:fixed;transform:translate(-50%,calc(-100% - 8px))}.S5HVoW_selectionPopup:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_terminalWrap{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;position:relative}.S5HVoW_terminal{flex:1;min-height:0;padding:6px 4px 6px 8px}.S5HVoW_terminal .xterm{height:100%}.S5HVoW_terminalBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-wrap:wrap;flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalBannerUrl{word-break:break-all;opacity:.85;flex-basis:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.S5HVoW_boundaryError{z-index:50;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;align-items:flex-start;gap:8px;padding:16px;display:flex;position:fixed;top:0;bottom:0;right:0;overflow:auto}.S5HVoW_terminalRetry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;padding:1px 8px}.S5HVoW_terminalRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitFoldRow{box-sizing:border-box;background:var(--dsw-alias-bg-layer-1);width:100%;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);text-align:center;cursor:pointer;border:none;outline:none;padding:2px 12px;display:block}.S5HVoW_gitFoldRow:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.S5HVoW_gitFoldRow:disabled{cursor:default}.S5HVoW_gitFoldRowFailed{color:var(--dsw-alias-state-error-primary);opacity:.7}.S5HVoW_explorerRenameInput{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);min-width:0;height:20px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:4px;outline:none;flex:1;padding:0 4px}.S5HVoW_changesLensToggle{flex:none;gap:2px;padding:2px;display:flex}.S5HVoW_changesLensTab{height:24px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:1}.S5HVoW_changesLensTab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_changesLensTabActive,.S5HVoW_changesLensTabActive:hover{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.S5HVoW_sessionLens{flex:1;min-height:0;overflow-y:auto}.S5HVoW_sessionLensBar{align-items:center;gap:6px;height:26px;padding:0 4px;display:flex}.S5HVoW_sessionLensCount{min-width:0;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:1}.S5HVoW_sessionLensEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_sessionLensItem{border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sessionLensRow{box-sizing:border-box;width:100%;min-height:30px;color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:6px;outline:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sessionLensRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_sessionLensPath{text-overflow:ellipsis;white-space:nowrap;text-align:left;direction:rtl;flex:1;min-width:0;overflow:hidden}.S5HVoW_sessionLensMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_sessionLensPreview{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);max-height:260px;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;border-radius:6px;margin:0 8px 6px;padding:6px 8px;line-height:1.5;overflow:auto}.S5HVoW_terminalWaitBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalWaitNeedle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden}.S5HVoW_terminalDepsBanner{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-direction:column;flex:none;gap:6px;padding:10px;display:flex}.S5HVoW_terminalDepsTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-state-warn-primary)}.S5HVoW_terminalDepsHint{opacity:.9}.S5HVoW_terminalDepsCommandRow{align-items:flex-start;gap:8px;display:flex}.S5HVoW_terminalRepairCommand{white-space:pre-wrap;word-break:break-all;user-select:text;min-width:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:4px;flex:1;max-height:160px;margin:0;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;overflow:auto}.S5HVoW_terminalDepsNote{opacity:.85}.S5HVoW_terminalDepsActions{align-items:center;gap:8px;display:flex}.S5HVoW_tabBoundaryError{min-height:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;flex:1;align-items:flex-start;gap:8px;padding:12px 16px;display:flex;overflow:auto}.S5HVoW_git{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitHeader{flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitWorktreeRow{flex:none;align-items:center;gap:8px;padding:6px 8px 0 12px;display:flex}.S5HVoW_gitWorktreeLabel{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none}.S5HVoW_gitBranchSelect{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 6px}.S5HVoW_gitSection{border-top:1px solid var(--dsw-alias-border-l1)}.S5HVoW_gitSectionHeader{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);text-transform:uppercase;justify-content:space-between;align-items:center;padding:6px 12px 4px;display:flex}.S5HVoW_gitLink{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-brand-primary);cursor:pointer;background:0 0;border:none;padding:0}.S5HVoW_gitLink:hover:not(:disabled){text-decoration:underline}.S5HVoW_gitLink:disabled{opacity:.4;cursor:default}.S5HVoW_gitRow{min-height:34px;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:8px;align-items:center;gap:6px;margin:0 6px;padding:0 8px;display:flex}.S5HVoW_gitRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitRowSelected{background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_gitRowMain{cursor:pointer;text-align:left;background:0 0;border:none;flex:1;align-items:center;gap:8px;min-width:0;padding:3px 0;display:flex}.S5HVoW_gitBadge{width:20px;height:16px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_gitName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:4px 12px 8px}.S5HVoW_gitPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_gitError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap;padding:8px 12px}.S5HVoW_gitDiff{border-top:1px solid var(--dsw-alias-border-l1);padding:8px}.S5HVoW_gitDiffTab{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitDiffTabHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitDiffTabTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitDiffFile{width:100%;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;align-items:baseline;gap:6px;padding:8px 2px 2px;display:flex}.S5HVoW_gitDiffFile:disabled{cursor:default}.S5HVoW_gitDiffFile:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitDiffFileChevron{color:var(--dsw-alias-label-tertiary);flex:none;transform:rotate(0)}.S5HVoW_gitDiffFileChevronExpanded{transform:rotate(90deg)}.S5HVoW_gitDiffFilePath{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffFileOld{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:none;max-width:40%;overflow:hidden}.S5HVoW_gitDiffFileTag{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:0 6px}.S5HVoW_gitDiffHunk{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);gap:8px;padding:3px 2px;display:flex}.S5HVoW_gitDiffHunkHeader{color:var(--dsw-alias-label-secondary);flex:none}.S5HVoW_gitDiffHunkSection{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffLine{font:var(--dsw-font-markdown-code-block-small);white-space:pre-wrap;overflow-wrap:anywhere;align-items:stretch;min-width:0;line-height:20px;display:flex}.S5HVoW_gitDiffNum{text-align:right;width:36px;color:var(--dsw-alias-label-tertiary);user-select:none;flex:none;padding-right:8px}.S5HVoW_gitDiffCode{flex:1;min-width:0;overflow:visible}.S5HVoW_gitDiffCtx{color:var(--dsw-alias-label-primary)}.S5HVoW_gitDiffDel{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}.S5HVoW_gitDiffAdd{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent)}.S5HVoW_gitDiffMeta{padding-left:2px}.S5HVoW_gitDiffMetaText{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_gitDiffExpand{width:100%;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-brand-primary);cursor:pointer;text-align:center;background:0 0;border:none;margin:4px 0;display:block}.S5HVoW_gitDiffExpand:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitConfirmDesc{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);white-space:pre-wrap;margin:0}.S5HVoW_gitCommit{border-top:1px solid var(--dsw-alias-border-l1);align-items:center;gap:6px;padding:8px 12px;display:flex}.S5HVoW_gitCommitInput{flex:1;min-width:0}.S5HVoW_gitCommitButton{background:var(--dsw-alias-button-primary-fill);height:26px;color:var(--dsw-alias-label-primary-inverted);font:var(--dsw-font-xxs-strong-12);cursor:pointer;border:none;border-radius:6px;flex:none;padding:0 12px}.S5HVoW_gitCommitButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.S5HVoW_gitCommitButton:disabled{opacity:.45;cursor:default}.S5HVoW_gitLogRow{cursor:pointer;border-radius:8px;flex-direction:column;gap:2px;padding:5px 12px;display:flex}.S5HVoW_gitLogRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitLogLine1{align-items:baseline;gap:8px;min-width:0;display:flex}.S5HVoW_gitLogHash{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_gitLogLine2{flex-wrap:wrap;align-items:center;gap:6px;min-width:0;display:flex}.S5HVoW_gitLogRef{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-brand-primary);white-space:nowrap;border-radius:999px;flex:none;padding:0 5px}.S5HVoW_gitLogSubject{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitLogMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_gitLogMore{border:1px solid var(--dsw-alias-border-l2);width:calc(100% - 24px);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:6px;margin:4px 12px 8px;padding:6px 0;display:block}.S5HVoW_gitLogMore:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitLogMore:disabled{opacity:.5;cursor:default}.S5HVoW_producedRow{flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0;display:flex}.S5HVoW_producedLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_producedChip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:200px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;display:inline-flex;overflow:hidden}.S5HVoW_producedChip:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_producedChip span{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_producedMore{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_toggleButton:focus-visible,.S5HVoW_iconButton:focus-visible,.S5HVoW_tab:focus-visible,.S5HVoW_tabClose:focus-visible,.S5HVoW_tabBarPlus:focus-visible,.S5HVoW_paneCard:focus-visible,.S5HVoW_explorerRow:focus-visible,.S5HVoW_explorerRef:focus-visible,.S5HVoW_gitRowMain:focus-visible,.S5HVoW_gitLink:focus-visible,.S5HVoW_gitCommitButton:focus-visible,.S5HVoW_gitLogRow:focus-visible,.S5HVoW_gitLogMore:focus-visible,.S5HVoW_gitDiffFile:focus-visible,.S5HVoW_gitDiffExpand:focus-visible,.S5HVoW_terminalRetry:focus-visible,.S5HVoW_editorDownloadLink:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}@media (prefers-reduced-motion:reduce){.S5HVoW_panel,.S5HVoW_panelHidden,.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tab,.S5HVoW_tabBarPlus,.S5HVoW_paneCard,.S5HVoW_explorerRow,.S5HVoW_gitRow,.S5HVoW_divider,.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{transition:none;animation:none}}@media (width<=767px){.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:40px}.S5HVoW_tab{min-width:48px;max-width:128px}}.S5HVoW_openWithLabel{align-items:center;gap:8px;width:100%;min-width:0;display:flex}.S5HVoW_openWithName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}.S5HVoW_openWithChevron{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_openWithPin{width:20px;height:20px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:6px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_openWithPin:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_openWithPinActive{color:var(--dsw-alias-state-business-primary)}@keyframes S5HVoW_dsh-toc-flash{0%,60%{background:var(--dsw-alias-interactive-bg-hover)}to{background:0 0}}.S5HVoW_browserLive{flex-direction:column;gap:6px;padding:8px 10px;display:flex;position:absolute;inset:0;overflow:hidden}.S5HVoW_browserLiveStatus{opacity:.75;align-items:center;gap:8px;font-size:12px;display:flex}.S5HVoW_browserLiveCanvas{object-fit:contain;border:1px solid var(--dsw-alias-border-l,#80808040);cursor:crosshair;background:#fff;border-radius:8px;flex:1;width:100%;min-height:0}.S5HVoW_browserLiveTarget{max-width:260px;font-size:12px}";
 		const tagId$4 = "dsh-coding-sidebar/sidebar.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$4) + "]") === null) {
 			const tag = document.createElement("style");
@@ -9902,207 +3726,224 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var sidebar_module_css_default = {
-			"gitDiffMeta": "S5HVoW_gitDiffMeta",
-			"toggleButton": "S5HVoW_toggleButton",
+			"boundaryError": "S5HVoW_boundaryError",
+			"browser": "S5HVoW_browser",
+			"browserBar": "S5HVoW_browserBar",
+			"browserBlocked": "S5HVoW_browserBlocked",
+			"browserBlockedActions": "S5HVoW_browserBlockedActions",
+			"browserBlockedButton": "S5HVoW_browserBlockedButton",
+			"browserBlockedDesc": "S5HVoW_browserBlockedDesc",
+			"browserBlockedTitle": "S5HVoW_browserBlockedTitle",
+			"browserFrame": "S5HVoW_browserFrame",
+			"browserInput": "S5HVoW_browserInput",
+			"browserLive": "S5HVoW_browserLive",
+			"browserLiveCanvas": "S5HVoW_browserLiveCanvas",
+			"browserLiveStatus": "S5HVoW_browserLiveStatus",
+			"browserLiveTarget": "S5HVoW_browserLiveTarget",
+			"browserMessage": "S5HVoW_browserMessage",
+			"browserStart": "S5HVoW_browserStart",
+			"changesLensTab": "S5HVoW_changesLensTab",
+			"changesLensTabActive": "S5HVoW_changesLensTabActive",
+			"changesLensToggle": "S5HVoW_changesLensToggle",
+			"dirtyDot": "S5HVoW_dirtyDot",
+			"divider": "S5HVoW_divider",
+			"dividerActive": "S5HVoW_dividerActive",
+			"dividerCol": "S5HVoW_dividerCol",
+			"dividerRow": "S5HVoW_dividerRow",
+			"dropCenter": "S5HVoW_dropCenter",
+			"dropDown": "S5HVoW_dropDown",
+			"dropLeft": "S5HVoW_dropLeft",
+			"dropOverlay": "S5HVoW_dropOverlay",
 			"dropRight": "S5HVoW_dropRight",
-			"floatDropHint": "S5HVoW_floatDropHint",
-			"gitDiffCtx": "S5HVoW_gitDiffCtx",
-			"tabBadge": "S5HVoW_tabBadge",
-			"editorSearchHint": "S5HVoW_editorSearchHint",
+			"dropUp": "S5HVoW_dropUp",
+			"dsh-row-in": "S5HVoW_dsh-row-in",
+			"dsh-toc-flash": "S5HVoW_dsh-toc-flash",
+			"editor": "S5HVoW_editor",
+			"editorBanner": "S5HVoW_editorBanner",
 			"editorBinary": "S5HVoW_editorBinary",
-			"gitDiffHunkHeader": "S5HVoW_gitDiffHunkHeader",
-			"gitRowSelected": "S5HVoW_gitRowSelected",
-			"git": "S5HVoW_git",
-			"split": "S5HVoW_split",
-			"editorTreeSearch": "S5HVoW_editorTreeSearch",
-			"gitDiffAdd": "S5HVoW_gitDiffAdd",
-			"explorerBroken": "S5HVoW_explorerBroken",
+			"editorBinaryNotice": "S5HVoW_editorBinaryNotice",
+			"editorBody": "S5HVoW_editorBody",
+			"editorCm": "S5HVoW_editorCm",
+			"editorDownloadLink": "S5HVoW_editorDownloadLink",
+			"editorError": "S5HVoW_editorError",
+			"editorHeader": "S5HVoW_editorHeader",
+			"editorMain": "S5HVoW_editorMain",
+			"editorPathInput": "S5HVoW_editorPathInput",
+			"editorPlaceholder": "S5HVoW_editorPlaceholder",
+			"editorSearchHint": "S5HVoW_editorSearchHint",
+			"editorSearchInput": "S5HVoW_editorSearchInput",
+			"editorSearchResult": "S5HVoW_editorSearchResult",
+			"editorStatus": "S5HVoW_editorStatus",
+			"editorStatusError": "S5HVoW_editorStatusError",
+			"editorTitle": "S5HVoW_editorTitle",
 			"editorTreeDock": "S5HVoW_editorTreeDock",
 			"editorTreePanel": "S5HVoW_editorTreePanel",
-			"gitDiffCode": "S5HVoW_gitDiffCode",
-			"gitCommitButton": "S5HVoW_gitCommitButton",
-			"editorPlaceholder": "S5HVoW_editorPlaceholder",
-			"editor": "S5HVoW_editor",
-			"gitLogMeta": "S5HVoW_gitLogMeta",
-			"producedChip": "S5HVoW_producedChip",
-			"gitDiff": "S5HVoW_gitDiff",
-			"editorStatusError": "S5HVoW_editorStatusError",
-			"openWithPin": "S5HVoW_openWithPin",
-			"uploadOverlayCancel": "S5HVoW_uploadOverlayCancel",
-			"tabBar": "S5HVoW_tabBar",
-			"paneDrop": "S5HVoW_paneDrop",
-			"dropDown": "S5HVoW_dropDown",
-			"explorer": "S5HVoW_explorer",
-			"editorCm": "S5HVoW_editorCm",
-			"terminalDepsNote": "S5HVoW_terminalDepsNote",
-			"gitCommitInput": "S5HVoW_gitCommitInput",
-			"sandboxStatusOff": "S5HVoW_sandboxStatusOff",
-			"terminalBanner": "S5HVoW_terminalBanner",
-			"gitWorktreeLabel": "S5HVoW_gitWorktreeLabel",
-			"floatResize": "S5HVoW_floatResize",
-			"dirtyDot": "S5HVoW_dirtyDot",
-			"openWithLabel": "S5HVoW_openWithLabel",
-			"splitChild": "S5HVoW_splitChild",
-			"pane": "S5HVoW_pane",
-			"dsh-row-in": "S5HVoW_dsh-row-in",
-			"gitLogSubject": "S5HVoW_gitLogSubject",
-			"gitLogLine1": "S5HVoW_gitLogLine1",
-			"floatHeader": "S5HVoW_floatHeader",
-			"editorHeader": "S5HVoW_editorHeader",
-			"dividerRow": "S5HVoW_dividerRow",
-			"explorerCopied": "S5HVoW_explorerCopied",
-			"uploadOverlay": "S5HVoW_uploadOverlay",
-			"gitHeader": "S5HVoW_gitHeader",
-			"floatTitle": "S5HVoW_floatTitle",
-			"selectionPopup": "S5HVoW_selectionPopup",
-			"dropOverlay": "S5HVoW_dropOverlay",
-			"gitConfirmDesc": "S5HVoW_gitConfirmDesc",
-			"producedRow": "S5HVoW_producedRow",
-			"tabTitle": "S5HVoW_tabTitle",
-			"gitDiffTabHeader": "S5HVoW_gitDiffTabHeader",
-			"uploadOverlayProgress": "S5HVoW_uploadOverlayProgress",
-			"iconButton": "S5HVoW_iconButton",
-			"gitLogHash": "S5HVoW_gitLogHash",
-			"terminalDepsHint": "S5HVoW_terminalDepsHint",
-			"gitLogLine2": "S5HVoW_gitLogLine2",
-			"panelHidden": "S5HVoW_panelHidden",
-			"explorerHeader": "S5HVoW_explorerHeader",
-			"explorerRow": "S5HVoW_explorerRow",
-			"terminal": "S5HVoW_terminal",
-			"gitLink": "S5HVoW_gitLink",
-			"explorerRoot": "S5HVoW_explorerRoot",
-			"openWithChevron": "S5HVoW_openWithChevron",
-			"explorerHidden": "S5HVoW_explorerHidden",
-			"gitDiffTab": "S5HVoW_gitDiffTab",
-			"gitDiffFile": "S5HVoW_gitDiffFile",
-			"editorBanner": "S5HVoW_editorBanner",
-			"editorSearchResult": "S5HVoW_editorSearchResult",
-			"browserFrame": "S5HVoW_browserFrame",
-			"floatDropHintLabel": "S5HVoW_floatDropHintLabel",
-			"openWithName": "S5HVoW_openWithName",
-			"tabActive": "S5HVoW_tabActive",
-			"explorerSymlink": "S5HVoW_explorerSymlink",
-			"uploadDropZoneText": "S5HVoW_uploadDropZoneText",
-			"sandboxStatus": "S5HVoW_sandboxStatus",
-			"dividerActive": "S5HVoW_dividerActive",
-			"tabBoundaryError": "S5HVoW_tabBoundaryError",
-			"browserBar": "S5HVoW_browserBar",
-			"gitWorktreeRow": "S5HVoW_gitWorktreeRow",
-			"gitRowMain": "S5HVoW_gitRowMain",
-			"gitName": "S5HVoW_gitName",
-			"editorSearchInput": "S5HVoW_editorSearchInput",
-			"browserMessage": "S5HVoW_browserMessage",
-			"divider": "S5HVoW_divider",
-			"browserStart": "S5HVoW_browserStart",
-			"gitDiffHunk": "S5HVoW_gitDiffHunk",
-			"gitDiffMetaText": "S5HVoW_gitDiffMetaText",
-			"browserLive": "S5HVoW_browserLive",
-			"tabBarPlus": "S5HVoW_tabBarPlus",
-			"explorerName": "S5HVoW_explorerName",
-			"uploadDropZone": "S5HVoW_uploadDropZone",
-			"explorerRowRevealed": "S5HVoW_explorerRowRevealed",
-			"uploadDropHero": "S5HVoW_uploadDropHero",
-			"dividerCol": "S5HVoW_dividerCol",
-			"uploadOverlayProgressFill": "S5HVoW_uploadOverlayProgressFill",
-			"explorerError": "S5HVoW_explorerError",
-			"gitDiffHunkSection": "S5HVoW_gitDiffHunkSection",
-			"editorDownloadLink": "S5HVoW_editorDownloadLink",
-			"explorerDir": "S5HVoW_explorerDir",
-			"gitDiffNum": "S5HVoW_gitDiffNum",
-			"workbench": "S5HVoW_workbench",
-			"gitDiffLine": "S5HVoW_gitDiffLine",
-			"gitCommit": "S5HVoW_gitCommit",
-			"paneEmptyCards": "S5HVoW_paneEmptyCards",
-			"gitSection": "S5HVoW_gitSection",
-			"editorPathInput": "S5HVoW_editorPathInput",
-			"paneContent": "S5HVoW_paneContent",
-			"browser": "S5HVoW_browser",
-			"editorBinaryNotice": "S5HVoW_editorBinaryNotice",
-			"browserBlocked": "S5HVoW_browserBlocked",
-			"gitRow": "S5HVoW_gitRow",
-			"panelResizeActive": "S5HVoW_panelResizeActive",
-			"splitRow": "S5HVoW_splitRow",
-			"uploadOverlayCard": "S5HVoW_uploadOverlayCard",
-			"uploadOverlayStatus": "S5HVoW_uploadOverlayStatus",
-			"editorStatus": "S5HVoW_editorStatus",
-			"terminalDepsBanner": "S5HVoW_terminalDepsBanner",
-			"sandboxStatusOn": "S5HVoW_sandboxStatusOn",
-			"gitEmpty": "S5HVoW_gitEmpty",
-			"terminalBannerUrl": "S5HVoW_terminalBannerUrl",
-			"splitCol": "S5HVoW_splitCol",
-			"tabClose": "S5HVoW_tabClose",
-			"boundaryError": "S5HVoW_boundaryError",
-			"uploadOverlayTitle": "S5HVoW_uploadOverlayTitle",
-			"terminalDepsTitle": "S5HVoW_terminalDepsTitle",
-			"gitPlaceholder": "S5HVoW_gitPlaceholder",
-			"gitDiffFileChevronExpanded": "S5HVoW_gitDiffFileChevronExpanded",
-			"terminalDepsCommandRow": "S5HVoW_terminalDepsCommandRow",
-			"openWithPinActive": "S5HVoW_openWithPinActive",
-			"dropCenter": "S5HVoW_dropCenter",
-			"editorTreeToggleActive": "S5HVoW_editorTreeToggleActive",
-			"sandboxStatusText": "S5HVoW_sandboxStatusText",
-			"floatClose": "S5HVoW_floatClose",
-			"panelBody": "S5HVoW_panelBody",
-			"browserInput": "S5HVoW_browserInput",
-			"gitDiffFilePath": "S5HVoW_gitDiffFilePath",
-			"editorTitle": "S5HVoW_editorTitle",
-			"explorerEmpty": "S5HVoW_explorerEmpty",
 			"editorTreePanelFull": "S5HVoW_editorTreePanelFull",
-			"terminalRepairCommand": "S5HVoW_terminalRepairCommand",
-			"gitDiffFileOld": "S5HVoW_gitDiffFileOld",
-			"browserBlockedActions": "S5HVoW_browserBlockedActions",
-			"gitDiffFileTag": "S5HVoW_gitDiffFileTag",
-			"paneTabHidden": "S5HVoW_paneTabHidden",
-			"sandboxDot": "S5HVoW_sandboxDot",
 			"editorTreeResize": "S5HVoW_editorTreeResize",
-			"browserBlockedButton": "S5HVoW_browserBlockedButton",
-			"floatWindow": "S5HVoW_floatWindow",
-			"gitSectionHeader": "S5HVoW_gitSectionHeader",
-			"tab": "S5HVoW_tab",
-			"panel": "S5HVoW_panel",
-			"gitError": "S5HVoW_gitError",
-			"gitDiffFileChevron": "S5HVoW_gitDiffFileChevron",
-			"gitLogRef": "S5HVoW_gitLogRef",
-			"producedLabel": "S5HVoW_producedLabel",
-			"gitDiffExpand": "S5HVoW_gitDiffExpand",
-			"gitBadge": "S5HVoW_gitBadge",
+			"editorTreeSearch": "S5HVoW_editorTreeSearch",
+			"editorTreeToggleActive": "S5HVoW_editorTreeToggleActive",
+			"explorer": "S5HVoW_explorer",
 			"explorerBody": "S5HVoW_explorerBody",
-			"editorBody": "S5HVoW_editorBody",
-			"terminalDepsActions": "S5HVoW_terminalDepsActions",
-			"browserLiveStatus": "S5HVoW_browserLiveStatus",
-			"paneCard": "S5HVoW_paneCard",
-			"producedMore": "S5HVoW_producedMore",
-			"uploadDropChatHint": "S5HVoW_uploadDropChatHint",
-			"dropLeft": "S5HVoW_dropLeft",
-			"gitBranchSelect": "S5HVoW_gitBranchSelect",
-			"gitDiffTabTitle": "S5HVoW_gitDiffTabTitle",
+			"explorerBroken": "S5HVoW_explorerBroken",
+			"explorerCopied": "S5HVoW_explorerCopied",
+			"explorerDir": "S5HVoW_explorerDir",
+			"explorerEmpty": "S5HVoW_explorerEmpty",
+			"explorerError": "S5HVoW_explorerError",
+			"explorerHeader": "S5HVoW_explorerHeader",
+			"explorerHidden": "S5HVoW_explorerHidden",
+			"explorerName": "S5HVoW_explorerName",
 			"explorerRef": "S5HVoW_explorerRef",
-			"gitLogMore": "S5HVoW_gitLogMore",
-			"browserLiveCanvas": "S5HVoW_browserLiveCanvas",
-			"dropUp": "S5HVoW_dropUp",
+			"explorerRenameInput": "S5HVoW_explorerRenameInput",
+			"explorerRoot": "S5HVoW_explorerRoot",
+			"explorerRow": "S5HVoW_explorerRow",
 			"explorerRowDropTarget": "S5HVoW_explorerRowDropTarget",
-			"uploadDropZonePill": "S5HVoW_uploadDropZonePill",
-			"uploadDropChatCard": "S5HVoW_uploadDropChatCard",
-			"sandboxAction": "S5HVoW_sandboxAction",
-			"browserBlockedDesc": "S5HVoW_browserBlockedDesc",
-			"panelResize": "S5HVoW_panelResize",
+			"explorerRowRevealed": "S5HVoW_explorerRowRevealed",
+			"explorerSymlink": "S5HVoW_explorerSymlink",
+			"floatClose": "S5HVoW_floatClose",
 			"floatContent": "S5HVoW_floatContent",
-			"paneTab": "S5HVoW_paneTab",
-			"pinnedTab": "S5HVoW_pinnedTab",
-			"editorMain": "S5HVoW_editorMain",
-			"toggleCluster": "S5HVoW_toggleCluster",
-			"editorError": "S5HVoW_editorError",
-			"terminalWrap": "S5HVoW_terminalWrap",
-			"gitDiffDel": "S5HVoW_gitDiffDel",
-			"gitLogRow": "S5HVoW_gitLogRow",
-			"browserBlockedTitle": "S5HVoW_browserBlockedTitle",
-			"dsh-toc-flash": "S5HVoW_dsh-toc-flash",
+			"floatDropHint": "S5HVoW_floatDropHint",
+			"floatDropHintLabel": "S5HVoW_floatDropHintLabel",
+			"floatHeader": "S5HVoW_floatHeader",
+			"floatResize": "S5HVoW_floatResize",
+			"floatTitle": "S5HVoW_floatTitle",
+			"floatWindow": "S5HVoW_floatWindow",
 			"floatWindowDragging": "S5HVoW_floatWindowDragging",
-			"tabList": "S5HVoW_tabList",
+			"git": "S5HVoW_git",
+			"gitBadge": "S5HVoW_gitBadge",
+			"gitBranchSelect": "S5HVoW_gitBranchSelect",
+			"gitCommit": "S5HVoW_gitCommit",
+			"gitCommitButton": "S5HVoW_gitCommitButton",
+			"gitCommitInput": "S5HVoW_gitCommitInput",
+			"gitConfirmDesc": "S5HVoW_gitConfirmDesc",
+			"gitDiff": "S5HVoW_gitDiff",
+			"gitDiffAdd": "S5HVoW_gitDiffAdd",
+			"gitDiffCode": "S5HVoW_gitDiffCode",
+			"gitDiffCtx": "S5HVoW_gitDiffCtx",
+			"gitDiffDel": "S5HVoW_gitDiffDel",
+			"gitDiffExpand": "S5HVoW_gitDiffExpand",
+			"gitDiffFile": "S5HVoW_gitDiffFile",
+			"gitDiffFileChevron": "S5HVoW_gitDiffFileChevron",
+			"gitDiffFileChevronExpanded": "S5HVoW_gitDiffFileChevronExpanded",
+			"gitDiffFileOld": "S5HVoW_gitDiffFileOld",
+			"gitDiffFilePath": "S5HVoW_gitDiffFilePath",
+			"gitDiffFileTag": "S5HVoW_gitDiffFileTag",
+			"gitDiffHunk": "S5HVoW_gitDiffHunk",
+			"gitDiffHunkHeader": "S5HVoW_gitDiffHunkHeader",
+			"gitDiffHunkSection": "S5HVoW_gitDiffHunkSection",
+			"gitDiffLine": "S5HVoW_gitDiffLine",
+			"gitDiffMeta": "S5HVoW_gitDiffMeta",
+			"gitDiffMetaText": "S5HVoW_gitDiffMetaText",
+			"gitDiffNum": "S5HVoW_gitDiffNum",
+			"gitDiffTab": "S5HVoW_gitDiffTab",
+			"gitDiffTabHeader": "S5HVoW_gitDiffTabHeader",
+			"gitDiffTabTitle": "S5HVoW_gitDiffTabTitle",
+			"gitEmpty": "S5HVoW_gitEmpty",
+			"gitError": "S5HVoW_gitError",
+			"gitFoldRow": "S5HVoW_gitFoldRow",
+			"gitFoldRowFailed": "S5HVoW_gitFoldRowFailed",
+			"gitHeader": "S5HVoW_gitHeader",
+			"gitLink": "S5HVoW_gitLink",
+			"gitLogHash": "S5HVoW_gitLogHash",
+			"gitLogLine1": "S5HVoW_gitLogLine1",
+			"gitLogLine2": "S5HVoW_gitLogLine2",
+			"gitLogMeta": "S5HVoW_gitLogMeta",
+			"gitLogMore": "S5HVoW_gitLogMore",
+			"gitLogRef": "S5HVoW_gitLogRef",
+			"gitLogRow": "S5HVoW_gitLogRow",
+			"gitLogSubject": "S5HVoW_gitLogSubject",
+			"gitName": "S5HVoW_gitName",
+			"gitPlaceholder": "S5HVoW_gitPlaceholder",
+			"gitRow": "S5HVoW_gitRow",
+			"gitRowMain": "S5HVoW_gitRowMain",
+			"gitRowSelected": "S5HVoW_gitRowSelected",
+			"gitSection": "S5HVoW_gitSection",
+			"gitSectionHeader": "S5HVoW_gitSectionHeader",
+			"gitWorktreeLabel": "S5HVoW_gitWorktreeLabel",
+			"gitWorktreeRow": "S5HVoW_gitWorktreeRow",
+			"iconButton": "S5HVoW_iconButton",
+			"openWithChevron": "S5HVoW_openWithChevron",
+			"openWithLabel": "S5HVoW_openWithLabel",
+			"openWithName": "S5HVoW_openWithName",
+			"openWithPin": "S5HVoW_openWithPin",
+			"openWithPinActive": "S5HVoW_openWithPinActive",
 			"orphanedType": "S5HVoW_orphanedType",
+			"pane": "S5HVoW_pane",
+			"paneCard": "S5HVoW_paneCard",
+			"paneContent": "S5HVoW_paneContent",
+			"paneDrop": "S5HVoW_paneDrop",
+			"paneEmptyCards": "S5HVoW_paneEmptyCards",
+			"paneTab": "S5HVoW_paneTab",
+			"paneTabHidden": "S5HVoW_paneTabHidden",
+			"panel": "S5HVoW_panel",
+			"panelBody": "S5HVoW_panelBody",
+			"panelHidden": "S5HVoW_panelHidden",
+			"panelResize": "S5HVoW_panelResize",
+			"panelResizeActive": "S5HVoW_panelResizeActive",
+			"pinnedTab": "S5HVoW_pinnedTab",
+			"producedChip": "S5HVoW_producedChip",
+			"producedLabel": "S5HVoW_producedLabel",
+			"producedMore": "S5HVoW_producedMore",
+			"producedRow": "S5HVoW_producedRow",
+			"sandboxAction": "S5HVoW_sandboxAction",
+			"sandboxDot": "S5HVoW_sandboxDot",
+			"sandboxStatus": "S5HVoW_sandboxStatus",
+			"sandboxStatusOff": "S5HVoW_sandboxStatusOff",
+			"sandboxStatusOn": "S5HVoW_sandboxStatusOn",
+			"sandboxStatusText": "S5HVoW_sandboxStatusText",
+			"selectionPopup": "S5HVoW_selectionPopup",
+			"sessionLens": "S5HVoW_sessionLens",
+			"sessionLensBar": "S5HVoW_sessionLensBar",
+			"sessionLensCount": "S5HVoW_sessionLensCount",
+			"sessionLensEmpty": "S5HVoW_sessionLensEmpty",
+			"sessionLensItem": "S5HVoW_sessionLensItem",
+			"sessionLensMeta": "S5HVoW_sessionLensMeta",
+			"sessionLensPath": "S5HVoW_sessionLensPath",
+			"sessionLensPreview": "S5HVoW_sessionLensPreview",
+			"sessionLensRow": "S5HVoW_sessionLensRow",
+			"split": "S5HVoW_split",
+			"splitChild": "S5HVoW_splitChild",
+			"splitCol": "S5HVoW_splitCol",
+			"splitRow": "S5HVoW_splitRow",
+			"tab": "S5HVoW_tab",
+			"tabActive": "S5HVoW_tabActive",
+			"tabBadge": "S5HVoW_tabBadge",
+			"tabBar": "S5HVoW_tabBar",
+			"tabBarDrop": "S5HVoW_tabBarDrop",
+			"tabBarPlus": "S5HVoW_tabBarPlus",
+			"tabBoundaryError": "S5HVoW_tabBoundaryError",
+			"tabClose": "S5HVoW_tabClose",
+			"tabList": "S5HVoW_tabList",
+			"tabTitle": "S5HVoW_tabTitle",
+			"terminal": "S5HVoW_terminal",
+			"terminalBanner": "S5HVoW_terminalBanner",
+			"terminalBannerUrl": "S5HVoW_terminalBannerUrl",
+			"terminalDepsActions": "S5HVoW_terminalDepsActions",
+			"terminalDepsBanner": "S5HVoW_terminalDepsBanner",
+			"terminalDepsCommandRow": "S5HVoW_terminalDepsCommandRow",
+			"terminalDepsHint": "S5HVoW_terminalDepsHint",
+			"terminalDepsNote": "S5HVoW_terminalDepsNote",
+			"terminalDepsTitle": "S5HVoW_terminalDepsTitle",
+			"terminalRepairCommand": "S5HVoW_terminalRepairCommand",
 			"terminalRetry": "S5HVoW_terminalRetry",
-			"browserLiveTarget": "S5HVoW_browserLiveTarget",
-			"tabBarDrop": "S5HVoW_tabBarDrop"
+			"terminalWaitBanner": "S5HVoW_terminalWaitBanner",
+			"terminalWaitNeedle": "S5HVoW_terminalWaitNeedle",
+			"terminalWrap": "S5HVoW_terminalWrap",
+			"toggleButton": "S5HVoW_toggleButton",
+			"toggleCluster": "S5HVoW_toggleCluster",
+			"uploadDropChatCard": "S5HVoW_uploadDropChatCard",
+			"uploadDropChatHint": "S5HVoW_uploadDropChatHint",
+			"uploadDropHero": "S5HVoW_uploadDropHero",
+			"uploadDropZone": "S5HVoW_uploadDropZone",
+			"uploadDropZonePill": "S5HVoW_uploadDropZonePill",
+			"uploadDropZoneText": "S5HVoW_uploadDropZoneText",
+			"uploadOverlay": "S5HVoW_uploadOverlay",
+			"uploadOverlayCancel": "S5HVoW_uploadOverlayCancel",
+			"uploadOverlayCard": "S5HVoW_uploadOverlayCard",
+			"uploadOverlayProgress": "S5HVoW_uploadOverlayProgress",
+			"uploadOverlayProgressFill": "S5HVoW_uploadOverlayProgressFill",
+			"uploadOverlayStatus": "S5HVoW_uploadOverlayStatus",
+			"uploadOverlayTitle": "S5HVoW_uploadOverlayTitle",
+			"workbench": "S5HVoW_workbench"
 		};
 		//#endregion
 		//#region src/client/intercept.tsx
@@ -10113,6 +3954,13 @@ window.__ModuleLoader__.load({
 		* the sidebar instead of the host OS. Priority -1 runs before the default-0
 		* deliverables entry; when nothing was produced the selector returns null
 		* and the original row renders unchanged.
+		*
+		* The slot is a CHAIN — the first selector that returns non-null renders, and
+		* that entry alone owns the whole row — so this takeover must never claim a
+		* turn it cannot render completely. dsh 0.1.5-alpha.2 added explicit
+		* deliveries to the same row (`present` cards); this code renders only changed
+		* files, so a turn carrying deliveries is DECLINED and left to the built-in
+		* row. See {@link registerTurnTailInterception}.
 		*/
 		/** Open a file in the sidebar's editor (used by the intercepted row and the explorer). */
 		function openSidebarFile(ctx, store, sessionId, path) {
@@ -10218,6 +4066,7 @@ window.__ModuleLoader__.load({
 				select: (owner) => {
 					if (store.getSuspended()) return null;
 					if (store.getPrefs().tabsEnabled["editor"] === false) return null;
+					if (hasDeclaredDeliveries(owner)) return null;
 					const matched = selectProducedFiles(owner);
 					if (matched !== null) lastProduced = matched;
 					return matched;
@@ -10235,16 +4084,18 @@ window.__ModuleLoader__.load({
 			}, SidebarProducedFiles));
 		}
 		/**
-		* Register the chat file-open interception: wraps BOTH file-open doors so
-		* opens land in the sidebar editor instead of the Host OS — the folder-reveal
-		* gesture ("Show in folder" passes `'.'`) is the one exception, routed to the
-		* explorer. The doors: `ctx.workspaces.openPath` (the pre-0.1.2 funnel) and
-		* `ctx.remote.session.openWorkspacePath` (the 0.1.2-alpha.1 funnel, a direct
-		* RPC that left the old door dead); each is wrapped only when present, so one
-		* build intercepts baselines on either side of the migration. Gated by BOTH
-		* the `interceptOpenPath` pref and the editor tab's enable switch; declined
-		* opens fall through to the original method. Returns the disposer restoring
-		* both doors (HMR-safe).
+		* Register the chat file-open interception: wraps THREE file-open doors so
+		* opens land in the sidebar editor instead of the Host OS (or DSH's own right
+		* Sidebar) — the folder-reveal gesture ("Show in folder" passes `'.'`, and so
+		* does the workspace-root address) is the one exception, routed to the
+		* explorer. The doors, oldest first: `ctx.workspaces.openPath` (pre-0.1.2),
+		* `ctx.remote.session.openWorkspacePath` (0.1.2-alpha.1), and
+		* `ctx.sidebarRight.openResource` (0.1.5 — the one ui-chat actually calls
+		* today; without it this plugin's chat-side takeover is inert). Each is wrapped
+		* only when present, so one build intercepts baselines on either side of both
+		* migrations. Gated by BOTH the `interceptOpenPath` pref and the editor tab's
+		* enable switch; declined opens fall through to the original method. Returns
+		* the disposer restoring all three doors (HMR-safe).
 		*/
 		function registerOpenPathInterception(ctx, store) {
 			const deps = {
@@ -10260,9 +4111,12 @@ window.__ModuleLoader__.load({
 			const disposeOld = wrapOpenPath(ctx.workspaces, deps);
 			const remote = ctx.get("remote");
 			const disposeRemote = remote === void 0 ? () => {} : wrapRemoteOpenPath(remote.session, deps);
+			const sidebarRight = ctx.get("sidebarRight");
+			const disposeRight = sidebarRight === void 0 ? () => {} : wrapSidebarRight(sidebarRight, deps);
 			return () => {
 				disposeOld();
 				disposeRemote();
+				disposeRight();
 			};
 		}
 		//#endregion
@@ -10365,6 +4219,15 @@ window.__ModuleLoader__.load({
 				path,
 				content
 			})),
+			/** Rename one tree row within its directory (single-segment name; a
+			*  destination-existence clash is a 409; symlink rows rename the link). */
+			fsRename: (scope, path, name) => call("fs.rename", scopePayload(scope, {
+				path,
+				name
+			})),
+			/** Delete one tree row permanently (recursive for directories; a symlink
+			*  row unlinks the link only). */
+			fsRemove: (scope, path) => call("fs.remove", scopePayload(scope, { path })),
 			/** Upload one file's raw bytes into `dir` (keeps the folder tree via
 			*  `relativePath`); the host streams it under the session workspace. */
 			uploadFile: (scope, dir, relativePath, body, signal) => fetchUpload(scope, dir, relativePath, body, signal),
@@ -10386,6 +4249,13 @@ window.__ModuleLoader__.load({
 			}), signal),
 			/** Full patch text of one commit (diff display for the history rows). */
 			gitCommitDiff: (scope, hash, worktree, signal) => call("git.commit-diff", gitPayload(scope, worktree, { hash }), signal),
+			/** Both sides' full file contents for a diff-fold expansion; a missing
+			*  side is null (untracked / deleted) and the view degrades the fold. */
+			gitFoldContents: (scope, opts, worktree, signal) => call("git.fold-contents", gitPayload(scope, worktree, {
+				path: opts.path,
+				...opts.staged !== void 0 ? { staged: opts.staged } : {},
+				...opts.hash !== void 0 ? { hash: opts.hash } : {}
+			}), signal),
 			/** Discard the worktree changes of one file (the index is untouched). */
 			gitDiscard: (scope, path, worktree) => call("git.discard", gitPayload(scope, worktree, { path })),
 			/** Revert one commit onto the current branch. */
@@ -10398,6 +4268,12 @@ window.__ModuleLoader__.load({
 			ptyClose: (scope, tab) => call("pty.close", scopePayload(scope, { tab })),
 			/** Release an agent terminal by uuid (tab closed while WS was down). */
 			agentPtyClose: (uuid) => call("agent-pty.close", { uuid }),
+			/** Skip every active terminal_wait_for on one agent terminal (the wait
+			*  banner's skip button). Idempotent: {skipped:0} when none is active. */
+			agentSkipWait: (uuid) => call("agent-pty.skip-wait", { uuid }),
+			/** The session lens: file operations the model performed in one session
+			*  (parsed from the session's own event log; newest first). */
+			changesOps: (scope, signal) => call("changes.ops", scopePayload(scope, {}), signal),
 			/** Terminal dependency status (issue #140): after a WS close 1011 with
 			*  reason `pty-deps-missing` the view fetches the full repair details here
 			*  (the close reason itself is capped at 123 bytes). */
@@ -10486,120 +4362,6 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
-		//#region node_modules/.pnpm/react-icons@5.7.0_react@18.3.1/node_modules/react-icons/lib/iconContext.mjs
-		var DefaultContext = {
-			color: void 0,
-			size: void 0,
-			className: void 0,
-			style: void 0,
-			attr: void 0
-		};
-		var IconContext = react.default.createContext && /*#__PURE__*/ react.default.createContext(DefaultContext);
-		//#endregion
-		//#region node_modules/.pnpm/react-icons@5.7.0_react@18.3.1/node_modules/react-icons/lib/iconBase.mjs
-		var _excluded = [
-			"attr",
-			"size",
-			"title"
-		];
-		function _objectWithoutProperties(e, t) {
-			if (null == e) return {};
-			var o, r, i = _objectWithoutPropertiesLoose(e, t);
-			if (Object.getOwnPropertySymbols) {
-				var n = Object.getOwnPropertySymbols(e);
-				for (r = 0; r < n.length; r++) o = n[r], -1 === t.indexOf(o) && {}.propertyIsEnumerable.call(e, o) && (i[o] = e[o]);
-			}
-			return i;
-		}
-		function _objectWithoutPropertiesLoose(r, e) {
-			if (null == r) return {};
-			var t = {};
-			for (var n in r) if ({}.hasOwnProperty.call(r, n)) {
-				if (-1 !== e.indexOf(n)) continue;
-				t[n] = r[n];
-			}
-			return t;
-		}
-		function _extends() {
-			return _extends = Object.assign ? Object.assign.bind() : function(n) {
-				for (var e = 1; e < arguments.length; e++) {
-					var t = arguments[e];
-					for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]);
-				}
-				return n;
-			}, _extends.apply(null, arguments);
-		}
-		function ownKeys(e, r) {
-			var t = Object.keys(e);
-			if (Object.getOwnPropertySymbols) {
-				var o = Object.getOwnPropertySymbols(e);
-				r && (o = o.filter(function(r) {
-					return Object.getOwnPropertyDescriptor(e, r).enumerable;
-				})), t.push.apply(t, o);
-			}
-			return t;
-		}
-		function _objectSpread(e) {
-			for (var r = 1; r < arguments.length; r++) {
-				var t = null != arguments[r] ? arguments[r] : {};
-				r % 2 ? ownKeys(Object(t), !0).forEach(function(r) {
-					_defineProperty(e, r, t[r]);
-				}) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function(r) {
-					Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r));
-				});
-			}
-			return e;
-		}
-		function _defineProperty(e, r, t) {
-			return (r = _toPropertyKey(r)) in e ? Object.defineProperty(e, r, {
-				value: t,
-				enumerable: !0,
-				configurable: !0,
-				writable: !0
-			}) : e[r] = t, e;
-		}
-		function _toPropertyKey(t) {
-			var i = _toPrimitive(t, "string");
-			return "symbol" == typeof i ? i : i + "";
-		}
-		function _toPrimitive(t, r) {
-			if ("object" != typeof t || !t) return t;
-			var e = t[Symbol.toPrimitive];
-			if (void 0 !== e) {
-				var i = e.call(t, r || "default");
-				if ("object" != typeof i) return i;
-				throw new TypeError("@@toPrimitive must return a primitive value.");
-			}
-			return ("string" === r ? String : Number)(t);
-		}
-		function Tree2Element(tree) {
-			return tree && tree.map((node, i) => /*#__PURE__*/ react.default.createElement(node.tag, _objectSpread({ key: i }, node.attr), Tree2Element(node.child)));
-		}
-		function GenIcon(data) {
-			return (props) => /*#__PURE__*/ react.default.createElement(IconBase, _extends({ attr: _objectSpread({}, data.attr) }, props), Tree2Element(data.child));
-		}
-		function IconBase(props) {
-			var elem = (conf) => {
-				var attr = props.attr, size = props.size, title = props.title, svgProps = _objectWithoutProperties(props, _excluded);
-				var computedSize = size || conf.size || "1em";
-				var className;
-				if (conf.className) className = conf.className;
-				if (props.className) className = (className ? className + " " : "") + props.className;
-				return /*#__PURE__*/ react.default.createElement("svg", _extends({
-					stroke: "currentColor",
-					fill: "currentColor",
-					strokeWidth: "0"
-				}, conf.attr, attr, svgProps, {
-					className,
-					style: _objectSpread(_objectSpread({ color: props.color || conf.color }, conf.style), props.style),
-					height: computedSize,
-					width: computedSize,
-					xmlns: "http://www.w3.org/2000/svg"
-				}), title && /*#__PURE__*/ react.default.createElement("title", null, title), props.children);
-			};
-			return IconContext !== void 0 ? /*#__PURE__*/ react.default.createElement(IconContext.Consumer, null, (conf) => elem(conf)) : elem(DefaultContext);
-		}
-		//#endregion
 		//#region node_modules/.pnpm/react-icons@5.7.0_react@18.3.1/node_modules/react-icons/si/index.mjs
 		function SiZedindustries(props) {
 			return GenIcon({
@@ -10625,110 +4387,6 @@ window.__ModuleLoader__.load({
 				"child": [{
 					"tag": "path",
 					"attr": { "d": "M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23" },
-					"child": []
-				}]
-			})(props);
-		}
-		//#endregion
-		//#region node_modules/.pnpm/react-icons@5.7.0_react@18.3.1/node_modules/react-icons/vsc/index.mjs
-		function VscRemoteExplorer(props) {
-			return GenIcon({
-				"tag": "svg",
-				"attr": {
-					"viewBox": "0 0 24 25",
-					"fill": "currentColor"
-				},
-				"child": [{
-					"tag": "path",
-					"attr": {
-						"fillRule": "evenodd",
-						"clipRule": "evenodd",
-						"d": "M9.32 20.0677C9.469 20.5907 9.667 21.0917 9.911 21.5677H3.759C3.345 21.5677 3.009 21.2317 3.009 20.8177C3.009 20.4037 3.345 20.0677 3.759 20.0677H6.008V18.5517H3C1.343 18.5517 0 17.2087 0 15.5517V5.06775C0 3.41075 1.343 2.06775 3 2.06775H16.5C18.157 2.06775 19.5 3.41075 19.5 5.06775V9.88775C19.016 9.74975 18.516 9.65275 18 9.60575V5.06775C18 4.23975 17.328 3.56775 16.5 3.56775H3C2.172 3.56775 1.5 4.23975 1.5 5.06775V15.5517C1.5 16.3797 2.172 17.0517 3 17.0517H9.039C9.016 17.3047 9 17.5587 9 17.8177C9 18.0657 9.016 18.3097 9.037 18.5517H7.507V20.0677H9.32ZM24 17.8177C24 21.5457 20.978 24.5677 17.25 24.5677C13.522 24.5677 10.5 21.5457 10.5 17.8177C10.5 14.0897 13.522 11.0677 17.25 11.0677C20.978 11.0677 24 14.0897 24 17.8177ZM17.251 19.3177C17.251 19.2187 17.231 19.1217 17.194 19.0307C17.156 18.9397 17.101 18.8567 17.031 18.7867L14.781 16.5367C14.64 16.3957 14.449 16.3167 14.25 16.3167C14.051 16.3167 13.86 16.3957 13.719 16.5367C13.578 16.6777 13.499 16.8687 13.499 17.0677C13.499 17.2667 13.578 17.4577 13.719 17.5987L15.44 19.3177L13.719 21.0367C13.578 21.1777 13.499 21.3687 13.499 21.5677C13.499 21.7667 13.578 21.9577 13.719 22.0987C13.86 22.2397 14.051 22.3187 14.25 22.3187C14.449 22.3187 14.64 22.2397 14.781 22.0987L17.031 19.8487C17.101 19.7787 17.156 19.6967 17.194 19.6057C17.232 19.5147 17.251 19.4167 17.251 19.3177ZM19.06 16.3177L20.78 14.5987C20.921 14.4577 21 14.2667 21 14.0677C21 13.8687 20.921 13.6777 20.78 13.5367C20.639 13.3957 20.448 13.3167 20.249 13.3167C20.05 13.3167 19.859 13.3957 19.718 13.5367L17.468 15.7867C17.398 15.8567 17.343 15.9387 17.305 16.0307C17.267 16.1217 17.248 16.2197 17.248 16.3177C17.248 16.4157 17.268 16.5137 17.305 16.6057C17.343 16.6967 17.398 16.7797 17.468 16.8487L19.718 19.0987C19.859 19.2397 20.05 19.3187 20.249 19.3187C20.448 19.3187 20.639 19.2397 20.78 19.0987C20.921 18.9577 21 18.7667 21 18.5677C21 18.3687 20.921 18.1777 20.78 18.0367L19.06 16.3177Z"
-					},
-					"child": []
-				}]
-			})(props);
-		}
-		function VscPinned(props) {
-			return GenIcon({
-				"tag": "svg",
-				"attr": {
-					"viewBox": "0 0 16 16",
-					"fill": "currentColor"
-				},
-				"child": [{
-					"tag": "path",
-					"attr": { "d": "M10.0589 2.44511C9.34701 1.73063 8.14697 1.90829 7.67261 2.79839L5.6526 6.58878L2.8419 7.52568C2.6775 7.58048 2.5532 7.71649 2.51339 7.88514C2.47357 8.0538 2.52392 8.23104 2.64646 8.35357L4.79291 10.5L2.14645 13.1465L2 14L2.85356 13.8536L5.50002 11.2071L7.64646 13.3536C7.76899 13.4761 7.94623 13.5265 8.11489 13.4866C8.28354 13.4468 8.41955 13.3225 8.47435 13.1581L9.41143 10.3469L13.1897 8.32423C14.0759 7.84982 14.2538 6.6551 13.5443 5.94305L10.0589 2.44511ZM8.55511 3.2687C8.71323 2.972 9.11324 2.91278 9.35055 3.15094L12.836 6.64889C13.0725 6.88624 13.0131 7.28448 12.7178 7.44262L8.76403 9.55921C8.65137 9.61952 8.56608 9.72068 8.52567 9.84191L7.7815 12.0744L3.92562 8.21853L6.15812 7.47436C6.27966 7.43385 6.38101 7.34823 6.44126 7.23518L8.55511 3.2687Z" },
-					"child": []
-				}]
-			})(props);
-		}
-		function VscPin(props) {
-			return GenIcon({
-				"tag": "svg",
-				"attr": {
-					"viewBox": "0 0 16 16",
-					"fill": "currentColor"
-				},
-				"child": [{
-					"tag": "path",
-					"attr": { "d": "M13.5 3C13.303 3 13.109 3.038 12.923 3.114L8.481 4.967L5.659 4.026C5.505 3.976 5.339 4.001 5.209 4.095C5.078 4.189 5.001 4.339 5.001 4.5V7H1.257L0.5 7.5L1.257 8H5V10.5C5 10.661 5.077 10.812 5.208 10.905C5.338 11 5.504 11.023 5.658 10.974L8.48 10.033L12.925 11.887C13.109 11.962 13.302 12 13.499 12C14.326 12 14.999 11.327 14.999 10.5V4.5C14.999 3.673 14.326 3 13.499 3H13.5ZM14 10.5C14 10.843 13.615 11.09 13.308 10.962L8.693 9.038C8.631 9.013 8.566 9 8.501 9C8.447 9 8.395 9.009 8.343 9.025L6.001 9.806V5.193L8.343 5.974C8.457 6.011 8.581 6.007 8.694 5.961L13.306 4.038C13.629 3.902 14.001 4.156 14.001 4.499V10.499L14 10.5Z" },
-					"child": []
-				}]
-			})(props);
-		}
-		function VscLinkExternal(props) {
-			return GenIcon({
-				"tag": "svg",
-				"attr": {
-					"viewBox": "0 0 16 16",
-					"fill": "currentColor"
-				},
-				"child": [{
-					"tag": "path",
-					"attr": { "d": "M15 9.5V12.5C15 13.879 13.879 15 12.5 15H3.5C2.121 15 1 13.879 1 12.5V3.5C1 2.121 2.121 1 3.5 1H6.5C6.776 1 7 1.224 7 1.5C7 1.776 6.776 2 6.5 2H3.5C2.673 2 2 2.673 2 3.5V12.5C2 13.327 2.673 14 3.5 14H12.5C13.327 14 14 13.327 14 12.5V9.5C14 9.224 14.224 9 14.5 9C14.776 9 15 9.224 15 9.5ZM14.5 1H9.5C9.224 1 9 1.224 9 1.5C9 1.776 9.224 2 9.5 2H13.293L9.147 6.146C8.952 6.341 8.952 6.658 9.147 6.853C9.245 6.951 9.373 6.999 9.501 6.999C9.629 6.999 9.757 6.95 9.855 6.853L14.001 2.707V6.5C14.001 6.776 14.225 7 14.501 7C14.777 7 15.001 6.776 15.001 6.5V1.5C15.001 1.224 14.777 1 14.501 1H14.5Z" },
-					"child": []
-				}]
-			})(props);
-		}
-		function VscFolder(props) {
-			return GenIcon({
-				"tag": "svg",
-				"attr": {
-					"viewBox": "0 0 16 16",
-					"fill": "currentColor"
-				},
-				"child": [{
-					"tag": "path",
-					"attr": { "d": "M2 4.5V6H5.58579C5.71839 6 5.84557 5.94732 5.93934 5.85355L7.29289 4.5L5.93934 3.14645C5.84557 3.05268 5.71839 3 5.58579 3H3.5C2.67157 3 2 3.67157 2 4.5ZM1 4.5C1 3.11929 2.11929 2 3.5 2H5.58579C5.98361 2 6.36514 2.15804 6.64645 2.43934L8.20711 4H12.5C13.8807 4 15 5.11929 15 6.5V11.5C15 12.8807 13.8807 14 12.5 14H3.5C2.11929 14 1 12.8807 1 11.5V4.5ZM2 7V11.5C2 12.3284 2.67157 13 3.5 13H12.5C13.3284 13 14 12.3284 14 11.5V6.5C14 5.67157 13.3284 5 12.5 5H8.20711L6.64645 6.56066C6.36514 6.84197 5.98361 7 5.58579 7H2Z" },
-					"child": []
-				}]
-			})(props);
-		}
-		function VscFolderOpened(props) {
-			return GenIcon({
-				"tag": "svg",
-				"attr": {
-					"viewBox": "0 0 16 16",
-					"fill": "currentColor"
-				},
-				"child": [{
-					"tag": "path",
-					"attr": { "d": "M2 4.5V9.10022L2.92389 7.5C3.45979 6.5718 4.45017 6 5.52196 6L11.9146 6C11.7087 5.4174 11.1531 5 10.5 5H7C6.86739 5 6.74021 4.94732 6.64645 4.85355L4.93934 3.14645C4.84557 3.05268 4.71839 3 4.58579 3H3.5C2.67157 3 2 3.67157 2 4.5ZM7.06895 13.9953C7.04641 13.9984 7.02339 14 7 14H3.5C2.11929 14 1 12.8807 1 11.5V4.5C1 3.11929 2.11929 2 3.5 2H4.58579C4.98361 2 5.36514 2.15804 5.64645 2.43934L7.20711 4H10.5C11.724 4 12.7426 4.87965 12.958 6.04127C14.605 6.34148 15.5443 8.22106 14.6616 9.75L13.0766 12.4953C12.5407 13.4235 11.5503 13.9953 10.4785 13.9953H7.06895ZM5.52196 7C4.80743 7 4.14718 7.3812 3.78991 8L2.20492 10.7453C1.62757 11.7453 2.34926 12.9953 3.50396 12.9953L10.4785 12.9953C11.193 12.9953 11.8533 12.6141 12.2105 11.9953L13.7955 9.25C14.3729 8.25 13.6512 7 12.4965 7L5.52196 7Z" },
-					"child": []
-				}]
-			})(props);
-		}
-		function VscFile(props) {
-			return GenIcon({
-				"tag": "svg",
-				"attr": {
-					"viewBox": "0 0 16 16",
-					"fill": "currentColor"
-				},
-				"child": [{
-					"tag": "path",
-					"attr": { "d": "M5 1C3.89543 1 3 1.89543 3 3V13C3 14.1046 3.89543 15 5 15H11C12.1046 15 13 14.1046 13 13V5.41421C13 5.01639 12.842 4.63486 12.5607 4.35355L9.64645 1.43934C9.36514 1.15804 8.98361 1 8.58579 1H5ZM4 3C4 2.44772 4.44772 2 5 2H8V4.5C8 5.32843 8.67157 6 9.5 6H12V13C12 13.5523 11.5523 14 11 14H5C4.44772 14 4 13.5523 4 13V3ZM11.7929 5H9.5C9.22386 5 9 4.77614 9 4.5V2.20711L11.7929 5Z" },
 					"child": []
 				}]
 			})(props);
@@ -10764,74 +4422,6 @@ window.__ModuleLoader__.load({
 				fill: "currentColor",
 				stroke: "none"
 			})]
-		});
-		/**
-		* Terminal glyph in the app's outline style (1.5px stroke, currentColor):
-		* a rounded frame with a prompt chevron and underscore cursor.
-		*/
-		const IconTerminalOutline16 = ({ size = 16, className }) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
-			width: size,
-			height: size,
-			className,
-			viewBox: "0 0 16 16",
-			fill: "none",
-			xmlns: "http://www.w3.org/2000/svg",
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
-					x: "1.5",
-					y: "2.5",
-					width: "13",
-					height: "11",
-					rx: "2",
-					stroke: "currentColor",
-					strokeWidth: "1.5"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
-					d: "M4.5 6.25 6.75 8 4.5 9.75",
-					stroke: "currentColor",
-					strokeWidth: "1.5",
-					strokeLinecap: "round",
-					strokeLinejoin: "round"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
-					d: "M8.5 10.4h3",
-					stroke: "currentColor",
-					strokeWidth: "1.5",
-					strokeLinecap: "round"
-				})
-			]
-		});
-		/** Diff glyph in the app's outline style: a file frame with a plus and a minus row. */
-		const IconDiffOutline16 = ({ size = 16, className }) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
-			width: size,
-			height: size,
-			className,
-			viewBox: "0 0 16 16",
-			fill: "none",
-			xmlns: "http://www.w3.org/2000/svg",
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
-					x: "1.5",
-					y: "1.5",
-					width: "13",
-					height: "13",
-					rx: "2.5",
-					stroke: "currentColor",
-					strokeWidth: "1.5"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
-					d: "M4 5h3M5.5 3.5v3",
-					stroke: "currentColor",
-					strokeWidth: "1.5",
-					strokeLinecap: "round"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
-					d: "M9.5 12.5h2.5",
-					stroke: "currentColor",
-					strokeWidth: "1.5",
-					strokeLinecap: "round"
-				})
-			]
 		});
 		/**
 		* Stop glyph for the background-job kill button: a filled square in the
@@ -10894,38 +4484,6 @@ window.__ModuleLoader__.load({
 				strokeWidth: "1.5",
 				strokeLinejoin: "round"
 			})
-		});
-		/** Browser tab glyph: a globe with meridians. */
-		const IconGlobeOutline16 = ({ size = 16, className }) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
-			width: size,
-			height: size,
-			className,
-			viewBox: "0 0 16 16",
-			fill: "none",
-			xmlns: "http://www.w3.org/2000/svg",
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("circle", {
-					cx: "8",
-					cy: "8",
-					r: "6.5",
-					stroke: "currentColor",
-					strokeWidth: "1.5"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("ellipse", {
-					cx: "8",
-					cy: "8",
-					rx: "2.8",
-					ry: "6.5",
-					stroke: "currentColor",
-					strokeWidth: "1.5"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
-					d: "M1.5 8h13M8 1.5c-2.4 1.8-2.4 11.2 0 13M8 1.5c2.4 1.8 2.4 11.2 0 13",
-					stroke: "currentColor",
-					strokeWidth: "1.5",
-					strokeLinecap: "round"
-				})
-			]
 		});
 		/** History glyph (thread switcher): a clock with a counterclockwise arrow,
 		*  in the app's outline style — the "past conversations" mark. */
@@ -11289,13 +4847,42 @@ window.__ModuleLoader__.load({
 			})]
 		});
 		function FileTree(props) {
-			const { sessionId, cwd, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin, onReferenceFile, refreshTick, onUploadRequest, busy } = props;
+			const { sessionId, cwd, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin, onReferenceFile, refreshTick, onUploadRequest, busy, onPathRenamed, onPathRemoved, service } = props;
 			const [data, setData] = (0, react.useState)({});
 			const dataRef = (0, react.useRef)(data);
+			/**
+			* Registry revision (feature `fileIcons`): bumps on ANY registry change
+			* (register/dispose of tabs or icons — one listener set) so mounted rows
+			* re-resolve their glyphs. The value itself is unread; the state bump IS
+			* the re-render trigger.
+			*/
+			const [, setIconsVersion] = (0, react.useState)(0);
+			(0, react.useEffect)(() => service?.subscribe(() => {
+				setIconsVersion((version) => version + 1);
+			}), [service]);
+			/**
+			* One file row's leading glyph. The service resolver owns the whole chain
+			* (registered specific name/extension → registered catch-all → the host's
+			* file-type artwork, with per-factory crash isolation); without a service
+			* the built-in host artwork alone applies.
+			*/
+			const fileRowIcon = (path) => service !== void 0 ? service.fileIcon(path, 14) : builtinFileIcon(path, 14);
+			/**
+			* One directory row's leading glyph: the registered `'folder'` /
+			* `'folder-open'` (or `folderNames`) icon when present, else the host's
+			* folder glyph.
+			*/
+			const dirRowIcon = (path, open) => service !== void 0 ? service.folderIcon(path, open, 14) : builtinFolderIcon(open, 14);
 			/** The row whose path was just copied ("copied" label replaces its button). */
 			const [copiedPath, setCopiedPath] = (0, react.useState)(null);
 			/** Open context menu: the row path (and whether it is a directory) plus the cursor position. */
 			const [rowMenu, setRowMenu] = (0, react.useState)(null);
+			/** The row being renamed inline (pre-filled base name; Enter commits). */
+			const [renaming, setRenaming] = (0, react.useState)(null);
+			/** The row pending delete confirmation (the Modal owns the final call). */
+			const [deleting, setDeleting] = (0, react.useState)(null);
+			/** The last mutation failure (dismissable strip above the tree). */
+			const [mutationError, setMutationError] = (0, react.useState)(null);
 			/** Whether a file drag hovers the tree (drives the portaled drop zone). */
 			const [dropOver, setDropOver] = (0, react.useState)(false);
 			/** The directory a drag is hovering right now (null = body, drop to root). */
@@ -11450,6 +5037,89 @@ window.__ModuleLoader__.load({
 					}, COPIED_MS);
 				});
 			}, []);
+			/** Re-fetch one directory level (a mutation changed it on disk). */
+			const reloadDir = (0, react.useCallback)((dir) => {
+				dataRef.current = {
+					...dataRef.current,
+					[dir]: {}
+				};
+				setData(dataRef.current);
+				api.fsTree({
+					sessionId,
+					cwd
+				}, dir).then((listing) => {
+					storeLevel(dir, { entries: listing.entries });
+				}).catch((error) => {
+					storeLevel(dir, { error: error instanceof Error ? error.message : String(error) });
+				});
+			}, [
+				sessionId,
+				cwd,
+				storeLevel
+			]);
+			/** Commit the inline rename: single-segment name; the row reloads from
+			*  its parent and open tabs retarget through the caller. */
+			const commitRename = (target) => {
+				const name = target.name.trim();
+				if (name === "" || name.includes("/") || name.includes("\\")) {
+					setMutationError(t("renameInvalid"));
+					return;
+				}
+				api.fsRename({
+					sessionId,
+					cwd
+				}, target.path, name).then(({ path }) => {
+					setRenaming(null);
+					reloadDir(parentOf(target.path) ?? path);
+					onPathRenamed?.(target.path, path);
+				}).catch((error) => {
+					setMutationError(error instanceof Error ? error.message : String(error));
+				});
+			};
+			/** Commit the confirmed delete: the parent reloads and the caller closes
+			*  every open tab at or under the removed path. */
+			const commitDelete = (target) => {
+				api.fsRemove({
+					sessionId,
+					cwd
+				}, target.path).then(() => {
+					setDeleting(null);
+					reloadDir(parentOf(target.path) ?? target.path);
+					onPathRemoved?.(target.path);
+				}).catch((error) => {
+					setMutationError(error instanceof Error ? error.message : String(error));
+				});
+			};
+			/** The inline rename input (auto-focused, pre-selected; Enter/blur commits,
+			*  Esc cancels, an IME composition never triggers the key handlers). */
+			const renameCancelled = (0, react.useRef)(false);
+			const renderRenameInput = (path) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+				autoFocus: true,
+				className: sidebar_module_css_default.explorerRenameInput,
+				defaultValue: renaming?.name ?? "",
+				onClick: (event) => {
+					event.stopPropagation();
+				},
+				onKeyDown: (event) => {
+					event.stopPropagation();
+					if (event.nativeEvent.isComposing) return;
+					if (event.key === "Enter") {
+						event.preventDefault();
+						if (renaming !== null) commitRename(renaming);
+					} else if (event.key === "Escape") {
+						event.preventDefault();
+						renameCancelled.current = true;
+						setRenaming(null);
+					}
+				},
+				onBlur: () => {
+					if (renameCancelled.current) {
+						renameCancelled.current = false;
+						return;
+					}
+					if (renaming !== null) commitRename(renaming);
+				}
+			});
 			/** The row's trailing actions: the @-reference button, or the copied label. */
 			const rowActions = (entry) => {
 				if (copiedPath === entry.path) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
@@ -11463,7 +5133,7 @@ window.__ModuleLoader__.load({
 					title: t("referenceFile"),
 					onClick: (event) => {
 						event.stopPropagation();
-						onReferenceFile(entry.path);
+						onReferenceFile(entry.path, entry.isDir);
 					},
 					children: t("referenceFile")
 				});
@@ -11610,8 +5280,8 @@ window.__ModuleLoader__.load({
 								openRowMenu(event, entry.path, true);
 							},
 							children: [
-								isOpen ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscFolderOpened, { size: 14 }) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscFolder, { size: 14 }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								dirRowIcon(entry.path, isOpen),
+								renaming?.path === entry.path ? renderRenameInput(entry.path) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: sidebar_module_css_default.explorerName,
 									children: entry.name
 								}),
@@ -11649,8 +5319,8 @@ window.__ModuleLoader__.load({
 							openRowMenu(event, entry.path, false);
 						},
 						children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscFile, { size: 14 }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							fileRowIcon(entry.path),
+							renaming?.path === entry.path ? renderRenameInput(entry.path) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: sidebar_module_css_default.explorerName,
 								children: entry.name
 							}),
@@ -11687,7 +5357,7 @@ window.__ModuleLoader__.load({
 							openRowMenu(event, root, true);
 						},
 						children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscFolderOpened, { size: 14 }),
+							dirRowIcon(root, true),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: sidebar_module_css_default.explorerName,
 								children: baseName$1(root)
@@ -11702,7 +5372,7 @@ window.__ModuleLoader__.load({
 								title: t("referenceFile"),
 								onClick: (event) => {
 									event.stopPropagation();
-									onReferenceFile(root);
+									onReferenceFile(root, true);
 								},
 								children: t("referenceFile")
 							})
@@ -11746,6 +5416,27 @@ window.__ModuleLoader__.load({
 							event.target.value = "";
 						}
 					}),
+					mutationError !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: clsx(sidebar_module_css_default.explorerRow, sidebar_module_css_default.explorerError),
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							style: {
+								flex: 1,
+								minWidth: 0,
+								overflow: "hidden",
+								textOverflow: "ellipsis"
+							},
+							children: mutationError
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: sidebar_module_css_default.explorerRef,
+							"aria-label": t("dismiss"),
+							title: t("dismiss"),
+							onClick: () => {
+								setMutationError(null);
+							},
+							children: t("dismiss")
+						})]
+					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
 						open: rowMenu !== null,
 						onClose: () => {
@@ -11782,7 +5473,19 @@ window.__ModuleLoader__.load({
 								id: "absolute",
 								label: t("copyAbsolute"),
 								icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, { size: 16 })
-							}
+							},
+							...onPathRenamed !== void 0 && rowMenu !== null && rowMenu.path !== root || onPathRemoved !== void 0 && rowMenu !== null && rowMenu.path !== root ? [{
+								id: "mutation-sep",
+								type: "separator"
+							}] : [],
+							...onPathRenamed !== void 0 && rowMenu !== null && rowMenu.path !== root ? [{
+								id: "rename-row",
+								label: t("rename")
+							}] : [],
+							...onPathRemoved !== void 0 && rowMenu !== null && rowMenu.path !== root ? [{
+								id: "delete-row",
+								label: t("delete")
+							}] : []
 						],
 						onSelect: (id) => {
 							const target = rowMenu;
@@ -11809,12 +5512,54 @@ window.__ModuleLoader__.load({
 								fileInputRef.current?.click();
 								return;
 							}
+							if (id === "rename-row") {
+								setMutationError(null);
+								setRenaming({
+									path: target.path,
+									name: baseName$1(target.path)
+								});
+								return;
+							}
+							if (id === "delete-row") {
+								setDeleting({
+									path: target.path,
+									isDir: target.isDir
+								});
+								return;
+							}
 							copyPath(id === "relative" ? relativeTo(cwd ?? "", target.path) : target.path, target.path);
 						},
 						portal: true,
 						align: "start",
 						getAnchorRect: () => rowMenu === null ? null : new DOMRect(rowMenu.x, rowMenu.y, 0, 0),
 						anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {})
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
+						open: deleting !== null,
+						onClose: () => {
+							setDeleting(null);
+						},
+						title: deleting === null ? "" : t("deleteTitle", { name: baseName$1(deleting.path) }),
+						closeLabel: t("cancel"),
+						footer: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+							variant: "outline",
+							onClick: () => {
+								setDeleting(null);
+							},
+							children: t("cancel")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+							variant: "primary",
+							onClick: () => {
+								const target = deleting;
+								if (target === null) return;
+								commitDelete(target);
+							},
+							children: t("delete")
+						})] }),
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							className: sidebar_module_css_default.explorerError,
+							children: deleting?.isDir === true ? t("deleteDescDir") : t("deleteDescFile")
+						})
 					})
 				]
 			});
@@ -12213,11 +5958,22 @@ window.__ModuleLoader__.load({
 		* intake.
 		*/
 		function TreePanel(props) {
-			const { sessionId, cwd, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin, onReferenceFile, full } = props;
+			const { sessionId, cwd, expanded, revealed, onToggle, onOpenFile, onOpenFileNewTab, onOpenFileSide, openWithTargets, openWithPinned, openWithSsh, onOpenWith, onToggleOpenWithPin, onReferenceFile, onPathRenamed, onPathRemoved, full, service } = props;
 			const [query, setQuery] = (0, react.useState)("");
 			const [results, setResults] = (0, react.useState)(null);
 			const [error, setError] = (0, react.useState)(null);
 			const [refreshTick, setRefreshTick] = (0, react.useState)(0);
+			(0, react.useEffect)(() => {
+				const bump = () => {
+					setRefreshTick((tick) => tick + 1);
+				};
+				window.addEventListener("focus", bump);
+				window.addEventListener("dsh-sidebar:refresh-files", bump);
+				return () => {
+					window.removeEventListener("focus", bump);
+					window.removeEventListener("dsh-sidebar:refresh-files", bump);
+				};
+			}, []);
 			/** One-line upload status under the search row ('' hides the hint). */
 			const [uploadStatus, setUploadStatus] = (0, react.useState)("");
 			/** Whether the status line is a failure/cancel (error color, stays visible). */
@@ -12402,9 +6158,12 @@ window.__ModuleLoader__.load({
 						onOpenWith,
 						onToggleOpenWithPin,
 						onReferenceFile,
+						onPathRenamed,
+						onPathRemoved,
 						refreshTick,
 						onUploadRequest: startUpload,
-						busy
+						busy,
+						service
 					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: sidebar_module_css_default.explorerBody,
 						children: [
@@ -12596,7 +6355,7 @@ window.__ModuleLoader__.load({
 			return Math.min(TREE_WIDTH_MAX, Math.max(TREE_WIDTH_MIN, Math.round(value)));
 		}
 		function EditorHost(props) {
-			const { ctx, store, scope, tab, expanded, revealed, onToggleDir, onReferenceFile } = props;
+			const { ctx, store, scope, tab, expanded, revealed, onToggleDir, onReferenceFile, onPathRenamed, onPathRemoved } = props;
 			const path = tab.path ?? "";
 			const isDir = metaOf(tab).dir === true;
 			const [load, setLoad] = (0, react.useState)({ status: "loading" });
@@ -12789,7 +6548,10 @@ window.__ModuleLoader__.load({
 					openWithSsh: openWithSshActive(openWithConfig),
 					onOpenWith: openWith,
 					onToggleOpenWithPin: toggleOpenWithPin,
-					onReferenceFile
+					onReferenceFile,
+					onPathRenamed,
+					onPathRemoved,
+					service: ctx.get("betterSidebar")
 				})
 			});
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
@@ -12897,7 +6659,10 @@ window.__ModuleLoader__.load({
 							openWithSsh: openWithSshActive(openWithConfig),
 							onOpenWith: openWith,
 							onToggleOpenWithPin: toggleOpenWithPin,
-							onReferenceFile
+							onReferenceFile,
+							onPathRenamed,
+							onPathRemoved,
+							service: ctx.get("betterSidebar")
 						})]
 					})]
 				})]
@@ -12956,75 +6721,75 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var SideCardSection_module_css_default = {
-			"intro": "AC9POW_intro",
-			"error": "AC9POW_error",
+			"addCard": "AC9POW_addCard",
+			"card": "AC9POW_card",
+			"cardDesc": "AC9POW_cardDesc",
+			"cardIconChip": "AC9POW_cardIconChip",
 			"cardMain": "AC9POW_cardMain",
-			"row": "AC9POW_row",
-			"pluginName": "AC9POW_pluginName",
+			"cardOn": "AC9POW_cardOn",
+			"cardSettings": "AC9POW_cardSettings",
+			"cardSwitch": "AC9POW_cardSwitch",
+			"cardSwitchThumb": "AC9POW_cardSwitchThumb",
+			"cardSwitchTrack": "AC9POW_cardSwitchTrack",
+			"cardTitle": "AC9POW_cardTitle",
+			"cardTop": "AC9POW_cardTop",
+			"control": "AC9POW_control",
+			"count": "AC9POW_count",
+			"cssTextArea": "AC9POW_cssTextArea",
+			"desc": "AC9POW_desc",
+			"done": "AC9POW_done",
+			"error": "AC9POW_error",
+			"grid": "AC9POW_grid",
+			"group": "AC9POW_group",
+			"groupHeading": "AC9POW_groupHeading",
+			"intro": "AC9POW_intro",
+			"openWithEditorInput": "AC9POW_openWithEditorInput",
 			"openWithEditorRow": "AC9POW_openWithEditorRow",
 			"openWithEditorTemplate": "AC9POW_openWithEditorTemplate",
-			"pluginGroupHeading": "AC9POW_pluginGroupHeading",
-			"grid": "AC9POW_grid",
-			"control": "AC9POW_control",
-			"cardOn": "AC9POW_cardOn",
-			"groupHeading": "AC9POW_groupHeading",
-			"section": "AC9POW_section",
-			"selectAnchor": "AC9POW_selectAnchor",
-			"rowText": "AC9POW_rowText",
-			"selectOption": "AC9POW_selectOption",
-			"popupRow": "AC9POW_popupRow",
-			"pluginList": "AC9POW_pluginList",
-			"pluginJumpBtn": "AC9POW_pluginJumpBtn",
 			"openWithFamily": "AC9POW_openWithFamily",
-			"desc": "AC9POW_desc",
-			"cardDesc": "AC9POW_cardDesc",
-			"pluginEmpty": "AC9POW_pluginEmpty",
+			"openWithHint": "AC9POW_openWithHint",
+			"openWithRemove": "AC9POW_openWithRemove",
+			"percentInput": "AC9POW_percentInput",
 			"pluginCopyBtn": "AC9POW_pluginCopyBtn",
-			"typedInput": "AC9POW_typedInput",
+			"pluginDesc": "AC9POW_pluginDesc",
+			"pluginEmpty": "AC9POW_pluginEmpty",
+			"pluginEntries": "AC9POW_pluginEntries",
+			"pluginEntry": "AC9POW_pluginEntry",
+			"pluginEntryActions": "AC9POW_pluginEntryActions",
+			"pluginEntryHead": "AC9POW_pluginEntryHead",
+			"pluginGroup": "AC9POW_pluginGroup",
+			"pluginGroupHeading": "AC9POW_pluginGroupHeading",
+			"pluginInstall": "AC9POW_pluginInstall",
+			"pluginJumpBtn": "AC9POW_pluginJumpBtn",
+			"pluginList": "AC9POW_pluginList",
+			"pluginModal": "AC9POW_pluginModal",
+			"pluginName": "AC9POW_pluginName",
+			"pluginSearch": "AC9POW_pluginSearch",
 			"pluginTopicBtn": "AC9POW_pluginTopicBtn",
 			"popupDialog": "AC9POW_popupDialog",
-			"pluginModal": "AC9POW_pluginModal",
-			"selectOptionText": "AC9POW_selectOptionText",
-			"selectAnchorText": "AC9POW_selectAnchorText",
-			"pluginSearch": "AC9POW_pluginSearch",
-			"switchInput": "AC9POW_switchInput",
-			"cardSwitch": "AC9POW_cardSwitch",
-			"suffix": "AC9POW_suffix",
-			"cardTitle": "AC9POW_cardTitle",
-			"pluginInstall": "AC9POW_pluginInstall",
-			"addCard": "AC9POW_addCard",
-			"typedInputNumber": "AC9POW_typedInputNumber",
-			"count": "AC9POW_count",
-			"pluginDesc": "AC9POW_pluginDesc",
-			"selectAnchorIcon": "AC9POW_selectAnchorIcon",
-			"switch": "AC9POW_switch",
-			"cardSettings": "AC9POW_cardSettings",
-			"cardTop": "AC9POW_cardTop",
-			"pluginEntries": "AC9POW_pluginEntries",
-			"cardSwitchThumb": "AC9POW_cardSwitchThumb",
-			"percentInput": "AC9POW_percentInput",
-			"versionBadge": "AC9POW_versionBadge",
-			"switchTrack": "AC9POW_switchTrack",
-			"pluginEntryHead": "AC9POW_pluginEntryHead",
-			"versionBadgeName": "AC9POW_versionBadgeName",
-			"versionBadgeTag": "AC9POW_versionBadgeTag",
-			"selectOptionIcon": "AC9POW_selectOptionIcon",
-			"done": "AC9POW_done",
+			"popupRow": "AC9POW_popupRow",
 			"popupRows": "AC9POW_popupRows",
-			"openWithEditorInput": "AC9POW_openWithEditorInput",
-			"pluginEntry": "AC9POW_pluginEntry",
-			"group": "AC9POW_group",
-			"cardSwitchTrack": "AC9POW_cardSwitchTrack",
-			"cardIconChip": "AC9POW_cardIconChip",
-			"openWithRemove": "AC9POW_openWithRemove",
-			"openWithHint": "AC9POW_openWithHint",
-			"title": "AC9POW_title",
-			"cssTextArea": "AC9POW_cssTextArea",
-			"switchThumb": "AC9POW_switchThumb",
+			"row": "AC9POW_row",
 			"rowGear": "AC9POW_rowGear",
-			"card": "AC9POW_card",
-			"pluginGroup": "AC9POW_pluginGroup",
-			"pluginEntryActions": "AC9POW_pluginEntryActions"
+			"rowText": "AC9POW_rowText",
+			"section": "AC9POW_section",
+			"selectAnchor": "AC9POW_selectAnchor",
+			"selectAnchorIcon": "AC9POW_selectAnchorIcon",
+			"selectAnchorText": "AC9POW_selectAnchorText",
+			"selectOption": "AC9POW_selectOption",
+			"selectOptionIcon": "AC9POW_selectOptionIcon",
+			"selectOptionText": "AC9POW_selectOptionText",
+			"suffix": "AC9POW_suffix",
+			"switch": "AC9POW_switch",
+			"switchInput": "AC9POW_switchInput",
+			"switchThumb": "AC9POW_switchThumb",
+			"switchTrack": "AC9POW_switchTrack",
+			"title": "AC9POW_title",
+			"typedInput": "AC9POW_typedInput",
+			"typedInputNumber": "AC9POW_typedInputNumber",
+			"versionBadge": "AC9POW_versionBadge",
+			"versionBadgeName": "AC9POW_versionBadgeName",
+			"versionBadgeTag": "AC9POW_versionBadgeTag"
 		};
 		//#endregion
 		//#region src/client/open-with-settings.tsx
@@ -13176,6 +6941,142 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
+		//#region src/client/redact.ts
+		/** The heuristics, applied in order; `$1` keeps the leading keyword where the
+		*  rule matches an assignment shape. */
+		const RULES = [
+			{
+				pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+				replacement: "[REDACTED PRIVATE KEY]"
+			},
+			{
+				pattern: /\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,})\b/g,
+				replacement: "[REDACTED KEY]"
+			},
+			{
+				pattern: /([Aa]uthorization\s*:\s*)[^\n"']{4,}/g,
+				replacement: "$1[REDACTED]"
+			},
+			{
+				pattern: /\b([Bb]earer\s+)[A-Za-z0-9._-]{16,}\b/g,
+				replacement: "$1[REDACTED]"
+			},
+			{
+				pattern: /(\b[A-Za-z_-]*(?:password|passwd|secret|token|apikey|api_key)[A-Za-z_-]*(?:\s*[:=]\s*))['"]?[^\s"',;){]{3,}/gi,
+				replacement: "$1[REDACTED]"
+			}
+		];
+		/**
+		* Mask credential-shaped strings in `text`. Best-effort by design: the goal
+		* is to keep the common accident (a key echoed into a file the model wrote)
+		* out of the sidebar, not to parse every secret format ever shipped.
+		*/
+		function redactSecrets(text) {
+			let out = text;
+			for (const rule of RULES) out = out.replace(rule.pattern, rule.replacement);
+			return out;
+		}
+		//#endregion
+		//#region src/client/SessionLens.tsx
+		/**
+		* The session lens: file operations the model performed in this session,
+		* parsed from the session's own event log (`changes.ops`). Clicking a row
+		* expands a best-effort text preview of the file (read through `fs.read`,
+		* passed through the secret-redaction layer). Kept a leaf component — the
+		* GitView hosts it as the "session changes" lens of the unified tab.
+		*/
+		/** Preview cap: a long file shows its head only (the sidebar is not an editor). */
+		const PREVIEW_CHARS = 2e4;
+		function SessionLens(props) {
+			const { scope } = props;
+			const [ops, setOps] = (0, react.useState)(null);
+			const [error, setError] = (0, react.useState)(null);
+			const [openPath, setOpenPath] = (0, react.useState)(null);
+			const [preview, setPreview] = (0, react.useState)(null);
+			const [previewLoading, setPreviewLoading] = (0, react.useState)(false);
+			const load = (0, react.useCallback)(async () => {
+				setError(null);
+				try {
+					const result = await api.changesOps(scope);
+					setOps(result.ops);
+				} catch (reason) {
+					setError(reason instanceof Error ? reason.message : String(reason));
+				}
+			}, [scope]);
+			(0, react.useEffect)(() => {
+				load();
+			}, [load]);
+			/** Toggle one row's preview: fetch + redact on first open, cached after. */
+			const togglePreview = (path) => {
+				if (openPath === path) {
+					setOpenPath(null);
+					return;
+				}
+				setOpenPath(path);
+				setPreview(null);
+				setPreviewLoading(true);
+				api.fsRead(scope, path).then((result) => {
+					const text = result.kind === "text" ? redactSecrets(result.content) : t("changesBinary");
+					setPreview(text.slice(0, PREVIEW_CHARS));
+				}).catch((reason) => {
+					setPreview(t("changesPreviewError", { message: reason instanceof Error ? reason.message : String(reason) }));
+				}).finally(() => {
+					setPreviewLoading(false);
+				});
+			};
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: sidebar_module_css_default.sessionLens,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.sessionLensBar,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: sidebar_module_css_default.sessionLensCount,
+							children: ops === null ? t("loading") : t("changesCount", { count: ops.length })
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: sidebar_module_css_default.iconButton,
+							"aria-label": t("refresh"),
+							title: t("refresh"),
+							onClick: () => {
+								load();
+							},
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRefreshOutline16, { size: 14 })
+						})]
+					}),
+					error !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: sidebar_module_css_default.sessionLensEmpty,
+						children: error
+					}),
+					error === null && ops !== null && ops.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: sidebar_module_css_default.sessionLensEmpty,
+						children: t("changesEmpty")
+					}),
+					ops !== null && ops.map((op) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.sessionLensItem,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							type: "button",
+							className: sidebar_module_css_default.sessionLensRow,
+							"aria-expanded": openPath === op.path,
+							onClick: () => {
+								togglePreview(op.path);
+							},
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: sidebar_module_css_default.sessionLensPath,
+								title: op.path,
+								children: op.path
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+								className: sidebar_module_css_default.sessionLensMeta,
+								children: [op.tool, op.count > 1 ? ` ×${op.count}` : ""]
+							})]
+						}), openPath === op.path && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: sidebar_module_css_default.sessionLensPreview,
+							children: previewLoading ? t("loading") : preview ?? ""
+						})]
+					}, op.path))
+				]
+			});
+		}
+		//#endregion
 		//#region src/client/GitView.tsx
 		/**
 		* The source-control panel: status list (staged vs unstaged), stage/unstage,
@@ -13227,6 +7128,29 @@ window.__ModuleLoader__.load({
 		const LOG_BATCH = 20;
 		function GitView(props) {
 			const { scope, onOpenFile, onOpenDiff, visible } = props;
+			const [lens, setLens] = (0, react.useState)("git");
+			const lensToggle = /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: sidebar_module_css_default.changesLensToggle,
+				role: "tablist",
+				"aria-label": t("changesLens"),
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: clsx(sidebar_module_css_default.changesLensTab, lens === "git" && sidebar_module_css_default.changesLensTabActive),
+					"aria-pressed": lens === "git",
+					onClick: () => {
+						setLens("git");
+					},
+					children: t("changesSessionGit")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: clsx(sidebar_module_css_default.changesLensTab, lens === "session" && sidebar_module_css_default.changesLensTabActive),
+					"aria-pressed": lens === "session",
+					onClick: () => {
+						setLens("session");
+					},
+					children: t("changesSessionLens")
+				})]
+			});
 			const [status, setStatus] = (0, react.useState)(null);
 			const [worktrees, setWorktrees] = (0, react.useState)([]);
 			const [selectedWorktree, setSelectedWorktree] = (0, react.useState)();
@@ -13565,9 +7489,14 @@ window.__ModuleLoader__.load({
 					})]
 				}, `${staged ? "s" : "u"}:${entry.path}`);
 			};
+			if (lens === "session") return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: sidebar_module_css_default.git,
+				children: [lensToggle, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(SessionLens, { scope })]
+			});
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: sidebar_module_css_default.git,
 				children: [
+					lensToggle,
 					worktrees.length > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: sidebar_module_css_default.gitWorktreeRow,
 						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
@@ -14143,6 +8072,56 @@ window.__ModuleLoader__.load({
 			if (path.startsWith("a/") || path.startsWith("b/")) return path.slice(2);
 			return path;
 		}
+		/** How many old-side rows a hunk carries (rows without an old number are
+		*  pure additions and do not advance the old side). */
+		function hunkOldEnd(hunk) {
+			return hunk.oldStart + hunk.lines.filter((line) => line.oldNum !== null).length - 1;
+		}
+		/** How many new-side rows a hunk carries. */
+		function hunkNewEnd(hunk) {
+			return hunk.newStart + hunk.lines.filter((line) => line.newNum !== null).length - 1;
+		}
+		/**
+		* Materialize a git gap fold's hidden rows from the two sides' full file
+		* contents, by the fold's known line ranges: the old side drives context
+		* rows (each mapped onto the new side through the fold's offset — a gap is
+		* an unchanged run, so the sides align), and new-side lines the old range
+		* never reaches become pure additions. Line numbers clip to the actual
+		* content (a no-newline file's ranges can overrun by one); `\r` endings
+		* survive verbatim, like git's own context lines.
+		*/
+		function foldRowsFromContents(fold, oldContent, newContent) {
+			const oldLines = oldContent.length === 0 ? [] : oldContent.split("\n");
+			const newLines = newContent.length === 0 ? [] : newContent.split("\n");
+			const offset = fold.newStart - fold.oldStart;
+			const rows = [];
+			const oldFrom = Math.max(fold.oldStart, 1);
+			const oldTo = Math.min(fold.oldEnd, oldLines.length);
+			for (let oldLine = oldFrom; oldLine <= oldTo; oldLine += 1) {
+				const text = oldLines[oldLine - 1] ?? "";
+				const newLine = oldLine + offset;
+				rows.push(newLine >= fold.newStart && newLine <= fold.newEnd && newLine <= newLines.length ? {
+					kind: "ctx",
+					text,
+					oldNum: oldLine,
+					newNum: newLine
+				} : {
+					kind: "ctx",
+					text,
+					oldNum: oldLine,
+					newNum: null
+				});
+			}
+			const newFrom = Math.max(Math.max(fold.newStart, 1), oldTo + offset + 1);
+			const newTo = Math.min(fold.newEnd, newLines.length);
+			for (let newLine = newFrom; newLine <= newTo; newLine += 1) rows.push({
+				kind: "add",
+				text: newLines[newLine - 1] ?? "",
+				oldNum: null,
+				newNum: newLine
+			});
+			return rows;
+		}
 		/** The file header badge: added / deleted / renamed / binary ('' for a plain edit). */
 		function fileTag(file) {
 			if (file.binary) return t("diffBinary");
@@ -14166,7 +8145,7 @@ window.__ModuleLoader__.load({
 			});
 			return expanded;
 		}
-		function DiffView({ diff, untrackedPath, untrackedContent }) {
+		function DiffView({ diff, untrackedPath, untrackedContent, foldSource }) {
 			const parsed = (0, react.useMemo)(() => {
 				if (untrackedPath !== void 0) return { files: [untrackedFile(untrackedPath, untrackedContent ?? "")] };
 				return parseUnifiedDiff(diff);
@@ -14177,9 +8156,43 @@ window.__ModuleLoader__.load({
 			]);
 			const [expanded, setExpanded] = (0, react.useState)(false);
 			const [expandedFiles, setExpandedFiles] = (0, react.useState)(() => defaultExpandedFiles(parsed.files));
+			const [foldRows, setFoldRows] = (0, react.useState)(/* @__PURE__ */ new Map());
+			const foldInflight = (0, react.useRef)(/* @__PURE__ */ new Map());
 			(0, react.useEffect)(() => {
 				setExpandedFiles(defaultExpandedFiles(parsed.files));
 			}, [parsed]);
+			(0, react.useEffect)(() => {
+				setFoldRows(/* @__PURE__ */ new Map());
+				foldInflight.current.clear();
+			}, [parsed]);
+			/** Fetch both sides' contents and materialize one fold's hidden rows. */
+			const resolveFold = (key, file, fold) => {
+				if (foldSource === void 0 || foldInflight.current.has(key)) return;
+				setFoldRows((current) => new Map(current).set(key, { status: "loading" }));
+				const task = (async () => {
+					try {
+						const path = displayPath(file.newPath === "/dev/null" ? file.oldPath : file.newPath);
+						const contents = await api.gitFoldContents(foldSource.scope, {
+							path,
+							...foldSource.ref.kind === "commit" ? { hash: foldSource.ref.hashFull } : { staged: foldSource.ref.staged === true }
+						}, foldSource.ref.kind === "worktree" ? foldSource.ref.worktree : void 0);
+						if (contents.old === null || contents.new === null) {
+							setFoldRows((current) => new Map(current).set(key, { status: "failed" }));
+							return;
+						}
+						const rows = foldRowsFromContents(fold, contents.old, contents.new);
+						setFoldRows((current) => new Map(current).set(key, {
+							status: "ready",
+							rows
+						}));
+					} catch {
+						setFoldRows((current) => new Map(current).set(key, { status: "failed" }));
+					} finally {
+						foldInflight.current.delete(key);
+					}
+				})();
+				foldInflight.current.set(key, task);
+			};
 			const rows = (0, react.useMemo)(() => {
 				const out = [];
 				parsed.files.forEach((file, fileIndex) => {
@@ -14190,7 +8203,30 @@ window.__ModuleLoader__.load({
 						type: "path"
 					});
 					if (file.binary || !expandedFiles.has(fileIndex)) return;
+					let prevOldEnd = 0;
+					let prevNewEnd = 0;
 					file.hunks.forEach((hunk, hunkIndex) => {
+						const oldGap = hunk.oldStart - prevOldEnd - 1;
+						const newGap = hunk.newStart - prevNewEnd - 1;
+						if (foldSource !== void 0 && (oldGap > 0 || newGap > 0)) {
+							const key = `f${fileIndex}fold${hunkIndex}`;
+							out.push({
+								key,
+								file,
+								fileIndex,
+								type: "fold",
+								fold: {
+									oldStart: prevOldEnd + 1,
+									oldEnd: Math.max(hunk.oldStart - 1, prevOldEnd),
+									newStart: prevNewEnd + 1,
+									newEnd: Math.max(hunk.newStart - 1, prevNewEnd)
+								},
+								count: Math.max(oldGap, newGap, 0),
+								state: foldRows.get(key)
+							});
+						}
+						prevOldEnd = hunkOldEnd(hunk);
+						prevNewEnd = hunkNewEnd(hunk);
 						out.push({
 							key: `f${fileIndex}h${hunkIndex}`,
 							file,
@@ -14211,7 +8247,12 @@ window.__ModuleLoader__.load({
 					});
 				});
 				return out;
-			}, [parsed, expandedFiles]);
+			}, [
+				parsed,
+				expandedFiles,
+				foldRows,
+				foldSource
+			]);
 			const hidden = rows.length - MAX_DIFF_ROWS;
 			const capped = hidden > 0 && !expanded;
 			const headLines = Math.ceil(MAX_DIFF_ROWS / 2);
@@ -14219,6 +8260,29 @@ window.__ModuleLoader__.load({
 			const head = capped ? rows.slice(0, headLines) : rows;
 			const tail = capped ? rows.slice(rows.length - tailLines) : [];
 			if (rows.length === 0) return null;
+			const renderLine = (line, key) => {
+				const lineClass = line.kind === "del" ? sidebar_module_css_default.gitDiffDel : line.kind === "add" ? sidebar_module_css_default.gitDiffAdd : line.kind === "meta" ? sidebar_module_css_default.gitDiffMeta : sidebar_module_css_default.gitDiffCtx;
+				return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: clsx(sidebar_module_css_default.gitDiffLine, lineClass),
+					children: line.kind === "meta" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: sidebar_module_css_default.gitDiffMetaText,
+						children: line.text
+					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: sidebar_module_css_default.gitDiffNum,
+							children: line.oldNum ?? ""
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: sidebar_module_css_default.gitDiffNum,
+							children: line.newNum ?? ""
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: sidebar_module_css_default.gitDiffCode,
+							children: line.text
+						})
+					] })
+				}, key);
+			};
 			const renderRow = (row) => {
 				if (row.type === "path") {
 					const tag = fileTag(row.file);
@@ -14283,28 +8347,21 @@ window.__ModuleLoader__.load({
 						})]
 					}, row.key);
 				}
-				const line = row.line;
-				const lineClass = line.kind === "del" ? sidebar_module_css_default.gitDiffDel : line.kind === "add" ? sidebar_module_css_default.gitDiffAdd : line.kind === "meta" ? sidebar_module_css_default.gitDiffMeta : sidebar_module_css_default.gitDiffCtx;
-				return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-					className: clsx(sidebar_module_css_default.gitDiffLine, lineClass),
-					children: line.kind === "meta" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: sidebar_module_css_default.gitDiffMetaText,
-						children: line.text
-					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: sidebar_module_css_default.gitDiffNum,
-							children: line.oldNum ?? ""
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: sidebar_module_css_default.gitDiffNum,
-							children: line.newNum ?? ""
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: sidebar_module_css_default.gitDiffCode,
-							children: line.text
-						})
-					] })
-				}, row.key);
+				if (row.type === "fold") {
+					if (row.state?.status === "ready") return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react.Fragment, { children: row.state.rows.map((line, index) => renderLine(line, `${row.key}r${index}`)) }, row.key);
+					const loading = row.state?.status === "loading";
+					const failed = row.state?.status === "failed";
+					return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: clsx(sidebar_module_css_default.gitFoldRow, failed && sidebar_module_css_default.gitFoldRowFailed),
+						disabled: loading || failed,
+						onClick: () => {
+							resolveFold(row.key, row.file, row.fold);
+						},
+						children: failed ? t("gitFoldFailed") : loading ? t("gitFoldLoading") : t("gitFoldExpand", { count: row.count })
+					}, row.key);
+				}
+				return renderLine(row.line, row.key);
 			};
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: sidebar_module_css_default.gitDiff,
@@ -14428,7 +8485,18 @@ window.__ModuleLoader__.load({
 						diff: "",
 						untrackedPath: diff.kind === "worktree" ? diff.path : "",
 						untrackedContent: data.untracked
-					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(DiffView, { diff: data.diff }), data.diff === "" && data.untracked === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(DiffView, {
+						diff: data.diff,
+						foldSource: {
+							scope: {
+								sessionId,
+								cwd,
+								...diff.repoRoot !== void 0 ? { repoRoot: diff.repoRoot } : {}
+							},
+							ref: diff,
+							cwd
+						}
+					}), data.diff === "" && data.untracked === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: sidebar_module_css_default.gitEmpty,
 						children: t("diffEmpty")
 					})] })
@@ -14742,58 +8810,58 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			document.head.appendChild(tag);
 		}
 		var SubagentView_module_css_default = {
-			"jobsRowSettled": "F2T6aa_jobsRowSettled",
-			"subagentLiveText": "F2T6aa_subagentLiveText",
+			"historyToggle": "F2T6aa_historyToggle",
+			"jobs": "F2T6aa_jobs",
 			"jobsContent": "F2T6aa_jobsContent",
-			"jobsPanePre": "F2T6aa_jobsPanePre",
-			"jobsList": "F2T6aa_jobsList",
-			"jobsPaneHint": "F2T6aa_jobsPaneHint",
-			"jobsHeader": "F2T6aa_jobsHeader",
-			"jobsKillError": "F2T6aa_jobsKillError",
-			"jobsPaneError": "F2T6aa_jobsPaneError",
-			"subagentTitle": "F2T6aa_subagentTitle",
-			"subagentRowDisabled": "F2T6aa_subagentRowDisabled",
-			"subagentBody": "F2T6aa_subagentBody",
-			"subagentErrorRetry": "F2T6aa_subagentErrorRetry",
-			"jobsRowSelected": "F2T6aa_jobsRowSelected",
-			"jobsKillArmed": "F2T6aa_jobsKillArmed",
-			"jobsPaneHeader": "F2T6aa_jobsPaneHeader",
+			"jobsCount": "F2T6aa_jobsCount",
 			"jobsDot": "F2T6aa_jobsDot",
-			"jobsSecondary": "F2T6aa_jobsSecondary",
-			"jobsRowMain": "F2T6aa_jobsRowMain",
-			"subagentContent": "F2T6aa_subagentContent",
-			"subagentLabel": "F2T6aa_subagentLabel",
-			"subagentLiveArgs": "F2T6aa_subagentLiveArgs",
-			"jobsKind": "F2T6aa_jobsKind",
-			"jobsPaneDot": "F2T6aa_jobsPaneDot",
-			"jobsPaneLabel": "F2T6aa_jobsPaneLabel",
+			"jobsHeader": "F2T6aa_jobsHeader",
 			"jobsKill": "F2T6aa_jobsKill",
+			"jobsKillArmed": "F2T6aa_jobsKillArmed",
+			"jobsKillError": "F2T6aa_jobsKillError",
+			"jobsKind": "F2T6aa_jobsKind",
+			"jobsLabel": "F2T6aa_jobsLabel",
 			"jobsLabelLine": "F2T6aa_jobsLabelLine",
+			"jobsList": "F2T6aa_jobsList",
+			"jobsPane": "F2T6aa_jobsPane",
+			"jobsPaneClose": "F2T6aa_jobsPaneClose",
+			"jobsPaneDot": "F2T6aa_jobsPaneDot",
+			"jobsPaneError": "F2T6aa_jobsPaneError",
+			"jobsPaneHeader": "F2T6aa_jobsPaneHeader",
+			"jobsPaneHint": "F2T6aa_jobsPaneHint",
+			"jobsPaneLabel": "F2T6aa_jobsPaneLabel",
+			"jobsPanePre": "F2T6aa_jobsPanePre",
+			"jobsPaneStatus": "F2T6aa_jobsPaneStatus",
+			"jobsRow": "F2T6aa_jobsRow",
+			"jobsRowMain": "F2T6aa_jobsRowMain",
+			"jobsRowSelected": "F2T6aa_jobsRowSelected",
+			"jobsRowSettled": "F2T6aa_jobsRowSettled",
+			"jobsSecondary": "F2T6aa_jobsSecondary",
+			"jobsTitle": "F2T6aa_jobsTitle",
+			"subagent": "F2T6aa_subagent",
+			"subagentBody": "F2T6aa_subagentBody",
+			"subagentChildren": "F2T6aa_subagentChildren",
+			"subagentContent": "F2T6aa_subagentContent",
+			"subagentCount": "F2T6aa_subagentCount",
 			"subagentDot": "F2T6aa_subagentDot",
+			"subagentEmpty": "F2T6aa_subagentEmpty",
 			"subagentEmptyHint": "F2T6aa_subagentEmptyHint",
 			"subagentError": "F2T6aa_subagentError",
-			"jobs": "F2T6aa_jobs",
-			"subagentNode": "F2T6aa_subagentNode",
-			"subagentRowActive": "F2T6aa_subagentRowActive",
-			"subagentCount": "F2T6aa_subagentCount",
+			"subagentErrorRetry": "F2T6aa_subagentErrorRetry",
+			"subagentHeader": "F2T6aa_subagentHeader",
+			"subagentLabel": "F2T6aa_subagentLabel",
 			"subagentLive": "F2T6aa_subagentLive",
-			"jobsLabel": "F2T6aa_jobsLabel",
-			"jobsPane": "F2T6aa_jobsPane",
-			"jobsPaneStatus": "F2T6aa_jobsPaneStatus",
-			"jobsPaneClose": "F2T6aa_jobsPaneClose",
+			"subagentLiveArgs": "F2T6aa_subagentLiveArgs",
+			"subagentLiveText": "F2T6aa_subagentLiveText",
+			"subagentLiveTool": "F2T6aa_subagentLiveTool",
+			"subagentNode": "F2T6aa_subagentNode",
 			"subagentRefresh": "F2T6aa_subagentRefresh",
 			"subagentRow": "F2T6aa_subagentRow",
-			"subagentChildren": "F2T6aa_subagentChildren",
+			"subagentRowActive": "F2T6aa_subagentRowActive",
+			"subagentRowDisabled": "F2T6aa_subagentRowDisabled",
 			"subagentRowLoading": "F2T6aa_subagentRowLoading",
-			"subagentEmpty": "F2T6aa_subagentEmpty",
 			"subagentSecondary": "F2T6aa_subagentSecondary",
-			"subagentHeader": "F2T6aa_subagentHeader",
-			"historyToggle": "F2T6aa_historyToggle",
-			"subagent": "F2T6aa_subagent",
-			"jobsCount": "F2T6aa_jobsCount",
-			"jobsRow": "F2T6aa_jobsRow",
-			"subagentLiveTool": "F2T6aa_subagentLiveTool",
-			"jobsTitle": "F2T6aa_jobsTitle"
+			"subagentTitle": "F2T6aa_subagentTitle"
 		};
 		//#endregion
 		//#region src/client/SubagentView.tsx
@@ -15900,45 +9968,45 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			document.head.appendChild(tag);
 		}
 		var SideChatView_module_css_default = {
-			"sidechatRowLine": "_64UoUa_sidechatRowLine",
-			"sidechatRowFailed": "_64UoUa_sidechatRowFailed",
-			"sidechatRowBody": "_64UoUa_sidechatRowBody",
-			"sidechatRowMono": "_64UoUa_sidechatRowMono",
-			"sidechatStatus": "_64UoUa_sidechatStatus",
-			"sidechatScroll": "_64UoUa_sidechatScroll",
-			"sidechatHeroTitle": "_64UoUa_sidechatHeroTitle",
-			"sidechatComposerInput": "_64UoUa_sidechatComposerInput",
-			"sidechatComposerBar": "_64UoUa_sidechatComposerBar",
-			"sidechatBtnIn": "_64UoUa_sidechatBtnIn",
-			"sidechatIconBtn": "_64UoUa_sidechatIconBtn",
-			"sidechatRowSummary": "_64UoUa_sidechatRowSummary",
-			"sidechatRowCode": "_64UoUa_sidechatRowCode",
-			"sidechatStatusText": "_64UoUa_sidechatStatusText",
-			"sidechatRow": "_64UoUa_sidechatRow",
-			"sidechatRowMeta": "_64UoUa_sidechatRowMeta",
-			"sidechatHeroDesc": "_64UoUa_sidechatHeroDesc",
-			"sidechatSweep": "_64UoUa_sidechatSweep",
-			"sidechatRowIn": "_64UoUa_sidechatRowIn",
-			"sidechatUser": "_64UoUa_sidechatUser",
+			"sidechat": "_64UoUa_sidechat",
+			"sidechatAgentBadge": "_64UoUa_sidechatAgentBadge",
 			"sidechatAssistant": "_64UoUa_sidechatAssistant",
-			"sidechatRowChevron": "_64UoUa_sidechatRowChevron",
-			"sidechatHeaderSpacer": "_64UoUa_sidechatHeaderSpacer",
-			"sidechatShimmerText": "_64UoUa_sidechatShimmerText",
-			"sidechatHint": "_64UoUa_sidechatHint",
-			"sidechatHeaderDot": "_64UoUa_sidechatHeaderDot",
+			"sidechatBtnIn": "_64UoUa_sidechatBtnIn",
+			"sidechatComposer": "_64UoUa_sidechatComposer",
+			"sidechatComposerBar": "_64UoUa_sidechatComposerBar",
+			"sidechatComposerInput": "_64UoUa_sidechatComposerInput",
+			"sidechatComposerMeta": "_64UoUa_sidechatComposerMeta",
+			"sidechatDetailHeader": "_64UoUa_sidechatDetailHeader",
 			"sidechatError": "_64UoUa_sidechatError",
 			"sidechatFadeIn": "_64UoUa_sidechatFadeIn",
-			"sidechatSendBtn": "_64UoUa_sidechatSendBtn",
-			"sidechatComposerMeta": "_64UoUa_sidechatComposerMeta",
-			"sidechatAgentBadge": "_64UoUa_sidechatAgentBadge",
-			"sidechat": "_64UoUa_sidechat",
+			"sidechatHeaderDot": "_64UoUa_sidechatHeaderDot",
+			"sidechatHeaderSpacer": "_64UoUa_sidechatHeaderSpacer",
+			"sidechatHero": "_64UoUa_sidechatHero",
+			"sidechatHeroDesc": "_64UoUa_sidechatHeroDesc",
+			"sidechatHeroTitle": "_64UoUa_sidechatHeroTitle",
+			"sidechatHint": "_64UoUa_sidechatHint",
+			"sidechatIconBtn": "_64UoUa_sidechatIconBtn",
 			"sidechatPrimaryBtn": "_64UoUa_sidechatPrimaryBtn",
-			"sidechatComposer": "_64UoUa_sidechatComposer",
-			"sidechatDetailHeader": "_64UoUa_sidechatDetailHeader",
-			"sidechatRowStatic": "_64UoUa_sidechatRowStatic",
-			"sidechatRowProse": "_64UoUa_sidechatRowProse",
+			"sidechatRow": "_64UoUa_sidechatRow",
+			"sidechatRowBody": "_64UoUa_sidechatRowBody",
+			"sidechatRowChevron": "_64UoUa_sidechatRowChevron",
+			"sidechatRowCode": "_64UoUa_sidechatRowCode",
+			"sidechatRowFailed": "_64UoUa_sidechatRowFailed",
+			"sidechatRowIn": "_64UoUa_sidechatRowIn",
 			"sidechatRowLabel": "_64UoUa_sidechatRowLabel",
-			"sidechatHero": "_64UoUa_sidechatHero"
+			"sidechatRowLine": "_64UoUa_sidechatRowLine",
+			"sidechatRowMeta": "_64UoUa_sidechatRowMeta",
+			"sidechatRowMono": "_64UoUa_sidechatRowMono",
+			"sidechatRowProse": "_64UoUa_sidechatRowProse",
+			"sidechatRowStatic": "_64UoUa_sidechatRowStatic",
+			"sidechatRowSummary": "_64UoUa_sidechatRowSummary",
+			"sidechatScroll": "_64UoUa_sidechatScroll",
+			"sidechatSendBtn": "_64UoUa_sidechatSendBtn",
+			"sidechatShimmerText": "_64UoUa_sidechatShimmerText",
+			"sidechatStatus": "_64UoUa_sidechatStatus",
+			"sidechatStatusText": "_64UoUa_sidechatStatusText",
+			"sidechatSweep": "_64UoUa_sidechatSweep",
+			"sidechatUser": "_64UoUa_sidechatUser"
 		};
 		//#endregion
 		//#region src/client/SideChatView.tsx
@@ -17043,6 +11111,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				};
 			}, [url]);
 			const autoRaised = (0, react.useRef)(false);
+			const hadAgentPage = (0, react.useRef)(null);
 			(0, react.useEffect)(() => {
 				if (live || autoRaised.current) return;
 				const timer = setInterval(async () => {
@@ -17050,12 +11119,13 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 					try {
 						const { targets: list } = await api.cdpTargets();
 						const agentPages = list.filter((t) => t.url !== "" && !t.url.startsWith("about:"));
-						const had = autoRaised.current;
-						if (agentPages.length > 0 && !had) {
+						const had = hadAgentPage.current;
+						hadAgentPage.current = agentPages.length > 0;
+						if (agentPages.length > 0 && had === false) {
 							autoRaised.current = true;
 							setLive(true);
 							try {
-								ctx.betterSidebar?.openTab?.({ type: "browser" });
+								ctx.betterSidebar?.activateTab?.(tab.id);
 							} catch {}
 						}
 					} catch {}
@@ -17063,7 +11133,11 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				return () => {
 					clearInterval(timer);
 				};
-			}, [live, ctx]);
+			}, [
+				live,
+				ctx,
+				tab.id
+			]);
 			const persist = (nextUrl) => {
 				let host = nextUrl;
 				try {
@@ -17288,6 +11362,14 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		* `undefined.startsWith` (regression-pinned in tests/lazy-chunk.spec.tsx).
 		*/
 		const LazyTerminal = lazyChunkComponent("terminal", (mod) => mod.TerminalView);
+		/**
+		* Lazy wrapper over the trajectory graph: the projection, swimlane layout and
+		* SVG view (~70KB source) are fetched only when the tab is first opened, so
+		* the core bundle keeps its startup size. The wrapper keeps the descriptor
+		* contract `(props) => ReactNode`; `pick` is module-level for a stable
+		* identity (an inline lambda would re-trigger the load effect).
+		*/
+		const LazyTrajectory = lazyChunkComponent("trajectory", (mod) => mod.TrajectoryGraph);
 		/** A client-side uuid for terminal tab identity (not shown in the UI). */
 		function terminalUuid() {
 			if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -17303,7 +11385,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				{
 					id: "editor",
 					title: () => t("files"),
-					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderOpen16, { size }),
+					icon: filesTabIcon,
 					order: 10,
 					hidden: false,
 					dedupeKey: (tab) => tab.path,
@@ -17344,7 +11426,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				{
 					id: "git",
 					title: () => t("git"),
-					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, { size }),
+					icon: changesTabIcon,
 					order: 20,
 					single: true,
 					component: ({ ctx, store, scope, visible, onOpenDiff }) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(GitView, {
@@ -17359,7 +11441,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				{
 					id: "subagent",
 					title: () => t("subagent"),
-					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconThinkOutline16, { size }),
+					icon: tasksTabIcon,
 					order: 30,
 					single: true,
 					settings: { toggles: [{
@@ -17381,9 +11463,21 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 					})
 				},
 				{
+					id: "trajectory",
+					title: () => t("trajectory"),
+					icon: trajectoryTabIcon,
+					order: 33,
+					single: true,
+					component: ({ ctx, scope, visible }) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LazyTrajectory, {
+						ctx,
+						scope,
+						active: visible
+					})
+				},
+				{
 					id: "sidechat",
 					title: () => t("sideChat"),
-					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconNewChatOutline16, { size }),
+					icon: sidechatTabIcon,
 					order: 35,
 					createTab: () => {
 						const threadId = consumeSidechatSeed();
@@ -17415,7 +11509,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				{
 					id: "terminal",
 					title: () => t("terminal"),
-					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconTerminalOutline16, { size }),
+					icon: terminalTabIcon,
 					order: 40,
 					available: (_ctx, _scope, state) => uiTerminalCount(state) < 3,
 					settings: { toggles: [
@@ -17475,7 +11569,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				{
 					id: "browser",
 					title: () => t("browser"),
-					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconGlobeOutline16, { size }),
+					icon: browserTabIcon,
 					order: 50,
 					settings: { toggles: [
 						{
@@ -17519,7 +11613,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				{
 					id: "diff",
 					title: () => t("git"),
-					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconDiffOutline16, { size }),
+					icon: changesTabIcon,
 					order: -1,
 					hidden: true,
 					dedupeKey: (tab) => tab.id,
@@ -17549,22 +11643,186 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		//#endregion
 		//#region src/client/conversation-draft.ts
 		/**
-		* Append `text` to the session's composer draft (space-separated, like the
-		* @-mentions). Returns false — and logs — when the conversation service or
-		* the session scope is unavailable.
+		* Splice `text` into `draft` at `caret` (replacing any live selection) with
+		* whitespace-aware joins and report the caret position right after the
+		* inserted text. `caret === null` (position unknown) appends at the end,
+		* exactly like the original behavior.
+		*/
+		function spliceInsert(draft, text, caret) {
+			if (caret === null || draft === "") {
+				const next = draft.trim() === "" ? text : `${draft} ${text}`;
+				return {
+					draft: next,
+					caretAfter: next.length
+				};
+			}
+			const prefix = draft.slice(0, caret.start);
+			const suffix = draft.slice(caret.end);
+			if (prefix === "" && suffix === "") return {
+				draft: text,
+				caretAfter: text.length
+			};
+			const left = prefix === "" || /\s$/.test(prefix) ? "" : " ";
+			return {
+				draft: `${prefix}${left}${text}${suffix === "" || /^\s/.test(suffix) ? "" : " "}${suffix}`,
+				caretAfter: prefix.length + left.length + text.length
+			};
+		}
+		/**
+		* Locate the composer `<textarea>` in the conversation column: prefer the
+		* `data-phase`-tagged textarea (the composer's marker), falling back to any
+		* textarea in the column, then to a bare data-phase textarea (older host
+		* layouts without the column attribute). Null in jsdom-less hosts.
+		*/
+		function findComposerTextarea() {
+			if (typeof document === "undefined") return null;
+			const column = document.querySelector("#root [data-slot=\"conversation\"]");
+			const find = (scope) => scope.querySelector("textarea[data-phase]") ?? scope.querySelector("textarea");
+			return column !== null ? find(column) : document.querySelector("textarea[data-phase]");
+		}
+		/**
+		* Resolve the composer's live caret from its DOM `<textarea>`. The draft
+		* store has no caret API, so the sidebar reads the composed input's selection
+		* directly; the value-sync check (`el.value === draft`) discards stale or
+		* wrong-composer reads — a caret must never be applied against a draft it
+		* was not measured on.
+		*
+		* Returns null when the composer is missing, disabled/read-only, out of
+		* sync with the store draft, or has no measurable selection (odd hosts
+		* report null selectionStart/End).
+		*/
+		function probeComposerCaret(draft) {
+			const el = findComposerTextarea();
+			if (el === null || el.disabled || el.readOnly) return null;
+			if (el.value !== draft) return null;
+			let start = el.selectionStart;
+			let end = el.selectionEnd;
+			if (typeof start !== "number" || typeof end !== "number") return null;
+			if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+			start = Math.max(0, Math.min(start, draft.length));
+			end = Math.max(start, Math.min(end, draft.length));
+			return {
+				start,
+				end
+			};
+		}
+		/**
+		* Restore the composer caret to `caretIndex` after a programmatic
+		* `setDraft` commit. A controlled textarea update resets the caret (React
+		* commits the value asynchronously and the browser moves the caret to the
+		* start/end), so the placement is scheduled and retried across at most two
+		* animation frames (setTimeout fallback), and only applied when the textarea
+		* still matches `expectedDraft` — a newer edit or a different composer wins
+		* the race untouched. The caret is clamped into the value bounds, mirroring
+		* how browsers clamp type-in positions.
+		*/
+		function placeComposerCaretAfterInsert(expectedDraft, caretIndex) {
+			let remaining = 2;
+			let scheduled = false;
+			const schedule = (fn) => {
+				if (scheduled) return;
+				scheduled = true;
+				if (typeof requestAnimationFrame === "function") requestAnimationFrame(fn);
+				else setTimeout(fn, 0);
+			};
+			const place = () => {
+				scheduled = false;
+				if (remaining <= 0) return;
+				remaining -= 1;
+				const el = findComposerTextarea();
+				if (el === null || el.disabled || el.readOnly) return;
+				if (el.value !== expectedDraft) {
+					schedule(place);
+					return;
+				}
+				const clamped = Math.max(0, Math.min(caretIndex, el.value.length));
+				el.setSelectionRange(clamped, clamped);
+			};
+			schedule(place);
+		}
+		/**
+		* Insert `text` into the session's composer draft at the composer's live
+		* caret (see {@link probeComposerCaret}), falling back to appending at the
+		* end when the caret cannot be resolved. Returns false — and logs — when the
+		* conversation service or the session scope is unavailable.
 		*/
 		function appendToDraft(ctx, sessionId, text) {
+			try {
+				const actx = ctx.sessions.scope(sessionId);
+				if (actx === void 0) {
+					console.warn("[dsh-coding-sidebar] draft insert skipped: no session scope", sessionId);
+					return false;
+				}
+				const conversation = ctx.get("conversation");
+				if (conversation === void 0) {
+					console.warn("[dsh-coding-sidebar] draft insert skipped: conversation service unavailable");
+					return false;
+				}
+				const input = conversation.input.for(actx);
+				const draft = input.state.getSnapshot().draft;
+				const { draft: next, caretAfter } = spliceInsert(draft, text, probeComposerCaret(draft));
+				input.setDraft(next);
+				placeComposerCaretAfterInsert(next, caretAfter);
+				return true;
+			} catch (error) {
+				console.warn("[dsh-coding-sidebar] draft insert failed:", error);
+				return false;
+			}
+		}
+		/**
+		* The DSH `@file` spelling for one relative path, mirroring the host grammar
+		* (`formatFileMention` in `@deepseek-ai/dsh-file-reference`): plain when
+		* there is no whitespace, quoted when there is, and `undefined` when the
+		* path contains a control character or an embedded quote the editor grammar
+		* cannot represent.
+		*/
+		function fileMention(relativePath) {
+			const path = relativePath.replace(/[\\/]+$/, "");
+			if (/[\u0000-\u001f\u007f-\u009f"]/u.test(path)) return void 0;
+			const mention = /\s/u.test(path) ? `@"${path}"` : `@${path}`;
+			const at = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+			return {
+				mention,
+				label: at === -1 ? path : path.slice(at + 1)
+			};
+		}
+		/**
+		* Insert one FILE reference as a structured chip (like DSH's own `@` picker).
+		* The chip displays `@<basename>` but serializes to `@<relative path>` on
+		* send, so the reference stays a single link from trigger to basename.
+		*
+		* Directories are NOT handled here: DSH's folder grammar wants the trailing
+		* slash as plain text (`@dir/`) so completion can descend, which
+		* `appendToDraft` already covers.
+		*/
+		function insertFileReference(ctx, sessionId, relativePath) {
+			const reference = fileMention(relativePath);
+			if (reference === void 0) return false;
 			try {
 				const actx = ctx.sessions.scope(sessionId);
 				if (actx === void 0) return false;
 				const conversation = ctx.get("conversation");
 				if (conversation === void 0) return false;
 				const input = conversation.input.for(actx);
-				const draft = input.state.getSnapshot().draft;
-				input.setDraft(draft.trim() === "" ? text : `${draft} ${text}`);
-				return true;
+				const before = input.state.getSnapshot();
+				if (before.draftRev === void 0) return false;
+				actx.emit("slash/input-insert-reference", {
+					reference: {
+						source: "reference",
+						ref: reference.mention,
+						label: reference.label,
+						appearance: "file",
+						clipboardText: reference.mention
+					},
+					span: {
+						draftRev: before.draftRev,
+						start: before.draft.length,
+						end: before.draft.length
+					}
+				});
+				return input.state.getSnapshot().draftRev !== before.draftRev;
 			} catch (error) {
-				console.warn("[dsh-coding-sidebar] draft insert failed:", error);
+				console.warn("[dsh-coding-sidebar] file-reference insert failed:", error);
 				return false;
 			}
 		}
@@ -18819,7 +13077,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		}
 		/** Render the content of one tab (dispatched by type). */
 		const TabContent = (0, react.memo)(function TabContent(props) {
-			const { tab, effectiveTabId, sessionId, cwd, expanded, revealed, onToggleDir, onReferenceFile, ctx, store, visible, onSubagentJump, onOpenDiff } = props;
+			const { tab, effectiveTabId, sessionId, cwd, expanded, revealed, onToggleDir, onReferenceFile, ctx, store, visible, onSubagentJump, onOpenDiff, onPathRenamed, onPathRemoved } = props;
 			const scope = {
 				sessionId,
 				cwd
@@ -19100,8 +13358,10 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			* Subagent auto-activation: the moment the current conversation spawns its
 			* FIRST direct subagent (a 0 → N transition on the list feed), the "auto
 			* open" pref is on, and the Subagent tab type is enabled in settings,
-			* open the panel (if collapsed) and focus the Subagent page
-			* (single-instance: an existing tab is focused, never duplicated).
+			* focus the Subagent page (single-instance: an existing tab is focused,
+			* never duplicated). On wide viewports the right panel also expands; on
+			* narrow viewports background activity never forces the full-screen drawer
+			* open over the chat.
 			* Switching to a session that already has subagents never triggers — its
 			* baseline starts at the current count — so a deliberate layout is never
 			* fought.
@@ -19127,7 +13387,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 					if (!detectNewDirectSubagent(baseline, ctx.sessions.list.getSnapshot(), sessionId)) return;
 					if (!store.getPrefs().autoOpenSubagent) return;
 					if (ctx.get("betterSidebar")?.isTabEnabled("subagent") === false) return;
-					store.reduce((s) => s.panelOpen ? s : togglePanel(s));
+					if (!isNarrowWidth(window.innerWidth)) store.reduce((s) => s.panelOpen ? s : togglePanel(s));
 					store.reduce((s) => ({
 						...s,
 						activePane: firstLeaf(s.splits).id
@@ -19155,11 +13415,12 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			/**
 			* Job auto-activation: the moment a NEW background job appears for the
 			* current conversation (a job id the previous snapshot lacked), the
-			* auto-open pref is on, and the Jobs tab type is enabled, open the panel
-			* (if collapsed) and focus the Jobs page. Unlike the subagent trigger
-			* (0 → N only), ANY new job id triggers: the agent may start several
-			* jobs in one session, and each should surface. A fresh page load never
-			* triggers — its baseline starts at the current snapshot.
+			* auto-open pref is on, and the Jobs tab type is enabled, focus the Jobs
+			* page. The right panel expands only on wide viewports — background
+			* activity never forces the narrow full-screen drawer open. Unlike the
+			* subagent trigger (0 → N only), ANY new job id triggers: the agent may
+			* start several jobs in one session, and each should surface. A fresh page
+			* load never triggers — its baseline starts at the current snapshot.
 			*/
 			const jobBaselineRef = (0, react.useRef)(void 0);
 			(0, react.useEffect)(() => {
@@ -19169,7 +13430,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				if (!detectNewJob(prev, sessionList, sessionId)) return;
 				if (!store.getPrefs().autoOpenJobs) return;
 				if (ctx.get("betterSidebar")?.isTabEnabled("subagent") === false) return;
-				store.reduce((s) => s.panelOpen ? s : togglePanel(s));
+				if (!isNarrowWidth(window.innerWidth)) store.reduce((s) => s.panelOpen ? s : togglePanel(s));
 				store.reduce((s) => ({
 					...s,
 					activePane: firstLeaf(s.splits).id
@@ -19666,22 +13927,62 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				store
 			]);
 			/**
-			* The explorer's @-reference button: append `@<relative path>` to the
-			* session's composer draft (space-separated). The conversation service is
-			* resolved lazily through `ctx.get` (the inject-free read — the app's own
-			* plugins read 'conversation' the same way); a missing service or scope
-			* degrades to a logged no-op, never a crash. Defined above the no-session
-			* early return — a hook must never sit behind a conditional return
-			* (React counts hooks per render).
+			* The explorer's @-reference button. Directories append the folder mention
+			* (`@dir/`) as plain text so DSH's folder decoration and completion keep
+			* working; files insert a structured chip like the native `@` picker, so
+			* the whole reference stays one link instead of decorating only the
+			* leading folder. Resolves the session-scope ctx and the conversation
+			* input service at click time; a missing service or scope degrades to a
+			* logged no-op, never a crash. Defined above the no-session early return
+			* — a hook must never sit behind a conditional return (React counts hooks
+			* per render).
 			*/
-			const referenceInChat = (0, react.useCallback)((path) => {
+			const referenceInChat = (0, react.useCallback)((path, isDir) => {
 				if (sessionId === void 0) return;
-				appendToDraft(ctx, sessionId, `@${relativeTo(cwd ?? "", path)}`);
+				const rel = relativeTo(cwd ?? "", path);
+				if (isDir) {
+					appendToDraft(ctx, sessionId, `@${rel === "." ? "./" : `${rel}/`}`);
+					return;
+				}
+				if (!insertFileReference(ctx, sessionId, rel)) appendToDraft(ctx, sessionId, `@${rel}`);
 			}, [
 				ctx,
 				sessionId,
 				cwd
 			]);
+			/** Tree-row rename reconciliation: retarget every open tab whose path was
+			*  the renamed file (the editor content survives and later saves land on
+			*  the new path; the title follows the new base name). */
+			const onPathRenamed = (0, react.useCallback)((oldPath, newPath) => {
+				const service = ctx.get("betterSidebar");
+				if (service === void 0) return;
+				const snapshot = store.getSnapshot().state;
+				if (snapshot === void 0) return;
+				for (const leaf of allLeaves(snapshot.splits)) for (const tab of leaf.tabs) if (tab.path === oldPath) service.updateTab(tab.id, {
+					path: newPath,
+					title: baseName$1(newPath)
+				});
+				for (const float of snapshot.floats) if (float.tab.path === oldPath) service.updateTab(float.tab.id, {
+					path: newPath,
+					title: baseName$1(newPath)
+				});
+			}, [ctx, store]);
+			/** Tree-row delete reconciliation: close every open tab at or under the
+			*  removed path (a stale tab's next save would fail against a missing
+			*  path). Floating tabs are as open as docked ones. */
+			const onPathRemoved = (0, react.useCallback)((target) => {
+				const service = ctx.get("betterSidebar");
+				if (service === void 0) return;
+				const snapshot = store.getSnapshot().state;
+				if (snapshot === void 0) return;
+				const tabs = [];
+				for (const leaf of allLeaves(snapshot.splits)) tabs.push(...leaf.tabs);
+				for (const float of snapshot.floats) tabs.push(float.tab);
+				for (const tab of tabs) {
+					const path = tab.path;
+					if (path !== void 0 && (path === target || isWithinWorkspace(target, path))) service.closeTab(tab.id);
+				}
+			}, [ctx, store]);
 			if (state === void 0 || sessionId === void 0) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 				"data-dsh-panel-host": true,
 				...osFileDragShield,
@@ -19723,6 +14024,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			*/
 			/** The tab icon from the tab-type registry (shared by every workbench). */
 			const tabIconOf = (tab) => {
+				if (tab.type === "editor" && tab.path !== void 0 && tab.meta?.dir !== true) return ctx.get("betterSidebar")?.fileIcon(tab.path, 14) ?? null;
 				const descriptor = ctx.get("betterSidebar")?.getTab(tab.type);
 				if (descriptor === void 0) return null;
 				return typeof descriptor.icon === "function" ? descriptor.icon(14) : descriptor.icon;
@@ -19733,6 +14035,12 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			* strip must never break because a plugin's badge computation failed.
 			*/
 			const tabBadgeOf = (tab) => {
+				if (isAgentTabId(tab.id)) {
+					if (state.agentWaits?.[agentUuidOf(tab.id)] !== void 0) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: sidebar_module_css_default.tabBadge,
+						children: "⏳"
+					});
+				}
 				const descriptor = ctx.get("betterSidebar")?.getTab(tab.type);
 				if (descriptor?.badge === void 0) return null;
 				let value;
@@ -19773,6 +14081,8 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 						store.reduce((s) => toggleExpanded(s, path));
 					},
 					onReferenceFile: referenceInChat,
+					onPathRenamed,
+					onPathRemoved,
 					ctx,
 					store,
 					visible: placement === "float" ? true : state.panelOpen && active,
@@ -21373,36 +15683,25 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			}, "dsh-coding-sidebar: dictionaries");
 			ctx.effect(() => {
 				let dispose;
+				let generation = 0;
 				const sync = () => {
+					generation += 1;
 					dispose?.();
 					dispose = void 0;
 					const store = ctx.get("betterLocale");
 					attachBetterLocale(store);
-					if (store !== void 0) dispose = store.register(LOCALE_NS, {
-						ja,
-						de,
-						fr,
-						pt,
-						ko,
-						ar,
-						hi,
-						id,
-						tr,
-						vi,
-						th,
-						ru,
-						it,
-						nl,
-						sv,
-						pl,
-						"zh-HK": zhHK,
-						"zh-TW": zhTW,
-						"zh-MO": zhMO
-					});
+					if (store !== void 0) {
+						const myGeneration = generation;
+						loadChunk("locale").then((mod) => {
+							if (myGeneration !== generation) return;
+							dispose = store.register(LOCALE_NS, mod.localeDicts);
+						}).catch(() => {});
+					}
 				};
 				sync();
 				const unsubscribe = ctx.locale.subscribe(sync);
 				return () => {
+					generation += 1;
 					unsubscribe();
 					dispose?.();
 					attachBetterLocale(void 0);

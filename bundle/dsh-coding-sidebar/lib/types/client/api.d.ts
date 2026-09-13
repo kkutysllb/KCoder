@@ -138,6 +138,16 @@ export declare const api: {
     fsWrite: (scope: SessionScope, path: string, content: string) => Promise<{
         ok: true;
     }>;
+    /** Rename one tree row within its directory (single-segment name; a
+     *  destination-existence clash is a 409; symlink rows rename the link). */
+    fsRename: (scope: SessionScope, path: string, name: string) => Promise<{
+        path: string;
+    }>;
+    /** Delete one tree row permanently (recursive for directories; a symlink
+     *  row unlinks the link only). */
+    fsRemove: (scope: SessionScope, path: string) => Promise<{
+        path: string;
+    }>;
     /** Upload one file's raw bytes into `dir` (keeps the folder tree via
      *  `relativePath`); the host streams it under the session workspace. */
     uploadFile: (scope: SessionScope, dir: string, relativePath: string, body: Blob, signal?: AbortSignal) => Promise<{
@@ -171,6 +181,16 @@ export declare const api: {
     gitCommitDiff: (scope: SessionScope, hash: string, worktree?: string, signal?: AbortSignal) => Promise<{
         diff: string;
     }>;
+    /** Both sides' full file contents for a diff-fold expansion; a missing
+     *  side is null (untracked / deleted) and the view degrades the fold. */
+    gitFoldContents: (scope: SessionScope, opts: {
+        path: string;
+        staged?: boolean;
+        hash?: string;
+    }, worktree?: string, signal?: AbortSignal) => Promise<{
+        old: string | null;
+        new: string | null;
+    }>;
     /** Discard the worktree changes of one file (the index is untouched). */
     gitDiscard: (scope: SessionScope, path: string, worktree?: string) => Promise<{
         ok: true;
@@ -192,6 +212,22 @@ export declare const api: {
     /** Release an agent terminal by uuid (tab closed while WS was down). */
     agentPtyClose: (uuid: string) => Promise<{
         ok: true;
+    }>;
+    /** Skip every active terminal_wait_for on one agent terminal (the wait
+     *  banner's skip button). Idempotent: {skipped:0} when none is active. */
+    agentSkipWait: (uuid: string) => Promise<{
+        ok: true;
+        skipped: number;
+    }>;
+    /** The session lens: file operations the model performed in one session
+     *  (parsed from the session's own event log; newest first). */
+    changesOps: (scope: SessionScope, signal?: AbortSignal) => Promise<{
+        ops: Array<{
+            path: string;
+            tool: string;
+            time: number;
+            count: number;
+        }>;
     }>;
     /** Terminal dependency status (issue #140): after a WS close 1011 with
      *  reason `pty-deps-missing` the view fetches the full repair details here

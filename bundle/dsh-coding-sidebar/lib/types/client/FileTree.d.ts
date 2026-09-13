@@ -1,3 +1,4 @@
+import type { BetterSidebarService } from './service.ts';
 import type { OpenWithTarget } from './open-with.ts';
 import { type UploadItem } from './upload.ts';
 /** Root label: the last path segment (mirror of the host rootLabel). */
@@ -27,12 +28,22 @@ export declare function FileTree(props: {
     onOpenWith?: (targetId: string, path: string) => void;
     /** Toggle one target's pinned state (the submenu row's pushpin). */
     onToggleOpenWithPin?: (targetId: string) => void;
-    /** Insert `@<relative path>` into the composer draft. */
-    onReferenceFile: (path: string) => void;
+    /** Insert `@<relative path>` into the composer draft (file vs directory). */
+    onReferenceFile: (path: string, isDir: boolean) => void;
     /** Bump to wipe the level cache and reload the visible set. */
     refreshTick: number;
     /** Upload into `dir` (absolute, inside the workspace); runs in the caller. */
     onUploadRequest: (dir: string, items: UploadItem[]) => void;
     /** True while an upload is in flight (drops are ignored). */
     busy: boolean;
+    /** A tree row was renamed (retarget open tabs; absent → no rename entry). */
+    onPathRenamed?: (oldPath: string, newPath: string) => void;
+    /** A tree row was removed (close affected tabs; absent → no delete entry). */
+    onPathRemoved?: (path: string) => void;
+    /**
+     * The sidebar registry service: when present, externally registered file
+     * icons (`registerFileIcon`) outrank the built-in host artwork on file and
+     * directory rows. Absent → the built-ins alone apply.
+     */
+    service?: BetterSidebarService;
 }): import("react").JSX.Element;

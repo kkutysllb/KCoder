@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
-import { mkdir, open, opendir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { access, lstat, mkdir, open, opendir, readFile, readdir, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import z from "schemastery";
 import { createHash, randomUUID } from "node:crypto";
@@ -13,6 +13,7 @@ import { homedir, userInfo } from "node:os";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { snapshotSubagentDescriptor } from "@deepseek-ai/dsh-subagent";
+import { SessionLogOffset } from "@deepseek-ai/dsh-session";
 //#region src/prefs-shared.ts
 /**
 * Shared "Side card" preference vocabulary (types + constants), consumed by
@@ -125,10 +126,12 @@ const PrefsSchema = z.object({
 var SidebarError = class extends Error {
 	code;
 	status;
-	constructor(code, message, status = 400) {
+	meta;
+	constructor(code, message, status = 400, meta) {
 		super(message);
 		this.code = code;
 		this.status = status;
+		this.meta = meta;
 	}
 };
 /** Body size bound of one JSON request (defense against unbounded reads). */
@@ -374,7 +377,8 @@ async function ensureWorkspaceWritePath(cwd, target) {
 //#endregion
 //#region src/fs-operations.ts
 /**
-* Workspace-safe file mutations for the sidebar (the upload route today).
+* Workspace-safe file mutations for the sidebar: the upload route plus the
+* file tree's rename and delete.
 *
 * Every write is confined to the real session workspace: the upload
 * directory is resolved absolute and its target is checked through existing
@@ -384,6 +388,13 @@ async function ensureWorkspaceWritePath(cwd, target) {
 * to a uniquely named temp sibling
 * and are renamed into place, so a failed, aborted, or oversized upload never
 * leaves a partial file at the target path.
+*
+* The tree's rename/delete (below) are link-aware: existence and containment
+* are verified against the fully resolved target (a symlink pointing outside
+* the workspace is refused), but the operation itself addresses the lexical
+* row path — renaming or deleting a symlink row renames/unlinks the LINK,
+* never its target, matching what the tree row visually names (VS Code
+* semantics). Containment is always enforced (no fence toggle on this fork).
 */
 /**
 * Stream `chunks` into `dir/relativePath` atomically: a uniquely named temp
@@ -439,6 +450,144 @@ async function writeWorkspaceUpload(input) {
 		await rm(tmp, { force: true }).catch(() => {});
 		throw error;
 	}
+}
+/** Resolve a tree-row path against the session workspace (absolute rows pass through). */
+function resolveRowPath(cwd, target) {
+	return isAbsolute(target) ? target : join(cwd, target);
+}
+/** Resolve one existing entry for a link-aware mutation: the lexical row path
+* plus its fully resolved real target (containment-checked). Resolution
+* failures become fs-errors, mirroring path-security's semantics. */
+async function resolveEntry(cwd, target) {
+	const absolute = requireAbsolute(resolveRowPath(cwd, target));
+	let real;
+	let realCwd;
+	try {
+		[realCwd, real] = await Promise.all([realpath(cwd), realpath(absolute)]);
+	} catch (error) {
+		throw new SidebarError("fs-error", `cannot resolve "${target}": ${error instanceof Error ? error.message : String(error)}`, 400);
+	}
+	if (!isWithin(realCwd, real)) throw new SidebarError("forbidden", `path "${target}" is outside workspace`, 403);
+	return {
+		absolute,
+		real,
+		realCwd
+	};
+}
+/** Whether a path exists (ENOENT → false; other failures propagate). */
+async function pathExists(target) {
+	try {
+		await access(target);
+		return true;
+	} catch (error) {
+		if (error.code === "ENOENT") return false;
+		throw error;
+	}
+}
+/**
+* Rename one tree row within its directory: `path` → `<parent>/<name>`.
+* The new name must be a single path segment (this is rename, not move);
+* an existing destination is refused (POSIX rename would clobber it
+* silently); the workspace root itself is never renamable; a symlink row
+* renames the link, not its target. A no-op rename (same name) succeeds
+* without touching the filesystem.
+*
+* @throws SidebarError with a wire code for shape, containment, existence
+* and root failures.
+*/
+async function renameWorkspaceEntry(input) {
+	const { cwd, path, name } = input;
+	if (name === "" || name === "." || name === ".." || name.includes("/") || name.includes("\\")) throw new SidebarError("bad-request", "name must be a single path segment", 400);
+	const { absolute, real, realCwd } = await resolveEntry(cwd, path);
+	if (real === realCwd) throw new SidebarError("fs-error", "cannot rename the workspace root", 400);
+	if (basename(absolute) === name) return { path: absolute };
+	const safeDestination = await ensureWorkspaceWritePath(cwd, join(dirname(absolute), name));
+	if (await pathExists(safeDestination)) throw new SidebarError("fs-error", `"${name}" already exists`, 409);
+	try {
+		await rename(absolute, safeDestination);
+	} catch (error) {
+		throw new SidebarError("fs-error", `cannot rename "${path}" to "${name}": ${error instanceof Error ? error.message : String(error)}`, 400);
+	}
+	return { path: safeDestination };
+}
+/**
+* Delete one tree row permanently (there is no trash on the host): files are
+* unlinked, directories removed recursively, a symlink row unlinks the LINK
+* only (lstat decides, so a link to a directory does not recurse into its
+* target). The workspace root itself is never removable.
+*
+* @throws SidebarError with a wire code for containment, existence and
+* root failures.
+*/
+async function removeWorkspaceEntry(input) {
+	const { cwd, path } = input;
+	const { absolute, real, realCwd } = await resolveEntry(cwd, path);
+	if (real === realCwd) throw new SidebarError("fs-error", "cannot remove the workspace root", 400);
+	try {
+		if ((await lstat(absolute)).isDirectory()) await rm(absolute, { recursive: true });
+		else await unlink(absolute);
+	} catch (error) {
+		throw new SidebarError("fs-error", `cannot remove "${path}": ${error instanceof Error ? error.message : String(error)}`, 400);
+	}
+	return { path: absolute };
+}
+//#endregion
+//#region src/changes-ops.ts
+/** Argument keys a file-addressing tool may use for its target path. */
+const PATH_KEYS = [
+	"path",
+	"file_path",
+	"filePath",
+	"notebook_path",
+	"filename"
+];
+/**
+* Whether a tool name looks like it MUTATES files. Deliberately coarse
+* (substring match on the mutating verbs) so host-side and plugin-side
+* file tools both qualify; read-only tools never match.
+*/
+function isWriteTool(name) {
+	const lowered = name.toLowerCase();
+	return /write|edit|patch|apply|create_file|insert/.test(lowered);
+}
+/** Extract the addressed path from one tool call's arguments JSON. */
+function argumentPath(args) {
+	if (args === "") return void 0;
+	try {
+		const parsed = JSON.parse(args);
+		for (const key of PATH_KEYS) {
+			const value = parsed[key];
+			if (typeof value === "string" && value !== "") return value;
+		}
+	} catch {}
+}
+/**
+* Fold a session event log into the deduplicated file-operation list,
+* newest first. `tool/call` events with a mutating tool name and an
+* addressable path are collected; every path keeps only its latest call
+* (plus a touch count). Rows outside a live sessions registry read come
+* back as an empty list — the page degrades to the empty state.
+* @param events - the session's append-only event log (oldest → newest).
+*/
+function sessionFileOps(events) {
+	const byPath = /* @__PURE__ */ new Map();
+	for (let index = events.length - 1; index >= 0; index -= 1) {
+		const event = events[index];
+		if (event === void 0 || event.type !== "tool/call") continue;
+		const name = typeof event.data.name === "string" ? event.data.name : "";
+		if (name === "" || !isWriteTool(name)) continue;
+		const path = argumentPath(typeof event.data.arguments === "string" ? event.data.arguments : "");
+		if (path === void 0) continue;
+		const existing = byPath.get(path);
+		if (existing === void 0) byPath.set(path, {
+			path,
+			tool: name,
+			time: event.time,
+			count: 1
+		});
+		else existing.count += 1;
+	}
+	return [...byPath.values()].sort((left, right) => right.time - left.time);
 }
 //#endregion
 //#region src/fs-search.ts
@@ -632,7 +781,12 @@ function isTrustedApiRequest(request, trustedHosts) {
 * only allowlisted chunk names are servable (no path traversal).
 */
 /** The chunk names the client may request (mirror of src/client/chunk-loader.ts). */
-const CHUNK_NAMES = ["terminal", "editor"];
+const CHUNK_NAMES = [
+	"terminal",
+	"editor",
+	"locale",
+	"trajectory"
+];
 /** Directory of this host-half module (lib/ — the chunk scripts live next to it). */
 const LIB_DIR = dirname(fileURLToPath(import.meta.url));
 /** sha1 content hash shortened to 12 hex chars (same shape as the client-modules rev). */
@@ -747,7 +901,7 @@ function revealCommand(path, platform = process.platform) {
 		};
 		case "win32": return {
 			command: "explorer.exe",
-			args: ["/select,", path]
+			args: [`/select,${path}`]
 		};
 		default: return {
 			command: "xdg-open",
@@ -1060,16 +1214,37 @@ function pathIdentity(path) {
 	const absolute = resolve(path).replace(/[\\/]+$/, "");
 	return process.platform === "win32" ? absolute.toLowerCase() : absolute;
 }
+/** Whether the current Git binary supports NUL-framed `worktree list` output.
+* Git < 2.36 rejects `-z`; cache the capability after the first attempt so
+* the SCM panel's polling does not repeatedly spawn a command known to fail. */
+let worktreeListSupportsZ;
 /** Raw usable checkout records, shared by inventory and target validation.
 * Prunable records point at missing paths and are deliberately excluded from
 * both the selector and the command-target allowlist. */
 async function listedWorktrees(cwd) {
-	return parseWorktreeList(await runGit(cwd, [
+	let raw;
+	if (worktreeListSupportsZ === false) raw = await runGit(cwd, [
 		"worktree",
 		"list",
-		"--porcelain",
-		"-z"
-	])).filter((entry) => !entry.prunable);
+		"--porcelain"
+	]);
+	else try {
+		raw = await runGit(cwd, [
+			"worktree",
+			"list",
+			"--porcelain",
+			"-z"
+		]);
+		worktreeListSupportsZ = true;
+	} catch {
+		worktreeListSupportsZ = false;
+		raw = await runGit(cwd, [
+			"worktree",
+			"list",
+			"--porcelain"
+		]);
+	}
+	return parseWorktreeList(raw).filter((entry) => !entry.prunable);
 }
 /** All linked checkouts of the repository containing `cwd`, enriched with a
 * live change count. The current checkout is first so a single-worktree repo
@@ -1172,6 +1347,36 @@ async function show(cwd, rev, path, selected) {
 	} catch {
 		return null;
 	}
+}
+/**
+* Both sides' full file contents for a diff-fold expansion. `path` is
+* repo-relative. The sides resolve per diff kind: a commit reads
+* `<hash>^` vs `<hash>`; a staged change reads HEAD vs the index (`:`);
+* an unstaged change reads HEAD vs the working tree file on disk (a side
+* that does not exist — untracked, deleted, binary-refused — comes back
+* null and the client degrades the fold to a static marker).
+*/
+async function foldContents(cwd, path, opts = {}, selected) {
+	const root = await repoRoot(cwd, selected);
+	if (opts.hash !== void 0) {
+		const [old, neu] = await Promise.all([show(root, `${opts.hash}^`, path, selected), show(root, opts.hash, path, selected)]);
+		return {
+			old,
+			new: neu
+		};
+	}
+	if (opts.staged === true) {
+		const [old, neu] = await Promise.all([show(root, "HEAD", path, selected), show(root, ":", path, selected)]);
+		return {
+			old,
+			new: neu
+		};
+	}
+	const [old, neu] = await Promise.all([show(root, "HEAD", path, selected), readFile(isAbsolute(path) ? path : join(root, path), "utf8").catch(() => null)]);
+	return {
+		old,
+		new: neu
+	};
 }
 /** Full patch text of one commit (`git show` with the commit header suppressed).
 *  Merge commits show their diff against the first parent (`-m --first-parent`
@@ -1484,7 +1689,7 @@ var PtyManager = class {
 			sessionId,
 			tabId,
 			cwd,
-			pty: this.nodePty.spawn(shell ?? this.shell, shellSpawnArgs(shellArgs ?? this.shellArgs), {
+			pty: this.nodePty.spawn(resolveShellExecutable(shell ?? this.shell), shellSpawnArgs(shellArgs ?? this.shellArgs), {
 				name: "xterm-256color",
 				cols: Math.max(2, Math.floor(cols)),
 				rows: Math.max(2, Math.floor(rows)),
@@ -1571,6 +1776,15 @@ var PtyManager = class {
 		for (const key of [...this.sessions.keys()]) this.close(key);
 	}
 };
+/** Read one Windows environment value case-insensitively. Real
+* `process.env` has case-insensitive lookup on Windows, but injected objects
+* and some embedders do not preserve that behavior. */
+function windowsEnv(env, name) {
+	const direct = env[name];
+	if (direct !== void 0) return direct;
+	const lowered = name.toLowerCase();
+	for (const [key, value] of Object.entries(env)) if (key.toLowerCase() === lowered) return value;
+}
 /**
 * Candidate directories that may contain a `pwsh.exe` on Windows: PATH
 * entries first, then the well-known machine/user install locations
@@ -1582,17 +1796,17 @@ var PtyManager = class {
 */
 function windowsPwshCandidateDirs(env) {
 	const dirs = [];
-	const pathEntries = env.PATH;
+	const pathEntries = windowsEnv(env, "PATH");
 	if (pathEntries !== void 0) for (const entry of pathEntries.split(";")) {
 		const trimmed = entry.trim();
 		if (trimmed !== "") dirs.push(trimmed);
 	}
-	for (const programFiles of [env.ProgramW6432, env.ProgramFiles]) {
+	for (const programFiles of [windowsEnv(env, "ProgramW6432"), windowsEnv(env, "ProgramFiles")]) {
 		if (programFiles === void 0 || programFiles.trim() === "") continue;
 		dirs.push(join(programFiles, "PowerShell", "7"));
 		dirs.push(join(programFiles, "PowerShell", "7-preview"));
 	}
-	const localAppData = env.LOCALAPPDATA;
+	const localAppData = windowsEnv(env, "LOCALAPPDATA");
 	if (localAppData !== void 0 && localAppData.trim() !== "") {
 		dirs.push(join(localAppData, "Microsoft", "PowerShell", "7"));
 		dirs.push(join(localAppData, "Microsoft", "PowerShell", "7-preview"));
@@ -1600,6 +1814,63 @@ function windowsPwshCandidateDirs(env) {
 		dirs.push(join(localAppData, "Programs", "PowerShell", "7-preview"));
 	}
 	return [...new Set(dirs)];
+}
+/**
+* Resolve the configured shell executable before handing it to node-pty.
+*
+* Windows' native backend does not consistently apply the shell's PATHEXT
+* lookup to a bare value (`pwsh` / `cmd` can fail with the opaque
+* `File not found:` error), so perform the lookup ourselves: an explicit
+* path is accepted as-is when it exists (or with a PATHEXT suffix when the
+* user omitted `.exe`), and a bare name is searched through PATH, System32,
+* and PowerShell's known install directories.
+*
+* POSIX node-pty uses `execvp`, so a bare name would already follow PATH —
+* but a wrong name made the pty die with a bare
+* `[process exited with code N]`, so probe like Windows anyway: a path with
+* a separator must exist; a bare name is searched along PATH (the colon
+* form is fixed by the platform). A miss is a clear, actionable
+* `shell-not-found` error instead of a cryptic exit code.
+*
+* @param shell - the configured shell (settings page or yaml `config.shell`).
+* @param options - platform/env/exists injection points for tests.
+* @returns the executable path passed to node-pty.
+* @throws {SidebarError} `shell-not-found` when no candidate exists.
+*/
+function resolveShellExecutable(shell, options = {}) {
+	const configured = unquotePath(shell.trim());
+	if (configured === "") return configured;
+	const platform = options.platform ?? process.platform;
+	const env = options.env ?? process.env;
+	const exists = options.exists ?? existsSync;
+	const notFound = () => new SidebarError("shell-not-found", `shell executable not found: "${configured}"`, 400, { shell: configured });
+	if (platform === "win32") {
+		const executableExts = (windowsEnv(env, "PATHEXT") ?? ".COM;.EXE").split(";").map((extension) => extension.trim()).filter((extension) => /^\.(?:com|exe)$/i.test(extension));
+		if (executableExts.length === 0) executableExts.push(".EXE", ".COM");
+		const names = win32.extname(configured) !== "" ? [configured] : executableExts.map((extension) => configured + extension.toLowerCase());
+		const hasPath = win32.isAbsolute(configured) || /[\\/]/.test(configured);
+		const candidates = [];
+		if (hasPath) candidates.push(...names);
+		else {
+			const path = windowsEnv(env, "PATH");
+			if (path !== void 0) for (const dir of path.split(";").map((entry) => entry.trim()).filter(Boolean)) for (const name of names) candidates.push(win32.join(dir, name));
+			const systemRoot = windowsEnv(env, "SystemRoot");
+			if (systemRoot !== void 0 && systemRoot.trim() !== "") for (const name of names) candidates.push(win32.join(systemRoot, "System32", name));
+			if (/^pwsh(?:\.exe)?$/i.test(configured)) for (const dir of windowsPwshCandidateDirs(env)) candidates.push(win32.join(dir, "pwsh.exe"));
+		}
+		for (const candidate of [...new Set(candidates)]) if (exists(candidate)) return candidate;
+		throw notFound();
+	}
+	if (configured.includes("/")) {
+		if (!exists(configured)) throw notFound();
+		return configured;
+	}
+	const path = env.PATH ?? "/usr/bin:/bin";
+	for (const dir of path.split(":").map((entry) => entry.trim()).filter(Boolean)) {
+		const candidate = join(dir, configured);
+		if (exists(candidate)) return candidate;
+	}
+	throw notFound();
 }
 /**
 * The interactive shell for this platform, resolved like a terminal
@@ -1663,6 +1934,20 @@ function shellSpawnArgs(configured = []) {
 	if (configured.length > 0) return [...configured];
 	return process.platform === "win32" ? [] : ["-l"];
 }
+/**
+* Strip ONE pair of surrounding quotes from a configured shell path. Users
+* paste Windows paths with spaces pre-quoted (`"C:\Program Files\…"`); the
+* quotes are shell-input syntax, not part of the path. Unpaired quotes and
+* shorter values stay verbatim.
+*/
+function unquotePath(value) {
+	if (value.length >= 2) {
+		const first = value[0];
+		const last = value[value.length - 1];
+		if (first === "\"" && last === "\"" || first === "'" && last === "'") return value.slice(1, -1);
+	}
+	return value;
+}
 //#endregion
 //#region src/agent-pty.ts
 /**
@@ -1698,6 +1983,61 @@ function clampDims(cols, rows) {
 		rows: clamp(rows)
 	};
 }
+/**
+* node-pty's Windows terminal queues resize calls that arrive before the
+* ConPTY control socket's first data flush (`_deferNoArgs` in
+* windowsTerminal.js). If the pty exits before the queue flushes, the
+* deferred resize throws inside the socket's 'data' handler — uncatchable
+* by any caller and fatal to the host process. POSIX terminals have no such
+* queue (resize is synchronous), so the gate is armed on Windows only:
+* {@link tryResizePty} parks dims requested before the first output and
+* replays them after the flush, when node-pty executes resizes
+* synchronously (and the throw for an exited pty is catchable).
+*/
+const ptyResizeGates = /* @__PURE__ */ new WeakMap();
+/**
+* Arm the Windows pre-ready resize gate for one freshly spawned pty.
+* No-op on POSIX and for injected ptys without `onData`.
+*/
+function armPtyResizeGate(pty) {
+	if (process.platform !== "win32") return;
+	if (typeof pty.onData !== "function" || ptyResizeGates.has(pty)) return;
+	const state = { sawData: false };
+	ptyResizeGates.set(pty, state);
+	pty.onData(() => {
+		if (state.sawData) return;
+		state.sawData = true;
+		const dims = state.pending;
+		state.pending = void 0;
+		if (dims === void 0) return;
+		setImmediate(() => {
+			tryResizePty(pty, dims.cols, dims.rows);
+		});
+	});
+}
+/**
+* Best-effort resize for WebSocket-driven terminal views. Layout animation
+* can briefly produce unusable dimensions, and node-pty can reject a resize
+* after the socket setup's outer try/catch has returned. Ignore that one
+* frame so the host stays alive and a later valid measurement can retry.
+* Returns whether node-pty accepted the resize (or parked it for replay on
+* the first output — the Windows pre-ready window).
+*/
+function tryResizePty(pty, cols, rows) {
+	if (!Number.isFinite(cols) || !Number.isFinite(rows)) return false;
+	const dims = clampDims(cols, rows);
+	const gate = ptyResizeGates.get(pty);
+	if (gate !== void 0 && !gate.sawData) {
+		gate.pending = dims;
+		return true;
+	}
+	try {
+		pty.resize(dims.cols, dims.rows);
+		return true;
+	} catch {
+		return false;
+	}
+}
 /** Map a POSIX signal number to its conventional name (best-effort). */
 const SIGNAL_NAMES = {
 	1: "SIGHUP",
@@ -1720,20 +2060,54 @@ function signalNameOf(signal) {
 	if (signal === null || signal === void 0) return null;
 	return SIGNAL_NAMES[signal] ?? `signal ${signal}`;
 }
-/** Locate the first occurrence of `needle` in `transcript`, returning its line/column. */
-function locateNeedle(transcript, needle) {
+/**
+* Compile a wait needle into a RegExp. The needle is treated as a JavaScript
+* regular expression; a pattern that fails to compile (e.g. an unbalanced
+* group typed as a literal) degrades to verbatim substring matching so
+* legacy literal needles keep working.
+*/
+function compileNeedle(needle) {
+	try {
+		return new RegExp(needle);
+	} catch {
+		return null;
+	}
+}
+/**
+* Locate the first occurrence of `needle` in `transcript`, returning its
+* line/column plus the actual matched text — for alternation patterns
+* (e.g. `(BUILD_OK|BUILD_FAIL)`) the match tells which alternative hit.
+* `re` is the precompiled form of `needle` (from {@link compileNeedle});
+* `null` means verbatim substring matching.
+*/
+function locateNeedle(transcript, needle, re) {
 	if (needle === "") return void 0;
-	const idx = transcript.indexOf(needle);
-	if (idx === -1) return void 0;
+	let hit;
+	if (re !== null) {
+		re.lastIndex = 0;
+		const m = re.exec(transcript);
+		hit = m === null ? void 0 : {
+			index: m.index,
+			text: m[0]
+		};
+	} else {
+		const idx = transcript.indexOf(needle);
+		hit = idx === -1 ? void 0 : {
+			index: idx,
+			text: needle
+		};
+	}
+	if (hit === void 0) return void 0;
 	let line = 0;
 	let lineStart = 0;
-	for (let i = 0; i < idx; i += 1) if (transcript.charCodeAt(i) === 10) {
+	for (let i = 0; i < hit.index; i += 1) if (transcript.charCodeAt(i) === 10) {
 		line += 1;
 		lineStart = i + 1;
 	}
 	return {
 		line,
-		column: idx - lineStart
+		column: hit.index - lineStart,
+		match: hit.text
 	};
 }
 /** Snapshot projection of a handle (drops the pty reference and transcript). */
@@ -1748,6 +2122,11 @@ function snapshotOf(handle) {
 		out.exitCode = handle.exitCode ?? null;
 		out.exitSignal = signalNameOf(handle.exitSignal);
 	}
+	const active = handle.waits.at(-1);
+	if (active !== void 0) out.waiting = {
+		needle: active.needle,
+		since: active.since
+	};
 	return out;
 }
 /**
@@ -1779,13 +2158,15 @@ var AgentPtyRegistry = class {
 	create(sessionId, title, command, cwd, cols = 80, rows = 24, shell, shellArgs) {
 		const uuid = randomUUID();
 		const dims = clampDims(cols, rows);
-		const pty = this.nodePty.spawn(shell ?? this.shell, shellSpawnArgs(shellArgs ?? this.shellArgs), {
+		const executable = resolveShellExecutable(shell ?? this.shell);
+		const pty = this.nodePty.spawn(executable, shellSpawnArgs(shellArgs ?? this.shellArgs), {
 			name: "xterm-256color",
 			cols: dims.cols,
 			rows: dims.rows,
 			cwd,
 			env: { ...process.env }
 		});
+		armPtyResizeGate(pty);
 		const handle = {
 			uuid,
 			sessionId,
@@ -1794,7 +2175,8 @@ var AgentPtyRegistry = class {
 			cwd,
 			pty,
 			transcript: "",
-			exited: false
+			exited: false,
+			waits: []
 		};
 		pty.onData((data) => {
 			handle.transcript += data;
@@ -1878,7 +2260,7 @@ var AgentPtyRegistry = class {
 	resize(uuid, cols, rows) {
 		const handle = this.expect(uuid);
 		const dims = clampDims(cols, rows);
-		if (!handle.exited) handle.pty.resize(dims.cols, dims.rows);
+		if (!handle.exited) tryResizePty(handle.pty, dims.cols, dims.rows);
 		return dims;
 	}
 	/**
@@ -1901,10 +2283,17 @@ var AgentPtyRegistry = class {
 	* make event-driven wakeups unreliable. A 50ms poll is fast enough for
 	* interactive use and simple enough to be obviously correct.
 	* @param uuid - terminal to watch.
-	* @param needle - substring to search for (case-sensitive, verbatim).
+	* @param needle - JavaScript regular expression to search for
+	*   (case-sensitive); a pattern that fails to compile falls back to
+	*   verbatim substring matching. May cover several outcomes at once
+	*   (e.g. `(BUILD_OK|BUILD_FAIL)` for build success vs failure) — the
+	*   returned `match` reports the text that actually matched, so callers
+	*   can tell which outcome hit.
 	* @param timeoutMs - max wait; default 10000 (10s). Clamped to ≥100ms.
 	* @param signal - caller-owned cancellation; aborts the wait re-throwing.
-	* @returns one of `found` / `timeout` / `exited`.
+	*   A wait can also be skipped by the user from the sidebar banner
+	*   (`skipWait`), which resolves it with `{kind:'skipped'}`.
+	* @returns one of `found` / `timeout` / `exited` / `skipped`.
 	*/
 	async waitFor(uuid, needle, timeoutMs = 1e4, signal) {
 		if (needle === "") throw new SidebarError("bad-request", "needle must be a non-empty string", 400);
@@ -1912,47 +2301,83 @@ var AgentPtyRegistry = class {
 		const timeout = Math.max(100, Math.floor(timeoutMs));
 		const start = Date.now();
 		const deadline = start + timeout;
+		const re = compileNeedle(needle);
 		if (handle.exited) return {
 			kind: "exited",
 			needle,
 			exitCode: handle.exitCode ?? null,
 			exitSignal: signalNameOf(handle.exitSignal)
 		};
-		const firstHit = locateNeedle(handle.transcript, needle);
+		const firstHit = locateNeedle(handle.transcript, needle, re);
 		if (firstHit !== void 0) return {
 			kind: "found",
 			needle,
 			line: firstHit.line,
 			column: firstHit.column,
+			match: firstHit.match,
 			elapsedMs: Date.now() - start
 		};
-		while (true) {
-			if (signal?.aborted) signal.throwIfAborted();
-			if (handle.exited) return {
-				kind: "exited",
-				needle,
-				exitCode: handle.exitCode ?? null,
-				exitSignal: signalNameOf(handle.exitSignal)
-			};
-			const hit = locateNeedle(handle.transcript, needle);
-			if (hit !== void 0) return {
-				kind: "found",
-				needle,
-				line: hit.line,
-				column: hit.column,
-				elapsedMs: Date.now() - start
-			};
-			if (Date.now() >= deadline) return {
-				kind: "timeout",
-				needle,
-				timeoutMs: timeout,
-				totalLines: handle.transcript.split("\n").length
-			};
-			await new Promise((resolve) => {
-				const t = setTimeout(resolve, 50);
-				if (typeof t === "object" && "unref" in t) t.unref();
-			});
+		const record = {
+			needle,
+			since: start,
+			skipped: false
+		};
+		handle.waits.push(record);
+		this.notify();
+		try {
+			while (true) {
+				if (signal?.aborted) signal.throwIfAborted();
+				if (handle.exited) return {
+					kind: "exited",
+					needle,
+					exitCode: handle.exitCode ?? null,
+					exitSignal: signalNameOf(handle.exitSignal)
+				};
+				if (record.skipped) return {
+					kind: "skipped",
+					needle
+				};
+				const hit = locateNeedle(handle.transcript, needle, re);
+				if (hit !== void 0) return {
+					kind: "found",
+					needle,
+					line: hit.line,
+					column: hit.column,
+					match: hit.match,
+					elapsedMs: Date.now() - start
+				};
+				if (Date.now() >= deadline) return {
+					kind: "timeout",
+					needle,
+					timeoutMs: timeout,
+					totalLines: handle.transcript.split("\n").length
+				};
+				await new Promise((resolve) => {
+					const t = setTimeout(resolve, 50);
+					if (typeof t === "object" && "unref" in t) t.unref();
+				});
+			}
+		} finally {
+			const index = handle.waits.indexOf(record);
+			if (index !== -1) handle.waits.splice(index, 1);
+			this.notify();
 		}
+	}
+	/**
+	* Mark every active wait on one terminal as skipped (the sidebar banner's
+	* skip button). Each waiting poll loop observes its record's flag within
+	* one 50ms tick and returns `{kind:'skipped'}`. Idempotent: 0 when nothing
+	* is waiting (a stale banner racing a wait that already resolved).
+	* @returns the number of waits that transitioned to skipped.
+	*/
+	skipWait(uuid) {
+		const handle = this.expect(uuid);
+		let count = 0;
+		for (const record of handle.waits) if (!record.skipped) {
+			record.skipped = true;
+			count += 1;
+		}
+		return count;
 	}
 	/**
 	* Send a POSIX signal to a terminal's foreground process.
@@ -2327,7 +2752,7 @@ function registerTools(ctx, registry, resolveCwd, readShellOverrides) {
 	}));
 	register(defineTool({
 		name: "terminal_wait_for",
-		description: "Block until a substring appears in a terminal's retained transcript, or until the timeout elapses, or until the terminal exits — whichever happens first. Use this to synchronize on command completion cues ( e.g. a shell prompt, \"done\", \"Listening on\", \"Build successful\" ) without busy-polling terminal_read. The wait scans the FULL retained transcript (up to ~1 MiB) on every poll, so a needle that scrolled past the most recent chunk is still a match. Returns `found` with the line/column of the first occurrence, `timeout` if the needle did not appear in time, or `exited` if the terminal process died before the needle appeared. Default timeout is 10 seconds; raise it for long-running commands ( dev servers, test suites ). The wait is cooperative: a tool-call cancel ( or agent turn end ) aborts it immediately.",
+		description: "Block until a pattern appears in a terminal's retained transcript, or until the timeout elapses, or until the terminal exits — whichever happens first. Use this to synchronize on command completion cues ( e.g. a shell prompt, \"done\", \"Listening on\", \"Build successful\" ) without busy-polling terminal_read. The needle is a JavaScript regular expression ( a pattern that fails to compile falls back to verbatim substring matching ). One needle may cover MULTIPLE outcomes — e.g. wait on `(BUILD_OK|BUILD_FAIL)` or `Build (succeeded|failed)` returns as soon as EITHER marker appears, and the found result's `match` field tells which alternative hit ( build success vs failure ). The wait scans the FULL retained transcript (up to ~1 MiB) on every poll, so a needle that scrolled past the most recent chunk is still a match. Returns `found` with the line/column and the matched text, `timeout` if the needle did not appear in time, or `exited` if the terminal process died before the needle appeared. Default timeout is 10 seconds; raise it for long-running commands ( dev servers, test suites ). The wait is cooperative: a tool-call cancel ( or agent turn end ) aborts it immediately. The user can skip the wait from the sidebar ( a banner on the terminal's tab shows the needle and a skip button ) — the tool then returns `skipped`.",
 		parameters: {
 			uuid: {
 				type: "string",
@@ -2337,7 +2762,7 @@ function registerTools(ctx, registry, resolveCwd, readShellOverrides) {
 			needle: {
 				type: "string",
 				required: true,
-				description: "Substring to wait for (case-sensitive, verbatim). Must be non-empty."
+				description: "JavaScript regular expression to wait for (case-sensitive); a pattern that fails to compile falls back to verbatim substring matching. May cover several outcomes in one wait ( e.g. `(BUILD_OK|BUILD_FAIL)` for build success/failure ) — check `match` in the found result to see which one hit. Must be non-empty."
 			},
 			timeout_ms: {
 				type: "number",
@@ -2368,6 +2793,11 @@ function registerTools(ctx, registry, resolveCwd, readShellOverrides) {
 							type: "integer",
 							required: true,
 							description: "0-based column index within that line where the match starts."
+						},
+						match: {
+							type: "string",
+							required: true,
+							description: "The text that actually matched — for multi-outcome patterns ( e.g. `(BUILD_OK|BUILD_FAIL)` ) this tells which alternative matched."
 						},
 						elapsedMs: {
 							type: "integer",
@@ -2423,17 +2853,39 @@ function registerTools(ctx, registry, resolveCwd, readShellOverrides) {
 							description: "Exit signal name, if killed by a signal."
 						}
 					}
+				},
+				{
+					type: "object",
+					additionalProperties: false,
+					properties: {
+						kind: {
+							type: "string",
+							required: true,
+							const: "skipped"
+						},
+						needle: {
+							type: "string",
+							required: true
+						}
+					}
 				}
 			] },
 			render: (_args, value) => {
 				const v = value;
-				if (v.kind === "found") return [{
-					type: "text",
-					text: `Found "${v.needle}" at line ${v.line}, column ${v.column} (after ${v.elapsedMs}ms).`
-				}];
+				if (v.kind === "found") {
+					const matched = v.match !== void 0 && v.match !== "" ? `, matched "${v.match}"` : "";
+					return [{
+						type: "text",
+						text: `Found "${v.needle}" at line ${v.line}, column ${v.column}${matched} (after ${v.elapsedMs}ms).`
+					}];
+				}
 				if (v.kind === "timeout") return [{
 					type: "text",
 					text: `Timed out after ${v.timeoutMs}ms waiting for "${v.needle}". Call terminal_read to inspect the transcript.`
+				}];
+				if (v.kind === "skipped") return [{
+					type: "text",
+					text: `Skipped by user while waiting for "${v.needle}" — the wait ended early. Call terminal_read to inspect the transcript and decide how to proceed.`
 				}];
 				const exitInfo = v.exitCode !== void 0 && v.exitCode !== null ? ` (exit code ${v.exitCode})` : "";
 				return [{
@@ -3505,12 +3957,13 @@ function buildSidechatApi(ctx) {
 				meta: {
 					...parentSession.header.cwd === void 0 ? {} : { cwd: parentSession.header.cwd },
 					parentSession: parentSession.id,
-					isSeeded: seed.length > 0,
+					isSeeded: true,
 					origin: "subagent",
 					delegationDepth: (parentSession.header.delegationDepth ?? 0) + 1,
 					...agentPreset === void 0 ? {} : { agentPreset }
 				},
 				seed,
+				inheritedEventCount: SessionLogOffset(seed.length),
 				agentOptions: { ...parent.options },
 				setup,
 				signal: AbortSignal.timeout(CREATE_TIMEOUT_MS)
@@ -3857,6 +4310,21 @@ function buildApi(ctx, ptyManager, agentPtyRegistry, resolved, terminalShell, ge
 			}
 			return { ok: true };
 		},
+		"fs.rename": async (payload) => {
+			const { cwd } = await cwdOf(payload);
+			return renameWorkspaceEntry({
+				cwd,
+				path: requireString(payload, "path"),
+				name: requireString(payload, "name")
+			});
+		},
+		"fs.remove": async (payload) => {
+			const { cwd } = await cwdOf(payload);
+			return removeWorkspaceEntry({
+				cwd,
+				path: requireString(payload, "path")
+			});
+		},
 		"git.worktrees": async (payload) => {
 			const { cwd } = await gitCwdOf(payload);
 			const selected = selectedRepoOf(payload);
@@ -3927,6 +4395,15 @@ function buildApi(ctx, ptyManager, agentPtyRegistry, resolved, terminalShell, ge
 			const path = await resolveGitPath(cwd, requireString(payload, "path"), repoRoot);
 			return { content: await show(cwd, requireString(payload, "rev"), path, repoRoot) };
 		},
+		"git.fold-contents": async (payload) => {
+			const { cwd } = await gitCwdOf(payload);
+			const repoRoot = selectedRepoOf(payload);
+			const record = payload;
+			return await foldContents(cwd, await resolveGitPath(cwd, requireString(record, "path"), repoRoot), {
+				staged: record.staged === true,
+				hash: typeof record.hash === "string" ? record.hash : void 0
+			}, repoRoot);
+		},
 		"pty.close": (payload) => {
 			const sessionId = requireString(payload, "sessionId");
 			const tab = requireString(payload, "tab");
@@ -3938,9 +4415,21 @@ function buildApi(ctx, ptyManager, agentPtyRegistry, resolved, terminalShell, ge
 			agentPtyRegistry?.close(uuid);
 			return { ok: true };
 		},
+		"agent-pty.skip-wait": (payload) => {
+			const uuid = requireString(payload, "uuid");
+			return {
+				ok: true,
+				skipped: agentPtyRegistry?.skipWait(uuid) ?? 0
+			};
+		},
 		"terminal.deps": () => depsStatus(),
 		"jobs.output": (payload) => jobsApi.output(payload),
 		"jobs.kill": (payload) => jobsApi.kill(payload),
+		"changes.ops": async (payload) => {
+			const sessionId = requireString(payload, "sessionId");
+			const stored = ctx.sessions.get(sessionId);
+			return { ops: sessionFileOps(stored?.snapshotEvents !== void 0 ? stored.snapshotEvents() : []) };
+		},
 		"subagents.live": (payload) => subagentLiveApi.live(payload),
 		"shell.get": () => ({
 			shell: terminalShell,
@@ -4340,6 +4829,33 @@ async function attachAgentList(registry, ws, req) {
 	}
 }
 /**
+* The WS close reason for a failed terminal attach. A missing configured
+* shell gets a SHORT machine-readable marker (`shell-not-found:<name>`,
+* capped by BYTES — a WS close reason allows at most 123 bytes, which `ws`
+* validates with `Buffer.byteLength`) that the client maps to a localized,
+* actionable banner; every other failure keeps the raw message (the
+* model-side tool errors read it verbatim).
+*/
+function wsCloseReasonOf(error) {
+	if (error instanceof SidebarError && error.code === "shell-not-found") return `shell-not-found:${truncateUtf8Bytes(shellDisplayName(String(error.meta?.shell ?? "")), 100)}`;
+	return error instanceof Error ? error.message : String(error);
+}
+/**
+* Truncate to at most `maxBytes` UTF-8 bytes without splitting a code point.
+* A character-count `slice` does not bound the WS close reason: `ws` measures
+* `Buffer.byteLength` against its 123-byte cap, and the resulting throw would
+* replace the very error the reason describes.
+*/
+function truncateUtf8Bytes(value, maxBytes) {
+	if (Buffer.byteLength(value) <= maxBytes) return value;
+	let truncated = "";
+	for (const character of value) {
+		if (Buffer.byteLength(truncated + character) > maxBytes) break;
+		truncated += character;
+	}
+	return truncated;
+}
+/**
 * Wire one terminal socket to its pty: replay transcript, pump both ways.
 * Two attach modes share the wire protocol:
 * - `?uuid=...` attaches to an agent-owned terminal (created by the
@@ -4385,6 +4901,7 @@ async function attachTerminal(ctx, ptyManager, agentPtyRegistry, ws, req, resolv
 		const cwd = await sessionCwdOf(ctx, sessionId, url.searchParams.get("cwd") ?? void 0);
 		const overrides = shellOverridesOf(getSettings);
 		const handle = ptyManager.open(sessionId, tabId, cwd, 80, 24, overrides.shell, overrides.shellArgs);
+		armPtyResizeGate(handle.pty);
 		if (handle.transcript !== "") ws.send(handle.transcript);
 		const onData = (data) => {
 			if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 4194304) ws.send(data);
@@ -4410,10 +4927,8 @@ async function attachTerminal(ctx, ptyManager, agentPtyRegistry, ws, req, resolv
 				return;
 			}
 			if (handle.exited) return;
-			if (control !== null && control.type === "resize" && typeof control.cols === "number" && typeof control.rows === "number") {
-				const dims = clampDims(control.cols, control.rows);
-				handle.pty.resize(dims.cols, dims.rows);
-			} else handle.pty.write(text);
+			if (control !== null && control.type === "resize" && typeof control.cols === "number" && typeof control.rows === "number") tryResizePty(handle.pty, control.cols, control.rows);
+			else handle.pty.write(text);
 		});
 		ws.on("close", () => {
 			dataSub.dispose();
@@ -4421,7 +4936,7 @@ async function attachTerminal(ctx, ptyManager, agentPtyRegistry, ws, req, resolv
 			if (!ptyManager.isParked(handle.key)) ptyManager.scheduleClose(handle.key, resolved.reconnectGraceMs);
 		});
 	} catch (error) {
-		ws.close(1011, error instanceof Error ? error.message : String(error));
+		ws.close(1011, wsCloseReasonOf(error));
 	}
 }
 /**
@@ -4453,10 +4968,8 @@ function pumpAgentTerminal(registry, handle, ws) {
 			registry.close(handle.uuid);
 			return;
 		}
-		if (control !== null && control.type === "resize" && typeof control.cols === "number" && typeof control.rows === "number") {
-			const dims = clampDims(control.cols, control.rows);
-			handle.pty.resize(dims.cols, dims.rows);
-		} else if (control === null) handle.pty.write(text);
+		if (control !== null && control.type === "resize" && typeof control.cols === "number" && typeof control.rows === "number") tryResizePty(handle.pty, control.cols, control.rows);
+		else if (control === null) handle.pty.write(text);
 	});
 	ws.on("close", () => {
 		dataSub.dispose();
@@ -4464,4 +4977,4 @@ function pumpAgentTerminal(registry, handle, ws) {
 	});
 }
 //#endregion
-export { Config, apply, inject, mediaTypeForPath, name };
+export { Config, apply, inject, mediaTypeForPath, name, wsCloseReasonOf };

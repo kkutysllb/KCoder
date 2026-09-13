@@ -31,6 +31,12 @@ export declare const zh: {
     readonly stateError: "错误";
     readonly deleted: "已删除";
     readonly deletedHint: "该文件在本轮中被终端命令删除，内容已不存在，无法查看差异或撤销。";
+    readonly kindImage: "图片";
+    readonly kindVideo: "视频";
+    readonly kindAudio: "音频";
+    readonly kindOffice: "Office";
+    readonly kindPdf: "PDF";
+    readonly kindDoc: "文档";
     readonly archived: "已归档 {n} 轮";
     readonly archivedExpand: "展开已归档轮次";
     readonly archivedCollapse: "收起已归档轮次";

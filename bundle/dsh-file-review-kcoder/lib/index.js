@@ -256,9 +256,34 @@ const inject = ["systemPrompt"];
 /** Stable final-response guidance owned by the matching renderer. */
 const FILE_REFERENCE_PROMPT = "When you successfully create or modify files, mention the primary outputs in your final response. To make those and any other changed-file references clickable in Web, format them as Markdown inline code using the exact file-tool path, or a basename when unique among the files changed in that turn.";
 /**
-* Register model guidance for the file-reference renderer shipped by this package,
-* and the Code Mode (`run_code`) mutation recorder that backs the browser-side
-* review tab.
+* The built-in ui-deliverables plugin registers byte-identical guidance as the
+* section `ui:deliverable-file-references`; this package's copy exists only for
+* carriers that predate it (the section has shipped in every Web composition
+* since dsh 0.1.0-rc.7).
+*
+* Two sections with different names both render, so keeping ours unconditionally
+* put the same paragraph in the prompt twice. Since dsh 0.1.2-alpha.1 the
+* section's placement is a centralized constant, and its presence is therefore
+* probeable without reaching into the registry's private layer table: a carrier
+* that knows the `DELIVERABLE_FILE_REFERENCES` position is exactly a carrier
+* whose built-in plugin owns the guidance. `getSectionOrder` returns
+* `undefined` (never throws) for an unknown name and is absent entirely on
+* older releases, so both older cases fall through to our own registration.
+* @param ctx - host context carrying the system-prompt registry.
+*/
+function registerFileReferenceGuidance(ctx) {
+	const orders = ctx.systemPrompt;
+	if (typeof (typeof orders.getSectionOrder === "function" ? orders.getSectionOrder("DELIVERABLE_FILE_REFERENCES") : void 0) === "number") return;
+	ctx.systemPrompt.section({
+		name: "ui:file-review-references",
+		order: 190,
+		text: FILE_REFERENCE_PROMPT
+	});
+}
+/**
+* Register the Code Mode (`run_code`) mutation recorder that backs the
+* browser-side review tab, and — on carriers that lack it — the model guidance
+* for the file-reference renderer shipped by this package.
 *
 * Nested dispatch results carry no wire views — the diff cards only ride
 * model-direct tool/call frames — so reviewing programmatic file edits needs a
@@ -270,11 +295,7 @@ const FILE_REFERENCE_PROMPT = "When you successfully create or modify files, men
 */
 function apply(ctx) {
 	const service = new FileReviewService(ctx);
-	ctx.systemPrompt.section({
-		name: "ui:file-review-references",
-		order: 190,
-		text: FILE_REFERENCE_PROMPT
-	});
+	registerFileReferenceGuidance(ctx);
 	const emitter = ctx;
 	ctx.effect(() => {
 		const off = emitter.on("tools/post-execute", async (execRaw, resultRaw, nextRaw) => {

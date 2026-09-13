@@ -1,7 +1,7 @@
 {
   "name": "dsh-file-review-kcoder",
-  "description": "Standalone dsh plugin (maintained by dsh-external): review agent-produced file changes (line-level red/green diff + undo) as a chat turn-tail row and a coding-sidebar tab. Lineage: originally a port of left0ver/dsh-file-review; previously maintained in-tree as @kcoder/file-review, now an independent release line. Adapted to dsh 0.1.2-alpha.1+ conversation snapshot routing.",
-  "version": "1.0.0",
+  "description": "Standalone dsh plugin (maintained by dsh-external): review agent-produced file changes (line-level red/green diff + undo) as a chat turn-tail row and a coding-sidebar tab, alongside dsh's explicit `present` delivery cards. Lineage: originally a port of left0ver/dsh-file-review; previously maintained in-tree as @kcoder/file-review, now an independent release line. Adapted to dsh 0.1.2-alpha.1+ conversation snapshot routing and to the 0.1.5 turn-tail deliverables vocabulary.",
+  "version": "1.0.3",
   "keywords": [
     "deepseek-harness",
     "dsh-plugin",
@@ -61,7 +61,8 @@
     "build:types": "tsc --emitDeclarationOnly --outDir lib/types",
     "build": "npm run build:types && tsdown",
     "typecheck": "tsc --noEmit",
-    "smoke": "node scripts/smoke-plugin.mjs",
+    "smoke": "node scripts/smoke-plugin.mjs && node scripts/smoke-render.mjs",
+    "smoke:render": "node scripts/smoke-render.mjs",
     "sync:mirror": "node scripts/sync-to-dsh-plugins.mjs",
     "sync:check": "node scripts/sync-to-dsh-plugins.mjs --check",
     "prepack": "pnpm smoke"

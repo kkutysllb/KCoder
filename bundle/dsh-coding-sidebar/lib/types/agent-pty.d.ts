@@ -16,6 +16,20 @@ export declare function clampDims(cols: number, rows: number): {
     rows: number;
 };
 /**
+ * Arm the Windows pre-ready resize gate for one freshly spawned pty.
+ * No-op on POSIX and for injected ptys without `onData`.
+ */
+export declare function armPtyResizeGate(pty: IPty): void;
+/**
+ * Best-effort resize for WebSocket-driven terminal views. Layout animation
+ * can briefly produce unusable dimensions, and node-pty can reject a resize
+ * after the socket setup's outer try/catch has returned. Ignore that one
+ * frame so the host stays alive and a later valid measurement can retry.
+ * Returns whether node-pty accepted the resize (or parked it for replay on
+ * the first output — the Windows pre-ready window).
+ */
+export declare function tryResizePty(pty: Pick<IPty, 'resize'>, cols: number, rows: number): boolean;
+/**
  * Serializable snapshot of one agent terminal — the shape the model sees
  * through `terminal_list` and the sidebar sees through the push endpoint.
  * Carries no pty reference and no transcript (those are reached through
@@ -36,6 +50,15 @@ export interface AgentTerminalSnapshot {
     exitCode?: number | null;
     /** Exit signal name if the process was killed by a signal; null otherwise. */
     exitSignal?: string | null;
+    /**
+     * The model's active `terminal_wait_for` on this terminal (the sidebar
+     * renders the wait banner from it). Present only while a wait is
+     * registered; carries the LATEST wait when several overlap.
+     */
+    waiting?: {
+        needle: string;
+        since: number;
+    };
 }
 /** One live agent terminal. */
 export interface AgentTerminalHandle {
@@ -59,6 +82,17 @@ export interface AgentTerminalHandle {
     exitCode?: number | null;
     /** Exit signal number once known (POSIX only; undefined on Windows). */
     exitSignal?: number | null;
+    /** Active wait_for registrations (skip bookkeeping; empty while idle). */
+    waits: AgentTerminalActiveWait[];
+}
+/** One active wait_for registration on a handle (banner + skip bookkeeping). */
+export interface AgentTerminalActiveWait {
+    /** The needle being awaited (shown on the sidebar wait banner). */
+    needle: string;
+    /** Epoch ms when the wait registered (age display / debugging). */
+    since: number;
+    /** Flipped by `skipWait()`; the waiting poll returns `skipped` within one tick. */
+    skipped: boolean;
 }
 /** Read result shape (mirrors the official tool-pty terminal_read contract). */
 export interface AgentTerminalReadResult {
@@ -73,14 +107,18 @@ export interface AgentTerminalReadResult {
 }
 /** Outcome of {@link AgentPtyRegistry.waitFor}. */
 export type AgentTerminalWaitResult = {
-    /** The needle was found in the transcript. */
+    /** The pattern that was awaited. */
     kind: 'found';
-    /** The matched substring. */
     needle: string;
     /** 0-based line index (in the retained transcript) where the needle first appeared. */
     line: number;
     /** 0-based column index within that line where the match starts. */
     column: number;
+    /**
+     * The text that actually matched — for multi-outcome patterns
+     * (e.g. `(BUILD_OK|BUILD_FAIL)`) this tells which alternative matched.
+     */
+    match: string;
     /** Elapsed wall-clock milliseconds from the wait start to the match. */
     elapsedMs: number;
 } | {
@@ -101,6 +139,11 @@ export type AgentTerminalWaitResult = {
     exitCode?: number | null;
     /** The exit signal name, if the process was killed by a signal. */
     exitSignal?: string | null;
+} | {
+    /** The user skipped the wait from the sidebar banner. */
+    kind: 'skipped';
+    /** The needle that was awaited. */
+    needle: string;
 };
 /** Snapshot projection of a handle (drops the pty reference and transcript). */
 export declare function snapshotOf(handle: AgentTerminalHandle): AgentTerminalSnapshot;
@@ -181,12 +224,27 @@ export declare class AgentPtyRegistry {
      * make event-driven wakeups unreliable. A 50ms poll is fast enough for
      * interactive use and simple enough to be obviously correct.
      * @param uuid - terminal to watch.
-     * @param needle - substring to search for (case-sensitive, verbatim).
+     * @param needle - JavaScript regular expression to search for
+     *   (case-sensitive); a pattern that fails to compile falls back to
+     *   verbatim substring matching. May cover several outcomes at once
+     *   (e.g. `(BUILD_OK|BUILD_FAIL)` for build success vs failure) — the
+     *   returned `match` reports the text that actually matched, so callers
+     *   can tell which outcome hit.
      * @param timeoutMs - max wait; default 10000 (10s). Clamped to ≥100ms.
      * @param signal - caller-owned cancellation; aborts the wait re-throwing.
-     * @returns one of `found` / `timeout` / `exited`.
+     *   A wait can also be skipped by the user from the sidebar banner
+     *   (`skipWait`), which resolves it with `{kind:'skipped'}`.
+     * @returns one of `found` / `timeout` / `exited` / `skipped`.
      */
     waitFor(uuid: string, needle: string, timeoutMs?: number, signal?: AbortSignal): Promise<AgentTerminalWaitResult>;
+    /**
+     * Mark every active wait on one terminal as skipped (the sidebar banner's
+     * skip button). Each waiting poll loop observes its record's flag within
+     * one 50ms tick and returns `{kind:'skipped'}`. Idempotent: 0 when nothing
+     * is waiting (a stale banner racing a wait that already resolved).
+     * @returns the number of waits that transitioned to skipped.
+     */
+    skipWait(uuid: string): number;
     /**
      * Send a POSIX signal to a terminal's foreground process.
      *

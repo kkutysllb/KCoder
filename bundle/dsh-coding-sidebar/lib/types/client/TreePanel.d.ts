@@ -1,4 +1,5 @@
 import type { OpenWithTarget } from './open-with.ts';
+import type { BetterSidebarService } from './service.ts';
 export declare function TreePanel(props: {
     sessionId: string;
     cwd: string | undefined;
@@ -17,8 +18,14 @@ export declare function TreePanel(props: {
     openWithSsh?: boolean;
     onOpenWith?: (targetId: string, path: string) => void;
     onToggleOpenWithPin?: (targetId: string) => void;
-    onReferenceFile: (path: string) => void;
+    onReferenceFile: (path: string, isDir: boolean) => void;
+    /** Tree-row mutations (passed through to the file tree; absent → hidden). */
+    onPathRenamed?: (oldPath: string, newPath: string) => void;
+    onPathRemoved?: (path: string) => void;
     /** Full-window presentation: the panel fills its host instead of docking
      *  at a fixed width. */
     full?: boolean;
+    /** The sidebar registry service (file-icon registrations; passed through
+     *  to the file tree). */
+    service?: BetterSidebarService;
 }): import("react").JSX.Element;

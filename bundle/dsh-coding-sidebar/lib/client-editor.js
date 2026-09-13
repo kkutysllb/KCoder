@@ -18017,6 +18017,15 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			path,
 			content
 		})),
+		/** Rename one tree row within its directory (single-segment name; a
+		*  destination-existence clash is a 409; symlink rows rename the link). */
+		fsRename: (scope, path, name) => call$1("fs.rename", scopePayload(scope, {
+			path,
+			name
+		})),
+		/** Delete one tree row permanently (recursive for directories; a symlink
+		*  row unlinks the link only). */
+		fsRemove: (scope, path) => call$1("fs.remove", scopePayload(scope, { path })),
 		/** Upload one file's raw bytes into `dir` (keeps the folder tree via
 		*  `relativePath`); the host streams it under the session workspace. */
 		uploadFile: (scope, dir, relativePath, body, signal) => fetchUpload(scope, dir, relativePath, body, signal),
@@ -18038,6 +18047,13 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		}), signal),
 		/** Full patch text of one commit (diff display for the history rows). */
 		gitCommitDiff: (scope, hash, worktree, signal) => call$1("git.commit-diff", gitPayload(scope, worktree, { hash }), signal),
+		/** Both sides' full file contents for a diff-fold expansion; a missing
+		*  side is null (untracked / deleted) and the view degrades the fold. */
+		gitFoldContents: (scope, opts, worktree, signal) => call$1("git.fold-contents", gitPayload(scope, worktree, {
+			path: opts.path,
+			...opts.staged !== void 0 ? { staged: opts.staged } : {},
+			...opts.hash !== void 0 ? { hash: opts.hash } : {}
+		}), signal),
 		/** Discard the worktree changes of one file (the index is untouched). */
 		gitDiscard: (scope, path, worktree) => call$1("git.discard", gitPayload(scope, worktree, { path })),
 		/** Revert one commit onto the current branch. */
@@ -18050,6 +18066,12 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		ptyClose: (scope, tab) => call$1("pty.close", scopePayload(scope, { tab })),
 		/** Release an agent terminal by uuid (tab closed while WS was down). */
 		agentPtyClose: (uuid) => call$1("agent-pty.close", { uuid }),
+		/** Skip every active terminal_wait_for on one agent terminal (the wait
+		*  banner's skip button). Idempotent: {skipped:0} when none is active. */
+		agentSkipWait: (uuid) => call$1("agent-pty.skip-wait", { uuid }),
+		/** The session lens: file operations the model performed in one session
+		*  (parsed from the session's own event log; newest first). */
+		changesOps: (scope, signal) => call$1("changes.ops", scopePayload(scope, {}), signal),
 		/** Terminal dependency status (issue #140): after a WS close 1011 with
 		*  reason `pty-deps-missing` the view fetches the full repair details here
 		*  (the close reason itself is capped at 123 bytes). */
@@ -43208,24 +43230,242 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	//#endregion
 	//#region src/client/conversation-draft.ts
 	/**
-	* Append `text` to the session's composer draft (space-separated, like the
-	* @-mentions). Returns false — and logs — when the conversation service or
-	* the session scope is unavailable.
+	* Splice `text` into `draft` at `caret` (replacing any live selection) with
+	* whitespace-aware joins and report the caret position right after the
+	* inserted text. `caret === null` (position unknown) appends at the end,
+	* exactly like the original behavior.
+	*/
+	function spliceInsert(draft, text, caret) {
+		if (caret === null || draft === "") {
+			const next = draft.trim() === "" ? text : `${draft} ${text}`;
+			return {
+				draft: next,
+				caretAfter: next.length
+			};
+		}
+		const prefix = draft.slice(0, caret.start);
+		const suffix = draft.slice(caret.end);
+		if (prefix === "" && suffix === "") return {
+			draft: text,
+			caretAfter: text.length
+		};
+		const left = prefix === "" || /\s$/.test(prefix) ? "" : " ";
+		return {
+			draft: `${prefix}${left}${text}${suffix === "" || /^\s/.test(suffix) ? "" : " "}${suffix}`,
+			caretAfter: prefix.length + left.length + text.length
+		};
+	}
+	/**
+	* Locate the composer `<textarea>` in the conversation column: prefer the
+	* `data-phase`-tagged textarea (the composer's marker), falling back to any
+	* textarea in the column, then to a bare data-phase textarea (older host
+	* layouts without the column attribute). Null in jsdom-less hosts.
+	*/
+	function findComposerTextarea() {
+		if (typeof document === "undefined") return null;
+		const column = document.querySelector("#root [data-slot=\"conversation\"]");
+		const find = (scope) => scope.querySelector("textarea[data-phase]") ?? scope.querySelector("textarea");
+		return column !== null ? find(column) : document.querySelector("textarea[data-phase]");
+	}
+	/**
+	* Resolve the composer's live caret from its DOM `<textarea>`. The draft
+	* store has no caret API, so the sidebar reads the composed input's selection
+	* directly; the value-sync check (`el.value === draft`) discards stale or
+	* wrong-composer reads — a caret must never be applied against a draft it
+	* was not measured on.
+	*
+	* Returns null when the composer is missing, disabled/read-only, out of
+	* sync with the store draft, or has no measurable selection (odd hosts
+	* report null selectionStart/End).
+	*/
+	function probeComposerCaret(draft) {
+		const el = findComposerTextarea();
+		if (el === null || el.disabled || el.readOnly) return null;
+		if (el.value !== draft) return null;
+		let start = el.selectionStart;
+		let end = el.selectionEnd;
+		if (typeof start !== "number" || typeof end !== "number") return null;
+		if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+		start = Math.max(0, Math.min(start, draft.length));
+		end = Math.max(start, Math.min(end, draft.length));
+		return {
+			start,
+			end
+		};
+	}
+	/**
+	* Restore the composer caret to `caretIndex` after a programmatic
+	* `setDraft` commit. A controlled textarea update resets the caret (React
+	* commits the value asynchronously and the browser moves the caret to the
+	* start/end), so the placement is scheduled and retried across at most two
+	* animation frames (setTimeout fallback), and only applied when the textarea
+	* still matches `expectedDraft` — a newer edit or a different composer wins
+	* the race untouched. The caret is clamped into the value bounds, mirroring
+	* how browsers clamp type-in positions.
+	*/
+	function placeComposerCaretAfterInsert(expectedDraft, caretIndex) {
+		let remaining = 2;
+		let scheduled = false;
+		const schedule = (fn) => {
+			if (scheduled) return;
+			scheduled = true;
+			if (typeof requestAnimationFrame === "function") requestAnimationFrame(fn);
+			else setTimeout(fn, 0);
+		};
+		const place = () => {
+			scheduled = false;
+			if (remaining <= 0) return;
+			remaining -= 1;
+			const el = findComposerTextarea();
+			if (el === null || el.disabled || el.readOnly) return;
+			if (el.value !== expectedDraft) {
+				schedule(place);
+				return;
+			}
+			const clamped = Math.max(0, Math.min(caretIndex, el.value.length));
+			el.setSelectionRange(clamped, clamped);
+		};
+		schedule(place);
+	}
+	/**
+	* Insert `text` into the session's composer draft at the composer's live
+	* caret (see {@link probeComposerCaret}), falling back to appending at the
+	* end when the caret cannot be resolved. Returns false — and logs — when the
+	* conversation service or the session scope is unavailable.
 	*/
 	function appendToDraft(ctx, sessionId, text) {
 		try {
 			const actx = ctx.sessions.scope(sessionId);
-			if (actx === void 0) return false;
+			if (actx === void 0) {
+				console.warn("[dsh-coding-sidebar] draft insert skipped: no session scope", sessionId);
+				return false;
+			}
 			const conversation = ctx.get("conversation");
-			if (conversation === void 0) return false;
+			if (conversation === void 0) {
+				console.warn("[dsh-coding-sidebar] draft insert skipped: conversation service unavailable");
+				return false;
+			}
 			const input = conversation.input.for(actx);
 			const draft = input.state.getSnapshot().draft;
-			input.setDraft(draft.trim() === "" ? text : `${draft} ${text}`);
+			const { draft: next, caretAfter } = spliceInsert(draft, text, probeComposerCaret(draft));
+			input.setDraft(next);
+			placeComposerCaretAfterInsert(next, caretAfter);
 			return true;
 		} catch (error) {
 			console.warn("[dsh-coding-sidebar] draft insert failed:", error);
 			return false;
 		}
+	}
+	//#endregion
+	//#region src/client/selection-popup.ts
+	/**
+	* The floating "add selection to conversation" popup shared by the text
+	* viewer: a viewport-anchored button portaled to `document.body`, kept alive
+	* across the selection gesture and committed on click.
+	*
+	* Dismissal contract (upstream issue #425): the popup must never outlive its
+	* editor surface. The sidebar keeps every tab MOUNTED — switching tabs only
+	* flips the pane cell to `display:none` and collapsing the panel translates
+	* it off-screen — while the portaled `position:fixed` button stays pinned to
+	* its viewport anchor, ignoring both. The caller already hides on surface
+	* scrolls, selection collapse and content swaps; this hook adds the global
+	* dismissal that covers everything else:
+	*
+	* - any `mousedown` outside the button (tab bar, composer, another pane,
+	*   the collapse toggle, …) closes it;
+	* - `Escape` closes it;
+	* - the document going hidden (`visibilitychange`) or the window losing
+	*   focus closes it;
+	* - an `IntersectionObserver` on the editor surface closes it as soon as the
+	*   surface leaves the viewport — the tab-switch (`display:none`) and
+	*   panel-collapse (translated off-screen) paths have no DOM events of their
+	*   own, so the geometry signal is the only reliable one.
+	*
+	* The button's own `mousedown` is never treated as an outside click: the
+	* caller preventDefaults it to keep the selection/caret alive until the
+	* click commits (the hook's capture-phase listener runs first and must not
+	* hide for it).
+	*/
+	function useSelectionPopup(options) {
+		const onCommitRef = (0, react.useRef)(options.onCommit);
+		const getSurfaceRef = (0, react.useRef)(options.getSurface);
+		onCommitRef.current = options.onCommit;
+		getSurfaceRef.current = options.getSurface;
+		const [popup, setPopup] = (0, react.useState)(null);
+		/** Live mirror for click/event-time reads (no re-render race). */
+		const popupRef = (0, react.useRef)(null);
+		/** The portaled button itself (for the outside-click guard). */
+		const buttonRef = (0, react.useRef)(null);
+		/** The surface visibility observer (created lazily on open). */
+		const observerRef = (0, react.useRef)(null);
+		const show = (insert, left, top) => {
+			const next = {
+				insert,
+				left: Math.min(Math.max(left, 80), window.innerWidth - 80),
+				top
+			};
+			popupRef.current = next;
+			setPopup(next);
+		};
+		const hide = () => {
+			popupRef.current = null;
+			setPopup(null);
+		};
+		const commit = () => {
+			const current = popupRef.current;
+			if (current === null) return;
+			onCommitRef.current(current.insert);
+			hide();
+		};
+		(0, react.useEffect)(() => {
+			const onMouseDown = (event) => {
+				if (popupRef.current === null) return;
+				const button = buttonRef.current;
+				if (button !== null && (button === event.target || button.contains(event.target))) return;
+				hide();
+			};
+			const onKeyDown = (event) => {
+				if (event.key === "Escape" && popupRef.current !== null) hide();
+			};
+			const onVisibilityChange = () => {
+				if (document.hidden && popupRef.current !== null) hide();
+			};
+			const onWindowBlur = () => {
+				if (popupRef.current !== null) hide();
+			};
+			document.addEventListener("mousedown", onMouseDown, true);
+			document.addEventListener("keydown", onKeyDown, true);
+			document.addEventListener("visibilitychange", onVisibilityChange);
+			window.addEventListener("blur", onWindowBlur);
+			return () => {
+				document.removeEventListener("mousedown", onMouseDown, true);
+				document.removeEventListener("keydown", onKeyDown, true);
+				document.removeEventListener("visibilitychange", onVisibilityChange);
+				window.removeEventListener("blur", onWindowBlur);
+				observerRef.current?.disconnect();
+				observerRef.current = null;
+			};
+		}, []);
+		(0, react.useEffect)(() => {
+			if (popup === null) return;
+			observerRef.current?.disconnect();
+			observerRef.current = null;
+			if (typeof IntersectionObserver === "undefined") return;
+			const surface = getSurfaceRef.current();
+			if (surface === null) return;
+			const observer = new IntersectionObserver((entries) => {
+				for (const entry of entries) if (!entry.isIntersecting) hide();
+			}, { threshold: 0 });
+			observerRef.current = observer;
+			observer.observe(surface);
+		}, [popup !== null]);
+		return {
+			popup,
+			buttonRef,
+			show,
+			hide,
+			commit
+		};
 	}
 	//#endregion
 	//#region src/client/paths.ts
@@ -43368,6 +43608,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		terminalDepsFailed: "终端依赖 node-pty 加载失败",
 		terminalDepsHint: "在 DSH 所在环境的终端或 cmd 中执行以下命令修复，然后点重试（node-pty 与 DSH 核心保持同一版本）：",
 		terminalDepsProfile: "（检测到 profile：{profile}）",
+		terminalShellNotFound: "未找到配置的 Shell：{name}，请到 设置 → 侧边卡片 → 终端 检查 Shell 路径",
 		refresh: "刷新",
 		refreshUnsavedConfirm: "文件已在磁盘更新，刷新将丢弃未保存编辑。继续吗？",
 		save: "保存",
@@ -43432,6 +43673,26 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		producedOpen: "在侧边栏中打开",
 		showInFolder: "在文件夹中显示",
 		disconnected: "终端连接断开，重连中…",
+		terminalWaitBanner: "Agent 正在等待 {needle}",
+		terminalSkipWait: "跳过等待",
+		gitFoldExpand: "展开 {count} 行上下文",
+		gitFoldLoading: "展开中…",
+		gitFoldFailed: "展开失败",
+		rename: "重命名",
+		renameInvalid: "名称不能为空，且不能包含路径分隔符。",
+		delete: "删除",
+		deleteTitle: "删除「{name}」？",
+		deleteDescFile: "将永久删除该文件，此操作不可撤销。",
+		deleteDescDir: "将永久删除该目录及其全部内容，此操作不可撤销。",
+		dismiss: "关闭",
+		changesSessionGit: "Git 变动",
+		changesSessionLens: "会话变动",
+		changesEmpty: "本会话尚无文件操作",
+		changesCount: "{count} 个文件操作",
+		changesRedacted: "[已脱敏]",
+		changesBinary: "二进制文件，无法预览",
+		changesPreviewError: "预览读取失败：{message}",
+		changesLens: "视角",
 		exited: "终端进程已退出",
 		noSession: "选择一个会话以使用侧边栏",
 		pluginNotLoaded: "插件未加载，标签页暂不可用：",
@@ -43491,10 +43752,10 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		settingsConflict: "设置已被其他窗口修改，请重试",
 		binaryNoPreview: "此文件类型不支持预览",
 		downloadToView: "下载查看",
-		settingsSubagentTitle: "检测到子代理时自动展开任务管理页",
-		settingsSubagentDesc: "当前会话产生新的子代理时，自动展开侧边栏并打开任务管理页；关闭后需手动打开",
-		settingsJobsTitle: "有新后台任务时自动展开后台任务页",
-		settingsJobsDesc: "当前会话出现新的后台任务时，自动展开侧边栏并打开后台任务页（每个新任务都会触发）；关闭后需手动打开",
+		settingsSubagentTitle: "检测到子代理时自动激活任务管理页",
+		settingsSubagentDesc: "当前会话产生新的子代理时，自动激活任务管理页；宽屏同时展开侧边栏，窄屏不强制展开全屏抽屉；关闭后需手动打开",
+		settingsJobsTitle: "有新后台任务时自动激活后台任务页",
+		settingsJobsDesc: "当前会话出现新的后台任务时，自动激活后台任务页（每个新任务都会触发）；宽屏同时展开侧边栏，窄屏不强制展开全屏抽屉；关闭后需手动打开",
 		settingsToolsTitle: "为模型注入终端工具",
 		settingsToolsDesc: "开启后，模型可通过 terminal_create 等 8 个工具创建并操作侧边栏终端（默认关闭）",
 		settingsFontFamilyTitle: "终端字体",
@@ -43627,7 +43888,35 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		pluginSshTunnelDesc: "dsh-coding-sidebar「SSH 隧道」Tab：多机主机清单 + 按项目授权 + 密钥本地保管；模型工具 SSHManager（exec/SFTP/会话策略）；中央交互终端与双栏 SFTP",
 		pluginTurnReviewDesc: "对「刚刚这一回合」的 diff 做 Approve / Request changes 的人闸门：只审上一回合，不 fork 会话；文件按主会话/子代理/未归因分组，按文件勾选打回 + 可选评语，点文件先看回合开始快照 vs 现在的 diff。不是 /rewind",
 		pluginDocsPanelDesc: "DSH 侧边栏里的「全局文档」：全局 Markdown 笔记，任何工作区随时可读——列表点选阅读、悬浮大纲跳转、Chrome / VS Code 外部打开、代码复制，目录可配置（默认 ~/.dsh/docs）",
-		pluginEgoBrowserDesc: "把 CitroLabs/ego-lite 接进 DeepSeek Harness 的 agent 浏览器：32 个 ego_* 工具驱动真实 Chromium，侧边栏原生「ego 浏览器」Tab 实时观察 agent 逛的每个页面，可直接点击/拖拽/输入接管；装 dsh-coding-sidebar 时自动注册 Tab，没装则退回浮动浮窗"
+		pluginEgoBrowserDesc: "把 CitroLabs/ego-lite 接进 DeepSeek Harness 的 agent 浏览器：32 个 ego_* 工具驱动真实 Chromium，侧边栏原生「ego 浏览器」Tab 实时观察 agent 逛的每个页面，可直接点击/拖拽/输入接管；装 dsh-coding-sidebar 时自动注册 Tab，没装则退回浮动浮窗",
+		trajectory: "轨迹图",
+		trajEmpty: "本会话还没有轨迹记录",
+		trajUnavailable: "轨迹数据不可用",
+		trajUnavailableHint: "宿主未提供轨迹视图（需要 DSH 的 ui-trajectory 插件，且当前会话已挂载）",
+		trajFollow: "跟随最新",
+		trajFit: "适应窗口",
+		trajZoomIn: "放大",
+		trajZoomOut: "缩小",
+		trajReplay: "回放",
+		trajPause: "暂停",
+		trajStop: "停止回放",
+		trajSpeed: "倍速",
+		trajStatsNodes: "{n} 节点",
+		trajStatsEdges: "{n} 条边",
+		trajStatsTurns: "{n} 轮",
+		trajStatsTokens: "{n} 令牌",
+		trajTurn: "第 {n} 轮",
+		trajCollapsed: "已折叠更早的 {n} 条记录",
+		trajInspectorHint: "点击节点查看详情",
+		trajSeq: "序号",
+		trajDuration: "耗时",
+		trajUsage: "输入 {input} · 输出 {output}",
+		trajLaneInput: "输入",
+		trajLaneModel: "模型",
+		trajLaneTool: "工具",
+		trajStatusRunning: "进行中",
+		trajStatusError: "失败",
+		trajStatusInterrupted: "已停止"
 	};
 	/** The en dictionary (key-set-equal to zh, enforced by the type annotation). */
 	const en = {
@@ -43703,6 +43992,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		terminalDepsFailed: "Terminal dependency node-pty failed to load",
 		terminalDepsHint: "Run the command below in a terminal or cmd on the DSH machine to repair it, then retry (node-pty stays in sync with the DSH core version):",
 		terminalDepsProfile: " (detected profile: {profile})",
+		terminalShellNotFound: "Configured shell not found: {name} — check the shell path under Settings → Side card → Terminal",
 		refresh: "Refresh",
 		refreshUnsavedConfirm: "The file changed on disk. Refreshing will discard unsaved edits. Continue?",
 		save: "Save",
@@ -43767,6 +44057,26 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		producedOpen: "Open in sidebar",
 		showInFolder: "Show in folder",
 		disconnected: "Terminal disconnected, reconnecting…",
+		terminalWaitBanner: "Agent is waiting for {needle}",
+		terminalSkipWait: "Skip wait",
+		gitFoldExpand: "Expand {count} context lines",
+		gitFoldLoading: "Expanding…",
+		gitFoldFailed: "Failed to expand",
+		rename: "Rename",
+		renameInvalid: "The name cannot be empty or contain path separators.",
+		delete: "Delete",
+		deleteTitle: "Delete \"{name}\"?",
+		deleteDescFile: "This permanently deletes the file. This cannot be undone.",
+		deleteDescDir: "This permanently deletes the directory and everything inside it. This cannot be undone.",
+		dismiss: "Dismiss",
+		changesSessionGit: "Git changes",
+		changesSessionLens: "Session changes",
+		changesEmpty: "No file operations in this session",
+		changesCount: "{count} file operations",
+		changesRedacted: "[REDACTED]",
+		changesBinary: "Binary file — no preview",
+		changesPreviewError: "Preview read failed: {message}",
+		changesLens: "Lens",
 		exited: "Terminal process exited",
 		noSession: "Select a conversation to use the sidebar",
 		pluginNotLoaded: "Plugin not loaded; tab unavailable:",
@@ -43826,10 +44136,10 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		settingsConflict: "The setting changed in another window — please retry",
 		binaryNoPreview: "This file type cannot be previewed",
 		downloadToView: "Download to view",
-		settingsSubagentTitle: "Auto-open the Tasks page when a subagent appears",
-		settingsSubagentDesc: "Expand the side card and open the Tasks page when the current conversation spawns a new subagent; turn off to open it manually",
-		settingsJobsTitle: "Auto-open the Jobs page on a new background job",
-		settingsJobsDesc: "Expand the side card and open the Jobs page whenever a new background job appears for the current conversation (every new job triggers); turn off to open it manually",
+		settingsSubagentTitle: "Auto-activate the Tasks page when a subagent appears",
+		settingsSubagentDesc: "Activate the Tasks page when the current conversation spawns a new subagent; on wide screens the side card expands with it, narrow screens never force the full-screen drawer; turn off to open it manually",
+		settingsJobsTitle: "Auto-activate the Jobs page on a new background job",
+		settingsJobsDesc: "Activate the Jobs page whenever a new background job appears for the current conversation (every new job triggers); on wide screens the side card expands with it, narrow screens never force the full-screen drawer; turn off to open it manually",
 		settingsToolsTitle: "Inject terminal tools for the model",
 		settingsToolsDesc: "When enabled, the model can create and drive sidebar terminals through the 8 terminal_* tools (off by default)",
 		settingsFontFamilyTitle: "Terminal font family",
@@ -43962,7 +44272,35 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		pluginSshTunnelDesc: "SSH Tunnel tab: multi-host inventory + per-project grants + local secrets; SSHManager tool (exec/SFTP/session strategies); center interactive terminal and dual-pane SFTP",
 		pluginTurnReviewDesc: "A human gate on the just-finished turn: Approve / Request changes per path with an optional comment; paths grouped by main session / subagent / unattributed; inline snapshot-vs-now diff before you decide. No fork, no /rewind",
 		pluginDocsPanelDesc: "Global docs in the DSH sidebar: read your own Markdown notes from any workspace — a file list, an outline, open in Chrome / VS Code, and copy buttons; the docs directory is configurable (default ~/.dsh/docs)",
-		pluginEgoBrowserDesc: "The agent browser for DeepSeek Harness: 32 ego_* tools drive a real Chromium, with a native sidebar \"ego browser\" tab giving a live view of every page the agent visits — you can click, drag, and type to take over. Registers the tab automatically when dsh-coding-sidebar is present, otherwise falls back to a floating bubble"
+		pluginEgoBrowserDesc: "The agent browser for DeepSeek Harness: 32 ego_* tools drive a real Chromium, with a native sidebar \"ego browser\" tab giving a live view of every page the agent visits — you can click, drag, and type to take over. Registers the tab automatically when dsh-coding-sidebar is present, otherwise falls back to a floating bubble",
+		trajectory: "Trajectory Graph",
+		trajEmpty: "No trajectory records in this session yet",
+		trajUnavailable: "Trajectory data unavailable",
+		trajUnavailableHint: "The host exposed no trajectory view (needs DSH's ui-trajectory plugin and a mounted session)",
+		trajFollow: "Follow latest",
+		trajFit: "Fit to width",
+		trajZoomIn: "Zoom in",
+		trajZoomOut: "Zoom out",
+		trajReplay: "Replay",
+		trajPause: "Pause",
+		trajStop: "Stop replay",
+		trajSpeed: "Playback speed",
+		trajStatsNodes: "{n} nodes",
+		trajStatsEdges: "{n} edges",
+		trajStatsTurns: "{n} turns",
+		trajStatsTokens: "{n} tokens",
+		trajTurn: "Turn {n}",
+		trajCollapsed: "{n} earlier records folded",
+		trajInspectorHint: "Click a node for details",
+		trajSeq: "seq",
+		trajDuration: "took",
+		trajUsage: "in {input} · out {output}",
+		trajLaneInput: "Input",
+		trajLaneModel: "Model",
+		trajLaneTool: "Tools",
+		trajStatusRunning: "running",
+		trajStatusError: "failed",
+		trajStatusInterrupted: "stopped"
 	};
 	/**
 	* The active locale id ('zh' | 'en'): the DSH locale service's snapshot when
@@ -43981,7 +44319,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	}
 	//#endregion
 	//#region \0dsh-css:/Users/libing/kk_Projects/dsh-coding-sidebar/src/client/sidebar.module.css.mjs
-	const css = "[data-dsh-panel-host]{z-index:25;pointer-events:none;position:fixed;inset:0;overflow:hidden}[data-dsh-panel-host][data-dsh-panel-host-degraded]{position:absolute;top:0;left:0}.S5HVoW_toggleCluster{top:calc(3px + env(safe-area-inset-top));z-index:45;pointer-events:auto;flex-direction:row;gap:4px;display:flex;position:absolute;right:10px}.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:72px}.S5HVoW_toggleButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), color var(--ds-transition-duration-slow) var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;justify-content:center;align-items:center;display:flex}.S5HVoW_toggleButton:hover:not(:disabled):not([aria-disabled=true]){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_toggleButton:disabled,.S5HVoW_toggleButton[aria-disabled=true]{opacity:.4;cursor:default}.S5HVoW_panel{box-sizing:border-box;z-index:40;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);padding-bottom:env(safe-area-inset-bottom);transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out);flex-direction:column;display:flex;position:absolute;top:0;bottom:0;right:0}.S5HVoW_panelHidden{pointer-events:none;visibility:hidden;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);transform:translate(102%)}.S5HVoW_panel[data-dragging]{transition:none}.S5HVoW_panelResize{cursor:col-resize;z-index:2;touch-action:none;width:8px;position:absolute;top:0;bottom:0;left:-4px}.S5HVoW_panelResizeActive{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_panelBody{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_panel{contain:layout style}body[data-dsh-sidebar-dragging] .S5HVoW_panel{will-change:transform}.S5HVoW_floatWindow{z-index:42;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-lv3);contain:layout style;border-radius:8px;flex-direction:column;display:flex;position:absolute;overflow:hidden}.S5HVoW_floatWindowDragging{will-change:left, top, width, height}.S5HVoW_floatHeader{height:34px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1);cursor:grab;user-select:none;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_floatWindowDragging .S5HVoW_floatHeader{cursor:grabbing}.S5HVoW_floatTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_floatClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_floatClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_floatContent{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden}.S5HVoW_floatResize{z-index:2;cursor:nwse-resize;touch-action:none;width:14px;height:14px;position:absolute;bottom:0;right:0}.S5HVoW_floatResize:hover{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane[data-dsh-float-dock-over]{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px}.S5HVoW_floatDropHint{z-index:46;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 12%, transparent);border-radius:8px;justify-content:center;align-items:center;display:flex;position:absolute}.S5HVoW_floatDropHintLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:4px 12px}.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tabBar,.S5HVoW_floatHeader{-webkit-app-region:no-drag}body[data-dsh-title-bar-compat] .S5HVoW_toggleCluster{top:calc(var(--dsh-title-bar-strip,40px) + 3px)}body[data-dsh-title-bar-compat] .S5HVoW_panel{padding-top:var(--dsh-title-bar-strip,40px)}.S5HVoW_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_iconButton:disabled{opacity:.4;cursor:default}.S5HVoW_workbench,.S5HVoW_split{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_splitRow{flex-direction:row}.S5HVoW_splitCol{flex-direction:column}.S5HVoW_splitChild{display:flex;position:relative;overflow:hidden}.S5HVoW_divider{z-index:3;touch-action:none;flex:none;position:relative}.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{content:\"\";background:var(--dsw-alias-border-l2);transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out);position:absolute}.S5HVoW_dividerRow{cursor:col-resize;width:7px;margin:0 -2px}.S5HVoW_dividerRow:after{width:1px;top:0;bottom:0;left:50%;transform:translate(-50%)}.S5HVoW_dividerCol{cursor:row-resize;height:7px;margin:-2px 0}.S5HVoW_dividerCol:after{height:1px;top:50%;left:0;right:0;transform:translateY(-50%)}.S5HVoW_divider:hover:after,.S5HVoW_dividerActive:after{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_paneDrop{outline:1px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_dropOverlay{z-index:6;pointer-events:none;background:var(--dsw-alias-interactive-bg-hover-accent);opacity:.5;position:absolute}.S5HVoW_dropLeft{width:25%;top:0;bottom:0;left:0}.S5HVoW_dropRight{width:25%;top:0;bottom:0;right:0}.S5HVoW_dropUp{height:25%;top:0;left:0;right:0}.S5HVoW_dropDown{height:25%;bottom:0;left:0;right:0}.S5HVoW_dropCenter{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px;background:0 0;inset:25%}.S5HVoW_paneContent{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden}.S5HVoW_paneTab{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_paneTabHidden{display:none}.S5HVoW_paneEmptyCards{flex:1;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));align-content:start;gap:8px;min-height:0;padding:12px;display:grid;overflow:hidden}.S5HVoW_paneCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;text-align:center;border-radius:8px;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:12px 8px;display:flex}.S5HVoW_paneCard:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}.S5HVoW_paneCard:disabled{opacity:.45;cursor:default}.S5HVoW_tabBar{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:stretch;height:34px;display:flex}.S5HVoW_tabBarDrop{outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_tabList{scrollbar-width:none;flex:1;min-width:0;display:flex;overflow-x:auto}.S5HVoW_tabList::-webkit-scrollbar{display:none}.S5HVoW_tab{min-width:64px;max-width:160px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);border-right:1px solid var(--dsw-alias-border-l1);cursor:pointer;user-select:none;background:0 0;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_tabActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_tabTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_tabBadge{min-width:16px;height:15px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);border-radius:8px;flex:none;justify-content:center;align-items:center;padding:0 4px;display:inline-flex}.S5HVoW_tabClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_tabClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tabBarPlus{background:var(--dsw-alias-bg-layer-1);width:22px;height:22px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border:none;border-radius:5px;flex:none;justify-content:center;align-self:center;align-items:center;margin:0 6px;padding:0;display:inline-flex;position:sticky;right:0}.S5HVoW_tabBarPlus:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_pinnedTab{color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_pinnedTab:hover{color:var(--dsw-alias-label-secondary)}.S5HVoW_explorer{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_explorerHeader{flex:none;justify-content:space-between;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_explorerRoot{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_explorerBody{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden auto}.S5HVoW_explorerRow{box-sizing:border-box;width:100%;max-width:100%;height:34px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;white-space:nowrap;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);background:0 0;border:none;border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.S5HVoW_explorerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_explorerRowRevealed{background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 18%, transparent);box-shadow:inset 2px 0 0 var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_explorerDir{font:var(--dsw-font-s-strong-14)}.S5HVoW_explorerHidden{opacity:.45}.S5HVoW_explorerSymlink{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerBroken .S5HVoW_explorerName{color:var(--dsw-alias-state-error-primary)}.S5HVoW_explorerName{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.S5HVoW_explorerRef{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:20px;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;align-items:center;padding:0 8px;display:none}.S5HVoW_explorerRef:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_explorerRow:hover .S5HVoW_explorerRef,.S5HVoW_explorerRow:focus-within .S5HVoW_explorerRef{display:inline-flex}.S5HVoW_explorerCopied{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);cursor:default}@keyframes S5HVoW_dsh-row-in{0%{opacity:0}}.S5HVoW_explorerEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_explorerRowDropTarget{background:var(--dsw-alias-interactive-bg-hover);outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_uploadDropZone{z-index:1001;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);box-shadow:0 0 0 200vmax var(--dsw-alias-bg-mask-drop);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:10px;justify-content:center;align-items:flex-start;padding:12px;display:flex;position:fixed}.S5HVoW_uploadDropHero{flex-direction:column;align-items:center;gap:10px;max-width:100%;padding-top:8px;display:flex}.S5HVoW_uploadDropZonePill{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:100%;box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);border-radius:999px;align-items:center;gap:6px;padding:6px 12px;display:flex}.S5HVoW_uploadDropZoneText{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadDropChatHint{z-index:1002;pointer-events:none;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;padding:24px;display:flex;position:fixed;top:0;bottom:0;left:0}.S5HVoW_uploadDropChatCard{text-align:center;max-width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-strong-14);flex-direction:column;align-items:center;gap:12px;display:flex}.S5HVoW_uploadOverlay{z-index:30;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;display:flex;position:absolute;inset:0}.S5HVoW_uploadOverlayCard{border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-alias-bg-layer-2);min-width:280px;max-width:min(420px,100% - 48px);box-shadow:var(--dsw-shadow-lv3);border-radius:24px;flex-direction:column;gap:12px;padding:20px 24px;display:flex}.S5HVoW_uploadOverlayTitle{font:var(--dsw-font-s-strong-14);color:var(--dsw-alias-label-primary);align-items:center;gap:8px;display:flex}.S5HVoW_uploadOverlayTitle>svg{flex:none}.S5HVoW_uploadOverlayTitle>span{white-space:nowrap;text-overflow:ellipsis;min-width:0;overflow:hidden}.S5HVoW_uploadOverlayProgress{background:var(--dsw-alias-border-l2);border-radius:3px;height:6px;overflow:hidden}.S5HVoW_uploadOverlayProgressFill{background:var(--dsw-alias-interactive-bg-hover-accent);height:100%;transition:width .15s var(--ds-ease-in-out);border-radius:3px}.S5HVoW_uploadOverlayStatus{min-height:1em;font:var(--dsw-font-xxs-12);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadOverlayCancel{border:1px solid var(--dsw-alias-border-l2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;background:0 0;border-radius:8px;align-self:flex-end;padding:0 14px}.S5HVoW_uploadOverlayCancel:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_uploadOverlayCancel:disabled{opacity:.4;cursor:default}.S5HVoW_editor{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorTitle{min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.S5HVoW_editorPathInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorPathInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorTreeToggleActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_editorBody{flex:1;min-height:0;display:flex}.S5HVoW_editorMain{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_editorTreeDock{border-left:1px solid var(--dsw-alias-border-l1);flex:none;min-height:0;display:flex;position:relative}.S5HVoW_editorTreeResize{cursor:col-resize;touch-action:none;z-index:3;width:6px;position:absolute;top:0;bottom:0;left:0}.S5HVoW_editorTreeResize:hover{background:var(--dsw-alias-border-l2)}.S5HVoW_editorTreePanel{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_editorTreePanelFull{flex:1}.S5HVoW_editorTreeSearch{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorSearchInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorSearchInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorSearchHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:8px 12px}.S5HVoW_editorSearchResult{width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;text-overflow:ellipsis;white-space:nowrap;background:0 0;border:none;border-radius:6px;padding:4px 8px;display:block;overflow:hidden}.S5HVoW_editorSearchResult:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorStatusError{color:var(--dsw-alias-state-error-primary)}.S5HVoW_dirtyDot{background:var(--dsw-alias-state-warn-primary);border-radius:50%;flex:none;width:7px;height:7px}.S5HVoW_editorPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex:1;justify-content:center;align-items:center;padding:16px;display:flex}.S5HVoW_orphanedType{opacity:.7;overflow-wrap:anywhere;margin-top:8px;font-size:12px;display:block}.S5HVoW_editorBinary{text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:12px;padding:24px 16px;display:flex}.S5HVoW_editorBinaryNotice{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorDownloadLink{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:6px;align-items:center;gap:6px;padding:6px 14px;text-decoration:none;display:inline-flex}.S5HVoW_editorDownloadLink:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_editorError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);padding:12px 16px}.S5HVoW_editorBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 8px}.S5HVoW_sandboxStatus{font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sandboxStatusOn{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sandboxStatusOff{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}.S5HVoW_sandboxDot{background:var(--dsw-alias-state-success-primary);border-radius:50%;flex:none;width:6px;height:6px}.S5HVoW_sandboxStatusOff .S5HVoW_sandboxDot{background:var(--dsw-alias-state-error-primary)}.S5HVoW_sandboxStatusText{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_sandboxAction{border:1px solid var(--dsw-alias-border-l2);font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:6px;flex:none;padding:2px 8px}.S5HVoW_sandboxAction:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_browser{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_browserBar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:4px;padding:6px 8px;display:flex}.S5HVoW_browserInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_browserInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_browserMessage{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 12px}.S5HVoW_browserFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_browserStart{text-align:center;min-height:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);flex:1;justify-content:center;align-items:center;padding:20px;display:flex}.S5HVoW_browserBlocked{text-align:center;min-height:0;color:var(--dsw-alias-state-warn-primary);flex-direction:column;flex:1;justify-content:center;align-items:center;gap:6px;padding:24px;display:flex}.S5HVoW_browserBlockedTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary)}.S5HVoW_browserBlockedDesc{max-width:280px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary)}.S5HVoW_browserBlockedActions{gap:8px;margin-top:6px;display:flex}.S5HVoW_browserBlockedButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);cursor:pointer;border-radius:6px;padding:4px 12px}.S5HVoW_browserBlockedButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorCm{background:0 0;flex:1;min-height:0;overflow:hidden}.S5HVoW_editorCm .cm-editor{height:100%}.S5HVoW_editorCm .cm-scroller{padding:12px 16px}.S5HVoW_editorCm .cm-editor.cm-focused{outline:none}.S5HVoW_selectionPopup{z-index:60;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;cursor:pointer;border-radius:6px;align-items:center;padding:0 10px;display:inline-flex;position:fixed;transform:translate(-50%,calc(-100% - 8px))}.S5HVoW_selectionPopup:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_terminalWrap{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;position:relative}.S5HVoW_terminal{flex:1;min-height:0;padding:6px 4px 6px 8px}.S5HVoW_terminal .xterm{height:100%}.S5HVoW_terminalBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-wrap:wrap;flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalBannerUrl{word-break:break-all;opacity:.85;flex-basis:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.S5HVoW_boundaryError{z-index:50;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;align-items:flex-start;gap:8px;padding:16px;display:flex;position:fixed;top:0;bottom:0;right:0;overflow:auto}.S5HVoW_terminalRetry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;padding:1px 8px}.S5HVoW_terminalRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_terminalDepsBanner{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-direction:column;flex:none;gap:6px;padding:10px;display:flex}.S5HVoW_terminalDepsTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-state-warn-primary)}.S5HVoW_terminalDepsHint{opacity:.9}.S5HVoW_terminalDepsCommandRow{align-items:flex-start;gap:8px;display:flex}.S5HVoW_terminalRepairCommand{white-space:pre-wrap;word-break:break-all;user-select:text;min-width:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:4px;flex:1;max-height:160px;margin:0;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;overflow:auto}.S5HVoW_terminalDepsNote{opacity:.85}.S5HVoW_terminalDepsActions{align-items:center;gap:8px;display:flex}.S5HVoW_tabBoundaryError{min-height:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;flex:1;align-items:flex-start;gap:8px;padding:12px 16px;display:flex;overflow:auto}.S5HVoW_git{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitHeader{flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitWorktreeRow{flex:none;align-items:center;gap:8px;padding:6px 8px 0 12px;display:flex}.S5HVoW_gitWorktreeLabel{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none}.S5HVoW_gitBranchSelect{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 6px}.S5HVoW_gitSection{border-top:1px solid var(--dsw-alias-border-l1)}.S5HVoW_gitSectionHeader{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);text-transform:uppercase;justify-content:space-between;align-items:center;padding:6px 12px 4px;display:flex}.S5HVoW_gitLink{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-brand-primary);cursor:pointer;background:0 0;border:none;padding:0}.S5HVoW_gitLink:hover:not(:disabled){text-decoration:underline}.S5HVoW_gitLink:disabled{opacity:.4;cursor:default}.S5HVoW_gitRow{min-height:34px;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:8px;align-items:center;gap:6px;margin:0 6px;padding:0 8px;display:flex}.S5HVoW_gitRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitRowSelected{background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_gitRowMain{cursor:pointer;text-align:left;background:0 0;border:none;flex:1;align-items:center;gap:8px;min-width:0;padding:3px 0;display:flex}.S5HVoW_gitBadge{width:20px;height:16px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_gitName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:4px 12px 8px}.S5HVoW_gitPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_gitError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap;padding:8px 12px}.S5HVoW_gitDiff{border-top:1px solid var(--dsw-alias-border-l1);padding:8px}.S5HVoW_gitDiffTab{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitDiffTabHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitDiffTabTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitDiffFile{width:100%;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;align-items:baseline;gap:6px;padding:8px 2px 2px;display:flex}.S5HVoW_gitDiffFile:disabled{cursor:default}.S5HVoW_gitDiffFile:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitDiffFileChevron{color:var(--dsw-alias-label-tertiary);flex:none;transform:rotate(0)}.S5HVoW_gitDiffFileChevronExpanded{transform:rotate(90deg)}.S5HVoW_gitDiffFilePath{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffFileOld{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:none;max-width:40%;overflow:hidden}.S5HVoW_gitDiffFileTag{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:0 6px}.S5HVoW_gitDiffHunk{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);gap:8px;padding:3px 2px;display:flex}.S5HVoW_gitDiffHunkHeader{color:var(--dsw-alias-label-secondary);flex:none}.S5HVoW_gitDiffHunkSection{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffLine{font:var(--dsw-font-markdown-code-block-small);white-space:pre-wrap;overflow-wrap:anywhere;align-items:stretch;min-width:0;line-height:20px;display:flex}.S5HVoW_gitDiffNum{text-align:right;width:36px;color:var(--dsw-alias-label-tertiary);user-select:none;flex:none;padding-right:8px}.S5HVoW_gitDiffCode{flex:1;min-width:0;overflow:visible}.S5HVoW_gitDiffCtx{color:var(--dsw-alias-label-primary)}.S5HVoW_gitDiffDel{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}.S5HVoW_gitDiffAdd{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent)}.S5HVoW_gitDiffMeta{padding-left:2px}.S5HVoW_gitDiffMetaText{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_gitDiffExpand{width:100%;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-brand-primary);cursor:pointer;text-align:center;background:0 0;border:none;margin:4px 0;display:block}.S5HVoW_gitDiffExpand:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitConfirmDesc{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);white-space:pre-wrap;margin:0}.S5HVoW_gitCommit{border-top:1px solid var(--dsw-alias-border-l1);align-items:center;gap:6px;padding:8px 12px;display:flex}.S5HVoW_gitCommitInput{flex:1;min-width:0}.S5HVoW_gitCommitButton{background:var(--dsw-alias-button-primary-fill);height:26px;color:var(--dsw-alias-label-primary-inverted);font:var(--dsw-font-xxs-strong-12);cursor:pointer;border:none;border-radius:6px;flex:none;padding:0 12px}.S5HVoW_gitCommitButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.S5HVoW_gitCommitButton:disabled{opacity:.45;cursor:default}.S5HVoW_gitLogRow{cursor:pointer;border-radius:8px;flex-direction:column;gap:2px;padding:5px 12px;display:flex}.S5HVoW_gitLogRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitLogLine1{align-items:baseline;gap:8px;min-width:0;display:flex}.S5HVoW_gitLogHash{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_gitLogLine2{flex-wrap:wrap;align-items:center;gap:6px;min-width:0;display:flex}.S5HVoW_gitLogRef{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-brand-primary);white-space:nowrap;border-radius:999px;flex:none;padding:0 5px}.S5HVoW_gitLogSubject{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitLogMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_gitLogMore{border:1px solid var(--dsw-alias-border-l2);width:calc(100% - 24px);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:6px;margin:4px 12px 8px;padding:6px 0;display:block}.S5HVoW_gitLogMore:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitLogMore:disabled{opacity:.5;cursor:default}.S5HVoW_producedRow{flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0;display:flex}.S5HVoW_producedLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_producedChip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:200px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;display:inline-flex;overflow:hidden}.S5HVoW_producedChip:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_producedChip span{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_producedMore{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_toggleButton:focus-visible,.S5HVoW_iconButton:focus-visible,.S5HVoW_tab:focus-visible,.S5HVoW_tabClose:focus-visible,.S5HVoW_tabBarPlus:focus-visible,.S5HVoW_paneCard:focus-visible,.S5HVoW_explorerRow:focus-visible,.S5HVoW_explorerRef:focus-visible,.S5HVoW_gitRowMain:focus-visible,.S5HVoW_gitLink:focus-visible,.S5HVoW_gitCommitButton:focus-visible,.S5HVoW_gitLogRow:focus-visible,.S5HVoW_gitLogMore:focus-visible,.S5HVoW_gitDiffFile:focus-visible,.S5HVoW_gitDiffExpand:focus-visible,.S5HVoW_terminalRetry:focus-visible,.S5HVoW_editorDownloadLink:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}@media (prefers-reduced-motion:reduce){.S5HVoW_panel,.S5HVoW_panelHidden,.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tab,.S5HVoW_tabBarPlus,.S5HVoW_paneCard,.S5HVoW_explorerRow,.S5HVoW_gitRow,.S5HVoW_divider,.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{transition:none;animation:none}}@media (width<=767px){.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:40px}.S5HVoW_tab{min-width:48px;max-width:128px}}.S5HVoW_openWithLabel{align-items:center;gap:8px;width:100%;min-width:0;display:flex}.S5HVoW_openWithName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}.S5HVoW_openWithChevron{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_openWithPin{width:20px;height:20px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:6px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_openWithPin:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_openWithPinActive{color:var(--dsw-alias-state-business-primary)}@keyframes S5HVoW_dsh-toc-flash{0%,60%{background:var(--dsw-alias-interactive-bg-hover)}to{background:0 0}}.S5HVoW_browserLive{flex-direction:column;gap:6px;padding:8px 10px;display:flex;position:absolute;inset:0;overflow:hidden}.S5HVoW_browserLiveStatus{opacity:.75;align-items:center;gap:8px;font-size:12px;display:flex}.S5HVoW_browserLiveCanvas{object-fit:contain;border:1px solid var(--dsw-alias-border-l,#80808040);cursor:crosshair;background:#fff;border-radius:8px;flex:1;width:100%;min-height:0}.S5HVoW_browserLiveTarget{max-width:260px;font-size:12px}";
+	const css = "[data-dsh-panel-host]{z-index:25;pointer-events:none;position:fixed;inset:0;overflow:hidden}[data-dsh-panel-host][data-dsh-panel-host-degraded]{position:absolute;top:0;left:0}.S5HVoW_toggleCluster{top:calc(3px + env(safe-area-inset-top));z-index:45;pointer-events:auto;flex-direction:row;gap:4px;display:flex;position:absolute;right:10px}.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:72px}.S5HVoW_toggleButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), color var(--ds-transition-duration-slow) var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;justify-content:center;align-items:center;display:flex}.S5HVoW_toggleButton:hover:not(:disabled):not([aria-disabled=true]){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_toggleButton:disabled,.S5HVoW_toggleButton[aria-disabled=true]{opacity:.4;cursor:default}.S5HVoW_panel{box-sizing:border-box;z-index:40;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);padding-bottom:env(safe-area-inset-bottom);transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out);flex-direction:column;display:flex;position:absolute;top:0;bottom:0;right:0}.S5HVoW_panelHidden{pointer-events:none;visibility:hidden;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);transform:translate(102%)}.S5HVoW_panel[data-dragging]{transition:none}.S5HVoW_panelResize{cursor:col-resize;z-index:2;touch-action:none;width:8px;position:absolute;top:0;bottom:0;left:-4px}.S5HVoW_panelResizeActive{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_panelBody{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_panel{contain:layout style}body[data-dsh-sidebar-dragging] .S5HVoW_panel{will-change:transform}.S5HVoW_floatWindow{z-index:42;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-lv3);contain:layout style;border-radius:8px;flex-direction:column;display:flex;position:absolute;overflow:hidden}.S5HVoW_floatWindowDragging{will-change:left, top, width, height}.S5HVoW_floatHeader{height:34px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1);cursor:grab;user-select:none;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_floatWindowDragging .S5HVoW_floatHeader{cursor:grabbing}.S5HVoW_floatTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_floatClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_floatClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_floatContent{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden}.S5HVoW_floatResize{z-index:2;cursor:nwse-resize;touch-action:none;width:14px;height:14px;position:absolute;bottom:0;right:0}.S5HVoW_floatResize:hover{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane[data-dsh-float-dock-over]{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px}.S5HVoW_floatDropHint{z-index:46;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 12%, transparent);border-radius:8px;justify-content:center;align-items:center;display:flex;position:absolute}.S5HVoW_floatDropHintLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:4px 12px}.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tabBar,.S5HVoW_floatHeader{-webkit-app-region:no-drag}body[data-dsh-title-bar-compat] .S5HVoW_toggleCluster{top:calc(var(--dsh-title-bar-strip,40px) + 3px)}body[data-dsh-title-bar-compat] .S5HVoW_panel{padding-top:var(--dsh-title-bar-strip,40px)}.S5HVoW_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_iconButton:disabled{opacity:.4;cursor:default}.S5HVoW_workbench,.S5HVoW_split{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_splitRow{flex-direction:row}.S5HVoW_splitCol{flex-direction:column}.S5HVoW_splitChild{display:flex;position:relative;overflow:hidden}.S5HVoW_divider{z-index:3;touch-action:none;flex:none;position:relative}.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{content:\"\";background:var(--dsw-alias-border-l2);transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out);position:absolute}.S5HVoW_dividerRow{cursor:col-resize;width:7px;margin:0 -2px}.S5HVoW_dividerRow:after{width:1px;top:0;bottom:0;left:50%;transform:translate(-50%)}.S5HVoW_dividerCol{cursor:row-resize;height:7px;margin:-2px 0}.S5HVoW_dividerCol:after{height:1px;top:50%;left:0;right:0;transform:translateY(-50%)}.S5HVoW_divider:hover:after,.S5HVoW_dividerActive:after{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_paneDrop{outline:1px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_dropOverlay{z-index:6;pointer-events:none;background:var(--dsw-alias-interactive-bg-hover-accent);opacity:.5;position:absolute}.S5HVoW_dropLeft{width:25%;top:0;bottom:0;left:0}.S5HVoW_dropRight{width:25%;top:0;bottom:0;right:0}.S5HVoW_dropUp{height:25%;top:0;left:0;right:0}.S5HVoW_dropDown{height:25%;bottom:0;left:0;right:0}.S5HVoW_dropCenter{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px;background:0 0;inset:25%}.S5HVoW_paneContent{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden}.S5HVoW_paneTab{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_paneTabHidden{display:none}.S5HVoW_paneEmptyCards{flex:1;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));align-content:start;gap:8px;min-height:0;padding:12px;display:grid;overflow:hidden}.S5HVoW_paneCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;text-align:center;border-radius:8px;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:12px 8px;display:flex}.S5HVoW_paneCard:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}.S5HVoW_paneCard:disabled{opacity:.45;cursor:default}.S5HVoW_tabBar{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:stretch;height:34px;display:flex}.S5HVoW_tabBarDrop{outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_tabList{scrollbar-width:none;flex:1;min-width:0;display:flex;overflow-x:auto}.S5HVoW_tabList::-webkit-scrollbar{display:none}.S5HVoW_tab{min-width:64px;max-width:160px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);border-right:1px solid var(--dsw-alias-border-l1);cursor:pointer;user-select:none;background:0 0;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_tabActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_tabTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_tabBadge{min-width:16px;height:15px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);border-radius:8px;flex:none;justify-content:center;align-items:center;padding:0 4px;display:inline-flex}.S5HVoW_tabClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_tabClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tabBarPlus{background:var(--dsw-alias-bg-layer-1);width:22px;height:22px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border:none;border-radius:5px;flex:none;justify-content:center;align-self:center;align-items:center;margin:0 6px;padding:0;display:inline-flex;position:sticky;right:0}.S5HVoW_tabBarPlus:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_pinnedTab{color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_pinnedTab:hover{color:var(--dsw-alias-label-secondary)}.S5HVoW_explorer{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_explorerHeader{flex:none;justify-content:space-between;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_explorerRoot{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_explorerBody{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden auto}.S5HVoW_explorerRow{box-sizing:border-box;width:100%;max-width:100%;height:34px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;white-space:nowrap;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);background:0 0;border:none;border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.S5HVoW_explorerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_explorerRowRevealed{background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 18%, transparent);box-shadow:inset 2px 0 0 var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_explorerDir{font:var(--dsw-font-s-strong-14)}.S5HVoW_explorerHidden{opacity:.45}.S5HVoW_explorerSymlink{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerBroken .S5HVoW_explorerName{color:var(--dsw-alias-state-error-primary)}.S5HVoW_explorerName{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.S5HVoW_explorerRef{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:20px;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;align-items:center;padding:0 8px;display:none}.S5HVoW_explorerRef:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_explorerRow:hover .S5HVoW_explorerRef,.S5HVoW_explorerRow:focus-within .S5HVoW_explorerRef{display:inline-flex}.S5HVoW_explorerCopied{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);cursor:default}@keyframes S5HVoW_dsh-row-in{0%{opacity:0}}.S5HVoW_explorerEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_explorerRowDropTarget{background:var(--dsw-alias-interactive-bg-hover);outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_uploadDropZone{z-index:1001;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);box-shadow:0 0 0 200vmax var(--dsw-alias-bg-mask-drop);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:10px;justify-content:center;align-items:flex-start;padding:12px;display:flex;position:fixed}.S5HVoW_uploadDropHero{flex-direction:column;align-items:center;gap:10px;max-width:100%;padding-top:8px;display:flex}.S5HVoW_uploadDropZonePill{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:100%;box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);border-radius:999px;align-items:center;gap:6px;padding:6px 12px;display:flex}.S5HVoW_uploadDropZoneText{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadDropChatHint{z-index:1002;pointer-events:none;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;padding:24px;display:flex;position:fixed;top:0;bottom:0;left:0}.S5HVoW_uploadDropChatCard{text-align:center;max-width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-strong-14);flex-direction:column;align-items:center;gap:12px;display:flex}.S5HVoW_uploadOverlay{z-index:30;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;display:flex;position:absolute;inset:0}.S5HVoW_uploadOverlayCard{border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-alias-bg-layer-2);min-width:280px;max-width:min(420px,100% - 48px);box-shadow:var(--dsw-shadow-lv3);border-radius:24px;flex-direction:column;gap:12px;padding:20px 24px;display:flex}.S5HVoW_uploadOverlayTitle{font:var(--dsw-font-s-strong-14);color:var(--dsw-alias-label-primary);align-items:center;gap:8px;display:flex}.S5HVoW_uploadOverlayTitle>svg{flex:none}.S5HVoW_uploadOverlayTitle>span{white-space:nowrap;text-overflow:ellipsis;min-width:0;overflow:hidden}.S5HVoW_uploadOverlayProgress{background:var(--dsw-alias-border-l2);border-radius:3px;height:6px;overflow:hidden}.S5HVoW_uploadOverlayProgressFill{background:var(--dsw-alias-interactive-bg-hover-accent);height:100%;transition:width .15s var(--ds-ease-in-out);border-radius:3px}.S5HVoW_uploadOverlayStatus{min-height:1em;font:var(--dsw-font-xxs-12);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadOverlayCancel{border:1px solid var(--dsw-alias-border-l2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;background:0 0;border-radius:8px;align-self:flex-end;padding:0 14px}.S5HVoW_uploadOverlayCancel:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_uploadOverlayCancel:disabled{opacity:.4;cursor:default}.S5HVoW_editor{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorTitle{min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.S5HVoW_editorPathInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorPathInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorTreeToggleActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_editorBody{flex:1;min-height:0;display:flex}.S5HVoW_editorMain{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_editorTreeDock{border-left:1px solid var(--dsw-alias-border-l1);flex:none;min-height:0;display:flex;position:relative}.S5HVoW_editorTreeResize{cursor:col-resize;touch-action:none;z-index:3;width:6px;position:absolute;top:0;bottom:0;left:0}.S5HVoW_editorTreeResize:hover{background:var(--dsw-alias-border-l2)}.S5HVoW_editorTreePanel{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_editorTreePanelFull{flex:1}.S5HVoW_editorTreeSearch{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorSearchInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorSearchInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorSearchHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:8px 12px}.S5HVoW_editorSearchResult{width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;text-overflow:ellipsis;white-space:nowrap;background:0 0;border:none;border-radius:6px;padding:4px 8px;display:block;overflow:hidden}.S5HVoW_editorSearchResult:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorStatusError{color:var(--dsw-alias-state-error-primary)}.S5HVoW_dirtyDot{background:var(--dsw-alias-state-warn-primary);border-radius:50%;flex:none;width:7px;height:7px}.S5HVoW_editorPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex:1;justify-content:center;align-items:center;padding:16px;display:flex}.S5HVoW_orphanedType{opacity:.7;overflow-wrap:anywhere;margin-top:8px;font-size:12px;display:block}.S5HVoW_editorBinary{text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:12px;padding:24px 16px;display:flex}.S5HVoW_editorBinaryNotice{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorDownloadLink{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:6px;align-items:center;gap:6px;padding:6px 14px;text-decoration:none;display:inline-flex}.S5HVoW_editorDownloadLink:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_editorError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);padding:12px 16px}.S5HVoW_editorBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 8px}.S5HVoW_sandboxStatus{font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sandboxStatusOn{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sandboxStatusOff{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}.S5HVoW_sandboxDot{background:var(--dsw-alias-state-success-primary);border-radius:50%;flex:none;width:6px;height:6px}.S5HVoW_sandboxStatusOff .S5HVoW_sandboxDot{background:var(--dsw-alias-state-error-primary)}.S5HVoW_sandboxStatusText{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_sandboxAction{border:1px solid var(--dsw-alias-border-l2);font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:6px;flex:none;padding:2px 8px}.S5HVoW_sandboxAction:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_browser{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_browserBar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:4px;padding:6px 8px;display:flex}.S5HVoW_browserInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_browserInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_browserMessage{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 12px}.S5HVoW_browserFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_browserStart{text-align:center;min-height:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);flex:1;justify-content:center;align-items:center;padding:20px;display:flex}.S5HVoW_browserBlocked{text-align:center;min-height:0;color:var(--dsw-alias-state-warn-primary);flex-direction:column;flex:1;justify-content:center;align-items:center;gap:6px;padding:24px;display:flex}.S5HVoW_browserBlockedTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary)}.S5HVoW_browserBlockedDesc{max-width:280px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary)}.S5HVoW_browserBlockedActions{gap:8px;margin-top:6px;display:flex}.S5HVoW_browserBlockedButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);cursor:pointer;border-radius:6px;padding:4px 12px}.S5HVoW_browserBlockedButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorCm{background:0 0;flex:1;min-height:0;overflow:hidden}.S5HVoW_editorCm .cm-editor{height:100%}.S5HVoW_editorCm .cm-scroller{padding:12px 16px}.S5HVoW_editorCm .cm-editor.cm-focused{outline:none}.S5HVoW_selectionPopup{z-index:60;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;cursor:pointer;border-radius:6px;align-items:center;padding:0 10px;display:inline-flex;position:fixed;transform:translate(-50%,calc(-100% - 8px))}.S5HVoW_selectionPopup:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_terminalWrap{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;position:relative}.S5HVoW_terminal{flex:1;min-height:0;padding:6px 4px 6px 8px}.S5HVoW_terminal .xterm{height:100%}.S5HVoW_terminalBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-wrap:wrap;flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalBannerUrl{word-break:break-all;opacity:.85;flex-basis:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.S5HVoW_boundaryError{z-index:50;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;align-items:flex-start;gap:8px;padding:16px;display:flex;position:fixed;top:0;bottom:0;right:0;overflow:auto}.S5HVoW_terminalRetry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;padding:1px 8px}.S5HVoW_terminalRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitFoldRow{box-sizing:border-box;background:var(--dsw-alias-bg-layer-1);width:100%;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);text-align:center;cursor:pointer;border:none;outline:none;padding:2px 12px;display:block}.S5HVoW_gitFoldRow:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.S5HVoW_gitFoldRow:disabled{cursor:default}.S5HVoW_gitFoldRowFailed{color:var(--dsw-alias-state-error-primary);opacity:.7}.S5HVoW_explorerRenameInput{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);min-width:0;height:20px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:4px;outline:none;flex:1;padding:0 4px}.S5HVoW_changesLensToggle{flex:none;gap:2px;padding:2px;display:flex}.S5HVoW_changesLensTab{height:24px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:1}.S5HVoW_changesLensTab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_changesLensTabActive,.S5HVoW_changesLensTabActive:hover{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.S5HVoW_sessionLens{flex:1;min-height:0;overflow-y:auto}.S5HVoW_sessionLensBar{align-items:center;gap:6px;height:26px;padding:0 4px;display:flex}.S5HVoW_sessionLensCount{min-width:0;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:1}.S5HVoW_sessionLensEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_sessionLensItem{border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sessionLensRow{box-sizing:border-box;width:100%;min-height:30px;color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:6px;outline:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sessionLensRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_sessionLensPath{text-overflow:ellipsis;white-space:nowrap;text-align:left;direction:rtl;flex:1;min-width:0;overflow:hidden}.S5HVoW_sessionLensMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_sessionLensPreview{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);max-height:260px;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;border-radius:6px;margin:0 8px 6px;padding:6px 8px;line-height:1.5;overflow:auto}.S5HVoW_terminalWaitBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalWaitNeedle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden}.S5HVoW_terminalDepsBanner{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-direction:column;flex:none;gap:6px;padding:10px;display:flex}.S5HVoW_terminalDepsTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-state-warn-primary)}.S5HVoW_terminalDepsHint{opacity:.9}.S5HVoW_terminalDepsCommandRow{align-items:flex-start;gap:8px;display:flex}.S5HVoW_terminalRepairCommand{white-space:pre-wrap;word-break:break-all;user-select:text;min-width:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:4px;flex:1;max-height:160px;margin:0;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;overflow:auto}.S5HVoW_terminalDepsNote{opacity:.85}.S5HVoW_terminalDepsActions{align-items:center;gap:8px;display:flex}.S5HVoW_tabBoundaryError{min-height:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;flex:1;align-items:flex-start;gap:8px;padding:12px 16px;display:flex;overflow:auto}.S5HVoW_git{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitHeader{flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitWorktreeRow{flex:none;align-items:center;gap:8px;padding:6px 8px 0 12px;display:flex}.S5HVoW_gitWorktreeLabel{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none}.S5HVoW_gitBranchSelect{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 6px}.S5HVoW_gitSection{border-top:1px solid var(--dsw-alias-border-l1)}.S5HVoW_gitSectionHeader{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);text-transform:uppercase;justify-content:space-between;align-items:center;padding:6px 12px 4px;display:flex}.S5HVoW_gitLink{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-brand-primary);cursor:pointer;background:0 0;border:none;padding:0}.S5HVoW_gitLink:hover:not(:disabled){text-decoration:underline}.S5HVoW_gitLink:disabled{opacity:.4;cursor:default}.S5HVoW_gitRow{min-height:34px;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:8px;align-items:center;gap:6px;margin:0 6px;padding:0 8px;display:flex}.S5HVoW_gitRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitRowSelected{background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_gitRowMain{cursor:pointer;text-align:left;background:0 0;border:none;flex:1;align-items:center;gap:8px;min-width:0;padding:3px 0;display:flex}.S5HVoW_gitBadge{width:20px;height:16px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_gitName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:4px 12px 8px}.S5HVoW_gitPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_gitError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap;padding:8px 12px}.S5HVoW_gitDiff{border-top:1px solid var(--dsw-alias-border-l1);padding:8px}.S5HVoW_gitDiffTab{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitDiffTabHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitDiffTabTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitDiffFile{width:100%;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;align-items:baseline;gap:6px;padding:8px 2px 2px;display:flex}.S5HVoW_gitDiffFile:disabled{cursor:default}.S5HVoW_gitDiffFile:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitDiffFileChevron{color:var(--dsw-alias-label-tertiary);flex:none;transform:rotate(0)}.S5HVoW_gitDiffFileChevronExpanded{transform:rotate(90deg)}.S5HVoW_gitDiffFilePath{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffFileOld{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:none;max-width:40%;overflow:hidden}.S5HVoW_gitDiffFileTag{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:0 6px}.S5HVoW_gitDiffHunk{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);gap:8px;padding:3px 2px;display:flex}.S5HVoW_gitDiffHunkHeader{color:var(--dsw-alias-label-secondary);flex:none}.S5HVoW_gitDiffHunkSection{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffLine{font:var(--dsw-font-markdown-code-block-small);white-space:pre-wrap;overflow-wrap:anywhere;align-items:stretch;min-width:0;line-height:20px;display:flex}.S5HVoW_gitDiffNum{text-align:right;width:36px;color:var(--dsw-alias-label-tertiary);user-select:none;flex:none;padding-right:8px}.S5HVoW_gitDiffCode{flex:1;min-width:0;overflow:visible}.S5HVoW_gitDiffCtx{color:var(--dsw-alias-label-primary)}.S5HVoW_gitDiffDel{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}.S5HVoW_gitDiffAdd{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent)}.S5HVoW_gitDiffMeta{padding-left:2px}.S5HVoW_gitDiffMetaText{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_gitDiffExpand{width:100%;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-brand-primary);cursor:pointer;text-align:center;background:0 0;border:none;margin:4px 0;display:block}.S5HVoW_gitDiffExpand:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitConfirmDesc{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);white-space:pre-wrap;margin:0}.S5HVoW_gitCommit{border-top:1px solid var(--dsw-alias-border-l1);align-items:center;gap:6px;padding:8px 12px;display:flex}.S5HVoW_gitCommitInput{flex:1;min-width:0}.S5HVoW_gitCommitButton{background:var(--dsw-alias-button-primary-fill);height:26px;color:var(--dsw-alias-label-primary-inverted);font:var(--dsw-font-xxs-strong-12);cursor:pointer;border:none;border-radius:6px;flex:none;padding:0 12px}.S5HVoW_gitCommitButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.S5HVoW_gitCommitButton:disabled{opacity:.45;cursor:default}.S5HVoW_gitLogRow{cursor:pointer;border-radius:8px;flex-direction:column;gap:2px;padding:5px 12px;display:flex}.S5HVoW_gitLogRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitLogLine1{align-items:baseline;gap:8px;min-width:0;display:flex}.S5HVoW_gitLogHash{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_gitLogLine2{flex-wrap:wrap;align-items:center;gap:6px;min-width:0;display:flex}.S5HVoW_gitLogRef{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-brand-primary);white-space:nowrap;border-radius:999px;flex:none;padding:0 5px}.S5HVoW_gitLogSubject{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitLogMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_gitLogMore{border:1px solid var(--dsw-alias-border-l2);width:calc(100% - 24px);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:6px;margin:4px 12px 8px;padding:6px 0;display:block}.S5HVoW_gitLogMore:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitLogMore:disabled{opacity:.5;cursor:default}.S5HVoW_producedRow{flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0;display:flex}.S5HVoW_producedLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_producedChip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:200px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;display:inline-flex;overflow:hidden}.S5HVoW_producedChip:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_producedChip span{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_producedMore{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_toggleButton:focus-visible,.S5HVoW_iconButton:focus-visible,.S5HVoW_tab:focus-visible,.S5HVoW_tabClose:focus-visible,.S5HVoW_tabBarPlus:focus-visible,.S5HVoW_paneCard:focus-visible,.S5HVoW_explorerRow:focus-visible,.S5HVoW_explorerRef:focus-visible,.S5HVoW_gitRowMain:focus-visible,.S5HVoW_gitLink:focus-visible,.S5HVoW_gitCommitButton:focus-visible,.S5HVoW_gitLogRow:focus-visible,.S5HVoW_gitLogMore:focus-visible,.S5HVoW_gitDiffFile:focus-visible,.S5HVoW_gitDiffExpand:focus-visible,.S5HVoW_terminalRetry:focus-visible,.S5HVoW_editorDownloadLink:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}@media (prefers-reduced-motion:reduce){.S5HVoW_panel,.S5HVoW_panelHidden,.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tab,.S5HVoW_tabBarPlus,.S5HVoW_paneCard,.S5HVoW_explorerRow,.S5HVoW_gitRow,.S5HVoW_divider,.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{transition:none;animation:none}}@media (width<=767px){.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:40px}.S5HVoW_tab{min-width:48px;max-width:128px}}.S5HVoW_openWithLabel{align-items:center;gap:8px;width:100%;min-width:0;display:flex}.S5HVoW_openWithName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}.S5HVoW_openWithChevron{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_openWithPin{width:20px;height:20px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:6px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_openWithPin:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_openWithPinActive{color:var(--dsw-alias-state-business-primary)}@keyframes S5HVoW_dsh-toc-flash{0%,60%{background:var(--dsw-alias-interactive-bg-hover)}to{background:0 0}}.S5HVoW_browserLive{flex-direction:column;gap:6px;padding:8px 10px;display:flex;position:absolute;inset:0;overflow:hidden}.S5HVoW_browserLiveStatus{opacity:.75;align-items:center;gap:8px;font-size:12px;display:flex}.S5HVoW_browserLiveCanvas{object-fit:contain;border:1px solid var(--dsw-alias-border-l,#80808040);cursor:crosshair;background:#fff;border-radius:8px;flex:1;width:100%;min-height:0}.S5HVoW_browserLiveTarget{max-width:260px;font-size:12px}";
 	const tagId = "dsh-coding-sidebar/sidebar.module.css";
 	if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 		const tag = document.createElement("style");
@@ -43991,207 +44329,224 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		document.head.appendChild(tag);
 	}
 	var sidebar_module_css_default = {
-		"gitWorktreeLabel": "S5HVoW_gitWorktreeLabel",
-		"explorerRowRevealed": "S5HVoW_explorerRowRevealed",
-		"gitLogRow": "S5HVoW_gitLogRow",
-		"gitName": "S5HVoW_gitName",
-		"gitDiffMeta": "S5HVoW_gitDiffMeta",
-		"gitLogHash": "S5HVoW_gitLogHash",
-		"panelHidden": "S5HVoW_panelHidden",
-		"tabBoundaryError": "S5HVoW_tabBoundaryError",
-		"tabBarDrop": "S5HVoW_tabBarDrop",
-		"floatResize": "S5HVoW_floatResize",
-		"paneTab": "S5HVoW_paneTab",
-		"tab": "S5HVoW_tab",
-		"editorPlaceholder": "S5HVoW_editorPlaceholder",
-		"gitDiffDel": "S5HVoW_gitDiffDel",
-		"gitLogMore": "S5HVoW_gitLogMore",
-		"paneTabHidden": "S5HVoW_paneTabHidden",
-		"panel": "S5HVoW_panel",
-		"tabList": "S5HVoW_tabList",
-		"splitChild": "S5HVoW_splitChild",
-		"terminalDepsCommandRow": "S5HVoW_terminalDepsCommandRow",
-		"gitDiffTabHeader": "S5HVoW_gitDiffTabHeader",
-		"producedMore": "S5HVoW_producedMore",
-		"tabActive": "S5HVoW_tabActive",
-		"floatTitle": "S5HVoW_floatTitle",
-		"explorerRow": "S5HVoW_explorerRow",
-		"panelBody": "S5HVoW_panelBody",
-		"floatDropHintLabel": "S5HVoW_floatDropHintLabel",
-		"explorerHidden": "S5HVoW_explorerHidden",
-		"editorBinary": "S5HVoW_editorBinary",
-		"gitBadge": "S5HVoW_gitBadge",
-		"gitCommit": "S5HVoW_gitCommit",
-		"dsh-row-in": "S5HVoW_dsh-row-in",
-		"terminalDepsActions": "S5HVoW_terminalDepsActions",
-		"uploadOverlayCancel": "S5HVoW_uploadOverlayCancel",
-		"splitCol": "S5HVoW_splitCol",
-		"gitLink": "S5HVoW_gitLink",
-		"floatClose": "S5HVoW_floatClose",
-		"dropCenter": "S5HVoW_dropCenter",
-		"gitDiffFileChevronExpanded": "S5HVoW_gitDiffFileChevronExpanded",
-		"uploadOverlayCard": "S5HVoW_uploadOverlayCard",
-		"gitDiffFilePath": "S5HVoW_gitDiffFilePath",
-		"gitDiffNum": "S5HVoW_gitDiffNum",
-		"dropUp": "S5HVoW_dropUp",
-		"editorSearchResult": "S5HVoW_editorSearchResult",
-		"uploadDropZone": "S5HVoW_uploadDropZone",
-		"uploadOverlayProgressFill": "S5HVoW_uploadOverlayProgressFill",
-		"explorerRoot": "S5HVoW_explorerRoot",
-		"gitError": "S5HVoW_gitError",
-		"gitHeader": "S5HVoW_gitHeader",
-		"editorBanner": "S5HVoW_editorBanner",
-		"gitDiffFile": "S5HVoW_gitDiffFile",
-		"gitDiffExpand": "S5HVoW_gitDiffExpand",
-		"gitConfirmDesc": "S5HVoW_gitConfirmDesc",
-		"gitCommitInput": "S5HVoW_gitCommitInput",
-		"gitCommitButton": "S5HVoW_gitCommitButton",
-		"sandboxStatus": "S5HVoW_sandboxStatus",
-		"browserLiveTarget": "S5HVoW_browserLiveTarget",
-		"editorStatusError": "S5HVoW_editorStatusError",
-		"browserLiveCanvas": "S5HVoW_browserLiveCanvas",
-		"sandboxStatusText": "S5HVoW_sandboxStatusText",
-		"uploadOverlayProgress": "S5HVoW_uploadOverlayProgress",
-		"openWithChevron": "S5HVoW_openWithChevron",
-		"tabBarPlus": "S5HVoW_tabBarPlus",
-		"producedRow": "S5HVoW_producedRow",
-		"dropDown": "S5HVoW_dropDown",
-		"panelResize": "S5HVoW_panelResize",
-		"terminalDepsHint": "S5HVoW_terminalDepsHint",
-		"dropOverlay": "S5HVoW_dropOverlay",
-		"dropRight": "S5HVoW_dropRight",
-		"editorPathInput": "S5HVoW_editorPathInput",
-		"gitWorktreeRow": "S5HVoW_gitWorktreeRow",
-		"editorTreeResize": "S5HVoW_editorTreeResize",
-		"producedChip": "S5HVoW_producedChip",
-		"gitRowMain": "S5HVoW_gitRowMain",
-		"terminalDepsTitle": "S5HVoW_terminalDepsTitle",
-		"sandboxDot": "S5HVoW_sandboxDot",
-		"gitRowSelected": "S5HVoW_gitRowSelected",
-		"gitDiffTabTitle": "S5HVoW_gitDiffTabTitle",
-		"pane": "S5HVoW_pane",
-		"browserBlockedTitle": "S5HVoW_browserBlockedTitle",
-		"gitDiffFileChevron": "S5HVoW_gitDiffFileChevron",
-		"split": "S5HVoW_split",
-		"uploadDropZoneText": "S5HVoW_uploadDropZoneText",
-		"editorTreeDock": "S5HVoW_editorTreeDock",
-		"editorTitle": "S5HVoW_editorTitle",
-		"editorDownloadLink": "S5HVoW_editorDownloadLink",
-		"tabTitle": "S5HVoW_tabTitle",
+		"boundaryError": "S5HVoW_boundaryError",
+		"browser": "S5HVoW_browser",
+		"browserBar": "S5HVoW_browserBar",
 		"browserBlocked": "S5HVoW_browserBlocked",
-		"tabClose": "S5HVoW_tabClose",
-		"terminalWrap": "S5HVoW_terminalWrap",
-		"paneDrop": "S5HVoW_paneDrop",
-		"terminalDepsBanner": "S5HVoW_terminalDepsBanner",
-		"terminalBannerUrl": "S5HVoW_terminalBannerUrl",
-		"gitDiffHunkSection": "S5HVoW_gitDiffHunkSection",
-		"gitBranchSelect": "S5HVoW_gitBranchSelect",
-		"editorBody": "S5HVoW_editorBody",
-		"browserBlockedButton": "S5HVoW_browserBlockedButton",
-		"editorBinaryNotice": "S5HVoW_editorBinaryNotice",
-		"editorSearchHint": "S5HVoW_editorSearchHint",
-		"floatHeader": "S5HVoW_floatHeader",
-		"gitDiffMetaText": "S5HVoW_gitDiffMetaText",
-		"toggleButton": "S5HVoW_toggleButton",
-		"paneEmptyCards": "S5HVoW_paneEmptyCards",
 		"browserBlockedActions": "S5HVoW_browserBlockedActions",
-		"uploadDropChatCard": "S5HVoW_uploadDropChatCard",
-		"gitDiffCode": "S5HVoW_gitDiffCode",
-		"browserLiveStatus": "S5HVoW_browserLiveStatus",
-		"gitDiffLine": "S5HVoW_gitDiffLine",
-		"browserMessage": "S5HVoW_browserMessage",
-		"toggleCluster": "S5HVoW_toggleCluster",
-		"uploadOverlayStatus": "S5HVoW_uploadOverlayStatus",
-		"explorerDir": "S5HVoW_explorerDir",
-		"explorerName": "S5HVoW_explorerName",
-		"uploadDropHero": "S5HVoW_uploadDropHero",
-		"explorerError": "S5HVoW_explorerError",
+		"browserBlockedButton": "S5HVoW_browserBlockedButton",
+		"browserBlockedDesc": "S5HVoW_browserBlockedDesc",
+		"browserBlockedTitle": "S5HVoW_browserBlockedTitle",
 		"browserFrame": "S5HVoW_browserFrame",
 		"browserInput": "S5HVoW_browserInput",
-		"gitEmpty": "S5HVoW_gitEmpty",
-		"gitPlaceholder": "S5HVoW_gitPlaceholder",
-		"explorerRowDropTarget": "S5HVoW_explorerRowDropTarget",
-		"dividerCol": "S5HVoW_dividerCol",
-		"gitLogRef": "S5HVoW_gitLogRef",
-		"explorerSymlink": "S5HVoW_explorerSymlink",
-		"browserBlockedDesc": "S5HVoW_browserBlockedDesc",
-		"gitLogMeta": "S5HVoW_gitLogMeta",
-		"openWithLabel": "S5HVoW_openWithLabel",
-		"floatWindow": "S5HVoW_floatWindow",
-		"editorTreeSearch": "S5HVoW_editorTreeSearch",
-		"terminalDepsNote": "S5HVoW_terminalDepsNote",
-		"workbench": "S5HVoW_workbench",
-		"explorerBroken": "S5HVoW_explorerBroken",
-		"browser": "S5HVoW_browser",
-		"sandboxStatusOn": "S5HVoW_sandboxStatusOn",
-		"gitLogLine1": "S5HVoW_gitLogLine1",
-		"gitDiffAdd": "S5HVoW_gitDiffAdd",
-		"floatContent": "S5HVoW_floatContent",
-		"editor": "S5HVoW_editor",
-		"dropLeft": "S5HVoW_dropLeft",
-		"editorTreePanelFull": "S5HVoW_editorTreePanelFull",
-		"editorError": "S5HVoW_editorError",
-		"gitDiffFileOld": "S5HVoW_gitDiffFileOld",
-		"editorStatus": "S5HVoW_editorStatus",
-		"tabBar": "S5HVoW_tabBar",
-		"floatDropHint": "S5HVoW_floatDropHint",
-		"gitSectionHeader": "S5HVoW_gitSectionHeader",
-		"gitDiffFileTag": "S5HVoW_gitDiffFileTag",
-		"iconButton": "S5HVoW_iconButton",
-		"dividerRow": "S5HVoW_dividerRow",
-		"editorSearchInput": "S5HVoW_editorSearchInput",
-		"gitLogSubject": "S5HVoW_gitLogSubject",
-		"openWithName": "S5HVoW_openWithName",
-		"editorMain": "S5HVoW_editorMain",
-		"uploadDropZonePill": "S5HVoW_uploadDropZonePill",
-		"panelResizeActive": "S5HVoW_panelResizeActive",
-		"divider": "S5HVoW_divider",
-		"explorerHeader": "S5HVoW_explorerHeader",
-		"sandboxAction": "S5HVoW_sandboxAction",
-		"git": "S5HVoW_git",
-		"explorerRef": "S5HVoW_explorerRef",
-		"gitSection": "S5HVoW_gitSection",
-		"gitDiffHunk": "S5HVoW_gitDiffHunk",
-		"editorHeader": "S5HVoW_editorHeader",
-		"orphanedType": "S5HVoW_orphanedType",
-		"gitDiffHunkHeader": "S5HVoW_gitDiffHunkHeader",
-		"paneContent": "S5HVoW_paneContent",
-		"pinnedTab": "S5HVoW_pinnedTab",
-		"openWithPin": "S5HVoW_openWithPin",
-		"paneCard": "S5HVoW_paneCard",
-		"browserBar": "S5HVoW_browserBar",
-		"gitLogLine2": "S5HVoW_gitLogLine2",
-		"producedLabel": "S5HVoW_producedLabel",
-		"uploadOverlayTitle": "S5HVoW_uploadOverlayTitle",
-		"explorerBody": "S5HVoW_explorerBody",
-		"selectionPopup": "S5HVoW_selectionPopup",
-		"splitRow": "S5HVoW_splitRow",
-		"explorerEmpty": "S5HVoW_explorerEmpty",
-		"openWithPinActive": "S5HVoW_openWithPinActive",
-		"terminalBanner": "S5HVoW_terminalBanner",
-		"terminalRepairCommand": "S5HVoW_terminalRepairCommand",
-		"boundaryError": "S5HVoW_boundaryError",
-		"uploadDropChatHint": "S5HVoW_uploadDropChatHint",
-		"dsh-toc-flash": "S5HVoW_dsh-toc-flash",
-		"sandboxStatusOff": "S5HVoW_sandboxStatusOff",
-		"explorerCopied": "S5HVoW_explorerCopied",
-		"editorTreePanel": "S5HVoW_editorTreePanel",
-		"gitDiffCtx": "S5HVoW_gitDiffCtx",
-		"tabBadge": "S5HVoW_tabBadge",
-		"uploadOverlay": "S5HVoW_uploadOverlay",
-		"gitRow": "S5HVoW_gitRow",
-		"gitDiffTab": "S5HVoW_gitDiffTab",
 		"browserLive": "S5HVoW_browserLive",
-		"explorer": "S5HVoW_explorer",
-		"terminalRetry": "S5HVoW_terminalRetry",
-		"editorTreeToggleActive": "S5HVoW_editorTreeToggleActive",
-		"dirtyDot": "S5HVoW_dirtyDot",
-		"dividerActive": "S5HVoW_dividerActive",
-		"gitDiff": "S5HVoW_gitDiff",
-		"floatWindowDragging": "S5HVoW_floatWindowDragging",
+		"browserLiveCanvas": "S5HVoW_browserLiveCanvas",
+		"browserLiveStatus": "S5HVoW_browserLiveStatus",
+		"browserLiveTarget": "S5HVoW_browserLiveTarget",
+		"browserMessage": "S5HVoW_browserMessage",
 		"browserStart": "S5HVoW_browserStart",
+		"changesLensTab": "S5HVoW_changesLensTab",
+		"changesLensTabActive": "S5HVoW_changesLensTabActive",
+		"changesLensToggle": "S5HVoW_changesLensToggle",
+		"dirtyDot": "S5HVoW_dirtyDot",
+		"divider": "S5HVoW_divider",
+		"dividerActive": "S5HVoW_dividerActive",
+		"dividerCol": "S5HVoW_dividerCol",
+		"dividerRow": "S5HVoW_dividerRow",
+		"dropCenter": "S5HVoW_dropCenter",
+		"dropDown": "S5HVoW_dropDown",
+		"dropLeft": "S5HVoW_dropLeft",
+		"dropOverlay": "S5HVoW_dropOverlay",
+		"dropRight": "S5HVoW_dropRight",
+		"dropUp": "S5HVoW_dropUp",
+		"dsh-row-in": "S5HVoW_dsh-row-in",
+		"dsh-toc-flash": "S5HVoW_dsh-toc-flash",
+		"editor": "S5HVoW_editor",
+		"editorBanner": "S5HVoW_editorBanner",
+		"editorBinary": "S5HVoW_editorBinary",
+		"editorBinaryNotice": "S5HVoW_editorBinaryNotice",
+		"editorBody": "S5HVoW_editorBody",
+		"editorCm": "S5HVoW_editorCm",
+		"editorDownloadLink": "S5HVoW_editorDownloadLink",
+		"editorError": "S5HVoW_editorError",
+		"editorHeader": "S5HVoW_editorHeader",
+		"editorMain": "S5HVoW_editorMain",
+		"editorPathInput": "S5HVoW_editorPathInput",
+		"editorPlaceholder": "S5HVoW_editorPlaceholder",
+		"editorSearchHint": "S5HVoW_editorSearchHint",
+		"editorSearchInput": "S5HVoW_editorSearchInput",
+		"editorSearchResult": "S5HVoW_editorSearchResult",
+		"editorStatus": "S5HVoW_editorStatus",
+		"editorStatusError": "S5HVoW_editorStatusError",
+		"editorTitle": "S5HVoW_editorTitle",
+		"editorTreeDock": "S5HVoW_editorTreeDock",
+		"editorTreePanel": "S5HVoW_editorTreePanel",
+		"editorTreePanelFull": "S5HVoW_editorTreePanelFull",
+		"editorTreeResize": "S5HVoW_editorTreeResize",
+		"editorTreeSearch": "S5HVoW_editorTreeSearch",
+		"editorTreeToggleActive": "S5HVoW_editorTreeToggleActive",
+		"explorer": "S5HVoW_explorer",
+		"explorerBody": "S5HVoW_explorerBody",
+		"explorerBroken": "S5HVoW_explorerBroken",
+		"explorerCopied": "S5HVoW_explorerCopied",
+		"explorerDir": "S5HVoW_explorerDir",
+		"explorerEmpty": "S5HVoW_explorerEmpty",
+		"explorerError": "S5HVoW_explorerError",
+		"explorerHeader": "S5HVoW_explorerHeader",
+		"explorerHidden": "S5HVoW_explorerHidden",
+		"explorerName": "S5HVoW_explorerName",
+		"explorerRef": "S5HVoW_explorerRef",
+		"explorerRenameInput": "S5HVoW_explorerRenameInput",
+		"explorerRoot": "S5HVoW_explorerRoot",
+		"explorerRow": "S5HVoW_explorerRow",
+		"explorerRowDropTarget": "S5HVoW_explorerRowDropTarget",
+		"explorerRowRevealed": "S5HVoW_explorerRowRevealed",
+		"explorerSymlink": "S5HVoW_explorerSymlink",
+		"floatClose": "S5HVoW_floatClose",
+		"floatContent": "S5HVoW_floatContent",
+		"floatDropHint": "S5HVoW_floatDropHint",
+		"floatDropHintLabel": "S5HVoW_floatDropHintLabel",
+		"floatHeader": "S5HVoW_floatHeader",
+		"floatResize": "S5HVoW_floatResize",
+		"floatTitle": "S5HVoW_floatTitle",
+		"floatWindow": "S5HVoW_floatWindow",
+		"floatWindowDragging": "S5HVoW_floatWindowDragging",
+		"git": "S5HVoW_git",
+		"gitBadge": "S5HVoW_gitBadge",
+		"gitBranchSelect": "S5HVoW_gitBranchSelect",
+		"gitCommit": "S5HVoW_gitCommit",
+		"gitCommitButton": "S5HVoW_gitCommitButton",
+		"gitCommitInput": "S5HVoW_gitCommitInput",
+		"gitConfirmDesc": "S5HVoW_gitConfirmDesc",
+		"gitDiff": "S5HVoW_gitDiff",
+		"gitDiffAdd": "S5HVoW_gitDiffAdd",
+		"gitDiffCode": "S5HVoW_gitDiffCode",
+		"gitDiffCtx": "S5HVoW_gitDiffCtx",
+		"gitDiffDel": "S5HVoW_gitDiffDel",
+		"gitDiffExpand": "S5HVoW_gitDiffExpand",
+		"gitDiffFile": "S5HVoW_gitDiffFile",
+		"gitDiffFileChevron": "S5HVoW_gitDiffFileChevron",
+		"gitDiffFileChevronExpanded": "S5HVoW_gitDiffFileChevronExpanded",
+		"gitDiffFileOld": "S5HVoW_gitDiffFileOld",
+		"gitDiffFilePath": "S5HVoW_gitDiffFilePath",
+		"gitDiffFileTag": "S5HVoW_gitDiffFileTag",
+		"gitDiffHunk": "S5HVoW_gitDiffHunk",
+		"gitDiffHunkHeader": "S5HVoW_gitDiffHunkHeader",
+		"gitDiffHunkSection": "S5HVoW_gitDiffHunkSection",
+		"gitDiffLine": "S5HVoW_gitDiffLine",
+		"gitDiffMeta": "S5HVoW_gitDiffMeta",
+		"gitDiffMetaText": "S5HVoW_gitDiffMetaText",
+		"gitDiffNum": "S5HVoW_gitDiffNum",
+		"gitDiffTab": "S5HVoW_gitDiffTab",
+		"gitDiffTabHeader": "S5HVoW_gitDiffTabHeader",
+		"gitDiffTabTitle": "S5HVoW_gitDiffTabTitle",
+		"gitEmpty": "S5HVoW_gitEmpty",
+		"gitError": "S5HVoW_gitError",
+		"gitFoldRow": "S5HVoW_gitFoldRow",
+		"gitFoldRowFailed": "S5HVoW_gitFoldRowFailed",
+		"gitHeader": "S5HVoW_gitHeader",
+		"gitLink": "S5HVoW_gitLink",
+		"gitLogHash": "S5HVoW_gitLogHash",
+		"gitLogLine1": "S5HVoW_gitLogLine1",
+		"gitLogLine2": "S5HVoW_gitLogLine2",
+		"gitLogMeta": "S5HVoW_gitLogMeta",
+		"gitLogMore": "S5HVoW_gitLogMore",
+		"gitLogRef": "S5HVoW_gitLogRef",
+		"gitLogRow": "S5HVoW_gitLogRow",
+		"gitLogSubject": "S5HVoW_gitLogSubject",
+		"gitName": "S5HVoW_gitName",
+		"gitPlaceholder": "S5HVoW_gitPlaceholder",
+		"gitRow": "S5HVoW_gitRow",
+		"gitRowMain": "S5HVoW_gitRowMain",
+		"gitRowSelected": "S5HVoW_gitRowSelected",
+		"gitSection": "S5HVoW_gitSection",
+		"gitSectionHeader": "S5HVoW_gitSectionHeader",
+		"gitWorktreeLabel": "S5HVoW_gitWorktreeLabel",
+		"gitWorktreeRow": "S5HVoW_gitWorktreeRow",
+		"iconButton": "S5HVoW_iconButton",
+		"openWithChevron": "S5HVoW_openWithChevron",
+		"openWithLabel": "S5HVoW_openWithLabel",
+		"openWithName": "S5HVoW_openWithName",
+		"openWithPin": "S5HVoW_openWithPin",
+		"openWithPinActive": "S5HVoW_openWithPinActive",
+		"orphanedType": "S5HVoW_orphanedType",
+		"pane": "S5HVoW_pane",
+		"paneCard": "S5HVoW_paneCard",
+		"paneContent": "S5HVoW_paneContent",
+		"paneDrop": "S5HVoW_paneDrop",
+		"paneEmptyCards": "S5HVoW_paneEmptyCards",
+		"paneTab": "S5HVoW_paneTab",
+		"paneTabHidden": "S5HVoW_paneTabHidden",
+		"panel": "S5HVoW_panel",
+		"panelBody": "S5HVoW_panelBody",
+		"panelHidden": "S5HVoW_panelHidden",
+		"panelResize": "S5HVoW_panelResize",
+		"panelResizeActive": "S5HVoW_panelResizeActive",
+		"pinnedTab": "S5HVoW_pinnedTab",
+		"producedChip": "S5HVoW_producedChip",
+		"producedLabel": "S5HVoW_producedLabel",
+		"producedMore": "S5HVoW_producedMore",
+		"producedRow": "S5HVoW_producedRow",
+		"sandboxAction": "S5HVoW_sandboxAction",
+		"sandboxDot": "S5HVoW_sandboxDot",
+		"sandboxStatus": "S5HVoW_sandboxStatus",
+		"sandboxStatusOff": "S5HVoW_sandboxStatusOff",
+		"sandboxStatusOn": "S5HVoW_sandboxStatusOn",
+		"sandboxStatusText": "S5HVoW_sandboxStatusText",
+		"selectionPopup": "S5HVoW_selectionPopup",
+		"sessionLens": "S5HVoW_sessionLens",
+		"sessionLensBar": "S5HVoW_sessionLensBar",
+		"sessionLensCount": "S5HVoW_sessionLensCount",
+		"sessionLensEmpty": "S5HVoW_sessionLensEmpty",
+		"sessionLensItem": "S5HVoW_sessionLensItem",
+		"sessionLensMeta": "S5HVoW_sessionLensMeta",
+		"sessionLensPath": "S5HVoW_sessionLensPath",
+		"sessionLensPreview": "S5HVoW_sessionLensPreview",
+		"sessionLensRow": "S5HVoW_sessionLensRow",
+		"split": "S5HVoW_split",
+		"splitChild": "S5HVoW_splitChild",
+		"splitCol": "S5HVoW_splitCol",
+		"splitRow": "S5HVoW_splitRow",
+		"tab": "S5HVoW_tab",
+		"tabActive": "S5HVoW_tabActive",
+		"tabBadge": "S5HVoW_tabBadge",
+		"tabBar": "S5HVoW_tabBar",
+		"tabBarDrop": "S5HVoW_tabBarDrop",
+		"tabBarPlus": "S5HVoW_tabBarPlus",
+		"tabBoundaryError": "S5HVoW_tabBoundaryError",
+		"tabClose": "S5HVoW_tabClose",
+		"tabList": "S5HVoW_tabList",
+		"tabTitle": "S5HVoW_tabTitle",
 		"terminal": "S5HVoW_terminal",
-		"editorCm": "S5HVoW_editorCm"
+		"terminalBanner": "S5HVoW_terminalBanner",
+		"terminalBannerUrl": "S5HVoW_terminalBannerUrl",
+		"terminalDepsActions": "S5HVoW_terminalDepsActions",
+		"terminalDepsBanner": "S5HVoW_terminalDepsBanner",
+		"terminalDepsCommandRow": "S5HVoW_terminalDepsCommandRow",
+		"terminalDepsHint": "S5HVoW_terminalDepsHint",
+		"terminalDepsNote": "S5HVoW_terminalDepsNote",
+		"terminalDepsTitle": "S5HVoW_terminalDepsTitle",
+		"terminalRepairCommand": "S5HVoW_terminalRepairCommand",
+		"terminalRetry": "S5HVoW_terminalRetry",
+		"terminalWaitBanner": "S5HVoW_terminalWaitBanner",
+		"terminalWaitNeedle": "S5HVoW_terminalWaitNeedle",
+		"terminalWrap": "S5HVoW_terminalWrap",
+		"toggleButton": "S5HVoW_toggleButton",
+		"toggleCluster": "S5HVoW_toggleCluster",
+		"uploadDropChatCard": "S5HVoW_uploadDropChatCard",
+		"uploadDropChatHint": "S5HVoW_uploadDropChatHint",
+		"uploadDropHero": "S5HVoW_uploadDropHero",
+		"uploadDropZone": "S5HVoW_uploadDropZone",
+		"uploadDropZonePill": "S5HVoW_uploadDropZonePill",
+		"uploadDropZoneText": "S5HVoW_uploadDropZoneText",
+		"uploadOverlay": "S5HVoW_uploadOverlay",
+		"uploadOverlayCancel": "S5HVoW_uploadOverlayCancel",
+		"uploadOverlayCard": "S5HVoW_uploadOverlayCard",
+		"uploadOverlayProgress": "S5HVoW_uploadOverlayProgress",
+		"uploadOverlayProgressFill": "S5HVoW_uploadOverlayProgressFill",
+		"uploadOverlayStatus": "S5HVoW_uploadOverlayStatus",
+		"uploadOverlayTitle": "S5HVoW_uploadOverlayTitle",
+		"workbench": "S5HVoW_workbench"
 	};
 	//#endregion
 	//#region src/client/TextEditor.tsx
@@ -44222,38 +44577,26 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		const themeCompRef = (0, react.useRef)(null);
 		/** The app's resolved color scheme; the editor re-themes in place on flips. */
 		const [dark, setDark] = (0, react.useState)(() => isDarkScheme());
-		/** The floating "add to conversation" popup (viewport-anchored; null = hidden). */
-		const [popup, setPopup] = (0, react.useState)(null);
-		/** Live mirror of the popup state for click-time reads (no re-render race). */
-		const popupRef = (0, react.useRef)(null);
-		const hidePopup = () => {
-			popupRef.current = null;
-			setPopup(null);
-		};
-		/** Anchor the popup above the selection center; clamp inside the viewport. */
-		const showPopup = (insert, left, top) => {
-			const next = {
-				insert,
-				left: Math.min(Math.max(left, 80), window.innerWidth - 80),
-				top
-			};
-			popupRef.current = next;
-			setPopup(next);
-		};
-		/** The popup button's click: insert the stored payload into the draft. */
-		const commitPopup = () => {
-			const current = popupRef.current;
-			if (current === null) return;
-			appendToDraft(ctx, scope.sessionId, current.insert);
-			hidePopup();
-		};
+		/**
+		* The floating "add to conversation" popup (viewport-anchored; null =
+		* hidden). The hook owns show/hide/commit plus the global dismissal
+		* listeners (outside mousedown, Escape, hidden tab/window, and the editor
+		* surface leaving the viewport — the tab-switch/panel-collapse paths have
+		* no DOM events of their own) — see selection-popup.ts.
+		*/
+		const selectionPopup = useSelectionPopup({
+			onCommit: (insert) => {
+				appendToDraft(ctx, scope.sessionId, insert);
+			},
+			getSurface: () => hostRef.current
+		});
 		(0, react.useEffect)(() => subscribeColorScheme(() => {
 			setDark(isDarkScheme());
 		}), []);
 		(0, react.useEffect)(() => {
 			setDirty(false);
 			setSaveState("idle");
-			hidePopup();
+			selectionPopup.hide();
 		}, [content]);
 		(0, react.useEffect)(() => {
 			if (content === void 0) return;
@@ -44291,31 +44634,31 @@ globalThis.__dshChunks__["editor"] = (require) => {
 						]),
 						EditorView.updateListener.of((update) => {
 							if (update.geometryChanged || update.viewportChanged) {
-								hidePopup();
+								selectionPopup.hide();
 								return;
 							}
 							if (!update.view.hasFocus) {
-								hidePopup();
+								selectionPopup.hide();
 								return;
 							}
 							if (!(update.selectionSet || update.docChanged || update.focusChanged)) return;
 							const sel = update.state.selection.main;
 							if (sel.empty) {
-								hidePopup();
+								selectionPopup.hide();
 								return;
 							}
 							const text = update.state.sliceDoc(sel.from, sel.to);
 							if (text.trim() === "") {
-								hidePopup();
+								selectionPopup.hide();
 								return;
 							}
 							const rect = update.view.coordsAtPos(sel.head);
 							if (rect === null) {
-								hidePopup();
+								selectionPopup.hide();
 								return;
 							}
 							const doc = update.state.doc;
-							showPopup(buildSelectionInsert(path, scope.cwd, {
+							selectionPopup.show(buildSelectionInsert(path, scope.cwd, {
 								start: doc.lineAt(sel.from).number,
 								end: doc.lineAt(sel.to).number
 							}, text), rect.left - window.scrollX + (rect.right - rect.left) / 2, rect.top - window.scrollY);
@@ -44403,17 +44746,18 @@ globalThis.__dshChunks__["editor"] = (require) => {
 				className: sidebar_module_css_default.editorCm,
 				ref: hostRef
 			})] }),
-			popup !== null && (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+			selectionPopup.popup !== null && (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 				type: "button",
+				ref: selectionPopup.buttonRef,
 				className: sidebar_module_css_default.selectionPopup,
 				style: {
-					left: popup.left,
-					top: popup.top
+					left: selectionPopup.popup.left,
+					top: selectionPopup.popup.top
 				},
 				onMouseDown: (event) => {
 					event.preventDefault();
 				},
-				onClick: commitPopup,
+				onClick: selectionPopup.commit,
 				children: t("addToConversation")
 			}), document.body)
 		] });

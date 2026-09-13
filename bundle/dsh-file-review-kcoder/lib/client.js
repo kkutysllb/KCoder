@@ -5090,7 +5090,171 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			]
 		};
 		//#endregion
+		//#region src/client/artifacts.ts
+		/** Extensions (lowercase, no dot) per artifact class. */
+		const KIND_EXTS = {
+			image: [
+				"png",
+				"jpg",
+				"jpeg",
+				"gif",
+				"webp",
+				"svg",
+				"bmp",
+				"ico",
+				"avif",
+				"tiff",
+				"tif"
+			],
+			video: [
+				"mp4",
+				"webm",
+				"mov",
+				"mkv",
+				"avi",
+				"m4v",
+				"mpg",
+				"mpeg",
+				"wmv",
+				"flv"
+			],
+			audio: [
+				"mp3",
+				"wav",
+				"m4a",
+				"ogg",
+				"oga",
+				"flac",
+				"aac",
+				"opus",
+				"wma"
+			],
+			office: [
+				"docx",
+				"xlsx",
+				"pptx",
+				"doc",
+				"xls",
+				"ppt",
+				"odt",
+				"ods",
+				"odp"
+			],
+			pdf: ["pdf"],
+			doc: [
+				"md",
+				"markdown",
+				"html",
+				"htm"
+			]
+		};
+		const EXT_TO_KIND = /* @__PURE__ */ new Map();
+		for (const [kind, exts] of Object.entries(KIND_EXTS)) for (const ext of exts) EXT_TO_KIND.set(ext, kind);
+		/** Trailing path segment after the last dot, lowercased ('' when none). */
+		function extensionOf$1(path) {
+			const at = path.lastIndexOf(".");
+			const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+			if (at === -1 || at < slash) return "";
+			return path.slice(at + 1).toLowerCase();
+		}
+		/**
+		* Classify a produced path. Returns 'code' for everything that is not a
+		* known artifact extension — the caller keeps the diff-review behavior for
+		* 'code' unchanged.
+		*/
+		function classifyPath(path) {
+			return EXT_TO_KIND.get(extensionOf$1(path)) ?? "code";
+		}
+		/**
+		* Shell output targets: one capture group around a quoted or bare token.
+		* Quoted tokens may contain spaces (that is what the quotes are for); bare
+		* tokens stay shell-delimiter-exclusive. Shared by every indicator pattern
+		* so matches decode uniformly.
+		*/
+		const TARGET = String.raw`("[^"]+"|'[^']+'|[^\s"'><|;&]+)`;
+		/** Output indicators worth scanning (global, flag case-insensitive). */
+		const INDICATORS = [
+			new RegExp(String.raw`(?:^|[\s;|&])(?:\d)?>>?\s*${TARGET}`, "g"),
+			new RegExp(String.raw`(?:^|\s)(?:--output(?:=|\s+)|--output-document(?:=|\s+)|-o\s+|-O\s+)${TARGET}`, "gi"),
+			new RegExp(String.raw`(?:^|\s)(?:cp|mv)\s[^;|&]*?\s${TARGET}\s*(?=$|[;|&])`, "gi"),
+			new RegExp(String.raw`(?:^|\s)tee\s+(?:-a\s+)?${TARGET}`, "g")
+		];
+		/** Decode the single capture group: strip one layer of quotes. */
+		function decodeTarget(match) {
+			const raw = match[1] ?? "";
+			return raw.length >= 2 && (raw.startsWith("\"") && raw.endsWith("\"") || raw.startsWith("'") && raw.endsWith("'")) ? raw.slice(1, -1) : raw;
+		}
+		/**
+		* Artifact files one mutation-tool call creates, judged from its OWN
+		* arguments — the same argument-contract philosophy as mutationDetail, with
+		* a much tighter net: the tool must be a shell, and every candidate target
+		* must carry a known artifact extension. Order is first-seen; duplicates
+		* collapse.
+		*/
+		function captureArtifacts(name, argsRaw) {
+			if (name !== "bash" && name !== "pwsh") return [];
+			let args;
+			try {
+				args = JSON.parse(argsRaw);
+			} catch {
+				return [];
+			}
+			if (typeof args !== "object" || args === null || Array.isArray(args)) return [];
+			const command = args.command;
+			if (typeof command !== "string" || command === "") return [];
+			const found = /* @__PURE__ */ new Map();
+			for (const pattern of INDICATORS) {
+				pattern.lastIndex = 0;
+				let match = pattern.exec(command);
+				while (match !== null) {
+					const target = decodeTarget(match);
+					const kind = EXT_TO_KIND.get(extensionOf$1(target));
+					if (kind !== void 0 && !found.has(target)) found.set(target, kind);
+					match = pattern.exec(command);
+				}
+			}
+			return [...found].map(([path, artifact]) => ({
+				path,
+				artifact
+			}));
+		}
+		//#endregion
 		//#region src/client/conversation-store.ts
+		/**
+		* Turn-scoped content fingerprint for the turn-tail card's reactive
+		* subscription. The session chat source publishes a fresh snapshot reference
+		* per streaming event (token flushes, per-event Definition republications —
+		* see index.tsx badgeCount), so a subscription keyed on the face reference
+		* re-rendered every mounted card non-stop while ANY turn ran, and the card's
+		* identity-keyed inspection effect turned that churn into a disabled-state
+		* flicker on the 撤销 button (statusPending true → host status RPC → false,
+		* per publication). This fingerprint instead moves only when ONE turn's
+		* review content moves: the own Definition data signature (paths + hunk
+		* counts + deletion flags — the engine APPENDS hunks, definition.ts update(),
+		* so counts are monotonic and faithful) plus the built-in deliverables
+		* fallback signature (the derive falls back to it when own data has no
+		* files, session-changes.deriveTimelineChanges). A string on purpose:
+		* recomputation stays Object.is-stable for useSyncExternalStore.
+		* @param face - resolved conversation face (null before the view assembles).
+		* @param turn - the card's owning turn number.
+		* @returns Content signature; equal across content-preserving republications.
+		*/
+		function turnChangesFingerprint(face, turn) {
+			if (face === null) return "none";
+			const timeline = face.timeline;
+			if (timeline === void 0) {
+				let lastEnd = 0;
+				for (const endSeq of face.legacy.turnEnds.values()) lastEnd = endSeq;
+				return `win:${face.legacy.nodes.length}:${face.legacy.turnEnds.size}:${lastEnd}`;
+			}
+			const data = timeline.turns.get(turn)?.data;
+			const own = data?.get("fileReviewChanges");
+			const parts = [];
+			if (own?.files !== void 0) for (const file of own.files) parts.push(`${file.path}#${file.diffs.length}${file.deleted === true ? "D" : ""}`);
+			const produced = (data?.get("deliverables"))?.produced;
+			if (produced !== void 0) parts.push(`dl:${produced.length}:${produced.at(-1)?.seq ?? 0}`);
+			return `t${turn}:${parts.join("|")}`;
+		}
 		/** Read a service without the inject requirement (ctx.get, then reflect). */
 		function lookupService(ctx, name) {
 			const anyCtx = ctx;
@@ -6130,7 +6294,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				if (call === null) continue;
 				const detail = mutationDetail(call.name, call.argsRaw);
 				const deletions = detail === null ? terminalDeletions(call.name, call.argsRaw) : [];
-				if (detail === null && deletions.length === 0) continue;
+				const artifacts = detail === null && deletions.length === 0 ? captureArtifacts(call.name, call.argsRaw) : [];
+				if (detail === null && deletions.length === 0 && artifacts.length === 0) continue;
 				const diffs = detail?.diffs ?? [];
 				const paths = detail !== null ? [detail.path] : [];
 				const { turn, live } = attribute(node.seq);
@@ -6150,6 +6315,11 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						existing.diffs.push(...own);
 						delete existing.deleted;
 					}
+				}
+				for (const captured of artifacts) {
+					const existing = group.files.get(captured.path);
+					if (existing === void 0) group.files.set(captured.path, { diffs: [] });
+					else delete existing.deleted;
 				}
 				for (const path of deletions) {
 					const existing = group.files.get(path);
@@ -6323,36 +6493,36 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		}
 		//#endregion
 		//#region \0dsh-file-review-kcoder-css:/Users/libing/kk_Projects/dsh-file-review-kcoder/src/client/UnifiedDiff.module.css.mjs
-		const css$2 = ".fUbE1W_unifiedBlock{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-markdown-code-block);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;margin:16px 0;position:relative;overflow:hidden}.fUbE1W_unifiedEmbedded{border:0;border-radius:0;margin:0}.fUbE1W_unifiedCopyButton{z-index:2;color:var(--dsw-alias-label-secondary);cursor:pointer;font:var(--dsw-font-xs-13);background:0 0;border:0;padding:0;position:absolute;top:10px;right:12px}.fUbE1W_unifiedFile+.fUbE1W_unifiedFile{border-top:1px solid var(--dsw-alias-border-l2)}.fUbE1W_unifiedHeader{border-bottom:1px solid var(--dsw-alias-border-l2);min-height:38px;font:var(--dsw-font-markdown-code-block);align-items:center;gap:8px;padding:0 72px 0 12px;display:flex}.fUbE1W_unifiedStatus{color:var(--dsw-alias-state-success-primary);font-weight:700}.fUbE1W_unifiedPath{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.fUbE1W_unifiedAdded{color:var(--dsw-alias-state-success-primary);margin-left:auto}.fUbE1W_unifiedRemoved{color:var(--dsw-alias-state-error-primary)}.fUbE1W_unifiedHunkHeader{border-bottom:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-markdown-code-block);padding:6px 12px}.fUbE1W_unifiedBody{font:var(--dsw-font-markdown-code-block);overflow:auto hidden}.fUbE1W_unifiedLine{white-space:pre;grid-template-columns:48px 24px minmax(max-content,1fr);min-width:max-content;min-height:23px;line-height:23px;display:grid}.fUbE1W_unifiedLineNumber{border-right:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);text-align:right;user-select:none;padding:0 8px}.fUbE1W_unifiedSign{text-align:center;user-select:none}.fUbE1W_unifiedText{padding-right:14px}.fUbE1W_unified_del{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 11%, transparent)}.fUbE1W_unified_add{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 11%, transparent)}.fUbE1W_unified_context{color:var(--dsw-alias-label-primary)}.fUbE1W_unifiedGap{border:0;border-top:1px solid var(--dsw-alias-border-l1);border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-border-l1);width:100%;min-height:32px;color:var(--dsw-alias-label-secondary);cursor:pointer;font:var(--dsw-font-xs-13);text-align:left;padding:0 12px 0 72px;display:block}.fUbE1W_unifiedGap:hover{color:var(--dsw-alias-label-primary)}.fUbE1W_unifiedOmitted{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-border-l1);min-height:32px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xs-13);align-items:center;gap:12px;padding:0 12px;display:flex}";
-		const styleId$2 = "dsh-file-review-kcoder/UnifiedDiff.module.css";
-		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(styleId$2) + "]") === null) {
+		const css$3 = ".fUbE1W_unifiedBlock{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-markdown-code-block);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;margin:16px 0;position:relative;overflow:hidden}.fUbE1W_unifiedEmbedded{border:0;border-radius:0;margin:0}.fUbE1W_unifiedCopyButton{z-index:2;color:var(--dsw-alias-label-secondary);cursor:pointer;font:var(--dsw-font-xs-13);background:0 0;border:0;padding:0;position:absolute;top:10px;right:12px}.fUbE1W_unifiedFile+.fUbE1W_unifiedFile{border-top:1px solid var(--dsw-alias-border-l2)}.fUbE1W_unifiedHeader{border-bottom:1px solid var(--dsw-alias-border-l2);min-height:38px;font:var(--dsw-font-markdown-code-block);align-items:center;gap:8px;padding:0 72px 0 12px;display:flex}.fUbE1W_unifiedStatus{color:var(--dsw-alias-state-success-primary);font-weight:700}.fUbE1W_unifiedPath{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.fUbE1W_unifiedAdded{color:var(--dsw-alias-state-success-primary);margin-left:auto}.fUbE1W_unifiedRemoved{color:var(--dsw-alias-state-error-primary)}.fUbE1W_unifiedHunkHeader{border-bottom:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-markdown-code-block);padding:6px 12px}.fUbE1W_unifiedBody{font:var(--dsw-font-markdown-code-block);overflow:auto hidden}.fUbE1W_unifiedLine{white-space:pre;grid-template-columns:48px 24px minmax(max-content,1fr);min-width:max-content;min-height:23px;line-height:23px;display:grid}.fUbE1W_unifiedLineNumber{border-right:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);text-align:right;user-select:none;padding:0 8px}.fUbE1W_unifiedSign{text-align:center;user-select:none}.fUbE1W_unifiedText{padding-right:14px}.fUbE1W_unified_del{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 11%, transparent)}.fUbE1W_unified_add{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 11%, transparent)}.fUbE1W_unified_context{color:var(--dsw-alias-label-primary)}.fUbE1W_unifiedGap{border:0;border-top:1px solid var(--dsw-alias-border-l1);border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-border-l1);width:100%;min-height:32px;color:var(--dsw-alias-label-secondary);cursor:pointer;font:var(--dsw-font-xs-13);text-align:left;padding:0 12px 0 72px;display:block}.fUbE1W_unifiedGap:hover{color:var(--dsw-alias-label-primary)}.fUbE1W_unifiedOmitted{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-border-l1);min-height:32px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xs-13);align-items:center;gap:12px;padding:0 12px;display:flex}";
+		const styleId$3 = "dsh-file-review-kcoder/UnifiedDiff.module.css";
+		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(styleId$3) + "]") === null) {
 			const style = document.createElement("style");
 			style.dataset.plugin = "dsh-file-review-kcoder";
-			style.dataset.pluginCss = styleId$2;
-			style.textContent = css$2;
+			style.dataset.pluginCss = styleId$3;
+			style.textContent = css$3;
 			document.head.appendChild(style);
 		}
 		var UnifiedDiff_module_css_default = {
-			"unified_context": "fUbE1W_unified_context",
-			"unifiedLine": "fUbE1W_unifiedLine",
-			"unifiedAdded": "fUbE1W_unifiedAdded",
-			"unifiedEmbedded": "fUbE1W_unifiedEmbedded",
-			"unifiedText": "fUbE1W_unifiedText",
-			"unifiedLineNumber": "fUbE1W_unifiedLineNumber",
-			"unifiedCopyButton": "fUbE1W_unifiedCopyButton",
-			"unifiedFile": "fUbE1W_unifiedFile",
-			"unifiedHeader": "fUbE1W_unifiedHeader",
-			"unified_del": "fUbE1W_unified_del",
-			"unifiedRemoved": "fUbE1W_unifiedRemoved",
-			"unifiedGap": "fUbE1W_unifiedGap",
 			"unifiedStatus": "fUbE1W_unifiedStatus",
-			"unifiedPath": "fUbE1W_unifiedPath",
-			"unifiedSign": "fUbE1W_unifiedSign",
+			"unifiedAdded": "fUbE1W_unifiedAdded",
 			"unifiedHunkHeader": "fUbE1W_unifiedHunkHeader",
+			"unifiedSign": "fUbE1W_unifiedSign",
+			"unifiedOmitted": "fUbE1W_unifiedOmitted",
+			"unifiedHeader": "fUbE1W_unifiedHeader",
+			"unifiedCopyButton": "fUbE1W_unifiedCopyButton",
+			"unifiedText": "fUbE1W_unifiedText",
+			"unifiedPath": "fUbE1W_unifiedPath",
+			"unifiedRemoved": "fUbE1W_unifiedRemoved",
 			"unified_add": "fUbE1W_unified_add",
-			"unifiedBlock": "fUbE1W_unifiedBlock",
+			"unifiedLine": "fUbE1W_unifiedLine",
+			"unified_context": "fUbE1W_unified_context",
+			"unifiedFile": "fUbE1W_unifiedFile",
+			"unifiedEmbedded": "fUbE1W_unifiedEmbedded",
 			"unifiedBody": "fUbE1W_unifiedBody",
-			"unifiedOmitted": "fUbE1W_unifiedOmitted"
+			"unifiedLineNumber": "fUbE1W_unifiedLineNumber",
+			"unified_del": "fUbE1W_unified_del",
+			"unifiedBlock": "fUbE1W_unifiedBlock",
+			"unifiedGap": "fUbE1W_unifiedGap"
 		};
 		//#endregion
 		//#region src/client/UnifiedDiff.tsx
@@ -6673,6 +6843,12 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			stateError: "错误",
 			deleted: "已删除",
 			deletedHint: "该文件在本轮中被终端命令删除，内容已不存在，无法查看差异或撤销。",
+			kindImage: "图片",
+			kindVideo: "视频",
+			kindAudio: "音频",
+			kindOffice: "Office",
+			kindPdf: "PDF",
+			kindDoc: "文档",
 			archived: "已归档 {n} 轮",
 			archivedExpand: "展开已归档轮次",
 			archivedCollapse: "收起已归档轮次",
@@ -6715,6 +6891,12 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			stateError: "error",
 			deleted: "deleted",
 			deletedHint: "This file was deleted by a terminal command in this turn; its content is gone, so no diff or undo is available.",
+			kindImage: "Image",
+			kindVideo: "Video",
+			kindAudio: "Audio",
+			kindOffice: "Office",
+			kindPdf: "PDF",
+			kindDoc: "Doc",
 			archived: "Archived turns ({n})",
 			archivedExpand: "Expand archived turns",
 			archivedCollapse: "Collapse archived turns",
@@ -6752,59 +6934,69 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		}
 		//#endregion
 		//#region \0dsh-file-review-kcoder-css:/Users/libing/kk_Projects/dsh-file-review-kcoder/src/client/FileReviewTab.module.css.mjs
-		const css$1 = ".ePxjfa_root{height:100%;min-height:0;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xs-13);flex-direction:column;display:flex;container-type:inline-size}.ePxjfa_header{border-bottom:1px solid var(--dsw-alias-border-l2);flex:none;align-items:center;gap:8px;min-height:36px;padding:0 10px;display:flex}.ePxjfa_headerTitle{font-weight:600}.ePxjfa_refreshButton{color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:0;border-radius:6px;margin-left:auto;padding:2px 6px;font-size:13px;line-height:1}.ePxjfa_refreshButton:hover:not(:disabled){background:var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary)}.ePxjfa_refreshButton:disabled{opacity:.5;cursor:default}.ePxjfa_notice{border-radius:8px;flex:none;margin:8px 10px 0;padding:6px 10px;font-size:12px}.ePxjfa_noticeSuccess{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);border:1px solid color-mix(in srgb, var(--dsw-alias-state-success-primary) 35%, transparent)}.ePxjfa_noticeError{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);border:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent)}.ePxjfa_body{flex:1;min-height:0;padding:8px 0 16px;overflow-y:auto}.ePxjfa_empty{color:var(--dsw-alias-label-tertiary);text-align:center;padding:24px 12px}.ePxjfa_turnGroup{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-markdown-code-block);border-radius:10px;margin:0 8px 10px;overflow:hidden}.ePxjfa_turnHeader{border-bottom:1px solid var(--dsw-alias-border-l2);flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:34px;padding:0 8px 0 10px;display:flex}.ePxjfa_turnTitle{white-space:nowrap;font-weight:600}.ePxjfa_liveBadge{color:var(--dsw-alias-state-warning-primary,#d9a13b);background:color-mix(in srgb, var(--dsw-alias-state-warning-primary,#d9a13b) 14%, transparent);white-space:nowrap;border-radius:999px;padding:1px 6px;font-size:11px}.ePxjfa_turnCount{color:var(--dsw-alias-label-tertiary);white-space:nowrap}.ePxjfa_stats{white-space:nowrap;gap:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;display:inline-flex}.ePxjfa_added{color:var(--dsw-alias-state-success-primary)}.ePxjfa_removed{color:var(--dsw-alias-state-error-primary)}.ePxjfa_actionButton{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap;background:0 0;border-radius:6px;align-items:center;gap:4px;margin-left:auto;padding:3px 8px;font-size:12px;display:inline-flex}.ePxjfa_actionButton:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-border-l1)}.ePxjfa_actionButton:disabled{opacity:.5;cursor:default}.ePxjfa_buttonIcon{fill:none;stroke:currentColor;stroke-width:1.6px;stroke-linecap:round;stroke-linejoin:round;width:13px;height:13px}.ePxjfa_fileList{margin:0;padding:0;list-style:none}.ePxjfa_fileItem+.ePxjfa_fileItem{border-top:1px solid var(--dsw-alias-border-l2)}.ePxjfa_fileRow{cursor:pointer;user-select:none;align-items:center;gap:6px;min-height:32px;padding:0 8px 0 6px;display:flex}.ePxjfa_fileRow:hover{background:color-mix(in srgb, var(--dsw-alias-border-l1) 55%, transparent)}.ePxjfa_chevron{fill:none;width:12px;height:12px;stroke:var(--dsw-alias-label-tertiary);stroke-width:1.8px;stroke-linecap:round;stroke-linejoin:round;flex:none;transition:transform .12s}.ePxjfa_chevronOpen{transform:rotate(90deg)}.ePxjfa_fileName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;overflow:hidden}.ePxjfa_stateBadge{white-space:nowrap;border-radius:999px;padding:1px 6px;font-size:11px}.ePxjfa_badgeUndone{color:var(--dsw-alias-state-warning-primary,#d9a13b);background:color-mix(in srgb, var(--dsw-alias-state-warning-primary,#d9a13b) 14%, transparent)}.ePxjfa_badgeMuted{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-border-l1)}.ePxjfa_badgeError{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}.ePxjfa_smallButton{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap;background:0 0;border-radius:6px;flex:none;padding:2px 7px;font-size:11px}.ePxjfa_smallButton:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-border-l1)}.ePxjfa_smallButton:disabled{opacity:.5;cursor:default}.ePxjfa_fileRow .ePxjfa_smallButton:first-of-type{margin-left:auto}.ePxjfa_diffWrap{border-top:1px solid var(--dsw-alias-border-l2);overflow-x:auto}.ePxjfa_diffUnavailable{color:var(--dsw-alias-label-tertiary);margin:0;padding:10px 12px;font-size:12px}.ePxjfa_reviewDiff{border:0;border-radius:0;margin:0}.ePxjfa_deletedBadge{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);white-space:nowrap;border-radius:999px;padding:1px 6px;font-size:11px}@container (width<=430px){.ePxjfa_turnHeader .ePxjfa_stats,.ePxjfa_editorButton{display:none}}.ePxjfa_archiveSection{border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;margin:4px 8px 6px}.ePxjfa_archiveHeader{cursor:pointer;width:100%;min-height:34px;color:var(--dsw-alias-label-secondary);background:0 0;border:0;align-items:center;gap:6px;padding:0 8px 0 10px;display:flex}.ePxjfa_archiveHeader:hover{color:var(--dsw-alias-label-primary)}.ePxjfa_archiveTitle{font-size:12px}.ePxjfa_archiveSection .ePxjfa_turnGroup{margin:0 8px 8px}";
-		const styleId$1 = "dsh-file-review-kcoder/FileReviewTab.module.css";
-		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(styleId$1) + "]") === null) {
+		const css$2 = ".ePxjfa_root{height:100%;min-height:0;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xs-13);flex-direction:column;display:flex;container-type:inline-size}.ePxjfa_header{border-bottom:1px solid var(--dsw-alias-border-l2);flex:none;align-items:center;gap:8px;min-height:36px;padding:0 10px;display:flex}.ePxjfa_headerTitle{font-weight:600}.ePxjfa_refreshButton{color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:0;border-radius:6px;margin-left:auto;padding:2px 6px;font-size:13px;line-height:1}.ePxjfa_refreshButton:hover:not(:disabled){background:var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary)}.ePxjfa_refreshButton:disabled{opacity:.5;cursor:default}.ePxjfa_notice{border-radius:8px;flex:none;margin:8px 10px 0;padding:6px 10px;font-size:12px}.ePxjfa_noticeSuccess{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);border:1px solid color-mix(in srgb, var(--dsw-alias-state-success-primary) 35%, transparent)}.ePxjfa_noticeError{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);border:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent)}.ePxjfa_body{flex:1;min-height:0;padding:8px 0 16px;overflow-y:auto}.ePxjfa_empty{color:var(--dsw-alias-label-tertiary);text-align:center;padding:24px 12px}.ePxjfa_turnGroup{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-markdown-code-block);border-radius:10px;margin:0 8px 10px;overflow:hidden}.ePxjfa_turnHeader{border-bottom:1px solid var(--dsw-alias-border-l2);flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:34px;padding:0 8px 0 10px;display:flex}.ePxjfa_turnTitle{white-space:nowrap;font-weight:600}.ePxjfa_liveBadge{color:var(--dsw-alias-state-warning-primary,#d9a13b);background:color-mix(in srgb, var(--dsw-alias-state-warning-primary,#d9a13b) 14%, transparent);white-space:nowrap;border-radius:999px;padding:1px 6px;font-size:11px}.ePxjfa_turnCount{color:var(--dsw-alias-label-tertiary);white-space:nowrap}.ePxjfa_stats{white-space:nowrap;gap:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;display:inline-flex}.ePxjfa_added{color:var(--dsw-alias-state-success-primary)}.ePxjfa_removed{color:var(--dsw-alias-state-error-primary)}.ePxjfa_actionButton{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap;background:0 0;border-radius:6px;align-items:center;gap:4px;margin-left:auto;padding:3px 8px;font-size:12px;display:inline-flex}.ePxjfa_actionButton:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-border-l1)}.ePxjfa_actionButton:disabled{opacity:.5;cursor:default}.ePxjfa_buttonIcon{fill:none;stroke:currentColor;stroke-width:1.6px;stroke-linecap:round;stroke-linejoin:round;width:13px;height:13px}.ePxjfa_fileList{margin:0;padding:0;list-style:none}.ePxjfa_fileItem+.ePxjfa_fileItem{border-top:1px solid var(--dsw-alias-border-l2)}.ePxjfa_fileRow{cursor:pointer;user-select:none;align-items:center;gap:6px;min-height:32px;padding:0 8px 0 6px;display:flex}.ePxjfa_fileRow:hover{background:color-mix(in srgb, var(--dsw-alias-border-l1) 55%, transparent)}.ePxjfa_chevron{fill:none;width:12px;height:12px;stroke:var(--dsw-alias-label-tertiary);stroke-width:1.8px;stroke-linecap:round;stroke-linejoin:round;flex:none;transition:transform .12s}.ePxjfa_chevronOpen{transform:rotate(90deg)}.ePxjfa_fileName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;overflow:hidden}.ePxjfa_stateBadge{white-space:nowrap;border-radius:999px;padding:1px 6px;font-size:11px}.ePxjfa_badgeUndone{color:var(--dsw-alias-state-warning-primary,#d9a13b);background:color-mix(in srgb, var(--dsw-alias-state-warning-primary,#d9a13b) 14%, transparent)}.ePxjfa_badgeMuted{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-border-l1)}.ePxjfa_badgeError{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}.ePxjfa_smallButton{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap;background:0 0;border-radius:6px;flex:none;padding:2px 7px;font-size:11px}.ePxjfa_smallButton:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-border-l1)}.ePxjfa_smallButton:disabled{opacity:.5;cursor:default}.ePxjfa_fileRow .ePxjfa_smallButton:first-of-type{margin-left:auto}.ePxjfa_diffWrap{border-top:1px solid var(--dsw-alias-border-l2);overflow-x:auto}.ePxjfa_diffUnavailable{color:var(--dsw-alias-label-tertiary);margin:0;padding:10px 12px;font-size:12px}.ePxjfa_reviewDiff{border:0;border-radius:0;margin:0}.ePxjfa_deletedBadge{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);white-space:nowrap;border-radius:999px;padding:1px 6px;font-size:11px}.ePxjfa_kindBadge{color:var(--dsw-alias-label-secondary);background:color-mix(in srgb, var(--dsw-alias-label-tertiary) 16%, transparent);white-space:nowrap;border-radius:999px;padding:1px 6px;font-size:11px}@container (width<=430px){.ePxjfa_turnHeader .ePxjfa_stats,.ePxjfa_editorButton{display:none}}.ePxjfa_archiveSection{border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;margin:4px 8px 6px}.ePxjfa_archiveHeader{cursor:pointer;width:100%;min-height:34px;color:var(--dsw-alias-label-secondary);background:0 0;border:0;align-items:center;gap:6px;padding:0 8px 0 10px;display:flex}.ePxjfa_archiveHeader:hover{color:var(--dsw-alias-label-primary)}.ePxjfa_archiveTitle{font-size:12px}.ePxjfa_archiveSection .ePxjfa_turnGroup{margin:0 8px 8px}";
+		const styleId$2 = "dsh-file-review-kcoder/FileReviewTab.module.css";
+		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(styleId$2) + "]") === null) {
 			const style = document.createElement("style");
 			style.dataset.plugin = "dsh-file-review-kcoder";
-			style.dataset.pluginCss = styleId$1;
-			style.textContent = css$1;
+			style.dataset.pluginCss = styleId$2;
+			style.textContent = css$2;
 			document.head.appendChild(style);
 		}
 		var FileReviewTab_module_css_default = {
-			"editorButton": "ePxjfa_editorButton",
-			"header": "ePxjfa_header",
-			"liveBadge": "ePxjfa_liveBadge",
-			"archiveSection": "ePxjfa_archiveSection",
-			"turnTitle": "ePxjfa_turnTitle",
-			"added": "ePxjfa_added",
-			"noticeSuccess": "ePxjfa_noticeSuccess",
-			"reviewDiff": "ePxjfa_reviewDiff",
-			"smallButton": "ePxjfa_smallButton",
-			"refreshButton": "ePxjfa_refreshButton",
-			"archiveHeader": "ePxjfa_archiveHeader",
-			"fileName": "ePxjfa_fileName",
-			"deletedBadge": "ePxjfa_deletedBadge",
-			"empty": "ePxjfa_empty",
-			"stateBadge": "ePxjfa_stateBadge",
-			"chevron": "ePxjfa_chevron",
-			"badgeUndone": "ePxjfa_badgeUndone",
-			"turnHeader": "ePxjfa_turnHeader",
-			"stats": "ePxjfa_stats",
 			"root": "ePxjfa_root",
-			"badgeError": "ePxjfa_badgeError",
-			"actionButton": "ePxjfa_actionButton",
-			"removed": "ePxjfa_removed",
-			"turnGroup": "ePxjfa_turnGroup",
-			"chevronOpen": "ePxjfa_chevronOpen",
 			"diffUnavailable": "ePxjfa_diffUnavailable",
-			"fileList": "ePxjfa_fileList",
-			"body": "ePxjfa_body",
-			"fileRow": "ePxjfa_fileRow",
-			"badgeMuted": "ePxjfa_badgeMuted",
-			"diffWrap": "ePxjfa_diffWrap",
-			"archiveTitle": "ePxjfa_archiveTitle",
-			"fileItem": "ePxjfa_fileItem",
-			"headerTitle": "ePxjfa_headerTitle",
+			"turnGroup": "ePxjfa_turnGroup",
+			"archiveSection": "ePxjfa_archiveSection",
+			"chevronOpen": "ePxjfa_chevronOpen",
+			"archiveHeader": "ePxjfa_archiveHeader",
 			"turnCount": "ePxjfa_turnCount",
+			"chevron": "ePxjfa_chevron",
+			"fileList": "ePxjfa_fileList",
+			"smallButton": "ePxjfa_smallButton",
+			"archiveTitle": "ePxjfa_archiveTitle",
 			"noticeError": "ePxjfa_noticeError",
+			"body": "ePxjfa_body",
+			"headerTitle": "ePxjfa_headerTitle",
+			"noticeSuccess": "ePxjfa_noticeSuccess",
+			"turnHeader": "ePxjfa_turnHeader",
+			"fileName": "ePxjfa_fileName",
+			"kindBadge": "ePxjfa_kindBadge",
+			"diffWrap": "ePxjfa_diffWrap",
+			"stats": "ePxjfa_stats",
 			"buttonIcon": "ePxjfa_buttonIcon",
-			"notice": "ePxjfa_notice"
+			"notice": "ePxjfa_notice",
+			"empty": "ePxjfa_empty",
+			"fileItem": "ePxjfa_fileItem",
+			"added": "ePxjfa_added",
+			"reviewDiff": "ePxjfa_reviewDiff",
+			"badgeError": "ePxjfa_badgeError",
+			"refreshButton": "ePxjfa_refreshButton",
+			"stateBadge": "ePxjfa_stateBadge",
+			"removed": "ePxjfa_removed",
+			"deletedBadge": "ePxjfa_deletedBadge",
+			"header": "ePxjfa_header",
+			"fileRow": "ePxjfa_fileRow",
+			"turnTitle": "ePxjfa_turnTitle",
+			"badgeMuted": "ePxjfa_badgeMuted",
+			"actionButton": "ePxjfa_actionButton",
+			"liveBadge": "ePxjfa_liveBadge",
+			"badgeUndone": "ePxjfa_badgeUndone",
+			"editorButton": "ePxjfa_editorButton"
 		};
 		//#endregion
 		//#region src/client/FileReviewTab.tsx
 		const SUCCESS_NOTICE_DURATION$1 = 3e3;
 		const ERROR_NOTICE_DURATION$1 = 8e3;
+		/** Localized badge copy per artifact class (tab namespace keys). */
+		const KIND_LABEL$1 = {
+			image: "kindImage",
+			video: "kindVideo",
+			audio: "kindAudio",
+			office: "kindOffice",
+			pdf: "kindPdf",
+			doc: "kindDoc"
+		};
 		/** State map key for one (turn, file) change group. */
 		function stateKey(turn, path) {
 			return `${turn}|${path}`;
@@ -6984,7 +7176,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				diffs: file.diffs,
 				...file.deleted === true ? { deleted: true } : {}
 			}))), [renderedTurns]);
-			const inspectable = (0, react.useMemo)(() => flat.filter((item) => item.deleted !== true), [flat]);
+			const inspectable = (0, react.useMemo)(() => flat.filter((item) => item.deleted !== true && !(item.diffs.length === 0 && classifyPath(item.path) !== "code")), [flat]);
 			const flatKey = (0, react.useMemo)(() => flat.map((item) => `${item.turn}|${item.path}|${item.diffs.length}`).join(";"), [flat]);
 			const flatRef = (0, react.useRef)(flat);
 			flatRef.current = flat;
@@ -7211,7 +7403,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 								disabled: statusPending || busyKey !== null || reversible.length === 0,
 								title: reversible.length === 0 ? t("toggleUnavailable") : void 0,
 								onClick: () => {
-									runToggle(turnKey, turn.files.filter((file) => file.deleted !== true).map((file) => ({
+									runToggle(turnKey, turn.files.filter((file) => file.deleted !== true && !(file.diffs.length === 0 && classifyPath(file.path) !== "code")).map((file) => ({
 										turn: turn.turn,
 										path: file.path,
 										diffs: file.diffs
@@ -7235,6 +7427,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				const fileAction = state === "undone" ? "redo" : "undo";
 				const fileBusy = busyKey === key;
 				const stats = summarizeDiffs(file.diffs);
+				const kind = classifyPath(file.path);
+				const previewable = file.deleted !== true && kind !== "code";
 				return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
 					className: FileReviewTab_module_css_default.fileItem,
 					ref: (element) => {
@@ -7246,18 +7440,20 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						role: "button",
 						tabIndex: 0,
 						title: file.path,
-						"aria-expanded": isOpen,
+						"aria-expanded": previewable ? void 0 : isOpen,
 						onClick: () => {
-							toggleExpanded(key);
+							if (previewable) openInEditor(file.path);
+							else toggleExpanded(key);
 						},
 						onKeyDown: (event) => {
 							if (event.key === "Enter" || event.key === " ") {
 								event.preventDefault();
-								toggleExpanded(key);
+								if (previewable) openInEditor(file.path);
+								else toggleExpanded(key);
 							}
 						},
 						children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Chevron, { open: isOpen }),
+							!previewable && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Chevron, { open: isOpen }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: FileReviewTab_module_css_default.fileName,
 								children: basename$1(file.path)
@@ -7265,9 +7461,12 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 							file.deleted === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: FileReviewTab_module_css_default.deletedBadge,
 								children: t("deleted")
+							}) : previewable ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: FileReviewTab_module_css_default.kindBadge,
+								children: t(KIND_LABEL$1[kind])
 							}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Stats$1, { stats }),
-							file.deleted !== true && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(StateBadge, { state }),
-							file.deleted !== true && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							file.deleted !== true && !previewable && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(StateBadge, { state }),
+							file.deleted !== true && !previewable && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
 								className: `${FileReviewTab_module_css_default.smallButton} ${FileReviewTab_module_css_default.editorButton}`,
 								onClick: (event) => {
@@ -7276,7 +7475,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 								},
 								children: t("openInEditor")
 							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							!previewable && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
 								className: FileReviewTab_module_css_default.smallButton,
 								disabled: statusPending || busyKey !== null || !reversible,
@@ -7292,7 +7491,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 								children: fileBusy ? t(fileAction === "undo" ? "undoing" : "redoing") : t(fileAction === "undo" ? "undo" : "redo")
 							})
 						]
-					}), isOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					}), isOpen && !previewable && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: FileReviewTab_module_css_default.diffWrap,
 						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LazyDiff, { children: file.deleted === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 							className: FileReviewTab_module_css_default.diffUnavailable,
@@ -7428,6 +7627,13 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 							kind: "deletion",
 							paths: deletions
 						};
+						else {
+							const artifacts = captureArtifacts(name, argsRaw);
+							if (artifacts.length > 0) record = {
+								kind: "artifact",
+								paths: artifacts.map((entry) => entry.path)
+							};
+						}
 					}
 					const calls = new Map(state.calls);
 					calls.set(String(match.event.data.callId), record);
@@ -7444,7 +7650,11 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				if (call.kind === "mutation") {
 					const existing = files.get(call.path);
 					files.set(call.path, { diffs: existing === void 0 ? [...call.hunks] : [...existing.diffs, ...call.hunks] });
-				} else for (const path of call.paths) {
+				} else if (call.kind === "artifact") for (const path of call.paths) {
+					const existing = files.get(path);
+					files.set(path, { diffs: existing === void 0 ? [] : existing.diffs });
+				}
+				else for (const path of call.paths) {
 					const existing = files.get(path);
 					files.set(path, {
 						diffs: existing === void 0 ? [] : existing.diffs,
@@ -7493,37 +7703,590 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			return paths;
 		}
 		/**
-		* Claim the turn-tail chain only when its closing turn produced files.
-		* Own `fileReviewChanges` turn data first (this plugin's Definition: same
-		* vocabulary, complete hunks); the built-in `deliverables` data remains the
-		* claim input of last resort for a turn the own Definition has not covered.
-		* @param owner - Turn-tail owner currency for the closing assistant.
-		* @returns Produced paths as the component's match, or null to decline before mount.
+		* One accepted delivery declaration. Validation mirrors the built-in
+		* `isPresentedFile` / `isPresentedData` pair — path is a non-blank string,
+		* description is a string when present, seq and index are usable integers —
+		* so a malformed row is dropped instead of rendered as broken coordinates.
+		* @param value - one entry of the published `presented` array.
+		* @returns whether the entry can address a native open.
 		*/
-		function selectDeliverablePaths(owner) {
-			const data = owner.turn.data;
-			const own = data.get("fileReviewChanges");
-			if (own?.files !== void 0) {
-				const paths = [];
-				const seen = /* @__PURE__ */ new Set();
-				for (const file of own.files) {
-					if (seen.has(file.path)) continue;
-					seen.add(file.path);
-					paths.push(file.path);
-				}
-				if (paths.length > 0) return paths;
+		function isPresentedPath(value) {
+			if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+			const { path, description, seq, index } = value;
+			return typeof path === "string" && path.trim().length > 0 && (description === void 0 || typeof description === "string") && typeof seq === "number" && Number.isSafeInteger(seq) && seq >= 0 && typeof index === "number" && Number.isSafeInteger(index) && index >= 0;
+		}
+		/**
+		* Deliveries declared before the closing reply, latest declaration per path.
+		* Mirrors the built-in presentedForClosing: a Map keyed by path keeps the
+		* first-seen insertion position while a later `present` call replaces the
+		* value, so the row's order is stable and its description is the freshest
+		* one. Deliveries settled at or after the closing Assistant belong to a later
+		* reply and are excluded.
+		* @param data - engine-published Deliverables data for one Turn.
+		* @param seq - closing Assistant seq.
+		* @returns Replayable deliveries in first-seen path order.
+		*/
+		function presentedForClosing(data, seq = Number.POSITIVE_INFINITY) {
+			if (data === void 0 || data.presented === void 0) return [];
+			const files = /* @__PURE__ */ new Map();
+			for (const file of data.presented) {
+				if (!isPresentedPath(file) || file.seq >= seq) continue;
+				files.set(file.path, file);
 			}
-			const paths = producedPathsForClosing(data.get("deliverables"), owner.seq);
-			return paths.length === 0 ? null : paths;
+			return [...files.values()];
+		}
+		/**
+		* Claim the turn-tail chain whenever its closing turn produced files OR
+		* declared deliveries. Own `fileReviewChanges` turn data comes first (this
+		* plugin's Definition: same vocabulary, complete hunks); the built-in
+		* `deliverables` data remains the claim input of last resort for a turn the
+		* own Definition has not covered.
+		*
+		* Claiming deliveries-only turns too is required, not cosmetic: the chain
+		* elects the FIRST non-null selector, so declining would hand that turn to
+		* the built-in `Deliverables` row and the same feature would render two
+		* different ways across turns. An elected entry owns the whole row.
+		* @param owner - Turn-tail owner currency for the closing assistant.
+		* @returns Produced paths and declared deliveries as the component's match,
+		*   or null to decline before mount.
+		*/
+		function selectDeliverables(owner) {
+			const data = owner.turn.data;
+			const produced = producedFromOwn(data) ?? producedFromBuiltIn(data, owner.seq);
+			const presented = presentedForClosing(data.get("deliverables"), owner.seq);
+			return produced.length + presented.length === 0 ? null : {
+				produced,
+				presented
+			};
+		}
+		/**
+		* Paths from this plugin's own Definition data, when it has any.
+		* `undefined` — not an empty array — means "no opinion", so the built-in data
+		* still gets to answer for a turn the own Definition recorded as empty.
+		* @param data - keyed turn Location data reader.
+		* @returns Produced paths, or undefined when the own data is unavailable.
+		*/
+		function producedFromOwn(data) {
+			const own = data.get("fileReviewChanges");
+			if (own?.files === void 0) return void 0;
+			const paths = [];
+			const seen = /* @__PURE__ */ new Set();
+			for (const file of own.files) {
+				if (seen.has(file.path)) continue;
+				seen.add(file.path);
+				paths.push(file.path);
+			}
+			return paths.length === 0 ? void 0 : paths;
+		}
+		/**
+		* Paths from the built-in `deliverables` data, the fallback claim input.
+		* @param data - keyed turn Location data reader.
+		* @param seq - closing Assistant seq.
+		* @returns Produced paths; empty when the turn wrote nothing.
+		*/
+		function producedFromBuiltIn(data, seq) {
+			return producedPathsForClosing(data.get("deliverables"), seq);
 		}
 		/** Trailing path segment, the part that identifies the file at a glance. */
 		function basename(path) {
 			const at = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
 			return at === -1 ? path : path.slice(at + 1);
 		}
+		/**
+		* Uppercase extension of a basename, or an empty string when it has none.
+		* The card's secondary line when the model supplied no description.
+		* @param name - trailing path segment.
+		* @returns Extension without its dot, uppercased.
+		*/
+		function extensionOf(name) {
+			const at = name.lastIndexOf(".");
+			return at <= 0 || at === name.length - 1 ? "" : name.slice(at + 1).toUpperCase();
+		}
+		/**
+		* Drop a trailing parenthesized aside from a model-supplied description —
+		* the built-in card applies the same rule, so the row's renderings agree.
+		* @param description - raw description, possibly undefined.
+		* @returns Trimmed description, or undefined when nothing is left.
+		*/
+		function cleanDescription(description) {
+			const trimmed = description?.replace(/\s*(?:\([^()]*\)|（[^（）]*）)\s*$/u, "").trim();
+			return trimmed === void 0 || trimmed === "" ? void 0 : trimmed;
+		}
+		//#endregion
+		//#region src/client/present-open.ts
+		/**
+		* Native-open plumbing for declared deliveries.
+		*
+		* The delivery cards must be able to (a) preview a file in the Sidebar and
+		* (b) hand it to the Host desktop (default application / file manager). This
+		* plugin owns only (a) through dsh-coding-sidebar; (b) is a Host capability
+		* that the built-in ui-deliverables host half already exposes as two
+		* authenticated same-origin routes:
+		*
+		*   GET  /api/present.host                    → desktop availability + file manager
+		*   POST /api/present.open?sessionId&seq&index[&action=reveal]
+		*
+		* Those routes are addressed by URL on purpose instead of imported: this
+		* plugin's client half deliberately keeps only TYPE imports from the
+		* @deepseek-ai UI packages (see index.tsx), because the versions it supports
+		* span releases in which the runtime exports of those packages moved. A route
+		* is therefore used best-effort and degrades in two steps:
+		*
+		*   - 404 on the metadata route  → 'absent': the carrier does not ship the
+		*     present feature at all, so the native actions are not rendered and the
+		*     card keeps the Sidebar preview.
+		*   - any other failure / 422    → 'error' / 'nativeUnavailable': the card
+		*     shows the retryable state, exactly like the built-in row.
+		*/
+		/** Authenticated POST route for opening a workspace file on the Host desktop. */
+		const PRESENT_OPEN_PATH = "/api/present.open";
+		/** Authenticated desktop availability and destination metadata. */
+		const PRESENT_HOST_PATH = "/api/present.host";
+		/**
+		* Build a snapshot store. `set` replaces the reference and notifies only on a
+		* reference change, so a value that did not move never re-renders a card.
+		* @param initial - first published value.
+		* @returns the store.
+		*/
+		function createStore(initial) {
+			let value = initial;
+			const listeners = /* @__PURE__ */ new Set();
+			return {
+				getSnapshot: () => value,
+				subscribe: (listener) => {
+					listeners.add(listener);
+					return () => {
+						listeners.delete(listener);
+					};
+				},
+				set: (next) => {
+					if (Object.is(next, value)) return;
+					value = next;
+					for (const listener of [...listeners]) listener();
+				}
+			};
+		}
+		/** Validate desktop metadata received over HTTP (mirrors the built-in guard). */
+		function isPresentedHost(value) {
+			if (typeof value !== "object" || value === null) return false;
+			const host = value;
+			return typeof host.name === "string" && typeof host.available === "boolean" && (host.fileManager === null || host.fileManager === "finder" || host.fileManager === "explorer" || host.fileManager === "directory");
+		}
+		/**
+		* Same-origin action URL, keyed by the viewed Session's delivery coordinates.
+		* Also the card's status key: the same file reached from two surfaces shares
+		* one pending/acknowledged phase.
+		* @param sessionId - viewed Session.
+		* @param seq - durable delivery event sequence.
+		* @param index - original file index within that event.
+		* @returns the authenticated action URL.
+		*/
+		function presentedFileUrl(sessionId, seq, index) {
+			const params = new URLSearchParams({
+				sessionId,
+				seq: String(seq),
+				index: String(index)
+			});
+			return `${PRESENT_OPEN_PATH}?${params.toString()}`;
+		}
+		/**
+		* One browser plugin's native-open requests, cancelled when that plugin is
+		* disposed. Mirrors the built-in PresentedOpenController's observable shape
+		* so the card's status line and pending states behave identically.
+		*/
+		var PresentedOpenController = class {
+			/** File action URLs key the state across Sessions, turns, and both clickable surfaces. */
+			state = createStore({});
+			/** Native destination metadata, a retryable read failure, or an absent carrier. */
+			host = createStore(null);
+			loading;
+			metadata = new AbortController();
+			lifetime = new AbortController();
+			pending = /* @__PURE__ */ new Set();
+			/**
+			* Open a declared file once while a request for the same coordinates is
+			* pending. Failures stay visible on the card and a later gesture retries.
+			* @param sessionId - viewed Session, including a fork's own identity.
+			* @param seq - durable delivery event sequence.
+			* @param index - original file index within that event.
+			* @param action - default-application open or file-manager reveal.
+			* @returns after the Host acknowledges the action or the error state is published.
+			*/
+			async open(sessionId, seq, index, action = "open") {
+				const url = presentedFileUrl(sessionId, seq, index);
+				const phase = this.state.getSnapshot()[url];
+				if (this.lifetime.signal.aborted || phase === "opening" || phase === "revealing") return;
+				this.state.set({
+					...this.state.getSnapshot(),
+					[url]: action === "open" ? "opening" : "revealing"
+				});
+				const task = this.request(url, action);
+				this.pending.add(task);
+				try {
+					await task;
+				} finally {
+					this.pending.delete(task);
+				}
+			}
+			/**
+			* Read the serving desktop metadata, coalescing concurrent reads.
+			* @returns after metadata, a retryable error, or 'absent' is published.
+			*/
+			async loadHost() {
+				if (this.lifetime.signal.aborted) return;
+				if (this.loading !== void 0) return this.loading;
+				if (this.host.getSnapshot() === "absent") return;
+				this.host.set(null);
+				const signal = typeof AbortSignal.any === "function" ? AbortSignal.any([this.lifetime.signal, this.metadata.signal]) : this.lifetime.signal;
+				const task = this.readHost(signal);
+				this.loading = task;
+				this.pending.add(task);
+				try {
+					await task;
+				} finally {
+					if (this.loading === task) this.loading = void 0;
+					this.pending.delete(task);
+				}
+			}
+			/**
+			* Invalidate cached metadata after a connection replacement. `'absent'`
+			* survives: the composed plugin roster does not change with a reconnect.
+			*/
+			resetHost() {
+				if (this.host.getSnapshot() === "absent") return;
+				const wasLoading = this.loading !== void 0;
+				this.metadata.abort();
+				this.metadata = new AbortController();
+				this.loading = void 0;
+				this.host.set(null);
+				if (wasLoading) this.loadHost();
+			}
+			/** Cancel outstanding requests and wait until no request can publish state. */
+			async dispose() {
+				this.lifetime.abort();
+				await Promise.all(this.pending);
+			}
+			async readHost(signal) {
+				let host = "error";
+				try {
+					const response = await fetch(PRESENT_HOST_PATH, { signal });
+					if (response.status === 404) host = "absent";
+					else if (response.ok) {
+						const value = await response.json();
+						if (isPresentedHost(value)) host = value;
+					}
+				} catch {
+					if (signal.aborted) return;
+					host = "error";
+				}
+				if (!signal.aborted) this.host.set(host);
+			}
+			async request(url, action) {
+				const failure = action === "open" ? "error" : "revealError";
+				let phase = action === "open" ? "opened" : "revealed";
+				try {
+					const response = await fetch(action === "open" ? url : `${url}&action=reveal`, {
+						method: "POST",
+						signal: this.lifetime.signal
+					});
+					if (!response.ok) phase = response.status === 422 ? "nativeUnavailable" : failure;
+				} catch {
+					phase = failure;
+				}
+				if (!this.lifetime.signal.aborted) this.state.set({
+					...this.state.getSnapshot(),
+					[url]: phase
+				});
+			}
+		};
+		//#endregion
+		//#region \0dsh-file-review-kcoder-css:/Users/libing/kk_Projects/dsh-file-review-kcoder/src/client/PresentedFiles.module.css.mjs
+		const css$1 = ".aa-r8G_root{flex-direction:column;gap:10px;min-width:0;margin-top:4px;display:flex}.aa-r8G_hostStatus{color:var(--dsw-alias-label-secondary);align-items:center;gap:8px;font-size:12px;line-height:18px;display:flex}.aa-r8G_retry{color:var(--dsw-alias-link,currentColor);cursor:pointer;font:inherit;text-underline-offset:2px;background:0 0;border:0;padding:0;text-decoration:underline}.aa-r8G_retry:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}.aa-r8G_grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;min-width:0;display:grid}.aa-r8G_grid[data-single=true]{grid-template-columns:minmax(0,1fr)}.aa-r8G_file{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-container,Canvas);min-width:0;height:60px;color:var(--dsw-alias-label-primary);border-radius:18px;align-items:center;gap:10px;padding:8px 10px;transition:background-color .12s;display:flex;position:relative;overflow:hidden}.aa-r8G_file:hover{background:var(--dsw-alias-interactive-bg-hover)}.aa-r8G_cardPreview{z-index:1;border-radius:inherit;cursor:pointer;background:0 0;border:0;width:100%;padding:0;position:absolute;inset:0}.aa-r8G_cardPreview:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}.aa-r8G_fileIcon{z-index:2;box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-interactive-bg-hover);width:40px;height:40px;color:var(--dsw-alias-link,var(--dsw-alias-label-secondary));pointer-events:none;border-radius:10px;flex:none;place-items:center;display:grid;position:relative;overflow:hidden}.aa-r8G_glyph{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.4px;width:20px;height:20px}.aa-r8G_fileBody{z-index:2;pointer-events:none;flex:auto;justify-content:space-between;align-items:center;gap:12px;min-width:0;display:flex;position:relative}.aa-r8G_details{flex-direction:column;flex:auto;justify-content:center;gap:2px;min-width:0;display:flex}.aa-r8G_fileName{text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;line-height:20px;overflow:hidden}.aa-r8G_description{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:400;line-height:16px;overflow:hidden}.aa-r8G_description[data-error=true]{color:var(--dsw-alias-state-error-primary)}.aa-r8G_secondaryText{display:inline}.aa-r8G_previewHint,.aa-r8G_file:hover .aa-r8G_secondaryText{display:none}.aa-r8G_file:hover .aa-r8G_previewHint{display:inline}.aa-r8G_split{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-container,Canvas);pointer-events:auto;border-radius:10px;flex:none;align-items:stretch;height:28px;display:inline-flex;position:relative;overflow:visible}.aa-r8G_open,.aa-r8G_chevron{color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;background:0 0;border:0;justify-content:center;align-items:center;display:inline-flex}.aa-r8G_open{border-radius:9px 0 0 9px;padding:4px 8px;font-size:12px;line-height:18px}.aa-r8G_chevron{border-left:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);border-radius:0 9px 9px 0;padding:4px 5px}.aa-r8G_chevronGlyph{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.5px;width:11px;height:11px}.aa-r8G_open:hover,.aa-r8G_open:focus-visible,.aa-r8G_chevron:hover:not(:disabled),.aa-r8G_chevron:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}.aa-r8G_open:focus-visible,.aa-r8G_chevron:focus-visible{outline:none}.aa-r8G_chevron:disabled{color:var(--dsw-alias-label-dimmed,var(--dsw-alias-label-tertiary));cursor:not-allowed}.aa-r8G_menu{z-index:20;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-container,Canvas);border-radius:10px;flex-direction:column;min-width:168px;padding:4px;display:flex;position:absolute;top:calc(100% + 4px);right:0;box-shadow:0 8px 24px #00000029}.aa-r8G_menuItem{color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;text-align:left;white-space:nowrap;background:0 0;border:0;border-radius:6px;align-items:center;gap:8px;padding:6px 8px;font-size:12px;line-height:18px;display:flex}.aa-r8G_menuItem:hover,.aa-r8G_menuItem:focus-visible{background:var(--dsw-alias-interactive-bg-hover);outline:none}.aa-r8G_menuIcon{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.3px;flex:none;width:16px;height:16px}.aa-r8G_toggle{color:var(--dsw-alias-label-tertiary);cursor:pointer;font:inherit;background:0 0;border:0;border-radius:6px;align-self:center;padding:2px 8px;font-size:12px;line-height:18px}.aa-r8G_toggle:hover{color:var(--dsw-alias-label-secondary)}.aa-r8G_toggle:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}";
+		const styleId$1 = "dsh-file-review-kcoder/PresentedFiles.module.css";
+		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(styleId$1) + "]") === null) {
+			const style = document.createElement("style");
+			style.dataset.plugin = "dsh-file-review-kcoder";
+			style.dataset.pluginCss = styleId$1;
+			style.textContent = css$1;
+			document.head.appendChild(style);
+		}
+		var PresentedFiles_module_css_default = {
+			"chevronGlyph": "aa-r8G_chevronGlyph",
+			"split": "aa-r8G_split",
+			"grid": "aa-r8G_grid",
+			"menuItem": "aa-r8G_menuItem",
+			"previewHint": "aa-r8G_previewHint",
+			"root": "aa-r8G_root",
+			"fileName": "aa-r8G_fileName",
+			"hostStatus": "aa-r8G_hostStatus",
+			"details": "aa-r8G_details",
+			"secondaryText": "aa-r8G_secondaryText",
+			"file": "aa-r8G_file",
+			"glyph": "aa-r8G_glyph",
+			"fileBody": "aa-r8G_fileBody",
+			"fileIcon": "aa-r8G_fileIcon",
+			"menu": "aa-r8G_menu",
+			"menuIcon": "aa-r8G_menuIcon",
+			"chevron": "aa-r8G_chevron",
+			"toggle": "aa-r8G_toggle",
+			"cardPreview": "aa-r8G_cardPreview",
+			"retry": "aa-r8G_retry",
+			"open": "aa-r8G_open",
+			"description": "aa-r8G_description"
+		};
+		//#endregion
+		//#region src/client/PresentedFiles.tsx
+		/** A list longer than this starts collapsed behind an expand control. */
+		const COLLAPSED_COUNT = 4;
+		/** useSyncExternalStore fallbacks for the controller-less (older) carriers. */
+		const subscribeNever$1 = () => () => {};
+		const NO_STATES = {};
+		const getNoStates = () => NO_STATES;
+		const getNoHost = () => "absent";
+		/**
+		* Resolve a (possibly relative) delivery path against the Session cwd for the
+		* card's title and the Host-side stat. Mirrors the Sidebar's own resolver:
+		* POSIX roots, drive letters, and UNC shares must not be joined onto the cwd.
+		*/
+		function resolvePresentedPath(cwd, path) {
+			if (/^(?:[\\/]|[A-Za-z]:[\\/]|\\\\)/.test(path)) return path;
+			if (cwd === void 0 || cwd === "") return path;
+			const separator = cwd.includes("\\") ? "\\" : "/";
+			return `${cwd.replace(/[\\/]+$/, "")}${separator}${path}`;
+		}
+		/** The card's secondary line: the phase status, or the description it replaces. */
+		function statusOf(phase, reveal, file, name, t) {
+			if (phase !== void 0) {
+				const directory = reveal === "directory";
+				if (directory && phase === "revealed") return t("presented.directoryOpened");
+				if (directory && phase === "revealing") return t("presented.directoryOpening");
+				if (directory && phase === "revealError") return t("presented.directoryError");
+				return t(`presented.${phase}`);
+			}
+			const described = cleanDescription(file.description);
+			if (described !== void 0) return described;
+			const extension = extensionOf(name);
+			return extension === "" ? t("presented.file") : extension;
+		}
+		/** A modest document glyph; no shared icon package is imported on purpose. */
+		function FileGlyph() {
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+				className: PresentedFiles_module_css_default.glyph,
+				viewBox: "0 0 20 20",
+				"aria-hidden": "true",
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M5.25 2.75h6l3.5 3.5v10a1 1 0 0 1-1 1h-8.5a1 1 0 0 1-1-1V3.75a1 1 0 0 1 1-1Z" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M11.25 2.75v3.5h3.5" })]
+			});
+		}
+		/** One delivery card: Sidebar preview under a split native-open control. */
+		function PresentedCard({ file, cwd, phase, host, onPreview, onAction, t }) {
+			const [menuOpen, setMenuOpen] = (0, react.useState)(false);
+			const splitRef = (0, react.useRef)(null);
+			const previewRef = (0, react.useRef)(null);
+			const pending = phase === "opening" || phase === "revealing";
+			const writable = host !== null && host !== "error" && host !== "absent" && host.available;
+			const menuDisabled = pending || !writable;
+			const reveal = host !== null && host !== "error" && host !== "absent" ? host.fileManager ?? "directory" : "directory";
+			if (menuDisabled && menuOpen) setMenuOpen(false);
+			(0, react.useEffect)(() => {
+				if (!menuOpen) return void 0;
+				const onPointerDown = (event) => {
+					if (splitRef.current?.contains(event.target) === true) return;
+					setMenuOpen(false);
+				};
+				const onKeyDown = (event) => {
+					if (event.key !== "Escape") return;
+					setMenuOpen(false);
+					previewRef.current?.focus();
+				};
+				document.addEventListener("pointerdown", onPointerDown);
+				document.addEventListener("keydown", onKeyDown);
+				return () => {
+					document.removeEventListener("pointerdown", onPointerDown);
+					document.removeEventListener("keydown", onKeyDown);
+				};
+			}, [menuOpen]);
+			const act = (action) => {
+				setMenuOpen(false);
+				previewRef.current?.focus();
+				onAction(action);
+			};
+			const name = basename(file.path);
+			const status = statusOf(phase, reveal, file, name, t);
+			const failed = phase === "error" || phase === "revealError" || phase === "nativeUnavailable";
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: PresentedFiles_module_css_default.file,
+				"data-presented-file": true,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: PresentedFiles_module_css_default.cardPreview,
+						title: resolvePresentedPath(cwd, file.path),
+						"aria-label": t("presented.previewCard", { name: file.path }),
+						onClick: onPreview
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: PresentedFiles_module_css_default.fileIcon,
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(FileGlyph, {})
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: PresentedFiles_module_css_default.fileBody,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: PresentedFiles_module_css_default.details,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: PresentedFiles_module_css_default.fileName,
+								children: name
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+								className: PresentedFiles_module_css_default.description,
+								role: phase === void 0 ? void 0 : "status",
+								"data-error": failed || void 0,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: PresentedFiles_module_css_default.secondaryText,
+									children: status
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: PresentedFiles_module_css_default.previewHint,
+									children: t("presented.preview")
+								})]
+							})]
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: PresentedFiles_module_css_default.split,
+							ref: splitRef,
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									ref: previewRef,
+									type: "button",
+									className: PresentedFiles_module_css_default.open,
+									"aria-label": t("presented.previewButton", { name: file.path }),
+									onClick: onPreview,
+									children: t("presented.action")
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: PresentedFiles_module_css_default.chevron,
+									disabled: menuDisabled,
+									"aria-haspopup": "menu",
+									"aria-expanded": menuOpen && !menuDisabled,
+									"aria-label": t("presented.more", { name: file.path }),
+									onClick: () => {
+										setMenuOpen((value) => !value);
+									},
+									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+										className: PresentedFiles_module_css_default.chevronGlyph,
+										viewBox: "0 0 14 14",
+										"aria-hidden": "true",
+										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M3.5 5.25 7 8.75l3.5-3.5" })
+									})
+								}),
+								menuOpen && !menuDisabled && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									className: PresentedFiles_module_css_default.menu,
+									role: "menu",
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+										type: "button",
+										role: "menuitem",
+										className: PresentedFiles_module_css_default.menuItem,
+										onClick: () => {
+											act("open");
+										},
+										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+											className: PresentedFiles_module_css_default.menuIcon,
+											viewBox: "0 0 16 16",
+											"aria-hidden": "true",
+											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M6 3.5h6.5V10M12.5 3.5 6.5 9.5M11 9.5v3H3.5v-7.5H7" })
+										}), t("presented.defaultApp")]
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+										type: "button",
+										role: "menuitem",
+										className: PresentedFiles_module_css_default.menuItem,
+										onClick: () => {
+											act("reveal");
+										},
+										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+											className: PresentedFiles_module_css_default.menuIcon,
+											viewBox: "0 0 16 16",
+											"aria-hidden": "true",
+											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M1.75 4.25h4l1.25 1.5h7.25v6.5a1 1 0 0 1-1 1h-10.5a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z" })
+										}), t(`presented.${reveal}`)]
+									})]
+								})
+							]
+						})]
+					})
+				]
+			});
+		}
+		/**
+		* The closing turn's explicit deliveries.
+		* @param props - deliveries, Session scope, preview route, and native controller.
+		* @returns the delivery section, or null when the turn declared none.
+		*/
+		function PresentedFiles({ files, sessionId, projectRoot, onPreview, controller, t }) {
+			const [expanded, setExpanded] = (0, react.useState)(false);
+			const states = (0, react.useSyncExternalStore)(controller?.state.subscribe ?? subscribeNever$1, controller?.state.getSnapshot ?? getNoStates);
+			const host = (0, react.useSyncExternalStore)(controller?.host.subscribe ?? subscribeNever$1, controller?.host.getSnapshot ?? getNoHost);
+			const readableHost = host === "error" || host === "absent" ? null : host;
+			(0, react.useEffect)(() => {
+				if (controller === void 0 || files.length === 0 || host !== null) return;
+				controller.loadHost();
+			}, [
+				controller,
+				files.length,
+				host
+			]);
+			if (files.length === 0) return null;
+			const collapsible = files.length > COLLAPSED_COUNT;
+			const shown = collapsible && !expanded ? files.slice(0, COLLAPSED_COUNT) : files;
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+				className: PresentedFiles_module_css_default.root,
+				"aria-label": t("presented.summary"),
+				children: [
+					host === "error" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: PresentedFiles_module_css_default.hostStatus,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("presented.hostError") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: PresentedFiles_module_css_default.retry,
+							onClick: () => {
+								controller?.loadHost();
+							},
+							children: t("presented.retry")
+						})]
+					}),
+					readableHost !== null && !readableHost.available && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: PresentedFiles_module_css_default.hostStatus,
+						children: t("presented.unavailable")
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: PresentedFiles_module_css_default.grid,
+						"data-presented-files-row": true,
+						"data-single": files.length === 1 || void 0,
+						children: shown.map((file) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PresentedCard, {
+							file,
+							cwd: projectRoot,
+							phase: states[presentedFileUrl(sessionId, file.seq, file.index)],
+							host,
+							onPreview: () => {
+								onPreview(file.path);
+							},
+							onAction: (action) => {
+								controller?.open(sessionId, file.seq, file.index, action);
+							},
+							t
+						}, `${file.seq}:${file.index}:${file.path}`))
+					}),
+					collapsible && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: PresentedFiles_module_css_default.toggle,
+						"aria-expanded": expanded,
+						"aria-label": t(expanded ? "presented.collapseAria" : "presented.expandAria", { count: String(files.length) }),
+						onClick: () => {
+							setExpanded((value) => !value);
+						},
+						children: expanded ? t("presented.collapse") : t("presented.all", { count: String(files.length) })
+					})
+				]
+			});
+		}
 		//#endregion
 		//#region \0dsh-file-review-kcoder-css:/Users/libing/kk_Projects/dsh-file-review-kcoder/src/client/ProducedFiles.module.css.mjs
-		const css = "._xmB4G_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-container,Canvas);color:var(--dsw-alias-label-primary);border-radius:12px;margin-top:16px;font-size:13px;overflow:hidden}._xmB4G_cardHeader{align-items:center;gap:10px;min-height:56px;padding:0 12px;display:flex}._xmB4G_fileIconWrap{background:var(--dsw-alias-interactive-bg-hover);width:30px;height:30px;color:var(--dsw-alias-label-secondary);border-radius:8px;flex:none;place-items:center;display:grid}._xmB4G_icon,._xmB4G_buttonIcon,._xmB4G_closeIcon{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.4px}._xmB4G_icon{width:18px;height:18px}._xmB4G_buttonIcon{width:16px;height:16px}._xmB4G_closeIcon{width:20px;height:20px}._xmB4G_cardTitleBlock{flex:auto;align-items:baseline;gap:10px;min-width:0;display:flex}._xmB4G_cardTitle{text-overflow:ellipsis;white-space:nowrap;font-weight:600;overflow:hidden}._xmB4G_stats{font-variant-numeric:tabular-nums;white-space:nowrap;flex:none;gap:5px;display:inline-flex}._xmB4G_added{color:var(--dsw-alias-state-success-primary)}._xmB4G_removed{color:var(--dsw-alias-state-error-primary)}._xmB4G_reviewButton,._xmB4G_toggleButton,._xmB4G_toolbarButton,._xmB4G_openButton,._xmB4G_closeButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-container,Canvas);color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit}._xmB4G_reviewButton,._xmB4G_toggleButton,._xmB4G_toolbarButton{border-radius:8px;flex:none;align-items:center;gap:6px;min-height:30px;padding:0 10px;display:inline-flex}._xmB4G_reviewButton:hover,._xmB4G_toggleButton:hover:not(:disabled),._xmB4G_toolbarButton:hover:not(:disabled),._xmB4G_openButton:hover,._xmB4G_closeButton:hover{background:var(--dsw-alias-interactive-bg-hover)}._xmB4G_reviewButton:focus-visible,._xmB4G_toggleButton:focus-visible,._xmB4G_toolbarButton:focus-visible,._xmB4G_openButton:focus-visible,._xmB4G_closeButton:focus-visible,._xmB4G_fileRow:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}._xmB4G_fileList{border-top:1px solid var(--dsw-alias-border-l1)}._xmB4G_fileRow{border:0;border-bottom:1px solid var(--dsw-alias-border-l1);width:100%;min-height:38px;color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;text-align:left;background:0 0;align-items:center;gap:12px;margin:0;padding:0 12px;display:flex}._xmB4G_fileRow:hover{background:var(--dsw-alias-interactive-bg-hover)}._xmB4G_fileName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}._xmB4G_moreFiles{min-height:34px;color:var(--dsw-alias-label-tertiary);padding:0 12px;line-height:34px}._xmB4G_drawer{z-index:1000;width:var(--review-drawer-width,36vw);border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-container,Canvas);max-width:100vw;color:var(--dsw-alias-label-primary);flex-direction:column;display:flex;position:fixed;inset:0 0 0 auto;box-shadow:-12px 0 32px #0000001f}._xmB4G_drawerSplit{z-index:1;box-shadow:none}._xmB4G_drawerResizing,._xmB4G_drawerResizing *{cursor:col-resize;user-select:none}._xmB4G_resizeHandle{z-index:5;cursor:col-resize;touch-action:none;background:0 0;border:0;width:12px;margin:0;padding:0;position:absolute;inset:0 auto 0 -6px}._xmB4G_resizeHandle:after{content:\"\";background:0 0;width:2px;transition:background .12s;position:absolute;inset:0 auto 0 5px}._xmB4G_resizeHandle:hover:after,._xmB4G_resizeHandle:focus-visible:after,._xmB4G_drawerResizing ._xmB4G_resizeHandle:after{background:var(--dsw-alias-border-l3)}._xmB4G_resizeHandle:focus-visible{outline:none}._xmB4G_drawerHeader{border-bottom:1px solid var(--dsw-alias-border-l2);flex:none;align-items:center;gap:12px;min-height:64px;padding:0 14px 0 18px;display:flex}._xmB4G_drawerHeading{flex-direction:column;flex:auto;gap:2px;min-width:0;display:flex}._xmB4G_drawerTitle{font-size:15px;font-weight:600;line-height:20px}._xmB4G_drawerSubtitle{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:16px;overflow:hidden}._xmB4G_toolbarButton:disabled,._xmB4G_toggleButton:disabled{cursor:default;opacity:.45}._xmB4G_toast{z-index:1200;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-container,Canvas);width:min(430px,100vw - 32px);color:var(--dsw-alias-label-primary);border-radius:14px;padding:14px;position:fixed;top:120px;left:50%;transform:translate(-50%);box-shadow:0 8px 24px #00000029}._xmB4G_toastSuccess{border-color:color-mix(in srgb, var(--dsw-alias-state-success-primary) 28%, transparent);width:auto;min-width:220px;max-width:min(430px,100vw - 32px);padding:8px 10px}._xmB4G_toastError{border-color:color-mix(in srgb, var(--dsw-alias-state-error-primary) 28%, transparent)}._xmB4G_toastHeader{align-items:flex-start;gap:10px;display:flex}._xmB4G_noticeIcon{border-radius:9px;flex:none;place-items:center;width:30px;height:30px;display:grid}._xmB4G_toastSuccess ._xmB4G_noticeIcon{background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);color:var(--dsw-alias-state-success-primary)}._xmB4G_toastError ._xmB4G_noticeIcon{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);color:var(--dsw-alias-state-error-primary)}._xmB4G_noticeIconSvg{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.7px;width:18px;height:18px}._xmB4G_toastCopy{flex-direction:column;flex:auto;gap:3px;min-width:0;padding-top:3px;display:flex}._xmB4G_toastTitle{font-size:14px;font-weight:600;line-height:20px}._xmB4G_toastDescription{overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}._xmB4G_toastCloseButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:0;border-radius:7px;flex:none;place-items:center;padding:0;display:grid}._xmB4G_toastCloseButton:hover,._xmB4G_toastCloseButton:focus-visible,._xmB4G_noticeFileButton:hover,._xmB4G_noticeFileButton:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}._xmB4G_toastCloseButton:focus-visible,._xmB4G_noticeFileButton:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}._xmB4G_noticeFiles{margin:12px 0 0 40px}._xmB4G_noticeFileListLabel{color:var(--dsw-alias-label-secondary);margin:0 8px 4px;font-size:12px;line-height:18px;display:block}._xmB4G_noticeFileList{flex-direction:column;gap:2px;max-height:220px;margin:0;padding:0;list-style:none;display:flex;overflow:auto}._xmB4G_noticeFileButton{width:100%;min-height:34px;color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;text-align:left;background:0 0;border:0;border-radius:7px;align-items:center;gap:12px;padding:5px 8px;display:flex}._xmB4G_noticeFilePath{min-width:0;font:var(--dsw-font-markdown-code-block);text-overflow:ellipsis;white-space:nowrap;flex:auto;overflow:hidden}._xmB4G_noticeFileArrow{color:var(--dsw-alias-label-secondary);white-space:nowrap;flex:none;font-size:14px}._xmB4G_noticeDismissButton{background:var(--dsw-alias-label-primary);width:100%;min-height:34px;color:var(--dsw-alias-bg-container,Canvas);cursor:pointer;font:inherit;border:0;border-radius:8px;margin-top:12px;padding:0 12px;font-weight:600}._xmB4G_noticeDismissButton:hover{opacity:.9}._xmB4G_noticeDismissButton:focus-visible{outline:2px solid var(--dsw-alias-border-l3);outline-offset:2px}._xmB4G_closeButton{background:0 0;border-color:#0000;border-radius:8px;flex:none;place-items:center;width:32px;height:32px;padding:0;display:grid}._xmB4G_drawerBody{flex:auto;min-height:0;overflow:auto}._xmB4G_reviewFile+._xmB4G_reviewFile{border-top:8px solid var(--dsw-alias-border-l1)}._xmB4G_reviewFileHeader{z-index:2;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-container,Canvas);min-height:44px;font:var(--dsw-font-markdown-code-block);align-items:center;gap:8px;padding:0 12px;display:flex;position:sticky;top:0}._xmB4G_reviewStatus{color:var(--dsw-alias-state-success-primary);font-weight:700}._xmB4G_reviewPath{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}._xmB4G_openButton{min-height:28px;font:var(--dsw-font-xs-13);border-radius:7px;flex:none;padding:0 9px}._xmB4G_reviewDiff{color:var(--dsw-alias-label-primary)}._xmB4G_reviewUnavailable{background:var(--dsw-alias-markdown-code-block);color:var(--dsw-alias-label-secondary);margin:0;padding:22px 16px;font-size:13px;line-height:20px}@media (width<=760px){._xmB4G_cardHeader{flex-wrap:wrap;padding-block:10px}._xmB4G_cardTitleBlock{flex-direction:column;gap:1px}._xmB4G_drawer{border-left:0;width:100vw}._xmB4G_resizeHandle{display:none}._xmB4G_drawerHeader{gap:8px;padding-left:12px}._xmB4G_toolbarButton{color:#0000;justify-content:center;width:32px;padding:0;overflow:hidden}._xmB4G_toolbarButton ._xmB4G_buttonIcon{color:var(--dsw-alias-label-primary)}._xmB4G_reviewFileHeader{flex-wrap:wrap;padding-block:8px}._xmB4G_reviewPath{flex-basis:calc(100% - 30px)}._xmB4G_openButton{margin-left:auto}}@media (prefers-reduced-motion:no-preference){._xmB4G_drawer{animation:.16s ease-out _xmB4G_drawer-enter}}@keyframes _xmB4G_drawer-enter{0%{opacity:0;transform:translate(20px)}to{opacity:1;transform:translate(0)}}._xmB4G_deletedBadge{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);white-space:nowrap;border-radius:999px;padding:1px 6px;font-size:11px}";
+		const css = "._xmB4G_card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-container,Canvas);color:var(--dsw-alias-label-primary);border-radius:12px;margin-top:16px;font-size:13px;overflow:hidden}._xmB4G_cardHeader{align-items:center;gap:10px;min-height:56px;padding:0 12px;display:flex}._xmB4G_fileIconWrap{background:var(--dsw-alias-interactive-bg-hover);width:30px;height:30px;color:var(--dsw-alias-label-secondary);border-radius:8px;flex:none;place-items:center;display:grid}._xmB4G_icon,._xmB4G_buttonIcon,._xmB4G_closeIcon{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.4px}._xmB4G_icon{width:18px;height:18px}._xmB4G_buttonIcon{width:16px;height:16px}._xmB4G_closeIcon{width:20px;height:20px}._xmB4G_cardTitleBlock{flex:auto;align-items:baseline;gap:10px;min-width:0;display:flex}._xmB4G_cardTitle{text-overflow:ellipsis;white-space:nowrap;font-weight:600;overflow:hidden}._xmB4G_stats{font-variant-numeric:tabular-nums;white-space:nowrap;flex:none;gap:5px;display:inline-flex}._xmB4G_added{color:var(--dsw-alias-state-success-primary)}._xmB4G_removed{color:var(--dsw-alias-state-error-primary)}._xmB4G_reviewButton,._xmB4G_toggleButton,._xmB4G_toolbarButton,._xmB4G_openButton,._xmB4G_closeButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-container,Canvas);color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit}._xmB4G_reviewButton,._xmB4G_toggleButton,._xmB4G_toolbarButton{border-radius:8px;flex:none;align-items:center;gap:6px;min-height:30px;padding:0 10px;display:inline-flex}._xmB4G_reviewButton:hover,._xmB4G_toggleButton:hover:not(:disabled),._xmB4G_toolbarButton:hover:not(:disabled),._xmB4G_openButton:hover,._xmB4G_closeButton:hover{background:var(--dsw-alias-interactive-bg-hover)}._xmB4G_reviewButton:focus-visible,._xmB4G_toggleButton:focus-visible,._xmB4G_toolbarButton:focus-visible,._xmB4G_openButton:focus-visible,._xmB4G_closeButton:focus-visible,._xmB4G_fileRow:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}._xmB4G_fileList{border-top:1px solid var(--dsw-alias-border-l1)}._xmB4G_fileRow{border:0;border-bottom:1px solid var(--dsw-alias-border-l1);width:100%;min-height:38px;color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;text-align:left;background:0 0;align-items:center;gap:12px;margin:0;padding:0 12px;display:flex}._xmB4G_fileRow:hover{background:var(--dsw-alias-interactive-bg-hover)}._xmB4G_fileName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}._xmB4G_moreFiles{width:100%;min-height:34px;color:var(--dsw-alias-label-tertiary);font:inherit;text-align:left;cursor:pointer;background:0 0;border:0;padding:0 12px;line-height:34px;display:block}._xmB4G_moreFiles:hover{color:var(--dsw-alias-label-secondary)}._xmB4G_moreFiles:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}._xmB4G_drawer{z-index:1000;width:var(--review-drawer-width,36vw);border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-container,Canvas);max-width:100vw;color:var(--dsw-alias-label-primary);flex-direction:column;display:flex;position:fixed;inset:0 0 0 auto;box-shadow:-12px 0 32px #0000001f}._xmB4G_drawerSplit{z-index:1;box-shadow:none}._xmB4G_drawerResizing,._xmB4G_drawerResizing *{cursor:col-resize;user-select:none}._xmB4G_resizeHandle{z-index:5;cursor:col-resize;touch-action:none;background:0 0;border:0;width:12px;margin:0;padding:0;position:absolute;inset:0 auto 0 -6px}._xmB4G_resizeHandle:after{content:\"\";background:0 0;width:2px;transition:background .12s;position:absolute;inset:0 auto 0 5px}._xmB4G_resizeHandle:hover:after,._xmB4G_resizeHandle:focus-visible:after,._xmB4G_drawerResizing ._xmB4G_resizeHandle:after{background:var(--dsw-alias-border-l3)}._xmB4G_resizeHandle:focus-visible{outline:none}._xmB4G_drawerHeader{border-bottom:1px solid var(--dsw-alias-border-l2);flex:none;align-items:center;gap:12px;min-height:64px;padding:0 14px 0 18px;display:flex}._xmB4G_drawerHeading{flex-direction:column;flex:auto;gap:2px;min-width:0;display:flex}._xmB4G_drawerTitle{font-size:15px;font-weight:600;line-height:20px}._xmB4G_drawerSubtitle{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:16px;overflow:hidden}._xmB4G_toolbarButton:disabled,._xmB4G_toggleButton:disabled{cursor:default;opacity:.45}._xmB4G_toast{z-index:1200;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-container,Canvas);width:min(430px,100vw - 32px);color:var(--dsw-alias-label-primary);border-radius:14px;padding:14px;position:fixed;top:120px;left:50%;transform:translate(-50%);box-shadow:0 8px 24px #00000029}._xmB4G_toastSuccess{border-color:color-mix(in srgb, var(--dsw-alias-state-success-primary) 28%, transparent);width:auto;min-width:220px;max-width:min(430px,100vw - 32px);padding:8px 10px}._xmB4G_toastError{border-color:color-mix(in srgb, var(--dsw-alias-state-error-primary) 28%, transparent)}._xmB4G_toastHeader{align-items:flex-start;gap:10px;display:flex}._xmB4G_noticeIcon{border-radius:9px;flex:none;place-items:center;width:30px;height:30px;display:grid}._xmB4G_toastSuccess ._xmB4G_noticeIcon{background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);color:var(--dsw-alias-state-success-primary)}._xmB4G_toastError ._xmB4G_noticeIcon{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);color:var(--dsw-alias-state-error-primary)}._xmB4G_noticeIconSvg{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.7px;width:18px;height:18px}._xmB4G_toastCopy{flex-direction:column;flex:auto;gap:3px;min-width:0;padding-top:3px;display:flex}._xmB4G_toastTitle{font-size:14px;font-weight:600;line-height:20px}._xmB4G_toastDescription{overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}._xmB4G_toastCloseButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:0;border-radius:7px;flex:none;place-items:center;padding:0;display:grid}._xmB4G_toastCloseButton:hover,._xmB4G_toastCloseButton:focus-visible,._xmB4G_noticeFileButton:hover,._xmB4G_noticeFileButton:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}._xmB4G_toastCloseButton:focus-visible,._xmB4G_noticeFileButton:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}._xmB4G_noticeFiles{margin:12px 0 0 40px}._xmB4G_noticeFileListLabel{color:var(--dsw-alias-label-secondary);margin:0 8px 4px;font-size:12px;line-height:18px;display:block}._xmB4G_noticeFileList{flex-direction:column;gap:2px;max-height:220px;margin:0;padding:0;list-style:none;display:flex;overflow:auto}._xmB4G_noticeFileButton{width:100%;min-height:34px;color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;text-align:left;background:0 0;border:0;border-radius:7px;align-items:center;gap:12px;padding:5px 8px;display:flex}._xmB4G_noticeFilePath{min-width:0;font:var(--dsw-font-markdown-code-block);text-overflow:ellipsis;white-space:nowrap;flex:auto;overflow:hidden}._xmB4G_noticeFileArrow{color:var(--dsw-alias-label-secondary);white-space:nowrap;flex:none;font-size:14px}._xmB4G_noticeDismissButton{background:var(--dsw-alias-label-primary);width:100%;min-height:34px;color:var(--dsw-alias-bg-container,Canvas);cursor:pointer;font:inherit;border:0;border-radius:8px;margin-top:12px;padding:0 12px;font-weight:600}._xmB4G_noticeDismissButton:hover{opacity:.9}._xmB4G_noticeDismissButton:focus-visible{outline:2px solid var(--dsw-alias-border-l3);outline-offset:2px}._xmB4G_closeButton{background:0 0;border-color:#0000;border-radius:8px;flex:none;place-items:center;width:32px;height:32px;padding:0;display:grid}._xmB4G_drawerBody{flex:auto;min-height:0;overflow:auto}._xmB4G_reviewFile+._xmB4G_reviewFile{border-top:8px solid var(--dsw-alias-border-l1)}._xmB4G_reviewFileHeader{z-index:2;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-container,Canvas);min-height:44px;font:var(--dsw-font-markdown-code-block);align-items:center;gap:8px;padding:0 12px;display:flex;position:sticky;top:0}._xmB4G_reviewStatus{color:var(--dsw-alias-state-success-primary);font-weight:700}._xmB4G_reviewPath{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}._xmB4G_openButton{min-height:28px;font:var(--dsw-font-xs-13);border-radius:7px;flex:none;padding:0 9px}._xmB4G_reviewDiff{color:var(--dsw-alias-label-primary)}._xmB4G_reviewUnavailable{background:var(--dsw-alias-markdown-code-block);color:var(--dsw-alias-label-secondary);margin:0;padding:22px 16px;font-size:13px;line-height:20px}@media (width<=760px){._xmB4G_cardHeader{flex-wrap:wrap;padding-block:10px}._xmB4G_cardTitleBlock{flex-direction:column;gap:1px}._xmB4G_drawer{border-left:0;width:100vw}._xmB4G_resizeHandle{display:none}._xmB4G_drawerHeader{gap:8px;padding-left:12px}._xmB4G_toolbarButton{color:#0000;justify-content:center;width:32px;padding:0;overflow:hidden}._xmB4G_toolbarButton ._xmB4G_buttonIcon{color:var(--dsw-alias-label-primary)}._xmB4G_reviewFileHeader{flex-wrap:wrap;padding-block:8px}._xmB4G_reviewPath{flex-basis:calc(100% - 30px)}._xmB4G_openButton{margin-left:auto}}@media (prefers-reduced-motion:no-preference){._xmB4G_drawer{animation:.16s ease-out _xmB4G_drawer-enter}}@keyframes _xmB4G_drawer-enter{0%{opacity:0;transform:translate(20px)}to{opacity:1;transform:translate(0)}}._xmB4G_deletedBadge{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);white-space:nowrap;border-radius:999px;padding:1px 6px;font-size:11px}._xmB4G_kindBadge{color:var(--dsw-alias-label-secondary);background:color-mix(in srgb, var(--dsw-alias-label-tertiary) 16%, transparent);white-space:nowrap;border-radius:999px;padding:1px 6px;font-size:11px}";
 		const styleId = "dsh-file-review-kcoder/ProducedFiles.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(styleId) + "]") === null) {
 			const style = document.createElement("style");
@@ -7533,60 +8296,61 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var ProducedFiles_module_css_default = {
-			"icon": "_xmB4G_icon",
-			"drawerHeader": "_xmB4G_drawerHeader",
-			"deletedBadge": "_xmB4G_deletedBadge",
-			"noticeFiles": "_xmB4G_noticeFiles",
-			"drawerSubtitle": "_xmB4G_drawerSubtitle",
-			"toastCopy": "_xmB4G_toastCopy",
-			"noticeFileButton": "_xmB4G_noticeFileButton",
-			"reviewStatus": "_xmB4G_reviewStatus",
-			"reviewDiff": "_xmB4G_reviewDiff",
-			"reviewPath": "_xmB4G_reviewPath",
-			"drawer-enter": "_xmB4G_drawer-enter",
+			"moreFiles": "_xmB4G_moreFiles",
 			"toast": "_xmB4G_toast",
-			"card": "_xmB4G_card",
-			"openButton": "_xmB4G_openButton",
 			"drawerHeading": "_xmB4G_drawerHeading",
-			"toastHeader": "_xmB4G_toastHeader",
-			"noticeFilePath": "_xmB4G_noticeFilePath",
-			"resizeHandle": "_xmB4G_resizeHandle",
-			"toastError": "_xmB4G_toastError",
+			"noticeIcon": "_xmB4G_noticeIcon",
+			"kindBadge": "_xmB4G_kindBadge",
+			"cardTitle": "_xmB4G_cardTitle",
+			"cardHeader": "_xmB4G_cardHeader",
 			"removed": "_xmB4G_removed",
-			"fileName": "_xmB4G_fileName",
+			"stats": "_xmB4G_stats",
+			"drawerSplit": "_xmB4G_drawerSplit",
+			"resizeHandle": "_xmB4G_resizeHandle",
+			"drawerSubtitle": "_xmB4G_drawerSubtitle",
+			"noticeFiles": "_xmB4G_noticeFiles",
+			"card": "_xmB4G_card",
 			"noticeDismissButton": "_xmB4G_noticeDismissButton",
 			"reviewFileHeader": "_xmB4G_reviewFileHeader",
-			"drawerResizing": "_xmB4G_drawerResizing",
+			"toastHeader": "_xmB4G_toastHeader",
 			"reviewButton": "_xmB4G_reviewButton",
-			"noticeIcon": "_xmB4G_noticeIcon",
-			"noticeFileListLabel": "_xmB4G_noticeFileListLabel",
-			"closeIcon": "_xmB4G_closeIcon",
-			"stats": "_xmB4G_stats",
-			"toolbarButton": "_xmB4G_toolbarButton",
-			"buttonIcon": "_xmB4G_buttonIcon",
-			"moreFiles": "_xmB4G_moreFiles",
-			"drawerSplit": "_xmB4G_drawerSplit",
-			"cardTitleBlock": "_xmB4G_cardTitleBlock",
-			"drawerTitle": "_xmB4G_drawerTitle",
-			"noticeIconSvg": "_xmB4G_noticeIconSvg",
-			"closeButton": "_xmB4G_closeButton",
-			"fileList": "_xmB4G_fileList",
-			"toastTitle": "_xmB4G_toastTitle",
-			"toggleButton": "_xmB4G_toggleButton",
 			"noticeFileArrow": "_xmB4G_noticeFileArrow",
-			"reviewUnavailable": "_xmB4G_reviewUnavailable",
-			"reviewFile": "_xmB4G_reviewFile",
-			"drawerBody": "_xmB4G_drawerBody",
-			"cardHeader": "_xmB4G_cardHeader",
+			"toastTitle": "_xmB4G_toastTitle",
+			"reviewPath": "_xmB4G_reviewPath",
 			"added": "_xmB4G_added",
+			"reviewStatus": "_xmB4G_reviewStatus",
+			"drawerTitle": "_xmB4G_drawerTitle",
+			"toggleButton": "_xmB4G_toggleButton",
 			"drawer": "_xmB4G_drawer",
+			"buttonIcon": "_xmB4G_buttonIcon",
+			"closeButton": "_xmB4G_closeButton",
+			"closeIcon": "_xmB4G_closeIcon",
+			"toastError": "_xmB4G_toastError",
+			"noticeFilePath": "_xmB4G_noticeFilePath",
+			"drawerBody": "_xmB4G_drawerBody",
 			"toastSuccess": "_xmB4G_toastSuccess",
-			"toastDescription": "_xmB4G_toastDescription",
+			"deletedBadge": "_xmB4G_deletedBadge",
 			"toastCloseButton": "_xmB4G_toastCloseButton",
+			"fileList": "_xmB4G_fileList",
+			"toolbarButton": "_xmB4G_toolbarButton",
+			"cardTitleBlock": "_xmB4G_cardTitleBlock",
 			"noticeFileList": "_xmB4G_noticeFileList",
-			"cardTitle": "_xmB4G_cardTitle",
+			"toastCopy": "_xmB4G_toastCopy",
+			"reviewDiff": "_xmB4G_reviewDiff",
+			"fileName": "_xmB4G_fileName",
+			"reviewUnavailable": "_xmB4G_reviewUnavailable",
+			"drawer-enter": "_xmB4G_drawer-enter",
+			"openButton": "_xmB4G_openButton",
 			"fileIconWrap": "_xmB4G_fileIconWrap",
-			"fileRow": "_xmB4G_fileRow"
+			"fileRow": "_xmB4G_fileRow",
+			"reviewFile": "_xmB4G_reviewFile",
+			"noticeIconSvg": "_xmB4G_noticeIconSvg",
+			"noticeFileListLabel": "_xmB4G_noticeFileListLabel",
+			"icon": "_xmB4G_icon",
+			"drawerResizing": "_xmB4G_drawerResizing",
+			"noticeFileButton": "_xmB4G_noticeFileButton",
+			"toastDescription": "_xmB4G_toastDescription",
+			"drawerHeader": "_xmB4G_drawerHeader"
 		};
 		//#endregion
 		//#region src/client/ProducedFiles.tsx
@@ -7597,6 +8361,15 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		const getNullSnapshot = () => null;
 		const SUCCESS_NOTICE_DURATION = 2e3;
 		const ERROR_NOTICE_DURATION = 5e3;
+		/** Localized badge copy per artifact class (chat namespace keys). */
+		const KIND_LABEL = {
+			image: "produced.kindImage",
+			video: "produced.kindVideo",
+			audio: "produced.kindAudio",
+			office: "produced.kindOffice",
+			pdf: "produced.kindPdf",
+			doc: "produced.kindDoc"
+		};
 		const unavailableChanges = async (request) => ({ files: request.files.map((file) => ({
 			path: file.path,
 			state: "unsupported",
@@ -7738,10 +8511,20 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				})]
 			});
 		}
+		/**
+		* Content key of a host-state inspection input: paths plus hunk counts.
+		* Identity-stable across re-derivations — two freshly-allocated arrays with
+		* the same files produce the same key, an appended hunk changes it. Exported
+		* for the smoke regression checks (the blink fix's core invariant).
+		*/
+		function inspectionKey(files) {
+			return files.map((file) => `${file.path}#${file.diffs.length}`).join("|");
+		}
 		/** Render one turn's produced files as a summary card opening the sidebar tab. */
-		function ProducedFiles({ matched, collectReviews, changesStore, openFile, turn: turnLocation, inspectChanges = unavailableChanges, applyChanges = unavailableChanges, openInSidebarTab, t }) {
+		function ProducedFiles({ matched, collectReviews, changesStore, openFile, turn: turnLocation, inspectChanges = unavailableChanges, applyChanges = unavailableChanges, openInSidebarTab, openPreview, t }) {
+			const previewOpen = openPreview ?? openFile;
 			const turnNumber = turnLocation.turn;
-			const changesVersion = (0, react.useSyncExternalStore)(changesStore?.subscribe ?? subscribeNever, changesStore?.getSnapshot ?? getNullSnapshot);
+			const changesVersion = (0, react.useSyncExternalStore)(changesStore?.subscribe ?? subscribeNever, changesStore === void 0 ? getNullSnapshot : () => changesStore.getTurnSnapshot?.(turnNumber) ?? changesStore.getSnapshot());
 			const reviews = (0, react.useMemo)(() => {
 				const derived = collectReviews?.(turnNumber);
 				const byPath = new Map((derived ?? []).map((review) => [review.path, review]));
@@ -7772,10 +8555,13 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				path: review.path,
 				diffs: review.diffs
 			})), [reviews]);
+			const toggleKey = (0, react.useMemo)(() => inspectionKey(toggleFiles), [toggleFiles]);
 			const reversiblePaths = (0, react.useMemo)(() => new Set(reviews.filter((review) => review.diffs.length > 0 && review.diffs.every((diff) => diff.path === review.path && diff.oldText !== null && diff.oldText !== diff.newText && (diff.oldText !== "" || diff.oldStart !== void 0) && (diff.newText !== "" || diff.newStart !== void 0))).map((review) => review.path)), [reviews]);
 			const hasReversibleFiles = reversiblePaths.size > 0;
-			const shown = reviewsWithStats.slice(0, SHOWN_LIMIT);
-			const hidden = reviewsWithStats.length - shown.length;
+			const [expanded, setExpanded] = (0, react.useState)(false);
+			const expandable = reviewsWithStats.length > SHOWN_LIMIT;
+			const shown = expanded ? reviewsWithStats : reviewsWithStats.slice(0, SHOWN_LIMIT);
+			const hidden = expanded ? 0 : reviewsWithStats.length - shown.length;
 			const allPaths = (0, react.useMemo)(() => reviews.map((review) => review.path), [reviews]);
 			const allDeleted = reviews.length > 0 && reviews.every((review) => review.deleted === true);
 			const statsMatter = totalStats.added > 0 || totalStats.removed > 0;
@@ -7792,26 +8578,44 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				const target = currentAction === "undo" ? "undone" : "applied";
 				return [...reversiblePaths].every((path) => byPath.get(path)?.state === target) ? currentAction === "undo" ? "redo" : "undo" : currentAction;
 			}, [reversiblePaths]);
+			const inspectedRef = (0, react.useRef)(null);
 			(0, react.useEffect)(() => {
+				const inspected = inspectedRef.current;
+				if (inspected !== null && inspected.inspector === inspectChanges && inspected.key === toggleKey) return;
+				if (toggleFiles.length === 0) {
+					inspectedRef.current = {
+						inspector: inspectChanges,
+						key: toggleKey
+					};
+					setStatusPending(false);
+					return;
+				}
 				let active = true;
 				setStatusPending(true);
-				inspectChanges({
-					action: "undo",
-					files: toggleFiles
-				}).then((result) => {
-					if (!active) return;
-					const allUndone = reversiblePaths.size > 0 && [...reversiblePaths].every((path) => result.files.find((file) => file.path === path)?.state === "undone");
-					setToggleAction(allUndone ? "redo" : "undo");
-				}).catch(() => {}).finally(() => {
-					if (active) setStatusPending(false);
-				});
+				const timer = window.setTimeout(() => {
+					inspectChanges({
+						action: "undo",
+						files: toggleFiles
+					}).then((result) => {
+						if (!active) return;
+						inspectedRef.current = {
+							inspector: inspectChanges,
+							key: toggleKey
+						};
+						const allUndone = reversiblePaths.size > 0 && [...reversiblePaths].every((path) => result.files.find((file) => file.path === path)?.state === "undone");
+						setToggleAction(allUndone ? "redo" : "undo");
+					}).catch(() => {}).finally(() => {
+						if (active) setStatusPending(false);
+					});
+				}, 300);
 				return () => {
 					active = false;
+					window.clearTimeout(timer);
 				};
 			}, [
 				inspectChanges,
-				reversiblePaths,
-				toggleFiles
+				toggleFiles,
+				toggleKey
 			]);
 			const runToggle = (0, react.useCallback)(() => {
 				if (statusPending || togglePending || !hasReversibleFiles) return;
@@ -7907,30 +8711,43 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					]
 				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 					className: ProducedFiles_module_css_default.fileList,
-					children: [shown.map(({ review, stats }) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+					children: [shown.map(({ review, stats }) => {
+						const kind = classifyPath(review.path);
+						const previewable = review.deleted !== true && kind !== "code";
+						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							type: "button",
+							className: ProducedFiles_module_css_default.fileRow,
+							title: review.path,
+							"aria-label": previewable ? t("produced.preview", { name: review.path }) : t("produced.review", { name: review.path }),
+							onClick: () => {
+								if (previewable) previewOpen(review.path);
+								else openInSidebarTab?.([review.path], turnNumber);
+							},
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ProducedFiles_module_css_default.fileName,
+								children: basename(review.path)
+							}), review.deleted === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ProducedFiles_module_css_default.deletedBadge,
+								children: t("produced.deleted")
+							}) : previewable ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ProducedFiles_module_css_default.kindBadge,
+								children: t(KIND_LABEL[kind])
+							}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Stats, {
+								stats,
+								label: t("review.stats", {
+									added: String(stats.added),
+									removed: String(stats.removed)
+								})
+							})]
+						}, review.path);
+					}), expandable && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 						type: "button",
-						className: ProducedFiles_module_css_default.fileRow,
-						title: review.path,
-						"aria-label": t("produced.review", { name: review.path }),
-						onClick: () => {
-							openInSidebarTab?.([review.path], turnNumber);
-						},
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: ProducedFiles_module_css_default.fileName,
-							children: basename(review.path)
-						}), review.deleted === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: ProducedFiles_module_css_default.deletedBadge,
-							children: t("produced.deleted")
-						}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Stats, {
-							stats,
-							label: t("review.stats", {
-								added: String(stats.added),
-								removed: String(stats.removed)
-							})
-						})]
-					}, review.path)), hidden > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: ProducedFiles_module_css_default.moreFiles,
-						children: hidden === 1 ? t("produced.moreOne") : t("produced.more", { count: String(hidden) })
+						"aria-expanded": expanded,
+						onClick: () => {
+							setExpanded((value) => !value);
+						},
+						children: expanded ? t("produced.collapse") : hidden === 1 ? t("produced.moreOne") : t("produced.more", { count: String(hidden) })
 					})]
 				})]
 			}), toast !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ResultToast, {
@@ -7946,6 +8763,27 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			}, toast.seq)] });
 		}
 		//#endregion
+		//#region src/client/Deliverables.tsx
+		/**
+		* Render the closing turn's complete deliverables row.
+		* @param props - match, inject face, and the Session standard share.
+		* @returns the changed-files card, the delivery cards, or both.
+		*/
+		function Deliverables({ matched, presentedController, sessionId, ...card }) {
+			const { produced, presented } = matched;
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [produced.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ProducedFiles, {
+				matched: produced,
+				...card
+			}), presented.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PresentedFiles, {
+				files: presented,
+				sessionId,
+				projectRoot: card.projectRoot,
+				onPreview: card.openPreview ?? card.openFile,
+				controller: presentedController,
+				t: card.t
+			})] });
+		}
+		//#endregion
 		//#region src/client/chat-locales.ts
 		/** `file-review` namespace dictionaries. */
 		/** Dictionary namespace owned by this plugin. */
@@ -7957,6 +8795,14 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"produced.edited": "Edited {count} files",
 			"produced.moreOne": "1 more file",
 			"produced.more": "{count} more files",
+			"produced.collapse": "Show less",
+			"produced.preview": "Preview {name}",
+			"produced.kindImage": "Image",
+			"produced.kindVideo": "Video",
+			"produced.kindAudio": "Audio",
+			"produced.kindOffice": "Office",
+			"produced.kindPdf": "PDF",
+			"produced.kindDoc": "Doc",
 			"produced.open": "Open {name}",
 			"produced.review": "Review {name}",
 			"produced.reviewAll": "Review all produced files",
@@ -7991,7 +8837,35 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"review.showUnchanged": "{count} unchanged lines",
 			"review.hideUnchanged": "Hide {count} unchanged lines",
 			"review.stats": "{added} lines added, {removed} lines removed",
-			"review.unavailable": "No reconstructable diff is available for this change. You can still open the current file."
+			"review.unavailable": "No reconstructable diff is available for this change. You can still open the current file.",
+			"presented.summary": "Delivered files",
+			"presented.action": "Open",
+			"presented.preview": "Preview in sidebar",
+			"presented.previewCard": "Preview {name} in the sidebar",
+			"presented.previewButton": "Open {name} in the sidebar",
+			"presented.more": "More file actions for {name}",
+			"presented.defaultApp": "Open with default app",
+			"presented.finder": "Show in Finder",
+			"presented.explorer": "Show in File Explorer",
+			"presented.directory": "Open containing folder",
+			"presented.opening": "Opening…",
+			"presented.opened": "Opened in the default app",
+			"presented.error": "Could not open. Click to retry.",
+			"presented.revealing": "Showing in file manager…",
+			"presented.revealed": "Requested display in file manager",
+			"presented.revealError": "Could not show in file manager. Try again.",
+			"presented.directoryOpening": "Opening containing folder…",
+			"presented.directoryOpened": "Requested opening containing folder",
+			"presented.directoryError": "Could not open containing folder. Try again.",
+			"presented.nativeUnavailable": "This file has no available Host path. Preview it in the sidebar.",
+			"presented.unavailable": "This Host has no desktop available to open files or folders",
+			"presented.hostError": "Could not read the Host desktop information",
+			"presented.retry": "Retry",
+			"presented.all": "All {count} files",
+			"presented.collapse": "Show less",
+			"presented.expandAria": "Show all {count} delivered files",
+			"presented.collapseAria": "Collapse the delivered files",
+			"presented.file": "File"
 		};
 		/** Simplified Chinese dictionary. */
 		const zh = {
@@ -8000,6 +8874,14 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"produced.edited": "已编辑 {count} 个文件",
 			"produced.moreOne": "另有 1 个文件",
 			"produced.more": "另有 {count} 个文件",
+			"produced.collapse": "收起",
+			"produced.preview": "预览 {name}",
+			"produced.kindImage": "图片",
+			"produced.kindVideo": "视频",
+			"produced.kindAudio": "音频",
+			"produced.kindOffice": "Office",
+			"produced.kindPdf": "PDF",
+			"produced.kindDoc": "文档",
 			"produced.open": "打开 {name}",
 			"produced.review": "审查 {name}",
 			"produced.reviewAll": "审查所有产出文件",
@@ -8034,7 +8916,35 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"review.showUnchanged": "显示 {count} 行未更改内容",
 			"review.hideUnchanged": "隐藏 {count} 行未更改内容",
 			"review.stats": "新增 {added} 行，删除 {removed} 行",
-			"review.unavailable": "无法为此更改还原可审查的差异。你仍可打开当前文件。"
+			"review.unavailable": "无法为此更改还原可审查的差异。你仍可打开当前文件。",
+			"presented.summary": "交付文件",
+			"presented.action": "打开",
+			"presented.preview": "在侧边栏预览",
+			"presented.previewCard": "在侧边栏预览 {name}",
+			"presented.previewButton": "在侧边栏打开 {name}",
+			"presented.more": "{name} 的更多文件操作",
+			"presented.defaultApp": "用默认应用打开",
+			"presented.finder": "在访达中显示",
+			"presented.explorer": "在文件资源管理器中显示",
+			"presented.directory": "打开所在文件夹",
+			"presented.opening": "正在打开…",
+			"presented.opened": "已在默认程序中打开",
+			"presented.error": "打开失败，点击重试",
+			"presented.revealing": "正在文件管理器中显示…",
+			"presented.revealed": "已请求在文件管理器中显示",
+			"presented.revealError": "无法在文件管理器中显示，请重试",
+			"presented.directoryOpening": "正在打开所在文件夹…",
+			"presented.directoryOpened": "已请求打开所在文件夹",
+			"presented.directoryError": "无法打开所在文件夹，请重试",
+			"presented.nativeUnavailable": "此文件没有可用的主机路径，请在侧边栏预览",
+			"presented.unavailable": "此主机没有可用的桌面，无法打开文件或文件夹",
+			"presented.hostError": "无法读取主机桌面信息",
+			"presented.retry": "重试",
+			"presented.all": "全部 {count} 个文件",
+			"presented.collapse": "收起",
+			"presented.expandAria": "展开全部 {count} 个交付文件",
+			"presented.collapseAria": "收起交付文件列表",
+			"presented.file": "文件"
 		};
 		//#endregion
 		//#region src/client/index.tsx
@@ -8126,6 +9036,13 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				zh,
 				en
 			}), "file-review-tab: chat dictionaries");
+			const presentedOpen = new PresentedOpenController();
+			ctx.effect(() => () => {
+				presentedOpen.dispose();
+			}, "file-review-tab: presented opens");
+			ctx.effect(() => ctx.on("connection/reset", () => {
+				presentedOpen.resetHost();
+			}), "file-review-tab: presented host reset");
 			ctx.effect(() => {
 				let disposed = false;
 				let disposeRemote;
@@ -8173,7 +9090,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			}, "file-review-tab: session-wide Definition");
 			ctx.effect(() => ctx.slots.inject("conversation.chat.turnTail", () => ctx.slots.register({
 				name: "conversation.chat.turnTail",
-				select: selectDeliverablePaths,
+				select: selectDeliverables,
 				priority: -2,
 				locale: NS,
 				registrant: "dsh-file-review-tab",
@@ -8213,6 +9130,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						collectReviews,
 						changesStore: {
 							getSnapshot: () => getStore()?.getSnapshot() ?? null,
+							getTurnSnapshot: (turn) => turnChangesFingerprint(getStore()?.getSnapshot() ?? null, turn),
 							subscribe: (listener) => getStore()?.subscribe(listener) ?? (() => {})
 						},
 						openInSidebarTab: (paths, turn) => {
@@ -8234,10 +9152,20 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 								meta
 							}, scope);
 							sidebar.activateTab("file-review", scope);
-						}
+						},
+						openPreview: (path) => {
+							const sidebar = ctx.betterSidebar;
+							if (sidebar === void 0) return;
+							const absolute = resolveSessionPath(projectRoot, path);
+							sidebar.openFile({
+								sessionId,
+								...projectRoot !== void 0 ? { cwd: projectRoot } : {}
+							}, absolute, basename(absolute));
+						},
+						presentedController: presentedOpen
 					};
 				}
-			}, ProducedFiles)), "file-review-tab: turn-tail row");
+			}, Deliverables)), "file-review-tab: turn-tail row");
 			ctx.effect(() => ctx.betterSidebar.registerTab({
 				id: "file-review",
 				title: () => t("tabTitle"),
@@ -8255,8 +9183,15 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			}), "file-review-tab: register tab");
 		}
 		//#endregion
+		exports.Deliverables = Deliverables;
 		exports.apply = apply;
+		exports.captureArtifacts = captureArtifacts;
+		exports.classifyPath = classifyPath;
 		exports.inject = inject;
+		exports.inspectionKey = inspectionKey;
+		exports.presentedForClosing = presentedForClosing;
+		exports.selectDeliverables = selectDeliverables;
+		exports.turnChangesFingerprint = turnChangesFingerprint;
 		return module.exports;
 	}
 });

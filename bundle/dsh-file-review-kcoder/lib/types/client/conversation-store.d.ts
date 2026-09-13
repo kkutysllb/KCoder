@@ -56,6 +56,26 @@ export interface ConversationStore {
     subscribe(listener: () => void): () => void;
 }
 /**
+ * Turn-scoped content fingerprint for the turn-tail card's reactive
+ * subscription. The session chat source publishes a fresh snapshot reference
+ * per streaming event (token flushes, per-event Definition republications —
+ * see index.tsx badgeCount), so a subscription keyed on the face reference
+ * re-rendered every mounted card non-stop while ANY turn ran, and the card's
+ * identity-keyed inspection effect turned that churn into a disabled-state
+ * flicker on the 撤销 button (statusPending true → host status RPC → false,
+ * per publication). This fingerprint instead moves only when ONE turn's
+ * review content moves: the own Definition data signature (paths + hunk
+ * counts + deletion flags — the engine APPENDS hunks, definition.ts update(),
+ * so counts are monotonic and faithful) plus the built-in deliverables
+ * fallback signature (the derive falls back to it when own data has no
+ * files, session-changes.deriveTimelineChanges). A string on purpose:
+ * recomputation stays Object.is-stable for useSyncExternalStore.
+ * @param face - resolved conversation face (null before the view assembles).
+ * @param turn - the card's owning turn number.
+ * @returns Content signature; equal across content-preserving republications.
+ */
+export declare function turnChangesFingerprint(face: ConversationFace | null, turn: number): string;
+/**
  * Resolve the chat-view snapshot store for one session, or undefined when the
  * carrier provides no uiConversation service (or the session has no binding).
  * The returned store is identity-stable per session, so callers may hold it
