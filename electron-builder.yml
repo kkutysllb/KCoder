@@ -18,17 +18,17 @@ extraResources:
   # $DSH_HOME/profiles/web/node_modules 并注册层叠（kcoder-skills-bundle.ts）
   # —— dsh-skills-bundle（方法论技能包）
   # system-prompt section，默认 disabled，home patch 层热切换）/
-  # dsh-git-panel（独立 git 工作区面板）/ dsh-terminal（嵌入式终端）
+  # dsh-terminal（嵌入式终端）
 
   # 全部 dsh 标准命名（2026-09-01 改名自立，原 @kcoder/*）
   - from: bundle/dsh-skills-bundle
     to: dsh-skills-bundle
-  - from: bundle/dsh-git-panel
-    to: dsh-git-panel
   - from: bundle/dsh-terminal
     to: dsh-terminal
   # （dsh-file-attach 已于 0.5.6 退役：上游 composer 原生附件入口到位，
-  # profile 残留注册由 RETIRED_PLUGINS 三清自愈，无需随包资源）
+  # profile 残留注册由 RETIRED_PLUGINS 三清自愈，无需随包资源；
+  # dsh-git-panel 亦于 2026-09-14 退役：能力被侧边栏 dsh-coding-sidebar
+  # 的 Git 面板覆盖，同样三清自愈）
   # dsh-file-review-kcoder（改动审查，完全自立维护；血缘
   # left0ver/dsh-file-review；真源同名独立仓，sync-bundles.mjs 同步产物）
   - from: bundle/dsh-file-review-kcoder

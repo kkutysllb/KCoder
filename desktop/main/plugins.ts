@@ -34,7 +34,8 @@ import type {
 const ENGINE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
 
 /** 内置清单：引擎层 + KCoder 物化 bundle（此前漏列会被当成「用户安装」
- *  误可卸载；file-attach 已于 0.5.6 退役，stats-panel 随 0.1.5-rc.2 基线退役）+
+ *  误可卸载；file-attach 已于 0.5.6 退役，stats-panel 随 0.1.5-rc.2 基线
+ *  退役，git-panel 已于 2026-09-14 退役）+
  *  预置第三方插件（coding-sidebar 已在物化清单，去重）。UI 展示为内置、
  *  禁卸载；除引擎层外均可更新。 */
 const IN_BOX_BUNDLES = [

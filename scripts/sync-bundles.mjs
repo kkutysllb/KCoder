@@ -3,15 +3,16 @@
  * 内置插件 bundle 同步：dsh-plugins 仓库（镜像真源）→ KCoder bundle/。
  *
  * 2026-08-30 迁址后，KCoder 仓 bundle/ 目录只是随包分发的同步副本；
- * 插件开发真源在各自独立仓（2026-09-01 起：dsh-git-panel/
- * dsh-terminal/dsh-skills-bundle/dsh-file-review-kcoder/
+ * 插件开发真源在各自独立仓（2026-09-01 起：dsh-terminal/
+ * dsh-skills-bundle/dsh-file-review-kcoder/
  * dsh-coding-sidebar，全部 dsh 标准命名 npm 包）→
  * dsh-plugins/<同名目录> 镜像 → 本脚本同步进 bundle/ 再发版——方向单向，
  * 禁止反向手改。
  *
  * 同步映射（dsh-plugins/<src> → bundle/<dst>，目录名与包名同名）：
- * - 产物直提包全镜像（git-panel/terminal/
- *   skills-bundle，排除式镜像；file-attach 已于 0.5.6 退役摘除）
+ * - 产物直提包全镜像（terminal/
+ *   skills-bundle，排除式镜像；file-attach 已于 0.5.6 退役摘除，
+ *   git-panel 已于 2026-09-14 退役摘除）
  * - dsh-file-review-kcoder 选择面映射（lib/package.json/cordis.patch.yml/
  *   README.md/LICENSE；src/tests 等构建面不进 bundle）
  * - dsh-coding-sidebar 同款选择面映射：侧边栏自立仓（fork 自
@@ -47,7 +48,6 @@ const EXCLUDE = new Set(['.git', 'node_modules'])
  * 相对路径（目录递归 / 文件直拷）。
  */
 const MAPPINGS = [
-  { src: 'dsh-git-panel', dst: 'dsh-git-panel', select: [] },
   { src: 'dsh-terminal', dst: 'dsh-terminal', select: [] },
   { src: 'dsh-skills-bundle', dst: 'dsh-skills-bundle', select: [] },
   {

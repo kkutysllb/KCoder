@@ -1,15 +1,10 @@
 /**
  * KCoder 自有 dsh bundle 的物化与注册（out-of-tree bundle 随桌面端分发）。
  *
- * 当前七个 bundle（2026-09-01 起全部 dsh 标准命名，开发真源在各自独立仓 →
+ * 当前四个 bundle（2026-09-01 起全部 dsh 标准命名，开发真源在各自独立仓 →
  * dsh-plugins 镜像 → sync-bundles.mjs 同步进 bundle/）：
  * - dsh-skills-bundle（bundle/dsh-skills-bundle）：方法论技能包（适配自
  *   KSkills 仓库），激活时注册 runtime skill；
- * - dsh-git-panel（bundle/dsh-git-panel）：独立 git 工作区面板
- *   （server 只读快照 RPC + client 页面内浮动面板）。2026-08 起整体替代
- *   已退役的 Electron 宿主 git-panel.ts（旧 IPC/视图/让位协议已摘除）。
- *   npm 包名 @kkutysllb/dsh-git-panel（无 scope 名被社区第三方占用；
- *   @dsh-external org 被 npm 注册政策拦截，定稿用户名 scope）。
  * - dsh-terminal（bundle/dsh-terminal）：侧边栏嵌入式终端。npm 包名
  *   @kkutysllb/dsh-terminal（同上）。
  * - dsh-file-review-kcoder（bundle/dsh-file-review-kcoder）：改动审查
@@ -31,6 +26,8 @@
  * 前身 @kcoder/* 五包 + @kcoder/file-review（2026-08 内置命名）已于
  * 2026-09-01 全部改名自立并发布 npm（1.0.0 起步）；旧名全部列入
  * RETIRED_PLUGINS 自愈三清（旧物化目录与 bundles 层叠残留）。
+ * dsh-git-panel 亦于 2026-09-14 退役（能力被侧边栏 Git 面板覆盖，见
+ * RETIRED_PLUGINS）。
  *
  * 本模块在 dsh 启动前把各 bundle 幂等物化进 web profile：
  *
@@ -57,11 +54,6 @@ import { parse as parseYaml } from 'yaml'
 
 /** bundle 包名（profile bundles 数组与 node_modules 目录名）。 */
 export const DSH_SKILLS_BUNDLE = 'dsh-skills-bundle'
-
-/** git 工作区面板 bundle 包名（npm 无 scope 名被社区占用；@dsh-external
- * org 被 npm 注册政策拦截，定稿用户名 scope；bundle/ 目录名保持平铺）。 */
-export const DSH_GIT_PANEL_BUNDLE = '@kkutysllb/dsh-git-panel'
-
 
 /** 嵌入式终端 bundle 包名（scope 定稿理由同 git-panel，见其常量注释）。 */
 export const DSH_TERMINAL_BUNDLE = '@kkutysllb/dsh-terminal'
@@ -95,7 +87,6 @@ interface BundledPlugin {
 /** 全部内置 bundle（物化顺序即注册顺序）。 */
 const BUNDLES: BundledPlugin[] = [
   { pkg: DSH_SKILLS_BUNDLE, dir: 'dsh-skills-bundle', entry: 'entry.js', intactFiles: [join('skills', 'manifest.json')] },
-  { pkg: DSH_GIT_PANEL_BUNDLE, dir: 'dsh-git-panel', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: DSH_TERMINAL_BUNDLE, dir: 'dsh-terminal', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: DSH_FILE_REVIEW_BUNDLE, dir: 'dsh-file-review-kcoder', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
   { pkg: DSH_CODING_SIDEBAR, dir: 'dsh-coding-sidebar', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
@@ -154,6 +145,11 @@ const RETIRED_PLUGINS = [
   // 它的 profile 引擎启动解析失败即崩，本清单自愈摘除层叠注册后不再
   // 触达 resolve
   '@kkutysllb/dsh-file-attach',
+  // 2026-09-14 退役：侧边栏 dsh-coding-sidebar 的 Git 面板已完整覆盖
+  // 变更/暂存/提交/分支/worktree/历史操作（Git/会话双视角），内置
+  // dsh-git-panel 能力被覆盖，整线退役三清；推送/GitHub 管理（gh
+  // PR/Issue）/比较外链/任务计划由侧边栏后续版本承接
+  '@kkutysllb/dsh-git-panel',
 ]
 
 /** 分发的 bundle 源目录（开发态仓库内；打包态 extraResources）。 */
