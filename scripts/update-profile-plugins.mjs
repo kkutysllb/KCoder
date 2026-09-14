@@ -177,6 +177,26 @@ function patchApplied() {
   return missing
 }
 
+/**
+ * 忽略版本门控的生效核对（只按 PATCH_MARKS + 实装目录）：精确键漂移时
+ * patchApplied 会因为门控 skip 而恒真（假的「全部生效」），而 app 侧自愈
+ * 链的锄点注入与版本键无关——这里如实报告，避免误导。
+ */
+function marksMissingIgnoringGate() {
+  const missing = []
+  for (const pkg of Object.keys(PATCH_MARKS)) {
+    const modDir = join(PROFILE, 'node_modules', pkg)
+    if (!existsSync(modDir)) continue
+    for (const [rel, mark] of PATCH_MARKS[pkg]) {
+      const file = join(modDir, rel)
+      if (!existsSync(file) || !readFileSync(file, 'utf8').replace(/\r\n/g, '\n').includes(mark)) {
+        missing.push(`${pkg}/${rel}`)
+      }
+    }
+  }
+  return missing
+}
+
 /** 幂等声明 patchedDependencies，声明跟随 dependencies 实态（与
  *  desktop/main/profile-patches.ts 的 ensurePatchDeclared 同规则）：
  *  精确版本键（name@ver，@x 类 name-only）+ allowUnusedPatches 容忍；
@@ -310,8 +330,26 @@ function updatePlugin() {
 
 function verify() {
   const missing = patchApplied()
-  if (missing.length === 0) {
+  // 门控态（patch 文件精确键与实装版本不符时 pnpm 判 unused 不应用）单独
+  // 报告：此时 patchApplied 恒真，真正的生效判据是锄点注入的 marks。
+  const gated = PATCHES.filter((f) => {
+    const modDir = join(PROFILE, 'node_modules', pkgNameOf(f))
+    return existsSync(modDir) && !patchVersionMatches(f, modDir)
+  })
+  if (gated.length > 0) {
+    say(`补丁跳过（精确版本键漂移，pnpm 判 unused 不应用）：${gated.join('、')}`)
+  }
+  const missingIgnoringGate = marksMissingIgnoringGate()
+  if (missing.length === 0 && missingIgnoringGate.length === 0) {
     say('补丁校验：全部生效 ✓')
+    return
+  }
+  if (missing.length === 0 && missingIgnoringGate.length > 0) {
+    // 门控跳过的包靠 app 侧锄点注入兑底：注入后 mark 应在位；仍缺说明
+    // 版本产物字节变了（锄点锚点失配）——必须重出 patch（见下提示）。
+    for (const m of missingIgnoringGate) console.warn(`  补丁未生效：${m}`)
+    console.warn('  其中含版本门控跳过的包：app 启动时的锄点注入应已覆盖；')
+    console.warn('  若重启 app 后仍缺，则该版本产物字节已变，需重出 profiles/web/patches/ 下的 patch。')
     return
   }
   for (const m of missing) console.warn(`  补丁未生效：${m}`)

@@ -514,18 +514,20 @@ export function ensureProfilePatches(): void {
     //    首选。注入没全中（版本漂移致锄点失配）才回退 install 重放，
     //    让 pnpm 重新解包应用 name-only 补丁。
     //    插件未装则声明就位即可（后续安装时 pnpm 自动应用）。
-    if (patchApplied(profileDir, files)) {
-      healLog('[patches] 补丁全部生效，无需自愈')
-      return
-    }
-    console.warn('[profile-patches] 补丁未生效，优先锄点注入修复 …')
-    healLog('[patches] 补丁未生效，优先锄点注入修复 …')
+    //    ⚠️ 版本门控空洞（本次修）：patchApplied 对 patchVersionMatches
+    //    为假的补丁直接 continue（视为该包无要求），于是「声明精确键漂移
+    //    （patch 文件 @0.1.1、实装 0.1.4、pnpm 判定 unused 不应用）」时它
+    //    恒真 → 这里提前 return，锄点注入永不执行，插件裸装带缺陷而自愈
+    //    链显示"无需自愈"。因此锄点注入先无条件跑一遍——幂等（mark 命中
+    //    即跳过；锚点命中数 ≠ 1 只告警不写），无平台/网络依赖——再做生效
+    //    校验，杜绝"静默无操作"。
     enforcePatchFallbacks(profileDir)
     if (patchApplied(profileDir, files)) {
-      healLog('[patches] 锄点注入后补丁全部生效（未跑 install）')
+      healLog('[patches] 补丁全部生效（含锄点注入复核），无需自愈')
       return
     }
-    healLog('[patches] 注入后仍有 mark 缺失，回退 pnpm install 重放 …')
+    console.warn('[profile-patches] 锄点注入未全覆盖，回退 pnpm install 重放 …')
+    healLog('[patches] 锄点注入未全覆盖，回退 pnpm install 重放 …')
     const r = runPnpm(['install'], profileDir, 600_000)
     healLog(
       `[patches] pnpm install exit=${String(r.status)}` +
