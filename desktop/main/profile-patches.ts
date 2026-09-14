@@ -25,7 +25,11 @@
  *   （matchFileViewer 按 priority 降序，video（0）压过内置 code 兑底
  *   （-100））。补丁删 "ts" 保留 m2ts；快照归档 .patches/dsh-video-preview。
  *   0.3.5 曾随「插件方已迭代吸收」误判退役，8-25 现场 0.1.1 复测
- *   "ts" 仍在——未吸收，复役
+ *   "ts" 仍在——未吸收，复役；补丁文件随实装版本改精确键
+ *   dsh-video-preview@0.1.4.patch（hunk 区字节与 0.1.1 相同，对 0.1.4 产物
+ *   dry-run 干净），更早/更新版本由 allowUnusedPatches + 锄点注入兑底
+ *   （侧边栏 v1.0.14 恢复 registerFileViewer 后 video viewer 才真正生效，
+ *   该冲突随之复现，故此处必须常备）
  * - dsh-better-sidebar（0.4.8 前后已改消费源，无需 patch）：alpha.2 移除
  *   @deepseek-ai/dsh-settings 的 settingsNamespace 工厂（register 直接收
  *   string、内部 parseSettingsNamespace 校验）→ 上游 github:omdsh-dev
