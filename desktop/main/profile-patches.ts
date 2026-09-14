@@ -25,11 +25,18 @@
  *   （matchFileViewer 按 priority 降序，video（0）压过内置 code 兑底
  *   （-100））。补丁删 "ts" 保留 m2ts；快照归档 .patches/dsh-video-preview。
  *   0.3.5 曾随「插件方已迭代吸收」误判退役，8-25 现场 0.1.1 复测
- *   "ts" 仍在——未吸收，复役；补丁文件随实装版本改精确键
- *   dsh-video-preview@0.1.4.patch（hunk 区字节与 0.1.1 相同，对 0.1.4 产物
- *   dry-run 干净），更早/更新版本由 allowUnusedPatches + 锄点注入兑底
- *   （侧边栏 v1.0.14 恢复 registerFileViewer 后 video viewer 才真正生效，
- *   该冲突随之复现，故此处必须常备）
+ *   "ts" 仍在——对 0.1.1 确未吸收，复役。
+ *   **9-14 复核：上游 0.1.4 已自行吸收**——npm 产物 VIDEO_EXTS 已无 "ts"
+ *   （与 0.1.1 字节比对仅差该元素）；把补丁键改成 @0.1.4 是错的：该 hunk
+ *   在 0.1.4 上 `patch --dry-run` 直接判定「Reversed (or previously
+ *   applied)」，pnpm 11 会硬报 ERR_PNPM_PATCH_FAILED。故补丁键保持
+ *   @0.1.1（只对钉住 0.1.1 的现场应用），0.1.4+ 命中
+ *   PATCH_MARKS（"3g2", "m2ts" 原生在位）即为「已生效」，锄点注入幂等
+ *   跳过。PATCH_MARKS/PATCH_FALLBACKS 保留：既覆盖钉版 0.1.1 的现场，
+ *   也守 0.1.4 之后万一回退该行的情况（锚点命中数 ≠ 1 只告警不写）
+ * - 侧边栏 v1.0.14 恢复 registerFileViewer 后 video viewer 才真正注册
+ *   生效（v1.0.4–v1.0.13 注册无落点）：0.1.4+ 不再声明 "ts"，故恢复预览线
+ *   不会带回该冲突；只有钉 0.1.1 的现场才会——这正是 @0.1.1 补丁要留的原因
  * - dsh-better-sidebar（0.4.8 前后已改消费源，无需 patch）：alpha.2 移除
  *   @deepseek-ai/dsh-settings 的 settingsNamespace 工厂（register 直接收
  *   string、内部 parseSettingsNamespace 校验）→ 上游 github:omdsh-dev
@@ -515,12 +522,15 @@ export function ensureProfilePatches(): void {
     //    让 pnpm 重新解包应用 name-only 补丁。
     //    插件未装则声明就位即可（后续安装时 pnpm 自动应用）。
     //    ⚠️ 版本门控空洞（本次修）：patchApplied 对 patchVersionMatches
-    //    为假的补丁直接 continue（视为该包无要求），于是「声明精确键漂移
-    //    （patch 文件 @0.1.1、实装 0.1.4、pnpm 判定 unused 不应用）」时它
-    //    恒真 → 这里提前 return，锄点注入永不执行，插件裸装带缺陷而自愈
-    //    链显示"无需自愈"。因此锄点注入先无条件跑一遍——幂等（mark 命中
-    //    即跳过；锚点命中数 ≠ 1 只告警不写），无平台/网络依赖——再做生效
-    //    校验，杜绝"静默无操作"。
+    //    为假的补丁直接 continue（视为该包无要求），该包的 mark 于是不再
+    //    被要求——只要同批还有别的补丁（或该包是唯一补丁）就会恒真 →
+    //    这里提前 return「补丁全部生效，无需自愈」，锄点注入永不执行，
+    //    插件裸装带缺陷（9-14 现场：dsh-context 实装 0.52.0 而补丁键
+    //    @0.38.2 被门控跳过，其 lib/client.js 既无 kcRoHits、原始 RO
+    //    回调锚点又完整在位——属"能修但被静默跳过"，脚本 verify 的
+    //    忽略门控核对把它照出来了）。因此锄点注入先无条件跑一遍——幂等
+    //    （mark 命中即跳过；锚点命中数 ≠ 1 只告警不写），无平台/网络
+    //    依赖——再做生效校验，杜绝"静默无操作"。
     enforcePatchFallbacks(profileDir)
     if (patchApplied(profileDir, files)) {
       healLog('[patches] 补丁全部生效（含锄点注入复核），无需自愈')
