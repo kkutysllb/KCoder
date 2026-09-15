@@ -58,12 +58,15 @@ window.__ModuleLoader__.load({
 			customCss: "",
 			titleBarCompat: false,
 			titleBarStripPx: 40,
+			htmlViewerNoSandbox: false,
+			htmlViewerDefaultUnsafe: false,
 			browserNoSandbox: false,
 			browserInterceptLinks: true,
 			browserInterceptHttp: true,
 			browserInterceptHttps: false,
 			browserAllowedLoopback: "",
 			tabsEnabled: {},
+			viewersEnabled: {},
 			pluginSettings: {}
 		};
 		/** Clamp one width percent into the contract range (shared by schema and client reads). */
@@ -1326,138 +1329,6 @@ window.__ModuleLoader__.load({
 			return new SidebarStore();
 		}
 		//#endregion
-		//#region src/client/native-avoid.ts
-		/**
-		* Native-sidebar avoidance: when the DSH shell's own sidebar expands to its
-		* wide form, an expanded sidebar panel would crowd the page into several
-		* columns — so the panel yields (collapses; the fact that WE collapsed it
-		* is remembered) and restores when the native sidebar returns to its rail.
-		*
-		* Detection: the host exposes no programmable open/close event — the
-		* `settings.trigger` slot's `{ wide }` owner prop is pushed only to the
-		* slot's occupant, and that slot is single-masked (occupying it would take
-		* over the settings button). But the shell stamps every slot outlet with
-		* `data-slot="<key>"` (the conversation package's own CSS targets
-		* `[data-slot=conversation\.session]`), and the native sidebar hosts the
-		* `sidebar.*` slots — its documented collapsed form is a 56px icon rail,
-		* the expanded form a full column. So: watch the first
-		* `[data-slot^="sidebar."]` element with a ResizeObserver; width > 80px
-		* means expanded. No anchor (older host, attribute renamed) → the feature
-		* stays inert.
-		*
-		* The yield rides the regular `panelOpen` state (same contract as every
-		* other collapse: the toggle button, content-open auto-expansion and the
-		* per-session persistence all keep working). A panel transition we did not
-		* apply — the user reopening the panel, or a content open expanding it —
-		* hands ownership back (no restore on native close); a session switch
-		* re-runs the rule against the newly active session.
-		*/
-		/** The documented rail is 56px; anything wider is an expanded sidebar. */
-		const RAIL_MAX_WIDTH = 80;
-		/** The native sidebar's slot outlets (sidebar.settings and siblings). */
-		const ANCHOR_SELECTOR = "[data-slot^=\"sidebar.\"]";
-		function installNativeSidebarAvoidance(store) {
-			if (typeof ResizeObserver === "undefined" || typeof MutationObserver === "undefined" || typeof document === "undefined" || document.body === null) return () => {};
-			let disposed = false;
-			/** null until the anchor is found and measured (unknown = never act). */
-			let nativeWide = null;
-			/** The currently open panel was collapsed by US (restore on native close). */
-			let yielded = false;
-			/** Guards the store subscription: the in-flight reduce is ours. */
-			let applying = false;
-			let lastSeenOpen = null;
-			let lastSessionId;
-			const snapshotOpen = () => store.getSnapshot().state?.panelOpen === true;
-			/** Apply the avoidance rule for the current native-sidebar state. */
-			const reevaluate = () => {
-				if (disposed || nativeWide === null) return;
-				if (nativeWide && !yielded && snapshotOpen()) {
-					yielded = true;
-					applying = true;
-					store.reduce(togglePanel);
-				} else if (!nativeWide && yielded) {
-					yielded = false;
-					if (snapshotOpen()) return;
-					applying = true;
-					store.reduce(togglePanel);
-				}
-			};
-			lastSeenOpen = snapshotOpen();
-			lastSessionId = store.getSnapshot().sessionId;
-			const unsubscribe = store.subscribe(() => {
-				if (disposed) return;
-				const snapshot = store.getSnapshot();
-				const open = snapshotOpen();
-				if (applying) {
-					applying = false;
-					lastSeenOpen = open;
-					lastSessionId = snapshot.sessionId;
-					return;
-				}
-				if (snapshot.sessionId !== lastSessionId) {
-					lastSessionId = snapshot.sessionId;
-					lastSeenOpen = open;
-					reevaluate();
-					return;
-				}
-				if (open !== lastSeenOpen) {
-					lastSeenOpen = open;
-					if (yielded && open) yielded = false;
-				}
-			});
-			let resizeObserver = null;
-			let finder = null;
-			const applyWidth = (width) => {
-				const wide = width > RAIL_MAX_WIDTH;
-				if (wide !== nativeWide) {
-					nativeWide = wide;
-					reevaluate();
-				}
-			};
-			const watch = (element) => {
-				resizeObserver = new ResizeObserver(() => {
-					if (!element.isConnected) {
-						resizeObserver?.disconnect();
-						resizeObserver = null;
-						nativeWide = null;
-						startSearch();
-						return;
-					}
-					applyWidth(element.getBoundingClientRect().width);
-				});
-				resizeObserver.observe(element);
-				applyWidth(element.getBoundingClientRect().width);
-			};
-			const startSearch = () => {
-				const found = document.querySelector(ANCHOR_SELECTOR);
-				if (found !== null) {
-					watch(found);
-					return;
-				}
-				finder = new MutationObserver(() => {
-					const element = document.querySelector(ANCHOR_SELECTOR);
-					if (element !== null) {
-						finder?.disconnect();
-						finder = null;
-						watch(element);
-					}
-				});
-				finder.observe(document.body, {
-					childList: true,
-					subtree: true
-				});
-			};
-			startSearch();
-			return () => {
-				disposed = true;
-				unsubscribe();
-				resizeObserver?.disconnect();
-				resizeObserver = null;
-				finder?.disconnect();
-				finder = null;
-			};
-		}
-		//#endregion
 		//#region src/client/file-icon-registry.ts
 		/**
 		* Reserved `exts` values that claim DIRECTORY rows instead of file
@@ -1610,6 +1481,13 @@ window.__ModuleLoader__.load({
 		};
 		//#endregion
 		//#region src/client/service.ts
+		/** Extract the lowercase extension without leading dot from a path. */
+		function extOfPath(path) {
+			const at = path.lastIndexOf(".");
+			if (at === -1) return "";
+			const base = path.slice(at + 1).toLowerCase();
+			return base.includes("/") || base.includes("\\") ? "" : base;
+		}
 		/** The file name of a path (both separators). */
 		function baseNameOf(path) {
 			const at = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
@@ -1640,7 +1518,7 @@ window.__ModuleLoader__.load({
 				if (claimed) return tab;
 			}
 		}
-		const SIDEBAR_SERVICE_VERSION = "1.0.12";
+		const SIDEBAR_SERVICE_VERSION = "1.0.16";
 		/**
 		* Monotonic capability list consumers use to gate new API usage (features
 		* are never removed). Each string names a v0.12.0+ capability:
@@ -1687,11 +1565,12 @@ window.__ModuleLoader__.load({
 		}
 		/**
 		* Create one BetterSidebar service bound to a store. The service owns the
-		* tab registry (Map + listener set) and proxies openTab/closeTab
+		* tab/viewer registries (Map + listener set) and proxies openTab/closeTab
 		* to the store's reducer. One instance per client plugin activation.
 		*/
 		function createBetterSidebarService(store) {
 			const tabs = /* @__PURE__ */ new Map();
+			const viewers = /* @__PURE__ */ new Map();
 			const listeners = /* @__PURE__ */ new Set();
 			const notify = () => {
 				for (const fn of [...listeners]) fn();
@@ -1714,9 +1593,36 @@ window.__ModuleLoader__.load({
 					}
 				};
 			};
+			const registerFileViewer = (descriptor) => {
+				if (viewers.has(descriptor.id)) throw new Error(`[dsh-coding-sidebar] file viewer "${descriptor.id}" already registered`);
+				viewers.set(descriptor.id, descriptor);
+				notify();
+				return () => {
+					if (viewers.get(descriptor.id) === descriptor) {
+						viewers.delete(descriptor.id);
+						notify();
+					}
+				};
+			};
 			const getTabs = () => Array.from(tabs.values());
+			const getFileViewers = () => Array.from(viewers.values());
 			const getTab = (id) => tabs.get(id);
 			const isTabEnabled = (id) => store.getPrefs().tabsEnabled[id] !== false;
+			const isViewerEnabled = (id) => store.getPrefs().viewersEnabled[id] !== false;
+			const matchFileViewer = (path, head) => {
+				const ext = extOfPath(path);
+				for (const v of Array.from(viewers.values()).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))) {
+					if (!isViewerEnabled(v.id)) continue;
+					if (head !== void 0 && v.detect !== void 0) {
+						if (v.detect(path, head)) return v;
+						if (v.exts.length === 0) continue;
+					} else if (v.exts.length === 0) {
+						if (v.detect === void 0) return v;
+						continue;
+					}
+					if (v.exts.includes(ext)) return v;
+				}
+			};
 			const openTab = (seed, scope) => {
 				if (!isTabEnabled(seed.type)) {
 					console.warn(`[dsh-coding-sidebar] tab type "${seed.type}" is disabled in the side card settings`);
@@ -1850,9 +1756,13 @@ window.__ModuleLoader__.load({
 			};
 			return {
 				registerTab,
+				registerFileViewer,
 				getTabs,
+				getFileViewers,
 				getTab,
 				isTabEnabled,
+				isViewerEnabled,
+				matchFileViewer,
 				openTab,
 				closeTab: closeTab$1,
 				subscribe,
@@ -2231,6 +2141,20 @@ window.__ModuleLoader__.load({
 				}]
 			})(props);
 		}
+		function VscTasklist(props) {
+			return GenIcon({
+				"tag": "svg",
+				"attr": {
+					"viewBox": "0 0 16 16",
+					"fill": "currentColor"
+				},
+				"child": [{
+					"tag": "path",
+					"attr": { "d": "M4.85401 2.14649C5.04901 2.34149 5.04901 2.65849 4.85401 2.85349L2.85401 4.85349C2.65901 5.04849 2.34201 5.04849 2.14701 4.85349L1.14701 3.85349C0.952013 3.65849 0.952013 3.34149 1.14701 3.14649C1.34201 2.95149 1.65901 2.95149 1.85401 3.14649L2.50001 3.79249L4.14601 2.14649C4.34101 1.95149 4.65901 1.95149 4.85401 2.14649ZM14.5 4.00049H6.50001C6.22401 4.00049 6.00001 3.77649 6.00001 3.50049C6.00001 3.22449 6.22401 3.00049 6.50001 3.00049H14.5C14.776 3.00049 15 3.22449 15 3.50049C15 3.77649 14.776 4.00049 14.5 4.00049ZM4.85401 11.1465C5.04901 11.3415 5.04901 11.6585 4.85401 11.8535L2.85401 13.8535C2.65901 14.0485 2.34201 14.0485 2.14701 13.8535L1.14701 12.8535C0.952013 12.6585 0.952013 12.3415 1.14701 12.1465C1.34201 11.9515 1.65901 11.9515 1.85401 12.1465L2.50001 12.7925L4.14601 11.1465C4.34101 10.9515 4.65901 10.9515 4.85401 11.1465ZM14.5 13.0005H6.50001C6.22401 13.0005 6.00001 12.7765 6.00001 12.5005C6.00001 12.2245 6.22401 12.0005 6.50001 12.0005H14.5C14.776 12.0005 15 12.2245 15 12.5005C15 12.7765 14.776 13.0005 14.5 13.0005ZM4.85401 6.64649C5.04901 6.84149 5.04901 7.15849 4.85401 7.35349L2.85401 9.35349C2.65901 9.54849 2.34201 9.54849 2.14701 9.35349L1.14701 8.35349C0.952013 8.15849 0.952013 7.84149 1.14701 7.64649C1.34201 7.45149 1.65901 7.45149 1.85401 7.64649L2.50001 8.29249L4.14601 6.64649C4.34101 6.45149 4.65901 6.45149 4.85401 6.64649ZM14.5 8.50049H6.50001C6.22401 8.50049 6.00001 8.27649 6.00001 8.00049C6.00001 7.72449 6.22401 7.50049 6.50001 7.50049H14.5C14.776 7.50049 15 7.72449 15 8.00049C15 8.27649 14.776 8.50049 14.5 8.50049Z" },
+					"child": []
+				}]
+			})(props);
+		}
 		function VscRemoteExplorer(props) {
 			return GenIcon({
 				"tag": "svg",
@@ -2413,7 +2337,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:/Users/libing/kk_Projects/dsh-coding-sidebar/src/client/builtins/tab-icons.module.css.mjs
-		const css$6 = ".wDi0EW_files{color:var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary))}.wDi0EW_changes{color:var(--dsw-alias-state-success-primary,var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary)))}.wDi0EW_tasks{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-primary))}.wDi0EW_sidechat{color:var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary)))}.wDi0EW_terminal{color:var(--dsw-alias-label-primary)}.wDi0EW_browser{color:var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary)))}.wDi0EW_trajectory{color:var(--dsw-alias-state-success-primary,var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary)))}";
+		const css$6 = ".wDi0EW_files{color:var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary))}.wDi0EW_changes{color:var(--dsw-alias-state-success-primary,var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary)))}.wDi0EW_tasks,.wDi0EW_plans{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-primary))}.wDi0EW_sidechat{color:var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary)))}.wDi0EW_terminal{color:var(--dsw-alias-label-primary)}.wDi0EW_browser{color:var(--dsw-alias-state-business-primary,var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary)))}.wDi0EW_trajectory{color:var(--dsw-alias-state-success-primary,var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary)))}";
 		const tagId$5 = "dsh-external/dsh-coding-sidebar/tab-icons.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$5) + "]") === null) {
 			const tag = document.createElement("style");
@@ -2429,6 +2353,7 @@ window.__ModuleLoader__.load({
 			"browser": "wDi0EW_browser",
 			"changes": "wDi0EW_changes",
 			"files": "wDi0EW_files",
+			"plans": "wDi0EW_plans",
 			"sidechat": "wDi0EW_sidechat",
 			"tasks": "wDi0EW_tasks",
 			"terminal": "wDi0EW_terminal",
@@ -2457,6 +2382,12 @@ window.__ModuleLoader__.load({
 		* sessions plus the host's background jobs), not a to-do list.
 		*/
 		const tasksTabIcon = (size) => themed(css$5.tasks, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscLayers, { size }));
+		/**
+		* Task plans — the markdown planning docs an agent writes during a run. Same
+		* amber family as the tasks tab (both are agent work-in-progress surfaces),
+		* with a deliberately different glyph: a checklist page, not stacked sheets.
+		*/
+		const plansTabIcon = (size) => themed(css$5.plans, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscTasklist, { size }));
 		/** Side chat — the conversational/secondary accent. */
 		const sidechatTabIcon = (size) => themed(css$5.sidechat, /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscCommentDiscussion, { size }));
 		/**
@@ -2571,6 +2502,14 @@ window.__ModuleLoader__.load({
 			terminalDepsHint: "在 DSH 所在环境的终端或 cmd 中执行以下命令修复，然后点重试（node-pty 与 DSH 核心保持同一版本）：",
 			terminalDepsProfile: "（检测到 profile：{profile}）",
 			terminalShellNotFound: "未找到配置的 Shell：{name}，请到 设置 → 侧边卡片 → 终端 检查 Shell 路径",
+			preview: "预览",
+			toc: "目录",
+			edit: "编辑",
+			mermaidError: "Mermaid 渲染失败",
+			mermaidZoomIn: "放大",
+			mermaidZoomOut: "缩小",
+			mermaidZoomReset: "重置",
+			mermaidZoomHint: "滚轮缩放 · 拖拽平移 · Esc 关闭",
 			refresh: "刷新",
 			refreshUnsavedConfirm: "文件已在磁盘更新，刷新将丢弃未保存编辑。继续吗？",
 			save: "保存",
@@ -2733,8 +2672,25 @@ window.__ModuleLoader__.load({
 			settingsShellArgsDesc: "显式 shell 启动参数，空格分隔；非空时完全替换默认参数（与 yaml 的 shellArgs 契约一致）",
 			settingsShellArgsPlaceholder: "如 -l（留空用默认参数）",
 			settingsTabsTitle: "侧边栏内容",
+			settingsViewersTitle: "文件预览",
 			settingsGeneralTitle: "常规",
 			settingsPopup: "功能设置",
+			settingsViewerCatchAll: "兜底：任意文件",
+			viewerImage: "图片",
+			viewerPdf: "PDF",
+			viewerMarkdown: "Markdown",
+			viewerCode: "代码",
+			viewerBinary: "二进制下载",
+			viewerDocx: "Word 文档",
+			viewerXlsx: "Excel 表格",
+			viewerPptx: "PPT 演示",
+			viewerVideo: "视频",
+			previousSlide: "上一页",
+			nextSlide: "下一页",
+			zoom: "缩放",
+			zoomHint: "Alt + 滚轮",
+			videoUnsupported: "该格式无法在浏览器内播放，可下载后用本地播放器打开",
+			viewerHtml: "HTML",
 			browser: "浏览器",
 			browserPlaceholder: "输入网址，例如 example.com",
 			browserGo: "前往",
@@ -2751,9 +2707,14 @@ window.__ModuleLoader__.load({
 			browserBlockedLoopback: "已阻止：不允许在浏览器中访问本机或内部地址",
 			browserInvalid: "无效的网址",
 			browserNoSandboxWarning: "沙箱已关闭：当前页面与界面同源，拥有完整会话权限（可在设置中恢复）",
+			htmlNoSandboxWarning: "沙箱已关闭：此 HTML 与界面同源，可读取会话文件与内部接口（可在设置中恢复）",
 			sandboxStatusOn: "沙箱模式：已启用 · 页面无法访问界面数据与本地文件，登录态与第三方 Cookie 可能不可用",
 			sandboxUnlock: "临时解锁（不安全）",
 			sandboxRestore: "恢复沙箱",
+			settingsHtmlDefaultUnsafeTitle: "HTML 预览默认以非沙箱模式打开（不安全）",
+			settingsHtmlDefaultUnsafeDesc: "开启后，每次打开 HTML 文件时预览默认处于非沙箱状态（与界面同源，可读取会话文件与内部接口）；可在状态行临时恢复沙箱",
+			settingsHtmlSandboxTitle: "关闭 HTML 预览沙箱（不安全）",
+			settingsHtmlSandboxDesc: "关闭后，预览的 HTML 将与界面同源运行，可读取会话文件、本地存储并调用内部接口。仅对完全可信的文件开启",
 			settingsBrowserSandboxTitle: "关闭浏览器沙箱（不安全）",
 			settingsBrowserSandboxDesc: "关闭后，访问的任何网站都将与界面同源运行，可读取会话数据并冒充你的登录状态。仅对完全可信的站点开启",
 			settingsBrowserLinksTitle: "聊天区外链在侧边栏打开",
@@ -2834,7 +2795,10 @@ window.__ModuleLoader__.load({
 			jobKillError: "终止失败",
 			addPluginsTabCard: "添加 Tab 插件",
 			addPluginsTabCardDesc: "注册新的侧边栏页面",
+			addPluginsViewerCard: "添加预览插件",
+			addPluginsViewerCardDesc: "注册新的文件类型预览",
 			addPluginsTabDesc: "侧边栏页面（Tab）可以由插件扩展。插件通过 ctx.betterSidebar 服务注册；点击「安装」复制安装命令，粘贴到 DSH 所在环境的终端执行。",
+			addPluginsViewerDesc: "文件预览器可以由插件扩展。插件通过 ctx.betterSidebar 服务注册；点击「安装」复制安装命令，粘贴到 DSH 所在环境的终端执行。",
 			addPluginsBrowseMore: "在 GitHub 上浏览更多插件（topic: dsh-coding-sidebar）",
 			addPluginsSearch: "搜索插件名称 / 描述…",
 			addPluginsNoMatch: "没有匹配的插件",
@@ -2878,7 +2842,70 @@ window.__ModuleLoader__.load({
 			trajLaneTool: "工具",
 			trajStatusRunning: "进行中",
 			trajStatusError: "失败",
-			trajStatusInterrupted: "已停止"
+			trajStatusInterrupted: "已停止",
+			confirm: "确定",
+			gitViewChanges: "变更",
+			gitViewBranches: "分支",
+			gitAhead: "领先上游 {n} 个提交",
+			gitBehind: "落后上游 {n} 个提交",
+			gitPushed: "已同步",
+			gitPendingPush: "待推送",
+			gitNoUpstream: "无上游",
+			gitPush: "推送",
+			gitPushing: "推送中…",
+			gitCommitPush: "提交并推送",
+			gitCommitPushFailed: "提交并推送失败",
+			gitPushFailed: "推送失败",
+			gitUntracked: "{n} 个未跟踪",
+			gitBranchSearch: "搜索分支…",
+			gitBranchNoMatch: "无匹配分支",
+			gitBranchNew: "新建分支",
+			gitBranchNamePlaceholder: "分支名",
+			gitBranchCreate: "创建并检出",
+			gitBranchCreateFailed: "创建分支失败",
+			gitBranchCurrent: "当前",
+			gitBranchRemote: "远程",
+			gitBranchTracked: "→ {upstream}",
+			gitBranchDelete: "删除分支",
+			gitBranchDeleteDesc: "删除本地分支「{name}」？未合并时会再次确认。",
+			gitBranchDeleteForce: "强制删除",
+			gitBranchDeleteUnmerged: "「{name}」尚未合并，强制删除会丢失它的提交。仍要删除？",
+			gitBranchDeleteFailed: "删除分支失败",
+			ghSection: "GitHub",
+			ghEnv: "环境",
+			ghNotInstalled: "gh CLI 未安装",
+			ghNotAuthenticated: "gh 未登录",
+			ghInstallHint: "安装 gh（https://cli.github.com）并执行 gh auth login 后重试。",
+			ghFailed: "gh 调用失败",
+			ghReprobe: "重新探测",
+			ghOpenPrs: "开放 PR",
+			ghOpenIssues: "开放 Issue",
+			ghNoPr: "无开放 PR",
+			ghNoIssue: "无开放 Issue",
+			ghOpen: "打开",
+			ghMerge: "合并",
+			ghMergeConfirm: "合并 #{number}？",
+			ghMerged: "已合并 #{number}",
+			ghMergeFailed: "合并失败",
+			ghDraft: "草稿",
+			ghCreatePr: "创建 PR",
+			ghCreateIssue: "新建 Issue",
+			ghCreatedPr: "已创建 PR",
+			ghCreatedIssue: "已新建 Issue",
+			ghCreatePrFailed: "创建 PR 失败",
+			ghCreateIssueFailed: "新建 Issue 失败",
+			ghPrTitle: "PR 标题",
+			ghIssueTitle: "Issue 标题",
+			ghBody: "描述（可空）",
+			ghCreate: "创建",
+			plans: "任务计划",
+			plansSearch: "搜索计划文档…",
+			plansEmpty: "暂无任务计划文档",
+			plansHint: "约定位置：plans/ · docs/plans/ · .plans/ · plan.md",
+			plansNoMatch: "没有匹配的计划文档",
+			plansOpenInApp: "用系统应用打开",
+			plansOpenFailed: "打开失败",
+			plansCapped: "仅显示最近 {n} 个文档"
 		};
 		/** The en dictionary (key-set-equal to zh, enforced by the type annotation). */
 		const en = {
@@ -2955,6 +2982,14 @@ window.__ModuleLoader__.load({
 			terminalDepsHint: "Run the command below in a terminal or cmd on the DSH machine to repair it, then retry (node-pty stays in sync with the DSH core version):",
 			terminalDepsProfile: " (detected profile: {profile})",
 			terminalShellNotFound: "Configured shell not found: {name} — check the shell path under Settings → Side card → Terminal",
+			preview: "Preview",
+			toc: "Table of contents",
+			edit: "Edit",
+			mermaidError: "Mermaid render failed",
+			mermaidZoomIn: "Zoom in",
+			mermaidZoomOut: "Zoom out",
+			mermaidZoomReset: "Reset",
+			mermaidZoomHint: "Scroll to zoom · drag to pan · Esc to close",
 			refresh: "Refresh",
 			refreshUnsavedConfirm: "The file changed on disk. Refreshing will discard unsaved edits. Continue?",
 			save: "Save",
@@ -3117,8 +3152,25 @@ window.__ModuleLoader__.load({
 			settingsFontSizeDesc: "Terminal font size in px (9–32, default 13)",
 			settingsFontSizeSuffix: "px",
 			settingsTabsTitle: "Sidebar content",
+			settingsViewersTitle: "File viewers",
 			settingsGeneralTitle: "General",
 			settingsPopup: "Feature settings",
+			settingsViewerCatchAll: "Catch-all: any file",
+			viewerImage: "Image",
+			viewerPdf: "PDF",
+			viewerMarkdown: "Markdown",
+			viewerCode: "Code",
+			viewerBinary: "Binary download",
+			viewerDocx: "Word",
+			viewerXlsx: "Excel",
+			viewerPptx: "PowerPoint",
+			viewerVideo: "Video",
+			previousSlide: "Previous",
+			nextSlide: "Next",
+			zoom: "Zoom",
+			zoomHint: "Alt + wheel",
+			videoUnsupported: "This format cannot play in the browser — download it to open in a local player",
+			viewerHtml: "HTML",
 			browser: "Browser",
 			browserPlaceholder: "Enter a URL, e.g. example.com",
 			browserGo: "Go",
@@ -3135,9 +3187,14 @@ window.__ModuleLoader__.load({
 			browserBlockedLoopback: "Blocked: local and internal addresses cannot be browsed here",
 			browserInvalid: "Invalid URL",
 			browserNoSandboxWarning: "Sandbox off: the current page runs with full GUI privileges (re-enable in settings)",
+			htmlNoSandboxWarning: "Sandbox off: this HTML runs with full GUI privileges (re-enable in settings)",
 			sandboxStatusOn: "Sandbox mode: on · pages cannot access the GUI's data or local files; logins and third-party cookies may not work",
 			sandboxUnlock: "Temporarily disable (unsafe)",
 			sandboxRestore: "Restore sandbox",
+			settingsHtmlDefaultUnsafeTitle: "Open HTML previews unsandboxed by default (unsafe)",
+			settingsHtmlDefaultUnsafeDesc: "When on, every newly opened HTML preview starts in the unsandboxed state (same origin as the GUI — it can read session files and internal APIs); the status row still offers a one-tap restore",
+			settingsHtmlSandboxTitle: "Disable HTML preview sandbox (unsafe)",
+			settingsHtmlSandboxDesc: "With the sandbox off, previewed HTML runs with the same origin as the GUI: it can read session files, local storage and call internal APIs. Only enable for fully trusted files",
 			settingsBrowserSandboxTitle: "Disable browser sandbox (unsafe)",
 			settingsBrowserSandboxDesc: "With the sandbox off, any visited site runs with the same origin as the GUI: it can read session data and act as your logged-in session. Only enable for fully trusted sites",
 			settingsBrowserLinksTitle: "Open chat external links in the sidebar",
@@ -3218,7 +3275,10 @@ window.__ModuleLoader__.load({
 			jobKillError: "Kill failed",
 			addPluginsTabCard: "Add tab plugins",
 			addPluginsTabCardDesc: "Register a new sidebar page",
+			addPluginsViewerCard: "Add preview plugins",
+			addPluginsViewerCardDesc: "Register a file-type preview",
 			addPluginsTabDesc: "Sidebar pages (tabs) can be extended by plugins. Plugins register through the ctx.betterSidebar service; clicking Install copies the install command — paste it into a terminal where your DSH profile lives and run it.",
+			addPluginsViewerDesc: "File previewers can be extended by plugins. Plugins register through the ctx.betterSidebar service; clicking Install copies the install command — paste it into a terminal where your DSH profile lives and run it.",
 			addPluginsBrowseMore: "Browse more plugins on GitHub (topic: dsh-coding-sidebar)",
 			addPluginsSearch: "Search by plugin name or description…",
 			addPluginsNoMatch: "No plugins match",
@@ -3262,7 +3322,70 @@ window.__ModuleLoader__.load({
 			trajLaneTool: "Tools",
 			trajStatusRunning: "running",
 			trajStatusError: "failed",
-			trajStatusInterrupted: "stopped"
+			trajStatusInterrupted: "stopped",
+			confirm: "Confirm",
+			gitViewChanges: "Changes",
+			gitViewBranches: "Branches",
+			gitAhead: "{n} commits ahead of upstream",
+			gitBehind: "{n} commits behind upstream",
+			gitPushed: "up to date",
+			gitPendingPush: "unpushed",
+			gitNoUpstream: "no upstream",
+			gitPush: "Push",
+			gitPushing: "Pushing…",
+			gitCommitPush: "Commit & push",
+			gitCommitPushFailed: "Commit & push failed",
+			gitPushFailed: "Push failed",
+			gitUntracked: "{n} untracked",
+			gitBranchSearch: "Search branches…",
+			gitBranchNoMatch: "No matching branches",
+			gitBranchNew: "New branch",
+			gitBranchNamePlaceholder: "Branch name",
+			gitBranchCreate: "Create & checkout",
+			gitBranchCreateFailed: "Create branch failed",
+			gitBranchCurrent: "current",
+			gitBranchRemote: "remote",
+			gitBranchTracked: "→ {upstream}",
+			gitBranchDelete: "Delete branch",
+			gitBranchDeleteDesc: "Delete the local branch “{name}”? An unmerged branch asks again.",
+			gitBranchDeleteForce: "Force delete",
+			gitBranchDeleteUnmerged: "“{name}” is not fully merged — force deleting loses its commits. Delete anyway?",
+			gitBranchDeleteFailed: "Delete branch failed",
+			ghSection: "GitHub",
+			ghEnv: "Environment",
+			ghNotInstalled: "gh CLI is not installed",
+			ghNotAuthenticated: "gh is not logged in",
+			ghInstallHint: "Install gh (https://cli.github.com) and run gh auth login, then retry.",
+			ghFailed: "gh failed",
+			ghReprobe: "Re-probe",
+			ghOpenPrs: "Open PRs",
+			ghOpenIssues: "Open issues",
+			ghNoPr: "No open PRs",
+			ghNoIssue: "No open issues",
+			ghOpen: "Open",
+			ghMerge: "Merge",
+			ghMergeConfirm: "Merge #{number}?",
+			ghMerged: "Merged #{number}",
+			ghMergeFailed: "Merge failed",
+			ghDraft: "draft",
+			ghCreatePr: "Create PR",
+			ghCreateIssue: "New issue",
+			ghCreatedPr: "Pull request created",
+			ghCreatedIssue: "Issue created",
+			ghCreatePrFailed: "Create PR failed",
+			ghCreateIssueFailed: "Create issue failed",
+			ghPrTitle: "PR title",
+			ghIssueTitle: "Issue title",
+			ghBody: "Description (optional)",
+			ghCreate: "Create",
+			plans: "Task plans",
+			plansSearch: "Search plan documents…",
+			plansEmpty: "No plan documents",
+			plansHint: "Convention: plans/ · docs/plans/ · .plans/ · plan.md",
+			plansNoMatch: "No matching plan documents",
+			plansOpenInApp: "Open with system app",
+			plansOpenFailed: "Open failed",
+			plansCapped: "Showing the {n} most recent documents"
 		};
 		/**
 		* The dictionary namespace this plugin owns in the DSH locale registry
@@ -3634,10 +3757,15 @@ window.__ModuleLoader__.load({
 				Object.defineProperty(session, "openWorkspacePath", desc);
 			};
 		}
-		/** The scheme and type every file address opens with (mirror of the runtime grammar). */
+		/**
+		* The scheme and type every file address opens with (mirror of the runtime
+		* grammar). The QiLin channel renames the scheme to `qilin-resource://file/`
+		* at sync time — the channel rewrite below is the single source of that
+		* difference.
+		*/
 		const FILE_ADDRESS_PREFIX = "dsh-resource://file/";
 		/**
-		* Decode a `dsh-resource://file/…` address into the path it names.
+		* Decode a file-resource address into the path it names.
 		*
 		* A dependency-free mirror of the runtime's `parseFileAddress`
 		* (`@deepseek-ai/dsh-util-workspace-path`): this module deliberately imports no
@@ -3716,7 +3844,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:/Users/libing/kk_Projects/dsh-coding-sidebar/src/client/sidebar.module.css.mjs
-		const css$4 = "[data-dsh-panel-host]{z-index:25;pointer-events:none;position:fixed;inset:0;overflow:hidden}[data-dsh-panel-host][data-dsh-panel-host-degraded]{position:absolute;top:0;left:0}.S5HVoW_toggleCluster{top:calc(3px + env(safe-area-inset-top));z-index:45;pointer-events:auto;flex-direction:row;gap:4px;display:flex;position:absolute;right:10px}.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:72px}.S5HVoW_toggleButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), color var(--ds-transition-duration-slow) var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;justify-content:center;align-items:center;display:flex}.S5HVoW_toggleButton:hover:not(:disabled):not([aria-disabled=true]){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_toggleButton:disabled,.S5HVoW_toggleButton[aria-disabled=true]{opacity:.4;cursor:default}.S5HVoW_panel{box-sizing:border-box;z-index:40;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);padding-bottom:env(safe-area-inset-bottom);transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out);flex-direction:column;display:flex;position:absolute;top:0;bottom:0;right:0}.S5HVoW_panelHidden{pointer-events:none;visibility:hidden;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);transform:translate(102%)}.S5HVoW_panel[data-dragging]{transition:none}.S5HVoW_panelResize{cursor:col-resize;z-index:2;touch-action:none;width:8px;position:absolute;top:0;bottom:0;left:-4px}.S5HVoW_panelResizeActive{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_panelBody{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_panel{contain:layout style}body[data-dsh-sidebar-dragging] .S5HVoW_panel{will-change:transform}.S5HVoW_floatWindow{z-index:42;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-lv3);contain:layout style;border-radius:8px;flex-direction:column;display:flex;position:absolute;overflow:hidden}.S5HVoW_floatWindowDragging{will-change:left, top, width, height}.S5HVoW_floatHeader{height:34px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1);cursor:grab;user-select:none;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_floatWindowDragging .S5HVoW_floatHeader{cursor:grabbing}.S5HVoW_floatTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_floatClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_floatClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_floatContent{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden}.S5HVoW_floatResize{z-index:2;cursor:nwse-resize;touch-action:none;width:14px;height:14px;position:absolute;bottom:0;right:0}.S5HVoW_floatResize:hover{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane[data-dsh-float-dock-over]{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px}.S5HVoW_floatDropHint{z-index:46;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 12%, transparent);border-radius:8px;justify-content:center;align-items:center;display:flex;position:absolute}.S5HVoW_floatDropHintLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:4px 12px}.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tabBar,.S5HVoW_floatHeader{-webkit-app-region:no-drag}body[data-dsh-title-bar-compat] .S5HVoW_toggleCluster{top:calc(var(--dsh-title-bar-strip,40px) + 3px)}body[data-dsh-title-bar-compat] .S5HVoW_panel{padding-top:var(--dsh-title-bar-strip,40px)}.S5HVoW_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_iconButton:disabled{opacity:.4;cursor:default}.S5HVoW_workbench,.S5HVoW_split{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_splitRow{flex-direction:row}.S5HVoW_splitCol{flex-direction:column}.S5HVoW_splitChild{display:flex;position:relative;overflow:hidden}.S5HVoW_divider{z-index:3;touch-action:none;flex:none;position:relative}.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{content:\"\";background:var(--dsw-alias-border-l2);transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out);position:absolute}.S5HVoW_dividerRow{cursor:col-resize;width:7px;margin:0 -2px}.S5HVoW_dividerRow:after{width:1px;top:0;bottom:0;left:50%;transform:translate(-50%)}.S5HVoW_dividerCol{cursor:row-resize;height:7px;margin:-2px 0}.S5HVoW_dividerCol:after{height:1px;top:50%;left:0;right:0;transform:translateY(-50%)}.S5HVoW_divider:hover:after,.S5HVoW_dividerActive:after{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_paneDrop{outline:1px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_dropOverlay{z-index:6;pointer-events:none;background:var(--dsw-alias-interactive-bg-hover-accent);opacity:.5;position:absolute}.S5HVoW_dropLeft{width:25%;top:0;bottom:0;left:0}.S5HVoW_dropRight{width:25%;top:0;bottom:0;right:0}.S5HVoW_dropUp{height:25%;top:0;left:0;right:0}.S5HVoW_dropDown{height:25%;bottom:0;left:0;right:0}.S5HVoW_dropCenter{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px;background:0 0;inset:25%}.S5HVoW_paneContent{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden}.S5HVoW_paneTab{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_paneTabHidden{display:none}.S5HVoW_paneEmptyCards{flex:1;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));align-content:start;gap:8px;min-height:0;padding:12px;display:grid;overflow:hidden}.S5HVoW_paneCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;text-align:center;border-radius:8px;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:12px 8px;display:flex}.S5HVoW_paneCard:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}.S5HVoW_paneCard:disabled{opacity:.45;cursor:default}.S5HVoW_tabBar{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:stretch;height:34px;display:flex}.S5HVoW_tabBarDrop{outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_tabList{scrollbar-width:none;flex:1;min-width:0;display:flex;overflow-x:auto}.S5HVoW_tabList::-webkit-scrollbar{display:none}.S5HVoW_tab{min-width:64px;max-width:160px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);border-right:1px solid var(--dsw-alias-border-l1);cursor:pointer;user-select:none;background:0 0;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_tabActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_tabTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_tabBadge{min-width:16px;height:15px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);border-radius:8px;flex:none;justify-content:center;align-items:center;padding:0 4px;display:inline-flex}.S5HVoW_tabClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_tabClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tabBarPlus{background:var(--dsw-alias-bg-layer-1);width:22px;height:22px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border:none;border-radius:5px;flex:none;justify-content:center;align-self:center;align-items:center;margin:0 6px;padding:0;display:inline-flex;position:sticky;right:0}.S5HVoW_tabBarPlus:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_pinnedTab{color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_pinnedTab:hover{color:var(--dsw-alias-label-secondary)}.S5HVoW_explorer{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_explorerHeader{flex:none;justify-content:space-between;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_explorerRoot{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_explorerBody{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden auto}.S5HVoW_explorerRow{box-sizing:border-box;width:100%;max-width:100%;height:34px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;white-space:nowrap;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);background:0 0;border:none;border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.S5HVoW_explorerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_explorerRowRevealed{background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 18%, transparent);box-shadow:inset 2px 0 0 var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_explorerDir{font:var(--dsw-font-s-strong-14)}.S5HVoW_explorerHidden{opacity:.45}.S5HVoW_explorerSymlink{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerBroken .S5HVoW_explorerName{color:var(--dsw-alias-state-error-primary)}.S5HVoW_explorerName{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.S5HVoW_explorerRef{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:20px;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;align-items:center;padding:0 8px;display:none}.S5HVoW_explorerRef:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_explorerRow:hover .S5HVoW_explorerRef,.S5HVoW_explorerRow:focus-within .S5HVoW_explorerRef{display:inline-flex}.S5HVoW_explorerCopied{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);cursor:default}@keyframes S5HVoW_dsh-row-in{0%{opacity:0}}.S5HVoW_explorerEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_explorerRowDropTarget{background:var(--dsw-alias-interactive-bg-hover);outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_uploadDropZone{z-index:1001;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);box-shadow:0 0 0 200vmax var(--dsw-alias-bg-mask-drop);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:10px;justify-content:center;align-items:flex-start;padding:12px;display:flex;position:fixed}.S5HVoW_uploadDropHero{flex-direction:column;align-items:center;gap:10px;max-width:100%;padding-top:8px;display:flex}.S5HVoW_uploadDropZonePill{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:100%;box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);border-radius:999px;align-items:center;gap:6px;padding:6px 12px;display:flex}.S5HVoW_uploadDropZoneText{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadDropChatHint{z-index:1002;pointer-events:none;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;padding:24px;display:flex;position:fixed;top:0;bottom:0;left:0}.S5HVoW_uploadDropChatCard{text-align:center;max-width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-strong-14);flex-direction:column;align-items:center;gap:12px;display:flex}.S5HVoW_uploadOverlay{z-index:30;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;display:flex;position:absolute;inset:0}.S5HVoW_uploadOverlayCard{border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-alias-bg-layer-2);min-width:280px;max-width:min(420px,100% - 48px);box-shadow:var(--dsw-shadow-lv3);border-radius:24px;flex-direction:column;gap:12px;padding:20px 24px;display:flex}.S5HVoW_uploadOverlayTitle{font:var(--dsw-font-s-strong-14);color:var(--dsw-alias-label-primary);align-items:center;gap:8px;display:flex}.S5HVoW_uploadOverlayTitle>svg{flex:none}.S5HVoW_uploadOverlayTitle>span{white-space:nowrap;text-overflow:ellipsis;min-width:0;overflow:hidden}.S5HVoW_uploadOverlayProgress{background:var(--dsw-alias-border-l2);border-radius:3px;height:6px;overflow:hidden}.S5HVoW_uploadOverlayProgressFill{background:var(--dsw-alias-interactive-bg-hover-accent);height:100%;transition:width .15s var(--ds-ease-in-out);border-radius:3px}.S5HVoW_uploadOverlayStatus{min-height:1em;font:var(--dsw-font-xxs-12);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadOverlayCancel{border:1px solid var(--dsw-alias-border-l2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;background:0 0;border-radius:8px;align-self:flex-end;padding:0 14px}.S5HVoW_uploadOverlayCancel:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_uploadOverlayCancel:disabled{opacity:.4;cursor:default}.S5HVoW_editor{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorTitle{min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.S5HVoW_editorPathInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorPathInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorTreeToggleActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_editorBody{flex:1;min-height:0;display:flex}.S5HVoW_editorMain{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_editorTreeDock{border-left:1px solid var(--dsw-alias-border-l1);flex:none;min-height:0;display:flex;position:relative}.S5HVoW_editorTreeResize{cursor:col-resize;touch-action:none;z-index:3;width:6px;position:absolute;top:0;bottom:0;left:0}.S5HVoW_editorTreeResize:hover{background:var(--dsw-alias-border-l2)}.S5HVoW_editorTreePanel{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_editorTreePanelFull{flex:1}.S5HVoW_editorTreeSearch{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorSearchInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorSearchInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorSearchHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:8px 12px}.S5HVoW_editorSearchResult{width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;text-overflow:ellipsis;white-space:nowrap;background:0 0;border:none;border-radius:6px;padding:4px 8px;display:block;overflow:hidden}.S5HVoW_editorSearchResult:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorStatusError{color:var(--dsw-alias-state-error-primary)}.S5HVoW_dirtyDot{background:var(--dsw-alias-state-warn-primary);border-radius:50%;flex:none;width:7px;height:7px}.S5HVoW_editorPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex:1;justify-content:center;align-items:center;padding:16px;display:flex}.S5HVoW_orphanedType{opacity:.7;overflow-wrap:anywhere;margin-top:8px;font-size:12px;display:block}.S5HVoW_editorBinary{text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:12px;padding:24px 16px;display:flex}.S5HVoW_editorBinaryNotice{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorDownloadLink{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:6px;align-items:center;gap:6px;padding:6px 14px;text-decoration:none;display:inline-flex}.S5HVoW_editorDownloadLink:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_editorError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);padding:12px 16px}.S5HVoW_editorBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 8px}.S5HVoW_sandboxStatus{font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sandboxStatusOn{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sandboxStatusOff{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}.S5HVoW_sandboxDot{background:var(--dsw-alias-state-success-primary);border-radius:50%;flex:none;width:6px;height:6px}.S5HVoW_sandboxStatusOff .S5HVoW_sandboxDot{background:var(--dsw-alias-state-error-primary)}.S5HVoW_sandboxStatusText{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_sandboxAction{border:1px solid var(--dsw-alias-border-l2);font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:6px;flex:none;padding:2px 8px}.S5HVoW_sandboxAction:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_browser{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_browserBar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:4px;padding:6px 8px;display:flex}.S5HVoW_browserInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_browserInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_browserMessage{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 12px}.S5HVoW_browserFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_browserStart{text-align:center;min-height:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);flex:1;justify-content:center;align-items:center;padding:20px;display:flex}.S5HVoW_browserBlocked{text-align:center;min-height:0;color:var(--dsw-alias-state-warn-primary);flex-direction:column;flex:1;justify-content:center;align-items:center;gap:6px;padding:24px;display:flex}.S5HVoW_browserBlockedTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary)}.S5HVoW_browserBlockedDesc{max-width:280px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary)}.S5HVoW_browserBlockedActions{gap:8px;margin-top:6px;display:flex}.S5HVoW_browserBlockedButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);cursor:pointer;border-radius:6px;padding:4px 12px}.S5HVoW_browserBlockedButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorCm{background:0 0;flex:1;min-height:0;overflow:hidden}.S5HVoW_editorCm .cm-editor{height:100%}.S5HVoW_editorCm .cm-scroller{padding:12px 16px}.S5HVoW_editorCm .cm-editor.cm-focused{outline:none}.S5HVoW_selectionPopup{z-index:60;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;cursor:pointer;border-radius:6px;align-items:center;padding:0 10px;display:inline-flex;position:fixed;transform:translate(-50%,calc(-100% - 8px))}.S5HVoW_selectionPopup:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_terminalWrap{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;position:relative}.S5HVoW_terminal{flex:1;min-height:0;padding:6px 4px 6px 8px}.S5HVoW_terminal .xterm{height:100%}.S5HVoW_terminalBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-wrap:wrap;flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalBannerUrl{word-break:break-all;opacity:.85;flex-basis:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.S5HVoW_boundaryError{z-index:50;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;align-items:flex-start;gap:8px;padding:16px;display:flex;position:fixed;top:0;bottom:0;right:0;overflow:auto}.S5HVoW_terminalRetry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;padding:1px 8px}.S5HVoW_terminalRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitFoldRow{box-sizing:border-box;background:var(--dsw-alias-bg-layer-1);width:100%;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);text-align:center;cursor:pointer;border:none;outline:none;padding:2px 12px;display:block}.S5HVoW_gitFoldRow:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.S5HVoW_gitFoldRow:disabled{cursor:default}.S5HVoW_gitFoldRowFailed{color:var(--dsw-alias-state-error-primary);opacity:.7}.S5HVoW_explorerRenameInput{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);min-width:0;height:20px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:4px;outline:none;flex:1;padding:0 4px}.S5HVoW_changesLensToggle{flex:none;gap:2px;padding:2px;display:flex}.S5HVoW_changesLensTab{height:24px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:1}.S5HVoW_changesLensTab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_changesLensTabActive,.S5HVoW_changesLensTabActive:hover{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.S5HVoW_sessionLens{flex:1;min-height:0;overflow-y:auto}.S5HVoW_sessionLensBar{align-items:center;gap:6px;height:26px;padding:0 4px;display:flex}.S5HVoW_sessionLensCount{min-width:0;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:1}.S5HVoW_sessionLensEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_sessionLensItem{border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sessionLensRow{box-sizing:border-box;width:100%;min-height:30px;color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:6px;outline:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sessionLensRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_sessionLensPath{text-overflow:ellipsis;white-space:nowrap;text-align:left;direction:rtl;flex:1;min-width:0;overflow:hidden}.S5HVoW_sessionLensMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_sessionLensPreview{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);max-height:260px;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;border-radius:6px;margin:0 8px 6px;padding:6px 8px;line-height:1.5;overflow:auto}.S5HVoW_terminalWaitBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalWaitNeedle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden}.S5HVoW_terminalDepsBanner{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-direction:column;flex:none;gap:6px;padding:10px;display:flex}.S5HVoW_terminalDepsTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-state-warn-primary)}.S5HVoW_terminalDepsHint{opacity:.9}.S5HVoW_terminalDepsCommandRow{align-items:flex-start;gap:8px;display:flex}.S5HVoW_terminalRepairCommand{white-space:pre-wrap;word-break:break-all;user-select:text;min-width:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:4px;flex:1;max-height:160px;margin:0;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;overflow:auto}.S5HVoW_terminalDepsNote{opacity:.85}.S5HVoW_terminalDepsActions{align-items:center;gap:8px;display:flex}.S5HVoW_tabBoundaryError{min-height:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;flex:1;align-items:flex-start;gap:8px;padding:12px 16px;display:flex;overflow:auto}.S5HVoW_git{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitHeader{flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitWorktreeRow{flex:none;align-items:center;gap:8px;padding:6px 8px 0 12px;display:flex}.S5HVoW_gitWorktreeLabel{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none}.S5HVoW_gitBranchSelect{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 6px}.S5HVoW_gitSection{border-top:1px solid var(--dsw-alias-border-l1)}.S5HVoW_gitSectionHeader{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);text-transform:uppercase;justify-content:space-between;align-items:center;padding:6px 12px 4px;display:flex}.S5HVoW_gitLink{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-brand-primary);cursor:pointer;background:0 0;border:none;padding:0}.S5HVoW_gitLink:hover:not(:disabled){text-decoration:underline}.S5HVoW_gitLink:disabled{opacity:.4;cursor:default}.S5HVoW_gitRow{min-height:34px;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:8px;align-items:center;gap:6px;margin:0 6px;padding:0 8px;display:flex}.S5HVoW_gitRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitRowSelected{background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_gitRowMain{cursor:pointer;text-align:left;background:0 0;border:none;flex:1;align-items:center;gap:8px;min-width:0;padding:3px 0;display:flex}.S5HVoW_gitBadge{width:20px;height:16px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_gitName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:4px 12px 8px}.S5HVoW_gitPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_gitError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap;padding:8px 12px}.S5HVoW_gitDiff{border-top:1px solid var(--dsw-alias-border-l1);padding:8px}.S5HVoW_gitDiffTab{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitDiffTabHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitDiffTabTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitDiffFile{width:100%;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;align-items:baseline;gap:6px;padding:8px 2px 2px;display:flex}.S5HVoW_gitDiffFile:disabled{cursor:default}.S5HVoW_gitDiffFile:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitDiffFileChevron{color:var(--dsw-alias-label-tertiary);flex:none;transform:rotate(0)}.S5HVoW_gitDiffFileChevronExpanded{transform:rotate(90deg)}.S5HVoW_gitDiffFilePath{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffFileOld{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:none;max-width:40%;overflow:hidden}.S5HVoW_gitDiffFileTag{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:0 6px}.S5HVoW_gitDiffHunk{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);gap:8px;padding:3px 2px;display:flex}.S5HVoW_gitDiffHunkHeader{color:var(--dsw-alias-label-secondary);flex:none}.S5HVoW_gitDiffHunkSection{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffLine{font:var(--dsw-font-markdown-code-block-small);white-space:pre-wrap;overflow-wrap:anywhere;align-items:stretch;min-width:0;line-height:20px;display:flex}.S5HVoW_gitDiffNum{text-align:right;width:36px;color:var(--dsw-alias-label-tertiary);user-select:none;flex:none;padding-right:8px}.S5HVoW_gitDiffCode{flex:1;min-width:0;overflow:visible}.S5HVoW_gitDiffCtx{color:var(--dsw-alias-label-primary)}.S5HVoW_gitDiffDel{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}.S5HVoW_gitDiffAdd{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent)}.S5HVoW_gitDiffMeta{padding-left:2px}.S5HVoW_gitDiffMetaText{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_gitDiffExpand{width:100%;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-brand-primary);cursor:pointer;text-align:center;background:0 0;border:none;margin:4px 0;display:block}.S5HVoW_gitDiffExpand:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitConfirmDesc{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);white-space:pre-wrap;margin:0}.S5HVoW_gitCommit{border-top:1px solid var(--dsw-alias-border-l1);align-items:center;gap:6px;padding:8px 12px;display:flex}.S5HVoW_gitCommitInput{flex:1;min-width:0}.S5HVoW_gitCommitButton{background:var(--dsw-alias-button-primary-fill);height:26px;color:var(--dsw-alias-label-primary-inverted);font:var(--dsw-font-xxs-strong-12);cursor:pointer;border:none;border-radius:6px;flex:none;padding:0 12px}.S5HVoW_gitCommitButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.S5HVoW_gitCommitButton:disabled{opacity:.45;cursor:default}.S5HVoW_gitLogRow{cursor:pointer;border-radius:8px;flex-direction:column;gap:2px;padding:5px 12px;display:flex}.S5HVoW_gitLogRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitLogLine1{align-items:baseline;gap:8px;min-width:0;display:flex}.S5HVoW_gitLogHash{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_gitLogLine2{flex-wrap:wrap;align-items:center;gap:6px;min-width:0;display:flex}.S5HVoW_gitLogRef{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-brand-primary);white-space:nowrap;border-radius:999px;flex:none;padding:0 5px}.S5HVoW_gitLogSubject{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitLogMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_gitLogMore{border:1px solid var(--dsw-alias-border-l2);width:calc(100% - 24px);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:6px;margin:4px 12px 8px;padding:6px 0;display:block}.S5HVoW_gitLogMore:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitLogMore:disabled{opacity:.5;cursor:default}.S5HVoW_producedRow{flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0;display:flex}.S5HVoW_producedLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_producedChip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:200px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;display:inline-flex;overflow:hidden}.S5HVoW_producedChip:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_producedChip span{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_producedMore{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_toggleButton:focus-visible,.S5HVoW_iconButton:focus-visible,.S5HVoW_tab:focus-visible,.S5HVoW_tabClose:focus-visible,.S5HVoW_tabBarPlus:focus-visible,.S5HVoW_paneCard:focus-visible,.S5HVoW_explorerRow:focus-visible,.S5HVoW_explorerRef:focus-visible,.S5HVoW_gitRowMain:focus-visible,.S5HVoW_gitLink:focus-visible,.S5HVoW_gitCommitButton:focus-visible,.S5HVoW_gitLogRow:focus-visible,.S5HVoW_gitLogMore:focus-visible,.S5HVoW_gitDiffFile:focus-visible,.S5HVoW_gitDiffExpand:focus-visible,.S5HVoW_terminalRetry:focus-visible,.S5HVoW_editorDownloadLink:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}@media (prefers-reduced-motion:reduce){.S5HVoW_panel,.S5HVoW_panelHidden,.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tab,.S5HVoW_tabBarPlus,.S5HVoW_paneCard,.S5HVoW_explorerRow,.S5HVoW_gitRow,.S5HVoW_divider,.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{transition:none;animation:none}}@media (width<=767px){.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:40px}.S5HVoW_tab{min-width:48px;max-width:128px}}.S5HVoW_openWithLabel{align-items:center;gap:8px;width:100%;min-width:0;display:flex}.S5HVoW_openWithName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}.S5HVoW_openWithChevron{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_openWithPin{width:20px;height:20px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:6px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_openWithPin:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_openWithPinActive{color:var(--dsw-alias-state-business-primary)}@keyframes S5HVoW_dsh-toc-flash{0%,60%{background:var(--dsw-alias-interactive-bg-hover)}to{background:0 0}}.S5HVoW_browserLive{flex-direction:column;gap:6px;padding:8px 10px;display:flex;position:absolute;inset:0;overflow:hidden}.S5HVoW_browserLiveStatus{opacity:.75;align-items:center;gap:8px;font-size:12px;display:flex}.S5HVoW_browserLiveCanvas{object-fit:contain;border:1px solid var(--dsw-alias-border-l,#80808040);cursor:crosshair;background:#fff;border-radius:8px;flex:1;width:100%;min-height:0}.S5HVoW_browserLiveTarget{max-width:260px;font-size:12px}";
+		const css$4 = "[data-dsh-panel-host]{z-index:25;pointer-events:none;position:fixed;inset:0;overflow:hidden}[data-dsh-panel-host][data-dsh-panel-host-degraded]{position:absolute;top:0;left:0}.S5HVoW_toggleCluster{top:calc(3px + env(safe-area-inset-top));z-index:45;pointer-events:auto;flex-direction:row;gap:4px;display:flex;position:absolute;right:10px}.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:72px}.S5HVoW_toggleButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), color var(--ds-transition-duration-slow) var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;justify-content:center;align-items:center;display:flex}.S5HVoW_toggleButton:hover:not(:disabled):not([aria-disabled=true]){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_toggleButton:disabled,.S5HVoW_toggleButton[aria-disabled=true]{opacity:.4;cursor:default}.S5HVoW_panel{box-sizing:border-box;z-index:40;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);padding-bottom:env(safe-area-inset-bottom);transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out);flex-direction:column;display:flex;position:absolute;top:0;bottom:0;right:0}.S5HVoW_panelHidden{pointer-events:none;visibility:hidden;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);transform:translate(102%)}.S5HVoW_panel[data-dragging]{transition:none}.S5HVoW_panelResize{cursor:col-resize;z-index:2;touch-action:none;width:8px;position:absolute;top:0;bottom:0;left:-4px}.S5HVoW_panelResizeActive{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_panelBody{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_panel{contain:layout style}body[data-dsh-sidebar-dragging] .S5HVoW_panel{will-change:transform}.S5HVoW_floatWindow{z-index:42;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-lv3);contain:layout style;border-radius:8px;flex-direction:column;display:flex;position:absolute;overflow:hidden}.S5HVoW_floatWindowDragging{will-change:left, top, width, height}.S5HVoW_floatHeader{height:34px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1);cursor:grab;user-select:none;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_floatWindowDragging .S5HVoW_floatHeader{cursor:grabbing}.S5HVoW_floatTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_floatClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_floatClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_floatContent{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden}.S5HVoW_floatResize{z-index:2;cursor:nwse-resize;touch-action:none;width:14px;height:14px;position:absolute;bottom:0;right:0}.S5HVoW_floatResize:hover{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane[data-dsh-float-dock-over]{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px}.S5HVoW_floatDropHint{z-index:46;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 12%, transparent);border-radius:8px;justify-content:center;align-items:center;display:flex;position:absolute}.S5HVoW_floatDropHintLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:4px 12px}.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tabBar,.S5HVoW_floatHeader{-webkit-app-region:no-drag}body[data-dsh-title-bar-compat] .S5HVoW_toggleCluster{top:calc(var(--dsh-title-bar-strip,40px) + 3px)}body[data-dsh-title-bar-compat] .S5HVoW_panel{padding-top:var(--dsh-title-bar-strip,40px)}.S5HVoW_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_iconButton:disabled{opacity:.4;cursor:default}.S5HVoW_workbench,.S5HVoW_split{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_splitRow{flex-direction:row}.S5HVoW_splitCol{flex-direction:column}.S5HVoW_splitChild{display:flex;position:relative;overflow:hidden}.S5HVoW_divider{z-index:3;touch-action:none;flex:none;position:relative}.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{content:\"\";background:var(--dsw-alias-border-l2);transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out);position:absolute}.S5HVoW_dividerRow{cursor:col-resize;width:7px;margin:0 -2px}.S5HVoW_dividerRow:after{width:1px;top:0;bottom:0;left:50%;transform:translate(-50%)}.S5HVoW_dividerCol{cursor:row-resize;height:7px;margin:-2px 0}.S5HVoW_dividerCol:after{height:1px;top:50%;left:0;right:0;transform:translateY(-50%)}.S5HVoW_divider:hover:after,.S5HVoW_dividerActive:after{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_paneDrop{outline:1px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_dropOverlay{z-index:6;pointer-events:none;background:var(--dsw-alias-interactive-bg-hover-accent);opacity:.5;position:absolute}.S5HVoW_dropLeft{width:25%;top:0;bottom:0;left:0}.S5HVoW_dropRight{width:25%;top:0;bottom:0;right:0}.S5HVoW_dropUp{height:25%;top:0;left:0;right:0}.S5HVoW_dropDown{height:25%;bottom:0;left:0;right:0}.S5HVoW_dropCenter{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px;background:0 0;inset:25%}.S5HVoW_paneContent{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden}.S5HVoW_paneTab{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_paneTabHidden{display:none}.S5HVoW_paneEmptyCards{flex:1;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));align-content:start;gap:8px;min-height:0;padding:12px;display:grid;overflow:hidden}.S5HVoW_paneCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;text-align:center;border-radius:8px;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:12px 8px;display:flex}.S5HVoW_paneCard:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}.S5HVoW_paneCard:disabled{opacity:.45;cursor:default}.S5HVoW_tabBar{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:stretch;height:34px;display:flex}.S5HVoW_tabBarDrop{outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_tabList{scrollbar-width:none;flex:1;min-width:0;display:flex;overflow-x:auto}.S5HVoW_tabList::-webkit-scrollbar{display:none}.S5HVoW_tab{min-width:64px;max-width:160px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);border-right:1px solid var(--dsw-alias-border-l1);cursor:pointer;user-select:none;background:0 0;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_tabActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_tabTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_tabBadge{min-width:16px;height:15px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);border-radius:8px;flex:none;justify-content:center;align-items:center;padding:0 4px;display:inline-flex}.S5HVoW_tabClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_tabClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tabBarPlus{background:var(--dsw-alias-bg-layer-1);width:22px;height:22px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border:none;border-radius:5px;flex:none;justify-content:center;align-self:center;align-items:center;margin:0 6px;padding:0;display:inline-flex;position:sticky;right:0}.S5HVoW_tabBarPlus:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_pinnedTab{color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_pinnedTab:hover{color:var(--dsw-alias-label-secondary)}.S5HVoW_explorer{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_explorerHeader{flex:none;justify-content:space-between;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_explorerRoot{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_explorerBody{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden auto}.S5HVoW_explorerRow{box-sizing:border-box;width:100%;max-width:100%;height:34px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;white-space:nowrap;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);background:0 0;border:none;border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.S5HVoW_explorerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_explorerRowRevealed{background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 18%, transparent);box-shadow:inset 2px 0 0 var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_explorerDir{font:var(--dsw-font-s-strong-14)}.S5HVoW_explorerHidden{opacity:.45}.S5HVoW_explorerSymlink{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerBroken .S5HVoW_explorerName{color:var(--dsw-alias-state-error-primary)}.S5HVoW_explorerName{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.S5HVoW_explorerRef{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:20px;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;align-items:center;padding:0 8px;display:none}.S5HVoW_explorerRef:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_explorerRow:hover .S5HVoW_explorerRef,.S5HVoW_explorerRow:focus-within .S5HVoW_explorerRef{display:inline-flex}.S5HVoW_explorerCopied{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);cursor:default}@keyframes S5HVoW_dsh-row-in{0%{opacity:0}}.S5HVoW_explorerEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_explorerRowDropTarget{background:var(--dsw-alias-interactive-bg-hover);outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_uploadDropZone{z-index:1001;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);box-shadow:0 0 0 200vmax var(--dsw-alias-bg-mask-drop);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:10px;justify-content:center;align-items:flex-start;padding:12px;display:flex;position:fixed}.S5HVoW_uploadDropHero{flex-direction:column;align-items:center;gap:10px;max-width:100%;padding-top:8px;display:flex}.S5HVoW_uploadDropZonePill{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:100%;box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);border-radius:999px;align-items:center;gap:6px;padding:6px 12px;display:flex}.S5HVoW_uploadDropZoneText{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadDropChatHint{z-index:1002;pointer-events:none;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;padding:24px;display:flex;position:fixed;top:0;bottom:0;left:0}.S5HVoW_uploadDropChatCard{text-align:center;max-width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-strong-14);flex-direction:column;align-items:center;gap:12px;display:flex}.S5HVoW_uploadOverlay{z-index:30;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;display:flex;position:absolute;inset:0}.S5HVoW_uploadOverlayCard{border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-alias-bg-layer-2);min-width:280px;max-width:min(420px,100% - 48px);box-shadow:var(--dsw-shadow-lv3);border-radius:24px;flex-direction:column;gap:12px;padding:20px 24px;display:flex}.S5HVoW_uploadOverlayTitle{font:var(--dsw-font-s-strong-14);color:var(--dsw-alias-label-primary);align-items:center;gap:8px;display:flex}.S5HVoW_uploadOverlayTitle>svg{flex:none}.S5HVoW_uploadOverlayTitle>span{white-space:nowrap;text-overflow:ellipsis;min-width:0;overflow:hidden}.S5HVoW_uploadOverlayProgress{background:var(--dsw-alias-border-l2);border-radius:3px;height:6px;overflow:hidden}.S5HVoW_uploadOverlayProgressFill{background:var(--dsw-alias-interactive-bg-hover-accent);height:100%;transition:width .15s var(--ds-ease-in-out);border-radius:3px}.S5HVoW_uploadOverlayStatus{min-height:1em;font:var(--dsw-font-xxs-12);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadOverlayCancel{border:1px solid var(--dsw-alias-border-l2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;background:0 0;border-radius:8px;align-self:flex-end;padding:0 14px}.S5HVoW_uploadOverlayCancel:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_uploadOverlayCancel:disabled{opacity:.4;cursor:default}.S5HVoW_editor{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorTitle{min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.S5HVoW_editorPathInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorPathInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorTreeToggleActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_editorBody{flex:1;min-height:0;display:flex}.S5HVoW_editorMain{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_editorTreeDock{border-left:1px solid var(--dsw-alias-border-l1);flex:none;min-height:0;display:flex;position:relative}.S5HVoW_editorTreeResize{cursor:col-resize;touch-action:none;z-index:3;width:6px;position:absolute;top:0;bottom:0;left:0}.S5HVoW_editorTreeResize:hover{background:var(--dsw-alias-border-l2)}.S5HVoW_editorTreePanel{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_editorTreePanelFull{flex:1}.S5HVoW_editorTreeSearch{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorSearchInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorSearchInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorSearchHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:8px 12px}.S5HVoW_editorSearchResult{width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;text-overflow:ellipsis;white-space:nowrap;background:0 0;border:none;border-radius:6px;padding:4px 8px;display:block;overflow:hidden}.S5HVoW_editorSearchResult:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorStatusError{color:var(--dsw-alias-state-error-primary)}.S5HVoW_dirtyDot{background:var(--dsw-alias-state-warn-primary);border-radius:50%;flex:none;width:7px;height:7px}.S5HVoW_editorPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex:1;justify-content:center;align-items:center;padding:16px;display:flex}.S5HVoW_orphanedType{opacity:.7;overflow-wrap:anywhere;margin-top:8px;font-size:12px;display:block}.S5HVoW_editorBinary{text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:12px;padding:24px 16px;display:flex}.S5HVoW_editorBinaryNotice{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorDownloadLink{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:6px;align-items:center;gap:6px;padding:6px 14px;text-decoration:none;display:inline-flex}.S5HVoW_editorDownloadLink:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_editorDocx{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorDocxViewport{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;overflow:auto}.S5HVoW_editorDocxWrap{flex:none;padding:16px}.S5HVoW_editorDocxZoom{border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:center;gap:8px;min-height:34px;padding:4px 10px;display:flex}.S5HVoW_editorDocxZoomHint,.S5HVoW_editorDocxZoomValue{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_editorDocxZoomValue{text-align:right;width:36px}.S5HVoW_editorDocxZoomRange{min-width:72px;accent-color:var(--dsw-alias-brand-primary);cursor:pointer;flex:1}.S5HVoW_editorXlsx{background:var(--dsw-alias-bg-base);flex:1;min-height:0;position:relative;overflow:hidden}.S5HVoW_editorUniverHost{width:100%;min-width:0;height:100%;min-height:0}.S5HVoW_editorOfficeOverlay{z-index:2;background:var(--dsw-alias-bg-base);display:flex;position:absolute;inset:0}.S5HVoW_editorPptx{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorPptxToolbar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;justify-content:center;align-items:center;gap:8px;padding:6px 8px;display:flex}.S5HVoW_editorPptxToolbar .S5HVoW_editorDownloadLink{margin-left:auto}.S5HVoW_editorPptxButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;border-radius:6px;padding:0 10px}.S5HVoW_editorPptxButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_editorPptxButton:disabled{opacity:.4;cursor:default}.S5HVoW_editorPptxPosition{text-align:center;min-width:64px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorPptxStage{flex:1;min-height:0;position:relative;overflow:hidden}.S5HVoW_editorPptxHost{width:100%;min-width:0;height:100%;min-height:0;overflow:auto}.S5HVoW_editorVideo{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorVideoStage{background:#000;flex:1;justify-content:center;align-items:center;min-height:0;display:flex}.S5HVoW_editorVideoPlayer{background:#000;outline:none;width:100%;height:100%;min-height:0;max-height:100%}.S5HVoW_editorVideoMeta{border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:center;gap:10px;min-height:34px;padding:4px 10px;display:flex}.S5HVoW_editorVideoName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);flex:1;overflow:hidden}.S5HVoW_editorVideoNotice{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_editorError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);padding:12px 16px}.S5HVoW_editorBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 8px}.S5HVoW_sandboxStatus{font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sandboxStatusOn{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sandboxStatusOff{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}.S5HVoW_sandboxDot{background:var(--dsw-alias-state-success-primary);border-radius:50%;flex:none;width:6px;height:6px}.S5HVoW_sandboxStatusOff .S5HVoW_sandboxDot{background:var(--dsw-alias-state-error-primary)}.S5HVoW_sandboxStatusText{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_sandboxAction{border:1px solid var(--dsw-alias-border-l2);font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:6px;flex:none;padding:2px 8px}.S5HVoW_sandboxAction:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorHtml{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_browser{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_browserBar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:4px;padding:6px 8px;display:flex}.S5HVoW_browserInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_browserInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_browserMessage{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 12px}.S5HVoW_browserFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_browserStart{text-align:center;min-height:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);flex:1;justify-content:center;align-items:center;padding:20px;display:flex}.S5HVoW_browserBlocked{text-align:center;min-height:0;color:var(--dsw-alias-state-warn-primary);flex-direction:column;flex:1;justify-content:center;align-items:center;gap:6px;padding:24px;display:flex}.S5HVoW_browserBlockedTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary)}.S5HVoW_browserBlockedDesc{max-width:280px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary)}.S5HVoW_browserBlockedActions{gap:8px;margin-top:6px;display:flex}.S5HVoW_browserBlockedButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);cursor:pointer;border-radius:6px;padding:4px 12px}.S5HVoW_browserBlockedButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorCm{background:0 0;flex:1;min-height:0;overflow:hidden}.S5HVoW_editorCmHidden{display:none}.S5HVoW_editorCm .cm-editor{height:100%}.S5HVoW_editorCm .cm-scroller{padding:12px 16px}.S5HVoW_editorCm .cm-editor.cm-focused{outline:none}.S5HVoW_editorModeToggle{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:6px;flex:none;align-items:center;gap:2px;padding:2px;display:inline-flex}.S5HVoW_editorModeButton{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);cursor:pointer;background:0 0;border:none;border-radius:4px;padding:2px 8px}.S5HVoW_editorModeButton:hover{color:var(--dsw-alias-label-primary)}.S5HVoW_editorModeActive{background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}.S5HVoW_editorImageWrap{flex:1;justify-content:center;align-items:center;min-height:0;padding:12px;display:flex;overflow:auto}.S5HVoW_editorImage{object-fit:contain;max-width:100%;max-height:100%}.S5HVoW_editorMd{min-height:0;font:var(--dsw-font-xs-13);flex:1;padding:12px 16px;overflow-y:auto}.S5HVoW_mermaidWrap{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:6px;margin:6px 0;overflow:hidden}.S5HVoW_mermaidHeader{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);justify-content:space-between;align-items:center;gap:6px;padding:4px 8px;display:flex}.S5HVoW_mermaidInfo{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_mermaidCopy{height:20px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-11);cursor:pointer;background:0 0;border:none;border-radius:4px;align-items:center;gap:4px;padding:0 6px;display:inline-flex}.S5HVoW_mermaidCopy:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_mermaidBody{cursor:zoom-in;justify-content:center;padding:10px;display:flex;overflow:auto}.S5HVoW_mermaidBody svg{max-width:100%;height:auto}.S5HVoW_mermaidError{border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-state-error-primary);font:var(--dsw-font-xxxs-11);padding:6px 10px}.S5HVoW_mermaidCode{font:var(--dsw-font-xxxs-11);margin:0;padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:auto}.S5HVoW_mermaidMarkdown .md-code-block[data-mermaid-processed]{display:contents}.S5HVoW_mermaidModal{z-index:1000;background:var(--dsw-alias-bg-mask-1);backdrop-filter:blur(2px);flex-direction:column;justify-content:center;align-items:center;display:flex;position:fixed;inset:0}.S5HVoW_mermaidModalToolbar{z-index:10;gap:8px;display:flex;position:absolute;top:16px;right:16px}.S5HVoW_mermaidModalButton{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:36px;height:36px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xs-strong-13);cursor:pointer;border-radius:8px;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_mermaidModalButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_mermaidModalStage{justify-content:center;align-items:center;width:90vw;height:80vh;display:flex;position:relative;overflow:hidden}.S5HVoW_mermaidModalStage svg{cursor:grab;transform-origin:50%;user-select:none;-webkit-user-drag:none;background:var(--dsw-alias-bg-layer-1);border-radius:12px;max-width:none;max-height:none;padding:16px}.S5HVoW_mermaidModalStage svg:active{cursor:grabbing}.S5HVoW_mermaidModalHint{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);pointer-events:none;position:absolute;bottom:16px;left:50%;transform:translate(-50%)}.S5HVoW_selectionPopup{z-index:60;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;cursor:pointer;border-radius:6px;align-items:center;padding:0 10px;display:inline-flex;position:fixed;transform:translate(-50%,calc(-100% - 8px))}.S5HVoW_selectionPopup:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorPdf{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorPdfToolbar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;justify-content:flex-end;padding:6px 8px;display:flex}.S5HVoW_editorPdfStage{flex:1;min-height:0;display:flex;position:relative}.S5HVoW_editorPdfFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_editorPdfFrameBlocked{pointer-events:none}.S5HVoW_editorPdfDragShield{z-index:4;pointer-events:none;background:0 0;position:absolute;inset:0}.S5HVoW_editorPdfDragShieldActive{pointer-events:auto}body[data-dsh-tab-dragging] .S5HVoW_editorPdfFrame{pointer-events:none!important}body[data-dsh-tab-dragging] .S5HVoW_editorPdfDragShield{pointer-events:auto!important}.S5HVoW_terminalWrap{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;position:relative}.S5HVoW_terminal{flex:1;min-height:0;padding:6px 4px 6px 8px}.S5HVoW_terminal .xterm{height:100%}.S5HVoW_terminalBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-wrap:wrap;flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalBannerUrl{word-break:break-all;opacity:.85;flex-basis:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.S5HVoW_boundaryError{z-index:50;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;align-items:flex-start;gap:8px;padding:16px;display:flex;position:fixed;top:0;bottom:0;right:0;overflow:auto}.S5HVoW_terminalRetry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;padding:1px 8px}.S5HVoW_terminalRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitFoldRow{box-sizing:border-box;background:var(--dsw-alias-bg-layer-1);width:100%;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);text-align:center;cursor:pointer;border:none;outline:none;padding:2px 12px;display:block}.S5HVoW_gitFoldRow:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.S5HVoW_gitFoldRow:disabled{cursor:default}.S5HVoW_gitFoldRowFailed{color:var(--dsw-alias-state-error-primary);opacity:.7}.S5HVoW_explorerRenameInput{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);min-width:0;height:20px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:4px;outline:none;flex:1;padding:0 4px}.S5HVoW_changesLensToggle{flex:none;gap:2px;padding:2px;display:flex}.S5HVoW_changesLensTab{height:24px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:1}.S5HVoW_changesLensTab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_changesLensTabActive,.S5HVoW_changesLensTabActive:hover{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.S5HVoW_sessionLens{flex:1;min-height:0;overflow-y:auto}.S5HVoW_sessionLensBar{align-items:center;gap:6px;height:26px;padding:0 4px;display:flex}.S5HVoW_sessionLensCount{min-width:0;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:1}.S5HVoW_sessionLensEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_sessionLensItem{border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sessionLensRow{box-sizing:border-box;width:100%;min-height:30px;color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:6px;outline:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sessionLensRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_sessionLensPath{text-overflow:ellipsis;white-space:nowrap;text-align:left;direction:rtl;flex:1;min-width:0;overflow:hidden}.S5HVoW_sessionLensMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_sessionLensPreview{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);max-height:260px;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;border-radius:6px;margin:0 8px 6px;padding:6px 8px;line-height:1.5;overflow:auto}.S5HVoW_terminalWaitBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalWaitNeedle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden}.S5HVoW_terminalDepsBanner{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-direction:column;flex:none;gap:6px;padding:10px;display:flex}.S5HVoW_terminalDepsTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-state-warn-primary)}.S5HVoW_terminalDepsHint{opacity:.9}.S5HVoW_terminalDepsCommandRow{align-items:flex-start;gap:8px;display:flex}.S5HVoW_terminalRepairCommand{white-space:pre-wrap;word-break:break-all;user-select:text;min-width:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:4px;flex:1;max-height:160px;margin:0;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;overflow:auto}.S5HVoW_terminalDepsNote{opacity:.85}.S5HVoW_terminalDepsActions{align-items:center;gap:8px;display:flex}.S5HVoW_tabBoundaryError{min-height:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;flex:1;align-items:flex-start;gap:8px;padding:12px 16px;display:flex;overflow:auto}.S5HVoW_git{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitHeader{flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitWorktreeRow{flex:none;align-items:center;gap:8px;padding:6px 8px 0 12px;display:flex}.S5HVoW_gitWorktreeLabel{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none}.S5HVoW_gitBranchSelect{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 6px}.S5HVoW_gitSection{border-top:1px solid var(--dsw-alias-border-l1)}.S5HVoW_gitSectionHeader{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);text-transform:uppercase;justify-content:space-between;align-items:center;padding:6px 12px 4px;display:flex}.S5HVoW_gitLink{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-brand-primary);cursor:pointer;background:0 0;border:none;padding:0}.S5HVoW_gitLink:hover:not(:disabled){text-decoration:underline}.S5HVoW_gitLink:disabled{opacity:.4;cursor:default}.S5HVoW_gitRow{min-height:34px;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:8px;align-items:center;gap:6px;margin:0 6px;padding:0 8px;display:flex}.S5HVoW_gitRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitRowSelected{background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_gitRowMain{cursor:pointer;text-align:left;background:0 0;border:none;flex:1;align-items:center;gap:8px;min-width:0;padding:3px 0;display:flex}.S5HVoW_gitBadge{width:20px;height:16px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_gitName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:4px 12px 8px}.S5HVoW_gitPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_gitError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap;align-items:flex-start;gap:8px;padding:8px 12px;display:flex}.S5HVoW_gitDiff{border-top:1px solid var(--dsw-alias-border-l1);padding:8px}.S5HVoW_gitDiffTab{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitDiffTabHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitDiffTabTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitDiffFile{width:100%;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;align-items:baseline;gap:6px;padding:8px 2px 2px;display:flex}.S5HVoW_gitDiffFile:disabled{cursor:default}.S5HVoW_gitDiffFile:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitDiffFileChevron{color:var(--dsw-alias-label-tertiary);flex:none;transform:rotate(0)}.S5HVoW_gitDiffFileChevronExpanded{transform:rotate(90deg)}.S5HVoW_gitDiffFilePath{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffFileOld{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:none;max-width:40%;overflow:hidden}.S5HVoW_gitDiffFileTag{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:0 6px}.S5HVoW_gitDiffHunk{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);gap:8px;padding:3px 2px;display:flex}.S5HVoW_gitDiffHunkHeader{color:var(--dsw-alias-label-secondary);flex:none}.S5HVoW_gitDiffHunkSection{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffLine{font:var(--dsw-font-markdown-code-block-small);white-space:pre-wrap;overflow-wrap:anywhere;align-items:stretch;min-width:0;line-height:20px;display:flex}.S5HVoW_gitDiffNum{text-align:right;width:36px;color:var(--dsw-alias-label-tertiary);user-select:none;flex:none;padding-right:8px}.S5HVoW_gitDiffCode{flex:1;min-width:0;overflow:visible}.S5HVoW_gitDiffCtx{color:var(--dsw-alias-label-primary)}.S5HVoW_gitDiffDel{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}.S5HVoW_gitDiffAdd{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent)}.S5HVoW_gitDiffMeta{padding-left:2px}.S5HVoW_gitDiffMetaText{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_gitDiffExpand{width:100%;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-brand-primary);cursor:pointer;text-align:center;background:0 0;border:none;margin:4px 0;display:block}.S5HVoW_gitDiffExpand:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitConfirmDesc{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);white-space:pre-wrap;margin:0}.S5HVoW_gitCommit{border-top:1px solid var(--dsw-alias-border-l1);align-items:center;gap:6px;padding:8px 12px;display:flex}.S5HVoW_gitCommitInput{flex:1;min-width:0}.S5HVoW_gitCommitButton{background:var(--dsw-alias-button-primary-fill);height:26px;color:var(--dsw-alias-label-primary-inverted);font:var(--dsw-font-xxs-strong-12);cursor:pointer;border:none;border-radius:6px;flex:none;padding:0 12px}.S5HVoW_gitCommitButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.S5HVoW_gitCommitButton:disabled{opacity:.45;cursor:default}.S5HVoW_gitLogRow{cursor:pointer;border-radius:8px;flex-direction:column;gap:2px;padding:5px 12px;display:flex}.S5HVoW_gitLogRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitLogLine1{align-items:baseline;gap:8px;min-width:0;display:flex}.S5HVoW_gitLogHash{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_gitLogLine2{flex-wrap:wrap;align-items:center;gap:6px;min-width:0;display:flex}.S5HVoW_gitLogRef{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-brand-primary);white-space:nowrap;border-radius:999px;flex:none;padding:0 5px}.S5HVoW_gitLogSubject{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitLogMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_gitLogMore{border:1px solid var(--dsw-alias-border-l2);width:calc(100% - 24px);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:6px;margin:4px 12px 8px;padding:6px 0;display:block}.S5HVoW_gitLogMore:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitLogMore:disabled{opacity:.5;cursor:default}.S5HVoW_producedRow{flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0;display:flex}.S5HVoW_producedLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_producedChip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:200px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;display:inline-flex;overflow:hidden}.S5HVoW_producedChip:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_producedChip span{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_producedMore{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_toggleButton:focus-visible,.S5HVoW_iconButton:focus-visible,.S5HVoW_tab:focus-visible,.S5HVoW_tabClose:focus-visible,.S5HVoW_tabBarPlus:focus-visible,.S5HVoW_paneCard:focus-visible,.S5HVoW_explorerRow:focus-visible,.S5HVoW_explorerRef:focus-visible,.S5HVoW_gitRowMain:focus-visible,.S5HVoW_gitLink:focus-visible,.S5HVoW_gitCommitButton:focus-visible,.S5HVoW_gitLogRow:focus-visible,.S5HVoW_gitLogMore:focus-visible,.S5HVoW_gitDiffFile:focus-visible,.S5HVoW_gitDiffExpand:focus-visible,.S5HVoW_terminalRetry:focus-visible,.S5HVoW_editorModeButton:focus-visible,.S5HVoW_editorDownloadLink:focus-visible,.S5HVoW_editorPptxButton:focus-visible,.S5HVoW_editorDocxZoomRange:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}@media (prefers-reduced-motion:reduce){.S5HVoW_panel,.S5HVoW_panelHidden,.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tab,.S5HVoW_tabBarPlus,.S5HVoW_paneCard,.S5HVoW_explorerRow,.S5HVoW_gitRow,.S5HVoW_divider,.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{transition:none;animation:none}}@media (width<=767px){.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:40px}.S5HVoW_tab{min-width:48px;max-width:128px}}.S5HVoW_openWithLabel{align-items:center;gap:8px;width:100%;min-width:0;display:flex}.S5HVoW_openWithName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}.S5HVoW_openWithChevron{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_openWithPin{width:20px;height:20px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:6px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_openWithPin:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_openWithPinActive{color:var(--dsw-alias-state-business-primary)}.S5HVoW_editorHtmlBlock{margin:8px 0}.S5HVoW_editorHtmlBlock img,.S5HVoW_editorHtmlBlock video{max-width:100%}.S5HVoW_editorHtmlBlock details{margin:4px 0;padding:4px 0}.S5HVoW_editorHtmlBlock summary{cursor:pointer}.S5HVoW_tocBar{z-index:3;pointer-events:none;justify-content:flex-end;height:0;display:flex;position:sticky;top:0}.S5HVoW_tocButton{pointer-events:auto;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);width:26px;height:26px;color:var(--dsw-alias-label-secondary);cursor:pointer;border-radius:6px;justify-content:center;align-items:center;margin:4px 2px 0 0;padding:0;display:inline-flex}.S5HVoW_tocButton:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tocPanel{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:min(300px,82%);max-height:60vh;box-shadow:var(--dsw-shadow-lv2);pointer-events:auto;border-radius:8px;flex-direction:column;padding:4px;display:flex;position:absolute;top:32px;right:2px;overflow-y:auto}.S5HVoW_tocItem{min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:6px;align-items:baseline;gap:8px;padding:4px 8px;display:flex}.S5HVoW_tocItem:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tocItem[data-level=\"2\"]{padding-left:18px}.S5HVoW_tocItem[data-level=\"3\"]{padding-left:28px}.S5HVoW_tocItem[data-level=\"4\"]{padding-left:38px}.S5HVoW_tocItem[data-level=\"5\"]{padding-left:48px}.S5HVoW_tocItem[data-level=\"6\"]{padding-left:58px}.S5HVoW_tocItemLevel{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_tocItemText{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}@keyframes S5HVoW_dsh-toc-flash{0%,60%{background:var(--dsw-alias-interactive-bg-hover)}to{background:0 0}}.S5HVoW_browserLive{flex-direction:column;gap:6px;padding:8px 10px;display:flex;position:absolute;inset:0;overflow:hidden}.S5HVoW_browserLiveStatus{opacity:.75;align-items:center;gap:8px;font-size:12px;display:flex}.S5HVoW_browserLiveCanvas{object-fit:contain;border:1px solid var(--dsw-alias-border-l,#80808040);cursor:crosshair;background:#fff;border-radius:8px;flex:1;width:100%;min-height:0}.S5HVoW_browserLiveTarget{max-width:260px;font-size:12px}.S5HVoW_spacer{flex:1;min-width:4px}.S5HVoW_gitUpstream{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);white-space:nowrap;flex:none;align-items:center;gap:4px;display:inline-flex}.S5HVoW_gitAhead{color:var(--dsw-alias-state-business-primary)}.S5HVoW_gitBehind{color:var(--dsw-alias-state-warn-primary)}.S5HVoW_gitSynced{color:var(--dsw-alias-state-success-primary)}.S5HVoW_gitPending{color:var(--dsw-alias-state-warn-primary)}.S5HVoW_gitLineStat{font:var(--dsw-font-xxxs-11);white-space:nowrap;flex:none;align-items:center;gap:4px;margin-left:auto;padding-left:8px;display:inline-flex}.S5HVoW_gitAdded{color:var(--dsw-alias-state-success-primary)}.S5HVoW_gitRemoved{color:var(--dsw-alias-state-error-primary)}.S5HVoW_gitUntracked{color:var(--dsw-alias-label-tertiary)}.S5HVoW_gitPushRow{align-items:center;gap:8px;padding:0 12px 8px;display:flex}.S5HVoW_gitPushRow .S5HVoW_gitLink{align-items:center;gap:3px;display:inline-flex}.S5HVoW_gitBranchView{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitBranchToolbar,.S5HVoW_gitBranchForm{flex:none;align-items:center;gap:6px;padding:6px 8px 6px 12px;display:flex}.S5HVoW_gitBranchForm{padding-top:0}.S5HVoW_gitBranchSearch{flex:1;min-width:0}.S5HVoW_gitBranchRow{align-items:center;gap:4px;min-height:30px;padding-right:6px;display:flex}.S5HVoW_gitBranchRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitBranchName{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);overflow:hidden}.S5HVoW_gitBranchBadge{background:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);white-space:nowrap;border-radius:999px;flex:none;padding:0 5px}.S5HVoW_gitBranchMeta{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none;overflow:hidden}.S5HVoW_gitGh{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitGhHeader{flex:none;align-items:center;gap:6px;min-height:32px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitGhRepo{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);overflow:hidden}.S5HVoW_gitGhEnv{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none;padding:0 12px 6px}.S5HVoW_gitGhHint{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);margin-top:6px;line-height:1.5}.S5HVoW_gitGhNotice{background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);border-radius:6px;flex:none;align-items:center;gap:6px;margin:0 12px 6px;padding:6px 8px;display:flex}.S5HVoW_gitGhRow{flex-wrap:wrap;align-items:center;gap:6px;min-height:30px;padding:5px 12px;display:flex}.S5HVoW_gitGhRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitGhNumber{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none}.S5HVoW_gitGhTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);flex:1;overflow:hidden}.S5HVoW_gitGhMergeConfirm{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:6px;display:inline-flex}.S5HVoW_gitGhMethod{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);height:22px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);border-radius:6px;padding:0 4px}.S5HVoW_gitGhForm{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:8px;flex-direction:column;flex:none;gap:6px;margin:6px 12px 12px;padding:8px;display:flex}.S5HVoW_gitGhFormTitle{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11)}.S5HVoW_gitGhInput{width:100%}.S5HVoW_gitGhTextarea{resize:vertical;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);width:100%;min-height:56px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;padding:6px 8px;font-family:inherit}.S5HVoW_gitGhFormRow{align-items:center;gap:8px;display:flex}.S5HVoW_gitGhDraft{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-11);white-space:nowrap;flex:none;align-items:center;gap:4px;display:inline-flex}.S5HVoW_gitError button{flex:none;margin-left:auto}.S5HVoW_gitConfirmDanger{color:var(--dsw-alias-state-error-primary)}.S5HVoW_plansView{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_plansToolbar{flex:none;align-items:center;gap:6px;padding:6px 8px 6px 12px;display:flex}.S5HVoW_plansSearch{flex:1;min-width:0}.S5HVoW_plansRow{align-items:center;gap:4px;padding-right:6px;display:flex}.S5HVoW_plansRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_plansRowMain{cursor:pointer;text-align:left;background:0 0;border:none;flex:1;align-items:flex-start;gap:8px;min-width:0;padding:5px 0 5px 12px;display:flex}.S5HVoW_plansRowMain:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_plansGlyph{color:var(--dsw-alias-label-secondary);flex:none;padding-top:1px;display:inline-flex}.S5HVoW_plansText{flex-direction:column;flex:1;gap:1px;min-width:0;display:flex}.S5HVoW_plansTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);overflow:hidden}.S5HVoW_plansMeta{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);overflow:hidden}.S5HVoW_plansEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px 12px}.S5HVoW_plansHint{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);overflow-wrap:anywhere;padding:6px 12px}.S5HVoW_plansEmpty .S5HVoW_plansHint{padding:4px 0 0;& .S5HVoW_tocFlash{border-radius:4px;animation:1.2s ease-out S5HVoW_dsh-toc-flash}}";
 		const tagId$4 = "dsh-external/dsh-coding-sidebar/sidebar.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$4) + "]") === null) {
 			const tag = document.createElement("style");
@@ -3764,12 +3892,42 @@ window.__ModuleLoader__.load({
 			"editorBinaryNotice": "S5HVoW_editorBinaryNotice",
 			"editorBody": "S5HVoW_editorBody",
 			"editorCm": "S5HVoW_editorCm",
+			"editorCmHidden": "S5HVoW_editorCmHidden",
+			"editorDocx": "S5HVoW_editorDocx",
+			"editorDocxViewport": "S5HVoW_editorDocxViewport",
+			"editorDocxWrap": "S5HVoW_editorDocxWrap",
+			"editorDocxZoom": "S5HVoW_editorDocxZoom",
+			"editorDocxZoomHint": "S5HVoW_editorDocxZoomHint",
+			"editorDocxZoomRange": "S5HVoW_editorDocxZoomRange",
+			"editorDocxZoomValue": "S5HVoW_editorDocxZoomValue",
 			"editorDownloadLink": "S5HVoW_editorDownloadLink",
 			"editorError": "S5HVoW_editorError",
 			"editorHeader": "S5HVoW_editorHeader",
+			"editorHtml": "S5HVoW_editorHtml",
+			"editorHtmlBlock": "S5HVoW_editorHtmlBlock",
+			"editorImage": "S5HVoW_editorImage",
+			"editorImageWrap": "S5HVoW_editorImageWrap",
 			"editorMain": "S5HVoW_editorMain",
+			"editorMd": "S5HVoW_editorMd",
+			"editorModeActive": "S5HVoW_editorModeActive",
+			"editorModeButton": "S5HVoW_editorModeButton",
+			"editorModeToggle": "S5HVoW_editorModeToggle",
+			"editorOfficeOverlay": "S5HVoW_editorOfficeOverlay",
 			"editorPathInput": "S5HVoW_editorPathInput",
+			"editorPdf": "S5HVoW_editorPdf",
+			"editorPdfDragShield": "S5HVoW_editorPdfDragShield",
+			"editorPdfDragShieldActive": "S5HVoW_editorPdfDragShieldActive",
+			"editorPdfFrame": "S5HVoW_editorPdfFrame",
+			"editorPdfFrameBlocked": "S5HVoW_editorPdfFrameBlocked",
+			"editorPdfStage": "S5HVoW_editorPdfStage",
+			"editorPdfToolbar": "S5HVoW_editorPdfToolbar",
 			"editorPlaceholder": "S5HVoW_editorPlaceholder",
+			"editorPptx": "S5HVoW_editorPptx",
+			"editorPptxButton": "S5HVoW_editorPptxButton",
+			"editorPptxHost": "S5HVoW_editorPptxHost",
+			"editorPptxPosition": "S5HVoW_editorPptxPosition",
+			"editorPptxStage": "S5HVoW_editorPptxStage",
+			"editorPptxToolbar": "S5HVoW_editorPptxToolbar",
 			"editorSearchHint": "S5HVoW_editorSearchHint",
 			"editorSearchInput": "S5HVoW_editorSearchInput",
 			"editorSearchResult": "S5HVoW_editorSearchResult",
@@ -3782,6 +3940,14 @@ window.__ModuleLoader__.load({
 			"editorTreeResize": "S5HVoW_editorTreeResize",
 			"editorTreeSearch": "S5HVoW_editorTreeSearch",
 			"editorTreeToggleActive": "S5HVoW_editorTreeToggleActive",
+			"editorUniverHost": "S5HVoW_editorUniverHost",
+			"editorVideo": "S5HVoW_editorVideo",
+			"editorVideoMeta": "S5HVoW_editorVideoMeta",
+			"editorVideoName": "S5HVoW_editorVideoName",
+			"editorVideoNotice": "S5HVoW_editorVideoNotice",
+			"editorVideoPlayer": "S5HVoW_editorVideoPlayer",
+			"editorVideoStage": "S5HVoW_editorVideoStage",
+			"editorXlsx": "S5HVoW_editorXlsx",
 			"explorer": "S5HVoW_explorer",
 			"explorerBody": "S5HVoW_explorerBody",
 			"explorerBroken": "S5HVoW_explorerBroken",
@@ -3809,11 +3975,23 @@ window.__ModuleLoader__.load({
 			"floatWindow": "S5HVoW_floatWindow",
 			"floatWindowDragging": "S5HVoW_floatWindowDragging",
 			"git": "S5HVoW_git",
+			"gitAdded": "S5HVoW_gitAdded",
+			"gitAhead": "S5HVoW_gitAhead",
 			"gitBadge": "S5HVoW_gitBadge",
+			"gitBehind": "S5HVoW_gitBehind",
+			"gitBranchBadge": "S5HVoW_gitBranchBadge",
+			"gitBranchForm": "S5HVoW_gitBranchForm",
+			"gitBranchMeta": "S5HVoW_gitBranchMeta",
+			"gitBranchName": "S5HVoW_gitBranchName",
+			"gitBranchRow": "S5HVoW_gitBranchRow",
+			"gitBranchSearch": "S5HVoW_gitBranchSearch",
 			"gitBranchSelect": "S5HVoW_gitBranchSelect",
+			"gitBranchToolbar": "S5HVoW_gitBranchToolbar",
+			"gitBranchView": "S5HVoW_gitBranchView",
 			"gitCommit": "S5HVoW_gitCommit",
 			"gitCommitButton": "S5HVoW_gitCommitButton",
 			"gitCommitInput": "S5HVoW_gitCommitInput",
+			"gitConfirmDanger": "S5HVoW_gitConfirmDanger",
 			"gitConfirmDesc": "S5HVoW_gitConfirmDesc",
 			"gitDiff": "S5HVoW_gitDiff",
 			"gitDiffAdd": "S5HVoW_gitDiffAdd",
@@ -3841,7 +4019,25 @@ window.__ModuleLoader__.load({
 			"gitError": "S5HVoW_gitError",
 			"gitFoldRow": "S5HVoW_gitFoldRow",
 			"gitFoldRowFailed": "S5HVoW_gitFoldRowFailed",
+			"gitGh": "S5HVoW_gitGh",
+			"gitGhDraft": "S5HVoW_gitGhDraft",
+			"gitGhEnv": "S5HVoW_gitGhEnv",
+			"gitGhForm": "S5HVoW_gitGhForm",
+			"gitGhFormRow": "S5HVoW_gitGhFormRow",
+			"gitGhFormTitle": "S5HVoW_gitGhFormTitle",
+			"gitGhHeader": "S5HVoW_gitGhHeader",
+			"gitGhHint": "S5HVoW_gitGhHint",
+			"gitGhInput": "S5HVoW_gitGhInput",
+			"gitGhMergeConfirm": "S5HVoW_gitGhMergeConfirm",
+			"gitGhMethod": "S5HVoW_gitGhMethod",
+			"gitGhNotice": "S5HVoW_gitGhNotice",
+			"gitGhNumber": "S5HVoW_gitGhNumber",
+			"gitGhRepo": "S5HVoW_gitGhRepo",
+			"gitGhRow": "S5HVoW_gitGhRow",
+			"gitGhTextarea": "S5HVoW_gitGhTextarea",
+			"gitGhTitle": "S5HVoW_gitGhTitle",
 			"gitHeader": "S5HVoW_gitHeader",
+			"gitLineStat": "S5HVoW_gitLineStat",
 			"gitLink": "S5HVoW_gitLink",
 			"gitLogHash": "S5HVoW_gitLogHash",
 			"gitLogLine1": "S5HVoW_gitLogLine1",
@@ -3852,15 +4048,34 @@ window.__ModuleLoader__.load({
 			"gitLogRow": "S5HVoW_gitLogRow",
 			"gitLogSubject": "S5HVoW_gitLogSubject",
 			"gitName": "S5HVoW_gitName",
+			"gitPending": "S5HVoW_gitPending",
 			"gitPlaceholder": "S5HVoW_gitPlaceholder",
+			"gitPushRow": "S5HVoW_gitPushRow",
+			"gitRemoved": "S5HVoW_gitRemoved",
 			"gitRow": "S5HVoW_gitRow",
 			"gitRowMain": "S5HVoW_gitRowMain",
 			"gitRowSelected": "S5HVoW_gitRowSelected",
 			"gitSection": "S5HVoW_gitSection",
 			"gitSectionHeader": "S5HVoW_gitSectionHeader",
+			"gitSynced": "S5HVoW_gitSynced",
+			"gitUntracked": "S5HVoW_gitUntracked",
+			"gitUpstream": "S5HVoW_gitUpstream",
 			"gitWorktreeLabel": "S5HVoW_gitWorktreeLabel",
 			"gitWorktreeRow": "S5HVoW_gitWorktreeRow",
 			"iconButton": "S5HVoW_iconButton",
+			"mermaidBody": "S5HVoW_mermaidBody",
+			"mermaidCode": "S5HVoW_mermaidCode",
+			"mermaidCopy": "S5HVoW_mermaidCopy",
+			"mermaidError": "S5HVoW_mermaidError",
+			"mermaidHeader": "S5HVoW_mermaidHeader",
+			"mermaidInfo": "S5HVoW_mermaidInfo",
+			"mermaidMarkdown": "S5HVoW_mermaidMarkdown",
+			"mermaidModal": "S5HVoW_mermaidModal",
+			"mermaidModalButton": "S5HVoW_mermaidModalButton",
+			"mermaidModalHint": "S5HVoW_mermaidModalHint",
+			"mermaidModalStage": "S5HVoW_mermaidModalStage",
+			"mermaidModalToolbar": "S5HVoW_mermaidModalToolbar",
+			"mermaidWrap": "S5HVoW_mermaidWrap",
 			"openWithChevron": "S5HVoW_openWithChevron",
 			"openWithLabel": "S5HVoW_openWithLabel",
 			"openWithName": "S5HVoW_openWithName",
@@ -3880,6 +4095,17 @@ window.__ModuleLoader__.load({
 			"panelResize": "S5HVoW_panelResize",
 			"panelResizeActive": "S5HVoW_panelResizeActive",
 			"pinnedTab": "S5HVoW_pinnedTab",
+			"plansEmpty": "S5HVoW_plansEmpty",
+			"plansGlyph": "S5HVoW_plansGlyph",
+			"plansHint": "S5HVoW_plansHint",
+			"plansMeta": "S5HVoW_plansMeta",
+			"plansRow": "S5HVoW_plansRow",
+			"plansRowMain": "S5HVoW_plansRowMain",
+			"plansSearch": "S5HVoW_plansSearch",
+			"plansText": "S5HVoW_plansText",
+			"plansTitle": "S5HVoW_plansTitle",
+			"plansToolbar": "S5HVoW_plansToolbar",
+			"plansView": "S5HVoW_plansView",
 			"producedChip": "S5HVoW_producedChip",
 			"producedLabel": "S5HVoW_producedLabel",
 			"producedMore": "S5HVoW_producedMore",
@@ -3900,6 +4126,7 @@ window.__ModuleLoader__.load({
 			"sessionLensPath": "S5HVoW_sessionLensPath",
 			"sessionLensPreview": "S5HVoW_sessionLensPreview",
 			"sessionLensRow": "S5HVoW_sessionLensRow",
+			"spacer": "S5HVoW_spacer",
 			"split": "S5HVoW_split",
 			"splitChild": "S5HVoW_splitChild",
 			"splitCol": "S5HVoW_splitCol",
@@ -3928,6 +4155,13 @@ window.__ModuleLoader__.load({
 			"terminalWaitBanner": "S5HVoW_terminalWaitBanner",
 			"terminalWaitNeedle": "S5HVoW_terminalWaitNeedle",
 			"terminalWrap": "S5HVoW_terminalWrap",
+			"tocBar": "S5HVoW_tocBar",
+			"tocButton": "S5HVoW_tocButton",
+			"tocFlash": "S5HVoW_tocFlash",
+			"tocItem": "S5HVoW_tocItem",
+			"tocItemLevel": "S5HVoW_tocItemLevel",
+			"tocItemText": "S5HVoW_tocItemText",
+			"tocPanel": "S5HVoW_tocPanel",
 			"toggleButton": "S5HVoW_toggleButton",
 			"toggleCluster": "S5HVoW_toggleCluster",
 			"uploadDropChatCard": "S5HVoW_uploadDropChatCard",
@@ -4108,7 +4342,8 @@ window.__ModuleLoader__.load({
 					revealInExplorer(ctx, store, sessionId, lastProduced);
 				}
 			};
-			const disposeOld = wrapOpenPath(ctx.workspaces, deps);
+			const workspaces = ctx.get("workspaces");
+			const disposeOld = workspaces === void 0 ? () => {} : wrapOpenPath(workspaces, deps);
 			const remote = ctx.get("remote");
 			const disposeRemote = remote === void 0 ? () => {} : wrapRemoteOpenPath(remote.session, deps);
 			const sidebarRight = ctx.get("sidebarRight");
@@ -4262,6 +4497,45 @@ window.__ModuleLoader__.load({
 			gitRevert: (scope, hash, worktree) => call("git.revert", gitPayload(scope, worktree, { hash })),
 			/** Cherry-pick one commit onto the current branch. */
 			gitCherryPick: (scope, hash, worktree) => call("git.cherry-pick", gitPayload(scope, worktree, { hash })),
+			/** Upstream distance + remote/default branch + per-file line counts. */
+			gitSummary: (scope, worktree, signal) => call("git.summary", gitPayload(scope, worktree, {}), signal),
+			/** Push the current branch (the host sets an upstream when there is none). */
+			gitPush: (scope, worktree, setUpstream) => call("git.push", gitPayload(scope, worktree, { ...setUpstream !== void 0 ? { setUpstream } : {} })),
+			/** Local + remote branches with upstream/current markers. */
+			gitBranchRows: (scope, worktree, signal) => call("git.branch-rows", gitPayload(scope, worktree, {}), signal),
+			/** Create a branch and check it out. */
+			gitBranchCreate: (scope, name, worktree) => call("git.branch-create", gitPayload(scope, worktree, { name })),
+			/** Delete a local branch; an unmerged branch fails with code `not-merged`
+			*  unless `force` is set (the panel asks before escalating). */
+			gitBranchDelete: (scope, name, force, worktree) => call("git.branch-delete", gitPayload(scope, worktree, {
+				name,
+				force
+			})),
+			/** gh CLI environment probe (installed / logged in / account). */
+			ghProbe: (scope) => call("gh.probe", scopePayload(scope, {})),
+			/** Open PRs + issues plus the repository identity. */
+			ghList: (scope, worktree, signal) => call("gh.list", gitPayload(scope, worktree, {}), signal),
+			/** Create a PR from the current branch (the host pushes it first when needed). */
+			ghCreatePr: (scope, opts, worktree) => call("gh.create-pr", gitPayload(scope, worktree, {
+				title: opts.title,
+				body: opts.body,
+				...opts.base !== void 0 && opts.base !== "" ? { base: opts.base } : {},
+				...opts.draft === true ? { draft: true } : {}
+			})),
+			/** Merge one PR (method: merge | squash | rebase; the host defaults to squash). */
+			ghMergePr: (scope, number, method, worktree) => call("gh.merge-pr", gitPayload(scope, worktree, {
+				number,
+				...method !== void 0 ? { method } : {}
+			})),
+			/** Create an issue in the repository the cwd belongs to. */
+			ghCreateIssue: (scope, opts, worktree) => call("gh.create-issue", gitPayload(scope, worktree, {
+				title: opts.title,
+				body: opts.body
+			})),
+			/** Plan documents the workspace's convention declares (newest first). */
+			plansList: (scope, signal) => call("plans.list", scopePayload(scope, {}), signal),
+			/** Hand one plan document to the OS default application (workspace-contained). */
+			plansOpen: (scope, path) => call("plans.open", scopePayload(scope, { path })),
 			/** Release a terminal's process immediately (tab closed; the WS close frame
 			*  may be unreachable while the socket is down, so the host also accepts
 			*  this explicit route). */
@@ -4333,15 +4607,23 @@ window.__ModuleLoader__.load({
 			*  the platform opener (argv, no shell). */
 			openExternal: (payload) => call("open.external", payload)
 		};
+		/** Absolute URL of the media route for one path (images only). */
+		function mediaUrl(scope, path) {
+			return fileUrl(scope, path, false);
+		}
 		/** Absolute URL of the download route: serves raw bytes (binary-safe) with
 		*  `Content-Disposition: attachment`, so the browser saves the file. */
 		function downloadUrl(scope, path) {
+			return fileUrl(scope, path, true);
+		}
+		/** Shared URL builder for the /sidebar/file route (media vs download). */
+		function fileUrl(scope, path, download) {
 			const params = new URLSearchParams({
 				sessionId: scope.sessionId,
-				path,
-				download: "1"
+				path
 			});
 			if (scope.cwd !== void 0 && scope.cwd !== "") params.set("cwd", scope.cwd);
+			if (download) params.set("download", "1");
 			return `/sidebar/file?${params.toString()}`;
 		}
 		//#endregion
@@ -4360,6 +4642,67 @@ window.__ModuleLoader__.load({
 					children: t("downloadToView")
 				})]
 			});
+		}
+		//#endregion
+		//#region src/client/editor-load.ts
+		/** Decode the host's base64 head bytes into the sniffing buffer. */
+		function decodeHead(headBase64) {
+			const binary = atob(headBase64);
+			const bytes = new Uint8Array(binary.length);
+			for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+			return bytes;
+		}
+		/**
+		* Dispatch one matched viewer's fetchStrategy. A missing viewer or a
+		* `binary-download` strategy both mean "no client-side renderer" → the
+		* download UI. `mediaUrlOf` builds the media URL for `mediaUrl`/`none`
+		* strategies (pure, but scope-bound — injected by the host).
+		*/
+		function planFirstMatch(viewer, mediaUrlOf) {
+			if (viewer === void 0 || viewer.fetchStrategy === "binary-download") return { kind: "binary" };
+			switch (viewer.fetchStrategy) {
+				case "mediaUrl":
+				case "none": return {
+					kind: "render",
+					viewer,
+					mediaUrl: mediaUrlOf()
+				};
+				case "custom": return {
+					kind: "customLoad",
+					viewer
+				};
+				case "fsRead": return {
+					kind: "fetchFsRead",
+					viewer
+				};
+			}
+		}
+		/**
+		* Decide what an fsRead result means for the editor.
+		* - Text: the first match stands (content is valid for any fsRead viewer).
+		* - Binary: the host head bytes enable a re-match — a `detect` viewer (e.g.
+		*   a plugin sniffing a binary format) may claim the file. `custom` viewers
+		*   load their own bytes; `mediaUrl`/`none` viewers render the media route;
+		*   an fsRead viewer or nothing cannot render binary → download UI.
+		*/
+		function planFsReadOutcome(viewer, result, rematch, mediaUrlOf) {
+			if (!result.binary) return {
+				kind: "render",
+				viewer,
+				content: result.content,
+				truncated: result.truncated
+			};
+			const claimed = result.head === void 0 ? void 0 : rematch(decodeHead(result.head));
+			if (claimed !== void 0 && claimed.fetchStrategy === "custom") return {
+				kind: "customLoad",
+				viewer: claimed
+			};
+			if (claimed !== void 0 && (claimed.fetchStrategy === "mediaUrl" || claimed.fetchStrategy === "none")) return {
+				kind: "render",
+				viewer: claimed,
+				mediaUrl: mediaUrlOf()
+			};
+			return { kind: "binary" };
 		}
 		//#endregion
 		//#region node_modules/.pnpm/react-icons@5.7.0_react@18.3.1/node_modules/react-icons/si/index.mjs
@@ -4485,6 +4828,249 @@ window.__ModuleLoader__.load({
 				strokeLinejoin: "round"
 			})
 		});
+		/** Image viewer glyph: a picture frame with a sun and a mountain. */
+		const IconImageOutline16 = ({ size = 16, className }) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+			width: size,
+			height: size,
+			className,
+			viewBox: "0 0 16 16",
+			fill: "none",
+			xmlns: "http://www.w3.org/2000/svg",
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
+					x: "1.5",
+					y: "2.5",
+					width: "13",
+					height: "11",
+					rx: "2",
+					stroke: "currentColor",
+					strokeWidth: "1.5"
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("circle", {
+					cx: "5.5",
+					cy: "6",
+					r: "1.2",
+					stroke: "currentColor",
+					strokeWidth: "1.5"
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "m3.5 12 3-3 2.25 2.25L11.5 8.5 13 10.5",
+					stroke: "currentColor",
+					strokeWidth: "1.5",
+					strokeLinecap: "round",
+					strokeLinejoin: "round"
+				})
+			]
+		});
+		/** PDF viewer glyph: a document frame with the "PDF" label. */
+		const IconPdfOutline16 = ({ size = 16, className }) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+			width: size,
+			height: size,
+			className,
+			viewBox: "0 0 16 16",
+			fill: "none",
+			xmlns: "http://www.w3.org/2000/svg",
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "M3.5 1.5h6.5L13.5 5v9.5h-10z",
+					stroke: "currentColor",
+					strokeWidth: "1.5",
+					strokeLinejoin: "round"
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "M9.5 1.5V5h4",
+					stroke: "currentColor",
+					strokeWidth: "1.5",
+					strokeLinejoin: "round"
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "M5 13.5v-3h1.4c.75 0 1.1.32 1.1.85 0 .54-.35.85-1.1.85H5.3",
+					stroke: "currentColor",
+					strokeWidth: "1.25",
+					strokeLinecap: "round",
+					strokeLinejoin: "round"
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "M8.3 13.5v-3h1.05c.8 0 1.35.5 1.35 1.5s-.55 1.5-1.35 1.5z",
+					stroke: "currentColor",
+					strokeWidth: "1.25",
+					strokeLinecap: "round",
+					strokeLinejoin: "round"
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "M11.6 13.5v-3h1.3",
+					stroke: "currentColor",
+					strokeWidth: "1.25",
+					strokeLinecap: "round"
+				})
+			]
+		});
+		/** Word viewer glyph: a document frame with a "W". */
+		const IconDocxOutline16 = ({ size = 16, className }) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+			width: size,
+			height: size,
+			className,
+			viewBox: "0 0 16 16",
+			fill: "none",
+			xmlns: "http://www.w3.org/2000/svg",
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "M3.5 1.5h6.5L13.5 5v9.5h-10z",
+					stroke: "currentColor",
+					strokeWidth: "1.5",
+					strokeLinejoin: "round"
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "M9.5 1.5V5h4",
+					stroke: "currentColor",
+					strokeWidth: "1.5",
+					strokeLinejoin: "round"
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "M6.2 13.4 7.4 10l1.2 3.4M7.4 10.6l-.35-1.1c-.2-.62.2-1.25.85-1.25h.2c.65 0 1.05.63.85 1.25l-.35 1.1",
+					stroke: "currentColor",
+					strokeWidth: "1.25",
+					strokeLinecap: "round",
+					strokeLinejoin: "round"
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "M8.75 10.6 9.2 9.4",
+					stroke: "currentColor",
+					strokeWidth: "1.25",
+					strokeLinecap: "round"
+				})
+			]
+		});
+		/** Excel viewer glyph: a spreadsheet grid. */
+		const IconXlsxOutline16 = ({ size = 16, className }) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+			width: size,
+			height: size,
+			className,
+			viewBox: "0 0 16 16",
+			fill: "none",
+			xmlns: "http://www.w3.org/2000/svg",
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
+					x: "1.5",
+					y: "2",
+					width: "13",
+					height: "12",
+					rx: "2",
+					stroke: "currentColor",
+					strokeWidth: "1.5"
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "M1.5 6h13M1.5 9.5h13M6 6v8M10.5 6v8",
+					stroke: "currentColor",
+					strokeWidth: "1.25"
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "m3.8 13.2 2-3M5.8 13.2l-2-3",
+					stroke: "currentColor",
+					strokeWidth: "1.25",
+					strokeLinecap: "round"
+				})
+			]
+		});
+		/** PowerPoint viewer glyph: a chart with rising bars. */
+		const IconPptxOutline16 = ({ size = 16, className }) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+			width: size,
+			height: size,
+			className,
+			viewBox: "0 0 16 16",
+			fill: "none",
+			xmlns: "http://www.w3.org/2000/svg",
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
+				x: "1.5",
+				y: "2.5",
+				width: "13",
+				height: "11",
+				rx: "2",
+				stroke: "currentColor",
+				strokeWidth: "1.5"
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+				d: "M4 12.5v-3M7 12.5V7M10 12.5V4.5M13 12.5v-1.5",
+				stroke: "currentColor",
+				strokeWidth: "1.5",
+				strokeLinecap: "round"
+			})]
+		});
+		/** Video viewer glyph: a screen with a filled play triangle. */
+		const IconVideoOutline16 = ({ size = 16, className }) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+			width: size,
+			height: size,
+			className,
+			viewBox: "0 0 16 16",
+			fill: "none",
+			xmlns: "http://www.w3.org/2000/svg",
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
+				x: "1.5",
+				y: "3",
+				width: "13",
+				height: "10",
+				rx: "2",
+				stroke: "currentColor",
+				strokeWidth: "1.5"
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+				d: "m6 5.75 4.25 2.25L6 10.25z",
+				fill: "currentColor",
+				stroke: "none"
+			})]
+		});
+		/** Markdown viewer glyph: the classic "M with a down arrow" badge. */
+		const IconMarkdownOutline16 = ({ size = 16, className }) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+			width: size,
+			height: size,
+			className,
+			viewBox: "0 0 16 16",
+			fill: "none",
+			xmlns: "http://www.w3.org/2000/svg",
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
+				x: "1.5",
+				y: "2.5",
+				width: "13",
+				height: "11",
+				rx: "2",
+				stroke: "currentColor",
+				strokeWidth: "1.5"
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+				d: "M4 10.5V5.5l2 2.5 2-2.5v5M9.5 10.5v-5l2 2.5 2-2.5v5",
+				stroke: "currentColor",
+				strokeWidth: "1.5",
+				strokeLinecap: "round",
+				strokeLinejoin: "round"
+			})]
+		});
+		/** HTML viewer glyph: a document frame with a "‹/›" tag pair. */
+		const IconHtmlOutline16 = ({ size = 16, className }) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+			width: size,
+			height: size,
+			className,
+			viewBox: "0 0 16 16",
+			fill: "none",
+			xmlns: "http://www.w3.org/2000/svg",
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "M3.5 1.5h6.5L13.5 5v9.5h-10z",
+					stroke: "currentColor",
+					strokeWidth: "1.5",
+					strokeLinejoin: "round"
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "M9.5 1.5V5h4",
+					stroke: "currentColor",
+					strokeWidth: "1.5",
+					strokeLinejoin: "round"
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+					d: "M5.6 13.2 4.2 10l1.4-3.2M7.4 6.8 8.8 10l-1.4 3.2",
+					stroke: "currentColor",
+					strokeWidth: "1.25",
+					strokeLinecap: "round",
+					strokeLinejoin: "round"
+				})
+			]
+		});
 		/** History glyph (thread switcher): a clock with a counterclockwise arrow,
 		*  in the app's outline style — the "past conversations" mark. */
 		const IconHistoryOutline16 = ({ size = 16, className }) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
@@ -4562,6 +5148,26 @@ window.__ModuleLoader__.load({
 			fill: "currentColor",
 			xmlns: "http://www.w3.org/2000/svg",
 			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z" })
+		});
+		/**
+		* Send glyph for the side-chat composer. Vendored from
+		* @deepseek-ai/dsh-client-ui-primitives 0.1.5-rc.2 (IconSendOutline16, a
+		* filled up-arrow): upstream DELETED that export in 0.1.6-alpha.1, which left
+		* the imported binding undefined and crashed the side-chat panel with React
+		* "Element type is invalid". Kept in this module (like the history / save
+		* glyphs above) so a future upstream icon-table change cannot reach us.
+		*/
+		const IconSendOutline16 = ({ size = 16, className }) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+			width: size,
+			height: size,
+			className,
+			viewBox: "0 0 16 16",
+			fill: "none",
+			xmlns: "http://www.w3.org/2000/svg",
+			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+				d: "M8.3125 0.981587C8.66767 1.0545 8.97902 1.20558 9.2627 1.43374C9.48724 1.61438 9.73029 1.85933 9.97949 2.10854L14.707 6.83608L13.293 8.25014L9 3.95717V15.0431H7V3.95717L2.70703 8.25014L1.29297 6.83608L6.02051 2.10854C6.26971 1.85933 6.51277 1.61438 6.7373 1.43374C6.97662 1.24126 7.28445 1.04542 7.6875 0.981587C7.8973 0.94841 8.1031 0.956564 8.3125 0.981587Z",
+				fill: "currentColor"
+			})
 		});
 		//#endregion
 		//#region src/client/upload.ts
@@ -5763,12 +6369,15 @@ window.__ModuleLoader__.load({
 				customCss: typeof record.customCss === "string" ? record.customCss : SIDEBAR_PREFS_DEFAULTS.customCss,
 				titleBarCompat: typeof record.titleBarCompat === "boolean" ? record.titleBarCompat : SIDEBAR_PREFS_DEFAULTS.titleBarCompat,
 				titleBarStripPx: typeof record.titleBarStripPx === "number" && Number.isFinite(record.titleBarStripPx) ? clampTitleBarStrip(record.titleBarStripPx) : SIDEBAR_PREFS_DEFAULTS.titleBarStripPx,
+				htmlViewerNoSandbox: typeof record.htmlViewerNoSandbox === "boolean" ? record.htmlViewerNoSandbox : SIDEBAR_PREFS_DEFAULTS.htmlViewerNoSandbox,
+				htmlViewerDefaultUnsafe: typeof record.htmlViewerDefaultUnsafe === "boolean" ? record.htmlViewerDefaultUnsafe : SIDEBAR_PREFS_DEFAULTS.htmlViewerDefaultUnsafe,
 				browserNoSandbox: typeof record.browserNoSandbox === "boolean" ? record.browserNoSandbox : SIDEBAR_PREFS_DEFAULTS.browserNoSandbox,
 				browserInterceptLinks: typeof record.browserInterceptLinks === "boolean" ? record.browserInterceptLinks : SIDEBAR_PREFS_DEFAULTS.browserInterceptLinks,
 				browserInterceptHttp: typeof record.browserInterceptHttp === "boolean" ? record.browserInterceptHttp : SIDEBAR_PREFS_DEFAULTS.browserInterceptHttp,
 				browserInterceptHttps: typeof record.browserInterceptHttps === "boolean" ? record.browserInterceptHttps : SIDEBAR_PREFS_DEFAULTS.browserInterceptHttps,
 				browserAllowedLoopback: typeof record.browserAllowedLoopback === "string" ? record.browserAllowedLoopback : SIDEBAR_PREFS_DEFAULTS.browserAllowedLoopback,
 				tabsEnabled: booleanMapOf(record.tabsEnabled),
+				viewersEnabled: booleanMapOf(record.viewersEnabled),
 				pluginSettings: pluginSettingsMapOf(record.pluginSettings)
 			};
 		}
@@ -6206,98 +6815,14 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
-		//#region src/client/lazy-chunk.tsx
-		/**
-		* Lazy chunk view wrapper: mounts a component that lives in a lazy chunk,
-		* showing a loading placeholder while the chunk script loads and an error +
-		* retry affordance on failure. Used by the built-in tab/viewer descriptors.
-		*
-		* Contract note: {@link lazyChunkComponent} returns a plain render-prop
-		* function — the descriptor contract is `component: (props) => ReactNode`,
-		* and the repo renders descriptors BOTH ways: Sidebar calls
-		* `descriptor.component(props)` directly, EditorHost renders it via
-		* `createElement`. The wrapper function body therefore contains no hooks;
-		* all state lives in the inner {@link LazyChunkView} component.
-		*/
-		function LazyChunkView({ chunk, pick, props }) {
-			const [attempt, setAttempt] = (0, react.useState)(0);
-			const [state, setState] = (0, react.useState)({ status: "loading" });
-			(0, react.useEffect)(() => {
-				let cancelled = false;
-				setState({ status: "loading" });
-				loadChunk(chunk).then((mod) => {
-					if (cancelled) return;
-					const Comp = pick(mod);
-					if (Comp === void 0) {
-						setState({
-							status: "error",
-							message: `[dsh-coding-sidebar] chunk "${chunk}" is missing its component`
-						});
-						return;
-					}
-					setState({
-						status: "ready",
-						Comp
-					});
-				}).catch((error) => {
-					if (cancelled) return;
-					setState({
-						status: "error",
-						message: error instanceof Error ? error.message : String(error)
-					});
-				});
-				return () => {
-					cancelled = true;
-				};
-			}, [
-				chunk,
-				pick,
-				attempt
-			]);
-			if (state.status === "loading") return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-				className: sidebar_module_css_default.editorPlaceholder,
-				children: t("loading")
-			});
-			if (state.status === "error") return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: sidebar_module_css_default.editorError,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: state.message }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: sidebar_module_css_default.terminalRetry,
-					onClick: () => {
-						setAttempt((current) => current + 1);
-					},
-					children: t("terminalRetry")
-				})]
-			});
-			return (0, react.createElement)(state.Comp, props);
-		}
-		/**
-		* Build a descriptor-compatible lazy wrapper for a chunk-resident component.
-		* The returned function is the descriptor `component` itself: it returns an
-		* element and never calls hooks, so both invocation styles (plain function
-		* call and createElement/JSX render) work. `pick` must be a module-level
-		* function (stable identity) — an inline lambda would re-trigger the load
-		* effect on every render.
-		* @param chunk - the chunk name (see chunk-loader.ts).
-		* @param pick - select the component from the chunk's exports.
-		*/
-		function lazyChunkComponent(chunk, pick) {
-			return (props) => (0, react.createElement)(LazyChunkView, {
-				chunk,
-				pick,
-				props
-			});
-		}
-		//#endregion
 		//#region src/client/EditorHost.tsx
 		/**
-		* The editor tab host: the single FILES WINDOW. It fetches a file's text
-		* through the host fs.read — text renders in the (chunk-lazy) sidebar text
-		* editor, a binary file renders the shared download pane. (v1.0.4: the
-		* file-viewer registry/matching was retired — file preview is the host's
-		* job now, the sidebar edits text only.) A tab without a path (the seeded
-		* "Files" home) renders an empty-state hint instead of the loading flow;
-		* that path-less window IS the file explorer.
+		* The editor tab host: the single FILES WINDOW. It resolves a file's
+		* previewer through the sidebar registry (`matchFileViewer`), fetches bytes
+		* per the matched viewer's fetch strategy, and renders its component — or
+		* the shared download pane when nothing can render the file. A tab without
+		* a path (the seeded "Files" home) renders an empty-state hint instead of
+		* the viewer loading flow; that path-less window IS the file explorer.
 		*
 		* The chrome depends on the `editorExplorer` mode (read reactively so
 		* toggling it re-renders without a reload):
@@ -6311,15 +6836,10 @@ window.__ModuleLoader__.load({
 		* The tree's context menu offers the explicit escapes in both modes: open
 		* in a new tab (per-path dedupe) or to the side (a fresh tab in a fresh
 		* rightward split of the current pane).
+		*
+		* The strategy dispatch is pure (planFirstMatch / planFsReadOutcome in
+		* editor-load.ts); this component only wires it to the host APIs.
 		*/
-		/**
-		* Lazy wrapper over the chunk-resident text editor: CodeMirror and the
-		* language packs are fetched only when a file tab first renders (see
-		* chunk-loader.ts). The `pick` function is module-level (stable identity —
-		* the wrapper effect depends on it); the cast bridges the chunk exports
-		* record to the prop shape.
-		*/
-		const LazyTextEditor = lazyChunkComponent("editor", (mod) => mod.TextEditor);
 		/** The docked tree panel's width bounds (drag-resize clamps into them). */
 		const TREE_WIDTH_DEFAULT = 240;
 		const TREE_WIDTH_MIN = 160;
@@ -6357,6 +6877,7 @@ window.__ModuleLoader__.load({
 		function EditorHost(props) {
 			const { ctx, store, scope, tab, expanded, revealed, onToggleDir, onReferenceFile, onPathRenamed, onPathRemoved } = props;
 			const path = tab.path ?? "";
+			const title = tab.title;
 			const isDir = metaOf(tab).dir === true;
 			const [load, setLoad] = (0, react.useState)({ status: "loading" });
 			const [reloadSeq, setReloadSeq] = (0, react.useState)(0);
@@ -6495,36 +7016,81 @@ window.__ModuleLoader__.load({
 				setToolbar(null);
 				if (showEmpty || isDir) return;
 				let cancelled = false;
+				const controller = new AbortController();
 				setLoad({ status: "loading" });
-				api.fsRead(scope, path).then((result) => {
+				const mediaUrlOf = () => mediaUrl(scope, path);
+				const apply = (action) => {
 					if (cancelled) return;
-					if (result.kind === "binary") {
-						setLoad({ status: "binary" });
-						return;
+					switch (action.kind) {
+						case "binary":
+							setLoad({ status: "binary" });
+							return;
+						case "render":
+							setLoad({
+								status: "ready",
+								viewer: action.viewer,
+								content: action.content,
+								truncated: action.truncated,
+								mediaUrl: action.mediaUrl,
+								customData: action.customData
+							});
+							return;
+						case "customLoad":
+							action.viewer.load?.(path, scope, controller.signal).then((data) => {
+								if (cancelled) return;
+								setLoad({
+									status: "ready",
+									viewer: action.viewer,
+									customData: data
+								});
+							}).catch((error) => {
+								if (cancelled) return;
+								setLoad({
+									status: "error",
+									message: error instanceof Error ? error.message : String(error)
+								});
+							});
+							return;
+						case "fetchFsRead":
+							api.fsRead(scope, path).then((result) => {
+								if (cancelled) return;
+								const outcome = planFsReadOutcome(action.viewer, {
+									binary: result.kind === "binary",
+									content: result.kind === "text" ? result.content : "",
+									truncated: result.truncated,
+									head: result.kind === "binary" ? result.head : void 0
+								}, (head) => ctx.get("betterSidebar")?.matchFileViewer(path, head), mediaUrlOf);
+								apply(outcome);
+							}).catch((error) => {
+								if (cancelled) return;
+								setLoad({
+									status: "error",
+									message: error instanceof Error ? error.message : String(error)
+								});
+							});
+							return;
 					}
-					setLoad({
-						status: "ready",
-						content: result.content,
-						truncated: result.truncated
-					});
-				}).catch((error) => {
-					if (cancelled) return;
-					setLoad({
-						status: "error",
-						message: error instanceof Error ? error.message : String(error)
-					});
-				});
+				};
+				apply(planFirstMatch(ctx.get("betterSidebar")?.matchFileViewer(path), mediaUrlOf));
 				return () => {
 					cancelled = true;
+					controller.abort();
 				};
 			}, [
 				scope.sessionId,
 				scope.cwd,
 				path,
+				ctx,
 				showEmpty,
 				isDir,
 				reloadSeq
 			]);
+			const prevSaveState = (0, react.useRef)(void 0);
+			(0, react.useEffect)(() => {
+				const current = toolbar?.saveState;
+				if (prevSaveState.current !== "saved" && current === "saved" && toolbar?.mode === "preview") setReloadSeq((sequence) => sequence + 1);
+				prevSaveState.current = current;
+			}, [toolbar?.saveState, toolbar?.mode]);
 			const treeOpen = treeOpenOf(tab);
 			/** Persist the panel flag on the tab (survives reloads with the layout). */
 			const toggleTree = () => {
@@ -6564,6 +7130,25 @@ window.__ModuleLoader__.load({
 							cwd: scope.cwd,
 							onOpen: openFile
 						}, path),
+						toolbar?.modes === true && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: sidebar_module_css_default.editorModeToggle,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: clsx(sidebar_module_css_default.editorModeButton, toolbar.mode === "preview" && sidebar_module_css_default.editorModeActive),
+								onClick: () => {
+									if (toolbar.mode === "edit" && toolbar.dirty !== true && toolbar.saveState !== "failed") setReloadSeq((sequence) => sequence + 1);
+									controlsRef.current?.setMode("preview");
+								},
+								children: t("preview")
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: clsx(sidebar_module_css_default.editorModeButton, toolbar.mode === "edit" && sidebar_module_css_default.editorModeActive),
+								onClick: () => {
+									controlsRef.current?.setMode("edit");
+								},
+								children: t("edit")
+							})]
+						}),
 						toolbar?.dirty === true && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 							className: sidebar_module_css_default.dirtyDot,
 							title: t("unsaved")
@@ -6621,13 +7206,17 @@ window.__ModuleLoader__.load({
 								scope,
 								path
 							}),
-							!showEmpty && load.status === "ready" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LazyTextEditor, {
+							!showEmpty && load.status === "ready" && (0, react.createElement)(load.viewer.component, {
 								ctx,
 								store,
 								scope,
 								path,
+								title,
+								viewerId: load.viewer.id,
 								content: load.content,
 								truncated: load.truncated,
+								mediaUrl: load.mediaUrl,
+								customData: load.customData,
 								toolbar: "host",
 								onToolbarState,
 								onToolbarControls
@@ -6941,6 +7530,89 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
+		//#region src/client/lazy-chunk.tsx
+		/**
+		* Lazy chunk view wrapper: mounts a component that lives in a lazy chunk,
+		* showing a loading placeholder while the chunk script loads and an error +
+		* retry affordance on failure. Used by the built-in tab/viewer descriptors.
+		*
+		* Contract note: {@link lazyChunkComponent} returns a plain render-prop
+		* function — the descriptor contract is `component: (props) => ReactNode`,
+		* and the repo renders descriptors BOTH ways: Sidebar calls
+		* `descriptor.component(props)` directly, EditorHost renders it via
+		* `createElement`. The wrapper function body therefore contains no hooks;
+		* all state lives in the inner {@link LazyChunkView} component.
+		*/
+		function LazyChunkView({ chunk, pick, props }) {
+			const [attempt, setAttempt] = (0, react.useState)(0);
+			const [state, setState] = (0, react.useState)({ status: "loading" });
+			(0, react.useEffect)(() => {
+				let cancelled = false;
+				setState({ status: "loading" });
+				loadChunk(chunk).then((mod) => {
+					if (cancelled) return;
+					const Comp = pick(mod);
+					if (Comp === void 0) {
+						setState({
+							status: "error",
+							message: `[dsh-coding-sidebar] chunk "${chunk}" is missing its component`
+						});
+						return;
+					}
+					setState({
+						status: "ready",
+						Comp
+					});
+				}).catch((error) => {
+					if (cancelled) return;
+					setState({
+						status: "error",
+						message: error instanceof Error ? error.message : String(error)
+					});
+				});
+				return () => {
+					cancelled = true;
+				};
+			}, [
+				chunk,
+				pick,
+				attempt
+			]);
+			if (state.status === "loading") return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: sidebar_module_css_default.editorPlaceholder,
+				children: t("loading")
+			});
+			if (state.status === "error") return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: sidebar_module_css_default.editorError,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: state.message }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: sidebar_module_css_default.terminalRetry,
+					onClick: () => {
+						setAttempt((current) => current + 1);
+					},
+					children: t("terminalRetry")
+				})]
+			});
+			return (0, react.createElement)(state.Comp, props);
+		}
+		/**
+		* Build a descriptor-compatible lazy wrapper for a chunk-resident component.
+		* The returned function is the descriptor `component` itself: it returns an
+		* element and never calls hooks, so both invocation styles (plain function
+		* call and createElement/JSX render) work. `pick` must be a module-level
+		* function (stable identity) — an inline lambda would re-trigger the load
+		* effect on every render.
+		* @param chunk - the chunk name (see chunk-loader.ts).
+		* @param pick - select the component from the chunk's exports.
+		*/
+		function lazyChunkComponent(chunk, pick) {
+			return (props) => (0, react.createElement)(LazyChunkView, {
+				chunk,
+				pick,
+				props
+			});
+		}
+		//#endregion
 		//#region src/client/redact.ts
 		/** The heuristics, applied in order; `$1` keeps the leading keyword where the
 		*  rule matches an assignment shape. */
@@ -7077,6 +7749,806 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
+		//#region src/client/git-branch-model.ts
+		/**
+		* The name a row checks out. A local row checks out itself; a remote row
+		* checks out its short name, which makes git create (or switch to) the local
+		* tracking branch instead of landing on a detached HEAD.
+		* @param row - the branch row a click landed on.
+		* @returns the ref name to pass to `git checkout`.
+		*/
+		function trackingNameOf(row) {
+			if (!row.remote) return row.name;
+			const slash = row.name.indexOf("/");
+			return slash === -1 ? row.name : row.name.slice(slash + 1);
+		}
+		/**
+		* Case-insensitive substring filter over a branch list.
+		* @param rows - every row, local first (the host's order is preserved).
+		* @param query - the search box's raw value.
+		* @returns the rows to render (the input array itself is never mutated).
+		*/
+		function filterBranches(rows, query) {
+			const needle = query.trim().toLowerCase();
+			if (needle === "") return [...rows];
+			return rows.filter((row) => row.name.toLowerCase().includes(needle));
+		}
+		//#endregion
+		//#region src/client/GitBranchView.tsx
+		/**
+		* The branch view of the source-control tab (ported from the retired
+		* `@kkutysllb/dsh-git-panel` plugin).
+		*
+		* Local branches first (checked-out branch marked, upstream shown), then remote
+		* branches as informational rows that check out their tracking short name.
+		* Supports search, create-and-checkout, and delete with the panel's two-step
+		* safety: a plain `branch -d` first, and — only when git refuses because the
+		* branch is not fully merged — a second, explicitly confirmed force delete.
+		*
+		* The list is owned here (mount + `refreshKey`), so the parent's status/history
+		* refresh never blocks on it; every mutation reports back through
+		* {@link GitBranchViewProps.onChanged} and reloads the rows.
+		*/
+		function GitBranchView(props) {
+			const { gitScope, worktree, busy, setBusy, onChanged, onError, refreshKey, active } = props;
+			const [rows, setRows] = (0, react.useState)([]);
+			const [loading, setLoading] = (0, react.useState)(true);
+			const [query, setQuery] = (0, react.useState)("");
+			/** The create-branch form's draft name (null while the form is closed). */
+			const [newName, setNewName] = (0, react.useState)(null);
+			/** The branch awaiting a safe-delete confirmation. */
+			const [deleting, setDeleting] = (0, react.useState)(null);
+			/** A safe delete git refused: the force escalation prompt. */
+			const [forcing, setForcing] = (0, react.useState)(null);
+			const gitScopeKey = `${gitScope.sessionId}\u0000${gitScope.cwd ?? ""}\u0000${gitScope.repoRoot ?? ""}\u0000${worktree ?? ""}`;
+			const load = (0, react.useCallback)(async () => {
+				setLoading(true);
+				try {
+					const result = await api.gitBranchRows(gitScope, worktree);
+					setRows(result.rows);
+				} catch (reason) {
+					onError(reason instanceof Error ? reason.message : String(reason));
+				} finally {
+					setLoading(false);
+				}
+			}, [
+				gitScopeKey,
+				worktree,
+				onError
+			]);
+			(0, react.useEffect)(() => {
+				if (!active) return;
+				load();
+			}, [
+				active,
+				load,
+				refreshKey
+			]);
+			const checkout = async (row) => {
+				if (busy || row.current) return;
+				setBusy(true);
+				try {
+					await api.gitCheckout(gitScope, trackingNameOf(row), worktree);
+					await onChanged();
+					await load();
+				} catch (reason) {
+					onError(`${t("checkoutError")}: ${reason instanceof Error ? reason.message : String(reason)}`);
+				} finally {
+					setBusy(false);
+				}
+			};
+			const create = async () => {
+				const name = (newName ?? "").trim();
+				if (name === "" || busy) return;
+				setBusy(true);
+				try {
+					await api.gitBranchCreate(gitScope, name, worktree);
+					setNewName(null);
+					await onChanged();
+					await load();
+				} catch (reason) {
+					onError(`${t("gitBranchCreateFailed")}: ${reason instanceof Error ? reason.message : String(reason)}`);
+				} finally {
+					setBusy(false);
+				}
+			};
+			const remove = async (row, force) => {
+				if (busy) return;
+				setBusy(true);
+				try {
+					await api.gitBranchDelete(gitScope, row.name, force, worktree);
+					setDeleting(null);
+					setForcing(null);
+					await load();
+				} catch (reason) {
+					if (!force && reason instanceof SidebarApiError && reason.code === "not-merged") {
+						setDeleting(null);
+						setForcing(row);
+						return;
+					}
+					onError(`${t("gitBranchDeleteFailed")}: ${reason instanceof Error ? reason.message : String(reason)}`);
+				} finally {
+					setBusy(false);
+				}
+			};
+			const shown = filterBranches(rows, query);
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: sidebar_module_css_default.gitBranchView,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.gitBranchToolbar,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Input, {
+								className: sidebar_module_css_default.gitBranchSearch,
+								placeholder: t("gitBranchSearch"),
+								value: query,
+								onChange: (event) => {
+									setQuery(event.target.value);
+								}
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: sidebar_module_css_default.iconButton,
+								"aria-label": t("gitBranchNew"),
+								title: t("gitBranchNew"),
+								disabled: busy,
+								onClick: () => {
+									setNewName((current) => current === null ? "" : null);
+								},
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutline16, { size: 14 })
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: sidebar_module_css_default.iconButton,
+								"aria-label": t("refresh"),
+								title: t("refresh"),
+								onClick: () => {
+									load();
+								},
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRefreshOutline16, { size: 14 })
+							})
+						]
+					}),
+					newName !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.gitBranchForm,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Input, {
+								className: sidebar_module_css_default.gitBranchSearch,
+								placeholder: t("gitBranchNamePlaceholder"),
+								value: newName,
+								autoFocus: true,
+								disabled: busy,
+								onChange: (event) => {
+									setNewName(event.target.value);
+								},
+								onKeyDown: (event) => {
+									if (event.key === "Enter") create();
+									if (event.key === "Escape") setNewName(null);
+								}
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+								variant: "primary",
+								disabled: busy || newName.trim() === "",
+								onClick: () => {
+									create();
+								},
+								children: t("gitBranchCreate")
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: sidebar_module_css_default.iconButton,
+								"aria-label": t("cancel"),
+								title: t("cancel"),
+								onClick: () => {
+									setNewName(null);
+								},
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCloseOutline16, { size: 14 })
+							})
+						]
+					}),
+					loading && rows.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: sidebar_module_css_default.gitPlaceholder,
+						children: t("loading")
+					}),
+					!loading && shown.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: sidebar_module_css_default.gitEmpty,
+						children: query.trim() === "" ? t("noChanges") : t("gitBranchNoMatch")
+					}),
+					shown.map((row) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.gitBranchRow,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							type: "button",
+							className: sidebar_module_css_default.gitRowMain,
+							title: row.upstream === null ? row.name : `${row.name} → ${row.upstream}`,
+							disabled: busy || row.current,
+							onClick: () => {
+								checkout(row);
+							},
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, { size: 13 }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: sidebar_module_css_default.gitBranchName,
+									children: row.name
+								}),
+								row.current && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: sidebar_module_css_default.gitBranchBadge,
+									children: t("gitBranchCurrent")
+								}),
+								row.remote && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: sidebar_module_css_default.gitBranchMeta,
+									children: t("gitBranchRemote")
+								}),
+								!row.remote && row.upstream !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: sidebar_module_css_default.gitBranchMeta,
+									children: t("gitBranchTracked", { upstream: row.upstream })
+								})
+							]
+						}), !row.remote && !row.current && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: sidebar_module_css_default.iconButton,
+							"aria-label": t("gitBranchDelete"),
+							title: t("gitBranchDelete"),
+							disabled: busy,
+							onClick: () => {
+								setDeleting(row);
+							},
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconTrashOutline16, { size: 14 })
+						})]
+					}, `${row.remote ? "r" : "l"}:${row.name}`)),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
+						open: deleting !== null,
+						onClose: () => {
+							setDeleting(null);
+						},
+						title: t("gitBranchDelete"),
+						closeLabel: t("cancel"),
+						footer: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+							variant: "outline",
+							onClick: () => {
+								setDeleting(null);
+							},
+							children: t("cancel")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+							variant: "primary",
+							disabled: busy,
+							onClick: () => {
+								const row = deleting;
+								if (row === null) return;
+								remove(row, false);
+							},
+							children: t("gitBranchDelete")
+						})] }),
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							className: sidebar_module_css_default.gitConfirmDesc,
+							children: t("gitBranchDeleteDesc", { name: deleting?.name ?? "" })
+						})
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
+						open: forcing !== null,
+						onClose: () => {
+							setForcing(null);
+						},
+						title: t("gitBranchDeleteForce"),
+						closeLabel: t("cancel"),
+						footer: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+							variant: "outline",
+							onClick: () => {
+								setForcing(null);
+							},
+							children: t("cancel")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+							variant: "primary",
+							disabled: busy,
+							onClick: () => {
+								const row = forcing;
+								if (row === null) return;
+								remove(row, true);
+							},
+							children: t("gitBranchDeleteForce")
+						})] }),
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							className: clsx(sidebar_module_css_default.gitConfirmDesc, sidebar_module_css_default.gitConfirmDanger),
+							children: t("gitBranchDeleteUnmerged", { name: forcing?.name ?? "" })
+						})
+					})
+				]
+			});
+		}
+		//#endregion
+		//#region src/client/GitHubView.tsx
+		/**
+		* The GitHub section of the source-control tab (ported from the retired
+		* `@kkutysllb/dsh-git-panel` plugin, v1.0.1).
+		*
+		* Open PRs and issues with counts, one-click PR creation (the host pushes the
+		* branch and sets its upstream first when needed), squash/merge/rebase PR
+		* merge behind an inline confirmation, and issue creation. `gh` is a soft
+		* dependency: without the binary or a login the section degrades to an
+		* explanation plus a re-probe button, and the rest of the git panel is
+		* untouched.
+		*
+		* Loading is manual (open + refresh): the GitHub API is remote and rate
+		* limited, so this section never joins the panel's 2s status poll.
+		*/
+		/** The merge strategies offered in the inline confirmation (gh flag names). */
+		const METHODS = [
+			"squash",
+			"merge",
+			"rebase"
+		];
+		/** Display label of one merge strategy (proper nouns, kept untranslated). */
+		function methodLabel(method) {
+			switch (method) {
+				case "merge": return "Merge";
+				case "rebase": return "Rebase";
+				default: return "Squash";
+			}
+		}
+		function GitHubView(props) {
+			const { gitScope, worktree, busy, setBusy, onError, defaultBranch, active } = props;
+			const [list, setList] = (0, react.useState)(null);
+			const [probe, setProbe] = (0, react.useState)(null);
+			const [loading, setLoading] = (0, react.useState)(true);
+			/** The PR whose merge confirmation is open. */
+			const [merging, setMerging] = (0, react.useState)(null);
+			/** The chosen merge strategy for the open confirmation. */
+			const [method, setMethod] = (0, react.useState)("squash");
+			/** The create-PR form (null while closed). */
+			const [prForm, setPrForm] = (0, react.useState)(null);
+			/** The create-issue form (null while closed). */
+			const [issueForm, setIssueForm] = (0, react.useState)(null);
+			/** Post-action feedback: a created URL or a completion note. */
+			const [notice, setNotice] = (0, react.useState)(null);
+			const gitScopeKey = `${gitScope.sessionId}\u0000${gitScope.cwd ?? ""}\u0000${gitScope.repoRoot ?? ""}\u0000${worktree ?? ""}`;
+			const load = (0, react.useCallback)(async () => {
+				setLoading(true);
+				setNotice(null);
+				try {
+					const [listResult, probeResult] = await Promise.all([api.ghList(gitScope, worktree).catch((reason) => ({
+						ok: false,
+						error: reason instanceof Error ? reason.message : String(reason),
+						repo: null,
+						current: null,
+						prs: [],
+						issues: []
+					})), api.ghProbe(gitScope).catch(() => ({
+						installed: false,
+						authenticated: false,
+						account: null,
+						version: null,
+						error: "probe failed"
+					}))]);
+					setList(listResult);
+					setProbe(probeResult);
+				} finally {
+					setLoading(false);
+				}
+			}, [gitScopeKey, worktree]);
+			(0, react.useEffect)(() => {
+				if (!active) return;
+				load();
+			}, [active, load]);
+			const createPr = async () => {
+				const form = prForm;
+				if (form === null || busy || form.title.trim() === "") return;
+				setBusy(true);
+				try {
+					const result = await api.ghCreatePr(gitScope, {
+						title: form.title.trim(),
+						body: form.body,
+						base: form.base.trim(),
+						draft: form.draft
+					}, worktree);
+					setPrForm(null);
+					setNotice({
+						text: t("ghCreatedPr"),
+						url: result.url
+					});
+					await load();
+				} catch (reason) {
+					onError(`${t("ghCreatePrFailed")}: ${reason instanceof Error ? reason.message : String(reason)}`);
+				} finally {
+					setBusy(false);
+				}
+			};
+			const createIssue = async () => {
+				const form = issueForm;
+				if (form === null || busy || form.title.trim() === "") return;
+				setBusy(true);
+				try {
+					const result = await api.ghCreateIssue(gitScope, {
+						title: form.title.trim(),
+						body: form.body
+					}, worktree);
+					setIssueForm(null);
+					setNotice({
+						text: t("ghCreatedIssue"),
+						url: result.url
+					});
+					await load();
+				} catch (reason) {
+					onError(`${t("ghCreateIssueFailed")}: ${reason instanceof Error ? reason.message : String(reason)}`);
+				} finally {
+					setBusy(false);
+				}
+			};
+			const merge = async (number) => {
+				if (busy) return;
+				setBusy(true);
+				try {
+					await api.ghMergePr(gitScope, number, method, worktree);
+					setMerging(null);
+					setNotice({
+						text: t("ghMerged", { number }),
+						url: null
+					});
+					await load();
+				} catch (reason) {
+					onError(`${t("ghMergeFailed")}: ${reason instanceof Error ? reason.message : String(reason)}`);
+				} finally {
+					setBusy(false);
+				}
+			};
+			/** One link action: a real anchor, so the plugin's link policy decides
+			*  (HTTPS falls through to the system browser by default) and keyboard
+			*  activation works for free. */
+			const openLink = (url, label) => url === null ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+				className: sidebar_module_css_default.gitLink,
+				href: url,
+				target: "_blank",
+				rel: "noreferrer noopener",
+				children: label
+			});
+			const degraded = probe !== null && (!probe.installed || !probe.authenticated);
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: sidebar_module_css_default.gitGh,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.gitGhHeader,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: sidebar_module_css_default.gitGhRepo,
+								children: list?.repo ?? t("ghSection")
+							}),
+							list?.current !== null && list?.current !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: sidebar_module_css_default.gitBranchBadge,
+								children: list.current
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: sidebar_module_css_default.spacer }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: sidebar_module_css_default.iconButton,
+								"aria-label": t("ghReprobe"),
+								title: t("ghReprobe"),
+								disabled: loading,
+								onClick: () => {
+									load();
+								},
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRefreshOutline16, { size: 14 })
+							})
+						]
+					}),
+					(probe?.version !== null || probe?.account !== null) && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.gitGhEnv,
+						children: [
+							t("ghEnv"),
+							probe?.version !== null && probe?.version !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [" · ", probe.version] }),
+							probe?.account !== null && probe?.account !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [" · ", probe.account] })
+						]
+					}),
+					degraded && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.gitPlaceholder,
+						children: [probe?.installed === false ? t("ghNotInstalled") : t("ghNotAuthenticated"), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: sidebar_module_css_default.gitGhHint,
+							children: t("ghInstallHint")
+						})]
+					}),
+					!degraded && loading && list === null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: sidebar_module_css_default.gitPlaceholder,
+						children: t("loading")
+					}),
+					!degraded && list !== null && !list.ok && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.gitPlaceholder,
+						children: [
+							t("ghFailed"),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: sidebar_module_css_default.gitGhHint,
+								children: list.error
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+								variant: "outline",
+								onClick: () => {
+									load();
+								},
+								children: t("retry")
+							})
+						]
+					}),
+					notice !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.gitGhNotice,
+						children: [notice.text, openLink(notice.url, ` ${t("ghOpen")}`)]
+					}),
+					!degraded && list !== null && list.ok && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.gitSection,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: sidebar_module_css_default.gitSectionHeader,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [
+									t("ghOpenPrs"),
+									" (",
+									list.prs.length,
+									")"
+								] }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: sidebar_module_css_default.gitLink,
+									disabled: busy,
+									onClick: () => {
+										setPrForm((current) => current === null ? {
+											title: "",
+											body: "",
+											base: defaultBranch ?? "",
+											draft: false
+										} : null);
+									},
+									children: t("ghCreatePr")
+								})]
+							}),
+							list.prs.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: sidebar_module_css_default.gitEmpty,
+								children: t("ghNoPr")
+							}),
+							list.prs.map((pr) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: sidebar_module_css_default.gitGhRow,
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+										className: sidebar_module_css_default.gitGhNumber,
+										children: ["#", pr.number]
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: sidebar_module_css_default.gitGhTitle,
+										title: pr.title,
+										children: pr.title
+									}),
+									pr.draft && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: sidebar_module_css_default.gitBranchBadge,
+										children: t("ghDraft")
+									}),
+									pr.current && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: sidebar_module_css_default.gitBranchBadge,
+										children: t("gitBranchCurrent")
+									}),
+									pr.author !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: sidebar_module_css_default.gitBranchMeta,
+										children: pr.author
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: sidebar_module_css_default.spacer }),
+									openLink(pr.url, t("ghOpen")),
+									!pr.draft && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: sidebar_module_css_default.gitLink,
+										disabled: busy,
+										onClick: () => {
+											setMethod("squash");
+											setMerging((current) => current === pr.number ? null : pr.number);
+										},
+										children: merging === pr.number ? t("cancel") : t("ghMerge")
+									}),
+									merging === pr.number && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+										className: sidebar_module_css_default.gitGhMergeConfirm,
+										children: [
+											t("ghMergeConfirm", { number: pr.number }),
+											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("select", {
+												className: sidebar_module_css_default.gitGhMethod,
+												value: method,
+												"aria-label": t("ghMerge"),
+												onChange: (event) => {
+													setMethod(event.target.value);
+												},
+												children: METHODS.map((candidate) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+													value: candidate,
+													children: methodLabel(candidate)
+												}, candidate))
+											}),
+											/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+												variant: "primary",
+												disabled: busy,
+												onClick: () => {
+													merge(pr.number);
+												},
+												children: t("confirm")
+											})
+										]
+									})
+								]
+							}, pr.number))
+						]
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.gitSection,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: sidebar_module_css_default.gitSectionHeader,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [
+									t("ghOpenIssues"),
+									" (",
+									list.issues.length,
+									")"
+								] }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: sidebar_module_css_default.gitLink,
+									disabled: busy,
+									onClick: () => {
+										setIssueForm((current) => current === null ? {
+											title: "",
+											body: ""
+										} : null);
+									},
+									children: t("ghCreateIssue")
+								})]
+							}),
+							list.issues.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: sidebar_module_css_default.gitEmpty,
+								children: t("ghNoIssue")
+							}),
+							list.issues.map((issue) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: sidebar_module_css_default.gitGhRow,
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+										className: sidebar_module_css_default.gitGhNumber,
+										children: ["#", issue.number]
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: sidebar_module_css_default.gitGhTitle,
+										title: issue.title,
+										children: issue.title
+									}),
+									issue.author !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: sidebar_module_css_default.gitBranchMeta,
+										children: issue.author
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: sidebar_module_css_default.spacer }),
+									openLink(issue.url, t("ghOpen"))
+								]
+							}, issue.number))
+						]
+					})] }),
+					prForm !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.gitGhForm,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: sidebar_module_css_default.gitGhFormTitle,
+								children: t("ghCreatePr")
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Input, {
+								className: sidebar_module_css_default.gitGhInput,
+								placeholder: t("ghPrTitle"),
+								value: prForm.title,
+								disabled: busy,
+								onChange: (event) => {
+									setPrForm((form) => form === null ? null : {
+										...form,
+										title: event.target.value
+									});
+								}
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+								className: sidebar_module_css_default.gitGhTextarea,
+								placeholder: t("ghBody"),
+								value: prForm.body,
+								disabled: busy,
+								rows: 3,
+								onChange: (event) => {
+									setPrForm((form) => form === null ? null : {
+										...form,
+										body: event.target.value
+									});
+								}
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: sidebar_module_css_default.gitGhFormRow,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Input, {
+									className: sidebar_module_css_default.gitGhInput,
+									placeholder: defaultBranch ?? t("branch"),
+									value: prForm.base,
+									disabled: busy,
+									onChange: (event) => {
+										setPrForm((form) => form === null ? null : {
+											...form,
+											base: event.target.value
+										});
+									}
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: sidebar_module_css_default.gitGhDraft,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+										type: "checkbox",
+										checked: prForm.draft,
+										disabled: busy,
+										onChange: (event) => {
+											setPrForm((form) => form === null ? null : {
+												...form,
+												draft: event.target.checked
+											});
+										}
+									}), t("ghDraft")]
+								})]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: sidebar_module_css_default.gitGhFormRow,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+									variant: "primary",
+									disabled: busy || prForm.title.trim() === "",
+									onClick: () => {
+										createPr();
+									},
+									children: [
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRightUpOutline16, { size: 14 }),
+										" ",
+										t("ghCreate")
+									]
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+									variant: "outline",
+									onClick: () => {
+										setPrForm(null);
+									},
+									children: t("cancel")
+								})]
+							})
+						]
+					}),
+					issueForm !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.gitGhForm,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: sidebar_module_css_default.gitGhFormTitle,
+								children: t("ghCreateIssue")
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Input, {
+								className: sidebar_module_css_default.gitGhInput,
+								placeholder: t("ghIssueTitle"),
+								value: issueForm.title,
+								disabled: busy,
+								onChange: (event) => {
+									setIssueForm((form) => form === null ? null : {
+										...form,
+										title: event.target.value
+									});
+								}
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+								className: clsx(sidebar_module_css_default.gitGhTextarea),
+								placeholder: t("ghBody"),
+								value: issueForm.body,
+								disabled: busy,
+								rows: 3,
+								onChange: (event) => {
+									setIssueForm((form) => form === null ? null : {
+										...form,
+										body: event.target.value
+									});
+								}
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: sidebar_module_css_default.gitGhFormRow,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+									variant: "primary",
+									disabled: busy || issueForm.title.trim() === "",
+									onClick: () => {
+										createIssue();
+									},
+									children: t("ghCreate")
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+									variant: "outline",
+									onClick: () => {
+										setIssueForm(null);
+									},
+									children: t("cancel")
+								})]
+							})
+						]
+					})
+				]
+			});
+		}
+		//#endregion
 		//#region src/client/GitView.tsx
 		/**
 		* The source-control panel: status list (staged vs unstaged), stage/unstage,
@@ -7151,7 +8623,15 @@ window.__ModuleLoader__.load({
 					children: t("changesSessionLens")
 				})]
 			});
+			/** The Git lens' sub-view (the retired git panel's view switcher). */
+			const [view, setView] = (0, react.useState)("changes");
 			const [status, setStatus] = (0, react.useState)(null);
+			/** Upstream distance + per-file line counts (loaded on demand, not on the 2s poll). */
+			const [summary, setSummary] = (0, react.useState)(null);
+			/** Bumped after a mutation so the child views re-read their own data. */
+			const [branchRefreshKey, setBranchRefreshKey] = (0, react.useState)(0);
+			/** The in-flight push (drives the button label). */
+			const [pushing, setPushing] = (0, react.useState)(false);
 			const [worktrees, setWorktrees] = (0, react.useState)([]);
 			const [selectedWorktree, setSelectedWorktree] = (0, react.useState)();
 			const [repoRoot, setRepoRoot] = (0, react.useState)(void 0);
@@ -7188,6 +8668,21 @@ window.__ModuleLoader__.load({
 				...scope,
 				repoRoot
 			};
+			/** Read the enrichment (upstream distance / line counts). Deliberately NOT
+			*  part of the 2s status poll: it runs an extra diff plus untracked file
+			*  reads, so it is refreshed on demand and after every mutation. */
+			const refreshSummary = (0, react.useCallback)(async (target) => {
+				try {
+					const result = await api.gitSummary(gitScope, target ?? selectedRef.current);
+					setSummary(result.summary);
+				} catch {
+					setSummary(null);
+				}
+			}, [
+				scope.sessionId,
+				scope.cwd,
+				repoRoot
+			]);
 			/** Publish a complete checkout-derived view. Status, branch choices and
 			*  history are one consistency unit: never mix rows from two worktrees. */
 			const refreshTarget = (0, react.useCallback)(async (target, options) => {
@@ -7208,6 +8703,7 @@ window.__ModuleLoader__.load({
 					setBranchNames(branchResult.names);
 					setLogEntries(logResult);
 					setLogEnded(logResult.length < LOG_BATCH);
+					if (statusResult.isRepo) refreshSummary(target);
 				} catch (reason) {
 					if (options.generation === refreshGeneration.current) setError(reason instanceof Error ? reason.message : String(reason));
 				} finally {
@@ -7216,7 +8712,8 @@ window.__ModuleLoader__.load({
 			}, [
 				scope.sessionId,
 				scope.cwd,
-				repoRoot
+				repoRoot,
+				refreshSummary
 			]);
 			const refresh = (0, react.useCallback)(async (silent = false) => {
 				if (refreshInFlight.current) return;
@@ -7243,7 +8740,12 @@ window.__ModuleLoader__.load({
 					}
 					if (silent && !targetChanged) {
 						const statusResult = await api.gitStatus(gitScope, target);
-						if (generation === refreshGeneration.current) setStatus(statusResult);
+						if (generation === refreshGeneration.current) {
+							setStatus(statusResult);
+							api.gitSummary(gitScope, target).then((result) => {
+								if (generation === refreshGeneration.current) setSummary(result.summary);
+							}).catch(() => {});
+						}
 						return;
 					}
 					await refreshTarget(target, {
@@ -7385,19 +8887,44 @@ window.__ModuleLoader__.load({
 					setBusy(false);
 				}
 			};
-			const commit = async () => {
+			/**
+			* Commit, optionally pushing afterwards (the retired panel's "提交或推送").
+			*
+			* Staging semantics follow that panel: with nothing staged but a dirty tree,
+			* everything is staged first — a selective index is never overridden, since
+			* only the "nothing staged yet" case auto-stages. `pushAfter` then pushes the
+			* branch, setting its upstream when it has none.
+			*/
+			const commit = async (pushAfter = false) => {
 				const message = commitMsg.trim();
 				if (message === "" || busy) return;
 				setBusy(true);
 				setCommitError(null);
 				try {
+					if (stagedEntries.length === 0) await api.gitStage(gitScope, void 0, selectedWorktree);
 					await api.gitCommit(gitScope, message, selectedWorktree);
 					setCommitMsg("");
+					if (pushAfter) await api.gitPush(gitScope, selectedWorktree);
 					await refresh();
 				} catch (reason) {
-					setCommitError(reason instanceof Error ? reason.message : String(reason));
+					setCommitError(`${pushAfter ? t("gitCommitPushFailed") : t("commitError")}: ${reason instanceof Error ? reason.message : String(reason)}`);
+					await refresh();
 				} finally {
 					setBusy(false);
+				}
+			};
+			/** Push the current branch (the host sets an upstream when there is none). */
+			const push = async () => {
+				if (busy || pushing) return;
+				setPushing(true);
+				setCommitError(null);
+				try {
+					await api.gitPush(gitScope, selectedWorktree);
+					await refresh();
+				} catch (reason) {
+					setCommitError(`${t("gitPushFailed")}: ${reason instanceof Error ? reason.message : String(reason)}`);
+				} finally {
+					setPushing(false);
 				}
 			};
 			const checkout = async (branch) => {
@@ -7456,7 +8983,32 @@ window.__ModuleLoader__.load({
 			};
 			const stagedEntries = (status?.entries ?? []).filter(isStagedEntry);
 			const unstagedEntries = (status?.entries ?? []).filter(isUnstagedEntry);
+			/** Per-path line counts keyed for the file rows (untracked files have none
+			*  in git's numstat; the summary's totals still count their bodies). */
+			const fileStats = new Map((summary?.files ?? []).map((file) => [file.path, file]));
+			/** The upstream badge: distance and whether a push is pending. */
+			const pendingPush = summary !== null && (!summary.hasUpstream || summary.ahead > 0);
+			const viewSwitcher = status !== null && status.isRepo ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: sidebar_module_css_default.changesLensToggle,
+				role: "tablist",
+				"aria-label": t("git"),
+				children: [
+					"changes",
+					"branches",
+					"github"
+				].map((candidate) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: clsx(sidebar_module_css_default.changesLensTab, view === candidate && sidebar_module_css_default.changesLensTabActive),
+					"aria-pressed": view === candidate,
+					onClick: () => {
+						setCommitError(null);
+						setView(candidate);
+					},
+					children: candidate === "changes" ? t("gitViewChanges") : candidate === "branches" ? t("gitViewBranches") : t("ghSection")
+				}, candidate))
+			}) : null;
 			const renderEntry = (entry, staged) => {
+				const stat = fileStats.get(entry.path);
 				return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 					className: sidebar_module_css_default.gitRow,
 					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
@@ -7469,13 +9021,26 @@ window.__ModuleLoader__.load({
 						onContextMenu: (event) => {
 							openFileMenu(event, entry, staged);
 						},
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: sidebar_module_css_default.gitBadge,
-							children: badgeOf(entry)
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: sidebar_module_css_default.gitName,
-							children: entry.path
-						})]
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: sidebar_module_css_default.gitBadge,
+								children: badgeOf(entry)
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: sidebar_module_css_default.gitName,
+								children: entry.path
+							}),
+							stat !== void 0 && stat.added !== null && (stat.added > 0 || (stat.removed ?? 0) > 0) && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+								className: sidebar_module_css_default.gitLineStat,
+								children: [stat.added > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+									className: sidebar_module_css_default.gitAdded,
+									children: ["+", stat.added]
+								}), (stat.removed ?? 0) > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+									className: sidebar_module_css_default.gitRemoved,
+									children: ["−", stat.removed]
+								})]
+							})
+						]
 					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 						type: "button",
 						className: sidebar_module_css_default.iconButton,
@@ -7497,419 +9062,683 @@ window.__ModuleLoader__.load({
 				className: sidebar_module_css_default.git,
 				children: [
 					lensToggle,
-					worktrees.length > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-						className: sidebar_module_css_default.gitWorktreeRow,
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: sidebar_module_css_default.gitWorktreeLabel,
-							children: t("worktree")
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("select", {
-							className: sidebar_module_css_default.gitBranchSelect,
-							value: selectedWorktree ?? "",
-							title: selectedWorktree,
-							disabled: busy,
-							onChange: (event) => {
-								chooseWorktree(event.target.value);
+					viewSwitcher,
+					commitError !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.gitError,
+						role: "status",
+						children: [commitError, /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: sidebar_module_css_default.iconButton,
+							"aria-label": t("close"),
+							title: t("close"),
+							onClick: () => {
+								setCommitError(null);
 							},
-							children: worktrees.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("option", {
-								value: entry.path,
-								children: [
-									entry.branch,
-									" · ",
-									baseName(entry.path),
-									" (",
-									entry.changes,
-									")"
-								]
-							}, entry.path))
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCloseOutline16, { size: 14 })
 						})]
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-						className: sidebar_module_css_default.gitHeader,
-						children: [
-							(status?.repositories?.length ?? 0) > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("select", {
+					view === "branches" && status !== null && status.isRepo && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(GitBranchView, {
+						gitScope,
+						worktree: selectedWorktree,
+						busy,
+						setBusy,
+						onChanged: refresh,
+						onError: setCommitError,
+						refreshKey: branchRefreshKey,
+						active: visible && view === "branches"
+					}),
+					view === "github" && status !== null && status.isRepo && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(GitHubView, {
+						gitScope,
+						worktree: selectedWorktree,
+						busy,
+						setBusy,
+						onError: setCommitError,
+						defaultBranch: summary?.defaultBranch ?? null,
+						active: visible && view === "github"
+					}),
+					view === "changes" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+						worktrees.length > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: sidebar_module_css_default.gitWorktreeRow,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: sidebar_module_css_default.gitWorktreeLabel,
+								children: t("worktree")
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("select", {
 								className: sidebar_module_css_default.gitBranchSelect,
-								value: repoRoot ?? "",
-								title: repoRoot,
-								onChange: (event) => {
-									chooseRepo(event.target.value);
-								},
-								disabled: busy,
-								children: status.repositories.map((root) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-									value: root,
-									children: baseName(root)
-								}, root))
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
-								className: sidebar_module_css_default.gitBranchSelect,
-								value: status?.branch ?? "",
-								onChange: (event) => {
-									checkout(event.target.value);
-								},
-								disabled: busy || status !== null && !status.isRepo,
-								children: [(status?.branch ?? "") !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-									value: status.branch,
-									children: status.branch
-								}), branchNames.filter((name) => name !== status?.branch).map((name) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-									value: name,
-									children: name
-								}, name))]
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-								type: "button",
-								className: sidebar_module_css_default.iconButton,
-								"aria-label": t("refresh"),
-								title: t("refresh"),
-								onClick: () => {
-									refresh();
-								},
-								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRefreshOutline16, { size: 14 })
-							})
-						]
-					}),
-					loading && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-						className: sidebar_module_css_default.gitPlaceholder,
-						children: t("loading")
-					}),
-					!loading && error !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-						className: sidebar_module_css_default.gitError,
-						children: error
-					}),
-					!loading && status !== null && !status.isRepo && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-						className: sidebar_module_css_default.gitPlaceholder,
-						children: t("notRepo")
-					}),
-					status !== null && status.isRepo && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
-						status.truncated === true && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-							className: sidebar_module_css_default.gitEmpty,
-							children: t("statusTruncated")
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-							className: sidebar_module_css_default.gitSection,
-							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-									className: sidebar_module_css_default.gitSectionHeader,
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [
-										t("staged"),
-										" (",
-										stagedEntries.length,
-										")"
-									] }), stagedEntries.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-										type: "button",
-										className: sidebar_module_css_default.gitLink,
-										disabled: busy,
-										onClick: () => {
-											stageAll(true);
-										},
-										children: t("unstageAll")
-									})]
-								}),
-								stagedEntries.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-									className: sidebar_module_css_default.gitEmpty,
-									children: t("noChanges")
-								}),
-								stagedEntries.map((entry) => renderEntry(entry, true))
-							]
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-							className: sidebar_module_css_default.gitSection,
-							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-									className: sidebar_module_css_default.gitSectionHeader,
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [
-										t("unstaged"),
-										" (",
-										unstagedEntries.length,
-										")"
-									] }), unstagedEntries.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-										type: "button",
-										className: sidebar_module_css_default.gitLink,
-										disabled: busy,
-										onClick: () => {
-											stageAll(false);
-										},
-										children: t("stageAll")
-									})]
-								}),
-								unstagedEntries.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-									className: sidebar_module_css_default.gitEmpty,
-									children: t("noChanges")
-								}),
-								unstagedEntries.map((entry) => renderEntry(entry, false))
-							]
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-							className: sidebar_module_css_default.gitCommit,
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Input, {
-								className: sidebar_module_css_default.gitCommitInput,
-								placeholder: t("commitPlaceholder"),
-								value: commitMsg,
+								value: selectedWorktree ?? "",
+								title: selectedWorktree,
 								disabled: busy,
 								onChange: (event) => {
-									setCommitMsg(event.target.value);
-									setCommitError(null);
+									chooseWorktree(event.target.value);
 								},
-								onKeyDown: (event) => {
-									if ((event.ctrlKey || event.metaKey) && event.key === "Enter") commit();
-								}
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-								type: "button",
-								className: sidebar_module_css_default.gitCommitButton,
-								disabled: busy || commitMsg.trim() === "" || stagedEntries.length === 0,
-								onClick: () => {
-									commit();
-								},
-								children: t("commit")
+								children: worktrees.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("option", {
+									value: entry.path,
+									children: [
+										entry.branch,
+										" · ",
+										baseName(entry.path),
+										" (",
+										entry.changes,
+										")"
+									]
+								}, entry.path))
 							})]
 						}),
-						commitError !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-							className: sidebar_module_css_default.gitError,
-							children: commitError
-						}),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-							className: sidebar_module_css_default.gitSection,
+							className: sidebar_module_css_default.gitHeader,
 							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-									className: sidebar_module_css_default.gitSectionHeader,
-									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("history") })
+								(status?.repositories?.length ?? 0) > 1 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("select", {
+									className: sidebar_module_css_default.gitBranchSelect,
+									value: repoRoot ?? "",
+									title: repoRoot,
+									onChange: (event) => {
+										chooseRepo(event.target.value);
+									},
+									disabled: busy,
+									children: status.repositories.map((root) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+										value: root,
+										children: baseName(root)
+									}, root))
 								}),
-								logEntries.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-									role: "button",
-									tabIndex: 0,
-									className: sidebar_module_css_default.gitLogRow,
-									title: `${entry.author} · ${entry.date}\n${entry.hashFull}`,
-									onClick: () => {
-										openCommitDiff(entry);
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
+									className: sidebar_module_css_default.gitBranchSelect,
+									value: status?.branch ?? "",
+									onChange: (event) => {
+										checkout(event.target.value);
 									},
-									onKeyDown: (event) => {
-										if (event.key === "Enter" || event.key === " ") {
-											event.preventDefault();
-											openCommitDiff(entry);
-										}
-									},
-									onContextMenu: (event) => {
-										openHistoryMenu(event, entry);
-									},
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-										className: sidebar_module_css_default.gitLogLine1,
-										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-											className: sidebar_module_css_default.gitLogHash,
-											children: entry.hash
-										}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-											className: sidebar_module_css_default.gitLogSubject,
-											children: entry.subject
-										})]
-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-										className: sidebar_module_css_default.gitLogLine2,
-										children: [refNames(entry.refs).map((ref) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-											className: sidebar_module_css_default.gitLogRef,
-											children: ref
-										}, ref)), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-											className: sidebar_module_css_default.gitLogMeta,
-											children: [
-												entry.author,
-												" · ",
-												relativeTime(entry.date)
-											]
-										})]
-									})]
-								}, entry.hashFull)),
-								!logEnded && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									disabled: busy || status !== null && !status.isRepo,
+									children: [(status?.branch ?? "") !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+										value: status.branch,
+										children: status.branch
+									}), branchNames.filter((name) => name !== status?.branch).map((name) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+										value: name,
+										children: name
+									}, name))]
+								}),
+								summary !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: sidebar_module_css_default.gitUpstream,
+									title: summary.remoteUrl ?? void 0,
+									children: summary.hasUpstream ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+										summary.ahead > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+											className: sidebar_module_css_default.gitAhead,
+											title: t("gitAhead", { n: summary.ahead }),
+											children: ["↑", summary.ahead]
+										}),
+										summary.behind > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+											className: sidebar_module_css_default.gitBehind,
+											title: t("gitBehind", { n: summary.behind }),
+											children: ["↓", summary.behind]
+										}),
+										summary.ahead === 0 && summary.behind === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											className: sidebar_module_css_default.gitSynced,
+											children: t("gitPushed")
+										}),
+										summary.ahead > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											className: sidebar_module_css_default.gitPending,
+											children: t("gitPendingPush")
+										})
+									] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: sidebar_module_css_default.gitPending,
+										children: t("gitNoUpstream")
+									})
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 									type: "button",
-									className: sidebar_module_css_default.gitLogMore,
-									disabled: logLoadingMore || busy,
+									className: sidebar_module_css_default.iconButton,
+									"aria-label": t("refresh"),
+									title: t("refresh"),
 									onClick: () => {
-										loadMoreLog();
+										refresh();
 									},
-									children: logLoadingMore ? t("loading") : t("loadMore")
+									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRefreshOutline16, { size: 14 })
 								})
 							]
 						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
-							open: fileMenu !== null,
-							onClose: () => {
-								setFileMenu(null);
-							},
-							items: [
-								...fileMenu !== null && isWithinWorkspace(scope.cwd ?? "", resolveSidebarPath(repoRoot ?? selectedWorktree ?? scope.cwd, fileMenu.entry.path)) ? [{
-									id: "open",
-									label: t("openEditor"),
-									icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCodeOutline16, { size: 14 })
-								}] : [],
-								fileMenu?.staged === true ? {
-									id: "stage",
-									label: t("unstage"),
-									icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconTrashOutline16, { size: 14 })
-								} : {
-									id: "stage",
-									label: t("stage"),
-									icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, { size: 14 })
-								},
-								...fileMenu !== null && !isUntracked(fileMenu.entry) ? [{
-									id: "discard",
-									label: t("discard"),
-									icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconTrashOutline16, { size: 14 }),
-									danger: true
-								}] : [],
-								{
-									type: "separator",
-									id: "sep1"
-								},
-								{
-									id: "relative",
-									label: t("copyRelative"),
-									icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, { size: 14 })
-								},
-								{
-									id: "absolute",
-									label: t("copyAbsolute"),
-									icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, { size: 14 })
-								}
-							],
-							onSelect: (id) => {
-								const target = fileMenu;
-								if (target === null) return;
-								setFileMenu(null);
-								if (id === "open") {
-									const resolved = resolveSidebarPath(repoRoot ?? selectedWorktree ?? scope.cwd, target.entry.path);
-									if (!isWithinWorkspace(scope.cwd ?? "", resolved)) return;
-									onOpenFile(resolved);
-									return;
-								}
-								if (id === "stage") {
-									stageEntry(target.entry, target.staged);
-									return;
-								}
-								if (id === "discard") {
-									runConfirmed({
-										title: t("discardTitle"),
-										description: t("discardDesc", { path: target.entry.path }),
-										confirmLabel: t("discard"),
-										onConfirm: () => api.gitDiscard(gitScope, target.entry.path, selectedWorktree)
-									});
-									return;
-								}
-								if (id === "relative") {
-									copy(relativeTo(repoRoot ?? selectedWorktree ?? scope.cwd ?? "", target.entry.path));
-									return;
-								}
-								if (id === "absolute") copy(resolveSidebarPath(repoRoot ?? selectedWorktree ?? scope.cwd, target.entry.path));
-							},
-							portal: true,
-							align: "start",
-							getAnchorRect: () => fileMenu === null ? null : new DOMRect(fileMenu.x, fileMenu.y, 0, 0),
-							anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {})
+						loading && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: sidebar_module_css_default.gitPlaceholder,
+							children: t("loading")
 						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
-							open: historyMenu !== null,
-							onClose: () => {
-								setHistoryMenu(null);
-							},
-							items: [
-								{
-									id: "view",
-									label: t("viewCommitDiff")
-								},
-								{
-									id: "copyShort",
-									label: t("copyShortHash"),
-									icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, { size: 14 })
-								},
-								{
-									id: "copyFull",
-									label: t("copyFullHash"),
-									icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, { size: 14 })
-								},
-								{
-									id: "copySubject",
-									label: t("copySubject"),
-									icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, { size: 14 })
-								},
-								{
-									type: "separator",
-									id: "sep2"
-								},
-								{
-									id: "revert",
-									label: t("revertCommit"),
-									danger: true
-								},
-								{
-									id: "cherryPick",
-									label: t("cherryPickCommit"),
-									danger: true
-								}
-							],
-							onSelect: (id) => {
-								const target = historyMenu;
-								if (target === null) return;
-								setHistoryMenu(null);
-								if (id === "view") {
-									openCommitDiff(target.entry);
-									return;
-								}
-								if (id === "copyShort") {
-									copy(target.entry.hash);
-									return;
-								}
-								if (id === "copyFull") {
-									copy(target.entry.hashFull);
-									return;
-								}
-								if (id === "copySubject") {
-									copy(target.entry.subject);
-									return;
-								}
-								if (id === "revert") {
-									runConfirmed({
-										title: t("revertTitle"),
-										description: t("revertDesc", { subject: target.entry.subject }),
-										confirmLabel: t("revertCommit"),
-										onConfirm: () => api.gitRevert(gitScope, target.entry.hashFull, selectedWorktree)
-									});
-									return;
-								}
-								if (id === "cherryPick") runConfirmed({
-									title: t("cherryPickTitle"),
-									description: t("cherryPickDesc", { subject: target.entry.subject }),
-									confirmLabel: t("cherryPickCommit"),
-									onConfirm: () => api.gitCherryPick(gitScope, target.entry.hashFull, selectedWorktree)
-								});
-							},
-							portal: true,
-							align: "start",
-							getAnchorRect: () => historyMenu === null ? null : new DOMRect(historyMenu.x, historyMenu.y, 0, 0),
-							anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {})
+						!loading && error !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: sidebar_module_css_default.gitError,
+							children: error
 						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
-							open: confirm !== null,
-							onClose: () => {
-								setConfirm(null);
-							},
-							title: confirm?.title ?? "",
-							closeLabel: t("cancel"),
-							footer: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
-								variant: "outline",
-								onClick: () => {
+						!loading && status !== null && !status.isRepo && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: sidebar_module_css_default.gitPlaceholder,
+							children: t("notRepo")
+						}),
+						status !== null && status.isRepo && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+							status.truncated === true && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: sidebar_module_css_default.gitEmpty,
+								children: t("statusTruncated")
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: sidebar_module_css_default.gitSection,
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+										className: sidebar_module_css_default.gitSectionHeader,
+										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [
+											t("staged"),
+											" (",
+											stagedEntries.length,
+											")"
+										] }), stagedEntries.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: sidebar_module_css_default.gitLink,
+											disabled: busy,
+											onClick: () => {
+												stageAll(true);
+											},
+											children: t("unstageAll")
+										})]
+									}),
+									stagedEntries.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: sidebar_module_css_default.gitEmpty,
+										children: t("noChanges")
+									}),
+									stagedEntries.map((entry) => renderEntry(entry, true))
+								]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: sidebar_module_css_default.gitSection,
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+										className: sidebar_module_css_default.gitSectionHeader,
+										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [
+											t("unstaged"),
+											" (",
+											unstagedEntries.length,
+											")"
+										] }), unstagedEntries.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: sidebar_module_css_default.gitLink,
+											disabled: busy,
+											onClick: () => {
+												stageAll(false);
+											},
+											children: t("stageAll")
+										})]
+									}),
+									unstagedEntries.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: sidebar_module_css_default.gitEmpty,
+										children: t("noChanges")
+									}),
+									unstagedEntries.map((entry) => renderEntry(entry, false))
+								]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: sidebar_module_css_default.gitCommit,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Input, {
+									className: sidebar_module_css_default.gitCommitInput,
+									placeholder: t("commitPlaceholder"),
+									value: commitMsg,
+									disabled: busy,
+									onChange: (event) => {
+										setCommitMsg(event.target.value);
+										setCommitError(null);
+									},
+									onKeyDown: (event) => {
+										if ((event.ctrlKey || event.metaKey) && event.key === "Enter") commit();
+									}
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: sidebar_module_css_default.gitCommitButton,
+									disabled: busy || commitMsg.trim() === "" || stagedEntries.length === 0 && unstagedEntries.length === 0,
+									onClick: () => {
+										commit();
+									},
+									children: t("commit")
+								})]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: sidebar_module_css_default.gitPushRow,
+								children: [
+									summary !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+										className: sidebar_module_css_default.gitLineStat,
+										children: [
+											summary.untracked > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+												className: sidebar_module_css_default.gitUntracked,
+												children: t("gitUntracked", { n: summary.untracked })
+											}),
+											summary.added > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+												className: sidebar_module_css_default.gitAdded,
+												children: ["+", summary.added]
+											}),
+											summary.removed > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+												className: sidebar_module_css_default.gitRemoved,
+												children: ["−", summary.removed]
+											})
+										]
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: sidebar_module_css_default.spacer }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+										type: "button",
+										className: sidebar_module_css_default.gitLink,
+										disabled: busy || pushing || commitMsg.trim() === "" || stagedEntries.length === 0 && unstagedEntries.length === 0,
+										title: t("gitCommitPush"),
+										onClick: () => {
+											commit(true);
+										},
+										children: [
+											/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRightUpOutline16, { size: 13 }),
+											" ",
+											t("gitCommitPush")
+										]
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: sidebar_module_css_default.gitLink,
+										disabled: busy || pushing || !pendingPush,
+										title: t("gitPush"),
+										onClick: () => {
+											push();
+										},
+										children: pushing ? t("gitPushing") : t("gitPush")
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: sidebar_module_css_default.gitSection,
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: sidebar_module_css_default.gitSectionHeader,
+										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("history") })
+									}),
+									logEntries.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+										role: "button",
+										tabIndex: 0,
+										className: sidebar_module_css_default.gitLogRow,
+										title: `${entry.author} · ${entry.date}\n${entry.hashFull}`,
+										onClick: () => {
+											openCommitDiff(entry);
+										},
+										onKeyDown: (event) => {
+											if (event.key === "Enter" || event.key === " ") {
+												event.preventDefault();
+												openCommitDiff(entry);
+											}
+										},
+										onContextMenu: (event) => {
+											openHistoryMenu(event, entry);
+										},
+										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+											className: sidebar_module_css_default.gitLogLine1,
+											children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+												className: sidebar_module_css_default.gitLogHash,
+												children: entry.hash
+											}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+												className: sidebar_module_css_default.gitLogSubject,
+												children: entry.subject
+											})]
+										}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+											className: sidebar_module_css_default.gitLogLine2,
+											children: [refNames(entry.refs).map((ref) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+												className: sidebar_module_css_default.gitLogRef,
+												children: ref
+											}, ref)), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+												className: sidebar_module_css_default.gitLogMeta,
+												children: [
+													entry.author,
+													" · ",
+													relativeTime(entry.date)
+												]
+											})]
+										})]
+									}, entry.hashFull)),
+									!logEnded && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: sidebar_module_css_default.gitLogMore,
+										disabled: logLoadingMore || busy,
+										onClick: () => {
+											loadMoreLog();
+										},
+										children: logLoadingMore ? t("loading") : t("loadMore")
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
+								open: fileMenu !== null,
+								onClose: () => {
+									setFileMenu(null);
+								},
+								items: [
+									...fileMenu !== null && isWithinWorkspace(scope.cwd ?? "", resolveSidebarPath(repoRoot ?? selectedWorktree ?? scope.cwd, fileMenu.entry.path)) ? [{
+										id: "open",
+										label: t("openEditor"),
+										icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCodeOutline16, { size: 14 })
+									}] : [],
+									fileMenu?.staged === true ? {
+										id: "stage",
+										label: t("unstage"),
+										icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconTrashOutline16, { size: 14 })
+									} : {
+										id: "stage",
+										label: t("stage"),
+										icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, { size: 14 })
+									},
+									...fileMenu !== null && !isUntracked(fileMenu.entry) ? [{
+										id: "discard",
+										label: t("discard"),
+										icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconTrashOutline16, { size: 14 }),
+										danger: true
+									}] : [],
+									{
+										type: "separator",
+										id: "sep1"
+									},
+									{
+										id: "relative",
+										label: t("copyRelative"),
+										icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, { size: 14 })
+									},
+									{
+										id: "absolute",
+										label: t("copyAbsolute"),
+										icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, { size: 14 })
+									}
+								],
+								onSelect: (id) => {
+									const target = fileMenu;
+									if (target === null) return;
+									setFileMenu(null);
+									if (id === "open") {
+										const resolved = resolveSidebarPath(repoRoot ?? selectedWorktree ?? scope.cwd, target.entry.path);
+										if (!isWithinWorkspace(scope.cwd ?? "", resolved)) return;
+										onOpenFile(resolved);
+										return;
+									}
+									if (id === "stage") {
+										stageEntry(target.entry, target.staged);
+										return;
+									}
+									if (id === "discard") {
+										runConfirmed({
+											title: t("discardTitle"),
+											description: t("discardDesc", { path: target.entry.path }),
+											confirmLabel: t("discard"),
+											onConfirm: () => api.gitDiscard(gitScope, target.entry.path, selectedWorktree)
+										});
+										return;
+									}
+									if (id === "relative") {
+										copy(relativeTo(repoRoot ?? selectedWorktree ?? scope.cwd ?? "", target.entry.path));
+										return;
+									}
+									if (id === "absolute") copy(resolveSidebarPath(repoRoot ?? selectedWorktree ?? scope.cwd, target.entry.path));
+								},
+								portal: true,
+								align: "start",
+								getAnchorRect: () => fileMenu === null ? null : new DOMRect(fileMenu.x, fileMenu.y, 0, 0),
+								anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {})
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
+								open: historyMenu !== null,
+								onClose: () => {
+									setHistoryMenu(null);
+								},
+								items: [
+									{
+										id: "view",
+										label: t("viewCommitDiff")
+									},
+									{
+										id: "copyShort",
+										label: t("copyShortHash"),
+										icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, { size: 14 })
+									},
+									{
+										id: "copyFull",
+										label: t("copyFullHash"),
+										icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, { size: 14 })
+									},
+									{
+										id: "copySubject",
+										label: t("copySubject"),
+										icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCopyOutline16, { size: 14 })
+									},
+									{
+										type: "separator",
+										id: "sep2"
+									},
+									{
+										id: "revert",
+										label: t("revertCommit"),
+										danger: true
+									},
+									{
+										id: "cherryPick",
+										label: t("cherryPickCommit"),
+										danger: true
+									}
+								],
+								onSelect: (id) => {
+									const target = historyMenu;
+									if (target === null) return;
+									setHistoryMenu(null);
+									if (id === "view") {
+										openCommitDiff(target.entry);
+										return;
+									}
+									if (id === "copyShort") {
+										copy(target.entry.hash);
+										return;
+									}
+									if (id === "copyFull") {
+										copy(target.entry.hashFull);
+										return;
+									}
+									if (id === "copySubject") {
+										copy(target.entry.subject);
+										return;
+									}
+									if (id === "revert") {
+										runConfirmed({
+											title: t("revertTitle"),
+											description: t("revertDesc", { subject: target.entry.subject }),
+											confirmLabel: t("revertCommit"),
+											onConfirm: () => api.gitRevert(gitScope, target.entry.hashFull, selectedWorktree)
+										});
+										return;
+									}
+									if (id === "cherryPick") runConfirmed({
+										title: t("cherryPickTitle"),
+										description: t("cherryPickDesc", { subject: target.entry.subject }),
+										confirmLabel: t("cherryPickCommit"),
+										onConfirm: () => api.gitCherryPick(gitScope, target.entry.hashFull, selectedWorktree)
+									});
+								},
+								portal: true,
+								align: "start",
+								getAnchorRect: () => historyMenu === null ? null : new DOMRect(historyMenu.x, historyMenu.y, 0, 0),
+								anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {})
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
+								open: confirm !== null,
+								onClose: () => {
 									setConfirm(null);
 								},
-								children: t("cancel")
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
-								variant: "primary",
-								disabled: busy,
-								onClick: () => {
-									const pending = confirm;
-									if (pending === null) return;
-									setConfirm(null);
-									pending.onConfirm();
-								},
-								children: confirm?.confirmLabel ?? ""
-							})] }),
-							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-								className: sidebar_module_css_default.gitConfirmDesc,
-								children: confirm?.description
+								title: confirm?.title ?? "",
+								closeLabel: t("cancel"),
+								footer: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+									variant: "outline",
+									onClick: () => {
+										setConfirm(null);
+									},
+									children: t("cancel")
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+									variant: "primary",
+									disabled: busy,
+									onClick: () => {
+										const pending = confirm;
+										if (pending === null) return;
+										setConfirm(null);
+										pending.onConfirm();
+									},
+									children: confirm?.confirmLabel ?? ""
+								})] }),
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+									className: sidebar_module_css_default.gitConfirmDesc,
+									children: confirm?.description
+								})
 							})
-						})
+						] })
 					] })
+				]
+			});
+		}
+		//#endregion
+		//#region src/client/PlansView.tsx
+		/**
+		* The task-plan tab: the workspace's agent-authored plan documents (the
+		* retired `@kkutysllb/dsh-git-panel` plugin's 任务计划 section, promoted from a
+		* block inside its card to a page of its own).
+		*
+		* The rows come from the host's plan convention (`plans/`, `docs/plans/`,
+		* `.plans/` one level down, plus `plan.md` / `PLAN.md` / `docs/plan.md`) and
+		* are newest-first. The primary click opens the document in the sidebar's own
+		* editor tab — the exact hand-off the retired panel preferred when the sidebar
+		* was present (its `open-plan` system launch was only the fallback, and stays
+		* available here as the row's secondary action, contained to the workspace on
+		* the host side).
+		*
+		* The list refreshes on mount, whenever the tab becomes visible again, every
+		* few seconds while it IS visible (a plan is being rewritten under the user's
+		* eyes during a run), and on demand through the toolbar button.
+		*/
+		/** While the tab is on screen, re-scan the plan convention this often. */
+		const POLL_MS$2 = 4e3;
+		/** Format a document mtime with the panel's shared relative-time copy. */
+		function when(ms) {
+			return relativeTime(new Date(ms).toISOString());
+		}
+		function PlansView(props) {
+			const { scope, visible, onOpenFile } = props;
+			const [docs, setDocs] = (0, react.useState)([]);
+			/** The host's cap, echoed back so a truncated list can say so. */
+			const [limit, setLimit] = (0, react.useState)(0);
+			const [loading, setLoading] = (0, react.useState)(true);
+			const [error, setError] = (0, react.useState)(null);
+			const [query, setQuery] = (0, react.useState)("");
+			const scopeKey = `${scope.sessionId}\u0000${scope.cwd ?? ""}`;
+			const load = (0, react.useCallback)(async (silent = false) => {
+				if (!silent) setLoading(true);
+				try {
+					const result = await api.plansList(scope);
+					setDocs(result.plans);
+					setLimit(result.limit);
+					setError(null);
+				} catch (reason) {
+					setError(reason instanceof Error ? reason.message : String(reason));
+				} finally {
+					setLoading(false);
+				}
+			}, [scopeKey]);
+			(0, react.useEffect)(() => {
+				if (!visible) return;
+				load();
+			}, [visible, load]);
+			(0, react.useEffect)(() => {
+				if (!visible) return;
+				const timer = window.setInterval(() => {
+					load(true);
+				}, POLL_MS$2);
+				return () => {
+					window.clearInterval(timer);
+				};
+			}, [visible, load]);
+			/** Hand one document to the OS default application (the host fences it to
+			*  the workspace and to text documents). */
+			const openInApp = async (doc) => {
+				try {
+					await api.plansOpen(scope, doc.path);
+				} catch (reason) {
+					setError(`${t("plansOpenFailed")}: ${reason instanceof Error ? reason.message : String(reason)}`);
+				}
+			};
+			const shown = (0, react.useMemo)(() => {
+				const needle = query.trim().toLowerCase();
+				if (needle === "") return docs;
+				return docs.filter((doc) => doc.title.toLowerCase().includes(needle) || doc.rel.toLowerCase().includes(needle));
+			}, [docs, query]);
+			const filtering = query.trim() !== "";
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: sidebar_module_css_default.plansView,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.plansToolbar,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Input, {
+							className: sidebar_module_css_default.plansSearch,
+							placeholder: t("plansSearch"),
+							value: query,
+							onChange: (event) => {
+								setQuery(event.target.value);
+							}
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: sidebar_module_css_default.iconButton,
+							"aria-label": t("refresh"),
+							title: t("refresh"),
+							onClick: () => {
+								load();
+							},
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRefreshOutline16, { size: 14 })
+						})]
+					}),
+					error !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: sidebar_module_css_default.gitError,
+						role: "status",
+						children: error
+					}),
+					loading && docs.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: sidebar_module_css_default.gitPlaceholder,
+						children: t("loading")
+					}),
+					!loading && shown.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.plansEmpty,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", { children: filtering ? t("plansNoMatch") : t("plansEmpty") }), !filtering && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: sidebar_module_css_default.plansHint,
+							children: t("plansHint")
+						})]
+					}),
+					shown.map((doc) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: sidebar_module_css_default.plansRow,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							type: "button",
+							className: sidebar_module_css_default.plansRowMain,
+							title: doc.path,
+							onClick: () => {
+								onOpenFile(doc.path);
+							},
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: sidebar_module_css_default.plansGlyph,
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconListPenOutline16, { size: 14 })
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+								className: sidebar_module_css_default.plansText,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: sidebar_module_css_default.plansTitle,
+									children: doc.title
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+									className: sidebar_module_css_default.plansMeta,
+									children: [
+										doc.rel,
+										" · ",
+										when(doc.mtimeMs)
+									]
+								})]
+							})]
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: sidebar_module_css_default.iconButton,
+							"aria-label": t("plansOpenInApp"),
+							title: t("plansOpenInApp"),
+							onClick: () => {
+								openInApp(doc);
+							},
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRightUpOutline16, { size: 14 })
+						})]
+					}, doc.path)),
+					limit > 0 && docs.length >= limit && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: sidebar_module_css_default.plansHint,
+						children: t("plansCapped", { n: limit })
+					})
 				]
 			});
 		}
@@ -10241,6 +12070,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			*  (big pages — chunk deltas re-expand on cold reads), later reads fetch
 			*  one tail page and merge (seq-deduped). */
 			const fetchThread = (0, react.useCallback)(async (childId) => {
+				if (ctx.connection.api?.sessions?.history === void 0) return;
 				controllerRef.current?.abort();
 				const controller = new AbortController();
 				controllerRef.current = controller;
@@ -10551,7 +12381,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 								onClick: () => void handleSend(),
 								disabled: composer.trim() === "" || busy !== null,
 								title: t("sideChatSend"),
-								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSendOutline16, {})
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconSendOutline16, {})
 							}, "send")]
 						})]
 					})
@@ -10699,20 +12529,17 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		//#endregion
 		//#region src/client/SandboxStatusBar.tsx
 		/**
-		* The live sandbox status row of the built-in browser tab: a green
-		* "sandbox on" state with a one-tap TEMPORARY unlock, or a RED "sandbox
-		* off" state (global setting or the temporary unlock) with a restore
-		* action.
+		* The live sandbox status row of the two built-in web surfaces (HTML
+		* preview and the browser tab): a green "sandbox on" state with a one-tap
+		* TEMPORARY unlock, or a RED "sandbox off" state (global setting or the
+		* temporary unlock) with a restore action.
 		*
 		* The temporary unlock is component state only — it never writes the
-		* global side card setting (`browserNoSandbox`); it lasts until the
-		* surface unmounts (tab switch) or the user restores the sandbox from the
-		* row. When the global setting already drops the sandbox, no
-		* unlock/restore action is offered (changing the global setting is the
-		* settings page's job) — the red warning stands.
-		*
-		* (v1.0.4: the HTML preview surface was retired with the file-viewer line;
-		* this row now serves the browser tab only.)
+		* global side card setting (`htmlViewerNoSandbox` / `browserNoSandbox`);
+		* it lasts until the surface unmounts (tab switch / file switch) or the
+		* user restores the sandbox from the row. When the global setting already
+		* drops the sandbox, no unlock/restore action is offered (changing the
+		* global setting is the settings page's job) — the red warning stands.
 		*/
 		function SandboxStatusBar(props) {
 			const { sandboxed, local, dangerCopy, onUnlock, onRestore } = props;
@@ -11463,6 +13290,20 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 					})
 				},
 				{
+					id: "plans",
+					title: () => t("plans"),
+					icon: plansTabIcon,
+					order: 32,
+					single: true,
+					component: ({ ctx, store, scope, visible }) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PlansView, {
+						scope,
+						visible,
+						onOpenFile: (path) => {
+							openSidebarFile(ctx, store, scope.sessionId, path);
+						}
+					})
+				},
+				{
 					id: "trajectory",
 					title: () => t("trajectory"),
 					icon: trajectoryTabIcon,
@@ -11626,14 +13467,380 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			];
 		}
 		//#endregion
+		//#region src/client/PdfView.tsx
+		/** Browser-native PDF preview with an always-available download fallback. */
+		function PdfView(props) {
+			const { scope, path, title } = props;
+			const [load, setLoad] = (0, react.useState)({ status: "loading" });
+			const [interactionBlocked, setInteractionBlocked] = (0, react.useState)(false);
+			const frameRef = (0, react.useRef)(null);
+			const shieldRef = (0, react.useRef)(null);
+			(0, react.useEffect)(() => {
+				const controller = new AbortController();
+				let objectUrl;
+				setLoad({ status: "loading" });
+				(async () => {
+					try {
+						const response = await fetch(mediaUrl(scope, path), { signal: controller.signal });
+						if (!response.ok) throw new Error(`HTTP ${response.status}`);
+						const bytes = await response.arrayBuffer();
+						if (controller.signal.aborted) return;
+						objectUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+						setLoad({
+							status: "ready",
+							url: objectUrl
+						});
+					} catch (error) {
+						if (controller.signal.aborted) return;
+						setLoad({
+							status: "error",
+							message: error instanceof Error ? error.message : String(error)
+						});
+					}
+				})();
+				return () => {
+					controller.abort();
+					if (objectUrl !== void 0) URL.revokeObjectURL(objectUrl);
+				};
+			}, [
+				scope.sessionId,
+				scope.cwd,
+				path
+			]);
+			(0, react.useEffect)(() => {
+				const block = () => {
+					setInteractionBlocked(true);
+					if (frameRef.current !== null) frameRef.current.style.pointerEvents = "none";
+					if (shieldRef.current !== null) shieldRef.current.style.pointerEvents = "auto";
+				};
+				const unblock = () => {
+					setInteractionBlocked(false);
+					if (frameRef.current !== null) frameRef.current.style.pointerEvents = "";
+					if (shieldRef.current !== null) shieldRef.current.style.pointerEvents = "none";
+				};
+				const blockForResize = (event) => {
+					const target = event.target;
+					if (target instanceof Element && target.closest(`.${sidebar_module_css_default.panelResize}, .${sidebar_module_css_default.divider}`) !== null) block();
+				};
+				document.addEventListener("dragstart", block, true);
+				document.addEventListener("dragend", unblock, true);
+				document.addEventListener("drop", unblock, true);
+				window.addEventListener("pointerdown", blockForResize, true);
+				window.addEventListener("pointerup", unblock, true);
+				window.addEventListener("pointercancel", unblock, true);
+				window.addEventListener("blur", unblock);
+				return () => {
+					document.removeEventListener("dragstart", block, true);
+					document.removeEventListener("dragend", unblock, true);
+					document.removeEventListener("drop", unblock, true);
+					window.removeEventListener("pointerdown", blockForResize, true);
+					window.removeEventListener("pointerup", unblock, true);
+					window.removeEventListener("pointercancel", unblock, true);
+					window.removeEventListener("blur", unblock);
+				};
+			}, []);
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: sidebar_module_css_default.editorPdf,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: sidebar_module_css_default.editorPdfToolbar,
+					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+						className: sidebar_module_css_default.editorDownloadLink,
+						href: downloadUrl(scope, path),
+						download: true,
+						children: t("downloadToView")
+					})
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: sidebar_module_css_default.editorPdfStage,
+					children: [
+						load.status === "loading" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: sidebar_module_css_default.editorPlaceholder,
+							children: t("loading")
+						}),
+						load.status === "error" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: sidebar_module_css_default.editorError,
+							children: load.message
+						}),
+						load.status === "ready" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("iframe", {
+							ref: frameRef,
+							className: clsx(sidebar_module_css_default.editorPdfFrame, interactionBlocked && sidebar_module_css_default.editorPdfFrameBlocked),
+							src: load.url,
+							title
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							ref: shieldRef,
+							className: clsx(sidebar_module_css_default.editorPdfDragShield, interactionBlocked && sidebar_module_css_default.editorPdfDragShieldActive),
+							"aria-hidden": "true"
+						})
+					]
+				})]
+			});
+		}
+		//#endregion
+		//#region src/client/VideoView.tsx
+		/**
+		* Inline video preview: plays the file in a native `<video>` element that
+		* streams from the media route (which answers HTTP Range with 206 — see
+		* src/media-range.ts), so scrubbing works and the file is never capped by
+		* the route's `mediaLimit`.
+		*
+		* Absorbed from the derivative plugin `dsh-video-preview` (MIT, zemul): the
+		* viewer keeps its contract (viewer id `video`, the same extension list, the
+		* same "always offer the raw file" affordance) but now lives in-tree, uses
+		* the sidebar's own localization and shares the core bundle — the player
+		* itself is a few KB, so no lazy chunk is warranted.
+		*
+		* Deliberate deviation from that plugin's extension list: `ts` is NOT
+		* claimed. `.ts` means TypeScript in this repo's world (and MPEG-TS in the
+		* video one); claiming it hijacked every TypeScript file into the player.
+		* `m2ts` keeps the container covered without the collision — the same
+		* correction the plugin itself shipped in 0.1.4.
+		*/
+		function VideoView(props) {
+			const { scope, path, title } = props;
+			const [failed, setFailed] = (0, react.useState)(false);
+			(0, react.useEffect)(() => {
+				setFailed(false);
+			}, [
+				scope.sessionId,
+				scope.cwd,
+				path
+			]);
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: sidebar_module_css_default.editorVideo,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: sidebar_module_css_default.editorVideoStage,
+					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("video", {
+						className: sidebar_module_css_default.editorVideoPlayer,
+						src: mediaUrl(scope, path),
+						controls: true,
+						preload: "metadata",
+						playsInline: true,
+						onError: () => {
+							setFailed(true);
+						}
+					})
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: sidebar_module_css_default.editorVideoMeta,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: sidebar_module_css_default.editorVideoName,
+							title: path,
+							children: title
+						}),
+						failed && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: sidebar_module_css_default.editorVideoNotice,
+							children: t("videoUnsupported")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+							className: sidebar_module_css_default.editorDownloadLink,
+							href: downloadUrl(scope, path),
+							download: true,
+							children: t("downloadToView")
+						})
+					]
+				})]
+			});
+		}
+		//#endregion
+		//#region src/client/builtins/viewers.tsx
+		/**
+		* The 10 built-in file viewer descriptors: every preview surface is a
+		* registered viewer (image / pdf / docx / xlsx / pptx / video / markdown /
+		* html / code / binary-download), exactly like external plugins register
+		* theirs.
+		*
+		* The Office three-piece set (docx/xlsx/pptx) and the video player are
+		* maintained in-tree since 1.0.15: the derivative plugins that used to
+		* provide them (`@huanlin/dsh-plugin-better-sidebar-plugin-office`,
+		* `dsh-video-preview`) are absorbed into this package, so they must NOT be
+		* installed alongside this version — their viewer ids would collide with
+		* these registrations.
+		*
+		* The `binary-download` viewer sniffs NUL bytes via `detect` for unknown
+		* binaries and serves legacy doc/xls/ppt by extension; `code` is the
+		* catch-all (`exts: []`, lowest priority) that claims any file no other
+		* viewer did.
+		*
+		* The heavy viewers (the CodeMirror-backed markdown/html/code and the
+		* docx-preview + Univer + pptx-renderer Office stack) render through
+		* {@link lazyChunkComponent} wrappers — their libraries are fetched only
+		* when such a file is first opened (see chunk-loader.ts). The descriptor
+		* metadata (id/exts/priority/detect) is identical either way, so matching
+		* semantics and external-plugin overrides are unaffected; the `component`
+		* wrapper keeps the descriptor contract `(props) => ReactNode`.
+		*
+		* Every viewer carries the declarative settings-surface fields — `title`
+		* and `icon` — so the Side card settings page can render the enable/disable
+		* inventory without hardcoding (eating our own dogfood).
+		*/
+		/**
+		* Lazy wrapper over the chunk-resident viewer component. The `pick`
+		* function is module-level (stable identity — the wrapper effect depends
+		* on it); the cast bridges the chunk exports record to the descriptor prop
+		* shape (the view reads only its own subset of FileViewerProps).
+		*/
+		const LazyTextEditor = lazyChunkComponent("editor", (mod) => mod.TextEditor);
+		const LazyDocxView = lazyChunkComponent("office", (mod) => mod.DocxView);
+		const LazyXlsxView = lazyChunkComponent("office", (mod) => mod.XlsxView);
+		const LazyPptxView = lazyChunkComponent("office", (mod) => mod.PptxView);
+		/** The 10 built-in file viewer descriptors. */
+		function builtinViewers() {
+			return [
+				{
+					id: "image",
+					title: () => t("viewerImage"),
+					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconImageOutline16, { size }),
+					exts: [
+						"png",
+						"jpg",
+						"jpeg",
+						"gif",
+						"webp",
+						"svg",
+						"bmp",
+						"ico",
+						"avif"
+					],
+					fetchStrategy: "mediaUrl",
+					component: ({ mediaUrl: url, title }) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: sidebar_module_css_default.editorImageWrap,
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
+							className: sidebar_module_css_default.editorImage,
+							src: url,
+							alt: title
+						})
+					})
+				},
+				{
+					id: "pdf",
+					title: () => t("viewerPdf"),
+					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconPdfOutline16, { size }),
+					exts: ["pdf"],
+					fetchStrategy: "mediaUrl",
+					component: ({ scope, path, title }) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PdfView, {
+						scope,
+						path,
+						title
+					})
+				},
+				{
+					id: "docx",
+					title: () => t("viewerDocx"),
+					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconDocxOutline16, { size }),
+					exts: ["docx"],
+					fetchStrategy: "mediaUrl",
+					component: (props) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LazyDocxView, { ...props })
+				},
+				{
+					id: "xlsx",
+					title: () => t("viewerXlsx"),
+					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconXlsxOutline16, { size }),
+					exts: ["xlsx"],
+					fetchStrategy: "mediaUrl",
+					component: (props) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LazyXlsxView, { ...props })
+				},
+				{
+					id: "pptx",
+					title: () => t("viewerPptx"),
+					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconPptxOutline16, { size }),
+					exts: ["pptx"],
+					fetchStrategy: "mediaUrl",
+					component: (props) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LazyPptxView, { ...props })
+				},
+				{
+					id: "video",
+					title: () => t("viewerVideo"),
+					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconVideoOutline16, { size }),
+					exts: [
+						"mp4",
+						"webm",
+						"mov",
+						"qt",
+						"m4v",
+						"mkv",
+						"avi",
+						"wmv",
+						"flv",
+						"ogv",
+						"ogg",
+						"mpeg",
+						"mpg",
+						"3gp",
+						"3g2",
+						"m2ts"
+					],
+					fetchStrategy: "none",
+					component: ({ scope, path, title }) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VideoView, {
+						scope,
+						path,
+						title
+					})
+				},
+				{
+					id: "markdown",
+					title: () => t("viewerMarkdown"),
+					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconMarkdownOutline16, { size }),
+					exts: ["md", "markdown"],
+					fetchStrategy: "fsRead",
+					component: (props) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LazyTextEditor, { ...props })
+				},
+				{
+					id: "html",
+					title: () => t("viewerHtml"),
+					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconHtmlOutline16, { size }),
+					exts: ["html", "htm"],
+					fetchStrategy: "fsRead",
+					settings: { toggles: [{
+						key: "htmlViewerNoSandbox",
+						title: () => t("settingsHtmlSandboxTitle"),
+						desc: () => t("settingsHtmlSandboxDesc")
+					}, {
+						key: "htmlViewerDefaultUnsafe",
+						title: () => t("settingsHtmlDefaultUnsafeTitle"),
+						desc: () => t("settingsHtmlDefaultUnsafeDesc")
+					}] },
+					component: (props) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LazyTextEditor, { ...props })
+				},
+				{
+					id: "code",
+					title: () => t("viewerCode"),
+					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCodeOutline16, { size }),
+					exts: [],
+					priority: -100,
+					fetchStrategy: "fsRead",
+					component: (props) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LazyTextEditor, { ...props })
+				},
+				{
+					id: "binary-download",
+					title: () => t("viewerBinary"),
+					icon: (size) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconDownloadOutline16, { size }),
+					exts: [
+						"doc",
+						"xls",
+						"ppt"
+					],
+					priority: -50,
+					fetchStrategy: "binary-download",
+					detect: (_path, head) => head.includes(0),
+					component: ({ scope, path }) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(BinaryDownload, {
+						scope,
+						path
+					})
+				}
+			];
+		}
+		//#endregion
 		//#region src/client/builtins/index.ts
 		/**
-		* Register all built-in tabs with the service. Returns a disposer that
-		* unregisters everything (cordis auto-invokes it on fiber disposal).
+		* Register all built-in tabs and viewers with the service. Returns a
+		* disposer that unregisters everything (cordis auto-invokes it on fiber
+		* disposal). The `ctx` is threaded into tab descriptors that need it
+		* (EditorHost reads `ctx.betterSidebar` for file-viewer matching).
 		*/
 		function registerBuiltins(ctx, service, options = {}) {
 			const disposers = [];
 			for (const tab of builtinTabs(ctx, options)) disposers.push(service.registerTab(tab));
+			for (const viewer of builtinViewers()) disposers.push(service.registerFileViewer(viewer));
 			return () => {
 				for (const d of disposers) try {
 					d();
@@ -14370,14 +16577,32 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			};
 		}
 		//#endregion
+		//#region src/client/channel-policy.ts
+		/**
+		* Channel policy for this plugin's settings-shell identity.
+		*
+		* The DSH channel coexists with the host's own right Sidebar: the settings
+		* section keeps this plugin's own id and default priority. The QiLin channel
+		* (the vendored/online-upgrade copy of this package) rewrites these constants
+		* at sync time — the section takes over the stock `sidebar-right` settings
+		* cell (same id, priority -1: the lower-priority entry wins the cell, so the
+		* stock page and its nav row disappear while this plugin's page remains the
+		* one sidebar settings page), and the displayed plugin name follows the
+		* channel's package name.
+		*/
+		/** The name shown in the settings section's identity badge. */
+		const PLUGIN_DISPLAY_NAME = "dsh-coding-sidebar";
+		/** The `settings.section` list id this plugin registers under. */
+		const SETTINGS_SECTION_ID = "dsh-coding-sidebar";
+		//#endregion
 		//#region src/client/plugins-shared.ts
 		/**
-		* Shared vocabulary of the recommended plugin catalog: the entry shape and
-		* the GitHub topic URL. The catalog lives in the sibling module
-		* `plugins-tabs.ts` (tab registrations) and is shown in the "add plugin"
-		* modal (Side card settings → the dashed card at the end of the 侧边栏内容
-		* grid). (v1.0.4: the file-previewer catalog was retired with the
-		* file-viewer registry.)
+		* Shared vocabulary of the recommended plugin catalogs: the entry shape and
+		* the GitHub topic URL. The two catalogs live in sibling modules —
+		* `plugins-tabs.ts` (tab registrations) and `plugins-viewers.ts` (file
+		* previewer registrations) — and are shown in the two "add plugin" modals
+		* (Side card settings → the dashed cards at the end of the 侧边栏内容 /
+		* 文件预览 grids).
 		*/
 		/** The GitHub topic page listing every repo tagged `dsh-coding-sidebar`. */
 		const PLUGIN_TOPIC_URL = "https://github.com/topics/dsh-coding-sidebar";
@@ -14460,16 +16685,19 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			}
 		];
 		//#endregion
+		//#region src/client/plugins-viewers.ts
+		/** File-previewer plugins (alphabetical order) — empty while every previewer
+		*  ships in-tree; see the module doc. */
+		const builtinViewerPlugins = [];
+		//#endregion
 		//#region src/client/add-plugin-modal.tsx
 		/**
-		* The "add plugin" modal (Side card settings → the dashed card at the end
-		* of the 侧边栏内容 grid): declares that the sidebar's tab extension point
-		* is open to plugins (registered through `ctx.betterSidebar`), points at
-		* the GitHub topic page for discovery, and shows the repo's recommended
-		* plugin catalog (name / url / description / install script).
-		*
-		* (v1.0.4: the file-viewer extension point was retired with the file-viewer
-		* registry — this modal now catalogs tab plugins only.)
+		* The "add plugin" modals (Side card settings → the dashed cards at the
+		* end of the 侧边栏内容 / 文件预览 grids): declare that the sidebar's
+		* extension points — tab pages and file previewers — are open to plugins
+		* (registered through `ctx.betterSidebar`), point at the GitHub topic page
+		* for discovery, and show the repo's recommended plugin catalog of the
+		* matching kind (name / url / description / install script).
 		*
 		* Per entry there are two actions:
 		* - 「跳转」opens the plugin's repo in a REAL new browser tab (window.open
@@ -14484,15 +16712,20 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		* Modal must never be renderToString'd (same rule as the settingsFor popup
 		* in SideCardSection); the modal itself mounts only while open.
 		*/
+		/** The catalog of one kind (kept in two repo files: plugins-tabs.ts /
+		*  plugins-viewers.ts). */
+		function catalogOf(kind) {
+			return kind === "tab" ? builtinTabPlugins : builtinViewerPlugins;
+		}
 		/** How long the "已复制" feedback stays on the copy button. */
 		const COPIED_FEEDBACK_MS = 1500;
 		/** The modal body: the GitHub topic button + the recommended plugin list
 		*  with per-entry jump/copy buttons (extracted for direct testing). */
 		function PluginListBody(props) {
-			const { service } = props;
+			const { service, kind } = props;
 			const [copiedId, setCopiedId] = (0, react.useState)(null);
 			const [query, setQuery] = (0, react.useState)("");
-			const catalog = builtinTabPlugins;
+			const catalog = catalogOf(kind);
 			const needle = query.trim().toLowerCase();
 			const matches = (entry) => {
 				if (needle === "") return true;
@@ -14619,12 +16852,12 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		}
 		/** The modal itself (mounted only while open — see the module comment). */
 		function AddPluginModal(props) {
-			const { service, onClose } = props;
+			const { service, onClose, kind } = props;
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
 				open: true,
 				onClose,
-				title: t("addPluginsTabCard"),
-				description: t("addPluginsTabDesc"),
+				title: kind === "tab" ? t("addPluginsTabCard") : t("addPluginsViewerCard"),
+				description: kind === "tab" ? t("addPluginsTabDesc") : t("addPluginsViewerDesc"),
 				closeLabel: t("close"),
 				className: SideCardSection_module_css_default.pluginModal,
 				footer: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
@@ -14633,7 +16866,10 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 					onClick: onClose,
 					children: t("settingsDone")
 				}),
-				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PluginListBody, { service })
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PluginListBody, {
+					service,
+					kind
+				})
 			});
 		}
 		//#endregion
@@ -14652,9 +16888,8 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		*    external plugins alike), laid out in a responsive grid that wraps
 		*    several cards per row — icon chip + title + type id, clicked to toggle
 		*    the switch persisted in `prefs.tabsEnabled[id]`.
-		*
-		* (v1.0.4: the 文件预览 viewer inventory was retired with the file-viewer
-		* registry — file preview is the host's job now.)
+		*  - 文件预览: one SMALL CARD per REGISTERED file viewer — icon chip + title
+		*    + the extensions it covers, clicked to toggle `prefs.viewersEnabled[id]`.
 		*
 		* Every group lives in a container card (the DSH PluginCard recipe: l2
 		* hairline, 16px radius, layer-3 fill) with a heading and an inventory count
@@ -14711,14 +16946,18 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			const preset = getShellPreset(prefs.titleBarPresetId);
 			return preset !== void 0 ? `preset:${preset.id}` : "auto";
 		}
+		/** Viewer inventory order: priority desc (the catch-all `code` comes last). */
+		function viewerOrder(a, b) {
+			return (b.priority ?? 0) - (a.priority ?? 0);
+		}
 		/** Whether a feature declares any secondary settings (gear button shows). */
 		function hasSettings(feature) {
 			const settings = feature.settings;
 			return settings !== void 0 && ((settings.toggles?.length ?? 0) > 0 || (settings.pluginToggles?.length ?? 0) > 0 || settings.render !== void 0);
 		}
-		/** A feature's display name. */
+		/** A feature's display name (viewers fall back to their id). */
 		function featureNameOf(feature) {
-			return textOf(feature.title) || feature.id;
+			return textOf("title" in feature ? feature.title : void 0) || feature.id;
 		}
 		/**
 		* Merge one plugin-owned setting into a pluginSettings map (pure, v0.12.0+).
@@ -15028,7 +17267,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			});
 		}
 		/**
-		* The secondary settings popup body of one registered tab:
+		* The secondary settings popup body of one feature (tab or viewer):
 		* - the host-prefs `toggles` rows, then the plugin-owned `pluginToggles`
 		*   rows (their values live in `pluginSettings[feature.id]`, projected onto
 		*   the prefs face so the shared row renderer reads them);
@@ -15084,14 +17323,16 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			const [settingsFor, setSettingsFor] = (0, react.useState)(null);
 			const [stripSettingsOpen, setStripSettingsOpen] = (0, react.useState)(false);
 			const detectedEnv = (0, react.useMemo)(() => parseDesktopEnv(), []);
-			const [addPluginsOpen, setAddPluginsOpen] = (0, react.useState)(false);
+			const [addPluginsOpen, setAddPluginsOpen] = (0, react.useState)(null);
 			const optimisticRef = (0, react.useRef)(prefs);
 			(0, react.useEffect)(() => {
 				optimisticRef.current = prefs;
 			}, [prefs]);
 			const [tabs, setTabs] = (0, react.useState)(() => [...service.getTabs()].sort(tabOrder));
+			const [viewers, setViewers] = (0, react.useState)(() => [...service.getFileViewers()].sort(viewerOrder));
 			(0, react.useEffect)(() => service.subscribe(() => {
 				setTabs([...service.getTabs()].sort(tabOrder));
+				setViewers([...service.getFileViewers()].sort(viewerOrder));
 			}), [service]);
 			const revisionRef = (0, react.useRef)(void 0);
 			const dirtyRef = (0, react.useRef)(false);
@@ -15157,6 +17398,13 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			const onToggleTab = (id, next) => {
 				applyPref({ tabsEnabled: {
 					...optimisticRef.current.tabsEnabled,
+					[id]: next
+				} });
+			};
+			/** Flip one per-viewer enable switch (merge into the viewersEnabled map). */
+			const onToggleViewer = (id, next) => {
+				applyPref({ viewersEnabled: {
+					...optimisticRef.current.viewersEnabled,
 					[id]: next
 				} });
 			};
@@ -15325,7 +17573,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 						className: SideCardSection_module_css_default.versionBadge,
 						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 							className: SideCardSection_module_css_default.versionBadgeName,
-							children: "dsh-coding-sidebar"
+							children: PLUGIN_DISPLAY_NAME
 						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 							className: SideCardSection_module_css_default.versionBadgeTag,
 							children: ["v", service.version]
@@ -15505,7 +17753,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 								type: "button",
 								className: clsx(SideCardSection_module_css_default.card, SideCardSection_module_css_default.addCard),
 								onClick: () => {
-									setAddPluginsOpen(true);
+									setAddPluginsOpen("tab");
 								},
 								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 									className: SideCardSection_module_css_default.cardTop,
@@ -15519,6 +17767,49 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: SideCardSection_module_css_default.cardDesc,
 									children: t("addPluginsTabCardDesc")
+								})]
+							})]
+						})]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: SideCardSection_module_css_default.group,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: SideCardSection_module_css_default.groupHeading,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("settingsViewersTitle") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: SideCardSection_module_css_default.count,
+								children: viewers.length
+							})]
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: SideCardSection_module_css_default.grid,
+							children: [viewers.map((viewer) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react.Fragment, { children: renderCard({
+								title: textOf(viewer.title) || viewer.id,
+								desc: viewer.exts.length === 0 ? t("settingsViewerCatchAll") : viewer.exts.join(" · "),
+								icon: iconOf(viewer.icon, 16),
+								enabled: prefs.viewersEnabled[viewer.id] !== false,
+								onToggle: (next) => {
+									onToggleViewer(viewer.id, next);
+								},
+								onOpenSettings: prefs.viewersEnabled[viewer.id] !== false && hasSettings(viewer) ? () => {
+									setSettingsFor(viewer);
+								} : void 0
+							}) }, viewer.id)), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+								type: "button",
+								className: clsx(SideCardSection_module_css_default.card, SideCardSection_module_css_default.addCard),
+								onClick: () => {
+									setAddPluginsOpen("viewer");
+								},
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+									className: SideCardSection_module_css_default.cardTop,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: SideCardSection_module_css_default.cardIconChip,
+										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutline16, { size: 16 })
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: SideCardSection_module_css_default.cardTitle,
+										children: t("addPluginsViewerCard")
+									})]
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: SideCardSection_module_css_default.cardDesc,
+									children: t("addPluginsViewerCardDesc")
 								})]
 							})]
 						})]
@@ -15603,11 +17894,12 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 							}, prefs.customCss)]
 						})
 					}),
-					addPluginsOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(AddPluginModal, {
+					addPluginsOpen !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(AddPluginModal, {
 						service,
 						onClose: () => {
-							setAddPluginsOpen(false);
-						}
+							setAddPluginsOpen(null);
+						},
+						kind: addPluginsOpen
 					}),
 					error !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: SideCardSection_module_css_default.error,
@@ -15654,7 +17946,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			"slots",
 			"sessions",
 			"connection",
-			"workspaces",
 			"locale",
 			"modules",
 			"remote",
@@ -15710,7 +18001,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			const sidebarStore = createSidebarStore();
 			const service = createBetterSidebarService(sidebarStore);
 			ctx.provide("betterSidebar", service);
-			ctx.effect(() => installNativeSidebarAvoidance(sidebarStore), "dsh-coding-sidebar: native-sidebar avoidance");
 			const fallbackTitle = t("terminal");
 			let terminalTitle = fallbackTitle;
 			api.shellGet().then(({ name }) => {
@@ -15720,7 +18010,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				const tabs = allLeaves(snapshot.state.splits).flatMap((leaf) => leaf.tabs);
 				for (const tab of tabs) if (tab.type === "terminal" && !isAgentTabId(tab.id) && tab.title === fallbackTitle) service.updateTab(tab.id, { title: name });
 			}).catch(() => {});
-			ctx.effect(() => registerBuiltins(ctx, service, { terminalTitle: () => terminalTitle }), "dsh-coding-sidebar: register built-in tabs");
+			ctx.effect(() => registerBuiltins(ctx, service, { terminalTitle: () => terminalTitle }), "dsh-coding-sidebar: register built-in tabs and viewers");
 			const fail = (phase, error) => {
 				console.error(`[dsh-coding-sidebar] ${phase} error:`, error);
 				try {
@@ -15910,8 +18200,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				ctx.effect(() => registerSettingsNavIcon(() => t("settingsNav")), "dsh-coding-sidebar: settings navigation icon");
 				ctx.slots.inject("settings.section", () => ctx.slots.register({
 					name: "settings.section",
-					id: "dsh-coding-sidebar",
+					id: SETTINGS_SECTION_ID,
 					order: 100,
+					priority: 0,
 					label: () => t("settingsNav"),
 					inject: () => ({
 						store: sidebarStore,
