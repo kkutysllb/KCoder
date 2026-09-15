@@ -404,12 +404,49 @@ DSH_HOME=/tmp/dsh-dump node apps/cli/lib/bin.js web --dump-config --patch /tmp/p
 map 对运行无用，可考虑在 `sync-bundles.mjs` 的排除面里摘掉 `lib/**/*.map`，
 约省 40MB+ 装机体积。
 
-### 9.4 待办
+### 9.4 第四批已执行（2026-09-15：提交与发布 0.6.13）
 
-1. **推送**（均由用户执行）：`dsh-coding-sidebar`(1.0.16) / `dsh-file-review-kcoder`(1.0.4) 两个真源仓 → `dsh-plugins` 镜像 → fork 集成分支 `kcoder/0.1.6-alpha.1`。
-2. GUI 实测（见 §10）。
-3. §7.2 功能取舍（B/A/G/C/I 建议优先）待确认。
-4. 可选：bundle source map 剔除（见上）。
+**推送（均由用户执行，已与 origin 同步）**
+
+| 仓 | 提交 |
+|---|---|
+| `dsh-coding-sidebar` | `877892f` 1.0.16 |
+| `dsh-file-review-kcoder` | `a34762b` 1.0.4 |
+| `dsh-plugins`（镜像） | `1a3ff33` |
+| fork 集成分支 | `kcoder/0.1.6-alpha.1` = `b88abcad16` |
+
+**KCoder 提交串**
+
+| 提交 | 内容 |
+|---|---|
+| `066db46` | feat: 升级上游基线 0.1.5-rc.2 → 0.1.6-alpha.1 |
+| `d7b5ae2` | chore: sync-bundles 同步内置镜像（sidebar 1.0.12→1.0.16、file-review 1.0.3→1.0.4） |
+| `0fb54c2` | fix(release): 回收 deploy 残留 vendor/ —— 守卫加 `--clean`，物化后无条件清 |
+| `44e04e2` | release: 0.6.13（版本号 + tag，含 `release/v0.6.13.md` 与 `release/audit-v0.6.13.md`） |
+
+**发布**：tag `v0.6.13` → `44e04e2`，本地与远端均在。CI（`.github/workflows/release.yml`）按 tag 拉集成分支做三平台构建 + 签名公证 → GitHub Release，正文取 `release/v0.6.13.md`。
+
+**本批踩到并修掉的坑（下轮升级直接复用）**
+
+1. **`dsh web` 子命令选项必须排在 web-app 选项之前**：`web` 启用 commander `passThroughOptions`，第一个 app 选项（`--port`）之后的参数全部透传给 web app；`--patch` 放最后会以 `error: unknown option` 退出。**新 flag 必须在真实参数位验证，不能单独试**（`web --dump-config --patch X` 通过是假阳性）。
+2. **merge 之后必须 rebuild，不能只 install**：只 install 会让 `lib/` 停在旧基线——0.1.6 新增包无产物报 `ERR_MODULE_NOT_FOUND`；陈旧产物里的旧 import 报「找不到包」（如 `@modelcontextprotocol/sdk` 已被拆成 `@modelcontextprotocol/{client,server,node}`）。判据：`packages/*/*/` 有 `lib/index.js` 的比例应为 **283/283**。
+3. **`release.sh build` 的 deploy 会在上游 `vendor/` 留假成员**（`vendor/KCoder/staging/…`）：命中 tsdown workspace glob `vendor/*`、**以根包名义**报 `Cannot find entry`，炸掉后续任何上游构建（含 fork 侧 pre-push）——第四次复发，已在 `0fb54c2` 加 `--clean` 回收（只删空壳/孤儿链接，非空拒删）。
+4. **跑 `scripts/verify-*.cjs` / `smoke-*.mjs` 必须 `env -u ELECTRON_RUN_AS_NODE`**：本机 shell 继承该变量会让 electron 以纯 Node 启动，`require` 拿到的是二进制路径字符串 → `Cannot read properties of undefined (reading whenReady)`。临时 dsh 实例要用**受管后台作业**起，`&` detach 的会随调用结束被回收。
+5. **`pnpm run <script>` 的依赖状态检查可能触发 `pnpm install --production`**（现场移除 789 个包、含全部 devDependencies）。恢复：`rm -rf node_modules && CI=true pnpm install`（~10s）。热态下 pre-push 门 `pnpm run typecheck` 实测 **9s**；冷态（`lib/` 或 `*.tsbuildinfo` 缺失）退化为全量 workspace 重建（分钟级）。
+
+### 9.5 下一批待办
+
+| # | 事项 | 性质 / 依据 |
+|---|---|---|
+| 1 | CI 发布链结果核对：三平台产物齐否、macOS 公证、Windows 打包版任务执行无黑窗 | 发布收尾 |
+| 2 | 装机后按 §10 清单过 GUI（原生侧栏入口消失、会话日志不上传、内置终端正常） | 产品验收 |
+| 3 | `scripts/smoke-mcp-dom.mjs` triage：注入脚本渲染期抛错后挂住 | 非发布门；**判不了**是陈旧夹具还是 0.1.6 的 MCP 层改动 |
+| 4 | `scripts/smoke-skills-page.mjs` / `smoke-skills-dom.mjs` 抽取夹具修复 | 自 `6ba648a` 起即失效（`PAGE_JS` 含插值后不可直接 eval），非本次引入 |
+| 5 | bundle 剔除 `lib/**/*.map`（`sync-bundles.mjs` 排除面） | 待决策，约省 40MB+ 装机体积 |
+| 6 | Office/视频 6 个依赖钉精确版本 | 落实「自持、不追第三方升级」政策 |
+| 7 | 插件仓 devDependencies 上移至 0.1.6-alpha.1 | 需联网重装 + 调整 `minimumReleaseAgeExclude`；本机 npm 缓存需修复 |
+| 8 | `release.sh` 3.2 步后补一次 `pnpm install` 收尾 | 防第 5 条的 `--production` 事故；**推测，未证因果** |
+| 9 | §7.2 功能候选 B/A/G/C/I 取舍 | 产品决策（建议序：B 归档恢复 → A 上传开关 → G 插件加载失败可见化 → C MCP 资源 → I 终端入口归位） |
 
 ---
 
