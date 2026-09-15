@@ -51,14 +51,14 @@ export const MAX_AUTO_RESTARTS = 3
 
 /**
  * 上游锚定 = 自有 fork（kkutysllb/deepseek-harness）：上游修复直接以提交
- * 落集成分支 `kcoder/0.1.5-rc.2`（= 基线 + 修复分支的 merge），不再用
+ * 落集成分支 `kcoder/0.1.6-alpha.1`（= 基线 + 修复分支的 merge），不再用
  * KCoder 仓内 *.patch 归档应用。消费工作树在仓外单一路径（可用环境变
  * 量 KCODER_UPSTREAM_DIR 覆盖）。
  */
 export const UPSTREAM_REPO = 'git@github.com:kkutysllb/deepseek-harness.git'
 
 /** 消费分支：基线 + 上游修复合入（setup.sh / release.sh 断言同一分支）。 */
-export const UPSTREAM_BRANCH = 'kcoder/0.1.5-rc.2'
+export const UPSTREAM_BRANCH = 'kcoder/0.1.6-alpha.1'
 
 const DEFAULT_UPSTREAM_DIR = '/Users/libing/kk_Projects/deepseek-harness'
 
@@ -288,6 +288,12 @@ export interface DshCommand {
    *  commander 把未知 option 当错误退出——传了会直接炸启动，且旧版
    *  本无自动开浏览器行为，不传即正确。版本未知时保守不传。 */
   webNoOpen: boolean
+  /** `web` 子命令是否支持 `--patch`（产品策略 overlay）。overlay 层在
+   *  bundle → profile → home 之后应用，是覆写上游 bundle 行 config 最稳
+   *  的一层（整份替换语义，见 product-policy.ts）。该 flag 自 rc.7 即存在，
+   *  但 DSH_BIN 可指向任意旧版——旧版 commander 对未知 option 直接报错退出，
+   *  版本未知时保守不传（与 webNoOpen 同款门）。 */
+  webPatch: boolean
   /** 工作目录。 */
   cwd: string
   /** 需要注入的环境（ELECTRON_RUN_AS_NODE 等）。 */
@@ -346,6 +352,7 @@ export function resolveDshCommand(): DshCommand | null {
       command: parts[0],
       baseArgs: parts.slice(1),
       webNoOpen: version !== null && gte(version, '0.1.0-rc.8'),
+      webPatch: version !== null && gte(version, '0.1.0-rc.8'),
       cwd: UPSTREAM_DIR,
       env: {},
       describe: `$DSH_BIN: ${envBin}`,
@@ -370,6 +377,7 @@ export function resolveDshCommand(): DshCommand | null {
       command: cmd.command,
       baseArgs: [...cmd.args, join(bundled, BUNDLED_BIN)],
       webNoOpen: version !== null && gte(version, '0.1.0-rc.8'),
+      webPatch: version !== null && gte(version, '0.1.0-rc.8'),
       cwd: bundled,
       env: cmd.isElectron ? { ELECTRON_RUN_AS_NODE: '1' } : {},
       describe: `内置运行时: ${cmd.isElectron ? 'Electron node' : '系统 node'} ${join(bundled, BUNDLED_BIN)}`,
@@ -387,6 +395,7 @@ export function resolveDshCommand(): DshCommand | null {
         command: runtime.command,
         baseArgs: [...runtime.args, join(UPSTREAM_DIR, UPSTREAM_BIN)],
         webNoOpen: version !== null && gte(version, '0.1.0-rc.8'),
+      webPatch: version !== null && gte(version, '0.1.0-rc.8'),
         cwd: UPSTREAM_DIR,
         env: runtime.isElectron ? { ELECTRON_RUN_AS_NODE: '1' } : {},
         describe: `本地克隆: ${runtime.isElectron ? 'Electron node' : '系统 node'} ${join(UPSTREAM_DIR, UPSTREAM_BIN)}`,
@@ -406,6 +415,7 @@ export function resolveDshCommand(): DshCommand | null {
       command: 'dsh',
       baseArgs: [],
       webNoOpen: version !== null && gte(version, '0.1.0-rc.8'),
+      webPatch: version !== null && gte(version, '0.1.0-rc.8'),
       cwd: UPSTREAM_DIR,
       env: {},
       describe: 'PATH 中的 dsh',

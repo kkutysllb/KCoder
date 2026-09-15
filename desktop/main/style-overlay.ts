@@ -189,12 +189,45 @@ function effectiveSpec(style: StyleSettings): DensitySpec | null {
 }
 
 /**
- * 按档位生成覆盖 CSS。空串 = 移除覆盖标签，完全回上游原样。
+ * 上游原生右侧栏（ui-sidebar-right）的**产品级表面压制**：本产品的右侧栏
+ * 由内置 dsh-coding-sidebar 承担，原生那一套既不展示也不使用。
+ *
+ * 为什么是「压制外壳」而不是「不挂载」：ui-sidebar-right 同时是
+ * `sidebarRight` 服务与 `sidebar.right.*` slot 的声明方，而 ui-chat /
+ * ui-reference / ui-skill / ui-sidebar-files / ui-sidebar-documentpreview
+ * 在 `dsh.client.inject` 里**硬声明**该包——禁用这一行会让 ui-chat 激活
+ * 失败、主对话界面整体挂掉。因此保留服务层与契约，只摘用户可见的外壳；
+ * 文件打开由 dsh-coding-sidebar 的 openpath 拦截重定向进自家编辑器
+ * （D1a 决策，2026-09-15）。
+ *
+ * 锚点全部是上游公开的 data-* 属性（非 CSS Modules 哈希类名，上游改类名
+ * 不影响）：
+ *   data-sidebar-right-expand      会话头「展开」按钮——上游全包唯一的
+ *                                  setExpanded(true) 入口（ExpandButton.tsx）
+ *   data-sidebar-right-panel       面板本体（push / fullscreen 两态）
+ *   data-sidebar-right-float-host  浮动面板 portal 宿主
+ *
+ * 状态为内存态（stores.ts `init: { bySession: {} }`，无持久化），每次整页
+ * 加载都从未展开起步；入口按钮藏掉后 `cols.rightbar` 恒为 0，网格右轨
+ * 不占位，故隐藏绝对定位的面板不会留下空白列。
+ *
+ * 上游改名/移除该属性 → 压制静默失效（原生侧栏恢复可见），不崩不错位。
+ */
+const NATIVE_SIDEBAR_CSS = `[data-sidebar-right-expand],
+[data-sidebar-right-panel],
+[data-sidebar-right-float-host] {
+  display: none !important;
+}`
+
+/**
+ * 按档位生成覆盖 CSS。
  * @module 内部导出仅供测试/诊断；注入一律走 refreshStyleOverlay。
  */
 export function buildOverlayCss(style: StyleSettings): string {
-  if (!style.enabled) return ''
-  const sections: string[] = []
+  // 表面压制段与样式偏好解耦：enabled=false 只回退排版/轨迹覆盖，
+  // 原生右侧栏依旧不出现（取舍见 NATIVE_SIDEBAR_CSS 注释）。
+  const sections: string[] = [NATIVE_SIDEBAR_CSS]
+  if (!style.enabled) return sections.join('\n\n')
   const spec = effectiveSpec(style)
 
   if (spec !== null) {

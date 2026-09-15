@@ -312,6 +312,53 @@
 # web-app 376/376，oxlint 0/0，typecheck 绿。随 v0.6.1 发布，runtime tarball
 # 以新尖端重物化。
 #
+# 升级记录：2026-09-15 0.1.5-rc.2(fb2c4b9e) → 0.1.6-alpha.1(0a15e36e7f，上游 tag
+# dsh-v0.1.6-alpha.1)，集成分支重建为 kcoder/0.1.6-alpha.1（= 0a15e36e7f + merge
+# kcoder/0.1.5-rc.2 集成树整体重放，尖端 048a116f7b）。800 提交/3942 文件 diff
+#（非 merge 550；代码面 2787，其余为 .agents/notes 与 snapshots 录制）逐项核对，
+# KCoder 注入锚点全部存活：ui-slots / ui-layout / ui-sidebar 源码零改动（slot
+# 注册表契约稳定）、conversation.chat.turnTail chain 定义未动、data-composer-card /
+# data-conversation-scroll / data-conversation-composer-overlay / toBottomSlot /
+# data-slot="conversation.session" 全部在位、SESSION_FORMAT_VERSION 仍为 3（无迁移）。
+# 上游大变化/风险面：① 原生右侧栏体系加深——新增 ui-sidebar-terminal 与
+# api-terminal-controller 两包，web-app 组合新增 terminal-controller /
+# ui-sidebar-terminal / ui-settings-unarchive-sessions 三行；ui-chat 的
+# dsh.client.inject 硬声明 ui-sidebar-right 且 apply.ts 直调
+# ctx.sidebarRight.openResource（无 fallback），ui-reference / ui-skill 成为新的
+# sidebarRight 消费方——「不用原生右侧栏」只能走「保留服务层 + 拦截重定向」
+#（产品决策 D1a）；② ui-primitives 删除 IconSendOutline16（新增
+# IconPaperPlaneOutline14 等 5 个图标）——dsh-coding-sidebar 的 SideChatView.tsx
+# 直接引用该图标，须随内联包升级适配（下一批）；③ ui-deliverables 预览语义改变：
+# ChatFileMentions.forClosing 由 (owner, sessionId) 收窄为 (owner)，交付与内联
+# 引用从「系统默认程序打开」改为「右侧栏预览」，locale key presented.open 删除、
+# 统一 presented.previewButton——dsh-file-review-kcoder 需跟上语义（下一批）；
+# ④ ui-conversation 契约：新增 slot conversation.input.permission，删除
+# ComposerBarInjected.command，ComposerKeyboard/EditSelection 迁至新
+# contract/draft-editor.ts，PermissionSelect 组件删除，composer 编辑器重写为
+# DraftEditor + view-binding，contract/context-provenance.ts 改名 context-producer.ts；
+# ⑤ ui-chat 新增必填 openSkill（ChatNodeOwnerProps / ChatViewInjected）；
+# ⑥ session-log-deepseek.enabled 默认值 false → true（隐私面：全量未接受会话日志
+# 随请求上报）——KCoder 产品决策为不上传（D2），由 profile 组合显式关闭；
+# ⑦ Cordis Loader 回退非事务化（#932 revert）：插件激活失败不再自动回滚，可能留
+# 半生效树，插件管理侧需补可见性；⑧ profile 解析新增 link/dual/runtime 三代模式
+#（普通 Node 仍默认 link，行为不变）；⑨ 上游自带 Electron 桌面链 apps/desktop
+#（+desktop-host），与 KCoder 打包链并存不冲突；⑩ 删包 code-runtime-worker-thread
+#（→ ptc-runtime-node）与 e2b；新增 ssh/ssh、ssh/fs-ssh、mcp-resources、
+# experimental/auto-review、browser-use、computer-use、compaction-image-offload、
+# ui-settings-unarchive-sessions、test-support/remote-mock。插件清单新增作者元数据
+# manifestVersion/categories/engines.dsh（仅类型声明，安装器与加载器均不强制）。
+# 集成冲突 6 处：ChatNodeSeat.tsx(2)/ChatView.tsx/MessageItem.tsx（上游必填
+# openSkill × 我方 0007 editUserMessage——参数取并集，body 自动合并保住
+# references={{openFile,openSkill}}）、session-projection-cache/README.zh.md
+#（采纳上游术语「当前运行单元」+ 保留我方纯 JSON 隔离条款）、README.i18n.yaml
+#（git hash-object 重录双侧 blob 哈希）、pnpm-lock.yaml（取 HEAD 侧后
+# CI=true pnpm install --no-frozen-lockfile 重收敛，pi-ai 补丁哈希 4e4bd7a9 不变）。
+# 完整性断言：fb2c4b9e..尖端 3961 文件 vs 上游同 range 3942，"仅上游有"为空
+#（零丢失），多出 19 个全部为我方补丁面；自有提交 b13e950d94 / facdc190a2 /
+# dd1529d8aa 均为尖端祖先；lefthook 全绿（lint 0 error）。坑：工作树内空的
+# vendor/KCoder 壳会让 hooks 的 third-party notices ENOENT（提交前 rm -rf）；
+# 切换分支前须清理残留的 pnpm-workspace.yaml 脏改动，否则会带进新分支。
+#
 # 升级基线的正确姿势（fork 锚定形态）：
 #   1. 改本文件为新提交 SHA（fork 上存在的基线提交）
 #   2. 在 fork 本地克隆重建集成分支：基于新基线建 kcoder/<版本> +
@@ -321,4 +368,4 @@
 #   4. 全量回归（重点：第三方插件加载、Web UI 冒烟、打包链 smoke）
 #   5. 提交本文件（及分支名相关改动）
 #
-fb2c4b9e698e30edb738bca4cf0618587db7d203
+0a15e36e7f82b6ed45af6fa9759f29b40dcd965d

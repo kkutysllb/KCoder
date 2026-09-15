@@ -23,6 +23,7 @@ import {
 } from './dsh-contract'
 import type { DshLogLine, DshState, DshStatus } from '@shared/ipc-contract'
 import { mediaSpawnEnv } from './media-models'
+import { productPolicyArgs } from './product-policy'
 
 /** 日志环形缓冲容量（诊断面板展示尾部）。 */
 const LOG_RING_SIZE = 500
@@ -105,7 +106,20 @@ export class DshManager extends EventEmitter {
     //（SSH 环境除外）——宿主侧车由 Electron shell 窗口加载该 URL，绝不能
     // 再弹一个系统浏览器窗口。旧版 dsh 把该参数当未知 option 报错退出，
     // 版本门在 resolveDshCommand（webNoOpen，按来源读版本）判定。
-    const args = [...command.baseArgs, 'web', '--port', '0', ...(command.webNoOpen ? ['--no-open'] : [])]
+    // ⚠️ 参数顺序是硬约束：web 子命令启用了 commander 的 passThroughOptions
+    // ——**第一个 web-app 选项（--port / --no-open）之后的所有内容都会透传给
+    // web app**，因此 web 子命令自己的选项（--patch / --dump-config）必须排在
+    // app 选项之前。顺序反了，web app 会拿到不认识的 --patch 并以
+    // "error: unknown option '--patch'" 直接退出（2026-09-15 实机踩到）。
+    // 实测：web --patch X --port 0 --no-open 通过；
+    //       web --port 0 --no-open --patch X 失败。
+    // --patch：产品策略 overlay（会话日志不上传等，见 product-policy.ts）；
+    // 上游补丁层序 bundle → profile → home → overlay，本层最后应用，
+    // 覆写上游 bundle 行的 config；层文件缺席时为空数组（不传即不生效）。
+    // 两组分开构造，让"web 子命令选项在前、web-app 选项在后"成为结构而非约定
+    const webCommandArgs = command.webPatch ? productPolicyArgs() : []
+    const webAppArgs = ['--port', '0', ...(command.webNoOpen ? ['--no-open'] : [])]
+    const args = [...command.baseArgs, 'web', ...webCommandArgs, ...webAppArgs]
     this.appendLog('stdout', `$ ${command.describe}\n$ ${command.command} ${args.join(' ')}`)
     const child = spawn(command.command, args, {
       cwd: command.cwd,

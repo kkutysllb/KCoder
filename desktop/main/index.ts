@@ -20,6 +20,7 @@ import { applyBootHomeEnv } from './home-migration'
 import { ensureBuiltinMcpServers } from './mcp-builtin'
 import { ensureProfilePatches } from './profile-patches'
 import { ensurePresetPlugins } from './preset-plugins'
+import { ensureProductPolicy } from './product-policy'
 import { initUpdater } from './updater'
 import { applyNativeTheme, currentLandingTheme, currentThemePref } from './theme-watcher'
 import { startBrowserHost, stopBrowserHost } from './browser-host'
@@ -240,6 +241,9 @@ app.whenReady().then(() => {
   // 引依赖树）；终态是 bundle 物化的版本——install 后二调纠偏
   // （幂等：版本一致时零拷贝，dsh-* 自有系列全部跳过）
   ensureKcoderBundles()
+  // 产品策略层物化（幂等；由 dsh-manager 以 --patch 引入，必须在
+  // dsh 启动前就位）：会话日志不上传等产品级策略，见 product-policy.ts
+  ensureProductPolicy()
   dshManager.start()
 
   app.on('activate', () => {
