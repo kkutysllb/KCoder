@@ -11,7 +11,7 @@
  * - coding-sidebar 浏览器 tab 连同一地址做 screencast 实况 + 输入回传；
  * - 浏览器归 KCoder 管（独立 user-data-dir），登录态跨任务持久。
  *
- * 生命周期：桌面端 ready 后 startBrowserHost()（拉浏览器 + 起转发器）；
+ * 生命周期：桌面端 ready 后 startBrowserHost()（只起转发器，浏览器按需拉起）；
  * 浏览器进程退出（crash）后由连接驱动的 ensureBrowserHost 重拉；应用
  * before-quit 调 stopBrowserHost() 停转发器并杀浏览器。
  * Chromium 未安装（发现失败）→ 转发器照常监听但连接被立即拒绝——
@@ -119,7 +119,7 @@ export async function ensureBrowserHost(): Promise<boolean> {
   return activeDevtoolsPort(dataDir) !== null
 }
 
-/** 启动固定端口转发器 + 浏览器。应用 ready 后调用一次。 */
+/** 启动固定端口转发器（浏览器按需拉起）。应用 ready 后调用一次。 */
 export function startBrowserHost(): void {
   if (forwarder !== null) return
   forwarder = createServer((socket) => {
@@ -147,7 +147,12 @@ export function startBrowserHost(): void {
     console.log(`[browser-host] CDP 转发器就绪 127.0.0.1:${BROWSER_HOST_PORT}`)
   })
   stopped = false
-  void ensureBrowserHost().catch((e) => console.error('[browser-host] 启动失败:', e))
+  // 不在启动时预热浏览器：系统 Chrome 的可执行文件在 /Applications/Google
+  // Chrome.app 包内，macOS 会把这个后台实例注册成「Google Chrome」应用，
+  // 于是每次启动都在 Dock 里多出一个 Chrome 图标（--headless=new 只抑制
+  // 窗口，抑制不了应用注册）。改为首个 CDP 连接时按需拉起——上面的
+  // connection handler 已经调用 ensureBrowserHost，agent 浏览与侧边栏
+  // 实况功能不变，只是首次使用多等 1~3 秒；空闲时不再有常驻浏览器进程。
 }
 
 /** 应用退出：停转发器、杀浏览器。 */
