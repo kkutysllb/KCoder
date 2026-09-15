@@ -37,7 +37,6 @@ import { fileURLToPath } from 'node:url'
 const ROOT = resolveRepoRoot()
 const PROFILE = process.env.DSH_HOME ? join(process.env.DSH_HOME, 'profiles/web') : join(homedir(), '.dsh/profiles/web')
 const PATCHES = [
-  'dsh-video-preview@0.1.1.patch',
   'dsh-context@0.38.2.patch',
 ]
 const WORKSPACE_YAML = join(PROFILE, 'pnpm-workspace.yaml')

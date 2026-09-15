@@ -20,23 +20,15 @@
  *   PATCH_MARKS/PATCH_FALLBACKS/分发补丁全摘，转入 RETIRED_PATCH_PKGS
  *   （现场 patch 文件与声明由自愈链回收，实体由 preset-plugins 的
  *   RETIRED_PRESETS 三清）。
- * - dsh-video-preview（用户自装，genui 同款「自装也覆盖」）：VIDEO_EXTS
- *   把 "ts" 当 MPEG-TS 流抢先声明，TypeScript 源码全被视频播放器接管
- *   （matchFileViewer 按 priority 降序，video（0）压过内置 code 兑底
- *   （-100））。补丁删 "ts" 保留 m2ts；快照归档 .patches/dsh-video-preview。
- *   0.3.5 曾随「插件方已迭代吸收」误判退役，8-25 现场 0.1.1 复测
- *   "ts" 仍在——对 0.1.1 确未吸收，复役。
- *   **9-14 复核：上游 0.1.4 已自行吸收**——npm 产物 VIDEO_EXTS 已无 "ts"
- *   （与 0.1.1 字节比对仅差该元素）；把补丁键改成 @0.1.4 是错的：该 hunk
- *   在 0.1.4 上 `patch --dry-run` 直接判定「Reversed (or previously
- *   applied)」，pnpm 11 会硬报 ERR_PNPM_PATCH_FAILED。故补丁键保持
- *   @0.1.1（只对钉住 0.1.1 的现场应用），0.1.4+ 命中
- *   PATCH_MARKS（"3g2", "m2ts" 原生在位）即为「已生效」，锄点注入幂等
- *   跳过。PATCH_MARKS/PATCH_FALLBACKS 保留：既覆盖钉版 0.1.1 的现场，
- *   也守 0.1.4 之后万一回退该行的情况（锚点命中数 ≠ 1 只告警不写）
- * - 侧边栏 v1.0.14 恢复 registerFileViewer 后 video viewer 才真正注册
- *   生效（v1.0.4–v1.0.13 注册无落点）：0.1.4+ 不再声明 "ts"，故恢复预览线
- *   不会带回该冲突；只有钉 0.1.1 的现场才会——这正是 @0.1.1 补丁要留的原因
+ * - dsh-video-preview（**2026-09-15 整线退役，补丁与 marks/锄点全摘**）：
+ *   曾因 VIDEO_EXTS 把 "ts" 当 MPEG-TS 流抢先声明，TypeScript 源码全被
+ *   视频播放器接管（matchFileViewer 按 priority 降序，video（0）压过内置
+ *   code 兑底（-100）），故打补丁删 "ts" 保留 m2ts；上游 0.1.4 自行吸收后，
+ *   补丁只对钉住 0.1.1 的现场有意义（0.1.4+ 命中 marks 即「已生效」，锄点
+ *   注入幂等跳过；补丁键不能改 @0.1.4，该 hunk 在 0.1.4 上会被判
+ *   Reversed，pnpm 11 硬报 ERR_PNPM_PATCH_FAILED）。侧边栏 v1.0.15 把视频
+ *   预览收编为内置 viewer（内置扩展名表本就不含 "ts"）后，该冲突的根因
+ *   消失且插件不再随 profile 分发，补丁线整线退役（见 RETIRED_PATCH_PKGS）。
  * - dsh-better-sidebar（0.4.8 前后已改消费源，无需 patch）：alpha.2 移除
  *   @deepseek-ai/dsh-settings 的 settingsNamespace 工厂（register 直接收
  *   string、内部 parseSettingsNamespace 校验）→ 上游 github:omdsh-dev
@@ -125,8 +117,6 @@ function patchFiles(source: string): string[] {
  * 补丁时同步更新）。
  */
 const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
-  // 修复特征：扩展表无 ts（原版 "3g2", "ts", "m2ts"；根级 client.js）
-  'dsh-video-preview': [['client.js', '"3g2", "m2ts"']],
   // 修复特征：RO 回路冷却（kcRoHits 为 KCoder 引入变量名，原版无此串
   // 不可误判；Windows 打开上下文冻结白屏修复）
   'dsh-context': [['lib/client.js', 'kcRoHits']],
@@ -141,11 +131,14 @@ const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
  * @dsh-external/dsh-drag-to-attachment（2026-09-01）：插件整线退役
  * （见文件头历史记录），分发补丁随之回收；实体清理由 preset-plugins
  * 的 RETIRED_PRESETS 承担。
+ * dsh-video-preview（2026-09-15）：侧边栏 v1.0.15 收编视频预览为内置
+ * viewer（内置扩展名表不含 "ts"，冲突根因消失），补丁线整线退役。
  */
 const RETIRED_PATCH_PKGS = [
   'dsh-plugin-genui',
   'dsh-better-sidebar',
   '@dsh-external/dsh-drag-to-attachment',
+  'dsh-video-preview',
 ]
 
 /**
@@ -166,14 +159,6 @@ interface PatchFallback {
 }
 
 const PATCH_FALLBACKS: PatchFallback[] = [
-  {
-    // video-preview 复役锄点：原版扩展表含 "ts"（单次出现），删之留
-    // m2ts——与 patch 内容等价的第三层兑底
-    pkg: 'dsh-video-preview', file: 'client.js',
-    mark: '"3g2", "m2ts"',
-    anchor: '"3g2", "ts", "m2ts"',
-    replace: '"3g2", "m2ts"',
-  },
   {
     // dsh-context 0.38.2 agents 森林图 RO 回路冷却（Windows 打开上下文
     // 冻结白屏根因，见文件头 dsh-context 条目）：锚 RO 回调原字节
@@ -407,9 +392,11 @@ ${entries}
 
 /**
  * files 不可用（patch 源缺失）时的全量校验哨兵：`@x.patch` 尾巴的唯一
- * 用途是喂给 patchApplied 的包名提取器，覆盖 PATCH_MARKS 全部包。
+ * 用途是喂给 patchApplied 的包名提取器（`@x` 不吃版本门）。直接由
+ * PATCH_MARKS 派生，省掉手工同步——此前是手写字面量，摘除某条补丁后
+ * 会留下指名已退役包的悬空哨兵。
  */
-const KNOWN_PATCH_SENTINELS = ['dsh-video-preview@x.patch']
+const KNOWN_PATCH_SENTINELS = Object.keys(PATCH_MARKS).map((pkg) => `${pkg}@x.patch`)
 
 /**
  * 从 patch 文件名提取包名：剥 `@version.patch` 尾巴；scoped 包用 pnpm
