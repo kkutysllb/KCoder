@@ -125,6 +125,15 @@ cmd_build() {
   [[ -f "$ROOT/staging/kcoder-runtime.tar.gz" ]] || die "物化失败：缺 staging/kcoder-runtime.tar.gz"
   ok "运行时就绪（$(du -sh "$STAGING" | cut -f1) → tar.gz $(du -h "$ROOT/staging/kcoder-runtime.tar.gz" | cut -f1)）"
 
+  # 3.2) 上游 vendor/ 残留回收：deploy 物化会往上游 vendor/ 落下以本仓名命名的
+  #      假成员（现场形如 vendor/KCoder/staging/kcoder-runtime/…），它会被 tsdown
+  #      的 workspace glob vendor/* 当成员、以根包名义报 Cannot find entry 炸掉
+  #      **后续任何**上游构建——包括 fork 侧 pre-push 的 pnpm run typecheck
+  #      （2026-09-15 现场：本轮 build 埋雷，随后的分支推送被 pre-push 拦下）。
+  #      第 0 步的 preflight 只拦不清，而残留正是本步自己造的，故此处无条件回收；
+  #      只 rmdir 空壳/删孤儿链接，非空即拒删并以非零退出（绝不盲删）。
+  bash "$ROOT/scripts/verify-vendor-purity.sh" --clean
+
   # 3.5) 品牌断言（fork 锚定第二道闸）：文案修复必须真实在产物里
   #      （0.4.5 现场：发布物构建早于 fork push，b11bd42095 未进打包
   #      机克隆态，dev 现象与发布物脱节；与 CI release.yml 共用脚本）
