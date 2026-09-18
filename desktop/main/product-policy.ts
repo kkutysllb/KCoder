@@ -30,7 +30,7 @@ import { dshHome } from './dsh-contract'
 const POLICY_FILENAME = 'cordis.patch.kcoder.yml'
 
 /**
- * 产品策略层内容，两条产品决策：
+ * 产品策略层内容，三条产品决策：
  * - **会话日志不上传**（D2，2026-09-15）：上游 0.1.6-alpha.1 起
  *   `session-log-deepseek.Config.enabled` 默认 true——每次 DeepSeek 请求会把
  *   完整未接受的会话日志后缀（消息正文、工具参数与结果、工作区路径、反馈）
@@ -39,6 +39,15 @@ const POLICY_FILENAME = 'cordis.patch.kcoder.yml'
  *   `@kkutysllb/dsh-terminal` 承担；原生侧栏外壳已由 style-overlay 隐藏，
  *   这里连 tab 注册本身一起摘掉。宿主 `api-terminal-controller` 必须保留
  *   （见 POLICY_YAML 内注释）。
+ * - **内置 file-review 插件停用**（2026-09-18）：其 1.0.4 按 alpha.1
+ *   代码生成的 typert 产物在 alpha.2 typert-loader 下注册失败（参数
+ *   codec 无 create() 工厂）——失败发生在 typert-loader 自身的激活事务里，
+ *   cordis 回滚整个 fiber，**已注册的全部远端定义随之撤回**（hasSeen +
+ *   withdrawn → "definition was withdrawn and SRC fallback is forbidden"），
+ *   session/control、pluginInventory、dynamicCordisRunner 等全数失联：
+ *   历史会话列表空、设置内置插件读不出、对话控制流断。停用该行让
+ *   typert-loader 干净激活；待插件按 alpha.2 重建（含 turnTail list 化
+ *   适配）后移除本行。
  */
 const POLICY_YAML = `# KCoder 产品策略层（宿主自动生成，勿手改——每次启动按代码重写）
 #
@@ -61,6 +70,17 @@ const POLICY_YAML = `# KCoder 产品策略层（宿主自动生成，勿手改�
 # 该行在 0.1.5 及更早不存在：此时本补丁只产出一条 "not found" 警告后被
 # 跳过，不致命（applyEntryPatches 的既有语义）。
 - id: ui-sidebar-terminal
+  disabled: true
+#
+# 内置 file-review 插件停用（0.1.6-alpha.2 起）：其 1.0.4 的 typert 产物
+# 按 alpha.1 代码生成，在 alpha.2 typert-loader 的严格校验下注册失败
+# （invocation fileReview/status 参数 codec 无 create() 工厂）。失败发生在
+# typert-loader 自己的激活事务里——cordis 回滚该 fiber 时把它已注册的
+# 全部远端定义一并撤回，session/control、pluginInventory、
+# dynamicCordisRunner 等全数失联（历史会话空、设置内置插件读不出）。
+# 停用此行让 typert-loader 干净激活；插件按 alpha.2 重建（turnTail
+# list 化适配批）后移除本行。contained group 内的行可直接按 id 寻址。
+- id: file-review-tab
   disabled: true
 `
 
