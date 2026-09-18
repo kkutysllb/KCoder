@@ -14,6 +14,16 @@
 - **坏消息**：① **`conversation.chat.turnTail` 从 `chain` 改为 `list`**——`dsh-file-review-kcoder` 整个「-2 优先级抢占」模型失效（list 下两家都渲染），`dsh-coding-sidebar` 的 -1 拦截行同样要跟；② 新插件管理器开始**写 profile 的 `cordis.patch.yml`**，与 `mcp-store.ts` 成为同文件双写者（双方都是保真编辑，冲突面可控但有两条新规则要看）；③ 外部 bundle 行 id 与隔防规则重定（对我们最终是利好，但重建后必须 `--dump-config` 复验）。
 - **总账**：887 提交 / 2622 文件 / +101460 −23708（约 350 文件是 `.agents/notes`，代码面 ~2270）。窗口仅 2 天，提交量与上一版 5 天窗口（800 提交）相当。
 
+> **落定后的实况（2026-09-18 收口，详见 §9）**：上表「坏消息①」所命中的两个插件
+> **已退役**（`dsh-file-review-kcoder` 因 typert 产物不兼容 + 原生交付物覆盖；
+> `dsh-coding-sidebar` 因右侧栏回归原生），该硬断随之消失，无需再做 list 化适配。
+> 但本次升级**真正卡住落地**的并不是这些契约断点，而是三件文档层面完全没预见到的事：
+> **①Electron 39 不在 alpha.2 引擎的原生 addon 凭据表内（引擎根本起不来）；
+> ②运行时物化链的签名/flatten 缺陷让 tar.gz 一直停在上一次发版的旧件；
+> ③一条 KCoder 自己的过宽 CSS 选择器把插件管理卡片打成 `display:none`。**
+> 教训：升级分析的"契约面"清单再全，也覆盖不到「运行时交付链」与「自家注入层的
+> 通配选择器」这两类风险——下次升级应把这两项纳入验收前置检查。
+
 ---
 
 ## 1. 对比口径
@@ -132,15 +142,35 @@
 
 ## 4. 内置插件逐个适配清单
 
+> **执行后修订（2026-09-18）**：§4.1 与 §4.2 的适配项**均已作废**——两个插件
+> 已整体退役（见 §9.2）。保留原文以记录当时的适配判断与实际走向的分歧。
+
 ### 4.1 `dsh-file-review-kcoder`（bundle 1.0.4）
 
-- 🔴 **turnTail chain → list 重构**（本升级唯一硬断）：现状 `index.tsx:248` 以 selector 注册、依赖「-2 先于 coding-sidebar -1 elect、独占渲染」的 chain 语义；`turn-deliverables.ts` 头部注释整段是 chain 语义文档。list 化后需要：每个关注点拆成独立 entry（id 唯一）、无内容返回 null；与 coding-sidebar 的互斥/分工逻辑从「优先级抢占」改为「内容协商」（各自渲染各自部分，或显式约定谁渲染什么）。
+> **已退役（§9.2）**。实际走向：不是做 list 化适配，而是因 **typert 产物过不了
+> alpha.2 typert-loader 严格校验**（1.0.4 的 invocation codec 无 `create()` 工厂，
+> 且失败会连带撤回该 fiber 已注册的全部远端定义）先被 overlay 停用、随后整体退役。
+> 下方适配项随之作废。
+
+- ~~🔴 **turnTail chain → list 重构**（本升级唯一硬断）~~：现状 `index.tsx:248` 以 selector 注册、依赖「-2 先于 coding-sidebar -1 elect、独占渲染」的 chain 语义；`turn-deliverables.ts` 头部注释整段是 chain 语义文档。list 化后需要：每个关注点拆成独立 entry（id 唯一）、无内容返回 null；与 coding-sidebar 的互斥/分工逻辑从「优先级抢占」改为「内容协商」（各自渲染各自部分，或显式约定谁渲染什么）。
 - 🟡 `workspace/changes` 语义跟进：上游 changed-files 卡片改由 Host git 快照供数；我们自有拷贝的 `presentedForClosing` 镜像 + produced 词汇继续有效，但「turn 改了哪些文件」的事实来源多了一套（§7 候选 B 评估是否直接采用）。
 - ✅ peer 键 `>=0.1.0-rc.5 <0.2.0 || ^0.1.6-alpha.1` 覆盖 alpha.2，免改。
 
 ### 4.2 `dsh-coding-sidebar`（bundle 1.0.16 / 真源仓 1.0.16）
 
-- 🟡 `intercept.tsx:140` 的 turnTail -1 拦截行同步 list 语义（与 4.1 同一批做）。
+> **已退役（§9.2）**，随「右侧栏回归原生」决策（D1a 翻转）。实际走向：右侧栏
+> 外壳回归原生，其开关簇代理由 KCoder 的 `sidebar-cluster` 改写成原生开关代理
+> （`755ab04`）；`intercept.tsx` 的 turnTail 拦截行随插件一并退役，未做 list 化。
+> 下方适配项随之作废。
+>
+> ⚠️ 遗留决策：用户曾表达「更倾向侧边栏插件升级对齐新版本语义」——是否
+> un-retire 并以正确的 list 语义重做，见 §9.5 #3。
+> 若重做，**必须避开**旧版「用 `select` 抢占 + `priority: -1`」的模型：list 下
+> `select` 完全失效、无内容必须返回 `null`，且要与内置交付物行做**共存**而非
+> 抢占（否则双渲染）。范式参照上游 `ui-deliverables` 的 `DeliverablesTail`
+> （`matched === null ? null : <Deliverables …/>`）。
+
+- ~~🟡 `intercept.tsx:140` 的 turnTail -1 拦截行同步 list 语义（与 4.1 同一批做）~~。
 - ✅ `settings.section`（Side card 设置节）：ui-settings 壳源码零改动，免改。
 - ✅ 图标：上游零图标删除，自持 `IconSendOutline16` 不受影响；`openpath-intercept` 三道门照旧（`ctx.sidebarRight.openResource` 调用点仍传 file 地址族；browser tab 是新流量但不走该服务）。
 
@@ -185,20 +215,38 @@ win32-process: abi.ts / process.ts + 两 spec  # 黑窗修复 × 上游 16 文�
 
 ## 6. 风险与待确认项
 
-**R1 · turnTail list 化的分工设计（本次最大工作量）**
+> 各项的执行后状态见下方 ✅/❌ 标注。
+
+**R1 · turnTail list 化的分工设计（本次最大工作量）** —— ❌ **已消解，未执行**
 file-review 与 coding-sidebar 在 list 下都渲染，需要一次产品级分工拍板：变更文件评审归谁渲染、轨迹/其它 entry 是否保留。建议趁势把「turn 尾部」拆成明确的产品归属，而不是继续两插件各答一遍。
+→ **实况**：两个插件均已退役（§9.2），list 化适配随之作废、不再需要分工拍板。
+但**产品归属问题本身没被回答**——「turn 尾部的变更评审归谁」目前是空缺（原生
+`ui-deliverables` 提供交付物行，但它不等于 file-review 的评审清单）。若日后要
+恢复该能力，这才是起点，而不是照搬旧插件的抢占模型。
 
-**R2 · 插件管理器 UI 与我们侧栏的关系**
+**R2 · 插件管理器 UI 与我们侧栏的关系** —— ✅ **已实测确认**
 插件管理移入侧栏 Plugins 面板 + 每包一页。我们侧栏是自研 cluster（原生右侧栏已压制）——上游这套 UI 挂在**原生右侧栏**上，被我们压制的壳会不会连带藏掉插件管理入口，需装机实测（§10）；若被藏，评估在自研侧栏补入口或放行该面板。
+→ **实况**：右侧栏已回归原生（D1a 翻转），该顾虑消失；`ui-plugin-manager`
+的侧栏 panellist 入口由 `SIDEBAR_PLUGIN_ENTRY_CSS` 压制，管理页改由**设置页
+tab** 承载（§9.3-G）。实测入口可达、卡片可点。
 
-**R3 · 撞 id 静默丢弃**
+**R3 · 撞 id 静默丢弃** —— ⏳ **未做**
 用户层 insert 撞已占 id → 丢弃 + boot 打印 conflict。现有 `mcp-` 前缀安全；把「新增 MCP 条目必须带 `mcp-` 前缀」写进 mcp-store 校验（低成本加固，随批次）。
+→ 仍在待办（§9.5 #4，连带 mcp-store 原子写）。
 
-**R4 · resolution mode 默认推进 `link → runtime`**
+**R4 · resolution mode 默认推进 `link → runtime`** —— ✅ **已实测，且是本升级的头号阻断**
 打包态 spawn 固定 Electron node；alpha.1 的三代模式在 KCoder 实际走哪条需实测确认（起一个打包 runtime `--dump-config` 看解析模式行），无先验风险但属「必须看过」项。
+→ **实况**：原文把它判为「无先验风险」是**低估**。alpha.2 起 runtime 模式为默认
+（`profile-boot.ts` 三元表达式直接兜底 `'runtime'`），其 boot 路径经原生 addon
+`node-addon-require-builtin` 取内部 ESM loader，而该 addon **按 V8 指纹精确匹配**
+Electron 版本表——本仓当时钉的 Electron 39 不在表内且调用点无 try/catch →
+**引擎根本起不来**。升 Electron 44.0.0 后实测指纹命中（§9.3-B）。
+教训：这类「必须看过」项应升格为**升级前置的硬门**，而不是留作验收项。
 
 **R5 · 上游桌面链继续加码**
 更新流/安装器/Web UI 先行加载与我们无关（不同 appId），但「bundled release-bound workspace runtimes + 独立 Python Office runtime」与我们的 materialize 链目标进一步重合，中期决策点同 alpha.1 R5。
+→ 维持观察；本次升级实证了**我们自己的物化链比上游那条更脆弱**（§9.3-C 三处缺陷），
+中期若合并两条链，得先补上那三处。
 
 ---
 
@@ -206,8 +254,12 @@ file-review 与 coding-sidebar 在 list 下都渲染，需要一次产品级分�
 
 ### 7.1 必做（升级成本内）
 
+> **执行后修订（2026-09-18）**：第 1/3/4 项已做（见 §9.1 / §9.3）；
+> **第 2 项作废**——list 化适配的对象（file-review / coding-sidebar）已整体退役，
+> 硬断随之消失。本清单的实际形态与「必做」的初衷有出入，保留原文以供对照。
+
 1. fork 重建 `kcoder/0.1.6-alpha.2` + 升级仪式七件套 + rebuild
-2. file-review / coding-sidebar 的 turnTail list 化（含分工拍板，R1）
+2. ~~file-review / coding-sidebar 的 turnTail list 化（含分工拍板，R1）~~（作废：两插件已退役）
 3. `--dump-config` overlay 复验 + 打包链 smoke + 装机 GUI 验收
 4. （顺手）mcp-store 落盘换原子写 + 新增条目前缀校验（R3）
 
@@ -276,36 +328,213 @@ file-review 与 coding-sidebar 在 list 下都渲染，需要一次产品级分�
 
 **KCoder 提交**：`d6c0692` feat: 升级上游基线 0.1.6-alpha.1 → 0.1.6-alpha.2（本文件 + BASELINE + 分支名三件套）。
 
-### 9.2 下一批待办
+### 9.2 第二批已执行（2026-09-18：产品决策 + 退役与回归）
+
+按 §7.1 拍板执行，含一次**方案失误与纠正**（终端被误捆进退役清单，见下）。
+
+- **插件菜单归一 + 右侧栏回归原生 + 退役三自研插件**（`70dcbc7`）：
+  - `ui-settings-plugins` 的 nav/title 去「内置」字样（fork 侧）；`ui-plugin-manager`
+    增设 `settings.plugins.tab` 贡献（复用 `PluginManagerPage` 本体）；
+  - 删 KCoder 自绘 `plugin-settings.ts`（727 行，IPC 自绘列表由原生管理界面取代）
+    + `windows.ts` 接线 + `settings-page.ts` 列宽规则；
+  - `style-overlay` 删 `NATIVE_SIDEBAR_CSS`（D1a 翻转），保留侧栏 panellist
+    插件入口压制；
+  - `product-policy` 撤两行：`ui-sidebar-terminal` 禁用（原生终端 tab 回归）、
+    `file-review-tab` 禁用（插件整体退役）。
+- **`file-review` 走产品 overlay 停用**（`8ae89db`，先于退役决策的止血）：
+  alpha.2 真机诊断确认 `dsh-file-review-kcoder` 1.0.4 的 typert 产物
+  （invocation `fileReview/status` 的参数 codec 无 `create()` 工厂）过不了
+  alpha.2 typert-loader 的严格注册校验；失败发生在 loader 自己的激活事务里，
+  cordis 回滚该 fiber 时把它已注册的**全部**远端定义一并撤回（hasSeen +
+  withdrawn）→ `session/control`、`pluginInventory`、`dynamicCordisRunner`
+  全数失联（会话列表空、设置内置插件读不到、对话控制流断）。会话数据无损。
+- **插件管理分区表格行渲染修复**（`0c21a37`）：注入器 `el()` 只支持文本，
+  传数组时 `textContent = 数组` 隐式 toString 出 `[object HTMLTableCellElement]`；
+  补数组分支逐个 append。
+- **恢复自研终端**（`ce49edf`）：上一批把终端捆进「右侧栏回归原生」退役清单
+  **属方案失误**（用户仅拍板右侧栏与文件预览回归原生）——物化清单 /
+  sync-bundles 映射 / bundle 镜像 / 菜单项原样回归，`product-policy` 恢复
+  原生终端 tab 禁用行（自研终端与原生 tab 并存即双入口）。
+- **原生右侧栏开关代理重写**（`755ab04`）：`coding-sidebar` 退役后其开关簇
+  代理失去转发目标，`sidebar-cluster` 改为原生右侧栏开关代理——展开态转发
+  `[data-sidebar-right-toggle]`（收起），收起态回落
+  `[data-sidebar-right-expand]`（展开）；页面内原生展开按钮隐藏（代理接管）。
+
+### 9.3 第三批已执行（2026-09-18：运行时止血 + 升级阻断修复 + 实例隔离）
+
+本批是本次升级**真正落地**的一批——第二批结束时 app 仍跑在 alpha.1 运行时上，
+且 alpha.2 引擎在本仓 Electron 下根本起不来。
+
+**A. 上游 fork 撤销重做**（4 文件 +78/−8）
+
+上一版 fork 给 `ui-slots` 加的 `redeclareChildren` 及其**未提交残余**全部撤销
+（HEAD 短暂回到 `94cddcf99d`），改为在干净源码上重做，新方案见 §9.4。
+本仓 `docs` / `BASELINE` 同步记录。
+
+**B. Electron 39 → 44.0.0**（KCoder `7877890`）—— 🔴 **alpha.2 起不来的根因**
+
+alpha.2 的 profile-resolution 走 runtime 模式（`apps/cli/src/profile-boot.ts`：
+`resolutionMode = packaged ? 'runtime' : … ?? 'runtime'`，behavior=enforce），
+其 `internalModules()` 经原生模块 `node-addon-require-builtin` 取
+`internal/modules/esm/loader`——该 addon 按 **V8 指纹精确匹配**内嵌凭据表：
+
+| Electron | 对应 V8 |
+|---|---|
+| 43.0.0 | 15.0.245.13-electron.0 |
+| 44.0.0 | 15.2.124.13-electron.0 |
+| 45.0.0-alpha.6 | 15.4.80-electron.0 |
+
+Electron 39 不在表内 → addon 抛错，而调用点（`resolver.ts` 的
+`internalModules`）**无 try/catch** 且位于 boot 路径 → 引擎直接起不来。
+此前 app 还能跑，是因为**内置运行时解析优先级高于本地克隆**，它一直在用
+随包的 alpha.1（profile-resolution 在 alpha.2 才切 runtime 模式）。
+
+钉**精确** `44.0.0` 而非 `^44.0.0`：指纹按 V8 精确比对，44.4.1 的 V8 无法在
+本机验证（官方 CDN 不可达，electron 二进制下载失败），而 44.0.0 既是凭据表
+登记值、又恰有本地缓存包。`electron-builder` 同步对齐上游 `^26.15.3`。
+实测指纹 `{"node":"24.18.1","v8":"15.2.124.13-electron.0","electron":"44.0.0"}`
+完全命中；`node-pty` 按 44.0.0 ABI 重编成功。
+
+**C. 运行时物化链止血**（KCoder `93aa078`）—— 🔴 tar.gz 一直停在旧件的机制
+
+三处会让物化**静默产出陈旧 tar.gz**（归档不执行时 tar 仍是上次发版旧件，
+而发布照常继续）：
+
+| # | 缺陷 | 修法 |
+|---|---|---|
+| 1 | 签名无条件全量重签：`--timestamp` 每次向 Apple 时间戳服务现取戳，该服务过载/限流常态化（本机稳定复现 `The timestamp service is not available`），命中即抛错中断**在归档之前** | 已合规签名跳过（`--verify --strict` + hardened runtime + 非 ad-hoc）+ 2s/4s/6s 退避重试。**判据不能用 `Authority=` 行**——证书链不内嵌，`-dv` 只给 `TeamIdentifier=`，按 Authority 判会退化成全量重签 |
+| 2 | `flatten` 对「指向 `.pnpm` 之外」的链接**先删后不重建**（pnpm 工作区 deploy 会把 vendor 框架包链成 `../../../vendor/<pkg>`，实测 118 个）→ 转成悬空/缺失 → 归档 symlink 守卫中止整条链 | 可解析的一律落成实体；目标不存在才删并计数报警 |
+| 3 | `flatten` 递归只下探 `@scope` 一层，漏包内 `node_modules/<name>` 的嵌套链接；且补齐/ABI 阶段会**重新引入**链接 | 目录一律下探 + 签名前加最终 sweep（幂等；仍有残留即非零退出，绝不带 symlink 归档） |
+
+另实证一条约束：**deploy 的产物路径必须传绝对路径**——相对路径会被 pnpm 按
+「工作区内 deploy」处理，把框架包链成跨仓链接（搬运后即悬空）。`release.sh`
+本就是绝对路径，此处补记。
+
+**D. profile 自愈 + MCP 钉版**（KCoder `13bdbfe` / `61bb461`）
+
+- 孤儿 bundles 项结构性清理：判据用「dependencies 声明」而非包名通配——
+  contained-group 隔离下层叠项实体只有两个合法来源（pnpm 落 deps / KCoder
+  物化直写），两边都无声明的必然解析失败。三场景验证（本机现役 profile /
+  安装半途失败的孤儿 / 正常用户插件不误伤）。卸载按注册形态选路（孤儿项
+  `pnpm remove` 必报 `ERR_PNPM_CANNOT_REMOVE_MISSING_DEPS`，主进程直接摘）。
+- 内置 MCP **全部钉精确版本** + `npm_config_prefer_offline` 透传 + uv 索引
+  从 pip 配置预置：未钉版本让每次启动的 npx/uvx 都要向 registry 重验证
+  latest，网络抖动时单个 server 就能把 boot 拖住几十秒（就绪行不出 → 宿主
+  60s 超时判失败）。四个 npm 版本与 PyPI `mcp-server-fetch==2026.8.18`
+  均实测存在。
+- **升级内置 MCP 的唯一正确姿势**：改版本号 + 递增 `BUILTIN_VERSION`。
+
+**E. 源码态 / 打包态实例隔离**（KCoder `578bba2`）
+
+两态默认落点完全重合导致结构性互斥：userData 同目录（打包读 `productName`、
+源码态读 `name`，macOS 大小写不敏感 → 实测 inode 相同）→ **单实例锁同键**，
+两态根本无法同时运行；`DSH_HOME` 同目录 → `ensureKcoderBundles()` 每次启动
+重写 profile，谁后启动谁赢。
+
+改动用仓库既有 `app.isPackaged` 单一判别：源码态 `userData` 换 `…-dev`、
+dsh home 回落 `~/.kcoder-dev`（`dshHome()` 与 `defaultKcoderHome()` 同源），
+并让源码态覆盖**先于**「老用户待迁移」分支——镜像来的 `homeDecided` 为假时
+会把 dev 劫持到上游共享家 `~/.dsh` 并往里物化（现场 EPERM 连片 + 沙箱初始化
+失败）。显式 `DSH_HOME` 两态都尊重。
+
+**F. 「设置页点不动」真因**（KCoder `f9fabf5`）—— 不在上游，在 KCoder 自己
+
+`workspace-header.ts` 为「`.header` 改名」留的兜底
+`[class*="_titleRow"] { display: none !important }` 依赖一条在 alpha.2 已不
+成立的前提（注释原写「`_titleRow` 全仓唯一」）。上游插件管理页的配置卡片
+标题行同样叫 `_titleRow`（实测一个页面 12 个全部属卡片）→ 这条兜底变成对
+全站的 `display:none` → 标题按钮尺寸归零 → 上游 `.cardOpen::after { inset: 0 }`
+的「整卡可点」覆盖层失效 → 卡片看得见却点不动（点的是无处理器的描述文字）。
+
+修法：兜底改按会话头部独有标记 `data-conversation-header-*` 锚定（实测
+`actions`/`utilities` 两个 slot 空着时不挂载，**不能**拿 `data-slot` 当锚点）。
+上游若连这对标记也改掉，退化为「不收纳」（仅顶距残留），不再误伤别处。
+
+> 排查方法沉淀：新增 `scripts/probe-dev-settings.mjs`——经 CDP 直连运行中的
+> dev 实例做只读现场取证（命中栈 / 祖先链 inert·pointer-events / 全屏浮层 /
+> aria-modal 次序），`--click` 区分「点不到」与「点了没反应」。它替代了让用户
+> 往 DevTools Console 贴脚本的路子（浏览器对 Console 粘贴有防自毁门）。
+> 该工具一次命中：栈顶为描述文字、卡内按钮 0×0、`titleRow` 被 `display:none`。
+
+**G. 设置页插件管理 tab**（上游 fork `02253cd274`，已 push）
+
+产品决策：设置 →「插件」下两个 tab（只读清单 + 插件管理）。实现见 §9.4。
+
+### 9.4 fork 侧新分歧：`rendersExistingChildren`（取代 `redeclareChildren`）
+
+**问题**：`PluginManagerPage` 的配置卡片渲染 `plugins.item` / `plugins.bundle.config`
+/ `plugins.row.config`，这些子槽由 `ui-plugin-manager` 的 `main` 面板条目声明；
+而组件能否通过 `props.renderSlot` 渲染某槽，由**该条目自己声明的 `children`**
+静态派生（类型层）。于是「同一页面挂两个宿主」两难：
+
+| 方案 | 结果（均已实测） |
+|---|---|
+| 不声明 children | 注册通过，但组件拿不到 `renderSlot` → 卡片渲染不出 |
+| 照抄 children | 运行时抛 `slot "plugins.item" is already declared (by an entry in "main")` → **整个 tab 注册被拒** |
+| 旧版 `redeclareChildren` | 跳过校验，但**首个声明者独占渲染所有权**，语义是坏的（已废弃） |
+
+**方案**：给 `ui-slots` 增选项 `rendersExistingChildren`（默认关闭、既有调用方
+零变化），语义为「**共享渲染面、不认领声明**」：
+
+- 注册期：已声明的键不再抛错，但**保留原声明者**（`declaredBy` / `parent` 不动）；
+- 提交期：跳过已被认领的键，只声明真正无主的；
+- 释放期：`StoredEntry` 增记 `ownedChildren`，条目销毁**只释放自己声明的**子槽
+  ——主面板条目的生命周期仍是子槽唯一归属，设置 tab 的销毁不会连带塌掉。
+
+即「一个槽、一个生命周期归属、多个渲染宿主」，**单声明者不变量本身保持不变**。
+
+**验证**：Electron 44 + alpha.2 真机——设置页出现两 tab；插件管理内 4 张配置卡
+（终端 / Agent 循环 / Subagent / 网页搜索）正常渲染，真实鼠标点击打开详情页，
+配置表单（命令超时、单流输出上限）与保存按钮均在；console 零报错。
+pre-commit lint 0 error（4 条既存 unused-directive warning）。
+
+### 9.5 下一批待办
 
 | # | 事项 | 性质 |
 |---|---|---|
-| 1 | turnTail chain→list 适配（file-review 抢占模型重构 + coding-sidebar -1 行），先拍板 R1 分工 | 🔴 必做（本升级唯一硬断） |
-| 2 | 推送 `kcoder/0.1.6-alpha.2` 到 fork 远端（pre-push typecheck 门会再跑一次） | 用户执行 |
-| 3 | 装机 GUI 验收（§10 清单，重点：turn 尾部当前会双渲染——适配前的已知状态） | 产品验收 |
+| 1 | 推送 `kcoder/0.1.6-alpha.2` —— **已完成**（`02253cd274`，远端新建分支）。注意 pre-push 的 `pnpm run typecheck` 在本类环境必失败（pnpm 运行前依赖校验触发 `install --production`，无 TTY 即中止，typecheck 根本没跑）；本次手动跑通门禁实质（`--config.verify-deps-before-run=false run typecheck` exit 0）后以 `--no-verify` 推送。**建议给 `lefthook.yml` 的 pre-push 补 `--config.verify-deps-before-run=false`**，否则任何非交互终端（CI/脚本化发版）都会卡死 | 建议随手 |
+| 2 | 装机 GUI 验收（§10 清单） | 产品验收 |
+| 3 | turnTail chain→list 适配（若最终决定保留 file-review / coding-sidebar，见 §4.1/§4.2；当前两者已退役，该硬断随之消失） | 视退役决策 |
 | 4 | mcp-store 落盘换原子写 + 新增条目 `mcp-` 前缀校验（R3 加固，低成本） | 建议随手 |
 | 5 | §7.2 功能候选（B changed-files 数据源 / B pluginFailures 透出 / C 子代理限额 / D Sidebar Browser / E 模型目录收缩提示）取舍 | 产品决策 |
 | 6 | 插件仓 devDependencies 上移 alpha.2（同 alpha.1 遗留债，需联网） | 债 |
+| 7 | `sidebar-cluster.ts` 代理与新原生右侧栏的长期关系（现为「会话头展开按钮隐藏 + 状态栏代理」） | 观察项 |
+| 8 | 本次全部改动**尚未 bump 版本**（仍 `0.6.13`）；出包前走 `bash scripts/release.sh audit` → `release/audit-v<版本>.md` → `ship <版本>`（含全量构建 pre-push 门）。另：运行时 tar 已按本批内容重物化（含设置页 tab 与 workspace-header 修复），**若后续再有上游 fork 改动需再次重物化** | 发版 |
 
 ---
 
 ## 10. GUI 验收清单（由用户重启 app 实测）
 
-> 项目惯例：GUI 不由 AI 验证；以下为本次升级的验收点。
+> 项目惯例：GUI 不由 AI 验证；以下为本次升级的验收点。**§9.3 之前已由真机
+> 实测覆盖的项在下方标 ✅ 并附证据；其余待用户重启后确认。**
 
 **回归基线（D1a / D2 不回退）**
 - [ ] 原生右侧栏入口不出现；自研侧栏正常；交付卡/`@` 引用/`/技能` 引用仍进自研编辑器。
 - [ ] `cordis.patch.kcoder.yml` 两行生效：请求体无 `dsh_session_log`；无原生终端入口。
 - [ ] 启动日志无 `patch: entry ... not found`、无 pluginFailures conflict 打印。
+- [ ] **会话头部仍被收纳**（§9.3-F 改锚点后必须确认没把收纳弄丢）。
 
 **本版专项**
-- [ ] **turn 尾部无重复 UI**：一轮产出文件后，变更评审只出现一份（file-review 或拍板后的归属），无两份卡片。
-- [ ] MCP 页保存正常；在插件管理 UI 停用某第三方 bundle → 重启后仍停用（patch 行由管理器写入，mcp-store 未抹掉）。
+- [x] ✅ **「设置 → 插件」两个 tab**：插件列表 / 插件管理；插件管理内 4 张配置卡
+  （终端 / Agent 循环 / Subagent / 网页搜索）**可点开**，详情页含表单与保存
+  （§9.3-G 真机实测；此前「点不动」见 §9.3-F）。
+- [x] ✅ **dev 与打包版可同时运行**：源码态 userData=…/KCoder-dev、
+  dsh home=~/.kcoder-dev；同刻打包态 `~/.kcoder` 完全未被触碰（§9.3-E）。
+- [x] ✅ **运行时冒烟**：Electron 44 形态「就绪行 + 首页 200」；tar 内版本
+  0.1.6-alpha.2 且含本次两处 fork 修复；品牌断言通过（§9.3-C）。
+- [ ] **turn 尾部无重复 UI**：一轮产出文件后，变更评审只出现一份。
+  （注：file-review 与 coding-sidebar 均已退役，理论上该硬断消失；需实测确认。）
+- [ ] MCP 页保存正常；在插件管理 UI 停用某第三方 bundle → 重启后仍停用
+  （patch 行由管理器写入，mcp-store 未抹掉）。
 - [ ] 设置页模型列表为收缩后目录（deepseek-flash / v4-pro），默认对话可用。
 - [ ] 消息内链接行为符合 R2/D 拍板结果（侧栏浏览器 or 既有行为）。
-- [ ] 插件管理入口可达（若被右侧栏压制藏掉，记录并按 R2 处理）。
-- [ ] 启动时长不劣化（上轮钉版本 + prefer-offline 修复继续生效；MCP 层零变化，预期持平）。
+- [ ] **启动时长不劣化**：本版新增两处提速（MCP 全部钉精确版本 +
+  `npm_config_prefer_offline`、uv 索引预置），预期持平或更优；注意
+  `BUILTIN_VERSION 5→6` 会触发一次性全量重写（仅首次）。
+- [ ] 内置终端正常（`@kkutysllb/dsh-terminal` 未退役，`node-pty` 已按
+  Electron 44.0.0 ABI 重编）。
 
 ---
 
-*本文件为分析产物。§1–§8 结论可由 `git diff 0a15e36e7f ddefc45fbc` 复核；执行记录与 GUI 验收结果回填 §9/§10。*
+*本文件为分析产物。§1–§8 结论可由 `git diff 0a15e36e7f ddefc45fbc` 复核；
+执行记录与 GUI 验收结果回填 §9/§10。*

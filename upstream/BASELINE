@@ -399,3 +399,29 @@
 # plugin.ts（按决策取上游）；上游侧文件零删除；build exit 0（248 client
 # 产物），lib/index.js 299/299，CI=true pnpm run typecheck 通过。
 ddefc45fbc7f8e46dd73185e68295696d1297887
+
+# ── 集成分支 fork 侧追加（2026-09-18：设置页插件管理 tab）──────────────
+# 集成分支尖端 02253cd274（本地 = origin/kcoder/0.1.6-alpha.2，远端新建分支）。
+# 上游侧钉版仍是上面的 ddefc45fbc（未变：本次只加 fork 侧提交，不动基线）。
+# 变更 4 文件（+78/−8）：ui-slots / ui-renderer 各一处，ui-plugin-manager 两处。
+#
+# 动机：KCoder 产品决策——设置 →「插件」（原「内置插件」）下两个 tab：只读
+# 清单 + 插件管理（渲染与侧栏面板同一个 PluginManagerPage，官方插件配置卡片
+# 随之回到设置页）。
+#
+# 技术要点（为什么必须动 ui-slots 核心契约）：卡片所在的 plugins.item 等子槽
+# 由 ui-plugin-manager 的 main 面板条目声明，而组件能否用 props.renderSlot
+# 渲染某槽由**该条目自己声明的 children** 静态派生。第二个渲染宿主两难：
+# 不声明 → 组件拿不到 renderSlot；照抄 → 运行时抛 already declared（已实测）。
+# 新增选项 rendersExistingChildren（默认关闭、既有调用方零变化）表达「共享
+# 渲染面、不认领声明」：注册期已声明的键不抛错且保留原声明者；提交期跳过已认领
+# 的键；释放期按 StoredEntry.ownedChildren 只释放自己声明的子槽。即「一个槽、
+# 一个生命周期归属、多个渲染宿主」，单声明者不变量本身保持不变。
+#
+# 与「已撤销版本」的区别（重要，避免日后重复踩坑）：上一版 fork 用的是
+# redeclareChildren——跳过校验且首个声明者独占渲染所有权，语义是坏的；该提交
+# 及其未提交残余已于 2026-09-18 全部撤销（HEAD 曾短暂回到 94cddcf99d），本版
+# 是在干净源码上重做，源码内 redeclareChildren 残留为 0。
+#
+# 另：撤销期间发现的「设置页点不动」真因不在上游，而在 KCoder 自身的
+# workspace-header.ts 裸选择器（见 KCoder 提交 f9fabf5），已单独修复。
