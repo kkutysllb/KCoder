@@ -106,6 +106,10 @@ const WATCH_JS = `(() => {
           return
         }
         console.log('__dsh_theme_pref__:' + m[1])
+        // 偏好档顺手落 DOM，供页面内注入器读取：账号菜单的主题子菜单要标出
+        // 「跟随系统/浅色/深色」当前是哪一档，而上游只把实色落 DOM、偏好档
+        // 原本仅上报主进程。复用此处已解析好的值，不额外抓取。
+        document.documentElement.dataset.kcoderThemePref = m[1]
       })
       .catch(() => {})
   }
