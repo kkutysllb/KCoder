@@ -271,6 +271,26 @@ function materialize(profileDir: string, b: BundledPlugin): void {
     const live = (readJson(join(profileDir, 'node_modules', pkg, 'package.json'))?.['version'] as string) ?? ''
     return valid(live) !== null && valid(shipped) !== null && gt(live, shipped)
   }
+  // 退役 / 孤儿的 bundles 层叠项（本函数内两处消费：清单摘除与实体目录
+  // 清理，故在补丁剥离前一次算清）。
+  //
+  // 孤儿判据（2026-09-18 现场）：bundles 里注册、却既不在内置清单、也不
+  // 在退役清单、更不在 dependencies 的条目。pnpm 安装半途失败时会产生这
+  // 种态（bundle 声明入栈、实体未落地），而上游 reconcile 只遍历
+  // dependencies、退役清理只认名单，两条路都够不着——孤儿声明永远存活，
+  // 且启动时 resolveBundleDir 解析不到实体会挡死整个 profile。
+  //
+  // 用「dependencies 声明」而非包名通配作判据：上游 0.1.6 的 contained-
+  // group 隔离下，bundles 层叠项的实体只有两个合法来源——pnpm（dsh plugin
+  // add 落 dependencies）或 KCoder 物化直写（在 BUNDLES 清单里）；两边都无
+  // 声明的层叠项，加载器必然解析失败，摘除只可能是修复。模板层
+  // （@deepseek-ai/dsh-base / dsh-web-app）与退役名单各自单列，不参与判据。
+  const managed = new Set([...TEMPLATE_BUNDLES, ...BUNDLES.map((x) => x.pkg), ...RETIRED_PLUGINS])
+  const orphanBundles = bundlesOf(manifest).filter(
+    (x) => !managed.has(x) && !(x in dependencies),
+  )
+  const staleBundles = [...new Set([...RETIRED_PLUGINS, ...orphanBundles])]
+    .filter((x) => bundlesOf(manifest).includes(x))
   // dsh-language-bundle 退役（2026-09-11）：剥离用户 profile home patch
   // 层的 kcoder-language 托管块——块内容 disabled:false 引用已退役插件,
   // 不剥离则引擎启动解析失败（file-attach 同款教训）。幂等:无块即空转
@@ -300,25 +320,27 @@ function materialize(profileDir: string, b: BundledPlugin): void {
 
   const removable = [...BUNDLES.map((x) => x.pkg), ...RETIRED_PLUGINS]
   const staleDeps = removable.filter((x) => x in dependencies && !registryNewer(x))
-  const staleBundles = RETIRED_PLUGINS.filter((x) => bundlesOf(manifest).includes(x))
   if (staleDeps.length > 0 || staleBundles.length > 0) {
     for (const pkg of staleDeps) delete dependencies[pkg]
     manifest['dependencies'] = dependencies
     if (staleBundles.length > 0) {
-      const bundles = bundlesOf(manifest).filter((x) => !RETIRED_PLUGINS.includes(x))
+      const bundles = bundlesOf(manifest).filter((x) => !staleBundles.includes(x))
       const dsh = (manifest['dsh'] ?? {}) as { profile?: Record<string, unknown> }
       const profile = (dsh.profile ?? {}) as Record<string, unknown>
       manifest['dsh'] = { ...dsh, profile: { ...profile, bundles } }
     }
     writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
     console.log(
-      `[kcoder-bundle] 清除 profile 退役插件残留: deps=[${staleDeps.join(', ')}] bundles=[${staleBundles.join(', ')}]`,
+      `[kcoder-bundle] 清除 profile 退役/孤儿插件残留: deps=[${staleDeps.join(', ')}] bundles=[${staleBundles.join(', ')}]`
+      + (orphanBundles.length > 0 ? `（孤儿=${orphanBundles.join(', ')}）` : ''),
     )
   }
-  // 退役插件的 node_modules 目录（曾物化的 @kcoder/* 与曾 pnpm 安装的副本）
-  // 直接删除：不在 bundles 层叠里本就不会被加载，删掉是让用户插件的插件
-  // 列表里不再出现这些包。
-  for (const pkg of RETIRED_PLUGINS) {
+  // 退役 / 孤儿插件的 node_modules 目录（曾物化的 @kcoder/* 与曾 pnpm 安装
+  // 的副本）直接删除：不在 bundles 层叠里本就不会被加载，删掉是让用户插件
+  // 的插件列表里不再出现这些包。走 staleBundles 而非 RETIRED_PLUGINS——孤儿
+  // 条目（注册了却无 dependencies 声明）的实体同样是死重量：解析必然失败，
+  // 留着只会让“插件列表出现装不上的条目 + 每次启动重试解析”。
+  for (const pkg of staleBundles) {
     rmSync(join(profileDir, 'node_modules', pkg), { recursive: true, force: true })
   }
   const bundles = bundlesOf(manifest)

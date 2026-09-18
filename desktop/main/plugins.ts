@@ -13,7 +13,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { net } from 'electron'
@@ -266,6 +266,52 @@ export function updatePlugin(pkg: string): Promise<PluginCommandResult> {
     return runPluginCommand(['add', `${pkg}@latest`])
   }
   return runPluginCommand(['update', '--latest', pkg])
+}
+
+/**
+ * 卸载一个插件（按注册形态选路）：
+ * - dependencies 里的常规插件：沿用 `dsh plugin remove`（pnpm 原生语义，
+ *   成功后上游 reconcile 按 dependencies 回写 bundles 层叠）。
+ * - 仅注册在 `dsh.profile.bundles`、不在 dependencies 的孤儿项：pnpm
+ *   remove 报 ERR_PNPM_CANNOT_REMOVE_MISSING_DEPS，而上游 reconcile 只遍历
+ *   dependencies，孤儿声明永远无人清理——bundle 声明入栈后 pnpm 安装未
+ *   落地即产生这种态，且启动时 resolveBundleDir 解析不到实体会挡死整个
+ *   profile（进程 exit 1 循环重启）。主进程直接摘层叠声明并清理可能的
+ *   物化残留。
+ *
+ * 内置层（引擎/物化/预置）不在此开放：UI 已禁卸载，此处再挡一道。
+ */
+export async function removePlugin(pkg: string): Promise<PluginCommandResult> {
+  if (IN_BOX_BUNDLES.includes(pkg)) {
+    return { ok: false, output: `内置组件不可卸载: ${pkg}` }
+  }
+  const dir = profileDir()
+  const manifestPath = join(dir, 'package.json')
+  let manifest: ProfileManifest
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ProfileManifest
+  } catch (error) {
+    return { ok: false, output: `读取 profile 清单失败: ${String(error)}` }
+  }
+  const bundles = manifest.dsh?.profile?.bundles ?? []
+  const inDeps = pkg in (manifest.dependencies ?? {})
+  const inBundles = bundles.includes(pkg)
+  if (!inDeps && !inBundles) {
+    return { ok: false, output: `未安装: ${pkg}` }
+  }
+  if (inDeps) return runPluginCommand(['remove', pkg])
+  const remaining = bundles.filter((x) => x !== pkg)
+  const dsh = (manifest.dsh ?? {}) as { profile?: Record<string, unknown> }
+  const profile = (dsh.profile ?? {}) as Record<string, unknown>
+  manifest.dsh = { ...dsh, profile: { ...profile, bundles: remaining } }
+  try {
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
+    rmSync(join(dir, 'node_modules', pkg), { recursive: true, force: true })
+  } catch (error) {
+    return { ok: false, output: `写回 profile 清单失败: ${String(error)}` }
+  }
+  healLog(`[plugin-cmd] 摘除孤儿 bundles 注册项 ${pkg}（不在 dependencies，pnpm remove 无从谈起）`)
+  return { ok: true, output: `已移除 ${pkg} 的 bundles 层叠注册（不在 dependencies，跳过 pnpm remove）` }
 }
 
 /**

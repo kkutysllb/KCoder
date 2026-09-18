@@ -13,7 +13,7 @@ import { authLogin, authLoggedIn, authRegister, authStatus } from './auth'
 import { applyLandingTheme, currentLandingTheme } from './theme-watcher'
 import { dshManager } from './dsh-manager'
 import { progressEvents, setupUpstream, syncUpstream, upstreamStatus } from './upstream'
-import { communityPlugins, installedPlugins, latestVersions, runPluginCommand, updatePlugin } from './plugins'
+import { communityPlugins, installedPlugins, latestVersions, removePlugin, runPluginCommand, updatePlugin } from './plugins'
 import { checkForUpdates, getReleaseNotes, installUpdate, updateEvents, updateStatus } from './updater'
 import { refreshStyleOverlay } from './style-overlay'
 import { getSettings, saveSettings } from './store'
@@ -65,7 +65,10 @@ export function registerIpc(): void {
   ipcMain.handle('plugins:latest', (_event, names: string[]) => latestVersions(names))
   ipcMain.handle('plugins:community', (_event, query?: string, page?: number) => communityPlugins(query, page))
   ipcMain.handle('plugins:add', (_event, pkg: string) => runPluginCommand(['add', pkg]))
-  ipcMain.handle('plugins:remove', (_event, pkg: string) => runPluginCommand(['remove', pkg]))
+  // 卸载按注册形态选路（主进程）：deps 常规插件走 pnpm 转发器；仅注册在
+  // bundles 层叠的孤儿项（安装半途失败残留）pnpm remove 必败且上游无人
+  // 清理，主进程直接摘除——否则启动解析不到实体会挡死整个 profile
+  ipcMain.handle('plugins:remove', (_event, pkg: string) => removePlugin(pkg))
   // 统一更新入口（主进程按包属选路）：内置可更新层走 add <pkg>@latest
   // （物化 bundle 不在 deps，pnpm update 无从谈起），用户插件走
   // update --latest。--latest 必须显式：pnpm update 遵守 package.json
