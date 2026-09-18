@@ -30,24 +30,17 @@ import { dshHome } from './dsh-contract'
 const POLICY_FILENAME = 'cordis.patch.kcoder.yml'
 
 /**
- * 产品策略层内容，三条产品决策：
+ * 产品策略层内容，一条产品决策：
  * - **会话日志不上传**（D2，2026-09-15）：上游 0.1.6-alpha.1 起
  *   `session-log-deepseek.Config.enabled` 默认 true——每次 DeepSeek 请求会把
  *   完整未接受的会话日志后缀（消息正文、工具参数与结果、工作区路径、反馈）
  *   上报到所连端点/网关。KCoder 不参与该贡献。
- * - **原生右侧栏终端 UI 整行禁用**（D1a 补强）：终端由内置
- *   `@kkutysllb/dsh-terminal` 承担；原生侧栏外壳已由 style-overlay 隐藏，
- *   这里连 tab 注册本身一起摘掉。宿主 `api-terminal-controller` 必须保留
- *   （见 POLICY_YAML 内注释）。
- * - **内置 file-review 插件停用**（2026-09-18）：其 1.0.4 按 alpha.1
- *   代码生成的 typert 产物在 alpha.2 typert-loader 下注册失败（参数
- *   codec 无 create() 工厂）——失败发生在 typert-loader 自身的激活事务里，
- *   cordis 回滚整个 fiber，**已注册的全部远端定义随之撤回**（hasSeen +
- *   withdrawn → "definition was withdrawn and SRC fallback is forbidden"），
- *   session/control、pluginInventory、dynamicCordisRunner 等全数失联：
- *   历史会话列表空、设置内置插件读不出、对话控制流断。停用该行让
- *   typert-loader 干净激活；待插件按 alpha.2 重建（含 turnTail list 化
- *   适配）后移除本行。
+ *
+ * 历史行（均已移除）：`ui-sidebar-terminal` 禁用与 `file-review-tab` 禁用
+ * （2026-09-18）——右侧栏回归原生（原生终端 tab 一并恢复）、file-review
+ * 插件整体退役后，两行失去意义。file-review 退役的另一背景：其 1.0.4 的
+ * typert 产物过不了 alpha.2 typert-loader 校验，曾拖垮全部远端定义注册
+ * （见 docs/upstream-0.1.6-alpha.2-analysis.md §9）。
  */
 const POLICY_YAML = `# KCoder 产品策略层（宿主自动生成，勿手改——每次启动按代码重写）
 #
@@ -62,26 +55,6 @@ const POLICY_YAML = `# KCoder 产品策略层（宿主自动生成，勿手改�
 - id: session-log-deepseek
   config:
     enabled: false
-#
-# 原生右侧栏的终端 tab（0.1.6 新增）：KCoder 的终端由内置
-# @kkutysllb/dsh-terminal 承担，原生终端 UI 整行禁用。宿主
-# api-terminal-controller 必须保留——packages/api/remotes 静态 import 并
-# $mount 它的 remote，禁用会让 api-remotes 挂载失败（主对话链全挂）。
-# 该行在 0.1.5 及更早不存在：此时本补丁只产出一条 "not found" 警告后被
-# 跳过，不致命（applyEntryPatches 的既有语义）。
-- id: ui-sidebar-terminal
-  disabled: true
-#
-# 内置 file-review 插件停用（0.1.6-alpha.2 起）：其 1.0.4 的 typert 产物
-# 按 alpha.1 代码生成，在 alpha.2 typert-loader 的严格校验下注册失败
-# （invocation fileReview/status 参数 codec 无 create() 工厂）。失败发生在
-# typert-loader 自己的激活事务里——cordis 回滚该 fiber 时把它已注册的
-# 全部远端定义一并撤回，session/control、pluginInventory、
-# dynamicCordisRunner 等全数失联（历史会话空、设置内置插件读不出）。
-# 停用此行让 typert-loader 干净激活；插件按 alpha.2 重建（turnTail
-# list 化适配批）后移除本行。contained group 内的行可直接按 id 寻址。
-- id: file-review-tab
-  disabled: true
 `
 
 /** 产品策略层的绝对路径。 */

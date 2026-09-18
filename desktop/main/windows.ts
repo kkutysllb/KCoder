@@ -30,7 +30,6 @@ import { attachWorkspaceProbe } from './workspace-probe'
 import { attachStyleSettingsInjector } from './style-settings'
 import { attachSkillsSettingsInjector } from './skills-settings'
 import { attachMcpSettingsInjector } from './mcp-settings'
-import { attachPluginSettingsInjector } from './plugin-settings'
 import { attachAboutSettingsInjector } from './about-settings'
 import { attachHomeMigrationInjector } from './home-migration'
 import { attachPanelButtons } from './panel-buttons'
@@ -199,10 +198,6 @@ export function showShellWindow(dshUrl: string): void {
     // MCP 服务器：设置面板导航列注入「MCP 服务器」分区（列表 + 行内
     // 编辑表单；console 通道 CRUD mcp-store，保存后上游 HMR 热加载）
     attachMcpSettingsInjector(shellWindow)
-    // 插件管理：设置面板导航列注入「插件管理」分区（上游管理器入口卡 +
-    // 已装层叠 + 社区发现；console 通道复用 plugins.ts 数据面。0.1.6-alpha.2
-    // 起侧栏「插件」入口由 style-overlay 压制，管理能力收拢进设置页）
-    attachPluginSettingsInjector(shellWindow)
     // 关于：设置面板导航列末尾注入「关于」分区（产品介绍 + 版本信息卡；
     // 版本全部运行时派生：应用元数据/运行时目录/fork 锚点，发布自动同步）
     attachAboutSettingsInjector(shellWindow)

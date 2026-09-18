@@ -91,12 +91,6 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // dsh-settings 已移除该导出）——0.37.x 与 alpha.2 引擎组合启动即
   // SyntaxError 全局崩（0.4.9 Windows 升级现场实证）
   'dsh-context': '^0.38.5',
-  // 自立 npm 包（fork 自 DSH-better-sidebar 0.17.2，发版节奏自控），
-  // 本声明仅牵引依赖树（codemirror/ws/node-pty 等 hoist 到 profile
-  // 顶层）+ bundles 注册；实体终态由 bundle/dsh-coding-sidebar
-  // 物化覆盖——满足本 spec 的安装实体不会被 pnpm 回滚，index.ts 在
-  // preset install 后二调 ensureKcoderBundles 兑现纠偏
-  'dsh-coding-sidebar': '^1.0.0',
 }
 
 /**
@@ -123,6 +117,10 @@ export const PRESET_PLUGINS: Record<string, string> = {
  *   attach-picker.ts 拆除。
  */
 const RETIRED_PRESETS = [
+  // dsh-coding-sidebar（2026-09-18）：右侧栏回归原生（原生右侧栏/
+  // 终端/文件预览完整覆盖），D1a 决策翻转整线退役；deps 声明在本清单
+  // 摘除走 pnpm 收敛，物化目录与 bundles 层叠由 kcocoder-skills-bundle
+  // 的 RETIRED_PLUGINS 同批清理
   'dsh-vision-router',
   'dsh-better-sidebar',
   '@tt-a1i/archify-dsh',
