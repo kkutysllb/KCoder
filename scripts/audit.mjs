@@ -80,7 +80,6 @@ section('DEAD EXPORTS（未消费导出）', false, () => {
   const WAIVED = [
     { re: /electron\.vite\.config\.ts.*- default/, why: 'electron-vite 配置入口' },
     { re: /desktop\/shared\/ipc-contract\.ts/, why: 'IPC 契约面类型（跨进程文档面，按设计导出）' },
-    { re: /runtime-sandbox-hotfix\.d\.mts/, why: '.mjs 的类型声明文件（dsh-contract 导入 .mjs 时消费）' },
   ]
   const lines = []
   let waived = 0

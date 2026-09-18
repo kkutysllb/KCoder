@@ -32,7 +32,6 @@ import { satisfies, gte, valid } from 'semver'
 import { app } from 'electron'
 import type { DshSource } from '@shared/ipc-contract'
 import { devHomeOverride } from './dev-isolation'
-import { applyRuntimeSandboxHotfix } from '../../scripts/runtime-sandbox-hotfix.mjs'
 
 /**
  * 就绪行的解析规则：`dsh web: http://127.0.0.1:<port>[/?token=<进程启动令牌>]`。
@@ -86,20 +85,6 @@ function bundledRuntimeExtractDir(): string {
   return join(app.getPath('userData'), 'kcoder-runtime')
 }
 
-/** Apply compatibility fixes to an extracted runtime before it is spawned. */
-function healBundledRuntime(runtimeRoot: string): boolean {
-  try {
-    const result = applyRuntimeSandboxHotfix(runtimeRoot)
-    if (result.status === 'applied') {
-      console.log('[dsh-contract] 已修复内置 runtime 的重复沙箱升级请求')
-    }
-    return true
-  } catch (error) {
-    console.error('[dsh-contract] 内置 runtime 沙箱兼容修复失败：', error)
-    return false
-  }
-}
-
 let runtimeBusy = false
 
 /**
@@ -118,7 +103,7 @@ export function ensureBundledRuntime(): string | null {
   if (existsSync(join(dest, BUNDLED_BIN))) {
     try {
       if (readFileSync(join(dest, '.runtime-stamp'), 'utf8') === stampOf(tar)) {
-        return healBundledRuntime(dest) ? dest : null
+        return dest
       }
     } catch { /* 指纹缺失，重新解压 */ }
   }
@@ -141,10 +126,6 @@ export function ensureBundledRuntime(): string | null {
     rmSync(dest, { recursive: true, force: true })
     renameSync(root, dest)
     if (existsSync(tmp)) rmSync(tmp, { recursive: true, force: true })
-    if (!healBundledRuntime(dest)) {
-      rmSync(dest, { recursive: true, force: true })
-      return null
-    }
     return dest
   } finally {
     runtimeBusy = false
