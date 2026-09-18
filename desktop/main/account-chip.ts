@@ -52,6 +52,7 @@ const BUILD_MARK = new Date().toISOString().replace('T', ' ').slice(0, 19)
 /** 注入脚本（页面上下文；USERNAME/LOGOUT_URL 由挂载侧生成时注入）。 */
 const chipJs = (username: string, build: string): string => `(() => {
   const BUILD = ${JSON.stringify(build)}
+  const BRIDGE_KEY = '__kcoderShellPrefs'
   const NAME = ${JSON.stringify(username)}
   const LOGOUT = ${JSON.stringify(AUTH_LOGOUT_URL)}
   const CHIP = ${JSON.stringify(CHIP_ID)}
@@ -117,7 +118,6 @@ const chipJs = (username: string, build: string): string => `(() => {
    *
    * 桥缺席（bundle 未装 / 该部署未启用对应插件）→ 菜单项降级为只读提示。
    */
-  const BRIDGE_KEY = '__kcoderShellPrefs'
   const bridge = () => {
     const b = window[BRIDGE_KEY]
     return b !== undefined && b !== null && typeof b === 'object' ? b : null
@@ -276,6 +276,7 @@ const chipJs = (username: string, build: string): string => `(() => {
     el.append(icon, text)
     if (opts.trail !== undefined) {
       const trail = document.createElement('span')
+      trail.setAttribute('data-kcoder-trail', '')
       trail.textContent = opts.trail
       trail.style.cssText = TRAIL + (opts.trailMuted === true ? ';opacity:.55' : '')
       el.append(trail)
@@ -319,9 +320,31 @@ const chipJs = (username: string, build: string): string => `(() => {
 
   const CHEVRON = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5 12 6.5"/></svg>'
 
-  const openMenu = (anchor) => {
+  /**
+   * 打开账号菜单。
+   * @param anchor - 定位锚（账号行）。
+   * @param keepOpenKey - 刷新后保持展开的组（'language' | 'theme'）：选中某项后
+   *   不关菜单、就地重绘并保持该组展开，对勾**当场**移过去，还能连续切换。
+   */
+  const openMenu = (anchor, keepOpenKey) => {
     closeMenu()
     const T = strings()
+    // 诊断：每次打开菜单打印"菜单自己算出来的状态"。三轮"改了但现象不变"之后，
+    // 这是唯一能一次定位的读数——它同时暴露：脚本版本、页面语言、桥是否就绪、
+    // 桥给的语言、菜单算出的当前语言、各选项 id。
+    try {
+      const binfo = (() => { const b = bridge(); return b === null ? null : b.getLocale() })()
+      console.log('[account-chip] openMenu'
+        + ' build=' + BUILD
+        + ' domLang=' + document.documentElement.lang
+        + ' bridge=' + (bridge() !== null)
+        + ' bridgeLocale=' + (binfo === null ? 'null' : binfo.id)
+        + ' isZh=' + isZh()
+        + ' active=' + localeActive()
+        + ' options=' + localeOptions().map(o => o.id).join('|'))
+    } catch (error) {
+      console.log('[account-chip] openMenu diag threw: ' + String(error && error.message))
+    }
     const menu = document.createElement('div')
     menu.id = MENU
     menu.setAttribute('role', 'menu')
@@ -381,7 +404,22 @@ const chipJs = (username: string, build: string): string => `(() => {
       sub.setAttribute('role', 'group')
       sub.style.cssText = 'display:none;padding:2px 0 4px'
       for (const opt of opts.options) {
-        sub.append(optionRow(opt.label, opt.selected, () => { void opts.pick(opt.id) }))
+        sub.append(optionRow(opt.label, opt.selected, () => {
+          // 选中后**不关菜单**：先走切换，再原地重绘（对勾当场移动、组保持展开）。
+          // 关闭由用户点击外部/设置项/退出登录完成——与"选了就想看到结果"的
+          // 预期一致，也允许连续切换两项。
+          void Promise.resolve(opts.pick(opt.id)).then(() => {
+            const root = document.getElementById(MENU)
+            if (root !== null) openMenu(anchor, key)
+          })
+        }))
+      }
+      if (keepOpenKey === key) {
+        // 本次打开是为了刷新：保持该组展开，并让 chevron 指向展开态
+        sub.style.display = 'block'
+        parent.setAttribute('aria-expanded', 'true')
+        chev.style.transform = 'rotate(0deg)'
+        expandedKey = key
       }
       parent.addEventListener('click', (e) => {
         e.stopPropagation()
@@ -436,6 +474,8 @@ const chipJs = (username: string, build: string): string => `(() => {
 
     menu.append(settingsRow, langParent, langSub, themeParent, themeSub, logoutRow)
     document.body.append(menu)
+
+
   }
 
   // 账号行：头像圈（首字符）+ 用户名；navCell 同款交互 token
