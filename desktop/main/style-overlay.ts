@@ -220,13 +220,36 @@ const NATIVE_SIDEBAR_CSS = `[data-sidebar-right-expand],
 }`
 
 /**
+ * 侧栏「插件」入口压制（0.1.6-alpha.2）：上游 ui-plugin-manager 向
+ * `sidebar.panellist` 无条件注册侧栏条目（包内无任何配置开关，整行禁用会
+ * 连管理页一起死），产品决策把插件管理收进设置页的「插件管理」注入分区
+ * （plugin-settings.ts），侧栏入口藏掉。
+ *
+ * 锚点：panellist 条目渲染为 `nav[class*="panelList"] > … > button`（上游
+ * SidebarRoot 的 PanelRow），唯一稳定标识是 `aria-label` = locale 解析后的
+ * label（zh「插件」/ en "Plugins"）——button 上没有任何 data-* 属性。
+ * **不能隐藏整个 nav**：演示文稿/漫剧工坊/定时任务/动效技能库等第三方
+ * 产品条目同为 panellist 注册，一藏全没。
+ *
+ * display:none 而非移除：设置分区入口卡的「打开插件管理器」要对这个隐藏
+ * 按钮派发 `.click()` 走上游真实 selectPanel 路径（sidebar-cluster 看门狗
+ * 同款：display:none 不影响 HTMLElement.click() 事件派发）。
+ *
+ * 上游改名/补 data 属性 → 压制静默失效（入口恢复可见），不崩。
+ */
+const SIDEBAR_PLUGIN_ENTRY_CSS = `nav[class*="panelList"] button[aria-label="插件"],
+nav[class*="panelList"] button[aria-label="Plugins"] {
+  display: none !important;
+}`
+
+/**
  * 按档位生成覆盖 CSS。
  * @module 内部导出仅供测试/诊断；注入一律走 refreshStyleOverlay。
  */
 export function buildOverlayCss(style: StyleSettings): string {
   // 表面压制段与样式偏好解耦：enabled=false 只回退排版/轨迹覆盖，
-  // 原生右侧栏依旧不出现（取舍见 NATIVE_SIDEBAR_CSS 注释）。
-  const sections: string[] = [NATIVE_SIDEBAR_CSS]
+  // 原生右侧栏与侧栏插件入口依旧不出现（取舍见各自 CSS 常量注释）。
+  const sections: string[] = [NATIVE_SIDEBAR_CSS, SIDEBAR_PLUGIN_ENTRY_CSS]
   if (!style.enabled) return sections.join('\n\n')
   const spec = effectiveSpec(style)
 

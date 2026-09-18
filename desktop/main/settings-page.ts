@@ -73,7 +73,7 @@ const PAGE_JS = `(() => {
     '[role="dialog"] [class*="_options"] > [data-slot="settings.section"] > *{width:100%;max-width:none;margin-left:auto;margin-right:auto}',
     // 技能/MCP/关于是注入器追加的独立容器，不走 settings.section slot；显式
     // 给它们同一列宽，避免 options 的居中 flex 触发 shrink-to-fit。
-    '[role="dialog"] [class*="_options"] > #__dsh_desktop_skills_section,[role="dialog"] [class*="_options"] > #__dsh_desktop_mcp_section,[role="dialog"] [class*="_options"] > #__dsh_desktop_about_section{box-sizing:border-box;width:min(100%,960px);max-width:960px;margin:0 auto;min-width:0}',
+    '[role="dialog"] [class*="_options"] > #__dsh_desktop_skills_section,[role="dialog"] [class*="_options"] > #__dsh_desktop_mcp_section,[role="dialog"] [class*="_options"] > #__dsh_desktop_plugins_section,[role="dialog"] [class*="_options"] > #__dsh_desktop_about_section{box-sizing:border-box;width:min(100%,960px);max-width:960px;margin:0 auto;min-width:0}',
     // 通用设置：每个功能项独立成卡片，保留 slot wrapper 的地址能力。
     // upstream slot wrapper 与 KCoder 注入容器（桌面样式定制/回答语言，
     // 均自带 data-slot 属性）同为 section 直接子级：容器 margin 提供
