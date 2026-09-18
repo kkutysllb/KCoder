@@ -48,8 +48,12 @@ const SHOW_JS = `(() => {
   const POP_ID = '__dsh_desktop_update_pop'
   window.__dshUpdateInfo = __DATA__
 
-  // md 轻量渲染：只处理发布说明用到的语法（标题/加粗/列表/引用），
-  // 其余按字面保留——textContent 建节点，杜绝 HTML 注入。
+  // md 轻量渲染：覆盖发布说明实际用到的语法（标题 1-6 级/加粗/行内代码/
+  // 列表含缩进嵌套/引用/链接文字化/分隔线），其余按字面保留——textContent
+  // 建节点，杜绝 HTML 注入。行内解析顺序：先摘行内代码（\x60，码内不再
+  // 做加粗/链接），非码段做 **加粗** 与 [文字](地址)→文字。
+  // （2026-09-19 修订：此前只认一级标题——发布说明全是 ## 小节，整行
+  // 原文显示；嵌套列表/行内代码/链接同理。见 v0.6.13 发布说明对照。）
   const renderNotes = (box, info) => {
     box.replaceChildren()
     const head = document.createElement('div')
@@ -67,59 +71,107 @@ const SHOW_JS = `(() => {
     }
     const body = document.createElement('div')
     const lines = info.notes.split('\\n')
-    let list = null
-    const flush = () => { list = null }
-    const bold = (seg) => {
-      // **加粗** 内联解析（发布说明模板少量使用）
-      const frag = document.createDocumentFragment()
-      const re = /\\*\\*(.+?)\\*\\*/g
+
+    // 行内解析（占位法，2026-09-19 二次修订）：发布说明大量使用
+    // 「加粗包裹行内码」（如 加粗 Node PTC 行内码 run_code 按次超时 加粗）——
+    // 先摘码会把加粗对拆散、两侧各剩孤星。改为：码先摘成 \x00n\x00 占位符，
+    // 链接与加粗在占位文本上解析（占位符不参与 * 与 [ 匹配，跨码配对自然
+    // 成立），渲染时占位段落回码 span。
+    const CODE_RE = /\\x60([^\\x60]+)\\x60/g
+    const BOLD_RE = /\\*\\*(.+?)\\*\\*/g
+    const LINK_RE = /\\[([^\\]]+)\\]\\([^)]*\\)/g
+    const PLACE_RE = /\\x00(\\d+)\\x00/g
+
+    // 一段（已摘码）占位文本 → DOM 片段；boldWanted 决定整体是否 <b>
+    const emit = (frag, text, boldWanted) => {
       let last = 0
       let m
-      while ((m = re.exec(seg)) !== null) {
-        if (m.index > last) frag.append(seg.slice(last, m.index))
-        const b = document.createElement('b')
-        b.textContent = m[1]
-        frag.append(b)
+      PLACE_RE.lastIndex = 0
+      while ((m = PLACE_RE.exec(text)) !== null) {
+        if (m.index > last) {
+          const piece = text.slice(last, m.index)
+          boldWanted ? (() => { const b = document.createElement('b'); b.textContent = piece; frag.append(b) })() : frag.append(piece)
+        }
+        const c = document.createElement('span')
+        c.style.cssText = 'font-family:ui-monospace,Menlo,monospace;font-size:11px;background:rgba(127,127,127,.14);border-radius:3px;padding:0 3px'
+        c.textContent = codeSlots[Number(m[1])]
+        frag.append(c)
         last = m.index + m[0].length
       }
-      if (last < seg.length) frag.append(seg.slice(last))
+      if (last < text.length) {
+        const piece = text.slice(last)
+        if (boldWanted) { const b = document.createElement('b'); b.textContent = piece; frag.append(b) }
+        else frag.append(piece)
+      }
+    }
+
+    let codeSlots = []
+    // 整段：摘码 → 链接文字化 → 加粗切块 → 逐块回填码 span
+    const inline = (seg) => {
+      codeSlots = []
+      const marked = seg.replace(CODE_RE, (_, c) => {
+        codeSlots.push(c)
+        return '\\x00' + String(codeSlots.length - 1) + '\\x00'
+      }).replace(LINK_RE, '$1')
+      const frag = document.createDocumentFragment()
+      let last = 0
+      let m
+      BOLD_RE.lastIndex = 0
+      while ((m = BOLD_RE.exec(marked)) !== null) {
+        if (m.index > last) emit(frag, marked.slice(last, m.index), false)
+        emit(frag, m[1], true)
+        last = m.index + m[0].length
+      }
+      if (last < marked.length) emit(frag, marked.slice(last), false)
       return frag
     }
+
+    let list = null
+    const flush = () => { list = null }
     for (const raw of lines) {
-      const line = raw.trimEnd()
-      if (/^#\\s/.test(line)) {
+      const line = raw.replace(/\\s+$/, '')
+      if (/^\\s*(-{3,}|\\*{3,})\\s*$/.test(line)) {
+        flush()
+        const rule = document.createElement('div')
+        rule.style.cssText = 'border-top:1px solid rgba(127,127,127,.25);margin:8px 0'
+        body.append(rule)
+      } else if (/^#{1,6}\\s+/.test(line)) {
         flush()
         const h = document.createElement('div')
         h.style.cssText = 'font-weight:600;margin:8px 0 4px'
-        h.textContent = line.replace(/^#+\\s*/, '')
+        h.textContent = line.replace(/^#+\\s+/, '')
         body.append(h)
       } else if (/^>\\s?/.test(line)) {
         flush()
         const q = document.createElement('div')
         q.style.cssText = 'opacity:.65;margin:4px 0'
-        q.textContent = line.replace(/^>\\s?/, '')
+        q.append(inline(line.replace(/^>\\s?/, '')))
         body.append(q)
-      } else if (/^[-*]\\s/.test(line)) {
-        if (list === null) {
-          list = document.createElement('div')
-          list.style.cssText = 'margin:2px 0'
-          body.append(list)
-        }
-        const li = document.createElement('div')
-        li.style.cssText = 'padding-left:10px;text-indent:-10px'
-        li.append('· ')
-        li.append(bold(line.replace(/^[-*]\\s/, '')))
-        list.append(li)
-      } else if (line === '') {
-        flush()
-        const gap = document.createElement('div')
-        gap.style.height = '4px'
-        body.append(gap)
       } else {
-        flush()
-        const p = document.createElement('div')
-        p.append(bold(line))
-        body.append(p)
+        const li = /^(\\s*)[-*]\\s+(.*)$/.exec(line)
+        if (li !== null) {
+          if (list === null) {
+            list = document.createElement('div')
+            list.style.cssText = 'margin:2px 0'
+            body.append(list)
+          }
+          const depth = Math.min(Math.floor(li[1].replace(/\\t/g, '  ').length / 2), 3)
+          const item = document.createElement('div')
+          item.style.cssText = 'padding-left:' + String(10 + depth * 14) + 'px;text-indent:-10px'
+          item.append('· ')
+          item.append(inline(li[2]))
+          list.append(item)
+        } else if (line === '') {
+          flush()
+          const gap = document.createElement('div')
+          gap.style.height = '4px'
+          body.append(gap)
+        } else {
+          flush()
+          const para = document.createElement('div')
+          para.append(inline(line))
+          body.append(para)
+        }
       }
     }
     box.append(body)

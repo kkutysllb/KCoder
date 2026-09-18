@@ -83,15 +83,40 @@ export function mountDiagnostics(root: HTMLElement): void {
   })
 
   /* ---- 更新状态渲染与动作 ---- */
-  /** 发布说明 md → 纯文本（textContent 渲染，只去标题/引用/加粗标记，列表改·）。 */
-  const mdToText = (md: string): string =>
-    md
+  /**
+   * 发布说明 md → 纯文本（textContent 渲染）。与 update-injector 气泡的
+   * renderNotes 同一套语法覆盖（2026-09-19 修订）：标题 1-6 级、引用、加粗、
+   * 行内代码（剥反引号）、链接（取文字丢地址）、列表含缩进嵌套（· 按 2 空格
+   * 进一级）、分隔线（────）。码内不做加粗/链接（先摘码再解析其余段）。
+   */
+  const mdToText = (md: string): string => {
+    // 占位法（与 update-injector 的 renderNotes 同构）：码先摘占位，链接/加粗
+    // 在占位文本上解析（跨码的加粗对不被拆散），最后回填码文字（剥反引号）
+    const CODE_RE = /`([^`]+)`/g
+    const BOLD_RE = /\*\*(.+?)\*\*/g
+    const LINK_RE = /\[([^\]]+)\]\([^)]*\)/g
+    const PLACE_RE = /\x00(\d+)\x00/g
+    const inline = (seg: string): string => {
+      const slots: string[] = []
+      const marked = seg.replace(CODE_RE, (_, c: string) => {
+        slots.push(c)
+        return `\x00${String(slots.length - 1)}\x00`
+      }).replace(LINK_RE, '$1').replace(BOLD_RE, '$1')
+      return marked.replace(PLACE_RE, (_, i: string) => slots[Number(i)] ?? '')
+    }
+    return md
       .split('\n')
       .map((l) => {
-        const t = l.replace(/^#+\s*/, '').replace(/^>\s?/, '').replace(/\*\*(.+?)\*\*/g, '$1')
-        return /^[-*]\s/.test(l) ? '· ' + t.replace(/^[-*]\s/, '') : t
+        if (/^\s*(-{3,}|\*{3,})\s*$/.test(l)) return '─'.repeat(12)
+        const li = /^(\s*)[-*]\s+(.*)$/.exec(l)
+        if (li !== null) {
+          const depth = Math.min(Math.floor(li[1].replace(/\t/g, '  ').length / 2), 3)
+          return '  '.repeat(depth) + '· ' + inline(li[2])
+        }
+        return inline(l.replace(/^#{1,6}\s+/, '').replace(/^>\s?/, ''))
       })
       .join('\n')
+  }
 
   const updateLabel = (u: UpdateStatus): string => {
     const base = `当前版本：${u.currentVersion}`
