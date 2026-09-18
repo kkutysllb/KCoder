@@ -13,7 +13,7 @@
     "preview": "node scripts/dev.mjs preview",
     "start": "node scripts/dev.mjs preview",
     "test:runtime-sandbox-hotfix": "node --test scripts/runtime-sandbox-hotfix.test.mjs",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/check-injected-scripts.mjs",
     "icons": "electron scripts/make-icons.cjs",
     "setup": "bash scripts/setup.sh",
     "sync-upstream": "bash scripts/sync-upstream.sh",
