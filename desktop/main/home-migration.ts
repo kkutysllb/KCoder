@@ -52,6 +52,7 @@ import { existsSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { consoleMessageText } from './console-channel'
+import { devHomeOverride } from './dev-isolation'
 import { dshManager } from './dsh-manager'
 import { getSettings, saveSettings } from './store'
 
@@ -69,9 +70,11 @@ const MARKER_FILE = '.kcoder-home.json'
 /** 误写入 home 的第三方目录（非 KCoder 数据）：迁移时顺带清除。 */
 const FOREIGN_DIRS = ['qilin-accounts']
 
-/** KCoder 自有 home 绝对路径。 */
+/** KCoder 自有 home 绝对路径。源码态（`pnpm dev`）回落 `~/.kcoder-dev`——
+ * 「自有 home」在两态下本就是两个实例各自的家（见 dev-isolation.ts）；此处
+ * 取同源回落值，决策/日志/迁移目标才会与 dshHome() 指向同一处。 */
 export function defaultKcoderHome(osHome: string = homedir()): string {
-  return join(osHome, KCODER_HOME_DIR)
+  return devHomeOverride() ?? join(osHome, KCODER_HOME_DIR)
 }
 
 /** 上游旧 home 绝对路径（存量用户数据所在）。 */
@@ -113,6 +116,13 @@ export function resolveBootHome(
 ): BootHome {
   const user = judgeUserHome(envHome)
   if (user !== null) return { home: user, userOverride: true, pendingMigration: false }
+  // 源码态覆盖**先于**旧目录分支（2026-09-18）：此前 dev 家清单由镜像而
+  // 来时 homeDecided 为假、`~/.dsh` 又在，决策落进「老用户待迁移」→ dev
+  // 跑去读上游共享家 ~/.dsh 并往里物化（现场：EPERM 连片、沙箱初始化失败），
+  // 既污染 dsh CLI 共享库又拿不到自己的家。迁移语义是打包态老用户的专属
+  // 关切，dev 不参与：覆盖一旦生效即锁 dev 家，pending 恒假。
+  const dev = devHomeOverride()
+  if (dev !== null) return { home: dev, userOverride: false, pendingMigration: false }
   const kcoder = defaultKcoderHome(osHome)
   if (decided) return { home: kcoder, userOverride: false, pendingMigration: false }
   const legacy = defaultLegacyHome(osHome)
@@ -121,13 +131,15 @@ export function resolveBootHome(
 }
 
 /** 迁移可用性：用户未自管 home、未决策过，且旧目录在。envHome 语义同
- *  resolveBootHome（null = 确认外部未设置）。 */
+ *  resolveBootHome（null = 确认外部未设置）。源码态恒不可迁移——家是
+ *  dev 隔离目录，没有「老用户存量」这回事（见 resolveBootHome）。 */
 export function migrationEligible(
   osHome: string = homedir(),
   envHome?: string | null,
   decided = false,
 ): boolean {
   if (judgeUserHome(envHome) !== null) return false
+  if (devHomeOverride() !== null) return false
   if (decided) return false
   return existsSync(defaultLegacyHome(osHome))
 }
@@ -279,9 +291,11 @@ export function applyBootHomeEnv(): void {
   if (!boot.userOverride) process.env.DSH_HOME = boot.home
   const why = boot.userOverride
     ? '用户 DSH_HOME 自管'
-    : boot.pendingMigration
-      ? '旧目录待迁移（设置页可一键迁移）'
-      : 'KCoder 自有数据目录'
+    : devHomeOverride() !== null
+      ? '源码态隔离目录（与打包态互不影响）'
+      : boot.pendingMigration
+        ? '旧目录待迁移（设置页可一键迁移）'
+        : 'KCoder 自有数据目录'
   console.log(`[home] dsh home = ${boot.home}（${why}）`)
 }
 

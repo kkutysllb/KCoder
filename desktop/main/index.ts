@@ -15,6 +15,7 @@ import { installMenu, installTray, wireMenuRefresh } from './menu'
 import { closePanels, markQuitting, showBootstrap, showLanding, showShellWindow } from './windows'
 import { authLoggedIn, initAuthSession } from './auth'
 import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-contract'
+import { applyDevIsolation } from './dev-isolation'
 import { ensureKcoderBundles } from './kcoder-skills-bundle'
 import { applyBootHomeEnv } from './home-migration'
 import { ensureBuiltinMcpServers } from './mcp-builtin'
@@ -36,6 +37,14 @@ if (process.env.KC_REMOTE_DEBUG_PORT !== undefined) {
   app.commandLine.appendSwitch('remote-debugging-port', process.env.KC_REMOTE_DEBUG_PORT)
 }
 
+// 源码态实例隔离（必须在一切落盘逻辑之前）：`pnpm dev` 与打包态的默认落点
+// 完全重合——userData 大小写不敏感同一目录导致单实例锁同键互斥（两态无法
+// 同时运行），DSH_HOME 同一目录导致 profile 被反复改写。此处换 userData、
+// 回落 dsh home 到 ~/.kcoder-dev，两态从此各跑各的（打包态落点不受影响）。
+// 早于 applyBootHomeEnv 是硬要求：后者会把 home 决策写回 process.env.DSH_HOME。
+// 机制与隔离面见 dev-isolation.ts。
+applyDevIsolation()
+
 // 引擎用户数据目录（dsh home）决策：新用户/已迁移用户用自有 ~/.kcoder，
 // 老用户（未决策且 ~/.dsh 存在）继续跑 ~/.dsh 保持无缝，设置页提供「数据
 // 迁移」一键搬移；用户显式设置的 DSH_HOME 绝对尊重。决策只写本进程 env，
@@ -56,6 +65,45 @@ if (process.env.npm_config_registry === undefined) {
     if (m !== null) process.env.npm_config_registry = m[1]
   } catch {
     // 无 ~/.npmrc：不干预，维持默认官方源
+  }
+}
+
+// npx 离线优先：内置/用户 MCP 服务器经 `npx -y <pkg>` 拉起，npm 对缓存
+// 命中的包默认仍要在线重验证一次元数据——包明明在本地，网络一抖单个
+// server 就能把引擎 boot 拖住几十秒（MCP client 激活阻塞 Loader，宿主
+// 60s 就绪超时判失败的根因，见 mcp-builtin.ts 的版本钉死说明）。
+// prefer-offline 让缓存命中时跳过重验证、miss 时照常在线下载；经 spawn
+// env 一路继承到引擎的 npx/pnpm 子进程。用户显式设置时不干预。
+if (process.env.npm_config_prefer_offline === undefined) {
+  process.env.npm_config_prefer_offline = 'true'
+}
+
+// uv 索引透传：fetch MCP server 经 `uvx mcp-server-fetch` 拉起，uv 不读
+// pip.conf（与 pip 的配置体系完全独立），未显式配置时直连 pypi.org——
+// 国内网络下解析/下载间歇卡死（与 npm 同款启动期病灶）。从 pip 配置读
+// 镜像索引预置给 uv（UV_INDEX_URL 是 0.6.x 的既有变量，UV_DEFAULT_INDEX
+// 是后续更名，同值并置两个以覆盖新老 uv；用户显式设置时不干预）。未配置
+// pip 镜像则不干预。
+if (process.env.UV_INDEX_URL === undefined && process.env.UV_DEFAULT_INDEX === undefined) {
+  const pipConfCandidates = process.platform === 'win32'
+    ? [join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'pip', 'pip.ini')]
+    : [join(homedir(), '.config', 'pip', 'pip.conf'), join(homedir(), '.pip', 'pip.conf')]
+  for (const conf of pipConfCandidates) {
+    try {
+      const raw = readFileSync(conf, 'utf8')
+      const m = /^\s*index-url\s*=\s*(\S+)/m.exec(raw)
+      if (m !== null) {
+        // 值可能被引号包裹（pip config set 的写法），剥掉再透传
+        const url = m[1].replace(/^['"]|['"]$/g, '')
+        if (url !== '') {
+          process.env.UV_INDEX_URL = url
+          process.env.UV_DEFAULT_INDEX = url
+        }
+        break
+      }
+    } catch {
+      // 该路径无 pip 配置：试下一个
+    }
   }
 }
 

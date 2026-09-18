@@ -31,6 +31,7 @@ import { join, resolve } from 'node:path'
 import { satisfies, gte, valid } from 'semver'
 import { app } from 'electron'
 import type { DshSource } from '@shared/ipc-contract'
+import { devHomeOverride } from './dev-isolation'
 import { applyRuntimeSandboxHotfix } from '../../scripts/runtime-sandbox-hotfix.mjs'
 
 /**
@@ -170,9 +171,11 @@ export const BUNDLED_BIN = join('lib', 'bin.js')
 export const WEB_PROFILE = 'web'
 
 /** dsh Harness home（KCoder 默认自有 `~/.kcoder`，启动决策见
- * home-migration.ts：用户显式设置 DSH_HOME 时从之，老用户未迁移暂为 ~/.dsh）。 */
+ * home-migration.ts：用户显式设置 DSH_HOME 时从之，老用户未迁移暂为 ~/.dsh）。
+ * 源码态（`pnpm dev`）回落到 `~/.kcoder-dev`——与打包态的实例隔离见
+ * dev-isolation.ts，此处只做取值；显式 DSH_HOME 恒优先（两态一致）。 */
 export function dshHome(): string {
-  return process.env.DSH_HOME ?? join(homedir(), '.kcoder')
+  return process.env.DSH_HOME ?? devHomeOverride() ?? join(homedir(), '.kcoder')
 }
 
 /**

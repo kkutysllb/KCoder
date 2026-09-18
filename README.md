@@ -44,8 +44,23 @@ pnpm build && pnpm start
 
 也可在应用内完成：首次启动会进入"设置"页，一键初始化上游。
 
-- 会话/凭据/插件数据在 `~/.dsh`（`DSH_HOME` 可覆盖），与 `dsh` CLI / `npx dsh web` 完全共享。
+- 会话/凭据/插件数据在 `~/.kcoder`（`DSH_HOME` 可覆盖）——KCoder 自有家，**不与 `dsh` CLI / `npx dsh web` 共享**（上游默认 `~/.dsh` 是 harness 家族工具链的共享库，共库会让引擎代差互相污染；老用户存量由设置页「数据迁移」一键搬移）。
 - 本地打包（仅当前平台）：`pnpm dist`（electron-builder，macOS dmg）。
+
+### dev 与打包态并存（源码态自动隔离）
+
+`pnpm dev`（源码态）与打包版**可以同时运行**，互不干扰——两者默认落点重合会让它们硬互斥，故源码态自动换到隔离落点（判定 `app.isPackaged`，见 `desktop/main/dev-isolation.ts`）：
+
+| 资源 | 打包版 | 源码态 `pnpm dev` |
+|---|---|---|
+| Electron userData（桌面设置/登录态/浏览器宿主） | `…/Application Support/kcoder` | `…/Application Support/kcoder-dev` |
+| 单实例锁 | 独立 | **独立**（同目录会互斥——后启动者激活前者后自杀） |
+| dsh home（profile/会话/凭据/MCP 状态） | `~/.kcoder` | `~/.kcoder-dev` |
+| 引擎运行时 | 随包 alpha.2 运行时 | 本地克隆（fork 修复可测） |
+
+用户显式设置 `DSH_HOME` 时两态都尊重（此时仅 userData 分离）。这套隔离让「打包版当日常车 + 源码态验证升级候选」成立：**源码态的 profile 改写、插件物化与退役清理不会触碰打包态的日常数据**（`ensureKcoderBundles()` 每次启动都会重写 profile，共享家时谁后启动谁赢）。
+
+想带着现有数据进源码态，把 `~/.kcoder` 复制成 `~/.kcoder-dev` 即可（APFS 可 `cp -c -a` 瞬时 zero-copy）。
 
 ## 发布与自动更新
 
