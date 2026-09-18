@@ -86,6 +86,8 @@ class FileActivity extends EventEmitter {
   private activeWorkspace: string | null = null
   /** sessionId → 工作区路径（session/list 的 SessionSummary.cwd 归属）。 */
   private readonly sessionWorkspace = new Map<string, string>()
+  /** 会话 → 日志游标（session/list 的 projections.asOfSeq，翻页切割点）。 */
+  private readonly sessionCursor = new Map<string, number>()
   private mappingAt = 0
   private mappingBusy: Promise<void> | null = null
   /** 最近一次历史补拉的会话与时间（翻页重复上报去重）。 */
@@ -144,7 +146,11 @@ class FileActivity extends EventEmitter {
             args: {
               request: {
                 address: { kind: 'session', sessionId },
-                throughSeq: -1,
+                // alpha.2 wire：throughSeq 必须是真实日志游标（session/list
+                // 的 projections.asOfSeq）——-1 在 alpha.1 曾等价全量，alpha.2
+                // 实测返回空页，历史补拉整体静默失效（2026-09-19 实测）。
+                // 游标缺失（映射未收录/旧引擎）回退 -1。
+                throughSeq: this.sessionCursor.get(sessionId) ?? -1,
                 maxMessages: 60,
               },
             },
@@ -222,13 +228,18 @@ class FileActivity extends EventEmitter {
           const items = body.result?.ok === true ? body.result.value?.items : undefined
           if (Array.isArray(items)) {
             this.sessionWorkspace.clear()
+            this.sessionCursor.clear()
             for (const it of items) {
               if (it === null || typeof it !== 'object') continue
-              const item = it as { sessionId?: unknown; cwd?: unknown }
+              const item = it as { sessionId?: unknown; cwd?: unknown; projections?: { asOfSeq?: unknown } }
               const sid = typeof item.sessionId === 'string' && item.sessionId !== '' ? item.sessionId : null
               const path = typeof item.cwd === 'string' && item.cwd !== '' ? item.cwd : null
               if (sid === null || path === null) continue
               this.sessionWorkspace.set(sid, path)
+              const cursor = item.projections?.asOfSeq
+              if (typeof cursor === 'number' && Number.isSafeInteger(cursor) && cursor >= 0) {
+                this.sessionCursor.set(sid, cursor)
+              }
             }
           }
         }
