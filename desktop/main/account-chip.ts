@@ -535,11 +535,29 @@ const chipJs = (username: string): string => `(() => {
     document.head.append(style)
   }
 
-  // 点击菜单外部关闭（capture 早于页面内 handler）；busy 期间不关——
-  // 语言/主题切换要先打开设置面板命中控件，此时点击落在面板内即外部。
+  // 点击菜单外部关闭。
+  //
+  // 为什么必须显式判「点在菜单内」而不能靠子元素 stopPropagation()：
+  // 本监听挂在**捕获阶段**（早于页面内 handler 执行），而子元素的
+  // stopPropagation 发生在冒泡阶段——事件还没走到子元素，菜单就已经被
+  // 关掉了。现场：点「语言」父项 → 菜单直接消失、子菜单从未出现（未推送
+  // 初版的实测现象）。故此处按 event.target 归属判定，与阶段顺序无关。
+  //
+  // busy 期间不关：语言/主题切换要先打开设置面板命中控件，此时点击落在
+  // 面板内，按外部点击处理会把动作半途打断。
   if (!window.__kcoderAccountChipWired) {
     window.__kcoderAccountChipWired = true
-    document.addEventListener('click', () => { if (!busy) closeMenu() }, true)
+    const insideMenu = (target) => {
+      const m = document.getElementById(MENU)
+      if (m === null) return false
+      if (!(target instanceof Node)) return false
+      return m === target || m.contains(target)
+    }
+    document.addEventListener('click', (e) => {
+      if (busy) return
+      if (insideMenu(e.target)) return
+      closeMenu()
+    }, true)
     window.addEventListener('blur', () => { if (!busy) closeMenu() })
   }
 
