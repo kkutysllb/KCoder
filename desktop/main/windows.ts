@@ -23,6 +23,7 @@ import { attachSidebarToggle } from './sidebar-toggle'
 import { attachSidebarCluster } from './sidebar-cluster'
 import { attachClipboardFix } from './clipboard-fix'
 import { attachContextButton } from './context-button'
+import { attachOpenInAppButton } from './open-in-app-button'
 import { attachStyleOverlay } from './style-overlay'
 import { attachSettingsPage } from './settings-page'
 import { attachWorkspaceHeader } from './workspace-header'
@@ -168,6 +169,11 @@ export function showShellWindow(dshUrl: string): void {
     // trigger 真实契约，不发送消息）；打开态拉满主页面区域 + 右上角
     // 「返回任务」按钮
     attachContextButton(shellWindow)
+    // 在本地编辑器中打开：状态栏第四枚按钮（right 108，上下文按钮左侧）
+    // ——上游原生 open-in-app 能力入口（host 半已在 dsh-web-app 组合内，
+    // 探测/图标/启动全走上古路由）；原生按钮随顶栏收纳不可见，本注入器
+    // 把入口补进自绘状态栏（详见 open-in-app-button.ts 头注释）
+    attachOpenInAppButton(shellWindow)
     // 内嵌终端已插件化（2026-08）：由 dsh-terminal 客户端插件
     // （bundle/dsh-terminal，dsh client-modules 加载）整体替代——
     // 页面内底部 DOM 面板 + node-pty 服务端 RPC/SSE，按钮 right 44
