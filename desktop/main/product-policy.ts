@@ -30,17 +30,19 @@ import { dshHome } from './dsh-contract'
 const POLICY_FILENAME = 'cordis.patch.kcoder.yml'
 
 /**
- * 产品策略层内容，一条产品决策：
+ * 产品策略层内容，两条产品决策：
  * - **会话日志不上传**（D2，2026-09-15）：上游 0.1.6-alpha.1 起
  *   `session-log-deepseek.Config.enabled` 默认 true——每次 DeepSeek 请求会把
  *   完整未接受的会话日志后缀（消息正文、工具参数与结果、工作区路径、反馈）
  *   上报到所连端点/网关。KCoder 不参与该贡献。
+ * - **原生右侧栏终端 tab 禁用**（2026-09-15 D1a 补强，2026-09-18 恢复）：
+ *   终端由内置 `@kkutysllb/dsh-terminal` 承担；右侧栏外壳已回归原生，但
+ *   原生终端 tab 与自研终端并存即双入口，此行继续摘掉原生 tab。
  *
- * 历史行（均已移除）：`ui-sidebar-terminal` 禁用与 `file-review-tab` 禁用
- * （2026-09-18）——右侧栏回归原生（原生终端 tab 一并恢复）、file-review
- * 插件整体退役后，两行失去意义。file-review 退役的另一背景：其 1.0.4 的
- * typert 产物过不了 alpha.2 typert-loader 校验，曾拖垮全部远端定义注册
- * （见 docs/upstream-0.1.6-alpha.2-analysis.md §9）。
+ * 历史行（已移除）：`file-review-tab` 禁用（2026-09-18）——file-review
+ * 插件整体退役（typert 产物过不了 alpha.2 typert-loader 校验，曾拖垮全部
+ * 远端定义注册，见 docs/upstream-0.1.6-alpha.2-analysis.md §9），行随插件
+ * 退役失去意义。
  */
 const POLICY_YAML = `# KCoder 产品策略层（宿主自动生成，勿手改——每次启动按代码重写）
 #
@@ -55,6 +57,13 @@ const POLICY_YAML = `# KCoder 产品策略层（宿主自动生成，勿手改�
 - id: session-log-deepseek
   config:
     enabled: false
+#
+# 原生右侧栏的终端 tab：终端由内置 @kkutysllb/dsh-terminal 承担，
+# 原生终端 UI 整行禁用防双入口。宿主 api-terminal-controller 必须保留
+# ——packages/api/remotes 静态 import 并 $mount 它的 remote，禁用会让
+# api-remotes 挂载失败（主对话链全挂）。
+- id: ui-sidebar-terminal
+  disabled: true
 `
 
 /** 产品策略层的绝对路径。 */

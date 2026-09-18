@@ -56,7 +56,6 @@ import { parse as parseYaml } from 'yaml'
 export const DSH_SKILLS_BUNDLE = 'dsh-skills-bundle'
 
 /** 嵌入式终端 bundle 包名（scope 定稿理由同 git-panel，见其常量注释）。 */
-/** @deprecated 2026-09-18 退役（原生右侧栏终端回归）。 */
 export const DSH_TERMINAL_BUNDLE = '@kkutysllb/dsh-terminal'
 
 /** 改动审查 bundle 包名（独立自立插件 dsh-file-review-kcoder；真源在同名独立仓，sync-bundles.mjs 同步产物）。 */
@@ -90,8 +89,10 @@ interface BundledPlugin {
 /** 全部内置 bundle（物化顺序即注册顺序）。 */
 const BUNDLES: BundledPlugin[] = [
   { pkg: DSH_SKILLS_BUNDLE, dir: 'dsh-skills-bundle', entry: 'entry.js', intactFiles: [join('skills', 'manifest.json')] },
-  // 2026-09-18 退役 dsh-terminal / dsh-file-review-kcoder / dsh-coding-sidebar
-  // （右侧栏回归原生：原生右侧栏/终端/文件预览已完整覆盖，见 RETIRED_PLUGINS）
+  { pkg: DSH_TERMINAL_BUNDLE, dir: 'dsh-terminal', entry: 'entry.js', intactFiles: ['client.js'] },
+  // 2026-09-18 退役 dsh-file-review-kcoder / dsh-coding-sidebar
+  // （右侧栏回归原生：文件预览由原生 ui-sidebar-documentpreview 承担，
+  // 见 RETIRED_PLUGINS；终端保留自研，@kkutysllb/dsh-terminal 不退役）
 ]
 
 /** 物化 bundle 包名清单（plugins 页内置清单与更新选路共用）。 */
@@ -153,14 +154,13 @@ const RETIRED_PLUGINS = [
   // PR/Issue）/比较外链/任务计划由侧边栏后续版本承接
   '@kkutysllb/dsh-git-panel',
   // 2026-09-18 退役（右侧栏回归原生，0.1.6-alpha.2 基线决策）：
-  // - @kkutysllb/dsh-terminal：原生右侧栏自带终端 tab（product-policy
-  //   禁用行同批移除），自研终端双入口归一
   // - dsh-file-review-kcoder：其 1.0.4 的 typert 产物过不了 alpha.2
   //   typert-loader 校验（曾拖垮全部远端定义注册，见 product-policy.ts
   //   历史行注记）；交付物预览由原生 ui-sidebar-documentpreview 承担
   // - dsh-coding-sidebar：右侧栏整体回归原生（D1a 翻转）；deps 声明
-  //   同批移入 preset-plugins RETIRED_PRESETS 走 pnpm 收敛摘除
-  '@kkutysllb/dsh-terminal',
+  //   同批移入 preset-plugins RETIRED_PRESETS 走 pnpm 收敛摘除。
+  //   终端不在退役之列：@kkutysllb/dsh-terminal 保留自研（产品决策
+  //   2026-09-18 恢复），原生终端 tab 继续 product-policy 禁用防双入口
   'dsh-file-review-kcoder',
   'dsh-coding-sidebar',
 ]

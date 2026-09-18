@@ -155,6 +155,23 @@ export function installMenu(): void {
         },
         { type: 'separator' },
         {
+          label: '切换内嵌终端',
+          accelerator: 'Control+`',
+          click: () => {
+            const w = getShellWindow()
+            if (w === null || w.isDestroyed()) return
+            w.show()
+            // 终端已插件化（dsh-terminal）：转发页面内插件按钮
+            // 点击（onclick 不依赖可见性，win32 display:none 照常触发）
+            void w.webContents
+              .executeJavaScript(
+                "(() => { const b = document.getElementById('__dsh_kc_term_btn'); if (b) b.click() })()",
+                true,
+              )
+              .catch(() => {})
+          },
+        },
+        {
           label: '设置（上游初始化）…',
           click: () => openPanel('setup', '设置 · KCoder'),
         },

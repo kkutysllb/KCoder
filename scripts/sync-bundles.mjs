@@ -48,9 +48,10 @@ const EXCLUDE = new Set(['.git', 'node_modules'])
  * 相对路径（目录递归 / 文件直拷）。
  */
 const MAPPINGS = [
-  // 2026-09-18 退役映射×3（dsh-terminal / dsh-file-review-kcoder /
-  // dsh-coding-sidebar）：右侧栏回归原生，镜像与 bundle/ 目录一并移除
+  { src: 'dsh-terminal', dst: 'dsh-terminal', select: [] },
   { src: 'dsh-skills-bundle', dst: 'dsh-skills-bundle', select: [] },
+  // 2026-09-18 退役映射×2（dsh-file-review-kcoder / dsh-coding-sidebar）：
+  // 右侧栏回归原生，镜像与 bundle/ 目录一并移除
 ]
 
 const CHECK = process.argv.includes('--check')
