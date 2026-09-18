@@ -128,7 +128,13 @@ const PAGE_JS = `(() => {
   function el(tag, cls, text) {
     var n = document.createElement(tag)
     if (cls) n.className = cls
-    if (text !== undefined) n.textContent = text
+    if (Array.isArray(text)) {
+      // 数组 = 子元素列表（表格行构造用）；逐个 append，不能塞 textContent
+      //（会渲染成 "[object HTMLTableCellElement],…"——首版实测踩坑）
+      for (var i = 0; i < text.length; i++) n.appendChild(text[i])
+    } else if (text !== undefined) {
+      n.textContent = text
+    }
     return n
   }
 
