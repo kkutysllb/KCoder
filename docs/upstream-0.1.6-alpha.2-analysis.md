@@ -499,7 +499,44 @@ pre-commit lint 0 error（4 条既存 unused-directive warning）。
 | 5 | §7.2 功能候选（B changed-files 数据源 / B pluginFailures 透出 / C 子代理限额 / D Sidebar Browser / E 模型目录收缩提示）取舍 | 产品决策 |
 | 6 | 插件仓 devDependencies 上移 alpha.2（同 alpha.1 遗留债，需联网） | 债 |
 | 7 | `sidebar-cluster.ts` 代理与新原生右侧栏的长期关系（现为「会话头展开按钮隐藏 + 状态栏代理」） | 观察项 |
-| 8 | 本次全部改动**尚未 bump 版本**（仍 `0.6.13`）；出包前走 `bash scripts/release.sh audit` → `release/audit-v<版本>.md` → `ship <版本>`（含全量构建 pre-push 门）。另：运行时 tar 已按本批内容重物化（含设置页 tab 与 workspace-header 修复），**若后续再有上游 fork 改动需再次重物化** | 发版 |
+| 8 | 本次全部改动**尚未 bump 版本**（仍 `0.6.13`）；出包前走 `bash scripts/release.sh audit` → `release/audit-v<版本>.md` → `ship <版本>`（含全量构建 pre-push 门）。另：运行时 tar 已按本批内容重物化（含设置页 tab 与 workspace-header 修复），**若后续再有上游 fork 改动需再次重物化**；账号菜单那批（§9.6）不进运行时 tar（桌面侧 `out/` + bundle extraResources），下次 `pnpm dist` 自动带上 | 发版 |
+
+### 9.6 第四批已执行（2026-09-18 夜：账号菜单「语言/主题」——桥与三次同构坑）
+
+产品功能：头像菜单（KCoder 自绘，`account-chip.ts` 注入）增加「语言」
+（中文/English）与「主题」（跟随系统/浅色/深色）二级子菜单，选中后菜单不关、
+对勾当场移动、可连续切换。**真机验收通过**（9 个提交，`424efdf..ac38666`）。
+
+**架构落点——为什么不"利旧设置页控件"**：注入脚本没有任何 window 级服务桥可
+触达 `ctx.locale.setLocale` / `ctx.theme.setTheme`（实测确认）。早期版本走
+"打开设置面板 → 模拟点击通用区控件"，每一步都在猜锚点并真实踩中：标题
+`indexOf('语言')` 被 KCoder 自己注入的「回答语言」行抢中（`"回答语言".
+indexOf("语言") === 2` → 弹成功提示但界面不变）、主题立方块渲染序 ≠ CUBES
+声明序、外部点击监听在捕获阶段抢跑。**正解是新增内置 bundle `dsh-shell-prefs`**：
+client 半 `inject: ['locale','theme']`，把窄接口（get/set/subscribe）发布到
+`window.__kcoderShellPrefs`——偏好写入走上游唯一入口（与设置页同一条路径，
+无第二事实源、无面板闪现）。alpha.2 契约事实（同轮实测，均已写进
+ARCHITECTURE 坑记 6）：locale 读 `getSnapshot()` 而 theme 读 `getTheme()`
+（不同名，异常被吞成 null 时表现为"读不出"）；`themes` 注册表只含
+light/dark，system 是偏好档不是主题。
+
+**三次同构坑（typecheck 盲区）与本批最后一个交付**：① 悬空标识符——桥重构
+删了 `busy`/`settingsTrigger` 定义但调用残留 → ReferenceError →「点外部不关
+菜单」「点设置进不去」；② client 半裸 ESM export——ModuleLoader 协议不认，
+顶层声明撞标识符（"Identifier 'name' has already been declared"，整个 client
+装配失败）；③ 模板内裸反引号（tsc 能拦，非盲区）。tsc 不查字符串内容、
+`new Function` 只查语法——前两类静默存活数轮。**修复性交付：
+`scripts/check-injected-scripts.mjs` 挂进 typecheck 链尾**（词法抽取注入脚本
+模板 → 语法门 → oxlint no-undef → 定位映射回源；`__全大写__` 占位符自动豁免；
+bundle client 半禁顶层 export）。注回 `busy` 实测被抓到（exit 1 + 源文件行号），
+干净树通过。
+
+**流程教训（比代码更贵）**：① 临时环境验证 ≠ 真实环境——「回答语言」行只存在于
+被注入的产品 profile，我在干净临时环境验证通过就交付，差异恰在产品自己的注入项；
+② 交付前必须在真实实例端到端，且把**全部交互**跑完而不是只测改过的路径
+（最后的悬空引用正是"只测切换、没测外部点击/设置项"漏掉的）；③ 显示状态类
+需求先问清预期形态（"选中后当场反馈"还是"重开生效"），本次三返工有一半源于
+没问；④ 改注入器/模板脚本后，`pnpm typecheck`（现已含自检）是硬门。
 
 ---
 
@@ -507,6 +544,11 @@ pre-commit lint 0 error（4 条既存 unused-directive warning）。
 
 > 项目惯例：GUI 不由 AI 验证；以下为本次升级的验收点。**§9.3 之前已由真机
 > 实测覆盖的项在下方标 ✅ 并附证据；其余待用户重启后确认。**
+
+**账号菜单「语言/主题」（§9.6，已真机验收 ✅ 2026-09-18 夜）**
+- [x] ✅ 子菜单展开/收起正常；选中后菜单不关、对勾当场移动、可连续切换。
+- [x] ✅ 偏好与设置页同步（同一条写入口）；点外部/设置/退出登录正常关闭菜单。
+- [x] ✅ typecheck 含注入脚本自检（悬空引用 / client 半协议）。
 
 **回归基线（D1a / D2 不回退）**
 - [ ] 原生右侧栏入口不出现；自研侧栏正常；交付卡/`@` 引用/`/技能` 引用仍进自研编辑器。

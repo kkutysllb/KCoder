@@ -181,8 +181,11 @@ KCoder 的 `deepseek-harness/` 原是 submodule，重建时已**扶正为独立�
 pnpm typecheck && pnpm build
 # 产物关键串断言（防陈旧产物——压缩会改变量名，断言要用裸字符串而非属性链）
 grep -c -F "关键串" out/main/*.js
-# 注入脚本（PAGE_JS 模板字符串）语法检查：从源文件抠出模板串再 new Function 校验
 ```
+
+typecheck 链尾已含 `scripts/check-injected-scripts.mjs`：抽取 desktop/main 全部
+注入脚本模板做 no-undef 分析 + bundle client 半协议检查（见坑记 5/6），改
+注入器后无需额外动作即被覆盖。
 
 ### 协作惯例
 
@@ -203,6 +206,31 @@ grep -c -F "关键串" out/main/*.js
    预览抽屉跨工作区互串（归属唯一来源是 workspace.list 的 items[].sessionIds）。
 4. **shell 陷阱**：zsh 下 `for f in $files` 不做单词拆分（整段当成一个文件名），
    批量处理用 `xargs`；`pnpm setup` 是 pnpm 内置命令，项目脚本要 `pnpm run setup`。
+5. **注入脚本的模板字符串是 typecheck 盲区**（2026-09-18 账号菜单一轮连中三次，
+   全部同构）：desktop/main 的注入器把页面脚本写在 TS 模板字符串里，tsc 不检查
+   字符串内容、`new Function` 只查语法——悬空标识符（删了 `busy`/
+   `settingsTrigger` 的定义但调用还留着 → 运行时 ReferenceError，「点外部不关
+   菜单」「点设置进不去」两个用户可见故障静默存活数轮）、bundle client 半裸
+   ESM export（加载器不认，顶层声明还会与其它 client 模块撞标识符）都从这里
+   漏过。修复不止于修 bug：`scripts/check-injected-scripts.mjs` 挂进 typecheck
+   链尾（词法抽取模板 → 语法门 → oxlint no-undef → 定位映射回源文件行号；
+   `__全大写__` 形态是挂载侧文本替换占位符，自动豁免并打印清单）。注回 bug
+   实测可抓到、干净树通过，退出码直接核验。**改任何注入器后，标准收尾即覆盖。**
+6. **外置 bundle 的 client 半有专属协议与服务面事实**（同轮实测）：
+   - client 交付物必须 `window.__ModuleLoader__.load({ id, factory })`，工厂
+     返回 `exports.inject` / `exports.apply`，所有实现收在 factory 作用域内
+     （参照 `@kkutysllb/dsh-terminal/client.js` 与 `bundle/dsh-shell-prefs/
+     client.js`）；
+   - 上游两个偏好服务的读法**不同名**：locale 是 `getSnapshot()`，theme 是
+     `getTheme()`——按一个的形状读另一个，异常会被 try/catch 吞成 null，
+     表现为"当前值读不出"而非报错；
+   - theme 的 `themes` 注册表只含 light/dark，**system 是偏好档不是主题**，
+     按 options 渲染三档会丢「跟随系统」；
+   - 桌面壳注入脚本**够不到 client 插件服务**（上游无 window 级服务桥），
+     要让壳的 UI 走上游唯一写入口，就学 `dsh-shell-prefs`：client 半
+     `inject: ['locale','theme']` 后把窄接口发布到 window，壳注入脚本消费。
+     显示侧同理：当前语言/主题等状态**每次实时取**（桥优先、DOM 兜底），
+     不能烘焙成脚本注入时的常量。
 
 ## 9. 与 DSH-Desktop 的同步策略
 
