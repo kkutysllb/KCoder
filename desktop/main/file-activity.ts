@@ -118,10 +118,11 @@ class FileActivity extends EventEmitter {
    * alpha.1 无实时事件流（mux 退役），读/编辑活动只能从 session/page 的
    * tool/call 原始事件推导补回。失败静默（徽章退化为无历史）。
    */
-  async fetchHistory(sessionId: string): Promise<void> {
+  async fetchHistory(sessionId: string, force = false): Promise<void> {
     const now = Date.now()
-    // 同会话翻页会重复上报（每页一次触发），短窗口去重只拉首页
-    if (sessionId === this.lastHistorySession && now - this.lastHistoryAt < 5_000) return
+    // 同会话翻页会重复上报（每页一次触发），短窗口去重只拉首页；
+    // force=true 供 turn-end 探针绕过（探针已确认有新事件）
+    if (!force && sessionId === this.lastHistorySession && now - this.lastHistoryAt < 5_000) return
     const status = dshManager.status
     if (status.state !== 'ready' || status.url === null) return
     try {
@@ -168,6 +169,15 @@ class FileActivity extends EventEmitter {
       if (!Array.isArray(records)) return
       this.lastHistorySession = sessionId
       this.lastHistoryAt = Date.now()
+      // 游标自愈：记录里的最大 seq 即当前 tip（比映射懒刷新及时，
+      // 也是 turn-end 探针的基线）
+      let tip = this.sessionCursor.get(sessionId) ?? 0
+      for (const rec of records) {
+        const seq = rec?.event?.seq
+        if (typeof seq === 'number' && Number.isSafeInteger(seq) && seq > tip) tip = seq
+      }
+      this.sessionCursor.set(sessionId, tip)
+      this.startTurnWatch()
       // 按事件序逐条处理（changes 摘要要 await）：保证同文件"取最新"语义
       // 与事件真实先后一致——旧 turn 的 numstat 不会顶掉新 turn 的记录。
       for (const rec of records) {
@@ -252,6 +262,93 @@ class FileActivity extends EventEmitter {
       }
     })()
     return this.mappingBusy
+  }
+
+  // —— turn-end 触发面（2026-09-19）——
+  // 背景：历史补拉只由页面行为触发（打开/切换会话、翻页 fetch 拦截），任务
+  // 刚跑完、用户原地观看时永远不触发——徽章要等下一次翻页/切换才出现。
+  // 方案：微型探针轮询**正在观看的会话**（lastHistorySession）。不轮询
+  // session/list（876 会话 × 完整 projections ≈ 7.6MB/次，不可接受）。
+  //
+  // 探针语义（alpha.2 实测）：session/page 的 throughSeq 是精确日志切割点，
+  // 越过 tip 返回空页——于是 maxMessages:1 的请求非空 ⇔ cut ≤ tip：
+  //   ① 探 lastSeen+1：非空 ⇔ 存在新事件；
+  //   ② 指数探 + 二分定位 tip（每次都是微型请求）；
+  //   ③ 游标写回 tip 并 force 补拉——徽章在 turn 结束后 ~3s 内落地。
+  // 有新事件即拉（不只 turn/end）：任务进行中徽章也跟着渐进，与页面自身
+  // 的 WS 流量相比可忽略（单会话、≤60 消息窗口、纯回环）。
+
+  /** 探针节奏：3s（活跃）/ 8s（无新事件后的常态）。 */
+  private static readonly PROBE_FAST_MS = 3_000
+  private static readonly PROBE_SLOW_MS = 8_000
+  private watchTimer: NodeJS.Timeout | null = null
+  private probing = false
+
+  /** 微型探针：cut ≤ tip 时返回 true（记录非空）。失败按无新事件处理。 */
+  private async pageProbeHit(sessionId: string, cut: number, url: string): Promise<boolean> {
+    try {
+      const resp = await dshManager.authFetch(`${url}/api/session/page`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          type: 'client-request',
+          rpcId: `kcoder-probe-seq-${Date.now()}`,
+          method: 'session/page',
+          payload: { args: { request: { address: { kind: 'session', sessionId }, throughSeq: cut, maxMessages: 1 } } },
+        }),
+      })
+      if (!resp.ok) return false
+      const body = JSON.parse(await resp.text()) as {
+        result?: { ok?: boolean; value?: { records?: unknown[] } }
+      }
+      return body.result?.ok === true && (body.result.value?.records?.length ?? 0) > 0
+    } catch {
+      return false
+    }
+  }
+
+  /** 探一轮：有新事件则定位 tip 并强制补拉。@returns 距下轮的毫秒。 */
+  private async probeTurn(sessionId: string, url: string): Promise<number> {
+    const last = this.sessionCursor.get(sessionId) ?? 0
+    if (!(await this.pageProbeHit(sessionId, last + 1, url))) return FileActivity.PROBE_SLOW_MS
+    // 指数上行找空档，再二分收敛 tip（lo 非空、hi 空 → tip = lo）
+    let lo = last + 1
+    let hi = last + 2
+    while (await this.pageProbeHit(sessionId, hi, url)) {
+      lo = hi
+      hi *= 2
+      if (hi - lo > 1_000_000) break // 防御：异常会话不至于死循环
+    }
+    while (hi - lo > 1) {
+      const mid = Math.floor((lo + hi) / 2)
+      if (await this.pageProbeHit(sessionId, mid, url)) lo = mid
+      else hi = mid
+    }
+    this.sessionCursor.set(sessionId, lo)
+    void this.fetchHistory(sessionId, true)
+    return FileActivity.PROBE_FAST_MS
+  }
+
+  /** 启动/维持观看会话的 turn-end 探针（幂等；拉取成功后调用）。 */
+  private startTurnWatch(): void {
+    if (this.watchTimer !== null) return
+    const tick = (): void => {
+      this.watchTimer = null
+      const status = dshManager.status
+      const target = this.lastHistorySession
+      if (this.probing || status.state !== 'ready' || status.url === null || target === null) {
+        this.watchTimer = setTimeout(tick, FileActivity.PROBE_SLOW_MS)
+        return
+      }
+      this.probing = true
+      void this.probeTurn(target, status.url)
+        .catch(() => FileActivity.PROBE_SLOW_MS)
+        .then((delay) => {
+          this.probing = false
+          this.watchTimer = setTimeout(tick, delay)
+        })
+    }
+    this.watchTimer = setTimeout(tick, FileActivity.PROBE_FAST_MS)
   }
 
   /** GET /api/changes.summary → 每文件 edit 条目（numstat 精确值）。
