@@ -64,6 +64,13 @@ const chipJs = (username: string, build: string): string => `(() => {
   }
 
   /**
+   * 上游设置面板的真实触发按钮（SettingsRoot 专属组合锚）。菜单「设置」项
+   * 转发它的真实点击走上游完整打开路径。注意：按钮被本注入器隐藏
+   * （display:none 的元素 .click() 照常派发事件），但 DOM 里始终存在。
+   */
+  const settingsTrigger = () => document.querySelector('button[class*="_trigger"][aria-haspopup="dialog"]')
+
+  /**
    * 当前界面语言是否中文——**每次读取，不烘焙**。
    *
    * 早期版本把它算成模块常量，于是菜单标签、子菜单当前值、对勾全停在脚本
@@ -564,8 +571,6 @@ const chipJs = (username: string, build: string): string => `(() => {
   // 关掉了。现场：点「语言」父项 → 菜单直接消失、子菜单从未出现（未推送
   // 初版的实测现象）。故此处按 event.target 归属判定，与阶段顺序无关。
   //
-  // busy 期间不关：语言/主题切换要先打开设置面板命中控件，此时点击落在
-  // 面板内，按外部点击处理会把动作半途打断。
   if (!window.__kcoderAccountChipWired) {
     window.__kcoderAccountChipWired = true
     const insideMenu = (target) => {
@@ -575,11 +580,10 @@ const chipJs = (username: string, build: string): string => `(() => {
       return m === target || m.contains(target)
     }
     document.addEventListener('click', (e) => {
-      if (busy) return
       if (insideMenu(e.target)) return
       closeMenu()
     }, true)
-    window.addEventListener('blur', () => { if (!busy) closeMenu() })
+    window.addEventListener('blur', () => { closeMenu() })
   }
 
   // 构建标记：每次改本脚本都会变，用于一眼确认运行中的实例到底是哪一版
