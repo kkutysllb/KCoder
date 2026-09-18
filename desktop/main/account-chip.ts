@@ -140,22 +140,39 @@ const chipJs = (username: string): string => `(() => {
    *
    * 锚点（2026-09-18 实测）：该区有四个 button[aria-haspopup="menu"]
    * （权限 / 语言 / 对话显示 / 繁忙发送行为），**单独用 aria-haspopup 不唯一**
-   * ——必须先按行标题「语言」/Language 定位行，再取行内 _selector 按钮；
-   * 标题找不到时退回「按钮自身文案 ∈ 已知语言名」。
+   * ——必须先按行标题定位行，再取行内 _selector 按钮。
+   *
+   * 标题匹配必须**精确相等**，不能用 indexOf 包含匹配：产品在通用区注入了
+   * 一行「回答语言」（windows.ts 的回答语言档），"回答语言".indexOf("语言")
+   * = 2 → 包含匹配会先命中它，而那一行是 KCoder 自绘控件、不是上游语言
+   * 选择器，拿它去点开菜单自然什么都切不到（现象：弹出成功提示但界面不变，
+   * 因为后续按 id 找菜单项时命中了上游那条被同时打开的语言菜单之外的路径）。
+   * 精确匹配同时避免「对话显示」等其它行的任何包含关系。
+   *
+   * 标题改名时退回两条兜底：① 按钮文案 ∈ 已知语言名（最可靠——按钮显示的
+   * 就是当前语言）；② 行内 aria-expanded 的 menu 按钮（语言选择器有开合态）。
    */
+  const LANG_ROW_TITLES = zh ? ['语言'] : ['language']
+  const LANG_BUTTON_LABELS = ['简体中文', '中文', 'english', '英文', '日本語', '한국어']
+
   const findLanguageAnchor = (zone) => {
-    const titles = zh ? ['语言'] : ['language']
-    const rows = [...zone.querySelectorAll('div[class*="row"]')]
-    for (const row of rows) {
+    // ① 精确标题
+    for (const row of [...zone.querySelectorAll('div[class*="row"]')]) {
       const title = row.querySelector('div[class*="title"]')
       const label = (title ? title.textContent : '').trim().toLowerCase()
-      if (label === '' || !titles.some((k) => label.indexOf(k) >= 0)) continue
+      if (label === '') continue
+      if (!LANG_ROW_TITLES.some((k) => label === k)) continue
       const btn = row.querySelector('button[class*="_selector"], button[aria-haspopup="menu"]')
       if (btn !== null) return btn
     }
-    const known = ['简体中文', '中文', 'english', '日本語', '한국어']
-    return [...zone.querySelectorAll('button')]
-      .find((b) => known.indexOf((b.textContent || '').trim().toLowerCase()) >= 0) ?? null
+    // ② 按钮文案就是语言名
+    const byLabel = [...zone.querySelectorAll('button')].find(
+      (b) => LANG_BUTTON_LABELS.indexOf((b.textContent || '').trim().toLowerCase()) >= 0,
+    )
+    if (byLabel !== undefined) return byLabel
+    // ③ 开合态 menu 按钮（排除已由标题命中的权限/对话显示等——它们同样带
+    //    aria-expanded，故只在①②都落空时才用，宁可不动也不点错控件）
+    return [...zone.querySelectorAll('button[aria-haspopup="menu"][aria-expanded]')][0] ?? null
   }
 
   const LANG_LABELS = {
