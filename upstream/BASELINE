@@ -368,4 +368,34 @@
 #   4. 全量回归（重点：第三方插件加载、Web UI 冒烟、打包链 smoke）
 #   5. 提交本文件（及分支名相关改动）
 #
-0a15e36e7f82b6ed45af6fa9759f29b40dcd965d
+#
+# 升级记录：2026-09-18 0.1.6-alpha.1(0a15e36e7f) → 0.1.6-alpha.2(ddefc45fbc，
+# tag dsh-v0.1.6-alpha.2，2026-09-17)。887 提交/2622 文件，2 天窗口。分析文档
+# docs/upstream-0.1.6-alpha.2-analysis.md。要点：① 插件管理器大版本（boot/
+# plugin-manager + ui-plugin-manager，管理面移侧栏，patch-file writer 直写
+# profile cordis.patch.yml，与 mcp-store 保真双写共存）；② 外部 bundle
+# contained-group 隔离：单 bundle 挂载失败只记 pluginFailures 不再拒整个
+# Loader 事务；行 id 撤销前缀方案、外部 bundle 保留自声明 id；用户层 insert
+# 撞已占 id 静默丢弃（mcp- 前缀约定安全）；③ conversation.chat.turnTail
+# chain→list（🔴 命中 file-review 抢占模型与 coding-sidebar -1 拦截行，
+# 待适配批次）；④ 交付物 git 快照（workspace-changes）+ 侧栏浏览器 + 默认
+# 模型目录收缩（V4 Flash 族移出，默认仍 deepseek-flash）；⑤ 契约面：SESSION
+# 仍 v3、ui-slots 零删除导出、CLI/就绪行/DOM 锚点/D2 overlay 两行 id 全部
+# 存活；插件 peer 键 ^0.1.6-alpha.1 依预发布规则直接覆盖 alpha.2（免改）；
+# MCP 层零变化（启动提速修复原样适用）。
+# 集成冲突 4 处：plugin.ts（取上游重写——plugin-manager 薄委托，execa 默认
+# windowsHide 吸收我方黑窗单行修复）、ui-chat ChatView.tsx（并集：上游
+# openExternalLink+MarkdownDelegateProvider × 我方 0007 editUserMessage，
+# 解构行拆两行过 max-len 140）、llm-pi-ai adapter.ts（保我方 randomUUID/
+# openAIResponsesApi import，createModels/getSupportedThinkingLevels 让位
+# 上游新本地模块 ./models.ts，双方 pi-ai 均钉 ^0.85.1）、win32-process
+# process.spec.ts（abi 保 CREATE_NO_WINDOW，ffi 用上游 accessor，裸
+# PROCESS_INFORMATION 导出已被重构掉且测试体无使用）。合并适配 1 处：
+# ptc-runtime-python 摘除一对 type-aware lint 已判 Unused 的 oxlint
+# disable/enable 抑制（合并后 settled 收窄不复现，Unused directive 按
+# error 拦 pre-commit）。锁文件 auto-merge 后 CI=true pnpm install
+# --no-frozen-lockfile 重收敛。完整性断言：自有提交 b13e950d94/facdc190a2/
+# dd1529d8aa/b88abcad16 均为尖端祖先；新 delta vs 旧 delta 文件集差恰为
+# plugin.ts（按决策取上游）；上游侧文件零删除；build exit 0（248 client
+# 产物），lib/index.js 299/299，CI=true pnpm run typecheck 通过。
+ddefc45fbc7f8e46dd73185e68295696d1297887
