@@ -65,56 +65,6 @@ const chipJs = (username: string): string => `(() => {
     ? { settings: '设置', language: '语言', theme: '主题', logout: '退出登录', general: '通用设置' }
     : { settings: 'Settings', language: 'Language', theme: 'Theme', logout: 'Sign out', general: 'General' }
 
-  // 短暂操作设置面板时用的标志：置位期间忽略「点击外部关闭」——否则
-  // 切换过程中面板被误关，控件随卸载消失，动作半途失败。
-  let busy = false
-
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-
-  /** 轮询等待条件成立（上限 timeoutMs）。 */
-  const waitFor = async (fn, timeoutMs) => {
-    const end = Date.now() + (timeoutMs ?? 2500)
-    for (;;) {
-      let v = null
-      try { v = fn() } catch { v = null }
-      if (v) return v
-      if (Date.now() > end) return null
-      await sleep(60)
-    }
-  }
-
-  const settingsTrigger = () => document.querySelector('button[class*="_trigger"][aria-haspopup="dialog"]')
-  const panelOpen = () => document.querySelector('[role="dialog"] [class*="_nav"]') !== null
-  const closePanel = () => {
-    document.querySelector('[role="dialog"] [class*="_header"] > [class*="_close"]')?.click()
-  }
-
-  /**
-   * 打开设置面板、停在「通用」区、交给 run(zone) 命中控件，然后还原。
-   * 面板本就开着时不关（尊重用户当前上下文）。返回 run 的返回值。
-   */
-  const withGeneralRow = async (run) => {
-    const opened = !panelOpen()
-    if (opened) {
-      const trigger = settingsTrigger()
-      if (trigger === null) return null
-      trigger.click()
-      const nav = await waitFor(() => document.querySelector('[role="dialog"] [class*="_nav"]'), 2500)
-      if (nav === null) return null
-      // 分区导航首项即「通用」（SettingsRoot 按 order 渲染 navList）。
-      const first = nav.querySelector('[class*="navList"] button')
-      if (first !== null) first.click()
-    }
-    const zone = await waitFor(
-      () => document.querySelector('[role="dialog"] [data-slot="settings.section"]'),
-      2500,
-    )
-    let out = null
-    if (zone !== null) out = await run(zone)
-    if (opened) closePanel()
-    return out
-  }
-
   /** 底部轻提示（自带样式，3s 自动消失；不改任何持久状态）。 */
   const notify = (msg) => {
     const el = document.createElement('div')
@@ -136,121 +86,108 @@ const chipJs = (username: string): string => `(() => {
   }
 
   /**
-   * 命中上游「语言」行的选择器按钮。
+   * 上游偏好桥（由内置 bundle dsh-shell-prefs 的 client 半发布）。
    *
-   * 锚点（2026-09-18 实测）：该区有四个 button[aria-haspopup="menu"]
-   * （权限 / 语言 / 对话显示 / 繁忙发送行为），**单独用 aria-haspopup 不唯一**
-   * ——必须先按行标题定位行，再取行内 _selector 按钮。
+   * 为什么用桥而不是模拟点击设置控件：注入脚本没有 window 级服务桥可触达
+   * ctx.locale.setLocale / ctx.theme.setTheme，早前那版靠"打开设置面板
+   * → 点通用区控件"，每一步都在猜锚点（行标题被产品注入的「回答语言」抢中、
+   * 命中却静默失败）。dsh-shell-prefs 的 client 半直接注入这两个服务并把
+   * 窄接口发布到 window，于是偏好写入走上游唯一入口——与设置页里点的是同一
+   * 条路径，不存在第二条事实源。
    *
-   * 标题匹配必须**精确相等**，不能用 indexOf 包含匹配：产品在通用区注入了
-   * 一行「回答语言」（windows.ts 的回答语言档），"回答语言".indexOf("语言")
-   * = 2 → 包含匹配会先命中它，而那一行是 KCoder 自绘控件、不是上游语言
-   * 选择器，拿它去点开菜单自然什么都切不到（现象：弹出成功提示但界面不变，
-   * 因为后续按 id 找菜单项时命中了上游那条被同时打开的语言菜单之外的路径）。
-   * 精确匹配同时避免「对话显示」等其它行的任何包含关系。
-   *
-   * 标题改名时退回两条兜底：① 按钮文案 ∈ 已知语言名（最可靠——按钮显示的
-   * 就是当前语言）；② 行内 aria-expanded 的 menu 按钮（语言选择器有开合态）。
+   * 桥缺席（bundle 未装 / 该部署未启用对应插件）→ 菜单项降级为只读提示。
    */
-  const LANG_ROW_TITLES = zh ? ['语言'] : ['language']
-  const LANG_BUTTON_LABELS = ['简体中文', '中文', 'english', '英文', '日本語', '한국어']
-
-  const findLanguageAnchor = (zone) => {
-    // ① 精确标题
-    for (const row of [...zone.querySelectorAll('div[class*="row"]')]) {
-      const title = row.querySelector('div[class*="title"]')
-      const label = (title ? title.textContent : '').trim().toLowerCase()
-      if (label === '') continue
-      if (!LANG_ROW_TITLES.some((k) => label === k)) continue
-      const btn = row.querySelector('button[class*="_selector"], button[aria-haspopup="menu"]')
-      if (btn !== null) return btn
-    }
-    // ② 按钮文案就是语言名
-    const byLabel = [...zone.querySelectorAll('button')].find(
-      (b) => LANG_BUTTON_LABELS.indexOf((b.textContent || '').trim().toLowerCase()) >= 0,
-    )
-    if (byLabel !== undefined) return byLabel
-    // ③ 开合态 menu 按钮（排除已由标题命中的权限/对话显示等——它们同样带
-    //    aria-expanded，故只在①②都落空时才用，宁可不动也不点错控件）
-    return [...zone.querySelectorAll('button[aria-haspopup="menu"][aria-expanded]')][0] ?? null
+  const BRIDGE_KEY = '__kcoderShellPrefs'
+  const bridge = () => {
+    const b = window[BRIDGE_KEY]
+    return b !== undefined && b !== null && typeof b === 'object' ? b : null
   }
 
-  const LANG_LABELS = {
-    zh: ['简体中文', '中文'],
-    en: ['english', '英文'],
+  /** 语言选项（桥给不出时退回内置两项；上游内置语言就是这两个）。 */
+  const localeOptions = () => {
+    const b = bridge()
+    const info = b !== null && typeof b.getLocale === 'function' ? b.getLocale() : null
+    if (info !== null && Array.isArray(info.options) && info.options.length > 1) return info.options
+    return [{ id: 'zh', label: '中文' }, { id: 'en', label: 'English' }]
   }
 
-  /** 弹菜单期间短暂占用设置面板（busy 抑制外部点击关闭）。 */
-  const withBusy = async (fn) => {
-    busy = true
-    try { return await fn() } finally { busy = false }
+  /** 当前语言 id（桥给不出时按页面 lang 兜底）。 */
+  const localeActive = () => {
+    const b = bridge()
+    const info = b !== null && typeof b.getLocale === 'function' ? b.getLocale() : null
+    if (info !== null && typeof info.id === 'string' && info.id !== '') return info.id
+    return zh ? 'zh' : 'en'
   }
 
-  /** 切换语言：命中上游 LanguageRow 的选择器（Menu 按钮）+ 菜单项。 */
-  const switchLanguage = (targetId) => withBusy(async () => {
-    const done = await withGeneralRow(async (zone) => {
-      const anchor = findLanguageAnchor(zone)
-      if (anchor === null) return false
-      if (anchor.getAttribute('aria-expanded') !== 'true') anchor.click()
-      const want = LANG_LABELS[targetId] || []
-      const item = await waitFor(() => {
-        const rows = [...document.querySelectorAll('[role="menuitem"]')]
-        return rows.find((r) => {
-          const s = (r.textContent || '').trim().toLowerCase()
-          if (want.some((k) => s === k || s.indexOf(k) >= 0)) return true
-          // 目标语言名不认识时按互斥匹配：挑一个「不是当前语言」的项
-          const cur = zh ? LANG_LABELS.zh : LANG_LABELS.en
-          return !cur.some((k) => s === k || s.indexOf(k) >= 0)
-        }) ?? null
-      }, 2000)
-      if (item === null) return false
-      item.click()
-      return true
-    })
-    notify(done === true
-      ? (targetId === 'zh' ? '已切换为简体中文' : 'Switched to English')
-      : (zh ? '未能切换语言（设置面板结构可能已变）' : 'Could not switch language'))
-  })
+  /** 主题选项：上游三档（跟随系统/浅色/深色）＋偏好档当前值。 */
+  const THEME_OPTIONS = [
+    { id: 'system', zh: '跟随系统', en: 'System' },
+    { id: 'light', zh: '浅色', en: 'Light' },
+    { id: 'dark', zh: '深色', en: 'Dark' },
+  ]
+
+  const themeOptions = () => THEME_OPTIONS.map(o => ({ id: o.id, label: zh ? o.zh : o.en }))
+
+  /** 当前主题偏好档（桥给不出时按实色兜底——不误标实色档）。 */
+  const themeActive = () => {
+    const b = bridge()
+    const info = b !== null && typeof b.getTheme === 'function' ? b.getTheme() : null
+    if (info !== null && typeof info.id === 'string' && info.id !== '') return info.id
+    return themePref()
+  }
+
+  /** 走桥切换语言；返回 false 表示桥不可用或上游拒绝。 */
+  const setLocaleViaBridge = (id) => {
+    const b = bridge()
+    if (b === null || typeof b.setLocale !== 'function') return false
+    return b.setLocale(id) === true
+  }
+
+  /** 走桥切换主题。 */
+  const setThemeViaBridge = (id) => {
+    const b = bridge()
+    if (b === null || typeof b.setTheme !== 'function') return false
+    return b.setTheme(id) === true
+  }
 
   /**
-   * 切换主题：命中上游 AppearanceRow 的立方块按钮组。
+   * 切换语言：直接调上游 locale.setLocale（经 dsh-shell-prefs 的桥）。
    *
-   * 锚点（2026-09-18 实测）：容器类含 _cubeRow，内含 3 个 button[aria-pressed]；
-   * **渲染顺序是「浅色 / 深色 / 跟随系统」，不是 CUBES 的声明序**——位置兜底
-   * 会切错档（早期实现按 system/light/dark 取下标，实测错位），故一律按
-   * 按钮文案匹配。
+   * 与早前"模拟点击设置控件"的版本相比少了整整一层不确定性：不再需要打开
+   * 设置面板、不猜行标题/按钮锚点、不解析上游菜单项文案。写入走上游唯一入口，
+   * 设置页里的选择器会同步跟着变（同一份状态）。
    */
-  const CUBE_LABELS = {
-    system: ['跟随系统', 'system'],
-    light: ['浅色', 'light'],
-    dark: ['深色', 'dark'],
-  }
-
-  const switchTheme = (targetId) => withBusy(async () => {
-    // 已是目标档：不做无谓的面板闪现（语言侧同款早退在 switchLanguage 里）
-    if (themePref() === targetId) {
-      notify(zh ? '当前已是' + themeLabel(targetId) : 'Already ' + themeLabel(targetId))
+  const switchLanguage = (targetId) => {
+    if (localeActive() === targetId) {
+      const hit = localeOptions().find(o => o.id === targetId)
+      notify((zh ? '当前已是 ' : 'Already ') + (hit === undefined ? targetId : hit.label))
       return
     }
-    const done = await withGeneralRow(async (zone) => {
-      const row = zone.querySelector('div[class*="cubeRow"]')
-      const cubes = [...(row ?? zone).querySelectorAll('button[aria-pressed]')]
-      if (cubes.length === 0) return false
-      const keys = CUBE_LABELS[targetId] || []
-      const hit = cubes.find((b) => {
-        const s = (b.textContent || '').trim().toLowerCase()
-        return keys.some((k) => s === k || s.indexOf(k) >= 0)
-      })
-      if (hit === undefined) return false
-      hit.click()
-      return true
-    })
-    notify(done === true
-      ? (zh
-        ? '已切换主题：' + (targetId === 'system' ? '跟随系统' : targetId === 'light' ? '浅色' : '深色')
-        : 'Theme: ' + targetId)
-      : (zh ? '未能切换主题（设置面板结构可能已变）' : 'Could not switch theme'))
-  })
+    if (!setLocaleViaBridge(targetId)) {
+      notify(zh ? '语言偏好桥不可用（dsh-shell-prefs 未装或上游契约已变）' : 'Language bridge unavailable')
+      return
+    }
+    const hit = localeOptions().find(o => o.id === targetId)
+    notify((zh ? '已切换为 ' : 'Switched to ') + (hit === undefined ? targetId : hit.label))
+  }
+
+  /**
+   * 切换主题：直接调上游 theme.setTheme（经同一座桥）。
+   *
+   * 主题 id 就是上游偏好档 id（system / light / dark），不再需要按立方块
+   * 文案匹配、也不再有"渲染顺序 ≠ 声明序"那类错位风险。
+   */
+  const switchTheme = (targetId) => {
+    if (themeActive() === targetId) {
+      notify(zh ? '当前已是 ' + themeLabel(targetId) : 'Already ' + themeLabel(targetId))
+      return
+    }
+    if (!setThemeViaBridge(targetId)) {
+      notify(zh ? '主题偏好桥不可用（dsh-shell-prefs 未装或上游契约已变）' : 'Theme bridge unavailable')
+      return
+    }
+    notify(zh ? '已切换主题：' + themeLabel(targetId) : 'Theme: ' + themeLabel(targetId))
+  }
 
   /** 当前是否深色（与 theme-watcher 同款双判据：body 属性 + colorScheme）。 */
   const isDark = () => document.body.hasAttribute('data-ds-dark-theme')
@@ -440,10 +377,9 @@ const chipJs = (username: string): string => `(() => {
       label: T.language,
       value: zh ? '中文' : 'English',
       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.2 2.4 3.3 5.3 3.3 8.5S14.2 18.1 12 20.5c-2.2-2.4-3.3-5.3-3.3-8.5S9.8 5.9 12 3.5Z"/></svg>',
-      options: [
-        { id: 'zh', label: '中文', selected: zh },
-        { id: 'en', label: 'English', selected: !zh },
-      ],
+      // 选项与当前值都取自上游服务（经 dsh-shell-prefs 的桥）：语言集合由本
+      // 部署注册了什么决定，不在壳里写死；对勾按上游 active 标。
+      options: localeOptions().map(o => ({ id: o.id, label: o.label, selected: o.id === localeActive() })),
       pick: (id) => switchLanguage(id),
     })
 
@@ -451,11 +387,10 @@ const chipJs = (username: string): string => `(() => {
       label: T.theme,
       value: currentThemeTrail(),
       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17"/><path d="M12 8.5h5M12 12h6M12 15.5h5"/></svg>',
-      options: [
-        { id: 'system', label: themeLabel('system'), selected: themePref() === 'system' },
-        { id: 'light', label: themeLabel('light'), selected: themePref() === 'light' },
-        { id: 'dark', label: themeLabel('dark'), selected: themePref() === 'dark' },
-      ],
+      // 三档来自壳：上游 themes 注册表只含 light/dark——system 是**偏好档**、
+      // 不是可注册主题，若只按桥返回的 options 渲染「跟随系统」会消失；当前档
+      // 仍读上游 preference（桥），对勾据此标。
+      options: themeOptions().map(o => ({ id: o.id, label: o.label, selected: o.id === themeActive() })),
       pick: (id) => switchTheme(id),
     })
 

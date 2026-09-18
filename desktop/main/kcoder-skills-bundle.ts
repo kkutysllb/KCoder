@@ -58,6 +58,15 @@ export const DSH_SKILLS_BUNDLE = 'dsh-skills-bundle'
 /** 嵌入式终端 bundle 包名（scope 定稿理由同 git-panel，见其常量注释）。 */
 export const DSH_TERMINAL_BUNDLE = '@kkutysllb/dsh-terminal'
 
+/**
+ * 上游偏好桥 bundle 包名（语言/主题对桌面壳的窄接口）。
+ *
+ * 存在理由：账号菜单是桌面壳注入的自绘 DOM，注入脚本没有 window 级服务桥
+ * 可触达上游 locale/theme 服务；此 bundle 的 client 半在 client 插件上下文
+ * 注入这两个服务并发布窄接口，使菜单能走上游唯一写入口（详见 bundle 内注释）。
+ */
+export const DSH_SHELL_PREFS_BUNDLE = 'dsh-shell-prefs'
+
 /** 改动审查 bundle 包名（独立自立插件 dsh-file-review-kcoder；真源在同名独立仓，sync-bundles.mjs 同步产物）。 */
 /** @deprecated 2026-09-18 退役（typert 产物不兼容 alpha.2 + 原生交付物预览覆盖）。 */
 export const DSH_FILE_REVIEW_BUNDLE = 'dsh-file-review-kcoder'
@@ -90,6 +99,7 @@ interface BundledPlugin {
 const BUNDLES: BundledPlugin[] = [
   { pkg: DSH_SKILLS_BUNDLE, dir: 'dsh-skills-bundle', entry: 'entry.js', intactFiles: [join('skills', 'manifest.json')] },
   { pkg: DSH_TERMINAL_BUNDLE, dir: 'dsh-terminal', entry: 'entry.js', intactFiles: ['client.js'] },
+  { pkg: DSH_SHELL_PREFS_BUNDLE, dir: 'dsh-shell-prefs', entry: 'entry.js', intactFiles: ['client.js'] },
   // 2026-09-18 退役 dsh-file-review-kcoder / dsh-coding-sidebar
   // （右侧栏回归原生：文件预览由原生 ui-sidebar-documentpreview 承担，
   // 见 RETIRED_PLUGINS；终端保留自研，@kkutysllb/dsh-terminal 不退役）

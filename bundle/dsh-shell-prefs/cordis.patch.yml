@@ -1,0 +1,21 @@
+# dsh-shell-prefs bundle layer（KCoder 桌面端内置：上游偏好对桌面壳的窄接口）。
+#
+# 声明于 package.json 的 dsh.bundle.patch，由 KCoder 主进程物化到 web
+# profile 的 node_modules 并注册进 dsh.profile.bundles。本层挂一个空壳
+# 宿主插件（entry.js 的 apply 无操作）——真正的交付在 client 半
+# （exports["./client"] → client.js），由 dsh client-modules 自动集成到
+# shell 页面。
+#
+# 为什么需要这个 bundle：KCoder 的账号菜单是桌面壳注入的自绘 DOM，它要切
+# 上游语言/主题，而注入脚本没有任何 window 级服务桥可以触达
+# ctx.locale.setLocale / ctx.theme.setTheme。此前的做法是"打开设置面板 →
+# 模拟点击通用区控件"，每一步都在猜锚点（行标题被产品注入的「回答语言」
+# 抢中、命中却静默失败）。client 半直接在 client 插件上下文里注入这两个
+# 服务，把窄接口（get/set/subscribe）发布到 window.__kcoderShellPrefs，
+# 于是偏好写入走上游唯一入口，与设置页里点的是同一条路径。
+#
+# 后续层（profile 自身 cordis.patch.yml、--patch 覆盖）可按行 id 覆写或禁用本行。
+
+- insert:
+    - id: kcoder-shell-prefs
+      name: dsh-shell-prefs

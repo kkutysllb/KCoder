@@ -25,6 +25,11 @@ extraResources:
     to: dsh-skills-bundle
   - from: bundle/dsh-terminal
     to: dsh-terminal
+  # dsh-shell-prefs（上游偏好桥：把 locale / theme 两个 client 服务暴露给
+  # 桌面壳注入的账号菜单，菜单因此不再模拟点击设置控件；见
+  # bundle/dsh-shell-prefs/cordis.patch.yml 顶部说明）
+  - from: bundle/dsh-shell-prefs
+    to: dsh-shell-prefs
   # （dsh-file-attach 已于 0.5.6 退役：上游 composer 原生附件入口到位，
   # profile 残留注册由 RETIRED_PLUGINS 三清自愈，无需随包资源；
   # dsh-git-panel 亦于 2026-09-14 退役：能力被侧边栏 dsh-coding-sidebar

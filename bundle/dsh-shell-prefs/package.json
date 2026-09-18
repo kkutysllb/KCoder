@@ -1,0 +1,37 @@
+{
+  "name": "dsh-shell-prefs",
+  "version": "1.0.0",
+  "description": "dsh-external in-box dsh bundle: exposes the deployment's locale and theme services to the KCoder desktop shell, so the account menu can read and switch them through their single upstream write entry instead of simulating clicks on the settings rows.",
+  "license": "MIT",
+  "type": "module",
+  "main": "entry.js",
+  "exports": {
+    ".": "./entry.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "entry.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kkutysllb/KCoder.git",
+    "directory": "bundle/dsh-shell-prefs"
+  }
+}
