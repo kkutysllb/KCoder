@@ -16,6 +16,15 @@
  * 用户装好对应运行时后自动补上）；已写入但命令已不可用的内置条目
  * （卸载了 uv/node 的现场）顺手清理。
  *
+ * 版本钉死：全部条目显式钉精确版本（npm 包 @x.y.z、uvx 包 ==x.y.z）。
+ * 未钉版本（裸名/@latest）让每次启动的 npx/uvx 都要向 registry 重验证
+ * latest——包已在本地缓存也逃不掉这次在线往返，网络抖动时单个 server
+ * 就能把引擎 boot 拖住几十秒（MCP client 激活阻塞 Loader 结算，就绪行
+ * 迟迟不出，宿主 60s 就绪超时直接判启动失败）。配合主进程透传的
+ * npm_config_prefer_offline=true（见 index.ts），热启动完全离线秒级；
+ * uvx 同理（钉版 + 缓存环境命中即不查索引）。升级内置 MCP 的唯一正确
+ * 姿势：改这里的版本号 + 递增 BUILTIN_VERSION（触发存量用户全量重写）。
+ *
  * @module desktop/main/mcp-builtin
  */
 
@@ -29,8 +38,10 @@ import { mcpServerDelete, mcpServerSave, mcpServers, type McpServerEntry } from 
 /**
  * 内置定义版本。修改任何内置条目（命令/参数/新增/删除）时递增，触发
  * 已安装用户的全量重写（确保旧错误配置被修正）。
+ * v6：全量条目钉精确版本（原裸名/@latest），消除启动期 npx/uvx 的
+ * 在线解析波动（见文件头「版本钉死」）。
  */
-const BUILTIN_VERSION = 5
+const BUILTIN_VERSION = 6
 
 /**
  * playwright MCP 浏览器参数：连接 KCoder 浏览器宿主（browser-host.ts
@@ -49,7 +60,9 @@ export const BUILTIN_MCP_SERVERS: McpServerEntry[] = [
     transport: 'stdio',
     enabled: true,
     command: 'uvx',
-    args: ['mcp-server-fetch'],
+    // == 精确钉版：uvx 对钉版且缓存环境命中时不查索引（裸名每次启动都
+    // 要向 PyPI 解析 latest）；版本随 BUILTIN_VERSION bump 走
+    args: ['mcp-server-fetch==2026.8.18'],
     env: {},
     cwd: '',
     url: '',
@@ -62,7 +75,7 @@ export const BUILTIN_MCP_SERVERS: McpServerEntry[] = [
     transport: 'stdio',
     enabled: true,
     command: 'npx',
-    args: ['-y', '@upstash/context7-mcp'],
+    args: ['-y', '@upstash/context7-mcp@4.1.1'],
     env: {},
     cwd: '',
     url: '',
@@ -75,7 +88,7 @@ export const BUILTIN_MCP_SERVERS: McpServerEntry[] = [
     transport: 'stdio',
     enabled: true,
     command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-sequential-thinking'],
+    args: ['-y', '@modelcontextprotocol/server-sequential-thinking@2026.8.31'],
     env: {},
     cwd: '',
     url: '',
@@ -88,11 +101,13 @@ export const BUILTIN_MCP_SERVERS: McpServerEntry[] = [
     transport: 'stdio',
     enabled: true,
     command: 'npx',
-    // 官方 @playwright/mcp + 系统 Chrome（channel 直驱）：不下载专属
-    // chromium build，库升级不再触发浏览器重装（旧 executeautomation
+    // 官方 @playwright/mcp（钉版）+ 系统 Chrome（channel 直驱）：不下载
+    // 专属 chromium build，库升级不再触发浏览器重装（旧 executeautomation
     // 服务器 + playwright 库/浏览器强耦合是“每次都要安装”的病灶）。
+    // 版本必须随 BUILTIN_VERSION bump 显式升级——@latest 会让每次启动的
+    // npx 都在线解析且上游发版即触发全量重下。
     // Chrome 缺失时降级为默认 chromium（首次使用自动下载一次）。
-    args: ['-y', '@playwright/mcp@latest', ...playwrightBrowserArgs()],
+    args: ['-y', '@playwright/mcp@0.0.81', ...playwrightBrowserArgs()],
     env: {},
     cwd: '',
     url: '',
@@ -105,7 +120,7 @@ export const BUILTIN_MCP_SERVERS: McpServerEntry[] = [
     transport: 'stdio',
     enabled: true,
     command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-memory'],
+    args: ['-y', '@modelcontextprotocol/server-memory@2026.8.31'],
     env: {},
     cwd: '',
     url: '',
