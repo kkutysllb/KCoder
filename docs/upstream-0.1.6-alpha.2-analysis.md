@@ -633,6 +633,23 @@ BrowserAuth cookie → 翻页游标 → PTC 数据源。
 探针算法真机对账（8 探针/19ms/tip 一致）均入档。
 
 
+### 9.8 补丁退役：沙箱重复审批热修（2026-09-19）
+
+上游两个修复均已在 alpha.2 基线内（逐项核实：集成分支包含、克隆源码、
+staging 运行时）：
+
+- **重复权限审批**（@turtle1999，`61c548e200`）：approveEscalation 开头
+  同模式直接返回（escalation 公共层，fs/bash 共用，单测+ACP 快照锁定）。
+  我们的 runtime-sandbox-hotfix 补在下游守卫——上游短路后成死代码，
+  **已退役**（dsh-contract healBundledRuntime 整函数、materialize-peers
+  应用块、脚本三件与 npm script、audit 白名单，全链移除）。
+- **Windows 控制台闪现**（@07akioni，`f8b1309fe5`）：subprocess 层
+  逐命令 windowsHide。我们的 dsh-manager 是**引擎进程自身**的 spawn
+  （GUI 派生 node 必弹窗，宿主层上游不管）——**互补不重叠，保留**。
+
+已装 0.6.13 实例不受退役影响（旧运行时自带旧热修痕迹）；下次发版
+全新物化自然干净。
+
 ---
 
 ## 10. GUI 验收清单（由用户重启 app 实测）
