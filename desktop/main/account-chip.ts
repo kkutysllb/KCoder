@@ -46,8 +46,12 @@ const MENU_ID = '__kcoder_account_menu'
 /** 登出回调协议（windows.ts will-navigate 拦截）。 */
 export const AUTH_LOGOUT_URL = 'kcoder://auth-logout'
 
+/** 本次构建标记：写进注入脚本并在页面 console 打印，用于确认运行实例的版本。 */
+const BUILD_MARK = new Date().toISOString().replace('T', ' ').slice(0, 19)
+
 /** 注入脚本（页面上下文；USERNAME/LOGOUT_URL 由挂载侧生成时注入）。 */
-const chipJs = (username: string): string => `(() => {
+const chipJs = (username: string, build: string): string => `(() => {
+  const BUILD = ${JSON.stringify(build)}
   const NAME = ${JSON.stringify(username)}
   const LOGOUT = ${JSON.stringify(AUTH_LOGOUT_URL)}
   const CHIP = ${JSON.stringify(CHIP_ID)}
@@ -538,6 +542,11 @@ const chipJs = (username: string): string => `(() => {
     window.addEventListener('blur', () => { if (!busy) closeMenu() })
   }
 
+  // 构建标记：每次改本脚本都会变，用于一眼确认运行中的实例到底是哪一版
+  // （多轮"改了但现象不变"的排查教训——先确认代码在跑，再谈逻辑）。
+  console.log('[account-chip] build=' + BUILD + ' lang=' + document.documentElement.lang
+    + ' bridge=' + (window[BRIDGE_KEY] !== undefined && window[BRIDGE_KEY] !== null))
+
   ensureChip()
   new MutationObserver(ensureChip).observe(document.body, { subtree: true, childList: true })
 })()`
@@ -551,7 +560,7 @@ export function attachAccountChip(win: BrowserWindow): void {
     if (win.isDestroyed()) return
     const { loggedIn, username } = authStatus()
     if (!loggedIn || username === null) return
-    win.webContents.executeJavaScript(chipJs(username), true).catch(() => {
+    win.webContents.executeJavaScript(chipJs(username, BUILD_MARK), true).catch(() => {
       // 页面跳转间隙执行失败属正常，下次 did-finish-load 重试
     })
   }
