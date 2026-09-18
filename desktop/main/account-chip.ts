@@ -58,10 +58,26 @@ const chipJs = (username: string): string => `(() => {
     if (m !== null) m.remove()
   }
 
-  // 语言文案：菜单项标签与匹配锚都随当前语言走（切换后立即自洽）。
-  // zh 为默认（页面 lang 缺失时按 zh）。
-  const zh = (document.documentElement.lang || 'zh').toLowerCase().indexOf('zh') === 0
-  const T = zh
+  /**
+   * 当前界面语言是否中文——**每次读取，不烘焙**。
+   *
+   * 早期版本把它算成模块常量，于是菜单标签、子菜单当前值、对勾全停在脚本
+   * 注入那一刻的语言：切到英文后重开菜单，标题与对勾仍是中文（功能其实已
+   * 生效）。现在改为实时判定：桥（上游 active）优先，DOM lang 兜底。
+   */
+  const isZh = () => {
+    const b = window.__kcoderShellPrefs
+    if (b !== undefined && b !== null && typeof b.getLocale === 'function') {
+      const info = b.getLocale()
+      if (info !== null && typeof info.id === 'string' && info.id !== '') {
+        return info.id.toLowerCase().indexOf('zh') === 0
+      }
+    }
+    return (document.documentElement.lang || 'zh').toLowerCase().indexOf('zh') === 0
+  }
+
+  /** 菜单文案（开菜单时算一次，随当前语言自洽）。 */
+  const strings = () => isZh()
     ? { settings: '设置', language: '语言', theme: '主题', logout: '退出登录', general: '通用设置' }
     : { settings: 'Settings', language: 'Language', theme: 'Theme', logout: 'Sign out', general: 'General' }
 
@@ -103,6 +119,14 @@ const chipJs = (username: string): string => `(() => {
     return b !== undefined && b !== null && typeof b === 'object' ? b : null
   }
 
+  /** 语言父项的当前值：取上游 active 的 label（桥给不出时退回内置两项的匹配）。 */
+  const langTrail = () => {
+    const active = localeActive()
+    const hit = localeOptions().find(o => o.id === active)
+    if (hit !== undefined) return hit.label
+    return active === 'zh' ? '中文' : 'English'
+  }
+
   /** 语言选项（桥给不出时退回内置两项；上游内置语言就是这两个）。 */
   const localeOptions = () => {
     const b = bridge()
@@ -116,7 +140,7 @@ const chipJs = (username: string): string => `(() => {
     const b = bridge()
     const info = b !== null && typeof b.getLocale === 'function' ? b.getLocale() : null
     if (info !== null && typeof info.id === 'string' && info.id !== '') return info.id
-    return zh ? 'zh' : 'en'
+    return isZh() ? 'zh' : 'en'
   }
 
   /** 主题选项：上游三档（跟随系统/浅色/深色）＋偏好档当前值。 */
@@ -126,7 +150,7 @@ const chipJs = (username: string): string => `(() => {
     { id: 'dark', zh: '深色', en: 'Dark' },
   ]
 
-  const themeOptions = () => THEME_OPTIONS.map(o => ({ id: o.id, label: zh ? o.zh : o.en }))
+  const themeOptions = () => THEME_OPTIONS.map(o => ({ id: o.id, label: isZh() ? o.zh : o.en }))
 
   /** 当前主题偏好档（桥给不出时按实色兜底——不误标实色档）。 */
   const themeActive = () => {
@@ -160,15 +184,15 @@ const chipJs = (username: string): string => `(() => {
   const switchLanguage = (targetId) => {
     if (localeActive() === targetId) {
       const hit = localeOptions().find(o => o.id === targetId)
-      notify((zh ? '当前已是 ' : 'Already ') + (hit === undefined ? targetId : hit.label))
+      notify((isZh() ? '当前已是 ' : 'Already ') + (hit === undefined ? targetId : hit.label))
       return
     }
     if (!setLocaleViaBridge(targetId)) {
-      notify(zh ? '语言偏好桥不可用（dsh-shell-prefs 未装或上游契约已变）' : 'Language bridge unavailable')
+      notify(isZh() ? '语言偏好桥不可用（dsh-shell-prefs 未装或上游契约已变）' : 'Language bridge unavailable')
       return
     }
     const hit = localeOptions().find(o => o.id === targetId)
-    notify((zh ? '已切换为 ' : 'Switched to ') + (hit === undefined ? targetId : hit.label))
+    notify((isZh() ? '已切换为 ' : 'Switched to ') + (hit === undefined ? targetId : hit.label))
   }
 
   /**
@@ -179,14 +203,14 @@ const chipJs = (username: string): string => `(() => {
    */
   const switchTheme = (targetId) => {
     if (themeActive() === targetId) {
-      notify(zh ? '当前已是 ' + themeLabel(targetId) : 'Already ' + themeLabel(targetId))
+      notify(isZh() ? '当前已是 ' + themeLabel(targetId) : 'Already ' + themeLabel(targetId))
       return
     }
     if (!setThemeViaBridge(targetId)) {
-      notify(zh ? '主题偏好桥不可用（dsh-shell-prefs 未装或上游契约已变）' : 'Theme bridge unavailable')
+      notify(isZh() ? '主题偏好桥不可用（dsh-shell-prefs 未装或上游契约已变）' : 'Theme bridge unavailable')
       return
     }
-    notify(zh ? '已切换主题：' + themeLabel(targetId) : 'Theme: ' + themeLabel(targetId))
+    notify(isZh() ? '已切换主题：' + themeLabel(targetId) : 'Theme: ' + themeLabel(targetId))
   }
 
   /** 当前是否深色（与 theme-watcher 同款双判据：body 属性 + colorScheme）。 */
@@ -207,13 +231,13 @@ const chipJs = (username: string): string => `(() => {
   }
 
   /** 当前实色（浅/深）。 */
-  const currentThemeValue = () => isDark() ? (zh ? '深色' : 'Dark') : (zh ? '浅色' : 'Light')
+  const currentThemeValue = () => isDark() ? (isZh() ? '深色' : 'Dark') : (isZh() ? '浅色' : 'Light')
 
   /** 主题三档的显示名。 */
   const themeLabel = (id) => {
-    if (id === 'system') return zh ? '跟随系统' : 'System'
-    if (id === 'light') return zh ? '浅色' : 'Light'
-    return zh ? '深色' : 'Dark'
+    if (id === 'system') return isZh() ? '跟随系统' : 'System'
+    if (id === 'light') return isZh() ? '浅色' : 'Light'
+    return isZh() ? '深色' : 'Dark'
   }
 
   /** 主题父项的当前值：偏好档优先（跟随系统时明确显示「跟随系统」）。 */
@@ -293,6 +317,7 @@ const chipJs = (username: string): string => `(() => {
 
   const openMenu = (anchor) => {
     closeMenu()
+    const T = strings()
     const menu = document.createElement('div')
     menu.id = MENU
     menu.setAttribute('role', 'menu')
@@ -375,7 +400,7 @@ const chipJs = (username: string): string => `(() => {
 
     const [langParent, langSub] = expandable('language', {
       label: T.language,
-      value: zh ? '中文' : 'English',
+      value: langTrail(),
       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.2 2.4 3.3 5.3 3.3 8.5S14.2 18.1 12 20.5c-2.2-2.4-3.3-5.3-3.3-8.5S9.8 5.9 12 3.5Z"/></svg>',
       // 选项与当前值都取自上游服务（经 dsh-shell-prefs 的桥）：语言集合由本
       // 部署注册了什么决定，不在壳里写死；对勾按上游 active 标。
