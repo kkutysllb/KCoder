@@ -531,6 +531,28 @@ light/dark，system 是偏好档不是主题。
 bundle client 半禁顶层 export）。注回 `busy` 实测被抓到（exit 1 + 源文件行号），
 干净树通过。
 
+**伴随发现：安装版 PTC「sandbox initialization failed: Operation not permitted」——上游 alpha.2 已修（作为新版本 bug 修复记录）**
+
+现象：安装版（0.6.13，alpha.1 运行时）PTC 模式 agent 执行任务必现
+`code run failed (worker-exit): Node process exited before completing (0):
+sandbox initialization failed: Operation not permitted`；dev（alpha.2）不复现。
+
+根因（一条命令实锤复现）：PTC 起 worker 用 `process.execPath` + 环境覆盖表
+（非白名单变量映射为 undefined = 从子进程删除）。**alpha.1 没有豁免
+`ELECTRON_RUN_AS_NODE`** → 被删 → worker 把 KCoder.app 当完整 GUI 应用启动
+（用户观察的"总是调用安装版 app"正是此病理）→ Chromium 沙箱初始化 EPERM
+→ 进程做事前退出。最小 env 拉起 app 二进制**逐字复现**报错两行；带
+`ELECTRON_RUN_AS_NODE=1` 则正常 node 语义。
+
+上游修复：`a66d81e33f fix(ptc): limit Electron selector to startup and
+budget native tests`——过滤条件显式豁免该变量（注释 "Electron needs its
+Node-mode selector until bootstrap"），语义为**从父环境继承**，并有测试断言
+锁死。alpha.1 产物无此豁免（已核对），bug/修复分界即 alpha.1→alpha.2。
+dev 不复现 = 修复在（另有引擎优先跑系统 node 的加持）。
+
+处置：**零代码**——重物化的 staging 运行时已是 alpha.2（修复在内），下次
+`pnpm dist` 出包、用户更新安装版即消失。出新包前安装版会持续如此。
+
 **流程教训（比代码更贵）**：① 临时环境验证 ≠ 真实环境——「回答语言」行只存在于
 被注入的产品 profile，我在干净临时环境验证通过就交付，差异恰在产品自己的注入项；
 ② 交付前必须在真实实例端到端，且把**全部交互**跑完而不是只测改过的路径
