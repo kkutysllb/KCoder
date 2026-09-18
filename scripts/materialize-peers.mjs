@@ -26,7 +26,7 @@
  */
 import { execSync, spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { closeSync, cpSync, createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, cpSync, createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { createGzip } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
@@ -259,23 +259,43 @@ if (unresolved.size > 0) {
 // flatten：symlink 全部替换为实体副本，删除 .pnpm 虚拟存储。
 // pnpm 的符号链接布局会被 electron-builder 复制 extraResources 时丢弃
 // （node_modules 整体缺席）；扁平 npm 风格布局无此问题且体积更小。
+//
+// 2026-09-18 修：原实现对「指向 .pnpm 之外」的链接（pnpm 工作区 deploy 会把
+// vendor/ 里的框架包链成 ../../../vendor/<pkg>）是**先删后不重建**——链接
+// 转成悬空/缺失，随后归档的 symlink 守卫中止整条链（tar.gz 不产出，发版
+// 静默留旧件），materialize 的补齐又因 placePkg 对悬空链接 existsSync=false
+// 而 mkdirSync ENOENT 崩掉。现在：可解析的链接一律落成实体（目标不存在则
+// 视为真悬空，删掉并计数报警）；.pnpm 仍额外删除。
 let flattened = 0
+let dropped = 0
 const flatten = (dir) => {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     if (e.name === '.pnpm' || e.name.startsWith('.')) continue
     const p = join(dir, e.name)
-    if (e.isDirectory() && e.name.startsWith('@')) { flatten(p); continue }
+    // 目录一律下探：原实现只递归 @scope 一层，包内 node_modules/<name> 的
+    // 嵌套链接（工作区 deploy 常见）漏在树里，归档守卫随即中止整条链。
+    if (e.isDirectory()) { flatten(p); continue }
     if (!lstatSync(p).isSymbolicLink()) continue
     const target = resolve(dirname(p), readlinkSync(p))
-    rmSync(p)
-    if (target.includes(`${sep}.pnpm${sep}`)) {
-      cpSync(target, p, { recursive: true })
+    // 目标先探活：写成 existsSync 分支顺序（先删会让探活失去意义）
+    if (existsSync(target)) {
+      const tmp = `${p}.flatten-${String(process.pid)}`
+      rmSync(tmp, { recursive: true, force: true })
+      cpSync(target, tmp, { recursive: true })
+      rmSync(p, { force: true })
+      renameSync(tmp, p)
       flattened++
+      continue
     }
+    rmSync(p, { force: true })
+    dropped++
   }
 }
 flatten(topNM)
 rmSync(join(topNM, '.pnpm'), { recursive: true, force: true })
+if (dropped > 0) {
+  console.log(`[materialize] flatten：丢弃 ${dropped} 个不可解析链接（目标缺失，上游/上游 store 漂移）`)
+}
 console.log(`[materialize] flatten：${flattened} 个 symlink→实体，已删 .pnpm`)
 
 // —— 版本仲裁（flatten 后）——
@@ -641,6 +661,30 @@ if (sandboxHotfix.status !== 'skipped') {
   }
 }
 
+// 归档前的最终 symlink sweep：补齐与 ABI 对齐阶段会重新引入链接（实测
+// deploy 后仍有 2 个可解析链接落在 @deepseek-ai/schemastery 的嵌套
+// node_modules 里，指向上游 .pnpm / vendor），而归档守卫拒绝任何 symlink。
+// 复用同一 flatten 实现（幂等：已是实体即无链可落）。
+flatten(topNM)
+{
+  const left = []
+  const scan = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === '.pnpm' || e.name.startsWith('.')) continue
+      const p = join(dir, e.name)
+      if (e.isDirectory()) { scan(p); continue }
+      if (lstatSync(p).isSymbolicLink()) left.push(p)
+    }
+  }
+  scan(topNM)
+  if (left.length > 0) {
+    console.error(`[materialize] 归档前仍有 ${left.length} 个 symlink 无法落成实体：`)
+    for (const p of left.slice(0, 5)) console.error(`  ${p}`)
+    process.exit(1)
+  }
+  console.log(`[materialize] 归档前 symlink sweep 通过（累计落 ${flattened} 个实体，丢弃 ${dropped} 个）`)
+}
+
 // macOS：签名运行时内全部 Mach-O 二进制（公证硬要求）。Apple 公证
 // 会解开嵌套归档逐个校验：rg / pty.node / sharp 的 libvips dylib /
 // koffi 等 npm 原生二进制默认无 Developer ID 签名 → 整包公证 Invalid。
@@ -698,10 +742,43 @@ if (process.platform === 'darwin') {
     }
   }
   scanMacho(staging)
-  for (const b of bins) {
-    execSync(`codesign --force --timestamp --options runtime --sign "${identity}" "${b}"`, { stdio: 'ignore' })
+  // 已合规签名（Developer ID + hardened runtime）的二进制跳过重签，新签
+  // 的退避重试。为什么不能无条件全量重签（2026-09-18 现场）：codesign 带
+  // --timestamp 时每次都要向 Apple 时间戳服务现取戳，该服务过载/限流是常
+  // 态化的（"The timestamp service is not available"，本机稳定复现），一旦
+  // 命中即抛错中断整个物化——归档还没开始，tar.gz 停在上一次发版的旧件上，
+  // 发布链会静默产出陈旧运行时。而 deploy 从 pnpm store 复用缓存包时，二
+  // 进制的既有签名（上次发版已签）本就完整，重签纯属自找风险；真正需要签
+  // 的只是上游新引入、从未签过的二进制。
+  const signedCompliantly = (b) => {
+    try {
+      execSync(`codesign --verify --strict "${b}"`, { stdio: 'ignore' })
+      // -dv 写 stderr（exit 0）。判据取「签名有效 + hardened runtime +
+      // 有真签名非 ad-hoc」：不能用 Authority= 行——这些二进制的证书链不
+      // 内嵌，-dv 只给 TeamIdentifier=，按 Authority 判会 100% 判成不合规
+      // 而退化成无条件全量重签（本修复要消除的正是那个行为）。
+      const info = execSync(`codesign -dv "${b}" 2>&1`, { encoding: 'utf8' })
+      const adhoc = /Signature=adhoc/.test(info)
+      const hasIdentity = /^Authority=/m.test(info) || /^TeamIdentifier=\S/m.test(info)
+      return /flags=[^\n]*runtime/.test(info) && hasIdentity && !adhoc
+    } catch {
+      return false
+    }
   }
-  console.log(`[materialize] 已签名 ${bins.length} 个运行时二进制（${identity}）`)
+  const signWithRetry = (b, attempts = 4) => {
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        execSync(`codesign --force --timestamp --options runtime --sign "${identity}" "${b}"`, { stdio: 'ignore' })
+        return
+      } catch (error) {
+        if (i === attempts) throw error
+        execSync(`sleep ${i * 2}`)  // 时间戳服务抖动：2s、4s、6s 退避
+      }
+    }
+  }
+  const fresh = bins.filter((b) => !signedCompliantly(b))
+  for (const b of fresh) signWithRetry(b)
+  console.log(`[materialize] 签名：跳过 ${bins.length - fresh.length} 个已合规，新签 ${fresh.length} 个（${identity}）`)
 }
 
 // 单文件归档：electron-builder 对数万散文件的复制/签名在 macOS 撞
