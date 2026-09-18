@@ -504,6 +504,12 @@ footerDel 纯色类，DOM 文本零变化。测试侧 getByText 只匹配直属�
 **撤销条件**：上游若采纳彩色合计（值得提 PR——与上游自己的 token 语义
 一致），一对一可撤。
 
+**后续补刀（e887470c5e）**：用户实测仍灰——其看到的"+N-N"是**折叠工具行**
+的 summarySuffix（diffStat memo 返回纯字符串、恒灰），DiffBlock footer 只是
+展开态。ui-tool 的 diffStat memo 改着色 JSX（span.statAdded/.statRemoved，
+同 token），与 suffix 恒等比较语义不变；两处 fork 双通道交付（ToolRow 走
+combo client 模块、DiffBlock 走 apps/web 主 bundle），tar 断言 statAdded=3。
+
 ### 9.5 下一批待办
 
 | # | 事项 | 性质 |
@@ -606,10 +612,19 @@ turn 尾 changed-files 卡有 numstat 但形态不同。补丁为 KCoder 自有�
 包 span 着色，用上游自己的 state-success/error-primary token；8 处测试断言
 适配（27+73 全绿）。
 
-**运行时 tar 已再重物化**（含 DiffBlock fork：footerAdd 断言进 tar、品牌断言、
-Electron node 形态冒烟全过；vendor 纯净回收完成）。踩坑一枚：`pnpm --dir
-<克隆> deploy <目标>` 的目标路径**必须绝对路径**——相对路径被解析进克隆自身
-（release.sh 一直用绝对路径，手工复刻时偏离了）。
+**运行时 tar 已再重物化**（含 DiffBlock + ToolRow 双 fork：footerAdd 断言、
+statAdded 断言、品牌断言、Electron node 形态冒烟全过；vendor 纯净回收完成）。
+踩坑一枚：`pnpm --dir <克隆> deploy <目标>` 的目标路径**必须绝对路径**——
+相对路径被解析进克隆自身（release.sh 一直用绝对路径，手工复刻时偏离了）。
+
+**用户实测后的终局修复（2026-09-19 凌晨）**：dev 重启后仍灰/仍无徽章——
+真机链路解剖（用户主动提供 dev 引擎 token，全链直查）发现**第三处断裂**：
+alpha.1 的 wire「session/page throughSeq=-1 等价全量游标」在 alpha.2 返回
+空页（实测 -1/越界=空，真实游标须取 session/list 的 projections.asOfSeq）。
+`ad77686`：refreshMapping 顺手记录每会话 asOfSeq，fetchHistory 以之作切割
+点（实测 132/155/325 条 records 全量返回，含 workspace/changes 事件）。
+同时确认真渲染点为折叠行 suffix（见 §9.4b 补刀）。徽章链三断裂至此全修：
+BrowserAuth cookie → 翻页游标 → PTC 数据源。
 
 
 ---
