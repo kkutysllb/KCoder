@@ -626,6 +626,12 @@ alpha.1 的 wire「session/page throughSeq=-1 等价全量游标」在 alpha.2 �
 同时确认真渲染点为折叠行 suffix（见 §9.4b 补刀）。徽章链三断裂至此全修：
 BrowserAuth cookie → 翻页游标 → PTC 数据源。
 
+**turn-end 触发面（终局补全）**：用户真机验收发现"任务跑完原地看时徽章
+不出现"——触发面只有页面行为。新增微型探针（session/page 切割点语义：
+越 tip 即空；maxMessages:1）轮询观看中会话，指数+二分定位 tip 后 force
+补拉，turn 结束 ~3s 内徽章落地；session/list 7.6MB/次不可轮询的结论与
+探针算法真机对账（8 探针/19ms/tip 一致）均入档。
+
 
 ---
 
