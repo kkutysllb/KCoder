@@ -50,11 +50,22 @@ const HEADER_JS = `(() => {
     document.head.append(styleEl)
   }
   styleEl.textContent = \`
-/* 会话头部整体收纳：:has 锚定唯一 titleRow 的直接父级（.header 泛名
-   同名多，不泛匹配），压掉其 12px 顶距；下两条直接规则作 .header
-   改名时的兜底（顶距残留但不遮挡） */
+/* 会话头部整体收纳：:has 锚定 titleRow 的直接父级（.header 泛名同名多，
+   不泛匹配）。这是主规则，也是唯一必需的一条。 */
 [class*="_header"]:has(> [class*="_titleRow"]) { display: none !important; }
-[class*="_titleRow"] { display: none !important; }
+/* 兜底（.header 改名时仍要收掉标题行）：必须按「会话头部自己的子标记」锚定，
+   绝不能写成裸的 [class*="_titleRow"]。
+   0.1.6-alpha.2 现场（2026-09-18）：上游插件管理页的配置卡片标题行同样叫
+   _titleRow（PluginManagerPage 的 .titleRow，实测一个页面 12 个且全属卡片），
+   裸选择器把它们一起 display:none——标题按钮尺寸归零、.cardOpen::after 的
+   整卡点击层随之失效，表现为「设置→插件→插件管理」卡片看得见、点不动。
+   旧注释「_titleRow 全仓唯一」的前提在本版已不成立。
+   锚点用会话头部独有的 data-conversation-header-* 标记（实测确认在
+   titleRow 内；两个 slot 空着时不会挂载，故不能拿 data-slot 当锚点）。
+   若上游连这对标记也改掉，退化为「不收纳」——只是顶距/标题行残留，
+   绝不会误伤别处，这正是本条修正要买到的性质。 */
+[class*="_titleRow"]:has([data-conversation-header-leading]) { display: none !important; }
+[class*="_titleRow"]:has([data-conversation-header-corner]) { display: none !important; }
 /* _tabs 跨包撞名：仅收敛 titleRow 之后的兄弟（会话页标签行） */
 [class*="_titleRow"] ~ [class*="_tabs"] { display: none !important; }
 \`
