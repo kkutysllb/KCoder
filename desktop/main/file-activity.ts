@@ -21,6 +21,13 @@
  *   - read/read_image（file_path）→ read 徽章；
  *   - edit（old_string/new_string）→ edit 徽章，+− 按参数行数近似；
  *   - write（content）→ edit 徽章，+ 全文行数（旧文未知计 0）。
+ * - workspace/changes 是持久会话事件（每 top-level turn 结束、改过文件才有）：
+ *   wire 事件自带 seq，GET /api/changes.summary?sessionId&seq（apiproxy
+ *   UNARY，loopback 受信同 session/list）返回 Host git 快照的 numstat——
+ *   每文件 { path, added, deleted } 精确值。**这是 PTC 模式徽章的唯一数据源**
+ *   （code-run 改文件不产生 edit/write 工具事件）；同池聚合按事件序记录，
+ *   同文件"取最新"语义下 numstat 精确值自然顶掉同轮的工具参数近似值。
+ *   限制：非 git 工作区上游只捕获 file-tool 编辑（code-run 改动无 numstat）。
  *
  * 活动按文件聚合（同文件取最新），上限 {@link MAX_ENTRIES}。
  *
@@ -125,7 +132,8 @@ class FileActivity extends EventEmitter {
       // throughSeq=-1 跳校验且等价全量游标；子代理会话需父址，非
       // session- 前缀直接跳过防报错噪音。
       if (!sessionId.startsWith('session-')) return
-      const resp = await fetch(`${status.url}/api/session/page`, {
+      // authFetch：自动附带 BrowserAuth cookie（alpha.1 起 /api 全线要求）
+      const resp = await dshManager.authFetch(`${status.url}/api/session/page`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -147,15 +155,23 @@ class FileActivity extends EventEmitter {
       const body = JSON.parse(await resp.text()) as {
         result?: {
           ok?: boolean
-          value?: { records?: Array<{ event?: { type?: string; data?: unknown } }> }
+          value?: { records?: Array<{ event?: { type?: string; seq?: number; data?: unknown } }> }
         }
       }
       const records = body.result?.ok === true ? body.result.value?.records : undefined
       if (!Array.isArray(records)) return
       this.lastHistorySession = sessionId
       this.lastHistoryAt = Date.now()
+      // 按事件序逐条处理（changes 摘要要 await）：保证同文件"取最新"语义
+      // 与事件真实先后一致——旧 turn 的 numstat 不会顶掉新 turn 的记录。
       for (const rec of records) {
-        if (rec?.event?.type !== 'tool/call' || rec.event.data === undefined) continue
+        if (rec?.event === undefined) continue
+        if (rec.event.type === 'workspace/changes' && typeof rec.event.seq === 'number') {
+          const entries = await this.entriesFromChanges(status.url, sessionId, rec.event.seq, wsKey)
+          for (const entry of entries) this.record(entry, wsKey, true)
+          continue
+        }
+        if (rec.event.type !== 'tool/call' || rec.event.data === undefined) continue
         const entry = this.entryFromToolCall(rec.event.data as Record<string, unknown>, wsKey)
         // replay=true：历史回放只进列表，不触发 git 面板自动展开
         if (entry !== null) this.record(entry, wsKey, true)
@@ -189,7 +205,7 @@ class FileActivity extends EventEmitter {
     const url = status.url
     this.mappingBusy = (async () => {
       try {
-        const resp = await fetch(`${url}/api/session/list`, {
+        const resp = await dshManager.authFetch(`${url}/api/session/list`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -225,6 +241,47 @@ class FileActivity extends EventEmitter {
       }
     })()
     return this.mappingBusy
+  }
+
+  /** GET /api/changes.summary → 每文件 edit 条目（numstat 精确值）。
+   *
+   * PTC 模式的徽章数据源：code-run 改文件不产生 edit/write 工具事件，
+   * 但 Host 的 turn 级 git 快照（workspace-changes 插件）会以 numstat 给出
+   * 每文件精确 +N/−N。失败静默（会话已销毁 / 非要因：摘要 4xx 等）。
+   *
+   * 过滤：binary 与 oversized 文件计数恒 0（上游语义），added/deleted 双 0
+   * 的条目（权限位变化等）记进去只会渲染 "+0 −0" 噪音——一并跳过。 */
+  private async entriesFromChanges(baseUrl: string, sessionId: string, seq: number, wsKey: string): Promise<PreviewEntry[]> {
+    try {
+      const url = `${baseUrl}/api/changes.summary?sessionId=${encodeURIComponent(sessionId)}&seq=${String(seq)}`
+      const resp = await dshManager.authFetch(url)
+      if (!resp.ok) return []
+      const summary = JSON.parse(await resp.text()) as {
+        files?: Array<{ path?: unknown; added?: unknown; deleted?: unknown; binary?: unknown; oversized?: unknown }>
+      }
+      if (!Array.isArray(summary.files)) return []
+      const out: PreviewEntry[] = []
+      for (const file of summary.files) {
+        if (file === null || typeof file !== 'object') continue
+        if (file.binary === true || file.oversized === true) continue
+        if (typeof file.path !== 'string' || file.path === '') continue
+        const added = typeof file.added === 'number' && Number.isSafeInteger(file.added) ? file.added : 0
+        const deleted = typeof file.deleted === 'number' && Number.isSafeInteger(file.deleted) ? file.deleted : 0
+        if (added + deleted === 0) continue
+        out.push({
+          path: this.resolve(file.path, wsKey),
+          kind: 'edit',
+          at: Date.now(),
+          added,
+          removed: deleted,
+          lang: langOf(file.path, null),
+          diffs: null,
+        })
+      }
+      return out
+    } catch {
+      return [] // 网络间隙 / 非 JSON：静默，下次拉取重试
+    }
   }
 
   /** tool/call 事件 data → 活动条目；不可识别的工具返回 null。

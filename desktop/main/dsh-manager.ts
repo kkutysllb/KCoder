@@ -45,6 +45,10 @@ export class DshManager extends EventEmitter {
   private child: ChildProcess | null = null
   private state: DshState = 'stopped'
   private url: string | null = null
+  /** 主进程 API 面的签名 cookie（BrowserAuth；由就绪令牌兑换，见 authFetch）。 */
+  private authCookie: string | null = null
+  /** 兑换在途去重（并发首调共享同一次兑换）。 */
+  private authMinting: Promise<string | null> | null = null
   /** shell 入口 URL：就绪行原样（带启动令牌，无门禁时等于 url）。 */
   private entryUrl: string | null = null
   private error: string | null = null
@@ -223,6 +227,7 @@ export class DshManager extends EventEmitter {
     if (this.state === 'ready') return
     this.clearReadyTimer()
     this.restartsLeft = MAX_AUTO_RESTARTS
+    this.authCookie = null // 新进程新令牌：旧 cookie 绑旧 authority，必失效
     this.entryUrl = entryUrl
     this.setValues({ state: 'ready', url, error: null })
   }
@@ -235,6 +240,54 @@ export class DshManager extends EventEmitter {
    */
   shellEntryUrl(bareUrl: string): string {
     return this.url === bareUrl && this.entryUrl !== null ? this.entryUrl : bareUrl
+  }
+
+  /**
+   * 用就绪行令牌兑换 BrowserAuth 签名 cookie（与 shell 窗口首次加载同一
+   * 机制：GET /?token=… → 303 + set-cookie）。alpha.1 起上游 /api 全线
+   * 要求该 cookie——主进程裸 fetch 一律 401（曾致 file-activity 徽章链
+   * 自 alpha.1 起静默断供，见 2026-09-18 排查）。
+   *
+   * 兑换一次、进程生命周期内复用；重启（新端口=新 authority）由 onReady
+   * 清空后重新兑换。并发首调共享同一次在途兑换。
+   *
+   * @returns 可用作 Cookie 头的值；不可兑换（无令牌的旧版 dsh）时 null，
+   *   调用方按无 cookie 降级（兼容无门禁环境）。
+   */
+  private mintAuthCookie(): Promise<string | null> {
+    if (this.authCookie !== null) return Promise.resolve(this.authCookie)
+    if (this.authMinting !== null) return this.authMinting
+    this.authMinting = (async () => {
+      if (this.entryUrl === null) return null
+      try {
+        // redirect: manual——303 的 set-cookie 才会落到本次响应头上
+        const resp = await fetch(this.entryUrl, { redirect: 'manual' })
+        const setCookie = resp.headers.get('set-cookie')
+        if (setCookie === null || setCookie === '') return null
+        const cookie = setCookie.split(';')[0] ?? ''
+        this.authCookie = cookie !== '' ? cookie : null
+        return this.authCookie
+      } catch {
+        return null // 启动间隙网络抖动：本次降级，下次调用重试
+      } finally {
+        this.authMinting = null
+      }
+    })()
+    return this.authMinting
+  }
+
+  /**
+   * 主进程侧带鉴权的 /api fetch：自动兑换并附带签名 cookie；不可兑换时
+   * 退化为裸 fetch（无门禁的旧版 dsh 仍可用）。
+   * @param url - 绝对地址（status.url 拼接的 /api 路径）。
+   * @param init - fetch 初始化项（cookie 头不覆盖调用方显式给定的值）。
+   */
+  async authFetch(url: string, init: RequestInit = {}): Promise<Response> {
+    const cookie = await this.mintAuthCookie()
+    if (cookie === null) return fetch(url, init)
+    const headers = new Headers(init.headers ?? {})
+    if (headers.get('cookie') === null) headers.set('cookie', cookie)
+    return fetch(url, { ...init, headers })
   }
 
   private scheduleRestart(): void {
