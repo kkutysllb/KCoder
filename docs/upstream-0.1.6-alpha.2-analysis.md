@@ -488,6 +488,22 @@ dsh home 回落 `~/.kcoder-dev`（`dshHome()` 与 `defaultKcoderHome()` 同源�
 配置表单（命令超时、单流输出上限）与保存按钮均在；console 零报错。
 pre-commit lint 0 error（4 条既存 unused-directive warning）。
 
+### 9.4b fork 侧新分歧：DiffBlock footer 计数着色（`4a14de94e2`）
+
+**问题**：工具卡 DiffBlock 的 footer `└ +A -R · N file(s)` 是单文本节点、
+`label-tertiary` 暗灰色（源码注释自述 "dim under the body"），与正文 diff 行
+自己的语义 token（.add=success、.del=error）不一致——用户看到"改了哪些行"
+的合计却是灰色，提出"绿增红删"。
+
+**fork**：+A/-R 各包 span，色用上游自己的 `state-success/error-primary`
+（与 .add/.del 同 token，不新造色）。不复用 .add/.del 类：两者带
+`+ `/`- ` ::before 前缀，套上出现 "+ +5" 双符号；故新增 footerAdd/
+footerDel 纯色类，DOM 文本零变化。测试侧 getByText 只匹配直属文本节点，
+8 处断言改读 footer 全量 textContent（27+73 全绿）。
+
+**撤销条件**：上游若采纳彩色合计（值得提 PR——与上游自己的 token 语义
+一致），一对一可撤。
+
 ### 9.5 下一批待办
 
 | # | 事项 | 性质 |
@@ -559,6 +575,42 @@ dev 不复现 = 修复在（另有引擎优先跑系统 node 的加持）。
 （最后的悬空引用正是"只测切换、没测外部点击/设置项"漏掉的）；③ 显示状态类
 需求先问清预期形态（"选中后当场反馈"还是"重开生效"），本次三返工有一半源于
 没问；④ 改注入器/模板脚本后，`pnpm typecheck`（现已含自检）是硬门。
+
+### 9.7 第五批已执行（2026-09-18 深夜：徽章链全线修复 + PTC numstat + DiffBlock 着色）
+
+用户需求：标准模式编辑文件有 +N/−N 标识而 PTC 模式没有；且其文字色要绿增
+红删（当前默认灰）。排查后实际交付了三件事（`cb97143` + fork `4a14de94e2`）：
+
+**发现（比需求本身更重的回归）**：正文文件徽章的 +n/−n 数据链（file-activity
+主进程历史补拉）**自 alpha.1 起被 BrowserAuth 静默掐断**——上游 /api 全线要求
+签名 cookie，主进程裸 fetch 一律 401，fetchHistory 走"失败静默"分支从未报错。
+两个引擎实测均 401（安装版 alpha.1 + 克隆 alpha.2）。用户在标准模式看到的
++N/−N 一直是上游工具卡 DiffBlock 的灰色 footer——正好也是"要绿红"的那一个。
+
+**修法一（根因）**：`dshManager.authFetch`——就绪令牌 GET /?token=（redirect:
+manual）→ 303 的 set-cookie 兑换签名 cookie（与 shell 窗口首次加载同机制），
+进程生命周期复用、onReady 失效重兑；file-activity 三处调用全改走它。实测
+token→cookie→session/list 200 全通。标准模式正文徽章随之起死回生。
+
+**修法二（PTC 徽章）**：code-run 改文件不产生 edit/write 工具事件，徽章无从
+推导；改消费上游 workspace-changes（Host git 快照 numstat）：session/page 记录
+里的 workspace/changes 持久事件（自带 seq）→ GET /api/changes.summary →
+每文件 {path, added, deleted} 精确值。按事件序逐条 await 保证"同文件取最新"
+语义正确；同池聚合下 numstat 精确值自然顶掉工具参数近似值（用户拍板）。
+限制：非 git 工作区上游只捕获 file-tool 编辑（code-run 改动无 numstat）。
+上游现状：工具卡路径无 PTC 实现（DiffBlock 只从文件工具调用参数推导）；
+turn 尾 changed-files 卡有 numstat 但形态不同。补丁为 KCoder 自有功能层，
+上游若做进工具级 result meta 可撤。
+
+**修法三（颜色）**：fork `4a14de94e2`（见 §9.4b）——DiffBlock footer 的 +A/-R
+包 span 着色，用上游自己的 state-success/error-primary token；8 处测试断言
+适配（27+73 全绿）。
+
+**运行时 tar 已再重物化**（含 DiffBlock fork：footerAdd 断言进 tar、品牌断言、
+Electron node 形态冒烟全过；vendor 纯净回收完成）。踩坑一枚：`pnpm --dir
+<克隆> deploy <目标>` 的目标路径**必须绝对路径**——相对路径被解析进克隆自身
+（release.sh 一直用绝对路径，手工复刻时偏离了）。
+
 
 ---
 
