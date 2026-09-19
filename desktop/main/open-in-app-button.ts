@@ -51,6 +51,14 @@ const APP_LABELS: Record<string, string> = {
   gnometerminal: 'GNOME Terminal',
 }
 
+/**
+ * 文件管理器类目（上游 open-in-app 目录里排在编辑器之前：finder →
+ * explorer → filemanager → cursor → vscode …）。选"默认应用图标"时跳过
+ * 它们——按钮语义是"在编辑器中打开"，首个编辑器才是指代对象；只剩文件
+ * 管理器时仍取其首项，不空手。
+ */
+const FILE_MANAGER_IDS = ['finder', 'explorer', 'filemanager']
+
 /** 按钮图标（无记忆应用时的通用形：&lt;/&gt; 代码字形——「在编辑器中打开」
  * 的直观隐喻；v1 用外链箭头被读作「分享」，否决）。有记忆应用后换其
  * 真实图标（icon 路由），此形退为菜单项图标加载失败的兜底。 */
@@ -64,6 +72,7 @@ const PAGE_JS = `(() => {
   // 图标形内插（脚本自含——模板里引用模块侧常量是悬空引用，
   // 注入脚本静态自检的第一批战果就是本文件自己的这处）
   const FALLBACK_ICON = ${JSON.stringify(FALLBACK_ICON)}
+  const FILE_MANAGER_IDS = ${JSON.stringify(FILE_MANAGER_IDS)}
   const BTN = ${JSON.stringify(BTN_ID)}
   const MENU = ${JSON.stringify(MENU_ID)}
   const RIGHT = ${String(BTN_RIGHT)}
@@ -101,6 +110,36 @@ const PAGE_JS = `(() => {
   ].join('')
   document.head.append(style)
 
+  /**
+   * 按钮图标 = 应用身份（而非通用字形）：优先**记忆应用**（最近一次用它
+   * 打开过），无记忆时退到**菜单首项**（探测到的第一个可用编辑器）——
+   * 与"菜单里第一项就是默认动作"的直觉一致。两者都拿不到（列表为空）
+   * 才回通用 </> 形。用户诉求（2026-09-19）：默认就该是编辑器图标。
+   */
+  const setBtnIcon = (b, appId) => {
+    b.textContent = ''
+    if (appId === '') { b.innerHTML = FALLBACK_ICON; b.title = '在本地编辑器中打开当前工作区'; return }
+    const img = document.createElement('img')
+    img.src = iconUrl(appId)
+    img.alt = ''
+    img.onerror = () => { b.textContent = ''; b.innerHTML = FALLBACK_ICON }
+    b.append(img)
+    b.title = '在 ' + labelOf(appId) + ' 中打开当前工作区（点击更换）'
+  }
+
+  /**
+   * 当前应展示的应用：记忆（若仍在列表）→ **首个编辑器**（跳过文件管理器
+   * 类目，否则会拿访达/资源管理器当默认）→ 列表首项 → 空串（通用形）。
+   */
+  const displayApp = (apps) => {
+    const last = remembered()
+    if (last !== '' && (apps === null || apps.includes(last))) return last
+    if (apps === null) return ''
+    const editor = apps.find((id) => !FILE_MANAGER_IDS.includes(id))
+    if (editor !== undefined) return editor
+    return apps.length > 0 ? apps[0] : ''
+  }
+
   const ensureBtn = () => {
     if (document.getElementById(BTN) !== null) return
     const host = bar()
@@ -111,18 +150,10 @@ const PAGE_JS = `(() => {
     b.title = '在本地编辑器中打开当前工作区'
     b.innerHTML = FALLBACK_ICON
     host.append(b)
-    // 记忆应用的图标替换（探测成功后回填；无记忆/失败保持通用形）
+    // 探测成功后回填图标（记忆应用 → 菜单首项；列表为空保持通用形）
     void loadApps().then((apps) => {
-      const last = remembered()
-      if (last !== '' && apps !== null && apps.includes(last)) {
-        b.textContent = ''
-        const img = document.createElement('img')
-        img.src = iconUrl(last)
-        img.alt = ''
-        img.onerror = () => { b.textContent = ''; b.innerHTML = FALLBACK_ICON }
-        b.append(img)
-        b.title = '在 ' + labelOf(last) + ' 中打开当前工作区（点击更换）'
-      }
+      const app = displayApp(apps)
+      if (app !== '') setBtnIcon(b, app)
     })
     b.addEventListener('click', (e) => { e.stopPropagation(); toggleMenu() })
   }
@@ -231,15 +262,7 @@ const PAGE_JS = `(() => {
   const refreshBtnIcon = () => {
     const b = document.getElementById(BTN)
     if (b === null) return
-    const last = remembered()
-    if (last === '') return
-    b.textContent = ''
-    const img = document.createElement('img')
-    img.src = iconUrl(last)
-    img.alt = ''
-    img.onerror = () => { b.innerHTML = FALLBACK_ICON }
-    b.append(img)
-    b.title = '在 ' + labelOf(last) + ' 中打开当前工作区（点击更换）'
+    setBtnIcon(b, displayApp(appsCache))
   }
 
   // 外部点击关闭：监听在捕获期（账号菜单同款——冒泡 stopPropagation 拦不住捕获）
