@@ -23,6 +23,7 @@ import { attachSidebarToggle } from './sidebar-toggle'
 import { attachClipboardFix } from './clipboard-fix'
 import { attachContextButton } from './context-button'
 import { attachOpenInAppButton } from './open-in-app-button'
+import { attachSidebarCluster } from './sidebar-cluster'
 import { attachStyleOverlay } from './style-overlay'
 import { attachSettingsPage } from './settings-page'
 import { attachWorkspaceHeader } from './workspace-header'
@@ -155,11 +156,12 @@ export function showShellWindow(dshUrl: string): void {
     // 注入代理按钮（点击转发上游 toggle.click()，图标随状态克隆；
     // 宿主=自绘标题栏，故注册在 attachThemeWatcher 之后）
     attachSidebarToggle(shellWindow)
-    // 原生右侧栏开关代理已于 2026-09-19 退役（sidebar-cluster 删除）：
-    // dsh-coding-sidebar 复活后右侧工作台与开关都是插件自己的（其开关簇
-    // 由 dsh-desktop-titlebar-inset 契约参数避让自绘状态栏，见
-    // dsh-manager.shellUrlWithTitlebarInset），代理按钮即重复入口；原生
-    // 外壳另由 style-overlay 的 NATIVE_SIDEBAR_CSS 压制。
+    // coding-sidebar 开关簇代理（2026-09-19 恢复本职）：插件簇在自己
+    // 的宿主层里（stacking context 内），z 再高也压不过自绘标题栏——
+    // 纯 CSS 搬家实测失败，故沿用 sidebar-toggle 同款手法：隐藏插件
+    // 簇本体、标题栏最右端（right 12）注入同款代理按钮转发真实点击
+    // （见注入器头注释；宿主=自绘状态栏，故注册在 attachThemeWatcher 后）
+    attachSidebarCluster(shellWindow)
     // 剪贴板写兜底：wrap 页面 navigator.clipboard.writeText，失败（失焦
     // /权限拒绝）兜底主进程 electron.clipboard——上游复制点击的 check
     // 反馈链不再静默断掉（消息泡/代码块全站复制点受益）
