@@ -169,16 +169,15 @@ const RETIRED_PLUGINS = [
   // dsh-git-panel 能力被覆盖，整线退役三清；推送/GitHub 管理（gh
   // PR/Issue）/比较外链/任务计划由侧边栏后续版本承接
   '@kkutysllb/dsh-git-panel',
-  // 2026-09-18 退役（右侧栏回归原生，0.1.6-alpha.2 基线决策）：
-  // - dsh-file-review-kcoder：其 1.0.4 的 typert 产物过不了 alpha.2
-  //   typert-loader 校验（曾拖垮全部远端定义注册，见 product-policy.ts
-  //   历史行注记）；交付物预览由原生 ui-sidebar-documentpreview 承担
-  // - dsh-coding-sidebar：右侧栏整体回归原生（D1a 翻转）；deps 声明
-  //   同批移入 preset-plugins RETIRED_PRESETS 走 pnpm 收敛摘除。
-  //   终端不在退役之列：@kkutysllb/dsh-terminal 保留自研（产品决策
-  //   2026-09-18 恢复），原生终端 tab 继续 product-policy 禁用防双入口
-  'dsh-file-review-kcoder',
-  'dsh-coding-sidebar',
+  // 2026-09-19 决策修订：dsh-file-review-kcoder / dsh-coding-sidebar
+  // 已 un-retire（@1.0.5 / 1.0.19，alpha.2 适配在各自真源仓完成，见
+  // 升级文档 §9.9），从本清单移除。
+  //
+  // ⚠️ 教训（2026-09-19 dev 现场实证）：un-retire 恢复 BUNDLES/PRESET/
+  // 映射时**必须同步移除本清单的同名条目**——清单成员会被启动清理当
+  // 退役货反复洗掉（摘 bundles 层叠 + 删 node_modules），与注册面互搏，
+  // 多轮交错后层叠缺项；现场表现为 coding-sidebar 被洗出层叠 → 引擎不
+  // 加载 → file-review 等 betterSidebar 服务永远 pending。
 ]
 
 /** 分发的 bundle 源目录（开发态仓库内；打包态 extraResources）。 */
