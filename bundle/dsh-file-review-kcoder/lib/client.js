@@ -6516,26 +6516,26 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var UnifiedDiff_module_css_default = {
-			"unifiedPath": "fUbE1W_unifiedPath",
-			"unified_del": "fUbE1W_unified_del",
-			"unifiedEmbedded": "fUbE1W_unifiedEmbedded",
-			"unifiedBody": "fUbE1W_unifiedBody",
-			"unifiedLine": "fUbE1W_unifiedLine",
-			"unifiedHeader": "fUbE1W_unifiedHeader",
-			"unified_add": "fUbE1W_unified_add",
-			"unified_context": "fUbE1W_unified_context",
-			"unifiedText": "fUbE1W_unifiedText",
 			"unifiedFile": "fUbE1W_unifiedFile",
 			"unifiedStatus": "fUbE1W_unifiedStatus",
-			"unifiedRemoved": "fUbE1W_unifiedRemoved",
-			"unifiedAdded": "fUbE1W_unifiedAdded",
 			"unifiedHunkHeader": "fUbE1W_unifiedHunkHeader",
-			"unifiedOmitted": "fUbE1W_unifiedOmitted",
+			"unified_del": "fUbE1W_unified_del",
 			"unifiedLineNumber": "fUbE1W_unifiedLineNumber",
-			"unifiedBlock": "fUbE1W_unifiedBlock",
-			"unifiedGap": "fUbE1W_unifiedGap",
+			"unifiedCopyButton": "fUbE1W_unifiedCopyButton",
+			"unifiedEmbedded": "fUbE1W_unifiedEmbedded",
+			"unifiedLine": "fUbE1W_unifiedLine",
+			"unifiedOmitted": "fUbE1W_unifiedOmitted",
+			"unified_context": "fUbE1W_unified_context",
+			"unifiedText": "fUbE1W_unifiedText",
+			"unifiedPath": "fUbE1W_unifiedPath",
+			"unifiedRemoved": "fUbE1W_unifiedRemoved",
 			"unifiedSign": "fUbE1W_unifiedSign",
-			"unifiedCopyButton": "fUbE1W_unifiedCopyButton"
+			"unifiedHeader": "fUbE1W_unifiedHeader",
+			"unifiedGap": "fUbE1W_unifiedGap",
+			"unified_add": "fUbE1W_unified_add",
+			"unifiedBody": "fUbE1W_unifiedBody",
+			"unifiedBlock": "fUbE1W_unifiedBlock",
+			"unifiedAdded": "fUbE1W_unifiedAdded"
 		};
 		//#endregion
 		//#region src/client/UnifiedDiff.tsx
@@ -6957,45 +6957,45 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var FileReviewTab_module_css_default = {
-			"archiveTitle": "ePxjfa_archiveTitle",
-			"fileList": "ePxjfa_fileList",
-			"badgeError": "ePxjfa_badgeError",
-			"archiveSection": "ePxjfa_archiveSection",
-			"chevron": "ePxjfa_chevron",
-			"smallButton": "ePxjfa_smallButton",
-			"noticeSuccess": "ePxjfa_noticeSuccess",
-			"noticeError": "ePxjfa_noticeError",
-			"stats": "ePxjfa_stats",
-			"turnCount": "ePxjfa_turnCount",
-			"fileName": "ePxjfa_fileName",
-			"badgeUndone": "ePxjfa_badgeUndone",
-			"empty": "ePxjfa_empty",
-			"diffWrap": "ePxjfa_diffWrap",
 			"turnHeader": "ePxjfa_turnHeader",
-			"root": "ePxjfa_root",
-			"actionButton": "ePxjfa_actionButton",
-			"refreshButton": "ePxjfa_refreshButton",
+			"headerTitle": "ePxjfa_headerTitle",
+			"noticeSuccess": "ePxjfa_noticeSuccess",
+			"turnGroup": "ePxjfa_turnGroup",
 			"header": "ePxjfa_header",
-			"deletedBadge": "ePxjfa_deletedBadge",
 			"editorButton": "ePxjfa_editorButton",
 			"removed": "ePxjfa_removed",
-			"notice": "ePxjfa_notice",
-			"fileRow": "ePxjfa_fileRow",
-			"turnGroup": "ePxjfa_turnGroup",
-			"reviewDiff": "ePxjfa_reviewDiff",
-			"kindBadge": "ePxjfa_kindBadge",
 			"turnTitle": "ePxjfa_turnTitle",
-			"stateBadge": "ePxjfa_stateBadge",
-			"archiveHeader": "ePxjfa_archiveHeader",
-			"badgeMuted": "ePxjfa_badgeMuted",
-			"added": "ePxjfa_added",
-			"liveBadge": "ePxjfa_liveBadge",
+			"actionButton": "ePxjfa_actionButton",
 			"buttonIcon": "ePxjfa_buttonIcon",
-			"fileItem": "ePxjfa_fileItem",
-			"chevronOpen": "ePxjfa_chevronOpen",
-			"headerTitle": "ePxjfa_headerTitle",
+			"archiveSection": "ePxjfa_archiveSection",
+			"fileRow": "ePxjfa_fileRow",
 			"body": "ePxjfa_body",
-			"diffUnavailable": "ePxjfa_diffUnavailable"
+			"fileItem": "ePxjfa_fileItem",
+			"refreshButton": "ePxjfa_refreshButton",
+			"chevron": "ePxjfa_chevron",
+			"kindBadge": "ePxjfa_kindBadge",
+			"added": "ePxjfa_added",
+			"noticeError": "ePxjfa_noticeError",
+			"smallButton": "ePxjfa_smallButton",
+			"archiveHeader": "ePxjfa_archiveHeader",
+			"chevronOpen": "ePxjfa_chevronOpen",
+			"stateBadge": "ePxjfa_stateBadge",
+			"archiveTitle": "ePxjfa_archiveTitle",
+			"diffWrap": "ePxjfa_diffWrap",
+			"stats": "ePxjfa_stats",
+			"empty": "ePxjfa_empty",
+			"liveBadge": "ePxjfa_liveBadge",
+			"badgeUndone": "ePxjfa_badgeUndone",
+			"fileName": "ePxjfa_fileName",
+			"badgeError": "ePxjfa_badgeError",
+			"reviewDiff": "ePxjfa_reviewDiff",
+			"turnCount": "ePxjfa_turnCount",
+			"root": "ePxjfa_root",
+			"badgeMuted": "ePxjfa_badgeMuted",
+			"diffUnavailable": "ePxjfa_diffUnavailable",
+			"fileList": "ePxjfa_fileList",
+			"deletedBadge": "ePxjfa_deletedBadge",
+			"notice": "ePxjfa_notice"
 		};
 		//#endregion
 		//#region src/client/FileReviewTab.tsx
@@ -8024,28 +8024,28 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var PresentedFiles_module_css_default = {
-			"chevronGlyph": "aa-r8G_chevronGlyph",
-			"description": "aa-r8G_description",
-			"secondaryText": "aa-r8G_secondaryText",
-			"cardPreview": "aa-r8G_cardPreview",
-			"split": "aa-r8G_split",
-			"grid": "aa-r8G_grid",
-			"chevron": "aa-r8G_chevron",
-			"menuIcon": "aa-r8G_menuIcon",
-			"glyph": "aa-r8G_glyph",
-			"menuItem": "aa-r8G_menuItem",
-			"retry": "aa-r8G_retry",
 			"details": "aa-r8G_details",
-			"root": "aa-r8G_root",
-			"previewHint": "aa-r8G_previewHint",
-			"menu": "aa-r8G_menu",
-			"file": "aa-r8G_file",
-			"fileIcon": "aa-r8G_fileIcon",
-			"toggle": "aa-r8G_toggle",
-			"open": "aa-r8G_open",
+			"chevron": "aa-r8G_chevron",
+			"grid": "aa-r8G_grid",
+			"cardPreview": "aa-r8G_cardPreview",
 			"fileBody": "aa-r8G_fileBody",
 			"fileName": "aa-r8G_fileName",
-			"hostStatus": "aa-r8G_hostStatus"
+			"menu": "aa-r8G_menu",
+			"root": "aa-r8G_root",
+			"file": "aa-r8G_file",
+			"toggle": "aa-r8G_toggle",
+			"chevronGlyph": "aa-r8G_chevronGlyph",
+			"menuItem": "aa-r8G_menuItem",
+			"open": "aa-r8G_open",
+			"secondaryText": "aa-r8G_secondaryText",
+			"retry": "aa-r8G_retry",
+			"split": "aa-r8G_split",
+			"menuIcon": "aa-r8G_menuIcon",
+			"description": "aa-r8G_description",
+			"fileIcon": "aa-r8G_fileIcon",
+			"previewHint": "aa-r8G_previewHint",
+			"hostStatus": "aa-r8G_hostStatus",
+			"glyph": "aa-r8G_glyph"
 		};
 		//#endregion
 		//#region src/client/PresentedFiles.tsx
@@ -8309,61 +8309,61 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var ProducedFiles_module_css_default = {
-			"closeIcon": "_xmB4G_closeIcon",
-			"drawerHeader": "_xmB4G_drawerHeader",
+			"noticeDismissButton": "_xmB4G_noticeDismissButton",
+			"toastCopy": "_xmB4G_toastCopy",
 			"stats": "_xmB4G_stats",
-			"drawerSubtitle": "_xmB4G_drawerSubtitle",
-			"toastDescription": "_xmB4G_toastDescription",
-			"toastCloseButton": "_xmB4G_toastCloseButton",
-			"drawerBody": "_xmB4G_drawerBody",
-			"reviewPath": "_xmB4G_reviewPath",
-			"noticeFileList": "_xmB4G_noticeFileList",
-			"deletedBadge": "_xmB4G_deletedBadge",
-			"fileRow": "_xmB4G_fileRow",
-			"toolbarButton": "_xmB4G_toolbarButton",
-			"fileList": "_xmB4G_fileList",
-			"resizeHandle": "_xmB4G_resizeHandle",
-			"fileIconWrap": "_xmB4G_fileIconWrap",
-			"toastHeader": "_xmB4G_toastHeader",
-			"cardTitle": "_xmB4G_cardTitle",
-			"noticeFileButton": "_xmB4G_noticeFileButton",
-			"drawer": "_xmB4G_drawer",
-			"reviewFile": "_xmB4G_reviewFile",
-			"noticeFilePath": "_xmB4G_noticeFilePath",
+			"noticeFileListLabel": "_xmB4G_noticeFileListLabel",
+			"reviewUnavailable": "_xmB4G_reviewUnavailable",
 			"reviewDiff": "_xmB4G_reviewDiff",
-			"drawerSplit": "_xmB4G_drawerSplit",
-			"drawer-enter": "_xmB4G_drawer-enter",
-			"reviewButton": "_xmB4G_reviewButton",
-			"openButton": "_xmB4G_openButton",
-			"toast": "_xmB4G_toast",
-			"cardTitleBlock": "_xmB4G_cardTitleBlock",
-			"noticeIcon": "_xmB4G_noticeIcon",
 			"kindBadge": "_xmB4G_kindBadge",
+			"drawerBody": "_xmB4G_drawerBody",
+			"cardHeader": "_xmB4G_cardHeader",
+			"closeIcon": "_xmB4G_closeIcon",
+			"toast": "_xmB4G_toast",
 			"closeButton": "_xmB4G_closeButton",
-			"added": "_xmB4G_added",
+			"toastHeader": "_xmB4G_toastHeader",
+			"fileRow": "_xmB4G_fileRow",
+			"removed": "_xmB4G_removed",
+			"drawerHeading": "_xmB4G_drawerHeading",
+			"noticeIcon": "_xmB4G_noticeIcon",
+			"drawerTitle": "_xmB4G_drawerTitle",
+			"drawer-enter": "_xmB4G_drawer-enter",
+			"drawerSubtitle": "_xmB4G_drawerSubtitle",
+			"drawerSplit": "_xmB4G_drawerSplit",
+			"resizeHandle": "_xmB4G_resizeHandle",
+			"toolbarButton": "_xmB4G_toolbarButton",
+			"drawer": "_xmB4G_drawer",
+			"deletedBadge": "_xmB4G_deletedBadge",
+			"noticeFileButton": "_xmB4G_noticeFileButton",
+			"cardTitle": "_xmB4G_cardTitle",
+			"noticeFileList": "_xmB4G_noticeFileList",
+			"icon": "_xmB4G_icon",
+			"buttonIcon": "_xmB4G_buttonIcon",
+			"toastError": "_xmB4G_toastError",
+			"noticeFilePath": "_xmB4G_noticeFilePath",
 			"fileName": "_xmB4G_fileName",
 			"noticeFiles": "_xmB4G_noticeFiles",
-			"buttonIcon": "_xmB4G_buttonIcon",
 			"drawerResizing": "_xmB4G_drawerResizing",
-			"reviewStatus": "_xmB4G_reviewStatus",
+			"cardTitleBlock": "_xmB4G_cardTitleBlock",
 			"toggleButton": "_xmB4G_toggleButton",
-			"toastError": "_xmB4G_toastError",
-			"removed": "_xmB4G_removed",
-			"moreFiles": "_xmB4G_moreFiles",
-			"drawerHeading": "_xmB4G_drawerHeading",
-			"noticeFileListLabel": "_xmB4G_noticeFileListLabel",
+			"drawerHeader": "_xmB4G_drawerHeader",
+			"added": "_xmB4G_added",
 			"card": "_xmB4G_card",
-			"noticeDismissButton": "_xmB4G_noticeDismissButton",
-			"reviewFileHeader": "_xmB4G_reviewFileHeader",
-			"icon": "_xmB4G_icon",
-			"drawerTitle": "_xmB4G_drawerTitle",
+			"openButton": "_xmB4G_openButton",
+			"moreFiles": "_xmB4G_moreFiles",
+			"toastSuccess": "_xmB4G_toastSuccess",
 			"noticeIconSvg": "_xmB4G_noticeIconSvg",
+			"toastCloseButton": "_xmB4G_toastCloseButton",
+			"fileIconWrap": "_xmB4G_fileIconWrap",
 			"noticeFileArrow": "_xmB4G_noticeFileArrow",
-			"reviewUnavailable": "_xmB4G_reviewUnavailable",
+			"reviewFile": "_xmB4G_reviewFile",
+			"reviewFileHeader": "_xmB4G_reviewFileHeader",
+			"reviewButton": "_xmB4G_reviewButton",
+			"reviewPath": "_xmB4G_reviewPath",
+			"fileList": "_xmB4G_fileList",
+			"reviewStatus": "_xmB4G_reviewStatus",
 			"toastTitle": "_xmB4G_toastTitle",
-			"toastCopy": "_xmB4G_toastCopy",
-			"cardHeader": "_xmB4G_cardHeader",
-			"toastSuccess": "_xmB4G_toastSuccess"
+			"toastDescription": "_xmB4G_toastDescription"
 		};
 		//#endregion
 		//#region src/client/ProducedFiles.tsx
@@ -8975,6 +8975,63 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"presented.collapseAria": "收起交付文件列表",
 			"presented.file": "文件"
 		};
+		/**
+		* Decode a `dsh-resource://changes-review/session/<id>/<seq>/<turn>` address —
+		* the shape upstream's `changesReviewAddress` mints (three segments behind the
+		* prefix, the Session id percent-encoded).
+		*
+		* Anything else declines: an unknown prefix, a segment count other than three,
+		* a non-numeric sequence or turn, and a malformed percent escape all return
+		* `undefined` so the caller's open falls through untouched (guessing here would
+		* hijack opens this plugin does not own).
+		*
+		* @param address - candidate resource address (any unknown value is declined).
+		* @returns the decoded coordinates, or undefined when this is not a review address.
+		*/
+		function parseChangesReviewAddress(address) {
+			if (typeof address !== "string" || !address.startsWith("dsh-resource://changes-review/session/")) return void 0;
+			const parts = address.slice(38).split("/");
+			if (parts.length !== 3) return void 0;
+			const [rawId, rawSeq, rawTurn] = parts;
+			if (rawId === "" || !/^\d+$/.test(rawSeq) || !/^[1-9]\d*$/.test(rawTurn)) return void 0;
+			try {
+				return {
+					sessionId: decodeURIComponent(rawId),
+					seq: Number(rawSeq),
+					turn: Number(rawTurn)
+				};
+			} catch {
+				return;
+			}
+		}
+		/**
+		* Wrap `sidebarRight.openResource` so review addresses open in this plugin's
+		* own tab while every other address reaches the original method unchanged.
+		*
+		* `openResource` is a prototype method on the sidebar controller, so the raw
+		* reference is captured and reassigned; a remount that swaps the controller
+		* replaces this wrapper with the new instance's own (the disposer restores the
+		* reference it captured, which is why callers must install per instance).
+		*
+		* @param right - the sidebarRight service face.
+		* @param open - reroutes one decoded review address into the plugin's tab.
+		* @returns the disposer restoring the original method (HMR-safe).
+		*/
+		function wrapChangesReviewOpen(right, open) {
+			const original = right.openResource;
+			if (typeof original !== "function") return () => {};
+			right.openResource = function(address, options) {
+				const coordinates = parseChangesReviewAddress(address);
+				if (coordinates !== void 0) {
+					open(coordinates);
+					return;
+				}
+				return original.call(this, address, options);
+			};
+			return () => {
+				right.openResource = original;
+			};
+		}
 		//#endregion
 		//#region src/client/index.tsx
 		/**
@@ -9045,6 +9102,44 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				count: value
 			});
 			return value;
+		}
+		/**
+		* Open (or focus) the sidebar review tab for one review address's turn, in the
+		* address's OWN Session scope (a chip inside a fork's card belongs to the fork,
+		* not to whatever conversation is on screen).
+		*
+		* The paths come from the same sources the chat card reads — this plugin's
+		* per-turn Definition data first, the timeline derive as the windowed fallback
+		* — so the deep link expands exactly the rows the native panel would have
+		* listed. An unresolvable turn still opens the tab (the panel auto-expands via
+		* the `path`-carrying seed when the review has a first file) rather than
+		* silently doing nothing.
+		*
+		* @param ctx - client root context.
+		* @param coordinates - decoded review address (Session, sequence, turn).
+		*/
+		function openReviewInSidebar(ctx, { sessionId, turn }) {
+			const sidebar = ctx.betterSidebar;
+			if (sidebar === void 0) return;
+			const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd;
+			const scope = {
+				sessionId,
+				...cwd !== void 0 ? { cwd } : {}
+			};
+			const face = resolveConversationStore(ctx, sessionId)?.getSnapshot() ?? null;
+			const paths = ((face?.timeline?.turns.get(turn)?.data.get("fileReviewChanges"))?.files ?? deriveTimelineChanges(face).find((entry) => entry.turn === turn)?.files ?? []).map((file) => file.path);
+			const meta = {
+				expandPaths: paths,
+				turn
+			};
+			const first = paths[0];
+			sidebar.updateTab("file-review", { meta });
+			sidebar.openTab({
+				type: "file-review",
+				...first !== void 0 ? { path: first } : {},
+				meta
+			}, scope);
+			sidebar.activateTab("file-review", scope);
 		}
 		/**
 		* Client plugin body: attach locale, mount the Typert remote, register the
@@ -9214,6 +9309,24 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					tab
 				})
 			}), "file-review-tab: register tab");
+			ctx.effect(() => {
+				let disposed = false;
+				let disposeWrap = () => {};
+				const fiber = ctx.inject(["sidebarRight"], () => {
+					if (disposed) return;
+					const right = ctx.get("sidebarRight");
+					if (right === void 0) return;
+					disposeWrap = wrapChangesReviewOpen(right, (coordinates) => {
+						openReviewInSidebar(ctx, coordinates);
+					});
+					console.log("[dsh-file-review-tab] native-sidebar takeover: changes-review → file-review tab");
+				});
+				return () => {
+					disposed = true;
+					disposeWrap();
+					fiber.dispose();
+				};
+			}, "file-review-tab: changes-review takeover");
 		}
 		//#endregion
 		exports.Deliverables = Deliverables;
@@ -9222,9 +9335,11 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		exports.classifyPath = classifyPath;
 		exports.inject = inject;
 		exports.inspectionKey = inspectionKey;
+		exports.parseChangesReviewAddress = parseChangesReviewAddress;
 		exports.presentedForClosing = presentedForClosing;
 		exports.selectDeliverables = selectDeliverables;
 		exports.turnChangesFingerprint = turnChangesFingerprint;
+		exports.wrapChangesReviewOpen = wrapChangesReviewOpen;
 		return module.exports;
 	}
 });

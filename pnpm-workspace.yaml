@@ -11,3 +11,10 @@ allowBuilds:
   electron-winstaller: true
 overrides:
   'js-yaml@<4.3.2': ^4.3.2
+# 关掉 pnpm 的「运行脚本前隐式校验依赖」：pnpm 11 起该门默认可能触发一次
+# 隐式 install，而本机 Electron 二进制源（GitHub releases）不可达——重链后
+# electron 的 postinstall 拉不到二进制（无 path.txt / dist），`pnpm dev`
+# 直接以 "Error: Electron uninstall" 起不来（2026-09-19 现场）。
+# 依赖需要更新时显式跑 `pnpm install`；二进制真被重链掉了用离线恢复：
+#   pnpm fix:electron        # 从本地缓存 zip 补回 dist/ + path.txt（scripts/fix-electron.mjs）
+verifyDepsBeforeRun: false

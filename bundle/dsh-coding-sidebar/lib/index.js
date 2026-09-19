@@ -48,7 +48,7 @@ const SIDEBAR_PREFS_DEFAULTS = {
 	browserNoSandbox: false,
 	browserInterceptLinks: true,
 	browserInterceptHttp: true,
-	browserInterceptHttps: false,
+	browserInterceptHttps: true,
 	browserAllowedLoopback: "",
 	tabsEnabled: {},
 	viewersEnabled: {},
@@ -335,6 +335,32 @@ async function resolveRealPath(path, label) {
 /** Reject a resolved path whose real filesystem target escapes the workspace. */
 function assertWithinWorkspace(workspace, target) {
 	if (!isWithin(workspace, target)) throw new SidebarError("forbidden", `path "${target}" is outside workspace`, 403);
+}
+/**
+* Resolve an existing path for a READ, allowing targets outside the workspace.
+*
+* 上游契约（`packages/api/workspace-files/src/index.ts` 的 `read` 文档原话）：
+* "absolute path or path relative to the workspace root; **files outside it are
+* allowed**"。原生侧栏的预览因此能打开工作区外的文件（agent 写到 /tmp 的产物、
+* 另一个仓库里的文件）。我们此前的读取沿用了写路径的 containment 守卫，比上游
+* 更严，用户点这类文件必失败：
+*
+*     path "/private/tmp/RELEASE_NOTES_v3.0.3.md" is outside workspace
+*     （2026-09-19 现场；同族还有另一仓库的绝对路径）
+*
+* 读取仍然解析 symlink（真实路径交给文件操作，避免用符号链接绕过后续判断），
+* 也仍然只接受绝对路径；**只有"必须在 cwd 之内"这一条按上游放宽**。写入
+* （{@link ensureWorkspaceWritePath}）不变——写入越界是另一类风险，产品上没有
+* 这个需求。
+*
+* @param cwd - Session workspace directory (kept for resolution diagnostics).
+* @param target - Client-supplied absolute path.
+* @returns The canonical absolute path used for the filesystem operation.
+*/
+async function resolveReadPath(cwd, target) {
+	const realTarget = await resolveRealPath(requireAbsolute(target), "target");
+	await resolveRealPath(cwd, "workspace");
+	return realTarget;
 }
 /**
 * Resolve an existing workspace path through symlinks and enforce containment.
@@ -4809,6 +4835,100 @@ function buildSubagentLiveApi(ctx) {
 	} };
 }
 //#endregion
+//#region src/team-routes.ts
+function unavailable(reason) {
+	return {
+		available: false,
+		reason
+	};
+}
+/**
+* Resolve the service and the caller's live Agent, tolerating a deployment
+* without the plugin (both services are optional: `ctx.get` returns undefined
+* instead of throwing).
+* @param ctx - host plugin context.
+* @param sessionId - the Session whose Agent authorizes the call.
+* @returns the caller pair, or the reason it cannot be resolved.
+*/
+function resolveCaller(ctx, sessionId) {
+	const teams = ctx.get("agentTeams");
+	if (teams === void 0 || typeof teams.remoteView !== "function") return "service-missing";
+	const agent = ctx.get("agents")?.get(sessionId);
+	if (agent === void 0) return "agent-missing";
+	return {
+		teams,
+		agent
+	};
+}
+/** Read one string-or-undefined field from an untrusted request body. */
+function optionalString(payload, key) {
+	const value = payload[key];
+	if (value === void 0 || value === null) return void 0;
+	if (typeof value !== "string") throw new SidebarError("bad-request", `${key} must be a string`, 400);
+	return value;
+}
+/** Read one string-array field, dropping non-strings rather than guessing. */
+function optionalStringArray(payload, key) {
+	const value = payload[key];
+	if (value === void 0 || value === null) return void 0;
+	if (!Array.isArray(value)) throw new SidebarError("bad-request", `${key} must be an array`, 400);
+	return value.filter((item) => typeof item === "string" && item !== "");
+}
+/**
+* Build the team routes bound to the plugin context.
+* @param ctx - host plugin context.
+* @returns the wire methods the sidebar API dispatcher exposes.
+*/
+function buildTeamApi(ctx) {
+	return {
+		"team.view": async (payload) => {
+			const caller = resolveCaller(ctx, requireString(payload, "sessionId"));
+			if (typeof caller === "string") return unavailable(caller);
+			return {
+				available: true,
+				view: caller.teams.remoteView(caller.agent)
+			};
+		},
+		"team.createTask": async (payload) => {
+			const sessionId = requireString(payload, "sessionId");
+			const request = {
+				subject: requireString(payload, "subject"),
+				description: requireString(payload, "description"),
+				...optionalStringArray(payload, "blockedBy") ?? {},
+				...optionalStringArray(payload, "writeScopes") ?? {}
+			};
+			const caller = resolveCaller(ctx, sessionId);
+			if (typeof caller === "string") return unavailable(caller);
+			return {
+				available: true,
+				result: await caller.teams.remoteCreateTask(caller.agent, request)
+			};
+		},
+		"team.updateTask": async (payload) => {
+			const sessionId = requireString(payload, "sessionId");
+			const record = payload;
+			const revision = record["expectedRevision"];
+			if (typeof revision !== "number" || !Number.isInteger(revision)) throw new SidebarError("bad-request", "expectedRevision must be an integer", 400);
+			const request = {
+				taskId: requireString(payload, "taskId"),
+				expectedRevision: revision,
+				action: requireString(payload, "action"),
+				...optionalString(record, "subject") !== void 0 ? { subject: optionalString(record, "subject") } : {},
+				...optionalString(record, "description") !== void 0 ? { description: optionalString(record, "description") } : {},
+				...optionalStringArray(record, "blockedBy") !== void 0 ? { blockedBy: optionalStringArray(record, "blockedBy") } : {},
+				...optionalStringArray(record, "writeScopes") !== void 0 ? { writeScopes: optionalStringArray(record, "writeScopes") } : {},
+				...optionalString(record, "owner") !== void 0 ? { owner: optionalString(record, "owner") } : {}
+			};
+			const caller = resolveCaller(ctx, sessionId);
+			if (typeof caller === "string") return unavailable(caller);
+			return {
+				available: true,
+				result: await caller.teams.remoteUpdateTask(caller.agent, request)
+			};
+		}
+	};
+}
+//#endregion
 //#region src/sidechat-routes.ts
 /**
 * Side Chat routes of the /sidebar JSON API ('sidechat.start' /
@@ -5272,6 +5392,7 @@ function buildApi(ctx, ptyManager, agentPtyRegistry, resolved, terminalShell, ge
 	const jobsApi = buildJobsApi(ctx, resolved.readLimit);
 	const subagentLiveApi = buildSubagentLiveApi(ctx);
 	return {
+		...buildTeamApi(ctx),
 		"session.cwd": async (payload) => {
 			const { sessionId, cwd } = await cwdOf(payload);
 			return {
@@ -5292,7 +5413,7 @@ function buildApi(ctx, ptyManager, agentPtyRegistry, resolved, terminalShell, ge
 		"fs.read": async (payload) => {
 			const { cwd } = await cwdOf(payload);
 			const selected = selectedRepoOf(payload);
-			const { content, truncated, binary, size, head } = await readText(await ensureWorkspacePath(cwd, await resolveGitPath(cwd, requireString(payload, "path"), selected)), resolved.readLimit);
+			const { content, truncated, binary, size, head } = await readText(await resolveReadPath(cwd, await resolveGitPath(cwd, requireString(payload, "path"), selected)), resolved.readLimit);
 			if (binary) return {
 				kind: "binary",
 				size,
@@ -5833,7 +5954,7 @@ function apply(ctx, config) {
 				const sessionId = url.searchParams.get("sessionId");
 				const raw = url.searchParams.get("path");
 				if (sessionId === null || raw === null) throw new SidebarError("bad-request", "sessionId and path are required");
-				const path = await ensureWorkspacePath(await sessionCwdOf(ctx, sessionId, url.searchParams.get("cwd") ?? void 0), raw);
+				const path = await resolveReadPath(await sessionCwdOf(ctx, sessionId, url.searchParams.get("cwd") ?? void 0), raw);
 				const info = await stat(path);
 				if (!info.isFile()) throw new SidebarError("fs-error", "not a file or too large", 400);
 				const type = mediaTypeForPath(path);
@@ -5876,7 +5997,7 @@ function apply(ctx, config) {
 					return;
 				}
 				const { sessionId, path } = decoded.ref;
-				const absolute = await ensureWorkspacePath(await sessionCwdOf(ctx, sessionId), path);
+				const absolute = await resolveReadPath(await sessionCwdOf(ctx, sessionId), path);
 				const info = await stat(absolute);
 				if (!info.isFile() || info.size > resolved.mediaLimit) throw new SidebarError("fs-error", "not a file or too large", 400);
 				const type = mediaTypeForPath(absolute);

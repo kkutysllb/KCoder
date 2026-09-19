@@ -712,6 +712,180 @@ typert codec 仍欠修）。
 「不使用」处理，在 KCoder 不可见，链接回落既有行为。这不是缺失，是铁律 1
 的预期结果。
 
+### 9.11 撤回发布与漏网之鱼（2026-09-19：交付卡片锚定原生侧栏 → 插件侧接管）
+
+**现象**（用户实测，随 0.6.14 首发验收）：点交付卡片（"已编辑 N 个文件"的改动卡
+「审查」按钮与文件行）**仍弹原生侧边栏的空白区**——侧栏插件自己的页签一切正常，
+只有这条开法落回去。
+
+**根因（源码级定论，非猜测）**：上游 `ui-deliverables/src/client/index.ts:88`
+把改动卡的评审手势发给**原生**右栏：
+
+```ts
+ctx.sidebarRight.openResource(changesReviewAddress(coordinates), { params: { index } })
+// changesReviewAddress → 'dsh-resource://changes-review/session/<id>/<seq>/<turn>'
+```
+
+而本侧边栏插件的文件打开门 `fileTargetOfAddress` 只认 `dsh-resource://file/…`
+家族（`session` / `absolute` 两个 scope），其余地址一律 `original.openResource(...)`
+放行 → 落进原生右栏；原生外壳又被产品侧 `NATIVE_SIDEBAR_CSS` 压制 → 用户看到的
+就是**一片空白**（不是报错、不是缺内容，是"落点错了"）。
+
+**修法（铁律 2：只改插件源码，发新版本）**：`dsh-file-review-kcoder` **1.0.6**
+
+| 位置 | 内容 |
+|---|---|
+| 新增 `src/client/review-address.ts` | 依赖无关（无 React / cordis）：`parseChangesReviewAddress` 解析该家族（前缀含 `session/` scope；段数/空 id/非数字/坏转义一律 decline）+ `wrapChangesReviewOpen` 包装 `openResource`，认领则改道、其余原样透传、dispose 还原原方法 |
+| `src/client/index.tsx` | `ctx.inject(['sidebarRight'])` **延迟装配**（与 coding-sidebar 的门同款：单次 `ctx.get` 探针可能先于提供方执行而永久装不上）+ `openReviewInSidebar`：按地址里的 session 定位 scope，paths 取"自有 Definition 优先、timeline derive 兜底"，开自己的 `file-review` 页签（同一 turn 的评审本来就是它渲染的内容） |
+| `scripts/smoke-plugin.mjs` | 新增 5 条接管断言（解析 13 例 / 认领 / 透传 / dispose 还原 / 服务缺失空转）→ smoke **45/45** + render **13/13** |
+
+**为什么落点在 file-review 而不是 coding-sidebar**：地址描述的 UI（按 turn 分组的
+变更评审）归本衍生插件所有；coding-sidebar 只认文件族并放行其余地址是**正确**的
+分层（不耦合衍生插件的页签契约）。两者的包装是链式的：各自 decline 对方的家族。
+
+**发版处置**：v0.6.14 首发**已撤回**（`gh run cancel` 于 2m59s 拦下、远端+本地
+tag 删除、GitHub Releases 无产物）→ 插件侧修好并过门禁后，按铁律 2 走"插件发新
+版本 + KCoder 平移 preset 依赖"再发。
+
+**沉淀工具**：`scripts/probe-dev-review-open.mjs`——经 CDP 直连 dev 实例，**单次
+真实点击**交付卡片并读取落点（活动页签 / 原生三类宿主可见性 / 候选目标清单），
+PASS 需同时满足"落到 file-review 页签"且"原生宿主全不可见"。这类故障的判据全在
+运行时 DOM，源码推理只能定位调用链、定不了落点，故做成常备探针。
+
+**验收实测（2026-09-19，dev 实例 + CDP，证据如下）**
+
+| 项 | 证据 |
+|---|---|
+| 修复已进运行实体 | dev profile `dsh-file-review-kcoder` = **1.0.6**，其 `lib/client.js` 含接管实现（`changes-review` ×4） |
+| 接管在岗（活体） | 重载页面捕获激活期日志：`[dsh-file-review-tab] native-sidebar takeover: changes-review → file-review tab`；同轮 `[dsh-coding-sidebar] open-path interception: doors workspaces=true remote.session=true sidebarRight=true`（三道文件门全装）；页面零 error |
+| 症状不可复现 | 探针判定 **PASS**：点击「审查」类入口后活动页签仍是插件的「文件审查」；原生宿主 `panel` = `display:none / visibility:hidden / 0×0`、`float-host` 不存在、`expand` 不可见 |
+| 附带事实（重要） | 该轮探针在 DOM 里**找不到原生改动卡**（只有插件自己的「审查所有产出文件 / 审查 <路径>」三个入口）——`tailCard:false` 生效，原生卡已不渲染，**同一 turn 双行的历史现象随之消失** |
+
+> 诚实边界：正因原生卡被策略关掉，**那条"会走接管"的手势在 UI 上已不可达**——
+> 接管此刻是"任何面若再发该地址家族都会落进我们侧栏"的安全网（活体已确证在岗 +
+> 构建产物 5 条语义断言）。要在真机把接管路径本身点出来，需临时把产品策略的
+> `tailCard` 翻回 true（改 `product-policy.ts` + 重启 dev 两次），按需执行。
+
+**遗留（同一根因家族）**：`dsh-resource://` 其余家族——plan 评审
+（`ui-plan` 的 `planAddress` / `reviewPreviewAddress`）、subagent 对话
+（`ui-subagent` 的 `subagentChatAddress`）——目前**无认领者**；在原生外壳被压制的
+产品形态下，它们被打开时同样会表现为空白。后续按同一模式逐个认领，或给
+coding-sidebar 补一条"无人认领 → 侧栏可见提示"的兜底（优于静默空白）。
+消息内 HTTP(S) 链接**不属此列**：插件自带 `link-intercept` 在捕获阶段接管
+（`browserInterceptLinks` 默认 true）并开进自己的浏览器页签。
+
+### 9.12 第二批漏网之鱼（2026-09-19：超链接落原生 + 浏览器 tab 上游对齐 + 跨工作区预览）
+
+用户实测又报三个问题，全部按铁律 2 在插件侧修（`dsh-coding-sidebar` 1.0.22）：
+
+**① 点聊天里的 http(s) 链接弹原生侧栏空白区**
+
+根因与 §9.11 同族但**另一条通道**：上游 `ui-chat` 的 `openExternalLink` 直接发
+`ctx.sidebarRight.openTab('browser', { params: { url } })`——原生 browser 类型
+总已注册（随包组合里 `ui-sidebar-browser` 提供），所以这条开法**不经**我们的
+`openResource` 门；且我们自己的文档级链接接管只 `preventDefault()` 不阻断传播，
+React 根监听照跑上游 handler（"我们开一个 + 原生开一个空面板"同时发生）。
+
+三处修：
+
+| 修 | 落点 |
+|---|---|
+| 认领原生 `openTab('browser')` | `openpath-intercept.ts` 新增 `wrapNativeBrowserOpen`（kind=browser 且 params.url 为 http(s) → 改开自家 browser 页签；其余 kind 原样透传、dispose 还原）；`intercept.tsx` 在既有的 `ctx.inject(['sidebarRight'])` 里一并装配，诊断行加 `browserOpenTab=` |
+| 接管必须独占事件 | `link-intercept.ts` 补 `stopPropagation + stopImmediatePropagation`（capture 阶段在 document 上，二者缺一即双开） |
+| https 链接不再绕过 | `browserInterceptHttps` 默认 false → **true**（当年关掉的理由"https 站点多拒绝嵌入"已有探测+说明面板兜底；铁律 1 下任何落回原生都是空白） |
+
+**② 按上游原生实现升级浏览器 tab**（用户："原生的浏览器实现比我们的好"）
+
+- **主因是沙箱**：我们此前对常规站点**不给** `allow-same-origin`（不透明源），真实
+  站点因此跑不起来（无 Cookie/存储/模块）。现对齐上游：常规站点一律带
+  `allow-same-origin`（页面保持**自己的** origin、与界面跨源——不是把界面权限给
+  它）；代价是**界面自身 origin 必须拒绝**（帧同源即可读界面存储/调 /api），
+  `normalizeBrowserUrl` 新增 `app-origin` 拒绝（原本"允许浏览界面自身"的行为随之
+  取消），另补 `credentials` 拒绝与 16KB 长度上限。
+- **导航状态机**（新增 `browser-nav.ts`，上游 `BrowserNavigation` 的依赖无关移植）：
+  revision 制加载生命周期、`empty/loading/known/unknown`、同址提交=刷新（不再堆重复
+  历史）、在页面内跳转被判 `unknown` → 地址栏出「地址已变」+ 前进/后退门控关闭 +
+  下方限制说明；新增**加载失败横幅**（iframe error）与逐因拒绝文案
+  （空/非法/scheme/本机/带账号密码/界面自身）。
+- 上一轮的 live 实况、嵌入探测面板、沙箱临时解锁条等自有能力全部保留。
+
+**③ 跨工作区预览文件必失败**（`path "…" is outside workspace`）
+
+根因：页签落在**当前会话**的状态里（所以用户看得见、报错也看得见），但文件可能
+属于**另一个会话的另一个工作区**（分叉会话、side chat，或侧栏当前会话与点击所在
+会话不同步）。编辑器按"页签所在会话"的 cwd 读盘 → 被**宿主侧自己的** containment
+守卫拒掉（`path-security.ts` 只允许 cwd 之内）。原生侧栏按地址里的 session 解析
+工作区，故无此问题。
+
+修法（把同一语义显式化，不动页签位置）：`openSidebarFile` 把
+`{ readSessionId, readCwd }` 写进页签 meta → 新增依赖无关模块
+`editor-read-scope.ts` 的 `readScopeOf(rendered, meta)` 解析读取作用域（半截/畸形
+记录一律回落旧行为）→ `EditorHost` 的**全部读取路径**（fsRead / viewer.load /
+mediaUrl / 文件树 / 路径输入 / 二进制下载）改用 `readScope`。
+
+**验证**：三处修复合计新增 50 条单测（认领语义 / 链接接管独占性 / 地址策略 /
+导航状态机 / 读取作用域），`pnpm test` ALL PASS；typecheck / build / smoke 绿；
+镜像链 → `bundle/dsh-coding-sidebar` **1.0.23**（`sync-bundles --check` 零差异）；
+新增探针模式 `--target link`（点聊天里的链接 → 判定落点仍是插件页签且原生宿主
+全不可见）。
+
+**④ 工作区外预览文件必失败**（用户复核后追加，与 ③ 同族但**另一层**）
+
+现场：`path "/private/tmp/RELEASE_NOTES_v3.0.3.md" is outside workspace`——路径
+不在任何工作区里（agent 写到 /tmp 的产物）。查上游：
+`packages/api/workspace-files/src/index.ts` 的 `read` 文档写得很明确——
+"absolute path or path relative to the workspace root; **files outside it are
+allowed**"。即**上游故意允许读工作区外的绝对路径**，而我们沿用了写路径的
+containment 守卫，比上游更严。
+
+修：新增 `resolveReadPath`（仍解析 symlink、仍要求绝对路径，只去掉"必须在 cwd
+之内"），`fs.read` / 媒体预览 / 缩略图三条**读取**路由改用它；**写入**（上传 /
+改名 / 删除）、文件树、计划外开仍保留围栏——越界写是另一类风险且产品无此需求。
+③ 与 ④ 合起来覆盖"别的会话的相对路径"与"工作区外绝对路径"两种情形。
+
+活体前后对照（CDP 直连 dev 调 `/sidebar/api/fs.read`）：修前
+`403 forbidden: path "/private/tmp/…" is outside workspace`（复现用户报错）；
+修后复验 200（证据见 `release/audit-v0.6.14.md`）。检查已固化为
+`scripts/check-sidebar-fsread.mjs`（一条命令复跑，PASS/FAIL 自判）。
+
+**产品决策（2026-09-19，用户拍板）**：自身禁止被嵌入的站点（如 github.com 的
+`X-Frame-Options / frame-ancestors`）**保持「说明 + 一键外跳」**——不做"探测到
+不可嵌入就自动用系统浏览器打开"。理由：给出原因、动作由用户触发比"点了就弹
+浏览器"更可控；上游原生侧栏在同站点只会显示空白/拒绝连接，我们这块说明面板
+本身就是体验提升。
+
+### 9.13 新增「智能体团队」tab（2026-09-19：只用上游数据面，UI 自持）
+
+用户需求：把上游原生的 agent 团队功能做成侧栏插件的新 tab。落点
+`dsh-coding-sidebar` 1.0.25。
+
+**上游家底**（`packages/experimental/`，五个包都在随包运行时里）：`agent-team`
+（host 服务 `ctx.agentTeams`，`remoteView/createTask/updateTask`）、`tool-agent-team`
+（团队工具）、`client-ui-agent-team`（UI：`TeamAction.tsx` 425 行，注册在
+`conversation.session.header.actions` 的表头动作**弹层**）、两个 profile bundle：
+`agent-team-profile`（**禁用 subagent 四件套、插入团队服务与工具**）、
+`agent-team-web-profile`（插入上游 UI 包）。
+
+**接线（铁律 1/2）**：我们不复用上游 UI，也不自动挂载它的 bundle——只桥接数据面。
+
+| 层 | 落点 |
+|---|---|
+| 线格式 | `src/team-types.ts`：按线格式**结构化镜像** `TeamView/TeamMemberView/TeamTaskView` 与请求/结果（独立仓不依赖上游 experimental 包；同 `openpath-intercept` 的文件地址语法口径） |
+| 宿主桥 | `src/team-routes.ts` + `index.ts`：`team.view` / `team.createTask` / `team.updateTask`；身份用 `ctx.get('agentTeams')` + `ctx.agents.get(sessionId)` 解析（服务按**现役 Agent** 校验名册），视图与业务结果原样返回 |
+| 客户端 | `src/client/TeamView.tsx`（名册 + 任务看板：新建/编辑/依赖/写入范围/指派/完成/重开/删除，CAS 旧 revision → 冲突提示 + 刷新）、`team-model.ts`（纯模型，18 条单测）、tab `id=team` order 31 |
+| 会话规则 | lead 推导同上游：队友会话归其父会话的团队；点队友经 `uiWorkspace.openSession(mode:'continuable')` 打开 |
+
+**产品决策（用户拍板 2026-09-19）**：数据面**依赖上游插件开关**，未启用时 tab 显示
+「去启用」空态——因为启用 `agent-team-profile` 会把 subagent 工具替换成团队工具，
+属于用户的选择，侧栏不静默改动 agent 工具集。空态的「去启用」按钮驱动真实设置
+入口（`button[class*="_trigger"][aria-haspopup="dialog"]`，与 KCoder 账号菜单同锚；
+随后按文案点「插件」分区；客户端无程序化设置导航 API，点不到就留在设置页）。
+
+**验证**：typecheck 0；tests ALL PASS（含 18 条 team-model 断言）；build + smoke 绿；
+产物断言 `lib/client.js` 含 `team.view` 与空态文案、`lib/index.js` 含 agentTeams 桥；
+镜像链 → `bundle/dsh-coding-sidebar` **1.0.25**。**待真机验收**：未启用上游插件时
+空态与「去启用」；启用后名册/看板出现，新建与指派任务可见、点队友开会话。
+
 ---
 
 ## 10. GUI 验收清单（由用户重启 app 实测）

@@ -52,6 +52,9 @@ import {
   countChangedFiles, deriveTimelineChanges, resolveSessionPath, splitArchivedTurns,
 } from './session-changes.ts'
 import { basename, selectDeliverables } from './turn-deliverables.ts'
+import {
+  wrapChangesReviewOpen, type ChangesReviewCoordinates, type SidebarRightStub,
+} from './review-address.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -148,6 +151,48 @@ function badgeCount(ctx: Context, sessionId: string): number | null {
   const value = count === 0 ? null : count
   badgeMemo.set(sessionId, { fingerprint, count: value })
   return value
+}
+
+/**
+ * Open (or focus) the sidebar review tab for one review address's turn, in the
+ * address's OWN Session scope (a chip inside a fork's card belongs to the fork,
+ * not to whatever conversation is on screen).
+ *
+ * The paths come from the same sources the chat card reads — this plugin's
+ * per-turn Definition data first, the timeline derive as the windowed fallback
+ * — so the deep link expands exactly the rows the native panel would have
+ * listed. An unresolvable turn still opens the tab (the panel auto-expands via
+ * the `path`-carrying seed when the review has a first file) rather than
+ * silently doing nothing.
+ *
+ * @param ctx - client root context.
+ * @param coordinates - decoded review address (Session, sequence, turn).
+ */
+function openReviewInSidebar(ctx: Context, { sessionId, turn }: ChangesReviewCoordinates): void {
+  const sidebar = ctx.betterSidebar
+  if (sidebar === undefined) return
+  // The runtime ISessions face (same cast as the turn-tail inject below):
+  // the ambient Context type declares `sessions.list` as a plain callable,
+  // while the shipped service exposes the snapshot store.
+  const sessions = (ctx as unknown as { readonly sessions: ISessions }).sessions
+  const cwd = sessions.list.getSnapshot().byId[sessionId as SessionId]?.cwd
+  const scope = { sessionId, ...(cwd !== undefined ? { cwd } : {}) }
+  const face = resolveConversationStore(ctx, sessionId)?.getSnapshot() ?? null
+  const own = face?.timeline?.turns.get(turn)?.data.get('fileReviewChanges') as
+    | { files?: readonly { path: string }[] }
+    | undefined
+  const files = own?.files
+    ?? deriveTimelineChanges(face).find(entry => entry.turn === turn)?.files
+  const paths = (files ?? []).map(file => file.path)
+  // `turn` anchors the deep link to one turn (the tab expands that turn's rows
+  // for these paths, and scrolls to the group when the list is empty); the
+  // first path rides along only so the host treats this as a CONTENT open and
+  // auto-expands a collapsed panel to land the tab in sight.
+  const meta = { expandPaths: paths, turn }
+  const first = paths[0]
+  sidebar.updateTab('file-review', { meta })
+  sidebar.openTab({ type: 'file-review', ...(first !== undefined ? { path: first } : {}), meta }, scope)
+  sidebar.activateTab('file-review', scope)
 }
 
 /**
@@ -407,6 +452,37 @@ export function apply(ctx: Context): void {
       />
     ),
   } satisfies TabDescriptor), 'file-review-tab: register tab')
+
+  // 原生侧边栏接管（产品铁律 1，docs/ARCHITECTURE.md §12「不使用上游原生侧边栏
+  // 功能」）：上游 changed-files 卡的「审查」手势走
+  // `ctx.sidebarRight.openResource('dsh-resource://changes-review/…')`，而
+  // coding-sidebar 的文件打开门只认 `dsh-resource://file/…` 家族（其余 scope
+  // 一律让它落到原方法）——于是该地址落回**原生右栏**；原生外壳又被产品侧压制，
+  // 用户看到的就是一片空白。本插件接管这一家族，改开自己的 file-review 页签：
+  // 同一个 turn 的变更评审本来就是它渲染的内容。
+  //
+  // 装配方式与 coding-sidebar 的门同款（ctx.inject 延迟装配）：sidebarRight 由
+  // 随包的 Web 补丁组合、不在本插件的静态 inject 里，单次 ctx.get 探针可能先于
+  // 提供方执行而**永久装不上**；ctx.inject 在服务就绪时回调（已在则同步触发），
+  // 载具永不提供则回调不触发、门保持未装——不阻塞插件激活，与旧行为降级面一致。
+  ctx.effect(() => {
+    let disposed = false
+    let disposeWrap = () => {}
+    const fiber = ctx.inject(['sidebarRight'], () => {
+      if (disposed) return
+      const right = ctx.get('sidebarRight') as SidebarRightStub | undefined
+      if (right === undefined) return
+      disposeWrap = wrapChangesReviewOpen(right, coordinates => { openReviewInSidebar(ctx, coordinates) })
+      // 安装期诊断（每激活一次一行）：现场排查「点交付卡片出了原生空白区」
+      // 只需看这一行在不在。
+      console.log('[dsh-file-review-tab] native-sidebar takeover: changes-review → file-review tab')
+    })
+    return () => {
+      disposed = true
+      disposeWrap()
+      void fiber.dispose()
+    }
+  }, 'file-review-tab: changes-review takeover')
 }
 
 // Pure helpers re-exported for the package smoke regression checks
@@ -416,4 +492,5 @@ export { turnChangesFingerprint }
 export { inspectionKey }
 export { captureArtifacts, classifyPath } from './artifacts.ts'
 export { presentedForClosing, selectDeliverables } from './turn-deliverables.ts'
+export { parseChangesReviewAddress, wrapChangesReviewOpen } from './review-address.ts'
 export { Deliverables } from './Deliverables.tsx'

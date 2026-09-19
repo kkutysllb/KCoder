@@ -13,6 +13,7 @@
     "preview": "node scripts/dev.mjs preview",
     "start": "node scripts/dev.mjs preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/check-injected-scripts.mjs",
+    "fix:electron": "node scripts/fix-electron.mjs",
     "icons": "electron scripts/make-icons.cjs",
     "setup": "bash scripts/setup.sh",
     "sync-upstream": "bash scripts/sync-upstream.sh",

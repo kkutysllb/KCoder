@@ -54,5 +54,6 @@ export { turnChangesFingerprint };
 export { inspectionKey };
 export { captureArtifacts, classifyPath } from './artifacts.ts';
 export { presentedForClosing, selectDeliverables } from './turn-deliverables.ts';
+export { parseChangesReviewAddress, wrapChangesReviewOpen } from './review-address.ts';
 export { Deliverables } from './Deliverables.tsx';
 //# sourceMappingURL=index.d.ts.map

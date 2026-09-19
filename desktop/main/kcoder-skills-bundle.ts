@@ -67,8 +67,16 @@ export const DSH_TERMINAL_BUNDLE = '@kkutysllb/dsh-terminal'
  */
 export const DSH_SHELL_PREFS_BUNDLE = 'dsh-shell-prefs'
 
-/** 改动审查 bundle 包名（独立自立插件 dsh-file-review-kcoder；真源在同名独立仓，sync-bundles.mjs 同步产物）。 */
-/** @deprecated 2026-09-18 退役（typert 产物不兼容 alpha.2 + 原生交付物预览覆盖）。 */
+/**
+ * 改动审查 bundle 包名（独立自立插件 dsh-file-review-kcoder；真源在同名独立仓，
+ * sync-bundles.mjs 同步产物）。
+ *
+ * 退役标记已于 2026-09-19 撤销（`03cf750` un-retire @1.0.5）：alpha.2 严格
+ * codec 契约（五枚 codec 双字段）+ turnTail list 语义已在真源仓修好；增强审查
+ * 卡（hunks/统计/撤销）与侧边栏审查 tab 是 coding-sidebar 的衍生面，原生
+ * ReviewTab 不复刻。原生 changed-files 尾卡由产品策略关闭（tailCard:false），
+ * 本插件按三层互让规则接管同一行。
+ */
 export const DSH_FILE_REVIEW_BUNDLE = 'dsh-file-review-kcoder'
 
 /**
@@ -76,8 +84,12 @@ export const DSH_FILE_REVIEW_BUNDLE = 'dsh-file-review-kcoder'
  * 发布线；真源 kkutysllb/dsh-coding-sidebar，sync-bundles 经 dsh-plugins
  * 镜像同步产物）。实体以本 bundle 物化为终态；profile deps 里的同名
  * 声明是依赖树牵引，不是残留接线（见 materialize 的 removable 过滤例外）。
+ *
+ * 退役标记已于 2026-09-19 撤销（`95e7a83` un-retire @1.0.18）：差异化功能
+ * （git 面板/GitHub、Office·视频预览、QiLin 通道接管、任务计划）无原生替代；
+ * 用户拍板为**产品铁律 1**——右侧工作台只由本插件承担，不复用上游原生侧边栏
+ * （见 docs/ARCHITECTURE.md §12）。
  */
-/** @deprecated 2026-09-18 退役（右侧栏回归原生，D1a 翻转）。 */
 export const DSH_CODING_SIDEBAR = 'dsh-coding-sidebar'
 
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */

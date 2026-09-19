@@ -103,10 +103,18 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // 实体在窗口期对新上游有毒——file-review 的旧 typert codec 注册失败
   // 会连带撤回全部远端定义，2026-09-19 现场实证）。保持与 bundle 物化
   // 版本同线：窗口期变成同版本幂等，风险归零。
-  'dsh-coding-sidebar': '^1.0.21',
-  // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5）：coding-sidebar
-  // 的衍生插件（增强审查卡 + 侧边栏审查 tab）
-  'dsh-file-review-kcoder': '^1.0.5',
+  // 2026-09-19 平移：^1.0.21 → ^1.0.23（npm 现最新已发布版）。**注意窗口期**：
+  // 本版随包物化的实体是 **1.0.25**（团队 tab + 设置页移除用户自加 Tab/预览入口 +
+  // 浏览器 tab 上游对齐 + 工作区外读取），而 npm 上最新只到 1.0.23——声明只能取
+  // 已发布版本，实体由 bundle 物化覆盖（启动期 `ensureKcoderBundles` 按"随包版本
+  // 更高即覆盖"纠偏，1.0.25 > 1.0.23 恒成立）。用户发布 1.0.25 后把这行平移到
+  // ^1.0.25 即可归一（纯 chore，不影响运行）。
+  'dsh-coding-sidebar': '^1.0.23',
+  // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5 → 1.0.6）：coding-sidebar
+  // 的衍生插件（增强审查卡 + 侧边栏审查 tab）。1.0.6 追加 changes-review 地址
+  // 家族认领（原生评审开法改开自家页签）。已发布且双源可见，故与 bundle 物化
+  // 同线（实体 1.0.6 = 声明 ^1.0.6）。
+  'dsh-file-review-kcoder': '^1.0.6',
 }
 
 /**
