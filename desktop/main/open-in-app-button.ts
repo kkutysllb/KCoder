@@ -51,9 +51,11 @@ const APP_LABELS: Record<string, string> = {
   gnometerminal: 'GNOME Terminal',
 }
 
-/** 按钮图标（无记忆应用时的通用「外部打开」形；有记忆时换应用图标）。 */
+/** 按钮图标（无记忆应用时的通用形：&lt;/&gt; 代码字形——「在编辑器中打开」
+ * 的直观隐喻；v1 用外链箭头被读作「分享」，否决）。有记忆应用后换其
+ * 真实图标（icon 路由），此形退为菜单项图标加载失败的兜底。 */
 const FALLBACK_ICON =
-  '<svg viewBox="0 0 16 16" fill="none"><path d="M6.5 3H4.2C3.5 3 3 3.5 3 4.2v7.6c0 .7.5 1.2 1.2 1.2h7.6c.7 0 1.2-.5 1.2-1.2V9.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 3H13v3.5M13 3l-5.5 5.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  '<svg viewBox="0 0 16 16" fill="none"><path d="M6.2 4.6 3.4 8l2.8 3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.8 4.6 12.6 8l-2.8 3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 
 /** 注入脚本（页面上下文执行；模板字符串内禁 TS 注解与反引号）。 */
 const PAGE_JS = `(() => {
