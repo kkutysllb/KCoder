@@ -27,7 +27,7 @@
 import { execSync, spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { closeSync, cpSync, createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve, sep } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { createGzip } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 

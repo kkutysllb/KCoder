@@ -95,6 +95,7 @@ export function mountDiagnostics(root: HTMLElement): void {
     const CODE_RE = /`([^`]+)`/g
     const BOLD_RE = /\*\*(.+?)\*\*/g
     const LINK_RE = /\[([^\]]+)\]\([^)]*\)/g
+    // oxlint-disable-next-line no-control-regex -- NUL 是本地占位哨兵（同 update-injector 的 renderNotes），只匹配本函数自己写入的占位符，不校验外部输入
     const PLACE_RE = /\x00(\d+)\x00/g
     const inline = (seg: string): string => {
       const slots: string[] = []

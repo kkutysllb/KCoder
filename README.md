@@ -73,6 +73,8 @@ pnpm build && pnpm start
    （typecheck / lint / 生产依赖安全漏洞为硬门；死代码 / 冗余依赖报告项逐条修复或豁免），处置后写
    `release/audit-v<版本>.md` 随发版入库；`bash scripts/release.sh ship <版本>` 会重跑审计与全量
    构建（pre-push 门），通过后自动 bump 版本号 → 提交 → tag → 推送；
+   ⚠ **发版前 fork 集成分支必须已推送**（CI 从 GitHub 克隆 fork 构建内置运行时；tag 先于 fork push
+   会把旧 fork 状态打进安装包——0.4.5 现场，详见 `release/README.md` 约定 3）；
 5. 自动更新：应用启动 8s 后静默检测 → 后台下载 → 侧边栏安装按钮/菜单 → 重启安装。
 
 ## 图标

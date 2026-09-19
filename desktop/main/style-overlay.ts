@@ -213,6 +213,10 @@ function effectiveSpec(style: StyleSettings): DensitySpec | null {
  * （六个上游包在 dsh.client.inject 里硬声明它，禁用会让主对话链整体挂
  * 掉）。display:none 而非移除：隐藏元素仍可 .click() 派发（React 事件
  * 委托挂在 root）。上游改名 → 压制静默失效（外壳复现），不崩不错位。
+ *
+ * 本段是「产品铁律 1：不使用上游原生侧边栏功能」的**执行点**
+ * （docs/ARCHITECTURE.md §12）——上游把外壳改名或新增侧栏形态时，
+ * 正解是改插件仓发新版本，不是放开本压制。
  */
 const NATIVE_SIDEBAR_CSS = `[data-sidebar-right-expand],
 [data-sidebar-right-panel],

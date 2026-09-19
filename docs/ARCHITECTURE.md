@@ -163,6 +163,8 @@ KCoder 的 `deepseek-harness/` 原是 submodule，重建时已**扶正为独立�
 
 ## 7. 上游契约检查清单
 
+> 本节说「上游变了改哪里」；**哪些事我们不做**见 §12 产品铁律（效力更高）。
+
 上游若变更以下约定，只需更新对应位置（完整版含上游源码依据见根 README）：
 
 | 契约 | 落点 |
@@ -190,7 +192,10 @@ typecheck 链尾已含 `scripts/check-injected-scripts.mjs`：抽取 desktop/mai
 ### 协作惯例
 
 - GUI 不由 AI 验证：AI 交付验证清单 → 用户重启 app 实测 → 用户说提交才提交；
-  push 永远由用户执行。
+  push 永远由用户执行。**唯一例外是发版链**：按 `release/README.md` 的发布
+  约定跑 `scripts/release.sh ship <版本>` 时，commit / tag / push 属该流程的
+  既定步骤（含 CI 依赖的 fork 集成分支推送——tag 早于 fork push 会让发布物
+  与本地验证脱节，见 `brand-assert.mjs` 的由来）。
 - 注入脚本是模板字符串：**内部禁写 TS 注解**（纯 JS，构建不转译模板内容）。
 
 ### 坑记
@@ -256,6 +261,7 @@ typecheck 链尾已含 `scripts/check-injected-scripts.mjs`：抽取 desktop/mai
 | 加/改 CSS 注入 | `main/style-overlay.ts`（注意锚点策略） |
 | 加面板页面 | `renderer/src/main.ts` 路由表 + `views/` 新文件 + `shared/ipc-contract.ts` + `main/ipc.ts` |
 | 升级上游 | `pnpm sync-upstream` → 查 §7 清单 → `scripts/verify-*.cjs` |
+| ⚠ 上游动了侧边栏/侧栏契约 | **只改插件仓（dsh-plugins 系）→ 发新版本**，KCoder 侧仅消费接线（§12 铁律 1/2）；绝不把原生侧栏接回来 |
 | 重新生成品牌图 | app 图标 `assets/icon.png`/`renderer kcoder.png` 是手动放置的自有品牌图（勿覆盖）；托盘/侧边栏图由它派生：`python3 scripts/make-tray-icons.py`（黑底 keying 取 K 形状 alpha → 包围盒裁剪 → 32px 托盘双产物 + 64px `brand-k.png` 供 brand-injector 嵌入） |
 | ⚠ 托盘图覆盖坑 | `pnpm icons`（make-icons.cjs 产上游鲸鱼图）会覆盖已品牌化的 `assets/tray*.png`——运行后需重跑 make-tray-icons.py |
 | 发布 | `package.json` 版本 → 提交 → tag push（CI 三平台，见根 README） |
@@ -266,3 +272,48 @@ typecheck 链尾已含 `scripts/check-injected-scripts.mjs`：抽取 desktop/mai
 - [ ] 全局快捷键唤起、deep link（`kcoder://`）
 - [ ] 面向 KCoder 产品定位的交互迭代（基于 `assets/legacy/` 逐步移植）
 - [ ] Windows / Linux 打包验证
+
+## 12. 产品铁律（不可回退的产品决策）
+
+> 与 §7 配套：§7 说「上游变了改哪里」，本节说「哪些事我们不做」。
+> 铁律的效力高于单次升级的便利——上游的能力再顺手，也不改变下列路线；
+> 要改铁律，必须由产品负责人显式拍板并在本节留下日期与理由。
+
+### 铁律 1：不使用上游原生侧边栏功能（2026-09-19 定）
+
+右侧工作台**只由自研插件 `dsh-coding-sidebar` 承担**；上游原生右侧栏
+（`ui-sidebar-right` 及其文件树 / 文档预览 / 终端 / 浏览器 tab）不作为产品功能使用。
+**后续针对上游变化，只迭代完善我们的侧边栏插件，不接回原生侧栏。**
+
+- **服务层保留、外壳收掉**：`ui-sidebar-right` 的包与服务契约**必须保留**
+  （`ui-chat` / `ui-reference` / `ui-skill` / `ui-sidebar-files` /
+  `ui-sidebar-documentpreview` / `ui-sidebar-terminal` 在 `dsh.client.inject`
+  里硬声明它，禁用会让主对话链整体挂掉）；用户可见外壳由 `style-overlay.ts`
+  的 `NATIVE_SIDEBAR_CSS` 压制（`data-sidebar-right-{expand,panel,float-host}`）。
+- **打开动作归插件**：文件 / `@` 引用 / `/技能` 引用的打开走插件 `openpath`
+  拦截，重定向进自家编辑器。**上游新增的侧栏形态一律不接**——例如侧栏浏览器
+  走 `ctx.sidebarRight.openTab('browser', …)` 的上游内部路由，不经我们的拦截
+  面，产品上按「不使用」处理（链接回落既有行为）。
+- **按钮与入口自持**：侧栏开关由自绘标题栏右端代理（`sidebar-cluster.ts`
+  转发插件自己的开关簇按钮）；入口由插件自带，原生入口压制
+  （`SIDEBAR_PLUGIN_ENTRY_CSS`）。
+- **上游改动怎么办**：**只改插件仓 → 发新版本**（见铁律 2）。上游每动一次侧栏
+  契约，处置路径都是「插件适配 + 发版」，不是「把原生接回来」。
+- **已知副作用（写进发布说明，避免误读为缺失）**：上游侧栏新能力
+  （如 `ui-sidebar-browser` 侧栏浏览器）在 KCoder 不可见；能力落差一律在
+  release notes 的「未启用 / 已由内置实现替代」段列明。
+
+### 铁律 2：新版本适配只改插件源码（2026-09-19 定）
+
+上游版本适配**只在插件仓（`~/kk_Projects/dsh-plugins` 系）改源码并发新版本**，
+不在 KCoder 里为插件补适配层。KCoder 只做三件事：
+
+1. **消费接线**：`BUNDLES` / `PRESET_PLUGINS` / `sync-bundles.mjs` 映射；
+2. **宿主侧产品压制**：`product-policy.ts` / `style-overlay.ts` / 注入器；
+3. **本仓自有功能**：renderer、主进程模块、发布链。
+
+例外：**宿主自身契约**（就绪行 / CLI 形态 / DSH_HOME / 注入锚点 / Electron ABI）
+的适配仍在 KCoder——那属于 §7 清单范畴，不是插件内部实现。
+
+> 配套纪律：preset 依赖声明必须指向**已发布且与物化实体同线**的版本
+> （声明未发布的版本会让 `pnpm install` 在启动期失败，见坑记之外的 0.6.12/0.6.13 现场）。
