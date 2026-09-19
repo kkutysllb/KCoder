@@ -103,7 +103,7 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // 实体在窗口期对新上游有毒——file-review 的旧 typert codec 注册失败
   // 会连带撤回全部远端定义，2026-09-19 现场实证）。保持与 bundle 物化
   // 版本同线：窗口期变成同版本幂等，风险归零。
-  'dsh-coding-sidebar': '^1.0.20',
+  'dsh-coding-sidebar': '^1.0.21',
   // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5）：coding-sidebar
   // 的衍生插件（增强审查卡 + 侧边栏审查 tab）
   'dsh-file-review-kcoder': '^1.0.5',
