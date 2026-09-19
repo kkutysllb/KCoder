@@ -97,10 +97,17 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // 注册；实体终态由 bundle/dsh-coding-sidebar 物化覆盖——满足本 spec
   // 的安装实体不会被 pnpm 回滚，index.ts 在 preset install 后二调
   // ensureKcoderBundles 兑现纠偏
-  'dsh-coding-sidebar': '^1.0.19',
-  // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5）：coding-sidebar
-  // 的衍生插件（增强审查卡 + 侧边栏审查 tab）；同款仅牵引依赖树声明
-  'dsh-file-review-kcoder': '^1.0.5',
+  // 注意：本声明**仅牵引依赖树**（codemirror/ws/node-pty 等 hoist 到
+  // profile 顶层），运行时实体终态由 bundle/ 物化覆盖（bundle 版本可以
+  // 也没必要与这里同步）——所以这里必须用 **npm 上已发布的版本**。
+  // 2026-09-19 现场：误写未发布的 ^1.0.19/^1.0.5 → pnpm install 解析
+  // 失败（空错误）→ profile 文件态在 boot 中途被改写 → file-review 的
+  // betterSidebar 等待挂起。已发布线：1.0.17 / 1.0.4；新版本发布后可
+  // 平移（但非必需——实体不看这里）。
+  'dsh-coding-sidebar': '^1.0.17',
+  // dsh-file-review-kcoder（2026-09-19 un-retire）：coding-sidebar 的
+  // 衍生插件（增强审查卡 + 侧边栏审查 tab）
+  'dsh-file-review-kcoder': '^1.0.4',
 }
 
 /**
