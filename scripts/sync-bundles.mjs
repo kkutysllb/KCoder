@@ -50,8 +50,14 @@ const EXCLUDE = new Set(['.git', 'node_modules'])
 const MAPPINGS = [
   { src: 'dsh-terminal', dst: 'dsh-terminal', select: [] },
   { src: 'dsh-skills-bundle', dst: 'dsh-skills-bundle', select: [] },
-  // 2026-09-18 退役映射×2（dsh-file-review-kcoder / dsh-coding-sidebar）：
-  // 右侧栏回归原生，镜像与 bundle/ 目录一并移除
+  // dsh-coding-sidebar（2026-09-19 un-retire @1.0.18：alpha.2 turnTail
+  // list 适配完成，真源仓发布 1.0.18；文件预览线之外的差异化功能
+  // git 面板/Office·视频预览/QiLin 接管无原生替代——评估记录见
+  // docs/upstream-0.1.6-alpha.2-analysis.md §9.9）
+  { src: 'dsh-coding-sidebar', dst: 'dsh-coding-sidebar', select: [] },
+  // 2026-09-18 退役映射×1（dsh-file-review-kcoder）：原生 ui-deliverables
+  // 的 ReviewTab（Host git 快照供数）覆盖基础审查；本包 typert codec
+  // 仍欠修（alpha.2 校验会连带拖垮远端注册），维持退役
 ]
 
 const CHECK = process.argv.includes('--check')

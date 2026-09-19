@@ -100,9 +100,13 @@ const BUNDLES: BundledPlugin[] = [
   { pkg: DSH_SKILLS_BUNDLE, dir: 'dsh-skills-bundle', entry: 'entry.js', intactFiles: [join('skills', 'manifest.json')] },
   { pkg: DSH_TERMINAL_BUNDLE, dir: 'dsh-terminal', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: DSH_SHELL_PREFS_BUNDLE, dir: 'dsh-shell-prefs', entry: 'entry.js', intactFiles: ['client.js'] },
-  // 2026-09-18 退役 dsh-file-review-kcoder / dsh-coding-sidebar
-  // （右侧栏回归原生：文件预览由原生 ui-sidebar-documentpreview 承担，
-  // 见 RETIRED_PLUGINS；终端保留自研，@kkutysllb/dsh-terminal 不退役）
+  // dsh-coding-sidebar（2026-09-19 un-retire @1.0.18）：alpha.2 turnTail
+  // list 适配已在真源仓完成（chain select/priority 抢占 → list id + 组件
+  // 内退位共存）。差异化功能（git 面板/GitHub、Office·视频预览、QiLin
+  // 通道接管、任务计划）无原生替代，评估见升级文档 §9.9。
+  { pkg: DSH_CODING_SIDEBAR, dir: 'dsh-coding-sidebar', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
+  // 2026-09-18 退役 dsh-file-review-kcoder（原生 ui-deliverables 的
+  // ReviewTab 覆盖基础审查；本包 typert codec 仍欠修，维持退役）
 ]
 
 /** 物化 bundle 包名清单（plugins 页内置清单与更新选路共用）。 */

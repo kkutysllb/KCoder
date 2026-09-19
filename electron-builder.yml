@@ -34,13 +34,9 @@ extraResources:
   # profile 残留注册由 RETIRED_PLUGINS 三清自愈，无需随包资源；
   # dsh-git-panel 亦于 2026-09-14 退役：能力被侧边栏 dsh-coding-sidebar
   # 的 Git 面板覆盖，同样三清自愈）
-  # dsh-file-review-kcoder（改动审查，完全自立维护；血缘
-  # left0ver/dsh-file-review；真源同名独立仓，sync-bundles.mjs 同步产物）
-  - from: bundle/dsh-file-review-kcoder
-    to: dsh-file-review-kcoder
-  # dsh-coding-sidebar（侧边栏工作台自立包，fork 自
-  # DSH-better-sidebar 0.17.2，底面板移除；真源 kkutysllb/dsh-coding-sidebar，
-  # 两级镜像 dsh-plugins → 仓库 bundle/，sync-bundles.mjs 同步）——
+  # dsh-coding-sidebar（2026-09-19 un-retire @1.0.18：alpha.2 turnTail
+  # list 适配完成；真源 kkutysllb/dsh-coding-sidebar，两级镜像
+  # dsh-plugins → 仓库 bundle/，sync-bundles.mjs 同步）——
   # profile deps 的 ^1.0.0 仅牵引依赖树，实体由 kcoder-skills-bundle
   # 物化覆盖为终态，index.ts 在 preset install 后二调
   # ensureKcoderBundles 兑现纠偏。目录级映射：产物更新落仓库即随包，

@@ -91,6 +91,13 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // dsh-settings 已移除该导出）——0.37.x 与 alpha.2 引擎组合启动即
   // SyntaxError 全局崩（0.4.9 Windows 升级现场实证）
   'dsh-context': '^0.38.5',
+  // dsh-coding-sidebar（2026-09-19 un-retire @1.0.18）：自立 npm 包
+  // （fork 自 DSH-better-sidebar 0.17.2，发版节奏自控），本声明仅牵引
+  // 依赖树（codemirror/ws/node-pty 等 hoist 到 profile 顶层）+ bundles
+  // 注册；实体终态由 bundle/dsh-coding-sidebar 物化覆盖——满足本 spec
+  // 的安装实体不会被 pnpm 回滚，index.ts 在 preset install 后二调
+  // ensureKcoderBundles 兑现纠偏
+  'dsh-coding-sidebar': '^1.0.18',
 }
 
 /**
