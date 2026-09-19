@@ -650,6 +650,43 @@ staging 运行时）：
 已装 0.6.13 实例不受退役影响（旧运行时自带旧热修痕迹）；下次发版
 全新物化自然干净。
 
+### 9.9 决策修订：dsh-coding-sidebar un-retire @1.0.18（2026-09-19）
+
+**推翻 §4.2/§9.2 的退役决策**。触发：用户指出先前评估的两个盲区——
+真源仓已演进（1.0.17），上游插件机制已变。
+
+**评估修正**（相对 09-18 的三个新事实）：
+1. **功能面**：真源仓 1.0.13-1.0.17 的差异化功能矩阵——git 面板（距离/
+   推送/分支/GitHub）、Office 预览（docx·xlsx·pptx）+ 16 种视频格式
+   Range 流式、QiLin 通道设置接管、任务计划 tab——上游原生无替代且
+   不会有（QiLin 是自有场景）。09-18 评估基于仓内退役残档（1.0.16），
+   版本认知过时。
+2. **机制面**：上游 alpha.2 起 `9ddef327a4` 默认解析模式 link→runtime、
+   `fb0fb48033` 客户端插件免重载、插件管理页（我们 fork 贡献）——插件
+   是一等公民，"fork 追踪成本"论点被方向性削弱。
+3. **活体事实**（npm 装包 + alpha.2 引擎实测）：host 半激活、client 半
+   加载、宿主渲染全部正常；**唯一断点是 turnTail 槽位 chain→list**
+   （`list slot requires options.id`）——修复面极小且全在插件侧。
+
+**适配（只在插件仓，发新版本；KCoder 零适配——既定原则）**：
+真源仓 1.0.18（`180e0f1`）——turnTail 注册改 list 语义（id 必需，
+select/priority 移除），匹配/退位判定移入组件；**共存规则取代抢占**：
+带 workspace/changes 公告的 turn 退位（原生 changed-files 卡会出，其
+chips 仍经 openResource 拦截落进本侧边栏）——同一份文件永不双行；
+产物行的新职责 = 补原生缺口（无 changes 摘要服务的工作区）。12 个
+peer 放宽 `^…alpha.1 || ^…alpha.2`。真源门禁全过（typecheck/build/
+test/smoke/169 文件产物可复现）。
+
+**KCoder 侧仅消费接线**（`95e7a83`）：BUNDLES + PRESET_PLUGINS
+（^1.0.18）+ sync-bundles 映射恢复 + electron-builder（file-review
+死映射删除，维持退役——独立决策：原生 ReviewTab 覆盖基础审查，
+typert codec 仍欠修）。
+
+**待验证（dev 实测）**：插件侧边栏与原生外壳共存（活体测试显示插件
+自带原生压制，nativeExpand 未出现）、sidebar-toggle/sidebar-cluster
+代理与插件宿主不冲突、Office/视频预览与 git 面板在 alpha.2 运行时
+解析下的表现。npm 发布待执行（真源仓已就绪，需登录态）。
+
 ---
 
 ## 10. GUI 验收清单（由用户重启 app 实测）
