@@ -97,7 +97,10 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // 注册；实体终态由 bundle/dsh-coding-sidebar 物化覆盖——满足本 spec
   // 的安装实体不会被 pnpm 回滚，index.ts 在 preset install 后二调
   // ensureKcoderBundles 兑现纠偏
-  'dsh-coding-sidebar': '^1.0.18',
+  'dsh-coding-sidebar': '^1.0.19',
+  // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5）：coding-sidebar
+  // 的衍生插件（增强审查卡 + 侧边栏审查 tab）；同款仅牵引依赖树声明
+  'dsh-file-review-kcoder': '^1.0.5',
 }
 
 /**

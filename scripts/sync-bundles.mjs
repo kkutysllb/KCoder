@@ -55,9 +55,9 @@ const MAPPINGS = [
   // git 面板/Office·视频预览/QiLin 接管无原生替代——评估记录见
   // docs/upstream-0.1.6-alpha.2-analysis.md §9.9）
   { src: 'dsh-coding-sidebar', dst: 'dsh-coding-sidebar', select: [] },
-  // 2026-09-18 退役映射×1（dsh-file-review-kcoder）：原生 ui-deliverables
-  // 的 ReviewTab（Host git 快照供数）覆盖基础审查；本包 typert codec
-  // 仍欠修（alpha.2 校验会连带拖垮远端注册），维持退役
+  // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5：typert create()
+  // 工厂 + turnTail list 适配完成，真源仓发布 1.0.5）
+  { src: 'dsh-file-review-kcoder', dst: 'dsh-file-review-kcoder', select: [] },
 ]
 
 const CHECK = process.argv.includes('--check')

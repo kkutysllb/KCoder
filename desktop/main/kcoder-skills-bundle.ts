@@ -105,8 +105,10 @@ const BUNDLES: BundledPlugin[] = [
   // 内退位共存）。差异化功能（git 面板/GitHub、Office·视频预览、QiLin
   // 通道接管、任务计划）无原生替代，评估见升级文档 §9.9。
   { pkg: DSH_CODING_SIDEBAR, dir: 'dsh-coding-sidebar', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
-  // 2026-09-18 退役 dsh-file-review-kcoder（原生 ui-deliverables 的
-  // ReviewTab 覆盖基础审查；本包 typert codec 仍欠修，维持退役）
+  // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5）：typert create()
+  // 工厂 + turnTail list 适配已在真源仓完成；增强审查卡（hunks/统计/
+  // 撤销）+ 侧边栏审查 tab 为 coding-sidebar 的衍生插件
+  { pkg: DSH_FILE_REVIEW_BUNDLE, dir: 'dsh-file-review-kcoder', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
 ]
 
 /** 物化 bundle 包名清单（plugins 页内置清单与更新选路共用）。 */

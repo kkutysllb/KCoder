@@ -43,6 +43,9 @@ extraResources:
   # release.sh verify 与仓库清单逐文件对账防断供
   - from: bundle/dsh-coding-sidebar
     to: dsh-coding-sidebar
+  # dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5，alpha.2 适配完成）
+  - from: bundle/dsh-file-review-kcoder
+    to: dsh-file-review-kcoder
   # 插件热补丁（name-only patchedDependencies，主进程启动时幂等物化进
   # $DSH_HOME/profiles/web，声明跟随 deps 实态自愈，见 profile-patches.ts）：
   # 余 dsh-context RO 回路冷却一条（video-preview 删 ts 补丁已随侧边栏

@@ -1,0 +1,321 @@
+/*
+ * Explicit-delivery section of the turn-tail row.
+ *
+ * Metrics mirror the built-in ui-deliverables card (60px rows, 40px icon
+ * frame, 8px/10px inset, 10px grid gap, one full-width row for a single
+ * delivery) so the row this plugin elects is indistinguishable from the
+ * surface it took over. Colors come from the alias tokens the rest of this
+ * plugin's card already uses, which follow the application theme.
+ */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  margin-top: 4px;
+}
+
+.hostStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.retry {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dsw-alias-link, currentColor);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.retry:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--dsw-alias-border-l3);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.grid[data-single='true'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.file {
+  position: relative;
+  display: flex;
+  box-sizing: border-box;
+  height: 60px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: 18px;
+  background: var(--dsw-alias-bg-container, Canvas);
+  color: var(--dsw-alias-label-primary);
+  transition: background-color 120ms ease;
+}
+
+.file:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* The whole card previews; the split control above it owns its own gestures. */
+.cardPreview {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.cardPreview:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--dsw-alias-border-l3);
+}
+
+.fileIcon {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  overflow: hidden;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-link, var(--dsw-alias-label-secondary));
+  pointer-events: none;
+}
+
+.glyph {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+}
+
+.fileBody {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  pointer-events: none;
+}
+
+.details {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+
+.fileName {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.description {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.description[data-error='true'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* Hovering the card swaps the secondary line for the preview affordance.
+   Both spans are declared (not left to an unresolved class key) so the
+   :hover rules below always match a real scoped name. */
+.secondaryText {
+  display: inline;
+}
+
+.previewHint {
+  display: none;
+}
+
+.file:hover .secondaryText {
+  display: none;
+}
+
+.file:hover .previewHint {
+  display: inline;
+}
+
+.split {
+  position: relative;
+  display: inline-flex;
+  box-sizing: border-box;
+  flex: none;
+  height: 28px;
+  align-items: stretch;
+  overflow: visible;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-container, Canvas);
+  pointer-events: auto;
+}
+
+.open,
+.chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  font: inherit;
+}
+
+.open {
+  padding: 4px 8px;
+  border-radius: 9px 0 0 9px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.chevron {
+  padding: 4px 5px;
+  border-left: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 0 9px 9px 0;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.chevronGlyph {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.open:hover,
+.open:focus-visible,
+.chevron:hover:not(:disabled),
+.chevron:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.open:focus-visible,
+.chevron:focus-visible {
+  outline: none;
+}
+
+.chevron:disabled {
+  color: var(--dsw-alias-label-dimmed, var(--dsw-alias-label-tertiary));
+  cursor: not-allowed;
+}
+
+/* Anchored under the chevron; the split above owns the stacking context. */
+.menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  right: 0;
+  display: flex;
+  min-width: 168px;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-container, Canvas);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 16%);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+  outline: none;
+}
+
+.menuIcon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.3;
+}
+
+.toggle {
+  align-self: center;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.toggle:hover {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.toggle:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--dsw-alias-border-l3);
+}

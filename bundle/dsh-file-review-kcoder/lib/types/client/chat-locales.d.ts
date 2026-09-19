@@ -1,0 +1,87 @@
+/** `file-review` namespace dictionaries. */
+/** Dictionary namespace owned by this plugin. */
+export declare const NS = "file-review";
+/** English dictionary (the key-set source of truth). */
+export declare const en: {
+    'produced.summary': string;
+    'produced.editedOne': string;
+    'produced.edited': string;
+    'produced.moreOne': string;
+    'produced.more': string;
+    'produced.collapse': string;
+    'produced.preview': string;
+    'produced.kindImage': string;
+    'produced.kindVideo': string;
+    'produced.kindAudio': string;
+    'produced.kindOffice': string;
+    'produced.kindPdf': string;
+    'produced.kindDoc': string;
+    'produced.open': string;
+    'produced.review': string;
+    'produced.reviewAll': string;
+    'produced.undo': string;
+    'produced.redo': string;
+    'produced.undoing': string;
+    'produced.redoing': string;
+    'produced.toggleUnavailable': string;
+    'produced.undoSuccess': string;
+    'produced.redoSuccess': string;
+    'produced.undoPartial': string;
+    'produced.redoPartial': string;
+    'produced.undoPartialDescription': string;
+    'produced.redoPartialDescription': string;
+    'produced.skippedFiles': string;
+    'produced.undoError': string;
+    'produced.redoError': string;
+    'produced.noticeClose': string;
+    'produced.noticeDismiss': string;
+    'produced.deleted': string;
+    'produced.deletedOne': string;
+    'produced.deletedAll': string;
+    'review.title': string;
+    'review.fileOne': string;
+    'review.files': string;
+    'review.close': string;
+    'review.resize': string;
+    'review.resizeHint': string;
+    'review.openInEditor': string;
+    'review.copy': string;
+    'review.copied': string;
+    'review.showUnchanged': string;
+    'review.hideUnchanged': string;
+    'review.stats': string;
+    'review.unavailable': string;
+    'presented.summary': string;
+    'presented.action': string;
+    'presented.preview': string;
+    'presented.previewCard': string;
+    'presented.previewButton': string;
+    'presented.more': string;
+    'presented.defaultApp': string;
+    'presented.finder': string;
+    'presented.explorer': string;
+    'presented.directory': string;
+    'presented.opening': string;
+    'presented.opened': string;
+    'presented.error': string;
+    'presented.revealing': string;
+    'presented.revealed': string;
+    'presented.revealError': string;
+    'presented.directoryOpening': string;
+    'presented.directoryOpened': string;
+    'presented.directoryError': string;
+    'presented.nativeUnavailable': string;
+    'presented.unavailable': string;
+    'presented.hostError': string;
+    'presented.retry': string;
+    'presented.all': string;
+    'presented.collapse': string;
+    'presented.expandAria': string;
+    'presented.collapseAria': string;
+    'presented.file': string;
+};
+/** Union of this namespace's dictionary keys. */
+export type DeliverablesKey = keyof typeof en;
+/** Simplified Chinese dictionary. */
+export declare const zh: Record<DeliverablesKey, string>;
+//# sourceMappingURL=chat-locales.d.ts.map

@@ -1,0 +1,419 @@
+/**
+ * File-review-tab plugin, browser half: TWO coexisting surfaces over the same
+ * produced-file vocabulary —
+ *
+ * 1. the chat turn-tail row (the original dsh-file-review card: "Edited N
+ *    files · +M -K / Undo / Review"), registered into the
+ *    'conversation.chat.turnTail' chain at priority -2 so it claims the chain
+ *    BEFORE dsh-coding-sidebar's own -1 interception row (chain election is
+ *    first-claim-wins: exactly one row ever renders, never both). Since dsh
+ *    0.1.2-alpha.1 the per-turn produced paths come from the BUILT-IN
+ *    ui-deliverables plugin (which owns the `deliverables` Definition and its
+ *    turn Location data — this plugin registers no Definition of its own, a
+ *    second `deliverables` kind would collide with and crash the built-in);
+ *    the card's diff stats and undo ride the session derive (session-changes
+ *    argument-contract reconstruction). Because an elected chain entry owns
+ *    the WHOLE row, the registered component is `Deliverables`, which also
+ *    renders dsh 0.1.5-alpha.2's explicit-delivery cards (`present`) — see
+ *    Deliverables.tsx; and
+ * 2. the 'file-review' better-sidebar tab (per-session change list + inline
+ *    red/green diffs + per-turn/per-file undo).
+ *
+ * The Host half's undo/redo capability reaches both surfaces through the
+ * package's Typert remote contribution, mounted here exactly like
+ * dsh-file-review did. Every registration is wrapped in ctx.effect so fiber
+ * disposal (HMR / plugin disable) unregisters cleanly.
+ */
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from 'dsh-coding-sidebar/client/service'
+import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+import type { TabDescriptor } from 'dsh-coding-sidebar/client/service'
+import type {
+  FileReviewRequest, FileReviewResult, ProducedFileReview,
+} from '../change-types.ts'
+import { TYPERT_REMOTE } from '../remote.ts'
+import { FileReviewTab } from './FileReviewTab.tsx'
+import { resolveConversationStore, turnChangesFingerprint } from './conversation-store.ts'
+import type { ConversationFace } from './conversation-store.ts'
+import { fileReviewDefinition } from './definition.ts'
+import { FileReviewTurnTail } from './Deliverables.tsx'
+import { inspectionKey } from './ProducedFiles.tsx'
+import { PresentedOpenController } from './present-open.ts'
+import { attachLocale, en, LOCALE_NS, t, zh } from './locales.ts'
+import {
+  en as chatEn, NS as CHAT_NS, zh as chatZh, type DeliverablesKey,
+} from './chat-locales.ts'
+import {
+  countChangedFiles, deriveTimelineChanges, resolveSessionPath, splitArchivedTurns,
+} from './session-changes.ts'
+import { basename, selectDeliverables } from './turn-deliverables.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** Turn-tail row copy (the chat-side surface). */
+    'file-review': DeliverablesKey
+  }
+}
+
+/**
+ * Required services: the sidebar registry, session snapshots, locale, remote,
+ * and the slot registry (turn-tail chain). The conversation Definition
+ * registry is deliberately NOT a static inject: its service name moved across
+ * dsh releases (<= 0.1.1: root `conversationEvents`; 0.1.2-alpha.1+:
+ * `uiConversation.events`), so a hard inject on either name leaves the whole
+ * plugin forever "pending" on the other version and fails web boot (issue
+ * #6). It is resolved dynamically in apply() instead.
+ */
+export const inject = [
+  'betterSidebar',
+  'sessions',
+  'locale',
+  'remote',
+  'slots',
+]
+
+/** The tab icon: a modest line-diff glyph drawn at the host-given size. */
+function FileReviewIcon({ size }: { readonly size: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 20 20"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M5.25 2.75h6l3.5 3.5v10a1 1 0 0 1-1 1h-8.5a1 1 0 0 1-1-1V3.75a1 1 0 0 1 1-1Z" />
+      <path d="M11.25 2.75v3.5h3.5" />
+      <path d="M7 10h2.5M10.5 10H12M7 13h5" />
+    </svg>
+  )
+}
+
+interface FileReviewRemote {
+  status(request: FileReviewRequest): Promise<RemoteResult<FileReviewResult>>
+  apply(request: FileReviewRequest): Promise<RemoteResult<FileReviewResult>>
+}
+
+/**
+ * The tab-strip badge: the number of distinct files this session changed.
+ * The sidebar re-renders the tab bar constantly (and streams publish a fresh
+ * snapshot reference per event), so the derivation is memoized by a cheap
+ * structural fingerprint per session — streaming token flushes keep the
+ * fingerprint stable and skip the full re-derive.
+ */
+const badgeMemo = new Map<string, { fingerprint: string; count: number | null }>()
+
+function faceFingerprint(face: ConversationFace | null): string {
+  if (face === null) return 'none'
+  let lastEnd = 0
+  for (const endSeq of face.legacy.turnEnds.values()) lastEnd = endSeq
+  // Definition data can land on the timeline (including a late-registration
+  // rebuild) without touching the windowed transcript slice, so the count
+  // of data-bearing turns rides the fingerprint too.
+  let dataTurns = -1
+  const timeline = face.timeline
+  if (timeline !== undefined) {
+    dataTurns = 0
+    for (const turn of timeline.turnOrder) {
+      if (timeline.turns.get(turn)?.data.get('fileReviewChanges') !== undefined) dataTurns += 1
+    }
+  }
+  return `${face.legacy.nodes.length}:${face.legacy.turnEnds.size}:${lastEnd}:${dataTurns}`
+}
+
+function badgeCount(ctx: Context, sessionId: string): number | null {
+  // Snapshot source is the uiConversation binding (the controller Session
+  // snapshot carries queue state only on 0.1.2-alpha.1+ — see
+  // conversation-store.ts).
+  const store = resolveConversationStore(ctx, sessionId)
+  const face = store?.getSnapshot() ?? null
+  const fingerprint = faceFingerprint(face)
+  const hit = badgeMemo.get(sessionId)
+  if (hit !== undefined && hit.fingerprint === fingerprint) return hit.count
+  // The badge counts the MAIN list only — auto-archived turns already read
+  // their review and left the tab's active section (issue #5). The derive
+  // is session-wide via the timeline (issue #8); the windowed snapshot
+  // derive remains the fallback inside deriveTimelineChanges.
+  const { main } = splitArchivedTurns(deriveTimelineChanges(face))
+  const count = countChangedFiles(main)
+  const value = count === 0 ? null : count
+  badgeMemo.set(sessionId, { fingerprint, count: value })
+  return value
+}
+
+/**
+ * Client plugin body: attach locale, mount the Typert remote, register the
+ * chat turn-tail row AND the sidebar tab.
+ * @param ctx - client root context.
+ */
+export function apply(ctx: Context): void {
+  attachLocale(ctx.locale)
+  ctx.effect(() => {
+    const offZh = ctx.locale.register(LOCALE_NS, 'zh', zh)
+    const offEn = ctx.locale.register(LOCALE_NS, 'en', en)
+    return () => { offZh(); offEn() }
+  }, 'file-review-tab: tab dictionaries')
+
+  ctx.effect(
+    () => ctx.locale.register(CHAT_NS, { zh: chatZh, en: chatEn }),
+    'file-review-tab: chat dictionaries',
+  )
+
+  // Native-open controller for declared deliveries (the `present` tool's
+  // cards). One instance for the whole plugin: its state is keyed by the
+  // per-file action URL, which already carries the Session, and the card
+  // section reads it through the slot's inject face. `connection/reset`
+  // invalidates cached desktop metadata; disposal cancels in-flight requests.
+  const presentedOpen = new PresentedOpenController()
+  ctx.effect(() => () => { void presentedOpen.dispose() }, 'file-review-tab: presented opens')
+  ctx.effect(() => ctx.on('connection/reset', () => { presentedOpen.resetHost() }), 'file-review-tab: presented host reset')
+
+  ctx.effect(() => {
+    let disposed = false
+    let disposeRemote: (() => Promise<void>) | undefined
+    void ctx.remote.$mount(TYPERT_REMOTE).then((dispose) => {
+      if (disposed) void dispose()
+      else disposeRemote = dispose
+    }).catch((error: unknown) => {
+      console.error('[dsh-file-review-tab] remote mount error:', error)
+    })
+    return () => {
+      disposed = true
+      if (disposeRemote !== undefined) void disposeRemote()
+    }
+  }, 'file-review-tab: typert remote')
+
+  // The plugin's own session-wide Definition (see definition.ts). The
+  // registry lives on the uiConversation service, which is deliberately NOT
+  // a declared inject (issue #6 policy: the conversation registries' service
+  // name moved across dsh releases, and a hard inject would leave the whole
+  // plugin forever pending on the wrong version) — resolve it dynamically
+  // instead, retrying briefly past client boot in case this plugin
+  // activates first. A missed registration only degrades the tab, badge and
+  // card reviews to the windowed snapshot derive; it never fails boot. The
+  // registry rebuilds existing bindings on registration, so even a late
+  // registration covers every already-loaded turn.
+  ctx.effect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let dispose: (() => void) | undefined
+    let attempts = 0
+    const stop = (): void => {
+      if (timer !== undefined) { clearTimeout(timer); timer = undefined }
+    }
+    const tryRegister = (): void => {
+      attempts += 1
+      const anyCtx = ctx as unknown as { get?: (name: string) => unknown }
+      const service = (typeof anyCtx.get === 'function' ? anyCtx.get('uiConversation') : undefined) as
+        | { events?: { register(definition: unknown): () => void } }
+        | undefined
+      const events = service?.events
+      if (events !== undefined && typeof events.register === 'function') {
+        dispose = events.register(fileReviewDefinition)
+        stop()
+        return
+      }
+      // ~30s of retries, then give up (carrier without the service).
+      if (attempts >= 120) { stop(); return }
+      timer = setTimeout(tryRegister, 250)
+    }
+    tryRegister()
+    return () => {
+      stop()
+      if (dispose !== undefined) dispose()
+    }
+  }, 'file-review-tab: session-wide Definition')
+
+  // The chat turn-tail row — the original dsh-file-review card, verbatim.
+  // dsh 0.1.6-alpha.2 适配（2026-09-19）：槽位从 chain（select 选举 +
+  // priority 抢占）改为 list（id 必需，各自渲染自己的行）。旧的
+  // priority -2 先于 dsh-coding-sidebar -1 抢占的协作不复存在，改为
+  // 共存协调：本行认领 produced/presented 非空的 turn（匹配判定移入
+  // 组件每次渲染重算）；coding-sidebar 侧（1.0.19 起）在读到本插件的
+  // turn data 时退位，原生 ui-deliverables 卡由宿主侧配置关闭——同一
+  // turn 永不双行。claim 输入不变：BUILT-IN deliverables turn data
+  //（paths）+ 自有 fileReviewChanges 定义（完整 hunks）；presented
+  // 两段照旧由 Deliverables 渲染。本插件未组入时其余行自然接管。
+  ctx.effect(
+    () => ctx.slots.inject('conversation.chat.turnTail', () => {
+    // const 持有后再传入：非新鲜字面量，旧类型基线（无 id 字段）不做
+    // 多余属性检查；alpha.2 运行时按 id 走 list 匹配
+    const turnTailOptions = {
+      // 双轨注册（2026-09-19）：id 是 0.1.6-alpha.2 list 语义必需；
+      // select/priority 保留给 pre-alpha.2 的 chain 引擎（旧类型基线下
+      // select 为必填）。alpha.2 运行时忽略 select/priority、按 id 走
+      // list 匹配（组件内重算）。本对象经 return 直接传入——非独立声明的
+      // 新鲜字面量在旧类型下仍会触发多余属性检查，故下方 register 调用
+      // 以变量持有绕开（见 register 调用处注释）。
+      name: 'conversation.chat.turnTail',
+      id: 'dsh-file-review-tab',
+      select: selectDeliverables,
+      priority: -2,
+      locale: CHAT_NS,
+      registrant: 'dsh-file-review-tab',
+      inject: (sessionId: string) => {
+        const sessions = (ctx as unknown as { readonly sessions: ISessions }).sessions
+        const projectRoot = sessions.list.getSnapshot().byId[sessionId as SessionId]?.cwd
+        const invoke = async (
+          method: 'status' | 'apply',
+          request: FileReviewRequest,
+        ): Promise<FileReviewResult> => {
+          const scope = sessions.scope(sessionId as SessionId)
+          if (scope === undefined) throw new Error('Session is unavailable')
+          // Session scopes are minted by the client runtime and cannot
+          // statically inject namespaces contributed later by feature plugins.
+          // `get()` is the Cordis escape hatch for an explicitly mounted
+          // dynamic service; tracing still binds the Remote call to this
+          // Session scope.
+          const fileReview = scope.get('remote.fileReview') as FileReviewRemote | undefined
+          if (fileReview === undefined) throw new Error('File review Remote is unavailable')
+          const result = await fileReview[method](request)
+          if (!result.ok) throw new Error(result.error.message)
+          return result.value
+        }
+        // Reviews for the claiming turn: the session-wide turn data first
+        // (this plugin's Definition — complete hunks for EVERY loaded turn),
+        // with the windowed snapshot derive as the timeline-less fallback.
+        // The resolved store is identity-stable per session (its getSnapshot
+        // caches the face keyed on the underlying snapshot reference — what
+        // useSyncExternalStore needs to avoid the #185 max-update loop), but
+        // it only EXISTS once the session binds to the uiConversation service.
+        // The slots framework caches this entry's inject result per session,
+        // so capturing the resolution at first run would freeze the card at
+        // +0 -0 whenever the binding is not ready yet (cold start / fresh
+        // session). Resolve lazily and cache the first defined store, so a
+        // card rendered before the binding self-heals once it lands.
+        let cachedStore: ReturnType<typeof resolveConversationStore>
+        const getStore = () => {
+          if (cachedStore !== undefined) return cachedStore
+          const store = resolveConversationStore(ctx, sessionId)
+          if (store !== undefined) cachedStore = store
+          return store
+        }
+        const collectReviews = (turn: number): readonly ProducedFileReview[] => {
+          const face = getStore()?.getSnapshot() ?? null
+          const own = face?.timeline?.turns.get(turn)?.data.get('fileReviewChanges') as
+            | { files?: readonly ProducedFileReview[] }
+            | undefined
+          const files = own?.files
+            ?? deriveTimelineChanges(face).find(entry => entry.turn === turn)?.files
+          if (files === undefined) return []
+          return files.map(file => ({
+            path: file.path,
+            diffs: [...file.diffs],
+            ...(file.deleted === true ? { deleted: true as const } : {}),
+          }))
+        }
+        return {
+          projectRoot,
+          inspectChanges: (request: FileReviewRequest) => invoke('status', request),
+          applyChanges: (request: FileReviewRequest) => invoke('apply', request),
+          collectReviews,
+          // Reactive face for the card's useSyncExternalStore subscription
+          // (the fix half of the frozen-inject problem above). The accessors
+          // resolve the underlying store PER CALL so a not-yet-bound session
+          // (cold start) self-heals once the service is ready; the wrapper
+          // object itself is constant so the hook subscribes exactly once.
+          // getTurnSnapshot hands each card a TURN-SCOPED content fingerprint
+          // (conversation-store.turnChangesFingerprint) instead of the session
+          // face: streaming publications swap the face reference per event,
+          // and a face-keyed subscription re-rendered — and the card's then
+          // identity-keyed effect re-inspected host state on — every mounted
+          // card non-stop while ANY turn ran (the blinking 撤销 button). A
+          // card must re-render only when its OWN turn's review content moves.
+          changesStore: {
+            getSnapshot: () => getStore()?.getSnapshot() ?? null,
+            getTurnSnapshot: (turn: number) =>
+              turnChangesFingerprint(getStore()?.getSnapshot() ?? null, turn),
+            subscribe: (listener: () => void) => getStore()?.subscribe(listener) ?? (() => {}),
+          },
+          // 审查 button / per-file chip: open (or focus) the sidebar tab with
+          // these paths pre-expanded. updateTab runs FIRST: an already-open
+          // tab receives the fresh meta reference here (the tab replays the
+          // expansion), while openTab below only FOCUSES an existing tab —
+          // it never applies a seed's meta to one (see the sidebar service's
+          // openTab: meta lands only on creation). For a not-yet-open tab
+          // updateTab is a strict no-op and openTab creates the tab WITH the
+          // meta. activateTab then guarantees focus either way.
+          // `path` rides along only so the host treats this as a CONTENT open:
+          // a collapsed side panel auto-expands to land the tab in sight
+          // (type-only opens leave collapsed panels alone). The tab itself
+          // never reads tab.path.
+          openInSidebarTab: (paths: readonly string[], turn?: number) => {
+            const sidebar = ctx.betterSidebar
+            const first = paths[0]
+            if (sidebar === undefined || first === undefined) return
+            // `turn` anchors the deep link to one turn: the tab expands only
+            // that turn's rows for these paths (a recurring path stays
+            // collapsed in its other turns).
+            const meta = { expandPaths: [...paths], ...(turn !== undefined ? { turn } : {}) }
+            const scope = { sessionId, ...(projectRoot !== undefined ? { cwd: projectRoot } : {}) }
+            sidebar.updateTab('file-review', { meta })
+            sidebar.openTab({ type: 'file-review', path: first, meta }, scope)
+            sidebar.activateTab('file-review', scope)
+          },
+          // Non-code artifacts (images / media / office / reports): open the
+          // SIDEBAR's own viewer pipeline — the editor tab runs
+          // matchFileViewer over the path (image / pdf / markdown / html
+          // built-ins; office/video via its viewer plugins) — instead of the
+          // diff review tab, which has no hunks to show for them. Falls back
+          // to the card's Host openFile (OS default app) when the carrier
+          // has no sidebar; ProducedFiles owns that fallback.
+          openPreview: (path: string) => {
+            const sidebar = ctx.betterSidebar
+            if (sidebar === undefined) return
+            const absolute = resolveSessionPath(projectRoot, path)
+            sidebar.openFile(
+              { sessionId, ...(projectRoot !== undefined ? { cwd: projectRoot } : {}) },
+              absolute,
+              basename(absolute),
+            )
+          },
+          // Native-open face for the delivery cards. The controller instance
+          // is shared (its state is keyed per file action URL), so this entry
+          // is stable across session re-binds; the section reads both stores
+          // through useSyncExternalStore.
+          presentedController: presentedOpen,
+        }
+      },
+    } as const
+    return ctx.slots.register(turnTailOptions, FileReviewTurnTail)
+    }),
+    'file-review-tab: turn-tail row',
+  )
+
+  ctx.effect(() => ctx.betterSidebar.registerTab({
+    id: 'file-review',
+    title: () => t('tabTitle'),
+    icon: (size: number) => <FileReviewIcon size={size} />,
+    order: 35,
+    single: true,
+    badge: (badgeCtx, scope) => badgeCount(badgeCtx as unknown as Context, scope.sessionId),
+    component: ({ ctx: tabCtx, scope, visible, tab }) => (
+      <FileReviewTab
+        ctx={tabCtx as unknown as Context}
+        sessionId={scope.sessionId}
+        cwd={scope.cwd}
+        visible={visible}
+        tab={tab}
+      />
+    ),
+  } satisfies TabDescriptor), 'file-review-tab: register tab')
+}
+
+// Pure helpers re-exported for the package smoke regression checks
+// (scripts/smoke-plugin.mjs asserts the blink-fix, artifact, and
+// delivery-claim invariants on lib/client.js).
+export { turnChangesFingerprint }
+export { inspectionKey }
+export { captureArtifacts, classifyPath } from './artifacts.ts'
+export { presentedForClosing, selectDeliverables } from './turn-deliverables.ts'
+export { Deliverables } from './Deliverables.tsx'
