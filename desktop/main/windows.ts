@@ -20,7 +20,6 @@ import { attachUpdateInjector } from './update-injector'
 import { attachBrandInjector } from './brand-injector'
 import { attachThemeWatcher, currentLandingTheme, applyLandingTheme, overlaySymbolColor, SHELL_TITLEBAR_HEIGHT, themeBackgroundColor } from './theme-watcher'
 import { attachSidebarToggle } from './sidebar-toggle'
-import { attachSidebarCluster } from './sidebar-cluster'
 import { attachClipboardFix } from './clipboard-fix'
 import { attachContextButton } from './context-button'
 import { attachOpenInAppButton } from './open-in-app-button'
@@ -156,10 +155,11 @@ export function showShellWindow(dshUrl: string): void {
     // 注入代理按钮（点击转发上游 toggle.click()，图标随状态克隆；
     // 宿主=自绘标题栏，故注册在 attachThemeWatcher 之后）
     attachSidebarToggle(shellWindow)
-    // better-sidebar 开关簇收纳：插件右上开关簇隐藏 → 状态栏注入面板
-    // 代理按钮 + 底面板压制看门狗（产品侧弃用插件底面板，见注入器头
-    // 注释；宿主=自绘状态栏，故注册在 attachThemeWatcher 之后）
-    attachSidebarCluster(shellWindow)
+    // 原生右侧栏开关代理已于 2026-09-19 退役（sidebar-cluster 删除）：
+    // dsh-coding-sidebar 复活后右侧工作台与开关都是插件自己的（其开关簇
+    // 由 dsh-desktop-titlebar-inset 契约参数避让自绘状态栏，见
+    // dsh-manager.shellUrlWithTitlebarInset），代理按钮即重复入口；原生
+    // 外壳另由 style-overlay 的 NATIVE_SIDEBAR_CSS 压制。
     // 剪贴板写兜底：wrap 页面 navigator.clipboard.writeText，失败（失焦
     // /权限拒绝）兜底主进程 electron.clipboard——上游复制点击的 check
     // 反馈链不再静默断掉（消息泡/代码块全站复制点受益）

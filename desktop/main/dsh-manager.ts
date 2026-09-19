@@ -23,6 +23,7 @@ import {
 } from './dsh-contract'
 import type { DshLogLine, DshState, DshStatus } from '@shared/ipc-contract'
 import { mediaSpawnEnv } from './media-models'
+import { SHELL_TITLEBAR_HEIGHT } from './theme-watcher'
 import { productPolicyArgs } from './product-policy'
 
 /** 日志环形缓冲容量（诊断面板展示尾部）。 */
@@ -41,6 +42,27 @@ export type DshManagerEvents = {
  * 单例管理器。所有状态变更经 {@link DshManagerEvents} 广播，
  * IPC 层与窗口层订阅后各自反应。
  */
+/**
+ * 上游 dsh 客户端契约：`dsh-desktop-titlebar-inset` URL 参数声明「宿主在
+ * 页面顶部占用的像素高度」。消费方是侧边栏类插件——它们把开关簇/面板
+ * 顶边让到这个高度之下（本轮现场：dsh-coding-sidebar 的开关簇定位
+ * top:3px、z-index 45，正被 KCoder 自绘标题栏（z-index 顶层 + 拖拽区）
+ * 整块盖住 → 插件自己的按钮点不动）。
+ *
+ * KCoder 的标题栏就是 48px 覆盖条 + 页面 padding-top 48，如实声明即可。
+ * @param url - 就绪 URL（可能带 ?token= 查询串）。
+ * @returns 追加上契约参数的 URL；已是绝对 URL 才处理，解析失败原样返回。
+ */
+export function shellUrlWithTitlebarInset(url: string): string {
+  try {
+    const parsed = new URL(url)
+    parsed.searchParams.set('dsh-desktop-titlebar-inset', String(SHELL_TITLEBAR_HEIGHT))
+    return parsed.href
+  } catch {
+    return url
+  }
+}
+
 export class DshManager extends EventEmitter {
   private child: ChildProcess | null = null
   private state: DshState = 'stopped'
@@ -239,7 +261,8 @@ export class DshManager extends EventEmitter {
    * 新令牌正是再次换 cookie 的钥匙。
    */
   shellEntryUrl(bareUrl: string): string {
-    return this.url === bareUrl && this.entryUrl !== null ? this.entryUrl : bareUrl
+    const base = this.url === bareUrl && this.entryUrl !== null ? this.entryUrl : bareUrl
+    return shellUrlWithTitlebarInset(base)
   }
 
   /**

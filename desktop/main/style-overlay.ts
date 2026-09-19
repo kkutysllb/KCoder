@@ -206,6 +206,20 @@ function effectiveSpec(style: StyleSettings): DensitySpec | null {
  *
  * 上游改名/补 data 属性 → 压制静默失效（入口恢复可见），不崩。
  */
+/**
+ * 原生右侧栏外壳压制（D1a 恢复，2026-09-19）：dsh-coding-sidebar 复活后
+ * 右侧工作台由插件承担，原生的展开按钮（会话头角落）、面板宿主与浮层
+ * 宿主一并隐藏。只摘用户可见外壳——ui-sidebar-right 的服务层与契约保留
+ * （六个上游包在 dsh.client.inject 里硬声明它，禁用会让主对话链整体挂
+ * 掉）。display:none 而非移除：隐藏元素仍可 .click() 派发（React 事件
+ * 委托挂在 root）。上游改名 → 压制静默失效（外壳复现），不崩不错位。
+ */
+const NATIVE_SIDEBAR_CSS = `[data-sidebar-right-expand],
+[data-sidebar-right-panel],
+[data-sidebar-right-float-host] {
+  display: none !important;
+}`
+
 const SIDEBAR_PLUGIN_ENTRY_CSS = `nav[class*="panelList"] button[aria-label="插件"],
 nav[class*="panelList"] button[aria-label="Plugins"] {
   display: none !important;
@@ -218,9 +232,10 @@ nav[class*="panelList"] button[aria-label="Plugins"] {
 export function buildOverlayCss(style: StyleSettings): string {
   // 表面压制段与样式偏好解耦：enabled=false 只回退排版/轨迹覆盖，
   // 侧栏插件入口依旧不出现（取舍见 SIDEBAR_PLUGIN_ENTRY_CSS 注释）。
-  // 原生右侧栏压制（NATIVE_SIDEBAR_CSS，D1a）已随「右侧栏回归原生 +
-  // 自研 coding-sidebar 退役」决策（2026-09-18）移除。
-  const sections: string[] = [SIDEBAR_PLUGIN_ENTRY_CSS]
+  // 原生右侧栏压制（NATIVE_SIDEBAR_CSS）随 dsh-coding-sidebar un-retire
+  // （2026-09-19）恢复：右侧工作台由插件承担，原生 ui-sidebar-right 的
+  // 用户可见外壳重新收掉（服务层与契约保留）。
+  const sections: string[] = [NATIVE_SIDEBAR_CSS, SIDEBAR_PLUGIN_ENTRY_CSS]
   if (!style.enabled) return sections.join('\n\n')
   const spec = effectiveSpec(style)
 

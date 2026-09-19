@@ -296,6 +296,19 @@ const SHELL_TITLEBAR_JS = `(() => {
   const ID_BAR = '__dsh_desktop_titlebar'
   const ID_PAD = '__dsh_desktop_titlebar_pad'
   const H = ${SHELL_TITLEBAR_HEIGHT}
+  // 宿主标题栏高度声明（上游侧边栏类插件的 URL 契约参数
+  // dsh-desktop-titlebar-inset）：就绪 URL 带 ?token= 时 BrowserAuth 会
+  // 303 跳到干净 /，查询串被洗掉——这里在页面加载即补回，且尽量早于
+  // 插件首次渲染（插件的 desktop-env 有模块级缓存，晚了就吃不到）。
+  // 消费方按它把开关簇/面板顶边让到自绘状态栏之下（否则被 z 顶层的
+  // 拖拽条整块盖住、点不动——2026-09-19 现场）。
+  try {
+    const u = new URL(window.location.href)
+    if (u.searchParams.get('dsh-desktop-titlebar-inset') !== String(H)) {
+      u.searchParams.set('dsh-desktop-titlebar-inset', String(H))
+      window.history.replaceState(null, '', u.pathname + u.search + u.hash)
+    }
+  } catch { /* 契约参数缺席时插件退回自身设置（WCO/设置块），不抛错 */ }
   if (document.getElementById(ID_BAR)) return
   const pad = document.createElement('style')
   pad.id = ID_PAD
