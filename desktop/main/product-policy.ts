@@ -64,6 +64,15 @@ const POLICY_YAML = `# KCoder 产品策略层（宿主自动生成，勿手改�
 # api-remotes 挂载失败（主对话链全挂）。
 - id: ui-sidebar-terminal
   disabled: true
+#
+# 原生 changed-files 尾卡关闭（2026-09-19，fork d3cc056ee6 的 tailCard
+# 配置闸门）：file-review 增强卡（hunks/统计/撤销 + 产物与交付两段）
+# 已按三层互让接管该行（changes 公告 turn 由其渲染）；list 语义下原生
+# 条目无法被抢占，不关则同一 turn 双行。deliverables 数据定义与其余
+# 注册全部保留（下游探测的输入源）。
+- id: ui-deliverables
+  config:
+    tailCard: false
 `
 
 /** 产品策略层的绝对路径。 */
