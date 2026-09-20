@@ -8,30 +8,20 @@
  */
 
 import { BrowserWindow, clipboard, ipcMain, shell } from 'electron'
-import { getShellWindow, logoutToLanding, showShellWindow } from './windows'
+import { logoutToLanding, showShellWindow } from './windows'
 import { authLogin, authLoggedIn, authRegister, authStatus } from './auth'
 import { applyLandingTheme, currentLandingTheme } from './theme-watcher'
 import { dshManager } from './dsh-manager'
 import { progressEvents, setupUpstream, syncUpstream, upstreamStatus } from './upstream'
 import { communityPlugins, installedPlugins, latestVersions, removePlugin, runPluginCommand, updatePlugin } from './plugins'
 import { checkForUpdates, getReleaseNotes, installUpdate, updateEvents, updateStatus } from './updater'
-import { refreshStyleOverlay } from './style-overlay'
 import { getSettings, saveSettings } from './store'
-import type { Preferences, StyleSettings, UpstreamProgress } from '@shared/ipc-contract'
-
-/** 偏好设置合法档位枚举（非法 patch 丢弃，防御性校验）。 */
-const DENSITY_VALUES: StyleSettings['density'][] = ['compact', 'standard', 'native']
-const WIDTH_VALUES: StyleSettings['contentWidth'][] = ['narrow', 'wide', 'extra']
-/** 自定义正文字号合法域：'auto' 或 12–20 整数。 */
-function validFontSize(v: unknown): v is StyleSettings['fontSize'] {
-  if (v === 'auto') return true
-  return typeof v === 'number' && Number.isInteger(v) && v >= 12 && v <= 20
-}
+import type { Preferences, UpstreamProgress } from '@shared/ipc-contract'
 
 /** 当前偏好快照（偏好设置页可读写的子集）。 */
 function preferences(): Preferences {
   const s = getSettings()
-  return { style: s.style, keepRunningInTray: s.keepRunningInTray }
+  return { keepRunningInTray: s.keepRunningInTray }
 }
 
 /** 安装全部 IPC 处理器与事件桥。 */
@@ -139,24 +129,10 @@ export function registerIpc(): void {
     return currentLandingTheme()
   })
 
-  /* ---- 偏好设置（样式档位/托盘保活；写后即时生效） ---- */
+  /* ---- 偏好设置（托盘保活；写后即时生效） ---- */
   ipcMain.handle('preferences:get', () => preferences())
   ipcMain.handle('preferences:set', (_event, patch: Partial<Preferences>) => {
     if (patch === null || typeof patch !== 'object') return preferences()
-    const current = getSettings()
-    if (patch.style !== null && typeof patch.style === 'object') {
-      const p = patch.style
-      const next: StyleSettings = {
-        enabled: typeof p.enabled === 'boolean' ? p.enabled : current.style.enabled,
-        density: DENSITY_VALUES.includes(p.density) ? p.density : current.style.density,
-        contentWidth: WIDTH_VALUES.includes(p.contentWidth) ? p.contentWidth : current.style.contentWidth,
-        fontSize: validFontSize(p.fontSize) ? p.fontSize : current.style.fontSize,
-      }
-      saveSettings({ style: next })
-      // 样式变更 → 立即重注入 shell 窗口（不等下次整页加载）
-      const w = getShellWindow()
-      if (w !== null && !w.isDestroyed()) refreshStyleOverlay(w)
-    }
     if (typeof patch.keepRunningInTray === 'boolean') {
       // 托盘保活是每次关窗时读 store 判定，写完即生效，无需广播
       saveSettings({ keepRunningInTray: patch.keepRunningInTray })

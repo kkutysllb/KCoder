@@ -28,7 +28,6 @@ import { attachStyleOverlay } from './style-overlay'
 import { attachSettingsPage } from './settings-page'
 import { attachWorkspaceHeader } from './workspace-header'
 import { attachWorkspaceProbe } from './workspace-probe'
-import { attachStyleSettingsInjector } from './style-settings'
 import { attachSkillsSettingsInjector } from './skills-settings'
 import { attachMcpSettingsInjector } from './mcp-settings'
 import { attachAboutSettingsInjector } from './about-settings'
@@ -183,7 +182,8 @@ export function showShellWindow(dshUrl: string): void {
     // git 环境面板已退役（2026-08）：由 dsh-git-panel 客户端插件
     // （bundle/dsh-git-panel，dsh client-modules 加载）整体替代——
     // 按钮 right 108 由插件注入，数据走插件自带 webServer RPC
-    // 消息样式覆盖层：排版 token/气泡/代码块微调（零侵入，token 改名静默失效）
+    // 宿主注入 CSS：上游原生外壳压制（右侧栏外壳 + 侧栏「插件」入口）
+    // + 空会话 K 水印（零侵入，与排版偏好无关，恒生效；类名/属性改名静默失效）
     attachStyleOverlay(shellWindow)
     // 设置页单页化：设置模态浮层 → 铺满窗口两分栏（左 nav + 右内容，
     // 底部让位状态栏；纯 CSS 形态覆盖，行为层全留上游，类改名静默失效）
@@ -195,11 +195,6 @@ export function showShellWindow(dshUrl: string): void {
     // + file-activity 工作区基准；附带正文文件徽章（类型徽章 + edit
     // 增删行数）与历史会话补拉拦截（预览/Git 面板删除后独立存续）
     attachWorkspaceProbe(shellWindow)
-    // 样式设置：设置面板通用区注入密度/列宽/字号方块行（console 通道写回，
-    // 偏好设置面板只留桌面特有项）
-    attachStyleSettingsInjector(shellWindow)
-    // 回答语言：设置面板通用区注入「回答语言」行（跟随模型/强制中文；
-    // 写回经 home patch 层热重载即时生效，无需重启引擎）
     // 技能设置：设置面板导航列注入「技能」分区（三来源技能目录 +
     // 行展开正文；console 通道拉目录/正文，白名单读取）
     attachSkillsSettingsInjector(shellWindow)

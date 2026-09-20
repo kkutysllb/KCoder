@@ -11,7 +11,7 @@
  * 通用设置的齿轮同形），内容区挂 settings.section 锚点的父级，对话框级
  * marker 类切换显隐，MutationObserver 自愈重注入。
  *
- * 通信（console 通道，同 skills-settings / style-settings）：
+ * 通信（console 通道，同 skills-settings / about-settings）：
  * - 页面 → 主进程：console.log('__dsh_mcp__:' + JSON 载荷)
  *   {op:'list'} 请求列表 / {op:'save', entry} 新增或改写 /
  *   {op:'delete', id} 删除；

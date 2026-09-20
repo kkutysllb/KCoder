@@ -37,22 +37,8 @@ export interface DshLogLine {
 
 /* ---------- 桌面壳偏好设置 ---------- */
 
-/** 界面样式定制（预设档位；生效与否由 style-overlay 按此生成 CSS）。 */
-export interface StyleSettings {
-  /** 总开关：false = 完全回上游原样。 */
-  enabled: boolean
-  /** 正文密度：compact=14/22（默认）、standard=15/25、native=上游 16/28。 */
-  density: 'compact' | 'standard' | 'native'
-  /** 消息列宽：narrow=748（上游原生）、wide=960、extra=1080（默认）。 */
-  contentWidth: 'narrow' | 'wide' | 'extra'
-  /** 正文字号：'auto' = 跟随密度档（默认）；12–20 = 自定义 base，整套
-   * 排版梯度（标题/代码/气泡）按所选密度档形状同比缩放。 */
-  fontSize: 'auto' | number
-}
-
-/** 偏好设置页可读写的全部桌面壳偏好（样式 + 通用）。 */
+/** 偏好设置页可读写的全部桌面壳偏好（当前只有通用项）。 */
 export interface Preferences {
-  style: StyleSettings
   /** 关闭主窗口时最小化到托盘（false = 直接退出 dsh 与应用）。 */
   keepRunningInTray: boolean
 }

@@ -13,8 +13,7 @@
  *   navTitle 之前；点击转发面板 header 的 close 按钮走上游真实关闭
  *   路径；文案中文写死，context-button「返回任务」同款先例）；
  * - 内容区限宽：options 右侧统一为 960px 居中的卡片列；通用设置的每个
- *   功能项独立成卡片，桌面样式定制内部再按 data-key 拆分卡片，避免宽屏
- *   表单横向拉满造成信息稀疏。
+ *   功能项独立成卡片，避免宽屏表单横向拉满造成信息稀疏。
  *
  * 行为层一概不动（上游 Escape 关闭、mask 点击关闭、close 按钮、进入
  * 焦点落 close 按钮、onboarding 步骤组合全部照常）——单页形态下 mask
@@ -75,10 +74,9 @@ const PAGE_JS = `(() => {
     // 给它们同一列宽，避免 options 的居中 flex 触发 shrink-to-fit。
     '[role="dialog"] [class*="_options"] > #__dsh_desktop_skills_section,[role="dialog"] [class*="_options"] > #__dsh_desktop_mcp_section,[role="dialog"] [class*="_options"] > #__dsh_desktop_about_section{box-sizing:border-box;width:min(100%,960px);max-width:960px;margin:0 auto;min-width:0}',
     // 通用设置：每个功能项独立成卡片，保留 slot wrapper 的地址能力。
-    // upstream slot wrapper 与 KCoder 注入容器（桌面样式定制/回答语言，
-    // 均自带 data-slot 属性）同为 section 直接子级：容器 margin 提供
-    // 三块之间的 20px 缝（组内末卡已归零，缝完全由容器 margin 提供；
-    // section 内最后一个容器由下方 :last-child 归零避免组尾空隙）。
+    // upstream slot wrapper 是 section 直接子级：wrapper 提供
+    // 三块之间的 20px 缝（组内末卡已归零，缝完全由 wrapper margin 提供；
+    // section 内最后一个 wrapper 由下方 :last-child 归零避免组尾空隙）。
     '[role="dialog"] [data-slot="settings.general.item"]{display:block!important;width:100%;max-width:none!important;margin:0 0 20px!important}',
     // 行间距挂在卡片自身：slot wrapper 是单个 display:contents 锚（内含
     // 全部功能行），wrapper 级 margin 不产生行间隙；注入容器内部同构，

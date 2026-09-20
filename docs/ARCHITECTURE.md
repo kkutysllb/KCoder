@@ -112,7 +112,7 @@ Electron 主进程 (desktop/main/)
 | `dsh-contract.ts` | ★ 上游契约适配层：就绪行、bin 路径、DSH_HOME、Node 版本探测 | **升级上游时唯一必查** |
 | `dsh-manager.ts` | dsh 侧车生命周期：spawn/就绪解析/崩溃重启（指数退避×3）/优雅退出 | — |
 | `windows.ts` | shell 窗口与面板窗口创建；各注入器的接线点 | 各注入模块 |
-| `style-overlay.ts` | CSS 注入：标题栏、主题 token、轨迹页美化（锚点 `data-conversation-composer-overlay`）、跳到底部按钮居中（`toBottomSlot`） | §8 类名匹配策略 |
+| `style-overlay.ts` | 宿主注入 CSS（2026-09-20 起只做三件事，恒定生效、无偏好档位）：原生右侧栏外壳压制 `NATIVE_SIDEBAR_CSS`、侧栏「插件」panellist 入口 `SIDEBAR_PLUGIN_ENTRY_CSS`、空会话 K 水印 `HERO_WATERMARK_CSS`（品牌落点，`assets/brand-k.png` 内嵌 data URL） | §8 类名匹配策略 |
 | `console-channel.ts` | console 通道：页面注入脚本 → 主进程 的上行通信约定（`__dsh_*:` 前缀） | 各注入模块 |
 | `sidebar-cluster.ts` | better-sidebar 开关簇收纳：插件开关簇隐藏，状态栏右侧面板代理按钮（点击转发插件真实按钮）+ 底面板压制看门狗（插件底面板产品侧弃用：agent 运行态黑屏无唤醒信号，持久化恢复/pane 归位等无按钮打开路径一律自动收回；终端回归自研 terminal-panel） | §8 点击转发 |
 | `terminal-panel.ts` + `pty-host.ts` | 内嵌终端（2026-08-22 自研回归）：每工作区独立 WebContentsView + node-pty 桶（多标签），切工作区仅 setVisible 不销毁；标题栏按钮 right 44 + 快捷键 Control+\`；让位几何广播 --dsh-terminal-inset（bundle/kcoder-stats-panel 消费） | — |
@@ -124,7 +124,6 @@ Electron 主进程 (desktop/main/)
 | `updater.ts` + `update-injector.ts` | electron-updater + 向上游 logoRow 注入安装按钮（`kcoder://install-update` 深链） | — |
 | `brand-injector.ts` | 品牌化：侧边栏展开/rail 鲸鱼换 KCoder 标（`assets/brand-k.png`）、新会话 hero 鲸鱼+slogan（中「所思，皆可成码」/英 "Think it, code it."，CJK 自适应；预览徽章藏起）、`document.title` 产品名替换（拦截 setter）。⚠ 只能藏起+旁插/改 .data，不能 replaceWith/改 textContent（React removeChild 崩树） | §8；“再生成品牌图”同源 |
 | `attach-picker.ts` | 附件按钮改造：拦截 drag-to-attachment 插件的模式按钮 → 原生文件对话框 → 合成 drop → 插件 fast path | §8 自毁坑 |
-| `style-settings.ts` | 样式定制设置行：上游设置面板通用区注入密度/列宽方块行（console 通道写回 → `refreshStyleOverlay` 即时生效） | §8 类名克隆 |
 | `theme-watcher.ts` | 深浅色跟随（`body[data-ds-dark-theme]`） | — |
 | `upstream.ts` | 上游状态检测 + 同步流水线（fetch→脏检查→ff-only→install→build） | — |
 | `menu.ts` / `ipc.ts` / `store.ts` | 菜单与托盘 / IPC 分发 / 持久化 | — |
@@ -172,7 +171,7 @@ KCoder 的 `deepseek-harness/` 原是 submodule，重建时已**扶正为独立�
 | 就绪行 `dsh web: http://…` / bin 路径 / DSH_HOME / Node engines | `dsh-contract.ts` |
 | `dsh plugin --profile web …` CLI 形态 / `dsh.profile.bundles` 层叠 | `plugins.ts` |
 | 侧边栏 `logoRow`/`collapsed`、布局列 `sidebarCol/centerCol/detailsCol`、会话行 fiber `props.node.id` | 各注入模块（`scripts/verify-inject.cjs` 可自动化验证） |
-| 主题落点 `body[data-ds-dark-theme]` / sidebar-fill token | `theme-watcher.ts`、`style-overlay.ts`（`scripts/verify-theme.cjs`） |
+| 主题落点 `body[data-ds-dark-theme]` / sidebar-fill token | `theme-watcher.ts`（`scripts/verify-theme.cjs`） |
 | workspace RPC `POST /api/workspace.list`（sessionIds 归属） | `workspace-probe.ts`（页面侧探针）、`file-activity.ts`（主进程归属映射） |
 
 ## 8. 开发惯例与经验坑（基线会话沉淀，务必继承）
@@ -258,7 +257,7 @@ typecheck 链尾已含 `scripts/check-injected-scripts.mjs`：抽取 desktop/mai
 |---|---|
 | 改欢迎屏视觉/文案 | `renderer/src/views/landing.ts` + `app.css` `.landing-*` 段 |
 | 移植原项目组件 | 素材在 `assets/legacy/`（i18n 文案、CommandInput 等） |
-| 加/改 CSS 注入 | `main/style-overlay.ts`（注意锚点策略） |
+| 加/改 CSS 注入（上游外壳压制） | `main/style-overlay.ts`（注意锚点策略） |
 | 加面板页面 | `renderer/src/main.ts` 路由表 + `views/` 新文件 + `shared/ipc-contract.ts` + `main/ipc.ts` |
 | 升级上游 | `pnpm sync-upstream` → 查 §7 清单 → `scripts/verify-*.cjs` |
 | ⚠ 上游动了侧边栏/侧栏契约 | **只改插件仓（dsh-plugins 系）→ 发新版本**，KCoder 侧仅消费接线（§12 铁律 1/2）；绝不把原生侧栏接回来 |

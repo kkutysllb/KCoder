@@ -10,17 +10,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
-import type { StyleSettings } from '@shared/ipc-contract'
 
-/** 样式定制的默认档（与 style-overlay 定值表一致：紧凑密度 + 1080 列宽）。 */
-export const DEFAULT_STYLE: StyleSettings = {
-  enabled: true,
-  density: 'compact',
-  contentWidth: 'extra',
-  fontSize: 'auto',
-}
-
-/** 回答语言的默认档（跟随模型，不干预）。 */
 /** 持久化的设置形状。 */
 export interface DesktopSettings {
   /** 主窗口（承载上游 Web UI 的窗口）上次的 bounds。 */
@@ -33,8 +23,6 @@ export interface DesktopSettings {
   landingTheme: 'system' | 'light' | 'dark'
   /** 内嵌终端面板高度（拖拽调节后记住）。 */
   terminalHeight: number | null
-  /** 界面样式定制（预设档位，见 style-overlay）。 */
-  style: StyleSettings
   /** dsh home 决策锁：迁移完成或首次全新启动后置 true（见 home-migration.ts）。
    *  置位后启动恒用 ~/.kcoder，不再被后出现的 ~/.dsh 翻回旧家。 */
   homeDecided: boolean
@@ -46,7 +34,6 @@ const DEFAULTS: DesktopSettings = {
   lastTheme: 'system',
   landingTheme: 'system',
   terminalHeight: null,
-  style: DEFAULT_STYLE,
   homeDecided: false,
 }
 
@@ -61,10 +48,11 @@ export function getSettings(): DesktopSettings {
   if (cache !== null) return cache
   try {
     const raw = JSON.parse(readFileSync(storePath(), 'utf8')) as Partial<DesktopSettings>
+    // 旧版残留键（如已下线的 style）随 ...raw 一起带进内存并在下次写回时
+    // 保留——无害且不参与任何判定，不做迁移（2026-09-20 桌面样式定制下线）。
     cache = {
       ...DEFAULTS,
       ...raw,
-      style: { ...DEFAULT_STYLE, ...raw.style },
     }
   } catch {
     cache = { ...DEFAULTS }
