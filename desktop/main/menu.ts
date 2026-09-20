@@ -172,19 +172,16 @@ export function installMenu(): void {
           },
         },
         {
-          label: '设置（上游初始化）…',
-          click: () => openPanel('setup', '设置 · KCoder'),
-        },
-        {
           label: '诊断…',
           accelerator: 'CmdOrCtrl+Shift+I',
           click: () => openPanel('diagnostics', '诊断 · KCoder'),
         },
         { type: 'separator' },
-        {
-          label: '同步上游仓库…',
-          click: () => openPanel('sync', '同步上游 · KCoder'),
-        },
+        // 「设置（上游初始化）…」「同步上游仓库…」两项已按用户指定从菜单
+        // 移除（2026-09-20 菜单瘦身）。两块面板本身没删：setup / sync 路由
+        // 与窗口类型照旧——初始化面板在上游未就绪时由启动期
+        // showBootstrap('setup') 自动弹出，上游同步走 setup 页内按钮或
+        // `pnpm sync-upstream`。托盘菜单同步移除同两项。
         {
           label: '插件管理…',
           click: () => openPanel('plugins', '插件 · KCoder'),
@@ -250,14 +247,8 @@ export function installTray(): void {
       label: '偏好设置…',
       click: () => openPanel('preferences', '偏好设置 · KCoder'),
     },
-    {
-      label: '设置（上游初始化）…',
-      click: () => openPanel('setup', '设置 · KCoder'),
-    },
-    {
-      label: '同步上游仓库…',
-      click: () => openPanel('sync', '同步上游 · KCoder'),
-    },
+    // 与应用菜单同步：「设置（上游初始化）」「同步上游仓库」不再出现在
+    // 托盘菜单（面板路由保留，见 installMenu 工具子菜单处说明）。
     {
       label: '插件管理…',
       click: () => openPanel('plugins', '插件 · KCoder'),

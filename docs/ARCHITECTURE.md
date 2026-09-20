@@ -145,7 +145,7 @@ KCoder 的 `deepseek-harness/` 原是 submodule，重建时已**扶正为独立�
   `deepseek-ai/deepseek-harness`；
 - 上游依赖已装、已构建（`apps/cli/lib/bin.js` 在位）。
 
-**升级上游**：应用内菜单「上游 → 同步上游仓库…」或 `pnpm sync-upstream`；
+**升级上游**：应用内「设置（上游初始化）」页的「重新构建上游」按钮，或 `pnpm sync-upstream`；
 上游是 developer preview，破坏性变更后先查 §7 清单。
 
 ## 6. 欢迎屏（landing.ts）

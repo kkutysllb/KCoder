@@ -147,7 +147,7 @@ deepseek-harness/    # 上游克隆（.gitignore 排除，绝不提交、绝不�
 上游处于 developer preview，会有破坏性变更。同步流程：
 
 ```sh
-# 应用内：菜单「上游 → 同步上游仓库…」，或终端：
+# 应用内：「设置（上游初始化）」页的「重新构建上游」按钮；或终端：
 pnpm sync-upstream
 ```
 
