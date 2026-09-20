@@ -26,7 +26,10 @@
  *   自定义协议导航是渲染页 → 主进程的既有通道），windows.ts 的
  *   will-navigate 拦截执行登出收场；
  * - rail 收起态（root.collapsed）：仅显示头像圆钮（与上游 foot 区
- *   36px 圆钮列同形，用户名隐藏），点击照常弹菜单；
+ *   36px 圆钮列同形，用户名隐藏），点击照常弹菜单；同一格上还压着上游
+ *   设置触发行的空外壳（settings-general 的 triggerRow.railRow，定位
+ *   元素、DOM 在我们之后），样式表用 z-index:2 把头像圈提到它之上——
+ *   否则外观正常、点击却被它吃掉（2026-09-20 实测定案，见静态样式块）；
  * - username 随脚本生成时烧入（did-finish-load 每次重注入；登出走
  *   reload，重登录后注入器按新账号重跑——windows.logoutToLanding）。
  *
@@ -556,7 +559,16 @@ const chipJs = (username: string, build: string): string => `(() => {
       // 绝对定位居中——left/top 50% + translate 反向半身，对上游任意
       // 布局形态免疫；头像圈 28px 与上游折叠圆钮列（36×36 钮）
       // 视觉同形。
-      '#' + CHIP + '.kcoder-folded,[class*="collapsed"] #' + CHIP + '{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:36px;height:36px;margin:0;padding:0;gap:0;border-radius:10px;justify-content:center;align-items:center}',
+      //
+      // z-index:2 是**点击可用性的必要条件**，不是修饰：折叠态上游设置
+      // 触发行的外壳（settings-general 的 triggerRow.railRow：36×36、
+      // position:relative、DOM 排在我们之后）与本头像圈同格同位。它虽然
+      // 是空的（里面的 trigger 按钮被上面那条 display:none 隐藏），但作为
+      // 定位元素仍排在绘制与命中之上——实测：不给 z-index 时该点
+      // elementFromPoint 命中 triggerRow 而非头像，点击「设置/语言/主题/
+      // 退出登录」全无反应（外观照旧，故只在点击上暴露）。z-index:2 只需
+      // 压过同层 z-index:auto 的定位兄弟，不引入新的层叠竞争。
+      '#' + CHIP + '.kcoder-folded,[class*="collapsed"] #' + CHIP + '{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:36px;height:36px;margin:0;padding:0;gap:0;border-radius:10px;justify-content:center;align-items:center;z-index:2}',
       '#' + CHIP + '.kcoder-folded > span + span,[class*="collapsed"] #' + CHIP + ' > span + span{display:none}',
       '#' + CHIP + '.kcoder-folded > span:first-child,[class*="collapsed"] #' + CHIP + ' > span:first-child{width:28px;height:28px;font-size:14px}',
     ].join('')
