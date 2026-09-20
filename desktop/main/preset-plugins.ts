@@ -107,12 +107,20 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // 归一：0.6.14 随包物化的实体本就是 1.0.25（团队 tab + 设置页移除用户自加
   // Tab/预览入口 + 浏览器 tab 上游对齐 + 工作区外读取），窗口期消除——声明与
   // bundle 物化同线，新装 profile 的依赖树解析直取 1.0.25。
-  'dsh-coding-sidebar': '^1.0.25',
+  // 2026-09-20 平移：^1.0.25 → ^1.0.26（已发布且双源可见，两源均已核）。1.0.26
+  // = 上游 0.1.6-alpha.2 适配：ws 移入 peerDependencies（引擎包位次不变）、
+  // exports 补 ./cordis.patch.yml、sidechat 活跃线程全量释放挂进 ctx.effect
+  // （运行时停用/卸载不泄漏线程与快照）。
+  'dsh-coding-sidebar': '^1.0.26',
   // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5 → 1.0.6）：coding-sidebar
   // 的衍生插件（增强审查卡 + 侧边栏审查 tab）。1.0.6 追加 changes-review 地址
   // 家族认领（原生评审开法改开自家页签）。已发布且双源可见，故与 bundle 物化
   // 同线（实体 1.0.6 = 声明 ^1.0.6）。
-  'dsh-file-review-kcoder': '^1.0.6',
+  // 2026-09-20 平移：^1.0.6 → ^1.0.7（已发布且双源可见，两源均已核）。1.0.7
+  // = 上游 0.1.6-alpha.2 适配：systemPrompt.section 由插件 ctx.effect 收集
+  // （停用/卸载后 system prompt 不残留 ui:file-review-references）+ qilin 通道
+  // 注入名补 @qilin/coding-sidebar。
+  'dsh-file-review-kcoder': '^1.0.7',
 }
 
 /**
