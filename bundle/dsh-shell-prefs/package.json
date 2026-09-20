@@ -1,6 +1,6 @@
 {
   "name": "dsh-shell-prefs",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "dsh-external in-box dsh bundle: exposes the deployment's locale and theme services to the KCoder desktop shell, so the account menu can read and switch them through their single upstream write entry instead of simulating clicks on the settings rows.",
   "license": "MIT",
   "type": "module",
@@ -21,6 +21,15 @@
     "node": ">=18"
   },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "qilin": {
     "bundle": {
       "patch": "./cordis.patch.yml"
     },

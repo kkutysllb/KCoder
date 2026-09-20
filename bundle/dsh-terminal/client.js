@@ -830,18 +830,38 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
       /* ---- 窗口 resize → 重排（view 时代 win.on('resize') 的等价物） ---- */
       window.addEventListener('resize', () => layout())
 
-      /* ---- 右侧栏宽度探针（better-sidebar 浮层；面板右边界让位） ---- */
-      // better-sidebar 把面板实时宽度写在根变量 --dsh-sidebar-width
-      //（展开/拖宽 setProperty、收起 removeProperty）。监听 style 属性
-      // 变化即得右边界，无变量时视作收起（0）。
+      /* ---- 右侧栏宽度探针（面板右边界让位） ---- */
+      // KCoder better-sidebar 把面板实时宽度写在根变量 --dsh-sidebar-width
+      //（展开/拖宽 setProperty、收起 removeProperty），监听 style 属性变
+      // 化即得右边界。QiLin AppFrame 右栏不写该变量 → 回退为直接量
+      // [data-rightbar-col] 列宽，开合/拖宽由 ResizeObserver 驱动重排，
+      // 终端面板右边界精确停在右侧栏左缘，不侵占其下方区域。
       let rightPanelW = 0
+      let rightbarWatched = null
+      const armRightbarWatcher = () => {
+        const el = document.querySelector('[data-rightbar-col]')
+        if (el === null) return null
+        if (rightbarRo !== null && rightbarWatched !== el) { rightbarRo.observe(el); rightbarWatched = el }
+        return el
+      }
       const readRightPanel = () => {
-        const w = Number.parseFloat(document.documentElement.style.getPropertyValue('--dsh-sidebar-width'))
+        let w = Number.parseFloat(document.documentElement.style.getPropertyValue('--dsh-sidebar-width'))
+        if (!Number.isFinite(w) || w <= 0) {
+          const el = armRightbarWatcher()
+          w = el !== null ? el.getBoundingClientRect().width : 0
+        }
         const next = Number.isFinite(w) && w > 0 ? Math.round(w) : 0
         if (next !== rightPanelW) { rightPanelW = next; layout() }
       }
+      const rightbarRo = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(readRightPanel) : null
       readRightPanel()
       new MutationObserver(readRightPanel).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
+      // 右栏列晚于本脚本初始化（React 挂载在后）：DOM 变化兜底重探，
+      // 探到即交棒 ResizeObserver 并停表，避免常驻监听
+      const rightbarMountMo = new MutationObserver(() => {
+        if (armRightbarWatcher() !== null) { readRightPanel(); rightbarMountMo.disconnect() }
+      })
+      if (rightbarWatched === null) rightbarMountMo.observe(document.body, { childList: true, subtree: true })
 
       /* ---- 标题栏按钮（theme-watcher 注入宿主，时序不保证 → 轮询等待） ---- */
       const injectBtn = () => {

@@ -274,11 +274,11 @@ const FILE_REFERENCE_PROMPT = "When you successfully create or modify files, men
 function registerFileReferenceGuidance(ctx) {
 	const orders = ctx.systemPrompt;
 	if (typeof (typeof orders.getSectionOrder === "function" ? orders.getSectionOrder("DELIVERABLE_FILE_REFERENCES") : void 0) === "number") return;
-	ctx.systemPrompt.section({
+	ctx.effect(() => ctx.systemPrompt.section({
 		name: "ui:file-review-references",
 		order: 190,
 		text: FILE_REFERENCE_PROMPT
-	});
+	}));
 }
 /**
 * Register the Code Mode (`run_code`) mutation recorder that backs the

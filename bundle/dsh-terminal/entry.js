@@ -15,11 +15,13 @@
  * 安全边界与 dsh-git-panel 同款：isTrusted（loopback 放行 +
  * webRuntime.trustedHosts）；写操作 POST-only；SSE 为只读推送。
  *
- * pty 引擎：node-pty（VS Code 同款，内核级伪终端 openpty/ConPTY），经
- * createRequire 从运行时 node_modules 解析（bundle 物化在 profile 的
- * node_modules 下，向上可达 profiles/node_modules/node-pty——dsh-tool-bash
- * 已带）。真实终端健壮性（模式平移自 dsh-coding-sidebar 的 pty-deps/
- * pty-manager）：
+ * pty 引擎：node-pty（VS Code 同款，内核级伪终端 openpty/ConPTY），
+ * package.json dependencies 声明 ^1.1.0——profile 安装图内的合法包，
+ * 经 createRequire 从插件自身解析（dsh 0.1.6-alpha.2 起运行时解析
+ * enforce：候选在共享保留区 profiles/node_modules 前截断，向上的
+ * 提升副本不再是解析来源；声明依赖即入 generation，隔离/hoisted
+ * 布局都解析得到）。真实终端健壮性（模式平移自 dsh-coding-sidebar
+ * 的 pty-deps/pty-manager）：
  * - 懒加载永不抛错：模块导入不触发 native 绑定加载；加载失败缓存原因，
  *   插件保持挂载（降级态），deps 路由给出修复命令，不拖垮宿主；
  * - ensureSpawnHelper：补回包管理器剥掉的 spawn-helper 可执行位（缺失
@@ -164,7 +166,7 @@ export function buildRepairCommand(options = {}) {
   const profileDir = options.profileDir !== undefined ? options.profileDir : findProfileDir()
   const name = profileDir !== null ? basename(profileDir) : 'web'
   return {
-    command: 'dsh plugin --profile "' + name + '" install',
+    command: 'dsh plugin --profile "' + name + '" add @kkutysllb/dsh-terminal@latest',
     note: "If pnpm 11 blocked node-pty's build script, ensure allowBuilds: node-pty: true"
       + " in the profile's pnpm-workspace.yaml, then rerun the install command.",
   }

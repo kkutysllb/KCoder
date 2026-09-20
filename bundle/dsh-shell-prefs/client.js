@@ -168,6 +168,20 @@ window.__ModuleLoader__.load({
         setTheme,
         subscribeTheme: (fn) => subscribe(theme, fn),
       }
+
+      /* ---- 卸载收口（运行时停用/HMR：撤桥 + Wired 守卫复位以便重挂载）。
+       * 桥闭包引用本 fiber 的 ctx.locale/ctx.theme，旧桥残留会让桌面壳
+       * 调到已 dispose 的服务实例；重挂载守卫不复位则新 apply 直接
+       * early-return，桥永远指向旧 mount。订阅退订由持有方（注入脚本）
+       * 调用 off，桥撤下后新订阅自然不再受理。 ---- */
+      const teardown = () => {
+        delete window[BRIDGE]
+        delete window.__kcoderShellPrefsWired
+      }
+      if (typeof ctx.effect === 'function') {
+        // client-modules 工厂 ctx：停用/热替换时随 fiber 调用 disposer。
+        ctx.effect(() => teardown, 'dsh-shell-prefs: shell prefs bridge')
+      }
     }
 
     return exports

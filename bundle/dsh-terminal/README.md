@@ -4,6 +4,43 @@
 
 自 KCoder 内置包独立发布的 dsh 插件（v1.0.0 起独立版本线）。
 
+## QiLin 双通道适配（v1.1.0 起）
+
+manifest 同时声明 `qilin` 与 `dsh` 两个通道的 `bundle.patch` / `client`：
+QiLin（dsh alpha.2 合并后）的插件管理器只认原生键 `qilin.bundle.patch`
+（缺失会报"没有声明组合包"），DSH 宿主仍读 `dsh.*`；两通道指向同一份
+`cordis.patch.yml` 与 client 交付物，行为完全一致。
+
+## QiLin 引擎安装
+
+```bash
+# npm registry（推荐：版本可被插件管理检测，用户手动更新）
+# npm registry (recommended: version detection with manual updates)
+qilin plugin --profile qilin add @kkutysllb/dsh-terminal
+
+# GitHub 直装 / install straight from GitHub
+qilin plugin --profile qilin add github:kkutysllb/dsh-terminal
+```
+
+装完在 QiLin 设置 → 内置插件里可见、可启停；终端面板经标题栏
+"切换内嵌终端"开关展开。
+
+### 注意事项（QiLin）
+
+- **必须经 `qilin plugin add` 装进 profile**：包会落到 profile 私有的
+  `~/.qilin/profiles/<name>/node_modules`——裸包名原生解析的第一跳。
+  **不要**手工把包目录放进共享的 `~/.qilin/profiles/node_modules`：
+  dsh alpha.2 合并后的 runtime+enforce 解析把该目录划为安装保留区，
+  放那里的 bundle 层包激活时直接 `failed to import`。
+- **引擎版本**：运行需要带 dsh 兼容层的 QiLin 3.0.0+；插件**管理**
+  （设置页展示/启停）要求 3.0.2+（alpha.2 合并后只认
+  `qilin.bundle.patch` 原生键）。
+- **node-pty 依赖**：契约 `^1.1.0`，与引擎生态共享同一物理包；不可解
+  析时插件保持挂载并渲染降级卡（`/dsh-terminal/api/deps` 给出 cause
+  与可粘贴修复命令），不拖垮宿主。
+- **OpenKylin 桌面端**：内置终端由产品启动脚本自动物化（vendor 直提 +
+  bundle 注册，同样落 profile 私有锚），无需手动安装。
+
 ## 真实终端语义（模式平移自 dsh-coding-sidebar 的 pty-deps / pty-manager）
 
 - **内核级伪终端**：node-pty `spawn`（macOS/Linux 走 forkpty，Windows 走
@@ -21,9 +58,11 @@
   Windows `DSH_TERMINAL_SHELL` → pwsh 探测链（PATH + 已知安装目录）→
   `powershell.exe`；POSIX 以登录 shell 启动（读 profile 文件）。
 
-node-pty 版本契约：`^1.1.0`，与 DSH core（`@deepseek-ai/dsh-subprocess-local`）
-同 range——同 range 同 integrity 让 pnpm 两侧解析到同一物理包（一份
-native 绑定，无漂移）。
+node-pty 版本契约：`^1.1.0`（v1.1.1 起声明于 dependencies），与 DSH core
+（`@deepseek-ai/dsh-subprocess-local`）同 range——同 range 同 integrity 让
+pnpm 两侧解析到同一物理包（一份 native 绑定，无漂移）。dsh 0.1.6-alpha.2
+起依赖解析默认运行时模式且共享保留区（`profiles/node_modules`）被排除，
+未声明的提升副本不再可解析——声明依赖是唯一稳定入口。
 
 ## 安装
 

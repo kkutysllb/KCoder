@@ -46,11 +46,14 @@ function registerFileReferenceGuidance(ctx: Context): void {
     ? orders.getSectionOrder('DELIVERABLE_FILE_REFERENCES')
     : undefined
   if (typeof builtInOrder === 'number') return
-  ctx.systemPrompt.section({
+  // systemPrompt.section 的 disposer 挂在服务自身 ctx 的 effect 上，不会
+  // 随插件 fiber 回收；必须由插件 ctx.effect 收集，停用/卸载（HMR）时
+  // 才能撤销该 section（否则 system prompt 里残留 ui:file-review-references）。
+  ctx.effect(() => ctx.systemPrompt.section({
     name: 'ui:file-review-references',
     order: 190,
     text: FILE_REFERENCE_PROMPT,
-  })
+  }))
 }
 
 /** Runtime shape of the `tools/post-execute` waterfall arguments we consume. */

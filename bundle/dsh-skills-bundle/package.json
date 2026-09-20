@@ -1,6 +1,6 @@
 {
   "name": "dsh-skills-bundle",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "dsh-external in-box dsh bundle: methodology + multimedia + research skill packs adapted from the KSkills repository, registered as runtime skills for every agent session.",
   "license": "MIT",
   "type": "module",
@@ -13,9 +13,15 @@
   "files": [
     "entry.js",
     "cordis.patch.yml",
-    "skills"
+    "skills",
+    "README.md"
   ],
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "qilin": {
     "bundle": {
       "patch": "./cordis.patch.yml"
     }

@@ -1,6 +1,6 @@
 {
   "name": "@kkutysllb/dsh-terminal",
-  "version": "1.0.1",
+  "version": "1.1.1",
   "description": "dsh-external in-box dsh bundle: embedded terminal panel (node-pty backed multi-tab shells, per-workspace buckets, xterm.js UI) as a bottom dock inside the dsh web page, replacing the retired Electron host terminal-panel.",
   "license": "MIT",
   "type": "module",
@@ -42,5 +42,17 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "qilin": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "dependencies": {
+    "node-pty": "^1.1.0"
   }
 }
