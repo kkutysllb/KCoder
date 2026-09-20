@@ -46,6 +46,7 @@ pnpm build && pnpm start
 
 - 会话/凭据/插件数据在 `~/.kcoder`（`DSH_HOME` 可覆盖）——KCoder 自有家，**不与 `dsh` CLI / `npx dsh web` 共享**（上游默认 `~/.dsh` 是 harness 家族工具链的共享库，共库会让引擎代差互相污染；老用户存量由设置页「数据迁移」一键搬移）。
 - 本地打包（仅当前平台）：`pnpm dist`（electron-builder，macOS dmg）。
+- 若 `pnpm dev` 报 `TypeError: Cannot read properties of undefined (reading 'getVersion')`（`out/main/index.js` 里 `const APP_VERSION = electron.app.getVersion()`）：环境里带了 `ELECTRON_RUN_AS_NODE=1`——在 **KCoder 桌面端派生的终端 / Agent 会话**里跑 dev 很常见（桌面端为该变量给自己派生的 dsh 子进程用，子 shell 继承），此时 electron 二进制以纯 Node 模式启动，`electron.app` 是 undefined。`pnpm dev` / `pnpm start` / `pnpm build` 已自动剥离（`scripts/dev.mjs` 启动前打印一行提示）；直接调用 electron 的命令（如 `pnpm exec electron scripts/smoke-*.mjs`、`pnpm icons`）不走这层包装，需自己加 `env -u ELECTRON_RUN_AS_NODE` 前缀。
 
 ### dev 与打包态并存（源码态自动隔离）
 

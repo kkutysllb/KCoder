@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 /**
- * electron-vite 启动包装：Windows 控制台 UTF-8 代码页预设。
+ * electron-vite 启动包装：Windows 控制台 UTF-8 代码页预设 + Electron
+ * 运行模式环境净化（两件事都在"启动 electron-vite 之前"做）。
+ *
+ * ## 现象一（Windows 乱码）
  *
  * 现象：`pnpm dev` 时主进程中文日志（如 mcp-builtin 的
  * 「跳过 xx：命令 xx 不在 PATH」）在 Windows 终端显示乱码
@@ -14,10 +17,26 @@
  * ConPTY 集成终端同样生效，后续 electron-vite / electron 主进程
  * 的 UTF-8 输出均按 UTF-8 解码显示）。
  *
+ * ## 现象二（继承 ELECTRON_RUN_AS_NODE → 主进程起不来）
+ *
+ * `ELECTRON_RUN_AS_NODE=1` 会让 electron 二进制以**纯 Node** 模式启动：
+ * `electron` 模块退化成"二进制路径字符串"，`electron.app` 是 undefined，
+ * 主进程在第一个模块级 `app.getVersion()`（brand-injector）就崩：
+ *
+ *   TypeError: Cannot read properties of undefined (reading 'getVersion')
+ *     at out/main/index.js:… const APP_VERSION = electron.app.getVersion();
+ *
+ * 该变量由 KCoder 桌面端为自己派生的 dsh 子进程设置，凡在"桌面端里开的
+ * 终端 / Agent 会话"中跑 pnpm dev 就会继承——本仓在自己的开发环境里
+ * 100% 起不来（2026-09-20 实测复现）。spawn 不传 env 时子进程全量继承，
+ * 故此处显式剥离后再下传（electron-vite 再派生 electron，同环境）。
+ *
  * 用法：node scripts/dev.mjs [args...]——args 透传给 electron-vite
  * （dev / preview / build ...；缺省 dev）。electron-vite 从项目
  * node_modules/.bin 解析绝对路径，直接 `node scripts/dev.mjs`
  * （不经 pnpm run、PATH 无 .bin）也能启动。
+ * 另：`pnpm exec electron scripts/smoke-*.mjs` 这类直接调用 electron
+ * 的命令不走本包装，同样环境里需 `env -u ELECTRON_RUN_AS_NODE` 前缀。
  */
 import { spawn, execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -44,13 +63,27 @@ if (process.platform === 'win32') {
   }
 }
 
+// 环境净化：剥离继承的 ELECTRON_RUN_AS_NODE（大小写不敏感，Windows 环境
+// 变量名不分大小写）。传 env 就必须给完整环境，故基于 process.env 复制。
+const childEnv = { ...process.env }
+let strippedRunAsNode = false
+for (const key of Object.keys(childEnv)) {
+  if (key.toUpperCase() === 'ELECTRON_RUN_AS_NODE') {
+    delete childEnv[key]
+    strippedRunAsNode = true
+  }
+}
+if (strippedRunAsNode) {
+  console.error('[dev] 已剥离继承的 ELECTRON_RUN_AS_NODE——否则 electron 以纯 Node 模式启动，主进程读不到 electron.app（TypeError: … reading \'getVersion\'）')
+}
+
 // Windows：.cmd shim 不能直接 spawn（Node 安全限制），显式 cmd /c
 // 转发（不用 shell:true，避免 DEP0190 参数拼接警告）；类 Unix 的
 // 可执行 shim 直启，无多余 shell 层
 const child =
   process.platform === 'win32'
-    ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/c', bin, command, ...args.slice(1)], { stdio: 'inherit' })
-    : spawn(bin, [command, ...args.slice(1)], { stdio: 'inherit' })
+    ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/c', bin, command, ...args.slice(1)], { stdio: 'inherit', env: childEnv })
+    : spawn(bin, [command, ...args.slice(1)], { stdio: 'inherit', env: childEnv })
 child.on('error', (err) => {
   console.error(`[dev] 启动 electron-vite 失败：${err.message}`)
   process.exit(1)
