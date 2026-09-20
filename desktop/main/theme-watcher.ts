@@ -280,8 +280,9 @@ export function themeBackgroundColor(pref: 'system' | 'light' | 'dark' = getSett
  *   起排在中间会话列左缘（侧边栏右边线 + 12px，探测 sidebarCol 实时
  *   广播为 --dsh-sidebar-w，拖宽/折叠动画平滑跟随；侧边栏收起时保底
  *   左侧让位区）；--dsh-titlebar-extra-left（折叠按钮迁移注入器
- *   sidebar-toggle 设置 = 按钮宽 26 + 间距 8）叠加上最小让位，收起态
- *   标题不与红绿灯右侧的折叠按钮重叠）；max-width 自适应避让：右侧取
+ *   sidebar-toggle 设置 = 最右按钮右缘 + 间距 8，当前最右即折叠按钮；
+ *   排布自 2026-09-20 起为 左箭头/右箭头/折叠）叠加上最小让位，收起态
+ *   标题不与红绿灯右侧这串按钮重叠）；max-width 自适应避让：右侧取
  *   按钮带（134px = 四枚 26px 按钮：侧栏面板 12/内嵌终端 44/上下文 76/
  *   git 108px 序——终端由 dsh-terminal、git 面板由 dsh-git-panel
  *   插件 client 注入，上下文入口见 context-button；Windows 另加 padRight

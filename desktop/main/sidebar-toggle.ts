@@ -2,10 +2,14 @@
  * 侧边栏折叠按钮迁移 + 会话导航按钮（零侵入注入器）：
  * 1. 把上游位于侧边栏 logoRow 右侧的折叠按钮（button.iconButton.toggle，
  *    React 持有、展开/收起两态同一按钮，onClick 走 toggleSidebar 驱动
- *    折叠动画与 rail）移到自绘标题栏红绿灯区域右侧（用户指定位置，
- *    left 84px，按参考图"红绿灯右边第一个按钮"换算，双平台同坐标）；
- * 2. 折叠按钮右侧新增两个 26x26 箭头按钮（left 128/174px，
- *    用户参考图红框内左右箭头）：左=上一个会话、右=下一个会话——
+ *    折叠动画与 rail）移到自绘标题栏红绿灯区域右侧，与两枚会话导航
+ *    箭头同排（双平台同坐标）；
+ * 2. 排布（2026-09-20 用户指定——导航箭头靠红绿灯、折叠按钮移到它们
+ *    右侧）：左箭头 84px → 右箭头 128px → 折叠按钮 174px，三枚 26×26。
+ *    理由是分组语义：两枚箭头是一对耦合控件，与 macOS 侧栏惯例
+ *    （Finder/Mail 的返回/前进）同序，占据红绿灯右侧第一串；折叠按钮
+ *    改的是布局而非内容，落在这一串末位（紧邻标题 label 一侧），不与
+ *    导航混读、也不夹在成对控件中间。左=上一个会话、右=下一个会话——
  *    在侧边栏会话树（ui-workspace WorkspaceBrowser，role="tree" 内
  *    role="treeitem" 的会话行，aria-selected 标记当前会话）中点击
  *    相邻行（React 合成事件照常驱动 onOpen 切换会话）；会话列表仅
@@ -18,8 +22,9 @@
  *    brand-injector 注入的 K logo）恢复显示——那是"折叠后红框处的
  *    logo K"，点击展开（上游设计：静息 K logo、hover 换 panelIcon）；
  * 2. 在自绘标题栏（theme-watcher 注入的 #__dsh_desktop_titlebar）
- *    注入三个按钮（折叠 84px / 左箭头 128px / 右箭头 174px，紧邻红
- *    绿灯区域右侧，红绿灯区域 12~64px 不可侵占，双平台同坐标）；
+ *    注入三个按钮（左箭头 84px / 右箭头 128px / 折叠 174px，紧邻红
+ *    绿灯区域右侧，红绿灯区域 12~64px 不可侵占，双平台同坐标；注入
+ *    顺序即视觉序，Tab 序与之一致）；
  *    Windows 无原生红绿灯：左角绘制三颗装饰红绿灯圆点（与 macOS 同
  *    色同几何，纯装饰 pointer-events:none，拖拽区照旧穿透）锚定左角，
  *    消除按钮组悬空感，跨平台视觉统一（旧版重复侧边栏商标的 K logo
@@ -30,7 +35,7 @@
  *    - 箭头按钮点击 → 会话树相邻行 click()，aria-label 固定
  *      （上一个会话/下一个会话）；
  * 3. 标题栏 label 让位：documentElement 设 --dsh-titlebar-extra-left
- *    = 最右按钮（右箭头）右缘 + 间距 8 - 平台 leftPad（macOS：
+ *    = 最右按钮（折叠）右缘 + 间距 8 - 平台 leftPad（macOS：
  *    174+34-78=130；Windows：174+34-12=196），theme-watcher 的
  *    margin-left / max-width 最小让位随之抬升（CSS 变量变化自动重算，
  *    无需重建 bar）；展开态侧边栏宽时标题仍在侧边栏右缘（max 分支
@@ -213,7 +218,9 @@ const PAGE_JS = `(() => {
   }
 
   const injectBtn = () => {
-    if (document.getElementById(NEXT_ID) !== null) return 'present'
+    // 哨兵取**最后追加**的那枚（折叠按钮）：改序后仍是"三枚齐备"的判据，
+    // 不会把半注入状态误判为已注入
+    if (document.getElementById(BTN_ID) !== null) return 'present'
     const host = bar()
     if (host === null) return 'absent'
     // Windows 装饰红绿灯先于按钮注入（macOS DECO_DOTS=false 跳过；bar
@@ -245,12 +252,14 @@ const PAGE_JS = `(() => {
       b.onclick = onClick
       host.append(b)
     }
+    // 追加顺序 = 视觉序（左→右）= Tab 序：左箭头 → 右箭头 → 折叠按钮。
+    // 定位靠各自 left 值，顺序不影响布局，但键盘焦点顺序必须与视觉一致。
+    mkBtn(PREV_ID, '上一个会话', ARROW_LEFT_SVG, () => navigateSession(-1))
+    mkBtn(NEXT_ID, '下一个会话', ARROW_RIGHT_SVG, () => navigateSession(1))
     mkBtn(BTN_ID, '', TOGGLE_ICON_SVG, () => {
       const t = toggleEl()
       if (t !== null) t.click()
     })
-    mkBtn(PREV_ID, '上一个会话', ARROW_LEFT_SVG, () => navigateSession(-1))
-    mkBtn(NEXT_ID, '下一个会话', ARROW_RIGHT_SVG, () => navigateSession(1))
     sync()
     return 'injected'
   }
@@ -275,18 +284,21 @@ const PAGE_JS = `(() => {
  */
 export function attachSidebarToggle(win: BrowserWindow): void {
   if (process.platform !== 'darwin' && process.platform !== 'win32') return
-  // 双平台同坐标：三个按钮紧邻红绿灯区域右侧（用户参考图：红绿灯右缘
-  // → 折叠按钮 x≈84 → 左箭头 x≈128 → 右箭头 x≈174），红绿灯区域
-  // 12~64px 不可侵占；Windows 无原生红绿灯，由装饰圆点补齐同几何左角
-  // （按钮组不再悬空，跨平台视觉统一；titleBarOverlay 控制按钮在右侧，
-  // 左侧无冲突）。leftPad 与 theme-watcher 一致（darwin 78/win32 12）
+  // 双平台同坐标，按视觉序（2026-09-20 用户指定：导航箭头靠红绿灯、
+  // 折叠按钮移到它们右侧）：红绿灯区域 12~64px 不可侵占 → 左箭头 84 →
+  // 右箭头 128 → 折叠 174（与用户参考图"红绿灯右边第一串"的换算一致）。
+  // Windows 无原生红绿灯，由装饰圆点补齐同几何左角（按钮组不再悬空，
+  // 跨平台视觉统一；titleBarOverlay 控制按钮在右侧，左侧无冲突）。
+  // leftPad 与 theme-watcher 一致（darwin 78/win32 12）
   const leftPad = process.platform === 'win32' ? 12 : 78
-  const left = 84
-  const prev = 128
-  const next = 174
-  const extra = next + 26 + 8 - leftPad // 最右（右箭头）右缘 + 间距 - leftPad
+  const prev = 84
+  const next = 128
+  const toggle = 174
+  // 最右按钮右缘 + 间距 8，折算到 leftPad 之后（取三者最大值，改排布不必
+  // 动这一行；当前最右即折叠按钮 174 → macOS 130 / Windows 196）
+  const extra = Math.max(prev, next, toggle) + 26 + 8 - leftPad
   const script = PAGE_JS
-    .replaceAll(PLACEHOLDER, String(left))
+    .replaceAll(PLACEHOLDER, String(toggle))
     .replaceAll(ARROW_PREV_PLACEHOLDER, String(prev))
     .replaceAll(ARROW_NEXT_PLACEHOLDER, String(next))
     .replaceAll(EXTRA_PLACEHOLDER, String(extra))

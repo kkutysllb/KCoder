@@ -6,20 +6,22 @@
  * - 上游 toggle（logoRow 内 button.iconButton.toggle）仅展开态隐藏
  *   （收起态恢复显示——railMark 内 brand-injector 注入的 K logo 即
  *   "折叠后 rail 顶部的 logo K"，点击展开，标题栏按钮不重复隐藏它）；
- * - 标题栏注入三个 26x26 按钮（双平台同坐标：折叠 84px / 左箭头
- *   128px / 右箭头 174px，紧邻红绿灯区域右侧；垂直居中、在 bar 内）；
+ * - 标题栏注入三个 26x26 按钮（双平台同坐标，视觉序 = DOM 序 = Tab 序：
+ *   左箭头 84px → 右箭头 128px → 折叠 174px，紧邻红绿灯区域右侧；
+ *   垂直居中、在 bar 内）；
  * - Windows 场景：左角注入装饰红绿灯（三颗 12px 圆点、间距 8，占
  *   12~64px，与 macOS 原生红绿灯同几何；extra 196）断言圆点尺寸/
  *   位置/垂直居中 + 按钮同 macOS 坐标；macOS 断言无装饰圆点（原生
  *   红绿灯区域）；
  * - 点击折叠按钮 → 上游 toggle 的 click 被触发（React 合成事件
  *   路径照常）；
- * - 图标实时克隆上游 toggle 的 panelIcon svg、aria-label 同步；
+ * - 折叠按钮图标为静态内联 panel-left 矢量（不克隆上游），aria-label
+ *   随上游 toggle 同步；
  * - 箭头按钮 → 会话树（role="tree" 内 role="treeitem" 的 sessionRow，
  *   aria-selected 标记当前会话）相邻行 click：左=上一个、右=下一个；
  *   收起态无会话列表（列表仅展开态挂载）→ 先触发 toggle 展开；
- * - --dsh-titlebar-extra-left（macOS 130px / Windows 196px = 右箭头
- *   右缘 174+26=200 + 间距 8 - leftPad 78/12）：侧边栏宽 280 时标题
+ * - --dsh-titlebar-extra-left（macOS 130px / Windows 196px = 最右按钮
+ *   （折叠）右缘 174+26=200 + 间距 8 - leftPad 78/12）：侧边栏宽 280 时标题
  *   仍在侧边栏右缘（292px），收起（56px）/探针失效（0）时标题退到
  *   按钮右侧（208px）不重叠；
  * - 自愈：模拟 React 重建 toggle（收起态：brand 移除 + railMark
@@ -40,6 +42,20 @@ import { join, resolve } from 'node:path'
 const ROOT = resolve(import.meta.dirname, '..')
 const BT = String.fromCharCode(96)
 
+/**
+ * 源码契约失败：打印原因并**立即退出**。
+ *
+ * 不能用顶层 throw：Electron 主进程未捕获异常后不会自己退，测试就这么挂到
+ * 外层超时（2026-09-20 实测：排布断言抛错后进程永不退出，240s 超时才被杀）。
+ * 退出码非零 = 失败，与其余冒烟的 ALL PASS/FAILED 口径一致。
+ * @param {string} msg
+ * @returns {never}
+ */
+const die = (msg) => {
+  console.error(`[toggle-smoke] 源码契约失败：${msg}`)
+  process.exit(1)
+}
+
 // 从源码提取 PAGE_JS 模板串原文，占位符替换出两套平台值（按钮坐标双
 // 平台一致，仅装饰红绿灯开关与 EXTRA 不同，与主进程 attachSidebarToggle
 // 平台分支一致）：
@@ -50,8 +66,46 @@ const src = readFileSync(join(ROOT, 'desktop/main/sidebar-toggle.ts'), 'utf8')
 const decl = 'const PAGE_JS = ' + BT
 const from = src.indexOf(decl) + decl.length
 const endTick = src.indexOf('\n})()`', from)
-if (from < decl.length || endTick < 0) throw new Error('无法提取 PAGE_JS')
+if (from < decl.length || endTick < 0) die('无法提取 PAGE_JS')
 const baseJs = src.slice(from, endTick + 5)
+// 排布值**从源码提取**，不在这里硬编码：attachSidebarToggle 的三个坐标
+// 常量是唯一事实源。2026-09-20 实测过硬编码版的假通过——把源码常量换回
+// 旧序（折叠 84 / 左箭头 128 / 右箭头 174），硬编码的冒烟仍 ALL PASS，
+// 即"源码改了、冒烟自说自话"。提取后钉住的是：
+//   1) 常量声明序与取值（下面这条断言 + 渲染坐标比对）；
+//   2) 占位符 → 常量的装配绑定（checkWiring 文本检查——本冒烟自己重做
+//      替换，不跑 attachSidebarToggle 的 replaceAll 链，故必须单独查，
+//      否则把 PLACEHOLDER 接到 prev 上照样全绿：2026-09-20 NC-2 实测）；
+//   3) PAGE_JS 内"常量 → 按钮 id"的 CSS 绑定、追加序与渲染坐标（DOM 断言）。
+const layout = src.slice(src.indexOf('export function attachSidebarToggle'))
+/** @param {string} name */
+const layoutNum = (name) => {
+  const m = new RegExp('const ' + name + ' = (\\d+)').exec(layout)
+  if (m === null) die(`无法从源码提取按钮坐标常量 ${name}`)
+  return Number(m[1])
+}
+/** 占位符必须绑定到对应常量（容忍空格换行，不容忍接错人）。 */
+/** @param {string} ph @param {string} name */
+const checkWiring = (ph, name) => {
+  const re = new RegExp('\\.replaceAll\\(\\s*' + ph + '\\s*,\\s*String\\(\\s*' + name + '\\s*\\)\\s*\\)')
+  if (!re.test(layout)) die(`attachSidebarToggle 的 ${ph} 未绑定到 String(${name})`)
+}
+checkWiring('PLACEHOLDER', 'toggle')
+checkWiring('ARROW_PREV_PLACEHOLDER', 'prev')
+checkWiring('ARROW_NEXT_PLACEHOLDER', 'next')
+checkWiring('EXTRA_PLACEHOLDER', 'extra')
+const TOGGLE_LEFT = layoutNum('toggle')
+const PREV_LEFT = layoutNum('prev')
+const NEXT_LEFT = layoutNum('next')
+// 2026-09-20 用户指定排布：导航箭头靠红绿灯，折叠按钮移到它们右侧
+if (!(PREV_LEFT < NEXT_LEFT && NEXT_LEFT < TOGGLE_LEFT)) {
+  die(`源码排布应 左箭头(${PREV_LEFT}) < 右箭头(${NEXT_LEFT}) < 折叠(${TOGGLE_LEFT})——折叠按钮须在左右箭头右侧`)
+}
+const LEFT_PAD_MAC = 78
+const LEFT_PAD_WIN = 12
+const RIGHT_EDGE = Math.max(PREV_LEFT, NEXT_LEFT, TOGGLE_LEFT) + 26 // 最右按钮右缘
+const extraMac = RIGHT_EDGE + 8 - LEFT_PAD_MAC
+const extraWin = RIGHT_EDGE + 8 - LEFT_PAD_WIN
 // 折叠按钮静态图标：PAGE_JS 里 TOGGLE_ICON_PLACEHOLDER（源码插值原文）
 // 需替换为 TOGGLE_ICON_SVG 常量的求值结果——该常量是多段单引号拼接
 // （位于其声明与 PAGE_JS 之间的文本内），正则取出各段 join 即完整
@@ -59,19 +113,19 @@ const baseJs = src.slice(from, endTick + 5)
 // SyntaxError（${...} 非法 token）
 const iconBlock = src.slice(src.indexOf('const TOGGLE_ICON_SVG ='), src.indexOf('const PAGE_JS'))
 const toggleIconSvg = [...iconBlock.matchAll(/'((?:[^'\\]|\\.)*)'/g)].map((m) => m[1]).join('')
-if (!toggleIconSvg.startsWith('<svg')) throw new Error('无法提取 TOGGLE_ICON_SVG')
+if (!toggleIconSvg.startsWith('<svg')) die('无法提取 TOGGLE_ICON_SVG')
 const pageJs = baseJs
-  .replaceAll('${PLACEHOLDER}', '84')
-  .replaceAll('${ARROW_PREV_PLACEHOLDER}', '128')
-  .replaceAll('${ARROW_NEXT_PLACEHOLDER}', '174')
-  .replaceAll('${EXTRA_PLACEHOLDER}', '130')
+  .replaceAll('${PLACEHOLDER}', String(TOGGLE_LEFT))
+  .replaceAll('${ARROW_PREV_PLACEHOLDER}', String(PREV_LEFT))
+  .replaceAll('${ARROW_NEXT_PLACEHOLDER}', String(NEXT_LEFT))
+  .replaceAll('${EXTRA_PLACEHOLDER}', String(extraMac))
   .replaceAll('${TOGGLE_ICON_PLACEHOLDER}', JSON.stringify(toggleIconSvg))
   .replaceAll('${DOTS_PLACEHOLDER}', 'false')
 const pageJsWin = baseJs
-  .replaceAll('${PLACEHOLDER}', '84')
-  .replaceAll('${ARROW_PREV_PLACEHOLDER}', '128')
-  .replaceAll('${ARROW_NEXT_PLACEHOLDER}', '174')
-  .replaceAll('${EXTRA_PLACEHOLDER}', '196')
+  .replaceAll('${PLACEHOLDER}', String(TOGGLE_LEFT))
+  .replaceAll('${ARROW_PREV_PLACEHOLDER}', String(PREV_LEFT))
+  .replaceAll('${ARROW_NEXT_PLACEHOLDER}', String(NEXT_LEFT))
+  .replaceAll('${EXTRA_PLACEHOLDER}', String(extraWin))
   .replaceAll('${TOGGLE_ICON_PLACEHOLDER}', JSON.stringify(toggleIconSvg))
   .replaceAll('${DOTS_PLACEHOLDER}', 'true')
 
@@ -187,6 +241,8 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
       btnExists: btn !== null,
       btnInBar: btn !== null && bar !== null && bar.contains(btn),
       btnRect: r(btn),
+      // DOM 序（= Tab 序）：排布改动后必须与视觉序一致
+      domOrder: bar === null ? null : [...bar.querySelectorAll('button')].map((b) => b.id),
       prevExists: prevBtn !== null,
       prevInBar: prevBtn !== null && bar !== null && bar.contains(prevBtn),
       prevRect: r(prevBtn),
@@ -212,11 +268,24 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
   const barTop = probe.barRect.top
   const expectTop = barTop + (48 - 26) / 2
   // 平台布局期望（与 attachSidebarToggle 平台分支一致）：按钮双平台同
-  // 坐标 84/128/174；macOS extra 130、无装饰圆点（原生红绿灯在场）；
-  // Windows extra 196、装饰圆点占 12~64px；label 让位 = leftPad + extra
+  // 坐标（视觉序 左箭头 84 / 右箭头 128 / 折叠 174，2026-09-20 用户指定
+  // 折叠按钮移到箭头右侧）；macOS extra 130、无装饰圆点（原生红绿灯在
+  // 场）；Windows extra 196、装饰圆点占 12~64px；label 让位 = leftPad + extra
   const L = win32
-    ? { toggle: 84, prev: 128, next: 174, extra: '196px', ttl0: 208, ttl280: 292, ttl56: 208 }
-    : { toggle: 84, prev: 128, next: 174, extra: '130px', ttl0: 208, ttl280: 292, ttl56: 208 }
+    ? { toggle: TOGGLE_LEFT, prev: PREV_LEFT, next: NEXT_LEFT, extra: extraWin + 'px', ttl0: LEFT_PAD_WIN + extraWin, ttl280: 292, ttl56: LEFT_PAD_WIN + extraWin }
+    : { toggle: TOGGLE_LEFT, prev: PREV_LEFT, next: NEXT_LEFT, extra: extraMac + 'px', ttl0: LEFT_PAD_MAC + extraMac, ttl280: 292, ttl56: LEFT_PAD_MAC + extraMac }
+  // 排布断言（本次改动的回归面）：视觉 x 序与 DOM 序都必须是
+  // 左箭头 → 右箭头 → 折叠（DOM 序 = Tab 序，键盘焦点与视觉一致）
+  const order = [['prev', probe.prevRect === null ? null : probe.prevRect.left], ['next', probe.nextRect === null ? null : probe.nextRect.left], ['toggle', probe.btnRect === null ? null : probe.btnRect.left]]
+  if (order.every(([, v]) => typeof v === 'number')) {
+    if (!(order[0][1] < order[1][1] && order[1][1] < order[2][1]))
+      fails.push(`视觉序应 左箭头 < 右箭头 < 折叠，实际 ${order.map(([n, v]) => `${n}=${v}`).join(' ')}`)
+  }
+  if (probe.domOrder !== null) {
+    const want = ['__dsh_desktop_prev_btn', '__dsh_desktop_next_btn', '__dsh_desktop_toggle_btn']
+    if (JSON.stringify(probe.domOrder) !== JSON.stringify(want))
+      fails.push(`DOM 序（Tab 序）应为 左箭头→右箭头→折叠，实际 ${probe.domOrder.join('→')}`)
+  }
   if (win32) {
     if (!probe.dotsExists) fails.push('Windows 标题栏装饰红绿灯未注入')
     else {
@@ -234,7 +303,7 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
   if (!probe.btnExists) fails.push('标题栏折叠按钮未注入')
   else {
     if (!probe.btnInBar) fails.push('折叠按钮不在标题栏 bar 内')
-    if (Math.abs(probe.btnRect.left - L.toggle) > 1) fails.push(`折叠按钮 left=${probe.btnRect.left} 应 ≈${L.toggle}${win32 ? '（logo 右侧）' : '（红绿灯区域右侧）'}`)
+    if (Math.abs(probe.btnRect.left - L.toggle) > 1) fails.push(`折叠按钮 left=${probe.btnRect.left} 应 ≈${L.toggle}（两枚箭头右侧、标题 label 前）`)
     if (Math.abs(probe.btnRect.width - 26) > 1 || Math.abs(probe.btnRect.height - 26) > 1)
       fails.push(`折叠按钮尺寸=${probe.btnRect.width}x${probe.btnRect.height} 应为 26x26`)
     if (Math.abs(probe.btnRect.top - expectTop) > 1) fails.push(`折叠按钮 top=${probe.btnRect.top} 应 ≈${expectTop}（垂直居中）`)
