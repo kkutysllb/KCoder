@@ -296,3 +296,5 @@ await test('ensureSpawnHelper: 真环境幂等执行不抛', () => {
 })
 
 console.log(`\n${passed} passed, ${process.exitCode ? 'FAILED' : 'all ok'}`)
+// 真 pty 用例全通过时，存活的 pty master fd 会挂住事件循环——显式收口。
+process.exit(process.exitCode ?? 0)
