@@ -398,7 +398,7 @@
 # dd1529d8aa/b88abcad16 均为尖端祖先；新 delta vs 旧 delta 文件集差恰为
 # plugin.ts（按决策取上游）；上游侧文件零删除；build exit 0（248 client
 # 产物），lib/index.js 299/299，CI=true pnpm run typecheck 通过。
-ddefc45fbc7f8e46dd73185e68295696d1297887
+c36a83ff6bb95e3f82cf79f9be7c724270a8aa61
 
 # ── 集成分支 fork 侧追加（2026-09-18：设置页插件管理 tab）──────────────
 # 集成分支尖端 02253cd274（本地 = origin/kcoder/0.1.6-alpha.2，远端新建分支）。
@@ -425,3 +425,38 @@ ddefc45fbc7f8e46dd73185e68295696d1297887
 #
 # 另：撤销期间发现的「设置页点不动」真因不在上游，而在 KCoder 自身的
 # workspace-header.ts 裸选择器（见 KCoder 提交 f9fabf5），已单独修复。
+
+# ── 升级记录：2026-09-22 0.1.6-alpha.2(ddefc45fbc) → 0.1.7-alpha.1(c36a83ff6b，
+# 上游 tag 落 merge PR #4901，2026-09-22 12:12)。集成分支重建为 kcoder/0.1.7-alpha.1
+# （= tag + 单次 merge --no-ff origin/kcoder/0.1.6-alpha.2 整体重放 22 个自有提交，
+# 尖端 e8036fb560，已推 fork；旧分支未 reset）。1299 提交/4754 文件。分析文档
+# docs/upstream-0.1.7-alpha.1-analysis.md（§8=执行记录）。要点：① 设置体系迁入
+# Profile 插件配置（settings-file 整包删除；SettingsProvider→SettingsForms；volatile()
+# 标注实时字段；settings.yaml 启动改名 .imported 一次性导入——LEGACY_SECTION_ENTRIES
+# 仅 3 条映射，不匹配/无 volatile 字段即导入失败，KCoder 补写块需人工核对）；② Agent
+# 预设 bundle 化（agent-presets 整包删除→agent-preset+agent-preset-registry；
+# .agent-presets/ 目录零兼容）；③ SESSION 格式 V3→V4（tool 一等角色+producer 自有
+# source kind+developer/message；读路径懒迁移+批量 CLI migrate:sessions-to-v4，硬拒绝
+# 清单入升级 SOP）；④ llm-deepseek Messages-only（protocol 键残留即硬抛错；
+# PUBLIC_BASE_URL 改 /anthropic）；⑤ ui-primitives 81 图标全改名 Regular/Medium
+# （自研插件最大量机械适配）；⑥ readBytes 统一（readAll/readRelated 无兼容期删除，
+# data base64→Uint8Array）；⑦ pi-ai 官方第三 patch（流式大参数修复）与我方双 patch
+# 三方合一（openai-responses-shared.js 同文件双 hunk 合段，lock 补丁哈希 a62e2913）；
+# ⑧ Remote 双向流+二进制 unary（TypertGatewayWireStream.open 改签）；⑨
+# product-telemetry-otel 默认不挂载（隐私面零变化）；⑩ 内置浏览器 Web 关/Electron 开
+# （!!js profileContext 判定）。运行时断点（121 依赖逐一校验）：dsh-settings-file 与
+# dsh-experimental-agent-team-web-profile 两包被上游删除——staging 收口走 release
+# build 链（deploy 闭包自然解决），不手改 staging。冲突 10 处全两侧合并：pi-ai 补丁
+# add/add 三方合一、pnpm-workspace pi-ai 键重复去重、ui-chat 五文件并集（上游过程组
+# 新解构×我方 editUserMessage 链贯通）、assembly import 并集、plugin-manager
+# pageChildren 并入上游 3 新槽且两宿主 inject 同构、projection-cache spec 接口并集。
+# 适配 6 处：cache.spec 单参化（上游删 inheritedEventCount 参数）；两 fork 测试夹具
+# source kind 'plugin'→'test'（V4）；locale 新键 deepDivingFor 品牌化（过程组 toggle
+# 文案）；ToolRow TextShimmer×彩色片段 typeof 收窄分流；ChatView 解构拆行（max-len）；
+# ptc-runtime-python lint 抑制恢复（alpha.2 摘除后合并复现，按历史对称处理）。
+# 锚点存活：ui-slots src 零 diff（fork 侧 rendersExistingChildren 免冲突）、四 DOM
+# 锚点、turnTail、selectProducedFiles/producedForClosing 签名逐字符未变、MCP 引擎层
+# 连续第三版零变化、READY_LINE_RE/--no-open；D2 overlay 两行待 --dump-config 复验。
+# 质量门：vitest 920+1236+355+14 全绿（六包定向）、全仓 typecheck（host+client）过、
+# lefthook 全绿、install 补丁应用成功。完整性断言：14 个关键自有提交均为新尖端祖先，
+# diff vs tag = 49 文件全为我方自定义面。
