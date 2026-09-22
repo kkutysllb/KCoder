@@ -40,13 +40,15 @@
  * - pnpm 构建脚本门：白名单（onlyBuiltDependencies: [node-pty,
  *   dsh-better-sidebar]）路线已证伪，现由 dangerouslyAllowAllBuilds
  *   放行（见 ensurePnpmBuildsAllowed）；
- * - $DSH_HOME/settings.yaml 补写 dsh-coding-sidebar.titleBarCompat:
- *   true + titleBarStripPx——面板顶部让位 KCoder 自绘状态栏（键名
- *   跟随新包 SIDEBAR_PREFS_NS；插件自动探测只认 win32 advanced 标题栏，
- *   mac 需手动开；实测 2026-08-20）。开关簇不下移：由 sidebar-cluster.ts
- *   注入器隐藏并在状态栏代理接管（代理一枚 right 12 + 自研终端 44 +
- *   上下文 76；旧收编线底面板已在 fork 源码级移除，热补丁/挤压垫片
- *   随终端回归自研而拆除）。
+ * - profile cordis.patch.yml 的 dsh-coding-sidebar 行 config 补写
+ *   titleBarCompat: true + titleBarStripPx——面板顶部让位 KCoder 自绘
+ *   状态栏（键名跟随插件 Config volatile 字段；插件自动探测只认 win32
+ *   advanced 标题栏，mac 需手动开；实测 2026-08-20）。0.1.7 起存储位
+ *   从 settings.yaml 迁到 profile patch 行 config（键为 volatile 字段，
+ *   用户可经设置页实时改；见 ensureSidebarCompatPatch）。开关簇不下移：
+ *   由 sidebar-cluster.ts 注入器隐藏并在状态栏代理接管（代理一枚
+ *   right 12 + 自研终端 44 + 上下文 76；旧收编线底面板已在 fork 源码级
+ *   移除，热补丁/挤压垫片随终端回归自研而拆除）。
  *
  * @tt-a1i/archify-dsh（2026-08-20 预置 → 2026-09-01 退役）：架构图
  * agent skill——把代码库/系统描述变成自包含交互 HTML 技术图（架构/
@@ -77,6 +79,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { WEB_PROFILE, dshHome, runPnpm } from './dsh-contract'
+import { parseDocument, YAMLMap, YAMLSeq, type Document } from 'yaml'
 import { ensureProfilePatches, healLog } from './profile-patches'
 import { SHELL_TITLEBAR_HEIGHT } from './theme-watcher'
 
@@ -217,24 +220,53 @@ function ensurePnpmBuildsAllowed(workspacePath: string): void {
 }
 
 /**
- * 幂等补写 coding-sidebar 标题栏避让配置（$DSH_HOME/settings.yaml）：
- * 面板顶部让位 KCoder 自绘状态栏（48px，取 SHELL_TITLEBAR_HEIGHT 防魔
- * 数漂移；开关簇本体由 sidebar-cluster.ts 隐藏代理，不消费下移效果）。
- * 整块缺失才追加——用户/插件设置页改过则不动（旧收编线
- * dsh-better-sidebar 块不删：旧包退役后无人读，残留无害）；调用时序在
- * dsh 启动前，无并发写风险。tabsEnabled 不写：终端/Git 等重功能保持
- * 插件默认，用户经设置页自选（KCoder 内置终端面板已删除，预览面板
- * 不互斥）。
+ * 幂等补写 coding-sidebar 标题栏避让配置（profile cordis.patch.yml 行
+ * config，键 = 插件 Config 的 volatile 字段）：面板顶部让位 KCoder 自绘
+ * 状态栏（48px，取 SHELL_TITLEBAR_HEIGHT 防魔数漂移；开关簇本体由
+ * sidebar-cluster.ts 隐藏代理，不消费下移效果）。两键均缺失才补——
+ * 用户/设置页改过则不动；调用时序在 dsh 启动前，与引擎 configEditor
+ * 无并发窗口，故不加锁（运行期并发写统一走 profile-config-lock.ts）。
+ * tabsEnabled 不写：终端/Git 等重功能保持插件默认，用户经设置页自选。
  */
-function ensureSidebarCompatSettings(): void {
+function ensureSidebarCompatPatch(): void {
   try {
-    const settingsPath = join(dshHome(), 'settings.yaml')
-    if (!existsSync(settingsPath)) return
-    const yaml = readFileSync(settingsPath, 'utf8')
-    if (/^dsh-coding-sidebar:/m.test(yaml)) return
-    const block = `dsh-coding-sidebar:\n  titleBarCompat: true\n  titleBarStripPx: ${SHELL_TITLEBAR_HEIGHT}\n`
-    writeFileSync(settingsPath, yaml.endsWith('\n') ? yaml + block : yaml + '\n' + block)
-    console.log('[preset-plugins] 已补写 coding-sidebar 标题栏避让配置')
+    const patchPath = join(dshHome(), 'profiles', WEB_PROFILE, 'cordis.patch.yml')
+    if (!existsSync(patchPath)) return // profile 未初始化（首装）：下次启动重试
+    const doc: Document = parseDocument(readFileSync(patchPath, 'utf8'))
+    if (doc.errors.length > 0 || !(doc.contents instanceof YAMLSeq)) return // 坏 YAML 不动（mcp-store 同款守则）
+    let row: YAMLMap | null = null
+    for (const item of doc.contents.items) {
+      if (item instanceof YAMLMap && !item.has('insert') && String(item.get('id')) === 'dsh-coding-sidebar') {
+        row = item
+        break
+      }
+    }
+    let changed = false
+    if (row === null) {
+      const config = doc.createNode({ titleBarCompat: true, titleBarStripPx: SHELL_TITLEBAR_HEIGHT }) as YAMLMap
+      const entry = doc.createNode({ id: 'dsh-coding-sidebar' }) as YAMLMap
+      entry.set('config', config)
+      doc.contents.add(entry)
+      changed = true
+    } else {
+      const raw = row.get('config')
+      let config: YAMLMap
+      if (raw instanceof YAMLMap) {
+        config = raw
+      } else {
+        config = doc.createNode({}) as YAMLMap
+        row.set('config', config)
+      }
+      // 逐键守卫：用户/设置页改过任一键则整组不动（保留旧「整块缺失才追加」语义）
+      if (!config.has('titleBarCompat') && !config.has('titleBarStripPx')) {
+        config.set('titleBarCompat', true)
+        config.set('titleBarStripPx', SHELL_TITLEBAR_HEIGHT)
+        changed = true
+      }
+    }
+    if (!changed) return
+    writeFileSync(patchPath, doc.toString({ lineWidth: 0 }), 'utf8')
+    console.log('[preset-plugins] 已补写 coding-sidebar 标题栏避让配置（profile patch）')
     healLog('[preset] 已补写 coding-sidebar 标题栏避让配置')
   } catch (error) {
     console.error('[preset-plugins] coding-sidebar 避让配置补写失败:', error)
@@ -421,7 +453,7 @@ export function ensurePresetPlugins(): void {
     //    注入兑底
     const needInstall = presetNames.some((p) => !installed(p))
     ensurePnpmBuildsAllowed(workspacePath)
-    ensureSidebarCompatSettings()
+    ensureSidebarCompatPatch()
     if (needInstall) {
       ensureProfilePatches()
       console.log('[preset-plugins] 预置插件缺失，执行 pnpm install …')

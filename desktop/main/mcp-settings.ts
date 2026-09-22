@@ -525,7 +525,7 @@ export function attachMcpSettingsInjector(win: BrowserWindow): void {
     ).catch(() => {})
   }
 
-  const onConsole = (event: unknown, ...rest: unknown[]): void => {
+  const onConsole = async (event: unknown, ...rest: unknown[]): Promise<void> => {
     const message = consoleMessageText(event, rest)
     if (!message.startsWith(PREFIX) || win.isDestroyed()) return
     let payload: { op?: unknown; entry?: unknown; id?: unknown }
@@ -535,13 +535,13 @@ export function attachMcpSettingsInjector(win: BrowserWindow): void {
       return
     }
     if (payload.op === 'save' && typeof payload.entry === 'object' && payload.entry !== null) {
-      const result = mcpServerSave(payload.entry as McpServerEntry)
+      const result = await mcpServerSave(payload.entry as McpServerEntry)
       reply(result)
       if (result.ok) push()
       return
     }
     if (payload.op === 'delete' && typeof payload.id === 'string') {
-      const result = mcpServerDelete(payload.id)
+      const result = await mcpServerDelete(payload.id)
       reply(result)
       if (result.ok) push()
     }

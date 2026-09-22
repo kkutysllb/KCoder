@@ -278,7 +278,8 @@ app.whenReady().then(() => {
   // 「强制中文回答」开关同步 home patch 层（幂等；必须在 dsh 启动前，
   // 组合树首次挂载即带上该行覆盖）
   // 内置 MCP 服务器物化（幂等；首次启动写入全部条目，升级时只追加新增项）
-  ensureBuiltinMcpServers()
+  // 内置 MCP 同步走 profile 配置锁（R6），异步自洽：启动链不等待
+  void ensureBuiltinMcpServers()
   // 上游插件缺陷补丁物化（幂等；跨平台——Windows 无 launchd，随包分发
   // 的唯一通道；插件已装但补丁未生效时触发一次 pnpm install）
   ensureProfilePatches()

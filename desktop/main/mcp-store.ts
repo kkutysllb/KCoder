@@ -18,6 +18,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { withProfileConfigLock } from './profile-config-lock'
 import { join } from 'node:path'
 import { Document, YAMLMap, YAMLSeq, parseDocument } from 'yaml'
 import { WEB_PROFILE, dshHome } from './dsh-contract'
@@ -208,12 +209,17 @@ function validate(e: McpServerEntry): string | null {
 /**
  * 新增/改写一个 MCP 服务器（按 serverName 定位既有条目就地改写，
  * 否则追加 `- insert: [<entry>]` patch 项）。
+ *
+ * 0.1.7 起整个读改写窗口持 profile 配置锁（R6 对齐）：settings 表单、
+ * preset 编辑器、插件管理 patch writer 经引擎 configEditor 全部走
+ * `<profile>/package.json.lock` 同款锁，本侧不再是无锁的整份重写。
  */
-export function mcpServerSave(entry: McpServerEntry): McpWriteResult {
+export async function mcpServerSave(entry: McpServerEntry): Promise<McpWriteResult> {
   const id = entry.id !== '' ? entry.id : `mcp-${entry.serverName}`
   const e: McpServerEntry = { ...entry, id }
   const invalid = validate(e)
   if (invalid !== null) return { ok: false, error: invalid }
+  return withProfileConfigLock(async () => {
   const doc = readDoc()
   if (doc === null) {
     return { ok: false, error: 'cordis.patch.yml 不存在或无法解析（手编内容有误时请先修复，未做任何写回）' }
@@ -251,10 +257,12 @@ export function mcpServerSave(entry: McpServerEntry): McpWriteResult {
     return { ok: false, error: `写入失败：${String(error)}` }
   }
   return { ok: true, error: null }
+  })
 }
 
-/** 删除一个 MCP 服务器（按 id；条目摘除后 insert 数组空则删整个 patch 项）。 */
-export function mcpServerDelete(id: string): McpWriteResult {
+/** 删除一个 MCP 服务器（按 id；条目摘除后 insert 数组空则删整个 patch 项）。与 save 同锁。 */
+export async function mcpServerDelete(id: string): Promise<McpWriteResult> {
+  return withProfileConfigLock(async () => {
   const doc = readDoc()
   if (doc === null) {
     return { ok: false, error: 'cordis.patch.yml 不存在或无法解析（未做任何写回）' }
@@ -276,4 +284,5 @@ export function mcpServerDelete(id: string): McpWriteResult {
     }
   }
   return { ok: true, error: null }
+  })
 }

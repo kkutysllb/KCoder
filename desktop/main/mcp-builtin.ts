@@ -181,7 +181,7 @@ function commandAvailable(command: string): boolean {
  * stdio 条目命令不可用时不写入（不标记 synced，每次启动重探），已写入
  * 但命令失效的内置条目顺手清理（按 command 匹配，用户改过配置的不动）。
  */
-export function ensureBuiltinMcpServers(): void {
+export async function ensureBuiltinMcpServers(): Promise<void> {
   try {
     const state = readSyncState()
     const versionChanged = state.version !== BUILTIN_VERSION
@@ -202,7 +202,7 @@ export function ensureBuiltinMcpServers(): void {
       if (b.transport !== 'stdio' || commandAvailable(b.command)) continue
       const stale = existing.find((s) => s.serverName === b.serverName && s.command === b.command)
       if (stale !== undefined) {
-        const result = mcpServerDelete(stale.id)
+        const result = await mcpServerDelete(stale.id)
         if (result.ok) {
           staleRemoved = true
           console.log(`[mcp-builtin] 已清理命令失效的内置 MCP 服务器: ${b.serverName}（${b.command} 不可用）`)
@@ -224,7 +224,7 @@ export function ensureBuiltinMcpServers(): void {
       // 换 command/参数后旧条目也能被换掉）；否则仅追加缺失条目
       const force = versionChanged && existingNames.has(entry.serverName)
       if (!existingNames.has(entry.serverName) || force) {
-        const result = mcpServerSave(entry)
+        const result = await mcpServerSave(entry)
         if (result.ok) {
           synced.add(entry.serverName)
           console.log(`[mcp-builtin] 已${force ? '覆盖' : '添加'}内置 MCP 服务器: ${entry.serverName}`)
