@@ -494,3 +494,21 @@
 6. 新引擎首启 `removeLinkProjections()` 已在真实 profile 清理陈旧投影链接（R 风险项的行为落地，luxon 等旧 .dsh-module-fallback 链接被移除）✓
 
 **遗留至下一批**：settings.yaml 一次性导入需真实 App 首启核验（`~/.kcoder/settings.yaml` 3662B 在场，dump-config 路径不触发插件激活；核对 `.imported` 改名与 K 补写键存活 = §6 R5）＝第 3 项 settings 迁移专项的第一步。
+
+### 8.3 第三批已执行（2026-09-22：settings 迁移专项，对应 §7 第 3 项）
+
+**① 一次性导入实况核对（隔离副本双启实证）**：`~/.kcoder` 克隆到 /tmp 后启动新引擎——`settings.yaml` 启动即改名 `.imported` ✓，但 **12 个 section 仅 2 个落位**（`ui-onboarding→ui-settings-general` 映射 + `locale`），其余**静默失败**（上游 `logger.warn` 在 headless 下不可见＝可观测性缺口），用户值全部保全于 `.imported`。dump 路径不触发插件激活故不消费 settings.yaml（live 首启才会）。
+
+**② 关键用户值手工迁移（live profile，dump 逐一验证）**：`ui-theme.preferenc=dark`、`agent-default-model={zai-coding-cn, glm-5.3-flash, max}`、`better-sidebar` 行（agentOpenTools/defaultWidthPercent/titleBarCompat/titleBarStripPx/tabsEnabled 四项用户值）。合并语义实证：**profile 层行对 bundle 行逐键覆盖**。
+
+**③ desktop 侧两处改造（提交 2fdd5e7）**：新增 `desktop/main/profile-config-lock.ts`——与引擎 configEditor 同锁文件同协议（`<profile>/package.json.lock`，wx+pid+退避；R6 对齐），`mcp-store` 的整份 YAML 重写纳入锁内（save/delete 异步化 + 四个调用方跟改）；`preset-plugins` 的标题栏避让补写从 settings.yaml 迁到 profile patch 行 config（逐键守卫，settings.yaml 写入器已因文件消失自然失效）。
+
+**④ dsh-coding-sidebar 1.0.29（真源仓提交 + dsh-plugins 镜像 + bundle 镜像三仓同步）**：
+- **根因级修复（本批最大发现）**：schema 必须由 **fork `@deepseek-ai/schemastery`** 构造——volatile 引用包装发生在 fork 的 `Schema.resolve`（`createVolatile`），stock schemastery 只认 `meta.volatile` 标记、**不产生引用**，导致 loader `_commitVolatile` 收集不到引用而**静默跳过**（症状：写盘成功、响应值不变、事件不发）。devDeps 直连 cosmokit 以过 TS2742。
+- 配置合并：26 个偏好字段并入 Config 并 `.volatile()`；`prefsOf()/plainConfig()` 现读活引用；`PrefsSchema` 原样保留为兼容导出（含 https 默认 false 的历史不一致，明确不动）。
+- 桥接块替换：`settings.register/describe/update` → `ctx.inject(['configEditor'])` + `edit(entry, current => ({...current, ...patch}))`；entry 查找按 **name/id 双匹配并跳过 disabled 行**（实测 bundle 行 id = `better-sidebar`、name = `dsh-coding-sidebar`，另有多挂防重的 !!js disabled 表达式）；`loader/volatile-update` 事件驱动两个模型工具门控重评估；revision 为会话内单调计数（409 映射保留）；`SettingsConflictError` 本地化（删 dsh-settings peer/dev）。
+- 门禁全绿：`tsc --noEmit` ✓、`pnpm test`（新增 7 组断言：fork 引用解析/标记矩阵/默认兜底/解包）✓、`pnpm build` ✓、`pnpm smoke`（产物+契约+双面加载）✓。
+
+**⑤ 端到端复测（新引擎 + 物化插件，HTTP 实测三路径）**：settings.get 返回活值（含上轮 patch 的 tools=true/strip=52/compat=true）✓；settings.update 改 strip=64/compat=false → **响应即新值**（volatile 引用原地更新，前一轮「写盘成功但响应旧值」的失败模式已消除）、rev 0→1 ✓；再 get 持久 ✓；陈旧 revision → 409 `settings-conflict` ✓；patch 文件收敛为合并后的 config ✓。
+
+**遗留（第 4 项起）**：mcp-settings DOM 冒烟需 GUI（本环境 Electron 被系统沙箱拦断，留本机 `pnpm exec electron scripts/smoke-mcp-dom.mjs`）；coding-sidebar 余下适配（81 图标改名 / jobs 服务面 / agentPresets 注册表 / subagent 类型 / peer 键追加）属第 4 项。
