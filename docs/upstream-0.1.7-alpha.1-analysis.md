@@ -474,3 +474,23 @@
 **完整性断言**：14 个关键自有提交均为新尖端祖先；`git diff --name-only tag..尖端` = 49 文件全为我方自定义面。
 
 **下一批（§7 第 2 项起）的前置同步**：`upstream/BASELINE` 追加本次记录并将钉版 SHA 改为 `c36a83ff6b…`；`desktop/main/dsh-contract.ts` UPSTREAM_BRANCH → `kcoder/0.1.7-alpha.1`；`scripts/setup.sh` / `release.sh` 分支名同步（3 处断言，完成后 grep 归零验证）。
+
+### 8.2 第二批已执行（2026-09-22：前置同步 + staging 物化收口，对应 §7 第 2 项）
+
+**前置同步（KCoder 侧，提交 56f911d）**：`upstream/BASELINE` 钉版换 `c36a83ff6bb95e3f82cf79f9be7c724270a8aa61` + 追加 0.1.7-alpha.1 升级记录；`desktop/main/dsh-contract.ts` UPSTREAM_BRANCH → `kcoder/0.1.7-alpha.1`；`scripts/setup.sh`/`release.sh` 分支名同步（3 处）；`grep kcoder/0.1.6-alpha.2 desktop scripts` 归零 ✓。
+
+**fork 强制全量重建**：清 `apps/cli/lib`/`lib`/`dist`/`apps/web/dist` 后 `CI=true pnpm run build` → **263 个 client 产物**（上轮 248，新包如期入组），exit 0。
+
+**物化链（release.sh build）三连坑与解法**：① `pnpm install --frozen-lockfile` 无 TTY purge 确认中止（workspace.yaml 注释记载的已知坑）→ `CI=true` 重跑；② deploy 后 `materialize-peers` 因 electron 二进制被①的首次中止 install 重链掉而崩（getElectronPath）→ `pnpm fix:electron` 从缓存 zip 恢复 ✓；③ deploy 需写 fork 目录临时文件，工作区沙箱 EPERM → 提权重跑。三坑均为已知类（运行时交付链），无新雷。
+
+**staging 收口结果（staging/kcoder-runtime @ 0.1.7-alpha.1，不入库）**：deploy 闭包 80 顶层依赖——`dsh-settings-file`/`dsh-experimental-agent-team-web-profile` **自动消失**（CLI 包不再依赖，验证 §3.1 预判）；`dsh-config-editor`/`dsh-agent-preset`/`dsh-agent-preset-registry`/`dsh-session-format-v3-to-v4` 全部在位（设置/预设/V4 迁移链可用）；materialize-peers 自检通过（25228 文件 → tar.gz 162MB，签名 228）。
+
+**复验（--dump-config --patch 实测三行 + 冒烟）**：
+1. `session-log-deepseek / enabled: false`（D2）✓
+2. `ui-sidebar-terminal / disabled: true` ✓
+3. `ui-deliverables / config.tailCard: false`（我方 tailCard 闸门在新基线生效）✓
+4. MCP 行 7 条存活（mcp-store 的 cordis.patch.yml 在五文件 patch + preset registry 新组合下无冲突）✓
+5. `smoke-runtime.mjs`：就绪行 + 首页 200 ✓（READY_LINE_RE 契约存活）
+6. 新引擎首启 `removeLinkProjections()` 已在真实 profile 清理陈旧投影链接（R 风险项的行为落地，luxon 等旧 .dsh-module-fallback 链接被移除）✓
+
+**遗留至下一批**：settings.yaml 一次性导入需真实 App 首启核验（`~/.kcoder/settings.yaml` 3662B 在场，dump-config 路径不触发插件激活；核对 `.imported` 改名与 K 补写键存活 = §6 R5）＝第 3 项 settings 迁移专项的第一步。
