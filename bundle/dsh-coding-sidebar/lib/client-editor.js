@@ -43780,7 +43780,6 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		browserLiveTargetNone: "暂无打开的页面——agent 发起浏览后此处实时显示",
 		browserLiveFollowLatest: "跟随最新页面",
 		browserBlockedScheme: "已阻止：仅支持 http/https 链接",
-		browserBlockedLoopback: "已阻止：不允许在浏览器中访问本机或内部地址",
 		browserBlockedCredentials: "已阻止：网址中不能包含账号密码",
 		browserBlockedAppOrigin: "已阻止：不能在侧边栏里打开 KCoder 自身",
 		browserInvalid: "无效的网址",
@@ -43805,9 +43804,6 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		settingsBrowserHttpDesc: "开启后，点击聊天或界面中的 HTTP 外链时在侧边栏打开（声明了 urlTarget 的插件页面优先）；Ctrl/Cmd 点击可临时放行",
 		settingsBrowserHttpsTitle: "侧边打开HTTPS网页",
 		settingsBrowserHttpsDesc: "开启后，点击聊天或界面中的 HTTPS 外链时在侧边栏打开。默认关闭：多数 HTTPS 站点拒绝被嵌入，走系统浏览器更顺畅",
-		settingsBrowserLoopbackTitle: "允许访问的本机地址",
-		settingsBrowserLoopbackDesc: "逗号分隔的本地回环地址白名单（如 localhost:5174 或 127.0.0.1:8080），侧边栏浏览器可访问这些本地服务；默认留空则本机地址全部拦截。沙箱隔离仍然生效，页面无法读取界面数据",
-		settingsBrowserLoopbackPlaceholder: "例如 localhost:5174, 127.0.0.1:8080",
 		browserOpenExternal: "在浏览器中打开",
 		browserEmbedBlocked: "{host} 拒绝了嵌入请求",
 		browserEmbedBlockedDesc: "该站点通过 X-Frame-Options / frame-ancestors 禁止在其它页面中显示，无法在侧边栏内加载。可在浏览器中直接打开",
@@ -43951,6 +43947,24 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		trajStatusRunning: "进行中",
 		trajStatusError: "失败",
 		trajStatusInterrupted: "已停止",
+		trajAttachCounts: "{i} 张图片 · {f} 个文件",
+		trajAttachImageN: "图片 {n}",
+		trajAttachFile: "文件",
+		trajAttachOffloaded: "已卸载",
+		trajAttachView: "查看大图",
+		trajToolArgs: "调用参数",
+		trajToolResult: "结果",
+		trajToolPending: "等待结果",
+		trajEdgePrompt: "输入",
+		trajEdgeResult: "产出",
+		trajEdgeDispatch: "派发",
+		trajEdgeSubcall: "子调用",
+		trajEdgeLoop: "循环",
+		trajEdgeLegendHint: "点击只高亮这一类边",
+		trajSearchPlaceholder: "搜索轨迹…",
+		trajSearchNone: "无匹配",
+		trajStatsSlowest: "最慢 {name}·{duration}",
+		trajLanesSummary: "输入 {n1} · 模型 {n2} · 工具 {n3}",
 		confirm: "确定",
 		gitViewChanges: "变更",
 		gitViewBranches: "分支",
@@ -44292,7 +44306,6 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		browserLiveTargetNone: "No open pages yet — they appear here live once the agent browses",
 		browserLiveFollowLatest: "Follow latest",
 		browserBlockedScheme: "Blocked: only http/https URLs are allowed",
-		browserBlockedLoopback: "Blocked: local and internal addresses cannot be browsed here",
 		browserBlockedCredentials: "Blocked: URLs must not embed credentials",
 		browserBlockedAppOrigin: "Blocked: KCoder itself cannot be opened in the sidebar",
 		browserInvalid: "Invalid URL",
@@ -44317,9 +44330,6 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		settingsBrowserHttpDesc: "When on, clicking an HTTP external link in the chat or GUI opens the sidebar (plugin pages declaring urlTarget win); Ctrl/Cmd+click always bypasses",
 		settingsBrowserHttpsTitle: "Open HTTPS pages in the sidebar",
 		settingsBrowserHttpsDesc: "When on, clicking an HTTPS external link in the chat or GUI opens the sidebar. Off by default: most HTTPS sites refuse to be embedded, so the system browser is the smoother default",
-		settingsBrowserLoopbackTitle: "Allowed local addresses",
-		settingsBrowserLoopbackDesc: "Comma-separated allowlist of loopback addresses (e.g. localhost:5174 or 127.0.0.1:8080) the sidebar browser may visit; empty blocks all local addresses by default. The sandbox still applies — pages cannot read GUI data",
-		settingsBrowserLoopbackPlaceholder: "e.g. localhost:5174, 127.0.0.1:8080",
 		browserOpenExternal: "Open in browser",
 		browserEmbedBlocked: "{host} refused to be embedded",
 		browserEmbedBlockedDesc: "The site forbids being displayed inside other pages (X-Frame-Options / frame-ancestors), so it cannot load in the sidebar. Open it directly in your browser instead.",
@@ -44463,6 +44473,24 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		trajStatusRunning: "running",
 		trajStatusError: "failed",
 		trajStatusInterrupted: "stopped",
+		trajAttachCounts: "{i} images · {f} files",
+		trajAttachImageN: "Image {n}",
+		trajAttachFile: "File",
+		trajAttachOffloaded: "Offloaded",
+		trajAttachView: "View image",
+		trajToolArgs: "Arguments",
+		trajToolResult: "Result",
+		trajToolPending: "Pending",
+		trajEdgePrompt: "prompt",
+		trajEdgeResult: "result",
+		trajEdgeDispatch: "dispatch",
+		trajEdgeSubcall: "subcall",
+		trajEdgeLoop: "loop",
+		trajEdgeLegendHint: "Click to highlight only this edge kind",
+		trajSearchPlaceholder: "Search trajectory…",
+		trajSearchNone: "no match",
+		trajStatsSlowest: "slowest {name}·{duration}",
+		trajLanesSummary: "input {n1} · model {n2} · tool {n3}",
 		confirm: "Confirm",
 		gitViewChanges: "Changes",
 		gitViewBranches: "Branches",
@@ -48103,6 +48131,32 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		document.head.append(el);
 	});
 	let scriptLoader = defaultScriptLoader;
+	/**
+	* Script-load retry backoff (ms per retry, then the failure surfaces).
+	* DEFAULT is module state so tests can shrink it; production never changes it.
+	*/
+	let scriptRetryDelaysMs = [400, 1200];
+	/**
+	* Load one chunk script, retrying transient failures. A script-tag `error`
+	* event is NETWORK-level (404/403/aborted transfer): the classic producer is
+	* a route that momentarily cannot serve — an in-place plugin upgrade's
+	* rm/cp window, a server restart mid-fetch, a dropped connection. Those
+	* clear on their own within a beat, and re-execution is idempotent (the
+	* registry slot is overwritten by assignment), so retrying is safe. Only a
+	* failure that survives every retry surfaces to the caller.
+	*/
+	async function loadScriptWithRetry(src) {
+		let attempt = 0;
+		for (;;) try {
+			await scriptLoader(src);
+			return;
+		} catch (cause) {
+			const delay = scriptRetryDelaysMs[attempt];
+			if (delay === void 0) throw cause;
+			attempt += 1;
+			await new Promise((resolve) => setTimeout(resolve, delay));
+		}
+	}
 	/** Test/dev hook: resolve a chunk without fetching a script (e.g. vitest). */
 	const testLoaders = /* @__PURE__ */ new Map();
 	/** Memoized externals require, resolved once per page from the seed table. */
@@ -48162,7 +48216,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			if (test !== void 0) return test();
 			const modules = moduleSystem();
 			if (modules === void 0) throw new Error(`[dsh-coding-sidebar] chunk "${name}": client module system unavailable`);
-			await scriptLoader(CHUNK_URL(name));
+			await loadScriptWithRetry(CHUNK_URL(name));
 			const factory = chunkRegistry()[name];
 			if (typeof factory !== "function") throw new Error(`[dsh-coding-sidebar] chunk "${name}" script did not register its factory`);
 			const exports = factory(await buildExternalsRequire(modules));

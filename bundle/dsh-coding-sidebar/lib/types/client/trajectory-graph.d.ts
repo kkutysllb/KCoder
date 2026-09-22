@@ -75,6 +75,25 @@ export interface TrajectoryTokens {
     output?: number;
     reasoning?: number;
 }
+/**
+ * One attachment carried by a user/assistant/tool content block (upstream
+ * 0.1.6-alpha.2 unified attachment display). Images and files keep their
+ * recorded metadata so the inspector can list them (name, size, type,
+ * dimensions) and the view can request authorized thumbnails.
+ */
+export interface TrajectoryAttachment {
+    kind: 'image' | 'file';
+    /** Opaque storage id; never a filesystem path. */
+    attachmentId: string;
+    /** Recorded display name (files always have one; images may not). */
+    name?: string;
+    bytes?: number;
+    mediaType?: string;
+    width?: number;
+    height?: number;
+    /** An image-offload decision replaced the bytes with placeholder text. */
+    offloaded?: boolean;
+}
 /** One graph node (a ledger record). */
 export interface TrajectoryGraphNode {
     /** Stable identity (`req:<startSeq>`, `ev:<kind>:<seq>`, `call:<callId>`…). */
@@ -96,6 +115,10 @@ export interface TrajectoryGraphNode {
     badge?: string;
     /** Full inspector body. */
     detail?: string;
+    /** Ordered attachments carried by this record's content blocks. */
+    attachments?: readonly TrajectoryAttachment[];
+    /** Structured tool-call facts (tool/waiting/running-call records). */
+    toolDetail?: TrajectoryToolDetail;
     tokens?: TrajectoryTokens;
     durationMs?: number | null;
     /** Whether this node is still moving (drives the flow animation). */
@@ -111,6 +134,18 @@ export interface TrajectoryGraphEdge {
     kind: TrajectoryEdgeKind;
     /** Whether data is currently moving across this edge. */
     live: boolean;
+}
+/**
+ * Structured tool-call facts for the refined inspector: the call header
+ * (name, id, duration), the raw JSON arguments, and the settled result text
+ * as separate fields instead of one pre-joined blob.
+ */
+export interface TrajectoryToolDetail {
+    name: string;
+    callId?: string;
+    argsRaw?: string;
+    resultText?: string;
+    isError?: boolean;
 }
 /** One replay step: light a node, animate the edge that delivered it. */
 export interface TrajectoryTimelineStep {
@@ -150,6 +185,8 @@ export interface TrajectoryBlockLike {
     callId?: string;
     name?: string;
     argsRaw?: string;
+    /** Durable image reference of an `image` block (forward-compat shape). */
+    attachment?: unknown;
     [key: string]: unknown;
 }
 /** One content block of a user/context/tool record. */
@@ -157,6 +194,8 @@ export interface TrajectoryContentBlockLike {
     type?: string;
     text?: string;
     name?: string;
+    /** Durable attachment reference of an `image`/`file` block (structural). */
+    attachment?: unknown;
     [key: string]: unknown;
 }
 /** One tool call (running or settled), possibly owning child calls. */
@@ -268,17 +307,48 @@ export interface TrajectorySnapshotLike {
     [key: string]: unknown;
 }
 /**
+ * Extract the ordered attachment list of one record's content blocks.
+ * Both vocabularies are covered: user/tool records key blocks by `type`
+ * ('image' | 'file'), assistant records key them by `kind` ('image' forward
+ * compatibility). Repeated references are preserved, malformed refs are
+ * skipped — the inspector list stays a faithful, bounded projection.
+ */
+export declare function attachmentsOfContent(content: readonly TrajectoryContentBlockLike[] | undefined): TrajectoryAttachment[];
+/** Extract the ordered attachment list of one assistant record's blocks. */
+export declare function attachmentsOfBlocks(blocks: readonly TrajectoryBlockLike[] | undefined): TrajectoryAttachment[];
+/**
  * Project one host trajectory snapshot into the graph model.
  * @param snapshot - host `TrajectorySnapshot` (structural mirror), or null.
  * @returns the graph; an absent/empty snapshot yields an empty graph.
  */
 export declare function buildTrajectoryGraph(snapshot: TrajectorySnapshotLike | null | undefined): TrajectoryGraph;
+/**
+ * The slowest settled tool records, descending by recorded duration.
+ * @param graph - the (windowed) graph projection.
+ * @param limit - how many leaders to keep.
+ * @returns id, chip label and duration of each leader (empty when no tool
+ * record carries a duration).
+ */
+export declare function slowestTools(graph: TrajectoryGraph, limit: number): {
+    id: string;
+    name: string;
+    durationMs: number;
+}[];
 /** One windowed view of a graph (the render cap). */
 export interface TrajectoryGraphWindow {
     graph: TrajectoryGraph;
     /** How many leading records the window dropped. */
     hidden: number;
 }
+/**
+ * Search the graph's records by a case-insensitive substring of the chip
+ * label, the node kind, the node id, or a tool record's call id — the
+ * search box's match model.
+ * @param graph - the (windowed) graph projection.
+ * @param query - raw user text; blank matches nothing.
+ * @returns matching node ids in ledger order (the Enter key cycles them).
+ */
+export declare function searchTrajectoryNodes(graph: TrajectoryGraph, query: string): string[];
 /**
  * Keep only the most recent `limit` records (plus the edges between them).
  * Long sessions are unbounded; the graph view renders a tail window so a

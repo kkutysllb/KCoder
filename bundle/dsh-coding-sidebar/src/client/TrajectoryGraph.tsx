@@ -32,12 +32,16 @@ import {
   IconChevronDownOutline14, IconCloseOutline16, IconFullscreenOutline16,
   IconPauseOutline16, IconPlayOutline16, IconStopFill16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { VscFile, VscFileMedia } from 'react-icons/vsc'
+import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { markdownTextProps } from './markdown-labels.tsx'
 import type { Context } from '../context-types.ts'
 import type { SessionScope } from './api.ts'
 import {
-  buildTrajectoryGraph, windowTrajectoryGraph,
-  type TrajectoryEdgeKind, type TrajectoryLane, type TrajectoryNodeKind,
-  type TrajectoryNodeStatus, type TrajectorySnapshotLike, type TrajectoryTimelineStep,
+  buildTrajectoryGraph, searchTrajectoryNodes, slowestTools, windowTrajectoryGraph,
+  type TrajectoryAttachment, type TrajectoryEdgeKind, type TrajectoryGraphNode, type TrajectoryLane,
+  type TrajectoryNodeKind, type TrajectoryNodeStatus, type TrajectorySnapshotLike, type TrajectoryTimelineStep,
+  type TrajectoryTokens,
 } from './trajectory-graph.ts'
 import { ellipsize, layoutTrajectoryGraph } from './trajectory-layout.ts'
 import { resolveTrajectorySource } from './trajectory-source.ts'
@@ -97,6 +101,15 @@ const LANE_CLASS: Record<TrajectoryLane, string | undefined> = {
   tool: css.laneTool,
 }
 
+/** Edge-kind label key per chain kind (the clickable legend chips). */
+const EDGE_KEY: Record<TrajectoryEdgeKind, 'trajEdgePrompt' | 'trajEdgeResult' | 'trajEdgeDispatch' | 'trajEdgeSubcall' | 'trajEdgeLoop'> = {
+  prompt: 'trajEdgePrompt',
+  result: 'trajEdgeResult',
+  dispatch: 'trajEdgeDispatch',
+  subcall: 'trajEdgeSubcall',
+  loop: 'trajEdgeLoop',
+}
+
 /** Status chip copy per status. */
 function statusLabel(status: TrajectoryNodeStatus): string {
   switch (status) {
@@ -136,6 +149,86 @@ function hopDelay(timeline: readonly TrajectoryTimelineStep[], index: number, sp
   return clamp(at - before, 90, 1100) / speed
 }
 
+/** Image/file counts of one node's attachment list. */
+function attachmentCounts(attachments: readonly TrajectoryAttachment[] | undefined): { images: number; files: number } {
+  let images = 0
+  let files = 0
+  for (const attachment of attachments ?? []) {
+    if (attachment.kind === 'image') images++
+    else files++
+  }
+  return { images, files }
+}
+
+/** Human byte size (`0 B` preserved, per the upstream attachment list). */
+function formatBytes(bytes: number | undefined): string | undefined {
+  if (bytes === undefined || !Number.isFinite(bytes) || bytes < 0) return undefined
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** Rebuild the structural ImageAttachmentRef the host image loader keys on. */
+function imageRefOf(attachment: TrajectoryAttachment): Record<string, unknown> {
+  return {
+    attachmentId: attachment.attachmentId,
+    ...(attachment.mediaType === undefined ? {} : { mediaType: attachment.mediaType }),
+    ...(attachment.bytes === undefined ? {} : { bytes: attachment.bytes }),
+    ...(attachment.width === undefined ? {} : { width: attachment.width }),
+    ...(attachment.height === undefined ? {} : { height: attachment.height }),
+    ...(attachment.name === undefined ? {} : { name: attachment.name }),
+  }
+}
+
+/** Display name of one attachment (unnamed images get a localized ordinal). */
+function attachmentName(attachment: TrajectoryAttachment, ordinal: number): string {
+  if (attachment.name !== undefined && attachment.name !== '') return attachment.name
+  return attachment.kind === 'image' ? t('trajAttachImageN', { n: ordinal }) : t('trajAttachFile')
+}
+
+/** One line of recorded metadata under an attachment name. */
+function attachmentMeta(attachment: TrajectoryAttachment): string {
+  const parts: string[] = []
+  const bytes = formatBytes(attachment.bytes)
+  if (bytes !== undefined) parts.push(bytes)
+  if (attachment.mediaType !== undefined) parts.push(attachment.mediaType)
+  if (attachment.width !== undefined && attachment.height !== undefined) parts.push(`${attachment.width}×${attachment.height}`)
+  if (attachment.offloaded === true) parts.push(t('trajAttachOffloaded'))
+  return parts.join(' · ')
+}
+
+/**
+ * The chip's attachment count pills: one per non-zero kind (images tinted,
+ * files neutral), tucked into the chip's top-right corner. The pill width
+ * tracks the digit count; the tooltip carries the kind breakdown.
+ */
+function attachmentCountPills(attachments: readonly TrajectoryAttachment[], chipWidth: number): ReactNode {
+  const { images, files } = attachmentCounts(attachments)
+  const pills: { key: string; count: number; className: string | undefined }[] = []
+  if (images > 0) pills.push({ key: 'img', count: images, className: css.nodeCountImg })
+  if (files > 0) pills.push({ key: 'file', count: files, className: css.nodeCountFile })
+  if (pills.length === 0) return null
+  const widths = pills.map(pill => 9 + String(pill.count).length * 5.5)
+  const total = widths.reduce((sum, width) => sum + width, 0) + (pills.length - 1) * 3
+  let x = chipWidth - total - 4
+  return (
+    <g>
+      {pills.map((pill, index) => {
+        const width = widths[index] as number
+        const left = x
+        x += width + 3
+        return (
+          <g key={pill.key}>
+            <rect className={pill.className} x={left} y={2} width={width} height={9} rx={4.5} />
+            <text className={css.nodeCountText} x={left + width / 2} y={9.2} textAnchor="middle">{pill.count}</text>
+          </g>
+        )
+      })}
+      <title>{t('trajAttachCounts', { i: images, f: files })}</title>
+    </g>
+  )
+}
+
 /** Props of the trajectory graph tab. */
 export interface TrajectoryGraphProps {
   ctx: Context
@@ -171,6 +264,13 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [hoverId, setHoverId] = useState<string | null>(null)
   const [replay, setReplay] = useState<ReplayState | null>(null)
+  /** Search box state: the raw query and the Enter cursor over its matches. */
+  const [query, setQuery] = useState('')
+  const [matchIndex, setMatchIndex] = useState(0)
+  /** The legend-pinned edge kind (null = all edges neutral); hovering an edge
+   * highlights its kind while the pointer stays. */
+  const [pinnedEdgeKind, setPinnedEdgeKind] = useState<TrajectoryEdgeKind | null>(null)
+  const [hoverEdgeKind, setHoverEdgeKind] = useState<TrajectoryEdgeKind | null>(null)
   const [, bump] = useState(0)
 
   const source = useMemo(() => resolveTrajectorySource(ctx, scope.sessionId), [ctx, scope.sessionId])
@@ -212,6 +312,32 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
     [layout],
   )
   const timeline = windowed.graph.timeline
+
+  // Search: match model over the windowed graph; Enter cycles the matches
+  // (newest query resets the cursor to the first hit).
+  const matches = useMemo(() => searchTrajectoryNodes(windowed.graph, query), [windowed, query])
+  const matchIds = useMemo(() => new Set(matches), [matches])
+  const jumpMatch = useCallback((delta: number): void => {
+    if (matches.length === 0) return
+    const next = (((matchIndex + delta) % matches.length) + matches.length) % matches.length
+    setMatchIndex(next)
+    const id = matches[next]
+    if (id === undefined) return
+    setSelectedId(id)
+    const element = scrollRef.current
+    const laid = laidById.get(id)
+    if (element === null || laid === undefined) return
+    setFollow(false)
+    setReplay(current => (current === null ? null : { ...current, playing: false }))
+    const top = laid.y * scale
+    const bottom = (laid.y + laid.h) * scale
+    if (top < element.scrollTop || bottom > element.scrollTop + element.clientHeight) {
+      element.scrollTop = Math.max(0, top - element.clientHeight / 2)
+    }
+  }, [laidById, matchIndex, matches, scale])
+
+  /** The edge kind in focus: the legend pin wins over the hover highlight. */
+  const focusEdgeKind = pinnedEdgeKind ?? hoverEdgeKind
 
   // Follow the tail: pin the view to the newest record while new data lands.
   useEffect(() => {
@@ -311,10 +437,69 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
     return (tokens.input ?? 0) + (tokens.output ?? 0)
   }, [windowed])
 
+  /** D: the slowest tool leaders + the token-bucket breakdown (stat tooltips). */
+  const slowest = useMemo(() => slowestTools(windowed.graph, 3), [windowed])
+  const tokenBreakdownTitle = useMemo((): string => {
+    const tokens: TrajectoryTokens = windowed.graph.stats.tokens
+    const parts: string[] = []
+    if (tokens.input !== undefined) parts.push(`input ${tokens.input}`)
+    if (tokens.cacheRead !== undefined) parts.push(`cache read ${tokens.cacheRead}`)
+    if (tokens.cacheWrite !== undefined) parts.push(`cache write ${tokens.cacheWrite}`)
+    if (tokens.output !== undefined) parts.push(`output ${tokens.output}`)
+    if (tokens.reasoning !== undefined) parts.push(`reasoning ${tokens.reasoning}`)
+    return parts.join(' · ')
+  }, [windowed])
+  const laneCounts = useMemo(() => {
+    let input = 0
+    let model = 0
+    let tool = 0
+    for (const node of windowed.graph.nodes) {
+      if (node.lane === 'input') input++
+      else if (node.lane === 'model') model++
+      else tool++
+    }
+    return { input, model, tool }
+  }, [windowed])
+
   const selected = selectedId === null ? undefined : modelById.get(selectedId)
   const activeStep = replay === null || replay.index === 0 ? undefined : timeline[replay.index - 1]
   const activeEdgeId = activeStep?.edgeId
   const activeEdge = activeEdgeId === null || activeEdgeId === undefined ? undefined : edgeById.get(activeEdgeId)
+
+  // Authorized thumbnails: resolved per attachment id through the host's
+  // session-scoped image face (peek first — Chat and Trajectory share one
+  // cached read), then the async resolve; a host without the face keeps the
+  // icon-only rows. The cache is a ref so re-renders never re-request.
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({})
+  const urlCacheRef = useRef<Record<string, string>>({})
+  const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null)
+
+  useEffect(() => {
+    const images = selected?.attachments?.filter(attachment => attachment.kind === 'image') ?? []
+    if (images.length === 0) return
+    const ui = ctx.uiConversation
+    if (ui === undefined || (ui.imageUrl === undefined && ui.peekImageUrl === undefined)) return
+    let cancelled = false
+    const publish = (id: string, url: string): void => {
+      if (cancelled || url === '' || urlCacheRef.current[id] === url) return
+      urlCacheRef.current[id] = url
+      setImageUrls(current => (current[id] === url ? current : { ...current, [id]: url }))
+    }
+    for (const attachment of images) {
+      if (urlCacheRef.current[attachment.attachmentId] !== undefined) continue
+      const ref = imageRefOf(attachment)
+      const peeked = ui.peekImageUrl?.(scope.sessionId, ref)
+      if (peeked !== undefined && peeked !== '') {
+        publish(attachment.attachmentId, peeked)
+        continue
+      }
+      if (ui.imageUrl === undefined) continue
+      void ui.imageUrl(scope.sessionId, ref)
+        .then(url => { publish(attachment.attachmentId, url) })
+        .catch(() => { /* icon-only degradation for this one image */ })
+    }
+    return () => { cancelled = true }
+  }, [selected, ctx, scope.sessionId])
 
   if (source === null || windowed.graph.nodes.length === 0) {
     return (
@@ -333,7 +518,15 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
         <span className={css.stat}>{t('trajStatsNodes', { n: windowed.graph.stats.nodes })}</span>
         <span className={css.stat}>{t('trajStatsEdges', { n: windowed.graph.stats.edges })}</span>
         <span className={css.stat}>{t('trajStatsTurns', { n: windowed.graph.stats.turns })}</span>
-        <span className={css.stat}>{t('trajStatsTokens', { n: statTokens })}</span>
+        <span className={css.stat} title={tokenBreakdownTitle}>{t('trajStatsTokens', { n: statTokens })}</span>
+        {slowest.length > 0 && slowest[0] !== undefined && (
+          <span
+            className={css.stat}
+            title={slowest.map(leader => `${leader.name} ${durationOf(leader.durationMs)}`).join('\n')}
+          >
+            {t('trajStatsSlowest', { name: slowest[0].name, duration: durationOf(slowest[0].durationMs) })}
+          </span>
+        )}
         {full.live && <span className={css.liveDot} aria-hidden="true" />}
         <span className={css.spacer} />
         <button
@@ -428,6 +621,43 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
             {t(LANE_KEY[lane])}
           </span>
         ))}
+        <span className={cx(css.legendItem, css.legendEdgeHint)} aria-hidden="true">·</span>
+        {(Object.keys(EDGE_KEY) as TrajectoryEdgeKind[]).map(kind => (
+          <button
+            key={kind}
+            type="button"
+            className={cx(css.legendEdge, pinnedEdgeKind === kind && css.legendEdgeOn)}
+            aria-pressed={pinnedEdgeKind === kind}
+            title={t('trajEdgeLegendHint')}
+            onClick={() => { setPinnedEdgeKind(current => (current === kind ? null : kind)) }}
+          >
+            <span className={css.legendEdgeDot} data-kind={kind} aria-hidden="true" />
+            {t(EDGE_KEY[kind])}
+          </button>
+        ))}
+        <span className={css.spacer} />
+        <input
+          className={css.search}
+          value={query}
+          placeholder={t('trajSearchPlaceholder')}
+          spellCheck={false}
+          aria-label={t('trajSearchPlaceholder')}
+          onChange={event => { setQuery(event.currentTarget.value); setMatchIndex(0) }}
+          onKeyDown={event => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              jumpMatch(event.shiftKey ? -1 : 1)
+            } else if (event.key === 'Escape') {
+              setQuery('')
+              setMatchIndex(0)
+            }
+          }}
+        />
+        {query.trim() !== '' && (
+          <span className={cx(css.searchCount, matches.length === 0 && css.searchNone)}>
+            {matches.length > 0 ? `${matchIndex + 1}/${matches.length}` : t('trajSearchNone')}
+          </span>
+        )}
       </div>
 
       <div
@@ -463,8 +693,18 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
             const from = laidById.get(edge.from)
             const hidden = replay !== null && from !== undefined && from.index >= replay.index
             const hot = hoverId !== null && (edge.from === hoverId || edge.to === hoverId)
+            // A pinned/hovered kind keeps its edges and dims every other one.
+            const kindFocused = focusEdgeKind === edge.kind
+            const kindDimmed = focusEdgeKind !== null && !kindFocused
             return (
               <g key={edge.id}>
+                {/* Invisible wide twin so a 1px stroke is still hoverable. */}
+                <path
+                  className={css.edgeHit}
+                  d={edge.d}
+                  onMouseEnter={() => { setHoverEdgeKind(edge.kind) }}
+                  onMouseLeave={() => { setHoverEdgeKind(current => (current === edge.kind ? null : current)) }}
+                />
                 <path
                   className={cx(
                     css.edge,
@@ -472,6 +712,8 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
                     edge.live && css.edgeLive,
                     hidden && css.edgeDim,
                     hot && css.edgeHot,
+                    kindDimmed && css.edgeDim,
+                    kindFocused && css.edgeKindHot,
                   )}
                   d={edge.d}
                   markerEnd={`url(#${edge.live ? arrowLiveId : arrowId})`}
@@ -503,11 +745,13 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
             if (model === undefined) return null
             const hidden = replay !== null && node.index >= replay.index
             const hot = hoverId === node.id || selectedId === node.id
+            // An active query dims every non-matching record.
+            const searchDimmed = query.trim() !== '' && !matchIds.has(node.id)
             const badge = model.badge === undefined || model.badge === '' ? undefined : model.badge
             return (
               <g
                 key={node.id}
-                className={cx(css.node, node.live && css.nodeLive, hidden && css.nodeDim, hot && css.nodeHot)}
+                className={cx(css.node, node.live && css.nodeLive, (hidden || searchDimmed) && css.nodeDim, hot && css.nodeHot)}
                 style={{ '--node-accent': ACCENT[model.kind] } as CSSProperties}
                 transform={`translate(${node.x} ${node.y})`}
                 role="button"
@@ -538,6 +782,8 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
                     {ellipsize(`${badge} · ${clockOf(model.time)}`, node.w - 18, 9)}
                   </text>
                 )}
+                {model.attachments !== undefined && model.attachments.length > 0
+                  && attachmentCountPills(model.attachments, node.w)}
               </g>
             )
           })}
@@ -549,7 +795,13 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
       )}
 
       {selected === undefined ? (
-        <div className={css.note}>{t('trajInspectorHint')}</div>
+        <div className={css.note}>
+          <div>{t('trajInspectorHint')}</div>
+          <div className={css.noteSummary}>
+            {t('trajLanesSummary', { n1: laneCounts.input, n2: laneCounts.model, n3: laneCounts.tool })}
+            {statTokens > 0 ? ` · ${t('trajStatsTokens', { n: statTokens })}` : ''}
+          </div>
+        </div>
       ) : (
         <div className={css.inspector} style={{ '--node-accent': ACCENT[selected.kind] } as CSSProperties}>
           <div className={css.inspectorHead}>
@@ -582,11 +834,189 @@ export function TrajectoryGraph(props: TrajectoryGraphProps): ReactNode {
                 : t('trajUsage', { input: selected.tokens.input ?? 0, output: selected.tokens.output ?? 0 }),
             ].filter((part): part is string => part !== null).join(' · ')}
           </div>
-          {selected.detail !== undefined && selected.detail !== '' && (
-            <pre className={css.inspectorBody}>{selected.detail}</pre>
+          {selected.attachments !== undefined && selected.attachments.length > 0 && (
+            <div className={css.attachments}>
+              {selected.attachments.map((attachment, index) => {
+                const url = attachment.kind === 'image' ? imageUrls[attachment.attachmentId] : undefined
+                const name = attachmentName(attachment, index + 1)
+                const meta = attachmentMeta(attachment)
+                return (
+                  <div key={`${attachment.attachmentId}:${index}`} className={css.attachment}>
+                    {attachment.kind === 'image'
+                      ? (url !== undefined
+                        ? (
+                          <button
+                            type="button"
+                            className={css.attachmentThumb}
+                            title={t('trajAttachView')}
+                            onClick={() => { setLightbox({ url, name }) }}
+                          >
+                            <img src={url} alt={name} loading="lazy" />
+                          </button>
+                        )
+                        : <span className={css.attachmentIcon} aria-hidden="true"><VscFileMedia size={16} /></span>)
+                      : <span className={css.attachmentIcon} aria-hidden="true"><VscFile size={16} /></span>}
+                    <span className={css.attachmentText}>
+                      <span className={css.attachmentName} title={name}>{name}</span>
+                      {meta !== '' && <span className={css.attachmentMeta}>{meta}</span>}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
           )}
+          {selected.toolDetail !== undefined ? (
+            <ToolInspectorBody node={selected} />
+          ) : selected.detail !== undefined && selected.detail !== '' && selected.kind === 'assistant' ? (
+            <div className={css.inspectorMarkdown}>
+              <MarkdownText {...markdownTextProps(selected.detail, { copyLabel: t('copy'), copiedLabel: t('copied') })} />
+            </div>
+          ) : selected.detail !== undefined && selected.detail !== '' ? (
+            <pre className={css.inspectorBody}>{selected.detail}</pre>
+          ) : null}
         </div>
       )}
+      {lightbox !== null && (
+        <AttachmentLightbox url={lightbox.url} name={lightbox.name} onClose={() => { setLightbox(null) }} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * The structured tool inspector: a header line (name · call id · error
+ * state), the call arguments as a collapsible pretty-printed JSON block,
+ * and the settled result as plain text — instead of one pre-joined blob.
+ */
+function ToolInspectorBody({ node }: { node: TrajectoryGraphNode }): ReactNode {
+  const tool = node.toolDetail
+  if (tool === undefined) return null
+  const prettyArgs = useMemo((): string => {
+    if (tool.argsRaw === undefined) return ''
+    try {
+      return JSON.stringify(JSON.parse(tool.argsRaw), null, 2)
+    } catch {
+      return tool.argsRaw
+    }
+  }, [tool.argsRaw])
+  return (
+    <div className={css.toolBody}>
+      <div className={css.toolHead}>
+        <span className={css.toolName}>{tool.name}</span>
+        {tool.callId !== undefined && <span className={css.toolCallId}>{tool.callId}</span>}
+        {tool.isError === true && <span className={css.toolError}>{t('trajStatusError')}</span>}
+        {tool.resultText === undefined && <span className={css.toolPending}>{t('trajToolPending')}</span>}
+      </div>
+      {prettyArgs !== '' && (
+        <details className={css.toolArgs}>
+          <summary>{t('trajToolArgs')}</summary>
+          <pre className={css.inspectorBody}>{prettyArgs}</pre>
+        </details>
+      )}
+      {tool.resultText !== undefined && tool.resultText !== '' && (
+        <div className={css.toolResult}>
+          <div className={css.toolResultLabel}>{t('trajToolResult')}</div>
+          <pre className={cx(css.inspectorBody, tool.isError === true && css.toolResultError)}>
+            {tool.resultText}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The image lightbox: an overlay with the authorized image at natural size,
+ * wheel-zoom / drag-pan / Escape-close (the interaction design of the
+ * mermaid zoom modal, carried over to raster attachments).
+ */
+function AttachmentLightbox({ url, name, onClose }: { url: string; name: string; onClose: () => void }): ReactNode {
+  const overlayRef = useRef<HTMLDivElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const imgRef = useRef<HTMLImageElement | null>(null)
+  const dragRef = useRef({ active: false, startX: 0, startY: 0 })
+  const zoomRef = useRef({ scale: 1, tx: 0, ty: 0 })
+
+  const applyTransform = (): void => {
+    const node = imgRef.current
+    if (node === null) return
+    const { scale, tx, ty } = zoomRef.current
+    node.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`
+  }
+
+  /** Zoom by `delta` keeping the stage point under the pointer fixed. */
+  const zoom = useCallback((delta: number, centerX?: number, centerY?: number): void => {
+    const stage = stageRef.current
+    if (stage === null) return
+    const rect = stage.getBoundingClientRect()
+    const cx = centerX ?? rect.width / 2
+    const cy = centerY ?? rect.height / 2
+    const current = zoomRef.current
+    const newScale = clamp(current.scale * delta, 0.2, 8)
+    const sx = rect.width / 2
+    const sy = rect.height / 2
+    const ratio = newScale / current.scale
+    current.tx = cx - sx - (cx - sx - current.tx) * ratio
+    current.ty = cy - sy - (cy - sy - current.ty) * ratio
+    current.scale = newScale
+    applyTransform()
+  }, [])
+
+  const close = useCallback((): void => { onClose() }, [onClose])
+
+  useEffect(() => {
+    const stage = stageRef.current
+    const overlay = overlayRef.current
+    if (stage === null || overlay === null) return
+    const onWheel = (event: WheelEvent): void => {
+      event.preventDefault()
+      const rect = stage.getBoundingClientRect()
+      zoom(event.deltaY < 0 ? 1.1 : 1 / 1.1, event.clientX - rect.left, event.clientY - rect.top)
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') close()
+      else if (event.key === '+' || event.key === '=') zoom(1.2)
+      else if (event.key === '-') zoom(1 / 1.2)
+      else if (event.key === '0') { zoomRef.current = { scale: 1, tx: 0, ty: 0 }; applyTransform() }
+    }
+    const onMouseDown = (event: MouseEvent): void => {
+      event.preventDefault()
+      dragRef.current = { active: true, startX: event.clientX - zoomRef.current.tx, startY: event.clientY - zoomRef.current.ty }
+    }
+    const onMouseMove = (event: MouseEvent): void => {
+      if (!dragRef.current.active) return
+      zoomRef.current.tx = event.clientX - dragRef.current.startX
+      zoomRef.current.ty = event.clientY - dragRef.current.startY
+      applyTransform()
+    }
+    const onMouseUp = (): void => { dragRef.current.active = false }
+    const onOverlayClick = (event: MouseEvent): void => {
+      if (event.target === overlay) close()
+    }
+    // React's synthetic wheel is passive; a native listener is required to
+    // preventDefault (the canvas must not scroll while zooming the lightbox).
+    stage.addEventListener('wheel', onWheel, { passive: false })
+    if (imgRef.current !== null) imgRef.current.addEventListener('mousedown', onMouseDown)
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    window.addEventListener('keydown', onKey)
+    overlay.addEventListener('click', onOverlayClick)
+    return () => {
+      stage.removeEventListener('wheel', onWheel)
+      imgRef.current?.removeEventListener('mousedown', onMouseDown)
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+      window.removeEventListener('keydown', onKey)
+      overlay.removeEventListener('click', onOverlayClick)
+    }
+  }, [close, zoom])
+
+  return (
+    <div ref={overlayRef} className={css.lightboxOverlay} role="dialog" aria-modal="true" aria-label={name}>
+      <div ref={stageRef} className={css.lightboxStage}>
+        <img ref={imgRef} className={css.lightboxImg} src={url} alt={name} draggable={false} />
+      </div>
+      <div className={css.lightboxTitle}>{name}</div>
     </div>
   )
 }

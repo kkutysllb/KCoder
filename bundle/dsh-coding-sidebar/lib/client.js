@@ -64,7 +64,6 @@ window.__ModuleLoader__.load({
 			browserInterceptLinks: true,
 			browserInterceptHttp: true,
 			browserInterceptHttps: true,
-			browserAllowedLoopback: "",
 			tabsEnabled: {},
 			viewersEnabled: {},
 			pluginSettings: {}
@@ -379,10 +378,11 @@ window.__ModuleLoader__.load({
 			};
 		}
 		/** Update the display fields of one open tab (title / path / meta) without
-		*  re-opening it. The browser tab persists its current URL and hostname
-		*  title through this reducer so a reload restores the visited page. A
-		*  missing tab id is a no-op. The tab may live in any pane or a free
-		*  window. */
+		*  re-opening it. The browser tab persists its FULL navigation snapshot
+		*  (history + revision chain) plus current URL and hostname title through
+		*  this reducer, so a reload or remount restores and replays the visited
+		*  page (upstream native browser semantics). A missing tab id is a no-op.
+		*  The tab may live in any pane or a free window. */
 		function patchTab(state, tabId, patch) {
 			let changed = false;
 			const apply = (tab) => {
@@ -1518,7 +1518,7 @@ window.__ModuleLoader__.load({
 				if (claimed) return tab;
 			}
 		}
-		const SIDEBAR_SERVICE_VERSION = "1.0.26";
+		const SIDEBAR_SERVICE_VERSION = "1.0.29";
 		/**
 		* Monotonic capability list consumers use to gate new API usage (features
 		* are never removed). Each string names a v0.12.0+ capability:
@@ -1884,6 +1884,32 @@ window.__ModuleLoader__.load({
 			document.head.append(el);
 		});
 		let scriptLoader = defaultScriptLoader;
+		/**
+		* Script-load retry backoff (ms per retry, then the failure surfaces).
+		* DEFAULT is module state so tests can shrink it; production never changes it.
+		*/
+		let scriptRetryDelaysMs = [400, 1200];
+		/**
+		* Load one chunk script, retrying transient failures. A script-tag `error`
+		* event is NETWORK-level (404/403/aborted transfer): the classic producer is
+		* a route that momentarily cannot serve — an in-place plugin upgrade's
+		* rm/cp window, a server restart mid-fetch, a dropped connection. Those
+		* clear on their own within a beat, and re-execution is idempotent (the
+		* registry slot is overwritten by assignment), so retrying is safe. Only a
+		* failure that survives every retry surfaces to the caller.
+		*/
+		async function loadScriptWithRetry(src) {
+			let attempt = 0;
+			for (;;) try {
+				await scriptLoader(src);
+				return;
+			} catch (cause) {
+				const delay = scriptRetryDelaysMs[attempt];
+				if (delay === void 0) throw cause;
+				attempt += 1;
+				await new Promise((resolve) => setTimeout(resolve, delay));
+			}
+		}
 		/** Test/dev hook: resolve a chunk without fetching a script (e.g. vitest). */
 		const testLoaders = /* @__PURE__ */ new Map();
 		/** Memoized externals require, resolved once per page from the seed table. */
@@ -1947,7 +1973,7 @@ window.__ModuleLoader__.load({
 				if (test !== void 0) return test();
 				const modules = moduleSystem();
 				if (modules === void 0) throw new Error(`[dsh-coding-sidebar] chunk "${name}": client module system unavailable`);
-				await scriptLoader(CHUNK_URL(name));
+				await loadScriptWithRetry(CHUNK_URL(name));
 				const factory = chunkRegistry()[name];
 				if (typeof factory !== "function") throw new Error(`[dsh-coding-sidebar] chunk "${name}" script did not register its factory`);
 				const exports = factory(await buildExternalsRequire(modules));
@@ -2724,7 +2750,6 @@ window.__ModuleLoader__.load({
 			browserLiveTargetNone: "暂无打开的页面——agent 发起浏览后此处实时显示",
 			browserLiveFollowLatest: "跟随最新页面",
 			browserBlockedScheme: "已阻止：仅支持 http/https 链接",
-			browserBlockedLoopback: "已阻止：不允许在浏览器中访问本机或内部地址",
 			browserBlockedCredentials: "已阻止：网址中不能包含账号密码",
 			browserBlockedAppOrigin: "已阻止：不能在侧边栏里打开 KCoder 自身",
 			browserInvalid: "无效的网址",
@@ -2749,9 +2774,6 @@ window.__ModuleLoader__.load({
 			settingsBrowserHttpDesc: "开启后，点击聊天或界面中的 HTTP 外链时在侧边栏打开（声明了 urlTarget 的插件页面优先）；Ctrl/Cmd 点击可临时放行",
 			settingsBrowserHttpsTitle: "侧边打开HTTPS网页",
 			settingsBrowserHttpsDesc: "开启后，点击聊天或界面中的 HTTPS 外链时在侧边栏打开。默认关闭：多数 HTTPS 站点拒绝被嵌入，走系统浏览器更顺畅",
-			settingsBrowserLoopbackTitle: "允许访问的本机地址",
-			settingsBrowserLoopbackDesc: "逗号分隔的本地回环地址白名单（如 localhost:5174 或 127.0.0.1:8080），侧边栏浏览器可访问这些本地服务；默认留空则本机地址全部拦截。沙箱隔离仍然生效，页面无法读取界面数据",
-			settingsBrowserLoopbackPlaceholder: "例如 localhost:5174, 127.0.0.1:8080",
 			browserOpenExternal: "在浏览器中打开",
 			browserEmbedBlocked: "{host} 拒绝了嵌入请求",
 			browserEmbedBlockedDesc: "该站点通过 X-Frame-Options / frame-ancestors 禁止在其它页面中显示，无法在侧边栏内加载。可在浏览器中直接打开",
@@ -2895,6 +2917,24 @@ window.__ModuleLoader__.load({
 			trajStatusRunning: "进行中",
 			trajStatusError: "失败",
 			trajStatusInterrupted: "已停止",
+			trajAttachCounts: "{i} 张图片 · {f} 个文件",
+			trajAttachImageN: "图片 {n}",
+			trajAttachFile: "文件",
+			trajAttachOffloaded: "已卸载",
+			trajAttachView: "查看大图",
+			trajToolArgs: "调用参数",
+			trajToolResult: "结果",
+			trajToolPending: "等待结果",
+			trajEdgePrompt: "输入",
+			trajEdgeResult: "产出",
+			trajEdgeDispatch: "派发",
+			trajEdgeSubcall: "子调用",
+			trajEdgeLoop: "循环",
+			trajEdgeLegendHint: "点击只高亮这一类边",
+			trajSearchPlaceholder: "搜索轨迹…",
+			trajSearchNone: "无匹配",
+			trajStatsSlowest: "最慢 {name}·{duration}",
+			trajLanesSummary: "输入 {n1} · 模型 {n2} · 工具 {n3}",
 			confirm: "确定",
 			gitViewChanges: "变更",
 			gitViewBranches: "分支",
@@ -3236,7 +3276,6 @@ window.__ModuleLoader__.load({
 			browserLiveTargetNone: "No open pages yet — they appear here live once the agent browses",
 			browserLiveFollowLatest: "Follow latest",
 			browserBlockedScheme: "Blocked: only http/https URLs are allowed",
-			browserBlockedLoopback: "Blocked: local and internal addresses cannot be browsed here",
 			browserBlockedCredentials: "Blocked: URLs must not embed credentials",
 			browserBlockedAppOrigin: "Blocked: KCoder itself cannot be opened in the sidebar",
 			browserInvalid: "Invalid URL",
@@ -3261,9 +3300,6 @@ window.__ModuleLoader__.load({
 			settingsBrowserHttpDesc: "When on, clicking an HTTP external link in the chat or GUI opens the sidebar (plugin pages declaring urlTarget win); Ctrl/Cmd+click always bypasses",
 			settingsBrowserHttpsTitle: "Open HTTPS pages in the sidebar",
 			settingsBrowserHttpsDesc: "When on, clicking an HTTPS external link in the chat or GUI opens the sidebar. Off by default: most HTTPS sites refuse to be embedded, so the system browser is the smoother default",
-			settingsBrowserLoopbackTitle: "Allowed local addresses",
-			settingsBrowserLoopbackDesc: "Comma-separated allowlist of loopback addresses (e.g. localhost:5174 or 127.0.0.1:8080) the sidebar browser may visit; empty blocks all local addresses by default. The sandbox still applies — pages cannot read GUI data",
-			settingsBrowserLoopbackPlaceholder: "e.g. localhost:5174, 127.0.0.1:8080",
 			browserOpenExternal: "Open in browser",
 			browserEmbedBlocked: "{host} refused to be embedded",
 			browserEmbedBlockedDesc: "The site forbids being displayed inside other pages (X-Frame-Options / frame-ancestors), so it cannot load in the sidebar. Open it directly in your browser instead.",
@@ -3407,6 +3443,24 @@ window.__ModuleLoader__.load({
 			trajStatusRunning: "running",
 			trajStatusError: "failed",
 			trajStatusInterrupted: "stopped",
+			trajAttachCounts: "{i} images · {f} files",
+			trajAttachImageN: "Image {n}",
+			trajAttachFile: "File",
+			trajAttachOffloaded: "Offloaded",
+			trajAttachView: "View image",
+			trajToolArgs: "Arguments",
+			trajToolResult: "Result",
+			trajToolPending: "Pending",
+			trajEdgePrompt: "prompt",
+			trajEdgeResult: "result",
+			trajEdgeDispatch: "dispatch",
+			trajEdgeSubcall: "subcall",
+			trajEdgeLoop: "loop",
+			trajEdgeLegendHint: "Click to highlight only this edge kind",
+			trajSearchPlaceholder: "Search trajectory…",
+			trajSearchNone: "no match",
+			trajStatsSlowest: "slowest {name}·{duration}",
+			trajLanesSummary: "input {n1} · model {n2} · tool {n3}",
 			confirm: "Confirm",
 			gitViewChanges: "Changes",
 			gitViewBranches: "Branches",
@@ -6625,7 +6679,6 @@ window.__ModuleLoader__.load({
 				browserInterceptLinks: typeof record.browserInterceptLinks === "boolean" ? record.browserInterceptLinks : SIDEBAR_PREFS_DEFAULTS.browserInterceptLinks,
 				browserInterceptHttp: typeof record.browserInterceptHttp === "boolean" ? record.browserInterceptHttp : SIDEBAR_PREFS_DEFAULTS.browserInterceptHttp,
 				browserInterceptHttps: typeof record.browserInterceptHttps === "boolean" ? record.browserInterceptHttps : SIDEBAR_PREFS_DEFAULTS.browserInterceptHttps,
-				browserAllowedLoopback: typeof record.browserAllowedLoopback === "string" ? record.browserAllowedLoopback : SIDEBAR_PREFS_DEFAULTS.browserAllowedLoopback,
 				tabsEnabled: booleanMapOf(record.tabsEnabled),
 				viewersEnabled: booleanMapOf(record.viewersEnabled),
 				pluginSettings: pluginSettingsMapOf(record.pluginSettings)
@@ -9854,7 +9907,7 @@ window.__ModuleLoader__.load({
 		* eyes during a run), and on demand through the toolbar button.
 		*/
 		/** While the tab is on screen, re-scan the plan convention this often. */
-		const POLL_MS$2 = 4e3;
+		const POLL_MS$1 = 4e3;
 		/** Format a document mtime with the panel's shared relative-time copy. */
 		function when(ms) {
 			return relativeTime(new Date(ms).toISOString());
@@ -9889,7 +9942,7 @@ window.__ModuleLoader__.load({
 				if (!visible) return;
 				const timer = window.setInterval(() => {
 					load(true);
-				}, POLL_MS$2);
+				}, POLL_MS$1);
 				return () => {
 					window.clearInterval(timer);
 				};
@@ -10878,6 +10931,74 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			return t("jobDurationSeconds", { seconds });
 		}
 		//#endregion
+		//#region src/client/workspace-nav.ts
+		/** The plugin fiber's uiWorkspace seat, captured through the waitable inject. */
+		let capturedFace;
+		/**
+		* Capture the host uiWorkspace face handed to a waitable `ctx.inject`
+		* callback. Wire once from the client apply inside `ctx.effect`, so a fiber
+		* disposal (HMR reload) clears the stale capture:
+		*
+		* ```ts
+		* ctx.effect(() => ctx.inject(['uiWorkspace'], (scope) => {
+		*   observeUiWorkspaceFace((scope as { uiWorkspace?: unknown }).uiWorkspace)
+		* }), 'dsh-coding-sidebar: uiWorkspace seat')
+		* ```
+		*
+		* Non-object faces are ignored (the capture keeps its previous value).
+		*/
+		function observeUiWorkspaceFace(face) {
+			if (face !== null && typeof face === "object") capturedFace = face;
+		}
+		/**
+		* Invoke one opener AS A METHOD of its face — never extract and call it
+		* detached. Host service methods read `this` (UiWorkspaceService.openSession
+		* → this.replaceMain/this.lifetime; sessions.open reads this.list — the same
+		* trap SideChatView documents for `fork`): an unbound reference throws
+		* TypeError, which would surface as a silent "opened nothing, warned
+		* nothing useful" navigation failure.
+		*/
+		function callOpen(face, method, target) {
+			if (face === null || typeof face !== "object") return void 0;
+			if (typeof face[method] !== "function") return void 0;
+			const bound = face;
+			try {
+				bound[method](target);
+				return "opened";
+			} catch {
+				return "failed";
+			}
+		}
+		/**
+		* Open one session (or a subagent child through its direct-parent address)
+		* as the host workspace's main conversation.
+		* @param ctx - plugin context (any `get`-capable context).
+		* @param target - session id or subagent address to display.
+		* @param legacy - optional pre-0.1.6 sessions face used when the host has no
+		*   uiWorkspace (`open` for session ids, `openSubagent` for addresses).
+		* @returns how the navigation ended: `'opened'`, `'unavailable'` (nothing to
+		*   call — e.g. an older host without either face) or `'failed'` (the opener
+		*   threw). Callers should warn on every non-`'opened'` outcome: silence here
+		*   once cost a full round of "the button does nothing" debugging.
+		*/
+		function openViaUiWorkspace(ctx, target, legacy) {
+			if (capturedFace !== void 0) {
+				const outcome = callOpen(capturedFace, "openSession", target);
+				if (outcome !== void 0) return outcome;
+			}
+			let workspace;
+			try {
+				workspace = ctx.get("uiWorkspace");
+			} catch {
+				workspace = void 0;
+			}
+			if (workspace !== null && typeof workspace === "object") {
+				const outcome = callOpen(workspace, "openSession", target);
+				if (outcome !== void 0) return outcome;
+			}
+			return (typeof target === "string" ? callOpen(legacy, "open", target) : callOpen(legacy, "openSubagent", target)) ?? "unavailable";
+		}
+		//#endregion
 		//#region \0dsh-css:/Users/libing/kk_Projects/dsh-coding-sidebar/src/client/SubagentView.module.css.mjs
 		const css$3 = ".F2T6aa_subagent{flex-direction:column;flex:1;min-height:0;display:flex}.F2T6aa_subagentHeader{flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.F2T6aa_subagentTitle{min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.F2T6aa_subagentCount{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.F2T6aa_subagentRefresh{width:24px;height:24px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;justify-content:center;align-items:center;display:inline-flex}.F2T6aa_subagentRefresh:hover{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_subagentBody{flex:1;min-height:0;padding:2px 6px 8px;overflow-y:auto}.F2T6aa_subagentRow{box-sizing:border-box;width:100%;min-height:50px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:8px;outline:none;align-items:flex-start;gap:8px;padding:7px 8px 7px 11px;display:flex;position:relative}.F2T6aa_subagentRow:hover,.F2T6aa_subagentRow:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_subagentRowActive,.F2T6aa_subagentRowActive:hover,.F2T6aa_subagentRowActive:focus-visible{background:var(--dsw-alias-interactive-bg-active)}.F2T6aa_subagentRowDisabled{color:var(--dsw-alias-label-dimmed);cursor:not-allowed}.F2T6aa_subagentRowDisabled:hover{background:0 0}.F2T6aa_subagentRowLoading{cursor:default}.F2T6aa_subagentDot{margin-top:4px}.F2T6aa_subagentContent{flex-direction:column;flex:1;gap:2px;min-width:0;display:flex}.F2T6aa_subagentLabel,.F2T6aa_subagentSecondary{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.F2T6aa_subagentLabel{color:inherit;font-weight:400}.F2T6aa_subagentSecondary{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.F2T6aa_subagentLive{min-width:0;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);align-items:baseline;gap:4px;display:flex;overflow:hidden}.F2T6aa_subagentLiveTool{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);flex:none}.F2T6aa_subagentLiveArgs{min-width:0;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);line-height:var(--dsw-font-xxxs-11-line-height);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.F2T6aa_subagentLiveText{-webkit-line-clamp:2;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary);-webkit-box-orient:vertical;display:-webkit-box;overflow:hidden}.F2T6aa_subagentNode{min-width:0;position:relative}.F2T6aa_subagentChildren{margin-left:18px;padding-left:4px;position:relative}.F2T6aa_subagentChildren:before{content:\"\";border-left:1px solid var(--dsw-alias-border-l2);height:26px;position:absolute;top:-26px;left:0}.F2T6aa_subagentChildren[aria-busy=true]:before{content:none}.F2T6aa_subagentChildren>.F2T6aa_subagentNode:before{content:\"\";border-left:1px solid var(--dsw-alias-border-l2);position:absolute;top:0;bottom:0;left:-4px}.F2T6aa_subagentChildren>.F2T6aa_subagentNode:last-child:before{height:17px;bottom:auto}.F2T6aa_subagentChildren>.F2T6aa_subagentNode>.F2T6aa_subagentRow:before{content:\"\";border-top:1px solid var(--dsw-alias-border-l2);width:14px;position:absolute;top:16px;left:-4px}.F2T6aa_subagentEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex-direction:column;gap:2px;padding:16px;display:flex}.F2T6aa_subagentEmptyHint{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-dimmed)}.F2T6aa_subagentError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;display:flex}.F2T6aa_subagentErrorRetry{height:24px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;align-items:center;gap:4px;padding:0 8px;display:inline-flex}.F2T6aa_subagentErrorRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.F2T6aa_historyToggle{box-sizing:border-box;width:100%;min-height:26px;font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:8px;outline:none;align-items:center;gap:5px;padding:3px 8px 3px 11px;display:flex}.F2T6aa_historyToggle:hover,.F2T6aa_historyToggle:focus-visible{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.F2T6aa_historyToggle svg{flex:none}.F2T6aa_jobs .F2T6aa_historyToggle{margin-top:2px}.F2T6aa_jobs{border-top:1px solid var(--dsw-alias-border-l2);margin-top:10px;padding-top:8px}.F2T6aa_jobsHeader{align-items:center;gap:8px;height:26px;padding:0 2px;display:flex}.F2T6aa_jobsTitle{min-width:0;font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.F2T6aa_jobsCount{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.F2T6aa_jobsList{flex-direction:column;gap:2px;margin:0;padding:0;list-style:none;display:flex}.F2T6aa_jobsRow{border-radius:8px;align-items:center;gap:4px;display:flex}.F2T6aa_jobsRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_jobsRowSettled{opacity:.8}.F2T6aa_jobsRowSelected,.F2T6aa_jobsRowSelected:hover{background:var(--dsw-alias-interactive-bg-active)}.F2T6aa_jobsRowMain{min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:8px;outline:none;flex:1;align-items:flex-start;gap:8px;padding:6px 8px 6px 11px;display:flex}.F2T6aa_jobsRowMain:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_jobsDot{margin-top:5px}.F2T6aa_jobsContent{flex-direction:column;gap:1px;min-width:0;display:flex}.F2T6aa_jobsLabelLine{align-items:center;gap:6px;min-width:0;display:flex}.F2T6aa_jobsKind{text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--dsw-alias-border-l2);max-width:90px;font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);border-radius:4px;flex:none;padding:0 5px;line-height:14px;overflow:hidden}.F2T6aa_jobsLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);line-height:var(--dsw-font-xxxs-11-line-height);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.F2T6aa_jobsSecondary{text-overflow:ellipsis;white-space:nowrap;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);overflow:hidden}.F2T6aa_jobsKill{width:22px;height:22px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;justify-content:center;align-items:center;margin-right:4px;display:inline-flex}.F2T6aa_jobsKill:hover{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);color:var(--dsw-alias-state-error-primary)}.F2T6aa_jobsKillArmed,.F2T6aa_jobsKillArmed:hover{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);width:auto;height:20px;color:var(--dsw-alias-state-error-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;padding:0 8px}.F2T6aa_jobsKill:disabled{opacity:.5;cursor:default}.F2T6aa_jobsKillError{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-error-primary);flex:none;margin-right:4px}.F2T6aa_jobsPane{z-index:1;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);border-radius:8px;margin-top:4px;position:sticky;bottom:0;overflow:hidden;box-shadow:0 -6px 12px -8px #00000059}.F2T6aa_jobsPaneHeader{border-bottom:1px solid var(--dsw-alias-border-l1);align-items:center;gap:6px;height:28px;padding:0 4px 0 10px;display:flex}.F2T6aa_jobsPaneDot{flex:none}.F2T6aa_jobsPaneLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);line-height:var(--dsw-font-xxxs-11-line-height);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.F2T6aa_jobsPaneStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.F2T6aa_jobsPaneClose{width:20px;height:20px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:5px;flex:none;justify-content:center;align-items:center;display:inline-flex}.F2T6aa_jobsPaneClose:hover{background:var(--dsw-alias-interactive-bg-hover)}.F2T6aa_jobsPanePre{max-height:200px;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;margin:0;padding:6px 10px;line-height:1.5;overflow:auto}.F2T6aa_jobsPaneHint{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);padding:8px 10px}.F2T6aa_jobsPaneError{color:var(--dsw-alias-state-error-primary)}";
 		const tagId$3 = "dsh-coding-sidebar/SubagentView.module.css";
@@ -10972,7 +11093,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		* and the topology remains rooted at the main session.
 		*/
 		/** Refresh cadence of the live "last text + tool call" lines while a child runs. */
-		const POLL_MS$1 = 3e3;
+		const POLL_MS = 3e3;
 		/** Preview cap of one tool-call argument line. */
 		const ARGS_PREVIEW = 60;
 		/** Refresh cadence of an expanded job-output panel while its job runs. */
@@ -11094,7 +11215,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 					if (disposed) return;
 					timer = window.setTimeout(() => {
 						load();
-					}, POLL_MS$1);
+					}, POLL_MS);
 				};
 				async function load() {
 					if (disposed) return;
@@ -11584,21 +11705,23 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			}, [sessions]);
 			const openChild = (0, react.useCallback)((address) => {
 				onOpenChild?.(address);
-				try {
-					sessions.openSubagent?.(address);
-				} catch (error) {
-					console.warn("[dsh-coding-sidebar] openSubagent failed:", error);
-				}
-			}, [sessions, onOpenChild]);
+				const outcome = openViaUiWorkspace(ctx, address, sessions);
+				if (outcome !== "opened") console.warn(`[dsh-coding-sidebar] openSubagent ${outcome}:`, address);
+			}, [
+				ctx,
+				sessions,
+				onOpenChild
+			]);
 			/** Jump back to the main agent (the topology root) from its node. */
 			const openMain = (0, react.useCallback)(() => {
 				if (rootId === void 0) return;
-				try {
-					sessions.open?.(rootId);
-				} catch (error) {
-					console.warn("[dsh-coding-sidebar] open session failed:", error);
-				}
-			}, [sessions, rootId]);
+				const outcome = openViaUiWorkspace(ctx, rootId, sessions);
+				if (outcome !== "opened") console.warn(`[dsh-coding-sidebar] open session ${outcome}:`, rootId);
+			}, [
+				ctx,
+				sessions,
+				rootId
+			]);
 			const refresh = (0, react.useCallback)((parentSessionId) => {
 				sessions.refreshSubagents?.(parentSessionId);
 			}, [sessions]);
@@ -12094,9 +12217,8 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				try {
 					sessions?.refreshSubagents?.(leadId);
 				} catch {}
-				const uiWorkspace = ctx.get("uiWorkspace");
 				try {
-					uiWorkspace?.openSession?.({
+					openViaUiWorkspace(ctx, {
 						parentSessionId: leadId,
 						childSessionId: member.id,
 						mode: "continuable"
@@ -12824,8 +12946,15 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		*  event per streamed delta, so a single answer can be hundreds of events —
 		*  the walk must page big or earlier tool/call rows fall out of the window. */
 		const WALK_PAGE_EVENTS = 200;
-		/** Poll cadence while the selected thread is running and the tab visible. */
-		const POLL_MS = 2e3;
+		/** Poll cadence while the selected thread is running and the tab visible.
+		*  ADAPTIVE (no event channel reaches the browser client for another
+		*  session's appends): a pull that observed new tail events schedules the
+		*  next one at POLL_FAST_MS (streaming reads near-smooth), consecutive
+		*  quiet pulls back off toward POLL_SLOW_MS so an idle turn costs almost
+		*  nothing. */
+		const POLL_FAST_MS = 700;
+		const POLL_BASE_MS = 2e3;
+		const POLL_SLOW_MS = 5e3;
 		/** Textarea auto-grow ceiling (px) — the composer scrolls beyond it. */
 		const COMPOSER_MAX_HEIGHT = 132;
 		/** The thread a tab is bound to (durable in tab.meta across refreshes). */
@@ -13024,13 +13153,15 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			]);
 			/** One transcript pull: the first read walks back to the seed boundary
 			*  (big pages — chunk deltas re-expand on cold reads), later reads fetch
-			*  one tail page and merge (seq-deduped). */
+			*  one tail page and merge (seq-deduped).
+			*  @returns whether the merged transcript grew (the poll's pacing signal). */
 			const fetchThread = (0, react.useCallback)(async (childId) => {
-				if (ctx.connection.api?.sessions?.history === void 0) return;
+				if (ctx.connection.api?.sessions?.history === void 0) return false;
 				controllerRef.current?.abort();
 				const controller = new AbortController();
 				controllerRef.current = controller;
 				const cache = cacheRef.current;
+				const before = cache.entries.length;
 				try {
 					if (cache.seedBoundary === null) {
 						const walk = await collectOwnEvents(async (beforeSeq) => {
@@ -13049,11 +13180,14 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 							sessionId: childId,
 							maxMessages: PAGE_MESSAGES
 						}, controller.signal);
-						if (!response.result.ok) return;
+						if (!response.result.ok) return false;
 						cache.entries = mergeBySeq(cache.entries, response.result.value.events);
 					}
 					setRevision((value) => value + 1);
-				} catch {}
+					return cache.entries.length > before;
+				} catch {
+					return false;
+				}
 			}, [ctx]);
 			/** The thread header badge pull (live state + preset/model identity). */
 			const fetchInfo = (0, react.useCallback)(async (childId) => {
@@ -13079,12 +13213,24 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				if (!visible || threadId === void 0) return;
 				fetchThread(threadId);
 				if (!running) return;
-				const timer = window.setInterval(() => {
-					fetchThread(threadId);
-					fetchInfo(threadId);
-				}, POLL_MS);
+				let timer = 0;
+				let quiet = 0;
+				const schedule = (delay) => {
+					timer = window.setTimeout(async () => {
+						let grew = false;
+						try {
+							grew = await fetchThread(threadId);
+							fetchInfo(threadId);
+						} catch {
+							quiet += 1;
+						}
+						quiet = grew ? 0 : quiet + 1;
+						schedule(quiet === 0 ? POLL_FAST_MS : Math.min(POLL_SLOW_MS, POLL_BASE_MS * 1.8 ** (quiet - 1)));
+					}, delay);
+				};
+				schedule(POLL_FAST_MS);
 				return () => {
-					window.clearInterval(timer);
+					window.clearTimeout(timer);
 				};
 			}, [
 				visible,
@@ -13169,6 +13315,8 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				if (threadId === void 0 || busy !== null) return;
 				try {
 					await api.sidechatCancel(threadId);
+					fetchThread(threadId);
+					fetchInfo(threadId);
 				} catch (cause) {
 					setError(cause instanceof Error ? cause.message : String(cause));
 				}
@@ -13187,7 +13335,8 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 					const title = summary === void 0 ? "" : threadDisplayTitle(summary.displayTitle).trim();
 					const binding = ctx.sessions.binding?.(newId);
 					if (binding !== void 0 && title !== "") await binding.session.rename(title);
-					ctx.sessions.open?.(newId);
+					const outcome = openViaUiWorkspace(ctx, newId, ctx.sessions);
+					if (outcome !== "opened") console.warn(`[dsh-coding-sidebar] promote side thread ${outcome}:`, newId);
 					setSaved(true);
 				} catch (cause) {
 					setError(cause instanceof Error ? cause.message : String(cause));
@@ -13359,25 +13508,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			if (probe.frameAncestors !== void 0 && !probe.frameAncestors.some((source) => source === "*")) return "blocked";
 			return "embeddable";
 		}
-		/** A loopback hostname (localhost, IPv6 ::1, 127.0.0.0/8, 0.0.0.0). */
-		function isLoopbackHostname(hostname) {
-			const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
-			if (host === "localhost" || host === "::1" || host === "0.0.0.0") return true;
-			const parts = host.split(".");
-			return parts.length === 4 && parts[0] === "127" && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255);
-		}
-		/**
-		* Normalize one address-bar input against the navigation policy.
-		* @param input - raw user text.
-		* @param selfOrigin - the GUI's own origin (window.location.origin). The GUI
-		* itself may be browsed in the sidebar (the sandbox keeps it opaque), so it
-		* is let through BEFORE the loopback check — its host is normally loopback.
-		* @param allowedLoopback - comma-separated loopback allowlist from the side
-		* card prefs (`browserAllowedLoopback`): bare hosts (`localhost`,
-		* `127.0.0.1`) allow every port, `host:port` entries allow exactly that
-		* authority. Entries are matched case-insensitively; portless entries match
-		* the host on any port. Empty allowlist keeps the default loopback block.
-		*/
 		/** Schemes that must never reach the iframe, even without `//` (javascript:,
 		*  data:, file:, ...). Host:port lookalikes (example.com:8080) are NOT here —
 		*  they parse as hosts below. */
@@ -13404,19 +13534,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			"resource",
 			"view-source"
 		]);
-		/** Parse the loopback allowlist into a matcher predicate over host:port. */
-		function parseLoopbackAllowlist(allowlist) {
-			const entries = allowlist.split(",").map((entry) => entry.trim().toLowerCase()).filter((entry) => entry !== "");
-			const exact = new Set(entries);
-			const hosts = /* @__PURE__ */ new Set();
-			for (const entry of entries) if (!entry.includes(":")) hosts.add(entry.replace(/^\[|\]$/g, ""));
-			return (host, port) => {
-				const key = `${host}:${port}`;
-				if (exact.has(key) || exact.has(host)) return true;
-				return port !== "" && hosts.has(host);
-			};
-		}
-		function normalizeBrowserUrl(input, selfOrigin, allowedLoopback = "") {
+		function normalizeBrowserUrl(input, selfOrigin) {
 			const trimmed = input.trim();
 			if (trimmed === "") return {
 				kind: "blocked",
@@ -13461,17 +13579,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 					reason: "app-origin"
 				};
 			} catch {}
-			if (isLoopbackHostname(url.hostname)) {
-				if (allowedLoopback.trim() !== "" && parseLoopbackAllowlist(allowedLoopback)(url.hostname, url.port)) return {
-					kind: "ok",
-					url: url.href,
-					title: url.hostname
-				};
-				return {
-					kind: "blocked",
-					reason: "loopback"
-				};
-			}
 			return {
 				kind: "ok",
 				url: url.href,
@@ -13633,6 +13740,96 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				return request;
 			}
 		};
+		/** Refusal reasons a persisted failure may carry (runtime twin of the type). */
+		const FAILURE_REASONS = /* @__PURE__ */ new Set([
+			"empty",
+			"invalid",
+			"scheme",
+			"credentials",
+			"app-origin"
+		]);
+		/** Local bound for persisted strings (titles are hostnames; urls ≤ 16 KiB by policy). */
+		const MAX_PERSISTED_URL = 16384;
+		const MAX_PERSISTED_TITLE = 1024;
+		/** Whether a value is a plain non-empty bounded string. */
+		function isBoundedString(value, max) {
+			return typeof value === "string" && value !== "" && value.length <= max;
+		}
+		/** Whether a value is a well-formed history entry. */
+		function isHistoryEntry(value) {
+			if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+			const entry = value;
+			return isBoundedString(entry.url, MAX_PERSISTED_URL) && isBoundedString(entry.title, MAX_PERSISTED_TITLE);
+		}
+		/** Whether a value is a positive integer revision. */
+		function isRevision(value) {
+			return typeof value === "number" && Number.isInteger(value) && value > 0;
+		}
+		/**
+		* Validate one persisted `tab.meta` value back into a `BrowserTabState`.
+		* The meta channel is plugin-owned JSON restored verbatim from localStorage,
+		* so the browser tab re-validates the whole shape before adopting it: any
+		* malformed field (wrong type, out-of-range index, entry/reason outside the
+		* vocabulary, a request that does not match the selected entry) rejects the
+		* whole snapshot and the tab falls back to its legacy `path` seed. The result
+		* is rebuilt field by field, so unknown extra keys in the stored object are
+		* dropped instead of being re-persisted.
+		*
+		* @param value - the persisted `tab.meta` (unknown provenance).
+		* @returns a clean state, or undefined when the snapshot cannot be trusted.
+		*/
+		function restoreBrowserTabState(value) {
+			if (value === null || typeof value !== "object" || Array.isArray(value)) return void 0;
+			const record = value;
+			const entries = record.entries;
+			if (!Array.isArray(entries) || entries.length > 100) return void 0;
+			if (!entries.every((entry) => isHistoryEntry(entry))) return void 0;
+			const index = record.index;
+			if (typeof index !== "number" || !Number.isInteger(index) || index < -1 || index >= entries.length) return void 0;
+			let request;
+			if (record.request === void 0) request = void 0;
+			else {
+				if (record.request === null || typeof record.request !== "object" || Array.isArray(record.request)) return void 0;
+				const raw = record.request;
+				if (!isRevision(raw.revision) || !isHistoryEntry(raw.target)) return void 0;
+				const selected = index >= 0 ? entries[index] : void 0;
+				if (selected === void 0 || selected.url !== raw.target.url || selected.title !== raw.target.title) return void 0;
+				request = {
+					revision: raw.revision,
+					target: raw.target
+				};
+			}
+			const rawNavigation = record.navigation;
+			if (rawNavigation === null || typeof rawNavigation !== "object" || Array.isArray(rawNavigation)) return void 0;
+			const navigation = rawNavigation;
+			let navigationStatus;
+			if (navigation.status === "empty") navigationStatus = { status: "empty" };
+			else if (navigation.status === "loading" || navigation.status === "known" || navigation.status === "unknown") {
+				if (!isRevision(navigation.revision)) return void 0;
+				navigationStatus = {
+					status: navigation.status,
+					revision: navigation.revision
+				};
+			} else return;
+			let failure;
+			if (record.failure === void 0) failure = void 0;
+			else {
+				if (record.failure === null || typeof record.failure !== "object" || Array.isArray(record.failure)) return void 0;
+				const raw = record.failure;
+				if (raw.kind !== "address" || typeof raw.reason !== "string" || !FAILURE_REASONS.has(raw.reason)) return void 0;
+				failure = {
+					kind: "address",
+					reason: raw.reason
+				};
+			}
+			return {
+				entries,
+				index,
+				request,
+				navigation: navigationStatus,
+				failure
+			};
+		}
 		//#endregion
 		//#region src/client/SandboxStatusBar.tsx
 		/**
@@ -13955,67 +14152,102 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		/**
 		* The built-in browser tab: a toolbar plus a sandboxed iframe, with the
 		* navigation semantics of the upstream native side bar's browser
-		* (2026-09-19 port — see browser-nav.ts for the state machine and browser.ts
-		* for the address policy).
+		* (2026-09-20 full alignment — see browser-nav.ts for the state machine and
+		* browser.ts for the address policy).
 		*
-		* Sandbox (aligned with upstream): the frame carries `allow-same-origin` for
-		* every site — without it the frame gets an opaque origin and real sites break
-		* (no cookies, no storage, no module scripts). It does NOT hand the page
-		* anything of ours: the page keeps its OWN origin and stays cross-origin to
-		* the GUI, and the address policy refuses the GUI's own origin outright. NO
-		* `allow-top-navigation`: a browsed page must not steer the GUI.
-		* The side card setting "关闭浏览器沙箱" (or this surface's temporary unlock)
-		* drops the sandbox attribute entirely for fully trusted sites — the page then
-		* runs with the GUI's own origin and full session access, so a status bar
-		* warns while it is off.
+		* Sandbox (aligned with upstream, token for token): the frame carries
+		* `allow-same-origin` for every site — without it the frame gets an opaque
+		* origin and real sites break (no cookies, no storage, no module scripts).
+		* It does NOT hand the page anything of ours: the page keeps its OWN origin
+		* and stays cross-origin to the GUI, and the address policy refuses the
+		* GUI's own origin outright. NO `allow-downloads`/`allow-modals` and NO
+		* `allow-top-navigation` (upstream posture): downloads and modal dialogs
+		* require dropping the sandbox — the side card setting "关闭浏览器沙箱" (or
+		* this surface's temporary unlock) does that for fully trusted sites, and a
+		* status bar warns while it is off.
 		*
-		* The URL is persisted onto the tab (path/title via the patchTab reducer) so a
-		* reload restores the visited page. In-frame navigations (link clicks inside
-		* the visited site) are cross-origin and invisible to us: the carrier reports
-		* a second load for the same revision and the tab switches to the `unknown`
-		* state — the address bar says so, Back/Forward disable themselves, and the
-		* body explains the limit, exactly like the upstream browser.
+		* The FULL navigation state (history + request revision + load lifecycle) is
+		* persisted onto the tab record's `meta` after every publish, so a reload or
+		* remount restores it and replays the last controlled URL via `reload()`
+		* (upstream semantics: the seed URL from `tab.path` is only consumed when no
+		* controlled target exists — the legacy restore path for pre-alignment
+		* tabs). In-frame navigations (link clicks inside the visited site) are
+		* cross-origin and invisible to us: the carrier reports a second load for
+		* the same revision and the tab switches to the `unknown` state — the
+		* address bar says so, Back/Forward disable themselves, and the body
+		* explains the limit, exactly like the upstream browser.
 		*/
 		/**
-		* The browser iframe sandbox tokens. `allow-same-origin` is REQUIRED for real
-		* sites (opaque-origin frames cannot keep a session, store anything, or run
-		* module pipelines); it gives the page nothing of ours — it keeps its own
+		* The browser iframe sandbox tokens — token-for-token the upstream native
+		* browser's string (dsh 0.1.6-alpha.2). `allow-same-origin` is REQUIRED for
+		* real sites (opaque-origin frames cannot keep a session, store anything, or
+		* run module pipelines); it gives the page nothing of ours — it keeps its own
 		* origin and stays cross-origin to the GUI, whose own origin the address
-		* policy refuses. No `allow-top-navigation` (a browsed page must not hijack
-		* the GUI). allow-forms/popups/downloads/modals keep login and download flows
-		* working; allow-popups-to-escape-sandbox lets OAuth popups open as normal
-		* tabs (they are cross-origin to the GUI either way).
+		* policy refuses. Deliberately absent, exactly like upstream: NO
+		* `allow-downloads` / `allow-modals` (downloads and modal dialogs need the
+		* sandbox off) and NO `allow-top-navigation` (a browsed page must not hijack
+		* the GUI). allow-forms/popups keep login flows working;
+		* allow-popups-to-escape-sandbox lets OAuth popups open as normal tabs (they
+		* are cross-origin to the GUI either way).
 		*/
-		const BROWSER_IFRAME_SANDBOX = "allow-scripts allow-forms allow-same-origin allow-popups allow-downloads allow-modals allow-popups-to-escape-sandbox";
+		const BROWSER_IFRAME_SANDBOX = "allow-scripts allow-forms allow-same-origin allow-popups allow-popups-to-escape-sandbox";
 		/** One refusal reason → the copy shown under the toolbar. */
 		function failureText(reason) {
 			switch (reason) {
 				case "empty": return t("browserEmpty");
 				case "invalid": return t("browserInvalid");
 				case "scheme": return t("browserBlockedScheme");
-				case "loopback": return t("browserBlockedLoopback");
 				case "credentials": return t("browserBlockedCredentials");
 				case "app-origin": return t("browserBlockedAppOrigin");
 			}
+		}
+		/**
+		* Address-bar draft keyed by the current request revision (upstream's
+		* `useBrowserDraft`): a NEW revision (navigate / back / forward / reload)
+		* resets the bar to the controlled URL, while the user's in-progress edit —
+		* including a refused one, which mints no revision — survives every state
+		* change until then.
+		*/
+		function useBrowserDraft(controlledUrl, requestId) {
+			const [edit, setEdit] = (0, react.useState)();
+			return [edit !== void 0 && edit.requestId === requestId ? edit.value : controlledUrl ?? "", (draft) => {
+				setEdit({
+					requestId,
+					value: draft
+				});
+			}];
 		}
 		function BrowserView(props) {
 			const { store, tab, ctx } = props;
 			/** The URL restored from the persisted tab (undefined = fresh tab). */
 			const restoredUrl = tab.path;
 			const navRef = (0, react.useRef)();
-			if (navRef.current === void 0) navRef.current = new BrowserNavigation();
+			if (navRef.current === void 0) navRef.current = new BrowserNavigation(restoreBrowserTabState(tab.meta));
 			const navigation = navRef.current;
 			const [nav, setNav] = (0, react.useState)(() => navigation.snapshot);
 			const sync = (0, react.useCallback)(() => {
-				setNav(navigation.snapshot);
-			}, [navigation]);
+				const next = navigation.snapshot;
+				setNav(next);
+				const entry = BrowserNavigation.current(next);
+				store.reduce((state) => patchTab(state, tab.id, entry === void 0 ? { meta: next } : {
+					path: entry.url,
+					title: entry.title,
+					meta: next
+				}));
+			}, [
+				navigation,
+				store,
+				tab.id
+			]);
 			const current = BrowserNavigation.current(nav);
 			const request = nav.request;
 			/** A document the carrier navigated away from on its own (in-frame clicks). */
 			const unknown = nav.navigation.status === "unknown";
 			/** Blocked/invalid hint shown under the address bar (undefined = none). */
 			const message = nav.failure === void 0 ? void 0 : failureText(nav.failure.reason);
-			const [input, setInput] = (0, react.useState)(restoredUrl ?? "");
+			/** The address-bar draft: follows the controlled URL on every new request
+			* revision; the user's edit survives until then (upstream semantics). */
+			const [input, setInput] = useBrowserDraft(current?.url ?? restoredUrl, request?.revision);
 			/** TEMPORARY sandbox unlock for THIS surface only (never writes the global
 			*  side card setting; lasts until the tab unmounts or the user restores). */
 			const [localUnlock, setLocalUnlock] = (0, react.useState)(false);
@@ -14030,15 +14262,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			/** Agent 实况模式（CDP screencast）：开启后本 tab 只显示 agent 无头
 			*  浏览器的实况画面，地址栏/iframe 暂停。会话态开关，不持久化。 */
 			const [live, setLive] = (0, react.useState)(false);
-			const persist = (0, react.useCallback)((nextUrl, title) => {
-				store.reduce((state) => patchTab(state, tab.id, {
-					path: nextUrl,
-					title
-				}));
-			}, [store, tab.id]);
 			/** Validate one address and load it (or record the refusal). */
 			const loadUrl = (0, react.useCallback)((raw) => {
-				const result = normalizeBrowserUrl(raw, window.location.origin, store.getPrefs().browserAllowedLoopback);
+				const result = normalizeBrowserUrl(raw, window.location.origin);
 				if (result.kind === "blocked") {
 					navigation.addressFailed(result.reason);
 					sync();
@@ -14053,15 +14279,11 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 					url: result.url,
 					title: result.title
 				});
-				setInput(result.url);
 				setFailedRevision(null);
-				persist(result.url, result.title);
 				sync();
 			}, [
 				current?.url,
 				navigation,
-				persist,
-				store,
 				sync
 			]);
 			const goBack = (0, react.useCallback)(() => {
@@ -14085,10 +14307,19 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			}, [navigation, sync]);
 			const bootstrapped = (0, react.useRef)(false);
 			(0, react.useEffect)(() => {
-				if (bootstrapped.current || restoredUrl === void 0) return;
+				if (bootstrapped.current) return;
 				bootstrapped.current = true;
-				loadUrl(restoredUrl);
-			}, [loadUrl, restoredUrl]);
+				if (BrowserNavigation.current(navigation.snapshot) !== void 0) {
+					reload();
+					return;
+				}
+				if (restoredUrl !== void 0) loadUrl(restoredUrl);
+			}, [
+				loadUrl,
+				navigation,
+				reload,
+				restoredUrl
+			]);
 			(0, react.useEffect)(() => {
 				if (request === void 0) return;
 				let cancelled = false;
@@ -14209,7 +14440,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 								title: t("browserOpenExternal"),
 								disabled: externalUrl === void 0,
 								onClick: () => {
-									if (externalUrl !== void 0) window.open(externalUrl, "_blank", "noopener");
+									if (externalUrl !== void 0) window.open(externalUrl, "_blank", "noopener,noreferrer");
 								},
 								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(VscLinkExternal, { size: 15 })
 							})
@@ -14240,7 +14471,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 					}) : embedBlocked !== null && !forceEmbed ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(BrowserEmbedBlocked, {
 						url: embedBlocked,
 						onOpenInBrowser: () => {
-							window.open(embedBlocked, "_blank", "noopener");
+							window.open(embedBlocked, "_blank", "noopener,noreferrer");
 						},
 						onLoadAnyway: () => {
 							setForceEmbed(true);
@@ -14590,13 +14821,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 							key: "browserInterceptHttps",
 							title: () => t("settingsBrowserHttpsTitle"),
 							desc: () => t("settingsBrowserHttpsDesc")
-						},
-						{
-							key: "browserAllowedLoopback",
-							type: "text",
-							title: () => t("settingsBrowserLoopbackTitle"),
-							desc: () => t("settingsBrowserLoopbackDesc"),
-							placeholder: t("settingsBrowserLoopbackPlaceholder")
 						}
 					] },
 					createTab: (state) => ({
@@ -18810,6 +19034,10 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 					offEn();
 				};
 			}, "dsh-coding-sidebar: dictionaries");
+			ctx.inject(["uiWorkspace"], (scope) => {
+				observeUiWorkspaceFace(scope.uiWorkspace);
+			});
+			console.info(`[dsh-coding-sidebar] client ${SIDEBAR_SERVICE_VERSION} booted (nav-seam v3: uiWorkspace capture)`);
 			ctx.effect(() => {
 				let dispose;
 				let generation = 0;
