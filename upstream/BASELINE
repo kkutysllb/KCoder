@@ -398,7 +398,7 @@
 # dd1529d8aa/b88abcad16 均为尖端祖先；新 delta vs 旧 delta 文件集差恰为
 # plugin.ts（按决策取上游）；上游侧文件零删除；build exit 0（248 client
 # 产物），lib/index.js 299/299，CI=true pnpm run typecheck 通过。
-00102833dfaee1da9f48a3a8eae9d34005a75218
+46a7f68b0922371ce7144b668b90e377d8e799f4
 
 # ── 集成分支 fork 侧追加（2026-09-18：设置页插件管理 tab）──────────────
 # 集成分支尖端 02253cd274（本地 = origin/kcoder/0.1.6-alpha.2，远端新建分支）。
@@ -508,9 +508,13 @@
 # pluginRegistryProbe」三错锁成自持循环，每次构建必然复现。判据：源码里明明有的符号，
 # 报错路径却出现 lib/types/... ⇒ 删该包 lib/ 重建（非改源码、非改测试）。
 #
-# 另注：apps/web/dist（侧车实际服务的 Web 壳，经 @deepseek-ai/dsh-web-frontend 解析）
-# **不在** `pnpm run build` 默认链里，必须单独 `pnpm run build:web`；只跑 build 会让
-# dev/侧车继续吐旧壳。
+# 另注（2026-09-23 rc.1 轮更正——本条初稿写错了）：apps/web/dist（侧车实际服务的
+# Web 壳，经 @deepseek-ai/dsh-web-frontend 解析）**本来就在** `pnpm run build` 链里
+# （scripts/build.ts: build:native-system → build:lib → build:web；alpha.2 与 rc.1
+# 该文件逐字节相同）。当时它陈旧的真因是 build:lib **失败退出**、runScript() 失败即
+# throw，链在 build:web 之前就断了；随后只单独补跑 build:lib:* 使缺口一直存在。
+# **正确教训：构建链中途失败后要重跑整条 `pnpm run build`，不要单独补跑子步骤**
+# ——否则链尾阶段静默缺失，而每个子步骤单独看都是绿的。
 #
 # 锚点存活（实机 DOM 断言）：conversation.session.header slot 在场且仍是 `<header>`
 # 直接子级；我方按 slot 重锚的页头收纳修复命中 1、旧 `> _titleRow` 锚点命中 0
@@ -536,3 +540,88 @@
 # 「已知稳定差集」**，亦不另立自有 golden 目录（那等于自建第二套金标，反而偏离上游）。
 # 含义：seeded-history / steering 两套件在 fork 上**恒有 5 项红**，读门禁结果时须先
 # 扣除这 5 项；**不得对这两个目录执行 `DSH_SNAPSHOT=refresh`**。
+
+# ── 升级记录：2026-09-23 0.1.7-alpha.2(00102833df) → 0.1.7-rc.1(46a7f68b09，
+# 上游 tag `dsh-v0.1.7-rc.1`，2026-09-23 21:03，merge PR #5073；同时就是
+# origin/master 尖端）────────────────────────────────────────────────
+# 0.1.7 系列**首个候选版**。102 非 merge 提交 / 933 文件 / +13851 −3101 / 窗口约
+# 22 小时。**本版只有一个家务提交**（a60af51e80 release 版本号，独占 312 个
+# package.json）⇒ 真实变更面 **621 文件**（实现约 262 / 测试 170 / README+i18n 142
+# / 快照 47）。与 alpha.2 相比「提交数相同（102 vs 101），但 feat 翻倍（14 vs 7）」，
+# 实质内容更多；**无 vendor 上抬、无新增 patch、包集合零增删**（闭包形状稳定）。
+#
+# ⚠️ 发布说明口径（易错）：rc.1 的说明是 **`dsh-v0.1.5-rc.3 → rc.1` 的累积说明**，
+# 不是 alpha.2→rc.1 的 delta。其中侧边栏集成终端/网页/子智能体/计划、会话置顶归档、
+# MCP 资源、Headless/SSH、语音转写、Windows 沙箱、空白会话、后台任务、Session V4、
+# 设置迁移、PTC 改名、Ralph/E2B、readBytes、spill maxInlineTokens 等**绝大多数条目
+# 在 alpha.1/alpha.2 阶段就已消化**（相关包在两版之间源码逐字节相同）。逐条分区见
+# docs/upstream-0.1.7-rc.1-analysis.md §2.0——**新账只有**：peer 兼容性强制、工具调用
+# 生命周期三态 + 四档视图、聊天内本地图片、LibreOffice Kit 0.1.0、Agent Team 投影化、
+# Gateway 双向流内存修复等。
+#
+# ⚠️ 本版头号新机制：**插件 DSH peer 版本兼容性硬门禁**（plugin-compatibility.ts +
+# compatibility-preflight.ts，组合期执行）。规则：只查 `@deepseek-ai/dsh`/`dsh-*`
+# 前缀的 peer，用 semver.satisfies(runtime, range, {includePrerelease:true}) 判定，
+# `workspace:^|~|*` 视为当前运行时；**不满足即 row.disabled = true 并向 stderr 打一行**
+# （静默功能性损失，UI 无感）；静态 Include 触达被禁插件时**整个 Include 连坐**；
+# peer 元数据读不出/非法**也拒绝**（比"不兼容"更严）；豁免是精确版本制
+# （`dsh plugin allow-version` 或插件管理页）。
+# **实测：我方五个插件全部 admitted，0 豁免**（用门禁自身的 semver@7.8.5 与同一判定式
+# 预演 dev home 内引擎真正会读的 manifest）。能过是因为 `^0.1.7-alpha.1` 与 `0.1.7-rc.1`
+# 同三元组且 rc>alpha。
+# **但这引入了"三元组悬崖"**：上游一旦推进到下一个三元组（如 0.1.8-*），
+# `^0.1.7-alpha.1` 立即失效 ⇒ coding-sidebar 与 file-review **会在升级当天静默消失**。
+# ⇒ **升级 SOP 必检项：每次升级先用附录 A-6 的脚本预演五个插件**（建议进一步做成
+# CI 断言）。**新写 peer 时禁止裸 minor（如 `^0.1.7`，实测在 rc.1 下 FAIL）。**
+#
+# 另一处用户可见变更：**工作步骤展示三档 → 四档**（compact/standard/detailed/verbose），
+# `stepGrouping` 由二值变三值（`'collapsed'|'history'|'none'`，`'history'` = 仅历史轮次
+# 可折叠），**默认值 compact → standard**，旧保存值 `'normal'`→standard、**`'expanded'`→
+# detailed**（同名档位换了所指：界面上的"完全展开"现已是新 verbose）。schema 加 `.loose()`，
+# 未知历史值静默回落。中文文案：标题「工作过程展示」→「工作步骤展示」。
+#
+# 破坏性类型面（对本方**零影响**，已逐点实证）：① `ToolCallOwnerProps` 拆成
+# `ToolCallCommonProps & ToolCallPhaseProps`（phase 判别联合），读 `block.argsRaw` 的
+# toolview 会编译失败、toolview 每调用 2→3 次；**我方不注册 `tool.call.toolview`**。
+# ② `ui-conversation` 的 `RunningToolCall` 变 `PreparingToolCall | StartedToolCall` 联合。
+# 此处**更正一处推理**（结论不变）：文件审查**确实**从上游 import 了 `RunningToolCall`
+# （dsh-contracts.ts:33/81），并非"自有数据模型字段"；真正安全的原因是——该类型仍导出、
+# 我方只用其 `.turn`（在 ToolCallHead 上、两分支都有），而读 `argsRaw` 的地方走
+# `ToolResultNode.call`，其类型是**内联 `{name, argsRaw} | null`**（records.ts:163），
+# 与联合无关。③ `ProcessActivity` 枚举新增/改动、`ConversationStartMatch` 放宽。
+#
+# 本版对 Electron 壳唯一可能的实质阻断是 `skill-office`（`config.node` 缺失且
+# isSea()||electron → apply() 抛错）。**实测否证**：`grep skill-office
+# packages/bundle/web-app/` 零命中（只在 sdk-app bundle），且 `--dump-config` 的**生效
+# 组合**（1429 行）里**没有 skill-office 行** ⇒ apply() 永不执行 ⇒ **零动作**。
+#
+# LibreOffice：`office-to-pdf` 的 kit `0.0.1 → ^0.1.0`（平台二进制 arm64 = 201MB）。
+# **"应用变大"不是本版引入的**——alpha.2 的 staging 就已携带它（259MB，staging 合计
+# 592MB / tar.gz 162MB）。rc.1 物化后实测 **535MB / 146MB ⇒ 反而缩小 16MB，无膨胀**。
+#
+# 集成分支：kcoder/0.1.7-rc.1 @ a56eabbd02 = tag 46a7f68b09 × 尖端 f12a7e9ff0
+# 单次 merge --no-ff 重放。**冲突 1 处（历次最少）**：预期交集 9 文件，8 个自动合并成功
+# （含 ui-chat 全部与 ui-tool/ToolRow）。唯一真冲突 `ui-primitives/src/markdown/parse.ts`
+# 是**语义冲突**——我方加 `sanitizeModelMarkdown`（文本级修复）、上游加
+# `recoverLocalImages`（树级，配合新图片功能），套在同一表达式上。**解法＝并集且次序有
+# 语义**：sanitize → 解析 → recover，且 recover 必须收 **sanitize 之后**的文本
+# （它用 source.slice===child.value 逐字校验来源，sanitize 会跨行合并改变偏移；
+# 传原始 text 会让**带空格的本地图片路径静默漏检**）。已写成代码内中文注释固化。
+#
+# 重放完整性（理想签名）：`git diff --name-only <tag> <合并树>` = **46 文件**，与
+# 「上游 alpha.2 vs 我方 alpha.2」的 46 文件**集合完全相等（diff 空）** ⇒ 零多余零丢失。
+# pnpm-lock 自动合并后 CI=true pnpm install --no-frozen-lockfile 重收敛（exit 0）。
+# **未触发** alpha.2 轮那个「陈旧声明锁死」陷阱（rc.1 未整体替换任何 src/index.ts）。
+#
+# 质量门（全绿）：三面构建整链 exit 0（263 client 产物）；verify-package-dependencies
+# exit 0（70 包合规）；定向单测 **261/261**（markdown 并集 12 / plugin-compatibility 62 /
+# scroll-follow 11 / chat-view 142 / presentation-policy 6 / session-history-journal 28）；
+# 浏览器几何门与 alpha.2 轮**逐测试逐行号逐计数完全一致**（chat-scroll-contract 9/9 +
+# idle-submission-handoff 8/8 过；seeded-history 3 + steering 2 的 golden 未过，新增行仍
+# **只有** `+ button "Edit this message and resend"` 一行 = 我方 0007 的既有漂移）⇒
+# **本版零新增失败**；staging 物化 25,203 文件 → 146MB 自检通过；vendor-purity 纯净；
+# smoke-runtime 就绪行 + 首页 200；brand-assert 通过；fork 新建分支推送成功
+# （pre-push typecheck ✓，远端 0/0 且我方四标记与 rc.1 两特性均 present）。
+#
+# 进度与遗留详见 docs/upstream-0.1.7-rc.1-analysis.md §8（含 §8.4 对 §7 清单的逐项收口、
+# §8.6 遗留：peer 预演制度化、并集次序的组合用例、verify-vendor-purity 空骨架误判）。

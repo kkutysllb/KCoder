@@ -724,7 +724,8 @@ export function publishWorkspaceRange(range: string, targetVersion: string): str
 
 **三面构建（全绿）**：`build:native-system` → host → client → `build:web` **exit 0**；合并后晚于 merge 时间戳的重建产物 **514 个**。构建产物四处关键标记逐点在位：`ScrollFollow`/`scrollMetrics` **13**（alpha.2 新滚动控制器）、`turnWindow` **4**（分页 turn 对齐）、`dsh-kcoder-turn-status-shimmer` **2** 与 `data-turn-running` **2**（我方 [alpha.1 文档 §8.9](./upstream-0.1.7-alpha.1-analysis.md) 的深蓝扫光，随重放存活）。
 
-**注意**：`apps/web/dist`（侧车实际服务的 Web 壳，经 `@deepseek-ai/dsh-web-frontend` 解析）**不在** `pnpm run build` 的默认链里，必须单独 `pnpm run build:web`——只跑 `pnpm run build` 会让 dev/侧车继续吐 alpha.1 的壳。
+**注意（本节初稿此处写错，2026-09-23 rc.1 轮更正）**：当时写的是「`apps/web/dist` 不在 `pnpm run build` 的默认链里」——**这是错的**。`scripts/build.ts` 的三步是 `build:native-system → build:lib → build:web`，`build:web` **本来就在链里**（alpha.2 与 rc.1 的该文件逐字节相同）。`apps/web/dist` 当时陈旧的真因是：`build:lib` 因上面那个陈旧声明文件**失败退出**，而 `runScript()` 失败即 `throw`，**链在 `build:web` 之前就断了**；我随后只单独补跑了 `build:lib:host` / `build:lib:client`，于是 `build:web` 一直没跑。
+**正确教训**：构建链中途失败后，要**重跑整条 `pnpm run build`**，不要单独补跑某一子步骤——否则**链尾的阶段会静默缺失**（本次就是 `apps/web/dist` 停在旧版本，侧车继续吐旧壳，而所有子步骤单独看都是绿的）。
 
 ### 8.2 第二批已执行（2026-09-23：I1 三件事的失效面回归实测）
 
