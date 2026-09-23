@@ -46,6 +46,7 @@ if (from <= decl.length || tail === -1 || endTick === -1) {
 }
 // HEADER_JS 里带 TS 侧插值（${STYLE_ID}）；冒烟按挂载侧同值还原，直接 eval
 // 模板字面量即可让插值在此作用域解析。
+// oxlint-disable-next-line no-unused-vars -- 供下面被 eval 的模板字面量解析 ${STYLE_ID}，静态分析看不到该引用
 const STYLE_ID = '__dsh_ws_header_css'
 // oxlint-disable-next-line no-eval -- 测试夹具:按模板字符串语义还原页面注入源码
 const headerJs = eval(BT + src.slice(from, endTick) + BT)

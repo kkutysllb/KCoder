@@ -114,16 +114,25 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // = 上游 0.1.6-alpha.2 适配：ws 移入 peerDependencies（引擎包位次不变）、
   // exports 补 ./cordis.patch.yml、sidechat 活跃线程全量释放挂进 ctx.effect
   // （运行时停用/卸载不泄漏线程与快照）。
-  'dsh-coding-sidebar': '^1.0.26',
+  // 2026-09-23 平移：^1.0.26 → ^1.0.32（随 0.6.16 的内置物化同线）。中间三版
+  // 一并越过，均为 0.1.7 适配：1.0.29/1.0.30 settings 迁移到 0.1.7
+  // profile-config/volatile + 0.1.7 契约适配；1.0.31 冒烟清单断言改列真实图行 +
+  // client-office 刷新；1.0.32 修「任务管理」页恒显「加载中」——0.1.7 移除了
+  // 子代理目录与作业名册两条列表快照缝，改读逐 Session 投影
+  // （projectionsBySession[].values.subagentCatalog）与 ctx.jobs 客户服务。
+  // 发布核验：npmjs 端 `1.0.32` 与 dist-tags.latest **均已可见**（本次平移的事实依据）；
+  // npmmirror 对该大包（57MB+）的镜像同步滞后，发版时为追赶中（详见 release/audit-v0.6.16.md）。
+  'dsh-coding-sidebar': '^1.0.32',
   // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5 → 1.0.6）：coding-sidebar
   // 的衍生插件（增强审查卡 + 侧边栏审查 tab）。1.0.6 追加 changes-review 地址
   // 家族认领（原生评审开法改开自家页签）。已发布且双源可见，故与 bundle 物化
   // 同线（实体 1.0.6 = 声明 ^1.0.6）。
-  // 2026-09-20 平移：^1.0.6 → ^1.0.7（已发布且双源可见，两源均已核）。1.0.7
-  // = 上游 0.1.6-alpha.2 适配：systemPrompt.section 由插件 ctx.effect 收集
-  // （停用/卸载后 system prompt 不残留 ui:file-review-references）+ qilin 通道
-  // 注入名补 @qilin/coding-sidebar。
-  'dsh-file-review-kcoder': '^1.0.7',
+  // 2026-09-20 平移：^1.0.6 → ^1.0.7。
+  // 2026-09-23 平移：^1.0.7 → ^1.0.10（随 0.6.16 的内置物化同线；双源均已核）。
+  // 1.0.8 = 引擎 0.1.7-alpha.1 契约迁移；1.0.9 = open-with 子槽 + application
+  // 参数；1.0.10 = 动作子槽改自有键（不再认领 upstream 的
+  // deliverables.file.actions，修 web boot 失败）+ client inject 清单纠偏。
+  'dsh-file-review-kcoder': '^1.0.10',
 }
 
 /**
