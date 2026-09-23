@@ -640,3 +640,58 @@ profile 插件配置**里（`profiles/web/cordis.patch.yml` 缺 `llm-pi-ai` / `l
   `Qwen3.8 Flash / Xhigh`、控制台零 error ✓。
 - 结论：**dev home 现在可交付验收**（五件自研插件在场、客户端 roster 67 行、
   零失败条目、模型可用、中文界面）。
+
+### 8.8 第八批已执行（2026-09-23：会话页头「孤立横线」定位与修复）
+
+> 触发：dev 实跑中，用户观察到「任务开始执行后，对话区上方出现一条横线」（截图红框）。
+
+**像素级取证**（先量后判，避免猜）：
+- 该线为 **2 设备像素（≈1 CSS px）**、色 `rgb(38,38,40)`、压在聊天列背景 `rgb(21,21,23)` 上，
+  横向 **x 446→2185** 正好等于聊天列宽度；位置在会话页头底边（页面顶 40px 壳层标签栏 +
+  AppFrame 窗口色带 + header 76px = 183 ✓ 与实测吻合）。
+- 线体颜色与上游暗色 token 吻合：`--dsw-alias-border-l3: rgba(255,255,255,0.16)` 的
+  `0.5px` 描边叠在 `#151517` 上 ≈ `rgb(39,39,41)` ✓。红框本身是用户标注（R=248 的红色像素带）。
+
+**根因（0.1.7 结构性回归，命中我们壳层的注入 CSS）**：
+- 线的本体是 `ConversationRoot.module.css:22` 的
+  `.header { min-height:76px; border-bottom:0.5px solid var(--dsw-alias-border-l3) }`，
+  即**会话页头容器**的底线（上游设计：与左栏 tab strip/页头两条 rule 在列边对齐）。
+- 为什么只剩一条线：KCoder 壳层的「顶栏收纳」（`desktop/main/workspace-header.ts`，为省垂直空间
+  把页头整体收掉）主规则按**直接子级**锚定 `[class*="_header"]:has(> [class*="_titleRow"])`。
+  **0.1.6**：`ConversationSessionHeader` 自己就是 `<header>`、`.titleRow` 是其直接子级 → 命中，
+  整条页头（含 76px 带与底线）被收掉 ✓。**0.1.7-alpha.1**：页头拆成
+  `ConversationHeader`（占位容器）+ `ConversationSessionHeader`（注册进
+  `conversation.session.header` slot），`.titleRow` 被 slot 容器
+  `<div data-slot="conversation.session.header">` 包住 → `>` 判据**静默失效** →
+  容器带着 min-height 与底线活下来，内容又被兜底规则（titleRow/tabs）收掉 ⇒ 空带 + 孤立细线。
+- 为什么「任务一开始跑就冒出来」：`ConversationHeader` 只在 `blank`（会话尚无对话）时加
+  `.headerBlank{ border-bottom:none }`；一旦会话不再 blank，换成带底线的 `.header` ⇒ 线出现 ✓
+  与用户观察逐字吻合。
+
+**修复（KCoder 提交见下）**：主规则改按 slot 系统的稳定锚点收整个容器，两条并列（元素名 + 类名），
+旧形态规则保留：
+```css
+header:has(> [data-slot="conversation.session.header"]) { display: none !important; }
+[class*="_header"]:has(> [data-slot="conversation.session.header"]) { display: none !important; }
+[class*="_header"]:has(> [class*="_titleRow"]) { display: none !important; }   /* ≤0.1.6 */
+```
+
+**回归护栏 `scripts/smoke-workspace-header.mjs`（新增）**：Electron（`show:false`）里还原
+0.1.7 与 ≤0.1.6 两种页头 DOM + 一个「插件管理卡片 `_card > _titleRow`」诱饵，注入**真实 HEADER_JS**，
+断言：①0.1.7 容器必须 display:none；②≤0.1.6 容器必须被收；③标题行/标签行兜底生效；
+④诱饵卡片原样可见（2026-09-18「卡片点不动」不得复发）。**判别力自检**：用修复前规则
+（`WORKSPACE_HEADER_SRC` 指向旧版）跑 → 精准 FAIL（`0.1.7 页头容器未被收纳（block）`）；
+修复版 → ALL PASS ✓。KCoder `pnpm typecheck`（含注入脚本 no-undef 门）通过 ✓。
+
+**顺带审计其余壳层注入锚点（同款「直接子级 + 哈希类名」风险面）**：
+- ✓ `settings-page.ts`（`_overlay > _panel[role=dialog]`、`_nav`、`_navTitle`、`_header > _close`、
+  `_options`）与三处 `[class*="_options"] > div[data-slot="settings.section"]`：0.1.7 里
+  `.options` 仍直接包含 `settings.section` 的 slot 容器 ✓ 不回归。
+- ✓ `account-chip.ts` 的 `button[class*="_trigger"][aria-haspopup="dialog"]`：0.1.7 的
+  `SettingsRoot` 触发按钮同样带这两个特征 ✓（但已迁进 `settings.launcher` slot 的 fallback，
+  一旦有插件提供 launcher 条目就会替换掉该锚点，属新风险面）。
+- ⚠️ `brand-injector.ts` 的 `[class*="_turnStatus"]` 文本改写分支在 0.1.7 已是**死代码**：
+  上游 0.1.6 的 `ui-chat/ChatView` `.turnStatus` 类已不存在（改为 `TurnProcessNodeView`），
+  且该文案现在由 **fork 自己的本地化补丁**给出（`ui-chat/src/client/locale.ts:48`
+  `'message.turnProcess.deepDivingFor': 'KCoder...，用时{duration}'`）——用户可见结果不变，
+  故仅登记待清理，不阻塞。

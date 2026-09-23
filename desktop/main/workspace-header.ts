@@ -3,10 +3,22 @@
  * 内容区腾出垂直空间（会话标题与自绘状态栏重复；轨迹已迁至状态栏
  * 按钮 + 右侧抽屉；会话日志迁至状态栏按钮）。
  *
- * 上游结构（packages/ui-conversation 的 ConversationSession）：
- * - `.header` 容器内含 `.titleRow`（crumbs 面包屑 + headerActions/
- *   headerUtilities 两个 slot——会话日志按钮注册在 headerUtilities）
- *   与 `.tabs`（role=tablist 的对话/轨迹标签行，视图选择持久化）；
+ * 上游结构（packages/ui-conversation）：
+ * - **0.1.7-alpha.1 起（现状）**：页头分两层——外层 `ConversationHeader`
+ *   渲染占位 `<header class="_header">`（min-height:76px +
+ *   `border-bottom:0.5px solid var(--dsw-alias-border-l3)`），内层
+ *   `ConversationSessionHeader` 注册进 `conversation.session.header` slot，
+ *   于是 `.titleRow` / `.tabs` 落在 slot 容器
+ *   `<div data-slot="conversation.session.header">` 里、**不再是 header 的
+ *   直接子级**。收纳必须按 slot 锚点收掉整个 header 容器：只收 titleRow/tabs
+ *   的话，容器会带着 76px 最小高与那条底线留下来，页面上就是「一条空带 +
+ *   一根孤立细线」（`border` 仅 `.headerBlank` 时去掉，所以这条线恰好
+ *   会话一开始跑就出现——2026-09-23 实机定位并修复，见 scripts/smoke-workspace-header.mjs）。
+ * - **≤0.1.6-alpha.2**：`ConversationSessionHeader` 自己就是 `<header>`，
+ *   `.titleRow` 是其直接子级（`:has(> …)` 判据成立）。
+ * - 两种形态下 `.header` 内都含 `.titleRow`（crumbs 面包屑 + headerActions/
+ *   headerUtilities 两个 slot——会话日志按钮注册在 headerUtilities）与
+ *   `.tabs`（role=tablist 的对话/轨迹标签行，视图选择持久化）；
  * - 产物类名按「_+类名」子串匹配（hash 位置随构建形态不同，见
  *   style-overlay 同款说明）；唯一性：_titleRow 全仓唯一；_tabs 与
  *   ui-settings-plugins 撞名 → 「titleRow 之后兄弟」锚定；_header
@@ -50,8 +62,21 @@ const HEADER_JS = `(() => {
     document.head.append(styleEl)
   }
   styleEl.textContent = \`
-/* 会话头部整体收纳：:has 锚定 titleRow 的直接父级（.header 泛名同名多，
-   不泛匹配）。这是主规则，也是唯一必需的一条。 */
+/* 会话头部整体收纳，两条主规则按上游版本取其一（都用 :has 锚定，.header
+   泛名同名多，绝不裸匹配）：
+   ① 0.1.7-alpha.1 起（本条是现状必需项）：上游把页头拆成
+      ConversationHeader（占位 <header class="_header">）+ ConversationSessionHeader
+      （注册进 conversation.session.header slot），titleRow 因此被 slot 容器
+      <div data-slot="conversation.session.header"> 包住、不再是 header 的直接
+      子级 —— 下面 ② 的直接子级判据在 0.1.7 静默失效，header 容器会带着
+      min-height:76px 与 border-bottom:0.5px solid var(--dsw-alias-border-l3)
+      活下来：内容被兜底规则收掉、只剩一条空带 + 孤立细线，且因为 .headerBlank
+      才 border:none，这条线正好「会话一开始跑就冒出来」（2026-09-23 实机定位）。
+      锚点用 slot 系统的 data-slot（语义标识，比哈希类名稳），元素名 header
+      与类名两条并列，任一改名都还有另一条。
+   ② ≤0.1.6-alpha.2：titleRow 是 header 的直接子级。 */
+header:has(> [data-slot="conversation.session.header"]) { display: none !important; }
+[class*="_header"]:has(> [data-slot="conversation.session.header"]) { display: none !important; }
 [class*="_header"]:has(> [class*="_titleRow"]) { display: none !important; }
 /* 兜底（.header 改名时仍要收掉标题行）：必须按「会话头部自己的子标记」锚定，
    绝不能写成裸的 [class*="_titleRow"]。
