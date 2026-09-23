@@ -398,7 +398,7 @@
 # dd1529d8aa/b88abcad16 均为尖端祖先；新 delta vs 旧 delta 文件集差恰为
 # plugin.ts（按决策取上游）；上游侧文件零删除；build exit 0（248 client
 # 产物），lib/index.js 299/299，CI=true pnpm run typecheck 通过。
-c36a83ff6bb95e3f82cf79f9be7c724270a8aa61
+00102833dfaee1da9f48a3a8eae9d34005a75218
 
 # ── 集成分支 fork 侧追加（2026-09-18：设置页插件管理 tab）──────────────
 # 集成分支尖端 02253cd274（本地 = origin/kcoder/0.1.6-alpha.2，远端新建分支）。
@@ -460,3 +460,72 @@ c36a83ff6bb95e3f82cf79f9be7c724270a8aa61
 # 质量门：vitest 920+1236+355+14 全绿（六包定向）、全仓 typecheck（host+client）过、
 # lefthook 全绿、install 补丁应用成功。完整性断言：14 个关键自有提交均为新尖端祖先，
 # diff vs tag = 49 文件全为我方自定义面。
+#
+# 升级记录：2026-09-23 0.1.7-alpha.1(c36a83ff6b) → 0.1.7-alpha.2(00102833df，
+# 上游 tag `dsh-v0.1.7-alpha.2`，2026-09-22 23:25)。窗口仅 **11 小时**：162 提交 /
+# 869 文件 / +21355 −11052，但剔除 3 个「家务提交」（10ea83bcc3 版本号、
+# 37372101b5 DSH 内部依赖钉 workspace:*、4e6028a604 vendor/native 改 workspace:~）
+# 后**真实代码面只有 509 文件**，其中 131 是 README/.i18n.yaml——集成风险约为上一版
+# 的 1/8（上一版 1299 提交 / 4754 文件 / 5 天）。故本版定性为「同版本内小步补丁」。
+#
+# 契约面：**四条主干契约连续第二版零变化**——ui-slots / ui-settings /
+# typert-protocol+registry / packages/skill 源码零 diff（唯一变更是 package.json
+# 版本戳与依赖范围），packages/terminal/** 亦零 diff。五个自研插件本版**零代码改动**，
+# 只做回归验证（实测：DiffBlockLabels/ReadBlockLabels/CodeToolbarLabels/
+# ClientModuleLoader/SessionFollowRequest 在两插件源码中全部 0 命中）。
+#
+# 唯一硬配置断裂：spill-policy 的 `maxInlineBytes`(字节) → `maxInlineTokens`(token)，
+# 基座 bundle 默认 50000 → 12500。旧键残留不会报错，而是 `apply()` 首行
+# `cap === undefined` 直接 return —— **策略整体静默自禁用**（工具结果不再保留）。
+# 已实测 KCoder 仓 + ~/.kcoder + ~/.kcoder-dev 三处 0 命中，无此窗口。
+# 同版语义重写：工具结果保留改为「文本+图像按模型实际 token 计价 head/tail」，
+# 且 read 工具不再是豁免项；新增未记载的 ToolDefinition.projectContent 钩子（纯新增，
+# finalizeContent 保留），MCP 客户端已迁过去，改变了 MCP 图像结果与 spill 的先后次序。
+#
+# 三处未记载的类型/DOM 变化（对我方全部零影响，但记账）：① DiffBlockLabels 删必填
+# files 并新继承 CodeToolbarLabels 的 3 个必填键（ReadBlockLabels 同增 3 键）；
+# ② ClientModuleLoader 新增必填 importError(id)、assertEntriesActive(ctx, modules)；
+# ③ 上游桌面更新指示器与侧边栏徽标的 [data-error] 移除。另有一处**行为翻转**未被
+# 发布说明披露：tool-jobs 的 maxConsecutiveWakes 由 default(3) 改为**无默认值
+# = 不设上限**（修好了「连续后台任务后会话停住」，但移除了引擎自带防自激链，**待裁决**）。
+#
+# 集成分支：kcoder/0.1.7-alpha.2 @ f12a7e9ff0 = tag 00102833df × 尖端 ab438d0a03
+# 单次 merge --no-ff 重放。**重放完整性呈理想签名**：两分支间 diff = 869 文件，
+# 与上游自身 alpha.1..alpha.2 的 869 逐数吻合（自有面零丢失、零多余）。
+# 冲突 6 处同源一组：ChatView.tsx（上游新增 .frame 包裹 / TurnNavigator 移出 .scroll /
+# ChatNodeList 增 pendingInputs+lastInputTurn × 我方 0007 editUserMessage 两处；
+# 取上游结构为底补回我方传参）+ DiffBlock 组 5 文件（我方「footer 计数着色 span」补丁
+# 随上游删 footer 一并作废，整组取上游；diffTotals 导出未动）。
+#
+# 遇坑（本轮唯一新增，已一般化进 SOP）：**上游「整文件替换」+ tsc -b 增量产物 =
+# 可自持的假错误**。ui-plugin-manager 的 src/index.ts 在 alpha.1 是空宿主
+# `apply(): void`，alpha.2 换成 PluginRegistryProbe 类；而 lib/types/index.d.ts 仍是
+# 旧产物，`tsc -b` 对报错项目不产出 → 陈旧声明把「无默认导出/无 Config/Context 无
+# pluginRegistryProbe」三错锁成自持循环，每次构建必然复现。判据：源码里明明有的符号，
+# 报错路径却出现 lib/types/... ⇒ 删该包 lib/ 重建（非改源码、非改测试）。
+#
+# 另注：apps/web/dist（侧车实际服务的 Web 壳，经 @deepseek-ai/dsh-web-frontend 解析）
+# **不在** `pnpm run build` 默认链里，必须单独 `pnpm run build:web`；只跑 build 会让
+# dev/侧车继续吐旧壳。
+#
+# 锚点存活（实机 DOM 断言）：conversation.session.header slot 在场且仍是 `<header>`
+# 直接子级；我方按 slot 重锚的页头收纳修复命中 1、旧 `> _titleRow` 锚点命中 0
+# （alpha.1 那条「孤立横线」的失效机制原样复现，证明重锚修复仍必要且仍有效）；
+# turnTail / 36 个 data-slot / TurnNavigator 全部在位。
+#
+# 质量门（全绿）：三面构建 exit 0（native-system + host + client + build:web，晚于
+# merge 的产物 514 个）；verify-package-dependencies exit 0（70 包合规，本版最可能的
+# 新红灯未亮）；定向单测 253/253（scroll-follow 11 / chat-viewport 41 / chat-view 142
+# / session-history-journal 28 / session-pending-submissions 31）；浏览器几何门
+# chat-scroll-contract **9/9**、idle-submission-handoff **8/8** 通过（本轮点名项：
+# 稳定会话与过程组滚动跟随、发送消息瞬间跳动/重复显示）；dev 实跑 roster 67 行、
+# 五个插件到位、控制台异常/error/warning **全 0**。
+#
+# 唯一未过门：seeded-history 3 项 + steering 2 项 aria golden——**已实锤为我方自有
+# 补丁的历史性快照漂移**（5 个 diff 的新增行只有 `+ button "Edit this message and
+# resend"`，即 0007 editUserMessage 按钮；全仓 snapshots 对该串零命中 = 从未刷新过；
+# 且 alpha.2 本版改动的快照文件是 diff-bounded/diff-context/excel-opc/
+# goal-multi-turn-actions/tool-details，**与这两个套件零交集**）。故先于本版存在、
+# alpha.1 分支同样失败，非本版回归。**未原地刷新**（那会把「多一个按钮」烤进上游
+# golden，污染「金标=上游行为」判据）——登记为已知差集或另立自有 golden 目录，
+# 属产品/测试口径裁决，**待用户定**。

@@ -704,7 +704,136 @@ export function publishWorkspaceRange(range: string, targetVersion: string): str
 
 ## 8. 执行记录
 
-*（待集成执行后按批次追加，格式与 [`upstream-0.1.7-alpha.1-analysis.md`](./upstream-0.1.7-alpha.1-analysis.md) §8 一致）*
+### 8.1 第一批已执行（2026-09-23：fork 集成分支重放 + 构建阻断定位 + 三面构建）
+
+**产物**：fork 分支 `kcoder/0.1.7-alpha.2` @ `f12a7e9ff0`（父提交 `00102833df` = tag `dsh-v0.1.7-alpha.2` × `ab438d0a03` = `kcoder/0.1.7-alpha.1` 尖端），单次 `merge --no-ff` 重放，与 alpha.1 同款流程。
+
+**重放完整性（理想签名）**：`git diff --name-only kcoder/0.1.7-alpha.1 kcoder/0.1.7-alpha.2` = **869 文件**，与上游 `git diff dsh-v0.1.7-alpha.1 dsh-v0.1.7-alpha.2` 的 **869 文件逐数吻合**——即重放后我方分支间的差异恰为「上游本版变更」，自有面零丢失、零多余。
+
+**冲突实况（6 处，比 §5.3 预判的「极少」略多，但全是同源一组）**：
+
+1. `ChatView.tsx`：两侧独立改动取并集——上游结构性重构（新增 `.frame` 包裹、`TurnNavigator` 移出 `.scroll`、`ChatNodeList` 新增 `pendingInputs/lastInputTurn`）× 我方 0007 `editUserMessage` 两处（解构 + `ChatNodeList` 传参）。解法＝以上游结构为底补回我方那一行传参；`slots.ts` 的 `ChatViewInjected/ChatNodeOwnerProps` 契约零冲突自动并入。
+2. `DiffBlock.tsx` / `DiffBlock.module.css` / `diff-block.client.spec.tsx` / `ui-tool/tests/{diff-card,tool-row}.client.spec.tsx`（5 处）：我方补丁「footer 计数改着色 span + 断言适配」**随上游删除 footer 一并作废**（alpha.2 `DiffBlock.module.css` 已无 `.footer`，`diffTotals` 成为唯一 +/− 出口），整组取上游。`diffTotals` 导出未动。
+
+**构建阻断定位（本轮唯一实锤新坑，非上游问题、非合并问题）**：`pnpm run build` 在 `tsc -b tsconfig.host.json` 报 3 错——`packages/client/ui-plugin-manager/tests/registry-probe.host.spec.ts` 的 `TS1192 无默认导出` / `TS2305 无 Config` / `TS2339 Context 无 pluginRegistryProbe`。
+
+- **根因**：该包 `src/index.ts` 在 alpha.1 是 `export function apply(): void {}` 的空宿主体，alpha.2 被 `3c50bf6b6c` 整体换成 `PluginRegistryProbe` 类（默认导出 + `Config` + module augmentation）。而 `lib/types/index.d.ts` 仍是 **19:56 的 alpha.1 产物**。`tsc -b` 对**报错的项目不产出**，于是陈旧声明文件把错误**锁死成自持循环**：每次构建都拿旧 `.d.ts` 去校验新 spec，永远报同样的 3 错，永远不会覆盖它。
+- **解法**：`rm -rf packages/client/ui-plugin-manager/lib` 后重建，host 面 exit 0。
+- **一般化教训**（值得进升级 SOP）：**上游「整文件替换语义」+ `tsc -b` 增量产物 = 可自持的假错误**。判据是「报错符号在源码里明明存在，但报错信息里出现 `lib/types/...` 路径」——见到就该删该包 `lib/`，而不是去改源码或改测试。（对照：alpha.2 纯净 worktree 同批次的报错是「缺子路径构建产物」，与本次不同型。）
+
+**三面构建（全绿）**：`build:native-system` → host → client → `build:web` **exit 0**；合并后晚于 merge 时间戳的重建产物 **514 个**。构建产物四处关键标记逐点在位：`ScrollFollow`/`scrollMetrics` **13**（alpha.2 新滚动控制器）、`turnWindow` **4**（分页 turn 对齐）、`dsh-kcoder-turn-status-shimmer` **2** 与 `data-turn-running` **2**（我方 [alpha.1 文档 §8.9](./upstream-0.1.7-alpha.1-analysis.md) 的深蓝扫光，随重放存活）。
+
+**注意**：`apps/web/dist`（侧车实际服务的 Web 壳，经 `@deepseek-ai/dsh-web-frontend` 解析）**不在** `pnpm run build` 的默认链里，必须单独 `pnpm run build:web`——只跑 `pnpm run build` 会让 dev/侧车继续吐 alpha.1 的壳。
+
+### 8.2 第二批已执行（2026-09-23：I1 三件事的失效面回归实测）
+
+针对本轮点名项（稳定会话与工作过程组的滚动跟随 / 历史分页与轮次跳转 / 发送消息瞬间跳动或重复显示），跑**上游为本版新增和改写的专项门**，而不是只看单测绿。
+
+**单元/组件面（253/253 全绿，5 文件）**：`scroll-follow.client.spec.ts` **11**（alpha.2 新增的 `ScrollFollow` 控制器：跟随意图与偏移解耦、原生动画帧不算读者移动、`settle()` 按 scrollend 归属）× `chat-viewport.client.spec.ts` **41** × `chat-view.client.spec.tsx` **142**（含我方 `data-turn-running` 断言）× `session-history-journal.host.spec.ts` **28**（turn 边界分页）× `session-pending-submissions.client.spec.ts` **31**（回声准入与去重）。
+
+**浏览器几何面（`vitest.web.config.ts`，Playwright + 真实 Web 壳）**：
+
+| 套件 | 结果 | 覆盖 |
+|---|---|---|
+| `chat-scroll-contract.e2e.ts` | **9/9 通过** | 长转写滚动契约：稳定会话底部归属、工作过程组独立跟随、`scrollend` 后重定向、TurnNavigator/回到底部几何 |
+| `idle-submission-handoff.e2e.ts` | **8/8 通过** | 空闲态提交交接：本地回声准入、顺序、不重复渲染 |
+| `seeded-history.e2e.ts` | 15 中 **3 失败**（全为 aria golden）+ 1 skip | 功能断言全过；冷恢复历史渲染 |
+| `steering.e2e.ts` | 7 中 **2 失败**（全为 aria golden） | 功能断言全过；中途转向落盘与展示 |
+
+**5 处失败的归因（已逐条实锤为「我方自有补丁的历史性快照漂移」，不是 alpha.2 回归）**：
+
+1. 5 个 golden diff 的**新增行只有一行**、且每次都是同一行：`+ - button "Edit this message and resend"`（另有一次 `+0/-1` 是它引起的 aria 序号位移）——即我方 0007 `editUserMessage` 链新增的按钮。
+2. 全仓 `snapshots/` 下 `grep -rl "Edit this message and resend"` **零命中**——这两套 golden 从未为我方补丁刷新过，故 alpha.1 分支同样会失败（**先于本版存在**）。
+3. alpha.2 本版改动的快照只有 `snapshots/web/{diff-bounded,diff-context,excel-opc,goal-multi-turn-actions,tool-details}`——**与失败的 `seeded-history`/`steering` 零交集**。
+4. `steering` 另附 2 条 `llm-replay: fixture not fully consumed（consumed 1/2）` teardown 报错，是**下游产物**：golden 断言（行 139/465）先失败 → 测试提前中止 → 记录的第二次模型调用不再发生。非独立故障。
+
+> **未做处置**：没有刷新这两套 golden。它们是上游自有快照，把「我方多一个按钮」烤进 golden 会让此后每次上游同步都产生无意义冲突，也会把「金标 = 上游行为」这一判据弄脏。**建议**：把该 5 项的失败登记为 fork 侧「已知稳定差集」（成因单行、可复现），或另立一套 KCoder 自有 golden 目录——两者都比原地刷新干净。**这是产品/测试口径裁决，留给用户。**
+
+**结论**：本轮点名项的三条，上游修复**已随 fork 重放生效并全部通过专项门**；失败集与它们无关。
+
+### 8.3 第三批已执行（2026-09-23：KCoder 侧前置同步 + staging 物化）
+
+**失效面 grep 归零（§5.2 第 1 项）**：`maxInlineBytes` 在 KCoder 仓（排除 node_modules）+ `~/.kcoder` + `~/.kcoder-dev` 三处 **0 命中**——基座 bundle 已由上游改名，我方无自定义 spill 配置，**不存在 §6-1 的静默自禁用窗口**。
+
+**类型级破坏的我方消费面复核（§3.1 三项）**：`DiffBlockLabels` / `ReadBlockLabels` / `CodeToolbarLabels` / `ClientModuleLoader` / `SessionFollowRequest` 在 `dsh-file-review-kcoder` 与 `dsh-coding-sidebar` 源码中**全部 0 命中**——§3.1「对我方零影响」的预判实测成立，两个插件本版**零代码改动**。
+
+**前置同步（本批，功能引用点 4 处全覆盖）**：`desktop/main/dsh-contract.ts` 的 `UPSTREAM_BRANCH` 常量及其文档注释 → `kcoder/0.1.7-alpha.2`；`scripts/setup.sh` 的 `UPSTREAM_BRANCH`；`scripts/release.sh` 的分支断言 2 行；`upstream/BASELINE` 钉版 SHA → `00102833dfaee1da9f48a3a8eae9d34005a75218`（= tag `dsh-v0.1.7-alpha.2`）+ 追加本版升级记录。
+
+> **记录一次自查纠错**：本节初稿只写了 `setup.sh`/`release.sh` 两处并声称「`grep desktop/main scripts` 归零」——**该断言当时是错的**：`desktop/main/dsh-contract.ts` 的 `UPSTREAM_BRANCH` 是一处**活常量**（被 `about-settings.ts` / `upstream.ts` 消费，决定界面展示的集成分支与 fork 克隆切的分支），漏改会让「关于」页与实际消费分支不一致、且 `setup.sh` 克隆分支与桌面端记录的分支错位。原因是首次 grep 只覆盖了 `.github/workflows` 与 `scripts`，**漏了 `desktop/main`**。已补齐并复核。
+>
+> 复核口径（可复现）：`grep -rn "kcoder/0\.1\.7-alpha\.1" desktop/main scripts | grep -vE "^\S+:[0-9]+: *\*|^\S+:[0-9]+:#|^\S+:[0-9]+: *//|<!--"` **零命中**——即功能引用点已全部切到 alpha.2；剩余提及全是**历史注释**（`product-policy.ts` 的「上游 0.1.7-alpha.1 起…」行为沿革、`workspace-header.ts` 与 `scripts/smoke-workspace-header.mjs` 的 alpha.1 诊断背景），按原样保留。另：`out/main/index.js` 里那份 `"kcoder/0.1.7-alpha.1"` 是桌面端**构建产物**（`out/` 已 gitignore、未跟踪），下次 `pnpm build` 自动重写，不入库。
+>
+> `bundle/*/pnpm-lock.yaml` 的 alpha.1 是插件自身 dev 锁，非消费态，见遗留 #3。
+
+**依赖范围硬门禁（§5.1）**：`pnpm run verify-package-dependencies` **exit 0**——`70 package(s) match the published dependency policy (5 Client-only, 63 Client/Host, 2 configured Host)`。本版最可能的新增红灯**未亮**。
+
+**staging 物化收口**：`pnpm --dir <fork> --filter=@deepseek-ai/dsh deploy --prod --legacy staging/kcoder-runtime` exit 0，产物 `package.json` 版本 **0.1.7-alpha.2**、`lib/bin.js` 在位；随后 `scripts/materialize-peers.mjs` 补 peer 闭包并出 tar.gz。（aligns §7 第 2 项。）
+
+**桌面壳对 installFailLoud 新退出形态的消费面（§6-3）**：实测 `desktop/main/dsh-manager.ts` 已能正确消费「`exit 1` + stderr 尾巴」形态——`child.on('exit')` 记 code/signal、`child.stderr.on('data')` 逐行落日志、随后按 `MAX_AUTO_RESTARTS = 3` 指数退避重启。**无需改动**。
+
+**§5.2 第 11 项（自建 WebSocket 补重试）＝N/A**：`grep "new WebSocket" desktop/` 零命中——KCoder 桌面壳不自建 socket，全量经 `@deepseek-ai/dsh-client-connection`（其自带重试），故 §6-6 的「准入推迟 → 硬断连」对本产品不成立。
+
+### 8.4 第四批已执行（2026-09-23：dev 实跑 + alpha.1 两条自有修复的 alpha.2 存活复核）
+
+**启动（自起隔离实例，不动用户正在跑的打包态 App）**：`DSH_HOME=~/.kcoder-dev node --expose-internals <fork>/apps/cli/lib/bin.js web --patch ~/.kcoder-dev/cordis.patch.kcoder.yml --port 0 --no-open` → 就绪行正常，18 行日志**零 fail/error**。
+
+| 观测项 | 结果 |
+|---|---|
+| 客户端 roster | **67 行**，`__DSH_BOOT__ = {rev, entries, batches}` |
+| 五个自研插件 | 客户端 4 行到位：`dsh-coding-sidebar` · `dsh-file-review-kcoder` · `@kkutysllb/dsh-terminal` · `dsh-shell-prefs`（`dsh-skills-bundle` 为宿主侧，见日志 `37 runtime skills registered`） |
+| `data-slot` 槽位 | **36** 个；`conversation.session.header` **在场** |
+| TurnNavigator（alpha.2 改过宽度阈值与容器查询） | 在场 |
+| 控制台 | **异常 0 / error 0 / warning 0** |
+| 侧边栏插件 | `[dsh-coding-sidebar] client 1.0.31 booted (nav-seam v3: uiWorkspace capture)` + `[data-dsh-panel-host]` 在位 |
+| HMR 产物一致性 | `__DSH_BOOT__.rev` 变化即证明产物被重算（§8.1 三面构建的产物已生效） |
+
+**alpha.1 页头细线修复在 alpha.2 的存活复核（实机 DOM 断言）**：
+
+| 断言 | 实测 |
+|---|---|
+| `[data-slot="conversation.session.header"]` 是 `<header>` 的直接子级 | **true** |
+| 修复选择器 `header:has(> [data-slot="conversation.session.header"])` 命中数 | **1** |
+| 旧选择器 `header:has(> [class*="_titleRow"])` 命中数 | **0** |
+| `_titleRow` 是否被 slot 容器包住 | **true**（slot 元素为 `display:contents` DIV，父即 `HEADER._header`） |
+
+**第 3 行 = alpha.1 那个「孤立横线」的失效机制在 alpha.2 原样复现**（旧锚点因为 titleRow 进了 slot 而彻底失配），第 2 行则证明我方按 `data-slot` 重锚的修复**继续有效**。同时可见 blank 态 `_headerBlank` 的 `minHeight:0 / borderBottom:0`——与 alpha.1 诊断的「border 只在会话开始后出现」行为一致。**结论：无需为 alpha.2 改动 `desktop/main/workspace-header.ts`。**
+
+> 口径提示：`brand-injector` 与 `workspace-header` 的 CSS 由 **Electron 主进程** `executeJavaScript` 注入，纯浏览器（CDP 直连 Web 地址）看不到——故上述 brand 相关项须在桌面壳内验收，不能用裸浏览器判定。
+
+### 8.5 fork 远端对齐（本轮发现的**发布链路陷阱**，已修）
+
+**发现**：本地 fork 已完成 alpha.2 重放，但 `origin/kcoder/0.1.7-alpha.2` 仍停在 `00102833df`——**就是上游 tag 本身**（本地领先 40 个提交）。用 `git grep` 在远端那棵树上核对三个自有标记：`dsh-kcoder-turn-status-shimmer` / `editUserMessage` / `fillDraft` **全部 MISSING**。
+
+**为什么这是陷阱而不是单纯「忘了推」**——`scripts/setup.sh` 用 `git clone -b kcoder/0.1.7-alpha.2` 取树，而 `scripts/release.sh` 的两道基线断言**都会通过**：
+
+1. `[[ "$(git branch --show-current)" == "kcoder/0.1.7-alpha.2" ]]` —— **按名字比**，克隆出来的分支名当然就叫这个；
+2. `git merge-base --is-ancestor "$BASELINE_SHA" HEAD` —— 钉版 `00102833df` **正是那个尖端**，包含关系恒真。
+
+于是「未打补丁的上游树」会**一路绿灯通过发版闸门**，产出品牌未 KCoder 化、无 `editUserMessage`、无 0.1.6/0.1.7 各项引擎修复的运行时——**且不报任何警**。本轮若不核对远端，这个坑会在下次发版时才炸，且现场表现是「发了但功能不对」，排查成本极高。
+
+**处置**：`kcoder/0.1.7-alpha.2` 的本地尖端是远端尖端的**后代**（`origin` 那点是它的第一父），故推送是**纯 fast-forward、非破坏**——推之。同时把被取代的 `kcoder/0.1.7-alpha.1` 一并 FF 推送（远端 `e8036fb560` → `ab438d0a03`，补上 alpha.1 文档 §8.9 那次深蓝扫光修复，否则该修复只在本地而不在其所属分支上）。推送后 `git fetch` 复核：两分支 ahead/behind 均 **0/0**，三个自有标记在远端树上 **present ✓**。
+
+**推送途中先被 fork 自己的 pre-push 门拦下一次**（`pnpm run typecheck` 失败）——**不是类型错误**：`pnpm` 的 `verify-deps-before-run` 认定 `node_modules` 与 lock 不同步（上一批 `pnpm deploy --prod` 把工作区装成了 prod-only 态），于是自动跑 `pnpm install --production`，而该 `postinstall`（`scripts/install-lefthook.mjs`）需要 devDeps 里的 `lefthook` → `ERR_MODULE_NOT_FOUND` → 退出 1。解法＝`CI=true pnpm install` 把安装态还原（lefthook 恢复、hooks 重新 sync），随后 typecheck **exit 0**（含 `tsc -b tsconfig.client.json` 客户端契约工程）、推送通过。**教训**：**跑 `deploy --prod` 之后，fork 工作树需要一次全量 `pnpm install` 复位**，否则后续任何 `pnpm run <script>` 都会踩这个自动重装。
+
+> 附带收口：§8.1 里 fork 重放提交信息提到的「`tsc -b tsconfig.client.json` 仅 2 个错误、疑似缺构建产物」在本次完整 install + 三面构建后**归零**——证实那确实是增量产物过期，非合并引入。
+
+### 8.6 遗留与待裁决
+
+| # | 项 | 状态 |
+|---|---|---|
+| 1 | `seeded-history`/`steering` 的 5 项 aria golden 漂移（成因＝我方 edit 按钮单行） | **待裁决**：登记为已知差集 / 另立自有 golden 目录（不建议原地刷新） |
+| 2 | `tool-jobs` 的 `maxConsecutiveWakes` 默认「不设上限」（§3.3、§6-7） | **待裁决**：是否显式设值；不设则依赖「不自激」假设 |
+| 3 | `bundle/dsh-file-review-kcoder/{package.json,pnpm-lock.yaml}` 的 devDeps 仍钉 `0.1.7-alpha.1` | **低优先**：peer 范围 `^0.1.7-alpha.1` 按预发布规则已覆盖 alpha.2，运行态无碍；仅 dev typecheck 保真度问题，且本版无代码改动，暂不为它单独发插件版本 |
+| 4 | `upstream/BASELINE` 追加本版升级记录 | **已完成**（见 §8.3） |
+| 5 | 打包产物启动冒烟（§6-4 上游 app.asar 缺包事故的对照项） | **未做**：属 release 链（`scripts/smoke-runtime.mjs` + Electron node 形态），随下次发版走 |
+| 6 | `ui-deliverables.tailCard` 闸门在客户端半失效（历史遗留，非本版新增） | 维持既有决策（两卡并存、零改动） |
+
+### 8.7 本批提交
+
+- fork `kkutysllb/deepseek-harness`：分支 `kcoder/0.1.7-alpha.2` @ `f12a7e9ff0` —— **已推**（FF `00102833df..f12a7e9ff0`，pre-push typecheck ✓）；`kcoder/0.1.7-alpha.1` @ `ab438d0a03` 一并 FF 推送（`e8036fb560..ab438d0a03`）。两分支与 origin 均 0/0。
+- KCoder `main`：`desktop/main/dsh-contract.ts`（`UPSTREAM_BRANCH` + 注释）· `scripts/setup.sh` · `scripts/release.sh` · `upstream/BASELINE`（钉版 + 升级记录）· 本文件 §8。质量门：`pnpm typecheck`（含注入脚本合规自检）exit 0、`pnpm build` exit 0。
+- KCoder `staging/kcoder-runtime` @ **0.1.7-alpha.2**（不入库）：deploy exit 0 + materialize-peers 25,331 文件 → tar.gz 162MB、自检通过；`verify-vendor-purity --clean` 纯净；`smoke-runtime` 就绪行 + 首页 200 ✓；`brand-assert` 通过（`chat.deepDiving = KCoder...`）。
+- **未改动**：五个自研插件源码（本版实测零改动面）、`desktop/main/workspace-header.ts`（实机证明锚点继续有效）、`desktop/main/dsh-manager.ts`（实机证明能消费新退出形态）。
 
 ---
 
