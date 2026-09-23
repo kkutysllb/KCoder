@@ -299,6 +299,10 @@ export function apply(ctx: Context): void {
     // nothing, never fail boot.
     const slots = slotRegistry(ctx)
     if (slots === undefined) return () => {}
+    // 0.1.7 共享文件动作子槽的声明结果，由下方注册写入、inject 面读取：
+    // 只有本次注册真的拿到了该子槽的渲染面，卡片才允许 renderSlot（对
+    // 未声明的子键调用会被渲染器直接抛错并让整行退位）。
+    let fileActionsSlot = false
     return slots.inject('conversation.chat.turnTail', () => {
     // const 持有后再传入：非新鲜字面量，旧类型基线（无 id 字段）不做
     // 多余属性检查；alpha.2 运行时按 id 走 list 匹配
@@ -438,10 +442,42 @@ export function apply(ctx: Context): void {
           // is stable across session re-binds; the section reads both stores
           // through useSyncExternalStore.
           presentedController: presentedOpen,
+          // 0.1.7 共享文件动作子槽（deliverables.file.actions）是否由本次注册
+          // 声明成功——见上方 fileActionsSlot 与下方注册处的注释。
+          fileActionsSlot,
         }
       },
     } as const
-    return slots.register(turnTailOptions, FileReviewTurnTail)
+    // 0.1.7 文件动作子槽：upstream 由原生交付卡所在行声明该子槽（fork
+    // packages/client/ui-deliverables/src/client/index.ts:83），ui-open-in-app
+    // 向它贡献「用其它应用打开 / 显示文件位置」控件
+    //（packages/client/ui-open-in-app/src/client/index.ts:83-88）。KCoder 部署
+    // 把原生行关掉（tailCard:false）后无人声明，子槽的 inject 永不触发、控件
+    // 随之消失——本插件既然认领了同一行，就必须替它声明，否则这两项能力在
+    // 交付卡片上消失。
+    //
+    // 一个子键只能有一个声明者（fork packages/client/ui-slots/src/index.ts:
+    // 1263-1266）。原生行仍在的装配（tailCard 默认 true 的上游 dsh）里
+    // ui-deliverables 已经声明过，故带上 KCoder fork 的共享渲染面开关
+    // rendersExistingChildren（:1249-1259，dsh-client-ui-slots
+    // 0.1.7-alpha.1 起随 KCoder 运行时发运）：重复声明改为「只共享渲染面」，
+    // 生命周期仍归首个声明者。不认识该开关的注册表会当未知选项忽略——那种
+    // 装配下 register 会照旧抛「already declared」，于是下面的兜底注册退回
+    // 无 children 的形态：卡片继续渲染自带控件（行为与 1.0.8 相同），只是不
+    // 接共享控件。校验全在 register 的序言里、抛错前没有落账，因此重试安全。
+    const withFileActions = {
+      ...turnTailOptions,
+      children: { 'deliverables.file.actions': { kind: 'list', scope: 'session' } },
+      rendersExistingChildren: true,
+    } as const
+    try {
+      const dispose = slots.register(withFileActions, FileReviewTurnTail)
+      fileActionsSlot = true
+      return dispose
+    } catch (error: unknown) {
+      console.warn('[dsh-file-review-tab] file-action child slot unavailable, keeping the card\'s own control:', error)
+      return slots.register(turnTailOptions, FileReviewTurnTail)
+    }
     })
   }, 'file-review-tab: turn-tail row')
 
@@ -504,3 +540,7 @@ export { captureArtifacts, classifyPath } from './artifacts.ts'
 export { presentedForClosing, selectDeliverables } from './turn-deliverables.ts'
 export { parseChangesReviewAddress, wrapChangesReviewOpen } from './review-address.ts'
 export { Deliverables } from './Deliverables.tsx'
+// Native-open face re-exported for the smoke regression checks
+// (scripts/smoke-plugin.mjs drives the controller against a stubbed fetch to
+// pin the route URL composition, `application` included).
+export { PresentedOpenController, presentedFileUrl } from './present-open.ts'

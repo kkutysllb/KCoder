@@ -8,7 +8,15 @@
  * authenticated same-origin routes:
  *
  *   GET  /api/present.host                    → desktop availability + file manager
- *   POST /api/present.open?sessionId&seq&index[&action=reveal]
+ *   GET  /api/present.open?sessionId&seq&index → that file's registered applications
+ *   POST /api/present.open?sessionId&seq&index[&action=reveal][&application=<id>]
+ *
+ * 0.1.7：同一 open 路由按方法分流（fork packages/client/ui-deliverables/src/
+ * present-open.ts:87-102）——GET 回该文件的系统应用清单（共享控制用它填
+ * 「用其它应用打开」菜单），POST 执行手势；显式应用选择走 `application`
+ * 查询参数，Host 侧原样转给 `sessionController.openWorkspacePath`
+ * （:98-100）。本插件的卡片把这条 URL 交给 0.1.7 新增的共享文件动作子槽
+ * （deliverables.file.actions）当 `actionUrl`，因此两边必须逐字同源。
  *
  * Those routes are addressed by URL on purpose instead of imported: this
  * plugin's client half deliberately keeps only TYPE imports from the
@@ -24,6 +32,16 @@
  */
 /** Native file action selected by an explicit user gesture. */
 export type PresentedAction = 'open' | 'reveal';
+/**
+ * Failure feedback for one native gesture: the key of the copy to announce, or
+ * null once the Host acknowledged. Mirrors the owner's
+ * `PresentedOpenFailure`
+ * (fork packages/client/ui-deliverables/src/client/present-open.ts:13) — the
+ * exact union `onAction` returns to the contributed control, which announces
+ * `t('path.<failure>')` (packages/client/ui-open-in-app/src/client/
+ * OpenTargetButton.tsx:56-58).
+ */
+export type PresentedOpenFailure = 'openError' | 'revealError' | null;
 /** State of the latest explicit open gesture for one delivered file. */
 export type PresentedOpenPhase = 'opening' | 'opened' | 'error' | 'revealing' | 'revealed' | 'revealError' | 'nativeUnavailable';
 /** Serving Host information; file-manager names never derive from the browser's OS. */
@@ -74,9 +92,13 @@ export declare class PresentedOpenController {
      * @param seq - durable delivery event sequence.
      * @param index - original file index within that event.
      * @param action - default-application open or file-manager reveal.
-     * @returns after the Host acknowledges the action or the error state is published.
+     * @param application - registered handler identifier for an explicit
+     *   application choice (the shared control's menu selection). Adds
+     *   `&application=<id>` to the route; omitting it keeps the request
+     *   byte-identical to the plugin's historical no-argument call.
+     * @returns the failure to announce, or null once the Host acknowledged.
      */
-    open(sessionId: string, seq: number, index: number, action?: PresentedAction): Promise<void>;
+    open(sessionId: string, seq: number, index: number, action?: PresentedAction, application?: string): Promise<PresentedOpenFailure>;
     /**
      * Read the serving desktop metadata, coalescing concurrent reads.
      * @returns after metadata, a retryable error, or 'absent' is published.

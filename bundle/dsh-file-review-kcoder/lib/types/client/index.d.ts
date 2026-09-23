@@ -56,4 +56,5 @@ export { captureArtifacts, classifyPath } from './artifacts.ts';
 export { presentedForClosing, selectDeliverables } from './turn-deliverables.ts';
 export { parseChangesReviewAddress, wrapChangesReviewOpen } from './review-address.ts';
 export { Deliverables } from './Deliverables.tsx';
+export { PresentedOpenController, presentedFileUrl } from './present-open.ts';
 //# sourceMappingURL=index.d.ts.map

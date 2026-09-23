@@ -27,10 +27,12 @@
  * Authority for every mirror: the fork mirror of upstream dsh 0.1.7-alpha.1 at
  * /Users/libing/kk_Projects/deepseek-harness (paths cited per member below).
  */
+import type { ReactNode } from 'react';
 import type { Context } from '@deepseek-ai/cordis';
 import type { ConversationNode, PartialAssistant, RunningToolCall, TurnLocation } from '@deepseek-ai/dsh-client-ui-conversation/client';
 import type { SessionId } from '@deepseek-ai/dsh-session/types';
 import type { TypertDisposer, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol';
+import type { PresentedAction, PresentedOpenFailure } from './present-open.ts';
 declare module '@deepseek-ai/cordis' {
     interface Events {
         /**
@@ -85,6 +87,48 @@ export interface TurnTailOwnerProps {
 /** One synchronous effect installed while an injected slot declaration is live. */
 export type SlotInjectionEffect = (() => void) | Iterable<() => void>;
 /**
+ * The shared per-file action child slot dsh 0.1.7 added for delivery cards
+ * (`deliverables.file.actions`, list/session). Owner-side name, mirrored as a
+ * literal so the card's render site cannot drift from the declaration.
+ */
+export type FileActionsSlotKey = 'deliverables.file.actions';
+/**
+ * Owner props of the file-action child slot, mirrored verbatim from the
+ * owner's declaration
+ * (fork packages/client/ui-deliverables/src/client/file-actions.ts:8-19; the
+ * sibling `deliverables.review.file.actions` — :21-25 — shares this exact
+ * shape). The contributing entry (`ui-open-in-app`'s `FileRouteAction`,
+ * packages/client/ui-open-in-app/src/client/FileRouteAction.tsx:30-37) reads
+ * `actionUrl` twice — GET for the file's registered applications, POST for the
+ * gesture — so this URL must be the very route this plugin's own control
+ * posts to (`present-open.presentedFileUrl`).
+ */
+export interface FileActionOwnerProps {
+    /** Authenticated document-relative action route carrying Session event coordinates. */
+    readonly actionUrl: string;
+    /** Whether the serving Host can hand paths to a native desktop. */
+    readonly available: boolean;
+    /** Whether a gesture for this file is already in flight. */
+    readonly pending: boolean;
+    /** Execute the selected native action; the failure to announce, or null. */
+    readonly onAction: (action: PresentedAction, application?: string) => Promise<PresentedOpenFailure>;
+}
+/**
+ * Child-slot render face handed to a session-scope entry by the renderer
+ * (`PropsRenderSlots<'deliverables.file.actions'>`,
+ * packages/client/ui-slots/lib/types/index.d.ts — `renderSlot` + the phantom
+ * `__renders` anchor). Declared structurally, narrowed to the one key this
+ * plugin declares and renders: the renderer-owned face is `SlotRegistryFace`'s
+ * sibling, absent from this type baseline for the same reason.
+ *
+ * `opts.fallback` is the owner's own body, rendered when the slot has no
+ * entry — the renderer keeps the slot's `[data-slot]` anchor either way
+ * (packages/client/ui-renderer/src/client/scoped-slots.tsx:1235).
+ */
+export type FileActionsRenderFace = (key: FileActionsSlotKey, owner: FileActionOwnerProps, opts?: {
+    readonly fallback?: ReactNode;
+}) => ReactNode;
+/**
  * Structural face of the renderer-owned slot registry exposed as `ctx.slots`
  * (packages/client/ui-renderer/src/client/index.ts:43-48; the `inject`/
  * `register` surface is packages/client/ui-renderer/src/client/registry.ts).
@@ -102,6 +146,18 @@ export interface SlotRegistryFace {
     inject(key: string, contribute: () => SlotInjectionEffect): () => void;
     /**
      * Contribute one entry: component plus its registration options.
+     *
+     * `children` declares (and thereby authorizes) the child slots this entry
+     * alone may render — one declarer per key, so a second entry declaring a
+     * live child key throws (packages/client/ui-slots/src/index.ts:1263-1266).
+     * The KCoder fork adds the opt-in `rendersExistingChildren: true`
+     * (packages/client/ui-slots/src/index.ts:1249-1259, deployed since
+     * dsh-client-ui-slots 0.1.7-alpha.1 — see the KCoder runtime's
+     * lib/index.js) which lets an entry RENDER a child table another entry
+     * already declared (shared render face; the first declarer keeps the
+     * lifecycle). Unknown options are ignored by registries without it, so the
+     * flag is a no-op there rather than a version hazard.
+     *
      * @param options - registration options (name, id, locale, inject, children).
      * @param component - the entry component.
      * @returns an idempotent disposer.

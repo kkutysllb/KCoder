@@ -2,27 +2,39 @@
 //
 // dsh's `present` tool appends `deliverables/presented` for every file the
 // model declares as a final deliverable, and the built-in ui-deliverables row
-// renders those as cards. This plugin's card claims the same turn-tail CHAIN
-// (first non-null selector wins, exactly one row renders), so without this
-// section the new delivery cards would be swallowed on every turn that also
-// wrote files. The section mirrors the built-in card's layout metrics and
-// interaction contract — Sidebar preview on the card, a split Open control
-// with default-application and file-manager actions, one full-width row for a
-// single delivery and a two-column grid beyond four — while routing the
-// preview through this plugin's own Sidebar pipeline.
+// renders those as cards. This plugin's card claims the same turn-tail row, so
+// without this section the delivery cards would be swallowed on every turn
+// that also wrote files. The section mirrors the built-in card's layout
+// metrics and interaction contract — Sidebar preview on the card, a split Open
+// control with default-application and file-manager actions, one full-width
+// row for a single delivery and a two-column grid beyond four — while routing
+// the preview through this plugin's own Sidebar pipeline.
+//
+// 0.1.7 共享文件动作子槽（deliverables.file.actions）：原生交付卡把每个文件
+// 的动作位交给该子槽，由 ui-open-in-app 贡献「用其它应用打开 / 显示文件位置」
+// 控件（应用清单 + 图标 + 揭示）。本卡片的动作位同样逐文件渲染这个子槽
+// （见 PresentedCard 的 actions 计算），owner props 与 fork 逐字对齐：
+// actionUrl / available / pending / onAction。与上游的差异（同一契约、不同
+// 载体）：上游卡片只有子槽、没有自带控件；本插件在 KCoder 部署下必须能脱离
+// ui-open-in-app 独立工作，因此把自己的分体控件作为该子槽的 fallback 传入
+// ——有贡献者时由共享控件接管动作位（不出现两套打开按钮），没有时保持既有
+// 行为不变（0.1.7 之前、以及未装 ui-open-in-app 的载具）。
 //
 // Only TYPE imports come from @deepseek-ai packages (see index.tsx): the
 // native actions go through the Host's own authenticated routes
 // (present-open.ts), so this file stays version-tolerant and dependency-free.
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import type { ReactNode } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import type { FileActionsRenderFace } from './dsh-contracts.ts'
 import {
   cleanDescription, extensionOf, basename, type PresentedPath,
 } from './turn-deliverables.ts'
 import {
   presentedFileUrl,
-  type PresentedAction, type PresentedHostState, type PresentedOpenController, type PresentedOpenPhase,
+  type PresentedAction, type PresentedHostState, type PresentedOpenController,
+  type PresentedOpenFailure, type PresentedOpenPhase,
 } from './present-open.ts'
 import type { DeliverablesKey, NS } from './chat-locales.ts'
 import css from './PresentedFiles.module.css'
@@ -48,6 +60,14 @@ export type PresentedFilesProps = {
   onPreview: (path: string) => void
   /** Native-open controller; absent on carriers without the delivery routes. */
   controller?: PresentedOpenController | undefined
+  /**
+   * Bound render face of the `deliverables.file.actions` child slot this
+   * plugin's turn-tail registration declares (dsh 0.1.7), narrowed to the one
+   * key it may render. Absent on carriers without the renderer-owned child
+   * slots — and on a registration that had to fall back to declaring no
+   * children (see index.tsx) — where the card keeps its own control only.
+   */
+  renderSlot?: FileActionsRenderFace | undefined
 } & PropsLocale<typeof NS>
 
 /**
@@ -93,24 +113,29 @@ function FileGlyph() {
   )
 }
 
-/** One delivery card: Sidebar preview under a split native-open control. */
-function PresentedCard({ file, cwd, phase, host, onPreview, onAction, t }: {
+/**
+ * This plugin's own native-open control: the split primary + application /
+ * reveal menu the card has always rendered, with its own gesture latch.
+ *
+ * It is the FALLBACK BODY of the `deliverables.file.actions` child slot (see
+ * PresentedCard): when the shared contribution is absent — a carrier without
+ * ui-open-in-app, or any dsh before 0.1.7 — the action position keeps exactly
+ * this control. Owning the menu state here (rather than in the card) keeps a
+ * menu from surviving a swap between this control and the contributed one.
+ */
+function PresentedNativeControl({ file, phase, writable, reveal, onPreview, onAction, t }: {
   file: PresentedPath
-  cwd: string | undefined
   phase: PresentedOpenPhase | undefined
-  host: PresentedHostState
+  writable: boolean
+  reveal: 'finder' | 'explorer' | 'directory'
   onPreview: () => void
-  onAction: (action: PresentedAction) => void
+  onAction: (action: PresentedAction, application?: string) => Promise<PresentedOpenFailure>
 } & PropsLocale<typeof NS>) {
   const [menuOpen, setMenuOpen] = useState(false)
   const splitRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLButtonElement>(null)
   const pending = phase === 'opening' || phase === 'revealing'
-  const writable = host !== null && host !== 'error' && host !== 'absent' && host.available
   const menuDisabled = pending || !writable
-  const reveal = host !== null && host !== 'error' && host !== 'absent'
-    ? host.fileManager ?? 'directory'
-    : 'directory'
   // A menu that can no longer act (the desktop vanished, a gesture started)
   // must not stay open above a disabled chevron.
   if (menuDisabled && menuOpen) setMenuOpen(false)
@@ -137,12 +162,99 @@ function PresentedCard({ file, cwd, phase, host, onPreview, onAction, t }: {
   const act = (action: PresentedAction): void => {
     setMenuOpen(false)
     previewRef.current?.focus()
-    onAction(action)
+    // The card's status line is driven by the controller's published phase, so
+    // the gesture's own failure report is deliberately unobserved here.
+    void onAction(action).catch(() => {})
   }
+
+  return (
+    <div className={css.split} ref={splitRef}>
+      <button
+        ref={previewRef}
+        type="button"
+        className={css.open}
+        aria-label={t('presented.previewButton', { name: file.path })}
+        onClick={onPreview}
+      >
+        {t('presented.action')}
+      </button>
+      <button
+        type="button"
+        className={css.chevron}
+        disabled={menuDisabled}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen && !menuDisabled}
+        aria-label={t('presented.more', { name: file.path })}
+        onClick={() => { setMenuOpen(value => !value) }}
+      >
+        <svg className={css.chevronGlyph} viewBox="0 0 14 14" aria-hidden="true">
+          <path d="M3.5 5.25 7 8.75l3.5-3.5" />
+        </svg>
+      </button>
+      {menuOpen && !menuDisabled && (
+        <div className={css.menu} role="menu">
+          <button type="button" role="menuitem" className={css.menuItem} onClick={() => { act('open') }}>
+            <svg className={css.menuIcon} viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M6 3.5h6.5V10M12.5 3.5 6.5 9.5M11 9.5v3H3.5v-7.5H7" />
+            </svg>
+            {t('presented.defaultApp')}
+          </button>
+          <button type="button" role="menuitem" className={css.menuItem} onClick={() => { act('reveal') }}>
+            <svg className={css.menuIcon} viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M1.75 4.25h4l1.25 1.5h7.25v6.5a1 1 0 0 1-1 1h-10.5a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z" />
+            </svg>
+            {t(`presented.${reveal}` as DeliverablesKey)}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** One delivery card: Sidebar preview under the contributed or fallback action control. */
+function PresentedCard({
+  file, sessionId, cwd, phase, host, renderSlot, onPreview, onAction, t,
+}: {
+  file: PresentedPath
+  sessionId: string
+  cwd: string | undefined
+  phase: PresentedOpenPhase | undefined
+  host: PresentedHostState
+  renderSlot?: FileActionsRenderFace | undefined
+  onPreview: () => void
+  onAction: (action: PresentedAction, application?: string) => Promise<PresentedOpenFailure>
+} & PropsLocale<typeof NS>) {
+  const pending = phase === 'opening' || phase === 'revealing'
+  const writable = host !== null && host !== 'error' && host !== 'absent' && host.available
+  const reveal = host !== null && host !== 'error' && host !== 'absent'
+    ? host.fileManager ?? 'directory'
+    : 'directory'
 
   const name = basename(file.path)
   const status = statusOf(phase, reveal, file, name, t)
   const failed = phase === 'error' || phase === 'revealError' || phase === 'nativeUnavailable'
+
+  // Per-file action position. The owner props are the 0.1.7 contract verbatim
+  // (dsh-contracts.FileActionOwnerProps ← fork file-actions.ts:8-19); the
+  // fallback is this plugin's own control, so the position stays populated on
+  // every carrier that does not contribute to the slot.
+  const actionUrl = presentedFileUrl(sessionId, file.seq, file.index)
+  const fallback = (
+    <PresentedNativeControl
+      file={file}
+      phase={phase}
+      writable={writable}
+      reveal={reveal}
+      onPreview={onPreview}
+      onAction={onAction}
+      t={t}
+    />
+  )
+  const actions: ReactNode = renderSlot === undefined ? fallback : renderSlot(
+    'deliverables.file.actions',
+    { actionUrl, available: writable, pending, onAction },
+    { fallback },
+  )
 
   return (
     <div className={css.file} data-presented-file>
@@ -162,46 +274,10 @@ function PresentedCard({ file, cwd, phase, host, onPreview, onAction, t }: {
             <span className={css.previewHint}>{t('presented.preview')}</span>
           </span>
         </div>
-        <div className={css.split} ref={splitRef}>
-          <button
-            ref={previewRef}
-            type="button"
-            className={css.open}
-            aria-label={t('presented.previewButton', { name: file.path })}
-            onClick={onPreview}
-          >
-            {t('presented.action')}
-          </button>
-          <button
-            type="button"
-            className={css.chevron}
-            disabled={menuDisabled}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen && !menuDisabled}
-            aria-label={t('presented.more', { name: file.path })}
-            onClick={() => { setMenuOpen(value => !value) }}
-          >
-            <svg className={css.chevronGlyph} viewBox="0 0 14 14" aria-hidden="true">
-              <path d="M3.5 5.25 7 8.75l3.5-3.5" />
-            </svg>
-          </button>
-          {menuOpen && !menuDisabled && (
-            <div className={css.menu} role="menu">
-              <button type="button" role="menuitem" className={css.menuItem} onClick={() => { act('open') }}>
-                <svg className={css.menuIcon} viewBox="0 0 16 16" aria-hidden="true">
-                  <path d="M6 3.5h6.5V10M12.5 3.5 6.5 9.5M11 9.5v3H3.5v-7.5H7" />
-                </svg>
-                {t('presented.defaultApp')}
-              </button>
-              <button type="button" role="menuitem" className={css.menuItem} onClick={() => { act('reveal') }}>
-                <svg className={css.menuIcon} viewBox="0 0 16 16" aria-hidden="true">
-                  <path d="M1.75 4.25h4l1.25 1.5h7.25v6.5a1 1 0 0 1-1 1h-10.5a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z" />
-                </svg>
-                {t(`presented.${reveal}` as DeliverablesKey)}
-              </button>
-            </div>
-          )}
-        </div>
+        {/* Action position: the shared child slot's outlet is display:contents,
+            so this wrapper is what re-enables pointer events for the
+            contributed control (the fallback carries its own). */}
+        <div className={css.actions}>{actions}</div>
       </div>
     </div>
   )
@@ -213,7 +289,7 @@ function PresentedCard({ file, cwd, phase, host, onPreview, onAction, t }: {
  * @returns the delivery section, or null when the turn declared none.
  */
 export function PresentedFiles({
-  files, sessionId, projectRoot, onPreview, controller, t,
+  files, sessionId, projectRoot, onPreview, controller, renderSlot, t,
 }: PresentedFilesProps) {
   const [expanded, setExpanded] = useState(false)
   // Both stores are read through stable module-level fallbacks when the
@@ -257,11 +333,15 @@ export function PresentedFiles({
           <PresentedCard
             key={`${file.seq}:${file.index}:${file.path}`}
             file={file}
+            sessionId={sessionId}
             cwd={projectRoot}
             phase={states[presentedFileUrl(sessionId, file.seq, file.index)]}
             host={host}
+            renderSlot={renderSlot}
             onPreview={() => { onPreview(file.path) }}
-            onAction={(action) => { void controller?.open(sessionId, file.seq, file.index, action) }}
+            onAction={(action, application) => controller === undefined
+              ? Promise.resolve(null)
+              : controller.open(sessionId, file.seq, file.index, action, application)}
             t={t}
           />
         ))}

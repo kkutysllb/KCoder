@@ -1,6 +1,7 @@
 import type { SessionStandardProps } from '@deepseek-ai/dsh-client-ui-slots';
 import { type DeliverablesMatch } from './turn-deliverables.ts';
 import type { PresentedOpenController } from './present-open.ts';
+import type { FileActionsRenderFace } from './dsh-contracts.ts';
 import type { ReactElement } from 'react';
 import { type ProducedFilesProps } from './ProducedFiles.tsx';
 /** The wrapper's props: the card's inject face, plus the two-way match. */
@@ -13,6 +14,18 @@ export type DeliverablesProps = Omit<ProducedFilesProps, 'matched'> & Pick<Sessi
      * Sidebar preview intact.
      */
     presentedController?: PresentedOpenController | undefined;
+    /**
+     * Whether THIS registration declared the shared `deliverables.file.actions`
+     * child slot (inject face, set by index.tsx). Rendering an undeclared child
+     * key throws inside the renderer's bound `renderSlot`, so the card only
+     * calls it when the declaration actually landed.
+     */
+    fileActionsSlot?: boolean | undefined;
+    /**
+     * Bound render face of the delivered files' action slot, handed down from
+     * the turn-tail registration (see PresentedFiles).
+     */
+    renderSlot?: FileActionsRenderFace | undefined;
 };
 /**
  * Render the closing turn's complete deliverables row.
@@ -31,5 +44,5 @@ export declare function FileReviewTurnTail(props: DeliverablesProps & {
     readonly turn?: unknown;
     readonly seq?: unknown;
 }): ReactElement | null;
-export declare function Deliverables({ matched, presentedController, sessionId, ...card }: DeliverablesProps): import("react").JSX.Element;
+export declare function Deliverables({ matched, presentedController, sessionId, fileActionsSlot, renderSlot, ...card }: DeliverablesProps): import("react").JSX.Element;
 //# sourceMappingURL=Deliverables.d.ts.map

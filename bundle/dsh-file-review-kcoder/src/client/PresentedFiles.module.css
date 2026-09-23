@@ -139,6 +139,17 @@
   gap: 2px;
 }
 
+/* 动作位：'deliverables.file.actions' 子槽的出口是 display:contents，贡献控件
+   自带样式不带 pointer-events——上游正是在 .actions 包装层上补回可点性
+   （fork ui-deliverables Deliverables.module.css:27）。本包装层同样承载
+   「inline-flex / flex:none / pointer-events:auto」，使共享控件与自带 fallback
+   两种形态在同一位置获得一致的命中与排布。 */
+.actions {
+  display: inline-flex;
+  flex: none;
+  pointer-events: auto;
+}
+
 .fileName {
   overflow: hidden;
   font-size: 13px;

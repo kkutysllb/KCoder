@@ -6709,26 +6709,26 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var UnifiedDiff_module_css_default = {
-			"unifiedRemoved": "fUbE1W_unifiedRemoved",
-			"unifiedEmbedded": "fUbE1W_unifiedEmbedded",
-			"unifiedSign": "fUbE1W_unifiedSign",
-			"unifiedHeader": "fUbE1W_unifiedHeader",
 			"unifiedPath": "fUbE1W_unifiedPath",
-			"unified_add": "fUbE1W_unified_add",
-			"unifiedFile": "fUbE1W_unifiedFile",
-			"unifiedAdded": "fUbE1W_unifiedAdded",
-			"unifiedStatus": "fUbE1W_unifiedStatus",
 			"unifiedLineNumber": "fUbE1W_unifiedLineNumber",
+			"unifiedBlock": "fUbE1W_unifiedBlock",
+			"unifiedLine": "fUbE1W_unifiedLine",
+			"unifiedHeader": "fUbE1W_unifiedHeader",
 			"unifiedHunkHeader": "fUbE1W_unifiedHunkHeader",
 			"unifiedText": "fUbE1W_unifiedText",
-			"unified_del": "fUbE1W_unified_del",
-			"unifiedLine": "fUbE1W_unifiedLine",
-			"unified_context": "fUbE1W_unified_context",
 			"unifiedOmitted": "fUbE1W_unifiedOmitted",
+			"unifiedSign": "fUbE1W_unifiedSign",
 			"unifiedCopyButton": "fUbE1W_unifiedCopyButton",
-			"unifiedBlock": "fUbE1W_unifiedBlock",
+			"unifiedGap": "fUbE1W_unifiedGap",
+			"unifiedStatus": "fUbE1W_unifiedStatus",
+			"unifiedEmbedded": "fUbE1W_unifiedEmbedded",
+			"unifiedFile": "fUbE1W_unifiedFile",
+			"unifiedAdded": "fUbE1W_unifiedAdded",
+			"unified_del": "fUbE1W_unified_del",
 			"unifiedBody": "fUbE1W_unifiedBody",
-			"unifiedGap": "fUbE1W_unifiedGap"
+			"unified_context": "fUbE1W_unified_context",
+			"unified_add": "fUbE1W_unified_add",
+			"unifiedRemoved": "fUbE1W_unifiedRemoved"
 		};
 		//#endregion
 		//#region src/client/UnifiedDiff.tsx
@@ -7150,45 +7150,45 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var FileReviewTab_module_css_default = {
-			"diffUnavailable": "ePxjfa_diffUnavailable",
-			"turnCount": "ePxjfa_turnCount",
-			"liveBadge": "ePxjfa_liveBadge",
-			"headerTitle": "ePxjfa_headerTitle",
-			"fileRow": "ePxjfa_fileRow",
-			"refreshButton": "ePxjfa_refreshButton",
-			"archiveTitle": "ePxjfa_archiveTitle",
-			"added": "ePxjfa_added",
-			"fileName": "ePxjfa_fileName",
-			"archiveSection": "ePxjfa_archiveSection",
-			"turnTitle": "ePxjfa_turnTitle",
-			"removed": "ePxjfa_removed",
-			"noticeError": "ePxjfa_noticeError",
-			"turnGroup": "ePxjfa_turnGroup",
-			"badgeUndone": "ePxjfa_badgeUndone",
-			"fileItem": "ePxjfa_fileItem",
-			"reviewDiff": "ePxjfa_reviewDiff",
-			"chevronOpen": "ePxjfa_chevronOpen",
 			"deletedBadge": "ePxjfa_deletedBadge",
-			"diffWrap": "ePxjfa_diffWrap",
-			"editorButton": "ePxjfa_editorButton",
-			"stats": "ePxjfa_stats",
-			"notice": "ePxjfa_notice",
-			"kindBadge": "ePxjfa_kindBadge",
-			"turnHeader": "ePxjfa_turnHeader",
-			"smallButton": "ePxjfa_smallButton",
-			"stateBadge": "ePxjfa_stateBadge",
-			"fileList": "ePxjfa_fileList",
-			"badgeError": "ePxjfa_badgeError",
-			"archiveHeader": "ePxjfa_archiveHeader",
-			"root": "ePxjfa_root",
-			"buttonIcon": "ePxjfa_buttonIcon",
-			"chevron": "ePxjfa_chevron",
-			"badgeMuted": "ePxjfa_badgeMuted",
-			"actionButton": "ePxjfa_actionButton",
 			"empty": "ePxjfa_empty",
-			"header": "ePxjfa_header",
+			"buttonIcon": "ePxjfa_buttonIcon",
+			"archiveTitle": "ePxjfa_archiveTitle",
+			"fileName": "ePxjfa_fileName",
+			"headerTitle": "ePxjfa_headerTitle",
+			"chevronOpen": "ePxjfa_chevronOpen",
+			"smallButton": "ePxjfa_smallButton",
+			"refreshButton": "ePxjfa_refreshButton",
+			"liveBadge": "ePxjfa_liveBadge",
+			"removed": "ePxjfa_removed",
+			"turnTitle": "ePxjfa_turnTitle",
+			"diffWrap": "ePxjfa_diffWrap",
+			"diffUnavailable": "ePxjfa_diffUnavailable",
+			"reviewDiff": "ePxjfa_reviewDiff",
+			"notice": "ePxjfa_notice",
+			"chevron": "ePxjfa_chevron",
+			"fileRow": "ePxjfa_fileRow",
+			"turnGroup": "ePxjfa_turnGroup",
+			"kindBadge": "ePxjfa_kindBadge",
+			"badgeError": "ePxjfa_badgeError",
 			"noticeSuccess": "ePxjfa_noticeSuccess",
-			"body": "ePxjfa_body"
+			"editorButton": "ePxjfa_editorButton",
+			"archiveSection": "ePxjfa_archiveSection",
+			"actionButton": "ePxjfa_actionButton",
+			"fileList": "ePxjfa_fileList",
+			"turnCount": "ePxjfa_turnCount",
+			"turnHeader": "ePxjfa_turnHeader",
+			"root": "ePxjfa_root",
+			"added": "ePxjfa_added",
+			"badgeMuted": "ePxjfa_badgeMuted",
+			"fileItem": "ePxjfa_fileItem",
+			"badgeUndone": "ePxjfa_badgeUndone",
+			"archiveHeader": "ePxjfa_archiveHeader",
+			"stats": "ePxjfa_stats",
+			"stateBadge": "ePxjfa_stateBadge",
+			"body": "ePxjfa_body",
+			"header": "ePxjfa_header",
+			"noticeError": "ePxjfa_noticeError"
 		};
 		//#endregion
 		//#region src/client/FileReviewTab.tsx
@@ -8058,7 +8058,15 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* authenticated same-origin routes:
 		*
 		*   GET  /api/present.host                    → desktop availability + file manager
-		*   POST /api/present.open?sessionId&seq&index[&action=reveal]
+		*   GET  /api/present.open?sessionId&seq&index → that file's registered applications
+		*   POST /api/present.open?sessionId&seq&index[&action=reveal][&application=<id>]
+		*
+		* 0.1.7：同一 open 路由按方法分流（fork packages/client/ui-deliverables/src/
+		* present-open.ts:87-102）——GET 回该文件的系统应用清单（共享控制用它填
+		* 「用其它应用打开」菜单），POST 执行手势；显式应用选择走 `application`
+		* 查询参数，Host 侧原样转给 `sessionController.openWorkspacePath`
+		* （:98-100）。本插件的卡片把这条 URL 交给 0.1.7 新增的共享文件动作子槽
+		* （deliverables.file.actions）当 `actionUrl`，因此两边必须逐字同源。
 		*
 		* Those routes are addressed by URL on purpose instead of imported: this
 		* plugin's client half deliberately keeps only TYPE imports from the
@@ -8151,20 +8159,24 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			* @param seq - durable delivery event sequence.
 			* @param index - original file index within that event.
 			* @param action - default-application open or file-manager reveal.
-			* @returns after the Host acknowledges the action or the error state is published.
+			* @param application - registered handler identifier for an explicit
+			*   application choice (the shared control's menu selection). Adds
+			*   `&application=<id>` to the route; omitting it keeps the request
+			*   byte-identical to the plugin's historical no-argument call.
+			* @returns the failure to announce, or null once the Host acknowledged.
 			*/
-			async open(sessionId, seq, index, action = "open") {
+			async open(sessionId, seq, index, action = "open", application) {
 				const url = presentedFileUrl(sessionId, seq, index);
 				const phase = this.state.getSnapshot()[url];
-				if (this.lifetime.signal.aborted || phase === "opening" || phase === "revealing") return;
+				if (this.lifetime.signal.aborted || phase === "opening" || phase === "revealing") return null;
 				this.state.set({
 					...this.state.getSnapshot(),
 					[url]: action === "open" ? "opening" : "revealing"
 				});
-				const task = this.request(url, action);
+				const task = this.request(url, action, application);
 				this.pending.add(task);
 				try {
-					await task;
+					return await task;
 				} finally {
 					this.pending.delete(task);
 				}
@@ -8222,11 +8234,12 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				}
 				if (!signal.aborted) this.host.set(host);
 			}
-			async request(url, action) {
+			async request(url, action, application) {
 				const failure = action === "open" ? "error" : "revealError";
 				let phase = action === "open" ? "opened" : "revealed";
 				try {
-					const response = await fetch(action === "open" ? url : `${url}&action=reveal`, {
+					const target = action === "reveal" ? `${url}&action=reveal` : application === void 0 ? url : `${url}&application=${encodeURIComponent(application)}`;
+					const response = await fetch(target, {
 						method: "POST",
 						signal: this.lifetime.signal
 					});
@@ -8238,11 +8251,12 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					...this.state.getSnapshot(),
 					[url]: phase
 				});
+				return phase === "opened" || phase === "revealed" ? null : action === "reveal" ? "revealError" : "openError";
 			}
 		};
 		//#endregion
 		//#region \0dsh-file-review-kcoder-css:/Users/libing/kk_Projects/dsh-file-review-kcoder/src/client/PresentedFiles.module.css.mjs
-		const css$1 = ".aa-r8G_root{flex-direction:column;gap:10px;min-width:0;margin-top:4px;display:flex}.aa-r8G_hostStatus{color:var(--dsw-alias-label-secondary);align-items:center;gap:8px;font-size:12px;line-height:18px;display:flex}.aa-r8G_retry{color:var(--dsw-alias-link,currentColor);cursor:pointer;font:inherit;text-underline-offset:2px;background:0 0;border:0;padding:0;text-decoration:underline}.aa-r8G_retry:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}.aa-r8G_grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;min-width:0;display:grid}.aa-r8G_grid[data-single=true]{grid-template-columns:minmax(0,1fr)}.aa-r8G_file{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-container,Canvas);min-width:0;height:60px;color:var(--dsw-alias-label-primary);border-radius:18px;align-items:center;gap:10px;padding:8px 10px;transition:background-color .12s;display:flex;position:relative;overflow:hidden}.aa-r8G_file:hover{background:var(--dsw-alias-interactive-bg-hover)}.aa-r8G_cardPreview{z-index:1;border-radius:inherit;cursor:pointer;background:0 0;border:0;width:100%;padding:0;position:absolute;inset:0}.aa-r8G_cardPreview:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}.aa-r8G_fileIcon{z-index:2;box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-interactive-bg-hover);width:40px;height:40px;color:var(--dsw-alias-link,var(--dsw-alias-label-secondary));pointer-events:none;border-radius:10px;flex:none;place-items:center;display:grid;position:relative;overflow:hidden}.aa-r8G_glyph{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.4px;width:20px;height:20px}.aa-r8G_fileBody{z-index:2;pointer-events:none;flex:auto;justify-content:space-between;align-items:center;gap:12px;min-width:0;display:flex;position:relative}.aa-r8G_details{flex-direction:column;flex:auto;justify-content:center;gap:2px;min-width:0;display:flex}.aa-r8G_fileName{text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;line-height:20px;overflow:hidden}.aa-r8G_description{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:400;line-height:16px;overflow:hidden}.aa-r8G_description[data-error=true]{color:var(--dsw-alias-state-error-primary)}.aa-r8G_secondaryText{display:inline}.aa-r8G_previewHint,.aa-r8G_file:hover .aa-r8G_secondaryText{display:none}.aa-r8G_file:hover .aa-r8G_previewHint{display:inline}.aa-r8G_split{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-container,Canvas);pointer-events:auto;border-radius:10px;flex:none;align-items:stretch;height:28px;display:inline-flex;position:relative;overflow:visible}.aa-r8G_open,.aa-r8G_chevron{color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;background:0 0;border:0;justify-content:center;align-items:center;display:inline-flex}.aa-r8G_open{border-radius:9px 0 0 9px;padding:4px 8px;font-size:12px;line-height:18px}.aa-r8G_chevron{border-left:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);border-radius:0 9px 9px 0;padding:4px 5px}.aa-r8G_chevronGlyph{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.5px;width:11px;height:11px}.aa-r8G_open:hover,.aa-r8G_open:focus-visible,.aa-r8G_chevron:hover:not(:disabled),.aa-r8G_chevron:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}.aa-r8G_open:focus-visible,.aa-r8G_chevron:focus-visible{outline:none}.aa-r8G_chevron:disabled{color:var(--dsw-alias-label-dimmed,var(--dsw-alias-label-tertiary));cursor:not-allowed}.aa-r8G_menu{z-index:20;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-container,Canvas);border-radius:10px;flex-direction:column;min-width:168px;padding:4px;display:flex;position:absolute;top:calc(100% + 4px);right:0;box-shadow:0 8px 24px #00000029}.aa-r8G_menuItem{color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;text-align:left;white-space:nowrap;background:0 0;border:0;border-radius:6px;align-items:center;gap:8px;padding:6px 8px;font-size:12px;line-height:18px;display:flex}.aa-r8G_menuItem:hover,.aa-r8G_menuItem:focus-visible{background:var(--dsw-alias-interactive-bg-hover);outline:none}.aa-r8G_menuIcon{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.3px;flex:none;width:16px;height:16px}.aa-r8G_toggle{color:var(--dsw-alias-label-tertiary);cursor:pointer;font:inherit;background:0 0;border:0;border-radius:6px;align-self:center;padding:2px 8px;font-size:12px;line-height:18px}.aa-r8G_toggle:hover{color:var(--dsw-alias-label-secondary)}.aa-r8G_toggle:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}";
+		const css$1 = ".aa-r8G_root{flex-direction:column;gap:10px;min-width:0;margin-top:4px;display:flex}.aa-r8G_hostStatus{color:var(--dsw-alias-label-secondary);align-items:center;gap:8px;font-size:12px;line-height:18px;display:flex}.aa-r8G_retry{color:var(--dsw-alias-link,currentColor);cursor:pointer;font:inherit;text-underline-offset:2px;background:0 0;border:0;padding:0;text-decoration:underline}.aa-r8G_retry:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}.aa-r8G_grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;min-width:0;display:grid}.aa-r8G_grid[data-single=true]{grid-template-columns:minmax(0,1fr)}.aa-r8G_file{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-container,Canvas);min-width:0;height:60px;color:var(--dsw-alias-label-primary);border-radius:18px;align-items:center;gap:10px;padding:8px 10px;transition:background-color .12s;display:flex;position:relative;overflow:hidden}.aa-r8G_file:hover{background:var(--dsw-alias-interactive-bg-hover)}.aa-r8G_cardPreview{z-index:1;border-radius:inherit;cursor:pointer;background:0 0;border:0;width:100%;padding:0;position:absolute;inset:0}.aa-r8G_cardPreview:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}.aa-r8G_fileIcon{z-index:2;box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-interactive-bg-hover);width:40px;height:40px;color:var(--dsw-alias-link,var(--dsw-alias-label-secondary));pointer-events:none;border-radius:10px;flex:none;place-items:center;display:grid;position:relative;overflow:hidden}.aa-r8G_glyph{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.4px;width:20px;height:20px}.aa-r8G_fileBody{z-index:2;pointer-events:none;flex:auto;justify-content:space-between;align-items:center;gap:12px;min-width:0;display:flex;position:relative}.aa-r8G_details{flex-direction:column;flex:auto;justify-content:center;gap:2px;min-width:0;display:flex}.aa-r8G_actions{pointer-events:auto;flex:none;display:inline-flex}.aa-r8G_fileName{text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;line-height:20px;overflow:hidden}.aa-r8G_description{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:400;line-height:16px;overflow:hidden}.aa-r8G_description[data-error=true]{color:var(--dsw-alias-state-error-primary)}.aa-r8G_secondaryText{display:inline}.aa-r8G_previewHint,.aa-r8G_file:hover .aa-r8G_secondaryText{display:none}.aa-r8G_file:hover .aa-r8G_previewHint{display:inline}.aa-r8G_split{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-container,Canvas);pointer-events:auto;border-radius:10px;flex:none;align-items:stretch;height:28px;display:inline-flex;position:relative;overflow:visible}.aa-r8G_open,.aa-r8G_chevron{color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;background:0 0;border:0;justify-content:center;align-items:center;display:inline-flex}.aa-r8G_open{border-radius:9px 0 0 9px;padding:4px 8px;font-size:12px;line-height:18px}.aa-r8G_chevron{border-left:.5px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);border-radius:0 9px 9px 0;padding:4px 5px}.aa-r8G_chevronGlyph{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.5px;width:11px;height:11px}.aa-r8G_open:hover,.aa-r8G_open:focus-visible,.aa-r8G_chevron:hover:not(:disabled),.aa-r8G_chevron:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}.aa-r8G_open:focus-visible,.aa-r8G_chevron:focus-visible{outline:none}.aa-r8G_chevron:disabled{color:var(--dsw-alias-label-dimmed,var(--dsw-alias-label-tertiary));cursor:not-allowed}.aa-r8G_menu{z-index:20;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-container,Canvas);border-radius:10px;flex-direction:column;min-width:168px;padding:4px;display:flex;position:absolute;top:calc(100% + 4px);right:0;box-shadow:0 8px 24px #00000029}.aa-r8G_menuItem{color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;text-align:left;white-space:nowrap;background:0 0;border:0;border-radius:6px;align-items:center;gap:8px;padding:6px 8px;font-size:12px;line-height:18px;display:flex}.aa-r8G_menuItem:hover,.aa-r8G_menuItem:focus-visible{background:var(--dsw-alias-interactive-bg-hover);outline:none}.aa-r8G_menuIcon{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.3px;flex:none;width:16px;height:16px}.aa-r8G_toggle{color:var(--dsw-alias-label-tertiary);cursor:pointer;font:inherit;background:0 0;border:0;border-radius:6px;align-self:center;padding:2px 8px;font-size:12px;line-height:18px}.aa-r8G_toggle:hover{color:var(--dsw-alias-label-secondary)}.aa-r8G_toggle:focus-visible{box-shadow:inset 0 0 0 2px var(--dsw-alias-border-l3);outline:none}";
 		const styleId$1 = "dsh-file-review-kcoder/PresentedFiles.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(styleId$1) + "]") === null) {
 			const style = document.createElement("style");
@@ -8252,28 +8266,29 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var PresentedFiles_module_css_default = {
-			"retry": "aa-r8G_retry",
-			"fileIcon": "aa-r8G_fileIcon",
+			"fileName": "aa-r8G_fileName",
+			"chevronGlyph": "aa-r8G_chevronGlyph",
+			"fileBody": "aa-r8G_fileBody",
+			"secondaryText": "aa-r8G_secondaryText",
+			"hostStatus": "aa-r8G_hostStatus",
 			"menu": "aa-r8G_menu",
 			"root": "aa-r8G_root",
-			"menuItem": "aa-r8G_menuItem",
-			"chevron": "aa-r8G_chevron",
-			"cardPreview": "aa-r8G_cardPreview",
-			"previewHint": "aa-r8G_previewHint",
-			"secondaryText": "aa-r8G_secondaryText",
 			"file": "aa-r8G_file",
-			"split": "aa-r8G_split",
-			"open": "aa-r8G_open",
-			"toggle": "aa-r8G_toggle",
-			"fileBody": "aa-r8G_fileBody",
+			"fileIcon": "aa-r8G_fileIcon",
+			"retry": "aa-r8G_retry",
+			"chevron": "aa-r8G_chevron",
+			"menuItem": "aa-r8G_menuItem",
 			"glyph": "aa-r8G_glyph",
-			"fileName": "aa-r8G_fileName",
-			"description": "aa-r8G_description",
-			"chevronGlyph": "aa-r8G_chevronGlyph",
-			"details": "aa-r8G_details",
+			"cardPreview": "aa-r8G_cardPreview",
+			"open": "aa-r8G_open",
 			"menuIcon": "aa-r8G_menuIcon",
 			"grid": "aa-r8G_grid",
-			"hostStatus": "aa-r8G_hostStatus"
+			"split": "aa-r8G_split",
+			"description": "aa-r8G_description",
+			"toggle": "aa-r8G_toggle",
+			"previewHint": "aa-r8G_previewHint",
+			"details": "aa-r8G_details",
+			"actions": "aa-r8G_actions"
 		};
 		//#endregion
 		//#region src/client/PresentedFiles.tsx
@@ -8318,15 +8333,21 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M5.25 2.75h6l3.5 3.5v10a1 1 0 0 1-1 1h-8.5a1 1 0 0 1-1-1V3.75a1 1 0 0 1 1-1Z" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M11.25 2.75v3.5h3.5" })]
 			});
 		}
-		/** One delivery card: Sidebar preview under a split native-open control. */
-		function PresentedCard({ file, cwd, phase, host, onPreview, onAction, t }) {
+		/**
+		* This plugin's own native-open control: the split primary + application /
+		* reveal menu the card has always rendered, with its own gesture latch.
+		*
+		* It is the FALLBACK BODY of the `deliverables.file.actions` child slot (see
+		* PresentedCard): when the shared contribution is absent — a carrier without
+		* ui-open-in-app, or any dsh before 0.1.7 — the action position keeps exactly
+		* this control. Owning the menu state here (rather than in the card) keeps a
+		* menu from surviving a swap between this control and the contributed one.
+		*/
+		function PresentedNativeControl({ file, phase, writable, reveal, onPreview, onAction, t }) {
 			const [menuOpen, setMenuOpen] = (0, react.useState)(false);
 			const splitRef = (0, react.useRef)(null);
 			const previewRef = (0, react.useRef)(null);
-			const pending = phase === "opening" || phase === "revealing";
-			const writable = host !== null && host !== "error" && host !== "absent" && host.available;
-			const menuDisabled = pending || !writable;
-			const reveal = host !== null && host !== "error" && host !== "absent" ? host.fileManager ?? "directory" : "directory";
+			const menuDisabled = phase === "opening" || phase === "revealing" || !writable;
 			if (menuDisabled && menuOpen) setMenuOpen(false);
 			(0, react.useEffect)(() => {
 				if (!menuOpen) return void 0;
@@ -8349,11 +8370,95 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			const act = (action) => {
 				setMenuOpen(false);
 				previewRef.current?.focus();
-				onAction(action);
+				onAction(action).catch(() => {});
 			};
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: PresentedFiles_module_css_default.split,
+				ref: splitRef,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						ref: previewRef,
+						type: "button",
+						className: PresentedFiles_module_css_default.open,
+						"aria-label": t("presented.previewButton", { name: file.path }),
+						onClick: onPreview,
+						children: t("presented.action")
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: PresentedFiles_module_css_default.chevron,
+						disabled: menuDisabled,
+						"aria-haspopup": "menu",
+						"aria-expanded": menuOpen && !menuDisabled,
+						"aria-label": t("presented.more", { name: file.path }),
+						onClick: () => {
+							setMenuOpen((value) => !value);
+						},
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+							className: PresentedFiles_module_css_default.chevronGlyph,
+							viewBox: "0 0 14 14",
+							"aria-hidden": "true",
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M3.5 5.25 7 8.75l3.5-3.5" })
+						})
+					}),
+					menuOpen && !menuDisabled && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: PresentedFiles_module_css_default.menu,
+						role: "menu",
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							type: "button",
+							role: "menuitem",
+							className: PresentedFiles_module_css_default.menuItem,
+							onClick: () => {
+								act("open");
+							},
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+								className: PresentedFiles_module_css_default.menuIcon,
+								viewBox: "0 0 16 16",
+								"aria-hidden": "true",
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M6 3.5h6.5V10M12.5 3.5 6.5 9.5M11 9.5v3H3.5v-7.5H7" })
+							}), t("presented.defaultApp")]
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+							type: "button",
+							role: "menuitem",
+							className: PresentedFiles_module_css_default.menuItem,
+							onClick: () => {
+								act("reveal");
+							},
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+								className: PresentedFiles_module_css_default.menuIcon,
+								viewBox: "0 0 16 16",
+								"aria-hidden": "true",
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M1.75 4.25h4l1.25 1.5h7.25v6.5a1 1 0 0 1-1 1h-10.5a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z" })
+							}), t(`presented.${reveal}`)]
+						})]
+					})
+				]
+			});
+		}
+		/** One delivery card: Sidebar preview under the contributed or fallback action control. */
+		function PresentedCard({ file, sessionId, cwd, phase, host, renderSlot, onPreview, onAction, t }) {
+			const pending = phase === "opening" || phase === "revealing";
+			const writable = host !== null && host !== "error" && host !== "absent" && host.available;
+			const reveal = host !== null && host !== "error" && host !== "absent" ? host.fileManager ?? "directory" : "directory";
 			const name = basename(file.path);
 			const status = statusOf(phase, reveal, file, name, t);
 			const failed = phase === "error" || phase === "revealError" || phase === "nativeUnavailable";
+			const actionUrl = presentedFileUrl(sessionId, file.seq, file.index);
+			const fallback = /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PresentedNativeControl, {
+				file,
+				phase,
+				writable,
+				reveal,
+				onPreview,
+				onAction,
+				t
+			});
+			const actions = renderSlot === void 0 ? fallback : renderSlot("deliverables.file.actions", {
+				actionUrl,
+				available: writable,
+				pending,
+				onAction
+			}, { fallback });
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: PresentedFiles_module_css_default.file,
 				"data-presented-file": true,
@@ -8388,67 +8493,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 									children: t("presented.preview")
 								})]
 							})]
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-							className: PresentedFiles_module_css_default.split,
-							ref: splitRef,
-							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									ref: previewRef,
-									type: "button",
-									className: PresentedFiles_module_css_default.open,
-									"aria-label": t("presented.previewButton", { name: file.path }),
-									onClick: onPreview,
-									children: t("presented.action")
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "button",
-									className: PresentedFiles_module_css_default.chevron,
-									disabled: menuDisabled,
-									"aria-haspopup": "menu",
-									"aria-expanded": menuOpen && !menuDisabled,
-									"aria-label": t("presented.more", { name: file.path }),
-									onClick: () => {
-										setMenuOpen((value) => !value);
-									},
-									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
-										className: PresentedFiles_module_css_default.chevronGlyph,
-										viewBox: "0 0 14 14",
-										"aria-hidden": "true",
-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M3.5 5.25 7 8.75l3.5-3.5" })
-									})
-								}),
-								menuOpen && !menuDisabled && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-									className: PresentedFiles_module_css_default.menu,
-									role: "menu",
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-										type: "button",
-										role: "menuitem",
-										className: PresentedFiles_module_css_default.menuItem,
-										onClick: () => {
-											act("open");
-										},
-										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
-											className: PresentedFiles_module_css_default.menuIcon,
-											viewBox: "0 0 16 16",
-											"aria-hidden": "true",
-											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M6 3.5h6.5V10M12.5 3.5 6.5 9.5M11 9.5v3H3.5v-7.5H7" })
-										}), t("presented.defaultApp")]
-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-										type: "button",
-										role: "menuitem",
-										className: PresentedFiles_module_css_default.menuItem,
-										onClick: () => {
-											act("reveal");
-										},
-										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
-											className: PresentedFiles_module_css_default.menuIcon,
-											viewBox: "0 0 16 16",
-											"aria-hidden": "true",
-											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M1.75 4.25h4l1.25 1.5h7.25v6.5a1 1 0 0 1-1 1h-10.5a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z" })
-										}), t(`presented.${reveal}`)]
-									})]
-								})
-							]
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: PresentedFiles_module_css_default.actions,
+							children: actions
 						})]
 					})
 				]
@@ -8459,7 +8506,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* @param props - deliveries, Session scope, preview route, and native controller.
 		* @returns the delivery section, or null when the turn declared none.
 		*/
-		function PresentedFiles({ files, sessionId, projectRoot, onPreview, controller, t }) {
+		function PresentedFiles({ files, sessionId, projectRoot, onPreview, controller, renderSlot, t }) {
 			const [expanded, setExpanded] = (0, react.useState)(false);
 			const states = (0, react.useSyncExternalStore)(controller?.state.subscribe ?? subscribeNever$1, controller?.state.getSnapshot ?? getNoStates);
 			const host = (0, react.useSyncExternalStore)(controller?.host.subscribe ?? subscribeNever$1, controller?.host.getSnapshot ?? getNoHost);
@@ -8500,15 +8547,15 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						"data-single": files.length === 1 || void 0,
 						children: shown.map((file) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PresentedCard, {
 							file,
+							sessionId,
 							cwd: projectRoot,
 							phase: states[presentedFileUrl(sessionId, file.seq, file.index)],
 							host,
+							renderSlot,
 							onPreview: () => {
 								onPreview(file.path);
 							},
-							onAction: (action) => {
-								controller?.open(sessionId, file.seq, file.index, action);
-							},
+							onAction: (action, application) => controller === void 0 ? Promise.resolve(null) : controller.open(sessionId, file.seq, file.index, action, application),
 							t
 						}, `${file.seq}:${file.index}:${file.path}`))
 					}),
@@ -8537,61 +8584,61 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var ProducedFiles_module_css_default = {
-			"moreFiles": "_xmB4G_moreFiles",
-			"icon": "_xmB4G_icon",
+			"noticeDismissButton": "_xmB4G_noticeDismissButton",
+			"noticeIconSvg": "_xmB4G_noticeIconSvg",
+			"noticeFiles": "_xmB4G_noticeFiles",
+			"reviewStatus": "_xmB4G_reviewStatus",
+			"buttonIcon": "_xmB4G_buttonIcon",
+			"toast": "_xmB4G_toast",
+			"cardHeader": "_xmB4G_cardHeader",
+			"drawerTitle": "_xmB4G_drawerTitle",
+			"fileName": "_xmB4G_fileName",
 			"cardTitleBlock": "_xmB4G_cardTitleBlock",
+			"card": "_xmB4G_card",
+			"openButton": "_xmB4G_openButton",
+			"toolbarButton": "_xmB4G_toolbarButton",
+			"noticeIcon": "_xmB4G_noticeIcon",
+			"closeButton": "_xmB4G_closeButton",
+			"drawerHeading": "_xmB4G_drawerHeading",
+			"fileIconWrap": "_xmB4G_fileIconWrap",
+			"noticeFilePath": "_xmB4G_noticeFilePath",
+			"noticeFileArrow": "_xmB4G_noticeFileArrow",
+			"removed": "_xmB4G_removed",
+			"drawerResizing": "_xmB4G_drawerResizing",
+			"moreFiles": "_xmB4G_moreFiles",
+			"toastCopy": "_xmB4G_toastCopy",
+			"stats": "_xmB4G_stats",
+			"toastDescription": "_xmB4G_toastDescription",
+			"reviewButton": "_xmB4G_reviewButton",
 			"toastCloseButton": "_xmB4G_toastCloseButton",
 			"noticeFileListLabel": "_xmB4G_noticeFileListLabel",
-			"deletedBadge": "_xmB4G_deletedBadge",
+			"reviewFileHeader": "_xmB4G_reviewFileHeader",
+			"icon": "_xmB4G_icon",
+			"drawerBody": "_xmB4G_drawerBody",
+			"reviewDiff": "_xmB4G_reviewDiff",
+			"added": "_xmB4G_added",
+			"toggleButton": "_xmB4G_toggleButton",
+			"drawer": "_xmB4G_drawer",
 			"fileRow": "_xmB4G_fileRow",
 			"fileList": "_xmB4G_fileList",
-			"drawerSplit": "_xmB4G_drawerSplit",
-			"reviewFile": "_xmB4G_reviewFile",
-			"reviewDiff": "_xmB4G_reviewDiff",
-			"drawerHeading": "_xmB4G_drawerHeading",
-			"cardHeader": "_xmB4G_cardHeader",
-			"reviewFileHeader": "_xmB4G_reviewFileHeader",
-			"noticeDismissButton": "_xmB4G_noticeDismissButton",
-			"toast": "_xmB4G_toast",
-			"reviewPath": "_xmB4G_reviewPath",
-			"drawer": "_xmB4G_drawer",
-			"kindBadge": "_xmB4G_kindBadge",
-			"cardTitle": "_xmB4G_cardTitle",
-			"drawerHeader": "_xmB4G_drawerHeader",
-			"stats": "_xmB4G_stats",
-			"noticeFileArrow": "_xmB4G_noticeFileArrow",
-			"drawer-enter": "_xmB4G_drawer-enter",
-			"noticeFileButton": "_xmB4G_noticeFileButton",
-			"noticeIconSvg": "_xmB4G_noticeIconSvg",
-			"reviewStatus": "_xmB4G_reviewStatus",
-			"reviewUnavailable": "_xmB4G_reviewUnavailable",
-			"card": "_xmB4G_card",
-			"toastSuccess": "_xmB4G_toastSuccess",
-			"noticeFileList": "_xmB4G_noticeFileList",
-			"noticeFilePath": "_xmB4G_noticeFilePath",
-			"removed": "_xmB4G_removed",
-			"resizeHandle": "_xmB4G_resizeHandle",
-			"openButton": "_xmB4G_openButton",
-			"noticeIcon": "_xmB4G_noticeIcon",
-			"fileName": "_xmB4G_fileName",
-			"added": "_xmB4G_added",
-			"closeIcon": "_xmB4G_closeIcon",
-			"reviewButton": "_xmB4G_reviewButton",
-			"drawerResizing": "_xmB4G_drawerResizing",
-			"drawerTitle": "_xmB4G_drawerTitle",
-			"toastHeader": "_xmB4G_toastHeader",
-			"closeButton": "_xmB4G_closeButton",
-			"toastTitle": "_xmB4G_toastTitle",
-			"noticeFiles": "_xmB4G_noticeFiles",
-			"toastCopy": "_xmB4G_toastCopy",
-			"drawerSubtitle": "_xmB4G_drawerSubtitle",
-			"toolbarButton": "_xmB4G_toolbarButton",
 			"toastError": "_xmB4G_toastError",
-			"toggleButton": "_xmB4G_toggleButton",
-			"toastDescription": "_xmB4G_toastDescription",
-			"drawerBody": "_xmB4G_drawerBody",
-			"fileIconWrap": "_xmB4G_fileIconWrap",
-			"buttonIcon": "_xmB4G_buttonIcon"
+			"toastTitle": "_xmB4G_toastTitle",
+			"drawer-enter": "_xmB4G_drawer-enter",
+			"noticeFileList": "_xmB4G_noticeFileList",
+			"reviewUnavailable": "_xmB4G_reviewUnavailable",
+			"drawerSplit": "_xmB4G_drawerSplit",
+			"deletedBadge": "_xmB4G_deletedBadge",
+			"closeIcon": "_xmB4G_closeIcon",
+			"cardTitle": "_xmB4G_cardTitle",
+			"resizeHandle": "_xmB4G_resizeHandle",
+			"drawerHeader": "_xmB4G_drawerHeader",
+			"toastSuccess": "_xmB4G_toastSuccess",
+			"reviewFile": "_xmB4G_reviewFile",
+			"noticeFileButton": "_xmB4G_noticeFileButton",
+			"reviewPath": "_xmB4G_reviewPath",
+			"kindBadge": "_xmB4G_kindBadge",
+			"toastHeader": "_xmB4G_toastHeader",
+			"drawerSubtitle": "_xmB4G_drawerSubtitle"
 		};
 		//#endregion
 		//#region src/client/ProducedFiles.tsx
@@ -9026,7 +9073,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				matched
 			});
 		}
-		function Deliverables({ matched, presentedController, sessionId, ...card }) {
+		function Deliverables({ matched, presentedController, sessionId, fileActionsSlot, renderSlot, ...card }) {
 			const { produced, presented } = matched;
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [produced.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ProducedFiles, {
 				matched: produced,
@@ -9037,6 +9084,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				projectRoot: card.projectRoot,
 				onPreview: card.openPreview ?? card.openFile,
 				controller: presentedController,
+				renderSlot: fileActionsSlot === true ? renderSlot : void 0,
 				t: card.t
 			})] });
 		}
@@ -9443,6 +9491,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			ctx.effect(() => {
 				const slots = slotRegistry(ctx);
 				if (slots === void 0) return () => {};
+				let fileActionsSlot = false;
 				return slots.inject("conversation.chat.turnTail", () => {
 					const turnTailOptions = {
 						name: "conversation.chat.turnTail",
@@ -9519,11 +9568,27 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 										...projectRoot !== void 0 ? { cwd: projectRoot } : {}
 									}, absolute, basename(absolute));
 								},
-								presentedController: presentedOpen
+								presentedController: presentedOpen,
+								fileActionsSlot
 							};
 						}
 					};
-					return slots.register(turnTailOptions, FileReviewTurnTail);
+					const withFileActions = {
+						...turnTailOptions,
+						children: { "deliverables.file.actions": {
+							kind: "list",
+							scope: "session"
+						} },
+						rendersExistingChildren: true
+					};
+					try {
+						const dispose = slots.register(withFileActions, FileReviewTurnTail);
+						fileActionsSlot = true;
+						return dispose;
+					} catch (error) {
+						console.warn("[dsh-file-review-tab] file-action child slot unavailable, keeping the card's own control:", error);
+						return slots.register(turnTailOptions, FileReviewTurnTail);
+					}
 				});
 			}, "file-review-tab: turn-tail row");
 			ctx.effect(() => ctx.betterSidebar.registerTab({
@@ -9562,12 +9627,14 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		}
 		//#endregion
 		exports.Deliverables = Deliverables;
+		exports.PresentedOpenController = PresentedOpenController;
 		exports.apply = apply;
 		exports.captureArtifacts = captureArtifacts;
 		exports.classifyPath = classifyPath;
 		exports.inject = inject;
 		exports.inspectionKey = inspectionKey;
 		exports.parseChangesReviewAddress = parseChangesReviewAddress;
+		exports.presentedFileUrl = presentedFileUrl;
 		exports.presentedForClosing = presentedForClosing;
 		exports.selectDeliverables = selectDeliverables;
 		exports.turnChangesFingerprint = turnChangesFingerprint;

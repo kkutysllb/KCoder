@@ -19,6 +19,7 @@
 import type { SessionStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { selectDeliverables, type DeliverablesMatch } from './turn-deliverables.ts'
 import type { PresentedOpenController } from './present-open.ts'
+import type { FileActionsRenderFace } from './dsh-contracts.ts'
 import type { ReactElement } from 'react'
 import { PresentedFiles } from './PresentedFiles.tsx'
 import { ProducedFiles, type ProducedFilesProps } from './ProducedFiles.tsx'
@@ -36,6 +37,18 @@ export type DeliverablesProps =
      * Sidebar preview intact.
      */
     presentedController?: PresentedOpenController | undefined
+    /**
+     * Whether THIS registration declared the shared `deliverables.file.actions`
+     * child slot (inject face, set by index.tsx). Rendering an undeclared child
+     * key throws inside the renderer's bound `renderSlot`, so the card only
+     * calls it when the declaration actually landed.
+     */
+    fileActionsSlot?: boolean | undefined
+    /**
+     * Bound render face of the delivered files' action slot, handed down from
+     * the turn-tail registration (see PresentedFiles).
+     */
+    renderSlot?: FileActionsRenderFace | undefined
   }
 
 /**
@@ -61,7 +74,9 @@ export function FileReviewTurnTail(props: DeliverablesProps & {
   return <Deliverables {...props} matched={matched} />
 }
 
-export function Deliverables({ matched, presentedController, sessionId, ...card }: DeliverablesProps) {
+export function Deliverables({
+  matched, presentedController, sessionId, fileActionsSlot, renderSlot, ...card
+}: DeliverablesProps) {
   const { produced, presented } = matched
   return (
     <>
@@ -73,6 +88,10 @@ export function Deliverables({ matched, presentedController, sessionId, ...card 
           projectRoot={card.projectRoot}
           onPreview={card.openPreview ?? card.openFile}
           controller={presentedController}
+          // Both conditions matter: the renderer's face exists (0.1.7+) AND
+          // this registration owns the declaration (see the doc on
+          // fileActionsSlot above).
+          renderSlot={fileActionsSlot === true ? renderSlot : undefined}
           t={card.t}
         />
       )}
