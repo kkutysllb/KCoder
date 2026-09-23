@@ -534,3 +534,26 @@
 **门禁（真实发布包）**：`tsc --noEmit` ✓、`pnpm test` ALL PASS ✓、`pnpm build` ✓、`pnpm smoke` ✓；新 build 在隔离 profile 的 live boot 就绪且 settings 路由返回持久值（strip=64）✓。
 
 **方法教训（值得入 SOP）**：把「本地 node_modules 换成 fork 构建产物」作为 typecheck 手段会**掩盖真实断裂**——本批的 V4 source kind 与 jobs caller 两处，正是在改用真实发布包后才暴露。后续升级一律以发布包为准，fork 构建仅作对照。
+
+### 8.5 第五批已执行（2026-09-22：file-review 适配批 1.0.8 + 第 6 项全量回归，对应 §7 第 5/6 项）
+
+**产物**：dsh-file-review-kcoder **1.0.8**（真源仓 / dsh-plugins / KCoder bundle 三仓同步；`--check` 零差异）。门禁全绿：typecheck 0 错、build 成功、smoke 45/45 + render 13/13（无 `as any`/`@ts-ignore`/删功能）。
+
+**依赖面（rc.7 → 0.1.7-alpha.1 一步到位）**：devDeps 平移；**删已死的 `@deepseek-ai/dsh-client-runtime`**（最高仅 0.1.1-rc.2、fork 已无此包；类型迁往 `dsh-session/types`＋`api-session-controller/client`＋`ui-conversation/client`）；补 `dsh-api-session-controller`/`dsh-session`；peer 追加 `^0.1.7-alpha.1`。
+
+**install 阻断与解法（值得入 SOP）**：`@deepseek-ai/dsh-api-session-controller@0.1.7-alpha.1` 的 peer 链
+（→ `dsh-agent-preset-registry` → `@deepseek-ai/dsh-settings@^0.1.7-alpha.1`）中，**只有预发布可满足**的 peer 范围被 pnpm 的 peer 自动安装退化成熟稳定范围（`>=0.1.7 <0.2.0`）后报 `ERR_PNPM_NO_MATCHING_VERSION`；连换 llm/subagent/invariants/brand/settings 多包（每轮报不同的包）极易误判为上游发布问题。二分定位（/tmp 独立复现 → 12 条 devDeps 折半 → 单包）后确认根因，**解 = `autoInstallPeers: false`**（peer 本就由宿主引擎运行时提供）。另：pnpm 11 构建门要求 `allowBuilds` record 且值须为 `true`（写 `false` 仍报 `ERR_PNPM_IGNORED_BUILDS`；且 pnpm 会把自己的提示文本写回 pnpm-workspace.yaml，覆盖手工编辑）。
+
+**契约适配（19 错 / 6 根因，逐条引 fork 权威路径）**：① `ConversationSnapshot` 现仅 `{views, activeTargets}`，转录切片移至 chat target 的 `legacy`（11 处）；② `SessionStandardProps.sessionId` 由 ui-session merge（ui-slots 只留空座位）；③ `connection/reset` 事件属主为 dsh-client-connection；④ `ctx.slots` 归 ui-renderer（不做 Context merge，改结构面 `SlotRegistryFace` 服务代理读取，服务缺席挂空 effect）；⑤ `TurnTailOwnerProps` 从 ui-conversation **移到** ui-chat；⑥ `ctx.remote` 在本基线是 any（ClientRemote 属主 api-gateway 缺席）→ 以 `mountRemoteContribution` 恢复 `$mount` 签名。新增 `src/client/dsh-contracts.ts` 集中镜像 6 个缺席属主包的结构面（每处注明权威路径）。
+
+**另修（运行时行为）**：`present.host`/`present.open` 路由**文档相对化**（去前导斜杠）——0.1.7 浏览器侧 app 路由统一约定，前缀剥离反代挂载下修复 404，根部署等价。
+
+**第 6 项全量回归（可无头验证部分，均通过）**：
+1. D2 三行（session-log-deepseek 关 / ui-sidebar-terminal 禁用 / tailCard false）✓
+2. MCP 行 7 条存活 ✓
+3. **内置浏览器默认值**：`ui-sidebar-browser` 行 `disabled: !!js profileContext?.name !== 'desktop'` ✓ 生效——**但 KCoder 桌面壳跑的是 `web` profile，故内置浏览器在 KCoder 里默认关闭**（与「Electron 默认启用」的预期相反；linkOpening 默认 sidebar 时链接回退新标签页，行为优雅）。列为产品决策项。
+4. `removeLinkProjections()` 真实 profile 首启清理陈旧投影链接 ✓
+5. V4 批量迁移 CLI 功能可用（`migrate:sessions-to-v4`，33 会话语料 7 分钟未完——真实语料建议择机跑；中途 kill 会留 `.migration.*.tmp`）✓
+6. **live profile bundle 解析零跳过**：五件行 + `dsh-video-generator` 行全部在场（/tmp 副本曾「跳过 video-generator」系相对符号链接在副本下断裂的伪影）✓
+
+**待 App 实跑（本环境无 GUI）**：会话 CRUD 走 V4 懒迁移、附件 C2 白名单、终端 SSE 升级、插件 UI 面（图标新命名/侧栏渲染）。**待产品裁决**：内置浏览器是否要按「桌面壳 = Electron」放开（改 profile 名或本地补 `disabled` 覆盖）；file-review 是否补 `deliverables.file.actions` 子槽（现 tailCard=false 下「用其它应用打开」静默缺失）。
