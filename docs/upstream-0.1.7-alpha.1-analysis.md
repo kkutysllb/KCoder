@@ -575,3 +575,51 @@
 - **有意不实现 `deliverables.review.file.actions`**：本仓评审面是 coding-sidebar 页签（非 slot 组件）且缺 changes 摘要坐标；声明却不渲染会独占声明权、反掐原生 tab 的动作位。若产品要「改动文件行也能用其它应用打开」，需另立一条（消费 `CHANGES_FILES_PATH` 摘要 + 页签内渲染）。
 - **待 App 验收**：真实 `ui-open-in-app` 的端到端挂载（本环境无 GUI，已用 react-dom/server + 真实 SlotCore 覆盖前提）；上游 npm `dsh-client-ui-slots@0.1.7-alpha.1` **不带** `rendersExistingChildren`，故原生 dsh（tailCard 默认 true）装配时走兜底分支（卡片保留自带控件），smoke 已锁该分支。
 - 已知差异 7 条（自带控件作为 fallback、占用者渲染 null 时 fallback 不接管、菜单能力面不同、成功态无 5s 寿命、422 状态行更具体但 onAction 仍回 openError、动作位补 pointer-events、注册副作用多两个注入 prop）详见提交信息与代理报告。
+
+### 8.7 第七批已执行（2026-09-23：dev 环境实跑阻断定位与修复）
+
+> 触发：用户把内置插件最新改造版装进 `~/.kcoder-dev` 后，dev 实例启动即报
+> 「Failed to load plugins / `@deepseek-ai/dsh-client-ui-deliverables` / web boot: 1 entry did not activate」。
+
+**现象与定位链（CDP 逐层剥离，全程无 GUI 也可复现）**：
+
+1. 首轮读 `window.__DSH_BOOT__` 得到的「客户端 roster 缺 dsh-coding-sidebar」是**伪影**：那次探测跑在 `/tmp/dev-verify` 副本上，而 dev home 里 `node_modules/dsh-coding-sidebar` 是指向真源仓的**相对符号链接**，副本下断裂 → 该 bundle 被跳过（「cannot resolve profile bundle」），并非 0.1.7 行为。改在真 dev home 复跑，roster 67 行含 `dsh-coding-sidebar` ✓。
+2. `boot-client.ts:63` 的 `assertEntriesActive` 只把条目状态投影成 `loading/pending/failed`，**apply 抛错不落控制台**（无 logger 订阅 `internal/error`）→ 页面只留一句 failed。用 CDP `Page.addScriptToEvaluateOnNewDocument` 在 `window.__ModuleLoader__` 的 setter + `create()` 之后二次包装 `load`，把每个 bundle 的 `apply` 包进 try/catch，才拿到真错：
+
+   ```
+   [APPLY-FAIL] @deepseek-ai/dsh-client-ui-deliverables ::
+   Error: slot "deliverables.file.actions" is already declared
+          (by an entry in "conversation.chat.turnTail" (dsh-file-review-tab))
+   ```
+
+3. **根因（我方缺陷，非上游）**：上游 0.1.7 新增子键 `deliverables.file.actions`（原生交付卡 `ui-deliverables/src/client/index.ts:83`），而 file-review 1.0.9 认领了**同名**子键。子键单一声明者（fork `ui-slots/src/index.ts:1263` 起），归属先到先得：本插件先注册即持键 → 原生卡后注册时 `register` 抛错 → **`ui-deliverables.apply` 失败** → 整个 web boot 判失败。1.0.9 的 `rendersExistingChildren` 兜底只覆盖「本插件是第二个声明者」那一侧，实测顺序恰好落在覆盖不到的另一侧。
+
+**修复（file-review 1.0.10，真源 `846d85a` / dsh-plugins `18dfeac` / bundle 三仓同步）**：
+- 动作子槽改用自有键 `dsh-file-review-kcoder.file.actions`，彻底去掉顺序依赖；不再使用 `rendersExistingChildren`（该开关保留给 fork `ui-plugin-manager` 的 Settings 共享宿主）。
+- 冒烟补回归面：注册键**绝不为** upstream 键、不携带该开关（smoke 66/66、render 25/25 ✓）。
+- **实机验收**：`~/.kcoder-dev` + 0.1.7-alpha.1 引擎 + 产品 overlay 启动 → 零失败条目、控制台无 error，`dsh-coding-sidebar` 1.0.31 与 `dsh-file-review-tab` 均正常引导。
+
+**同时发现并修正（清单失真）**：两插件 `dsh.client.inject` 仍列已删除的 `@deepseek-ai/dsh-client-runtime`（末版 0.1.1-rc.2）。该清单是到达序提示、缺失名会被静默跳过（`client-modules/src/client/system.ts:207`），故不影响启动，但掩盖真实依赖。已改列真实提供方行（api-remotes / api-session-controller / client-connection / client-locale / client-modules / ui-conversation / ui-renderer），coding-sidebar 随之发 **1.0.31**（`71b740a`），重建产物（横幅版本号由 tsdown 注入）。
+
+**⚠️ 新发现的产品级缺口（待裁决）——客户端半拿不到 patch 层的 config**：
+
+- 0.1.7（且 0.1.6-alpha.2 同样）客户端条目由 `client-modules/src/client/entries.ts` 的
+  `const options = { name: id }` 创建，**boot 图（`__DSH_BOOT__`）里根本没有 config 字段**；
+  host 侧 `--dump-config` 明明已把 `ui-deliverables: { tailCard: false }` 合成进 profile 树
+  （overlay/`--patch` 生效 ✓），但客户端 `apply(ctx, config)` 永远收到 `undefined`。
+- 后果：KCoder 产品 overlay 里 `tailCard: false`（「原生化交付卡让位给自研审查卡」）**自 0.1.6 起就是空转**——原生卡始终注册；`ui-deliverables` 的客户端补丁读的就是这个 config（fork `packages/client/ui-deliverables/src/client/index.ts:48-60`）。
+- 因此当前装配下**两张卡并存**（原生交付卡 + 自研审查卡的轮尾行）。1.0.10 已让两者能安全共存；是否要真正抑制原生卡有三条路：
+  1. **fork 补 config 转发**：`BootModuleRow`/boot 图带上行 config，`entries.create()` 传
+     `{ name: id, config }` —— 一次修好所有「客户端半读 config」的产品能力（也是让
+     `tailCard` 恢复设计的唯一正解），代价是引擎侧偏离上游、需补上游测试面；
+  2. 接受并存（0 改动，视觉上轮尾多一张卡）；
+  3. 让 file-review 不再注册轮尾行（放弃自研卡形态，能力靠侧栏页签）。
+- 另：此项与「本环境无 GUI」无关，是纯代码事实，已在本轮 dev 实跑中直接观察到（两张卡都在）。
+
+**过程性经验（供后续排障复用）**：
+- `dsh` 0.1.7 的 `--patch` 是 **launcher 级**选项：`dsh --profile web --patch X …` 或
+  `dsh web --patch X --port 0 --no-open` 均可（首 token 非选项时命令行会前缀
+  `--profile <name>`），但 `dsh web --no-open --port N --patch X`（patch 落在 app 选项之后）
+  会被 passThroughOptions 透传给 web app → `error: unknown option '--patch'`。**KCoder 桌面壳现有参数序
+  `web --patch … --port 0 --no-open` 实测在 0.1.7 下依然正确**，无需改动（本轮已用真实形态验证）。
+- `/tmp` 下复制 dev home 做验证会因相对符号链接断裂产生**假阳性**，验证插件装载必须用真 home 或绝对链接副本。

@@ -16,9 +16,9 @@ export type PresentedFilesProps = {
     /** Native-open controller; absent on carriers without the delivery routes. */
     controller?: PresentedOpenController | undefined;
     /**
-     * Bound render face of the `deliverables.file.actions` child slot this
-     * plugin's turn-tail registration declares (dsh 0.1.7), narrowed to the one
-     * key it may render. Absent on carriers without the renderer-owned child
+     * Bound render face of the `dsh-file-review-kcoder.file.actions` child slot
+     * this plugin's turn-tail registration declares, narrowed to the one key it
+     * may render — this plugin's own key, never upstream's (see index.tsx). Absent on carriers without the renderer-owned child
      * slots — and on a registration that had to fall back to declaring no
      * children (see index.tsx) — where the card keeps its own control only.
      */

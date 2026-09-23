@@ -6709,26 +6709,26 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var UnifiedDiff_module_css_default = {
-			"unifiedPath": "fUbE1W_unifiedPath",
-			"unifiedLineNumber": "fUbE1W_unifiedLineNumber",
-			"unifiedBlock": "fUbE1W_unifiedBlock",
-			"unifiedLine": "fUbE1W_unifiedLine",
-			"unifiedHeader": "fUbE1W_unifiedHeader",
-			"unifiedHunkHeader": "fUbE1W_unifiedHunkHeader",
-			"unifiedText": "fUbE1W_unifiedText",
 			"unifiedOmitted": "fUbE1W_unifiedOmitted",
+			"unifiedText": "fUbE1W_unifiedText",
+			"unifiedBlock": "fUbE1W_unifiedBlock",
+			"unifiedAdded": "fUbE1W_unifiedAdded",
+			"unifiedBody": "fUbE1W_unifiedBody",
+			"unifiedEmbedded": "fUbE1W_unifiedEmbedded",
+			"unified_add": "fUbE1W_unified_add",
+			"unified_context": "fUbE1W_unified_context",
+			"unifiedStatus": "fUbE1W_unifiedStatus",
+			"unifiedHeader": "fUbE1W_unifiedHeader",
 			"unifiedSign": "fUbE1W_unifiedSign",
 			"unifiedCopyButton": "fUbE1W_unifiedCopyButton",
-			"unifiedGap": "fUbE1W_unifiedGap",
-			"unifiedStatus": "fUbE1W_unifiedStatus",
-			"unifiedEmbedded": "fUbE1W_unifiedEmbedded",
 			"unifiedFile": "fUbE1W_unifiedFile",
-			"unifiedAdded": "fUbE1W_unifiedAdded",
-			"unified_del": "fUbE1W_unified_del",
-			"unifiedBody": "fUbE1W_unifiedBody",
-			"unified_context": "fUbE1W_unified_context",
-			"unified_add": "fUbE1W_unified_add",
-			"unifiedRemoved": "fUbE1W_unifiedRemoved"
+			"unifiedPath": "fUbE1W_unifiedPath",
+			"unifiedLine": "fUbE1W_unifiedLine",
+			"unifiedGap": "fUbE1W_unifiedGap",
+			"unifiedHunkHeader": "fUbE1W_unifiedHunkHeader",
+			"unifiedRemoved": "fUbE1W_unifiedRemoved",
+			"unifiedLineNumber": "fUbE1W_unifiedLineNumber",
+			"unified_del": "fUbE1W_unified_del"
 		};
 		//#endregion
 		//#region src/client/UnifiedDiff.tsx
@@ -7150,45 +7150,45 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var FileReviewTab_module_css_default = {
-			"deletedBadge": "ePxjfa_deletedBadge",
-			"empty": "ePxjfa_empty",
-			"buttonIcon": "ePxjfa_buttonIcon",
-			"archiveTitle": "ePxjfa_archiveTitle",
-			"fileName": "ePxjfa_fileName",
-			"headerTitle": "ePxjfa_headerTitle",
-			"chevronOpen": "ePxjfa_chevronOpen",
-			"smallButton": "ePxjfa_smallButton",
-			"refreshButton": "ePxjfa_refreshButton",
-			"liveBadge": "ePxjfa_liveBadge",
 			"removed": "ePxjfa_removed",
-			"turnTitle": "ePxjfa_turnTitle",
-			"diffWrap": "ePxjfa_diffWrap",
-			"diffUnavailable": "ePxjfa_diffUnavailable",
-			"reviewDiff": "ePxjfa_reviewDiff",
-			"notice": "ePxjfa_notice",
-			"chevron": "ePxjfa_chevron",
-			"fileRow": "ePxjfa_fileRow",
-			"turnGroup": "ePxjfa_turnGroup",
-			"kindBadge": "ePxjfa_kindBadge",
-			"badgeError": "ePxjfa_badgeError",
-			"noticeSuccess": "ePxjfa_noticeSuccess",
-			"editorButton": "ePxjfa_editorButton",
 			"archiveSection": "ePxjfa_archiveSection",
-			"actionButton": "ePxjfa_actionButton",
-			"fileList": "ePxjfa_fileList",
-			"turnCount": "ePxjfa_turnCount",
-			"turnHeader": "ePxjfa_turnHeader",
+			"smallButton": "ePxjfa_smallButton",
+			"liveBadge": "ePxjfa_liveBadge",
 			"root": "ePxjfa_root",
-			"added": "ePxjfa_added",
-			"badgeMuted": "ePxjfa_badgeMuted",
-			"fileItem": "ePxjfa_fileItem",
-			"badgeUndone": "ePxjfa_badgeUndone",
-			"archiveHeader": "ePxjfa_archiveHeader",
+			"noticeError": "ePxjfa_noticeError",
 			"stats": "ePxjfa_stats",
+			"turnTitle": "ePxjfa_turnTitle",
+			"fileRow": "ePxjfa_fileRow",
+			"badgeError": "ePxjfa_badgeError",
+			"refreshButton": "ePxjfa_refreshButton",
+			"archiveTitle": "ePxjfa_archiveTitle",
+			"actionButton": "ePxjfa_actionButton",
+			"noticeSuccess": "ePxjfa_noticeSuccess",
+			"added": "ePxjfa_added",
+			"chevronOpen": "ePxjfa_chevronOpen",
+			"turnCount": "ePxjfa_turnCount",
+			"badgeMuted": "ePxjfa_badgeMuted",
+			"reviewDiff": "ePxjfa_reviewDiff",
+			"buttonIcon": "ePxjfa_buttonIcon",
+			"empty": "ePxjfa_empty",
+			"fileList": "ePxjfa_fileList",
+			"diffWrap": "ePxjfa_diffWrap",
+			"editorButton": "ePxjfa_editorButton",
+			"archiveHeader": "ePxjfa_archiveHeader",
+			"turnGroup": "ePxjfa_turnGroup",
 			"stateBadge": "ePxjfa_stateBadge",
+			"notice": "ePxjfa_notice",
 			"body": "ePxjfa_body",
+			"deletedBadge": "ePxjfa_deletedBadge",
+			"fileName": "ePxjfa_fileName",
+			"fileItem": "ePxjfa_fileItem",
+			"kindBadge": "ePxjfa_kindBadge",
+			"headerTitle": "ePxjfa_headerTitle",
 			"header": "ePxjfa_header",
-			"noticeError": "ePxjfa_noticeError"
+			"turnHeader": "ePxjfa_turnHeader",
+			"chevron": "ePxjfa_chevron",
+			"badgeUndone": "ePxjfa_badgeUndone",
+			"diffUnavailable": "ePxjfa_diffUnavailable"
 		};
 		//#endregion
 		//#region src/client/FileReviewTab.tsx
@@ -8066,7 +8066,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* 「用其它应用打开」菜单），POST 执行手势；显式应用选择走 `application`
 		* 查询参数，Host 侧原样转给 `sessionController.openWorkspacePath`
 		* （:98-100）。本插件的卡片把这条 URL 交给 0.1.7 新增的共享文件动作子槽
-		* （deliverables.file.actions）当 `actionUrl`，因此两边必须逐字同源。
+		* （本插件声明自有键 dsh-file-review-kcoder.file.actions）当 `actionUrl`，
+		* 因此两边必须逐字同源。
 		*
 		* Those routes are addressed by URL on purpose instead of imported: this
 		* plugin's client half deliberately keeps only TYPE imports from the
@@ -8266,29 +8267,29 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var PresentedFiles_module_css_default = {
-			"fileName": "aa-r8G_fileName",
-			"chevronGlyph": "aa-r8G_chevronGlyph",
-			"fileBody": "aa-r8G_fileBody",
-			"secondaryText": "aa-r8G_secondaryText",
-			"hostStatus": "aa-r8G_hostStatus",
-			"menu": "aa-r8G_menu",
-			"root": "aa-r8G_root",
-			"file": "aa-r8G_file",
-			"fileIcon": "aa-r8G_fileIcon",
-			"retry": "aa-r8G_retry",
-			"chevron": "aa-r8G_chevron",
-			"menuItem": "aa-r8G_menuItem",
-			"glyph": "aa-r8G_glyph",
 			"cardPreview": "aa-r8G_cardPreview",
-			"open": "aa-r8G_open",
-			"menuIcon": "aa-r8G_menuIcon",
-			"grid": "aa-r8G_grid",
-			"split": "aa-r8G_split",
-			"description": "aa-r8G_description",
-			"toggle": "aa-r8G_toggle",
 			"previewHint": "aa-r8G_previewHint",
+			"chevron": "aa-r8G_chevron",
+			"file": "aa-r8G_file",
+			"chevronGlyph": "aa-r8G_chevronGlyph",
+			"open": "aa-r8G_open",
+			"retry": "aa-r8G_retry",
+			"glyph": "aa-r8G_glyph",
+			"fileBody": "aa-r8G_fileBody",
+			"menuIcon": "aa-r8G_menuIcon",
+			"secondaryText": "aa-r8G_secondaryText",
+			"description": "aa-r8G_description",
+			"grid": "aa-r8G_grid",
+			"menu": "aa-r8G_menu",
+			"toggle": "aa-r8G_toggle",
+			"root": "aa-r8G_root",
+			"split": "aa-r8G_split",
+			"menuItem": "aa-r8G_menuItem",
 			"details": "aa-r8G_details",
-			"actions": "aa-r8G_actions"
+			"actions": "aa-r8G_actions",
+			"hostStatus": "aa-r8G_hostStatus",
+			"fileIcon": "aa-r8G_fileIcon",
+			"fileName": "aa-r8G_fileName"
 		};
 		//#endregion
 		//#region src/client/PresentedFiles.tsx
@@ -8337,7 +8338,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* This plugin's own native-open control: the split primary + application /
 		* reveal menu the card has always rendered, with its own gesture latch.
 		*
-		* It is the FALLBACK BODY of the `deliverables.file.actions` child slot (see
+		* It is the FALLBACK BODY of this plugin's own file-actions child slot (see
 		* PresentedCard): when the shared contribution is absent — a carrier without
 		* ui-open-in-app, or any dsh before 0.1.7 — the action position keeps exactly
 		* this control. Owning the menu state here (rather than in the card) keeps a
@@ -8453,7 +8454,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				onAction,
 				t
 			});
-			const actions = renderSlot === void 0 ? fallback : renderSlot("deliverables.file.actions", {
+			const actions = renderSlot === void 0 ? fallback : renderSlot("dsh-file-review-kcoder.file.actions", {
 				actionUrl,
 				available: writable,
 				pending,
@@ -8584,61 +8585,61 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(style);
 		}
 		var ProducedFiles_module_css_default = {
-			"noticeDismissButton": "_xmB4G_noticeDismissButton",
-			"noticeIconSvg": "_xmB4G_noticeIconSvg",
 			"noticeFiles": "_xmB4G_noticeFiles",
-			"reviewStatus": "_xmB4G_reviewStatus",
-			"buttonIcon": "_xmB4G_buttonIcon",
-			"toast": "_xmB4G_toast",
-			"cardHeader": "_xmB4G_cardHeader",
-			"drawerTitle": "_xmB4G_drawerTitle",
-			"fileName": "_xmB4G_fileName",
-			"cardTitleBlock": "_xmB4G_cardTitleBlock",
-			"card": "_xmB4G_card",
-			"openButton": "_xmB4G_openButton",
-			"toolbarButton": "_xmB4G_toolbarButton",
-			"noticeIcon": "_xmB4G_noticeIcon",
-			"closeButton": "_xmB4G_closeButton",
-			"drawerHeading": "_xmB4G_drawerHeading",
-			"fileIconWrap": "_xmB4G_fileIconWrap",
 			"noticeFilePath": "_xmB4G_noticeFilePath",
-			"noticeFileArrow": "_xmB4G_noticeFileArrow",
-			"removed": "_xmB4G_removed",
-			"drawerResizing": "_xmB4G_drawerResizing",
-			"moreFiles": "_xmB4G_moreFiles",
-			"toastCopy": "_xmB4G_toastCopy",
-			"stats": "_xmB4G_stats",
-			"toastDescription": "_xmB4G_toastDescription",
-			"reviewButton": "_xmB4G_reviewButton",
-			"toastCloseButton": "_xmB4G_toastCloseButton",
+			"drawerSubtitle": "_xmB4G_drawerSubtitle",
 			"noticeFileListLabel": "_xmB4G_noticeFileListLabel",
-			"reviewFileHeader": "_xmB4G_reviewFileHeader",
 			"icon": "_xmB4G_icon",
-			"drawerBody": "_xmB4G_drawerBody",
-			"reviewDiff": "_xmB4G_reviewDiff",
-			"added": "_xmB4G_added",
-			"toggleButton": "_xmB4G_toggleButton",
-			"drawer": "_xmB4G_drawer",
-			"fileRow": "_xmB4G_fileRow",
-			"fileList": "_xmB4G_fileList",
-			"toastError": "_xmB4G_toastError",
-			"toastTitle": "_xmB4G_toastTitle",
-			"drawer-enter": "_xmB4G_drawer-enter",
-			"noticeFileList": "_xmB4G_noticeFileList",
-			"reviewUnavailable": "_xmB4G_reviewUnavailable",
-			"drawerSplit": "_xmB4G_drawerSplit",
-			"deletedBadge": "_xmB4G_deletedBadge",
-			"closeIcon": "_xmB4G_closeIcon",
-			"cardTitle": "_xmB4G_cardTitle",
-			"resizeHandle": "_xmB4G_resizeHandle",
 			"drawerHeader": "_xmB4G_drawerHeader",
-			"toastSuccess": "_xmB4G_toastSuccess",
+			"noticeDismissButton": "_xmB4G_noticeDismissButton",
 			"reviewFile": "_xmB4G_reviewFile",
-			"noticeFileButton": "_xmB4G_noticeFileButton",
-			"reviewPath": "_xmB4G_reviewPath",
 			"kindBadge": "_xmB4G_kindBadge",
+			"deletedBadge": "_xmB4G_deletedBadge",
+			"card": "_xmB4G_card",
+			"drawer": "_xmB4G_drawer",
+			"drawerBody": "_xmB4G_drawerBody",
+			"toggleButton": "_xmB4G_toggleButton",
+			"drawer-enter": "_xmB4G_drawer-enter",
+			"reviewUnavailable": "_xmB4G_reviewUnavailable",
+			"toastCopy": "_xmB4G_toastCopy",
+			"closeIcon": "_xmB4G_closeIcon",
+			"fileIconWrap": "_xmB4G_fileIconWrap",
+			"resizeHandle": "_xmB4G_resizeHandle",
+			"fileName": "_xmB4G_fileName",
+			"toastError": "_xmB4G_toastError",
+			"noticeFileButton": "_xmB4G_noticeFileButton",
+			"noticeFileList": "_xmB4G_noticeFileList",
+			"fileList": "_xmB4G_fileList",
+			"stats": "_xmB4G_stats",
+			"toastSuccess": "_xmB4G_toastSuccess",
+			"toastCloseButton": "_xmB4G_toastCloseButton",
+			"reviewFileHeader": "_xmB4G_reviewFileHeader",
+			"reviewPath": "_xmB4G_reviewPath",
+			"reviewButton": "_xmB4G_reviewButton",
+			"toast": "_xmB4G_toast",
+			"noticeIconSvg": "_xmB4G_noticeIconSvg",
+			"removed": "_xmB4G_removed",
+			"drawerHeading": "_xmB4G_drawerHeading",
+			"cardTitleBlock": "_xmB4G_cardTitleBlock",
+			"toastTitle": "_xmB4G_toastTitle",
+			"added": "_xmB4G_added",
+			"buttonIcon": "_xmB4G_buttonIcon",
 			"toastHeader": "_xmB4G_toastHeader",
-			"drawerSubtitle": "_xmB4G_drawerSubtitle"
+			"noticeIcon": "_xmB4G_noticeIcon",
+			"reviewStatus": "_xmB4G_reviewStatus",
+			"moreFiles": "_xmB4G_moreFiles",
+			"reviewDiff": "_xmB4G_reviewDiff",
+			"openButton": "_xmB4G_openButton",
+			"cardTitle": "_xmB4G_cardTitle",
+			"closeButton": "_xmB4G_closeButton",
+			"drawerResizing": "_xmB4G_drawerResizing",
+			"noticeFileArrow": "_xmB4G_noticeFileArrow",
+			"drawerTitle": "_xmB4G_drawerTitle",
+			"toolbarButton": "_xmB4G_toolbarButton",
+			"fileRow": "_xmB4G_fileRow",
+			"toastDescription": "_xmB4G_toastDescription",
+			"cardHeader": "_xmB4G_cardHeader",
+			"drawerSplit": "_xmB4G_drawerSplit"
 		};
 		//#endregion
 		//#region src/client/ProducedFiles.tsx
@@ -9575,11 +9576,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					};
 					const withFileActions = {
 						...turnTailOptions,
-						children: { "deliverables.file.actions": {
+						children: { "dsh-file-review-kcoder.file.actions": {
 							kind: "list",
 							scope: "session"
-						} },
-						rendersExistingChildren: true
+						} }
 					};
 					try {
 						const dispose = slots.register(withFileActions, FileReviewTurnTail);

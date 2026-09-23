@@ -10,9 +10,12 @@
 // row for a single delivery and a two-column grid beyond four — while routing
 // the preview through this plugin's own Sidebar pipeline.
 //
-// 0.1.7 共享文件动作子槽（deliverables.file.actions）：原生交付卡把每个文件
-// 的动作位交给该子槽，由 ui-open-in-app 贡献「用其它应用打开 / 显示文件位置」
-// 控件（应用清单 + 图标 + 揭示）。本卡片的动作位同样逐文件渲染这个子槽
+// 本卡片自己的文件动作子槽（dsh-file-review-kcoder.file.actions）：upstream
+// 0.1.7 的同一形状子槽（deliverables.file.actions）由原生交付卡声明并由
+// ui-open-in-app 贡献「用其它应用打开 / 显示文件位置」控件（应用清单 + 图标 +
+// 揭示）——本插件不认领那个键（一个子键只有一个声明者，认领会让先/后注册的
+// 一方 apply 抛错并拖垮整个 web boot，见 index.tsx 注册处），而是声明自己的
+// 命名空间键。本卡片的动作位逐文件渲染这个自有子槽
 // （见 PresentedCard 的 actions 计算），owner props 与 fork 逐字对齐：
 // actionUrl / available / pending / onAction。与上游的差异（同一契约、不同
 // 载体）：上游卡片只有子槽、没有自带控件；本插件在 KCoder 部署下必须能脱离
@@ -61,9 +64,9 @@ export type PresentedFilesProps = {
   /** Native-open controller; absent on carriers without the delivery routes. */
   controller?: PresentedOpenController | undefined
   /**
-   * Bound render face of the `deliverables.file.actions` child slot this
-   * plugin's turn-tail registration declares (dsh 0.1.7), narrowed to the one
-   * key it may render. Absent on carriers without the renderer-owned child
+   * Bound render face of the `dsh-file-review-kcoder.file.actions` child slot
+   * this plugin's turn-tail registration declares, narrowed to the one key it
+   * may render — this plugin's own key, never upstream's (see index.tsx). Absent on carriers without the renderer-owned child
    * slots — and on a registration that had to fall back to declaring no
    * children (see index.tsx) — where the card keeps its own control only.
    */
@@ -117,7 +120,7 @@ function FileGlyph() {
  * This plugin's own native-open control: the split primary + application /
  * reveal menu the card has always rendered, with its own gesture latch.
  *
- * It is the FALLBACK BODY of the `deliverables.file.actions` child slot (see
+ * It is the FALLBACK BODY of this plugin's own file-actions child slot (see
  * PresentedCard): when the shared contribution is absent — a carrier without
  * ui-open-in-app, or any dsh before 0.1.7 — the action position keeps exactly
  * this control. Owning the menu state here (rather than in the card) keeps a
@@ -251,7 +254,7 @@ function PresentedCard({
     />
   )
   const actions: ReactNode = renderSlot === undefined ? fallback : renderSlot(
-    'deliverables.file.actions',
+    'dsh-file-review-kcoder.file.actions',
     { actionUrl, available: writable, pending, onAction },
     { fallback },
   )

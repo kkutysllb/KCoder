@@ -38,8 +38,9 @@ export type DeliverablesProps =
      */
     presentedController?: PresentedOpenController | undefined
     /**
-     * Whether THIS registration declared the shared `deliverables.file.actions`
-     * child slot (inject face, set by index.tsx). Rendering an undeclared child
+     * Whether THIS registration declared its own
+     * `dsh-file-review-kcoder.file.actions` child slot (inject face, set by
+     * index.tsx). Rendering an undeclared child
      * key throws inside the renderer's bound `renderSlot`, so the card only
      * calls it when the declaration actually landed.
      */

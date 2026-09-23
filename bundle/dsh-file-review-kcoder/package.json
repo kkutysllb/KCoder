@@ -1,7 +1,7 @@
 {
   "name": "dsh-file-review-kcoder",
   "description": "Standalone dsh plugin (maintained by dsh-external): review agent-produced file changes (line-level red/green diff + undo) as a chat turn-tail row and a coding-sidebar tab, alongside dsh's explicit `present` delivery cards. Lineage: originally a port of left0ver/dsh-file-review; previously maintained in-tree as @kcoder/file-review, now an independent release line. Adapted to dsh 0.1.2-alpha.1+ conversation snapshot routing and to the 0.1.5 turn-tail deliverables vocabulary.",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "keywords": [
     "deepseek-harness",
     "dsh-plugin",
@@ -50,9 +50,12 @@
     },
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-renderer",
         "dsh-coding-sidebar"
       ],
       "platform": "web"

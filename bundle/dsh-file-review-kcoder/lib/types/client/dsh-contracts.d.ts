@@ -87,11 +87,20 @@ export interface TurnTailOwnerProps {
 /** One synchronous effect installed while an injected slot declaration is live. */
 export type SlotInjectionEffect = (() => void) | Iterable<() => void>;
 /**
- * The shared per-file action child slot dsh 0.1.7 added for delivery cards
- * (`deliverables.file.actions`, list/session). Owner-side name, mirrored as a
- * literal so the card's render site cannot drift from the declaration.
+ * This card's OWN per-file action child slot (list/session), declared under a
+ * namespaced key on purpose. Upstream 0.1.7 declares `deliverables.file.actions`
+ * as a child of ITS delivery card (fork
+ * packages/client/ui-deliverables/src/client/index.ts:83), and a child key has
+ * exactly one declarer: a second declarer throws and takes its whole entry down
+ * (`slot "…" is already declared`), which fails the entire web boot. Ownership
+ * is not negotiable at runtime either — whichever host registers first claims
+ * the key and the loser throws — so sharing upstream's literal name would make
+ * boot depend on client activation order. This plugin therefore declares its own
+ * key and never contends for upstream's; the upstream card keeps its own
+ * contributions (`ui-open-in-app`'s open-with / reveal controls) while this card
+ * renders its own action face inline.
  */
-export type FileActionsSlotKey = 'deliverables.file.actions';
+export type FileActionsSlotKey = 'dsh-file-review-kcoder.file.actions';
 /**
  * Owner props of the file-action child slot, mirrored verbatim from the
  * owner's declaration
@@ -115,7 +124,7 @@ export interface FileActionOwnerProps {
 }
 /**
  * Child-slot render face handed to a session-scope entry by the renderer
- * (`PropsRenderSlots<'deliverables.file.actions'>`,
+ * (`PropsRenderSlots<'dsh-file-review-kcoder.file.actions'>`,
  * packages/client/ui-slots/lib/types/index.d.ts — `renderSlot` + the phantom
  * `__renders` anchor). Declared structurally, narrowed to the one key this
  * plugin declares and renders: the renderer-owned face is `SlotRegistryFace`'s
@@ -150,13 +159,15 @@ export interface SlotRegistryFace {
      * `children` declares (and thereby authorizes) the child slots this entry
      * alone may render — one declarer per key, so a second entry declaring a
      * live child key throws (packages/client/ui-slots/src/index.ts:1263-1266).
-     * The KCoder fork adds the opt-in `rendersExistingChildren: true`
-     * (packages/client/ui-slots/src/index.ts:1249-1259, deployed since
-     * dsh-client-ui-slots 0.1.7-alpha.1 — see the KCoder runtime's
-     * lib/index.js) which lets an entry RENDER a child table another entry
-     * already declared (shared render face; the first declarer keeps the
-     * lifecycle). Unknown options are ignored by registries without it, so the
-     * flag is a no-op there rather than a version hazard.
+     * This plugin declares only its own namespaced key (`FileActionsSlotKey`) and
+     * therefore never contends with the upstream delivery card's
+     * `deliverables.file.actions`. The KCoder fork's opt-in
+     * `rendersExistingChildren: true`
+     * (packages/client/ui-slots/src/index.ts:1249-1259) remains available for the
+     * entries that genuinely render a table another entry declared (the fork's
+     * ui-plugin-manager Settings host); it is not used here, because it only
+     * protects the SECOND declarer — the first one still owns the key, so a
+     * shared literal name leaves whichever entry registers later throwing.
      *
      * @param options - registration options (name, id, locale, inject, children).
      * @param component - the entry component.

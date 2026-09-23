@@ -139,7 +139,7 @@
   gap: 2px;
 }
 
-/* 动作位：'deliverables.file.actions' 子槽的出口是 display:contents，贡献控件
+/* 动作位：本插件自有文件动作子槽的出口是 display:contents，贡献控件
    自带样式不带 pointer-events——上游正是在 .actions 包装层上补回可点性
    （fork ui-deliverables Deliverables.module.css:27）。本包装层同样承载
    「inline-flex / flex:none / pointer-events:auto」，使共享控件与自带 fallback

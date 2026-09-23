@@ -16,7 +16,8 @@
  * 「用其它应用打开」菜单），POST 执行手势；显式应用选择走 `application`
  * 查询参数，Host 侧原样转给 `sessionController.openWorkspacePath`
  * （:98-100）。本插件的卡片把这条 URL 交给 0.1.7 新增的共享文件动作子槽
- * （deliverables.file.actions）当 `actionUrl`，因此两边必须逐字同源。
+ * （本插件声明自有键 dsh-file-review-kcoder.file.actions）当 `actionUrl`，
+ * 因此两边必须逐字同源。
  *
  * Those routes are addressed by URL on purpose instead of imported: this
  * plugin's client half deliberately keeps only TYPE imports from the

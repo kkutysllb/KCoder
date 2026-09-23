@@ -442,33 +442,29 @@ export function apply(ctx: Context): void {
           // is stable across session re-binds; the section reads both stores
           // through useSyncExternalStore.
           presentedController: presentedOpen,
-          // 0.1.7 共享文件动作子槽（deliverables.file.actions）是否由本次注册
-          // 声明成功——见上方 fileActionsSlot 与下方注册处的注释。
+          // 本卡片自己的文件动作子槽（dsh-file-review-kcoder.file.actions）是否
+          // 由本次注册声明成功——见上方 fileActionsSlot 与下方注册处的注释。
           fileActionsSlot,
         }
       },
     } as const
-    // 0.1.7 文件动作子槽：upstream 由原生交付卡所在行声明该子槽（fork
-    // packages/client/ui-deliverables/src/client/index.ts:83），ui-open-in-app
-    // 向它贡献「用其它应用打开 / 显示文件位置」控件
-    //（packages/client/ui-open-in-app/src/client/index.ts:83-88）。KCoder 部署
-    // 把原生行关掉（tailCard:false）后无人声明，子槽的 inject 永不触发、控件
-    // 随之消失——本插件既然认领了同一行，就必须替它声明，否则这两项能力在
-    // 交付卡片上消失。
+    // 文件动作子槽：本卡片声明自己的键，绝不去认领 upstream 的
+    // deliverables.file.actions。upstream 0.1.7 把它声明为原生交付卡的子键
+    //（fork packages/client/ui-deliverables/src/client/index.ts:83），而一个子键
+    // 只能有一个声明者（fork packages/client/ui-slots/src/index.ts:1263 起）：
+    // 第二个声明者会抛「already declared」，整条 entry 随 apply 一起失败，
+    // assertEntriesActive 再把它升级成整个 web boot 失败（0.1.10 修的就是这个
+    // 现场：本插件先注册、原生卡后注册 → 原生卡方的 ui-deliverables.apply 抛错
+    // → 页面停在「Failed to load plugins」）。
     //
-    // 一个子键只能有一个声明者（fork packages/client/ui-slots/src/index.ts:
-    // 1263-1266）。原生行仍在的装配（tailCard 默认 true 的上游 dsh）里
-    // ui-deliverables 已经声明过，故带上 KCoder fork 的共享渲染面开关
-    // rendersExistingChildren（:1249-1259，dsh-client-ui-slots
-    // 0.1.7-alpha.1 起随 KCoder 运行时发运）：重复声明改为「只共享渲染面」，
-    // 生命周期仍归首个声明者。不认识该开关的注册表会当未知选项忽略——那种
-    // 装配下 register 会照旧抛「already declared」，于是下面的兜底注册退回
-    // 无 children 的形态：卡片继续渲染自带控件（行为与 1.0.8 相同），只是不
-    // 接共享控件。校验全在 register 的序言里、抛错前没有落账，因此重试安全。
+    // 运行时无法协商归属：谁先 register 谁拥有该键，慢的那个必抛，因此把
+    // 「共享名字 + rendersExistingChildren 兜底」当方案会让启动成功与否取决于
+    // 客户端激活顺序。命名空间化的自有键把这个不确定性彻底去掉：KCoder 的
+    // 贡献控件（PresentedFiles 的动作位）仍挂在卡片上，upstream 原生的
+    // open-with / reveal 控件留在它自己的卡片上，两边互不侵占。
     const withFileActions = {
       ...turnTailOptions,
-      children: { 'deliverables.file.actions': { kind: 'list', scope: 'session' } },
-      rendersExistingChildren: true,
+      children: { 'dsh-file-review-kcoder.file.actions': { kind: 'list', scope: 'session' } },
     } as const
     try {
       const dispose = slots.register(withFileActions, FileReviewTurnTail)
