@@ -487,7 +487,11 @@
 # ② ClientModuleLoader 新增必填 importError(id)、assertEntriesActive(ctx, modules)；
 # ③ 上游桌面更新指示器与侧边栏徽标的 [data-error] 移除。另有一处**行为翻转**未被
 # 发布说明披露：tool-jobs 的 maxConsecutiveWakes 由 default(3) 改为**无默认值
-# = 不设上限**（修好了「连续后台任务后会话停住」，但移除了引擎自带防自激链，**待裁决**）。
+# = 不设上限**（修好了「连续后台任务后会话停住」，但移除了引擎自带防自激链）。
+# **已决：与上游保持一致——不显式设值**（实测 KCoder 从未设过该键，overlay 无
+# tool-jobs 行，上游 schema `z.number().min(1)` 无默认值 ⇒ 零改动）。登记为持久
+# 观察项：若现场出现「后台任务自我唤醒长链」，第一处置是给该 owner 显式配
+# maxConsecutiveWakes，而不是回退上游。
 #
 # 集成分支：kcoder/0.1.7-alpha.2 @ f12a7e9ff0 = tag 00102833df × 尖端 ab438d0a03
 # 单次 merge --no-ff 重放。**重放完整性呈理想签名**：两分支间 diff = 869 文件，
@@ -527,5 +531,8 @@
 # 且 alpha.2 本版改动的快照文件是 diff-bounded/diff-context/excel-opc/
 # goal-multi-turn-actions/tool-details，**与这两个套件零交集**）。故先于本版存在、
 # alpha.1 分支同样失败，非本版回归。**未原地刷新**（那会把「多一个按钮」烤进上游
-# golden，污染「金标=上游行为」判据）——登记为已知差集或另立自有 golden 目录，
-# 属产品/测试口径裁决，**待用户定**。
+# golden，污染「金标=上游行为」判据）。
+# **已决（2026-09-23）：与上游保持一致——保持上游 golden 原样，登记为 fork 侧
+# 「已知稳定差集」**，亦不另立自有 golden 目录（那等于自建第二套金标，反而偏离上游）。
+# 含义：seeded-history / steering 两套件在 fork 上**恒有 5 项红**，读门禁结果时须先
+# 扣除这 5 项；**不得对这两个目录执行 `DSH_SNAPSHOT=refresh`**。

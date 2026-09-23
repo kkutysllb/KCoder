@@ -656,7 +656,7 @@ export function publishWorkspaceRange(range: string, targetVersion: string): str
 | 5 | `installFailLoud` fatal 语义收紧的专项冒烟 | 回归 | 建议 |
 | 6 | ui-chat 滚动几何 + 侧边栏 turnTail 注入点回归 | 回归 | 建议（上一版刚修过同区域） |
 | 7 | `Menu`（portal）逐帧跟踪的定位回归 | 回归 | 建议 |
-| 8 | `tool-jobs` 是否显式配 `maxConsecutiveWakes` | 产品裁决 | 待定 |
+| 8 | `tool-jobs` 是否显式配 `maxConsecutiveWakes` | 产品裁决 | **已决：不配**——与上游保持一致，采用「不设上限」默认（见 §8.6） |
 | 9 | **整树抬版**（不能只升部分包，见 §5.1.1 的精确钉） | 构建 | **必须** |
 | 10 | 打包产物冒烟（对齐上游 `d8924486ad` 的 app.asar 缺包事故） | 回归 | **建议列入必过项** |
 | 11 | 自建 WebSocket 通道补重试（对齐 §3.4-2 的准备就绪准入） | 代码 | 视实现方式 |
@@ -676,6 +676,7 @@ export function publishWorkspaceRange(range: string, targetVersion: string): str
 ## 6. 风险与待确认项
 
 > 按「实锤风险 → 需规划 → 待裁决」排序。前 3 条是本文认为必须在集成前有明确结论的。
+> **决策状态**：本节列出的待裁决项已于 2026-09-23 全部按「与上游保持一致」口径收敛（第 7 条就地更新，其余见 §8.6）。
 
 1. **`spill-policy` 静默自禁用的窗口**（实锤）：若某处配置仍写 `maxInlineBytes`，`maxInlineTokens` 为 `undefined` → `apply()` 第一行 `if (cap === undefined) return` → **策略整体不注册**，表现是「工具结果不再被保留/截断」，而不是报错。这类「静默失效」比硬报错更难发现，集成后建议用一次大结果工具调用验证保留是否生效。（基座 bundle 已正确改名，风险主要来自下游自定义 patch。）
 2. **DSH 家族发布后是精确钉，必须整树抬版**（实锤，§5.1.1）：上游把 DSH 内部依赖统一为 `workspace:*`，发布映射为**精确版本**。半抬版的树会出现精确钉无法满足 → peer 冲突 **或解析出两份 `@deepseek-ai/dsh-*` 副本**；双副本会让「共享同一单例」的契约失效，对走 `ctx.remote` / 槽位注册的插件是**硬故障而非告警**。
@@ -683,7 +684,7 @@ export function publishWorkspaceRange(range: string, targetVersion: string): str
 4. **打包闭包新增传递依赖边**（需验证）：本版新引入 `@deepseek-ai/dsh-client-ui-plugin-manager/remote`。上游刚发生过「dev 全绿、打包后 app.asar 缺 `@deepseek-ai/cordis` → 主进程开窗前 `ERR_MODULE_NOT_FOUND`」的同类事故（`d8924486ad`，影响 2026-09-20 之后**每一个**打包构建）。**建议把「打包产物能启动」列为 alpha.2 集成的必过项**，而不是只看 dev 冒烟。
 5. **`api/remotes` 的「全组装硬失败」**（实锤）：`apply()` 在单 `try` 内 mount 全部贡献，任一失败即 dispose 全部并 rethrow。手工挑包/精简组装的下游若缺 `dsh-client-ui-plugin-manager`，代价是**整个 Client Remote 组装失败**，不是「少一个命名空间」。本机 runtime 实测该包存在（风险低），但 staging 物化链需显式验证。
 6. **Remote WebSocket 准入推迟**（实锤）：`/api/remote.mux` 现在要等 `ctx.appReady`；就绪前的升级请求得到的是**无响应硬断连**（`socket.destroy()`），不是 403。KCoder 若走带重试的 `dsh-client-connection` 则无感；若有自建 socket 需补重试。
-7. **`tool-jobs` 无上限唤醒**（需裁决）：需产品裁决是否显式设 `maxConsecutiveWakes`；不设则依赖「不会自激」的假设。
+7. **`tool-jobs` 无上限唤醒**（**已决：与上游一致**）：不显式设 `maxConsecutiveWakes`，采用上游新默认「不设上限」。实测确认 KCoder 侧从未设过该键（`product-policy.ts` 生成的 overlay 无 tool-jobs 行，两个实机 overlay `~/.kcoder` / `~/.kcoder-dev` 均无覆盖），上游 schema 为 `z.number().min(1)`（**无 `.default()`**）且模块注释明写 "unbounded unless `maxConsecutiveWakes` caps it per owner" ⇒ **本决策＝零改动**。残余风险（失去引擎自带防自激链）由 §8.6 登记为观察项。
 8. **`session-controller` 的两项行为变化需规划**（已定性，非破坏）：`loadOlder()` 单页最多 **500** 条（原 50，且带 turn 对齐）；`PAGE_MESSAGES`/`JUMP_PAGE_MESSAGES` 的**值未变但语义从「请求量」变成「最小量」**。另外 `SessionFollowRequest` 改为 `extends Pick<SessionPageRequest, 'maxMessages'|'turnWindow'>`——若有人 `interface X extends SessionFollowRequest` 并把 `maxMessages` 重声明为必填，会编译失败（我们三个消费方均无此写法）。
 9. **`packages/client` 134 个真实源码文件的 DOM/几何变更**（需回归）：导出面几乎没动，但有三项对注入式插件有实质影响——① `Tooltip` 改为**无 feature-guard 的 `ResizeObserver`** 且初始 `visibility:hidden`，首个 fit 前不可见（非 Chromium 宿主或不支持 ResizeObserver 的环境会**永不显示**）；② 打开的 portal `Menu` 现在**每动画帧**读布局；③ 会话转写根节点改为 `overflow-y: clip`，`TurnNavigator` 与「回到底部」被**提升到 `.scroll` 之外**的新 `.frame` 里。
 10. **KCoder 侧未做集成**：本文核对时 KCoder main（`e3d5d56`）无 alpha.2 tag、QiLin 最新 tag 为 alpha.1，所以「合并后的真实冲突面」尚未实测，本文的冲突预期是按「主干契约零变化」推断的。
@@ -747,7 +748,7 @@ export function publishWorkspaceRange(range: string, targetVersion: string): str
 3. alpha.2 本版改动的快照只有 `snapshots/web/{diff-bounded,diff-context,excel-opc,goal-multi-turn-actions,tool-details}`——**与失败的 `seeded-history`/`steering` 零交集**。
 4. `steering` 另附 2 条 `llm-replay: fixture not fully consumed（consumed 1/2）` teardown 报错，是**下游产物**：golden 断言（行 139/465）先失败 → 测试提前中止 → 记录的第二次模型调用不再发生。非独立故障。
 
-> **未做处置**：没有刷新这两套 golden。它们是上游自有快照，把「我方多一个按钮」烤进 golden 会让此后每次上游同步都产生无意义冲突，也会把「金标 = 上游行为」这一判据弄脏。**建议**：把该 5 项的失败登记为 fork 侧「已知稳定差集」（成因单行、可复现），或另立一套 KCoder 自有 golden 目录——两者都比原地刷新干净。**这是产品/测试口径裁决，留给用户。**
+> **未做处置**：没有刷新这两套 golden。它们是上游自有快照，把「我方多一个按钮」烤进 golden 会让此后每次上游同步都产生无意义冲突，也会把「金标 = 上游行为」这一判据弄脏。**裁决（2026-09-23）：与上游保持一致——保持上游 golden 原样、登记为 fork 侧「已知稳定差集」**（成因单行、可复现），也不另立自有 golden 目录。详见 §8.6 第 1 项。
 
 **结论**：本轮点名项的三条，上游修复**已随 fork 重放生效并全部通过专项门**；失败集与它们无关。
 
@@ -817,16 +818,18 @@ export function publishWorkspaceRange(range: string, targetVersion: string): str
 
 > 附带收口：§8.1 里 fork 重放提交信息提到的「`tsc -b tsconfig.client.json` 仅 2 个错误、疑似缺构建产物」在本次完整 install + 三面构建后**归零**——证实那确实是增量产物过期，非合并引入。
 
-### 8.6 遗留与待裁决
+### 8.6 遗留与已决（2026-09-23 用户裁决：两处决策点**与上游保持一致**）
+
+> **裁决口径**：两个决策点一律「不偏离上游」——我们不自立标准、不加反向配置。据此两条都落到**零改动**，并各自登记为持久观察项。
 
 | # | 项 | 状态 |
 |---|---|---|
-| 1 | `seeded-history`/`steering` 的 5 项 aria golden 漂移（成因＝我方 edit 按钮单行） | **待裁决**：登记为已知差集 / 另立自有 golden 目录（不建议原地刷新） |
-| 2 | `tool-jobs` 的 `maxConsecutiveWakes` 默认「不设上限」（§3.3、§6-7） | **待裁决**：是否显式设值；不设则依赖「不自激」假设 |
-| 3 | `bundle/dsh-file-review-kcoder/{package.json,pnpm-lock.yaml}` 的 devDeps 仍钉 `0.1.7-alpha.1` | **低优先**：peer 范围 `^0.1.7-alpha.1` 按预发布规则已覆盖 alpha.2，运行态无碍；仅 dev typecheck 保真度问题，且本版无代码改动，暂不为它单独发插件版本 |
+| 1 | `seeded-history`/`steering` 的 5 项 aria golden 漂移（成因＝我方 edit 按钮单行） | **已决：保持上游 golden 原样，登记为已知稳定差集**。不原地刷新（避免把自有按钮烤进上游 golden、污染「金标＝上游行为」判据），也不另立自有 golden 目录（那等于自建第二套金标，反而偏离上游）。**含义**：这两套件在 fork 上**恒有 5 项红**，读门禁结果时必须先扣除这 5 项（成因见 §8.2 的四条实锤）；`DSH_SNAPSHOT=refresh` 不得对这两个目录执行。 |
+| 2 | `tool-jobs` 的 `maxConsecutiveWakes` 默认「不设上限」（§3.3、§6-7） | **已决：不显式设值，采用上游默认**。实测 KCoder 从未设过该键（overlay 无 tool-jobs 行），上游 schema `z.number().min(1)` 无默认值 ⇒ 零改动。**持久观察项**：引擎自带的防自激链本版被移除（上游修「连续后台任务后会话停住」的代价），若现场出现「后台任务自我唤醒形成长链」，第一处置是给该 owner 显式配 `maxConsecutiveWakes`，而不是回退上游。 |
+| 3 | `bundle/dsh-file-review-kcoder/{package.json,pnpm-lock.yaml}` 的 devDeps 仍钉 `0.1.7-alpha.1` | **已决：不动**（同口径）。peer 范围 `^0.1.7-alpha.1` 按预发布规则已覆盖 alpha.2，运行态无碍；本版插件零代码改动，不为 dev 锁单独发版本。 |
 | 4 | `upstream/BASELINE` 追加本版升级记录 | **已完成**（见 §8.3） |
-| 5 | 打包产物启动冒烟（§6-4 上游 app.asar 缺包事故的对照项） | **未做**：属 release 链（`scripts/smoke-runtime.mjs` + Electron node 形态），随下次发版走 |
-| 6 | `ui-deliverables.tailCard` 闸门在客户端半失效（历史遗留，非本版新增） | 维持既有决策（两卡并存、零改动） |
+| 5 | 打包产物启动冒烟（§6-4 上游 app.asar 缺包事故的对照项） | **未做**：属 release 链（`scripts/smoke-runtime.mjs` + Electron node 形态）。注：本地已对 staging 直接跑过 `smoke-runtime`（就绪行 + 首页 200 ✓），差的是**electron-builder 产出的 app.asar 内闭包**那一步，随下次发版走。 |
+| 6 | `ui-deliverables.tailCard` 闸门在客户端半失效（历史遗留，非本版新增） | 维持既有决策（两卡并存、零改动）——同「不偏离上游」口径。 |
 
 ### 8.7 本批提交
 
