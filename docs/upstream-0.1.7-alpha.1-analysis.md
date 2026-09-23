@@ -511,4 +511,6 @@
 
 **⑤ 端到端复测（新引擎 + 物化插件，HTTP 实测三路径）**：settings.get 返回活值（含上轮 patch 的 tools=true/strip=52/compat=true）✓；settings.update 改 strip=64/compat=false → **响应即新值**（volatile 引用原地更新，前一轮「写盘成功但响应旧值」的失败模式已消除）、rev 0→1 ✓；再 get 持久 ✓；陈旧 revision → 409 `settings-conflict` ✓；patch 文件收敛为合并后的 config ✓。
 
-**遗留（第 4 项起）**：mcp-settings DOM 冒烟需 GUI（本环境 Electron 被系统沙箱拦断，留本机 `pnpm exec electron scripts/smoke-mcp-dom.mjs`）；coding-sidebar 余下适配（81 图标改名 / jobs 服务面 / agentPresets 注册表 / subagent 类型 / peer 键追加）属第 4 项。
+**⑥ mcp-settings DOM 冒烟（已收口）**：本机复现失败 → A/B 证明为**预先存在的门禁腐化**（脚本查 `.dmi-row`、实现类名早为 `dmi-card`，迁移前版本同样失败），修复 6 处选择器后 light/dark 双主题 **ALL PASS**（提交见 KCoder 仓）。注意：该冒烟用自带合成 DOM 验证 PAGE_JS 注入/console 通道机制，真实设置页锚点仍以 App 实跑为准。
+
+**遗留（第 4 项起）**：coding-sidebar 余下适配（81 图标改名 / jobs 服务面 / agentPresets 注册表 / subagent 类型 / peer 键追加）属第 4 项。
