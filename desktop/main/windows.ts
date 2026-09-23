@@ -114,11 +114,17 @@ export function showShellWindow(dshUrl: string): void {
         : {}),
       // 官方 DeepSeek 图标（macOS 用 Dock 图标，此项服务 Linux/Windows）
       icon: resolveAsset('icon.png'),
-      // 纯浏览器载体：无 node、无 preload、webSecurity 开启
+      // 纯浏览器载体：无 node、无 preload、webSecurity 开启。
+      // webviewTag：内置浏览器（ui-sidebar-browser）在 Electron 侧用
+      // <webview> 承载（上游 apps/desktop/src/main.ts 同样是
+      // `webviewTag: primary`）；KCoder 只有 Electron 一种宿主，故开启。
+      // guest 的安全面由下面的 will-attach-webview 强制（对齐上游
+      // apps/desktop/src/browser-guests.ts 的加固序列）。
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: true,
+        webviewTag: true,
       },
     })
     shellWindow.once('ready-to-show', () => {
@@ -130,6 +136,30 @@ export function showShellWindow(dshUrl: string): void {
     // EventEmitter 默认上限 10 会刷 MaxListenersExceededWarning——
     // 这里统一抬高上限（0 = 不设限），消除噪音
     shellWindow.webContents.setMaxListeners(0)
+    // <webview> guest 加固（对齐上游 browser-guests.ts）：主窗口开了
+    // webviewTag 之后，渲染进程一旦被注入就能用 webview 提权——这里剥掉
+    // 危险偏好并强制安全值。partition 归属留给插件自己（ui-sidebar-browser
+    // 按 Workspace 键控存储分区），不在此覆盖。
+    shellWindow.webContents.on('will-attach-webview', (_event, preferences) => {
+      for (const key of [
+        'preload', 'preloadURL', 'nodeIntegration', 'nodeIntegrationInWorker',
+        'nodeIntegrationInSubFrames', 'allowRunningInsecureContent', 'webviewTag',
+        'plugins', 'navigateOnDragDrop', 'disableDialogs',
+      ]) {
+        Reflect.deleteProperty(preferences, key)
+      }
+      Object.assign(preferences, {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        webviewTag: false,
+        plugins: false,
+        navigateOnDragDrop: false,
+        disableDialogs: true,
+      })
+    })
     // Windows：应用菜单（menu.ts 全局设置）会占一行窗口内菜单栏，与
     // 自绘标题栏叠出双栏；隐藏（Alt 临时唤出菜单属系统行为，保留）
     if (process.platform === 'win32') shellWindow.setMenuBarVisibility(false)
