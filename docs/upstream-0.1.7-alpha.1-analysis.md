@@ -557,3 +557,12 @@
 6. **live profile bundle 解析零跳过**：五件行 + `dsh-video-generator` 行全部在场（/tmp 副本曾「跳过 video-generator」系相对符号链接在副本下断裂的伪影）✓
 
 **待 App 实跑（本环境无 GUI）**：会话 CRUD 走 V4 懒迁移、附件 C2 白名单、终端 SSE 升级、插件 UI 面（图标新命名/侧栏渲染）。**待产品裁决**：内置浏览器是否要按「桌面壳 = Electron」放开（改 profile 名或本地补 `disabled` 覆盖）；file-review 是否补 `deliverables.file.actions` 子槽（现 tailCard=false 下「用其它应用打开」静默缺失）。
+
+### 8.6 第六批已执行（2026-09-22：两项产品裁决落地 / 之一）
+
+> 用户裁决：① 内置浏览器按「桌面壳 = Electron」放开；② 新增 file-review 的 open-with 能力；③ 0.1.7-alpha.2 锚定待开发环境验收后再议。
+
+**① 内置浏览器放开（已落地，KCoder 提交 471ec6c + 00655ea）**：
+- 上游 0.1.7 起 `ui-sidebar-browser` 行默认值按 profile 名判定（`!!js profileContext?.name !== 'desktop'` 即禁用），而 KCoder 桌面壳跑 `web` profile → 被误关。产品策略层（overlay 最后应用）以同 id 行覆盖 `disabled: false` 放开；`dump-config` 实测 `ui-sidebar-browser disabled:false` ✓ 且 `ui-sidebar-terminal` 仍 `disabled:true` 不受影响 ✓。
+- **连带前提（本轮新发现并补齐）**：上游桌面端的浏览器载体是 `<webview>`（`apps/desktop/src/main.ts` 主窗口 `webviewTag: primary`），而 KCoder 主窗口此前**未开** `webviewTag` → 只放开行会让 tab 起不来。故同批：主窗口 `webPreferences.webviewTag: true` + 挂 `will-attach-webview` guest 加固（删 `preload/nodeIntegration*/webviewTag/plugins/navigateOnDragDrop` 等危险项，强制 `nodeIntegration:false`、`contextIsolation:true`、`sandbox:true`、`webSecurity:true`），加固序列对齐上游 `apps/desktop/src/browser-guests.ts`；partition 仍由插件按 Workspace 键控，不在此覆盖。KCoder typecheck 通过；guest 渲染与真实浏览器行为待 App 验收。
+- 遗留观察：聊天链接打开位置仍由 chat 设置 `linkOpening`（默认 `sidebar` = 内置浏览器 tab）；自研 coding-sidebar 的浏览器 tab 与原生 tab 并存属既有形态（产品铁律只约束「原生右侧栏不复用」，不约束浏览器承载）。
