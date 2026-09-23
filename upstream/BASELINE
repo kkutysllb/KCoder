@@ -625,3 +625,28 @@
 #
 # 进度与遗留详见 docs/upstream-0.1.7-rc.1-analysis.md §8（含 §8.4 对 §7 清单的逐项收口、
 # §8.6 遗留：peer 预演制度化、并集次序的组合用例、verify-vendor-purity 空骨架误判）。
+#
+# ⚠️⚠️ 事后补记（2026-09-23 用户现场发现，三轮升级全漏）：**兼容性闸门不覆盖
+# 「上游删掉了我方插件调用的成员」**。rc.1 下侧边栏「任务管理」页恒显「加载中…」
+# ——根因是插件仍在读 0.1.6 时代的两个列表快照字段，而 0.1.7 已移除：
+#   list.subagentsByParent   43 处(0.1.6-alpha.2) → **0**（0.1.7-alpha.1 起）
+#   list.jobsBySession       44 处              → **0**（运行时产物亦 0）
+#   sessions.setSubagentCatalogOpen / refreshSubagents 同样 → 0
+# 调用点全是**可选链**，缺失即静默 no-op ⇒ 目录永不 hydrate ⇒ 恒走摘要兜底分支渲染
+# disabled「加载中」占位行，**控制台零报错**（故「0 error」在这类回归上是无效证据）。
+# 替代面（上游决策记录 2026-09-08-web-subagent-catalog-projections 明载）：
+#   subagentsByParent → **projectionsBySession[parentId].values.subagentCatalog**（逐 Session 投影值）
+#   目录的未打开分支读 → **refreshProjections(sessionId)**（取代 observe/unobserve 对，**无 un-observe 对端**）
+#   作业名册 → **ctx.jobs 客户服务**（state 快照 + 按会话 watchRows）
+# 最直观的构造点对照：
+#   0.1.6: this.list.set({ ids, byId, phase, subagentsByParent, jobsBySession })
+#   rc.1 : this.list.set({ ids, byId, phase, projectionsBySession })
+# 修复：**dsh-coding-sidebar 1.0.32**（两缝迁移 + 同 bug 类第三处 TeamView.refreshSubagents）。
+# rc.1 dev 实测：修复前 36 个 aria-disabled「加载中」行 → 修复后 36 个真实 treeitem、
+# aria-disabled 0（显示 catalog label + 活动态）。
+#
+# ⇒ **新增升级 SOP 必检项（与 peer 预演并列，逐版本执行）**：对每个自带插件，把它
+# **可选链调用**的上游成员逐个拿到目标 tag 上验存；凡「src 与运行时产物双双 0 命中」
+# 即静默失效——它既不进类型检查（可选成员合法缺席）、也不进兼容性闸门（只看版本范围），
+# 只会让功能少一块。命令与判据见 docs/upstream-0.1.7-rc.1-analysis.md §8.8。
+# 本版据此把 §4「五个插件零改动」修正为「**类型/契约面**零改动，数据缝面有实质改动」。

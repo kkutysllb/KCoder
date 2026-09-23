@@ -593,6 +593,63 @@ rc.1 **没有**像 alpha.2 那样重写依赖范围策略（那是 `37372101b5`/
 - KCoder `staging/kcoder-runtime` @ **0.1.7-rc.1**（不入库；146 MB tar.gz）。
 - **未改动**：五个自研插件源码（本版实测零改动面）· `desktop/main/workspace-header.ts` · `desktop/main/dsh-manager.ts` · 产品 overlay（`skill-office` 无需配置，且已实证不在生效组合内）。
 
+### 8.8 事后补记：一条被三轮升级漏检的回归（用户现场发现，已修）
+
+> 本节是**执行后由用户实测反馈触发的补记**，它推翻了本文 §4「五个插件零改动」的一条隐含结论——**「零改动」只对类型/契约面成立，对「我方插件调用的上游成员是否还在」不成立**。
+
+**现场**：rc.1 下侧边栏「任务管理」页把整棵子代理拓扑渲染成一列 disabled 行、每行都写「加载中…」（该会话 36 个子代理全如此），永不恢复，**且控制台零报错**。用户判断「以前没有」——完全正确。
+
+**根因（逐行闭合）**：我们的插件还在读 **0.1.6 时代的两个列表快照字段**，而 0.1.7 已移除：
+
+| 我们读的字段/成员 | 0.1.5-rc.2 | **0.1.6-alpha.2** | 0.1.7-alpha.1 / alpha.2 / **rc.1** |
+|---|---|---|---|
+| `list.subagentsByParent`（子代理目录） | 39 | **43** | **0** |
+| `list.jobsBySession`（作业名册） | — | **44** | **0**（运行时产物 0 命中） |
+| `sessions.setSubagentCatalogOpen` | 10 | **12** | **0** |
+| `sessions.refreshSubagents` | — | **12** | **0** |
+
+调用点全是**可选链**（`setSubagentCatalogOpen?.(…)`、`refreshSubagents?.(…)`），缺失时**静默 no-op**：`catalogs = {}` → `rootCatalog === undefined` → `summaryBackedLoading` 恒真 → 走 `CatalogLoadingRows`（按摘要镜像逐个子会话渲染 `aria-disabled` 占位行，标签固定 `t('loading')`）。**既不报错也不自愈。**
+
+**为什么三轮都没抓到（三条，都值得记）**：
+
+1. **兼容性闸门只管版本范围，看不见 API 删除**——我方 `^0.1.7-alpha.1` 合法满足 rc.1，闸门如实放行。闸门保证的是「版本可比」，不是「成员还在」。
+2. **「控制台 0 error」在这类回归上是无效证据**——降级是**设计成静默**的（可选链 + 空态兜底），我在 §8.2 报的 0 error 恰恰因为它坏得安静。
+3. **我的回归面全是我们自己的锚点**（槽位 / 品牌 / 页头 / 滚动 / `data-turn-running`），**没有一面覆盖「插件依赖的上游数据缝」**。
+
+**上游契约的替代面（已核实，非猜测）**：目录改为标准逐 Session **投影值** `projectionsBySession[parentId].values.subagentCatalog`；未打开的目录分支用 **`refreshProjections(sessionId)`** 显式读取（它取代了 0.1.6 的 observe/unobserve 对，**没有 un-observe 对端**）。依据是上游决策记录 `.agents/notes/implemented/simplification/2026-09-08-web-subagent-catalog-projections.md`：「功能消费者从 `projectionsBySession` 中选择 `subagentCatalog`」「本决策**取代**…专用成员刷新机制」。作业名册改为 `ctx.jobs` 客户服务（`state` 快照 + 按会话 `watchRows`）。两个快照的**构造点**给了最直观的对照：
+
+```
+0.1.6: this.list.set({ ids, byId, phase, subagentsByParent, jobsBySession })
+rc.1 : this.list.set({ ids, byId, phase, projectionsBySession })
+```
+
+**修复与实测**：`dsh-coding-sidebar` **1.0.32**（两缝迁移 + 顺带修掉同一 bug 类的第三处 `TeamView` 的 `refreshSubagents`）。rc.1 dev 隔离实例实测：修复前 = 36 个 `role=treeitem[aria-disabled=true]` 全「加载中…」；修复后 = **36 个 treeitem、aria-disabled 0**、显示真实条目（如「Implement Task 1 builtin templates · 一次性 · 当前」，来自 catalog `label` + 摘要活动态）。⇒ 确实从摘要兜底分支回到了目录分支。
+
+**⇒ 新增验证面（建议固化进升级 SOP，与 §8.4 的 peer 预演并列）**：
+
+对**每个自带插件**，把它调用的上游成员逐个拿到目标 tag 上验存：
+
+```bash
+# 以 dsh-coding-sidebar 为例：先列出它读的上游面（可选成员是高风险集），再逐个核对
+cd /Users/libing/kk_Projects/dsh-coding-sidebar
+grep -nE "^\s+[a-zA-Z]+\?[(:]" src/context-types.ts          # 可选成员 = 静默失败风险面
+# 再对每个名字查目标 tag（同时查 src 与构建产物，产物才是在跑的真相）
+for m in subagentsByParent setSubagentCatalogOpen refreshSubagents jobsBySession \
+         projectionsBySession refreshProjections watchRows; do
+  printf '%-24s src=%s runtime=%s\n' "$m" \
+    "$(git -C ../deepseek-harness grep -c "$m" dsh-v0.1.7-rc.1 -- packages/ 2>/dev/null | wc -l | tr -d ' ')" \
+    "$(grep -rl "$m" ../deepseek-harness/packages/api/session-controller/lib 2>/dev/null | wc -l | tr -d ' ')"
+done
+```
+
+**判据**：凡我方**可选链调用**的成员，在目标 tag 上「src 与 runtime 双双 0」即**静默失效**——它不会让任何门禁变红，只会让功能少一块。**这条检查必须逐版本做**，因为它既不进类型检查（可选成员合法缺席），也不进兼容性闸门（只看版本范围）。
+
+### 8.9 本批补记的提交
+
+- `dsh-coding-sidebar` **1.0.32** @ `8a2c493`（两缝迁移 + TeamView 第三处 + 版本号）。
+- `dsh-plugins` @ `8a76774`（镜像）；KCoder `bundle/` @ `e20a4d4`（镜像同步 + 既有 `sync-bundles --check` 零差异）。
+- **撤回 §4 的一条措辞**：§4.0「五个插件本版零改动」应读作「**类型/契约面**零改动」；数据缝面本版**有实质改动**（1.0.32）。
+
 ---
 
 # 9. 【决策记录】插件退役评估——已评估，**决定不退役**（2026-09-23）
