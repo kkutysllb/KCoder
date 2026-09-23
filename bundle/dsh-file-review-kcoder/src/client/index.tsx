@@ -25,12 +25,14 @@
  * disposal (HMR / plugin disable) unregisters cleanly.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: pulls the generated Remote API and ctx.remote merge through the Client assembly boundary.
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from 'dsh-coding-sidebar/client/service'
-import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { TabDescriptor } from 'dsh-coding-sidebar/client/service'
 import type {
@@ -39,6 +41,7 @@ import type {
 import { TYPERT_REMOTE } from '../remote.ts'
 import { FileReviewTab } from './FileReviewTab.tsx'
 import { resolveConversationStore, turnChangesFingerprint } from './conversation-store.ts'
+import { mountRemoteContribution, slotRegistry } from './dsh-contracts.ts'
 import type { ConversationFace } from './conversation-store.ts'
 import { fileReviewDefinition } from './definition.ts'
 import { FileReviewTurnTail } from './Deliverables.tsx'
@@ -225,7 +228,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => {
     let disposed = false
     let disposeRemote: (() => Promise<void>) | undefined
-    void ctx.remote.$mount(TYPERT_REMOTE).then((dispose) => {
+    void mountRemoteContribution(ctx, TYPERT_REMOTE).then((dispose) => {
       if (disposed) void dispose()
       else disposeRemote = dispose
     }).catch((error: unknown) => {
@@ -287,8 +290,16 @@ export function apply(ctx: Context): void {
   // turn 永不双行。claim 输入不变：BUILT-IN deliverables turn data
   //（paths）+ 自有 fileReviewChanges 定义（完整 hunks）；presented
   // 两段照旧由 Deliverables 渲染。本插件未组入时其余行自然接管。
-  ctx.effect(
-    () => ctx.slots.inject('conversation.chat.turnTail', () => {
+  ctx.effect(() => {
+    // The renderer-owned registry (`ctx.slots`), resolved through the service
+    // proxy because 0.1.7 moved its Context declaration into
+    // @deepseek-ai/dsh-client-ui-renderer — see dsh-contracts.ts. `slots` is a
+    // declared inject below, so the fallback branch only stands in for a
+    // carrier that provides no renderer at all: stay mounted, contribute
+    // nothing, never fail boot.
+    const slots = slotRegistry(ctx)
+    if (slots === undefined) return () => {}
+    return slots.inject('conversation.chat.turnTail', () => {
     // const 持有后再传入：非新鲜字面量，旧类型基线（无 id 字段）不做
     // 多余属性检查；alpha.2 运行时按 id 走 list 匹配
     const turnTailOptions = {
@@ -430,10 +441,9 @@ export function apply(ctx: Context): void {
         }
       },
     } as const
-    return ctx.slots.register(turnTailOptions, FileReviewTurnTail)
-    }),
-    'file-review-tab: turn-tail row',
-  )
+    return slots.register(turnTailOptions, FileReviewTurnTail)
+    })
+  }, 'file-review-tab: turn-tail row')
 
   ctx.effect(() => ctx.betterSidebar.registerTab({
     id: 'file-review',

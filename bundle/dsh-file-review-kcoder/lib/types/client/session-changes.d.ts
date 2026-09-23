@@ -1,5 +1,6 @@
 /**
- * Session-wide produced-file derivation from a finalized ConversationSnapshot.
+ * Session-wide produced-file derivation from the finalized windowed transcript
+ * slice of a Conversation snapshot (see dsh-contracts.ts).
  * Client-only and model-free: the vocabulary is the mutation tools' OWN
  * arguments (write / edit / str_replace_editor, plus literal rm-family
  * deletions in the terminals), never the closing prose. Since dsh
@@ -10,9 +11,9 @@
  * its owning turn through `turnEnds` (completed turns) or the live turn
  * counters.
  */
-import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client';
 import type { ProducedFileDiff, RecordedMutation } from '../change-types.ts';
 import type { ConversationFace } from './conversation-store.ts';
+import type { WindowedTranscriptFace } from './dsh-contracts.ts';
 /** One changed file inside one turn, hunks appended in settlement order. */
 export interface SessionFileChange {
     readonly path: string;
@@ -52,7 +53,7 @@ export declare function mutationDetail(name: string, argsRaw: string): {
 export declare function terminalDeletions(name: string, argsRaw: string): readonly string[];
 export declare function deriveTimelineChanges(face: ConversationFace | null): TurnFileChanges[];
 /** Derive per-turn produced-file changes for one session snapshot. */
-export declare function deriveSessionChanges(snapshot: ConversationSnapshot | null): TurnFileChanges[];
+export declare function deriveSessionChanges(snapshot: WindowedTranscriptFace | null): TurnFileChanges[];
 /**
  * One Code Mode (`run_code`) root visible in the snapshot, with the turn it
  * settles into. Children (`subCalls`) carry no reusable views, so the reset of
@@ -65,7 +66,7 @@ export interface SessionRoot {
     readonly rootCallId: string;
 }
 /** Every `run_code` tool-result node in the window, in node order. */
-export declare function deriveSessionRoots(snapshot: ConversationSnapshot): SessionRoot[];
+export declare function deriveSessionRoots(snapshot: WindowedTranscriptFace): SessionRoot[];
 /**
  * Merge Host-recorded Code Mode mutations into the snapshot-derived turns:
  * hunks rebuilt from the full before/after are appended to the owning turn's

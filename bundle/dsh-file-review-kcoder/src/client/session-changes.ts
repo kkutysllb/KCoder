@@ -1,5 +1,6 @@
 /**
- * Session-wide produced-file derivation from a finalized ConversationSnapshot.
+ * Session-wide produced-file derivation from the finalized windowed transcript
+ * slice of a Conversation snapshot (see dsh-contracts.ts).
  * Client-only and model-free: the vocabulary is the mutation tools' OWN
  * arguments (write / edit / str_replace_editor, plus literal rm-family
  * deletions in the terminals), never the closing prose. Since dsh
@@ -10,11 +11,11 @@
  * its owning turn through `turnEnds` (completed turns) or the live turn
  * counters.
  */
-import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ProducedFileDiff, RecordedMutation } from '../change-types.ts'
 import { captureArtifacts } from './artifacts.ts'
 import { deletedPathsFromCommand } from './deleted-paths.ts'
 import type { ConversationFace } from './conversation-store.ts'
+import type { WindowedTranscriptFace } from './dsh-contracts.ts'
 import { diffsFromBeforeAfter } from './recorded-diffs.ts'
 
 /** One changed file inside one turn, hunks appended in settlement order. */
@@ -136,7 +137,7 @@ export function terminalDeletions(name: string, argsRaw: string): readonly strin
  * belongs to the live turn (the in-flight `partial` / running call's turn,
  * or the next turn number when nothing live is observable).
  */
-function turnAttribution(snapshot: ConversationSnapshot): (seq: number) => { turn: number; live: boolean } {
+function turnAttribution(snapshot: WindowedTranscriptFace): (seq: number) => { turn: number; live: boolean } {
   const ends = [...snapshot.turnEnds.entries()].sort((a, b) => a[1] - b[1])
   const liveTurn = snapshot.partial?.turn
     ?? snapshot.runningCalls[0]?.turn
@@ -204,7 +205,7 @@ export function deriveTimelineChanges(face: ConversationFace | null): TurnFileCh
 }
 
 /** Derive one session's per-turn produced-file changes (uncached core). */
-function derive(snapshot: ConversationSnapshot): TurnFileChanges[] {
+function derive(snapshot: WindowedTranscriptFace): TurnFileChanges[] {
   const attribute = turnAttribution(snapshot)
   const byTurn = new Map<number, { live: boolean; files: Map<string, FileAccumulator> }>()
   for (const node of snapshot.nodes) {
@@ -271,10 +272,10 @@ function derive(snapshot: ConversationSnapshot): TurnFileChanges[] {
  * tab-bar render, so the result is memoized per immutable snapshot reference
  * (the session publishes a fresh reference only when content changes).
  */
-const cache = new WeakMap<ConversationSnapshot, TurnFileChanges[]>()
+const cache = new WeakMap<WindowedTranscriptFace, TurnFileChanges[]>()
 
 /** Derive per-turn produced-file changes for one session snapshot. */
-export function deriveSessionChanges(snapshot: ConversationSnapshot | null): TurnFileChanges[] {
+export function deriveSessionChanges(snapshot: WindowedTranscriptFace | null): TurnFileChanges[] {
   if (snapshot === null) return []
   const hit = cache.get(snapshot)
   if (hit !== undefined) return hit
@@ -296,7 +297,7 @@ export interface SessionRoot {
 }
 
 /** Every `run_code` tool-result node in the window, in node order. */
-export function deriveSessionRoots(snapshot: ConversationSnapshot): SessionRoot[] {
+export function deriveSessionRoots(snapshot: WindowedTranscriptFace): SessionRoot[] {
   const attribute = turnAttribution(snapshot)
   const roots: SessionRoot[] = []
   for (const node of snapshot.nodes) {

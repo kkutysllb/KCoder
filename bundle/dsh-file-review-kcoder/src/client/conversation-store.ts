@@ -15,11 +15,12 @@
  * Location data), which carries Definition-owned turn data for EVERY loaded
  * turn — the session-wide source a windowed transcript cannot provide (a
  * bottom-anchored window derives zero changes, issue #8). Both faces are
- * structural: the plugin builds against @deepseek-ai type releases that
- * predate either shape.
+ * structural: the windowed slice's owning package (ui-chat) is outside this
+ * plugin's type baseline, and the plugin must keep assembling against carriers
+ * that predate the incremental Chat publication — see dsh-contracts.ts.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type { WindowedTranscriptFace } from './dsh-contracts.ts'
 
 /**
  * Structural face of the per-session chat snapshot source: the
@@ -50,7 +51,7 @@ export interface TimelineFace {
 /** What the plugin consumes from one published chat snapshot. */
 export interface ConversationFace {
   /** Windowed transcript slice (the only face pre-timeline carriers publish). */
-  readonly legacy: ConversationSnapshot
+  readonly legacy: WindowedTranscriptFace
   /** Location index over EVERY loaded turn; undefined on older carriers. */
   readonly timeline: TimelineFace | undefined
 }
@@ -157,8 +158,8 @@ export function resolveConversationStore(ctx: Context, sessionId: string): Conve
     return {
       getSnapshot: () => {
         const snap = source.getSnapshot() as
-          | { legacy?: ConversationSnapshot | null; timeline?: TimelineFace }
-          | ConversationSnapshot
+          | { legacy?: WindowedTranscriptFace | null; timeline?: TimelineFace }
+          | WindowedTranscriptFace
           | null
           | undefined
         if (seen && snap === cachedSnap) return cachedFace
@@ -169,7 +170,7 @@ export function resolveConversationStore(ctx: Context, sessionId: string): Conve
         }
         // Older carriers publish the transcript at the top level, without a
         // timeline — consumers degrade to the windowed derive.
-        else face = { legacy: snap as ConversationSnapshot, timeline: undefined }
+        else face = { legacy: snap as WindowedTranscriptFace, timeline: undefined }
         seen = true
         cachedSnap = snap
         cachedFace = face

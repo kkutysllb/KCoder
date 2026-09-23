@@ -23,11 +23,18 @@
  *     shows the retryable state, exactly like the built-in row.
  */
 
-/** Authenticated POST route for opening a workspace file on the Host desktop. */
-const PRESENT_OPEN_PATH = '/api/present.open'
+/**
+ * Authenticated POST route for opening a workspace file on the Host desktop.
+ *
+ * 0.1.7：上游浏览器侧 app 路由统一改**文档相对**寻址
+ * （`PRESENT_HOST_ROUTE = 'api/present.host'`，无前导斜杠）——根部署下与原
+ * 绝对路径等价，前缀剥离反代挂载（如 `https://host/tools/dsh/`）下才正确。
+ * 见 fork `.agents/notes/implemented/architecture/2026-09-14-web-document-relative-app-routes.md`。
+ */
+const PRESENT_OPEN_PATH = 'api/present.open'
 
-/** Authenticated desktop availability and destination metadata. */
-const PRESENT_HOST_PATH = '/api/present.host'
+/** Authenticated desktop availability and destination metadata (document-relative, see above). */
+const PRESENT_HOST_PATH = 'api/present.host'
 
 /** Native file action selected by an explicit user gesture. */
 export type PresentedAction = 'open' | 'reveal'

@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { TurnTailOwnerProps } from './dsh-contracts.ts'
 import type {
   FileReviewAction, FileReviewRequest, FileReviewResult, ProducedFileReview,
 } from '../change-types.ts'

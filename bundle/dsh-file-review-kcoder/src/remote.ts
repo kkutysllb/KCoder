@@ -1,6 +1,6 @@
 /** Browser Typert contribution for the Host file-review service. */
 
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   FileReviewRequest, FileReviewResult, RecordedRequest, RecordedResult,

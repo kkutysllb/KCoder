@@ -19,7 +19,7 @@
  * called `present`. The claim reads BOTH faces and the row renders both
  * sections: an elected chain entry owns the complete deliverables vocabulary.
  */
-import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client';
+import type { TurnTailOwnerProps } from './dsh-contracts.ts';
 /** One explicitly delivered file with its native-open coordinates. */
 export interface PresentedPath {
     /** Original absolute path or path relative to the Session working directory. */
