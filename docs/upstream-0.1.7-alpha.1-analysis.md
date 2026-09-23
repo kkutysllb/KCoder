@@ -566,3 +566,12 @@
 - 上游 0.1.7 起 `ui-sidebar-browser` 行默认值按 profile 名判定（`!!js profileContext?.name !== 'desktop'` 即禁用），而 KCoder 桌面壳跑 `web` profile → 被误关。产品策略层（overlay 最后应用）以同 id 行覆盖 `disabled: false` 放开；`dump-config` 实测 `ui-sidebar-browser disabled:false` ✓ 且 `ui-sidebar-terminal` 仍 `disabled:true` 不受影响 ✓。
 - **连带前提（本轮新发现并补齐）**：上游桌面端的浏览器载体是 `<webview>`（`apps/desktop/src/main.ts` 主窗口 `webviewTag: primary`），而 KCoder 主窗口此前**未开** `webviewTag` → 只放开行会让 tab 起不来。故同批：主窗口 `webPreferences.webviewTag: true` + 挂 `will-attach-webview` guest 加固（删 `preload/nodeIntegration*/webviewTag/plugins/navigateOnDragDrop` 等危险项，强制 `nodeIntegration:false`、`contextIsolation:true`、`sandbox:true`、`webSecurity:true`），加固序列对齐上游 `apps/desktop/src/browser-guests.ts`；partition 仍由插件按 Workspace 键控，不在此覆盖。KCoder typecheck 通过；guest 渲染与真实浏览器行为待 App 验收。
 - 遗留观察：聊天链接打开位置仍由 chat 设置 `linkOpening`（默认 `sidebar` = 内置浏览器 tab）；自研 coding-sidebar 的浏览器 tab 与原生 tab 并存属既有形态（产品铁律只约束「原生右侧栏不复用」，不约束浏览器承载）。
+
+**② file-review open-with 能力（已落地，dsh-file-review-kcoder **1.0.9**，真源 `1460aa4` / dsh-plugins / bundle 三仓同步）**：
+- turn-tail 注册**声明 `deliverables.file.actions`**（list/session，逐字对齐 fork `ui-deliverables/src/client/index.ts:83`）+ KCoder fork 的 `rendersExistingChildren`；**注册被拒时退回无 children 形态**（不炸插件），并以 inject 面 `fileActionsSlot` 挡住非法 `renderSlot`（未声明子键的 renderSlot 会抛错并让整行退位）。
+- 卡片**逐文件渲染**该子槽，owner props 逐字对齐 fork `file-actions.ts:8-19`：`{actionUrl, available, pending, onAction(action, application?)}`；插件自带分体控件作为 **`fallback`**——无贡献者时动作位＝既有控件（零回归），有贡献者（ui-open-in-app）时共享控件接管。
+- `present.open` 链路补 **`application` 参数**：URL 组合同 fork（reveal 不带 application、显式应用 `&application=<encoded>`、无参调用字节不变），`open()` 返回 `PresentedOpenFailure` 供共享控件播报。
+- **测试**：smoke 45→**65**、render 13→**24**（新增含「声明确实让子槽出现」「卡片渲染出宿主贡献的动作」「重复声明两分支」「共享渲染面释放语义」等）；另用 **KCoder 运行时真实 `SlotCore` + 真实产物注册项**做引擎级验证（tailCard=false 形态下子槽可声明、贡献者可注册、本插件卸载不塌原生行子槽＝`ownedChildren` 语义）。
+- **有意不实现 `deliverables.review.file.actions`**：本仓评审面是 coding-sidebar 页签（非 slot 组件）且缺 changes 摘要坐标；声明却不渲染会独占声明权、反掐原生 tab 的动作位。若产品要「改动文件行也能用其它应用打开」，需另立一条（消费 `CHANGES_FILES_PATH` 摘要 + 页签内渲染）。
+- **待 App 验收**：真实 `ui-open-in-app` 的端到端挂载（本环境无 GUI，已用 react-dom/server + 真实 SlotCore 覆盖前提）；上游 npm `dsh-client-ui-slots@0.1.7-alpha.1` **不带** `rendersExistingChildren`，故原生 dsh（tailCard 默认 true）装配时走兜底分支（卡片保留自带控件），smoke 已锁该分支。
+- 已知差异 7 条（自带控件作为 fallback、占用者渲染 null 时 fallback 不接管、菜单能力面不同、成功态无 5s 寿命、422 状态行更具体但 onAction 仍回 openError、动作位补 pointer-events、注册副作用多两个注入 prop）详见提交信息与代理报告。
