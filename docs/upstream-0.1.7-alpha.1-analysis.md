@@ -695,3 +695,30 @@ header:has(> [data-slot="conversation.session.header"]) { display: none !importa
   且该文案现在由 **fork 自己的本地化补丁**给出（`ui-chat/src/client/locale.ts:48`
   `'message.turnProcess.deepDivingFor': 'KCoder...，用时{duration}'`）——用户可见结果不变，
   故仅登记待清理，不阻塞。
+
+### 8.9 第九批已执行（2026-09-23：回合运行态「蓝色渐变动画」丢失的定位与恢复）
+
+> 触发：桌面端实机反馈——「KCoder...，用时 N 秒」只剩灰字，「不是我们原来的蓝色渐变动画效果」。
+
+**取证**：
+- 原效果在 **0.1.6 的 `ChatView.module.css` `.turnStatus`** 上（文档 §3 的类名变动面之外的一条）：
+  `linear-gradient(90deg, deepseek-500 0/40%, deepseek-200 50%, deepseek-500 60/100%)` + `background-clip:text`
+  + `background-size:250% 100%` + `1.8s linear infinite` → 深蓝底、亮蓝高光横扫 ✓ 品牌注入器注释亦载明
+  「上游微光动画作用在容器与文本本体上，KCoder 只改文本节点，动画原样保留」。
+- **0.1.7-alpha.1**：`.turnStatus` 类不存在了，运行态文案改成由 `TurnProcessNodeView`（turn 级过程折叠行）渲染：
+  它的 label 是**裸 span**（无 shimmer），而同屏的**组标题**用的是 `TextShimmer`——后者的渐变基于
+  `currentColor`（灰），并非深蓝。两处都不复现原效果 ⇒ 视觉丢失（非设置项问题）。
+- 顺带证实：「工作过程展示」三档（简洁/详细/完全展开）与这行**无关**（`presentation-policy.ts` 只管
+  运行中组标题是否追加实时细节、步骤组是否可折叠），所以「选完全展开能不能找回来」的答案是：不能。
+
+**修复（fork 提交 `ab438d0a03`，随 KCoder 集成分支发运）**：
+- `TurnProcessNodeView`：运行中在根按钮挂 `data-turn-running`（文案本地化 ⇒ 状态只能走属性钩子）；
+- `TurnProcessNodeView.module.css`：按 0.1.6 逐字复刻渐变与动画；同名 token 在 0.1.7 取值一致
+  （`--dsw-static-deepseek-500: rgb(65,118,230)`、`--dsw-static-deepseek-200: rgb(211,226,255)`），
+  `prefers-reduced-motion` 下关断动画并把 `-webkit-text-fill-color` 还原为 `currentColor`（防透明字）；
+- 测试：运行中断言钩子在、完成态断言钩子缺席；`chat-view` / `process-groups` /
+  `conversation-node-definitions` / `chat-viewport` 共 **256 项通过**；ui-chat 客户端产物已重建。
+
+**未做（待裁决）**：完成态文案仍是上游的「用时 {duration}」（无 KCoder 前缀）。若要「turn 结束后也保持
+`KCoder...，用时 N 秒`」，是 fork 一行 locale（`message.turnProcess.took`）；运行中组标题是否也要改深蓝扫光
+（现为灰 shimmer）同样是一处小改，等产品口径。
