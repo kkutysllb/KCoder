@@ -38,6 +38,12 @@ const POLICY_FILENAME = 'cordis.patch.kcoder.yml'
  * - **原生右侧栏终端 tab 禁用**（2026-09-15 D1a 补强，2026-09-18 恢复）：
  *   终端由内置 `@kkutysllb/dsh-terminal` 承担；右侧栏外壳已回归原生，但
  *   原生终端 tab 与自研终端并存即双入口，此行继续摘掉原生 tab。
+ * - **内置浏览器按「桌面壳 = Electron」放开**（2026-09-22，上游 0.1.7-alpha.1
+ *   起 ui-sidebar-browser 的默认值按 profile 名判定：`profileContext?.name
+ *   !== 'desktop'` 即禁用。KCoder 桌面壳跑的是 `web` profile，故上游默认把
+ *   内置浏览器关掉——与「Web 默认关 / Electron 默认开」的上游产品语义相悖。
+ *   KCoder 只有 Electron 一种宿主，故显式放开该行；聊天链接的打开位置仍由
+ *   chat 设置 `linkOpening` 决定（默认 sidebar = 内置浏览器 tab）。
  *
  * 历史行（已移除）：`file-review-tab` 禁用（2026-09-18）——file-review
  * 插件整体退役（typert 产物过不了 alpha.2 typert-loader 校验，曾拖垮全部
@@ -64,6 +70,13 @@ const POLICY_YAML = `# KCoder 产品策略层（宿主自动生成，勿手改�
 # api-remotes 挂载失败（主对话链全挂）。
 - id: ui-sidebar-terminal
   disabled: true
+#
+# 内置浏览器（产品决策 2026-09-22）：上游 bundle 行用 !!js 按 profile 名
+# 判定（非 desktop 即禁用），而 KCoder 桌面壳的 profile 名是 web →
+# 会被误关。此处以同 id 行覆盖 disabled 字段放开（bundle base 行保留，
+# 只看最终解析值）。见文件头第三条决策。
+- id: ui-sidebar-browser
+  disabled: false
 #
 # 原生 changed-files 尾卡关闭（2026-09-19，fork d3cc056ee6 的 tailCard
 # 配置闸门）：file-review 增强卡（hunks/统计/撤销 + 产物与交付两段）
