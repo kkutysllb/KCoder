@@ -97,14 +97,14 @@ async function runScenario(win, label, vars) {
     return JSON.stringify({
       visible: sec !== null && getComputedStyle(sec).display !== 'none',
       nativeHidden: getComputedStyle(native).display === 'none',
-      rows: sec.querySelectorAll('.dmi-row').length,
+      rows: sec.querySelectorAll('.dmi-card').length,
       navLabel: document.getElementById('__dsh_desktop_mcp_nav').textContent,
-      offRow: sec.querySelectorAll('.dmi-row.off').length,
+      offRow: sec.querySelectorAll('.dmi-card.off').length,
       badges: Array.from(sec.querySelectorAll('.dmi-badge')).map(b => b.textContent),
       descs: Array.from(sec.querySelectorAll('.dmi-desc')).map(d => d.textContent),
       builtinBadges: sec.querySelectorAll('.dmi-builtin').length,
       builtinRowHasDelete: (() => {
-        const rows = Array.from(sec.querySelectorAll('.dmi-row'))
+        const rows = Array.from(sec.querySelectorAll('.dmi-card'))
         const fetchRow = rows.find(r => r.querySelector('.dmi-name').textContent === 'fetch')
         return fetchRow ? fetchRow.querySelector('.dmi-danger') !== null : false
       })(),
@@ -161,14 +161,14 @@ async function runScenario(win, label, vars) {
   await new Promise((r) => setTimeout(r, 150))
   const okProbe = JSON.parse(await win.webContents.executeJavaScript(`(() => {
     const sec = document.getElementById('__dsh_desktop_mcp_section')
-    return JSON.stringify({ formGone: sec.querySelector('.dmi-form') === null, rows: sec.querySelectorAll('.dmi-row').length, status: (sec.querySelector('.dmi-status') || {}).textContent || '' })
+    return JSON.stringify({ formGone: sec.querySelector('.dmi-form') === null, rows: sec.querySelectorAll('.dmi-card').length, status: (sec.querySelector('.dmi-status') || {}).textContent || '' })
   })()`, true))
   if (!okProbe.formGone) fails.push('成功后表单未关闭')
   if (okProbe.rows !== 4) fails.push(`刷新后 rows=${okProbe.rows} 应为 4`)
 
   // 启停开关：翻 web 行 → 载荷 enabled 翻转
   await win.webContents.executeJavaScript(`(() => {
-    const rows = Array.from(document.querySelectorAll('.dmi-row'))
+    const rows = Array.from(document.querySelectorAll('.dmi-card'))
     rows.find(r => r.querySelector('.dmi-name').textContent === 'web').querySelector('.dmi-toggle').click()
   })()`, true)
   await new Promise((r) => setTimeout(r, 200))
@@ -179,7 +179,7 @@ async function runScenario(win, label, vars) {
 
   // 删除按钮 → 载荷
   await win.webContents.executeJavaScript(`(() => {
-    const rows = Array.from(document.querySelectorAll('.dmi-row'))
+    const rows = Array.from(document.querySelectorAll('.dmi-card'))
     rows.find(r => r.querySelector('.dmi-name').textContent === 'verify').querySelector('.dmi-danger').click()
   })()`, true)
   await new Promise((r) => setTimeout(r, 200))
