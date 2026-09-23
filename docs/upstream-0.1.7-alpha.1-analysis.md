@@ -514,3 +514,23 @@
 **⑥ mcp-settings DOM 冒烟（已收口）**：本机复现失败 → A/B 证明为**预先存在的门禁腐化**（脚本查 `.dmi-row`、实现类名早为 `dmi-card`，迁移前版本同样失败），修复 6 处选择器后 light/dark 双主题 **ALL PASS**（提交见 KCoder 仓）。注意：该冒烟用自带合成 DOM 验证 PAGE_JS 注入/console 通道机制，真实设置页锚点仍以 App 实跑为准。
 
 **遗留（第 4 项起）**：coding-sidebar 余下适配（81 图标改名 / jobs 服务面 / agentPresets 注册表 / subagent 类型 / peer 键追加）属第 4 项。
+
+### 8.4 第四批已执行（2026-09-22：coding-sidebar 0.1.7 契约适配批，对应 §7 第 4 项）
+
+**产物**：dsh-coding-sidebar **1.0.30**（真源仓 `be00eb7`、dsh-plugins `8798af3`、KCoder bundle `bf18523` 三仓同步；`sync-bundles --check` 零差异）。
+
+**⚠️ 一处更正（承 §8.3 的错误结论）**：引擎包 `@deepseek-ai/dsh-*` 的 **0.1.7-alpha.1 已发布**（npmjs 与 npmmirror 均有；dist-tag `alpha` 已指向更新的 **0.1.7-alpha.2**）。此前 `npm view <pkg>@0.1.7-alpha.1` 报错使 §8.3 误判为「未发布」——真实原因是该次查询失败未细究。因此本批**直接平移 devDeps 12 条至 0.1.7-alpha.1**（对齐集成分支基线），无需任何本地替换 hack。附带发现：上游已发 alpha.2，本次集成分支仍锚定 alpha.1（如需追 alpha.2 属下一轮基线决策）。
+
+**真实断裂（用真实发布包后 typecheck 暴露）**：
+1. **V4 消息来源**：`sidechat-routes.ts` 的边界注入 `source: { kind: 'plugin', plugin: … }` 在 0.1.7 类型下非法（`kind:'plugin'` 包装已废除）→ 改为**自有 kind** `'sidechat-injection'`，以 `declare module '@deepseek-ai/dsh-llm' { interface MessageSourceMap { … } }` 注册（上游 `time-context` 同范式）；实际识别走文本前缀，行为零变化。
+2. **jobs `kill` 的 caller 语义**：旧 `caller?: Agent` → 新 `caller?: SessionId`——插件原先传 `agents.get(sessionId)`（Agent 对象）会被归属栅栏判外来、kill 一律 404；已改为传会话 id（结构面同步改注释）。
+
+**机械适配**：30 个图标导入名按 size-neutral 新命名改写（`Icon*Outline16/14` → `Icon*OutlineRegular`，Fill 同理），24 文件；插件自有的 19 个本地图标（Terminal/Upload/Diff/Pdf/Docx…）不依赖上游导出、无需改。
+
+**核对后免改**：`AgentPresetRegistry` 保留 `resolve`/`mount`（与 session-controller 同范式）；`snapshotSubagentDescriptor` 同名同参数字段；`SubagentListEntry.activity: 'running'|'inactive'` 与 child 行 `hasChildren` 均可继续消费；`WebUpgradeRoute` 形态未变；`webServer.register(kind:'prefix')` 已由 live boot 实证可用。
+
+**依赖面**：peer 11 条追加 `|| ^0.1.7-alpha.1`；devDeps 12 条平移 `0.1.7-alpha.1`。
+
+**门禁（真实发布包）**：`tsc --noEmit` ✓、`pnpm test` ALL PASS ✓、`pnpm build` ✓、`pnpm smoke` ✓；新 build 在隔离 profile 的 live boot 就绪且 settings 路由返回持久值（strip=64）✓。
+
+**方法教训（值得入 SOP）**：把「本地 node_modules 换成 fork 构建产物」作为 typecheck 手段会**掩盖真实断裂**——本批的 V4 source kind 与 jobs caller 两处，正是在改用真实发布包后才暴露。后续升级一律以发布包为准，fork 构建仅作对照。
