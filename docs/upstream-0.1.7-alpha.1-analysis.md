@@ -623,3 +623,20 @@
   会被 passThroughOptions 透传给 web app → `error: unknown option '--patch'`。**KCoder 桌面壳现有参数序
   `web --patch … --port 0 --no-open` 实测在 0.1.7 下依然正确**，无需改动（本轮已用真实形态验证）。
 - `/tmp` 下复制 dev home 做验证会因相对符号链接断裂产生**假阳性**，验证插件装载必须用真 home 或绝对链接副本。
+
+**顺带补齐的 dev home 迁移缺口（配置层，非代码）**：验收前发现 dev 实例右上角报
+「This model is unavailable — select one to continue」且界面为英文——`settings.yaml`
+的 `llm-pi-ai.providers`（zai-coding-cn / qwen-token-plan-cn / openai-codex /
+opencode-go / vllm）与 `locale.preference: zh` 两段**没有随 §8.3 的三段一起落到
+profile 插件配置**里（`profiles/web/cordis.patch.yml` 缺 `llm-pi-ai` / `locale` 行，
+`--dump-config` 实测该行无 config）。
+
+- 上游机制：`SettingsForms.importLegacyDocument()`（`packages/settings/settings/src/index.ts:238`）
+  在 loader settle 后把 `$profile.home/settings.yaml` 改名 `.imported` 并逐段
+  `update(ns, values)`；段被运行装配拒收时只 warn 且**不重试**（文件已改名），
+  故失败段落只能从 `.imported` 手工补。
+- 本轮处置：按行样式把这两段补进 `profiles/web/cordis.patch.yml`（备份
+  `cordis.patch.yml.bak-llm-import`），重启后界面转中文、模型行显示
+  `Qwen3.8 Flash / Xhigh`、控制台零 error ✓。
+- 结论：**dev home 现在可交付验收**（五件自研插件在场、客户端 roster 67 行、
+  零失败条目、模型可用、中文界面）。
