@@ -191,8 +191,21 @@ grep -c -F "关键串" out/main/*.js
 ```
 
 typecheck 链尾已含 `scripts/check-injected-scripts.mjs`：抽取 desktop/main 全部
-注入脚本模板做 no-undef 分析 + bundle client 半协议检查（见坑记 5/6），改
-注入器后无需额外动作即被覆盖。
+注入脚本模板做 no-undef 分析 + bundle client 半协议检查（见坑记 5/6），改注入器后无需额外动作即被覆盖。
+
+**GUI 注入面另有一道：`scripts/smoke-settings-anchors.mjs`**（设置页注入锚点）。注入类改动
+靠「产物关键串断言」看不出**锚点是否还匹配上游 DOM**——上游把类名或层级一改，表现是原生 UI
+在注入页下**重复出现**：不崩、不错位、控制台无声，只有肉眼能发现（KCoder 的「关于」与
+「数据迁移」两个注入页就靠 `[role="dialog"][aria-modal="true"]` +
+`[class*="_options"] > div[data-slot="settings.section"]` 这两级锚点）。该冒烟跑**真注入脚本**
+（从 `desktop/main/*.ts` 抽 `PAGE_JS`）+ 与上游编译产物同构的 fixture，并自带判别力自检
+（把锚点类名改成上游改名后的形态，主断言必须失败）。
+⚠️ 抽取模板字面量时**必须复现模板求值的转义折叠**（`\\n` → `\n`）：漏掉这一步，页面拿到的是
+双重转义脚本，CSS 被拼成 `…}\n[role=…]` 而 CSS 把 `\n` 当转义 ⇒ 第二条起的选择器全变成元素名
+`n[role=…]`、规则静默失效（首版冒烟就是这么误报的）。
+
+GUI 冒烟统一只进**本机发版门**（`release.sh prepush`），不进 CI——CI 只跑不开窗口的
+`smoke-runtime`（既有 11 支 GUI 冒烟同此策）。
 
 ### 协作惯例
 

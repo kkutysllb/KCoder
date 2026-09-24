@@ -317,11 +317,23 @@ cmd_bundleline() {
     || die "内置插件版本线未过（见上）——避免带着「改了却到不了已装用户」的 bundle 发版"
 }
 
+# 设置页注入锚点冒烟（2026-09-25）：KCoder 的两个设置注入页（「关于」/「数据迁移」）靠上游 DOM
+# 锚点（`[role="dialog"][aria-modal="true"]` + `[class*="_options"] > div[data-slot="settings.section"]`）
+# 把原生分区藏掉。上游一改锚点，表现是**原生分区在注入页下重复出现**——不崩不错位、控制台无声，
+# 此前只能靠肉眼（scripts/ 下 11 支 GUI 冒烟无一覆盖设置页）。
+# 与既有 GUI 冒烟同策：只进本机发版门，不进 CI（CI 只跑不开窗口的 smoke-runtime）。
+cmd_settings_smoke() {
+  say "设置页注入锚点冒烟（真注入脚本 + 上游同构 fixture）…"
+  ( cd "$ROOT" && env -u ELECTRON_RUN_AS_NODE pnpm exec electron scripts/smoke-settings-anchors.mjs ) \
+    || die "设置页注入锚点冒烟未过（注入页会静默失效：原生分区重复出现）"
+}
+
 cmd_prepush() {
-  say "全仓库 pre-push 门：审计 + 插件补丁闸 + 内置插件版本线 + 全量构建…"
+  say "全仓库 pre-push 门：审计 + 插件补丁闸 + 内置插件版本线 + 设置页锚点 + 全量构建…"
   cmd_audit
   cmd_patchgate
   cmd_bundleline
+  cmd_settings_smoke
   pnpm --dir "$ROOT" run build
   ok "全仓库 pre-push 通过"
 }
