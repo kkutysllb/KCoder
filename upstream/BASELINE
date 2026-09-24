@@ -398,7 +398,7 @@
 # dd1529d8aa/b88abcad16 均为尖端祖先；新 delta vs 旧 delta 文件集差恰为
 # plugin.ts（按决策取上游）；上游侧文件零删除；build exit 0（248 client
 # 产物），lib/index.js 299/299，CI=true pnpm run typecheck 通过。
-46a7f68b0922371ce7144b668b90e377d8e799f4
+477b4f420553e8a52c2fbccc464d7561b239c443
 
 # ── 集成分支 fork 侧追加（2026-09-18：设置页插件管理 tab）──────────────
 # 集成分支尖端 02253cd274（本地 = origin/kcoder/0.1.6-alpha.2，远端新建分支）。
@@ -650,3 +650,110 @@
 # 即静默失效——它既不进类型检查（可选成员合法缺席）、也不进兼容性闸门（只看版本范围），
 # 只会让功能少一块。命令与判据见 docs/upstream-0.1.7-rc.1-analysis.md §8.8。
 # 本版据此把 §4「五个插件零改动」修正为「**类型/契约面**零改动，数据缝面有实质改动」。
+#
+# ── 升级记录：2026-09-24 0.1.7-rc.1(46a7f68b09) → 0.1.7-rc.2(477b4f4205，
+# 上游 tag `dsh-v0.1.7-rc.2`，2026-09-24 21:39，merge PR #5180；release 提交
+# 787b746b80)。集成分支 `kcoder/0.1.7-rc.2` @ **a1a2affcab**，单次 merge --no-ff
+# 重放 kcoder/0.1.7-rc.1 尖端 a56eabbd02。**已推**（新建分支，推送前 ls-remote 为空
+# ⇒ 结构上不可能出现 alpha.2 轮那个「远端指着裸 tag」陷阱；远端核对 0/0 + 标记物
+# present 已过，见 docs/upstream-0.1.7-rc.2-analysis.md §8.4）。
+#
+# 本版是 0.1.7 系列**最大**的版本：224 非 merge 提交（前两版各 102）、3429 变更文件、
+# 24.6 小时窗口。但**口径必须先扣噪声**：1138 个是 `.i18n.yaml` 翻译配对记录（上游
+# 单提交 e7def469e1 整体重键，格式从整文件 blob 哈希改为按标题分节哈希）、317 个是
+# 仅版本戳的 package.json、285 snapshots、118 设计笔记 ⇒ 真实代码面 1538 文件
+# (+37233/−10934) + 测试面 579 文件。`native/**` 与 `.github/**` 本版**源码零变更**。
+# vendor/ 零变化；无新增 patch（只改既有 @fortune-sheet__core@1.0.4）；LibreOffice Kit
+# 0.1.0→0.1.1。
+#
+# 合并：**冲突 2 处**（rc.1 轮 1 处），两侧交集 13 文件全部处置成功。
+#   1) ui-plugin-manager/src/client/index.ts —— 语义并集，且**暴露一处真实破坏**：
+#      上游把插件管理页视图状态从组件内 useState 搬进 slot `store`
+#      （navigation-store.ts 为本版新增；页面读 props.useStore(state=>state.view)），
+#      我方「设置 → 插件管理」第二处注册没传 store ⇒ 该 tab 渲染即 TypeError。
+#      取上游 generator 形态 + store，children 换我方 pageChildren 常量引用，
+#      **并为该注册补自建 store**（沿用上游 handle.create() + 复写 create 的惯用法）。
+#   2) session-projection-cache/README.i18n.yaml —— 上游 i18n 记录格式换代，取新格式后
+#      用 `tsx scripts/verify-translation-pairing.ts --write` 按合并后正文重录
+#      （复核 1134 pair(s) checked, all consistent）。
+#
+# 重放完整性（理想签名）：`git diff --name-only dsh-v0.1.7-rc.2 a1a2affcab` = **46 文件**，
+# 与参照集 `git diff --name-only dsh-v0.1.7-alpha.2 kcoder/0.1.7-alpha.2`（46 文件）
+# **集合完全相等（diff 空）** ⇒ 零多余零丢失。
+# **本轮新增更强的断言——语义存活审计**：逐文件比对「参照面的每一行新增是否逐字出现在
+# 合并面」，结果 **44/46 全存活**，仅有的 2 处缺口正是上面两处手工解的冲突（一行是结构
+# 改写、两行是格式换代）⇒ **自动合并零静默语义丢失**（自动合并最易吞语义，此审计列为常规项）。
+#
+# 质量门（全绿）：CI=true pnpm install exit 0 → `pnpm run build` **整链 exit 0**（build:web
+# 在内，未重犯 alpha.2 轮「链中断后只补子步骤」的错），**343 client 产物**（rc.1 为 263）；
+# verify-package-dependencies **exit 0（72 包：5+65+2，rc.1 为 70）**；定向单测
+# **261/261**（markdown-model-sanitize 12 / plugin-compatibility 62 / session-history-journal 28 /
+# scroll-follow 11 / presentation-policy 6 / chat-view 142，与 rc.1 逐项同数）；浏览器几何门
+# chat-scroll-contract 9/9 + idle-submission-handoff 8/8 过、seeded-history 3 + steering 2 的
+# golden 未过 —— **逐测试、逐行号、逐计数与 rc.1/alpha.2 完全一致**，唯一新增行仍只有
+# `+ button "Edit this message and resend"`（我方 0007 既有漂移）⇒ **零新增失败**；
+# staging 物化 **24,653 文件 → tar.gz 144 MB**（rc.1 为 25,203 / 146 MB，**反而更小**；
+# materialize-peers 本轮删掉 18,113 个 .map/.d.ts、新签 17 个实体），自检通过；vendor-purity
+# 纯净（需手工回收 vendor/KCoder 那个 0 文件/0 字节空骨架 + 2 个悬空符号链接，脚本空骨架误判
+# 第二次复发）；smoke-runtime 就绪行 + 首页 200；brand-assert 通过。
+#
+# 五个内置插件（**全部无需升版**，三条 SOP 必检项本版全部执行）：
+#   ① **peer 预演**：兼容门三源文件（plugin-compatibility / compatibility-preflight /
+#      profile-compatibility）连同两侧 spec **blob hash 全同**——本版唯一变化是输入
+#      （运行时版本字符串）。判据与 plugin-compatibility.ts:75 一致，只查
+#      `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*`：coding-sidebar 11 peer、file-review 12 peer
+#      **全部 PASS**；其余三个 0 peer。（注：file-review 的 `dsh-coding-sidebar >=0.12.0`
+#      是**非 DSH** peer，门禁不看——用宽口径过滤器会误报 FAIL。）
+#   ② **数据缝验存**（rc.1 §8.8 新增项，本版第一次「按流程走完且真的没问题」）：
+#      coding-sidebar 对旧缝 subagentsByParent/jobsBySession/setSubagentCatalogOpen/
+#      refreshSubagents 的 13 处引用**全在注释里、无活调用**；实际消费的 6 个缝
+#      （projectionsBySession 61/13、refreshProjections 16/9、watchRows 9/5、
+#      uiConversation 63/46、selectProducedFiles 3/3、producedForClosing 2/2）
+#      在 rc.2 **源码与构建产物双双在位**。file-review 的 uiConversation/sessionController/
+#      typert/argsRaw/producedForClosing 同样在位；`RunningToolCall` 是类型（产物 0 命中属正常），
+#      其 export 行两版逐字相同、经 ui-conversation/client 解析的 index.ts 与 records.ts
+#      两版 blob 全同。skills-bundle / terminal / shell-prefs 不 import 任何 DSH 契约面。
+#   ③ **锚点计数**：16 组锚点（railMark/brandName/sidebarCol/centerCol/overlayLayer/navCell/
+#      turnTail/composer-overlay/toBottomSlot/selectProducedFiles/producedForClosing/
+#      settings.general.item/sidebar.panellist/shell.overlay/conversation.chat.turnTail/
+#      deliverables.file.actions）逐条 grep 两树计数，**无一条消失**；两处既有死锚点
+#      （settings.plugin.item、data-sidebar-right-float-host，两版都不存在）与本版无关。
+#   ④ 我方三个内核补丁所在文件——ui-primitives/src/markdown/parse.ts（0007 语义并集）、
+#      ui-chat/.../TurnProcessNodeView.tsx + .module.css（回合运行态深蓝扫光）、
+#      session-projection-cache/src/index.ts（projection-isolate）——**上游本版零改动**，
+#      补丁原样成立、一行都不用改。ui-slots 与 ui-renderer 本版源码零变化 ⇒ 槽位契约
+#      **连续第四版稳定**。
+#
+# `--dump-config` 第一手实测（全新 DSH_HOME）：**exit 0 / 1246 行 / stderr 完全为空**
+# （无 skipped-bundle 行 ⇒ 无 bundle 被跳过、无插件被禁用）。七行内容 delta：
+# time-context(:445)/schedule(:448)/ui-schedule(:575) 三行 disabled: true；
+# shortcuts(:504)/ui-shortcuts(:506) 两行**启用**；llm-deepseek(:402) **id 未变、name 改为
+# @deepseek-ai/dsh-llm-deepseek-api-key**；llm-deepseek-account(:404) 新增启用。
+# KCoder 侧 **无任何 dump-config 断言**（grep 仅命中 dsh-manager.ts:137 一条注释）⇒ 零影响。
+#
+# ⚠️ 本版两处「必须记账」的坑：
+#   1) **发布说明口径**：「Web 和桌面端默认关闭定时任务与时间上下文」是**最终态不是 delta**
+#      ——rc.1 里这两行**根本不存在**（窗口内 e896737840 先启用、cad6fef2fd 再加回 disabled）。
+#      净变化只是「从缺席、无从开启」变成「在场、默认关、可手动启用」。要开这三行必须走
+#      overlay 反向覆盖（补丁层序 bundle→profile→home→overlay），**不要**照抄上游已删除的
+#      apps/cli/config/examples/schedule/cordis.yml。
+#   2) **工具描述/系统提示词瘦身**（4 提交、365 文件、净删 3658 行）：标准预设首轮提示
+#      **7985 → 6551 tokens（−18%）**，且**压缩阈值快照同步下调 context window**。KCoder 侧
+#      无 token/预设 golden（已 grep），但自研工具描述应对齐新规则。
+#   3) **Electron 菜单加速键吞掉上游新快捷键（真实功能缺口）**：menu.ts 的 CmdOrCtrl+,
+#      (:87/:153) 与 CmdOrCtrl+N (:108) 被 Electron 在渲染进程之前吃掉，而上游 rc.2 新增的
+#      settings.open / session.new 还会在侧边栏 Tooltip 宣传它们 ⇒ 待适配（不阻断本版）。
+#   4) 上游 apps/desktop 与 KCoder 的 Electron 壳是**两套独立实现**（模块名交集仅 1 个通用名）：
+#      上游桌面修复（安装包启动失败/更新提示/关窗后台运行/原生菜单图标）**不会流入 KCoder**。
+#   5) 事实更正：「代码工作工具」改名**是上游自己做的**（1103c1a7dd，rc.2 新增提交），
+#      KCoder 全仓 `代码工作工具` 0 命中——此前「我方 rc.1 轮更名」的说法在代码层不成立。
+#
+# 遗留与待办详见 docs/upstream-0.1.7-rc.2-analysis.md §8.6：peer 三元组悬崖（0.1.8-* 全 FAIL
+# ⇒ 建议本轮窗口内把两个插件的 peer 范围改成含 prerelease 的开放上界）、三条 SOP 必检项
+# 固化为 CI 断言、verify-vendor-purity 空骨架误判（第二次）、KCoder install 入口读
+# .plugin-manager/run.json 让位、ui-deliverables 的 present 提示词删句需产品确认。
+#
+# 遇坑（第三次复发）：`deploy --prod` 之后 pnpm 的 verify-deps-before-run 会判定 node_modules
+# 与 lock 不同步并自动 install，无 TTY 时以 ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY 中止
+# （本次表现为 fork pre-push 的 typecheck 门失败、推送被拦）。既定处置：`CI=true pnpm install`
+# 恢复后再操作。
