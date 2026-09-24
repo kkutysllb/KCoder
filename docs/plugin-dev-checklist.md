@@ -184,10 +184,19 @@ if (process.env.NODE_ENV !== undefined && process.env.NODE_ENV !== BUILD_MODE) {
 }
 ```
 
-**判据（已自动化）**：CI 的 `Contract` 在该仓库**敌意环境**下重建并比对提交产物：
+**判据（已自动化，两处互补）**：
+
+- **本机（发版门）**：`prepack` → `pnpm check:artifacts`，同机重建与提交产物**逐字节**比对。
+  注意「字节可复现」是**同机**性质——本仓产物在 macOS 上构建，Linux 重建后
+  `client.js` / `client-terminal.js` / `client-office.js` 等**全部字节不同**（2026-09-25 实测，
+  这条断言的首个 CI 版本就是这么挂的）⇒ 它只能当本地门，不能当跨平台 CI 断言。
+- **CI（平台无关）**：`Contract` 工作流在同一台机器上跑三种构建互比——
+  ① 无 `NODE_ENV` 与带敌意 `NODE_ENV` 的产物必须**完全相同**（环境不得影响产物）；
+  ② `KCODER_BUILD_MODE=development` 必须产出**不同**字节（开关被改坏同样要红）。
 
 ```bash
-NODE_ENV=development pnpm check:artifacts   # 必须「产物可复现：…字节不变 ✓」
+NODE_ENV=development pnpm build && cmp <基线> lib/client-office.js   # ① 必须相同
+KCODER_BUILD_MODE=development pnpm build && ! cmp -s <基线> lib/client-office.js  # ② 必须不同
 ```
 
 **推论**：凡是「构建期读环境变量」的写法（`define` 内联、`if (process.env.X)` 分支、条件插件加载）
