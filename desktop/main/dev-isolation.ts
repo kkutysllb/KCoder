@@ -30,6 +30,15 @@
  * | userData（桌面设置/认证/浏览器宿主/运行时解压） | `…/kcoder` | `…/kcoder-dev` |
  * | 单实例锁 | 独立 | 独立 |
  * | `DSH_HOME`（profile/会话/凭据/MCP 状态） | `~/.kcoder` | `~/.kcoder-dev` |
+ * | **browser-host CDP 端口** | 9223 | **9224** |
+ *
+ * 最后一行是 2026-09-24 现场补的（打包态开着时源码态启动报 `EADDRINUSE
+ * 127.0.0.1:9223`，`agent 浏览实况不可用`）：**文件系统路径能隔离，TCP 端口
+ * 不能**——端口不在 `app.setPath` 的作用面内，只能由端口持有者自己按
+ * `app.isPackaged` 分流（见 `browser-host.ts` 的 `browserHostPort()`）。注意
+ * userData 那行隔离的只是浏览器宿主的**数据目录**，端口是另一件事：两边同端口
+ * 时源码态 MCP 拼出的 `--cdp-endpoint` 与打包态完全相同，agent 浏览会**连到
+ * 打包态的 Chromium 上**（跨实例串线），这正是本模块要防的事。
  *
  * 用户显式设置 `DSH_HOME` 时源码态同样尊重（与 home-migration 的「显式 >
  * 一切」一致），此时仅 userData 分离。

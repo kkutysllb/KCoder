@@ -25,8 +25,25 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 
-/** 固定转发端口（playwright --cdp-endpoint 与侧边栏实况共同的已知地址）。 */
-export const BROWSER_HOST_PORT = 9223
+/**
+ * CDP 转发端口（playwright `--cdp-endpoint` 与侧边栏实况共同的已知地址）。
+ *
+ * 必须是**函数**且**随 dev/打包两态分流**（2026-09-24 现场修）：
+ * `dev-isolation.ts` 让两态能同时运行（userData / 单实例锁 / DSH_HOME 三面已
+ * 分离），但 **TCP 端口不是文件系统路径，隔离不了**——两边都绑 9223 时后启动
+ * 那台的转发器直接 `EADDRINUSE`（现场：打包态先起，源码态报「agent 浏览实况
+ * 不可用」）；更糟的是两边算出的 `--cdp-endpoint` 完全相同，源码态的 agent
+ * 浏览会**连到打包态的 Chromium 上**——跨实例串线，正是隔离模块要防的事。
+ *
+ * 惰性函数而非模块级常量：读模块级绑定会撞 TDZ（与 dev-isolation 同因）。
+ * 显式 `KCODER_BROWSER_HOST_PORT` 优先（与 dev-isolation / home-migration 的
+ * 「显式 > 一切」一致），便于再开第二个源码态实例。
+ */
+export function browserHostPort(): number {
+  const explicit = Number.parseInt((process.env.KCODER_BROWSER_HOST_PORT ?? '').trim(), 10)
+  if (Number.isInteger(explicit) && explicit > 0 && explicit < 65536) return explicit
+  return app.isPackaged ? 9223 : 9224
+}
 
 /** 独立 user-data-dir（应用 userData 下，登录态跨任务持久）。 */
 function hostDataDir(): string {
@@ -140,11 +157,12 @@ export function startBrowserHost(): void {
       })
       .catch(() => socket.destroy())
   })
+  const port = browserHostPort()
   forwarder.on('error', (error) => {
-    console.error('[browser-host] 转发器监听失败（端口占用？agent 浏览实况不可用）:', error.message)
+    console.error(`[browser-host] 转发器监听失败 127.0.0.1:${port}（端口占用？agent 浏览实况不可用）:`, error.message)
   })
-  forwarder.listen(BROWSER_HOST_PORT, '127.0.0.1', () => {
-    console.log(`[browser-host] CDP 转发器就绪 127.0.0.1:${BROWSER_HOST_PORT}`)
+  forwarder.listen(port, '127.0.0.1', () => {
+    console.log(`[browser-host] CDP 转发器就绪 127.0.0.1:${port}`)
   })
   stopped = false
   // 不在启动时预热浏览器：系统 Chrome 的可执行文件在 /Applications/Google

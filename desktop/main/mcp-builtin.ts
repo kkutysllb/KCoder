@@ -32,7 +32,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { dshHome } from './dsh-contract'
-import { BROWSER_HOST_PORT } from './browser-host'
+import { browserHostPort } from './browser-host'
 import { mcpServerDelete, mcpServerSave, mcpServers, type McpServerEntry } from './mcp-store'
 
 /**
@@ -45,11 +45,12 @@ const BUILTIN_VERSION = 6
 
 /**
  * playwright MCP 浏览器参数：连接 KCoder 浏览器宿主（browser-host.ts
- * 维护的无头 Chromium，固定 CDP 转发地址）。agent 浏览不再弹本机浏览器
- * 窗口；侧边栏浏览器 tab 连同一端点做实况观看。
+ * 维护的无头 Chromium，CDP 转发地址见 browserHostPort()——dev/打包两态分端口，
+ * 避免源码态串到打包态的 Chromium 上）。agent 浏览不再弹本机浏览器窗口；
+ * 侧边栏浏览器 tab 连同一端点做实况观看。
  */
 function playwrightBrowserArgs(): string[] {
-  return ['--cdp-endpoint', `http://127.0.0.1:${BROWSER_HOST_PORT}`]
+  return ['--cdp-endpoint', `http://127.0.0.1:${browserHostPort()}`]
 }
 
 /** 内置 MCP 服务器定义。 */
