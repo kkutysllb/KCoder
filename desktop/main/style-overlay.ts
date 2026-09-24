@@ -37,12 +37,29 @@ const STYLE_ID = '__dsh_desktop_style_override'
 const watermarkDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-k.png')).toString('base64')}`
 
 /**
- * 原生右侧栏外壳压制（D1a 恢复，2026-09-19）：dsh-coding-sidebar 复活后
- * 右侧工作台由插件承担，原生的展开按钮（会话头角落）、面板宿主与浮层
- * 宿主一并隐藏。只摘用户可见外壳——ui-sidebar-right 的服务层与契约保留
- * （六个上游包在 dsh.client.inject 里硬声明它，禁用会让主对话链整体挂
- * 掉）。display:none 而非移除：隐藏元素仍可 .click() 派发（React 事件
- * 委托挂在 root）。上游改名 → 压制静默失效（外壳复现），不崩不错位。
+ * 原生右侧栏外壳压制（D1a 恢复，2026-09-19；**2026-09-24 修 rc.2 起静默失效**）：
+ * dsh-coding-sidebar 复活后右侧工作台由插件承担，原生的展开按钮（会话头角落）、
+ * 面板宿主、Session 包装层、**占地的那一列**与**右栏拖拽分隔条**一并隐藏。只摘
+ * 用户可见外壳——ui-sidebar-right 的服务层与契约保留（上游多个包在
+ * dsh.client.inject 里硬声明它，禁用会让主对话链整体挂掉）。display:none 而非
+ * 移除：隐藏元素仍可 .click() 派发（React 事件委托挂在 root）。上游改名 →
+ * 压制静默失效（外壳复现），不崩不错位。
+ *
+ * ⚠️ **rc.2 现场（用户实测：「点任务卡片的打开会弹出原生右栏」）**：上游把
+ * `data-sidebar-right-panel` 从**布尔标记**改成了**取值属性**
+ * （`SidebarRight.module.css` 只有 `.panel[data-sidebar-right-panel='fullscreen']`）
+ * ——正常停靠模式下该属性**根本不存在**，于是旧的 `[data-sidebar-right-panel]`
+ * 存在性选择器匹配不到任何元素，**面板不再被隐藏**。这正是本文件预警过的
+ * 「上游改名 → 静默失效」。修法不是追那个取值，而是**改锚到占地的那一层**：
+ *
+ * - rc.2 的面板是 `position:absolute` **覆盖层**（`SidebarRight.module.css` 的
+ *   `.panel`），它占的宽度来自**框架的第三条 grid 轨道**
+ *   （`ui-layout/AppFrame.tsx` 的 inline `grid-template-columns: 侧栏 / 中列 /
+ *   minmax(0px, 右栏)`）⇒ 只隐藏面板会留下一大条空白。隐藏列的宿主
+ *   `[data-rightbar-col]` 即让该轨道**没有子元素**：`.frame` 是 grid 且**无
+ *   column-gap**，空的 `minmax(0px, Npx)` 轨道解析为 **0 宽**，空白随之消失。
+ * - 右栏的分隔条是**框架的兄弟节点**（不在列里，条件渲染于 `rightbarShown`），
+ *   列消失后它会孤零零留在右边缘 ⇒ 按稳定属性 `[data-side='rightbar']` 一并隐藏。
  *
  * 本段是「产品铁律 1：不使用上游原生侧边栏功能」的**执行点**
  * （docs/ARCHITECTURE.md §12）——上游把外壳改名或新增侧栏形态时，
@@ -50,7 +67,9 @@ const watermarkDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('bra
  */
 const NATIVE_SIDEBAR_CSS = `[data-sidebar-right-expand],
 [data-sidebar-right-panel],
-[data-sidebar-right-float-host] {
+[data-sidebar-right-session],
+[data-rightbar-col],
+[data-side='rightbar'] {
   display: none !important;
 }`
 

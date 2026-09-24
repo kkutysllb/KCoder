@@ -212,6 +212,7 @@ rc.2 的客户端大改动有相当一部分落在**两道 KCoder 结构性不�
 | N | `ui-conversation` 新增 Escape 停止序列（`stop-shortcut.ts`/`stop-sequence.ts`）+ 新 DOM 属性 `data-conversation-session` / `data-conversation-region` | 新增 | 零影响 |
 | O | `ui-primitives/src/OnboardingSurface.{tsx,module.css}` **删除**并从 `index.ts` 导出面移除（迁至 `ui-settings-account`） | 破坏性公开 API 变更 | 零影响（KCoder 与五插件 grep 0 命中），但**属破坏性变更且 notes 未提** |
 | P | `ui-workspace` 新增槽 `sidebar.session.row.leading` + 会话行 hover 分段（导出 `SessionRowScheduleOwnerProps`） | +159 | 需实测（KCoder 有侧边栏注入） |
+| Q | **`data-sidebar-right-panel` 从「布尔标记」变成「取值属性」**（`ui-sidebar-right/src/client/shell/SidebarRight.module.css` 只剩 `.panel[data-sidebar-right-panel='fullscreen']`）；右栏组件整体移入 `src/client/shell/`；面板改为 `position:absolute` **覆盖层**，占地改由**框架第三条 grid 轨道**提供（`ui-layout/AppFrame.tsx` 的 inline `grid-template-columns`）；新增 DOM 契约 `data-sidebar-right-session` / `data-sidebar-right-occurrence`，删除 `data-sidebar-right-region-nudge` | — | **已修**（用户实测「点任务卡片打开会弹出原生右栏」）：KCoder `style-overlay.ts` 的 `NATIVE_SIDEBAR_CSS` 改锚到 `[data-rightbar-col]`（占地的列，隐藏后空轨道解析为 0 宽）+ `[data-side='rightbar']`（分隔条是框架兄弟节点，会残留），并补 `[data-sidebar-right-session]`。**这是「上游改锚点形态 → 我方存在性选择器静默失效」的第二个实例**（第一个是 §4.6 的 `settings.general.item` 样式面）⇒ **新纪律**：凡以**属性存在性**压制上游 DOM 的规则，每次升级后必须重新核对属性的**形态**（存在性 vs 取值），否则外壳会静默复现 |
 
 ### 4.9 明确「不进 KCoder」的上游改动面
 
