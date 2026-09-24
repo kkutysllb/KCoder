@@ -757,3 +757,21 @@
 # 与 lock 不同步并自动 install，无 TTY 时以 ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY 中止
 # （本次表现为 fork pre-push 的 typecheck 门失败、推送被拦）。既定处置：`CI=true pnpm install`
 # 恢复后再操作。
+#
+# ── 升级后追加的产品改动（2026-09-24，用户实测反馈）：自有面 46 → 47 ──────────
+# 新增第 47 个自有面文件：packages/client/ui-schedule/src/client/index.ts
+#   改动：两处 openTaskDetail 统一走新助手——优先内置侧边栏插件
+#   `ctx.get('betterSidebar')?.openTab({type:'plans', meta:{kcScheduleTask:{sessionId,taskId}}})`
+#   + 一次 `updateTab` 补 meta（`plans` 是 single tab，去重只聚焦、不写 meta；不补这次，
+#   第二条任务的「打开」还会显示上一条）；**插件缺席时回落到上游原行为**
+#   `ctx.sidebarRight.openTab(SCHEDULE_TASK_KIND, …)`。
+#   动机：轮尾卡「打开」会展开**原生右栏列**，该列一展开就在主对话区旁留大片空白
+#   （与 dsh-context 同源，产品要求屏蔽）。数据面与导航面分离：引擎只传身份，任务数据
+#   由 dsh-coding-sidebar 经 schedule Remote 自取（该 remote 面按**可选查找**，不写进
+#   inject——上游默认不挂 schedule 插件，缺席时必须保留计划文档列表）。
+#   代价：**该文件进入自有面，每次上游升版都要重放** ⇒ 后续完整性断言按 **47 文件**核对。
+# 配套插件改动：dsh-coding-sidebar 的「任务计划」tab 承接任务预览
+#   （新增 src/client/ScheduleTaskPreview.tsx；PlansView 三个新 props；descriptor 读 tab.meta；
+#   zh/en 各 18 个 locale 键；`.schedPreview*` CSS 全走既有主题 token），经
+#   dsh-plugins 镜像 → KCoder bundle/ 物化；产物级验存三份拷贝一致。
+# 详见 docs/upstream-0.1.7-rc.2-analysis.md §5.3。

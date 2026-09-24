@@ -255,6 +255,19 @@ rc.2 的客户端大改动有相当一部分落在**两道 KCoder 结构性不�
 | `dsh-terminal@1.1.1` | 无 DSH peer | — | 不在面内 | **无需改动** |
 | `dsh-shell-prefs@1.0.1` | 无 DSH peer | — | 不在面内 | **无需改动** |
 
+### 5.3 升级后追加的产品改动：**自有面 46 → 47 文件**（定时任务详情不再开原生右栏）
+
+§2 的重放完整性签名（46 文件 = 集成分支 vs `dsh-v0.1.7-rc.2`）成立于**合并那一刻**。此后为修一条用户实测缺陷，集成分支追加了**第 47 个自有面文件**：
+
+| 项 | 值 |
+|---|---|
+| 新增文件 | `packages/client/ui-schedule/src/client/index.ts` |
+| 改动 | 两处 `openTaskDetail` 统一走新助手：优先 `ctx.get('betterSidebar')?.openTab({type:'plans', meta:{kcScheduleTask:{sessionId,taskId}}})` + `updateTab`；**插件缺席时回落**原来的 `ctx.sidebarRight.openTab(SCHEDULE_TASK_KIND, …)` |
+| 动机 | 轮尾卡「打开」会展开**原生右栏列**——该列一展开就在主对话区旁留一大片空白（与 dsh-context 同源，产品要求屏蔽）。数据面与导航面分离：引擎只传身份，任务数据由侧边栏插件经 `schedule` Remote 自取 |
+| 代价 | **每次上游升版都要重放这个文件**（它已属自有面，冲突面 +1） |
+
+⇒ **后续轮次的完整性断言应写成 47 文件**（或按「46 + 本条」核对）；`upstream/BASELINE` 已同步记录。
+
 ### 5.2 交叉事项（插件相关，但不是插件代码本身）
 
 1. **槽位契约连续第四版稳定**：`ui-slots` 与 `ui-renderer` 本版**源码零变化**（两 tag 只有 README + 版本戳）——这是我方插件注册面最重要的正面结论。
