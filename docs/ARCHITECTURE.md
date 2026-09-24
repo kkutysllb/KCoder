@@ -176,6 +176,12 @@ KCoder 的 `deepseek-harness/` 原是 submodule，重建时已**扶正为独立�
 
 ## 8. 开发惯例与经验坑（基线会话沉淀，务必继承）
 
+> **动内置插件（`bundle/` 下任何一个）之前先读 [`plugin-dev-checklist.md`](plugin-dev-checklist.md)**：
+> 那份清单只收「用实机测试换来」的四条跨层默认语义——可选面（服务/remote 面）只能走
+> `ctx.get`/`ctx.inject`、插件改动必须 bump 版本（物化判据是版本比较）、`openTab` 里
+> 带 `meta` 才算内容型才会展开面板、预置 spec 只指向已发布版本。三条坑的共同点是
+> **静态检查全绿而实机不生效**。
+
 ### 验证链（每次改动的标准收尾）
 
 ```sh
