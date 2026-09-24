@@ -4,9 +4,26 @@
 > 适用 `dsh-coding-sidebar` / `dsh-file-review-kcoder` / `dsh-terminal` / `dsh-skills-bundle` / `dsh-shell-prefs`，以及任何随包分发的插件。
 > 出处见文末——三条是一次功能迭代里连着踩出来的，**每一次静态检查都是全绿的**。
 
+## 执行点（2026-09-25 起已自动化，不必靠人记）
+
+| 规则 | 断言命令 | 挂在哪 |
+|---|---|---|
+| §1 可选面只能走 `ctx.get` / `ctx.inject` | `pnpm check:contract`（dsh-coding-sidebar 仓） | `pnpm test` · `prepack`（发布必过）· CI `Contract` |
+| §2 插件改动必须 bump 版本 | `node scripts/check-bundle-version-line.mjs`（KCoder 仓） | `release.sh prepush`（发版必过）· CI `Plugin Contract` |
+| §3 `openTab` 要看得见就带 `meta` | 同 §1 的 `check:contract` | 同 §1 |
+| §4 声明只指向已发布版本、且与物化同线 | 同 §2 的脚本（规则①：声明下界 == bundle 版本） | 同 §2 |
+
+两支断言都做过**判别力自检**（注入违规必须 FAIL、还原必须 PASS）：§2 的脚本不会因为
+「只改了文档 / 源码注释 / sourcemap」就叫你 bump 版本（开发面豁免：`src/**`、`scripts/**`、
+`tests/**`、`docs/**`、`*.md`、`LICENSE`、`*.map`，以及 `package.json` 里只动
+`scripts` / `devDependencies` / `files` / `packageManager` 的情况）——运行时面是
+**`lib/**` + `cordis.patch.yml` + package.json 的运行时字段**。
+
 ---
 
 ## 1. 可选面（服务 / remote 面）只能走 `ctx.get` 或 `ctx.inject`
+
+> **已自动化**：插件仓 `pnpm check:contract`（AST 级，注释与字符串里的 `ctx.remote.x` 是文档、不误报）。
 
 **症状**（两种，都是运行时才现）
 - 渲染时报 `读取任务失败: cannot get property "remote.schedule" without inject`；
@@ -50,6 +67,9 @@ grep -c "remote\.schedule" lib/client.js
 
 ## 2. 插件改动**必须 bump 版本**（否则「改了没生效」，且所有静态检查全绿）
 
+> **已自动化**：KCoder 仓 `node scripts/check-bundle-version-line.mjs`，挂在 `release.sh prepush` 与 CI。
+> 它比对「上一个发布 tag」与当前工作树，**运行时而**有变更却版本未动即失败，并把变更文件列出来。
+
 **症状**：代码改了、`typecheck` / 单测 / `check:artifacts` 全绿、bundle 里也确实有新代码——**实机就是不生效**（表现为「还是旧行为」）。
 
 **根因**：KCoder 的随包物化是**版本驱动**的。`desktop/main/kcoder-skills-bundle.ts` 的 `materialize()`：
@@ -91,6 +111,9 @@ grep -c '<新符号>' ~/.kcoder-dev/profiles/web/node_modules/<pkg>/lib/client.j
 
 ## 3. `openTab` 的内容型判据：要「点了能看见」就必须带 `meta`
 
+> **已自动化**：插件仓 `pnpm check:contract` 枚举每个 `openTab` 调用点——内容型打 ✓、
+> 有就地标注的 type-only 打 ○、既非内容型又无标注即失败（逼作者对每个调用点做一次显式决定）。
+
 **症状**：程序化打开一个 tab 后**界面毫无变化**（用户报「点了没反应」）——tab 确实开了，但开在**收起的面板**里。
 
 **根因**：`dsh-coding-sidebar/src/client/service.ts` 的 `openTab` 只把**内容型** open 判为需要落在可见处：
@@ -115,6 +138,9 @@ grep -rn "openTab({" src/ -A 4
 ---
 
 ## 4. 预置声明（`preset-plugins.ts` 的 spec）只指向**已发布**版本，且平移在 publish **之后**
+
+> **半自动化**：`check-bundle-version-line.mjs` 的规则①会断言「声明下界 == bundle 实体版本」，
+> 不同线即失败；「该版本是否已在 npm 可见」仍需人工核（指定版本端点双源 200）。
 
 **症状**：新装用户 `pnpm install` 解析失败；或声明落后于 bundle 物化 ⇒ 新装用户先拿到 registry 旧版（再由物化覆盖）。
 

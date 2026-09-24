@@ -1,0 +1,37 @@
+# 内置插件契约的 CI 平价版（发版门 `release.sh prepush` 里的 cmd_bundleline 同一支脚本）。
+#
+# 为什么单独一个 workflow：这条规则防的是「改了 bundle 却到不了已装用户」——物化判据是
+# `gt(源版本, 实装版本)`，版本不变即跳过重拷，而所有静态检查都是绿的（v0.6.17 现场）。
+# 等到发版当天才发现就太晚了，所以在**每次 bundle/声明变动时**就拦。
+#
+# 纯 node + git，不需要安装依赖（唯一依赖是 git 历史：算基线 tag 要 fetch-depth: 0）。
+name: Plugin Contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bundle/**'
+      - 'desktop/main/preset-plugins.ts'
+      - 'scripts/check-bundle-version-line.mjs'
+      - '.github/workflows/plugin-contract.yml'
+  pull_request:
+    paths:
+      - 'bundle/**'
+      - 'desktop/main/preset-plugins.ts'
+      - 'scripts/check-bundle-version-line.mjs'
+  workflow_dispatch:
+
+jobs:
+  bundle-line:
+    name: 内置插件版本线（声明同线 + 内容变更伴随版本变更）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 规则②要拿基线 tag 比对
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: 版本线断言
+        run: node scripts/check-bundle-version-line.mjs

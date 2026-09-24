@@ -308,10 +308,20 @@ cmd_audit() {
 }
 
 # 全仓库 pre-push 门：审计 + 插件补丁闸 + 全量构建（main/preload/renderer）。
+# 内置插件「版本线」门（2026-09-25）：声明与物化同线 + 内容变更必须伴随版本变更。
+# 只读、无依赖（纯 node + git），CI 侧另有 .github/workflows/plugin-contract.yml 平价版。
+# 见 docs/plugin-dev-checklist.md §2 / §4。
+cmd_bundleline() {
+  say "内置插件版本线：声明同线 + 内容变更伴随版本变更…"
+  node "$ROOT/scripts/check-bundle-version-line.mjs" \
+    || die "内置插件版本线未过（见上）——避免带着「改了却到不了已装用户」的 bundle 发版"
+}
+
 cmd_prepush() {
-  say "全仓库 pre-push 门：审计 + 插件补丁闸 + 全量构建…"
+  say "全仓库 pre-push 门：审计 + 插件补丁闸 + 内置插件版本线 + 全量构建…"
   cmd_audit
   cmd_patchgate
+  cmd_bundleline
   pnpm --dir "$ROOT" run build
   ok "全仓库 pre-push 通过"
 }
