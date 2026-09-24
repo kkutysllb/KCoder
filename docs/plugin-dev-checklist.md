@@ -12,6 +12,7 @@
 | §2 插件改动必须 bump 版本 | `node scripts/check-bundle-version-line.mjs`（KCoder 仓） | `release.sh prepush`（发版必过）· CI `Plugin Contract` |
 | §3 `openTab` 要看得见就带 `meta` | 同 §1 的 `check:contract` | 同 §1 |
 | §4 声明只指向已发布版本、且与物化同线 | 同 §2 的脚本（规则①：声明下界 == bundle 版本） | 同 §2 |
+| §5 发布构建必须环境无关 | `NODE_ENV=development pnpm check:artifacts`（dsh-coding-sidebar 仓） | CI `Contract`（敌意环境重建比对） |
 
 两支断言都做过**判别力自检**（注入违规必须 FAIL、还原必须 PASS）：§2 的脚本不会因为
 「只改了文档 / 源码注释 / sourcemap」就叫你 bump 版本（开发面豁免：`src/**`、`scripts/**`、
@@ -159,6 +160,39 @@ curl -s https://registry.npmjs.org/<pkg>/<version> | head -c 200
 **未 publish 之前只改 bundle、不动 spec** —— 此时声明保持旧号是安全的（新版实体由物化覆盖，用户不会拿到半成品）。
 
 ---
+
+## 5. **发布构建必须环境无关**（否则 npm 上的包与仓库提交的字节不同）
+
+**症状**：`npm publish` 成功、仓库里一切正常，但**发布包里的产物与仓库提交的不是同一份**；
+或者反过来说，在某个 shell 里 `check:artifacts` 恒报「产物不可复现」而被当成误报。
+
+**根因**：构建配置把 `process.env.NODE_ENV` **内联进产物**
+（`tsdown.config.ts` 的 `define: { 'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production') }`）
+⇒ 产物随开发机的环境变量变。`npm publish` 会跑 `prepack` 重建，于是在
+`NODE_ENV=development` 的 shell 里发布，**开发版分支就进了发布包**。
+
+**现场（2026-09-25）**：`dsh-coding-sidebar@1.0.33` 的 `lib/client-office.js` 与 dev 构建**逐字节相同**
+（`d67d3efd…`），而仓库提交的是 production 那份（`209821204…`）。KCoder 用户不受影响（实体走
+`bundle/` 物化），但任何**从 npm 直接安装**的人都拿到 development 构建。
+
+**正确做法**：构建模式**只认显式开关**，绝不继承环境变量——
+
+```ts
+const BUILD_MODE = process.env.KCODER_BUILD_MODE === 'development' ? 'development' : 'production'
+if (process.env.NODE_ENV !== undefined && process.env.NODE_ENV !== BUILD_MODE) {
+  console.warn(`[tsdown] 忽略环境里的 NODE_ENV=${process.env.NODE_ENV}：本仓产物恒为 ${BUILD_MODE}`)
+}
+```
+
+**判据（已自动化）**：CI 的 `Contract` 在该仓库**敌意环境**下重建并比对提交产物：
+
+```bash
+NODE_ENV=development pnpm check:artifacts   # 必须「产物可复现：…字节不变 ✓」
+```
+
+**推论**：凡是「构建期读环境变量」的写法（`define` 内联、`if (process.env.X)` 分支、条件插件加载）
+都要问一句——**同一份源码在两台机器上会产出同一个字节吗？** 不会，就等于把发布物的正确性
+交给了当时那个 shell。
 
 ## 附：一轮改动的标准动作（照抄）
 
