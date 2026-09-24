@@ -136,7 +136,14 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // （projectionsBySession[].values.subagentCatalog）与 ctx.jobs 客户服务。
   // 发布核验：npmjs 端 `1.0.32` 与 dist-tags.latest **均已可见**（本次平移的事实依据）；
   // npmmirror 对该大包（57MB+）的镜像同步滞后，发版时为追赶中（详见 release/audit-v0.6.16.md）。
-  'dsh-coding-sidebar': '^1.0.32',
+  // 2026-09-25 平移：^1.0.32 → ^1.0.33（随 0.6.17 的内置物化同线）。1.0.33 =
+  // 「任务计划」tab 承接定时任务预览：引擎把任务详情开进自家侧边栏（数据面/导航面
+  // 分离，插件经 schedule Remote 自取），并修两处跨层默认语义——可选 Remote 面
+  // 改按需装配（直接读 `ctx.remote.<面>` 会抛）、带 `meta` 的 open 归入内容型
+  // （否则落在收起的面板里）。发布核验：指定版本端点在 **npmjs 与 npmmirror 双源
+  // 均 200**、packument dist-tags.latest 已指向 1.0.33（本次平移的事实依据；发布时
+  // npm 侧经历约 5 分钟的「being processed」排队，期间指定版本端点 404）。
+  'dsh-coding-sidebar': '^1.0.33',
   // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5 → 1.0.6）：coding-sidebar
   // 的衍生插件（增强审查卡 + 侧边栏审查 tab）。1.0.6 追加 changes-review 地址
   // 家族认领（原生评审开法改开自家页签）。已发布且双源可见，故与 bundle 物化
