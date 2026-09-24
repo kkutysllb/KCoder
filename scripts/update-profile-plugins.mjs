@@ -164,9 +164,12 @@ function latestVersion(pkg) {
   }
 }
 
-/** 补丁与实装版本门控（与 profile-patches.ts 的 patchVersionMatches 保持
- *  一致）：patch 按特定版本产物字节生成，版本漂移后 hunk 必然失配（pnpm
- *  WARN 跳过），视为不适用而非缺失；@x 后缀不设门。 */
+/** 补丁与实装版本门控：patch 按特定版本产物字节生成，版本漂移后 hunk 必然
+ *  失配（pnpm 判 unused 不应用）——**只用于报告「该 patch 本轮没被应用、
+ *  修复靠锄点注入兜着」的发版待办（stalePatches / --release-gate），不参与
+ *  生效判定**（生效判定见 patchApplied：只看 PATCH_MARKS，不看门控）。
+ *  @x 后缀不设门。desktop 侧同名函数已随门控空洞修复摘除（2026-09-24），
+ *  本脚本是唯一实现。 */
 function patchVersionMatches(patchFile, modDir) {
   const m = /@([^@]+)\.patch$/.exec(patchFile)
   if (m === null || m[1] === 'x') return true

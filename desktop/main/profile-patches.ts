@@ -465,27 +465,13 @@ function pkgNameOf(patchFile: string): string {
   return patchFile.replace(/@[^@]+\.patch$/, '').replace(/^(@[^/]*?)__/, '$1/')
 }
 
-/**
- * 补丁与实装版本门控：patch 按特定版本产物字节生成（文件名 @ver 段），
- * 版本漂移后 hunk 必然失配——pnpm 应用时 WARN 跳过（pnpm 10 行为；11 为
- * 硬错误），锄点锚点同样按版本字节写死，install 重放只是让 pnpm 再 WARN
- * 一次：自愈不可能成功。视为「不适用」而非缺失，避免每次启动空转一轮
- * pnpm install（用户把插件升到 patch 目标版本之外：better-sidebar npm
- * 0.14.0 → git 0.15.2 实证，0.15.2 无 diff pill 功能属产品取舍而非自愈
- * 缺口——该补丁已于 2026-08-25 随迭代退役，见 RETIRED_PATCH_PKGS）。
- * @x 后缀（无版本约束：KNOWN 哨兵）不设门；package.json 不可读时
- * 放行，交 marks 校验兑底判定。
- */
-function patchVersionMatches(patchFile: string, modDir: string): boolean {
-  const m = /@([^@]+)\.patch$/.exec(patchFile)
-  if (m === null || m[1] === 'x') return true
-  try {
-    const installed = (JSON.parse(readFileSync(join(modDir, 'package.json'), 'utf8')) as { version?: string }).version
-    return installed === m[1]
-  } catch {
-    return true
-  }
-}
+/* 注（2026-09-24 摘除）：此处原为 `patchVersionMatches`——补丁精确版本键与
+ * 实装版本的门控。生效判据改为「只看 PATCH_MARKS、不看门控」后（见文件头
+ * 「补丁生命期」与 patchApplied）它已无调用方，且原注释「视为不适用而非
+ * 缺失」正是被推翻的旧判据，留着会误导后来者重新引入空洞。版本键漂移的
+ * 报告职责移交发版侧（scripts/update-profile-plugins.mjs 的 stalePatches /
+ * --release-gate），那里只产出「重出 patch 到新版本键」的发版待办，不参与
+ * 生效判定。 */
 
 /**
  * YAML 声明键：`@` 是 YAML 保留指示符，scoped 包名必须单引号包裹，

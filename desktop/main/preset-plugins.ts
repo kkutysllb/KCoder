@@ -99,7 +99,15 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // `node scripts/update-profile-plugins.mjs --check`：精确版本键随即失效、
   // 修复改由锄点注入兜底，verify 会报出「重出 patch 到新版本键」的发版
   // 待办——这是该插件升版的固定收尾动作。
-  'dsh-context': '^0.38.5',
+  // 2026-09-24 平移：^0.38.5 → ^0.55.0（与补丁线同线）。原文案「0.38.5 起
+  // index.js 不再 import settingsNamespace」是**下界**语义，而 `^0.38.5` 对
+  // 0.x 只跟随 patch 级（展开为 >=0.38.5 <0.39.0）——两者不一致会留下裸装
+  // 缺口：预置线锁 0.38.x（该线已无任何补丁），唯一补丁是 @0.55.0，新装
+  // profile 落到 0.38.5 时 pnpm 判 patch unused 不应用、锄点锚点（0.55.0
+  // 产物字节）也失配 ⇒ 两条修复全不落地，且发版闸在无 profile 的机器上
+  // 对此降级为警告、拦不住。0.55.0 已双源可见（npmjs + npmmirror），且为
+  // 本机 ~/.kcoder（0.6.16 / rc.1 引擎）实装运行版本（--check 零漂移）。
+  'dsh-context': '^0.55.0',
   // dsh-coding-sidebar（2026-09-19 un-retire @1.0.18）：自立 npm 包
   // （fork 自 DSH-better-sidebar 0.17.2，发版节奏自控），本声明仅牵引
   // 依赖树（codemirror/ws/node-pty 等 hoist 到 profile 顶层）+ bundles
