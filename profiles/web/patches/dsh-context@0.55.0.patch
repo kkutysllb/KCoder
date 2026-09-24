@@ -1,8 +1,8 @@
 diff --git a/lib/client.js b/lib/client.js
-index 830afe7..af69287 100644
+index 47cc1c4..40531f0 100644
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -4281,7 +4281,23 @@
+@@ -9066,7 +9066,23 @@ window.__ModuleLoader__.load({
  					const el = stageRef.current;
  					if (el === null || typeof ResizeObserver !== "function") return;
  					setStageWidth(el.clientWidth);
@@ -26,3 +26,16 @@ index 830afe7..af69287 100644
  						setStageWidth(el.clientWidth);
  					});
  					observer.observe(el);
+@@ -11607,7 +11623,11 @@ window.__ModuleLoader__.load({
+ 				const jump = () => {
+ 					const sessionId = props.sessionId;
+ 					if (seq !== null && typeof sessionId === "string" && sessionId !== "") requestContextFocus(sessionId, seq);
+-					if (!openContextSidebar(ctx)) activateContextTab(t("tab"));
++					/* KCoder kcCtxJumpViaTab：跳转一律走会话内「上下文」tab（activateContextTab），
++					 * 不经原生右栏 sidebarRight.openTab —— 右栏列展开在主对话区旁多占一列，
++					 * 本产品布局下呈现为大片空白，且与标题栏「上下文」按钮（同一 tab 路径）
++					 * 行为不一致。openContextSidebar 已随之整函数摘除（仅此处一个调用点） */
++					activateContextTab(t("tab"));
+ 				};
+ 				return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 					label: t("jump.title"),

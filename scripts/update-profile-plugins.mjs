@@ -13,6 +13,14 @@
  *   量化布局，Windows DPI 取整/经典滚动条占位下尺寸振荡不收敛，渲染
  *   失控吃满主线程直至白屏（打开上下文即冻结的根因；mac 天然收敛）。
  *   补丁加回路冷却（500ms 超 12 次触发即静默 1s，断振荡不永久失效）
+ * - dsh-context：0.55 轮尾「在上下文视图中查看此轮」jump 先试
+ *   sidebarRight.openTab 展开原生右栏列，本产品布局下呈现大片空白且与
+ *   标题栏「上下文」按钮不一致 → 改为一律走会话内 tab（activateContextTab），
+ *   openContextSidebar 整函数摘除
+ *   两条修复合并分发在 dsh-context@0.55.0.patch 一份 patch 里（同包两条
+ *   marks：kcRoHits / kcCtxJumpViaTab，锄点各自独立）。早前单独承载 RO
+ *   冷却的 dsh-context@0.38.2.patch 已退役——0.55.0 patch 与 kcRoHits
+ *   锄点都已含该修复，留着只会每次核对报一条无意义的版本漂移待办
  *
  * 补丁通过 pnpm patchedDependencies 固化在 profile：精确版本键
  *   （name@ver）只对匹配版本应用；版本漂移时声明“未用”由
@@ -26,19 +34,34 @@
  *   node scripts/update-profile-plugins.mjs --update  检查 npm 上游版本并 pnpm update 全部插件
  *   node scripts/update-profile-plugins.mjs --check   只打印本地/上游版本对比，不写任何文件
  *   node scripts/update-profile-plugins.mjs --align   只执行内置产物版本对齐（见 VERSION_ALIGNS）
+ *   node scripts/update-profile-plugins.mjs --release-gate  发版闸（只读，不过即 exit 1；
+ *                                                      release.sh 的 build/prepush/ship 调用）
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, unlinkSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolveRepoRoot()
-const PROFILE = process.env.DSH_HOME ? join(process.env.DSH_HOME, 'profiles/web') : join(homedir(), '.dsh/profiles/web')
-const PATCHES = [
-  'dsh-context@0.38.2.patch',
-]
+/** 补丁分发目录（唯一事实源）：清单由扫描得出，新增/退役补丁无需改本脚本，
+ *  发版闸（--release-gate）也随之自动覆盖。 */
+const PATCH_SRC_DIR = join(ROOT, 'profiles/web/patches')
+/** 仓库侧分发清单（*.patch 文件名）。 */
+const PATCHES = existsSync(PATCH_SRC_DIR)
+  ? readdirSync(PATCH_SRC_DIR).filter((f) => f.endsWith('.patch')).sort()
+  : []
+/** 目标 profile：显式 DSH_HOME 优先，否则 KCoder 自有 home，再退上游默认。 */
+const PROFILE = resolveProfile()
+
+function resolveProfile() {
+  if (process.env.DSH_HOME) return join(process.env.DSH_HOME, 'profiles/web')
+  const kcoder = join(homedir(), '.kcoder', 'profiles', 'web')
+  if (existsSync(kcoder)) return kcoder
+  return join(homedir(), '.dsh', 'profiles', 'web')
+}
+
 const WORKSPACE_YAML = join(PROFILE, 'pnpm-workspace.yaml')
 
 /** 从 patch 文件名提取包名（scoped 包的 `@scope__name` 还原为 `@scope/name`）。
@@ -54,9 +77,11 @@ function yamlKeyOf(pkg) {
 
 /** 各插件补丁生效特征（与 desktop/main/profile-patches.ts 保持一致）。 */
 const PATCH_MARKS = {
-  // dsh-context RO 回路冷却特征（Windows 打开上下文冻结白屏修复；与
-  // desktop/main/profile-patches.ts 同步更新）
-  'dsh-context': [['lib/client.js', 'kcRoHits']],
+  // dsh-context：两条独立修复，marks 全中才算生效（任一缺失 → 锄点注入，
+  // 与 desktop/main/profile-patches.ts 同步更新）
+  // 1) RO 回路冷却（Windows 打开上下文冻结白屏）
+  // 2) 轮尾 jump 改走会话内 tab，不再展开原生右栏（布局大片空白）
+  'dsh-context': [['lib/client.js', 'kcRoHits'], ['lib/client.js', 'kcCtxJumpViaTab']],
 }
 
 /**
@@ -152,21 +177,19 @@ function patchVersionMatches(patchFile, modDir) {
   }
 }
 
-/** 返回未生效的特征（{pkg}/{file} 列表）；空数组 = 全部生效。与
- *  desktop/main/profile-patches.ts 的 patchApplied 保持一致：未安装的包
- *  跳过（后续安装时 pnpm 自动应用）；版本漂移的 patch 跳过（门控）；
- *  mark 匹配前行尾归一化为 LF（CRLF 产物——如已退役的
- *  drag-to-attachment v1.0.3 tarball——跨行 mark 按字节匹配恒失配）。 */
+/**
+ * 生效核对：只按 PATCH_MARKS + 实装目录判，**不看版本门控**。
+ * 门控只决定「pnpm 会不会应用 patch」，与「修复在不在产物里」是两件事：
+ * 版本键漂移时 pnpm 判 unused 跳过，但 app 启动的锄点注入与版本键无关、
+ * 照样落位——此时若按门控 skip 就会恒真报「全部生效」，把真缺口藏起来
+ * （9-14 现场教训）。这里如实报 mark，缺了就是缺了，补丁链据此重出 patch。
+ */
 function patchApplied() {
   const missing = []
-  for (const f of PATCHES) {
-    const pkg = pkgNameOf(f)
-    const marks = PATCH_MARKS[pkg]
-    if (!marks) continue
+  for (const pkg of Object.keys(PATCH_MARKS)) {
     const modDir = join(PROFILE, 'node_modules', pkg)
-    if (!existsSync(modDir)) continue
-    if (!patchVersionMatches(f, modDir)) continue
-    for (const [rel, mark] of marks) {
+    if (!existsSync(modDir)) continue // 未安装：后续安装时 pnpm 自动应用
+    for (const [rel, mark] of PATCH_MARKS[pkg]) {
       const file = join(modDir, rel)
       if (!existsSync(file) || !readFileSync(file, 'utf8').replace(/\r\n/g, '\n').includes(mark)) {
         missing.push(`${pkg}/${rel}`)
@@ -177,23 +200,17 @@ function patchApplied() {
 }
 
 /**
- * 忽略版本门控的生效核对（只按 PATCH_MARKS + 实装目录）：精确键漂移时
- * patchApplied 会因为门控 skip 而恒真（假的「全部生效」），而 app 侧自愈
- * 链的锄点注入与版本键无关——这里如实报告，避免误导。
+ * 精确版本键与实装版本不符的补丁（pnpm 判 unused 不应用）。这些补丁的
+ * 修复此刻只靠 app 侧锄点注入兜着——**每次插件升版都必须走一遍
+ * --sync/--check**：mark 仍在 → 锄点已落位，等下次发版把 patch 重出到
+ * 新版本键（锄点按字节锚、版本无关）；mark 缺 → 该版本产物字节变了，
+ * 锄点也没锚中，必须立即重出 patch 并提交，否则随包分发物化不出修复。
  */
-function marksMissingIgnoringGate() {
-  const missing = []
-  for (const pkg of Object.keys(PATCH_MARKS)) {
-    const modDir = join(PROFILE, 'node_modules', pkg)
-    if (!existsSync(modDir)) continue
-    for (const [rel, mark] of PATCH_MARKS[pkg]) {
-      const file = join(modDir, rel)
-      if (!existsSync(file) || !readFileSync(file, 'utf8').replace(/\r\n/g, '\n').includes(mark)) {
-        missing.push(`${pkg}/${rel}`)
-      }
-    }
-  }
-  return missing
+function stalePatches() {
+  return PATCHES.filter((f) => {
+    const modDir = join(PROFILE, 'node_modules', pkgNameOf(f))
+    return existsSync(modDir) && !patchVersionMatches(f, modDir)
+  })
 }
 
 /** 幂等声明 patchedDependencies，声明跟随 dependencies 实态（与
@@ -327,33 +344,114 @@ function updatePlugin() {
   }
 }
 
+/**
+ * 生效核对（--sync/--update/--check 跑完都走一遍，是「随版本发布物化」的
+ * 哨口）：
+ * 1) patchApplied（不看门控）判修复在不在产物里——缺一个 mark 就算缺；
+ * 2) stalePatches 单独报「精确版本键已漂移、pnpm 这轮没应用」的补丁：
+ *    它们的修复此刻只靠 app 启动的锄点注入兜着，patch 文件需要重出到新
+ *    版本键（锄点按字节锚、版本无关，通常 mark 仍在位）；
+ * 3) 两者交叉决定提示：mark 在位 + 版本漂移 = 重出 patch（发版动作，不
+ *    阻塞）；mark 缺失 = 锄点也没锚中，必须立即重出并提交，否则新装用户
+ *    拿不到修复。
+ */
 function verify() {
   const missing = patchApplied()
-  // 门控态（patch 文件精确键与实装版本不符时 pnpm 判 unused 不应用）单独
-  // 报告：此时 patchApplied 恒真，真正的生效判据是锄点注入的 marks。
-  const gated = PATCHES.filter((f) => {
-    const modDir = join(PROFILE, 'node_modules', pkgNameOf(f))
-    return existsSync(modDir) && !patchVersionMatches(f, modDir)
-  })
-  if (gated.length > 0) {
-    say(`补丁跳过（精确版本键漂移，pnpm 判 unused 不应用）：${gated.join('、')}`)
+  const stale = stalePatches()
+  if (stale.length > 0) {
+    say(`补丁版本键漂移（pnpm 本轮判 unused 未应用，修复由锄点注入兜底）：${stale.join('、')}`)
   }
-  const missingIgnoringGate = marksMissingIgnoringGate()
-  if (missing.length === 0 && missingIgnoringGate.length === 0) {
+  if (missing.length === 0) {
+    if (stale.length > 0) {
+      say('补丁校验：修复全部在产物里 ✓（marks 在位）')
+      console.warn('  待办（发版前）：把上述 patch 重出到当前实装版本键，使 pnpm 路径也生效——')
+      console.warn('  逐 hunk 对当前产物取证后改名（profiles/web/patches/ → @<实装版本>.patch），')
+      console.warn('  同步 PATCHES 清单，再跑一次 --check 确认零漂移。')
+      return
+    }
     say('补丁校验：全部生效 ✓')
     return
   }
-  if (missing.length === 0 && missingIgnoringGate.length > 0) {
-    // 门控跳过的包靠 app 侧锄点注入兑底：注入后 mark 应在位；仍缺说明
-    // 版本产物字节变了（锄点锚点失配）——必须重出 patch（见下提示）。
-    for (const m of missingIgnoringGate) console.warn(`  补丁未生效：${m}`)
-    console.warn('  其中含版本门控跳过的包：app 启动时的锄点注入应已覆盖；')
-    console.warn('  若重启 app 后仍缺，则该版本产物字节已变，需重出 profiles/web/patches/ 下的 patch。')
+  for (const m of missing) console.warn(`  补丁未生效：${m}`)
+  if (stale.length > 0) {
+    console.warn('  其中含版本键漂移的补丁：锄点注入也没锚中 → 该版本产物字节已变；')
+    console.warn('  必须立即重出 patch（对当前产物取证）并提交，否则随包分发的物化拿不到修复。')
     return
   }
-  for (const m of missing) console.warn(`  补丁未生效：${m}`)
-  console.warn('  提示：上游若已修复对应缺陷，patch 上下文不匹配被静默跳过属正常；')
-  console.warn('  若上游仍未修复，则需更新 profiles/web/patches/ 下的 patch 后重跑 --sync。')
+  console.warn('  提示：上游若已修复对应缺陷，patch 上下文不匹配被静默跳过属正常——')
+  console.warn('  此时应把该缺陷补丁线整线退役（补丁文件 + PATCH_MARKS + PATCH_FALLBACKS 一并摘）；')
+  console.warn('  若上游仍未修复，则需重出 profiles/web/patches/ 下的 patch 后重跑 --sync。')
+}
+
+/**
+ * 发版闸（--release-gate，由 release.sh 的 build/prepush/ship 调用）：只读
+ * 校验，任一不过即 exit 1。拦住四类会让「补丁随版本物化」断供的现场：
+ *
+ * 1. **分发目录存在**（release.sh 另有包内逐文件对账，这里是构建前更早的一道）；
+ * 2. **实装产物有修复**：PATCH_MARKS 全中（不看版本门控）——缺 mark 说明
+ *    连锄点注入都没锚中，新装用户拿不到修复；
+ * 3. **无版本键漂移**：patch 文件名版本 == 实装版本。漂移本身不影响修复
+ *    （锄点兜着），但意味着这次发版没把 patch 重出到实装版本键，pnpm 路径
+ *    是哑的——属于发版作业漏做，拒绝；
+ * 4. **声明就位**：每份 patch 在 profile 的 patchedDependencies 里有对应
+ *    精确键。没有 profile（CI/干净机器）时 2~4 降级为警告：这些是「现场
+ *    物化」的判据，仓库侧（1）仍强制。
+ */
+function releaseGate() {
+  const problems = []
+  if (PATCHES.length === 0) problems.push(`分发补丁清单为空（${PATCH_SRC_DIR} 下无 *.patch）`)
+
+  const profileReady = existsSync(WORKSPACE_YAML) && existsSync(join(PROFILE, 'node_modules'))
+  if (!profileReady) {
+    if (problems.length > 0) {
+      for (const p of problems) console.error(`  补丁闸未过：${p}`)
+      process.exit(1)
+    }
+    console.warn(`[plugins] 补丁闸：未发现 profile（${PROFILE}）——现场物化判据降级为警告，仅校验仓库侧分发 ✓`)
+    return
+  }
+
+  // 2) 修复在不在产物里（不看门控）
+  for (const m of patchApplied()) problems.push(`修复未落位（marks 缺失）：${m} → 锄点锚点已失配，必须重出 patch`)
+  // 3) 版本键漂移
+  for (const f of stalePatches()) {
+    const v = localVersion(pkgNameOf(f)) ?? '未安装'
+    problems.push(`版本键漂移：${f} 对应实装 v${v} → 发版前必须把该 patch 重出到当前版本键（对产物逐 hunk 取证后改名 + 同步分发清单）`)
+  }
+  // 4) patchedDependencies 声明
+  let yaml = ''
+  try {
+    yaml = readFileSync(WORKSPACE_YAML, 'utf8')
+  } catch {
+    problems.push(`patchedDependencies 不可读：${WORKSPACE_YAML}`)
+  }
+  for (const f of PATCHES) {
+    const vm = /@([^@]+)\.patch$/.exec(f)
+    const pkg = pkgNameOf(f)
+    const key = vm === null || vm[1] === 'x' ? pkg : `${pkg}@${vm[1]}`
+    const line = new RegExp(String.raw`^\s*'?${key.replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`)}'?\s*:\s*patches/`, 'm')
+    if (!line.test(yaml)) problems.push(`patchedDependencies 缺声明：${key} → patches/${f}`)
+  }
+  // 同包多版本键会让 pnpm 拒解析整份 workspace.yaml（v0.2.9 老代码的重复行现场）。
+  // 注意键须含 `@`：否则 `pkg` 的正则会前缀命中 `pkg-other@x`。
+  for (const pkg of new Set(PATCHES.map(pkgNameOf))) {
+    const re = new RegExp(
+      String.raw`^\s*'?(?:${pkg.replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`)}(?:@[^':\s]+)?|@[^'/]+/${pkg.replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`)}@[^':\s]+)'?\s*:\s*patches/(\S+)`,
+      'gm',
+    )
+    const keys = [...yaml.matchAll(re)].map((m) => m[1])
+    if (keys.length > 1) {
+      problems.push(`patchedDependencies 同包多版本键（pnpm 会拒解析）：${keys.join('、')} → 同包只保留当前实装版本那一条`)
+    }
+  }
+
+  if (problems.length > 0) {
+    console.error(`[plugins] 补丁闸未过（${problems.length} 项）——发布中断：`)
+    for (const p of problems) console.error(`  ✗ ${p}`)
+    console.error('  逐条处置后重跑：node scripts/update-profile-plugins.mjs --check')
+    process.exit(1)
+  }
+  console.log(`[plugins] 补丁闸通过 ✓（${PATCHES.length} 份 patch：仓库分发 + 现场 marks + 版本键零漂移 + 声明就位）`)
 }
 
 const mode = process.argv[2] ?? '--sync'
@@ -364,6 +462,9 @@ switch (mode) {
       say(`${pkg}：本地 v${localVersion(pkg) ?? '未安装'}，npm 上游 v${latest ?? '不在 npm（github 源）'}`)
     }
     verify()
+    break
+  case '--release-gate':
+    releaseGate()
     break
   case '--update':
     ensurePatchDeclared()
@@ -380,5 +481,5 @@ switch (mode) {
     alignVersions()
     break
   default:
-    die(`未知模式 ${mode}（可用：--sync / --update / --check / --align）`)
+    die(`未知模式 ${mode}（可用：--sync / --update / --check / --align / --release-gate）`)
 }

@@ -20,7 +20,8 @@
 #   发版前置（2026-09-11 规定）：先跑全仓库审计并写报告：
 #     bash scripts/release.sh audit        # typecheck/lint/安全漏洞门 + 死代码/冗余依赖报告
 #     处置发现项后写 release/audit-v<版本>.md（ship 强制校验，缺失即拒绝发布）
-#     bash scripts/release.sh prepush      # 全仓库 pre-push 门（审计 + 全量构建），可单独跑
+#     bash scripts/release.sh prepush      # 全仓库 pre-push 门（审计 + 插件补丁闸 + 全量构建），可单独跑
+#     bash scripts/release.sh patchgate    # 插件热补丁发版闸（只读；prepush/ship/build 已内置），可单独跑
 #
 # 本地调试/应急（可选）：
 #   bash scripts/release.sh build        # 本地打包 + 校验（含公证，需凭据）
@@ -85,11 +86,28 @@ cmd_status() {
 
 # ─────────────────────────── build ───────────────────────────
 
+# 插件热补丁发版闸（2026-09-24 起强制）：预置插件（dsh-context 等）的常驻
+# 修复补丁靠「pnpm patch + 版本无关锄点」跨版本物化，任何一处断供都会让新
+# 装用户拿到裸插件（缺陷复现）。闸口在构建之前——只读校验，不过即中断：
+#   1) 仓库分发清单非空（profiles/web/patches/*.patch，清单由扫描得出）；
+#   2) 实装产物 marks 全中（缺 = 连锄点都没锚中，必须重出 patch）；
+#   3) 版本键零漂移（漂移 = 本次没把 patch 重出到实装版本，pnpm 路径是哑的）；
+#   4) profile 的 patchedDependencies 声明就位、同包无多版本键。
+# 无 profile（CI/干净机器）时 2~4 降级为警告：它们是现场物化判据，仓库侧
+# （1）仍强制。详见 desktop/main/profile-patches.ts 文件头「补丁生命期」。
+cmd_patchgate() {
+  node "$ROOT/scripts/update-profile-plugins.mjs" --release-gate \
+    || die "插件热补丁闸未过（处置见上）——避免带着断供的补丁链发版"
+}
+
 cmd_build() {
   command -v node >/dev/null 2>&1 || die "需要 node"
   command -v pnpm >/dev/null 2>&1 || die "需要 pnpm"
 
-  # 0) 上游 vendor/ 纯净 preflight：物化/手工 deploy 的残留目录会被 tsdown
+  # 0) 插件热补丁发版闸（见 cmd_patchgate 注释）
+  cmd_patchgate
+
+  # 0.5) 上游 vendor/ 纯净 preflight：物化/手工 deploy 的残留目录会被 tsdown
   #    workspace glob vendor/* 当成假成员，以根包名义报 Cannot find entry
   #    炸掉上游构建（rc.5/alpha.2/alpha.3 三次复发）。无条件过闸——上游
   #    「已构建」时残留同样可能出现（v0.5.0 期：bin.js 01:13 在、残留 01:19 来）
@@ -289,10 +307,11 @@ cmd_audit() {
   node "$ROOT/scripts/audit.mjs"
 }
 
-# 全仓库 pre-push 门：审计 + 全量构建（main/preload/renderer）。
+# 全仓库 pre-push 门：审计 + 插件补丁闸 + 全量构建（main/preload/renderer）。
 cmd_prepush() {
-  say "全仓库 pre-push 门：审计 + 全量构建…"
+  say "全仓库 pre-push 门：审计 + 插件补丁闸 + 全量构建…"
   cmd_audit
+  cmd_patchgate
   pnpm --dir "$ROOT" run build
   ok "全仓库 pre-push 通过"
 }
@@ -468,6 +487,7 @@ main() {
   case "$cmd" in
     status)  cmd_status "$@" ;;
     audit)   cmd_audit "$@" ;;
+    patchgate) cmd_patchgate "$@" ;;
     prepush) cmd_prepush "$@" ;;
     ship)    cmd_ship "$@" ;;
     build)   cmd_build "$@" ;;
@@ -476,7 +496,7 @@ main() {
     tag)     cmd_tag "$@" ;;
     release) cmd_release "$@" ;;
     help|-h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}" ;;
-    *) die "未知命令：${cmd}（可用：status audit prepush ship build verify bump tag release help）" ;;
+    *) die "未知命令：${cmd}（可用：status audit patchgate prepush ship build verify bump tag release help）" ;;
   esac
 }
 

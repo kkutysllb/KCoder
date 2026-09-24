@@ -50,6 +50,19 @@
  *   overlay 滚动条/整数缩放天然收敛故无感，上游最新版仍带病）。补丁给
  *   RO 回调加回路冷却：500ms 窗口触发超 12 次即静默 1s（跳过
  *   setState 断振荡回路，冷却后自动重试不永久失效）
+ * - dsh-context 之二（2026-09-24 现场报入——同上包的第二条独立修复）：
+ *   轮尾「在上下文视图中查看此轮」jump 回调先试 sidebarRight.openTab
+ *   展开原生右栏列（插件的可选增强路径），本产品布局下右栏列展开后主
+ *   对话区旁留出大片空白，且与标题栏「上下文」按钮（走会话内 tab，
+ *   见 context-button.ts）不一致。修复：jump 一律走 activateContextTab
+ *   （插件自带、原为 sidebar 缺席时的兑底），openContextSidebar 随之整
+ *   函数摘除（全仓唯一调用点即该 jump；SIDEBAR_CONTEXT_KIND 的 tab 类
+ *   型注册保留，用户仍可自行从右栏 tab 条打开）。与 RO 冷却合并分发在
+ *   同一份 patch（dsh-context@0.55.0.patch 含 RO + jump 两组 hunk），
+ *   同包两条 marks（kcRoHits / kcCtxJumpViaTab）+ 两条独立锄点各自校验、
+ *   互不遮蔽；早前单独承载 RO 冷却的 dsh-context@0.38.2.patch 已退役
+ *   （0.55.0 patch 的 RO hunk 与 kcRoHits 锄点都已覆盖，留着只会每次核对
+ *   多报一条无意义的版本漂移待办）
  *
  * 补丁经 pnpm patchedDependencies 固化在用户 profile：精确版本键
  * （name@ver）只对匹配版本应用；版本漂移时声明“未用”，由
@@ -57,6 +70,29 @@
  * 上游 packageManager）对补丁应用失败是硬错误 ERR_PNPM_PATCH_FAILED，
  * name-only 全版本强套 + 静默跳过是 pnpm 10 语义。@x（无版本锚）patch
  * 维持 name-only，失配面收窄到这一类（补丁链自愈兑底覆盖）。
+ *
+ * ## 补丁生命期：常驻 / 随版本 / 退役（针对预置插件，dsh-context 为样板）
+ *
+ * 这是**产品级常驻补丁**，不是一次性现场修复——只要 KCoder 还预置该插件
+ * （PRESET_PLUGINS）就一直在链上，靠两条腿跨版本活着：
+ *
+ * 1. **pnpm patch（版本键精确）**：与实装版本键一致时安装即应用，零运行时
+ *    成本。上游升版后按 name@<新版本> 重出（发版动作，见 3）。
+ * 2. **锄点注入（版本无关）**：锚点按产物字节、mark 按引入串判定，与版本
+ *    无关——升版后 pnpm 判 unused 不应用时，下一次 app 启动即落位修复。
+ *    这就是「上游连续升版、我们没来得及重出 patch」也不会裸装带缺陷的原因。
+ * 3. **发版哨口**：`scripts/update-profile-plugins.mjs --update/--sync/--check`
+ *    跑完必走 verify：mark 在位 + 版本键漂移 → 打印「重出 patch 到当前
+ *    实装版本键」待办；mark 缺失 → 锄点也没锚中（产物字节变了），必须
+ *    重出并提交，否则随包物化拿不到修复。release.sh 另有「包内
+ *    profile-patches 与仓库逐文件对账」，新增补丁漏提交/映射漂移在打包时拦下。
+ * 4. **退役**：上游自行修掉该缺陷后，锄点锚点消失（注入跳过留日志）、
+ *    mark 不再需要——把该缺陷那条线整线摘除（patch 文件 + PATCHES 清单 +
+ *    PATCH_MARKS + PATCH_FALLBACKS 该条），插件本身退役则同时摘出
+ *    PRESET_PLUGINS。RETIRED_PATCH_PKGS 负责回收现场残留。
+ *
+ * 每条修复一个独立 patch + 独立 mark/锄点，互不遮蔽：同一包的多条修复
+ * 各自可退可换，marks 必须全中才算该包补丁生效。
  *
  * macOS 上靠 launchd 定时任务同步；Windows 无此机制，且 0.1.5 之前
  * 的安装包根本不随包分发 patch——本模块补上：app 启动时（dsh 启动
@@ -117,9 +153,13 @@ function patchFiles(source: string): string[] {
  * 补丁时同步更新）。
  */
 const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
-  // 修复特征：RO 回路冷却（kcRoHits 为 KCoder 引入变量名，原版无此串
+  // 修复特征 1：RO 回路冷却（kcRoHits 为 KCoder 引入变量名，原版无此串
   // 不可误判；Windows 打开上下文冻结白屏修复）
-  'dsh-context': [['lib/client.js', 'kcRoHits']],
+  // 修复特征 2：轮尾「在上下文视图中查看此轮」跳转改走会话内 tab
+  // （kcCtxJumpViaTab 同为用户态不存在的引入串）
+  // 两条修复各自独立，marks 必须全中才算该包补丁生效——任一缺失即走
+  // 锄点注入，否则会被误判「已生效」而静默跳过（9-14 现场教训）
+  'dsh-context': [['lib/client.js', 'kcRoHits'], ['lib/client.js', 'kcCtxJumpViaTab']],
 }
 
 /**
@@ -160,13 +200,28 @@ interface PatchFallback {
 
 const PATCH_FALLBACKS: PatchFallback[] = [
   {
-    // dsh-context 0.38.2 agents 森林图 RO 回路冷却（Windows 打开上下文
-    // 冻结白屏根因，见文件头 dsh-context 条目）：锚 RO 回调原字节
-    // （tab 缩进产物），replace 与 dsh-context@0.38.2.patch 内容等价
+    // dsh-context agents 森林图 RO 回路冷却（Windows 打开上下文冻结白屏
+    // 根因，见文件头 dsh-context 条目）：锚 RO 回调原字节（tab 缩进产物），
+    // replace 与 dsh-context@0.55.0.patch 的首组 hunk 等价（原 0.38.2 patch
+    // 已退役，修复并入 0.55.0 patch）
     pkg: 'dsh-context', file: 'lib/client.js',
     mark: 'kcRoHits',
     anchor: '\t\t\t\t\tconst observer = new ResizeObserver(() => {\n\t\t\t\t\t\tsetStageWidth(el.clientWidth);\n\t\t\t\t\t});',
     replace: '\t\t\t\t\tlet kcRoHits = [];\n\t\t\t\t\tlet kcRoSkipUntil = 0;\n\t\t\t\t\tconst observer = new ResizeObserver(() => {\n\t\t\t\t\t\t/* KCoder：RO 回路冷却——Windows DPI 取整/经典滚动条占位可令\n\t\t\t\t\t\t * stage 尺寸振荡（量化宽反馈）：RO 触发 → setStageWidth →\n\t\t\t\t\t\t * 重渲染 → 布局再变 → RO 再触发，失控吃满主线程直至白屏。\n\t\t\t\t\t\t * 500ms 内触发超 12 次即静默 1s：跳过 setState 即断振荡回路，\n\t\t\t\t\t\t * 冷却后自动重试，不永久失效 */\n\t\t\t\t\t\tconst now = Date.now();\n\t\t\t\t\t\tif (now < kcRoSkipUntil) return;\n\t\t\t\t\t\tkcRoHits = kcRoHits.filter((t) => now - t < 500);\n\t\t\t\t\t\tkcRoHits.push(now);\n\t\t\t\t\t\tif (kcRoHits.length > 12) {\n\t\t\t\t\t\t\tkcRoHits = [];\n\t\t\t\t\t\t\tkcRoSkipUntil = now + 1000;\n\t\t\t\t\t\t\treturn;\n\t\t\t\t\t\t}\n\t\t\t\t\t\tsetStageWidth(el.clientWidth);\n\t\t\t\t\t});',
+  },
+  {
+    // dsh-context 0.55 轮尾跳转（用户现场 2026-09-24）：尾卡「在上下文
+    // 视图中查看此轮」原走 sidebarRight.openTab 展开原生右栏列，本产品
+    // 布局下呈现为大片空白，且与标题栏「上下文」按钮（同一会话内 tab
+    // 路径）行为不一致。锄点一次落位三处：摘除 openContextSidebar 的
+    // doc 注释与函数体（SIDEBAR_CONTEXT_KIND 的 tab 注册保留，仅摘程序
+    // 化开栏入口）、jump 回调去掉开栏分支、换 KCoder 注释 + 直调
+    // activateContextTab。replace 与 dsh-context@0.55.0.patch 的第二组 hunk
+    // 等价（该 patch 同时含上一条 RO 冷却的 hunk，两条 marks 各自校验）
+    pkg: 'dsh-context', file: 'lib/client.js',
+    mark: 'kcCtxJumpViaTab',
+    anchor: '\t\t\t\t\tif (!openContextSidebar(ctx)) activateContextTab(t("tab"));',
+    replace: '\t\t\t\t\t/* KCoder kcCtxJumpViaTab：跳转一律走会话内「上下文」tab（activateContextTab），\n\t\t\t\t\t * 不经原生右栏 sidebarRight.openTab —— 右栏列展开在主对话区旁多占一列，\n\t\t\t\t\t * 本产品布局下呈现为大片空白，且与标题栏「上下文」按钮（同一 tab 路径）\n\t\t\t\t\t * 行为不一致。openContextSidebar 已随之整函数摘除（仅此处一个调用点） */\n\t\t\t\t\tactivateContextTab(t("tab"));',
   },
 ]
 
@@ -206,9 +261,13 @@ function enforcePatchFallbacks(profileDir: string): void {
 }
 
 /**
- * 补丁是否已生效：逐 patch 按包名特征校验；插件未安装视为已满足
- * （后续 dsh plugin install 时 pnpm 对匹配版本自动应用）；带版本的
- * 声明在版本漂移时不应用（「未用」），锄点兑底与自愈链据此跳过。
+ * 修复是否已在产物里：逐包按 PATCH_MARKS 特征校验（**不看版本门控**）。
+ * 门控只回答「pnpm 会不会应用这份 patch」，与本问题「修复在不在产物里」
+ * 正交：版本键漂移时 pnpm 判 unused 跳过，而这里的第 3 步锄点注入与版本
+ * 键无关、照样落位；若此处也按门控 skip，就会出现「marks 缺失却恒报已
+ * 生效」，从而静默跳过锄点注入（9-14 现场：dsh-context 实装 0.52.0、
+ * 补丁键 @0.38.2 被门控跳过、产物既无 kcRoHits 又保留原始锚点＝能修却
+ * 被跳过）。插件未安装视为已满足（后续安裝时 pnpm 对匹配版本自动应用）；
  * mark 匹配前把产物行尾归一化为 LF——CRLF 产物（如已退役的
  * drag-to-attachment v1.0.3 tarball）的跨行组合 mark 按字节匹配会恒
  * 失配，导致每次启动误判未生效而反复 install 重放（阻塞主进程）。
@@ -220,7 +279,6 @@ function patchApplied(profileDir: string, files: string[]): boolean {
     if (!marks) continue
     const modDir = join(profileDir, 'node_modules', pkg)
     if (!existsSync(modDir)) continue
-    if (!patchVersionMatches(f, modDir)) continue
     for (const [rel, mark] of marks) {
       const file = join(modDir, rel)
       if (!existsSync(file) || !readFileSync(file, 'utf8').replace(/\r\n/g, '\n').includes(mark)) {
@@ -506,18 +564,17 @@ export function ensureProfilePatches(): void {
     //    v0.2.0 的教训：install 重放在 Windows 现场可能慢/失败/静默
     //    跳过（spawnSync 还会阻塞主进程至多 10 分钟），作为兑底而非
     //    首选。注入没全中（版本漂移致锄点失配）才回退 install 重放，
-    //    让 pnpm 重新解包应用 name-only 补丁。
+    //    让 pnpm 重新解包应用补丁。
     //    插件未装则声明就位即可（后续安装时 pnpm 自动应用）。
-    //    ⚠️ 版本门控空洞（本次修）：patchApplied 对 patchVersionMatches
-    //    为假的补丁直接 continue（视为该包无要求），该包的 mark 于是不再
-    //    被要求——只要同批还有别的补丁（或该包是唯一补丁）就会恒真 →
-    //    这里提前 return「补丁全部生效，无需自愈」，锄点注入永不执行，
-    //    插件裸装带缺陷（9-14 现场：dsh-context 实装 0.52.0 而补丁键
-    //    @0.38.2 被门控跳过，其 lib/client.js 既无 kcRoHits、原始 RO
-    //    回调锚点又完整在位——属"能修但被静默跳过"，脚本 verify 的
-    //    忽略门控核对把它照出来了）。因此锄点注入先无条件跑一遍——幂等
-    //    （mark 命中即跳过；锚点命中数 ≠ 1 只告警不写），无平台/网络
-    //    依赖——再做生效校验，杜绝"静默无操作"。
+    //    判据链：patchApplied 只看 PATCH_MARKS（**不看版本门控**——门控
+    //    只决定 pnpm 是否应用，锄点注入与版本键无关）。这条链正是
+    //    「补丁随版本常驻」的机制：上游升版 → pnpm 判精确键 unused 不应用
+    //    → mark 不在 → 下一次启动锄点注入立刻落位（幂等：mark 命中即跳过；
+    //    锚点命中数 ≠ 1 只告警不写）。锄点也没锚中＝该版本产物字节变了，
+    //    由发版侧 scripts/update-profile-plugins.mjs 的 verify 照出来并要
+    //    求重出 patch。9-14 现场的反例（dsh-context 实装 0.52.0、补丁键
+    //    @0.38.2 被门控跳过、产物既无 kcRoHits 又保留原始锚点＝能修却被
+    //    跳过）即因当时 patchApplied 也按门控 skip 而恒真——该空洞已删。
     enforcePatchFallbacks(profileDir)
     if (patchApplied(profileDir, files)) {
       healLog('[patches] 补丁全部生效（含锄点注入复核），无需自愈')

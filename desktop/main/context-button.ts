@@ -90,6 +90,13 @@ const BACK_BTN_ID = '__dsh_desktop_context_back'
 
 /** 沉浸模式 console 上报前缀（terminal-panel.onConsole 消费）。 */
 const CONTEXT_PREFIX = '__dsh_ctx__:'
+// 注意（2026-09-24）：会话轮尾卡「在上下文视图中查看此轮」的 jump 与
+// 本按钮共用同一 tab 路径——dsh-context 侧由分发补丁
+// （profiles/web/patches/dsh-context@0.55.0.patch + 锄点 kcCtxJumpViaTab）
+// 摘掉了它原本先试的 sidebarRight.openTab 分支：本产品布局下右栏列
+// 展开会在主对话区旁留出大片空白，用户报为「布局一大片空白」。右栏
+// 的 tab 类型注册（SIDEBAR_CONTEXT_KIND）保留，用户仍可自行从右栏
+// tab 条打开；程序化开栏入口 openContextSidebar 已整函数摘除。
 
 /** IconQueueOutline14（上游 ui-primitives，对话气泡 + 内容行 = 会话
  * 上下文；v1 用 IconDataOutline16 被看成汉字——三枚六边形集群在

@@ -93,6 +93,12 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // 0.38.5 起 index.js 不再 import settingsNamespace（alpha.2 的
   // dsh-settings 已移除该导出）——0.37.x 与 alpha.2 引擎组合启动即
   // SyntaxError 全局崩（0.4.9 Windows 升级现场实证）
+  // 注意：该预置插件同时挂两条常驻修复补丁（RO 回路冷却 / 轮尾 jump 走
+  // 会话内 tab，见 profile-patches.ts 文件头「补丁生命期」）。升本 spec
+  // 或 pnpm update 之后必须跑一次
+  // `node scripts/update-profile-plugins.mjs --check`：精确版本键随即失效、
+  // 修复改由锄点注入兜底，verify 会报出「重出 patch 到新版本键」的发版
+  // 待办——这是该插件升版的固定收尾动作。
   'dsh-context': '^0.38.5',
   // dsh-coding-sidebar（2026-09-19 un-retire @1.0.18）：自立 npm 包
   // （fork 自 DSH-better-sidebar 0.17.2，发版节奏自控），本声明仅牵引
