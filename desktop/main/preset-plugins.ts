@@ -243,6 +243,40 @@ function ensurePnpmBuildsAllowed(workspacePath: string): void {
 }
 
 /**
+ * 内置侧边栏插件在组合树里的**行 id**。
+ *
+ * ⚠️ 与包名不同名：`bundle/dsh-coding-sidebar/cordis.patch.yml` 插入的是
+ * `- id: better-sidebar` / `name: 'dsh-coding-sidebar'`（行 id 沿用
+ * DSH-better-sidebar 时代）。**按包名寻址会指向一个不存在的行**——引擎只打印
+ * 一行 `patch: entry "dsh-coding-sidebar" not found` 就跳过，写在里面的 config
+ * 永远不生效（2026-09-24 现场：本模块一直按包名写，mac 新装用户因此缺标题栏
+ * 避让，而老用户看不出来是因为设置页把自己的配置写在了这条活行上）。
+ */
+const SIDEBAR_ROW_ID = 'better-sidebar'
+
+/** 早期误把包名当行 id 写下的死行 id（见 SIDEBAR_ROW_ID）。 */
+const SIDEBAR_ROW_ID_LEGACY = 'dsh-coding-sidebar'
+
+/** 标题栏避让的两个键（也是回收死行时的形状判据）。 */
+const SIDEBAR_COMPAT_KEYS = ['titleBarCompat', 'titleBarStripPx'] as const
+
+/**
+ * 该行是否是**本模块自己**写下的死行：无 `name`、键仅 id/config、config 键
+ * 不超出两个避让键。用户手写的同名行（带 name / 混了别的键）不回收。
+ */
+function isOwnCompatRow(row: YAMLMap): boolean {
+  if (row.has('name')) return false
+  for (const item of row.items) {
+    const key = String(item.key)
+    if (key !== 'id' && key !== 'config') return false
+  }
+  const config = row.get('config')
+  if (config === undefined) return true
+  if (!(config instanceof YAMLMap)) return false
+  return config.items.every((item) => SIDEBAR_COMPAT_KEYS.includes(String(item.key) as typeof SIDEBAR_COMPAT_KEYS[number]))
+}
+
+/**
  * 幂等补写 coding-sidebar 标题栏避让配置（profile cordis.patch.yml 行
  * config，键 = 插件 Config 的 volatile 字段）：面板顶部让位 KCoder 自绘
  * 状态栏（48px，取 SHELL_TITLEBAR_HEIGHT 防魔数漂移；开关簇本体由
@@ -250,6 +284,10 @@ function ensurePnpmBuildsAllowed(workspacePath: string): void {
  * 用户/设置页改过则不动；调用时序在 dsh 启动前，与引擎 configEditor
  * 无并发窗口，故不加锁（运行期并发写统一走 profile-config-lock.ts）。
  * tabsEnabled 不写：终端/Git 等重功能保持插件默认，用户经设置页自选。
+ *
+ * 顺带回收**死行**（SIDEBAR_ROW_ID_LEGACY，形状判据见 isOwnCompatRow）：
+ * 它是本模块早期按包名寻址的产物，既让引擎每次启动打一行 not found 警告，
+ * 又从不生效。只回收自己写的形状，用户手写内容不动。
  */
 function ensureSidebarCompatPatch(): void {
   try {
@@ -257,17 +295,24 @@ function ensureSidebarCompatPatch(): void {
     if (!existsSync(patchPath)) return // profile 未初始化（首装）：下次启动重试
     const doc: Document = parseDocument(readFileSync(patchPath, 'utf8'))
     if (doc.errors.length > 0 || !(doc.contents instanceof YAMLSeq)) return // 坏 YAML 不动（mcp-store 同款守则）
+    // 先整个扫一遍再改：deleteIn 会移位，边扫边删会漏。
+    // 用 for…of 而非 forEach：闭包内赋值 TS 的控制流分析看不见，row 会被收窄成 never。
     let row: YAMLMap | null = null
-    for (const item of doc.contents.items) {
-      if (item instanceof YAMLMap && !item.has('insert') && String(item.get('id')) === 'dsh-coding-sidebar') {
-        row = item
-        break
-      }
+    const deadRows: number[] = []
+    for (const [index, item] of doc.contents.items.entries()) {
+      if (!(item instanceof YAMLMap) || item.has('insert')) continue
+      const id = String(item.get('id'))
+      if (id === SIDEBAR_ROW_ID) row ??= item
+      else if (id === SIDEBAR_ROW_ID_LEGACY && isOwnCompatRow(item)) deadRows.push(index)
     }
     let changed = false
+    for (const index of deadRows.reverse()) {
+      doc.deleteIn([index])
+      changed = true
+    }
     if (row === null) {
       const config = doc.createNode({ titleBarCompat: true, titleBarStripPx: SHELL_TITLEBAR_HEIGHT }) as YAMLMap
-      const entry = doc.createNode({ id: 'dsh-coding-sidebar' }) as YAMLMap
+      const entry = doc.createNode({ id: SIDEBAR_ROW_ID }) as YAMLMap
       entry.set('config', config)
       doc.contents.add(entry)
       changed = true
@@ -289,7 +334,10 @@ function ensureSidebarCompatPatch(): void {
     }
     if (!changed) return
     writeFileSync(patchPath, doc.toString({ lineWidth: 0 }), 'utf8')
-    console.log('[preset-plugins] 已补写 coding-sidebar 标题栏避让配置（profile patch）')
+    console.log(
+      `[preset-plugins] 已补写 coding-sidebar 标题栏避让配置（profile patch）`
+      + `${deadRows.length > 0 ? `，并回收 ${deadRows.length} 条按包名寻址的死行` : ''}`,
+    )
     healLog('[preset] 已补写 coding-sidebar 标题栏避让配置')
   } catch (error) {
     console.error('[preset-plugins] coding-sidebar 避让配置补写失败:', error)
