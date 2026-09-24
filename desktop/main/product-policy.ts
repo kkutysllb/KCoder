@@ -44,6 +44,17 @@ const POLICY_FILENAME = 'cordis.patch.kcoder.yml'
  *   内置浏览器关掉——与「Web 默认关 / Electron 默认开」的上游产品语义相悖。
  *   KCoder 只有 Electron 一种宿主，故显式放开该行；聊天链接的打开位置仍由
  *   chat 设置 `linkOpening` 决定（默认 sidebar = 内置浏览器 tab）。
+ * - **定时任务与时间上下文默认开启**（2026-09-24，上游 0.1.7-rc.2）：上游
+ *   在 web-app 层把三行以 `disabled: true` 出厂（说明文案「Web 和桌面端默认
+ *   关闭…需要时可手动启用」），但**界面上不存在启用入口**——承载它们的
+ *   `@deepseek-ai/dsh-web-app` 被插件管理页按设计排除
+ *   （`ui-plugin-manager/README.zh.md`：「页面从卡片与数量中排除内置 profile
+ *   组合包，**即使 profile 将它们列为依赖**」），官方指定路径是让 agent 装
+ *   一个覆盖该行的工作区 bundle。KCoder 直接在产品策略层放开，开箱即用。
+ *   三行是一个整体：`schedule` = Host 任务服务与到点投递、`ui-schedule` =
+ *   任务管理与运行记录（浏览器半）、`time-context` = 当前时间/时区/已用时长
+ *   ——模型解析「明天九点」这类未限定时间所必需（上游同版删除的
+ *   `apps/cli/config/examples/schedule/cordis.yml` 就是这三行一起开）。
  *
  * 历史行（已移除）：`file-review-tab` 禁用（2026-09-18）——file-review
  * 插件整体退役（typert 产物过不了 alpha.2 typert-loader 校验，曾拖垮全部
@@ -86,6 +97,21 @@ const POLICY_YAML = `# KCoder 产品策略层（宿主自动生成，勿手改�
 - id: ui-deliverables
   config:
     tailCard: false
+#
+# 定时任务 / 时间上下文默认开启（产品决策 2026-09-24，上游 0.1.7-rc.2）：
+# 三行在上游 web-app 层以 disabled: true 出厂，且**界面无启用入口**（承载它们
+# 的 @deepseek-ai/dsh-web-app 被插件管理页按设计排除，官方路径是让 agent 装
+# 覆盖用的工作区 bundle）。产品策略层直接放开，用户开箱即用。
+# 最小写法只给 id + disabled：上游按 id 定位行、按字段覆写，name 由 bundle 层
+# 保留（已用 --dump-config 实测三行 name 均在位）。
+# 注意 overlay 在最后一层 ⇒ 会盖掉用户对这三行的手动关闭；若将来要「只在新建
+# profile 播种、尊重用户选择」，须改走 profile 层而非本层。
+- id: time-context
+  disabled: false
+- id: schedule
+  disabled: false
+- id: ui-schedule
+  disabled: false
 `
 
 /** 产品策略层的绝对路径。 */
