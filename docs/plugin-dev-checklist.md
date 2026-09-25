@@ -13,6 +13,7 @@
 | §3 `openTab` 要看得见就带 `meta` | 同 §1 的 `check:contract` | 同 §1 |
 | §4 声明只指向已发布版本、且与物化同线 | 同 §2 的脚本（规则①：声明下界 == bundle 版本） | 同 §2 |
 | §5 发布构建必须环境无关 | `NODE_ENV=development pnpm check:artifacts`（dsh-coding-sidebar 仓） | CI `Contract`（敌意环境重建比对） |
+| §6 会话类功能的四条引擎事实 | `pnpm check:contract` 的检查 ④（四项回归闸） | `pnpm test` · `prepack` · CI `Contract` |
 
 两支断言都做过**判别力自检**（注入违规必须 FAIL、还原必须 PASS）：§2 的脚本不会因为
 「只改了文档 / 源码注释 / sourcemap」就叫你 bump 版本（开发面豁免：`src/**`、`scripts/**`、
@@ -211,6 +212,30 @@ KCODER_BUILD_MODE=development pnpm build && ! cmp -s <基线> lib/client-office.
 **推论**：凡是「构建期读环境变量」的写法（`define` 内联、`if (process.env.X)` 分支、条件插件加载）
 都要问一句——**同一份源码在两台机器上会产出同一个字节吗？** 不会，就等于把发布物的正确性
 交给了当时那个 shell。
+
+## 6. 会话类功能的四条引擎事实（2026-09-25 侧边对话「面板空白 + 无流式」现场换来的）
+
+这四条都不是本仓的 bug，而是**引擎语义**；不知道就会写出「静默失效」的代码——当时一口气踩了五个，
+每个都躲过了当时的自检。
+
+1. **引擎不给 subagent 来源的会话产生 running 状态**（会话列表行的明文规则）。
+   ⇒ 别把轮询、进度、节拍建立在 `summary.running` 上：它**恒为假**，表现是「只拉一次」——
+   侧边对话的「没有流式、只有定稿后一次性出现」就是这么来的。
+2. **通用 `session.history` 拒绝 subagent 来源的会话**（`session/agent-busy` fencing：
+   *"subagent Sessions require their durable parent address"*）。
+   ⇒ 这类子会话要读日志，只能走**自家路由**（本仓 `sidechat.events`，`sessionPersistence.open(id,'read')`
+   冷读 / `snapshotEvents()` 活读，主机侧切 fork seed），或用引擎要求的父会话地址。
+3. **0.1.5 起流式文本不进会话日志**：在途增量是**作用域帧** `agent/assistant-stream`
+   （start/chunk/end），旧 `assistant/chunk` 事件**永不再来**。订阅**必须 `{ global: true }`**
+   （引擎自己的折叠实现也这么写；不带就一帧都收不到）。这份缓冲要在 attempt 结束（`end`）时清空
+   ——定稿事件在 committed end 之前落盘，客户端的持久轮询会接上。
+4. **别用 `connection.api` 做能力探测**：当前 rc 载体的客户端**没有 `connection.api` 这个面**
+   （迁到 remote-namespace 之后），拿它当守卫会**在发请求之前就返回** ⇒ 整条数据路径静默失效
+   （面板永远空白，连自家路由都不会被调用）。数据面能走自家路由就走自家路由。
+
+**节拍两条**（同一现场）：① **等回复期间不得退避**（模型开始产出前可能有数秒延迟，退避到 2.5~5s
+会让整段流式落在两次轮询之间）；② **用户动作要取消「已经排好的那一拍」**——只清零退避计数没用，
+定时器已经 armed，下一次 tick 仍按旧延迟触发。
 
 ## 附：一轮改动的标准动作（照抄）
 
