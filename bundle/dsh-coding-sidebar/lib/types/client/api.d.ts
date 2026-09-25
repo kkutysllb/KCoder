@@ -1,5 +1,6 @@
 import type { LastActivity } from '../subagent-activity.ts';
-import type { SidechatThreadInfo } from '../sidechat-core.ts';
+import type { SidebarHistoryEntry } from '../context-types.ts';
+import type { SidechatLiveEvent, SidechatThreadInfo } from '../sidechat-core.ts';
 import type { BrowserProbeResult } from './browser.ts';
 import type { CreateTeamTaskRequest, TeamMutationEnvelope, TeamViewResult, UpdateTeamTaskRequest } from '../team-types.ts';
 /** One wire failure. */
@@ -8,6 +9,17 @@ export declare class SidebarApiError extends Error {
     constructor(code: string, message: string);
 }
 /** Explorer row (host fs-tree shape). */
+/** 一次「跟随主会话模型」的结果（失败原因会显示在面板上）。 */
+export interface SidechatModelFollow {
+    ok: boolean;
+    switched: boolean;
+    model?: {
+        provider: string;
+        model: string;
+        reasoningEffort?: string;
+    };
+    reason?: string;
+}
 export interface FsEntry {
     name: string;
     path: string;
@@ -420,6 +432,7 @@ export declare const api: {
     /** Deliver one follow-up message to a Side Chat thread. */
     sidechatPrompt: (childId: string, text: string) => Promise<{
         accepted: true;
+        modelFollow?: SidechatModelFollow;
     }>;
     /** Abort a Side Chat thread's running turn (queued work is preserved). */
     sidechatCancel: (childId: string) => Promise<{
@@ -431,6 +444,24 @@ export declare const api: {
     }>;
     /** Live state + agent identity (provider/model/preset) of a thread. */
     sidechatInfo: (childId: string) => Promise<SidechatThreadInfo>;
+    /**
+     * The thread's own events (inherited fork seed already cut host-side) plus the
+     * CURRENT attempt's live rows.
+     *
+     * This must not be the generic `session.history` RPC: that one **rejects
+     * subagent-origin sessions** (`session/agent-busy` fencing in the session
+     * controller), and side-chat children are exactly that — polling it left the
+     * panel permanently blank. Live rows are non-durable: they are replaced on
+     * every poll and superseded by the settled `assistant/message`.
+     */
+    sidechatEvents: (childId: string, options?: {
+        afterSeq?: number;
+        beforeSeq?: number;
+        maxEvents?: number;
+    }) => Promise<{
+        events: SidebarHistoryEntry[];
+        live: SidechatLiveEvent[];
+    }>;
     /** The effective terminal shell and its display name (plugin-global). */
     shellGet: () => Promise<{
         shell: string;

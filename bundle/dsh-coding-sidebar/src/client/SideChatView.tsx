@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import {
+  IconCheckOutlineRegular,
   IconChevronRightOutlineRegular,
   IconNewChatOutlineRegular,
   IconPlusOutlineRegular,
@@ -44,8 +45,24 @@ import {
   threadTrailingPending,
   type SidechatThreadInfo,
 } from '../sidechat-core.ts'
-import { collectOwnEvents, toolArgsSummary, transcriptRows, type SidechatTranscriptRow } from './sidechat-transcript.ts'
-import { api } from './api.ts'
+import { collectOwnEvents, formatDurationMs, formatTokens, toolArgsSummary, transcriptRows, type SidechatTranscriptRow } from './sidechat-transcript.ts'
+import { api, type SidechatModelFollow } from './api.ts'
+import type { SidechatLiveEvent } from '../sidechat-core.ts'
+import {
+  answerFromComposer,
+  buildAnswer,
+  draftsComplete,
+  emptyDrafts,
+  matchesPending,
+  questionIdsOf,
+  selectOption,
+  stablePendingQuestionFor,
+  subscribeSessionStatus,
+  type PendingQuestionLike,
+  type QuestionAnswerBatch,
+  type QuestionDrafts,
+  type QuestionItemLike,
+} from './sidechat-questions.ts'
 import { openViaUiWorkspace } from './workspace-nav.ts'
 import { t } from './locales.ts'
 import type { SessionScope } from './api.ts'
@@ -112,6 +129,36 @@ interface RowLabels {
   copiedLabel: string
   thinkLabel: string
   injectionLabel: string
+  inputTokensLabel: string
+  outputTokensLabel: string
+  awaitingAnswerLabel: string
+  modelSwitchLabel: string
+  answerSubmitLabel: string
+  answerMultiSelectHint: string
+  answerComposerHint: string
+}
+
+/** 提问卡与待答交互的绑定：草稿 + 两个动作（行渲染只读它，不发请求）。 */
+interface QuestionCardBinding {
+  /** 当前待答交互（引用稳定，配对失败即不渲染可点选项）。 */
+  pending: PendingQuestionLike
+  /** 本机草稿（与题目同序）。 */
+  drafts: QuestionDrafts
+  /** 正在提交（按钮置灰，防重复提交——引擎侧重复 answer 会抛「已结算」）。 */
+  submitting: boolean
+  onSelect: (index: number, label: string) => void
+  onSubmit: () => void
+}
+
+/**
+ * 读某个会话当前的待答提问（引擎 Session 级 pending interaction）。
+ * 走 `useSyncExternalStore` + 引用稳定的收窄缓存：`sessionStatus` 是引擎的
+ * HostObservable，未变化时快照必须是同一引用，否则 React 会无限重渲染。
+ */
+function usePendingQuestion(sessionId: string | undefined): PendingQuestionLike | undefined {
+  const subscribe = useMemo(() => (callback: () => void) => subscribeSessionStatus(callback), [])
+  const snapshot = useCallback(() => stablePendingQuestionFor(sessionId), [sessionId])
+  return useSyncExternalStore(subscribe, snapshot)
 }
 
 /** Merge history entries by event seq (newest wins), log order preserved. */
@@ -188,8 +235,98 @@ function CollapsibleRow(props: {
   )
 }
 
+/**
+ * 待答提问卡：选项**可点**，答案按题目 id 回填宿主（引擎 `user-questions` 协议）。
+ *
+ * 为什么必须自绘：子会话提问时 agent 就卡在这一行上，选项此前只是静态文本 ⇒ 用户除了
+ * 「下方输入框」没有别的表达方式，而输入框当时又只走追问路径 ⇒ 整条提问链在侧边栏断掉。
+ * 选项文本**原样回传**（引擎按 label 匹配），选中态只影响本机草稿。
+ */
+function QuestionCard(props: {
+  questions: readonly QuestionItemLike[]
+  drafts: QuestionDrafts
+  labels: RowLabels
+  submitting: boolean
+  onSelect: (index: number, label: string) => void
+  onSubmit: () => void
+}): React.ReactNode {
+  const complete = draftsComplete(props.drafts)
+  return (
+    <div className={css.sidechatAskCard}>
+      {props.questions.map((question, index) => {
+        const draft = props.drafts[index] ?? { selected: [], custom: '' }
+        const multi = question.multiSelect === true
+        const options = question.options ?? []
+        return (
+          <div key={`q:${question.id}`} className={css.sidechatAskQuestion}>
+            {question.header !== undefined && (
+              <div className={css.sidechatAskHeader}>{question.header}</div>
+            )}
+            <div className={css.sidechatAskPrompt}>{question.question}</div>
+            {question.detail !== undefined && (
+              <div className={css.sidechatAskDetail}>{question.detail}</div>
+            )}
+            {multi && <div className={css.sidechatCardPath}>{props.labels.answerMultiSelectHint}</div>}
+            {options.length > 0 && (
+              <div className={css.sidechatAnswerOptions} role={multi ? 'group' : 'radiogroup'}>
+                {options.map(option => {
+                  const selected = draft.selected.includes(option.label)
+                  return (
+                    <button
+                      key={option.label}
+                      type="button"
+                      role={multi ? 'checkbox' : 'radio'}
+                      aria-checked={selected}
+                      className={clsx(css.sidechatCardOption, selected && css.sidechatCardOptionSelected)}
+                      disabled={props.submitting}
+                      onClick={() => { props.onSelect(index, option.label) }}
+                    >
+                      {/* 指示器是纯 CSS 画的：不引入图标依赖，也保证单选/多选只差一个圆角。 */}
+                      <span
+                        className={clsx(
+                          css.sidechatAnswerMark,
+                          multi && css.sidechatAnswerMarkMulti,
+                          selected && css.sidechatAnswerMarkOn,
+                        )}
+                        aria-hidden="true"
+                      >
+                        {selected && <IconCheckOutlineRegular size={12} />}
+                      </span>
+                      <span className={css.sidechatAnswerText}>
+                        <span className={css.sidechatAnswerLabel}>{option.label}</span>
+                        {option.description !== undefined && (
+                          <span className={css.sidechatAnswerDesc}>{option.description}</span>
+                        )}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })}
+      <div className={css.sidechatCardPath}>{props.labels.answerComposerHint}</div>
+      {complete && (
+        <button
+          type="button"
+          className={css.sidechatAnswerSubmit}
+          disabled={props.submitting}
+          onClick={() => { props.onSubmit() }}
+        >
+          {props.labels.answerSubmitLabel}
+        </button>
+      )}
+    </div>
+  )
+}
+
 /** One row renderer (React keys ride the source event seq). */
-function renderRow(row: SidechatTranscriptRow, labels: RowLabels): React.ReactNode {
+function renderRow(
+  row: SidechatTranscriptRow,
+  labels: RowLabels,
+  answer?: QuestionCardBinding,
+): React.ReactNode {
   switch (row.kind) {
     case 'user':
       return (
@@ -197,6 +334,15 @@ function renderRow(row: SidechatTranscriptRow, labels: RowLabels): React.ReactNo
           <MarkdownText {...markdownTextProps(row.text, labels)} />
         </div>
       )
+    case 'turnSummary': {
+      const parts: string[] = []
+      if (row.inputTokens !== undefined || row.outputTokens !== undefined) {
+        parts.push(`${labels.inputTokensLabel} ${formatTokens(row.inputTokens ?? 0)} · ${labels.outputTokensLabel} ${formatTokens(row.outputTokens ?? 0)}`)
+      }
+      if (row.durationMs !== undefined) parts.push(formatDurationMs(row.durationMs))
+      if (parts.length === 0) return null
+      return <div key={`${row.kind}:${row.seq}`} className={css.sidechatTurnSummary}>{parts.join(' · ')}</div>
+    }
     case 'assistant':
       return (
         <div key={`${row.kind}:${row.seq}`} className={css.sidechatAssistant}>
@@ -219,11 +365,86 @@ function renderRow(row: SidechatTranscriptRow, labels: RowLabels): React.ReactNo
           <div className={css.sidechatRowProse}>{row.text}</div>
         </CollapsibleRow>
       )
+    case 'modelSwitch':
+      return (
+        <div key={`${row.kind}:${row.seq}`} className={css.sidechatModelSwitch}>
+          {t('modelSwitchLabel', { model: row.model, provider: row.provider })}
+          {row.reasoningEffort !== undefined ? ` · ${row.reasoningEffort}` : ''}
+        </div>
+      )
     case 'tool': {
+      // 结构化卡优先（P3）：改动与读取按宿主 Block 的数据形状渲染，比原始 JSON/文本可读得多；
+      // 有卡片时**不再**重复贴原始载荷（行本身仍可折叠展开）。
+      const card = row.card
       const body = (
         <>
-          {row.args !== undefined && <pre className={css.sidechatRowCode}>{row.args}</pre>}
-          {row.resultText !== undefined && <pre className={css.sidechatRowCode}>{row.resultText}</pre>}
+          {card?.type === 'diff' && card.diffs.map((hunk, index) => (
+            <div key={`${hunk.path}:${String(index)}`} className={css.sidechatCard}>
+              <div className={css.sidechatCardPath}>{hunk.path}</div>
+              <pre className={css.sidechatRowCode}>{hunk.newText}</pre>
+            </div>
+          ))}
+          {card?.type === 'question' && (() => {
+            // 只有**当前待答**的那一批题才长出可点选项（按题目 id 配对）：历史里的提问卡
+            // 若也带按钮，点下去只会打到已经结算的请求上。
+            const bound = answer !== undefined
+              && matchesPending(questionIdsOf(card.questions), answer.pending)
+              ? answer
+              : undefined
+            if (bound !== undefined) {
+              return (
+                <QuestionCard
+                  // 用**引擎的请求本体**（`pending.questions`）而不是工具行里那份副本：
+                  // 配对已按题目 id 序列成立，而请求本体才是权威（带 detail / multiSelect，
+                  // 也是宿主真正在等的那批题）。
+                  questions={bound.pending.questions}
+                  drafts={bound.drafts}
+                  labels={labels}
+                  submitting={bound.submitting}
+                  onSelect={bound.onSelect}
+                  onSubmit={bound.onSubmit}
+                />
+              )
+            }
+            return card.questions.map((question, index) => (
+              <div key={`q:${question.id}:${String(index)}`} className={css.sidechatCard}>
+                {question.header !== undefined && <div className={css.sidechatCardPath}>{question.header}</div>}
+                <div className={css.sidechatRowProse}>{question.question}</div>
+                {question.options.length > 0 && (
+                  <ul className={css.sidechatCardOptions}>
+                    {question.options.map(option => (
+                      <li key={option.label}>
+                        <span className={css.sidechatCardOptionLabel}>{option.label}</span>
+                        {option.description !== undefined && <span className={css.sidechatCardPath}> — {option.description}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))
+          })()}
+          {card?.type === 'terminal' && (
+            <div className={css.sidechatCard}>
+              {card.cwd !== undefined && <div className={css.sidechatCardPath}>{card.cwd}</div>}
+              <pre className={css.sidechatRowCode}>{`$ ${card.command}`}</pre>
+              {card.output !== undefined && card.output !== '' && <pre className={css.sidechatRowCode}>{card.output}</pre>}
+              {(card.exitCode !== undefined || card.signal !== undefined) && (
+                <div className={card.exitCode === 0 || card.exitCode === undefined ? css.sidechatCardPath : css.sidechatCardFail}>
+                  {card.signal !== undefined ? `signal: ${card.signal}` : `exit: ${String(card.exitCode)}`}
+                </div>
+              )}
+            </div>
+          )}
+          {card?.type === 'read' && (
+            <div className={css.sidechatCard}>
+              <div className={css.sidechatCardPath}>{`${card.label}（${String(card.lines.length)}/${String(card.totalLines)} 行）`}</div>
+              <pre className={css.sidechatRowCode}>
+                {card.lines.map(line => `${String(line.number).padStart(4, ' ')}  ${line.text}`).join('\n')}
+              </pre>
+            </div>
+          )}
+          {card === undefined && row.args !== undefined && <pre className={css.sidechatRowCode}>{row.args}</pre>}
+          {card === undefined && row.resultText !== undefined && <pre className={css.sidechatRowCode}>{row.resultText}</pre>}
         </>
       )
       return (
@@ -234,7 +455,7 @@ function renderRow(row: SidechatTranscriptRow, labels: RowLabels): React.ReactNo
           mono
           streaming={row.executing === true}
           failed={row.failed}
-          {...(row.args === undefined && row.resultText === undefined ? {} : { children: body })}
+          {...(card === undefined && row.args === undefined && row.resultText === undefined ? {} : { children: body })}
         />
       )
     }
@@ -255,6 +476,13 @@ export function SideChatView(props: {
       copiedLabel: t('copied'),
       thinkLabel: t('sideChatThink'),
       injectionLabel: t('sideChatInjection'),
+      inputTokensLabel: t('inputTokensLabel'),
+      outputTokensLabel: t('outputTokensLabel'),
+      awaitingAnswerLabel: t('awaitingAnswerLabel'),
+      modelSwitchLabel: t('modelSwitchLabel'),
+      answerSubmitLabel: t('answerSubmitLabel'),
+      answerMultiSelectHint: t('answerMultiSelectHint'),
+      answerComposerHint: t('answerComposerHint'),
     }),
     [],
   )
@@ -274,15 +502,59 @@ export function SideChatView(props: {
   const autoCreate = (tab.meta as { autoCreate?: unknown } | undefined)?.autoCreate === true
 
   const [composer, setComposer] = useState('')
-  const [busy, setBusy] = useState<'starting' | 'sending' | 'saving' | null>(null)
+  const [busy, setBusy] = useState<'starting' | 'sending' | 'saving' | 'answering' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [revision, setRevision] = useState(0)
   const [info, setInfo] = useState<SidechatThreadInfo | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  /** 最近一次「跟随主会话模型」的结果：失败时面板上直接说明原因（别让人去翻日志）。 */
+  const [modelFollow, setModelFollow] = useState<SidechatModelFollow | null>(null)
+  /**
+   * 引擎的待答提问（本会话）。它就是「回车到底是回答还是追问」的判据——没有它，
+   * 输入框只会把答案当成追问送出去，而子会话正卡在提问上，于是两边都不动。
+   */
+  const pending = usePendingQuestion(threadId)
+  /** 本机回答草稿：与待答题目同序；换一道请求（key 变了）即重置。 */
+  const [answerDrafts, setAnswerDrafts] = useState<QuestionDrafts>([])
+  const pendingRef = useRef<PendingQuestionLike | undefined>(undefined)
+  pendingRef.current = pending
+  const pendingKey = pending?.key
+  useEffect(() => {
+    const current = pendingRef.current
+    // 回答路径的**证据行**（常驻，不是临时诊断）：侧边对话里出现提问时打一行，
+    // 用来一眼确认引擎的待答面确实接进来了（此前这条链路断在客户端，肉眼只能
+    // 看到「提问卡挂着不动」）。每个请求一行，不随轮询重复。
+    if (current !== undefined) {
+      console.info(
+        `[dsh-coding-sidebar] side chat pending question ×${String(current.questions.length)}:`
+        + ` ${current.questions.map(question => question.id).join(', ')}`,
+      )
+    }
+    setAnswerDrafts(current === undefined ? [] : emptyDrafts(current.questions))
+  }, [pendingKey])
 
   const cacheRef = useRef<ThreadCache>({ seedBoundary: null, entries: [] })
   const controllerRef = useRef<AbortController | null>(null)
+  /**
+   * 实时增量行（DSH 0.1.5 起流式文本不再进会话日志——时长文本只以 `assistant/live-chunk`
+   * 出现在客户端契约里，见 assistant-live.ts）。它**不是**持久数据：每轮整体替换，
+   * 定稿后由持久 assistant/message 覆盖。读取失败只清空它，绝不影响耐久路径。
+   */
+  const liveRef = useRef<readonly SidechatLiveEvent[]>([])
+  /**
+   * 轮询退避计数（连拍无增长则加大间隔）。放 ref 而不是 effect 局部变量：**用户动作必须能把它
+   * 清零**——否则此前空轮询已退到 5s 时，发送后整段回答（实测只流 ~2.5s）会整个落在两次轮询
+   * 之间，表现就是「一次性蹦出来」。
+   */
+  const quietRef = useRef(0)
+  /**
+   * 「踢一拍」钩子：由轮询 effect 装配。用户动作必须能**取消已经armed的那一拍**并立刻重排——
+   * 光把退避计数清零只影响「之后怎么排」，管不了「已经排好的那一拍」：现场实测发送在 16.7s
+   * 设了计数 0，但下一次 tick 仍按旧的 5s 延迟在 21.9s 才触发，整个 1.5s 流式窗口落在两次
+   * 轮询之间 ⇒ 回答只能定稿后一次性出现。
+   */
+  const kickPollRef = useRef<() => void>(() => {})
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -339,14 +611,11 @@ export function SideChatView(props: {
    *  one tail page and merge (seq-deduped).
    *  @returns whether the merged transcript grew (the poll's pacing signal). */
   const fetchThread = useCallback(async (childId: string): Promise<boolean> => {
-    // Capability probe: the transcript pull rides the carrier's legacy
-    // `connection.api.sessions.history` RPC. Hosts that moved to a remote-
-    // namespace carrier (QiLin) expose no `.api` face — keep the last rows
-    // instead of throwing on every poll (same policy as a wire failure).
-    const legacySessions = (ctx.connection as unknown as {
-      api?: { sessions?: { history?: unknown } }
-    }).api?.sessions?.history
-    if (legacySessions === undefined) return false
+    // ⚠️ 这里曾有一段「legacy 能力探测」：查 `ctx.connection.api.sessions.history`
+    // 是否存在，不存在就直接 return false。当前 rc 的载体**不再暴露 `connection.api`**，
+    // 于是这个守卫**每一轮都提前返回**——transcript 一次都不拉，面板永远空白、连自家路由
+    // 都不会被调用（2026-09-25 现场：主机侧零留痕）。
+    // P2 之后数据走**插件自家路由** `sidechat.events`，与 `connection.api` 再无关系，故删除该探测。
     controllerRef.current?.abort()
     const controller = new AbortController()
     controllerRef.current = controller
@@ -355,31 +624,30 @@ export function SideChatView(props: {
     try {
       if (cache.seedBoundary === null) {
         const walk = await collectOwnEvents(async (beforeSeq) => {
-          const response = await ctx.connection.api.sessions.history(
-            {
-              sessionId: childId,
-              maxMessages: WALK_PAGE_EVENTS,
-              ...(beforeSeq === undefined ? {} : { beforeSeq }),
-            },
-            controller.signal,
-          )
-          if (!response.result.ok) throw new Error('history walk failed')
-          return response.result.value.events
+          // 自家路由：子会话是 subagent 来源，通用 session.history 对它一律拒绝
+          // （`session/agent-busy` fencing）——走那条路会让面板永远空白。
+          const page = await api.sidechatEvents(childId, {
+            maxEvents: WALK_PAGE_EVENTS,
+            ...(beforeSeq === undefined ? {} : { beforeSeq }),
+          })
+          return page.events
         })
         cache.seedBoundary = walk.seedBoundary
         cache.entries = mergeBySeq(cache.entries, walk.entries)
       } else {
-        const response = await ctx.connection.api.sessions.history(
-          { sessionId: childId, maxMessages: PAGE_MESSAGES },
-          controller.signal,
-        )
-        if (!response.result.ok) return false
-        cache.entries = mergeBySeq(cache.entries, response.result.value.events)
+        const page = await api.sidechatEvents(childId, { maxEvents: PAGE_MESSAGES })
+        cache.entries = mergeBySeq(cache.entries, page.events)
+        // 实时半与耐久半同一次往返（定稿后由 assistant/message 覆盖）。
+        liveRef.current = page.live
       }
       setRevision(value => value + 1)
       return cache.entries.length > before
-    } catch {
-      // Aborted by a newer pull or a wire failure: keep the last rows.
+    } catch (cause) {
+      // 主动打断（更晚的一次拉取）不是错误；其余失败必须**说出来**——此前这里静默吞掉，
+      // 表现是「面板一片空白、连报错都没有」，让现场排查多花了好几轮。
+      if (!controller.signal.aborted) {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      }
       return false
     }
   }, [ctx])
@@ -397,10 +665,12 @@ export function SideChatView(props: {
   // the composer — it owns the first message of a fresh thread.
   useEffect(() => {
     cacheRef.current = { seedBoundary: null, entries: [] }
+    liveRef.current = []
     controllerRef.current?.abort()
     setError(null)
     setSaved(false)
     setInfo(null)
+    setModelFollow(null)
     if (threadId !== undefined) {
       void fetchInfo(threadId)
       window.setTimeout(() => composerRef.current?.focus(), 0)
@@ -415,9 +685,12 @@ export function SideChatView(props: {
   useEffect(() => {
     if (!visible || threadId === undefined) return
     void fetchThread(threadId)
-    if (!running) return
+    // ⚠️ 这里曾有一道 `if (!running) return`：`running` 取自会话列表行，而**引擎不给
+    // subagent 来源的会话产生 running 状态**（侧边对话的子会话正是这一类）⇒ 它恒为假
+    // ⇒ 打开后只拉**一次**就不再轮询 ⇒ 回答只在定稿后出现（表现为「一次性蹦出来」而非流式）。
+    // 节拍本身已是自适应的（无增长就退避到 POLL_SLOW_MS），且只在 `visible` 时轮询，
+    // 故无需这道闸——「是否还在长」由下面每一拍自己判断（含实时行）。
     let timer = 0
-    let quiet = 0
     const schedule = (delay: number): void => {
       timer = window.setTimeout(async () => {
         let grew = false
@@ -425,20 +698,33 @@ export function SideChatView(props: {
           grew = await fetchThread(threadId)
           void fetchInfo(threadId)
         } catch {
-          quiet += 1
+          quietRef.current += 1
         }
-        quiet = grew ? 0 : quiet + 1
+        // 实时行也算「还在长」：流式期间 transcript 的持久行可能整段都不变，
+        // 只靠 grew 会立刻退避，正好错过流式窗口。
+        // 「等回复」期间**不得退避**：末条是用户消息、尚无助手回复时，模型随时可能开始产出
+        // （实测发送到首个 chunk 有 ~3s 延迟），而退避到 2.5~5s 会让整个流式窗口（约 1.9s）
+        // 落在两次轮询之间——现场三次都是这么错过的。判据复用视图已有的 trailingPending。
+        const awaiting = threadTrailingPending(cacheRef.current.entries)
+        const quiet = (grew || liveRef.current.length > 0 || awaiting) ? 0 : quietRef.current + 1
+        quietRef.current = quiet
         schedule(quiet === 0 ? POLL_FAST_MS : Math.min(POLL_SLOW_MS, POLL_BASE_MS * 1.8 ** (quiet - 1)))
       }, delay)
     }
+    kickPollRef.current = () => {
+      if (timer !== 0) window.clearTimeout(timer)
+      timer = 0
+      quietRef.current = 0
+      schedule(POLL_FAST_MS)
+    }
     schedule(POLL_FAST_MS)
-    return () => { window.clearTimeout(timer) }
+    return () => { window.clearTimeout(timer); kickPollRef.current = () => {} }
   }, [visible, threadId, running, fetchThread, fetchInfo])
 
   useEffect(() => () => { controllerRef.current?.abort() }, [])
 
   const rows = useMemo(
-    () => (threadId === undefined ? [] : transcriptRows(cacheRef.current.entries)),
+    () => (threadId === undefined ? [] : transcriptRows(cacheRef.current.entries, liveRef.current)),
     // The cache is a ref; revision bumps on every successful pull.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [threadId, revision],
@@ -497,16 +783,101 @@ export function SideChatView(props: {
     field.style.height = `${Math.min(field.scrollHeight, COMPOSER_MAX_HEIGHT)}px`
   }
 
+  /**
+   * 交回答：把整批答案回给宿主（引擎 `PendingQuestion.answer`）。
+   *
+   * 这是回答路径的**唯一出口**——它同时结算引擎的 waterfall，子会话随即继续跑。失败
+   * （例如已被别处结算）只报错，不猜结果。
+   */
+  const submitAnswer = async (answer: QuestionAnswerBatch): Promise<void> => {
+    const current = pendingRef.current
+    if (current === undefined || threadId === undefined || busy !== null) return
+    setBusy('answering')
+    setError(null)
+    try {
+      await current.answer(answer)
+      setAnswerDrafts([])
+      // 回答后子会话立刻继续跑：清退避并立刻拉一次，别等下一次轮询。
+      quietRef.current = 0
+      kickPollRef.current()
+      void fetchThread(threadId)
+      void fetchInfo(threadId)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /**
+   * 点选项：单选题点完即答（这就是「弹卡片让用户选」的主动作）；多选题只累积，
+   * 由卡片上的「提交回答」按钮收口。整批凑齐时也可直接提交。
+   */
+  const handleSelectOption = (index: number, label: string): void => {
+    const current = pendingRef.current
+    if (current === undefined || busy !== null) return
+    const next = selectOption(current.questions, answerDrafts, index, label)
+    setAnswerDrafts(next)
+    const built = buildAnswer(current.questions, next)
+    if (built.ok && current.questions[index]?.multiSelect !== true) void submitAnswer(built.answer)
+  }
+
+  /** 卡片上的「提交回答」（多选收口 / 组批提交）。 */
+  const handleSubmitAnswer = (): void => {
+    const current = pendingRef.current
+    if (current === undefined || busy !== null) return
+    const built = buildAnswer(current.questions, answerDrafts)
+    if (!built.ok) {
+      setError(t('answerComposerHint'))
+      return
+    }
+    void submitAnswer(built.answer)
+  }
+
+  const answerBinding: QuestionCardBinding | undefined = pending === undefined
+    ? undefined
+    : {
+      pending,
+      drafts: answerDrafts,
+      submitting: busy === 'answering',
+      onSelect: handleSelectOption,
+      onSubmit: handleSubmitAnswer,
+    }
+
+  /** 排队中的追问（宿主的收件箱视图；`info` 每拍都刷）。 */
+  const queued = info?.queued ?? []
+
   const handleSend = async (): Promise<void> => {
     const text = composer.trim()
     if (text === '' || threadId === undefined || busy !== null) return
-    setBusy('sending')
-    setError(null)
-    try {
-      await api.sidechatPrompt(threadId, text)
+    // 有待答提问时，回车**先是回答**——此前这里一律走 sidechat.prompt，于是「在输入框
+    // 敲答案回车没有任何反应」（子会话卡在提问上，追问根本轮不到）。
+    if (pending !== undefined) {
+      const step = answerFromComposer(pending.questions, answerDrafts, text)
+      setAnswerDrafts(step.drafts)
       setComposer('')
       const field = composerRef.current
       if (field !== null) field.style.height = ''
+      // 已凑齐却还有新文本：先把手上的答案交上去，刚敲的留着当追问。
+      const ready = step.answer ?? (() => {
+        if (!draftsComplete(answerDrafts)) return undefined
+        const built = buildAnswer(pending.questions, answerDrafts)
+        if (built.ok) { setComposer(text); return built.answer }
+        return undefined
+      })()
+      if (ready !== undefined) await submitAnswer(ready)
+      return
+    }
+    setBusy('sending')
+    setError(null)
+    try {
+      const sent = await api.sidechatPrompt(threadId, text)
+      setModelFollow(sent.modelFollow ?? null)
+      setComposer('')
+      const field = composerRef.current
+      if (field !== null) field.style.height = ''
+      quietRef.current = 0
+      kickPollRef.current()
       void fetchThread(threadId)
       void fetchInfo(threadId)
     } catch (cause) {
@@ -521,6 +892,8 @@ export function SideChatView(props: {
     try {
       await api.sidechatCancel(threadId)
       // Reflect the abort immediately instead of waiting out the backoff.
+      quietRef.current = 0
+      kickPollRef.current()
       void fetchThread(threadId)
       void fetchInfo(threadId)
     } catch (cause) {
@@ -574,7 +947,10 @@ export function SideChatView(props: {
             {busy === 'starting' ? t('sideChatCreating') : t('sideChatEmpty')}
           </div>
           <div className={css.sidechatHeroDesc}>{t('sideChatEmptyDesc')}</div>
-          {error !== null && <div className={css.sidechatError}>{t('sideChatError', { message: error })}</div>}
+          {modelFollow !== null && !modelFollow.ok && (
+        <div className={css.sidechatHint}>{t('modelFollowFailed', { reason: modelFollow.reason ?? '' })}</div>
+      )}
+      {error !== null && <div className={css.sidechatError}>{t('sideChatError', { message: error })}</div>}
           {busy !== 'starting' && (
             <button
               type="button"
@@ -631,12 +1007,28 @@ export function SideChatView(props: {
       {saved && <div className={css.sidechatHint}>{t('sideChatSaved')}</div>}
       {error !== null && <div className={css.sidechatError}>{t('sideChatError', { message: error })}</div>}
       <div ref={scrollRef} className={css.sidechatScroll}>
-        {rows.map(row => renderRow(row, rowLabels))}
+        {rows.map(row => renderRow(row, rowLabels, answerBinding))}
       </div>
-      {running && (
+      {(pending !== undefined || running) && (
         <div className={css.sidechatStatus}>
           <StateDot state="ongoing" size={8} />
-          <span className={css.sidechatStatusText}>{t('sideChatThinking')}</span>
+          <span className={css.sidechatStatusText}>
+            {pending !== undefined ? t('awaitingAnswerLabel') : t('sideChatThinking')}
+          </span>
+        </div>
+      )}
+      {queued.length > 0 && (
+        <div className={css.sidechatQueue}>
+          <div className={css.sidechatQueueHead}>
+            {t('sideChatQueueTitle', { count: String(queued.length) })}
+          </div>
+          {queued.map((item, index) => (
+            <div key={item.id} className={css.sidechatQueueRow}>
+              <span className={css.sidechatQueueIndex}>{index + 1}</span>
+              <span className={css.sidechatQueueText}>{item.text}</span>
+            </div>
+          ))}
+          <div className={css.sidechatQueueHint}>{t('sideChatQueueHint')}</div>
         </div>
       )}
       <div className={css.sidechatComposer}>
@@ -644,7 +1036,9 @@ export function SideChatView(props: {
           ref={composerRef}
           className={css.sidechatComposerInput}
           value={composer}
-          placeholder={freshThread ? t('sideChatFirstPlaceholder') : t('sideChatComposerPlaceholder')}
+          placeholder={pending !== undefined
+            ? t('answerComposerPlaceholder')
+            : freshThread ? t('sideChatFirstPlaceholder') : t('sideChatComposerPlaceholder')}
           rows={1}
           onChange={event => {
             setComposer(event.target.value)
@@ -658,9 +1052,11 @@ export function SideChatView(props: {
         />
         <div className={css.sidechatComposerBar}>
           <span className={css.sidechatComposerMeta}>
-            {running ? '' : agentBadge}
+            {running || pending !== undefined ? '' : agentBadge}
           </span>
-          {running ? (
+          {/* 停止恒在（提问期间子会话仍是 running，用户要能中止）；发送键在提问期间
+              也要在——否则「没有选项的题目」只能靠回车作答，点不到。 */}
+          {(running || pending !== undefined) && (
             <button
               key="stop"
               type="button"
@@ -671,7 +1067,19 @@ export function SideChatView(props: {
             >
               <IconStopFillRegular />
             </button>
-          ) : (
+          )}
+          {pending !== undefined ? (
+            <button
+              key="answer"
+              type="button"
+              className={css.sidechatSendBtn}
+              onClick={() => void handleSend()}
+              disabled={composer.trim() === '' || busy !== null}
+              title={t('answerSendLabel')}
+            >
+              <IconSendOutline16 />
+            </button>
+          ) : running ? null : (
             <button
               key="send"
               type="button"

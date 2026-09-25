@@ -15,6 +15,7 @@
  * them with the assembled message once it lands (settled rows).
  */
 import type { SidebarHistoryEntry } from '../context-types.ts';
+import type { SidechatLiveEvent } from '../sidechat-core.ts';
 /** One compact transcript row rendered in the thread view. `seq` is the
  *  source event's log sequence — stable row identity for React keys across
  *  polls (streaming caches ride the key, so window slides must not re-key
@@ -24,6 +25,14 @@ export type SidechatTranscriptRow = {
     seq: number;
     text: string;
 }
+/** 每轮收尾的一行指标（`turn/end` 时发）：token 用量与墙钟时长，能算出来才有。 */
+ | {
+    kind: 'turnSummary';
+    seq: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    durationMs?: number;
+}
 /** A context injection (the side boundary prompt + the parked in-progress
  *  snapshot, or any plugin-sourced context): rendered as one collapsible
  *  row, never as a user bubble. */
@@ -31,6 +40,15 @@ export type SidechatTranscriptRow = {
     kind: 'injection';
     seq: number;
     text: string;
+}
+/** 模型切换（`model/selection`）：侧边对话跟随主会话换模型时留下的一行。
+ *  没有它，用户在侧边栏只能靠头部徽标猜——而徽标此前还会说谎。 */
+ | {
+    kind: 'modelSwitch';
+    seq: number;
+    provider: string;
+    model: string;
+    reasoningEffort?: string;
 }
 /** `settled` distinguishes an assembled message from a still-streaming
  *  chunk accumulation (streaming rows are superseded by the settle). */
@@ -53,6 +71,8 @@ export type SidechatTranscriptRow = {
     args?: string;
     /** Plain text of the paired result. */
     resultText?: string;
+    /** 结构化渲染载荷（宿主 Block 的数据形状）；缺省 = 通用文本行。 */
+    card?: SidechatToolCard;
     /** True while the call's result has not landed yet. */
     executing?: boolean;
 };
@@ -64,6 +84,58 @@ export declare function blockText(content: readonly unknown[]): string;
  * row: the first identifying string field when the JSON parses, else the
  * flattened raw text; empty when there is nothing worth showing.
  */
+/**
+ * 结构化工具卡（P3，移植自同源上游 DSH-better-sidebar 0.21.1）：把 `tool/result` 的 `meta`
+ * 收窄成宿主 Block 的**数据形状**，由视图渲染——与主对话渲染的是同一批原子，所以侧边对话里的
+ * 改动/读取不再是「一坨纯文本」。
+ *
+ * 一切字段都**防御式收窄**：meta 的形状由产出它的工具决定，任何畸形输入都退回通用文本行
+ * （宁可少一张卡，也不能让整条 transcript 崩掉）。
+ */
+export type SidechatToolCard = {
+    type: 'diff';
+    diffs: readonly {
+        path: string;
+        oldText?: string | null;
+        newText: string;
+    }[];
+} | {
+    type: 'read';
+    label: string;
+    lines: readonly {
+        number: number;
+        text: string;
+    }[];
+    totalLines: number;
+} | {
+    type: 'terminal';
+    command: string;
+    cwd?: string;
+    output?: string;
+    exitCode?: number;
+    signal?: string;
+}
+/** `ask_user_question` 的提问内容：工具行此前只显示原始 JSON，而这一行正是**等用户回答**的
+ *  阻塞点——看不出问题是什么，就一直卡在那儿。
+ *  `id`/`multiSelect` 必须带上：答案要按题目 id 回填宿主，「这一行就是当前待答的那批题」
+ *  也靠 id 序列配对（见 sidechat-questions.ts `matchesPending`）。 */
+ | {
+    type: 'question';
+    questions: readonly {
+        id: string;
+        question: string;
+        header?: string;
+        multiSelect?: boolean;
+        options: readonly {
+            label: string;
+            description?: string;
+        }[];
+    }[];
+};
+/** 紧凑 token 数（517 / 12.2K / 1.2M，与主对话同款）。 */
+export declare function formatTokens(n: number): string;
+/** 紧凑时长（45.2s / 2m42s，与主对话同款：不足一分钟保留一位小数）。 */
+export declare function formatDurationMs(ms: number): string;
 export declare function toolArgsSummary(args: string | undefined): string;
 /**
  * Collect the thread's OWN events on first attach: walk backward from the
@@ -100,4 +172,4 @@ export declare function collectOwnEvents(fetchPage: (beforeSeq?: number) => Prom
  * @param entries - history rows (event + host-computed view) in seq order.
  * @returns display rows in log order.
  */
-export declare function transcriptRows(entries: readonly SidebarHistoryEntry[]): SidechatTranscriptRow[];
+export declare function transcriptRows(entries: readonly SidebarHistoryEntry[], live?: readonly SidechatLiveEvent[]): SidechatTranscriptRow[];

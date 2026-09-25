@@ -1440,6 +1440,30 @@ window.__ModuleLoader__.load({
 			};
 		}
 		//#endregion
+		//#region src/client/open-intent.ts
+		/**
+		* seed 是否**内容型**：带着要显示的内容（`path` / `url` / `meta` 任一非 `undefined`）。
+		*
+		* 注意 `meta: undefined` 与「没有 meta」等价（`patchTab` 同样丢弃 undefined），
+		* 所以清标记用 `meta: {}` 而不是 `meta: undefined`。
+		*
+		* @param seed - open 的种子。
+		* @returns 内容型为 `true`。
+		*/
+		function isContentOpen(seed) {
+			return seed.path !== void 0 || seed.url !== void 0 || seed.meta !== void 0;
+		}
+		/**
+		* 这次 open 是否**必须把面板展开到可见**。
+		*
+		* @param seed - open 的种子（只看 path/url/meta）。
+		* @param context - 落位时的环境事实（目标会话、是否有 window、面板当前是否展开）。
+		* @returns 内容型且满足可见性前提、且面板仍未展开时为 `true`。
+		*/
+		function needsPanelExpansion(seed, context) {
+			return isContentOpen(seed) && !context.targetsInactiveSession && context.hasWindow && !context.panelOpen;
+		}
+		//#endregion
 		//#region src/client/file-icons.tsx
 		/**
 		* A file row: the host's own classifier and artwork for any path. Unknown
@@ -1518,7 +1542,7 @@ window.__ModuleLoader__.load({
 				if (claimed) return tab;
 			}
 		}
-		const SIDEBAR_SERVICE_VERSION = "1.0.33";
+		const SIDEBAR_SERVICE_VERSION = "1.0.34";
 		/**
 		* Monotonic capability list consumers use to gate new API usage (features
 		* are never removed). Each string names a v0.12.0+ capability:
@@ -1678,9 +1702,11 @@ window.__ModuleLoader__.load({
 						activated ??= tab;
 					}
 					if (!isCreation && floatWithTab(landed, activated?.id ?? tab.id) !== void 0) return landed;
-					if (!targetsInactiveSession && typeof window !== "undefined" && (seed.path !== void 0 || seed.url !== void 0 || seed.meta !== void 0)) {
-						if (!landed.panelOpen) return togglePanel(landed);
-					}
+					if (needsPanelExpansion(seed, {
+						targetsInactiveSession,
+						hasWindow: typeof window !== "undefined",
+						panelOpen: landed.panelOpen
+					})) return togglePanel(landed);
 					return landed;
 				};
 				if (targetsInactiveSession) store.reduceFor(scope.sessionId, reducer);
@@ -2795,7 +2821,19 @@ window.__ModuleLoader__.load({
 			subagentThinking: "思考中…",
 			subagentShowHistory: "展开更早的 {count} 个子代理",
 			subagentHideHistory: "收起更早的子代理",
-			sideChat: "侧边对话(beta)",
+			sideChat: "侧边对话",
+			inputTokensLabel: "输入",
+			outputTokensLabel: "输出",
+			awaitingAnswerLabel: "等待你的回答（点选项或在下方输入框回答）",
+			modelSwitchLabel: "已跟随主会话切换到 {model}",
+			modelFollowFailed: "未能跟随主会话的模型：{reason}",
+			sideChatQueueTitle: "队列中 {count} 条追问（当前回合结束后依次发送）",
+			sideChatQueueHint: "可以继续输入排队；「停止」只中止当前回合，队列保留",
+			answerSubmitLabel: "提交回答",
+			answerMultiSelectHint: "可多选",
+			answerComposerHint: "可直接在下方输入框作答，回车提交",
+			answerComposerPlaceholder: "输入你的回答，回车提交…",
+			answerSendLabel: "回答",
 			sideChatNew: "新建对话",
 			sideChatUntitled: "新对话",
 			sideChatEmpty: "暂无侧边对话",
@@ -3015,7 +3053,16 @@ window.__ModuleLoader__.load({
 			schedKindLegacy: "旧格式任务",
 			schedUnavailable: "读不到这条任务：schedule 插件未启用",
 			schedGone: "这条任务已不存在（可能已被删除）",
-			schedLoadFailed: "读取任务失败"
+			schedLoadFailed: "读取任务失败",
+			schedRunsTitle: "最近运行",
+			schedRunsEmpty: "尚无运行记录",
+			schedRunsPruned: "更早的记录已按保留策略清理",
+			schedRunPlanned: "计划",
+			schedRunDelivered: "投递",
+			schedDelete: "删除任务",
+			schedDeleteConfirm: "确认删除",
+			schedDeleteCancel: "取消",
+			schedDeleteFailed: "删除失败"
 		};
 		/** The en dictionary (key-set-equal to zh, enforced by the type annotation). */
 		const en = {
@@ -3339,7 +3386,19 @@ window.__ModuleLoader__.load({
 			subagentThinking: "Thinking…",
 			subagentShowHistory: "Show {count} earlier subagents",
 			subagentHideHistory: "Collapse earlier subagents",
-			sideChat: "Side Chat (beta)",
+			sideChat: "Side Chat",
+			inputTokensLabel: "in",
+			outputTokensLabel: "out",
+			awaitingAnswerLabel: "Waiting for your answer — pick an option or reply in the composer below",
+			modelSwitchLabel: "Following the main conversation — switched to {model}",
+			modelFollowFailed: "Could not follow the main conversation's model: {reason}",
+			sideChatQueueTitle: "{count} follow-up(s) queued — sent after the current turn",
+			sideChatQueueHint: "Keep typing to queue more; Stop aborts the running turn and keeps the queue",
+			answerSubmitLabel: "Submit answer",
+			answerMultiSelectHint: "Multiple choices allowed",
+			answerComposerHint: "Or type the answer in the composer below — Enter to submit",
+			answerComposerPlaceholder: "Type your answer — Enter to submit…",
+			answerSendLabel: "Answer",
 			sideChatNew: "New thread",
 			sideChatUntitled: "New thread",
 			sideChatEmpty: "No side conversations",
@@ -3559,7 +3618,16 @@ window.__ModuleLoader__.load({
 			schedKindLegacy: "Legacy task",
 			schedUnavailable: "Cannot read this task: the schedule plugin is not enabled",
 			schedGone: "This task no longer exists (it may have been deleted)",
-			schedLoadFailed: "Reading the task failed"
+			schedLoadFailed: "Reading the task failed",
+			schedRunsTitle: "Recent runs",
+			schedRunsEmpty: "No runs yet",
+			schedRunsPruned: "Earlier records were pruned by the retention policy",
+			schedRunPlanned: "Planned",
+			schedRunDelivered: "Delivered",
+			schedDelete: "Delete task",
+			schedDeleteConfirm: "Confirm delete",
+			schedDeleteCancel: "Cancel",
+			schedDeleteFailed: "Delete failed"
 		};
 		/**
 		* The dictionary namespace this plugin owns in the DSH locale registry
@@ -4070,7 +4138,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:/Users/libing/kk_Projects/dsh-coding-sidebar/src/client/sidebar.module.css.mjs
-		const css$5 = "[data-dsh-panel-host]{z-index:25;pointer-events:none;position:fixed;inset:0;overflow:hidden}[data-dsh-panel-host][data-dsh-panel-host-degraded]{position:absolute;top:0;left:0}.S5HVoW_toggleCluster{top:calc(3px + env(safe-area-inset-top));z-index:45;pointer-events:auto;flex-direction:row;gap:4px;display:flex;position:absolute;right:10px}.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:72px}.S5HVoW_toggleButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), color var(--ds-transition-duration-slow) var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;justify-content:center;align-items:center;display:flex}.S5HVoW_toggleButton:hover:not(:disabled):not([aria-disabled=true]){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_toggleButton:disabled,.S5HVoW_toggleButton[aria-disabled=true]{opacity:.4;cursor:default}.S5HVoW_panel{box-sizing:border-box;z-index:40;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);padding-bottom:env(safe-area-inset-bottom);transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out);flex-direction:column;display:flex;position:absolute;top:0;bottom:0;right:0}.S5HVoW_panelHidden{pointer-events:none;visibility:hidden;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);transform:translate(102%)}.S5HVoW_panel[data-dragging]{transition:none}.S5HVoW_panelResize{cursor:col-resize;z-index:2;touch-action:none;width:8px;position:absolute;top:0;bottom:0;left:-4px}.S5HVoW_panelResizeActive{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_panelBody{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_panel{contain:layout style}body[data-dsh-sidebar-dragging] .S5HVoW_panel{will-change:transform}.S5HVoW_floatWindow{z-index:42;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-lv3);contain:layout style;border-radius:8px;flex-direction:column;display:flex;position:absolute;overflow:hidden}.S5HVoW_floatWindowDragging{will-change:left, top, width, height}.S5HVoW_floatHeader{height:34px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1);cursor:grab;user-select:none;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_floatWindowDragging .S5HVoW_floatHeader{cursor:grabbing}.S5HVoW_floatTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_floatClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_floatClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_floatContent{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden}.S5HVoW_floatResize{z-index:2;cursor:nwse-resize;touch-action:none;width:14px;height:14px;position:absolute;bottom:0;right:0}.S5HVoW_floatResize:hover{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane[data-dsh-float-dock-over]{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px}.S5HVoW_floatDropHint{z-index:46;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 12%, transparent);border-radius:8px;justify-content:center;align-items:center;display:flex;position:absolute}.S5HVoW_floatDropHintLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:4px 12px}.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tabBar,.S5HVoW_floatHeader{-webkit-app-region:no-drag}body[data-dsh-title-bar-compat] .S5HVoW_toggleCluster{top:calc(var(--dsh-title-bar-strip,40px) + 3px)}body[data-dsh-title-bar-compat] .S5HVoW_panel{padding-top:var(--dsh-title-bar-strip,40px)}.S5HVoW_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_iconButton:disabled{opacity:.4;cursor:default}.S5HVoW_workbench,.S5HVoW_split{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_splitRow{flex-direction:row}.S5HVoW_splitCol{flex-direction:column}.S5HVoW_splitChild{display:flex;position:relative;overflow:hidden}.S5HVoW_divider{z-index:3;touch-action:none;flex:none;position:relative}.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{content:\"\";background:var(--dsw-alias-border-l2);transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out);position:absolute}.S5HVoW_dividerRow{cursor:col-resize;width:7px;margin:0 -2px}.S5HVoW_dividerRow:after{width:1px;top:0;bottom:0;left:50%;transform:translate(-50%)}.S5HVoW_dividerCol{cursor:row-resize;height:7px;margin:-2px 0}.S5HVoW_dividerCol:after{height:1px;top:50%;left:0;right:0;transform:translateY(-50%)}.S5HVoW_divider:hover:after,.S5HVoW_dividerActive:after{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_paneDrop{outline:1px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_dropOverlay{z-index:6;pointer-events:none;background:var(--dsw-alias-interactive-bg-hover-accent);opacity:.5;position:absolute}.S5HVoW_dropLeft{width:25%;top:0;bottom:0;left:0}.S5HVoW_dropRight{width:25%;top:0;bottom:0;right:0}.S5HVoW_dropUp{height:25%;top:0;left:0;right:0}.S5HVoW_dropDown{height:25%;bottom:0;left:0;right:0}.S5HVoW_dropCenter{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px;background:0 0;inset:25%}.S5HVoW_paneContent{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden}.S5HVoW_paneTab{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_paneTabHidden{display:none}.S5HVoW_paneEmptyCards{flex:1;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));align-content:start;gap:8px;min-height:0;padding:12px;display:grid;overflow:hidden}.S5HVoW_paneCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;text-align:center;border-radius:8px;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:12px 8px;display:flex}.S5HVoW_paneCard:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}.S5HVoW_paneCard:disabled{opacity:.45;cursor:default}.S5HVoW_tabBar{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:stretch;height:34px;display:flex}.S5HVoW_tabBarDrop{outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_tabList{scrollbar-width:none;flex:1;min-width:0;display:flex;overflow-x:auto}.S5HVoW_tabList::-webkit-scrollbar{display:none}.S5HVoW_tab{min-width:64px;max-width:160px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);border-right:1px solid var(--dsw-alias-border-l1);cursor:pointer;user-select:none;background:0 0;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_tabActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_tabTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_tabBadge{min-width:16px;height:15px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);border-radius:8px;flex:none;justify-content:center;align-items:center;padding:0 4px;display:inline-flex}.S5HVoW_tabClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_tabClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tabBarPlus{background:var(--dsw-alias-bg-layer-1);width:22px;height:22px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border:none;border-radius:5px;flex:none;justify-content:center;align-self:center;align-items:center;margin:0 6px;padding:0;display:inline-flex;position:sticky;right:0}.S5HVoW_tabBarPlus:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_pinnedTab{color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_pinnedTab:hover{color:var(--dsw-alias-label-secondary)}.S5HVoW_explorer{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_explorerHeader{flex:none;justify-content:space-between;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_explorerRoot{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_explorerBody{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden auto}.S5HVoW_explorerRow{box-sizing:border-box;width:100%;max-width:100%;height:34px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;white-space:nowrap;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);background:0 0;border:none;border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.S5HVoW_explorerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_explorerRowRevealed{background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 18%, transparent);box-shadow:inset 2px 0 0 var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_explorerDir{font:var(--dsw-font-s-strong-14)}.S5HVoW_explorerHidden{opacity:.45}.S5HVoW_explorerSymlink{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerBroken .S5HVoW_explorerName{color:var(--dsw-alias-state-error-primary)}.S5HVoW_explorerName{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.S5HVoW_explorerRef{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:20px;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;align-items:center;padding:0 8px;display:none}.S5HVoW_explorerRef:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_explorerRow:hover .S5HVoW_explorerRef,.S5HVoW_explorerRow:focus-within .S5HVoW_explorerRef{display:inline-flex}.S5HVoW_explorerCopied{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);cursor:default}@keyframes S5HVoW_dsh-row-in{0%{opacity:0}}.S5HVoW_explorerEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_explorerRowDropTarget{background:var(--dsw-alias-interactive-bg-hover);outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_uploadDropZone{z-index:1001;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);box-shadow:0 0 0 200vmax var(--dsw-alias-bg-mask-drop);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:10px;justify-content:center;align-items:flex-start;padding:12px;display:flex;position:fixed}.S5HVoW_uploadDropHero{flex-direction:column;align-items:center;gap:10px;max-width:100%;padding-top:8px;display:flex}.S5HVoW_uploadDropZonePill{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:100%;box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);border-radius:999px;align-items:center;gap:6px;padding:6px 12px;display:flex}.S5HVoW_uploadDropZoneText{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadDropChatHint{z-index:1002;pointer-events:none;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;padding:24px;display:flex;position:fixed;top:0;bottom:0;left:0}.S5HVoW_uploadDropChatCard{text-align:center;max-width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-strong-14);flex-direction:column;align-items:center;gap:12px;display:flex}.S5HVoW_uploadOverlay{z-index:30;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;display:flex;position:absolute;inset:0}.S5HVoW_uploadOverlayCard{border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-alias-bg-layer-2);min-width:280px;max-width:min(420px,100% - 48px);box-shadow:var(--dsw-shadow-lv3);border-radius:24px;flex-direction:column;gap:12px;padding:20px 24px;display:flex}.S5HVoW_uploadOverlayTitle{font:var(--dsw-font-s-strong-14);color:var(--dsw-alias-label-primary);align-items:center;gap:8px;display:flex}.S5HVoW_uploadOverlayTitle>svg{flex:none}.S5HVoW_uploadOverlayTitle>span{white-space:nowrap;text-overflow:ellipsis;min-width:0;overflow:hidden}.S5HVoW_uploadOverlayProgress{background:var(--dsw-alias-border-l2);border-radius:3px;height:6px;overflow:hidden}.S5HVoW_uploadOverlayProgressFill{background:var(--dsw-alias-interactive-bg-hover-accent);height:100%;transition:width .15s var(--ds-ease-in-out);border-radius:3px}.S5HVoW_uploadOverlayStatus{min-height:1em;font:var(--dsw-font-xxs-12);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadOverlayCancel{border:1px solid var(--dsw-alias-border-l2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;background:0 0;border-radius:8px;align-self:flex-end;padding:0 14px}.S5HVoW_uploadOverlayCancel:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_uploadOverlayCancel:disabled{opacity:.4;cursor:default}.S5HVoW_editor{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorTitle{min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.S5HVoW_editorPathInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorPathInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorTreeToggleActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_editorBody{flex:1;min-height:0;display:flex}.S5HVoW_editorMain{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_editorTreeDock{border-left:1px solid var(--dsw-alias-border-l1);flex:none;min-height:0;display:flex;position:relative}.S5HVoW_editorTreeResize{cursor:col-resize;touch-action:none;z-index:3;width:6px;position:absolute;top:0;bottom:0;left:0}.S5HVoW_editorTreeResize:hover{background:var(--dsw-alias-border-l2)}.S5HVoW_editorTreePanel{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_editorTreePanelFull{flex:1}.S5HVoW_editorTreeSearch{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorSearchInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorSearchInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorSearchHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:8px 12px}.S5HVoW_editorSearchResult{width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;text-overflow:ellipsis;white-space:nowrap;background:0 0;border:none;border-radius:6px;padding:4px 8px;display:block;overflow:hidden}.S5HVoW_editorSearchResult:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorStatusError{color:var(--dsw-alias-state-error-primary)}.S5HVoW_dirtyDot{background:var(--dsw-alias-state-warn-primary);border-radius:50%;flex:none;width:7px;height:7px}.S5HVoW_editorPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex:1;justify-content:center;align-items:center;padding:16px;display:flex}.S5HVoW_orphanedType{opacity:.7;overflow-wrap:anywhere;margin-top:8px;font-size:12px;display:block}.S5HVoW_editorBinary{text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:12px;padding:24px 16px;display:flex}.S5HVoW_editorBinaryNotice{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorDownloadLink{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:6px;align-items:center;gap:6px;padding:6px 14px;text-decoration:none;display:inline-flex}.S5HVoW_editorDownloadLink:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_editorDocx{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorDocxViewport{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;overflow:auto}.S5HVoW_editorDocxWrap{flex:none;padding:16px}.S5HVoW_editorDocxZoom{border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:center;gap:8px;min-height:34px;padding:4px 10px;display:flex}.S5HVoW_editorDocxZoomHint,.S5HVoW_editorDocxZoomValue{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_editorDocxZoomValue{text-align:right;width:36px}.S5HVoW_editorDocxZoomRange{min-width:72px;accent-color:var(--dsw-alias-brand-primary);cursor:pointer;flex:1}.S5HVoW_editorXlsx{background:var(--dsw-alias-bg-base);flex:1;min-height:0;position:relative;overflow:hidden}.S5HVoW_editorUniverHost{width:100%;min-width:0;height:100%;min-height:0}.S5HVoW_editorOfficeOverlay{z-index:2;background:var(--dsw-alias-bg-base);display:flex;position:absolute;inset:0}.S5HVoW_editorPptx{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorPptxToolbar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;justify-content:center;align-items:center;gap:8px;padding:6px 8px;display:flex}.S5HVoW_editorPptxToolbar .S5HVoW_editorDownloadLink{margin-left:auto}.S5HVoW_editorPptxButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;border-radius:6px;padding:0 10px}.S5HVoW_editorPptxButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_editorPptxButton:disabled{opacity:.4;cursor:default}.S5HVoW_editorPptxPosition{text-align:center;min-width:64px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorPptxStage{flex:1;min-height:0;position:relative;overflow:hidden}.S5HVoW_editorPptxHost{width:100%;min-width:0;height:100%;min-height:0;overflow:auto}.S5HVoW_editorVideo{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorVideoStage{background:#000;flex:1;justify-content:center;align-items:center;min-height:0;display:flex}.S5HVoW_editorVideoPlayer{background:#000;outline:none;width:100%;height:100%;min-height:0;max-height:100%}.S5HVoW_editorVideoMeta{border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:center;gap:10px;min-height:34px;padding:4px 10px;display:flex}.S5HVoW_editorVideoName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);flex:1;overflow:hidden}.S5HVoW_editorVideoNotice{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_editorError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);padding:12px 16px}.S5HVoW_editorBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 8px}.S5HVoW_sandboxStatus{font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sandboxStatusOn{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sandboxStatusOff{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}.S5HVoW_sandboxDot{background:var(--dsw-alias-state-success-primary);border-radius:50%;flex:none;width:6px;height:6px}.S5HVoW_sandboxStatusOff .S5HVoW_sandboxDot{background:var(--dsw-alias-state-error-primary)}.S5HVoW_sandboxStatusText{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_sandboxAction{border:1px solid var(--dsw-alias-border-l2);font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:6px;flex:none;padding:2px 8px}.S5HVoW_sandboxAction:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorHtml{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_browser{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_browserBar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:4px;padding:6px 8px;display:flex}.S5HVoW_browserInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_browserInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_browserMessage{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 12px}.S5HVoW_browserChanged{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);white-space:nowrap;flex:none;padding:0 6px}.S5HVoW_browserLimit{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);border-top:1px solid var(--dsw-alias-border-l1);flex:none;margin:0;padding:4px 12px}.S5HVoW_browserFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_browserStart{text-align:center;min-height:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);flex:1;justify-content:center;align-items:center;padding:20px;display:flex}.S5HVoW_browserBlocked{text-align:center;min-height:0;color:var(--dsw-alias-state-warn-primary);flex-direction:column;flex:1;justify-content:center;align-items:center;gap:6px;padding:24px;display:flex}.S5HVoW_browserBlockedTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary)}.S5HVoW_browserBlockedDesc{max-width:280px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary)}.S5HVoW_browserBlockedActions{gap:8px;margin-top:6px;display:flex}.S5HVoW_browserBlockedButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);cursor:pointer;border-radius:6px;padding:4px 12px}.S5HVoW_browserBlockedButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorCm{background:0 0;flex:1;min-height:0;overflow:hidden}.S5HVoW_editorCmHidden{display:none}.S5HVoW_editorCm .cm-editor{height:100%}.S5HVoW_editorCm .cm-scroller{padding:12px 16px}.S5HVoW_editorCm .cm-editor.cm-focused{outline:none}.S5HVoW_editorModeToggle{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:6px;flex:none;align-items:center;gap:2px;padding:2px;display:inline-flex}.S5HVoW_editorModeButton{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);cursor:pointer;background:0 0;border:none;border-radius:4px;padding:2px 8px}.S5HVoW_editorModeButton:hover{color:var(--dsw-alias-label-primary)}.S5HVoW_editorModeActive{background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}.S5HVoW_editorImageWrap{flex:1;justify-content:center;align-items:center;min-height:0;padding:12px;display:flex;overflow:auto}.S5HVoW_editorImage{object-fit:contain;max-width:100%;max-height:100%}.S5HVoW_editorMd{min-height:0;font:var(--dsw-font-xs-13);flex:1;padding:12px 16px;overflow-y:auto}.S5HVoW_mermaidWrap{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:6px;margin:6px 0;overflow:hidden}.S5HVoW_mermaidHeader{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);justify-content:space-between;align-items:center;gap:6px;padding:4px 8px;display:flex}.S5HVoW_mermaidInfo{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_mermaidCopy{height:20px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-11);cursor:pointer;background:0 0;border:none;border-radius:4px;align-items:center;gap:4px;padding:0 6px;display:inline-flex}.S5HVoW_mermaidCopy:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_mermaidBody{cursor:zoom-in;justify-content:center;padding:10px;display:flex;overflow:auto}.S5HVoW_mermaidBody svg{max-width:100%;height:auto}.S5HVoW_mermaidError{border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-state-error-primary);font:var(--dsw-font-xxxs-11);padding:6px 10px}.S5HVoW_mermaidCode{font:var(--dsw-font-xxxs-11);margin:0;padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:auto}.S5HVoW_mermaidMarkdown .md-code-block[data-mermaid-processed]{display:contents}.S5HVoW_mermaidModal{z-index:1000;background:var(--dsw-alias-bg-mask-1);backdrop-filter:blur(2px);flex-direction:column;justify-content:center;align-items:center;display:flex;position:fixed;inset:0}.S5HVoW_mermaidModalToolbar{z-index:10;gap:8px;display:flex;position:absolute;top:16px;right:16px}.S5HVoW_mermaidModalButton{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:36px;height:36px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xs-strong-13);cursor:pointer;border-radius:8px;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_mermaidModalButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_mermaidModalStage{justify-content:center;align-items:center;width:90vw;height:80vh;display:flex;position:relative;overflow:hidden}.S5HVoW_mermaidModalStage svg{cursor:grab;transform-origin:50%;user-select:none;-webkit-user-drag:none;background:var(--dsw-alias-bg-layer-1);border-radius:12px;max-width:none;max-height:none;padding:16px}.S5HVoW_mermaidModalStage svg:active{cursor:grabbing}.S5HVoW_mermaidModalHint{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);pointer-events:none;position:absolute;bottom:16px;left:50%;transform:translate(-50%)}.S5HVoW_selectionPopup{z-index:60;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;cursor:pointer;border-radius:6px;align-items:center;padding:0 10px;display:inline-flex;position:fixed;transform:translate(-50%,calc(-100% - 8px))}.S5HVoW_selectionPopup:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorPdf{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorPdfToolbar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;justify-content:flex-end;padding:6px 8px;display:flex}.S5HVoW_editorPdfStage{flex:1;min-height:0;display:flex;position:relative}.S5HVoW_editorPdfFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_editorPdfFrameBlocked{pointer-events:none}.S5HVoW_editorPdfDragShield{z-index:4;pointer-events:none;background:0 0;position:absolute;inset:0}.S5HVoW_editorPdfDragShieldActive{pointer-events:auto}body[data-dsh-tab-dragging] .S5HVoW_editorPdfFrame{pointer-events:none!important}body[data-dsh-tab-dragging] .S5HVoW_editorPdfDragShield{pointer-events:auto!important}.S5HVoW_terminalWrap{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;position:relative}.S5HVoW_terminal{flex:1;min-height:0;padding:6px 4px 6px 8px}.S5HVoW_terminal .xterm{height:100%}.S5HVoW_terminalBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-wrap:wrap;flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalBannerUrl{word-break:break-all;opacity:.85;flex-basis:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.S5HVoW_boundaryError{z-index:50;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;align-items:flex-start;gap:8px;padding:16px;display:flex;position:fixed;top:0;bottom:0;right:0;overflow:auto}.S5HVoW_terminalRetry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;padding:1px 8px}.S5HVoW_terminalRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitFoldRow{box-sizing:border-box;background:var(--dsw-alias-bg-layer-1);width:100%;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);text-align:center;cursor:pointer;border:none;outline:none;padding:2px 12px;display:block}.S5HVoW_gitFoldRow:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.S5HVoW_gitFoldRow:disabled{cursor:default}.S5HVoW_gitFoldRowFailed{color:var(--dsw-alias-state-error-primary);opacity:.7}.S5HVoW_explorerRenameInput{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);min-width:0;height:20px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:4px;outline:none;flex:1;padding:0 4px}.S5HVoW_changesLensToggle{flex:none;gap:2px;padding:2px;display:flex}.S5HVoW_changesLensTab{height:24px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:1}.S5HVoW_changesLensTab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_changesLensTabActive,.S5HVoW_changesLensTabActive:hover{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.S5HVoW_sessionLens{flex:1;min-height:0;overflow-y:auto}.S5HVoW_sessionLensBar{align-items:center;gap:6px;height:26px;padding:0 4px;display:flex}.S5HVoW_sessionLensCount{min-width:0;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:1}.S5HVoW_sessionLensEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_sessionLensItem{border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sessionLensRow{box-sizing:border-box;width:100%;min-height:30px;color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:6px;outline:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sessionLensRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_sessionLensPath{text-overflow:ellipsis;white-space:nowrap;text-align:left;direction:rtl;flex:1;min-width:0;overflow:hidden}.S5HVoW_sessionLensMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_sessionLensPreview{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);max-height:260px;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;border-radius:6px;margin:0 8px 6px;padding:6px 8px;line-height:1.5;overflow:auto}.S5HVoW_terminalWaitBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalWaitNeedle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden}.S5HVoW_terminalDepsBanner{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-direction:column;flex:none;gap:6px;padding:10px;display:flex}.S5HVoW_terminalDepsTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-state-warn-primary)}.S5HVoW_terminalDepsHint{opacity:.9}.S5HVoW_terminalDepsCommandRow{align-items:flex-start;gap:8px;display:flex}.S5HVoW_terminalRepairCommand{white-space:pre-wrap;word-break:break-all;user-select:text;min-width:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:4px;flex:1;max-height:160px;margin:0;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;overflow:auto}.S5HVoW_terminalDepsNote{opacity:.85}.S5HVoW_terminalDepsActions{align-items:center;gap:8px;display:flex}.S5HVoW_tabBoundaryError{min-height:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;flex:1;align-items:flex-start;gap:8px;padding:12px 16px;display:flex;overflow:auto}.S5HVoW_git{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitHeader{flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitWorktreeRow{flex:none;align-items:center;gap:8px;padding:6px 8px 0 12px;display:flex}.S5HVoW_gitWorktreeLabel{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none}.S5HVoW_gitBranchSelect{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 6px}.S5HVoW_gitSection{border-top:1px solid var(--dsw-alias-border-l1)}.S5HVoW_gitSectionHeader{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);text-transform:uppercase;justify-content:space-between;align-items:center;padding:6px 12px 4px;display:flex}.S5HVoW_gitLink{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-brand-primary);cursor:pointer;background:0 0;border:none;padding:0}.S5HVoW_gitLink:hover:not(:disabled){text-decoration:underline}.S5HVoW_gitLink:disabled{opacity:.4;cursor:default}.S5HVoW_gitRow{min-height:34px;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:8px;align-items:center;gap:6px;margin:0 6px;padding:0 8px;display:flex}.S5HVoW_gitRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitRowSelected{background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_gitRowMain{cursor:pointer;text-align:left;background:0 0;border:none;flex:1;align-items:center;gap:8px;min-width:0;padding:3px 0;display:flex}.S5HVoW_gitBadge{width:20px;height:16px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_gitName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:4px 12px 8px}.S5HVoW_gitPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_gitError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap;align-items:flex-start;gap:8px;padding:8px 12px;display:flex}.S5HVoW_gitDiff{border-top:1px solid var(--dsw-alias-border-l1);padding:8px}.S5HVoW_gitDiffTab{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitDiffTabHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitDiffTabTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitDiffFile{width:100%;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;align-items:baseline;gap:6px;padding:8px 2px 2px;display:flex}.S5HVoW_gitDiffFile:disabled{cursor:default}.S5HVoW_gitDiffFile:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitDiffFileChevron{color:var(--dsw-alias-label-tertiary);flex:none;transform:rotate(0)}.S5HVoW_gitDiffFileChevronExpanded{transform:rotate(90deg)}.S5HVoW_gitDiffFilePath{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffFileOld{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:none;max-width:40%;overflow:hidden}.S5HVoW_gitDiffFileTag{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:0 6px}.S5HVoW_gitDiffHunk{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);gap:8px;padding:3px 2px;display:flex}.S5HVoW_gitDiffHunkHeader{color:var(--dsw-alias-label-secondary);flex:none}.S5HVoW_gitDiffHunkSection{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffLine{font:var(--dsw-font-markdown-code-block-small);white-space:pre-wrap;overflow-wrap:anywhere;align-items:stretch;min-width:0;line-height:20px;display:flex}.S5HVoW_gitDiffNum{text-align:right;width:36px;color:var(--dsw-alias-label-tertiary);user-select:none;flex:none;padding-right:8px}.S5HVoW_gitDiffCode{flex:1;min-width:0;overflow:visible}.S5HVoW_gitDiffCtx{color:var(--dsw-alias-label-primary)}.S5HVoW_gitDiffDel{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}.S5HVoW_gitDiffAdd{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent)}.S5HVoW_gitDiffMeta{padding-left:2px}.S5HVoW_gitDiffMetaText{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_gitDiffExpand{width:100%;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-brand-primary);cursor:pointer;text-align:center;background:0 0;border:none;margin:4px 0;display:block}.S5HVoW_gitDiffExpand:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitConfirmDesc{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);white-space:pre-wrap;margin:0}.S5HVoW_gitCommit{border-top:1px solid var(--dsw-alias-border-l1);align-items:center;gap:6px;padding:8px 12px;display:flex}.S5HVoW_gitCommitInput{flex:1;min-width:0}.S5HVoW_gitCommitButton{background:var(--dsw-alias-button-primary-fill);height:26px;color:var(--dsw-alias-label-primary-inverted);font:var(--dsw-font-xxs-strong-12);cursor:pointer;border:none;border-radius:6px;flex:none;padding:0 12px}.S5HVoW_gitCommitButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.S5HVoW_gitCommitButton:disabled{opacity:.45;cursor:default}.S5HVoW_gitLogRow{cursor:pointer;border-radius:8px;flex-direction:column;gap:2px;padding:5px 12px;display:flex}.S5HVoW_gitLogRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitLogLine1{align-items:baseline;gap:8px;min-width:0;display:flex}.S5HVoW_gitLogHash{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_gitLogLine2{flex-wrap:wrap;align-items:center;gap:6px;min-width:0;display:flex}.S5HVoW_gitLogRef{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-brand-primary);white-space:nowrap;border-radius:999px;flex:none;padding:0 5px}.S5HVoW_gitLogSubject{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitLogMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_gitLogMore{border:1px solid var(--dsw-alias-border-l2);width:calc(100% - 24px);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:6px;margin:4px 12px 8px;padding:6px 0;display:block}.S5HVoW_gitLogMore:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitLogMore:disabled{opacity:.5;cursor:default}.S5HVoW_producedRow{flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0;display:flex}.S5HVoW_producedLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_producedChip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:200px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;display:inline-flex;overflow:hidden}.S5HVoW_producedChip:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_producedChip span{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_producedMore{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_toggleButton:focus-visible,.S5HVoW_iconButton:focus-visible,.S5HVoW_tab:focus-visible,.S5HVoW_tabClose:focus-visible,.S5HVoW_tabBarPlus:focus-visible,.S5HVoW_paneCard:focus-visible,.S5HVoW_explorerRow:focus-visible,.S5HVoW_explorerRef:focus-visible,.S5HVoW_gitRowMain:focus-visible,.S5HVoW_gitLink:focus-visible,.S5HVoW_gitCommitButton:focus-visible,.S5HVoW_gitLogRow:focus-visible,.S5HVoW_gitLogMore:focus-visible,.S5HVoW_gitDiffFile:focus-visible,.S5HVoW_gitDiffExpand:focus-visible,.S5HVoW_terminalRetry:focus-visible,.S5HVoW_editorModeButton:focus-visible,.S5HVoW_editorDownloadLink:focus-visible,.S5HVoW_editorPptxButton:focus-visible,.S5HVoW_editorDocxZoomRange:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}@media (prefers-reduced-motion:reduce){.S5HVoW_panel,.S5HVoW_panelHidden,.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tab,.S5HVoW_tabBarPlus,.S5HVoW_paneCard,.S5HVoW_explorerRow,.S5HVoW_gitRow,.S5HVoW_divider,.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{transition:none;animation:none}}@media (width<=767px){.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:40px}.S5HVoW_tab{min-width:48px;max-width:128px}}.S5HVoW_openWithLabel{align-items:center;gap:8px;width:100%;min-width:0;display:flex}.S5HVoW_openWithName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}.S5HVoW_openWithChevron{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_openWithPin{width:20px;height:20px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:6px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_openWithPin:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_openWithPinActive{color:var(--dsw-alias-state-business-primary)}.S5HVoW_editorHtmlBlock{margin:8px 0}.S5HVoW_editorHtmlBlock img,.S5HVoW_editorHtmlBlock video{max-width:100%}.S5HVoW_editorHtmlBlock details{margin:4px 0;padding:4px 0}.S5HVoW_editorHtmlBlock summary{cursor:pointer}.S5HVoW_tocBar{z-index:3;pointer-events:none;justify-content:flex-end;height:0;display:flex;position:sticky;top:0}.S5HVoW_tocButton{pointer-events:auto;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);width:26px;height:26px;color:var(--dsw-alias-label-secondary);cursor:pointer;border-radius:6px;justify-content:center;align-items:center;margin:4px 2px 0 0;padding:0;display:inline-flex}.S5HVoW_tocButton:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tocPanel{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:min(300px,82%);max-height:60vh;box-shadow:var(--dsw-shadow-lv2);pointer-events:auto;border-radius:8px;flex-direction:column;padding:4px;display:flex;position:absolute;top:32px;right:2px;overflow-y:auto}.S5HVoW_tocItem{min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:6px;align-items:baseline;gap:8px;padding:4px 8px;display:flex}.S5HVoW_tocItem:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tocItem[data-level=\"2\"]{padding-left:18px}.S5HVoW_tocItem[data-level=\"3\"]{padding-left:28px}.S5HVoW_tocItem[data-level=\"4\"]{padding-left:38px}.S5HVoW_tocItem[data-level=\"5\"]{padding-left:48px}.S5HVoW_tocItem[data-level=\"6\"]{padding-left:58px}.S5HVoW_tocItemLevel{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_tocItemText{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}@keyframes S5HVoW_dsh-toc-flash{0%,60%{background:var(--dsw-alias-interactive-bg-hover)}to{background:0 0}}.S5HVoW_browserLive{flex-direction:column;gap:6px;padding:8px 10px;display:flex;position:absolute;inset:0;overflow:hidden}.S5HVoW_browserLiveStatus{opacity:.75;align-items:center;gap:8px;font-size:12px;display:flex}.S5HVoW_browserLiveCanvas{object-fit:contain;border:1px solid var(--dsw-alias-border-l,#80808040);cursor:crosshair;background:#fff;border-radius:8px;flex:1;width:100%;min-height:0}.S5HVoW_browserLiveTarget{max-width:260px;font-size:12px}.S5HVoW_spacer{flex:1;min-width:4px}.S5HVoW_gitUpstream{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);white-space:nowrap;flex:none;align-items:center;gap:4px;display:inline-flex}.S5HVoW_gitAhead{color:var(--dsw-alias-state-business-primary)}.S5HVoW_gitBehind{color:var(--dsw-alias-state-warn-primary)}.S5HVoW_gitSynced{color:var(--dsw-alias-state-success-primary)}.S5HVoW_gitPending{color:var(--dsw-alias-state-warn-primary)}.S5HVoW_gitLineStat{font:var(--dsw-font-xxxs-11);white-space:nowrap;flex:none;align-items:center;gap:4px;margin-left:auto;padding-left:8px;display:inline-flex}.S5HVoW_gitAdded{color:var(--dsw-alias-state-success-primary)}.S5HVoW_gitRemoved{color:var(--dsw-alias-state-error-primary)}.S5HVoW_gitUntracked{color:var(--dsw-alias-label-tertiary)}.S5HVoW_gitPushRow{align-items:center;gap:8px;padding:0 12px 8px;display:flex}.S5HVoW_gitPushRow .S5HVoW_gitLink{align-items:center;gap:3px;display:inline-flex}.S5HVoW_gitBranchView{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitBranchToolbar,.S5HVoW_gitBranchForm{flex:none;align-items:center;gap:6px;padding:6px 8px 6px 12px;display:flex}.S5HVoW_gitBranchForm{padding-top:0}.S5HVoW_gitBranchSearch{flex:1;min-width:0}.S5HVoW_gitBranchRow{align-items:center;gap:4px;min-height:30px;padding-right:6px;display:flex}.S5HVoW_gitBranchRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitBranchName{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);overflow:hidden}.S5HVoW_gitBranchBadge{background:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);white-space:nowrap;border-radius:999px;flex:none;padding:0 5px}.S5HVoW_gitBranchMeta{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none;overflow:hidden}.S5HVoW_gitGh{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitGhHeader{flex:none;align-items:center;gap:6px;min-height:32px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitGhRepo{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);overflow:hidden}.S5HVoW_gitGhEnv{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none;padding:0 12px 6px}.S5HVoW_gitGhHint{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);margin-top:6px;line-height:1.5}.S5HVoW_gitGhNotice{background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);border-radius:6px;flex:none;align-items:center;gap:6px;margin:0 12px 6px;padding:6px 8px;display:flex}.S5HVoW_gitGhRow{flex-wrap:wrap;align-items:center;gap:6px;min-height:30px;padding:5px 12px;display:flex}.S5HVoW_gitGhRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitGhNumber{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none}.S5HVoW_gitGhTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);flex:1;overflow:hidden}.S5HVoW_gitGhMergeConfirm{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:6px;display:inline-flex}.S5HVoW_gitGhMethod{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);height:22px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);border-radius:6px;padding:0 4px}.S5HVoW_gitGhForm{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:8px;flex-direction:column;flex:none;gap:6px;margin:6px 12px 12px;padding:8px;display:flex}.S5HVoW_gitGhFormTitle{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11)}.S5HVoW_gitGhInput{width:100%}.S5HVoW_gitGhTextarea{resize:vertical;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);width:100%;min-height:56px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;padding:6px 8px;font-family:inherit}.S5HVoW_gitGhFormRow{align-items:center;gap:8px;display:flex}.S5HVoW_gitGhDraft{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-11);white-space:nowrap;flex:none;align-items:center;gap:4px;display:inline-flex}.S5HVoW_gitError button{flex:none;margin-left:auto}.S5HVoW_gitConfirmDanger{color:var(--dsw-alias-state-error-primary)}.S5HVoW_schedPreview{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform);border-radius:8px;flex-direction:column;flex:none;gap:4px;margin:8px 8px 4px;padding:8px 10px 10px;display:flex}.S5HVoW_schedPreviewHead{align-items:flex-start;gap:6px;display:flex}.S5HVoW_schedPreviewTitle{min-width:0;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;flex:1;font-size:13px;font-weight:600}.S5HVoW_schedPreviewClose{width:20px;height:20px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_schedPreviewClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_schedPreviewClose:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_schedPreviewRow{align-items:flex-start;gap:8px;font-size:12px;line-height:18px;display:flex}.S5HVoW_schedPreviewLabel{width:56px;color:var(--dsw-alias-label-secondary);flex:none}.S5HVoW_schedPreviewValue{min-width:0;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;flex:1}.S5HVoW_schedPreviewPrompt{min-width:0;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;-webkit-line-clamp:6;-webkit-box-orient:vertical;flex:1;display:-webkit-box;overflow:hidden}.S5HVoW_plansView{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_plansToolbar{flex:none;align-items:center;gap:6px;padding:6px 8px 6px 12px;display:flex}.S5HVoW_plansSearch{flex:1;min-width:0}.S5HVoW_plansRow{align-items:center;gap:4px;padding-right:6px;display:flex}.S5HVoW_plansRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_plansRowMain{cursor:pointer;text-align:left;background:0 0;border:none;flex:1;align-items:flex-start;gap:8px;min-width:0;padding:5px 0 5px 12px;display:flex}.S5HVoW_plansRowMain:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_plansGlyph{color:var(--dsw-alias-label-secondary);flex:none;padding-top:1px;display:inline-flex}.S5HVoW_plansText{flex-direction:column;flex:1;gap:1px;min-width:0;display:flex}.S5HVoW_plansTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);overflow:hidden}.S5HVoW_plansMeta{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);overflow:hidden}.S5HVoW_plansEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px 12px}.S5HVoW_plansHint{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);overflow-wrap:anywhere;padding:6px 12px}.S5HVoW_plansEmpty .S5HVoW_plansHint{padding:4px 0 0;& .S5HVoW_tocFlash{border-radius:4px;animation:1.2s ease-out S5HVoW_dsh-toc-flash}}";
+		const css$5 = "[data-dsh-panel-host]{z-index:25;pointer-events:none;position:fixed;inset:0;overflow:hidden}[data-dsh-panel-host][data-dsh-panel-host-degraded]{position:absolute;top:0;left:0}.S5HVoW_toggleCluster{top:calc(3px + env(safe-area-inset-top));z-index:45;pointer-events:auto;flex-direction:row;gap:4px;display:flex;position:absolute;right:10px}.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:72px}.S5HVoW_toggleButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), color var(--ds-transition-duration-slow) var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;justify-content:center;align-items:center;display:flex}.S5HVoW_toggleButton:hover:not(:disabled):not([aria-disabled=true]){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_toggleButton:disabled,.S5HVoW_toggleButton[aria-disabled=true]{opacity:.4;cursor:default}.S5HVoW_panel{box-sizing:border-box;z-index:40;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);padding-bottom:env(safe-area-inset-bottom);transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out);flex-direction:column;display:flex;position:absolute;top:0;bottom:0;right:0}.S5HVoW_panelHidden{pointer-events:none;visibility:hidden;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), width var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);transform:translate(102%)}.S5HVoW_panel[data-dragging]{transition:none}.S5HVoW_panelResize{cursor:col-resize;z-index:2;touch-action:none;width:8px;position:absolute;top:0;bottom:0;left:-4px}.S5HVoW_panelResizeActive{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_panelBody{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_panel{contain:layout style}body[data-dsh-sidebar-dragging] .S5HVoW_panel{will-change:transform}.S5HVoW_floatWindow{z-index:42;pointer-events:auto;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-lv3);contain:layout style;border-radius:8px;flex-direction:column;display:flex;position:absolute;overflow:hidden}.S5HVoW_floatWindowDragging{will-change:left, top, width, height}.S5HVoW_floatHeader{height:34px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1);cursor:grab;user-select:none;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_floatWindowDragging .S5HVoW_floatHeader{cursor:grabbing}.S5HVoW_floatTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_floatClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_floatClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_floatContent{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden}.S5HVoW_floatResize{z-index:2;cursor:nwse-resize;touch-action:none;width:14px;height:14px;position:absolute;bottom:0;right:0}.S5HVoW_floatResize:hover{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane[data-dsh-float-dock-over]{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px}.S5HVoW_floatDropHint{z-index:46;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 12%, transparent);border-radius:8px;justify-content:center;align-items:center;display:flex;position:absolute}.S5HVoW_floatDropHintLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:4px 12px}.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tabBar,.S5HVoW_floatHeader{-webkit-app-region:no-drag}body[data-dsh-title-bar-compat] .S5HVoW_toggleCluster{top:calc(var(--dsh-title-bar-strip,40px) + 3px)}body[data-dsh-title-bar-compat] .S5HVoW_panel{padding-top:var(--dsh-title-bar-strip,40px)}.S5HVoW_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_iconButton:disabled{opacity:.4;cursor:default}.S5HVoW_workbench,.S5HVoW_split{flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_splitRow{flex-direction:row}.S5HVoW_splitCol{flex-direction:column}.S5HVoW_splitChild{display:flex;position:relative;overflow:hidden}.S5HVoW_divider{z-index:3;touch-action:none;flex:none;position:relative}.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{content:\"\";background:var(--dsw-alias-border-l2);transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out);position:absolute}.S5HVoW_dividerRow{cursor:col-resize;width:7px;margin:0 -2px}.S5HVoW_dividerRow:after{width:1px;top:0;bottom:0;left:50%;transform:translate(-50%)}.S5HVoW_dividerCol{cursor:row-resize;height:7px;margin:-2px 0}.S5HVoW_dividerCol:after{height:1px;top:50%;left:0;right:0;transform:translateY(-50%)}.S5HVoW_divider:hover:after,.S5HVoW_dividerActive:after{background:var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_pane{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_paneDrop{outline:1px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_dropOverlay{z-index:6;pointer-events:none;background:var(--dsw-alias-interactive-bg-hover-accent);opacity:.5;position:absolute}.S5HVoW_dropLeft{width:25%;top:0;bottom:0;left:0}.S5HVoW_dropRight{width:25%;top:0;bottom:0;right:0}.S5HVoW_dropUp{height:25%;top:0;left:0;right:0}.S5HVoW_dropDown{height:25%;bottom:0;left:0;right:0}.S5HVoW_dropCenter{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px;background:0 0;inset:25%}.S5HVoW_paneContent{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden}.S5HVoW_paneTab{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_paneTabHidden{display:none}.S5HVoW_paneEmptyCards{flex:1;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));align-content:start;gap:8px;min-height:0;padding:12px;display:grid;overflow:hidden}.S5HVoW_paneCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;text-align:center;border-radius:8px;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:12px 8px;display:flex}.S5HVoW_paneCard:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}.S5HVoW_paneCard:disabled{opacity:.45;cursor:default}.S5HVoW_tabBar{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:stretch;height:34px;display:flex}.S5HVoW_tabBarDrop{outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_tabList{scrollbar-width:none;flex:1;min-width:0;display:flex;overflow-x:auto}.S5HVoW_tabList::-webkit-scrollbar{display:none}.S5HVoW_tab{min-width:64px;max-width:160px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);border-right:1px solid var(--dsw-alias-border-l1);cursor:pointer;user-select:none;background:0 0;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.S5HVoW_tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_tabActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_tabTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_tabBadge{min-width:16px;height:15px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);border-radius:8px;flex:none;justify-content:center;align-items:center;padding:0 4px;display:inline-flex}.S5HVoW_tabClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_tabClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tabBarPlus{background:var(--dsw-alias-bg-layer-1);width:22px;height:22px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border:none;border-radius:5px;flex:none;justify-content:center;align-self:center;align-items:center;margin:0 6px;padding:0;display:inline-flex;position:sticky;right:0}.S5HVoW_tabBarPlus:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_pinnedTab{color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_pinnedTab:hover{color:var(--dsw-alias-label-secondary)}.S5HVoW_explorer{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_explorerHeader{flex:none;justify-content:space-between;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_explorerRoot{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_explorerBody{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden auto}.S5HVoW_explorerRow{box-sizing:border-box;width:100%;max-width:100%;height:34px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;white-space:nowrap;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);background:0 0;border:none;border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.S5HVoW_explorerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_explorerRowRevealed{background:color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 18%, transparent);box-shadow:inset 2px 0 0 var(--dsw-alias-interactive-bg-hover-accent)}.S5HVoW_explorerDir{font:var(--dsw-font-s-strong-14)}.S5HVoW_explorerHidden{opacity:.45}.S5HVoW_explorerSymlink{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerBroken .S5HVoW_explorerName{color:var(--dsw-alias-state-error-primary)}.S5HVoW_explorerName{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.S5HVoW_explorerRef{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:20px;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;align-items:center;padding:0 8px;display:none}.S5HVoW_explorerRef:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_explorerRow:hover .S5HVoW_explorerRef,.S5HVoW_explorerRow:focus-within .S5HVoW_explorerRef{display:inline-flex}.S5HVoW_explorerCopied{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_explorerError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);cursor:default}@keyframes S5HVoW_dsh-row-in{0%{opacity:0}}.S5HVoW_explorerEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_explorerRowDropTarget{background:var(--dsw-alias-interactive-bg-hover);outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_uploadDropZone{z-index:1001;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);box-shadow:0 0 0 200vmax var(--dsw-alias-bg-mask-drop);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:10px;justify-content:center;align-items:flex-start;padding:12px;display:flex;position:fixed}.S5HVoW_uploadDropHero{flex-direction:column;align-items:center;gap:10px;max-width:100%;padding-top:8px;display:flex}.S5HVoW_uploadDropZonePill{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:100%;box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);border-radius:999px;align-items:center;gap:6px;padding:6px 12px;display:flex}.S5HVoW_uploadDropZoneText{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadDropChatHint{z-index:1002;pointer-events:none;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;padding:24px;display:flex;position:fixed;top:0;bottom:0;left:0}.S5HVoW_uploadDropChatCard{text-align:center;max-width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-strong-14);flex-direction:column;align-items:center;gap:12px;display:flex}.S5HVoW_uploadOverlay{z-index:30;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;display:flex;position:absolute;inset:0}.S5HVoW_uploadOverlayCard{border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-alias-bg-layer-2);min-width:280px;max-width:min(420px,100% - 48px);box-shadow:var(--dsw-shadow-lv3);border-radius:24px;flex-direction:column;gap:12px;padding:20px 24px;display:flex}.S5HVoW_uploadOverlayTitle{font:var(--dsw-font-s-strong-14);color:var(--dsw-alias-label-primary);align-items:center;gap:8px;display:flex}.S5HVoW_uploadOverlayTitle>svg{flex:none}.S5HVoW_uploadOverlayTitle>span{white-space:nowrap;text-overflow:ellipsis;min-width:0;overflow:hidden}.S5HVoW_uploadOverlayProgress{background:var(--dsw-alias-border-l2);border-radius:3px;height:6px;overflow:hidden}.S5HVoW_uploadOverlayProgressFill{background:var(--dsw-alias-interactive-bg-hover-accent);height:100%;transition:width .15s var(--ds-ease-in-out);border-radius:3px}.S5HVoW_uploadOverlayStatus{min-height:1em;font:var(--dsw-font-xxs-12);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.S5HVoW_uploadOverlayCancel{border:1px solid var(--dsw-alias-border-l2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;background:0 0;border-radius:8px;align-self:flex-end;padding:0 14px}.S5HVoW_uploadOverlayCancel:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_uploadOverlayCancel:disabled{opacity:.4;cursor:default}.S5HVoW_editor{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorTitle{min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.S5HVoW_editorPathInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorPathInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorTreeToggleActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_editorBody{flex:1;min-height:0;display:flex}.S5HVoW_editorMain{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex}.S5HVoW_editorTreeDock{border-left:1px solid var(--dsw-alias-border-l1);flex:none;min-height:0;display:flex;position:relative}.S5HVoW_editorTreeResize{cursor:col-resize;touch-action:none;z-index:3;width:6px;position:absolute;top:0;bottom:0;left:0}.S5HVoW_editorTreeResize:hover{background:var(--dsw-alias-border-l2)}.S5HVoW_editorTreePanel{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.S5HVoW_editorTreePanelFull{flex:1}.S5HVoW_editorTreeSearch{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.S5HVoW_editorSearchInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_editorSearchInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_editorSearchHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:8px 12px}.S5HVoW_editorSearchResult{width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;text-overflow:ellipsis;white-space:nowrap;background:0 0;border:none;border-radius:6px;padding:4px 8px;display:block;overflow:hidden}.S5HVoW_editorSearchResult:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorStatusError{color:var(--dsw-alias-state-error-primary)}.S5HVoW_dirtyDot{background:var(--dsw-alias-state-warn-primary);border-radius:50%;flex:none;width:7px;height:7px}.S5HVoW_editorPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex:1;justify-content:center;align-items:center;padding:16px;display:flex}.S5HVoW_orphanedType{opacity:.7;overflow-wrap:anywhere;margin-top:8px;font-size:12px;display:block}.S5HVoW_editorBinary{text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:12px;padding:24px 16px;display:flex}.S5HVoW_editorBinaryNotice{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorDownloadLink{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:6px;align-items:center;gap:6px;padding:6px 14px;text-decoration:none;display:inline-flex}.S5HVoW_editorDownloadLink:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.S5HVoW_editorDocx{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorDocxViewport{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;overflow:auto}.S5HVoW_editorDocxWrap{flex:none;padding:16px}.S5HVoW_editorDocxZoom{border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:center;gap:8px;min-height:34px;padding:4px 10px;display:flex}.S5HVoW_editorDocxZoomHint,.S5HVoW_editorDocxZoomValue{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_editorDocxZoomValue{text-align:right;width:36px}.S5HVoW_editorDocxZoomRange{min-width:72px;accent-color:var(--dsw-alias-brand-primary);cursor:pointer;flex:1}.S5HVoW_editorXlsx{background:var(--dsw-alias-bg-base);flex:1;min-height:0;position:relative;overflow:hidden}.S5HVoW_editorUniverHost{width:100%;min-width:0;height:100%;min-height:0}.S5HVoW_editorOfficeOverlay{z-index:2;background:var(--dsw-alias-bg-base);display:flex;position:absolute;inset:0}.S5HVoW_editorPptx{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorPptxToolbar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;justify-content:center;align-items:center;gap:8px;padding:6px 8px;display:flex}.S5HVoW_editorPptxToolbar .S5HVoW_editorDownloadLink{margin-left:auto}.S5HVoW_editorPptxButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;border-radius:6px;padding:0 10px}.S5HVoW_editorPptxButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_editorPptxButton:disabled{opacity:.4;cursor:default}.S5HVoW_editorPptxPosition{text-align:center;min-width:64px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_editorPptxStage{flex:1;min-height:0;position:relative;overflow:hidden}.S5HVoW_editorPptxHost{width:100%;min-width:0;height:100%;min-height:0;overflow:auto}.S5HVoW_editorVideo{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorVideoStage{background:#000;flex:1;justify-content:center;align-items:center;min-height:0;display:flex}.S5HVoW_editorVideoPlayer{background:#000;outline:none;width:100%;height:100%;min-height:0;max-height:100%}.S5HVoW_editorVideoMeta{border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:center;gap:10px;min-height:34px;padding:4px 10px;display:flex}.S5HVoW_editorVideoName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);flex:1;overflow:hidden}.S5HVoW_editorVideoNotice{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_editorError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);padding:12px 16px}.S5HVoW_editorBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 8px}.S5HVoW_sandboxStatus{font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sandboxStatusOn{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sandboxStatusOff{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}.S5HVoW_sandboxDot{background:var(--dsw-alias-state-success-primary);border-radius:50%;flex:none;width:6px;height:6px}.S5HVoW_sandboxStatusOff .S5HVoW_sandboxDot{background:var(--dsw-alias-state-error-primary)}.S5HVoW_sandboxStatusText{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.S5HVoW_sandboxAction{border:1px solid var(--dsw-alias-border-l2);font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:6px;flex:none;padding:2px 8px}.S5HVoW_sandboxAction:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorHtml{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_browser{flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_browserBar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:4px;padding:6px 8px;display:flex}.S5HVoW_browserInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.S5HVoW_browserInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.S5HVoW_browserMessage{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 12px}.S5HVoW_browserChanged{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);white-space:nowrap;flex:none;padding:0 6px}.S5HVoW_browserLimit{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);border-top:1px solid var(--dsw-alias-border-l1);flex:none;margin:0;padding:4px 12px}.S5HVoW_browserFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_browserStart{text-align:center;min-height:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);flex:1;justify-content:center;align-items:center;padding:20px;display:flex}.S5HVoW_browserBlocked{text-align:center;min-height:0;color:var(--dsw-alias-state-warn-primary);flex-direction:column;flex:1;justify-content:center;align-items:center;gap:6px;padding:24px;display:flex}.S5HVoW_browserBlockedTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary)}.S5HVoW_browserBlockedDesc{max-width:280px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary)}.S5HVoW_browserBlockedActions{gap:8px;margin-top:6px;display:flex}.S5HVoW_browserBlockedButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);cursor:pointer;border-radius:6px;padding:4px 12px}.S5HVoW_browserBlockedButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorCm{background:0 0;flex:1;min-height:0;overflow:hidden}.S5HVoW_editorCmHidden{display:none}.S5HVoW_editorCm .cm-editor{height:100%}.S5HVoW_editorCm .cm-scroller{padding:12px 16px}.S5HVoW_editorCm .cm-editor.cm-focused{outline:none}.S5HVoW_editorModeToggle{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:6px;flex:none;align-items:center;gap:2px;padding:2px;display:inline-flex}.S5HVoW_editorModeButton{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);cursor:pointer;background:0 0;border:none;border-radius:4px;padding:2px 8px}.S5HVoW_editorModeButton:hover{color:var(--dsw-alias-label-primary)}.S5HVoW_editorModeActive{background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}.S5HVoW_editorImageWrap{flex:1;justify-content:center;align-items:center;min-height:0;padding:12px;display:flex;overflow:auto}.S5HVoW_editorImage{object-fit:contain;max-width:100%;max-height:100%}.S5HVoW_editorMd{min-height:0;font:var(--dsw-font-xs-13);flex:1;padding:12px 16px;overflow-y:auto}.S5HVoW_mermaidWrap{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:6px;margin:6px 0;overflow:hidden}.S5HVoW_mermaidHeader{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);justify-content:space-between;align-items:center;gap:6px;padding:4px 8px;display:flex}.S5HVoW_mermaidInfo{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_mermaidCopy{height:20px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-11);cursor:pointer;background:0 0;border:none;border-radius:4px;align-items:center;gap:4px;padding:0 6px;display:inline-flex}.S5HVoW_mermaidCopy:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_mermaidBody{cursor:zoom-in;justify-content:center;padding:10px;display:flex;overflow:auto}.S5HVoW_mermaidBody svg{max-width:100%;height:auto}.S5HVoW_mermaidError{border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-state-error-primary);font:var(--dsw-font-xxxs-11);padding:6px 10px}.S5HVoW_mermaidCode{font:var(--dsw-font-xxxs-11);margin:0;padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:auto}.S5HVoW_mermaidMarkdown .md-code-block[data-mermaid-processed]{display:contents}.S5HVoW_mermaidModal{z-index:1000;background:var(--dsw-alias-bg-mask-1);backdrop-filter:blur(2px);flex-direction:column;justify-content:center;align-items:center;display:flex;position:fixed;inset:0}.S5HVoW_mermaidModalToolbar{z-index:10;gap:8px;display:flex;position:absolute;top:16px;right:16px}.S5HVoW_mermaidModalButton{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:36px;height:36px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xs-strong-13);cursor:pointer;border-radius:8px;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_mermaidModalButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_mermaidModalStage{justify-content:center;align-items:center;width:90vw;height:80vh;display:flex;position:relative;overflow:hidden}.S5HVoW_mermaidModalStage svg{cursor:grab;transform-origin:50%;user-select:none;-webkit-user-drag:none;background:var(--dsw-alias-bg-layer-1);border-radius:12px;max-width:none;max-height:none;padding:16px}.S5HVoW_mermaidModalStage svg:active{cursor:grabbing}.S5HVoW_mermaidModalHint{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);pointer-events:none;position:absolute;bottom:16px;left:50%;transform:translate(-50%)}.S5HVoW_selectionPopup{z-index:60;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;cursor:pointer;border-radius:6px;align-items:center;padding:0 10px;display:inline-flex;position:fixed;transform:translate(-50%,calc(-100% - 8px))}.S5HVoW_selectionPopup:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_editorPdf{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.S5HVoW_editorPdfToolbar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;justify-content:flex-end;padding:6px 8px;display:flex}.S5HVoW_editorPdfStage{flex:1;min-height:0;display:flex;position:relative}.S5HVoW_editorPdfFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.S5HVoW_editorPdfFrameBlocked{pointer-events:none}.S5HVoW_editorPdfDragShield{z-index:4;pointer-events:none;background:0 0;position:absolute;inset:0}.S5HVoW_editorPdfDragShieldActive{pointer-events:auto}body[data-dsh-tab-dragging] .S5HVoW_editorPdfFrame{pointer-events:none!important}body[data-dsh-tab-dragging] .S5HVoW_editorPdfDragShield{pointer-events:auto!important}.S5HVoW_terminalWrap{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;position:relative}.S5HVoW_terminal{flex:1;min-height:0;padding:6px 4px 6px 8px}.S5HVoW_terminal .xterm{height:100%}.S5HVoW_terminalBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-wrap:wrap;flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalBannerUrl{word-break:break-all;opacity:.85;flex-basis:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.S5HVoW_boundaryError{z-index:50;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;align-items:flex-start;gap:8px;padding:16px;display:flex;position:fixed;top:0;bottom:0;right:0;overflow:auto}.S5HVoW_terminalRetry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;padding:1px 8px}.S5HVoW_terminalRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitFoldRow{box-sizing:border-box;background:var(--dsw-alias-bg-layer-1);width:100%;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);text-align:center;cursor:pointer;border:none;outline:none;padding:2px 12px;display:block}.S5HVoW_gitFoldRow:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.S5HVoW_gitFoldRow:disabled{cursor:default}.S5HVoW_gitFoldRowFailed{color:var(--dsw-alias-state-error-primary);opacity:.7}.S5HVoW_explorerRenameInput{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);min-width:0;height:20px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:4px;outline:none;flex:1;padding:0 4px}.S5HVoW_changesLensToggle{flex:none;gap:2px;padding:2px;display:flex}.S5HVoW_changesLensTab{height:24px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:1}.S5HVoW_changesLensTab:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_changesLensTabActive,.S5HVoW_changesLensTabActive:hover{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.S5HVoW_sessionLens{flex:1;min-height:0;overflow-y:auto}.S5HVoW_sessionLensBar{align-items:center;gap:6px;height:26px;padding:0 4px;display:flex}.S5HVoW_sessionLensCount{min-width:0;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:1}.S5HVoW_sessionLensEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_sessionLensItem{border-bottom:1px solid var(--dsw-alias-border-l1)}.S5HVoW_sessionLensRow{box-sizing:border-box;width:100%;min-height:30px;color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:6px;outline:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.S5HVoW_sessionLensRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_sessionLensPath{text-overflow:ellipsis;white-space:nowrap;text-align:left;direction:rtl;flex:1;min-width:0;overflow:hidden}.S5HVoW_sessionLensMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_sessionLensPreview{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);max-height:260px;font-family:var(--ds-font-family-code);font-size:var(--dsw-font-xxxs-11-font-size);color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word;border-radius:6px;margin:0 8px 6px;padding:6px 8px;line-height:1.5;overflow:auto}.S5HVoW_terminalWaitBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.S5HVoW_terminalWaitNeedle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden}.S5HVoW_terminalDepsBanner{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-direction:column;flex:none;gap:6px;padding:10px;display:flex}.S5HVoW_terminalDepsTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-state-warn-primary)}.S5HVoW_terminalDepsHint{opacity:.9}.S5HVoW_terminalDepsCommandRow{align-items:flex-start;gap:8px;display:flex}.S5HVoW_terminalRepairCommand{white-space:pre-wrap;word-break:break-all;user-select:text;min-width:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:4px;flex:1;max-height:160px;margin:0;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;overflow:auto}.S5HVoW_terminalDepsNote{opacity:.85}.S5HVoW_terminalDepsActions{align-items:center;gap:8px;display:flex}.S5HVoW_tabBoundaryError{min-height:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;flex:1;align-items:flex-start;gap:8px;padding:12px 16px;display:flex;overflow:auto}.S5HVoW_git{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitHeader{flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitWorktreeRow{flex:none;align-items:center;gap:8px;padding:6px 8px 0 12px;display:flex}.S5HVoW_gitWorktreeLabel{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none}.S5HVoW_gitBranchSelect{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 6px}.S5HVoW_gitSection{border-top:1px solid var(--dsw-alias-border-l1)}.S5HVoW_gitSectionHeader{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary);text-transform:uppercase;justify-content:space-between;align-items:center;padding:6px 12px 4px;display:flex}.S5HVoW_gitLink{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-brand-primary);cursor:pointer;background:0 0;border:none;padding:0}.S5HVoW_gitLink:hover:not(:disabled){text-decoration:underline}.S5HVoW_gitLink:disabled{opacity:.4;cursor:default}.S5HVoW_gitRow{min-height:34px;animation:S5HVoW_dsh-row-in .15s var(--ds-ease-in-out);border-radius:8px;align-items:center;gap:6px;margin:0 6px;padding:0 8px;display:flex}.S5HVoW_gitRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitRowSelected{background:var(--dsw-alias-interactive-bg-active)}.S5HVoW_gitRowMain{cursor:pointer;text-align:left;background:0 0;border:none;flex:1;align-items:center;gap:8px;min-width:0;padding:3px 0;display:flex}.S5HVoW_gitBadge{width:20px;height:16px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);border-radius:4px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_gitName{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:4px 12px 8px}.S5HVoW_gitPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.S5HVoW_gitError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap;align-items:flex-start;gap:8px;padding:8px 12px;display:flex}.S5HVoW_gitDiff{border-top:1px solid var(--dsw-alias-border-l1);padding:8px}.S5HVoW_gitDiffTab{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitDiffTabHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitDiffTabTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitDiffFile{width:100%;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;align-items:baseline;gap:6px;padding:8px 2px 2px;display:flex}.S5HVoW_gitDiffFile:disabled{cursor:default}.S5HVoW_gitDiffFile:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitDiffFileChevron{color:var(--dsw-alias-label-tertiary);flex:none;transform:rotate(0)}.S5HVoW_gitDiffFileChevronExpanded{transform:rotate(90deg)}.S5HVoW_gitDiffFilePath{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffFileOld{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:none;max-width:40%;overflow:hidden}.S5HVoW_gitDiffFileTag{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-secondary);border-radius:999px;flex:none;padding:0 6px}.S5HVoW_gitDiffHunk{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);gap:8px;padding:3px 2px;display:flex}.S5HVoW_gitDiffHunkHeader{color:var(--dsw-alias-label-secondary);flex:none}.S5HVoW_gitDiffHunkSection{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_gitDiffLine{font:var(--dsw-font-markdown-code-block-small);white-space:pre-wrap;overflow-wrap:anywhere;align-items:stretch;min-width:0;line-height:20px;display:flex}.S5HVoW_gitDiffNum{text-align:right;width:36px;color:var(--dsw-alias-label-tertiary);user-select:none;flex:none;padding-right:8px}.S5HVoW_gitDiffCode{flex:1;min-width:0;overflow:visible}.S5HVoW_gitDiffCtx{color:var(--dsw-alias-label-primary)}.S5HVoW_gitDiffDel{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}.S5HVoW_gitDiffAdd{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent)}.S5HVoW_gitDiffMeta{padding-left:2px}.S5HVoW_gitDiffMetaText{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);font-style:italic}.S5HVoW_gitDiffExpand{width:100%;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-brand-primary);cursor:pointer;text-align:center;background:0 0;border:none;margin:4px 0;display:block}.S5HVoW_gitDiffExpand:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitConfirmDesc{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);white-space:pre-wrap;margin:0}.S5HVoW_gitCommit{border-top:1px solid var(--dsw-alias-border-l1);align-items:center;gap:6px;padding:8px 12px;display:flex}.S5HVoW_gitCommitInput{flex:1;min-width:0}.S5HVoW_gitCommitButton{background:var(--dsw-alias-button-primary-fill);height:26px;color:var(--dsw-alias-label-primary-inverted);font:var(--dsw-font-xxs-strong-12);cursor:pointer;border:none;border-radius:6px;flex:none;padding:0 12px}.S5HVoW_gitCommitButton:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.S5HVoW_gitCommitButton:disabled{opacity:.45;cursor:default}.S5HVoW_gitLogRow{cursor:pointer;border-radius:8px;flex-direction:column;gap:2px;padding:5px 12px;display:flex}.S5HVoW_gitLogRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitLogLine1{align-items:baseline;gap:8px;min-width:0;display:flex}.S5HVoW_gitLogHash{font:var(--dsw-font-markdown-code-block-small);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_gitLogLine2{flex-wrap:wrap;align-items:center;gap:6px;min-width:0;display:flex}.S5HVoW_gitLogRef{border:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-brand-primary);white-space:nowrap;border-radius:999px;flex:none;padding:0 5px}.S5HVoW_gitLogSubject{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.S5HVoW_gitLogMeta{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.S5HVoW_gitLogMore{border:1px solid var(--dsw-alias-border-l2);width:calc(100% - 24px);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border-radius:6px;margin:4px 12px 8px;padding:6px 0;display:block}.S5HVoW_gitLogMore:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_gitLogMore:disabled{opacity:.5;cursor:default}.S5HVoW_producedRow{flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0;display:flex}.S5HVoW_producedLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_producedChip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:200px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;display:inline-flex;overflow:hidden}.S5HVoW_producedChip:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_producedChip span{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.S5HVoW_producedMore{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.S5HVoW_toggleButton:focus-visible,.S5HVoW_iconButton:focus-visible,.S5HVoW_tab:focus-visible,.S5HVoW_tabClose:focus-visible,.S5HVoW_tabBarPlus:focus-visible,.S5HVoW_paneCard:focus-visible,.S5HVoW_explorerRow:focus-visible,.S5HVoW_explorerRef:focus-visible,.S5HVoW_gitRowMain:focus-visible,.S5HVoW_gitLink:focus-visible,.S5HVoW_gitCommitButton:focus-visible,.S5HVoW_gitLogRow:focus-visible,.S5HVoW_gitLogMore:focus-visible,.S5HVoW_gitDiffFile:focus-visible,.S5HVoW_gitDiffExpand:focus-visible,.S5HVoW_terminalRetry:focus-visible,.S5HVoW_editorModeButton:focus-visible,.S5HVoW_editorDownloadLink:focus-visible,.S5HVoW_editorPptxButton:focus-visible,.S5HVoW_editorDocxZoomRange:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}@media (prefers-reduced-motion:reduce){.S5HVoW_panel,.S5HVoW_panelHidden,.S5HVoW_toggleCluster,.S5HVoW_toggleButton,.S5HVoW_tab,.S5HVoW_tabBarPlus,.S5HVoW_paneCard,.S5HVoW_explorerRow,.S5HVoW_gitRow,.S5HVoW_divider,.S5HVoW_dividerRow:after,.S5HVoW_dividerCol:after{transition:none;animation:none}}@media (width<=767px){.S5HVoW_panel:not(.S5HVoW_panelHidden) .S5HVoW_tabBar{padding-right:40px}.S5HVoW_tab{min-width:48px;max-width:128px}}.S5HVoW_openWithLabel{align-items:center;gap:8px;width:100%;min-width:0;display:flex}.S5HVoW_openWithName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}.S5HVoW_openWithChevron{color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_openWithPin{width:20px;height:20px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:6px;flex:none;justify-content:center;align-items:center;display:inline-flex}.S5HVoW_openWithPin:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_openWithPinActive{color:var(--dsw-alias-state-business-primary)}.S5HVoW_editorHtmlBlock{margin:8px 0}.S5HVoW_editorHtmlBlock img,.S5HVoW_editorHtmlBlock video{max-width:100%}.S5HVoW_editorHtmlBlock details{margin:4px 0;padding:4px 0}.S5HVoW_editorHtmlBlock summary{cursor:pointer}.S5HVoW_tocBar{z-index:3;pointer-events:none;justify-content:flex-end;height:0;display:flex;position:sticky;top:0}.S5HVoW_tocButton{pointer-events:auto;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);width:26px;height:26px;color:var(--dsw-alias-label-secondary);cursor:pointer;border-radius:6px;justify-content:center;align-items:center;margin:4px 2px 0 0;padding:0;display:inline-flex}.S5HVoW_tocButton:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tocPanel{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:min(300px,82%);max-height:60vh;box-shadow:var(--dsw-shadow-lv2);pointer-events:auto;border-radius:8px;flex-direction:column;padding:4px;display:flex;position:absolute;top:32px;right:2px;overflow-y:auto}.S5HVoW_tocItem{min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:6px;align-items:baseline;gap:8px;padding:4px 8px;display:flex}.S5HVoW_tocItem:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_tocItem[data-level=\"2\"]{padding-left:18px}.S5HVoW_tocItem[data-level=\"3\"]{padding-left:28px}.S5HVoW_tocItem[data-level=\"4\"]{padding-left:38px}.S5HVoW_tocItem[data-level=\"5\"]{padding-left:48px}.S5HVoW_tocItem[data-level=\"6\"]{padding-left:58px}.S5HVoW_tocItemLevel{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.S5HVoW_tocItemText{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}@keyframes S5HVoW_dsh-toc-flash{0%,60%{background:var(--dsw-alias-interactive-bg-hover)}to{background:0 0}}.S5HVoW_browserLive{flex-direction:column;gap:6px;padding:8px 10px;display:flex;position:absolute;inset:0;overflow:hidden}.S5HVoW_browserLiveStatus{opacity:.75;align-items:center;gap:8px;font-size:12px;display:flex}.S5HVoW_browserLiveCanvas{object-fit:contain;border:1px solid var(--dsw-alias-border-l,#80808040);cursor:crosshair;background:#fff;border-radius:8px;flex:1;width:100%;min-height:0}.S5HVoW_browserLiveTarget{max-width:260px;font-size:12px}.S5HVoW_spacer{flex:1;min-width:4px}.S5HVoW_gitUpstream{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);white-space:nowrap;flex:none;align-items:center;gap:4px;display:inline-flex}.S5HVoW_gitAhead{color:var(--dsw-alias-state-business-primary)}.S5HVoW_gitBehind{color:var(--dsw-alias-state-warn-primary)}.S5HVoW_gitSynced{color:var(--dsw-alias-state-success-primary)}.S5HVoW_gitPending{color:var(--dsw-alias-state-warn-primary)}.S5HVoW_gitLineStat{font:var(--dsw-font-xxxs-11);white-space:nowrap;flex:none;align-items:center;gap:4px;margin-left:auto;padding-left:8px;display:inline-flex}.S5HVoW_gitAdded{color:var(--dsw-alias-state-success-primary)}.S5HVoW_gitRemoved{color:var(--dsw-alias-state-error-primary)}.S5HVoW_gitUntracked{color:var(--dsw-alias-label-tertiary)}.S5HVoW_gitPushRow{align-items:center;gap:8px;padding:0 12px 8px;display:flex}.S5HVoW_gitPushRow .S5HVoW_gitLink{align-items:center;gap:3px;display:inline-flex}.S5HVoW_gitBranchView{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitBranchToolbar,.S5HVoW_gitBranchForm{flex:none;align-items:center;gap:6px;padding:6px 8px 6px 12px;display:flex}.S5HVoW_gitBranchForm{padding-top:0}.S5HVoW_gitBranchSearch{flex:1;min-width:0}.S5HVoW_gitBranchRow{align-items:center;gap:4px;min-height:30px;padding-right:6px;display:flex}.S5HVoW_gitBranchRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitBranchName{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);overflow:hidden}.S5HVoW_gitBranchBadge{background:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);white-space:nowrap;border-radius:999px;flex:none;padding:0 5px}.S5HVoW_gitBranchMeta{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none;overflow:hidden}.S5HVoW_gitGh{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_gitGhHeader{flex:none;align-items:center;gap:6px;min-height:32px;padding:0 8px 0 12px;display:flex}.S5HVoW_gitGhRepo{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);overflow:hidden}.S5HVoW_gitGhEnv{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none;padding:0 12px 6px}.S5HVoW_gitGhHint{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);margin-top:6px;line-height:1.5}.S5HVoW_gitGhNotice{background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);border-radius:6px;flex:none;align-items:center;gap:6px;margin:0 12px 6px;padding:6px 8px;display:flex}.S5HVoW_gitGhRow{flex-wrap:wrap;align-items:center;gap:6px;min-height:30px;padding:5px 12px;display:flex}.S5HVoW_gitGhRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_gitGhNumber{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);flex:none}.S5HVoW_gitGhTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);flex:1;overflow:hidden}.S5HVoW_gitGhMergeConfirm{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:6px;display:inline-flex}.S5HVoW_gitGhMethod{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);height:22px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);border-radius:6px;padding:0 4px}.S5HVoW_gitGhForm{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);border-radius:8px;flex-direction:column;flex:none;gap:6px;margin:6px 12px 12px;padding:8px;display:flex}.S5HVoW_gitGhFormTitle{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11)}.S5HVoW_gitGhInput{width:100%}.S5HVoW_gitGhTextarea{resize:vertical;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);width:100%;min-height:56px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;padding:6px 8px;font-family:inherit}.S5HVoW_gitGhFormRow{align-items:center;gap:8px;display:flex}.S5HVoW_gitGhDraft{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-11);white-space:nowrap;flex:none;align-items:center;gap:4px;display:inline-flex}.S5HVoW_gitError button{flex:none;margin-left:auto}.S5HVoW_gitConfirmDanger{color:var(--dsw-alias-state-error-primary)}.S5HVoW_schedPreview{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform);border-radius:8px;flex-direction:column;flex:none;gap:4px;margin:8px 8px 4px;padding:8px 10px 10px;display:flex}.S5HVoW_schedPreviewHead{align-items:flex-start;gap:6px;display:flex}.S5HVoW_schedPreviewTitle{min-width:0;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;flex:1;font-size:13px;font-weight:600}.S5HVoW_schedPreviewClose{width:20px;height:20px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.S5HVoW_schedPreviewClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.S5HVoW_schedPreviewClose:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_schedPreviewRow{align-items:flex-start;gap:8px;font-size:12px;line-height:18px;display:flex}.S5HVoW_schedPreviewLabel{width:56px;color:var(--dsw-alias-label-secondary);flex:none}.S5HVoW_schedPreviewValue{min-width:0;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;flex:1}.S5HVoW_schedPreviewPrompt{min-width:0;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;-webkit-line-clamp:6;-webkit-box-orient:vertical;flex:1;display:-webkit-box;overflow:hidden}.S5HVoW_schedPreviewRuns{border-top:.5px solid var(--dsw-alias-border-l2);margin-top:10px;padding-top:10px}.S5HVoW_schedPreviewRun{color:var(--dsw-alias-label-secondary);justify-content:space-between;gap:8px;font-size:12px;line-height:18px;display:flex}.S5HVoW_schedPreviewNote{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.S5HVoW_schedPreviewActions{gap:8px;margin-top:12px;display:flex}.S5HVoW_schedPreviewButton{border:.5px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border-radius:8px;padding:4px 10px;font-size:12px;line-height:18px}.S5HVoW_schedPreviewButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_schedPreviewButton:disabled{opacity:.6;cursor:default}.S5HVoW_schedPreviewButtonDanger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}.S5HVoW_plansView{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden auto}.S5HVoW_plansToolbar{flex:none;align-items:center;gap:6px;padding:6px 8px 6px 12px;display:flex}.S5HVoW_plansSearch{flex:1;min-width:0}.S5HVoW_plansRow{align-items:center;gap:4px;padding-right:6px;display:flex}.S5HVoW_plansRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.S5HVoW_plansRowMain{cursor:pointer;text-align:left;background:0 0;border:none;flex:1;align-items:flex-start;gap:8px;min-width:0;padding:5px 0 5px 12px;display:flex}.S5HVoW_plansRowMain:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.S5HVoW_plansGlyph{color:var(--dsw-alias-label-secondary);flex:none;padding-top:1px;display:inline-flex}.S5HVoW_plansText{flex-direction:column;flex:1;gap:1px;min-width:0;display:flex}.S5HVoW_plansTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);overflow:hidden}.S5HVoW_plansMeta{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);overflow:hidden}.S5HVoW_plansEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px 12px}.S5HVoW_plansHint{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);overflow-wrap:anywhere;padding:6px 12px}.S5HVoW_plansEmpty .S5HVoW_plansHint{padding:4px 0 0;& .S5HVoW_tocFlash{border-radius:4px;animation:1.2s ease-out S5HVoW_dsh-toc-flash}}";
 		const tagId$5 = "dsh-coding-sidebar/sidebar.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$5) + "]") === null) {
 			const tag = document.createElement("style");
@@ -4345,11 +4413,17 @@ window.__ModuleLoader__.load({
 			"sandboxStatusOn": "S5HVoW_sandboxStatusOn",
 			"sandboxStatusText": "S5HVoW_sandboxStatusText",
 			"schedPreview": "S5HVoW_schedPreview",
+			"schedPreviewActions": "S5HVoW_schedPreviewActions",
+			"schedPreviewButton": "S5HVoW_schedPreviewButton",
+			"schedPreviewButtonDanger": "S5HVoW_schedPreviewButtonDanger",
 			"schedPreviewClose": "S5HVoW_schedPreviewClose",
 			"schedPreviewHead": "S5HVoW_schedPreviewHead",
 			"schedPreviewLabel": "S5HVoW_schedPreviewLabel",
+			"schedPreviewNote": "S5HVoW_schedPreviewNote",
 			"schedPreviewPrompt": "S5HVoW_schedPreviewPrompt",
 			"schedPreviewRow": "S5HVoW_schedPreviewRow",
+			"schedPreviewRun": "S5HVoW_schedPreviewRun",
+			"schedPreviewRuns": "S5HVoW_schedPreviewRuns",
 			"schedPreviewTitle": "S5HVoW_schedPreviewTitle",
 			"schedPreviewValue": "S5HVoW_schedPreviewValue",
 			"selectionPopup": "S5HVoW_selectionPopup",
@@ -4693,6 +4767,33 @@ window.__ModuleLoader__.load({
 				this.code = code;
 			}
 		};
+		/**
+		* Bound one route call so a stuck host read cannot leave the panel blank forever.
+		*
+		* Why this exists: the route reads a subagent-origin session through the host
+		* persistence service, and a blocking read there made `sidechat.events` never
+		* settle — the panel stayed empty with no error, because the client had no
+		* deadline of its own. Reads that exceed the deadline fail loudly instead.
+		* @param promise - the route call.
+		* @param label - diagnostic label (the thread id).
+		* @returns the call's result, or a rejection when the deadline passes.
+		*/
+		function withDeadline(promise, label) {
+			return new Promise((resolve, reject) => {
+				const timer = setTimeout(() => {
+					reject(/* @__PURE__ */ new Error(`sidechat.events timed out after ${EVENTS_DEADLINE_MS}ms (${label})`));
+				}, EVENTS_DEADLINE_MS);
+				promise.then((value) => {
+					clearTimeout(timer);
+					resolve(value);
+				}, (error) => {
+					clearTimeout(timer);
+					reject(error instanceof Error ? error : new Error(String(error)));
+				});
+			});
+		}
+		/** Client-side deadline for one `sidechat.events` read. */
+		const EVENTS_DEADLINE_MS = 5e3;
 		async function call(method, payload, signal) {
 			let response;
 			try {
@@ -4912,6 +5013,20 @@ window.__ModuleLoader__.load({
 			sidechatDispose: (childId) => call("sidechat.dispose", { childId }),
 			/** Live state + agent identity (provider/model/preset) of a thread. */
 			sidechatInfo: (childId) => call("sidechat.info", { childId }),
+			/**
+			* The thread's own events (inherited fork seed already cut host-side) plus the
+			* CURRENT attempt's live rows.
+			*
+			* This must not be the generic `session.history` RPC: that one **rejects
+			* subagent-origin sessions** (`session/agent-busy` fencing in the session
+			* controller), and side-chat children are exactly that — polling it left the
+			* panel permanently blank. Live rows are non-durable: they are replaced on
+			* every poll and superseded by the settled `assistant/message`.
+			*/
+			sidechatEvents: (childId, options = {}) => withDeadline(call("sidechat.events", {
+				childId,
+				...options
+			}), childId),
 			/** The effective terminal shell and its display name (plugin-global). */
 			shellGet: () => call("shell.get", {}),
 			/** Read the side card preferences (plugin-global, no session scope). */
@@ -9945,10 +10060,18 @@ window.__ModuleLoader__.load({
 		* panel reads the task itself through the schedule Remote, so the engine side
 		* owns no product data and this preview keeps up with the task.
 		*
+		* Besides the task itself it reads the task's **retained runs** (`schedule.history`,
+		* newest first, capped — the full list lives in the 自动化任务 page) and offers the one
+		* write operation the Remote actually has here: **delete** (two-step confirm; a
+		* successful delete drops the marker so the tab returns to the plans list). There is no
+		* "run now" on this Remote — the task's own occurrences are what run it.
+		*
 		* The Remote face is looked up optionally and never injected: the schedule
 		* plugins are opt-in upstream (KCoder's product policy layer turns them on), and
 		* a profile without them must keep the plans list working and only report that
-		* the task cannot be read.
+		* the task cannot be read. `history` / `delete` are read as **optional members** of
+		* that face for the same reason — an older Host without them degrades to "no runs /
+		* cannot delete" instead of failing the whole card.
 		*
 		* @module dsh-coding-sidebar/client/ScheduleTaskPreview
 		*/
@@ -9969,6 +10092,20 @@ window.__ModuleLoader__.load({
 				sessionId,
 				taskId
 			} : null;
+		}
+		/** How many recent runs the preview lists; the full list lives in 自动化任务. */
+		const RUNS_LIMIT = 3;
+		/**
+		* Read the retained runs out of a `schedule.history` answer.
+		* @param result - the Remote envelope (`{ ok, value }`).
+		* @returns Newest-first records (capped) plus whether earlier ones were pruned.
+		*/
+		function pickRuns(result) {
+			const value = result?.value;
+			return {
+				records: Array.isArray(value?.records) ? value.records.slice(0, RUNS_LIMIT) : [],
+				pruned: value?.earlierRecordsPruned === true
+			};
 		}
 		/** One record out of a `schedule.list` answer, or null when it is not there. */
 		function pickTask(result, taskId) {
@@ -10006,6 +10143,14 @@ window.__ModuleLoader__.load({
 			const [task, setTask] = (0, react.useState)(null);
 			const [error, setError] = (0, react.useState)(null);
 			const [loading, setLoading] = (0, react.useState)(true);
+			const [runs, setRuns] = (0, react.useState)({
+				records: [],
+				pruned: false
+			});
+			const [confirmingDelete, setConfirmingDelete] = (0, react.useState)(false);
+			const [deleting, setDeleting] = (0, react.useState)(false);
+			const [deleteError, setDeleteError] = (0, react.useState)(null);
+			const faceRef = (0, react.useRef)(void 0);
 			const targetKey = `${target.sessionId}\u0000${target.taskId}`;
 			(0, react.useEffect)(() => {
 				if (!visible) return;
@@ -10025,6 +10170,20 @@ window.__ModuleLoader__.load({
 						const found = pickTask(result, target.taskId);
 						setTask(found);
 						setError(found === null ? t("schedGone") : null);
+						const history = face?.history;
+						if (found !== null && history !== void 0) try {
+							const page = await history({
+								sessionId: target.sessionId,
+								id: target.taskId,
+								limit: RUNS_LIMIT
+							});
+							if (!cancelled) setRuns(pickRuns(page));
+						} catch {
+							if (!cancelled) setRuns({
+								records: [],
+								pruned: false
+							});
+						}
 					} catch (reason) {
 						if (cancelled) return;
 						setTask(null);
@@ -10035,6 +10194,7 @@ window.__ModuleLoader__.load({
 				};
 				const fiber = ctx.inject(["remote.schedule"], (scoped) => {
 					const face = scoped.remote?.schedule;
+					faceRef.current = face;
 					load(face);
 				});
 				return () => {
@@ -10046,6 +10206,33 @@ window.__ModuleLoader__.load({
 				targetKey,
 				visible
 			]);
+			/**
+			* Delete this task, then drop the marker: the tab returns to the plans list, which is
+			* the most direct feedback that the task is gone (the 自动化任务 page no longer lists it).
+			*/
+			const remove = async () => {
+				const remove_ = faceRef.current?.delete;
+				if (remove_ === void 0) {
+					setDeleteError(t("schedUnavailable"));
+					return;
+				}
+				setDeleting(true);
+				setDeleteError(null);
+				try {
+					if ((await remove_({
+						sessionId: target.sessionId,
+						id: target.taskId
+					}))?.ok === false) {
+						setDeleteError(t("schedDeleteFailed"));
+						return;
+					}
+					onDismiss();
+				} catch (reason) {
+					setDeleteError(`${t("schedDeleteFailed")}: ${reason instanceof Error ? reason.message : String(reason)}`);
+				} finally {
+					setDeleting(false);
+				}
+			};
 			const cadenceText = task === null ? null : cadence(task);
 			const next = task === null ? null : nextFire(task.scheduledAt);
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
@@ -10105,6 +10292,70 @@ window.__ModuleLoader__.load({
 								className: sidebar_module_css_default.schedPreviewPrompt,
 								children: task.prompt
 							})]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: sidebar_module_css_default.schedPreviewRuns,
+							"data-schedule-runs": runs.records.length,
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: sidebar_module_css_default.schedPreviewRow,
+									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: sidebar_module_css_default.schedPreviewLabel,
+										children: t("schedRunsTitle")
+									})
+								}),
+								runs.records.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: sidebar_module_css_default.schedPreviewNote,
+									children: t("schedRunsEmpty")
+								}) : runs.records.map((run, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									className: sidebar_module_css_default.schedPreviewRun,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [
+										t("schedRunPlanned"),
+										" ",
+										nextFire(run.scheduledAt) ?? "—"
+									] }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [
+										t("schedRunDelivered"),
+										" ",
+										nextFire(run.deliveredAt) ?? "—"
+									] })]
+								}, run.messageId ?? `run-${index}`)),
+								runs.pruned && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: sidebar_module_css_default.schedPreviewNote,
+									children: t("schedRunsPruned")
+								})
+							]
+						}),
+						deleteError !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: sidebar_module_css_default.gitError,
+							role: "status",
+							children: deleteError
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: sidebar_module_css_default.schedPreviewActions,
+							children: confirmingDelete ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: `${sidebar_module_css_default.schedPreviewButton} ${sidebar_module_css_default.schedPreviewButtonDanger}`,
+								disabled: deleting,
+								onClick: () => {
+									remove();
+								},
+								children: deleting ? t("loading") : t("schedDeleteConfirm")
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: sidebar_module_css_default.schedPreviewButton,
+								disabled: deleting,
+								onClick: () => {
+									setConfirmingDelete(false);
+								},
+								children: t("schedDeleteCancel")
+							})] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: sidebar_module_css_default.schedPreviewButton,
+								onClick: () => {
+									setConfirmingDelete(true);
+								},
+								children: t("schedDelete")
+							})
 						})
 					] })
 				]
@@ -12930,11 +13181,183 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			const flat = text.replace(/\s+/g, " ").trim();
 			return flat.length > ARGS_SUMMARY_MAX ? `${flat.slice(0, 79)}…` : flat;
 		}
+		/** 紧凑 token 数（517 / 12.2K / 1.2M，与主对话同款）。 */
+		function formatTokens(n) {
+			const scaled = (v) => v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10);
+			if (n < 1e3) return String(n);
+			if (n < 1e6) return `${scaled(n / 1e3)}K`;
+			return `${scaled(n / 1e6)}M`;
+		}
+		/** 紧凑时长（45.2s / 2m42s，与主对话同款：不足一分钟保留一位小数）。 */
+		function formatDurationMs(ms) {
+			const seconds = ms / 1e3;
+			if (seconds < 60) return `${Math.round(seconds * 10) / 10}s`;
+			const whole = Math.round(seconds);
+			return `${Math.floor(whole / 60)}m${whole % 60}s`;
+		}
+		/** 工具参数 JSON → 对象；非对象/解析失败即 undefined（形状由工具自己决定）。 */
+		function parseArgsObject(args) {
+			if (args === void 0 || args === "") return void 0;
+			try {
+				const parsed = JSON.parse(args);
+				return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : void 0;
+			} catch {
+				return;
+			}
+		}
 		/**
-		* One-line summary of a tool call's raw arguments JSON for the collapsed
-		* row: the first identifying string field when the JSON parses, else the
-		* flattened raw text; empty when there is nothing worth showing.
+		* **调用时**的卡片：`bash` 的命令/工作目录、`edit`/`write` 的目标与文本。
+		* 调用时就有卡，用户不必等结果落地才看见「在改哪个文件、跑什么命令」。
 		*/
+		function callCard(name, args) {
+			const parsed = parseArgsObject(args);
+			if (parsed === void 0) return void 0;
+			if (name === "bash") {
+				const command = typeof parsed.command === "string" && parsed.command !== "" ? parsed.command : void 0;
+				if (command === void 0 || parsed.run_in_background === true) return void 0;
+				const cwd = typeof parsed.workdir === "string" && parsed.workdir !== "" ? parsed.workdir : void 0;
+				return {
+					type: "terminal",
+					command,
+					...cwd === void 0 ? {} : { cwd }
+				};
+			}
+			if (name === "ask_user_question") {
+				const raw = parsed.questions;
+				if (!Array.isArray(raw) || raw.length === 0) return void 0;
+				const questions = [];
+				for (const item of raw) {
+					if (item === null || typeof item !== "object" || Array.isArray(item)) return void 0;
+					const candidate = item;
+					if (typeof candidate.id !== "string" || candidate.id === "") return void 0;
+					if (typeof candidate.question !== "string" || candidate.question === "") return void 0;
+					const options = [];
+					if (Array.isArray(candidate.options)) for (const option of candidate.options) {
+						if (option === null || typeof option !== "object") continue;
+						const entry = option;
+						if (typeof entry.label !== "string" || entry.label === "") continue;
+						options.push({
+							label: entry.label,
+							...typeof entry.description === "string" ? { description: entry.description } : {}
+						});
+					}
+					questions.push({
+						id: candidate.id,
+						question: candidate.question,
+						options,
+						...candidate.multiSelect === true ? { multiSelect: true } : {},
+						...typeof candidate.header === "string" && candidate.header !== "" ? { header: candidate.header } : {}
+					});
+				}
+				return {
+					type: "question",
+					questions
+				};
+			}
+			if (name === "edit" || name === "write") {
+				const path = typeof parsed.file_path === "string" && parsed.file_path !== "" ? parsed.file_path : void 0;
+				if (path === void 0) return void 0;
+				if (name === "edit") {
+					const oldText = typeof parsed.old_string === "string" ? parsed.old_string : "";
+					const newText = typeof parsed.new_string === "string" ? parsed.new_string : "";
+					return {
+						type: "diff",
+						diffs: [{
+							path,
+							oldText: oldText === "" ? null : oldText,
+							newText
+						}]
+					};
+				}
+				return {
+					type: "diff",
+					diffs: [{
+						path,
+						oldText: null,
+						newText: typeof parsed.content === "string" ? parsed.content : ""
+					}]
+				};
+			}
+		}
+		/** bash 结果尾部的退出标记（模型可见文本里工具自己追加的），剥成退出药丸。 */
+		const EXIT_SIGNAL_RE = /\n\[killed by signal: ([^\]\n]+)\]$/;
+		const EXIT_CODE_RE = /\n\[exit code: (\d+)\]$/;
+		/** **结果时**的精化：终端卡吃掉输出与退出标记；失败结果退回通用行（与宿主一致）。 */
+		function refineCard(name, previous, resultText) {
+			if (name !== "bash" || previous === void 0 || previous.type !== "terminal" || resultText === "") return previous;
+			const signal = EXIT_SIGNAL_RE.exec(resultText);
+			if (signal?.[1] !== void 0) return {
+				...previous,
+				output: resultText.slice(0, signal.index),
+				exitCode: void 0,
+				signal: signal[1]
+			};
+			const exit = EXIT_CODE_RE.exec(resultText);
+			if (exit?.[1] !== void 0) return {
+				...previous,
+				output: resultText.slice(0, exit.index),
+				exitCode: Number(exit[1])
+			};
+			return previous;
+		}
+		/** `meta.diffs` → 改动卡（路径 + 新旧文本；任一条畸形即放弃整张卡）。 */
+		function diffCardFromMeta(meta) {
+			const diffs = meta.diffs;
+			if (!Array.isArray(diffs) || diffs.length === 0) return void 0;
+			const hunks = [];
+			for (const item of diffs) {
+				if (item === null || typeof item !== "object" || Array.isArray(item)) return void 0;
+				const { path, oldText, newText } = item;
+				if (typeof path !== "string" || typeof newText !== "string") return void 0;
+				if (oldText !== null && oldText !== void 0 && typeof oldText !== "string") return void 0;
+				hunks.push({
+					path,
+					newText,
+					...oldText === void 0 ? {} : { oldText }
+				});
+			}
+			return {
+				type: "diff",
+				diffs: hunks
+			};
+		}
+		/** `meta` 的读取窗口 → 读取卡（1 基、严格递增、不超过 totalLines——与宿主同一契约）。 */
+		function readCardFromMeta(meta) {
+			const { path, offset, lines, totalLines } = meta;
+			if (typeof path !== "string" || typeof offset !== "number" || typeof totalLines !== "number") return void 0;
+			if (!Number.isInteger(offset) || offset < 1) return void 0;
+			if (!Number.isInteger(totalLines) || totalLines < 0) return void 0;
+			if (!Array.isArray(lines)) return void 0;
+			const narrowed = [];
+			let previous = offset - 1;
+			for (const line of lines) {
+				if (line === null || typeof line !== "object" || Array.isArray(line)) return void 0;
+				const candidate = line;
+				if (typeof candidate.number !== "number" || !Number.isInteger(candidate.number)) return void 0;
+				if (candidate.number <= previous || candidate.number > totalLines) return void 0;
+				if (typeof candidate.text !== "string") return void 0;
+				narrowed.push({
+					number: candidate.number,
+					text: candidate.text
+				});
+				previous = candidate.number;
+			}
+			return {
+				type: "read",
+				label: path,
+				lines: narrowed,
+				totalLines
+			};
+		}
+		/** 结果消息里的 `meta` 若有结构化信息，收窄成卡片（edit/write 的 hunks、read 的窗口）。 */
+		function cardFromResultMeta(data) {
+			const message = data.message;
+			if (message === null || typeof message !== "object") return void 0;
+			const meta = message.meta;
+			if (meta === null || typeof meta !== "object" || Array.isArray(meta)) return void 0;
+			const record = meta;
+			return diffCardFromMeta(record) ?? readCardFromMeta(record);
+		}
 		function toolArgsSummary(args) {
 			if (args === void 0) return "";
 			try {
@@ -13033,7 +13456,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		* @param entries - history rows (event + host-computed view) in seq order.
 		* @returns display rows in log order.
 		*/
-		function transcriptRows(entries) {
+		function transcriptRows(entries, live = []) {
 			const events = entries.map((entry) => entry.event);
 			const seedEnd = lastSeedEnd(events);
 			const rows = [];
@@ -13041,6 +13464,39 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			const streamRows = /* @__PURE__ */ new Map();
 			/** tool callId → index of its tool row in `rows` (result pairing). */
 			const callRows = /* @__PURE__ */ new Map();
+			/** turn → 累计用量（输出累加、输入取最后一次），在 turn/end 落成一行。 */
+			const turnUsage = /* @__PURE__ */ new Map();
+			/** turn → 起始时间（`turn/start` 的 envelope time），用于算墙钟时长。 */
+			const turnStartedAt = /* @__PURE__ */ new Map();
+			/**
+			* 累加一条流式增量（持久 `assistant/chunk` 与实时 `assistant/live-chunk` 共用这一条路径；
+			* 0.1.5 起前者不再出现，后者见 assistant-live.ts）。
+			*/
+			const appendChunk = (turn, step, rawChunk, seq) => {
+				const chunk = rawChunk;
+				if (chunk === null || typeof chunk !== "object") return;
+				const kind = chunk.type === "text-delta" ? "assistant" : chunk.type === "reasoning-delta" ? "reasoning" : null;
+				if (kind === null || typeof chunk.text !== "string" || chunk.text === "") return;
+				const key = `${String(turn)}:${String(step)}:${String(chunk.index)}:${kind}`;
+				const existing = streamRows.get(key);
+				if (existing !== void 0) {
+					const row = rows[existing];
+					if (row !== void 0 && row.kind === kind && !row.settled) rows[existing] = {
+						...row,
+						text: row.text + chunk.text
+					};
+				} else {
+					streamRows.set(key, rows.length);
+					rows.push({
+						kind,
+						seq,
+						text: chunk.text,
+						settled: false
+					});
+				}
+			};
+			/** 已定稿的 `turn:step:` 前缀——实时行不再补进这些步骤，避免与持久消息重复。 */
+			const settledPrefixes = /* @__PURE__ */ new Set();
 			for (let index = 0; index < events.length; index++) {
 				if (index <= seedEnd) continue;
 				const event = events[index];
@@ -13078,35 +13534,64 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 						});
 						break;
 					}
-					case "assistant/chunk": {
-						const chunk = data.chunk;
-						if (chunk === null || typeof chunk !== "object") break;
-						const kind = chunk.type === "text-delta" ? "assistant" : chunk.type === "reasoning-delta" ? "reasoning" : null;
-						if (kind === null || typeof chunk.text !== "string" || chunk.text === "") break;
+					case "model/selection": {
+						const provider = data.provider;
+						const model = data.model;
+						if (typeof provider !== "string" || provider === "") break;
+						if (typeof model !== "string" || model === "") break;
+						const effort = data.reasoningEffort;
+						rows.push({
+							kind: "modelSwitch",
+							seq: event.seq,
+							provider,
+							model,
+							...typeof effort === "string" && effort !== "" ? { reasoningEffort: effort } : {}
+						});
+						break;
+					}
+					case "assistant/chunk":
+						appendChunk(data.turn, data.step, data.chunk, event.seq);
+						break;
+					case "turn/start": {
 						const turn = data.turn;
-						const step = data.step;
-						const blockIndex = chunk.index;
-						const key = `${String(turn)}:${String(step)}:${String(blockIndex)}:${kind}`;
-						const existing = streamRows.get(key);
-						if (existing !== void 0) {
-							const row = rows[existing];
-							if (row !== void 0 && row.kind === kind && !row.settled) rows[existing] = {
-								...row,
-								text: row.text + chunk.text
-							};
-						} else {
-							streamRows.set(key, rows.length);
-							rows.push({
-								kind,
-								seq: event.seq,
-								text: chunk.text,
-								settled: false
-							});
-						}
+						if (typeof turn === "number") turnStartedAt.set(turn, event.time);
+						break;
+					}
+					case "turn/end": {
+						const turn = data.turn;
+						if (typeof turn !== "number") break;
+						const usage = turnUsage.get(turn);
+						const startedAt = turnStartedAt.get(turn);
+						const durationMs = startedAt === void 0 ? void 0 : Math.max(0, event.time - startedAt);
+						if (usage === void 0 && durationMs === void 0) break;
+						rows.push({
+							kind: "turnSummary",
+							seq: event.seq,
+							...usage === void 0 ? {} : {
+								inputTokens: usage.inputTokens,
+								outputTokens: usage.outputTokens
+							},
+							...durationMs === void 0 ? {} : { durationMs }
+						});
+						turnUsage.delete(turn);
+						turnStartedAt.delete(turn);
 						break;
 					}
 					case "assistant/message": {
 						const prefix = `${String(data.turn)}:${String(data.step)}:`;
+						const usageTurn = data.turn;
+						const usage = data.usage;
+						if (typeof usageTurn === "number" && usage !== null && typeof usage === "object") {
+							const before = turnUsage.get(usageTurn) ?? {
+								inputTokens: 0,
+								outputTokens: 0
+							};
+							turnUsage.set(usageTurn, {
+								inputTokens: typeof usage.inputTokens === "number" ? usage.inputTokens : before.inputTokens,
+								outputTokens: before.outputTokens + (typeof usage.outputTokens === "number" ? usage.outputTokens : 0)
+							});
+						}
+						settledPrefixes.add(prefix);
 						const streamed = [...streamRows.entries()].filter(([key]) => key.startsWith(prefix)).map(([, rowIndex]) => rowIndex);
 						for (const key of [...streamRows.keys()]) if (key.startsWith(prefix)) streamRows.delete(key);
 						const settled = (Array.isArray(data.message?.content) ? data.message.content : []).flatMap((block) => {
@@ -13135,6 +13620,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 						const name = typeof data.name === "string" ? data.name : "tool";
 						const args = typeof data.arguments === "string" ? data.arguments : void 0;
 						const rowIndex = rows.length;
+						const card = callCard(name, args);
 						if (typeof callId === "string") callRows.set(callId, rowIndex);
 						rows.push({
 							kind: "tool",
@@ -13142,7 +13628,8 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 							name,
 							failed: false,
 							args,
-							executing: true
+							executing: true,
+							...card === void 0 ? {} : { card }
 						});
 						break;
 					}
@@ -13154,12 +13641,17 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 						const resultText = resultTextOf(data);
 						if (rowIndex !== void 0) {
 							const row = rows[rowIndex];
-							if (row !== void 0 && row.kind === "tool") rows[rowIndex] = {
-								...row,
-								failed: row.failed || failed,
-								resultText: resultText === "" ? row.resultText : resultText,
-								executing: false
-							};
+							if (row !== void 0 && row.kind === "tool") {
+								const refined = failed ? void 0 : cardFromResultMeta(data);
+								const card = failed ? void 0 : refined ?? refineCard(row.name, row.card, resultText);
+								rows[rowIndex] = {
+									...row,
+									failed: row.failed || failed,
+									resultText: resultText === "" ? row.resultText : resultText,
+									executing: false,
+									...card === void 0 ? {} : { card }
+								};
+							}
 						} else if (failed || resultText !== "") rows.push({
 							kind: "tool",
 							seq: event.seq,
@@ -13171,11 +13663,248 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 					}
 				}
 			}
+			for (const event of live) {
+				const prefix = `${String(event.data.turn)}:${String(event.data.step)}:`;
+				if (settledPrefixes.has(prefix)) continue;
+				appendChunk(event.data.turn, event.data.step, event.data.chunk, event.seq);
+			}
 			return rows;
 		}
 		//#endregion
+		//#region src/client/sidechat-questions.ts
+		/** 本插件捕获到的 `uiSession` 面（`ctx.inject(['uiSession'], …)` 送入）。 */
+		let capturedUiSession;
+		/**
+		* 捕获引擎的 `uiSession` 服务面。非对象入参被忽略（保留上一次捕获），
+		* 与 `workspace-nav.observeUiWorkspaceFace` 同一纪律。
+		* @param face - `scope.uiSession`（未挂载时为 undefined）。
+		*/
+		function observeUiSessionFace(face) {
+			if (face !== null && typeof face === "object") capturedUiSession = face;
+		}
+		/** 取 `sessionStatus` 源（未捕获/形状不符即 undefined）。 */
+		function statusSource() {
+			const source = capturedUiSession?.sessionStatus;
+			if (source === null || typeof source !== "object") return void 0;
+			const candidate = source;
+			if (typeof candidate.getSnapshot !== "function" || typeof candidate.subscribe !== "function") return void 0;
+			return candidate;
+		}
+		/** 订阅 sessionStatus 变化（无面时返回空 disoser）。 */
+		function subscribeSessionStatus(listener) {
+			return statusSource()?.subscribe(listener) ?? (() => {});
+		}
+		/** 形状判定：一个题目条目（id + question 必填，其余可选但类型要对）。 */
+		function asQuestionItem(value) {
+			if (value === null || typeof value !== "object") return void 0;
+			const candidate = value;
+			if (typeof candidate.id !== "string" || candidate.id === "") return void 0;
+			if (typeof candidate.question !== "string" || candidate.question === "") return void 0;
+			const item = {
+				id: candidate.id,
+				question: candidate.question
+			};
+			if (typeof candidate.header === "string") item.header = candidate.header;
+			if (typeof candidate.detail === "string") item.detail = candidate.detail;
+			if (candidate.multiSelect === true) item.multiSelect = true;
+			const rawOptions = candidate.options;
+			if (Array.isArray(rawOptions)) {
+				const options = [];
+				for (const option of rawOptions) {
+					if (option === null || typeof option !== "object") continue;
+					const entry = option;
+					if (typeof entry.label !== "string" || entry.label === "") continue;
+					options.push({
+						label: entry.label,
+						...typeof entry.description === "string" ? { description: entry.description } : {}
+					});
+				}
+				if (options.length > 0) item.options = options;
+			}
+			return item;
+		}
+		/**
+		* 结构化收窄：把一个待答交互读成 {@link PendingQuestionLike}。
+		* 要求「有非空题目数组」且「answer 是可调用的」——`plan-review` 计划评审卡同样满足
+		* （它的题目带 `intent`，答案编码完全一致），所以两种形态共用这条路。
+		* @param value - `SessionStatus.pendingInteraction`。
+		* @returns 可作答的交互，或 undefined（不是提问/形状不符）。
+		*/
+		function asPendingQuestion(value) {
+			if (value === null || typeof value !== "object") return void 0;
+			const candidate = value;
+			if (typeof candidate.answer !== "function") return void 0;
+			if (!Array.isArray(candidate.questions) || candidate.questions.length === 0) return void 0;
+			const questions = [];
+			for (const raw of candidate.questions) {
+				const item = asQuestionItem(raw);
+				if (item === void 0) return void 0;
+				questions.push(item);
+			}
+			return {
+				key: typeof candidate.key === "string" ? candidate.key : questions.map((item) => item.id).join(","),
+				questions,
+				answer: candidate.answer.bind(value)
+			};
+		}
+		/** 每次读到的**原始**交互对象（身份稳定的判据）。 */
+		function rawPendingFor(sessionId) {
+			if (sessionId === void 0 || sessionId === "") return void 0;
+			const snapshot = statusSource()?.getSnapshot();
+			if (snapshot === void 0) return void 0;
+			return snapshot.get(sessionId)?.pendingInteraction;
+		}
+		/**
+		* 身份稳定的收窄缓存。`useSyncExternalStore` 要求 `getSnapshot` 在**未变化**时
+		* 返回同一个引用——每帧新建一个收窄对象会让 React 判定「快照一直在变」而无限重渲染。
+		* 缓存的失效判据是**原始交互对象的身份**（一个待答请求自始至终是同一个对象，结算即从
+		* 快照里消失），按会话分开存，多标签互不干扰。
+		*/
+		const narrowCache = /* @__PURE__ */ new Map();
+		/**
+		* {@link pendingQuestionFor} 的稳定版：同一待答请求期间返回同一引用。
+		* @param sessionId - 子会话 id。
+		* @returns 待答交互（引用稳定），或 undefined。
+		*/
+		function stablePendingQuestionFor(sessionId) {
+			if (sessionId === void 0 || sessionId === "") return void 0;
+			const raw = rawPendingFor(sessionId);
+			const cached = narrowCache.get(sessionId);
+			if (cached !== void 0 && cached.raw === raw) return cached.narrowed;
+			const narrowed = asPendingQuestion(raw);
+			narrowCache.set(sessionId, {
+				raw,
+				narrowed
+			});
+			return narrowed;
+		}
+		/** 空草稿（每题一份）。 */
+		function emptyDrafts(questions) {
+			return questions.map(() => ({
+				selected: [],
+				custom: ""
+			}));
+		}
+		/** 单题是否已答（有选择或有非空自由文本）。 */
+		function isAnswered(draft) {
+			if (draft === void 0) return false;
+			return draft.selected.length > 0 || draft.custom.trim() !== "";
+		}
+		/**
+		* 第一道未答题的下标。
+		* @returns 下标，或 -1（全部已答）。
+		*/
+		function firstUnanswered(drafts) {
+			for (let index = 0; index < drafts.length; index += 1) if (!isAnswered(drafts[index])) return index;
+			return -1;
+		}
+		/** 全部已答？ */
+		function draftsComplete(drafts) {
+			return drafts.length > 0 && firstUnanswered(drafts) === -1;
+		}
+		/**
+		* 点选一个选项（引擎 `choose` 的同语义）：多选切换，单选替换并**清空自由文本**
+		* （单选下 selected 与 custom 互斥，留着 custom 会让宿主收到两个答案）。
+		* @param questions - 完整题目（读 multiSelect）。
+		* @param drafts - 当前草稿。
+		* @param index - 题目下标。
+		* @param label - 被点选项标签。
+		* @returns 新草稿（不可变）。
+		*/
+		function selectOption(questions, drafts, index, label) {
+			const question = questions[index];
+			if (question === void 0) return drafts;
+			const current = drafts[index] ?? {
+				selected: [],
+				custom: ""
+			};
+			const next = question.multiSelect === true ? {
+				selected: current.selected.includes(label) ? current.selected.filter((item) => item !== label) : [...current.selected, label],
+				custom: current.custom
+			} : {
+				selected: [label],
+				custom: ""
+			};
+			return drafts.map((draft, at) => at === index ? next : draft);
+		}
+		/**
+		* 写入某题的自由文本。
+		* @param drafts - 当前草稿。
+		* @param index - 题目下标。
+		* @param text - 自由文本。
+		* @returns 新草稿（不可变）。
+		*/
+		function setCustom(drafts, index, text) {
+			return drafts.map((draft, at) => at === index ? {
+				...draft,
+				custom: text
+			} : draft);
+		}
+		/**
+		* 按引擎语义组批（镜像 `QuestionComposer.submitDrafts` 的编码，不镜像它的界面）。
+		* @param questions - 完整题目。
+		* @param drafts - 当前草稿。
+		* @returns 成批答案，或第一道未答题的下标。
+		*/
+		function buildAnswer(questions, drafts) {
+			const answers = [];
+			for (let index = 0; index < questions.length; index += 1) {
+				const question = questions[index];
+				const draft = drafts[index];
+				if (!isAnswered(draft)) return {
+					ok: false,
+					missing: index
+				};
+				const current = draft;
+				const custom = current.custom.trim();
+				answers.push({
+					id: question.id,
+					selected: custom === "" || question.multiSelect === true ? [...current.selected] : [],
+					...custom === "" ? {} : { custom }
+				});
+			}
+			return {
+				ok: true,
+				answer: { answers }
+			};
+		}
+		/**
+		* 输入框回车时的回答步进：把文本当作**第一道未答题**的自由文本。
+		* 全部已答时返回空步（`answer` 缺席）——调用方据此改走追问（prompt）路径，
+		* 这正是「有提问时回车必须回答、没提问时回车才是追问」的判据。
+		* @param questions - 完整题目。
+		* @param drafts - 当前草稿。
+		* @param text - 输入框文本（已 trim 由调用方保证非空）。
+		* @returns 下一步草稿与（可能有的）成批答案。
+		*/
+		function answerFromComposer(questions, drafts, text) {
+			const index = firstUnanswered(drafts);
+			if (index < 0) return { drafts };
+			const next = setCustom(drafts, index, text);
+			const built = buildAnswer(questions, next);
+			return built.ok ? {
+				drafts: next,
+				answer: built.answer
+			} : { drafts: next };
+		}
+		/** 题目 id 序列（卡片与待答交互的配对判据）。 */
+		function questionIdsOf(questions) {
+			return questions.map((item) => item.id).join("\0");
+		}
+		/**
+		* 一条历史提问行是否就是**当前**待答的那批题（按 id 配对）。
+		* 只有配对成功的那一行才渲染可点选项——否则历史里每一张提问卡都会长出按钮。
+		* @param rowIds - 卡片题目 id 序列（{@link questionIdsOf}）。
+		* @param pending - 当前待答交互。
+		* @returns 是否配对。
+		*/
+		function matchesPending(rowIds, pending) {
+			if (pending === void 0 || rowIds === "") return false;
+			return rowIds === questionIdsOf(pending.questions);
+		}
+		//#endregion
 		//#region \0dsh-css:/Users/libing/kk_Projects/dsh-coding-sidebar/src/client/SideChatView.module.css.mjs
-		const css$1 = "._64UoUa_sidechat{flex-direction:column;flex:1;min-height:0;display:flex}._64UoUa_sidechatDetailHeader{border-bottom:1px solid var(--dsw-alias-border-l);flex:none;align-items:center;gap:4px;min-height:36px;padding:4px 8px 4px 12px;display:flex}._64UoUa_sidechatHeaderDot{flex:none}._64UoUa_sidechatHeaderSpacer{flex:1;min-width:0}._64UoUa_sidechatAgentBadge{border:1px solid var(--dsw-alias-border-l);max-width:55%;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;border-radius:999px;flex:none;padding:1px 8px;overflow:hidden}._64UoUa_sidechatIconBtn{width:26px;height:26px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;justify-content:center;align-items:center;padding:0;transition:background-color .1s ease-out,color .1s ease-out;display:inline-flex}._64UoUa_sidechatIconBtn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}._64UoUa_sidechatIconBtn:disabled{opacity:.4;cursor:default}._64UoUa_sidechatHero{min-height:0;color:var(--dsw-alias-label-tertiary);text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:8px;padding:24px 20px;animation:.2s ease-out _64UoUa_sidechatFadeIn;display:flex}._64UoUa_sidechatHeroTitle{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);font-weight:500}._64UoUa_sidechatHeroDesc{max-width:300px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);line-height:1.6}._64UoUa_sidechatPrimaryBtn{background:var(--dsw-alias-button-info-fill,var(--dsw-alias-interactive-bg-hover-solid));color:#fff;font:var(--dsw-font-s-14);cursor:pointer;border:none;border-radius:999px;flex:none;margin-top:4px;padding:6px 14px;transition:opacity .1s ease-out}._64UoUa_sidechatPrimaryBtn:hover:not(:disabled){opacity:.88}._64UoUa_sidechatPrimaryBtn:disabled{opacity:.4;cursor:default}._64UoUa_sidechatHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);flex:none;padding:4px 12px}._64UoUa_sidechatError{font:var(--dsw-font-xxs-12);color:#d5304d;flex:none;padding:4px 12px}._64UoUa_sidechatScroll{flex-direction:column;flex:1;gap:10px;min-height:0;padding:10px 12px;display:flex;overflow-y:auto}._64UoUa_sidechatScroll>*{animation:.18s ease-out _64UoUa_sidechatRowIn}._64UoUa_sidechatUser{background:var(--dsw-specific-bubble,var(--dsw-alias-bg-base));max-width:88%;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;border-radius:18px;align-self:flex-end;padding:8px 14px}._64UoUa_sidechatAssistant{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;align-self:stretch}._64UoUa_sidechatRow{align-self:stretch}._64UoUa_sidechatRowLine{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);align-items:center;gap:6px;padding:1px 0;display:flex}._64UoUa_sidechatRowSummary{cursor:pointer;user-select:none;list-style:none}._64UoUa_sidechatRowSummary::-webkit-details-marker{display:none}._64UoUa_sidechatRowSummary:hover{color:var(--dsw-alias-label-secondary)}._64UoUa_sidechatRowStatic{cursor:default}._64UoUa_sidechatRowChevron{flex:none;align-items:center;transition:transform .1s ease-out;display:inline-flex}._64UoUa_sidechatRow[open] ._64UoUa_sidechatRowChevron{transform:rotate(90deg)}._64UoUa_sidechatRowLabel{text-overflow:ellipsis;white-space:nowrap;max-width:60%;color:var(--dsw-alias-label-secondary);flex:none;overflow:hidden}._64UoUa_sidechatRowMono{font-family:var(--dsw-font-mono)}._64UoUa_sidechatRowMeta{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:var(--dsw-font-mono);color:var(--dsw-alias-label-tertiary);flex:1;overflow:hidden}._64UoUa_sidechatRowFailed ._64UoUa_sidechatRowLabel,._64UoUa_sidechatRowFailed ._64UoUa_sidechatRowMeta{color:#d5304d}._64UoUa_sidechatRowBody{border-left:1px solid var(--dsw-alias-border-l);margin:2px 0 4px 7px;padding:2px 0 2px 10px}._64UoUa_sidechatRowProse{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow-y:auto}._64UoUa_sidechatRowCode{font:var(--dsw-font-xxs-12);font-family:var(--dsw-font-mono);color:var(--dsw-alias-label-secondary);white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;margin:0;padding:4px 0;overflow-y:auto}._64UoUa_sidechatRowCode+._64UoUa_sidechatRowCode{border-top:1px solid var(--dsw-alias-border-l)}._64UoUa_sidechatShimmerText{background-image:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-primary) 50%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-size:200% 100%;-webkit-background-clip:text;background-clip:text;animation:2.6s linear infinite _64UoUa_sidechatSweep}._64UoUa_sidechatStatus{flex:none;align-items:center;gap:8px;padding:2px 14px 6px;animation:.16s ease-out _64UoUa_sidechatFadeIn;display:flex}._64UoUa_sidechatStatusText{font:var(--dsw-font-xxs-12);background-image:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-primary) 50%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-size:200% 100%;-webkit-background-clip:text;background-clip:text;animation:2.6s linear infinite _64UoUa_sidechatSweep}._64UoUa_sidechatComposer{border:1px solid var(--dsw-alias-border-l2-darkmode-thin,var(--dsw-alias-border-l));background:var(--dsw-specific-input-major,var(--dsw-alias-bg-base));box-shadow:var(--dsw-shadow-lv2,none);border-radius:16px;flex-direction:column;flex:none;gap:4px;margin:0 8px 8px;padding:8px 8px 6px 14px;display:flex}._64UoUa_sidechatComposerInput{box-sizing:border-box;width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);resize:none;background:0 0;border:none;outline:none;max-height:132px;padding:2px 0;line-height:22px}._64UoUa_sidechatComposerInput::placeholder{color:var(--dsw-alias-label-tertiary)}._64UoUa_sidechatComposerBar{flex:none;align-items:center;gap:8px;min-height:28px;display:flex}._64UoUa_sidechatComposerMeta{min-width:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}._64UoUa_sidechatSendBtn{background:var(--dsw-alias-button-info-fill,var(--dsw-alias-interactive-bg-hover-solid));color:#fff;cursor:pointer;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;width:28px;height:28px;padding:0;transition:opacity .1s ease-out;animation:.12s ease-out _64UoUa_sidechatBtnIn;display:inline-flex}._64UoUa_sidechatSendBtn:hover:not(:disabled){opacity:.88}._64UoUa_sidechatSendBtn:disabled{opacity:.35;cursor:default}@keyframes _64UoUa_sidechatRowIn{0%{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}@keyframes _64UoUa_sidechatFadeIn{0%{opacity:0}to{opacity:1}}@keyframes _64UoUa_sidechatBtnIn{0%{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}@keyframes _64UoUa_sidechatSweep{0%{background-position:200% 0}to{background-position:-200% 0}}@media (prefers-reduced-motion:reduce){._64UoUa_sidechatScroll>*,._64UoUa_sidechatHero,._64UoUa_sidechatStatus,._64UoUa_sidechatSendBtn{animation:none}._64UoUa_sidechatStatusText,._64UoUa_sidechatShimmerText{color:var(--dsw-alias-label-tertiary);background-image:none;animation:none}._64UoUa_sidechatRowChevron{transition:none}}";
+		const css$1 = "._64UoUa_sidechat{flex-direction:column;flex:1;min-height:0;display:flex}._64UoUa_sidechatDetailHeader{border-bottom:1px solid var(--dsw-alias-border-l);flex:none;align-items:center;gap:4px;min-height:36px;padding:4px 8px 4px 12px;display:flex}._64UoUa_sidechatHeaderDot{flex:none}._64UoUa_sidechatHeaderSpacer{flex:1;min-width:0}._64UoUa_sidechatAgentBadge{border:1px solid var(--dsw-alias-border-l);max-width:55%;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;border-radius:999px;flex:none;padding:1px 8px;overflow:hidden}._64UoUa_sidechatIconBtn{width:26px;height:26px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:6px;flex:none;justify-content:center;align-items:center;padding:0;transition:background-color .1s ease-out,color .1s ease-out;display:inline-flex}._64UoUa_sidechatIconBtn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}._64UoUa_sidechatIconBtn:disabled{opacity:.4;cursor:default}._64UoUa_sidechatHero{min-height:0;color:var(--dsw-alias-label-tertiary);text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:8px;padding:24px 20px;animation:.2s ease-out _64UoUa_sidechatFadeIn;display:flex}._64UoUa_sidechatHeroTitle{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);font-weight:500}._64UoUa_sidechatHeroDesc{max-width:300px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);line-height:1.6}._64UoUa_sidechatPrimaryBtn{background:var(--dsw-alias-button-info-fill,var(--dsw-alias-interactive-bg-hover-solid));color:#fff;font:var(--dsw-font-s-14);cursor:pointer;border:none;border-radius:999px;flex:none;margin-top:4px;padding:6px 14px;transition:opacity .1s ease-out}._64UoUa_sidechatPrimaryBtn:hover:not(:disabled){opacity:.88}._64UoUa_sidechatPrimaryBtn:disabled{opacity:.4;cursor:default}._64UoUa_sidechatHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);flex:none;padding:4px 12px}._64UoUa_sidechatError{font:var(--dsw-font-xxs-12);color:#d5304d;flex:none;padding:4px 12px}._64UoUa_sidechatScroll{flex-direction:column;flex:1;gap:10px;min-height:0;padding:10px 12px;display:flex;overflow-y:auto}._64UoUa_sidechatScroll>*{animation:.18s ease-out _64UoUa_sidechatRowIn}._64UoUa_sidechatUser{background:var(--dsw-specific-bubble,var(--dsw-alias-bg-base));max-width:88%;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;border-radius:18px;align-self:flex-end;padding:8px 14px}._64UoUa_sidechatAssistant{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;align-self:stretch}._64UoUa_sidechatRow{align-self:stretch}._64UoUa_sidechatRowLine{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);align-items:center;gap:6px;padding:1px 0;display:flex}._64UoUa_sidechatRowSummary{cursor:pointer;user-select:none;list-style:none}._64UoUa_sidechatRowSummary::-webkit-details-marker{display:none}._64UoUa_sidechatRowSummary:hover{color:var(--dsw-alias-label-secondary)}._64UoUa_sidechatRowStatic{cursor:default}._64UoUa_sidechatRowChevron{flex:none;align-items:center;transition:transform .1s ease-out;display:inline-flex}._64UoUa_sidechatRow[open] ._64UoUa_sidechatRowChevron{transform:rotate(90deg)}._64UoUa_sidechatRowLabel{text-overflow:ellipsis;white-space:nowrap;max-width:60%;color:var(--dsw-alias-label-secondary);flex:none;overflow:hidden}._64UoUa_sidechatRowMono{font-family:var(--dsw-font-mono)}._64UoUa_sidechatRowMeta{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:var(--dsw-font-mono);color:var(--dsw-alias-label-tertiary);flex:1;overflow:hidden}._64UoUa_sidechatRowFailed ._64UoUa_sidechatRowLabel,._64UoUa_sidechatRowFailed ._64UoUa_sidechatRowMeta{color:#d5304d}._64UoUa_sidechatRowBody{border-left:1px solid var(--dsw-alias-border-l);margin:2px 0 4px 7px;padding:2px 0 2px 10px}._64UoUa_sidechatRowProse{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow-y:auto}._64UoUa_sidechatRowCode{font:var(--dsw-font-xxs-12);font-family:var(--dsw-font-mono);color:var(--dsw-alias-label-secondary);white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;margin:0;padding:4px 0;overflow-y:auto}._64UoUa_sidechatRowCode+._64UoUa_sidechatRowCode{border-top:1px solid var(--dsw-alias-border-l)}._64UoUa_sidechatShimmerText{background-image:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-primary) 50%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-size:200% 100%;-webkit-background-clip:text;background-clip:text;animation:2.6s linear infinite _64UoUa_sidechatSweep}._64UoUa_sidechatStatus{flex:none;align-items:center;gap:8px;padding:2px 14px 6px;animation:.16s ease-out _64UoUa_sidechatFadeIn;display:flex}._64UoUa_sidechatStatusText{font:var(--dsw-font-xxs-12);background-image:linear-gradient(90deg, var(--dsw-alias-label-tertiary) 0%, var(--dsw-alias-label-primary) 50%, var(--dsw-alias-label-tertiary) 100%);color:#0000;background-size:200% 100%;-webkit-background-clip:text;background-clip:text;animation:2.6s linear infinite _64UoUa_sidechatSweep}._64UoUa_sidechatComposer{border:1px solid var(--dsw-alias-border-l2-darkmode-thin,var(--dsw-alias-border-l));background:var(--dsw-specific-input-major,var(--dsw-alias-bg-base));box-shadow:var(--dsw-shadow-lv2,none);border-radius:16px;flex-direction:column;flex:none;gap:4px;margin:0 8px 8px;padding:8px 8px 6px 14px;display:flex}._64UoUa_sidechatComposerInput{box-sizing:border-box;width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);resize:none;background:0 0;border:none;outline:none;max-height:132px;padding:2px 0;line-height:22px}._64UoUa_sidechatComposerInput::placeholder{color:var(--dsw-alias-label-tertiary)}._64UoUa_sidechatComposerBar{flex:none;align-items:center;gap:8px;min-height:28px;display:flex}._64UoUa_sidechatComposerMeta{min-width:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}._64UoUa_sidechatSendBtn{background:var(--dsw-alias-button-info-fill,var(--dsw-alias-interactive-bg-hover-solid));color:#fff;cursor:pointer;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;width:28px;height:28px;padding:0;transition:opacity .1s ease-out;animation:.12s ease-out _64UoUa_sidechatBtnIn;display:inline-flex}._64UoUa_sidechatSendBtn:hover:not(:disabled){opacity:.88}._64UoUa_sidechatSendBtn:disabled{opacity:.35;cursor:default}._64UoUa_sidechatCard{flex-direction:column;gap:6px;margin-top:6px;display:flex}._64UoUa_sidechatCardPath{color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere;font-size:12px;line-height:16px}._64UoUa_sidechatCardFail{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:16px}._64UoUa_sidechatTurnSummary{color:var(--dsw-alias-label-tertiary);padding:2px 0;font-size:12px;line-height:16px}._64UoUa_sidechatCardOptions{color:var(--dsw-alias-label-secondary);margin:0;padding-left:18px;font-size:12px;line-height:18px}._64UoUa_sidechatCardOptionLabel{color:var(--dsw-alias-label-primary)}._64UoUa_sidechatAskCard{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;flex-direction:column;gap:10px;margin-top:8px;padding:10px 12px;display:flex}._64UoUa_sidechatAskQuestion{flex-direction:column;gap:6px;min-width:0;display:flex}._64UoUa_sidechatAskHeader{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-3);border-radius:4px;align-self:flex-start;padding:1px 6px}._64UoUa_sidechatAskPrompt{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary)}._64UoUa_sidechatAskDetail{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);white-space:pre-wrap;max-height:160px;overflow:auto}._64UoUa_sidechatAnswerOptions{flex-direction:column;gap:6px;display:flex}._64UoUa_sidechatCardOption{width:100%;font:inherit;text-align:left;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);cursor:pointer;border-radius:8px;align-items:flex-start;gap:8px;padding:8px 10px;transition:background .12s ease-out,border-color .12s ease-out;display:flex}._64UoUa_sidechatCardOption:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l3)}._64UoUa_sidechatCardOptionSelected,._64UoUa_sidechatCardOptionSelected:hover:not(:disabled){border-color:var(--dsw-alias-button-info-fill,var(--dsw-alias-brand-primary));background:var(--dsw-alias-interactive-bg-hover-accent)}._64UoUa_sidechatCardOption:focus-visible{outline:2px solid var(--dsw-alias-button-info-fill,var(--dsw-alias-brand-primary));outline-offset:1px}._64UoUa_sidechatCardOption:disabled{opacity:.6;cursor:default}._64UoUa_sidechatAnswerMark{color:#fff;border:1.5px solid var(--dsw-alias-border-l3);background:0 0;border-radius:50%;flex:none;justify-content:center;align-items:center;width:16px;height:16px;margin-top:1px;display:inline-flex}._64UoUa_sidechatAnswerMarkMulti{border-radius:4px}._64UoUa_sidechatAnswerMarkOn{border-color:var(--dsw-alias-button-info-fill,var(--dsw-alias-brand-primary));background:var(--dsw-alias-button-info-fill,var(--dsw-alias-brand-primary))}._64UoUa_sidechatAnswerText{flex-direction:column;gap:1px;min-width:0;display:flex}._64UoUa_sidechatAnswerLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary);overflow-wrap:anywhere}._64UoUa_sidechatAnswerDesc{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);overflow-wrap:anywhere}._64UoUa_sidechatAnswerSubmit{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary-inverted,#fff);background:var(--dsw-alias-brand-primary);cursor:pointer;border:none;border-radius:8px;align-self:flex-start;padding:6px 14px;transition:opacity .12s ease-out}._64UoUa_sidechatAnswerSubmit:hover:not(:disabled){opacity:.88}._64UoUa_sidechatAnswerSubmit:disabled{opacity:.35;cursor:default}._64UoUa_sidechatQueue{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;flex-direction:column;flex:none;gap:2px;margin:0 12px 6px;padding:6px 10px;display:flex}._64UoUa_sidechatQueueHead{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary)}._64UoUa_sidechatQueueRow{align-items:baseline;gap:6px;min-width:0;display:flex}._64UoUa_sidechatQueueIndex{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}._64UoUa_sidechatQueueText{min-width:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;-webkit-line-clamp:2;-webkit-box-orient:vertical;flex:1;display:-webkit-box;overflow:hidden}._64UoUa_sidechatQueueHint{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}._64UoUa_sidechatModelSwitch{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;align-self:flex-start;padding:2px 8px}@keyframes _64UoUa_sidechatRowIn{0%{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}@keyframes _64UoUa_sidechatFadeIn{0%{opacity:0}to{opacity:1}}@keyframes _64UoUa_sidechatBtnIn{0%{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}@keyframes _64UoUa_sidechatSweep{0%{background-position:200% 0}to{background-position:-200% 0}}@media (prefers-reduced-motion:reduce){._64UoUa_sidechatScroll>*,._64UoUa_sidechatHero,._64UoUa_sidechatStatus,._64UoUa_sidechatSendBtn{animation:none}._64UoUa_sidechatStatusText,._64UoUa_sidechatShimmerText{color:var(--dsw-alias-label-tertiary);background-image:none;animation:none}._64UoUa_sidechatRowChevron{transition:none}}";
 		const tagId$1 = "dsh-coding-sidebar/SideChatView.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$1) + "]") === null) {
 			const tag = document.createElement("style");
@@ -13187,8 +13916,28 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		var SideChatView_module_css_default = {
 			"sidechat": "_64UoUa_sidechat",
 			"sidechatAgentBadge": "_64UoUa_sidechatAgentBadge",
+			"sidechatAnswerDesc": "_64UoUa_sidechatAnswerDesc",
+			"sidechatAnswerLabel": "_64UoUa_sidechatAnswerLabel",
+			"sidechatAnswerMark": "_64UoUa_sidechatAnswerMark",
+			"sidechatAnswerMarkMulti": "_64UoUa_sidechatAnswerMarkMulti",
+			"sidechatAnswerMarkOn": "_64UoUa_sidechatAnswerMarkOn",
+			"sidechatAnswerOptions": "_64UoUa_sidechatAnswerOptions",
+			"sidechatAnswerSubmit": "_64UoUa_sidechatAnswerSubmit",
+			"sidechatAnswerText": "_64UoUa_sidechatAnswerText",
+			"sidechatAskCard": "_64UoUa_sidechatAskCard",
+			"sidechatAskDetail": "_64UoUa_sidechatAskDetail",
+			"sidechatAskHeader": "_64UoUa_sidechatAskHeader",
+			"sidechatAskPrompt": "_64UoUa_sidechatAskPrompt",
+			"sidechatAskQuestion": "_64UoUa_sidechatAskQuestion",
 			"sidechatAssistant": "_64UoUa_sidechatAssistant",
 			"sidechatBtnIn": "_64UoUa_sidechatBtnIn",
+			"sidechatCard": "_64UoUa_sidechatCard",
+			"sidechatCardFail": "_64UoUa_sidechatCardFail",
+			"sidechatCardOption": "_64UoUa_sidechatCardOption",
+			"sidechatCardOptionLabel": "_64UoUa_sidechatCardOptionLabel",
+			"sidechatCardOptionSelected": "_64UoUa_sidechatCardOptionSelected",
+			"sidechatCardOptions": "_64UoUa_sidechatCardOptions",
+			"sidechatCardPath": "_64UoUa_sidechatCardPath",
 			"sidechatComposer": "_64UoUa_sidechatComposer",
 			"sidechatComposerBar": "_64UoUa_sidechatComposerBar",
 			"sidechatComposerInput": "_64UoUa_sidechatComposerInput",
@@ -13203,7 +13952,14 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			"sidechatHeroTitle": "_64UoUa_sidechatHeroTitle",
 			"sidechatHint": "_64UoUa_sidechatHint",
 			"sidechatIconBtn": "_64UoUa_sidechatIconBtn",
+			"sidechatModelSwitch": "_64UoUa_sidechatModelSwitch",
 			"sidechatPrimaryBtn": "_64UoUa_sidechatPrimaryBtn",
+			"sidechatQueue": "_64UoUa_sidechatQueue",
+			"sidechatQueueHead": "_64UoUa_sidechatQueueHead",
+			"sidechatQueueHint": "_64UoUa_sidechatQueueHint",
+			"sidechatQueueIndex": "_64UoUa_sidechatQueueIndex",
+			"sidechatQueueRow": "_64UoUa_sidechatQueueRow",
+			"sidechatQueueText": "_64UoUa_sidechatQueueText",
 			"sidechatRow": "_64UoUa_sidechatRow",
 			"sidechatRowBody": "_64UoUa_sidechatRowBody",
 			"sidechatRowChevron": "_64UoUa_sidechatRowChevron",
@@ -13223,6 +13979,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			"sidechatStatus": "_64UoUa_sidechatStatus",
 			"sidechatStatusText": "_64UoUa_sidechatStatusText",
 			"sidechatSweep": "_64UoUa_sidechatSweep",
+			"sidechatTurnSummary": "_64UoUa_sidechatTurnSummary",
 			"sidechatUser": "_64UoUa_sidechatUser"
 		};
 		//#endregion
@@ -13290,6 +14047,16 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 		/** In-flight thread creations keyed by tab id (double-mount guard: React
 		*  StrictMode / HMR must not mint two threads for one tab). */
 		const inFlightStarts = /* @__PURE__ */ new Set();
+		/**
+		* 读某个会话当前的待答提问（引擎 Session 级 pending interaction）。
+		* 走 `useSyncExternalStore` + 引用稳定的收窄缓存：`sessionStatus` 是引擎的
+		* HostObservable，未变化时快照必须是同一引用，否则 React 会无限重渲染。
+		*/
+		function usePendingQuestion(sessionId) {
+			const subscribe = (0, react.useMemo)(() => (callback) => subscribeSessionStatus(callback), []);
+			const snapshot = (0, react.useCallback)(() => stablePendingQuestionFor(sessionId), [sessionId]);
+			return (0, react.useSyncExternalStore)(subscribe, snapshot);
+		}
 		/** Merge history entries by event seq (newest wins), log order preserved. */
 		function mergeBySeq(previous, incoming) {
 			const bySeq = /* @__PURE__ */ new Map();
@@ -13340,13 +14107,111 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				})]
 			});
 		}
+		/**
+		* 待答提问卡：选项**可点**，答案按题目 id 回填宿主（引擎 `user-questions` 协议）。
+		*
+		* 为什么必须自绘：子会话提问时 agent 就卡在这一行上，选项此前只是静态文本 ⇒ 用户除了
+		* 「下方输入框」没有别的表达方式，而输入框当时又只走追问路径 ⇒ 整条提问链在侧边栏断掉。
+		* 选项文本**原样回传**（引擎按 label 匹配），选中态只影响本机草稿。
+		*/
+		function QuestionCard(props) {
+			const complete = draftsComplete(props.drafts);
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: SideChatView_module_css_default.sidechatAskCard,
+				children: [
+					props.questions.map((question, index) => {
+						const draft = props.drafts[index] ?? {
+							selected: [],
+							custom: ""
+						};
+						const multi = question.multiSelect === true;
+						const options = question.options ?? [];
+						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: SideChatView_module_css_default.sidechatAskQuestion,
+							children: [
+								question.header !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: SideChatView_module_css_default.sidechatAskHeader,
+									children: question.header
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: SideChatView_module_css_default.sidechatAskPrompt,
+									children: question.question
+								}),
+								question.detail !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: SideChatView_module_css_default.sidechatAskDetail,
+									children: question.detail
+								}),
+								multi && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: SideChatView_module_css_default.sidechatCardPath,
+									children: props.labels.answerMultiSelectHint
+								}),
+								options.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: SideChatView_module_css_default.sidechatAnswerOptions,
+									role: multi ? "group" : "radiogroup",
+									children: options.map((option) => {
+										const selected = draft.selected.includes(option.label);
+										return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+											type: "button",
+											role: multi ? "checkbox" : "radio",
+											"aria-checked": selected,
+											className: clsx(SideChatView_module_css_default.sidechatCardOption, selected && SideChatView_module_css_default.sidechatCardOptionSelected),
+											disabled: props.submitting,
+											onClick: () => {
+												props.onSelect(index, option.label);
+											},
+											children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+												className: clsx(SideChatView_module_css_default.sidechatAnswerMark, multi && SideChatView_module_css_default.sidechatAnswerMarkMulti, selected && SideChatView_module_css_default.sidechatAnswerMarkOn),
+												"aria-hidden": "true",
+												children: selected && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCheckOutlineRegular, { size: 12 })
+											}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+												className: SideChatView_module_css_default.sidechatAnswerText,
+												children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+													className: SideChatView_module_css_default.sidechatAnswerLabel,
+													children: option.label
+												}), option.description !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+													className: SideChatView_module_css_default.sidechatAnswerDesc,
+													children: option.description
+												})]
+											})]
+										}, option.label);
+									})
+								})
+							]
+						}, `q:${question.id}`);
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: SideChatView_module_css_default.sidechatCardPath,
+						children: props.labels.answerComposerHint
+					}),
+					complete && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: SideChatView_module_css_default.sidechatAnswerSubmit,
+						disabled: props.submitting,
+						onClick: () => {
+							props.onSubmit();
+						},
+						children: props.labels.answerSubmitLabel
+					})
+				]
+			});
+		}
 		/** One row renderer (React keys ride the source event seq). */
-		function renderRow(row, labels) {
+		function renderRow(row, labels, answer) {
 			switch (row.kind) {
 				case "user": return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 					className: SideChatView_module_css_default.sidechatUser,
 					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(row.text, labels) })
 				}, `${row.kind}:${row.seq}`);
+				case "turnSummary": {
+					const parts = [];
+					if (row.inputTokens !== void 0 || row.outputTokens !== void 0) parts.push(`${labels.inputTokensLabel} ${formatTokens(row.inputTokens ?? 0)} · ${labels.outputTokensLabel} ${formatTokens(row.outputTokens ?? 0)}`);
+					if (row.durationMs !== void 0) parts.push(formatDurationMs(row.durationMs));
+					if (parts.length === 0) return null;
+					return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: SideChatView_module_css_default.sidechatTurnSummary,
+						children: parts.join(" · ")
+					}, `${row.kind}:${row.seq}`);
+				}
 				case "assistant": return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 					className: SideChatView_module_css_default.sidechatAssistant,
 					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(row.text, labels) })
@@ -13366,21 +14231,107 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 						children: row.text
 					})
 				}, `${row.kind}:${row.seq}`);
+				case "modelSwitch": return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: SideChatView_module_css_default.sidechatModelSwitch,
+					children: [t("modelSwitchLabel", {
+						model: row.model,
+						provider: row.provider
+					}), row.reasoningEffort !== void 0 ? ` · ${row.reasoningEffort}` : ""]
+				}, `${row.kind}:${row.seq}`);
 				case "tool": {
-					const body = /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [row.args !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
-						className: SideChatView_module_css_default.sidechatRowCode,
-						children: row.args
-					}), row.resultText !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
-						className: SideChatView_module_css_default.sidechatRowCode,
-						children: row.resultText
-					})] });
+					const card = row.card;
+					const body = /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+						card?.type === "diff" && card.diffs.map((hunk, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: SideChatView_module_css_default.sidechatCard,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: SideChatView_module_css_default.sidechatCardPath,
+								children: hunk.path
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+								className: SideChatView_module_css_default.sidechatRowCode,
+								children: hunk.newText
+							})]
+						}, `${hunk.path}:${String(index)}`)),
+						card?.type === "question" && (() => {
+							const bound = answer !== void 0 && matchesPending(questionIdsOf(card.questions), answer.pending) ? answer : void 0;
+							if (bound !== void 0) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(QuestionCard, {
+								questions: bound.pending.questions,
+								drafts: bound.drafts,
+								labels,
+								submitting: bound.submitting,
+								onSelect: bound.onSelect,
+								onSubmit: bound.onSubmit
+							});
+							return card.questions.map((question, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: SideChatView_module_css_default.sidechatCard,
+								children: [
+									question.header !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: SideChatView_module_css_default.sidechatCardPath,
+										children: question.header
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+										className: SideChatView_module_css_default.sidechatRowProse,
+										children: question.question
+									}),
+									question.options.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+										className: SideChatView_module_css_default.sidechatCardOptions,
+										children: question.options.map((option) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											className: SideChatView_module_css_default.sidechatCardOptionLabel,
+											children: option.label
+										}), option.description !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+											className: SideChatView_module_css_default.sidechatCardPath,
+											children: [" — ", option.description]
+										})] }, option.label))
+									})
+								]
+							}, `q:${question.id}:${String(index)}`));
+						})(),
+						card?.type === "terminal" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: SideChatView_module_css_default.sidechatCard,
+							children: [
+								card.cwd !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: SideChatView_module_css_default.sidechatCardPath,
+									children: card.cwd
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+									className: SideChatView_module_css_default.sidechatRowCode,
+									children: `$ ${card.command}`
+								}),
+								card.output !== void 0 && card.output !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+									className: SideChatView_module_css_default.sidechatRowCode,
+									children: card.output
+								}),
+								(card.exitCode !== void 0 || card.signal !== void 0) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: card.exitCode === 0 || card.exitCode === void 0 ? SideChatView_module_css_default.sidechatCardPath : SideChatView_module_css_default.sidechatCardFail,
+									children: card.signal !== void 0 ? `signal: ${card.signal}` : `exit: ${String(card.exitCode)}`
+								})
+							]
+						}),
+						card?.type === "read" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: SideChatView_module_css_default.sidechatCard,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: SideChatView_module_css_default.sidechatCardPath,
+								children: `${card.label}（${String(card.lines.length)}/${String(card.totalLines)} 行）`
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+								className: SideChatView_module_css_default.sidechatRowCode,
+								children: card.lines.map((line) => `${String(line.number).padStart(4, " ")}  ${line.text}`).join("\n")
+							})]
+						}),
+						card === void 0 && row.args !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+							className: SideChatView_module_css_default.sidechatRowCode,
+							children: row.args
+						}),
+						card === void 0 && row.resultText !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+							className: SideChatView_module_css_default.sidechatRowCode,
+							children: row.resultText
+						})
+					] });
 					return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CollapsibleRow, {
 						label: row.name,
 						meta: toolArgsSummary(row.args),
 						mono: true,
 						streaming: row.executing === true,
 						failed: row.failed,
-						...row.args === void 0 && row.resultText === void 0 ? {} : { children: body }
+						...card === void 0 && row.args === void 0 && row.resultText === void 0 ? {} : { children: body }
 					}, `${row.kind}:${row.seq}`);
 				}
 			}
@@ -13392,7 +14343,14 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				copyLabel: t("copy"),
 				copiedLabel: t("copied"),
 				thinkLabel: t("sideChatThink"),
-				injectionLabel: t("sideChatInjection")
+				injectionLabel: t("sideChatInjection"),
+				inputTokensLabel: t("inputTokensLabel"),
+				outputTokensLabel: t("outputTokensLabel"),
+				awaitingAnswerLabel: t("awaitingAnswerLabel"),
+				modelSwitchLabel: t("modelSwitchLabel"),
+				answerSubmitLabel: t("answerSubmitLabel"),
+				answerMultiSelectHint: t("answerMultiSelectHint"),
+				answerComposerHint: t("answerComposerHint")
 			}), []);
 			const list = (0, react.useSyncExternalStore)((0, react.useMemo)(() => (callback) => ctx.sessions.list.subscribe(callback), [ctx]), (0, react.useCallback)(() => ctx.sessions.list.getSnapshot(), [ctx]));
 			const threads = (0, react.useMemo)(() => sideThreadRows(list.byId, scope.sessionId), [list, scope.sessionId]);
@@ -13405,11 +14363,47 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			const [revision, setRevision] = (0, react.useState)(0);
 			const [info, setInfo] = (0, react.useState)(null);
 			const [menuOpen, setMenuOpen] = (0, react.useState)(false);
+			/** 最近一次「跟随主会话模型」的结果：失败时面板上直接说明原因（别让人去翻日志）。 */
+			const [modelFollow, setModelFollow] = (0, react.useState)(null);
+			/**
+			* 引擎的待答提问（本会话）。它就是「回车到底是回答还是追问」的判据——没有它，
+			* 输入框只会把答案当成追问送出去，而子会话正卡在提问上，于是两边都不动。
+			*/
+			const pending = usePendingQuestion(threadId);
+			/** 本机回答草稿：与待答题目同序；换一道请求（key 变了）即重置。 */
+			const [answerDrafts, setAnswerDrafts] = (0, react.useState)([]);
+			const pendingRef = (0, react.useRef)(void 0);
+			pendingRef.current = pending;
+			const pendingKey = pending?.key;
+			(0, react.useEffect)(() => {
+				const current = pendingRef.current;
+				if (current !== void 0) console.info(`[dsh-coding-sidebar] side chat pending question ×${String(current.questions.length)}: ${current.questions.map((question) => question.id).join(", ")}`);
+				setAnswerDrafts(current === void 0 ? [] : emptyDrafts(current.questions));
+			}, [pendingKey]);
 			const cacheRef = (0, react.useRef)({
 				seedBoundary: null,
 				entries: []
 			});
 			const controllerRef = (0, react.useRef)(null);
+			/**
+			* 实时增量行（DSH 0.1.5 起流式文本不再进会话日志——时长文本只以 `assistant/live-chunk`
+			* 出现在客户端契约里，见 assistant-live.ts）。它**不是**持久数据：每轮整体替换，
+			* 定稿后由持久 assistant/message 覆盖。读取失败只清空它，绝不影响耐久路径。
+			*/
+			const liveRef = (0, react.useRef)([]);
+			/**
+			* 轮询退避计数（连拍无增长则加大间隔）。放 ref 而不是 effect 局部变量：**用户动作必须能把它
+			* 清零**——否则此前空轮询已退到 5s 时，发送后整段回答（实测只流 ~2.5s）会整个落在两次轮询
+			* 之间，表现就是「一次性蹦出来」。
+			*/
+			const quietRef = (0, react.useRef)(0);
+			/**
+			* 「踢一拍」钩子：由轮询 effect 装配。用户动作必须能**取消已经armed的那一拍**并立刻重排——
+			* 光把退避计数清零只影响「之后怎么排」，管不了「已经排好的那一拍」：现场实测发送在 16.7s
+			* 设了计数 0，但下一次 tick 仍按旧的 5s 延迟在 21.9s 才触发，整个 1.5s 流式窗口落在两次
+			* 轮询之间 ⇒ 回答只能定稿后一次性出现。
+			*/
+			const kickPollRef = (0, react.useRef)(() => {});
 			const scrollRef = (0, react.useRef)(null);
 			const composerRef = (0, react.useRef)(null);
 			const summary = threadId === void 0 ? void 0 : list.byId[threadId];
@@ -13466,7 +14460,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			*  one tail page and merge (seq-deduped).
 			*  @returns whether the merged transcript grew (the poll's pacing signal). */
 			const fetchThread = (0, react.useCallback)(async (childId) => {
-				if (ctx.connection.api?.sessions?.history === void 0) return false;
 				controllerRef.current?.abort();
 				const controller = new AbortController();
 				controllerRef.current = controller;
@@ -13475,27 +14468,22 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				try {
 					if (cache.seedBoundary === null) {
 						const walk = await collectOwnEvents(async (beforeSeq) => {
-							const response = await ctx.connection.api.sessions.history({
-								sessionId: childId,
-								maxMessages: WALK_PAGE_EVENTS,
+							return (await api.sidechatEvents(childId, {
+								maxEvents: WALK_PAGE_EVENTS,
 								...beforeSeq === void 0 ? {} : { beforeSeq }
-							}, controller.signal);
-							if (!response.result.ok) throw new Error("history walk failed");
-							return response.result.value.events;
+							})).events;
 						});
 						cache.seedBoundary = walk.seedBoundary;
 						cache.entries = mergeBySeq(cache.entries, walk.entries);
 					} else {
-						const response = await ctx.connection.api.sessions.history({
-							sessionId: childId,
-							maxMessages: PAGE_MESSAGES
-						}, controller.signal);
-						if (!response.result.ok) return false;
-						cache.entries = mergeBySeq(cache.entries, response.result.value.events);
+						const page = await api.sidechatEvents(childId, { maxEvents: PAGE_MESSAGES });
+						cache.entries = mergeBySeq(cache.entries, page.events);
+						liveRef.current = page.live;
 					}
 					setRevision((value) => value + 1);
 					return cache.entries.length > before;
-				} catch {
+				} catch (cause) {
+					if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause));
 					return false;
 				}
 			}, [ctx]);
@@ -13510,10 +14498,12 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 					seedBoundary: null,
 					entries: []
 				};
+				liveRef.current = [];
 				controllerRef.current?.abort();
 				setError(null);
 				setSaved(false);
 				setInfo(null);
+				setModelFollow(null);
 				if (threadId !== void 0) {
 					fetchInfo(threadId);
 					window.setTimeout(() => composerRef.current?.focus(), 0);
@@ -13522,9 +14512,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			(0, react.useEffect)(() => {
 				if (!visible || threadId === void 0) return;
 				fetchThread(threadId);
-				if (!running) return;
 				let timer = 0;
-				let quiet = 0;
 				const schedule = (delay) => {
 					timer = window.setTimeout(async () => {
 						let grew = false;
@@ -13532,15 +14520,24 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 							grew = await fetchThread(threadId);
 							fetchInfo(threadId);
 						} catch {
-							quiet += 1;
+							quietRef.current += 1;
 						}
-						quiet = grew ? 0 : quiet + 1;
+						const awaiting = threadTrailingPending(cacheRef.current.entries);
+						const quiet = grew || liveRef.current.length > 0 || awaiting ? 0 : quietRef.current + 1;
+						quietRef.current = quiet;
 						schedule(quiet === 0 ? POLL_FAST_MS : Math.min(POLL_SLOW_MS, POLL_BASE_MS * 1.8 ** (quiet - 1)));
 					}, delay);
+				};
+				kickPollRef.current = () => {
+					if (timer !== 0) window.clearTimeout(timer);
+					timer = 0;
+					quietRef.current = 0;
+					schedule(POLL_FAST_MS);
 				};
 				schedule(POLL_FAST_MS);
 				return () => {
 					window.clearTimeout(timer);
+					kickPollRef.current = () => {};
 				};
 			}, [
 				visible,
@@ -13552,7 +14549,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			(0, react.useEffect)(() => () => {
 				controllerRef.current?.abort();
 			}, []);
-			const rows = (0, react.useMemo)(() => threadId === void 0 ? [] : transcriptRows(cacheRef.current.entries), [threadId, revision]);
+			const rows = (0, react.useMemo)(() => threadId === void 0 ? [] : transcriptRows(cacheRef.current.entries, liveRef.current), [threadId, revision]);
 			const canSave = threadId !== void 0 && threadHasCompletedTurn(cacheRef.current.entries);
 			const trailingPending = threadId !== void 0 && threadTrailingPending(cacheRef.current.entries);
 			const freshThread = threadId !== void 0 && rows.length === 0;
@@ -13603,16 +14600,92 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				field.style.height = "0px";
 				field.style.height = `${Math.min(field.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
 			};
+			/**
+			* 交回答：把整批答案回给宿主（引擎 `PendingQuestion.answer`）。
+			*
+			* 这是回答路径的**唯一出口**——它同时结算引擎的 waterfall，子会话随即继续跑。失败
+			* （例如已被别处结算）只报错，不猜结果。
+			*/
+			const submitAnswer = async (answer) => {
+				const current = pendingRef.current;
+				if (current === void 0 || threadId === void 0 || busy !== null) return;
+				setBusy("answering");
+				setError(null);
+				try {
+					await current.answer(answer);
+					setAnswerDrafts([]);
+					quietRef.current = 0;
+					kickPollRef.current();
+					fetchThread(threadId);
+					fetchInfo(threadId);
+				} catch (cause) {
+					setError(cause instanceof Error ? cause.message : String(cause));
+				} finally {
+					setBusy(null);
+				}
+			};
+			/**
+			* 点选项：单选题点完即答（这就是「弹卡片让用户选」的主动作）；多选题只累积，
+			* 由卡片上的「提交回答」按钮收口。整批凑齐时也可直接提交。
+			*/
+			const handleSelectOption = (index, label) => {
+				const current = pendingRef.current;
+				if (current === void 0 || busy !== null) return;
+				const next = selectOption(current.questions, answerDrafts, index, label);
+				setAnswerDrafts(next);
+				const built = buildAnswer(current.questions, next);
+				if (built.ok && current.questions[index]?.multiSelect !== true) submitAnswer(built.answer);
+			};
+			/** 卡片上的「提交回答」（多选收口 / 组批提交）。 */
+			const handleSubmitAnswer = () => {
+				const current = pendingRef.current;
+				if (current === void 0 || busy !== null) return;
+				const built = buildAnswer(current.questions, answerDrafts);
+				if (!built.ok) {
+					setError(t("answerComposerHint"));
+					return;
+				}
+				submitAnswer(built.answer);
+			};
+			const answerBinding = pending === void 0 ? void 0 : {
+				pending,
+				drafts: answerDrafts,
+				submitting: busy === "answering",
+				onSelect: handleSelectOption,
+				onSubmit: handleSubmitAnswer
+			};
+			/** 排队中的追问（宿主的收件箱视图；`info` 每拍都刷）。 */
+			const queued = info?.queued ?? [];
 			const handleSend = async () => {
 				const text = composer.trim();
 				if (text === "" || threadId === void 0 || busy !== null) return;
-				setBusy("sending");
-				setError(null);
-				try {
-					await api.sidechatPrompt(threadId, text);
+				if (pending !== void 0) {
+					const step = answerFromComposer(pending.questions, answerDrafts, text);
+					setAnswerDrafts(step.drafts);
 					setComposer("");
 					const field = composerRef.current;
 					if (field !== null) field.style.height = "";
+					const ready = step.answer ?? (() => {
+						if (!draftsComplete(answerDrafts)) return void 0;
+						const built = buildAnswer(pending.questions, answerDrafts);
+						if (built.ok) {
+							setComposer(text);
+							return built.answer;
+						}
+					})();
+					if (ready !== void 0) await submitAnswer(ready);
+					return;
+				}
+				setBusy("sending");
+				setError(null);
+				try {
+					const sent = await api.sidechatPrompt(threadId, text);
+					setModelFollow(sent.modelFollow ?? null);
+					setComposer("");
+					const field = composerRef.current;
+					if (field !== null) field.style.height = "";
+					quietRef.current = 0;
+					kickPollRef.current();
 					fetchThread(threadId);
 					fetchInfo(threadId);
 				} catch (cause) {
@@ -13625,6 +14698,8 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 				if (threadId === void 0 || busy !== null) return;
 				try {
 					await api.sidechatCancel(threadId);
+					quietRef.current = 0;
+					kickPollRef.current();
 					fetchThread(threadId);
 					fetchInfo(threadId);
 				} catch (cause) {
@@ -13667,6 +14742,10 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 							className: SideChatView_module_css_default.sidechatHeroDesc,
 							children: t("sideChatEmptyDesc")
+						}),
+						modelFollow !== null && !modelFollow.ok && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: SideChatView_module_css_default.sidechatHint,
+							children: t("modelFollowFailed", { reason: modelFollow.reason ?? "" })
 						}),
 						error !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 							className: SideChatView_module_css_default.sidechatError,
@@ -13749,17 +14828,40 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						ref: scrollRef,
 						className: SideChatView_module_css_default.sidechatScroll,
-						children: rows.map((row) => renderRow(row, rowLabels))
+						children: rows.map((row) => renderRow(row, rowLabels, answerBinding))
 					}),
-					running && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					(pending !== void 0 || running) && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: SideChatView_module_css_default.sidechatStatus,
 						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, {
 							state: "ongoing",
 							size: 8
 						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 							className: SideChatView_module_css_default.sidechatStatusText,
-							children: t("sideChatThinking")
+							children: pending !== void 0 ? t("awaitingAnswerLabel") : t("sideChatThinking")
 						})]
+					}),
+					queued.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: SideChatView_module_css_default.sidechatQueue,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: SideChatView_module_css_default.sidechatQueueHead,
+								children: t("sideChatQueueTitle", { count: String(queued.length) })
+							}),
+							queued.map((item, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: SideChatView_module_css_default.sidechatQueueRow,
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: SideChatView_module_css_default.sidechatQueueIndex,
+									children: index + 1
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: SideChatView_module_css_default.sidechatQueueText,
+									children: item.text
+								})]
+							}, item.id)),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: SideChatView_module_css_default.sidechatQueueHint,
+								children: t("sideChatQueueHint")
+							})
+						]
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: SideChatView_module_css_default.sidechatComposer,
@@ -13767,7 +14869,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 							ref: composerRef,
 							className: SideChatView_module_css_default.sidechatComposerInput,
 							value: composer,
-							placeholder: freshThread ? t("sideChatFirstPlaceholder") : t("sideChatComposerPlaceholder"),
+							placeholder: pending !== void 0 ? t("answerComposerPlaceholder") : freshThread ? t("sideChatFirstPlaceholder") : t("sideChatComposerPlaceholder"),
 							rows: 1,
 							onChange: (event) => {
 								setComposer(event.target.value);
@@ -13780,24 +14882,35 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 							}
 						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							className: SideChatView_module_css_default.sidechatComposerBar,
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: SideChatView_module_css_default.sidechatComposerMeta,
-								children: running ? "" : agentBadge
-							}), running ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-								type: "button",
-								className: SideChatView_module_css_default.sidechatSendBtn,
-								onClick: () => void handleCancel(),
-								disabled: busy !== null,
-								title: t("sideChatCancelTitle"),
-								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconStopFillRegular, {})
-							}, "stop") : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-								type: "button",
-								className: SideChatView_module_css_default.sidechatSendBtn,
-								onClick: () => void handleSend(),
-								disabled: composer.trim() === "" || busy !== null,
-								title: t("sideChatSend"),
-								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconSendOutline16, {})
-							}, "send")]
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: SideChatView_module_css_default.sidechatComposerMeta,
+									children: running || pending !== void 0 ? "" : agentBadge
+								}),
+								(running || pending !== void 0) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: SideChatView_module_css_default.sidechatSendBtn,
+									onClick: () => void handleCancel(),
+									disabled: busy !== null,
+									title: t("sideChatCancelTitle"),
+									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconStopFillRegular, {})
+								}, "stop"),
+								pending !== void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: SideChatView_module_css_default.sidechatSendBtn,
+									onClick: () => void handleSend(),
+									disabled: composer.trim() === "" || busy !== null,
+									title: t("answerSendLabel"),
+									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconSendOutline16, {})
+								}, "answer") : running ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: SideChatView_module_css_default.sidechatSendBtn,
+									onClick: () => void handleSend(),
+									disabled: composer.trim() === "" || busy !== null,
+									title: t("sideChatSend"),
+									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconSendOutline16, {})
+								}, "send")
+							]
 						})]
 					})
 				]
@@ -19356,6 +20469,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
 			}, "dsh-coding-sidebar: dictionaries");
 			ctx.inject(["uiWorkspace"], (scope) => {
 				observeUiWorkspaceFace(scope.uiWorkspace);
+			});
+			ctx.inject(["uiSession"], (scope) => {
+				observeUiSessionFace(scope.uiSession);
 			});
 			console.info(`[dsh-coding-sidebar] client ${SIDEBAR_SERVICE_VERSION} booted (nav-seam v3: uiWorkspace capture)`);
 			ctx.effect(() => {

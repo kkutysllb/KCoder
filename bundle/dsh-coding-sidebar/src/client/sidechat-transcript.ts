@@ -16,6 +16,7 @@
  */
 import type { SidebarHistoryEntry } from '../context-types.ts'
 import { isContextInjectionMessage, SIDE_BOUNDARY_PROMPT } from '../sidechat-core.ts'
+import type { SidechatLiveEvent } from '../sidechat-core.ts'
 
 /** One compact transcript row rendered in the thread view. `seq` is the
  *  source event's log sequence — stable row identity for React keys across
@@ -23,10 +24,15 @@ import { isContextInjectionMessage, SIDE_BOUNDARY_PROMPT } from '../sidechat-cor
  *  rows). */
 export type SidechatTranscriptRow =
   | { kind: 'user'; seq: number; text: string }
+  /** 每轮收尾的一行指标（`turn/end` 时发）：token 用量与墙钟时长，能算出来才有。 */
+  | { kind: 'turnSummary'; seq: number; inputTokens?: number; outputTokens?: number; durationMs?: number }
   /** A context injection (the side boundary prompt + the parked in-progress
    *  snapshot, or any plugin-sourced context): rendered as one collapsible
    *  row, never as a user bubble. */
   | { kind: 'injection'; seq: number; text: string }
+  /** 模型切换（`model/selection`）：侧边对话跟随主会话换模型时留下的一行。
+   *  没有它，用户在侧边栏只能靠头部徽标猜——而徽标此前还会说谎。 */
+  | { kind: 'modelSwitch'; seq: number; provider: string; model: string; reasoningEffort?: string }
   /** `settled` distinguishes an assembled message from a still-streaming
    *  chunk accumulation (streaming rows are superseded by the settle). */
   | { kind: 'assistant'; seq: number; text: string; settled: boolean }
@@ -40,7 +46,9 @@ export type SidechatTranscriptRow =
     args?: string
     /** Plain text of the paired result. */
     resultText?: string
-    /** True while the call's result has not landed yet. */
+    /** 结构化渲染载荷（宿主 Block 的数据形状）；缺省 = 通用文本行。 */
+  card?: SidechatToolCard
+  /** True while the call's result has not landed yet. */
     executing?: boolean
   }
 
@@ -76,6 +84,194 @@ function flatTruncate(text: string): string {
  * row: the first identifying string field when the JSON parses, else the
  * flattened raw text; empty when there is nothing worth showing.
  */
+/**
+ * 结构化工具卡（P3，移植自同源上游 DSH-better-sidebar 0.21.1）：把 `tool/result` 的 `meta`
+ * 收窄成宿主 Block 的**数据形状**，由视图渲染——与主对话渲染的是同一批原子，所以侧边对话里的
+ * 改动/读取不再是「一坨纯文本」。
+ *
+ * 一切字段都**防御式收窄**：meta 的形状由产出它的工具决定，任何畸形输入都退回通用文本行
+ * （宁可少一张卡，也不能让整条 transcript 崩掉）。
+ */
+export type SidechatToolCard =
+  | { type: 'diff'; diffs: readonly { path: string; oldText?: string | null; newText: string }[] }
+  | { type: 'read'; label: string; lines: readonly { number: number; text: string }[]; totalLines: number }
+  | { type: 'terminal'; command: string; cwd?: string; output?: string; exitCode?: number; signal?: string }
+  /** `ask_user_question` 的提问内容：工具行此前只显示原始 JSON，而这一行正是**等用户回答**的
+   *  阻塞点——看不出问题是什么，就一直卡在那儿。
+   *  `id`/`multiSelect` 必须带上：答案要按题目 id 回填宿主，「这一行就是当前待答的那批题」
+   *  也靠 id 序列配对（见 sidechat-questions.ts `matchesPending`）。 */
+  | {
+    type: 'question'
+    questions: readonly {
+      id: string
+      question: string
+      header?: string
+      multiSelect?: boolean
+      options: readonly { label: string; description?: string }[]
+    }[]
+  }
+
+/** 紧凑 token 数（517 / 12.2K / 1.2M，与主对话同款）。 */
+export function formatTokens(n: number): string {
+  const scaled = (v: number): string => (v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10))
+  if (n < 1_000) return String(n)
+  if (n < 1_000_000) return `${scaled(n / 1_000)}K`
+  return `${scaled(n / 1_000_000)}M`
+}
+
+/** 紧凑时长（45.2s / 2m42s，与主对话同款：不足一分钟保留一位小数）。 */
+export function formatDurationMs(ms: number): string {
+  const seconds = ms / 1_000
+  if (seconds < 60) return `${Math.round(seconds * 10) / 10}s`
+  const whole = Math.round(seconds)
+  return `${Math.floor(whole / 60)}m${whole % 60}s`
+}
+
+/** 工具参数 JSON → 对象；非对象/解析失败即 undefined（形状由工具自己决定）。 */
+function parseArgsObject(args: string | undefined): Record<string, unknown> | undefined {
+  if (args === undefined || args === '') return undefined
+  try {
+    const parsed: unknown = JSON.parse(args)
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * **调用时**的卡片：`bash` 的命令/工作目录、`edit`/`write` 的目标与文本。
+ * 调用时就有卡，用户不必等结果落地才看见「在改哪个文件、跑什么命令」。
+ */
+function callCard(name: string, args: string | undefined): SidechatToolCard | undefined {
+  const parsed = parseArgsObject(args)
+  if (parsed === undefined) return undefined
+  if (name === 'bash') {
+    const command = typeof parsed.command === 'string' && parsed.command !== '' ? parsed.command : undefined
+    // 后台命令没有「跑完了」的语义，不生成终端卡。
+    if (command === undefined || parsed.run_in_background === true) return undefined
+    const cwd = typeof parsed.workdir === 'string' && parsed.workdir !== '' ? parsed.workdir : undefined
+    return { type: 'terminal', command, ...(cwd === undefined ? {} : { cwd }) }
+  }
+  if (name === 'ask_user_question') {
+    const raw = parsed.questions
+    if (!Array.isArray(raw) || raw.length === 0) return undefined
+    type CardQuestion = {
+      id: string
+      question: string
+      header?: string
+      multiSelect?: boolean
+      options: { label: string; description?: string }[]
+    }
+    const questions: CardQuestion[] = []
+    for (const item of raw) {
+      if (item === null || typeof item !== 'object' || Array.isArray(item)) return undefined
+      const candidate = item as { id?: unknown; header?: unknown; question?: unknown; options?: unknown; multiSelect?: unknown }
+      // id 缺失就退回通用文本行：答案必须按 id 回填，猜 id 会把答案送到别的题上。
+      if (typeof candidate.id !== 'string' || candidate.id === '') return undefined
+      if (typeof candidate.question !== 'string' || candidate.question === '') return undefined
+      const options: { label: string; description?: string }[] = []
+      if (Array.isArray(candidate.options)) {
+        for (const option of candidate.options) {
+          if (option === null || typeof option !== 'object') continue
+          const entry = option as { label?: unknown; description?: unknown }
+          if (typeof entry.label !== 'string' || entry.label === '') continue
+          options.push({ label: entry.label, ...(typeof entry.description === 'string' ? { description: entry.description } : {}) })
+        }
+      }
+      questions.push({
+        id: candidate.id,
+        question: candidate.question,
+        options,
+        ...(candidate.multiSelect === true ? { multiSelect: true } : {}),
+        ...(typeof candidate.header === 'string' && candidate.header !== '' ? { header: candidate.header } : {}),
+      })
+    }
+    return { type: 'question', questions }
+  }
+  if (name === 'edit' || name === 'write') {
+    const path = typeof parsed.file_path === 'string' && parsed.file_path !== '' ? parsed.file_path : undefined
+    if (path === undefined) return undefined
+    if (name === 'edit') {
+      const oldText = typeof parsed.old_string === 'string' ? parsed.old_string : ''
+      const newText = typeof parsed.new_string === 'string' ? parsed.new_string : ''
+      return { type: 'diff', diffs: [{ path, oldText: oldText === '' ? null : oldText, newText }] }
+    }
+    const newText = typeof parsed.content === 'string' ? parsed.content : ''
+    return { type: 'diff', diffs: [{ path, oldText: null, newText }] }
+  }
+  return undefined
+}
+
+/** bash 结果尾部的退出标记（模型可见文本里工具自己追加的），剥成退出药丸。 */
+const EXIT_SIGNAL_RE = /\n\[killed by signal: ([^\]\n]+)\]$/
+const EXIT_CODE_RE = /\n\[exit code: (\d+)\]$/
+
+/** **结果时**的精化：终端卡吃掉输出与退出标记；失败结果退回通用行（与宿主一致）。 */
+function refineCard(
+  name: string,
+  previous: SidechatToolCard | undefined,
+  resultText: string,
+): SidechatToolCard | undefined {
+  if (name !== 'bash' || previous === undefined || previous.type !== 'terminal' || resultText === '') return previous
+  const signal = EXIT_SIGNAL_RE.exec(resultText)
+  if (signal?.[1] !== undefined) {
+    return { ...previous, output: resultText.slice(0, signal.index), exitCode: undefined, signal: signal[1] }
+  }
+  const exit = EXIT_CODE_RE.exec(resultText)
+  if (exit?.[1] !== undefined) {
+    return { ...previous, output: resultText.slice(0, exit.index), exitCode: Number(exit[1]) }
+  }
+  return previous
+}
+
+/** `meta.diffs` → 改动卡（路径 + 新旧文本；任一条畸形即放弃整张卡）。 */
+function diffCardFromMeta(meta: Record<string, unknown>): SidechatToolCard | undefined {
+  const diffs = meta.diffs
+  if (!Array.isArray(diffs) || diffs.length === 0) return undefined
+  const hunks: { path: string; oldText?: string | null; newText: string }[] = []
+  for (const item of diffs) {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) return undefined
+    const { path, oldText, newText } = item as Record<string, unknown>
+    if (typeof path !== 'string' || typeof newText !== 'string') return undefined
+    if (oldText !== null && oldText !== undefined && typeof oldText !== 'string') return undefined
+    hunks.push({ path, newText, ...(oldText === undefined ? {} : { oldText }) })
+  }
+  return { type: 'diff', diffs: hunks }
+}
+
+/** `meta` 的读取窗口 → 读取卡（1 基、严格递增、不超过 totalLines——与宿主同一契约）。 */
+function readCardFromMeta(meta: Record<string, unknown>): SidechatToolCard | undefined {
+  const { path, offset, lines, totalLines } = meta
+  if (typeof path !== 'string' || typeof offset !== 'number' || typeof totalLines !== 'number') return undefined
+  if (!Number.isInteger(offset) || offset < 1) return undefined
+  if (!Number.isInteger(totalLines) || totalLines < 0) return undefined
+  if (!Array.isArray(lines)) return undefined
+  const narrowed: { number: number; text: string }[] = []
+  let previous = offset - 1
+  for (const line of lines) {
+    if (line === null || typeof line !== 'object' || Array.isArray(line)) return undefined
+    const candidate = line as { number?: unknown; text?: unknown }
+    if (typeof candidate.number !== 'number' || !Number.isInteger(candidate.number)) return undefined
+    if (candidate.number <= previous || candidate.number > totalLines) return undefined
+    if (typeof candidate.text !== 'string') return undefined
+    narrowed.push({ number: candidate.number, text: candidate.text })
+    previous = candidate.number
+  }
+  return { type: 'read', label: path, lines: narrowed, totalLines }
+}
+
+/** 结果消息里的 `meta` 若有结构化信息，收窄成卡片（edit/write 的 hunks、read 的窗口）。 */
+function cardFromResultMeta(data: Record<string, unknown>): SidechatToolCard | undefined {
+  const message = data.message
+  if (message === null || typeof message !== 'object') return undefined
+  const meta = (message as { meta?: unknown }).meta
+  if (meta === null || typeof meta !== 'object' || Array.isArray(meta)) return undefined
+  const record = meta as Record<string, unknown>
+  return diffCardFromMeta(record) ?? readCardFromMeta(record)
+}
+
 export function toolArgsSummary(args: string | undefined): string {
   if (args === undefined) return ''
   try {
@@ -188,7 +384,10 @@ export async function collectOwnEvents(
  * @param entries - history rows (event + host-computed view) in seq order.
  * @returns display rows in log order.
  */
-export function transcriptRows(entries: readonly SidebarHistoryEntry[]): SidechatTranscriptRow[] {
+export function transcriptRows(
+  entries: readonly SidebarHistoryEntry[],
+  live: readonly SidechatLiveEvent[] = [],
+): SidechatTranscriptRow[] {
   const events = entries.map(entry => entry.event)
   const seedEnd = lastSeedEnd(events)
   const rows: SidechatTranscriptRow[] = []
@@ -196,6 +395,35 @@ export function transcriptRows(entries: readonly SidebarHistoryEntry[]): Sidecha
   const streamRows = new Map<string, number>()
   /** tool callId → index of its tool row in `rows` (result pairing). */
   const callRows = new Map<string, number>()
+  /** turn → 累计用量（输出累加、输入取最后一次），在 turn/end 落成一行。 */
+  const turnUsage = new Map<number, { inputTokens: number; outputTokens: number }>()
+  /** turn → 起始时间（`turn/start` 的 envelope time），用于算墙钟时长。 */
+  const turnStartedAt = new Map<number, number>()
+
+  /**
+   * 累加一条流式增量（持久 `assistant/chunk` 与实时 `assistant/live-chunk` 共用这一条路径；
+   * 0.1.5 起前者不再出现，后者见 assistant-live.ts）。
+   */
+  const appendChunk = (turn: unknown, step: unknown, rawChunk: unknown, seq: number): void => {
+    const chunk = rawChunk as { type?: unknown; text?: unknown; index?: unknown } | undefined
+    if (chunk === null || typeof chunk !== 'object') return
+    const kind = chunk.type === 'text-delta' ? 'assistant' : chunk.type === 'reasoning-delta' ? 'reasoning' : null
+    if (kind === null || typeof chunk.text !== 'string' || chunk.text === '') return
+    const key = `${String(turn)}:${String(step)}:${String(chunk.index)}:${kind}`
+    const existing = streamRows.get(key)
+    if (existing !== undefined) {
+      const row = rows[existing]
+      if (row !== undefined && row.kind === kind && !row.settled) {
+        rows[existing] = { ...row, text: row.text + chunk.text }
+      }
+    } else {
+      streamRows.set(key, rows.length)
+      rows.push({ kind, seq, text: chunk.text, settled: false })
+    }
+  }
+
+  /** 已定稿的 `turn:step:` 前缀——实时行不再补进这些步骤，避免与持久消息重复。 */
+  const settledPrefixes = new Set<string>()
   for (let index = 0; index < events.length; index++) {
     if (index <= seedEnd) continue
     const event = events[index]
@@ -227,29 +455,62 @@ export function transcriptRows(entries: readonly SidebarHistoryEntry[]): Sidecha
         rows.push({ kind: 'user', seq: event.seq, text })
         break
       }
+      case 'model/selection': {
+        const provider = data.provider
+        const model = data.model
+        if (typeof provider !== 'string' || provider === '') break
+        if (typeof model !== 'string' || model === '') break
+        const effort = data.reasoningEffort
+        rows.push({
+          kind: 'modelSwitch',
+          seq: event.seq,
+          provider,
+          model,
+          ...(typeof effort === 'string' && effort !== '' ? { reasoningEffort: effort } : {}),
+        })
+        break
+      }
       case 'assistant/chunk': {
-        const chunk = data.chunk as { type?: unknown; text?: unknown } | undefined
-        if (chunk === null || typeof chunk !== 'object') break
-        const kind = chunk.type === 'text-delta' ? 'assistant' : chunk.type === 'reasoning-delta' ? 'reasoning' : null
-        if (kind === null || typeof chunk.text !== 'string' || chunk.text === '') break
+        appendChunk(data.turn, data.step, data.chunk, event.seq)
+        break
+      }
+      case 'turn/start': {
         const turn = data.turn
-        const step = data.step
-        const blockIndex = (chunk as { index?: unknown }).index
-        const key = `${String(turn)}:${String(step)}:${String(blockIndex)}:${kind}`
-        const existing = streamRows.get(key)
-        if (existing !== undefined) {
-          const row = rows[existing]
-          if (row !== undefined && row.kind === kind && !row.settled) {
-            rows[existing] = { ...row, text: row.text + chunk.text }
-          }
-        } else {
-          streamRows.set(key, rows.length)
-          rows.push({ kind, seq: event.seq, text: chunk.text, settled: false })
-        }
+        if (typeof turn === 'number') turnStartedAt.set(turn, event.time)
+        break
+      }
+      case 'turn/end': {
+        const turn = data.turn
+        if (typeof turn !== 'number') break
+        const usage = turnUsage.get(turn)
+        const startedAt = turnStartedAt.get(turn)
+        const durationMs = startedAt === undefined ? undefined : Math.max(0, event.time - startedAt)
+        if (usage === undefined && durationMs === undefined) break
+        rows.push({
+          kind: 'turnSummary',
+          seq: event.seq,
+          ...(usage === undefined ? {} : { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }),
+          ...(durationMs === undefined ? {} : { durationMs }),
+        })
+        turnUsage.delete(turn)
+        turnStartedAt.delete(turn)
         break
       }
       case 'assistant/message': {
         const prefix = `${String(data.turn)}:${String(data.step)}:`
+        // 该步的 token 用量：**输出累加**（每步各自产出），**输入取最后一次**
+        // （同轮里后续步骤的输入已包含前文，累加会重复计）。
+        const usageTurn = data.turn
+        const usage = data.usage as { inputTokens?: unknown; outputTokens?: unknown } | undefined
+        if (typeof usageTurn === 'number' && usage !== null && typeof usage === 'object') {
+          const before = turnUsage.get(usageTurn) ?? { inputTokens: 0, outputTokens: 0 }
+          turnUsage.set(usageTurn, {
+            inputTokens: typeof usage.inputTokens === 'number' ? usage.inputTokens : before.inputTokens,
+            outputTokens: before.outputTokens + (typeof usage.outputTokens === 'number' ? usage.outputTokens : 0),
+          })
+        }
+        // 这一步已定稿：实时行不再补进来（缓冲清空与持久消息之间有极短竞态窗口）。
+        settledPrefixes.add(prefix)
         const streamed = [...streamRows.entries()]
           .filter(([key]) => key.startsWith(prefix))
           .map(([, rowIndex]) => rowIndex)
@@ -279,8 +540,9 @@ export function transcriptRows(entries: readonly SidebarHistoryEntry[]): Sidecha
         const name = typeof data.name === 'string' ? data.name : 'tool'
         const args = typeof data.arguments === 'string' ? data.arguments : undefined
         const rowIndex = rows.length
+        const card = callCard(name, args)
         if (typeof callId === 'string') callRows.set(callId, rowIndex)
-        rows.push({ kind: 'tool', seq: event.seq, name, failed: false, args, executing: true })
+        rows.push({ kind: 'tool', seq: event.seq, name, failed: false, args, executing: true, ...(card === undefined ? {} : { card }) })
         break
       }
       case 'tool/result': {
@@ -292,11 +554,17 @@ export function transcriptRows(entries: readonly SidebarHistoryEntry[]): Sidecha
         if (rowIndex !== undefined) {
           const row = rows[rowIndex]
           if (row !== undefined && row.kind === 'tool') {
+            // 失败结果退回通用文本行（与宿主一致：isError 路径不渲染结构化卡）。
+            const refined = failed ? undefined : cardFromResultMeta(data as Record<string, unknown>)
+            const card = failed
+              ? undefined
+              : (refined ?? refineCard(row.name, row.card, resultText))
             rows[rowIndex] = {
               ...row,
               failed: row.failed || failed,
               resultText: resultText === '' ? row.resultText : resultText,
               executing: false,
+              ...(card === undefined ? {} : { card }),
             }
           }
         } else if (failed || resultText !== '') {
@@ -317,5 +585,14 @@ export function transcriptRows(entries: readonly SidebarHistoryEntry[]): Sidecha
       }
     }
   }
+
+  // 实时增量（DSH 0.1.5 起流式文本不进日志，见 assistant-live.ts）：补在持久行之后。
+  // 已定稿的 turn:step 跳过——那些步骤的文本已由 assistant/message 以 settled 行给出。
+  for (const event of live) {
+    const prefix = `${String(event.data.turn)}:${String(event.data.step)}:`
+    if (settledPrefixes.has(prefix)) continue
+    appendChunk(event.data.turn, event.data.step, event.data.chunk, event.seq)
+  }
+
   return rows
 }

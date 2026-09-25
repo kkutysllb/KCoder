@@ -143,7 +143,17 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // （否则落在收起的面板里）。发布核验：指定版本端点在 **npmjs 与 npmmirror 双源
   // 均 200**、packument dist-tags.latest 已指向 1.0.33（本次平移的事实依据；发布时
   // npm 侧经历约 5 分钟的「being processed」排队，期间指定版本端点 404）。
-  'dsh-coding-sidebar': '^1.0.33',
+  // 2026-09-25 平移：^1.0.33 → ^1.0.34（随本次内置物化同线）。1.0.34 = 侧边对话从
+  // 「摆着不能用」修成可用并转正（移除 beta）：读路径改走插件自家路由（通用
+  // session.history 对 subagent 来源会话一律拒绝）、逐字流式（0.1.5 起流式文本不进
+  // 日志，改订阅作用域帧 agent/assistant-stream 且需 {global:true}）、工具结构化卡、
+  // 每轮汇总；本轮新增**提问回答路径**（引擎的 Session 级待答交互
+  // uiSession.sessionStatus → answer()：此前只走 prompt ⇒ 子会话卡在提问上、两边都不动）、
+  // **模型跟随主会话**（改用引擎公开装配面 installModelSelection + 持有一个可变
+  // ModelSelectionRef，每次投递前对齐；此前误用 agents.selectionFor——那方法不在 agents
+  // 服务上，恒为 no-op）、**追问队列卡**（读收件箱 nextTurn：排队消息进日志前转录里看不见）。
+  // 发布核验：指定版本端点在 **npmjs 与 npmmirror 双源均 200**（本次平移的事实依据）。
+  'dsh-coding-sidebar': '^1.0.34',
   // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5 → 1.0.6）：coding-sidebar
   // 的衍生插件（增强审查卡 + 侧边栏审查 tab）。1.0.6 追加 changes-review 地址
   // 家族认领（原生评审开法改开自家页签）。已发布且双源可见，故与 bundle 物化

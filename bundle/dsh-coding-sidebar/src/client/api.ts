@@ -8,7 +8,8 @@
  */
 import { encodeHtmlUrl } from '../html-route.ts'
 import type { LastActivity } from '../subagent-activity.ts'
-import type { SidechatThreadInfo } from '../sidechat-core.ts'
+import type { SidebarHistoryEntry } from '../context-types.ts'
+import type { SidechatLiveEvent, SidechatThreadInfo } from '../sidechat-core.ts'
 import type { BrowserProbeResult } from './browser.ts'
 import type {
   CreateTeamTaskRequest, TeamMutationEnvelope, TeamViewResult, UpdateTeamTaskRequest,
@@ -25,6 +26,14 @@ export class SidebarApiError extends Error {
 }
 
 /** Explorer row (host fs-tree shape). */
+/** 一次「跟随主会话模型」的结果（失败原因会显示在面板上）。 */
+export interface SidechatModelFollow {
+  ok: boolean
+  switched: boolean
+  model?: { provider: string; model: string; reasoningEffort?: string }
+  reason?: string
+}
+
 export interface FsEntry {
   name: string
   path: string
@@ -222,6 +231,32 @@ export type TerminalDepsStatus =
     /** Optional supplementary hint (fallback command only). */
     note?: string
   }
+
+/**
+ * Bound one route call so a stuck host read cannot leave the panel blank forever.
+ *
+ * Why this exists: the route reads a subagent-origin session through the host
+ * persistence service, and a blocking read there made `sidechat.events` never
+ * settle — the panel stayed empty with no error, because the client had no
+ * deadline of its own. Reads that exceed the deadline fail loudly instead.
+ * @param promise - the route call.
+ * @param label - diagnostic label (the thread id).
+ * @returns the call's result, or a rejection when the deadline passes.
+ */
+function withDeadline<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`sidechat.events timed out after ${EVENTS_DEADLINE_MS}ms (${label})`))
+    }, EVENTS_DEADLINE_MS)
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      (error) => { clearTimeout(timer); reject(error instanceof Error ? error : new Error(String(error))) },
+    )
+  })
+}
+
+/** Client-side deadline for one `sidechat.events` read. */
+const EVENTS_DEADLINE_MS = 5000
 
 async function call<T>(method: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   let response: Response
@@ -490,7 +525,7 @@ export const api = {
     call<{ childId: string }>('sidechat.start', { sessionId, question: question ?? '' }),
   /** Deliver one follow-up message to a Side Chat thread. */
   sidechatPrompt: (childId: string, text: string) =>
-    call<{ accepted: true }>('sidechat.prompt', { childId, text }),
+    call<{ accepted: true; modelFollow?: SidechatModelFollow }>('sidechat.prompt', { childId, text }),
   /** Abort a Side Chat thread's running turn (queued work is preserved). */
   sidechatCancel: (childId: string) =>
     call<{ accepted: true }>('sidechat.cancel', { childId }),
@@ -500,6 +535,23 @@ export const api = {
   /** Live state + agent identity (provider/model/preset) of a thread. */
   sidechatInfo: (childId: string) =>
     call<SidechatThreadInfo>('sidechat.info', { childId }),
+  /**
+   * The thread's own events (inherited fork seed already cut host-side) plus the
+   * CURRENT attempt's live rows.
+   *
+   * This must not be the generic `session.history` RPC: that one **rejects
+   * subagent-origin sessions** (`session/agent-busy` fencing in the session
+   * controller), and side-chat children are exactly that — polling it left the
+   * panel permanently blank. Live rows are non-durable: they are replaced on
+   * every poll and superseded by the settled `assistant/message`.
+   */
+  sidechatEvents: (
+    childId: string,
+    options: { afterSeq?: number; beforeSeq?: number; maxEvents?: number } = {},
+  ) => withDeadline(
+    call<{ events: SidebarHistoryEntry[]; live: SidechatLiveEvent[] }>('sidechat.events', { childId, ...options }),
+    childId,
+  ),
   /** The effective terminal shell and its display name (plugin-global). */
   shellGet: () =>
     call<{ shell: string; name: string }>('shell.get', {}),

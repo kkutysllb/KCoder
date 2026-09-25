@@ -343,6 +343,18 @@ export declare const zh: {
     subagentShowHistory: string;
     subagentHideHistory: string;
     sideChat: string;
+    inputTokensLabel: string;
+    outputTokensLabel: string;
+    awaitingAnswerLabel: string;
+    modelSwitchLabel: string;
+    modelFollowFailed: string;
+    sideChatQueueTitle: string;
+    sideChatQueueHint: string;
+    answerSubmitLabel: string;
+    answerMultiSelectHint: string;
+    answerComposerHint: string;
+    answerComposerPlaceholder: string;
+    answerSendLabel: string;
     sideChatNew: string;
     sideChatUntitled: string;
     sideChatEmpty: string;
@@ -563,6 +575,15 @@ export declare const zh: {
     schedUnavailable: string;
     schedGone: string;
     schedLoadFailed: string;
+    schedRunsTitle: string;
+    schedRunsEmpty: string;
+    schedRunsPruned: string;
+    schedRunPlanned: string;
+    schedRunDelivered: string;
+    schedDelete: string;
+    schedDeleteConfirm: string;
+    schedDeleteCancel: string;
+    schedDeleteFailed: string;
 };
 /** The en dictionary (key-set-equal to zh, enforced by the type annotation). */
 export declare const en: Record<keyof typeof zh, string>;

@@ -11,6 +11,7 @@ import { spawn } from "node:child_process";
 import { homedir, userInfo } from "node:os";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
+import { installModelSelection } from "@deepseek-ai/dsh-agent";
 import { snapshotSubagentDescriptor } from "@deepseek-ai/dsh-subagent";
 import { SessionLogOffset } from "@deepseek-ai/dsh-session";
 //#region src/prefs-shared.ts
@@ -4853,6 +4854,124 @@ function messageLeadText(data) {
 	const first = Array.isArray(content) ? content[0] : content;
 	return typeof first === "string" ? first : typeof first === "object" && first !== null && "text" in first ? String(first.text) : "";
 }
+/** 收窄一个候选选择：provider/model 必须都是非空字符串。 */
+function asModelSelection(value) {
+	if (value === null || typeof value !== "object") return void 0;
+	const candidate = value;
+	if (typeof candidate.provider !== "string" || candidate.provider === "") return void 0;
+	if (typeof candidate.model !== "string" || candidate.model === "") return void 0;
+	return {
+		provider: candidate.provider,
+		model: candidate.model,
+		...typeof candidate.reasoningEffort === "string" && candidate.reasoningEffort !== "" ? { reasoningEffort: candidate.reasoningEffort } : {}
+	};
+}
+/**
+* 从引擎 `modelSelection` 投影状态里取**当前生效**的选择。
+*
+* 投影状态是 `{ lastUsed, pending }`（wire 视图折成 `next = pending ?? lastUsed`）：
+* - `pending` = 最新一条 `model/selection` 事件（用户在模型选择器里点的那次），被一次
+*   `request/header` 匹配上之后就清空；
+* - `lastUsed` = 最后一次请求头里真正用过的 provider/model。
+*
+* ⇒ 生效值恒为 `pending ?? lastUsed`，与客户端选择器显示的完全一致。**这正是
+* `agent.options` 给不出的东西**：`AgentOptions` 是 agent 创建时的启动参数（引擎自己传的
+* 就是部署默认），用户在会话里换的模型从不回写它——所以「把 parent.options 抄给子会话」
+* 拿到的永远是默认模型。
+*
+* @param state - `sessionProjections.stateOf(session, 'modelSelection')` 的返回值（形状未知）。
+* @returns 生效选择，或 undefined（投影缺席/形状不符）。
+*/
+function effectiveModelSelection(state) {
+	if (state === null || typeof state !== "object") return void 0;
+	const candidate = state;
+	return asModelSelection(candidate.pending) ?? asModelSelection(candidate.lastUsed) ?? asModelSelection(candidate.next);
+}
+/**
+* 从**会话日志**里折出当前生效的模型选择（引擎 `modelSelection` 投影的等价实现）。
+*
+* 为什么要这份等价实现：投影服务在某些载具/挂载顺序下取不到（裸 `ctx.get` 只读本 fiber 的
+* 本地 store），而「跟随主会话」绝不能因为一个服务取不到就**静默失效**。日志是同一份事实源
+* （投影本身就是它折出来的），照抄引擎的 fold（`model-selection-projection.ts`）：
+*
+* - `model/selection` → `pending` = 该选择（用户点的那次）；
+* - `request/header` → `lastUsed` = 该请求头真正用的 provider/model，且当它与 `pending` 相同时
+*   把 `pending` 清空（「已经被消费掉了」）。
+*
+* @param events - 会话事件（升序）。
+* @returns `pending ?? lastUsed`，或 undefined（两者都没有）。
+*/
+function effectiveModelSelectionFromLog(events) {
+	let pending;
+	let lastUsed;
+	for (const event of events) {
+		if (event.type === "model/selection") {
+			const picked = asModelSelection(dataOf(event));
+			if (picked !== void 0) pending = picked;
+			continue;
+		}
+		if (event.type !== "request/header") continue;
+		const config = dataOf(event).header?.config;
+		const used = asModelSelection(config);
+		if (used === void 0) continue;
+		lastUsed = used;
+		if (pending !== void 0 && sameSelection(pending, used)) pending = void 0;
+	}
+	return pending ?? lastUsed;
+}
+/** 两个选择是否同一套（provider + model + 档位）。 */
+function sameSelection(left, right) {
+	return left.provider === right.provider && left.model === right.model && (left.reasoningEffort ?? "") === (right.reasoningEffort ?? "");
+}
+/**
+* 读 agent 收件箱里**等待投递的追问**（`inbox.nextTurn`）。
+*
+* 为什么要有它：侧边对话的追问走 `agent.followup`，那是**排队**语义——消息在引擎领取之前
+* **不进会话日志**，所以转录里什么都看不到，用户会以为「发出去了但没反应」。真正的队列只有
+* 收件箱知道，把它读出来就能在输入框上方画成队列卡。
+*
+* 只读 `nextTurn`（「自成一轮的普通追问」）；`nextStep`（steering）不是本插件的提交路径。
+*
+* @param inbox - `agent.inbox`（形状未知，防御式收窄）。
+* @returns 排队中的追问（按提交顺序），形状不符即空数组。
+*/
+function queuedFollowups(inbox) {
+	if (inbox === null || typeof inbox !== "object") return [];
+	const pending = inbox.nextTurn;
+	if (!Array.isArray(pending)) return [];
+	const queued = [];
+	for (const [index, raw] of pending.entries()) {
+		if (raw === null || typeof raw !== "object") continue;
+		const message = raw;
+		const text = (Array.isArray(message.content) ? message.content : []).map((block) => block !== null && typeof block === "object" && block.type === "text" && typeof block.text === "string" ? block.text : "").filter((part) => part !== "").join("\n").trim();
+		if (text === "") continue;
+		queued.push({
+			id: typeof message.id === "string" && message.id !== "" ? message.id : `queued-${String(index)}`,
+			text
+		});
+	}
+	return queued;
+}
+/**
+* 日志里最后一次**真正用过**的模型（`request/header` 的 config）。
+*
+* 冷线程的信息行只有它可读：线程最后一次请求用的是哪个 provider/model 就写在那儿。
+* 注意子会话的日志带父会话的 fork seed，所以「最后一条」天然是子会话自己的请求；一条都没有时
+* 退回继承来的父会话请求——正是它开局会用的模型。
+*
+* @param events - 会话事件（升序）。
+* @returns 最后一次请求的选择，或 undefined（日志里没有请求头/形状不符）。
+*/
+function resolveLoggedModelSelection(events) {
+	for (let index = events.length - 1; index >= 0; index--) {
+		const event = events[index];
+		if (event?.type !== "request/header") continue;
+		const header = dataOf(event).header;
+		if (header === null || typeof header !== "object") continue;
+		const config = header.config;
+		return asModelSelection(config);
+	}
+}
 /**
 * The agent preset a session actually runs: newest `agent-preset/selected`
 * event wins, else the creation header (mirror of the dsh-agent-presets
@@ -4867,6 +4986,26 @@ function resolvePresetId(header, events) {
 		if (typeof preset === "string") return preset;
 	}
 	return header.agentPreset;
+}
+/**
+* 把缓冲里的实时增量投影成 wire 行。
+* @param chunks - 该会话当前 attempt 的增量（已按 index 升序）。
+* @param tailSeq - 该会话最后一个持久 seq；实时行排在其后。
+* @returns 追加到 transcript 供给的实时行。
+*/
+function liveEventsOf(chunks, tailSeq) {
+	return chunks.map((delta, position) => ({
+		type: "assistant/live-chunk",
+		seq: tailSeq + 1 + position,
+		time: delta.time,
+		data: {
+			attemptId: delta.attemptId,
+			turn: delta.turn,
+			step: delta.step,
+			index: delta.index,
+			chunk: delta.chunk
+		}
+	}));
 }
 //#endregion
 //#region src/subagent-activity.ts
@@ -5054,6 +5193,94 @@ function buildTeamApi(ctx) {
 	};
 }
 //#endregion
+//#region src/assistant-live.ts
+/** 单会话缓冲上限：一个跑飞的 attempt 不能把内存吃光（超出丢最旧的 index）。 */
+const MAX_CHUNKS_PER_SESSION = 4e3;
+/** 按会话保存其当前 attempt 的实时增量。 */
+var AssistantLiveBuffer = class {
+	attempts = /* @__PURE__ */ new Map();
+	/**
+	* 挂上引擎的作用域帧与 agent 释放事件；随插件卸载清理。
+	* @param ctx - 插件上下文（主机侧）。
+	*/
+	constructor(ctx) {
+		const host = ctx;
+		this.attach(host, (payload) => {
+			this.accept(payload);
+		});
+		const root = ctx.root;
+		if (root !== void 0 && root !== ctx) this.attach(root, (payload) => {
+			this.accept(payload);
+		});
+		host.on("agent/disposed", (payload) => {
+			const id = payload?.agent?.session?.id;
+			if (typeof id === "string") this.attempts.delete(id);
+		}, { global: true });
+		ctx.effect(() => () => {
+			this.attempts.clear();
+		}, "dsh-coding-sidebar.assistant-live");
+	}
+	/**
+	* 某会话当前 attempt 的增量（按 index 升序）。
+	* @param sessionId - 子会话 id。
+	* @returns 增量列表；没有在途 attempt 时为空数组。
+	*/
+	chunksOf(sessionId) {
+		const attempt = this.attempts.get(sessionId);
+		if (attempt === void 0) return [];
+		return [...attempt.chunks.values()].sort((left, right) => left.index - right.index);
+	}
+	/**
+	* 挂一条全局监听。两条通道（`ctx` 与 `ctx.root`）是**故意冗余**的：作用域帧的投递边界随
+	* 宿主组合而异（0.1.7-rc.2 实测两条都收到），而 `accept` 幂等（同一帧折两次结果相同）。
+	* 少挂一条的风险是「静默收不到帧」，代价只是每帧多做一次 set。
+	*/
+	attach(host, listener) {
+		try {
+			host.on("agent/assistant-stream", listener, { global: true });
+		} catch {}
+	}
+	/** 折叠一帧。 */
+	accept(payload) {
+		const sessionId = payload?.agent?.session?.id;
+		const frame = payload?.frame;
+		if (typeof sessionId !== "string" || frame === null || typeof frame !== "object") return;
+		const attemptId = frame.attemptId;
+		if (typeof attemptId !== "string") return;
+		if (frame.type === "start") {
+			this.attempts.set(sessionId, {
+				attemptId,
+				turn: typeof frame.turn === "number" ? frame.turn : 0,
+				step: typeof frame.step === "number" ? frame.step : 0,
+				chunks: /* @__PURE__ */ new Map()
+			});
+			return;
+		}
+		if (frame.type === "end") {
+			if (this.attempts.get(sessionId)?.attemptId === attemptId) this.attempts.delete(sessionId);
+			return;
+		}
+		if (frame.type !== "chunk") return;
+		const attempt = this.attempts.get(sessionId);
+		if (attempt === void 0 || attempt.attemptId !== attemptId) return;
+		const index = frame.index;
+		const chunk = frame.chunk;
+		if (typeof index !== "number" || chunk === null || typeof chunk !== "object") return;
+		if (attempt.chunks.size >= MAX_CHUNKS_PER_SESSION && !attempt.chunks.has(index)) {
+			const oldest = Math.min(...attempt.chunks.keys());
+			attempt.chunks.delete(oldest);
+		}
+		attempt.chunks.set(index, {
+			attemptId,
+			turn: attempt.turn,
+			step: attempt.step,
+			index,
+			time: typeof frame.time === "number" ? frame.time : Date.now(),
+			chunk
+		});
+	}
+};
+//#endregion
 //#region src/sidechat-routes.ts
 /**
 * Side Chat routes of the /sidebar JSON API ('sidechat.start' /
@@ -5093,35 +5320,242 @@ async function releaseAllThreads() {
 	const pending = [...threadDisposers.values()];
 	threadDisposers.clear();
 	pendingSnapshots.clear();
+	threadSelections.clear();
 	await Promise.allSettled(pending.map((dispose) => dispose()));
 }
+/** 本插件为每个侧边线程持有的**可变**模型选择（引擎 `agent/request` 会读它，见下）。 */
+const threadSelections = /* @__PURE__ */ new Map();
+/**
+* 装订子会话的**模型选择**——用引擎的公开装配面 `installModelSelection`
+* （`@deepseek-ai/dsh-agent`，与引擎自己的 composeAgent 同一函数）。
+*
+* 为什么不是 `agents.selectionFor`（第一版就是这么写的，**错的**）：`ctx.get('agents')` 是
+* **核心 AgentRegistry**（`create`/`get`/`resume`），而 `selectionFor` / `selectForNextRequest`
+* 在 `ApiSessionAgentController` 上——那是个**私有实例**，根本不注册成服务。于是那两处调用
+* **恒为 no-op**（可选链把 TypeError 吞了）：建线程时看着「跟上了」，靠的其实是
+* `agentOptions` 带过去的 provider/model；而「已经开着的线程换模型」没有任何机制
+* ⇒ 现场就是「第一次跟随、之后不跟随」。
+*
+* `installModelSelection(agentCtx, ref)` 在 agent 作用域挂三件事（见其源码）：
+* ① `system-prompt/assemble` 写入 provider/model 变量；
+* ② **`agent/request` 用 `ref.assembled` 覆盖请求配置的 provider/model/effort**——真正决定
+*    模型的那一步；
+* ③ `agent/pre-step` 在换路由时追加一条「model changed」耐久通知。
+* 而 ref 就是一个**可变对象**（`{ current, assembled }`）⇒ 换模型不需要任何服务配合：
+* 改 `ref.current`，下一次 prompt 组装即生效（见 {@link alignThreadModelToParent}）。
+*
+* @param agentCtx - 子 agent 的作用域上下文（setup 的第一个参数）。
+* @param sessionId - 子会话 id（线程身份的 key）。
+* @param initial - 初始模型选择（通常来自父会话此刻的选择）。
+* @returns 该线程的选择引用（归本插件所有）。
+*/
+function installAgentModelSelection(agentCtx, sessionId, initial) {
+	const ref = {
+		current: initial === void 0 ? void 0 : asAgentSelection(initial),
+		assembled: void 0
+	};
+	threadSelections.set(sessionId, ref);
+	installModelSelection(agentCtx, ref);
+	return ref;
+}
+/** 该线程本插件持有的选择引用（未装订/已释放即 undefined）。 */
+function threadSelectionOf(sessionId) {
+	return threadSelections.get(sessionId);
+}
+/**
+* 读一个会话**当前生效**的模型选择。
+*
+* 两条路，先投影后日志：投影服务（`sessionProjections`）是最快的，但它在某些载具/挂载顺序下
+* 裸 `ctx.get` 取不到；日志是同一份事实源（投影就是它折出来的），所以**必须**有这条兜底——
+* 跟随功能绝不能因为一个可选服务取不到就静默失效（现场就是这样：徽标一直不换、也没有任何提示）。
+*
+* @param ctx - 插件上下文。
+* @param session - 会话对象（活 agent 的 session）。
+* @returns 生效选择，或 undefined（两条路都读不到）。
+*/
+function readSessionModelSelection(ctx, session) {
+	const projections = ctx.get("sessionProjections");
+	if (typeof projections?.stateOf === "function") try {
+		const projected = effectiveModelSelection(projections.stateOf(session, "modelSelection"));
+		if (projected !== void 0) return projected;
+	} catch {}
+	const events = session?.snapshotEvents;
+	if (typeof events !== "function") return void 0;
+	try {
+		return effectiveModelSelectionFromLog(events.call(session));
+	} catch {
+		return;
+	}
+}
+/** 父会话对象：先走 sessions 注册表，再退回 agents 注册表（两者上任一可用即可）。 */
+function parentSessionOf(ctx, parentSessionId) {
+	const fromSessions = ctx.get("sessions")?.get?.(parentSessionId);
+	if (fromSessions !== void 0 && fromSessions !== null) return fromSessions;
+	return ctx.get("agents")?.get?.(parentSessionId)?.session;
+}
+/** 两个选择是否同一套（provider + model + 档位）。 */
+function sameModelSelection(left, right) {
+	return left !== void 0 && left.provider === right.provider && left.model === right.model && (left.reasoningEffort ?? "") === (right.reasoningEffort ?? "");
+}
+/** `{ provider, model, reasoningEffort? }` → 引擎 `ModelSelection`（档位是品牌类型，就地断言）。 */
+function asAgentSelection(selection) {
+	return {
+		provider: selection.provider,
+		model: selection.model,
+		...selection.reasoningEffort === void 0 ? {} : { reasoningEffort: selection.reasoningEffort }
+	};
+}
+/** 引擎 `ModelSelection`（或任意形状）→ 本插件的窄化选择。 */
+function fromEngineSelection(value) {
+	return effectiveModelSelection({ pending: value });
+}
+/** 本插件持有的选择引用 → 窄化选择。 */
+function threadSelectionValue(sessionId) {
+	return fromEngineSelection(threadSelectionOf(sessionId)?.current);
+}
+/**
+* 把线程的模型**对齐到父会话此刻的选择**——「跟随主会话」的持续语义。
+*
+* 建线程时的装订只解决「开局用对模型」；用户之后在主会话里换了模型，已经开着的线程不会自己知道
+* （子会话的模型选择是运行时装订的，而针对 subagent 的 `session.selectModel` 被引擎 fence 掉）。
+* 所以**每次投递消息前**对齐一次：改本插件持有的那个 ref（{@link installAgentModelSelection}），
+* 并落一条 `model/selection` 事件（耐久 + 转录里那行「已跟随主会话切换到 X」就是它渲染的）。
+* 本来就一致 ⇒ 一个字节都不写。
+*
+* @param ctx - 插件上下文。
+* @param agent - 即将收到消息的子 agent。
+* @returns 对齐结果（ok/switched/原因），供 prompt 路由回给客户端显示。
+*/
+function alignThreadModelToParent(ctx, agent) {
+	const skip = (reason) => {
+		ctx.logger?.warn(`[dsh-coding-sidebar] side chat: model follow skipped for ${agent.session.id}: ${reason}`);
+		return {
+			ok: false,
+			switched: false,
+			reason
+		};
+	};
+	const parentSessionId = agent.session.header.parentSession;
+	if (typeof parentSessionId !== "string" || parentSessionId === "") return skip("线程里没有记录父会话");
+	const parentSession = parentSessionOf(ctx, parentSessionId);
+	if (parentSession === void 0 || parentSession === null) return skip(`父会话 ${parentSessionId} 不在运行`);
+	const target = readSessionModelSelection(ctx, parentSession);
+	if (target === void 0) return skip("父会话读不到模型选择");
+	const ref = threadSelectionOf(agent.session.id);
+	if (ref === void 0) return skip("本线程没有装订模型选择（新建一个侧边对话即可）");
+	const previous = fromEngineSelection(ref.current);
+	if (sameModelSelection(previous, target)) return {
+		ok: true,
+		switched: false,
+		model: target
+	};
+	ref.current = asAgentSelection(target);
+	try {
+		agent.session.append("model/selection", asAgentSelection(target));
+	} catch {}
+	ctx.logger?.info?.(`[dsh-coding-sidebar] side chat ${agent.session.id} follows the parent model: ${previous?.provider ?? "?"}/${previous?.model ?? "?"} → ${target.provider}/${target.model}`);
+	return {
+		ok: true,
+		switched: true,
+		model: target
+	};
+}
 /** Resolve the parent's preset and build the child's composition setup
-*  (mirror of api-proxy's composeAgent minus the model-selection install —
-*  the child carries the parent's provider/model in agentOptions). */
-async function composeChildSetup(ctx, presetId) {
+*  (mirror of api-proxy's composeAgent **including** the model-selection
+*  install — 少了那一步子会话就拿不到父会话此刻的模型，见
+*  {@link installAgentModelSelection})。 */
+async function composeChildSetup(ctx, presetId, initial) {
 	const presets = ctx.get("agentPresets");
-	if (presets === void 0) return { setup: () => Promise.resolve() };
+	if (presets === void 0) return { setup: (agentCtx, agent) => {
+		installAgentModelSelection(agentCtx, agent.session.id, initial);
+	} };
 	const resolved = await presets.resolve(presetId);
 	return {
 		agentPreset: resolved.id,
-		setup: async (agentCtx) => {
+		setup: async (agentCtx, agent) => {
+			installAgentModelSelection(agentCtx, agent.session.id, initial);
 			await presets.mount(agentCtx, resolved.id);
 		}
 	};
 }
+/**
+* 线程**自己**产生的事件（继承的 fork seed 已切掉）。
+*
+* 活线程读快照、冷线程读持久句柄——两条路都不激活子会话；子会话是 subagent 来源，
+* 通用会话 RPC 对它一律拒绝（见接口注释），所以这里必须自己读。
+* @param ctx - 插件上下文（主机侧）。
+* @param childId - 子会话 id。
+* @returns 该线程自有事件（按 seq 升序）。
+*/
+async function readThreadOwnEntries(ctx, childId) {
+	const cut = (entries) => {
+		for (let index = entries.length - 1; index >= 0; index--) if (entries[index]?.event.type === "session/end-seed") return entries.slice(index + 1);
+		return entries;
+	};
+	const agent = liveThreadAgent(ctx, childId);
+	if (agent !== void 0) return cut(agent.session.snapshotEvents().map((event) => ({ event })));
+	const persistence = ctx.get("sessionPersistence");
+	if (persistence === void 0) return [];
+	const opened = await withTimeout(persistence.open(childId, "read"), COLD_READ_TIMEOUT_MS);
+	if (opened === void 0) throw new Error(`读取会话超时（冷读未返回，${COLD_READ_TIMEOUT_MS}ms）：${childId}`);
+	try {
+		const read = await withTimeout(opened.read(), COLD_READ_TIMEOUT_MS);
+		if (read === void 0) throw new Error(`读取会话事件超时（${COLD_READ_TIMEOUT_MS}ms）：${childId}`);
+		const { events } = read;
+		return cut(events.map((event) => ({ event })));
+	} finally {
+		opened.close().catch(() => {});
+	}
+}
+/** 冷读上限：超过就当这次读失败（见调用的理由）。 */
+const COLD_READ_TIMEOUT_MS = 2500;
+/**
+* 给一个 promise 加上限；超时（或拒绝）返回 `undefined`，并调用 `onTimeout` 留痕。
+* @param promise - 被限时的操作。
+* @param ms - 上限毫秒。
+* @param onTimeout - 超时回调（诊断）。
+* @returns 结果或 `undefined`。
+*/
+async function withTimeout(promise, ms) {
+	let timer;
+	try {
+		return await Promise.race([promise, new Promise((resolve) => {
+			timer = setTimeout(() => {
+				resolve(void 0);
+			}, ms);
+		})]);
+	} catch {
+		return;
+	} finally {
+		if (timer !== void 0) clearTimeout(timer);
+	}
+}
+/** 读一个可选的非负整数负载字段。 */
+function readCount(value) {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : void 0;
+}
 /** Build the cold-resume setup from the thread's PERSISTED record (the
-*  recorded preset wins, newest selection event first). */
+*  recorded preset wins, newest selection event first) — **including** the
+*  model-selection install: 恢复出来的线程必须接着用自己上次真正用过的模型，
+*  而不是退回部署默认（见 {@link installAgentModelSelection}）。 */
 async function composePersistedSetup(ctx, childId) {
 	const persistence = ctx.get("sessionPersistence");
-	if (persistence === void 0) return () => Promise.resolve();
+	if (persistence === void 0) return (agentCtx, agent) => {
+		installAgentModelSelection(agentCtx, agent.session.id, void 0);
+	};
 	const handle = await persistence.open(childId, "read");
 	const { events } = await handle.read();
+	const log = events;
 	const presetId = resolvePresetId(handle.header, events);
+	const initial = effectiveModelSelectionFromLog(log);
 	await handle.close();
 	const presets = ctx.get("agentPresets");
-	if (presets === void 0 || presetId === void 0) return () => Promise.resolve();
+	if (presets === void 0 || presetId === void 0) return (agentCtx, agent) => {
+		installAgentModelSelection(agentCtx, agent.session.id, initial);
+	};
 	const resolved = await presets.resolve(presetId);
-	return async (agentCtx) => {
+	return async (agentCtx, agent) => {
+		installAgentModelSelection(agentCtx, agent.session.id, initial);
 		await presets.mount(agentCtx, resolved.id);
 	};
 }
@@ -5169,6 +5603,24 @@ function liveThreadAgent(ctx, childId) {
 *  error the tab surfaces inline). The record keys are the FULL wire method
 *  names the /sidebar/api dispatcher looks up (`api[method]`). */
 function buildSidechatApi(ctx) {
+	const live = new AssistantLiveBuffer(ctx);
+	/** `sidechat.events` 的实现体（外层的 try/brand 只负责诊断留痕）。 */
+	const eventsOf = async (childId, payload) => {
+		const request = typeof payload === "object" && payload !== null ? payload : {};
+		const own = await readThreadOwnEntries(ctx, childId);
+		const afterSeq = readCount(request.afterSeq);
+		const beforeSeq = readCount(request.beforeSeq);
+		const maxEvents = readCount(request.maxEvents);
+		let events = own;
+		if (afterSeq !== void 0) events = events.filter((entry) => entry.event.seq > afterSeq);
+		else if (beforeSeq !== void 0) events = events.filter((entry) => entry.event.seq < beforeSeq);
+		if (maxEvents !== void 0 && events.length > maxEvents) events = events.slice(-maxEvents);
+		const tail = events.at(-1)?.event.seq ?? own.at(-1)?.event.seq ?? -1;
+		return {
+			events,
+			live: liveEventsOf(live.chunksOf(childId), tail)
+		};
+	};
 	ctx.effect(() => () => releaseAllThreads(), "dsh-coding-sidebar: sidechat threads");
 	return {
 		"sidechat.start": async (payload) => {
@@ -5179,15 +5631,19 @@ function buildSidechatApi(ctx) {
 			if (parent === void 0) throw new SidebarError("sidechat-error", `parent session "${sessionId}" is not running`, 409);
 			const parentSession = parent.session;
 			const inheritance = buildSidechatInheritance(parentSession.snapshotEvents());
-			const { agentPreset, setup } = await composeChildSetup(ctx, resolvePresetId(parentSession.header, parentSession.snapshotEvents()));
+			const parentSelection = readSessionModelSelection(ctx, parentSession);
+			const { agentPreset, setup } = await composeChildSetup(ctx, resolvePresetId(parentSession.header, parentSession.snapshotEvents()), parentSelection);
 			const childId = `session-${randomUUID()}`;
 			const label = question === "" ? SIDE_NEW_THREAD_TITLE : sideLabel(question);
+			const childProvider = parentSelection?.provider ?? parent.options.provider;
+			const childModel = parentSelection?.model ?? parent.options.model;
 			const descriptor = snapshotSubagentDescriptor({
 				mode: "continuable",
 				provider: "sidechat",
 				label,
-				...parent.options.provider === void 0 ? {} : { agentProvider: parent.options.provider },
-				...parent.options.model === void 0 ? {} : { agentModel: parent.options.model }
+				...childProvider === void 0 ? {} : { agentProvider: childProvider },
+				...childModel === void 0 ? {} : { agentModel: childModel },
+				...parentSelection?.reasoningEffort === void 0 ? {} : { agentReasoningEffort: parentSelection.reasoningEffort }
 			});
 			const descriptorEvent = {
 				type: "subagent/descriptor",
@@ -5208,7 +5664,12 @@ function buildSidechatApi(ctx) {
 				},
 				seed,
 				inheritedEventCount: SessionLogOffset(seed.length),
-				agentOptions: { ...parent.options },
+				agentOptions: {
+					...parent.options,
+					...childProvider === void 0 ? {} : { provider: childProvider },
+					...childModel === void 0 ? {} : { model: childModel },
+					...parentSelection?.reasoningEffort === void 0 ? {} : { reasoningEffort: parentSelection.reasoningEffort }
+				},
 				setup,
 				signal: AbortSignal.timeout(CREATE_TIMEOUT_MS)
 			};
@@ -5259,6 +5720,7 @@ function buildSidechatApi(ctx) {
 					throw new SidebarError("sidechat-error", `thread resume failed: ${error instanceof Error ? error.message : String(error)}`, 500);
 				}
 			}
+			const modelFollow = alignThreadModelToParent(ctx, agent);
 			if (boundaryDelivered(agent.session.snapshotEvents())) admitFollowup(agent, textPrompt(text));
 			else {
 				const parts = [SIDE_BOUNDARY_PROMPT];
@@ -5271,7 +5733,10 @@ function buildSidechatApi(ctx) {
 					titles.rename(agent.session, sideLabel(text));
 				} catch {}
 			}
-			return { accepted: true };
+			return {
+				accepted: true,
+				modelFollow
+			};
 		},
 		"sidechat.cancel": async (payload) => {
 			const agent = liveThreadAgent(ctx, requireString(payload, "childId"));
@@ -5281,6 +5746,7 @@ function buildSidechatApi(ctx) {
 		"sidechat.dispose": async (payload) => {
 			const childId = requireString(payload, "childId");
 			pendingSnapshots.delete(childId);
+			threadSelections.delete(childId);
 			const dispose = threadDisposers.get(childId);
 			if (dispose !== void 0) {
 				threadDisposers.delete(childId);
@@ -5290,17 +5756,24 @@ function buildSidechatApi(ctx) {
 			}
 			return { accepted: true };
 		},
+		"sidechat.events": async (payload) => {
+			const childId = requireString(payload, "childId");
+			return await eventsOf(childId, payload);
+		},
 		"sidechat.info": async (payload) => {
 			const childId = requireString(payload, "childId");
 			const agent = liveThreadAgent(ctx, childId);
 			if (agent !== void 0) {
 				const preset = agent.session.header.agentPreset;
+				const selection = threadSelectionValue(childId) ?? readSessionModelSelection(ctx, agent.session);
+				const queued = queuedFollowups(agent.inbox);
 				return {
 					live: true,
 					status: agent.status,
-					...agent.options.provider === void 0 ? {} : { provider: agent.options.provider },
-					...agent.options.model === void 0 ? {} : { model: agent.options.model },
-					...preset === void 0 ? {} : { preset }
+					...selection?.provider === void 0 ? {} : { provider: selection.provider },
+					...selection?.model === void 0 ? {} : { model: selection.model },
+					...preset === void 0 ? {} : { preset },
+					...queued.length === 0 ? {} : { queued }
 				};
 			}
 			const persistence = ctx.get("sessionPersistence");
@@ -5308,10 +5781,15 @@ function buildSidechatApi(ctx) {
 				const handle = await persistence.open(childId, "read");
 				const { events } = await handle.read();
 				const preset = resolvePresetId(handle.header, events);
+				const logged = resolveLoggedModelSelection(events);
 				await handle.close();
 				return {
 					live: false,
-					...preset === void 0 ? {} : { preset }
+					...preset === void 0 ? {} : { preset },
+					...logged === void 0 ? {} : {
+						provider: logged.provider,
+						model: logged.model
+					}
 				};
 			} catch {}
 			return { live: false };

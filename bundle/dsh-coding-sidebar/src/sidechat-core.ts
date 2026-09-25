@@ -423,6 +423,8 @@ export interface SidechatThreadInfo {
   model?: string
   /** The recorded agent preset (live header, or persisted on cold reads). */
   preset?: string
+  /** 排队中的追问（引擎收件箱里的 nextTurn；进日志之前转录里看不到）。 */
+  queued?: readonly SidechatQueuedMessage[]
 }
 
 /** The events a thread produced itself: everything after the LAST
@@ -459,6 +461,167 @@ export function threadTrailingPending(entries: readonly SidebarHistoryEntry[]): 
 }
 
 /**
+ * 一条会话**当前生效**的模型选择（与引擎 `modelSelection` 投影的 wire 视图同形）。
+ */
+export interface SidechatModelSelection {
+  /** 供应商路由。 */
+  provider: string
+  /** 供应商解释的模型 id。 */
+  model: string
+  /** 适配器定义的推理档位（可选）。 */
+  reasoningEffort?: string
+}
+
+/** 收窄一个候选选择：provider/model 必须都是非空字符串。 */
+function asModelSelection(value: unknown): SidechatModelSelection | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const candidate = value as { provider?: unknown; model?: unknown; reasoningEffort?: unknown }
+  if (typeof candidate.provider !== 'string' || candidate.provider === '') return undefined
+  if (typeof candidate.model !== 'string' || candidate.model === '') return undefined
+  return {
+    provider: candidate.provider,
+    model: candidate.model,
+    ...(typeof candidate.reasoningEffort === 'string' && candidate.reasoningEffort !== ''
+      ? { reasoningEffort: candidate.reasoningEffort }
+      : {}),
+  }
+}
+
+/**
+ * 从引擎 `modelSelection` 投影状态里取**当前生效**的选择。
+ *
+ * 投影状态是 `{ lastUsed, pending }`（wire 视图折成 `next = pending ?? lastUsed`）：
+ * - `pending` = 最新一条 `model/selection` 事件（用户在模型选择器里点的那次），被一次
+ *   `request/header` 匹配上之后就清空；
+ * - `lastUsed` = 最后一次请求头里真正用过的 provider/model。
+ *
+ * ⇒ 生效值恒为 `pending ?? lastUsed`，与客户端选择器显示的完全一致。**这正是
+ * `agent.options` 给不出的东西**：`AgentOptions` 是 agent 创建时的启动参数（引擎自己传的
+ * 就是部署默认），用户在会话里换的模型从不回写它——所以「把 parent.options 抄给子会话」
+ * 拿到的永远是默认模型。
+ *
+ * @param state - `sessionProjections.stateOf(session, 'modelSelection')` 的返回值（形状未知）。
+ * @returns 生效选择，或 undefined（投影缺席/形状不符）。
+ */
+export function effectiveModelSelection(state: unknown): SidechatModelSelection | undefined {
+  if (state === null || typeof state !== 'object') return undefined
+  const candidate = state as { pending?: unknown; lastUsed?: unknown; next?: unknown }
+  return asModelSelection(candidate.pending)
+    ?? asModelSelection(candidate.lastUsed)
+    ?? asModelSelection(candidate.next)
+}
+
+/**
+ * 从**会话日志**里折出当前生效的模型选择（引擎 `modelSelection` 投影的等价实现）。
+ *
+ * 为什么要这份等价实现：投影服务在某些载具/挂载顺序下取不到（裸 `ctx.get` 只读本 fiber 的
+ * 本地 store），而「跟随主会话」绝不能因为一个服务取不到就**静默失效**。日志是同一份事实源
+ * （投影本身就是它折出来的），照抄引擎的 fold（`model-selection-projection.ts`）：
+ *
+ * - `model/selection` → `pending` = 该选择（用户点的那次）；
+ * - `request/header` → `lastUsed` = 该请求头真正用的 provider/model，且当它与 `pending` 相同时
+ *   把 `pending` 清空（「已经被消费掉了」）。
+ *
+ * @param events - 会话事件（升序）。
+ * @returns `pending ?? lastUsed`，或 undefined（两者都没有）。
+ */
+export function effectiveModelSelectionFromLog(
+  events: readonly SidechatLogEvent[],
+): SidechatModelSelection | undefined {
+  let pending: SidechatModelSelection | undefined
+  let lastUsed: SidechatModelSelection | undefined
+  for (const event of events) {
+    if (event.type === 'model/selection') {
+      const picked = asModelSelection(dataOf(event))
+      if (picked !== undefined) pending = picked
+      continue
+    }
+    if (event.type !== 'request/header') continue
+    const config = (dataOf(event).header as { config?: unknown } | undefined)?.config
+    const used = asModelSelection(config)
+    if (used === undefined) continue
+    lastUsed = used
+    if (pending !== undefined && sameSelection(pending, used)) pending = undefined
+  }
+  return pending ?? lastUsed
+}
+
+/** 两个选择是否同一套（provider + model + 档位）。 */
+function sameSelection(left: SidechatModelSelection, right: SidechatModelSelection): boolean {
+  return left.provider === right.provider
+    && left.model === right.model
+    && (left.reasoningEffort ?? '') === (right.reasoningEffort ?? '')
+}
+
+/** 一条**排队中**的追问（还没进会话日志，因此转录里看不到——队列卡就是它的家）。 */
+export interface SidechatQueuedMessage {
+  /** 消息身份（引擎 MessageId；缺失时用下标兜底）。 */
+  id: string
+  /** 文本块拼出来的正文。 */
+  text: string
+}
+
+/**
+ * 读 agent 收件箱里**等待投递的追问**（`inbox.nextTurn`）。
+ *
+ * 为什么要有它：侧边对话的追问走 `agent.followup`，那是**排队**语义——消息在引擎领取之前
+ * **不进会话日志**，所以转录里什么都看不到，用户会以为「发出去了但没反应」。真正的队列只有
+ * 收件箱知道，把它读出来就能在输入框上方画成队列卡。
+ *
+ * 只读 `nextTurn`（「自成一轮的普通追问」）；`nextStep`（steering）不是本插件的提交路径。
+ *
+ * @param inbox - `agent.inbox`（形状未知，防御式收窄）。
+ * @returns 排队中的追问（按提交顺序），形状不符即空数组。
+ */
+export function queuedFollowups(inbox: unknown): SidechatQueuedMessage[] {
+  if (inbox === null || typeof inbox !== 'object') return []
+  const pending = (inbox as { nextTurn?: unknown }).nextTurn
+  if (!Array.isArray(pending)) return []
+  const queued: SidechatQueuedMessage[] = []
+  for (const [index, raw] of pending.entries()) {
+    if (raw === null || typeof raw !== 'object') continue
+    const message = raw as { id?: unknown; content?: unknown }
+    const blocks = Array.isArray(message.content) ? message.content : []
+    const text = blocks
+      .map(block => (block !== null && typeof block === 'object'
+        && (block as { type?: unknown }).type === 'text'
+        && typeof (block as { text?: unknown }).text === 'string'
+        ? (block as { text: string }).text
+        : ''))
+      .filter(part => part !== '')
+      .join('\n')
+      .trim()
+    if (text === '') continue
+    queued.push({ id: typeof message.id === 'string' && message.id !== '' ? message.id : `queued-${String(index)}`, text })
+  }
+  return queued
+}
+
+/**
+ * 日志里最后一次**真正用过**的模型（`request/header` 的 config）。
+ *
+ * 冷线程的信息行只有它可读：线程最后一次请求用的是哪个 provider/model 就写在那儿。
+ * 注意子会话的日志带父会话的 fork seed，所以「最后一条」天然是子会话自己的请求；一条都没有时
+ * 退回继承来的父会话请求——正是它开局会用的模型。
+ *
+ * @param events - 会话事件（升序）。
+ * @returns 最后一次请求的选择，或 undefined（日志里没有请求头/形状不符）。
+ */
+export function resolveLoggedModelSelection(
+  events: readonly SidechatLogEvent[],
+): SidechatModelSelection | undefined {
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index]
+    if (event?.type !== 'request/header') continue
+    const header = dataOf(event).header
+    if (header === null || typeof header !== 'object') continue
+    const config = (header as { config?: unknown }).config
+    return asModelSelection(config)
+  }
+  return undefined
+}
+
+/**
  * The agent preset a session actually runs: newest `agent-preset/selected`
  * event wins, else the creation header (mirror of the dsh-agent-presets
  * resolveSessionPreset helper — replicated here to avoid a host dependency
@@ -475,4 +638,52 @@ export function resolvePresetId(
     if (typeof preset === 'string') return preset
   }
   return header.agentPreset
+}
+
+/**
+ * 一条实时增量在插件自己的 wire 上的形状，**镜像 DSH 客户端专有的
+ * `assistant/live-chunk` 展示行**（0.1.5 起流式文本只以该行出现在客户端契约里，
+ * 不进会话日志）。
+ *
+ * 它不是持久数据：`sidechat.live` 每次轮询都返回**当前 attempt 的全部行**，客户端整体替换；
+ * 定稿后由持久 `assistant/message` 按 `turn:step` 覆盖。
+ */
+export interface SidechatLiveEvent {
+  readonly type: 'assistant/live-chunk'
+  /** 仅在实时行内部排序；持久 seq 始终权威（实时行排在持久尾部之后）。 */
+  readonly seq: number
+  readonly time: number
+  readonly data: {
+    readonly attemptId: string
+    readonly turn: number
+    readonly step: number
+    /** attempt 内从零开始的稠密位置。 */
+    readonly index: number
+    /** 原始模型流 chunk。 */
+    readonly chunk: Record<string, unknown>
+  }
+}
+
+/**
+ * 把缓冲里的实时增量投影成 wire 行。
+ * @param chunks - 该会话当前 attempt 的增量（已按 index 升序）。
+ * @param tailSeq - 该会话最后一个持久 seq；实时行排在其后。
+ * @returns 追加到 transcript 供给的实时行。
+ */
+export function liveEventsOf(
+  chunks: readonly { attemptId: string; turn: number; step: number; index: number; time: number; chunk: Record<string, unknown> }[],
+  tailSeq: number,
+): SidechatLiveEvent[] {
+  return chunks.map((delta, position) => ({
+    type: 'assistant/live-chunk',
+    seq: tailSeq + 1 + position,
+    time: delta.time,
+    data: {
+      attemptId: delta.attemptId,
+      turn: delta.turn,
+      step: delta.step,
+      index: delta.index,
+      chunk: delta.chunk,
+    },
+  }))
 }
