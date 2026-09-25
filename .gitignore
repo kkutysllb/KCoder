@@ -36,7 +36,4 @@ app.asar.*.bak
 .drops/
 .patches/discussion-body.md
 .patches/
-.workbuddy/
 .tmp/
-.zcode/
-.zcode/plans/plan-sess_d22b55ec-5f08-4671-a857-68564b5dcb54.md
