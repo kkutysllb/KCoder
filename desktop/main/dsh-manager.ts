@@ -108,8 +108,12 @@ export class DshManager extends EventEmitter {
   /**
    * 启动（或在新来源可用后再次尝试启动）dsh 侧车。
    * 已在运行时是幂等的 no-op。
+   * @param extraPatches - 追加在**产品策略层之后**的 overlay 文件路径。
+   *   产品策略层是每个侧车共享的；一个远程执行世界的 overlay 只属于它自己的
+   *   侧车（见 remote-world.ts），故只能在每次启动时传入，不能并进产品策略文件
+   *   ——那份文件由宿主按代码重写。
    */
-  start(): DshStatus {
+  start(extraPatches: readonly string[] = []): DshStatus {
     if (this.child !== null || this.state === 'starting' || this.state === 'restarting') {
       return this.status
     }
@@ -143,7 +147,10 @@ export class DshManager extends EventEmitter {
     // 上游补丁层序 bundle → profile → home → overlay，本层最后应用，
     // 覆写上游 bundle 行的 config；层文件缺席时为空数组（不传即不生效）。
     // 两组分开构造，让"web 子命令选项在前、web-app 选项在后"成为结构而非约定
-    const webCommandArgs = command.webPatch ? productPolicyArgs() : []
+    const webCommandArgs = [
+      ...(command.webPatch ? productPolicyArgs() : []),
+      ...extraPatches.flatMap(patch => ['--patch', patch]),
+    ]
     const webAppArgs = ['--port', '0', ...(command.webNoOpen ? ['--no-open'] : [])]
     const args = [...command.baseArgs, 'web', ...webCommandArgs, ...webAppArgs]
     this.appendLog('stdout', `$ ${command.describe}\n$ ${command.command} ${args.join(' ')}`)

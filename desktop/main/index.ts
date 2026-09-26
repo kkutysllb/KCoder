@@ -10,6 +10,7 @@
 
 import { app, autoUpdater, session } from 'electron'
 import { dshManager } from './dsh-manager'
+import { closeRemoteConnections } from './remote-connections'
 import { registerIpc } from './ipc'
 import { installMenu, installTray, wireMenuRefresh } from './menu'
 import { closePanels, markQuitting, showBootstrap, showLanding, showShellWindow } from './windows'
@@ -338,9 +339,15 @@ autoUpdater.on('before-quit-for-update', () => {
 app.on('before-quit', (event) => {
   stopBrowserHost()
   markQuitting() // 首位置位：主窗口 close 拦截放行，退出不被托盘保活挡死
-  if (dshManager.status.state === 'stopped' || dshManager.status.state === 'failed') return
+  // 远程 sidecar 是逐个主机的独立进程：宿主主侧车已停不代表它们已停，
+  // 不一起收尾就会在每次退出后留下一串 `dsh web`。
+  const remotes = closeRemoteConnections()
+  if (dshManager.status.state === 'stopped' || dshManager.status.state === 'failed') {
+    void remotes
+    return
+  }
   event.preventDefault()
-  void dshManager.stop().then(() => {
+  void Promise.all([dshManager.stop(), remotes]).then(() => {
     closePanels()
     app.exit(0)
   })
@@ -355,7 +362,7 @@ app.on('window-all-closed', () => {
 /* ---------- 终端信号兑底：dev 下 Ctrl+C 也不留孤儿 dsh ---------- */
 const signalShutdown = (signal: NodeJS.Signals): void => {
   process.removeAllListeners(signal)
-  void dshManager.stop().finally(() => app.exit(0))
+  void Promise.all([dshManager.stop(), closeRemoteConnections()]).finally(() => app.exit(0))
 }
 process.on('SIGINT', () => signalShutdown('SIGINT'))
 process.on('SIGTERM', () => signalShutdown('SIGTERM'))

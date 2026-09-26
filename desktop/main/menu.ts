@@ -13,6 +13,8 @@
 import { app, Menu, Tray, nativeImage, shell, type MenuItemConstructorOptions } from 'electron'
 import { dshManager } from './dsh-manager'
 import { resolveAsset } from './dsh-contract'
+import { readRemoteWorlds } from './remote-world'
+import { openRemoteConnection } from './remote-connections'
 import { checkForUpdates, installUpdate, updateEvents, updateStatus } from './updater'
 import { getShellWindow, openPanel, showShellWindow } from './windows'
 
@@ -210,6 +212,26 @@ export function installMenu(): void {
         {
           label: '社区插件（dsh-plugin）',
           click: () => void shell.openExternal('https://github.com/topics/dsh-plugin'),
+        },
+      ],
+    },
+    // 远程连接：一台主机一个 sidecar + 一个窗口。列表来自引导流程注册的
+    // 世界描述（<DSH_HOME>/ssh-remote/worlds.json）；没有注册项时给出禁用
+    // 占位而不是空菜单——空菜单在 macOS 上仍然可点开，会让人以为坏了。
+    {
+      label: '远程',
+      submenu: [
+        ...(readRemoteWorlds().length === 0
+          ? [{ label: '（未注册远程主机）', enabled: false } satisfies MenuItemConstructorOptions]
+          : readRemoteWorlds().map(spec => ({
+              label: spec.name !== '' ? spec.name : spec.alias,
+              sublabel: spec.workspace,
+              click: () => { openRemoteConnection(spec.hostId) },
+            } satisfies MenuItemConstructorOptions))),
+        { type: 'separator' },
+        {
+          label: '如何添加远程主机…',
+          click: () => void shell.openExternal(`${REPO_URL}#远程主机`),
         },
       ],
     },
