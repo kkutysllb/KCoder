@@ -12,6 +12,8 @@ import { logoutToLanding, showShellWindow } from './windows'
 import { authLogin, authLoggedIn, authRegister, authStatus } from './auth'
 import { applyLandingTheme, currentLandingTheme } from './theme-watcher'
 import { dshManager } from './dsh-manager'
+import { readRemoteWorlds } from './remote-world'
+import { openRemoteConnection } from './remote-connections'
 import { progressEvents, setupUpstream, syncUpstream, upstreamStatus } from './upstream'
 import { communityPlugins, installedPlugins, latestVersions, removePlugin, runPluginCommand, updatePlugin } from './plugins'
 import { checkForUpdates, getReleaseNotes, installUpdate, updateEvents, updateStatus } from './updater'
@@ -81,6 +83,13 @@ export function registerIpc(): void {
     void shell.openExternal(url)
     return Promise.resolve()
   })
+  // 远程执行世界：列表来自引导登记，开窗复用 remote-connections。
+  ipcMain.handle('remote:worlds', () => readRemoteWorlds().map(spec => ({
+    hostId: spec.hostId, name: spec.name !== '' ? spec.name : spec.alias,
+    alias: spec.alias, workspace: spec.workspace,
+  })))
+  ipcMain.handle('remote:open', (_event, hostId: unknown) => openRemoteConnection(String(hostId)))
+
   ipcMain.handle('shell:show', (event) => {
     const url = dshManager.status.url
     // 门禁：未登录拒开工作台（showShellWindow 内部同款兑底，双保险）
