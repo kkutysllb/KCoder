@@ -321,8 +321,11 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
         throw new RemoteServerError(launched.stderr.slice(-400), '无法在远端启动引擎安装')
       }
     }
-    // 轮询哨兵：安装通常几分钟，超时给 30 分钟（链路慢时会更久）。
-    const installDeadline = Date.now() + 1_800_000
+    // 装载**有界等待**：安装是锦上添花，不该让"连接"阻塞半小时——那正是用户看到的
+    // "长时间没反应"（实测 npm 在 WSL2 上可能卡住几十分钟，而 284 个包早已就位）。
+    // 超时后若已有可用引擎就先用它启动，安装在后台继续，下次连接自然生效。
+    const deadlineMs = 180_000
+    const installDeadline = Date.now() + deadlineMs
     let installResult = ''
     while (Date.now() < installDeadline) {
       await new Promise(r => setTimeout(r, 5000))
@@ -331,11 +334,12 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
       if (value !== 'RUNNING' && value !== '') { installResult = value; break }
     }
     if (installResult !== 'OK') {
-      const tail = await sshRun(alias, `tail -20 ${REMOTE_ROOT}/npm-install.log 2>/dev/null`)
-      throw new RemoteServerError(
-        `${installResult === '' ? '等待安装结果超时' : 'npm 安装失败'}\n${tail.stdout.slice(-700)}`,
-        '远端引擎安装失败',
-      )
+      const fallback = await sshRun(alias, `test -f ${REMOTE_ROOT}/runtime/node_modules/@deepseek-ai/dsh/lib/bin.js && echo YES || echo NO`)
+      if (!fallback.stdout.includes('YES')) {
+        const tail = await sshRun(alias, `tail -20 ${REMOTE_ROOT}/npm-install.log 2>/dev/null`)
+        throw new RemoteServerError(`${installResult === '' ? '等待安装结果超时且无可用引擎' : 'npm 安装失败'}\n${tail.stdout.slice(-700)}`, '远端引擎安装失败')
+      }
+      log(`引擎安装尚未完成（后台继续），先用远端现有引擎启动`)
     }
     log('远端引擎安装完成')
     await sshRun(alias, `printf '%s' '${wanted}' > ${markerPath} && echo OK`)
