@@ -15,6 +15,7 @@
 import { readFileSync, unwatchFile, watchFile } from 'node:fs'
 import { join } from 'node:path'
 import { BrowserWindow, dialog } from 'electron'
+import { attachBrandInjector } from './brand-injector'
 import { DshManager } from './dsh-manager'
 import { dshHome } from './dsh-contract'
 import type { DshStatus } from '@shared/ipc-contract'
@@ -73,6 +74,9 @@ export function openRemoteConnection(hostId: string): string {
           title: `KCoder — 远程 ${spec.name || spec.alias}`,
           show: false,
         })
+        // 与 shell 窗口同一套品牌注入：否则新窗口露出上游 dsh 的标识
+        // （页面自带的 logo 与标题），用户会以为打开了别的东西。
+        attachBrandInjector(created)
         connection.window = created
         created.on('closed', () => { connection.window = null })
         created.once('ready-to-show', () => created.show())
