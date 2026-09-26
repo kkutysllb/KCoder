@@ -1,7 +1,11 @@
 /**
- * 逐主机「执行世界」：描述文件的读取，以及从描述生成 profile overlay。
+ * 逐主机世界描述（`worlds.json`）的读取。
  *
- * 为什么是逐主机的：上游 SSH 世界是**部署所有、进程级、单主机**的——
+ * 该文件由插件的引导流程写入。当前连接流程只取其中的**别名、远端 Node 与展示
+ * 名**——"生成执行世界 overlay"那套已由"把服务跑在远端"取代（见
+ * remote-server.ts 头注释）；此处保留读取即可。
+ *
+ * 历史背景：上游 SSH 世界是**部署所有、进程级、单主机**的——
  * `dsh-ssh` 的 `host` 是 OpenSSH 别名，`workspace` 是单值，而 `ctx.fs` /
  * `ctx.subprocess` / `ctx.sandbox` 都是单一服务名。因此「每个远程主机一个
  * sidecar」是唯一成立的编排，而每个 sidecar 需要一个**把自己那个世界装起来**
@@ -13,7 +17,7 @@
  * @module desktop/main/remote-world
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { dshHome } from './dsh-contract'
 
@@ -40,25 +44,7 @@ export function remoteWorldsPath(): string {
   return join(dshHome(), 'ssh-remote', 'worlds.json')
 }
 
-/**
- * 一个远程世界独占的状态根。
- *
- * 隔离的对象是**状态**，不是安装：`storage-json`（工作区/投影缓存等域数据）
- * 与 `session-persistence-jsonl`（会话日志）的 `root` 都是行配置，改掉即可让
- * 该 sidecar 只看见自己的世界。安装面（profile、node_modules、插件）仍共享
- * ——每台主机重新物化一份 profile 既慢又占磁盘，而体积全在安装面上。
- * @param hostId - registered world id.
- * @returns the two roots this world owns.
- */
-export function remoteWorldStateRoots(hostId: string): { sessions: string; storages: string } {
-  const base = join(dshHome(), 'remote-worlds', hostId)
-  return { sessions: join(base, 'sessions'), storages: join(base, 'storages') }
-}
 
-/** 生成的 overlay 落点。 */
-export function remoteOverlayPath(hostId: string): string {
-  return join(dshHome(), 'ssh-remote', 'overlays', `${hostId}.yml`)
-}
 
 /**
  * Read the registered worlds. A missing or malformed file is an empty list:
@@ -85,95 +71,4 @@ export function readRemoteWorlds(): RemoteWorldSpec[] {
   }
 }
 
-/**
- * Build the overlay that turns one profile into this host's execution world.
- *
- * Three groups, in dependency-free order (rows activate on service
- * availability, not position):
- * - **disable** the local providers, freeing `ctx.subprocess` / `ctx.sandbox` /
- *   `ctx.fs`. Each carries its `name` as an assertion: a patch's `name` is a
- *   mismatch check, not an override, so a renamed upstream row skips the patch
- *   loudly instead of silently disabling something else.
- * - **pin** the directory picker to the in-app browse pair. The upstream
- *   `directory-picker-auto` resolves to the host's OS chooser on macOS, which
- *   lists THIS machine — the wrong machine for a remote world.
- * - **insert** the SSH world and its picker surface.
- * @param spec - one registered world.
- * @returns the overlay document.
- */
-export function remoteWorldOverlay(spec: RemoteWorldSpec): string {
-  const roots = remoteWorldStateRoots(spec.hostId)
-  return `# 由 KCoder 生成的远程执行世界 overlay（host: ${spec.hostId}）
-# 用法：dsh <profile> --patch <productPolicy> --patch <本文件> web --port 0 --no-open
 
-# 1) 禁用本地 provider，腾出 ctx.subprocess / ctx.sandbox / ctx.fs
-- id: subprocess
-  name: "@deepseek-ai/dsh-subprocess-local"
-  disabled: true
-- id: sandbox
-  name: "@deepseek-ai/dsh-sandbox-local"
-  disabled: true
-- id: fs-sandbox
-  name: "@deepseek-ai/dsh-fs-sandbox"
-  disabled: true
-
-# 2) 状态隔离：让本 sidecar 只看见自己那个世界的域数据与会话日志。
-# 共享 DSH_HOME 时这三处（+ 会话日志）会互相串台——工作区注册表是全局的，
-# 于是远程窗口里会列出本地工作区（并显示为不可用）。安装面仍共享。
-- id: storage-json
-  name: "@deepseek-ai/dsh-storage-json"
-  config:
-    root: ${roots.storages}
-- id: session-persistence-jsonl
-  name: "@deepseek-ai/dsh-session-persistence-jsonl"
-  config:
-    root: ${roots.sessions}
-
-# 3) 沙箱工作区根指向远端
-- id: sandbox-policy
-  name: "@deepseek-ai/dsh-sandbox-policy"
-  config:
-    mode: workspace-write
-    workspaceRoot: ${spec.workspace}
-
-# 4) 目录选择器钉成应用内 browse（auto 在 macOS 会选本机 OS 对话框）
-- id: directory-picker
-  name: "@deepseek-ai/dsh-host-directory-picker-auto"
-  disabled: true
-
-# 5) 插入 SSH 世界
-- insert:
-    - id: ssh
-      name: "@deepseek-ai/dsh-ssh"
-      config:
-        host: ${spec.alias}
-        node: ${spec.node}
-        helper: ${spec.helper}
-        helperHash: ${spec.helperHash}
-        workspace: ${spec.workspace}
-    - id: subprocess-ssh
-      name: "@deepseek-ai/dsh-subprocess-ssh"
-    - id: sandbox-ssh
-      name: "@deepseek-ai/dsh-sandbox-ssh"
-    - id: fs-ssh
-      name: "@deepseek-ai/dsh-fs-ssh"
-    - id: directory-picker-browse
-      name: "@deepseek-ai/dsh-host-directory-picker-browse"
-    - id: directory-picker-browse-surface
-      name: "@deepseek-ai/dsh-client-ui-directory-picker-browse"
-`
-}
-
-/**
- * Write one world's overlay next to the registry, creating the directory on
- * first use. Rewritten every call: the spec is the source of truth, and a stale
- * overlay would point a sidecar at a helper digest that no longer exists.
- * @param spec - one registered world.
- * @returns the overlay file path, for `--patch`.
- */
-export function writeRemoteWorldOverlay(spec: RemoteWorldSpec): string {
-  const path = remoteOverlayPath(spec.hostId)
-  mkdirSync(join(dshHome(), 'ssh-remote', 'overlays'), { recursive: true })
-  writeFileSync(path, remoteWorldOverlay(spec))
-  return path
-}
