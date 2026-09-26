@@ -285,7 +285,7 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
   // 引擎包在远端按平台安装；入口脚本从本地搬（几 KB）。
   const engineFingerprint = opts.engineVersion
   const markerPath = `${REMOTE_ROOT}/runtime/.engine-fingerprint`
-  const current = await sshRun(alias, `cat ${markerPath} 2>/dev/null | md5sum | cut -d' ' -f1 || echo NONE`)
+  const current = await sshRun(alias, `cat ${markerPath} 2>/dev/null || echo NONE`)
   const wanted = createHash('md5').update(engineFingerprint).digest('hex')
   const engineReady = await sshRun(alias, `test -d ${REMOTE_ROOT}/runtime/node_modules/@deepseek-ai/dsh-app-boot && echo YES || echo NO`)
 
@@ -294,18 +294,23 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
   } else {
     log(`远端安装引擎 @deepseek-ai/dsh@${opts.engineVersion}（由 npm 按该机平台解析原生依赖）`)
     const install = [
-      'set -e',
       `export PATH=${opts.remoteNode.replace(/\/node$/, '')}:$PATH`,
       `R=${REMOTE_ROOT}`,
-      'mkdir -p $R/runtime && cd $R/runtime',
+      // 先装到 staging、成功才就位：这条链路会掉线，中断的安装若直接写 runtime，
+      // 留下的是半棵依赖树（实测把已装好的 284 个包 prune 成残缺状态）。
+      'rm -rf $R/runtime-staging && mkdir -p $R/runtime-staging && cd $R/runtime-staging',
       `printf '{"name":"kcoder-remote-runtime","private":true,"version":"1.0.0"}\n' > package.json`,
-      // npm 11 起默认不跑生命周期脚本；原生模块的二进制要靠它取回，必须放开。
-      `npm i --no-audit --no-fund --loglevel=error --ignore-scripts=false @deepseek-ai/dsh@${opts.engineVersion} > $R/npm-install.log 2>&1`,
-      `test -d $R/runtime/node_modules/@deepseek-ai/dsh-app-boot && echo ENGINE_OK || { tail -5 $R/npm-install.log; exit 1; }`,
+      `if npm i --no-audit --no-fund --ignore-scripts=false @deepseek-ai/dsh@${opts.engineVersion} > $R/npm-install.log 2>&1; then`,
+      '  rm -rf $R/runtime && mv $R/runtime-staging $R/runtime && echo ENGINE_OK',
+      'else',
+      // 不用 set -e：它会让 npm 一失败就整段中止，连日志都留不下（弹窗只剩一句
+      // "安装失败"，无从排查）。
+      '  echo ENGINE_FAILED; tail -20 $R/npm-install.log',
+      'fi',
     ].join('\n')
     const installed = await sshRun(alias, install, { timeoutMs: 1_800_000, attempts: 2 })
     if (!installed.stdout.includes('ENGINE_OK')) {
-      throw new RemoteServerError(installed.stderr.slice(-500) || installed.stdout.slice(-500), '远端引擎安装失败')
+      throw new RemoteServerError((installed.stdout + installed.stderr).slice(-700), '远端引擎安装失败')
     }
     log('远端引擎安装完成')
     await sshRun(alias, `printf '%s' '${wanted}' > ${markerPath} && echo OK`)
