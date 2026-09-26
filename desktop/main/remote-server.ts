@@ -199,7 +199,7 @@ function sshTarOnce(alias: string, localDir: string, entries: readonly string[],
     ssh.on('error', reject)
     ssh.on('exit', (code) => {
       if (code === 0) resolve()
-      else reject(new RemoteServerError(stderr, `传输到 ${alias} 失败（exit ${String(code)}）`))
+      else reject(new RemoteServerError(stderr, `传输到 ${alias} 失败（exit ${String(code)}）：${remoteDir}`))
     })
     tar.on('error', reject)
   })
@@ -287,7 +287,10 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
   // 不这样做，远端就是个"没配过的新 KCoder"，每台机器都要重配一次。
   const patch = opts.profilePatch
   if (patch !== undefined && existsSync(patch)) {
-    await sshTarInto(alias, join(patch, '..'), [patch.split('/').pop()!], `$R/home/profiles/${REMOTE_PROFILE}`, log, 4)
+    // 这里必须用 ${REMOTE_ROOT}（即 $HOME/…），不能写 `$R`——`$R` 只在上面那段
+    // profile 脚本里定义过，在独立的 tar 命令里是空的，会退化成
+    // `mkdir -p /home/profiles/…` 并以 "mkdir: Permission denied" 失败（实机踩到）。
+    await sshTarInto(alias, join(patch, '..'), [patch.split('/').pop()!], `${REMOTE_ROOT}/home/profiles/${REMOTE_PROFILE}`, log, 4)
     await sshRun(alias, `chmod 600 ${REMOTE_ROOT}/home/profiles/${REMOTE_PROFILE}/cordis.patch.yml && echo OK`)
     log('本地 profile 配置已同步（模型/密钥/MCP/偏好）')
   } else {
@@ -377,8 +380,17 @@ export function localAddonSpecs(runtimeDir: string): string[] {
   return [...specs].sort()
 }
 
-/** 远端服务日志（就绪行从这里读；token 只在此文件与 URL 里出现）。 */
-const REMOTE_LOG = `${REMOTE_ROOT}/server.log`
+/**
+ * 远端服务日志（就绪行从这里读；token 只在此文件与 URL 里出现）。
+ *
+ * **按端口分文件**：单一日志配合"启动前先清空"会让复用判断永远落空——上一轮留下
+ * 的服务仍占着端口，新进程同端口启动即 `EADDRINUSE`（2026-09-26 实机）。
+ * @param port - 远端监听端口。
+ * @returns 该端口专属的日志路径。
+ */
+function remoteLog(port: number): string {
+  return `${REMOTE_ROOT}/server-${String(port)}.log`
+}
 
 /** 在本地找一个空闲端口（与远端同号，让两侧 authority 一致，cookie 名才对齐）。 */
 async function pickPort(preferred: number): Promise<number> {
@@ -410,26 +422,40 @@ export async function startRemoteServer(opts: RemoteServerOptions): Promise<Remo
   const { alias, remoteNode } = opts
   await provisionRemoteRuntime(opts)
 
-  const port = await pickPort(30100 + (hash(alias) % 900))
-  log(`远端端口 ${port}`)
+  // 候选端口逐个问远端：已在监听且能读到令牌就复用，否则换下一个。
+  // 只读日志是不够的——日志会被清空，而进程可能还在（实测撞出 EADDRINUSE）。
+  const base = 30100 + (hash(alias) % 900)
+  let port = 0
+  let entry = ''
+  for (let candidate = base; candidate < base + 20; candidate++) {
+    const probe = await sshRun(alias, [
+      `if ss -ltn 2>/dev/null | grep -q "127.0.0.1:${candidate} "; then`,
+      `  grep -o "dsh web: http://127.0.0.1:${candidate}/?token=[A-Za-z0-9_-]*" ${remoteLog(candidate)} 2>/dev/null | tail -1`,
+      'else echo FREE; fi',
+    ].join('\n'))
+    const out = probe.stdout.trim()
+    if (out === 'FREE') { port = candidate; break }
+    if (out.includes('token=')) { port = candidate; entry = out; break }
+    // 端口被占但拿不到令牌（日志丢了）：换下一个，别去撞 EADDRINUSE。
+  }
+  if (port === 0) throw new RemoteServerError(`base ${String(base)}`, '远端连续 20 个端口都不可用')
 
-  // 已在跑就直接复用：按日志取就绪行，避免重复起进程与重复消耗内存。
-  const existing = await sshRun(alias, `grep -o "dsh web: http://127.0.0.1:${port}/?token=[A-Za-z0-9_-]*" ${REMOTE_LOG} 2>/dev/null | tail -1`)
-  let entry = existing.stdout.trim()
-
-  if (entry === '') {
+  if (entry !== '') {
+    log(`复用远端已在跑的服务（端口 ${String(port)}）`)
+  } else {
+    log(`远端端口 ${String(port)}`)
     const nodeBin = remoteNode.replace(/\/node$/, '')
     const launch = [
       'set -e',
       `export PATH=${nodeBin}:$PATH`,
       `R=${REMOTE_ROOT}`,
-      `rm -f ${REMOTE_LOG}`,
+      `rm -f ${remoteLog(port)}`,
       `cd $HOME`,
       // 语法是 `dsh <profile> [app 选项…]`——`dsh web` 里的 `web` **就是 profile
       // 名**（web 模板的 profile 恰好叫 web），不是子命令。多写一个 `web` 会被
       // 当成 app 的位置参数（实测 "too many arguments. Expected 0 arguments but
       // got 1: web"）。本地宿主也是这个形状：`dsh web --patch … --port 0`。
-      `DSH_HOME=$R/home setsid nohup node $R/runtime/lib/bin.js ${REMOTE_PROFILE} --port ${port} --no-open > ${REMOTE_LOG} 2>&1 < /dev/null &`,
+      `DSH_HOME=$R/home setsid nohup node $R/runtime/lib/bin.js ${REMOTE_PROFILE} --port ${port} --no-open > ${remoteLog(port)} 2>&1 < /dev/null &`,
       'echo LAUNCHED',
     ].join('\n')
     const started = await sshRun(alias, launch, { timeoutMs: 60_000 })
@@ -440,20 +466,18 @@ export async function startRemoteServer(opts: RemoteServerOptions): Promise<Remo
     const deadline = Date.now() + (opts.timeoutMs ?? 180_000)
     while (Date.now() < deadline) {
       await new Promise(r => setTimeout(r, 2000))
-      const poll = await sshRun(alias, `grep -o "dsh web: http://127.0.0.1:${port}/?token=[A-Za-z0-9_-]*" ${REMOTE_LOG} 2>/dev/null | tail -1`)
+      const poll = await sshRun(alias, `grep -o "dsh web: http://127.0.0.1:${port}/?token=[A-Za-z0-9_-]*" ${remoteLog(port)} 2>/dev/null | tail -1`)
       entry = poll.stdout.trim()
       if (entry !== '') break
-      const failed = await sshRun(alias, `tail -3 ${REMOTE_LOG} 2>/dev/null`)
+      const failed = await sshRun(alias, `tail -3 ${remoteLog(port)} 2>/dev/null`)
       if (/Error|error:/.test(failed.stdout) && !/did not activate/.test(failed.stdout)) {
         throw new RemoteServerError(failed.stdout.slice(-400), '远端服务启动报错')
       }
     }
     if (entry === '') {
-      const tail = await sshRun(alias, `tail -6 ${REMOTE_LOG} 2>/dev/null`)
+      const tail = await sshRun(alias, `tail -6 ${remoteLog(port)} 2>/dev/null`)
       throw new RemoteServerError(tail.stdout.slice(-400), '远端服务等待就绪超时')
     }
-  } else {
-    log('复用远端已在跑的服务')
   }
 
   const token = /token=([A-Za-z0-9_-]+)/.exec(entry)?.[1] ?? ''
