@@ -441,7 +441,11 @@ export function ensurePresetPlugins(): void {
     const workspacePath = join(profileDir, 'pnpm-workspace.yaml')
     const patchLayerPath = join(profileDir, 'cordis.patch.yml')
     const installed = (p: string): boolean => existsSync(join(profileDir, 'node_modules', p))
-    const presetNames = Object.keys(MANAGED_PROFILE_DEPS)
+    // 安装语义：插件 + 运行时依赖都必须装进 profile（deps 声明）。
+    const managedNames = Object.keys(MANAGED_PROFILE_DEPS)
+    // 层叠语义：只有真插件能进 `dsh.profile.bundles`——那是补丁层清单，
+    // 运行时依赖没有 dsh.bundle.patch，塞进去就是让 loader 加载一个空层。
+    const presetNames = Object.keys(PRESET_PLUGINS)
 
     // 1) 骨架：清单不存在 → 预写完整模板（上游 initProfile 只在缺失时写，
     //    预写不会被模板覆盖）。bundles 只含模板内置层——预置插件的声明
@@ -527,7 +531,7 @@ export function ensurePresetPlugins(): void {
     // 2) 补写 dependencies 缺项（可先行——dsh 不查 dependencies，
     //    只查 bundles 层叠解析）
     const deps = (m['dependencies'] as Record<string, unknown> | undefined) ?? ({} as Record<string, unknown>)
-    const missingDeps = presetNames.filter((p) => !(p in deps))
+    const missingDeps = managedNames.filter((p) => !(p in deps))
     if (missingDeps.length > 0) {
       for (const p of missingDeps) deps[p] = MANAGED_PROFILE_DEPS[p]
       m['dependencies'] = deps
@@ -543,7 +547,7 @@ export function ensurePresetPlugins(): void {
     //      升级用户 profile 里的 dsh-context 0.37.x 仍 import 该导出，
     //      启动即 SyntaxError 全局崩。实体版本满足下界则不动（用户
     //      update --latest 升线、mac git 源收编 0.17.2 均不被降级覆写）
-    for (const p of presetNames) {
+    for (const p of managedNames) {
       const min = specMinVer(MANAGED_PROFILE_DEPS[p])
       if (min === null) continue
       const cur = specMinVer(installedVersionOf(profileDir, p) ?? '')
@@ -598,8 +602,11 @@ export function ensurePresetPlugins(): void {
     const bundles = bundlesOf(m)
     const ghost = presetNames.filter((p) => bundles.includes(p) && !installed(p))
     const undeclared = presetNames.filter((p) => !bundles.includes(p) && installed(p))
-    if (ghost.length > 0 || undeclared.length > 0) {
-      const kept = bundles.filter((p) => !ghost.includes(p))
+    // 污染自愈：运行时依赖曾被错当插件写进层叠（2026-09-26 首版内置化的缺陷：
+    // 它只该进 deps）。不摘除则 loader 每轮都尝试把 provider 当补丁层加载。
+    const polluted = Object.keys(PRESET_RUNTIME_DEPS).filter((p) => bundles.includes(p))
+    if (ghost.length > 0 || undeclared.length > 0 || polluted.length > 0) {
+      const kept = bundles.filter((p) => !ghost.includes(p) && !polluted.includes(p))
       let anchor = kept.indexOf('dsh-skills-bundle')
       if (anchor === -1) anchor = kept.indexOf(TEMPLATE_BUNDLES[1])
       let offset = 0
@@ -612,10 +619,10 @@ export function ensurePresetPlugins(): void {
       m['dsh'] = { ...dsh, profile: { ...profile, bundles: kept } }
       writeFileSync(manifestPath, `${JSON.stringify(m, undefined, 2)}\n`)
       console.log(
-        `[preset-plugins] bundles 对账（补声明: ${undeclared.join(', ') || '无'}，摘除未装: ${ghost.join(', ') || '无'}）`,
+        `[preset-plugins] bundles 对账（补声明: ${undeclared.join(', ') || '无'}，摘除未装: ${ghost.join(', ') || '无'}，摘除非插件依赖: ${polluted.join(', ') || '无'}）`,
       )
       healLog(
-        `[preset] bundles 对账（补声明: ${undeclared.join(', ') || '无'}，摘除未装: ${ghost.join(', ') || '无'}）`,
+        `[preset] bundles 对账（补声明: ${undeclared.join(', ') || '无'}，摘除未装: ${ghost.join(', ') || '无'}，摘除非插件依赖: ${polluted.join(', ') || '无'}）`,
       )
     }
   } catch (error) {
