@@ -15,9 +15,9 @@
 import { readFileSync, unwatchFile, watchFile } from 'node:fs'
 import { join } from 'node:path'
 import { BrowserWindow, dialog } from 'electron'
-import { attachBrandInjector } from './brand-injector'
 import { DshManager } from './dsh-manager'
 import { dshHome } from './dsh-contract'
+import { decorateShellWindow, shellChromeOptions } from './windows'
 import type { DshStatus } from '@shared/ipc-contract'
 import { readRemoteWorlds, writeRemoteWorldOverlay } from './remote-world'
 
@@ -71,12 +71,14 @@ export function openRemoteConnection(hostId: string): string {
           height: 900,
           minWidth: 960,
           minHeight: 600,
-          title: `KCoder — 远程 ${spec.name || spec.alias}`,
           show: false,
+          title: 'KCoder',
+          // 与主窗口同一套外壳选项：否则这里会露出系统标题栏，
+          // 侧边栏、状态栏按钮、设置页、主题跟随也全部缺失。
+          ...shellChromeOptions(),
         })
-        // 与 shell 窗口同一套品牌注入：否则新窗口露出上游 dsh 的标识
-        // （页面自带的 logo 与标题），用户会以为打开了别的东西。
-        attachBrandInjector(created)
+        // 装配成 KCoder 外壳窗口：18 套注入器 + 导航策略，与主窗口同一条路径。
+        decorateShellWindow(created, () => manager.status.url ?? status.url ?? '')
         connection.window = created
         created.on('closed', () => { connection.window = null })
         created.once('ready-to-show', () => created.show())

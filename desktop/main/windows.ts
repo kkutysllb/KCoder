@@ -10,7 +10,7 @@
 
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { BrowserWindow, nativeTheme, shell } from 'electron'
+import { BrowserWindow, nativeTheme, shell, type BrowserWindowConstructorOptions } from 'electron'
 import { authLoggedIn, authLogout } from './auth'
 import { attachAccountChip } from './account-chip'
 import { resolveAsset } from './dsh-contract'
@@ -176,104 +176,9 @@ export function showShellWindow(dshUrl: string): void {
       }
     })
     // 更新下载完成后：侧边栏 logo 旁出现安装按钮（注入器零侵入上游）
-    attachUpdateInjector(shellWindow)
-    // 品牌化：侧边栏 logo 换 KCoder 标 + 标题产品名替换（零侵入）
-    attachBrandInjector(shellWindow)
-    // 主题跟随：上游 UI 主题切换 → 原生标题栏/菜单栏自适应（零侵入）
-    attachThemeWatcher(shellWindow)
-    // 侧边栏折叠按钮迁移：logoRow 内 toggle 隐藏 → 标题栏红绿灯右侧
-    // 注入代理按钮（点击转发上游 toggle.click()，图标随状态克隆；
-    // 宿主=自绘标题栏，故注册在 attachThemeWatcher 之后）
-    attachSidebarToggle(shellWindow)
-    // coding-sidebar 开关簇代理（2026-09-19 恢复本职）：插件簇在自己
-    // 的宿主层里（stacking context 内），z 再高也压不过自绘标题栏——
-    // 纯 CSS 搬家实测失败，故沿用 sidebar-toggle 同款手法：隐藏插件
-    // 簇本体、标题栏最右端（right 12）注入同款代理按钮转发真实点击
-    // （见注入器头注释；宿主=自绘状态栏，故注册在 attachThemeWatcher 后）
-    attachSidebarCluster(shellWindow)
-    // 剪贴板写兜底：wrap 页面 navigator.clipboard.writeText，失败（失焦
-    // /权限拒绝）兜底主进程 electron.clipboard——上游复制点击的 check
-    // 反馈链不再静默断掉（消息泡/代码块全站复制点受益）
-    attachClipboardFix(shellWindow)
-    // 上下文面板 GUI 入口：状态栏第三枚按钮（插件代理与终端按钮左侧，
-    // right 76），点击等价输入框 /context 回车（走 dsh-context input
-    // trigger 真实契约，不发送消息）；打开态拉满主页面区域 + 右上角
-    // 「返回任务」按钮
-    attachContextButton(shellWindow)
-    // 在本地编辑器中打开：状态栏第四枚按钮（right 108，上下文按钮左侧）
-    // ——上游原生 open-in-app 能力入口（host 半已在 dsh-web-app 组合内，
-    // 探测/图标/启动全走上古路由）；原生按钮随顶栏收纳不可见，本注入器
-    // 把入口补进自绘状态栏（详见 open-in-app-button.ts 头注释）
-    attachOpenInAppButton(shellWindow)
-    // 内嵌终端已插件化（2026-08）：由 dsh-terminal 客户端插件
-    // （bundle/dsh-terminal，dsh client-modules 加载）整体替代——
-    // 页面内底部 DOM 面板 + node-pty 服务端 RPC/SSE，按钮 right 44
-    // 由插件注入；旧 WebContentsView 形态（terminal-panel.ts）已退役
-    // git 环境面板已退役（2026-08）：由 dsh-git-panel 客户端插件
-    // （bundle/dsh-git-panel，dsh client-modules 加载）整体替代——
-    // 按钮 right 108 由插件注入，数据走插件自带 webServer RPC
-    // 宿主注入 CSS：上游原生外壳压制（右侧栏外壳 + 侧栏「插件」入口）
-    // + 空会话 K 水印（零侵入，与排版偏好无关，恒生效；类名/属性改名静默失效）
-    attachStyleOverlay(shellWindow)
-    // 设置页单页化：设置模态浮层 → 铺满窗口两分栏（左 nav + 右内容，
-    // 底部让位状态栏；纯 CSS 形态覆盖，行为层全留上游，类改名静默失效）
-    attachSettingsPage(shellWindow)
-    // workspace 顶栏收纳：会话标题/标签/日志按钮迁至状态栏与抽屉，
-    // 上游头部隐藏 + 轨迹视图兜底回对话（零侵入，类改名静默失效）
-    attachWorkspaceHeader(shellWindow)
-    // 工作区探针：选中会话 → workspace.list 解析 → 标题栏工作区名/按钮
-    // + file-activity 工作区基准；附带正文文件徽章（类型徽章 + edit
-    // 增删行数）与历史会话补拉拦截（预览/Git 面板删除后独立存续）
-    attachWorkspaceProbe(shellWindow)
-    // 技能设置：设置面板导航列注入「技能」分区（三来源技能目录 +
-    // 行展开正文；console 通道拉目录/正文，白名单读取）
-    attachSkillsSettingsInjector(shellWindow)
-    // MCP 服务器：设置面板导航列注入「MCP 服务器」分区（列表 + 行内
-    // 编辑表单；console 通道 CRUD mcp-store，保存后上游 HMR 热加载）
-    attachMcpSettingsInjector(shellWindow)
-    // 关于：设置面板导航列末尾注入「关于」分区（产品介绍 + 版本信息卡；
-    // 版本全部运行时派生：应用元数据/运行时目录/fork 锚点，发布自动同步）
-    attachAboutSettingsInjector(shellWindow)
-    // 数据迁移：设置面板导航列注入「数据迁移」入口（仅老用户未迁移时
-    // 出现；整库搬移 ~/.dsh → ~/.kcoder 零重建，完成后旧目录自动移除）
-    attachHomeMigrationInjector(shellWindow)
-    // win32 四钮平铺让位：原生控制按钮区盖住右侧面板按钮，
-    // 四钮 right 整体平移 +138px 至原生区左侧安全位（2026-08-30 起
-    // 取代下拉收纳方案，无转发层；其他平台 no-op 不注入）
-    attachPanelButtons(shellWindow)
-    // 登录账号行：侧边栏底部设置按钮上方（头像 + 账号名，点击弹
-    // 设置/退出菜单；零侵入，settingsArea 改名静默失效）
-    attachAccountChip(shellWindow)
-    // 只允许停留在 dsh 回环地址；外链交给系统浏览器
-    shellWindow.webContents.setWindowOpenHandler(({ url }) => {
-      if (url.startsWith('kcoder:')) return { action: 'deny' }
-      void shell.openExternal(url)
-      return { action: 'deny' }
-    })
-    shellWindow.webContents.on('will-navigate', (event, url) => {
-      // 回调协议：拦下并执行，绝不真正导航。install-update =
-      // 更新安装（update-injector）；auth-logout = 登出收场
-      // （account-chip 菜单，shell 窗口无 preload 的既有通道）
-      if (url.startsWith('kcoder:')) {
-        event.preventDefault()
-        if (url === 'kcoder://install-update') void installUpdate()
-        else if (url === 'kcoder://auth-logout') logoutToLanding()
-        return
-      }
-      // 实时取当前 dsh 地址（dsh 重启端口会变，不能用创建时的闭包值）
-      const current = dshManager.status.url ?? dshUrl
-      if (!url.startsWith(current)) {
-        event.preventDefault()
-        void shell.openExternal(url)
-      }
-    })
-    // dsh Web UI 无需任何浏览器特权。唯一放行：剪贴板写入权限——对话上
-    // 「复制」按钮用 navigator.clipboard.writeText，沙箱窗口默认拒绝该
-    // 权限会导致复制持续无效果。仅放行 clipboard-sanitized-write，
-    // 其余照旧拒绝。
-    shellWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
-      callback(permission === 'clipboard-sanitized-write')
-    })
+    // 装配成 KCoder 外壳窗口：品牌/主题/侧边栏/设置页/状态栏按钮等 18 套
+    // 注入器与导航策略。远程窗口走同一个函数，两处不会漂移。
+    decorateShellWindow(shellWindow, () => dshManager.status.url ?? dshUrl)
   }
   // 已在承载同一 dsh 实例 → 只恢复展示，绝不变相重载整页。
   // macOS 下 dock 点击/Cmd+Tab 切回都会触发 activate → 此函数，
@@ -414,4 +319,141 @@ export function closePanels(): void {
     if (!win.isDestroyed()) win.destroy()
   }
   panels.clear()
+}
+
+
+/**
+ * 承载 dsh Web UI 的窗口共用的外壳选项：隐藏系统标题栏 + 自绘 48px 条
+ * （macOS 红绿灯下移到条中心；Windows 用 WCO 原生控制按钮），以及主题底色
+ * 与图标。主窗口与远程窗口共用，避免一边有一套、另一边是默认系统标题栏。
+ * @returns 可直接展开进 BrowserWindow 构造参数的片段。
+ */
+export function shellChromeOptions(): BrowserWindowConstructorOptions {
+  return {
+    backgroundColor: themeBackgroundColor(),
+    icon: resolveAsset('icon.png'),
+    ...(process.platform === 'darwin' || process.platform === 'win32'
+      ? {
+          titleBarStyle: 'hidden' as const,
+          ...(process.platform === 'darwin'
+            ? { trafficLightPosition: { x: 12, y: 18 } }
+            : {
+                titleBarOverlay: {
+                  color: themeBackgroundColor(),
+                  symbolColor: overlaySymbolColor(nativeTheme.shouldUseDarkColors),
+                  height: SHELL_TITLEBAR_HEIGHT,
+                },
+              }),
+        }
+      : {}),
+  }
+}
+
+/**
+ * 把一个承载 dsh Web UI 的窗口装配成 KCoder 外壳窗口。
+ *
+ * 之所以必须共用：主窗口与远程窗口都是「上游 UI + 宿主注入」，任何一侧漏装
+ * 都会立刻表现为「和 KCoder 不一致」——远程窗口第一版就只装了品牌注入，
+ * 于是侧边栏、状态栏按钮、设置页、主题跟随全部缺失（2026-09-26 实机）。
+ * @param win - 目标窗口（主窗口或某台远程主机的连接窗口）。
+ * @param getBaseUrl - 该窗口当前应停留的 dsh 基址（端口会变，须实时取）。
+ */
+export function decorateShellWindow(win: BrowserWindow, getBaseUrl: () => string): void {
+    attachUpdateInjector(win)
+    // 品牌化：侧边栏 logo 换 KCoder 标 + 标题产品名替换（零侵入）
+    attachBrandInjector(win)
+    // 主题跟随：上游 UI 主题切换 → 原生标题栏/菜单栏自适应（零侵入）
+    attachThemeWatcher(win)
+    // 侧边栏折叠按钮迁移：logoRow 内 toggle 隐藏 → 标题栏红绿灯右侧
+    // 注入代理按钮（点击转发上游 toggle.click()，图标随状态克隆；
+    // 宿主=自绘标题栏，故注册在 attachThemeWatcher 之后）
+    attachSidebarToggle(win)
+    // coding-sidebar 开关簇代理（2026-09-19 恢复本职）：插件簇在自己
+    // 的宿主层里（stacking context 内），z 再高也压不过自绘标题栏——
+    // 纯 CSS 搬家实测失败，故沿用 sidebar-toggle 同款手法：隐藏插件
+    // 簇本体、标题栏最右端（right 12）注入同款代理按钮转发真实点击
+    // （见注入器头注释；宿主=自绘状态栏，故注册在 attachThemeWatcher 后）
+    attachSidebarCluster(win)
+    // 剪贴板写兜底：wrap 页面 navigator.clipboard.writeText，失败（失焦
+    // /权限拒绝）兜底主进程 electron.clipboard——上游复制点击的 check
+    // 反馈链不再静默断掉（消息泡/代码块全站复制点受益）
+    attachClipboardFix(win)
+    // 上下文面板 GUI 入口：状态栏第三枚按钮（插件代理与终端按钮左侧，
+    // right 76），点击等价输入框 /context 回车（走 dsh-context input
+    // trigger 真实契约，不发送消息）；打开态拉满主页面区域 + 右上角
+    // 「返回任务」按钮
+    attachContextButton(win)
+    // 在本地编辑器中打开：状态栏第四枚按钮（right 108，上下文按钮左侧）
+    // ——上游原生 open-in-app 能力入口（host 半已在 dsh-web-app 组合内，
+    // 探测/图标/启动全走上古路由）；原生按钮随顶栏收纳不可见，本注入器
+    // 把入口补进自绘状态栏（详见 open-in-app-button.ts 头注释）
+    attachOpenInAppButton(win)
+    // 内嵌终端已插件化（2026-08）：由 dsh-terminal 客户端插件
+    // （bundle/dsh-terminal，dsh client-modules 加载）整体替代——
+    // 页面内底部 DOM 面板 + node-pty 服务端 RPC/SSE，按钮 right 44
+    // 由插件注入；旧 WebContentsView 形态（terminal-panel.ts）已退役
+    // git 环境面板已退役（2026-08）：由 dsh-git-panel 客户端插件
+    // （bundle/dsh-git-panel，dsh client-modules 加载）整体替代——
+    // 按钮 right 108 由插件注入，数据走插件自带 webServer RPC
+    // 宿主注入 CSS：上游原生外壳压制（右侧栏外壳 + 侧栏「插件」入口）
+    // + 空会话 K 水印（零侵入，与排版偏好无关，恒生效；类名/属性改名静默失效）
+    attachStyleOverlay(win)
+    // 设置页单页化：设置模态浮层 → 铺满窗口两分栏（左 nav + 右内容，
+    // 底部让位状态栏；纯 CSS 形态覆盖，行为层全留上游，类改名静默失效）
+    attachSettingsPage(win)
+    // workspace 顶栏收纳：会话标题/标签/日志按钮迁至状态栏与抽屉，
+    // 上游头部隐藏 + 轨迹视图兜底回对话（零侵入，类改名静默失效）
+    attachWorkspaceHeader(win)
+    // 工作区探针：选中会话 → workspace.list 解析 → 标题栏工作区名/按钮
+    // + file-activity 工作区基准；附带正文文件徽章（类型徽章 + edit
+    // 增删行数）与历史会话补拉拦截（预览/Git 面板删除后独立存续）
+    attachWorkspaceProbe(win)
+    // 技能设置：设置面板导航列注入「技能」分区（三来源技能目录 +
+    // 行展开正文；console 通道拉目录/正文，白名单读取）
+    attachSkillsSettingsInjector(win)
+    // MCP 服务器：设置面板导航列注入「MCP 服务器」分区（列表 + 行内
+    // 编辑表单；console 通道 CRUD mcp-store，保存后上游 HMR 热加载）
+    attachMcpSettingsInjector(win)
+    // 关于：设置面板导航列末尾注入「关于」分区（产品介绍 + 版本信息卡；
+    // 版本全部运行时派生：应用元数据/运行时目录/fork 锚点，发布自动同步）
+    attachAboutSettingsInjector(win)
+    // 数据迁移：设置面板导航列注入「数据迁移」入口（仅老用户未迁移时
+    // 出现；整库搬移 ~/.dsh → ~/.kcoder 零重建，完成后旧目录自动移除）
+    attachHomeMigrationInjector(win)
+    // win32 四钮平铺让位：原生控制按钮区盖住右侧面板按钮，
+    // 四钮 right 整体平移 +138px 至原生区左侧安全位（2026-08-30 起
+    // 取代下拉收纳方案，无转发层；其他平台 no-op 不注入）
+    attachPanelButtons(win)
+    // 登录账号行：侧边栏底部设置按钮上方（头像 + 账号名，点击弹
+    // 设置/退出菜单；零侵入，settingsArea 改名静默失效）
+    attachAccountChip(win)
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith('kcoder:')) return { action: 'deny' }
+      void shell.openExternal(url)
+      return { action: 'deny' }
+    })
+    win.webContents.on('will-navigate', (event, url) => {
+      // 回调协议：拦下并执行，绝不真正导航。install-update =
+      // 更新安装（update-injector）；auth-logout = 登出收场
+      // （account-chip 菜单，shell 窗口无 preload 的既有通道）
+      if (url.startsWith('kcoder:')) {
+        event.preventDefault()
+        if (url === 'kcoder://install-update') void installUpdate()
+        else if (url === 'kcoder://auth-logout') logoutToLanding()
+        return
+      }
+      // 实时取当前 dsh 地址（dsh 重启端口会变，不能用创建时的闭包值）
+      const current = getBaseUrl()
+      if (!url.startsWith(current)) {
+        event.preventDefault()
+        void shell.openExternal(url)
+      }
+    })
+    // dsh Web UI 无需任何浏览器特权。唯一放行：剪贴板写入权限——对话上
+    // 「复制」按钮用 navigator.clipboard.writeText，沙箱窗口默认拒绝该
+    // 权限会导致复制持续无效果。仅放行 clipboard-sanitized-write，
+    // 其余照旧拒绝。
+    win.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(permission === 'clipboard-sanitized-write')
+    })
 }
