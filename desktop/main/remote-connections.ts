@@ -9,7 +9,7 @@
  * @module desktop/main/remote-connections
  */
 
-import { readFileSync, unwatchFile, watchFile } from 'node:fs'
+import { existsSync, readFileSync, unwatchFile, watchFile } from 'node:fs'
 import { join } from 'node:path'
 import { BrowserWindow, dialog } from 'electron'
 import { dshHome } from './dsh-contract'
@@ -40,6 +40,18 @@ const connections = new Map<string, RemoteConnection>()
 /** 当前已打开的远程连接的主机 id。 */
 export function openRemoteHostIds(): string[] {
   return [...connections.keys()]
+}
+
+/**
+ * 本地 profile 的配置文件路径（模型供应商与密钥就在这里）。
+ *
+ * 主侧车跑的是 `web` 模板 profile，配置写在 `<DSH_HOME>/profiles/web/`。名字变了
+ * 或路径不在时返回 undefined——远端会以未配置状态起来，但连接本身不该因此失败。
+ * @returns 文件绝对路径；不存在时为 undefined。
+ */
+function localProfilePatch(): string | undefined {
+  const path = join(dshHome(), 'profiles', 'web', 'cordis.patch.yml')
+  return existsSync(path) ? path : undefined
 }
 
 /** 本地 bundle 源目录（打包态在 resources，源码态在 bundle/）。 */
@@ -83,6 +95,8 @@ export function openRemoteConnection(hostId: string): string {
     runtimeDir,
     bundles: localBundles(),
     remoteNode: remoteDshBin(spec),
+    // 远端有自己的 DSH_HOME；带上本地 profile 配置，否则模型与密钥全空。
+    profilePatch: localProfilePatch(),
     onLog: (line) => { process.stdout.write(`[remote:${hostId}] ${line}\n`) },
   }).then((handle) => {
     connection.handle = handle

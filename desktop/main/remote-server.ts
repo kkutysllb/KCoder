@@ -55,6 +55,14 @@ export interface RemoteServerOptions {
   bundles: readonly RemoteBundleSource[]
   /** 首次安装要用的远端 Node 可执行文件（用户态安装，免 sudo）。 */
   remoteNode: string
+  /**
+   * 本地 profile 的 `cordis.patch.yml` 绝对路径。
+   *
+   * 远端那台有自己的 DSH_HOME，不带上这份的话模型供应商与密钥全是空的——每连一台
+   * 机器都要重配一遍，不能接受。该文件同时承载 MCP 服务器与界面偏好，是"这台机器
+   * 的 KCoder 配置"的完整表达（实测无本地绝对路径，可整体搬运）。
+   */
+  profilePatch?: string
   /** 进度/诊断输出。 */
   onLog?: (line: string) => void
   /** 端到端超时（毫秒），覆盖安装 + 启动 + 转发。 */
@@ -274,6 +282,17 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
     throw new RemoteServerError(profile.stderr, '远端 profile 组装失败')
   }
   log('profile 已就位')
+
+  // 把本地 profile 配置带过去：模型供应商、密钥、MCP 服务器、界面偏好。
+  // 不这样做，远端就是个"没配过的新 KCoder"，每台机器都要重配一次。
+  const patch = opts.profilePatch
+  if (patch !== undefined && existsSync(patch)) {
+    await sshTarInto(alias, join(patch, '..'), [patch.split('/').pop()!], `$R/home/profiles/${REMOTE_PROFILE}`, log, 4)
+    await sshRun(alias, `chmod 600 ${REMOTE_ROOT}/home/profiles/${REMOTE_PROFILE}/cordis.patch.yml && echo OK`)
+    log('本地 profile 配置已同步（模型/密钥/MCP/偏好）')
+  } else {
+    log('未提供本地 profile 配置，远端将是未配置状态')
+  }
 
   // 平台专用原生模块：按本地声明取 linux-x64 同名同版本。
   const specs = localAddonSpecs(runtimeDir)
