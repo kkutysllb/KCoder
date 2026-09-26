@@ -664,6 +664,31 @@ node scripts/provision-remote-world.mjs --ssh dsh-wsl2 [--out overlay.yml]
 - 供给逻辑从「运维脚本」搬进插件运行时（UI 一键引导 + 进度/自检结果）；
 - 多 sidecar 编排（K1–K4）+ 连接模型。
 
+#### (b2) 内置化打包完成 ✅（2026-09-26）
+
+提交：KCoder `a4f5559` · 镜像 `57b2f3c`（dsh-plugins）· 文档 `31e35df`。
+
+链路：真源 `dsh-kylin-ssh-tunnel` → `dsh-plugins/dsh-ssh-remote`（镜像，只带运行时面）
+→ `scripts/sync-bundles.mjs` 的**选择面映射**（真源的 analysis/docs/plans/scripts 不进 bundle）
+→ `bundle/dsh-ssh-remote/` → `BUNDLES` 物化进 profile 并注册进 `dsh.profile.bundles`。
+
+**关键在依赖牵引**：profile 才是 out-of-tree 包的解析基准（裸模块名从
+`<profile>/node_modules` 起解析，只有安装自有的包才走 installation 拦截层）。
+仅把包塞进 runtime 的 node_modules **不生效**（P1 实测症状即 `failed to import`）。
+故新增 `PRESET_RUNTIME_DEPS` 牵引 4 个 provider，钉 `0.1.7-rc.2`（与引擎基线同线；
+跨线会让 provider 与服务定义**类身份分裂**）。
+
+分列而不并入 `PRESET_PLUGINS`：后者是插件语义（`plugins.ts` 会把它的键并进
+「内置、禁卸载」清单），而 provider 没有 `dsh.bundle` 元数据。安装与 drift 对账
+走合并视图 `MANAGED_PROFILE_DEPS`，消费方仍只认 `PRESET_PLUGINS`。
+`check-bundle-version-line` 的「仅物化」白名单同步收录该包（不发布 npm）。
+
+闸门：`tsc -p tsconfig.node.json` ✓ · `sync-bundles --check` 零差异 ✓ ·
+`check-bundle-version-line` ✓ · `check-injected-scripts` ✓。
+
+**仍未做**：逐主机 overlay 的自动应用（P3 多 sidecar）——现在仍需
+`dsh <profile> --patch <provision 生成的 overlay>`。
+
 #### (c) 边界验证结果
 
 | 边界 | 结论 | 依据 |
