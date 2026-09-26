@@ -19,10 +19,9 @@
  */
 
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { createHash } from 'node:crypto'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 
 /** 远端安装根：runtime、bundles、profiles 都在它下面，卸载即 `rm -rf` 一处。 */
@@ -290,9 +289,13 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
   const markerPath = `${REMOTE_ROOT}/runtime/.engine-fingerprint`
   const current = await sshRun(alias, `cat ${markerPath} 2>/dev/null || echo NONE`)
   const wanted = createHash('md5').update(engineFingerprint).digest('hex')
-  const engineReady = await sshRun(alias, `test -d ${REMOTE_ROOT}/runtime/node_modules/@deepseek-ai/dsh-app-boot && echo YES || echo NO`)
+  // 跳过条件必须核对**远端实际的包版本**，不能只信标记：曾经出现过"标记写着目标
+  // 版本、实际装的是另一个版本"的状态（回落分支错误地也写了标记），于是永远跳过
+  // 安装、永远错线（2026-09-26 实机）。
+  const engineState = await sshRun(alias, `node -e "console.log(require('${REMOTE_ROOT}/runtime/node_modules/@deepseek-ai/dsh/package.json').version)" 2>/dev/null || echo NONE`)
+  const installedVersion = engineState.stdout.trim()
 
-  if (engineReady.stdout.includes('YES') && current.stdout.trim() === wanted) {
+  if (installedVersion === opts.engineVersion && current.stdout.trim() === wanted) {
     log('远端引擎已就位且版本未变，跳过安装')
   } else {
     log(`远端安装引擎 @deepseek-ai/dsh@${opts.engineVersion}（由 npm 按该机平台解析原生依赖）`)
@@ -312,11 +315,19 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
     ].join('\n')
     // 已有安装在跑就别再起一个：两次连接会并发装两遍同目录、互相踩（staging 是同
     // 一个路径）。此时直接进入轮询，等前一个跑完即可。
-    const already = await sshRun(alias, `pgrep -f "npm i" >/dev/null && echo RUNNING || echo IDLE`)
+    // `[n]pm` 的方括号是必需的：pgrep -f 匹配整条命令行，而本脚本正文里就含
+    // "npm i"，直接写会匹配到它自己 → 永远判定"已在跑" → 永不启动（2026-09-26 实机）。
+    const already = await sshRun(alias, `pgrep -f "[n]pm i @deepseek-ai" >/dev/null && echo RUNNING || echo IDLE`)
     if (already.stdout.includes('RUNNING')) {
       log('远端已有安装在跑，等待它完成')
     } else {
-      const launched = await sshRun(alias, `setsid nohup bash -c ${JSON.stringify(install)} > /dev/null 2>&1 < /dev/null & echo LAUNCHED`, { timeoutMs: 60_000 })
+      // 脚本**落文件再执行**，绝不塞进 `bash -c "…"`：双引号字符串会被远端外层
+      // shell 先做一次展开，脚本里的 `$R` 在外层未定义 → 展开成空 → 路径全变成
+      // `/runtime-staging`、`/install-done` → 权限拒绝，连失败哨兵都写不出来
+      // （2026-09-26 实机：表现为"安装永远不结束"，追了很久）。
+      const scriptName = 'install-engine.sh'
+      await sshTarInto(alias, '/tmp', [await writeScriptFile(install, scriptName)], REMOTE_ROOT, log, 3)
+      const launched = await sshRun(alias, `setsid nohup bash ${REMOTE_ROOT}/${scriptName} > /dev/null 2>&1 < /dev/null & echo LAUNCHED`, { timeoutMs: 60_000 })
       if (!launched.stdout.includes('LAUNCHED')) {
         throw new RemoteServerError(launched.stderr.slice(-400), '无法在远端启动引擎安装')
       }
@@ -339,10 +350,13 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
         const tail = await sshRun(alias, `tail -20 ${REMOTE_ROOT}/npm-install.log 2>/dev/null`)
         throw new RemoteServerError(`${installResult === '' ? '等待安装结果超时且无可用引擎' : 'npm 安装失败'}\n${tail.stdout.slice(-700)}`, '远端引擎安装失败')
       }
+      // **不写标记**：写了就等于宣称这个版本已就位，下次会直接跳过安装，于是永远
+      // 错线。安装留在后台继续，下次连接再判。
       log(`引擎安装尚未完成（后台继续），先用远端现有引擎启动`)
+    } else {
+      log('远端引擎安装完成')
+      await sshRun(alias, `printf '%s' '${wanted}' > ${markerPath} && echo OK`)
     }
-    log('远端引擎安装完成')
-    await sshRun(alias, `printf '%s' '${wanted}' > ${markerPath} && echo OK`)
   }
 
   const bundlePrint = bundleFingerprint(bundles)
@@ -605,4 +619,18 @@ function hash(value: string): number {
   let h = 0
   for (let i = 0; i < value.length; i++) h = (h * 31 + value.charCodeAt(i)) >>> 0
   return h
+}
+
+/**
+ * 把远端脚本写到本地临时文件，供 tar 送过去执行。
+ *
+ * 为什么不让它走命令行：任何插入 shell 字符串的做法都要再套一层引号，而脚本里
+ * 有 `$R`/`$HOME`/引号——套错的代价是静默变形（见上面安装启动处的注释）。
+ * @param script - 脚本正文。
+ * @param name - 远端文件名。
+ * @returns 本地临时文件名。
+ */
+async function writeScriptFile(script: string, name: string): Promise<string> {
+  writeFileSync(join(tmpdir(), name), `${script}\n`)
+  return name
 }
