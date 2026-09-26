@@ -120,10 +120,17 @@ export function remoteDshBin(spec: RemoteWorldSpec): string {
  * @returns 版本串；读不到时为 null。
  */
 export function localEngineVersion(runtimeDir: string): string | null {
-  try {
-    const pkg = JSON.parse(readFileSync(join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), 'utf8')) as { version?: string }
-    return typeof pkg.version === 'string' ? pkg.version : null
-  } catch {
-    return null
+  // `@deepseek-ai/dsh` 只是**发布形态**的元包；KCoder 的 runtime 是逐个引擎包组装的，
+  // 里面**没有**它。所以先找它，找不到就取同版本线的 `dsh-app-boot`——版本线一致，
+  // 而"取不到就装 latest"会把远端带到另一条线上去（实测装成 0.1.5-rc.3，入口与 CLI
+  // 行为都与本地不符）。
+  for (const name of ['dsh', 'dsh-app-boot']) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(runtimeDir, 'node_modules', '@deepseek-ai', name, 'package.json'), 'utf8')) as { version?: string }
+      if (typeof pkg.version === 'string' && pkg.version !== '') return pkg.version
+    } catch {
+      // 换下一个候选
+    }
   }
+  return null
 }

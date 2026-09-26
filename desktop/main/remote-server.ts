@@ -283,6 +283,9 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
   const runtimePath = `${REMOTE_ROOT}/runtime`
 
   // 引擎包在远端按平台安装；入口脚本从本地搬（几 KB）。
+  if (opts.engineVersion === '') {
+    throw new RemoteServerError('engineVersion 为空', '无法确定引擎版本（本地 runtime 既无 @deepseek-ai/dsh 也无 dsh-app-boot）')
+  }
   const engineFingerprint = opts.engineVersion
   const markerPath = `${REMOTE_ROOT}/runtime/.engine-fingerprint`
   const current = await sshRun(alias, `cat ${markerPath} 2>/dev/null || echo NONE`)
@@ -293,31 +296,50 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
     log('远端引擎已就位且版本未变，跳过安装')
   } else {
     log(`远端安装引擎 @deepseek-ai/dsh@${opts.engineVersion}（由 npm 按该机平台解析原生依赖）`)
+    // 安装**脱离 ssh 会话**跑（setsid nohup + 哨兵文件），随后轮询结果。
+    //
+    // 直接把 npm 挂在 ssh 命令里在这条链路上必然失败：连接一掉（实测约每三次一次）
+    // 远端进程跟着被杀，几分钟的下载全部作废。脱会话之后掉线只影响轮询。
     const install = [
-      `export PATH=${opts.remoteNode.replace(/\/node$/, '')}:$PATH`,
       `R=${REMOTE_ROOT}`,
-      // 先装到 staging、成功才就位：这条链路会掉线，中断的安装若直接写 runtime，
-      // 留下的是半棵依赖树（实测把已装好的 284 个包 prune 成残缺状态）。
-      'rm -rf $R/runtime-staging && mkdir -p $R/runtime-staging && cd $R/runtime-staging',
-      `printf '{"name":"kcoder-remote-runtime","private":true,"version":"1.0.0"}\n' > package.json`,
-      `if npm i --no-audit --no-fund --ignore-scripts=false @deepseek-ai/dsh@${opts.engineVersion} > $R/npm-install.log 2>&1; then`,
-      '  rm -rf $R/runtime && mv $R/runtime-staging $R/runtime && echo ENGINE_OK',
-      'else',
-      // 不用 set -e：它会让 npm 一失败就整段中止，连日志都留不下（弹窗只剩一句
-      // "安装失败"，无从排查）。
-      '  echo ENGINE_FAILED; tail -20 $R/npm-install.log',
-      'fi',
+      'rm -f $R/install-done $R/npm-install.log',
+      'rm -rf $R/runtime-staging && mkdir -p $R/runtime-staging',
+      // 先装到 staging、成功才就位：中断的安装不会留下半棵依赖树。
+      `( cd $R/runtime-staging && printf '{"name":"kcoder-remote-runtime","private":true,"version":"1.0.0"}\\n' > package.json`,
+      `  && PATH=${opts.remoteNode.replace(/\/node$/, '')}:$PATH npm i --no-audit --no-fund --ignore-scripts=false @deepseek-ai/dsh@${opts.engineVersion} > $R/npm-install.log 2>&1`,
+      '  && rm -rf $R/runtime && mv $R/runtime-staging $R/runtime && echo OK > $R/install-done )',
+      '  || echo FAIL > $R/install-done',
     ].join('\n')
-    const installed = await sshRun(alias, install, { timeoutMs: 1_800_000, attempts: 2 })
-    if (!installed.stdout.includes('ENGINE_OK')) {
-      throw new RemoteServerError((installed.stdout + installed.stderr).slice(-700), '远端引擎安装失败')
+    // 已有安装在跑就别再起一个：两次连接会并发装两遍同目录、互相踩（staging 是同
+    // 一个路径）。此时直接进入轮询，等前一个跑完即可。
+    const already = await sshRun(alias, `pgrep -f "npm i" >/dev/null && echo RUNNING || echo IDLE`)
+    if (already.stdout.includes('RUNNING')) {
+      log('远端已有安装在跑，等待它完成')
+    } else {
+      const launched = await sshRun(alias, `setsid nohup bash -c ${JSON.stringify(install)} > /dev/null 2>&1 < /dev/null & echo LAUNCHED`, { timeoutMs: 60_000 })
+      if (!launched.stdout.includes('LAUNCHED')) {
+        throw new RemoteServerError(launched.stderr.slice(-400), '无法在远端启动引擎安装')
+      }
+    }
+    // 轮询哨兵：安装通常几分钟，超时给 30 分钟（链路慢时会更久）。
+    const installDeadline = Date.now() + 1_800_000
+    let installResult = ''
+    while (Date.now() < installDeadline) {
+      await new Promise(r => setTimeout(r, 5000))
+      const poll = await sshRun(alias, `cat ${REMOTE_ROOT}/install-done 2>/dev/null || echo RUNNING`)
+      const value = poll.stdout.trim()
+      if (value !== 'RUNNING' && value !== '') { installResult = value; break }
+    }
+    if (installResult !== 'OK') {
+      const tail = await sshRun(alias, `tail -20 ${REMOTE_ROOT}/npm-install.log 2>/dev/null`)
+      throw new RemoteServerError(
+        `${installResult === '' ? '等待安装结果超时' : 'npm 安装失败'}\n${tail.stdout.slice(-700)}`,
+        '远端引擎安装失败',
+      )
     }
     log('远端引擎安装完成')
     await sshRun(alias, `printf '%s' '${wanted}' > ${markerPath} && echo OK`)
   }
-
-  // 入口脚本：本地那份与平台无关。
-  await sshTarInto(alias, join(runtimeDir, 'lib', '..'), ['lib'], runtimePath, log, 4)
 
   const bundlePrint = bundleFingerprint(bundles)
   const remotePrint = await sshRun(alias, `cat ${REMOTE_ROOT}/bundles/.fingerprint 2>/dev/null || echo NONE`)
@@ -357,28 +379,41 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
   // 把本地 profile 配置带过去：模型供应商、密钥、MCP 服务器、界面偏好。
   // 不这样做，远端就是个"没配过的新 KCoder"，每台机器都要重配一次。
   const patch = opts.profilePatch
+  // 一张清单记下每个已同步文件的内容哈希。没变就不传——**也不触发重启**：远端服务
+  // 重启要等就绪行，每次都做会让"连接"从几秒变成一分钟（而 patch/密钥几乎不变）。
+  const manifestPath = `${REMOTE_ROOT}/home/.sync-manifest.json`
+  const manifestRaw = await sshRun(alias, `cat ${manifestPath} 2>/dev/null || echo '{}'`)
+  let manifest: Record<string, string> = {}
+  try {
+    const parsed: unknown = JSON.parse(manifestRaw.stdout.trim() || '{}')
+    if (typeof parsed === 'object' && parsed !== null) manifest = parsed as Record<string, string>
+  } catch {
+    // 清单损坏：当作空表，重新同步一遍即可。
+  }
   let syncedConfig = false
-  if (patch !== undefined && existsSync(patch)) {
-    // 这里必须用 ${REMOTE_ROOT}（即 $HOME/…），不能写 `$R`——`$R` 只在上面那段
-    // profile 脚本里定义过，在独立的 tar 命令里是空的，会退化成
-    // `mkdir -p /home/profiles/…` 并以 "mkdir: Permission denied" 失败（实机踩到）。
-    await sshTarInto(alias, join(patch, '..'), [patch.split('/').pop()!], `${REMOTE_ROOT}/home/profiles/${REMOTE_PROFILE}`, log, 4)
-    await sshRun(alias, `chmod 600 ${REMOTE_ROOT}/home/profiles/${REMOTE_PROFILE}/cordis.patch.yml && echo OK`)
+
+  /** 按内容哈希决定是否同步一个文件到远端 DSH 家目录。 */
+  const syncFile = async (localPath: string, remoteDir: string, rename?: string): Promise<void> => {
+    if (!existsSync(localPath)) return
+    const name = rename ?? localPath.split('/').pop()!
+    const hash = createHash('md5').update(readFileSync(localPath)).digest('hex')
+    if (manifest[name] === hash) return
+    await sshTarInto(alias, join(localPath, '..'), [localPath.split('/').pop()!], remoteDir, log, 4)
+    if (rename !== undefined) {
+      await sshRun(alias, `mv ${remoteDir}/${localPath.split('/').pop()!} ${remoteDir}/${rename} && echo OK`)
+    }
+    await sshRun(alias, `chmod 600 ${remoteDir}/${name} && echo OK`)
+    manifest[name] = hash
     syncedConfig = true
-    log('本地 profile 配置已同步（模型/密钥/MCP/偏好）')
-  } else {
-    log('未提供本地 profile 配置，远端将是未配置状态')
+    log(`已同步 ${name}`)
   }
 
-  // 凭据与媒体密钥：patch 里只有 apiKeyEnv 引用，值在这几个文件里。
+  await syncFile(opts.profilePatch ?? '', `${REMOTE_ROOT}/home/profiles/${REMOTE_PROFILE}`, 'cordis.patch.yml')
   for (const file of opts.homeFiles ?? []) {
-    if (!existsSync(file)) continue
-    const name = file.split('/').pop()!
-    await sshTarInto(alias, join(file, '..'), [name], `${REMOTE_ROOT}/home`, log, 4)
-    await sshRun(alias, `chmod 600 ${REMOTE_ROOT}/home/${name} && echo OK`)
-    syncedConfig = true
-    log(`已同步 ${name}（密钥）`)
+    await syncFile(file, `${REMOTE_ROOT}/home`)
   }
+  // profile 里的 patch 与家目录的两份密钥都要能读到；清单本身留在远端供下次比对。
+  await sshRun(alias, `printf '%s' '${JSON.stringify(manifest).replaceAll("'", "'\\''")}' > ${manifestPath} && chmod 600 ${manifestPath} && echo OK`)
 
   return { runtimePath, syncedConfig }
 }
@@ -488,7 +523,12 @@ export async function startRemoteServer(opts: RemoteServerOptions): Promise<Remo
       // 名**（web 模板的 profile 恰好叫 web），不是子命令。多写一个 `web` 会被
       // 当成 app 的位置参数（实测 "too many arguments. Expected 0 arguments but
       // got 1: web"）。本地宿主也是这个形状：`dsh web --patch … --port 0`。
-      `DSH_HOME=$R/home setsid nohup node $R/runtime/lib/bin.js ${REMOTE_PROFILE} --port ${port} --no-open > ${remoteLog(port)} 2>&1 < /dev/null &`,
+      // 入口用**装好的包里自带的**那份（`@deepseek-ai/dsh/lib/bin.js`）：它与引擎同源，
+      // 不会像搬本地入口那样与远端引擎错配（实测本地入口在远端报
+      // "does not provide an export named 'StartupError'"）。
+      // `--profile` 显式给出：`dsh <name>` 的简写是较新 CLI 才有的，旧版直接报
+      // "--profile <name> is required"。
+      `DSH_HOME=$R/home setsid nohup node $R/runtime/node_modules/@deepseek-ai/dsh/lib/bin.js --profile ${REMOTE_PROFILE} --port ${port} --no-open > ${remoteLog(port)} 2>&1 < /dev/null &`,
       'echo LAUNCHED',
     ].join('\n')
     const started = await sshRun(alias, launch, { timeoutMs: 60_000 })

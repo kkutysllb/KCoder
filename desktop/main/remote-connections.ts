@@ -37,6 +37,43 @@ interface RemoteConnection {
 
 const connections = new Map<string, RemoteConnection>()
 
+/**
+ * 连接过程的进度页（内联 data URL，不落临时文件）。
+ *
+ * 用同一套配色与排版，避免"跳到一个陌生页面"的观感；失败态把完整原文摊在页面上，
+ * 用户可以直接选中复制——弹窗做不到这点。
+ * @param host - 展示名。
+ * @param title - 当前阶段标题。
+ * @param detail - 失败时的完整原文（成功路径不传）。
+ * @returns data URL。
+ */
+function progressPage(host: string, title: string, detail?: string): string {
+  const html = `<!doctype html><meta charset="utf-8"><title>KCoder</title>
+<style>
+  :root { color-scheme: dark }
+  body { margin:0; height:100vh; display:flex; align-items:center; justify-content:center;
+         background:#17181a; color:#e8e8ea; font:14px/1.7 -apple-system,"PingFang SC",sans-serif }
+  .box { width:min(720px,86vw) }
+  h1 { font-size:16px; font-weight:600; margin:0 0 6px }
+  .host { color:#9aa0a6; margin-bottom:18px }
+  .stage { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:#b6bcc4;
+           background:#1f2124; border:1px solid #303236; border-radius:8px;
+           padding:10px 12px; max-height:38vh; overflow:auto; white-space:pre-wrap }
+  .err { color:#ff8f8f }
+</style>
+<h1 id="t"></h1><div class="host" id="h"></div><div class="stage" id="s"></div>
+<script>
+  const lines = [];
+  window.__stage = (line) => { lines.push(line); const el = document.getElementById('s');
+    el.textContent = lines.join('\n'); el.scrollTop = el.scrollHeight; };
+  document.getElementById('t').textContent = ${JSON.stringify(title)};
+  document.getElementById('h').textContent = ${JSON.stringify(`远程主机：${host}`)};
+  ${detail === undefined ? '' : `document.getElementById('s').classList.add('err');
+  document.getElementById('s').textContent = ${JSON.stringify(detail)};`}
+</script>`
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
+}
+
 /** 当前已打开的远程连接的主机 id。 */
 export function openRemoteHostIds(): string[] {
   return [...connections.keys()]
@@ -103,6 +140,38 @@ export function openRemoteConnection(hostId: string): string {
     dialog.showErrorBox(`连接 ${spec.name || spec.alias} 失败`, `${message}\n\n${detail.slice(-600)}`)
   }
 
+  const display = spec.name !== '' ? spec.name : spec.alias
+
+  // 立刻开窗显示进度。窗口等到全部就绪才创建的话，首次连接（可能几分钟：搬运
+  // 引擎/bundle、等远端服务就绪）期间用户什么也看不到——"点了没反应"的观感。
+  // 同一个窗口在成功时就地换成真正的远端 UI，失败时变成可复制的错误页。
+  const created = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    minWidth: 960,
+    minHeight: 600,
+    show: false,
+    title: 'KCoder',
+    ...shellChromeOptions(),
+  })
+  connection.window = created
+  created.on('closed', () => {
+    connection.window = null
+    void connection.handle?.dispose()
+    connections.delete(hostId)
+  })
+  created.once('ready-to-show', () => created.show())
+  void created.loadURL(progressPage(display, '正在连接…'))
+
+  /** 往进度页推一行状态（页面未就绪时静默失败，下一行会补上）。 */
+  const stage = (line: string): void => {
+    process.stdout.write(`[remote:${hostId}] ${line}\n`)
+    if (created.isDestroyed()) return
+    void created.webContents
+      .executeJavaScript(`window.__stage(${JSON.stringify(line)})`)
+      .catch(() => { /* 页面还在加载或已跳走 */ })
+  }
+
   void startRemoteServer({
     alias: spec.alias,
     runtimeDir,
@@ -114,37 +183,24 @@ export function openRemoteConnection(hostId: string): string {
     // 但每个 provider 都标"缺 key"。
     profilePatch: localProfilePatch(),
     homeFiles: localSecretFiles(),
-    onLog: (line) => { process.stdout.write(`[remote:${hostId}] ${line}\n`) },
+    onLog: stage,
   }).then((handle) => {
     connection.handle = handle
-    const created = new BrowserWindow({
-      width: 1440,
-      height: 900,
-      minWidth: 960,
-      minHeight: 600,
-      show: false,
-      title: 'KCoder',
-      // 与主窗口同一套外壳选项：否则这里会露出系统标题栏，
-      // 侧边栏、状态栏按钮、设置页、主题跟随也全部缺失。
-      ...shellChromeOptions(),
-    })
-    // 装配成 KCoder 外壳窗口：18 套注入器 + 导航策略，与主窗口同一条路径。
     decorateShellWindow(created, () => handle.url)
-    connection.window = created
-    created.on('closed', () => {
-      connection.window = null
-      // 关窗即断本地转发；远端服务保留复用（下次连接秒开）。
-      void handle.dispose()
-      connections.delete(hostId)
-    })
-    created.once('ready-to-show', () => created.show())
-    void created.loadURL(handle.url)
+    if (!created.isDestroyed()) void created.loadURL(handle.url)
   }).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error)
     const detail = typeof error === 'object' && error !== null && 'detail' in error
       ? String((error as { detail: unknown }).detail)
       : ''
-    fail(message, detail)
+    connection.handle = null
+    if (created.isDestroyed()) {
+      connections.delete(hostId)
+      dialog.showErrorBox(`连接 ${display} 失败`, `${message}\n\n${detail.slice(-600)}`)
+      return
+    }
+    // 错误留在窗口里：可选中、可复制、可整段发给别人，比一次性弹窗有用。
+    void created.loadURL(progressPage(display, '连接失败', `${message}\n\n${detail}`))
   })
 
   return `正在连接 ${spec.name || spec.alias}…`
