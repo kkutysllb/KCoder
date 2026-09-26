@@ -20,6 +20,9 @@
 
 import { execFile, spawn } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { tmpdir } from 'node:os'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** 远端安装根：runtime、bundles、profiles 都在它下面，卸载即 `rm -rf` 一处。 */
@@ -49,8 +52,28 @@ export interface RemoteBundleSource {
 export interface RemoteServerOptions {
   /** OpenSSH 别名（`~/.ssh/config` 的 Host）。 */
   alias: string
-  /** 已解析的本地 runtime 目录（含 `lib/bin.js` 与 `node_modules`）。 */
+  /**
+   * 本地 runtime 目录（含 `lib/bin.js`）——只用来取**入口脚本**。
+   *
+   * 引擎包**不再从本地搬**：本地那份是 macOS 构建，DeepSeek 的自有原生包
+   * （`@deepseek-ai/node-addon-system-*` 等）是 workspace 包，在 macOS 上只编得出
+   * darwin 二进制，linux 变体在本地只是个空壳。照搬的后果是远端跑任务时
+   * `Cannot find module '…/node-addon-system-linux-x64/bin/glibc/system.node'`
+   * （2026-09-26 实机）。npm 上发布的同名包**带 linux 二进制**，所以改为在远端
+   * 按平台安装。
+   */
   runtimeDir: string
+  /**
+   * 引擎版本（如 `0.1.7-rc.2`），由调用方从本地 runtime 读出。
+   *
+   * 远端装的是**官方发布的元包** `@deepseek-ai/dsh@<该版本>`，由 npm 按**那台
+   * 机器**的平台解析整棵依赖树——平台原生模块因此自动正确。
+   *
+   * 为什么不自己列清单：手工列举本地装过的包会踩两个坑——把 darwin 专用包当直接
+   * 依赖（linux 上整单 `EBADPLATFORM` 拒绝），以及漏掉只有传递路径才会拉进来的
+   * 原生包。让官方元包定义依赖集，这两类问题都不存在（2026-09-26 实机，两坑都踩过）。
+   */
+  engineVersion: string
   /** 要装到远端的 KCoder bundle。 */
   bundles: readonly RemoteBundleSource[]
   /** 首次安装要用的远端 Node 可执行文件（用户态安装，免 sudo）。 */
@@ -259,25 +282,45 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
   }
   const runtimePath = `${REMOTE_ROOT}/runtime`
 
-  if (await remoteInstallReady(alias)) {
-    log('远端 runtime 已就位，跳过搬运')
+  // 引擎包在远端按平台安装；入口脚本从本地搬（几 KB）。
+  const engineFingerprint = opts.engineVersion
+  const markerPath = `${REMOTE_ROOT}/runtime/.engine-fingerprint`
+  const current = await sshRun(alias, `cat ${markerPath} 2>/dev/null | md5sum | cut -d' ' -f1 || echo NONE`)
+  const wanted = createHash('md5').update(engineFingerprint).digest('hex')
+  const engineReady = await sshRun(alias, `test -d ${REMOTE_ROOT}/runtime/node_modules/@deepseek-ai/dsh-app-boot && echo YES || echo NO`)
+
+  if (engineReady.stdout.includes('YES') && current.stdout.trim() === wanted) {
+    log('远端引擎已就位且版本未变，跳过安装')
   } else {
-    if (!existsSync(join(runtimeDir, 'lib', 'bin.js'))) {
-      throw new RemoteServerError(runtimeDir, `本地 runtime 不完整（缺 lib/bin.js）：${runtimeDir}`)
+    log(`远端安装引擎 @deepseek-ai/dsh@${opts.engineVersion}（由 npm 按该机平台解析原生依赖）`)
+    const install = [
+      'set -e',
+      `export PATH=${opts.remoteNode.replace(/\/node$/, '')}:$PATH`,
+      `R=${REMOTE_ROOT}`,
+      'mkdir -p $R/runtime && cd $R/runtime',
+      `printf '{"name":"kcoder-remote-runtime","private":true,"version":"1.0.0"}\n' > package.json`,
+      // npm 11 起默认不跑生命周期脚本；原生模块的二进制要靠它取回，必须放开。
+      `npm i --no-audit --no-fund --loglevel=error --ignore-scripts=false @deepseek-ai/dsh@${opts.engineVersion} > $R/npm-install.log 2>&1`,
+      `test -d $R/runtime/node_modules/@deepseek-ai/dsh-app-boot && echo ENGINE_OK || { tail -5 $R/npm-install.log; exit 1; }`,
+    ].join('\n')
+    const installed = await sshRun(alias, install, { timeoutMs: 1_800_000, attempts: 2 })
+    if (!installed.stdout.includes('ENGINE_OK')) {
+      throw new RemoteServerError(installed.stderr.slice(-500) || installed.stdout.slice(-500), '远端引擎安装失败')
     }
-    await sshTarInto(alias, runtimeDir, ['lib', 'node_modules', 'package.json'], runtimePath, log)
-    log('runtime 已就位')
+    log('远端引擎安装完成')
+    await sshRun(alias, `printf '%s' '${wanted}' > ${markerPath} && echo OK`)
   }
 
-  // 指纹比对：bundle 内容没变就跳过 114MB 的搬运。这条链路实测会掉线，
-  // 每次连接都重传既慢又更容易失败；指纹一致时后续连接只剩短命令。
-  const fingerprint = bundleFingerprint(bundles)
-  const remoteFingerprint = await sshRun(alias, `cat ${REMOTE_ROOT}/bundles/.fingerprint 2>/dev/null || echo NONE`)
-  if (remoteFingerprint.stdout.trim() === fingerprint) {
+  // 入口脚本：本地那份与平台无关。
+  await sshTarInto(alias, join(runtimeDir, 'lib', '..'), ['lib'], runtimePath, log, 4)
+
+  const bundlePrint = bundleFingerprint(bundles)
+  const remotePrint = await sshRun(alias, `cat ${REMOTE_ROOT}/bundles/.fingerprint 2>/dev/null || echo NONE`)
+  if (remotePrint.stdout.trim() === bundlePrint) {
     log('bundle 内容未变，跳过搬运')
   } else {
     await sshTarInto(alias, join(bundles[0]!.dir, '..'), bundles.map(b => b.dir.split('/').pop()!), `${REMOTE_ROOT}/bundles`, log, 6)
-    await sshRun(alias, `printf '%s\\n' '${fingerprint}' > ${REMOTE_ROOT}/bundles/.fingerprint && echo OK`)
+    await sshRun(alias, `printf '%s\\n' '${bundlePrint}' > ${REMOTE_ROOT}/bundles/.fingerprint && echo OK`)
   }
 
   // profile：引擎包由 runtime 的拦截层解析，这里只放 KCoder 的 bundle。
@@ -332,29 +375,6 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
     log(`已同步 ${name}（密钥）`)
   }
 
-  // 平台专用原生模块：按本地声明取 linux-x64 同名同版本。
-  const specs = localAddonSpecs(runtimeDir)
-  const already = await sshRun(alias, `test -d ${REMOTE_ROOT}/runtime/node_modules/node-addon-require-builtin-linux-x64-gnu && echo YES || echo NO`)
-  if (specs.length > 0 && already.stdout.includes('NO')) {
-    const install = await sshRun(alias, [
-      'set -e',
-      `export PATH=${remoteNode.replace(/\/node$/, '')}:$PATH`,
-      `R=${REMOTE_ROOT}`,
-      'rm -rf $R/platform && mkdir -p $R/platform && cd $R/platform',
-      `printf '{"name":"platform-addons","private":true,"version":"1.0.0"}\\n' > package.json`,
-      `npm i --no-audit --no-fund --loglevel=error ${specs.join(' ')} >/dev/null 2>&1`,
-      'for item in node_modules/*; do b=$(basename "$item"); [ "$b" = ".package-lock.json" ] && continue;',
-      '  if [ "${b:0:1}" = "@" ]; then mkdir -p "$R/runtime/node_modules/$b"; for s in "$item"/*; do cp -R "$s" "$R/runtime/node_modules/$b/"; done',
-      '  else cp -R "$item" "$R/runtime/node_modules/"; fi; done',
-      'echo ADDONS_OK',
-    ].join('\n'), { timeoutMs: 600_000 })
-    if (!install.stdout.includes('ADDONS_OK')) {
-      throw new RemoteServerError(install.stderr.slice(-400), '远端平台原生模块安装失败')
-    }
-    log('平台原生模块已就位')
-  } else if (specs.length > 0) {
-    log('平台原生模块已在位，跳过')
-  }
   return { runtimePath, syncedConfig }
 }
 
@@ -380,40 +400,6 @@ export function bundleFingerprint(bundles: readonly RemoteBundleSource[]): strin
     .join(',')
 }
 
-/**
- * 从本地 runtime 的依赖树里收集**本平台已有、而 linux-x64 缺失**的
- * optionalDependencies 规格（`名称@版本`）。
- *
- * 逐个读取 package.json 的 optionalDependencies：照搬 macOS 树会让远端缺
- * 平台原生模块，而版本必须与本地一致（原生 ABI 不跨版本兼容）。
- * @param runtimeDir - 本地 runtime 目录。
- * @returns 可交给 `npm i` 的规格列表。
- */
-export function localAddonSpecs(runtimeDir: string): string[] {
-  const modules = join(runtimeDir, 'node_modules')
-  const specs = new Set<string>()
-  const visit = (dir: string): void => {
-    let entries: string[]
-    try { entries = readdirSync(dir) } catch { return }
-    for (const entry of entries) {
-      const pkg = join(dir, entry, 'package.json')
-      if (!existsSync(pkg)) continue
-      try {
-        const parsed = JSON.parse(readFileSync(pkg, 'utf8')) as { optionalDependencies?: Record<string, string> }
-        for (const [name, range] of Object.entries(parsed.optionalDependencies ?? {})) {
-          if (!/linux-x64(-gnu)?$/.test(name)) continue
-          if (existsSync(join(modules, name))) continue // 本地已装（本机是 darwin，通常不会命中）
-          specs.add(`${name}@${range}`)
-        }
-      } catch { /* 损坏的 package.json 跳过 */ }
-    }
-  }
-  visit(modules)
-  for (const scope of existsSync(modules) ? readdirSync(modules) : []) {
-    if (scope.startsWith('@')) visit(join(modules, scope))
-  }
-  return [...specs].sort()
-}
 
 /**
  * 远端服务日志（就绪行从这里读；token 只在此文件与 URL 里出现）。

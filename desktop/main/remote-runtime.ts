@@ -7,7 +7,7 @@
  * @module desktop/main/remote-runtime
  */
 
-import { existsSync, lstatSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
 import { ensureBundledRuntime, resolveDshCommand } from './dsh-contract'
@@ -108,4 +108,22 @@ export function runtimeProbeDetail(): string {
  */
 export function remoteDshBin(spec: RemoteWorldSpec): string {
   return spec.node
+}
+
+/**
+ * 本地 runtime 的引擎版本。
+ *
+ * 以 `@deepseek-ai/dsh` 自己的 version 为准（它就是被装到远端的那份元包），
+ * 不读 runtime 根的 package.json——那个文件的依赖是 `workspace:` 协议，
+ * 对远端 npm 毫无用处。
+ * @param runtimeDir - 本地 runtime 目录。
+ * @returns 版本串；读不到时为 null。
+ */
+export function localEngineVersion(runtimeDir: string): string | null {
+  try {
+    const pkg = JSON.parse(readFileSync(join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), 'utf8')) as { version?: string }
+    return typeof pkg.version === 'string' ? pkg.version : null
+  } catch {
+    return null
+  }
 }
