@@ -63,6 +63,15 @@ export interface RemoteServerOptions {
    * 的 KCoder 配置"的完整表达（实测无本地绝对路径，可整体搬运）。
    */
   profilePatch?: string
+  /**
+   * 要一并放进远端 DSH 家目录的本地文件（按 basename 落位）。
+   *
+   * 密钥**不在** profile patch 里——patch 只写 `apiKeyEnv: ZAI_CODING_CN_API_KEY`
+   * 这样的引用，真正的值在 `<DSH_HOME>/.credentials.yaml` 的 refs/records 里。
+   * 只同步 patch 的结果就是远端把行都列出来、但每个provider 都标"缺 key"
+   * （2026-09-26 实机）。媒体模型的密钥同理在 `media-models.env`。
+   */
+  homeFiles?: readonly string[]
   /** 进度/诊断输出。 */
   onLog?: (line: string) => void
   /** 端到端超时（毫秒），覆盖安装 + 启动 + 转发。 */
@@ -218,6 +227,20 @@ export async function remoteNodeReady(alias: string, remoteNode: string): Promis
 }
 
 /**
+ * 安装结果：远端 runtime 路径，以及**本次是否改动过配置**。
+ *
+ * 后者决定要不要重启已跑着的远端服务——`loadLayeredEnv` 只在进程启动时读 env，
+ * 复用旧进程会让刚带过去的密钥不生效。**不能**用模块级/全局变量传达这件事：
+ * 两台主机并发连接时会互相串台。
+ */
+export interface ProvisionOutcome {
+  /** 远端 runtime 目录。 */
+  runtimePath: string
+  /** 本次是否同步过 profile 配置或密钥文件。 */
+  syncedConfig: boolean
+}
+
+/**
  * 把 runtime、KCoder bundle 与一个自包含 profile 装到远端。
  *
  * 幂等：runtime 已就位时跳过 277MB 的搬运，只补齐 profile 与平台专用原生模块。
@@ -225,9 +248,9 @@ export async function remoteNodeReady(alias: string, remoteNode: string): Promis
  * `Cannot find module 'node-addon-require-builtin-linux-x64-gnu'` 直接起不来
  * （2026-09-26 实测）。
  * @param opts - 安装输入。
- * @returns 安装后的远端 runtime 路径。
+ * @returns 远端 runtime 路径与本次是否改动过配置。
  */
-export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise<string> {
+export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise<ProvisionOutcome> {
   const log = opts.onLog ?? ((): void => {})
   const { alias, runtimeDir, bundles, remoteNode } = opts
 
@@ -286,15 +309,27 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
   // 把本地 profile 配置带过去：模型供应商、密钥、MCP 服务器、界面偏好。
   // 不这样做，远端就是个"没配过的新 KCoder"，每台机器都要重配一次。
   const patch = opts.profilePatch
+  let syncedConfig = false
   if (patch !== undefined && existsSync(patch)) {
     // 这里必须用 ${REMOTE_ROOT}（即 $HOME/…），不能写 `$R`——`$R` 只在上面那段
     // profile 脚本里定义过，在独立的 tar 命令里是空的，会退化成
     // `mkdir -p /home/profiles/…` 并以 "mkdir: Permission denied" 失败（实机踩到）。
     await sshTarInto(alias, join(patch, '..'), [patch.split('/').pop()!], `${REMOTE_ROOT}/home/profiles/${REMOTE_PROFILE}`, log, 4)
     await sshRun(alias, `chmod 600 ${REMOTE_ROOT}/home/profiles/${REMOTE_PROFILE}/cordis.patch.yml && echo OK`)
+    syncedConfig = true
     log('本地 profile 配置已同步（模型/密钥/MCP/偏好）')
   } else {
     log('未提供本地 profile 配置，远端将是未配置状态')
+  }
+
+  // 凭据与媒体密钥：patch 里只有 apiKeyEnv 引用，值在这几个文件里。
+  for (const file of opts.homeFiles ?? []) {
+    if (!existsSync(file)) continue
+    const name = file.split('/').pop()!
+    await sshTarInto(alias, join(file, '..'), [name], `${REMOTE_ROOT}/home`, log, 4)
+    await sshRun(alias, `chmod 600 ${REMOTE_ROOT}/home/${name} && echo OK`)
+    syncedConfig = true
+    log(`已同步 ${name}（密钥）`)
   }
 
   // 平台专用原生模块：按本地声明取 linux-x64 同名同版本。
@@ -320,7 +355,7 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
   } else if (specs.length > 0) {
     log('平台原生模块已在位，跳过')
   }
-  return runtimePath
+  return { runtimePath, syncedConfig }
 }
 
 /**
@@ -420,7 +455,14 @@ async function pickPort(preferred: number): Promise<number> {
 export async function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServerHandle> {
   const log = opts.onLog ?? ((): void => {})
   const { alias, remoteNode } = opts
-  await provisionRemoteRuntime(opts)
+  const outcome = await provisionRemoteRuntime(opts)
+
+  // 配置刚同步过就必须重启：`loadLayeredEnv` 只在进程启动时读 env，复用旧进程会
+  // 让刚带过去的密钥对已跑着的服务不生效（用户看到的现象就是"密钥依然缺失"）。
+  if (outcome.syncedConfig) {
+    log('配置有更新，重启远端服务以加载新的密钥/配置')
+    await sshRun(alias, `pkill -f "${REMOTE_ROOT}/runtime/lib/bin.js" 2>/dev/null; sleep 1; echo KILLED`)
+  }
 
   // 候选端口逐个问远端：已在监听且能读到令牌就复用，否则换下一个。
   // 只读日志是不够的——日志会被清空，而进程可能还在（实测撞出 EADDRINUSE）。

@@ -54,6 +54,19 @@ function localProfilePatch(): string | undefined {
   return existsSync(path) ? path : undefined
 }
 
+/**
+ * 需要带到远端的本地密钥文件。
+ *
+ * `.credentials.yaml` 是 `apiKeyEnv` 引用值的实际存放处（`refs` 里的名字与 patch
+ * 里的 `apiKeyEnv` 一一对应）；`media-models.env` 供图像/视频模型使用。两者都不
+ * 存在时返回空表——远端少密钥，但不该因此连不上。
+ * @returns 存在的文件绝对路径。
+ */
+function localSecretFiles(): string[] {
+  return [join(dshHome(), '.credentials.yaml'), join(dshHome(), 'media-models.env')]
+    .filter(path => existsSync(path))
+}
+
 /** 本地 bundle 源目录（打包态在 resources，源码态在 bundle/）。 */
 function localBundles(): RemoteBundleSource[] {
   return REMOTE_BUNDLES.map(b => ({ name: b.name, dir: bundleSource(b.dir) }))
@@ -95,8 +108,10 @@ export function openRemoteConnection(hostId: string): string {
     runtimeDir,
     bundles: localBundles(),
     remoteNode: remoteDshBin(spec),
-    // 远端有自己的 DSH_HOME；带上本地 profile 配置，否则模型与密钥全空。
+    // 远端有自己的 DSH_HOME；带上本地 profile 配置与密钥文件，否则模型行会列出来
+    // 但每个 provider 都标"缺 key"。
     profilePatch: localProfilePatch(),
+    homeFiles: localSecretFiles(),
     onLog: (line) => { process.stdout.write(`[remote:${hostId}] ${line}\n`) },
   }).then((handle) => {
     connection.handle = handle
