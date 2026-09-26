@@ -13,19 +13,6 @@
 export type DshState = 'stopped' | 'starting' | 'ready' | 'failed' | 'restarting'
 
 /** 一次状态快照，随 `dsh:state-changed` 广播，也可 `dsh:status` 拉取。 */
-/**
- * 一台已引导就绪的远程主机（`<DSH_HOME>/ssh-remote/worlds.json` 的投影）。
- * 只带渲染层要显示与选择的字段；node/helper/摘要属实现细节，不外传。
- */
-export interface RemoteWorldSummary {
-  hostId: string
-  /** 展示名（缺省回落别名）。 */
-  name: string
-  /** ssh 别名。 */
-  alias: string
-  /** 远端默认工作区。 */
-  workspace: string
-}
 
 export interface DshStatus {
   state: DshState
@@ -268,16 +255,6 @@ export interface DesktopBridge {
   updateReleaseNotes(version: string): Promise<string | null>
   /** 打开已就绪的 dsh Web UI，并关闭当前 landing 窗口（未登录时主进程拒绝，返回 false）。 */
   showShell(): Promise<boolean>
-  /* 远程执行世界（B-β）：已引导就绪的主机 + 按主机开连接窗口。
-   * 一个远程工作区只能存在于它所属的世界里（上游 SSH 世界是进程级的），
-   * 所以「选远程目录」的落点不是当前窗口，而是那台主机的窗口。 */
-  remoteWorlds(): Promise<RemoteWorldSummary[]>
-  /**
-   * 打开（或聚焦）一台已注册主机的连接窗口。
-   * @param hostId - 已注册世界的主机 id。
-   * @returns 给人看的结论（未注册/已连上/正在连），供调用方的提示面使用。
-   */
-  openRemoteConnection(hostId: string): Promise<string>
   /* 本地账户鉴权（注册/登录成功即建立会话；登出后门禁回到 landing） */
   authStatus(): Promise<AuthStatus>
   authRegister(username: string, password: string): Promise<AuthResult>

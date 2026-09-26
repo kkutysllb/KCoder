@@ -12,8 +12,11 @@
  * @module desktop/main/remote-connections
  */
 
+import { readFileSync, unwatchFile, watchFile } from 'node:fs'
+import { join } from 'node:path'
 import { BrowserWindow } from 'electron'
 import { DshManager } from './dsh-manager'
+import { dshHome } from './dsh-contract'
 import type { DshStatus } from '@shared/ipc-contract'
 import { readRemoteWorlds, writeRemoteWorldOverlay } from './remote-world'
 
@@ -105,4 +108,43 @@ export async function closeRemoteConnections(): Promise<void> {
       // A shutdown failure must not block the quit path.
     })
   }))
+}
+
+/**
+ * Watch the plugin's "open a remote connection" request file.
+ *
+ * Why a file rather than an IPC bridge: the window that renders the dsh Web UI
+ * runs with `sandbox: true` and **no preload** — the upstream UI deliberately has
+ * no desktop API surface. Handing that page a bridge to widen it for one button
+ * would trade the shell's security posture for a convenience. The plugin already
+ * owns `<DSH_HOME>/ssh-remote/`, so a request file is a channel both sides
+ * already agree on, and the main process keeps the only capability that matters
+ * (spawning a process and a window).
+ *
+ * `seq` is monotonic so a repeated watch event cannot open the same connection
+ * twice, and the last seen value is primed before watching so a leftover request
+ * from a previous run is not replayed at startup.
+ * @returns disposer that stops watching.
+ */
+export function startRemoteOpenWatcher(): () => void {
+  const file = join(dshHome(), 'ssh-remote', 'pending-remote-open.json')
+  let lastSeq = 0
+  const read = (): void => {
+    let request: { seq?: unknown; hostId?: unknown }
+    try {
+      request = JSON.parse(readFileSync(file, 'utf8')) as typeof request
+    } catch {
+      return // absent or mid-write: the next event re-reads it
+    }
+    const seq = Number(request.seq)
+    const hostId = typeof request.hostId === 'string' ? request.hostId : ''
+    if (!Number.isFinite(seq) || seq <= lastSeq) return
+    lastSeq = seq
+    if (hostId === '') return
+    openRemoteConnection(hostId)
+  }
+  // Prime first: an existing request belongs to whoever wrote it, not to us.
+  read()
+  watchFile(file, { interval: 1000 }, read)
+  return () => unwatchFile(file, read)
 }

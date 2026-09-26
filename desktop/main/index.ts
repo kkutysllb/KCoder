@@ -10,7 +10,7 @@
 
 import { app, autoUpdater, session } from 'electron'
 import { dshManager } from './dsh-manager'
-import { closeRemoteConnections } from './remote-connections'
+import { closeRemoteConnections, startRemoteOpenWatcher } from './remote-connections'
 import { registerIpc } from './ipc'
 import { installMenu, installTray, wireMenuRefresh } from './menu'
 import { closePanels, markQuitting, showBootstrap, showLanding, showShellWindow } from './windows'
@@ -287,6 +287,9 @@ app.whenReady().then(() => {
   // 预置第三方插件物化（幂等；Windows 全新安装 profile 为空模板，开箱
   // 即预置 context / coding-sidebar，含缺陷补丁自动应用）
   ensurePresetPlugins()
+
+  // 远程连接请求（插件写文件，宿主开窗；见 remote-connections.ts 的由来）
+  startRemoteOpenWatcher()
   // preset install 可能以 npm 实体重建 dsh-coding-sidebar（^1.0.0 牵
   // 引依赖树）；终态是 bundle 物化的版本——install 后二调纠偏
   // （幂等：版本一致时零拷贝，dsh-* 自有系列全部跳过）
