@@ -15,7 +15,7 @@ import { BrowserWindow, dialog } from 'electron'
 import { dshHome } from './dsh-contract'
 import { bundleSource } from './kcoder-skills-bundle'
 import { startRemoteServer, type RemoteBundleSource, type RemoteServerHandle } from './remote-server'
-import { remoteDshBin, runtimeDirForRemote } from './remote-runtime'
+import { remoteDshBin, runtimeDirForRemote, runtimeProbeDetail } from './remote-runtime'
 import { readRemoteWorlds } from './remote-world'
 import { decorateShellWindow, shellChromeOptions } from './windows'
 
@@ -67,7 +67,7 @@ export function openRemoteConnection(hostId: string): string {
   if (spec === undefined) return `未找到已注册的远程主机 ${hostId}（先运行引导脚本 --register）`
 
   const runtimeDir = runtimeDirForRemote()
-  if (runtimeDir === null) return '本地 runtime 不可用，无法装配远端服务'
+  if (runtimeDir === null) return `本地 runtime 不可用，无法装配远端服务\n\n${runtimeProbeDetail()}`
 
   // 先占位：远端安装是分钟级的，重复点击不该并发起两份。
   const connection: RemoteConnection = { handle: null, window: null }

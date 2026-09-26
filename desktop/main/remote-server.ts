@@ -177,7 +177,9 @@ async function sshTarInto(
 function sshTarOnce(alias: string, localDir: string, entries: readonly string[], remoteDir: string, onLog: (l: string) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     onLog(`传输 ${entries.length} 项 → ${remoteDir}`)
-    const tar = spawn('tar', ['-czf', '-', '-C', localDir, ...entries], { stdio: ['ignore', 'pipe', 'ignore'] })
+    // -h：解引用符号链接。打包态运行时是真实目录，开发态克隆是 monorepo 符号链接树；
+    // 解引用让两种来源都能搬成自足的远端副本。
+    const tar = spawn('tar', ['-czhf', '-', '-C', localDir, ...entries], { stdio: ['ignore', 'pipe', 'ignore'] })
     const ssh = spawn(
       'ssh',
       ['-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=10', alias, `mkdir -p ${remoteDir} && tar -xzf - -C ${remoteDir}`],
