@@ -134,3 +134,66 @@ export function localEngineVersion(runtimeDir: string): string | null {
   }
   return null
 }
+
+/**
+ * 需要从 npm 补到远端的 **linux-x64 原生包**规格。
+ *
+ * 收集两路来源，缺一不可：
+ * 1. 各包 `optionalDependencies` 里声明为 linux-x64 的条目；
+ * 2. 本地树里名字本身就以 linux-x64 结尾的包。
+ *
+ * **不按"本地已经存在"跳过**——本地那份是 macOS 构建留下的空壳（只有
+ * `prebuilds.json`），跳过就等于把 linux 二进制整个漏掉，实机报
+ * `Cannot find module '…/node-addon-system-linux-x64/bin/glibc/system.node'`。
+ * @param runtimeDir - 本地 runtime 目录。
+ * @returns `名称@版本` 列表；版本缺失或为 workspace 协议且本地无实体时跳过。
+ */
+export function localAddonSpecs(runtimeDir: string): string[] {
+  const modules = join(runtimeDir, 'node_modules')
+  const specs = new Map<string, string>()
+  const versionOf = (name: string): string | null => {
+    try {
+      const pkg = JSON.parse(readFileSync(join(modules, name, 'package.json'), 'utf8')) as { version?: string }
+      return typeof pkg.version === 'string' ? pkg.version : null
+    } catch {
+      return null
+    }
+  }
+  const isLinuxX64 = (name: string): boolean => /-linux-x64(-gnu)?$/.test(name)
+  const visit = (dir: string): void => {
+    let entries: string[]
+    try { entries = readdirSync(dir) } catch { return }
+    for (const entry of entries) {
+      const pkgPath = join(dir, entry, 'package.json')
+      if (!existsSync(pkgPath)) continue
+      // 名字本身就是 linux-x64 的包：直接用装好的版本。
+      const ownName = entry.startsWith('@') ? entry : entry
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
+          name?: string
+          version?: string
+          optionalDependencies?: Record<string, string>
+        }
+        if (typeof pkg.name === 'string' && isLinuxX64(pkg.name) && typeof pkg.version === 'string') {
+          specs.set(pkg.name, pkg.version)
+        }
+        for (const name of Object.keys(pkg.optionalDependencies ?? {})) {
+          if (!isLinuxX64(name)) continue
+          if (specs.has(name)) continue
+          // workspace: 协议对远端 npm 无意义，取本地实体版本兜底。
+          const declared = pkg.optionalDependencies?.[name] ?? ''
+          const range = declared.startsWith('workspace:') ? versionOf(name) : declared
+          if (range !== null && range !== '') specs.set(name, range)
+        }
+        void ownName
+      } catch {
+        // 损坏的 package.json 跳过
+      }
+    }
+  }
+  visit(modules)
+  for (const scope of existsSync(modules) ? readdirSync(modules) : []) {
+    if (scope.startsWith('@')) visit(join(modules, scope))
+  }
+  return [...specs].map(([name, version]) => `${name}@${version}`).sort()
+}

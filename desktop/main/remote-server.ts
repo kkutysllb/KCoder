@@ -22,7 +22,7 @@ import { execFile, spawn } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 /** 远端安装根：runtime、bundles、profiles 都在它下面，卸载即 `rm -rf` 一处。 */
 const REMOTE_ROOT = '$HOME/.kcoder-remote'
@@ -62,6 +62,15 @@ export interface RemoteServerOptions {
    * 按平台安装。
    */
   runtimeDir: string
+  /**
+   * linux-x64 原生包的 npm 规格（`名称@版本`）。
+   *
+   * 引擎的**纯 JS 部分与平台无关**，可以直接搬本地那份（版本天然与本地 bundles
+   * 对齐）；只有原生包需要按平台补——`@deepseek-ai/node-addon-system-linux-x64`
+   * 这类在 macOS 构建里只是空壳（只有 prebuilds.json），而 npm 上发布的同名包
+   * 带 linux 二进制。
+   */
+  addonSpecs: readonly string[]
   /**
    * 引擎版本（如 `0.1.7-rc.2`），由调用方从本地 runtime 读出。
    *
@@ -218,12 +227,16 @@ function sshTarOnce(alias: string, localDir: string, entries: readonly string[],
     onLog(`传输 ${entries.length} 项 → ${remoteDir}`)
     // -h：解引用符号链接。打包态运行时是真实目录，开发态克隆是 monorepo 符号链接树；
     // 解引用让两种来源都能搬成自足的远端副本。
-    const tar = spawn('tar', ['-czhf', '-', '-C', localDir, ...entries], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const tar = spawn('tar', ['-czhf', '-', '-C', localDir, ...entries], { stdio: ['ignore', 'pipe', 'pipe'] })
     const ssh = spawn(
       'ssh',
       ['-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=10', alias, `mkdir -p ${remoteDir} && tar -xzf - -C ${remoteDir}`],
       { stdio: ['pipe', 'ignore', 'pipe'] },
     )
+    // 链路中途断掉时，tar 还在往已关闭的管道写 → EPIPE 会以未处理错误打崩进程。
+    // 这里吞掉管道层的错误：真正的失败由 ssh 的退出码上报（那条路径带 stderr 原文）。
+    tar.stdout.on('error', () => { /* EPIPE：由 ssh 退出码判定失败 */ })
+    ssh.stdin?.on('error', () => { /* 同上 */ })
     tar.stdout.pipe(ssh.stdin)
     let stderr = ''
     ssh.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
@@ -232,7 +245,14 @@ function sshTarOnce(alias: string, localDir: string, entries: readonly string[],
       if (code === 0) resolve()
       else reject(new RemoteServerError(stderr, `传输到 ${alias} 失败（exit ${String(code)}）：${remoteDir}`))
     })
+    // tar 的错误必须上抛：早先把它设成 ignore，于是"本地路径写错"表现为
+    // **传输成功但远端什么都没有**（2026-09-26 实机，白查很久）。
+    let tarError = ''
+    tar.stderr.on('data', (chunk: Buffer) => { tarError += chunk.toString() })
     tar.on('error', reject)
+    tar.on('close', (code) => {
+      if (code !== 0) reject(new RemoteServerError(tarError, `本地打包失败（${localDir}）：${tarError.trim().slice(0, 200)}`))
+    })
   })
 }
 
@@ -281,82 +301,62 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
   }
   const runtimePath = `${REMOTE_ROOT}/runtime`
 
-  // 引擎包在远端按平台安装；入口脚本从本地搬（几 KB）。
-  if (opts.engineVersion === '') {
-    throw new RemoteServerError('engineVersion 为空', '无法确定引擎版本（本地 runtime 既无 @deepseek-ai/dsh 也无 dsh-app-boot）')
-  }
-  const engineFingerprint = opts.engineVersion
+  // 引擎 = 本地那份（0.1.7-rc.2，纯 JS 与平台无关）+ 从 npm 补 linux 原生包。
+  //
+  // 为什么不装官方元包：npm 在 WSL2 上会长时间不退（实测 40+ 分钟仍未收尾），
+  // 而"搬本地树 + 补平台原生包"两步都在可控时间内完成。搬本地树还带来一个关键
+  // 好处：**版本与本地 bundles 天然对齐**——错线会让远端前端直接崩
+  // （React #130 / "chain slot ... requires options.select"，2026-09-26 实机）。
+  const engineFingerprint = `${opts.engineVersion}|${opts.addonSpecs.join(',')}`
   const markerPath = `${REMOTE_ROOT}/runtime/.engine-fingerprint`
   const current = await sshRun(alias, `cat ${markerPath} 2>/dev/null || echo NONE`)
   const wanted = createHash('md5').update(engineFingerprint).digest('hex')
-  // 跳过条件必须核对**远端实际的包版本**，不能只信标记：曾经出现过"标记写着目标
-  // 版本、实际装的是另一个版本"的状态（回落分支错误地也写了标记），于是永远跳过
-  // 安装、永远错线（2026-09-26 实机）。
-  const engineState = await sshRun(alias, `node -e "console.log(require('${REMOTE_ROOT}/runtime/node_modules/@deepseek-ai/dsh/package.json').version)" 2>/dev/null || echo NONE`)
+  const engineState = await sshRun(alias, `node -e "console.log(require('${REMOTE_ROOT}/runtime/node_modules/@deepseek-ai/dsh-app-boot/package.json').version)" 2>/dev/null || echo NONE`)
   const installedVersion = engineState.stdout.trim()
 
   if (installedVersion === opts.engineVersion && current.stdout.trim() === wanted) {
-    log('远端引擎已就位且版本未变，跳过安装')
+    log(`远端引擎已就位（${opts.engineVersion}）且原生包清单未变，跳过`)
   } else {
-    log(`远端安装引擎 @deepseek-ai/dsh@${opts.engineVersion}（由 npm 按该机平台解析原生依赖）`)
-    // 安装**脱离 ssh 会话**跑（setsid nohup + 哨兵文件），随后轮询结果。
-    //
-    // 直接把 npm 挂在 ssh 命令里在这条链路上必然失败：连接一掉（实测约每三次一次）
-    // 远端进程跟着被杀，几分钟的下载全部作废。脱会话之后掉线只影响轮询。
-    const install = [
-      `R=${REMOTE_ROOT}`,
-      'rm -f $R/install-done $R/npm-install.log',
-      'rm -rf $R/runtime-staging && mkdir -p $R/runtime-staging',
-      // 先装到 staging、成功才就位：中断的安装不会留下半棵依赖树。
-      `( cd $R/runtime-staging && printf '{"name":"kcoder-remote-runtime","private":true,"version":"1.0.0"}\\n' > package.json`,
-      `  && PATH=${opts.remoteNode.replace(/\/node$/, '')}:$PATH npm i --no-audit --no-fund --ignore-scripts=false @deepseek-ai/dsh@${opts.engineVersion} > $R/npm-install.log 2>&1`,
-      '  && rm -rf $R/runtime && mv $R/runtime-staging $R/runtime && echo OK > $R/install-done )',
-      '  || echo FAIL > $R/install-done',
-    ].join('\n')
-    // 已有安装在跑就别再起一个：两次连接会并发装两遍同目录、互相踩（staging 是同
-    // 一个路径）。此时直接进入轮询，等前一个跑完即可。
-    // `[n]pm` 的方括号是必需的：pgrep -f 匹配整条命令行，而本脚本正文里就含
-    // "npm i"，直接写会匹配到它自己 → 永远判定"已在跑" → 永不启动（2026-09-26 实机）。
-    const already = await sshRun(alias, `pgrep -f "[n]pm i @deepseek-ai" >/dev/null && echo RUNNING || echo IDLE`)
-    if (already.stdout.includes('RUNNING')) {
-      log('远端已有安装在跑，等待它完成')
-    } else {
-      // 脚本**落文件再执行**，绝不塞进 `bash -c "…"`：双引号字符串会被远端外层
-      // shell 先做一次展开，脚本里的 `$R` 在外层未定义 → 展开成空 → 路径全变成
-      // `/runtime-staging`、`/install-done` → 权限拒绝，连失败哨兵都写不出来
-      // （2026-09-26 实机：表现为"安装永远不结束"，追了很久）。
-      const scriptName = 'install-engine.sh'
-      await sshTarInto(alias, '/tmp', [await writeScriptFile(install, scriptName)], REMOTE_ROOT, log, 3)
-      const launched = await sshRun(alias, `setsid nohup bash ${REMOTE_ROOT}/${scriptName} > /dev/null 2>&1 < /dev/null & echo LAUNCHED`, { timeoutMs: 60_000 })
-      if (!launched.stdout.includes('LAUNCHED')) {
-        throw new RemoteServerError(launched.stderr.slice(-400), '无法在远端启动引擎安装')
+    log(`搬运本地引擎 ${opts.engineVersion}（纯 JS）+ 补 ${String(opts.addonSpecs.length)} 个 linux 原生包`)
+    // 先停掉在跑的服务：它正持有 runtime 下的文件（Linux 上删/换不会失败，但让
+    // 新旧混用是最难查的状态）。
+    await sshRun(alias, `pkill -f "${REMOTE_ROOT}/runtime" 2>/dev/null; sleep 1; echo KILLED`)
+    await sshTarInto(alias, opts.runtimeDir, ['lib', 'node_modules', 'package.json'], `${REMOTE_ROOT}/runtime`, log, 6)
+
+    // 原生包在 scratch 里装好再拷进 runtime：装到 staging 目录、成功才就位，
+    // 中断不留半棵依赖树。
+    if (opts.addonSpecs.length > 0) {
+      const specName = 'addon-specs.txt'
+      const specFile = writeScriptFile(opts.addonSpecs.join('\n'), specName)
+      const localNodeBin = opts.remoteNode.replace(/\/node$/, '')
+      const addonScript = [
+        `R=${REMOTE_ROOT}`,
+        `export PATH=${localNodeBin}:$PATH`,
+        'rm -rf $R/addons-staging && mkdir -p $R/addons-staging && cd $R/addons-staging',
+        `printf '{"name":"kcoder-addons","private":true,"version":"1.0.0"}\n' > package.json`,
+        // 用 xargs 展开规格：本地已存在的那些**也必须装**——本地那份是 macOS
+        // 构建留下的空壳（只有 prebuilds.json），曾因"本地已有就跳过"而把
+        // linux 二进制整个漏掉（2026-09-26 实机：Cannot find module
+        // '…/node-addon-system-linux-x64/bin/glibc/system.node'）。
+        `npm i --no-audit --no-fund --ignore-scripts=false --loglevel=error $(tr '\n' ' ' < $R/${specName}) > $R/addons-install.log 2>&1`,
+        'for item in node_modules/*; do b=$(basename "$item"); [ "$b" = ".package-lock.json" ] && continue;',
+        '  if [ "${b:0:1}" = "@" ]; then mkdir -p "$R/runtime/node_modules/$b"; cp -R "$item"/* "$R/runtime/node_modules/$b/";',
+        '  else cp -R "$item" "$R/runtime/node_modules/"; fi; done',
+        'echo ADDONS_OK',
+      ].join('\n')
+      const addonFile = writeScriptFile(addonScript, 'install-addons.sh')
+      // 两个小文件一次送：这条链路每次连接都有约三分之一的掉线概率，减少往返就是
+      // 直接提高成功率（大文件反而因为持续时间长更容易被打断，所以分开）。
+      await sshTarInto(alias, dirname(addonFile), [specFile.split('/').pop()!, addonFile.split('/').pop()!], REMOTE_ROOT, log, 6)
+      const addons = await sshRun(alias, `bash ${REMOTE_ROOT}/install-addons.sh`, { timeoutMs: 900_000 })
+      if (!addons.stdout.includes('ADDONS_OK')) {
+        const tail = await sshRun(alias, `tail -10 ${REMOTE_ROOT}/addons-install.log 2>/dev/null`)
+        throw new RemoteServerError(`${addons.stderr.slice(-300)}\n${tail.stdout.slice(-500)}`, '远端 linux 原生包安装失败')
       }
+      log('linux 原生包已补齐')
     }
-    // 装载**有界等待**：安装是锦上添花，不该让"连接"阻塞半小时——那正是用户看到的
-    // "长时间没反应"（实测 npm 在 WSL2 上可能卡住几十分钟，而 284 个包早已就位）。
-    // 超时后若已有可用引擎就先用它启动，安装在后台继续，下次连接自然生效。
-    const deadlineMs = 180_000
-    const installDeadline = Date.now() + deadlineMs
-    let installResult = ''
-    while (Date.now() < installDeadline) {
-      await new Promise(r => setTimeout(r, 5000))
-      const poll = await sshRun(alias, `cat ${REMOTE_ROOT}/install-done 2>/dev/null || echo RUNNING`)
-      const value = poll.stdout.trim()
-      if (value !== 'RUNNING' && value !== '') { installResult = value; break }
-    }
-    if (installResult !== 'OK') {
-      const fallback = await sshRun(alias, `test -f ${REMOTE_ROOT}/runtime/node_modules/@deepseek-ai/dsh/lib/bin.js && echo YES || echo NO`)
-      if (!fallback.stdout.includes('YES')) {
-        const tail = await sshRun(alias, `tail -20 ${REMOTE_ROOT}/npm-install.log 2>/dev/null`)
-        throw new RemoteServerError(`${installResult === '' ? '等待安装结果超时且无可用引擎' : 'npm 安装失败'}\n${tail.stdout.slice(-700)}`, '远端引擎安装失败')
-      }
-      // **不写标记**：写了就等于宣称这个版本已就位，下次会直接跳过安装，于是永远
-      // 错线。安装留在后台继续，下次连接再判。
-      log(`引擎安装尚未完成（后台继续），先用远端现有引擎启动`)
-    } else {
-      log('远端引擎安装完成')
-      await sshRun(alias, `printf '%s' '${wanted}' > ${markerPath} && echo OK`)
-    }
+    await sshRun(alias, `printf '%s' '${wanted}' > ${markerPath} && echo OK`)
+    log('远端引擎就绪')
   }
 
   const bundlePrint = bundleFingerprint(bundles)
@@ -416,7 +416,7 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
     const name = rename ?? localPath.split('/').pop()!
     const hash = createHash('md5').update(readFileSync(localPath)).digest('hex')
     if (manifest[name] === hash) return
-    await sshTarInto(alias, join(localPath, '..'), [localPath.split('/').pop()!], remoteDir, log, 4)
+    await sshTarInto(alias, join(localPath, '..'), [localPath.split('/').pop()!], remoteDir, log, 6)
     if (rename !== undefined) {
       await sshRun(alias, `mv ${remoteDir}/${localPath.split('/').pop()!} ${remoteDir}/${rename} && echo OK`)
     }
@@ -541,12 +541,12 @@ export async function startRemoteServer(opts: RemoteServerOptions): Promise<Remo
       // 名**（web 模板的 profile 恰好叫 web），不是子命令。多写一个 `web` 会被
       // 当成 app 的位置参数（实测 "too many arguments. Expected 0 arguments but
       // got 1: web"）。本地宿主也是这个形状：`dsh web --patch … --port 0`。
-      // 入口用**装好的包里自带的**那份（`@deepseek-ai/dsh/lib/bin.js`）：它与引擎同源，
-      // 不会像搬本地入口那样与远端引擎错配（实测本地入口在远端报
+      // 入口必须用搬过去那份 runtime 自带的 lib/bin.js：树里没有 @deepseek-ai/dsh
+      // 元包（那是从 npm 装元包路线才有的），照那个路径启动会立刻退出、日志为空。
       // "does not provide an export named 'StartupError'"）。
       // `--profile` 显式给出：`dsh <name>` 的简写是较新 CLI 才有的，旧版直接报
       // "--profile <name> is required"。
-      `DSH_HOME=$R/home setsid nohup node $R/runtime/node_modules/@deepseek-ai/dsh/lib/bin.js --profile ${REMOTE_PROFILE} --port ${port} --no-open > ${remoteLog(port)} 2>&1 < /dev/null &`,
+      `DSH_HOME=$R/home setsid nohup node $R/runtime/lib/bin.js --profile ${REMOTE_PROFILE} --port ${port} --no-open > ${remoteLog(port)} 2>&1 < /dev/null &`,
       'echo LAUNCHED',
     ].join('\n')
     const started = await sshRun(alias, launch, { timeoutMs: 60_000 })
@@ -566,8 +566,15 @@ export async function startRemoteServer(opts: RemoteServerOptions): Promise<Remo
       }
     }
     if (entry === '') {
-      const tail = await sshRun(alias, `tail -6 ${remoteLog(port)} 2>/dev/null`)
-      throw new RemoteServerError(tail.stdout.slice(-400), '远端服务等待就绪超时')
+      // 日志为空通常意味着进程**立刻退出**（入口不存在之类）。此时把两样都带上：
+      // 文件是否存在、以及端口有没有被监听——空 detail 让人无从下手。
+      const diag = await sshRun(alias, [
+        `echo "日志字节: $(wc -c < ${remoteLog(port)} 2>/dev/null || echo 0)"`,
+        `echo "入口存在: $(test -f ${REMOTE_ROOT}/runtime/lib/bin.js && echo 是 || echo 否)"`,
+        `echo "监听: $(ss -ltn 2>/dev/null | grep -c ":${port} " || true)"`,
+        `tail -6 ${remoteLog(port)} 2>/dev/null`,
+      ].join('\n'))
+      throw new RemoteServerError(diag.stdout.slice(-500), '远端服务等待就绪超时')
     }
   }
 
@@ -630,7 +637,8 @@ function hash(value: string): number {
  * @param name - 远端文件名。
  * @returns 本地临时文件名。
  */
-async function writeScriptFile(script: string, name: string): Promise<string> {
-  writeFileSync(join(tmpdir(), name), `${script}\n`)
-  return name
+function writeScriptFile(script: string, name: string): string {
+  const path = join(tmpdir(), name)
+  writeFileSync(path, `${script}\n`)
+  return path
 }
