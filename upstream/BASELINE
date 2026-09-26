@@ -775,3 +775,51 @@
 #   zh/en 各 18 个 locale 键；`.schedPreview*` CSS 全走既有主题 token），经
 #   dsh-plugins 镜像 → KCoder bundle/ 物化；产物级验存三份拷贝一致。
 # 详见 docs/upstream-0.1.7-rc.2-analysis.md §5.3。
+
+# ── fork 侧追加（2026-09-26：pi-ai 0.85.1 → 0.87.1 升级）────────────
+# 集成分支尖端 02253cd274 → **3376ee9896**（merge chore/pi-ai-0.87.1-upgrade
+# d1a6e58ec3，单提交修复分支，已推 fork；基线钉版 477b4f4205 不变——只加
+# fork 侧提交，不动基线）。上游官方同版仍钉 ^0.85.1，本次升级先于上游。
+#
+# 动机（与 0002 同型）：pi-ai 0.86.0–0.87.1（2026-09-19～09-22）目录大刷新——
+# deepseek +deepseek-flash/-v4-flash 族移除、moonshotai 删 6 个 kimi-k2 预览、
+# zai-coding-cn 删 glm-4.7/5.1/5.2、openai/codex/azure +gpt-6-luna/sol、
+# anthropic +claude-opus-5-5、xiaomi +mimo-v2.6、新 provider meta/radius、
+# openrouter ±60 且 ~343 条在位定价/上下文刷新。旧目录含大量已下线型号，
+# 升级后 fail-loud 退出选择器优于静默 404。
+#
+# 适配面（drift gates 全部按设计编译期暴露，共 4 门 + 2 源文件）：
+# ① catalog.ts：completions 门删 deferredToolsMode（上游移除）、分类
+#   supportsMidConvoSystemMessages/ToolAdditions；responses 门分类
+#   supportsMidConvoSystemMessages；anthropic 门删 supportsToolReferences、
+#   分类 mid-convo 对 + sessionAffinityFormat；新 mistral-conversations
+#   compat 类型（MistralConversationsCompat）入 COMPAT_GATES——全部 withhold。
+# ② 0.87 把 API 层 stream 参数收紧为品牌 TranscriptContext：
+#   adapter.ts 归一化一次两条流路径共用；replay.ts parseArguments 改返
+#   JsonObject（ToolCall.arguments 收紧）。Models.streamSimple 公共入口
+#   仍收普通 Context（内部 normalize），调用面无感。
+# ③ 测试：deepseek 路由型号 deepseek-v4-flash → deepseek-flash（同 ctx/
+#   maxTokens/thinkingLevelMap，新增 image 输入）；opencode-go 代理目录
+#   保留自己的 deepseek-v4-flash id（provider 目录相互独立，勿跨目录替换）；
+#   手写 context 过 normalizeContext。discovery.spec 的 recorded fixture
+#   mock 报文与断言必须成对改（本次曾误伤单侧后还原）。
+# ④ pnpm patch 换键 pi-ai@0.87.1：内容对 0.85.1 补丁零漂移（流式参数
+#   parse-once + codex relay accountId 兜底 + relay 终止事件容错三方合一
+#   原样保留），仅 hunk 行号漂移（extractAccountId 1253→1262、terminal
+#   event 651→656）；patch_hash a62e2913 → 8d2124eb。
+#
+# 回归：CI=true pnpm install exit 0；build:lib:host exit 0；vitest
+# packages/llm + bundle/base **1400/1400**；oxlint 0/0；pre-push typecheck
+# 绿。KCoder 侧物化断言：staging pi-ai 0.87.1 + 双 KCoder 补丁标记 +
+# 新 deepseek 目录；brand-assert 通过；smoke-runtime（Electron node 形态）
+# 就绪行 + 首页 200。
+#
+# ⚠️ 本轮发现并修复 KCoder 工具缺陷：**materialize-peers findExternal
+# 版本盲选**——按目录名前缀先到先得，上游 .pnpm 里残留的旧 0.85.1 补丁体
+# （字典序在前）被原样搬进物化顶层，静默覆盖新 0.87.1（首两轮 staging 均
+# 被污染，端到端断言才暴露）。修复：顶层放置改走「findVirtualSibling →
+# findExternalSatisfying（semver 校验 + 同版本优先 patch_hash 补丁体 +
+# 最高版本）」，溯源不到交 registry 兜底；findExternal 移除。凡上游依赖
+# 升级后必跑 staging 端到端断言（版本 + 补丁标记 + 目录三查），单查版本
+# 会漏掉「补丁体选错」这种静默回归。
+

@@ -117,18 +117,6 @@ function placePkg(srcDir, dest, fromWorkspace) {
   return true
 }
 
-/** 从上游 node_modules/.pnpm 溯源外部包实体（按目录名前缀索引）。 */
-function findExternal(name) {
-  const pnpm = join(upstream, 'node_modules', '.pnpm')
-  const prefix = name.replace('/', '+') + '@'
-  for (const e of readdirSync(pnpm)) {
-    if (!e.startsWith(prefix)) continue
-    const dir = join(pnpm, e, 'node_modules', name)
-    if (existsSync(dir)) return dir
-  }
-  return null
-}
-
 /** staging 内所有 package.json 路径（.pnpm 实体 + 顶层）。 */
 function* stagingManifests() {
   const pnpm = join(topNM, '.pnpm')
@@ -162,6 +150,76 @@ function* manifestsUnder(dir) {
   }
 }
 
+// 上游 .pnpm 虚拟目录——pnpm install 时已为每个包实例解析好邻居版本。
+const pnpmStore = join(upstream, 'node_modules', '.pnpm')
+/** semver 是传递依赖，pnpm 顶层解析不到；从 .pnpm 实体或 staging 加载（API 稳定，任意版本可用）。 */
+function loadSemver() {
+  const candidates = []
+  if (existsSync(pnpmStore)) {
+    for (const e of readdirSync(pnpmStore)) {
+      if (e.startsWith('semver@')) candidates.push(join(pnpmStore, e, 'node_modules', 'semver'))
+    }
+  }
+  candidates.push(join(topNM, 'semver'))
+  for (const dir of candidates) {
+    if (!existsSync(join(dir, 'package.json'))) continue
+    try { return createRequire(join(dir, 'package.json'))('semver') } catch { /* 尝试下一个 */ }
+  }
+  return null
+}
+const semver = loadSemver()
+if (semver === null) console.warn('[materialize] semver 不可用，版本仲裁降级为存在性检查')
+/** dir 处包版本是否满足 range；非 semver 语义（workspace:/git/url…）存在即满足。 */
+function depSatisfies(dir, range) {
+  if (semver === null) return true
+  let ver
+  try { ver = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).version } catch { return false }
+  if (typeof ver !== 'string') return false
+  try {
+    if (semver.validRange(range) === null) return true
+    return semver.satisfies(ver, range, { loose: true })
+  } catch { return false }
+}
+/** 上游 .pnpm 虚拟目录：<pkg@ver> 实例旁已解析好的 <depName> 即权威版本。 */
+function findVirtualSibling(pkgName, pkgVer, depName, range) {
+  if (!existsSync(pnpmStore)) return null
+  const prefix = pkgName.replace('/', '+') + '@' + pkgVer
+  for (const e of readdirSync(pnpmStore)) {
+    if (!e.startsWith(prefix)) continue
+    const nm = join(pnpmStore, e, 'node_modules')
+    try {
+      if (JSON.parse(readFileSync(join(nm, pkgName, 'package.json'), 'utf8')).version !== pkgVer) continue
+    } catch { continue }
+    const cand = join(nm, depName)
+    if (existsSync(join(cand, 'package.json')) && depSatisfies(cand, range)) return cand
+  }
+  return null
+}
+/** 上游 .pnpm 里满足 range 的 <name> 实体；同版本多实例优先补丁体、取最高版本。 */
+function findExternalSatisfying(name, range) {
+  if (!existsSync(pnpmStore)) return null
+  const prefix = name.replace('/', '+') + '@'
+  const candidates = []
+  for (const e of readdirSync(pnpmStore)) {
+    if (!e.startsWith(prefix)) continue
+    const dir = join(pnpmStore, e, 'node_modules', name)
+    if (!existsSync(join(dir, 'package.json')) || !depSatisfies(dir, range)) continue
+    // 同版本多实例（补丁体/未补丁）时必须选补丁体：顶层放置会遮蔽
+    // .pnpm 内的权威解析，选错会静默丢掉补丁内容（pi-ai 的 relay
+    // 修复就活在补丁体里）。
+    const patched = e.includes('patch_hash')
+    const ver = e.slice(prefix.length).replace(/_.*$/, '')
+    candidates.push({ dir, patched, ver })
+  }
+  candidates.sort((a, b) => {
+    if (a.patched !== b.patched) return a.patched ? -1 : 1
+    if (semver !== null && semver.valid(a.ver) !== null && semver.valid(b.ver) !== null) {
+      return semver.rcompare(a.ver, b.ver)
+    }
+    return b.ver.localeCompare(a.ver)
+  })
+  return candidates[0]?.dir ?? null
+}
 const ws = scanWorkspace()
 const placed = []
 const skippedOptional = []
@@ -190,7 +248,15 @@ while (changed) {
         if (existsSync(join(topNM, name))) continue
         const optional = kind === 'opt' || (kind === 'peer' && meta[name]?.optional === true)
         const wsSrc = ws.get(name)
-        const src = wsSrc ?? findExternal(name)
+        // 版本感知解析（v0.6.18 教训）：旧的 findExternal 按目录名前缀
+        // 先到先得，上游 .pnpm 里同名的陈旧/未打补丁实体会被原样搬进
+        // 顶层——pi-ai 升级 0.87.1 时，残留的 0.85.1 补丁体（字典序在前）
+        // 就是这样盖进物化产物的。改为「版本满足 + 同版本优先补丁体」
+        // 的溯源；溯源不到交给既有的 registry 兜底，而不是搬一个可能
+        // 陈旧的实体。
+        const src = wsSrc
+          ?? findVirtualSibling(pkg.name, pkg.version, name, range)
+          ?? findExternalSatisfying(name, range)
         if (src === null) {
           if (optional) {
             if (!skippedOptional.includes(name)) skippedOptional.push(name)
@@ -304,62 +370,6 @@ console.log(`[materialize] flatten：${flattened} 个 symlink→实体，已删 
 // ajv-formats → ajv/dist/compile/codegen MODULE_NOT_FOUND、引擎起不来
 // 即此因（开发态 pnpm 嵌套解析正常，只在打包产物炸，冒烟难拦）。
 // 按 npm 语义给版本不满足的引用方嵌套放置精确版本；权威来源是
-// 上游 .pnpm 虚拟目录——pnpm install 时已为每个包实例解析好邻居版本。
-const pnpmStore = join(upstream, 'node_modules', '.pnpm')
-/** semver 是传递依赖，pnpm 顶层解析不到；从 .pnpm 实体或 staging 加载（API 稳定，任意版本可用）。 */
-function loadSemver() {
-  const candidates = []
-  if (existsSync(pnpmStore)) {
-    for (const e of readdirSync(pnpmStore)) {
-      if (e.startsWith('semver@')) candidates.push(join(pnpmStore, e, 'node_modules', 'semver'))
-    }
-  }
-  candidates.push(join(topNM, 'semver'))
-  for (const dir of candidates) {
-    if (!existsSync(join(dir, 'package.json'))) continue
-    try { return createRequire(join(dir, 'package.json'))('semver') } catch { /* 尝试下一个 */ }
-  }
-  return null
-}
-const semver = loadSemver()
-if (semver === null) console.warn('[materialize] semver 不可用，版本仲裁降级为存在性检查')
-/** dir 处包版本是否满足 range；非 semver 语义（workspace:/git/url…）存在即满足。 */
-function depSatisfies(dir, range) {
-  if (semver === null) return true
-  let ver
-  try { ver = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).version } catch { return false }
-  if (typeof ver !== 'string') return false
-  try {
-    if (semver.validRange(range) === null) return true
-    return semver.satisfies(ver, range, { loose: true })
-  } catch { return false }
-}
-/** 上游 .pnpm 虚拟目录：<pkg@ver> 实例旁已解析好的 <depName> 即权威版本。 */
-function findVirtualSibling(pkgName, pkgVer, depName, range) {
-  if (!existsSync(pnpmStore)) return null
-  const prefix = pkgName.replace('/', '+') + '@' + pkgVer
-  for (const e of readdirSync(pnpmStore)) {
-    if (!e.startsWith(prefix)) continue
-    const nm = join(pnpmStore, e, 'node_modules')
-    try {
-      if (JSON.parse(readFileSync(join(nm, pkgName, 'package.json'), 'utf8')).version !== pkgVer) continue
-    } catch { continue }
-    const cand = join(nm, depName)
-    if (existsSync(join(cand, 'package.json')) && depSatisfies(cand, range)) return cand
-  }
-  return null
-}
-/** 上游 .pnpm 里任一满足 range 的 <name> 实体。 */
-function findExternalSatisfying(name, range) {
-  if (!existsSync(pnpmStore)) return null
-  const prefix = name.replace('/', '+') + '@'
-  for (const e of readdirSync(pnpmStore)) {
-    if (!e.startsWith(prefix)) continue
-    const dir = join(pnpmStore, e, 'node_modules', name)
-    if (existsSync(join(dir, 'package.json')) && depSatisfies(dir, range)) return dir
-  }
-  return null
-}
 /** staging 实体包 manifests（含嵌套 node_modules 内的，flatten 后全是实体目录）。 */
 function* realManifests(dir) {
   let entries
