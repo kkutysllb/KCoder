@@ -14,7 +14,7 @@
 
 import { readFileSync, unwatchFile, watchFile } from 'node:fs'
 import { join } from 'node:path'
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, dialog } from 'electron'
 import { DshManager } from './dsh-manager'
 import { dshHome } from './dsh-contract'
 import type { DshStatus } from '@shared/ipc-contract'
@@ -84,8 +84,10 @@ export function openRemoteConnection(hostId: string): string {
       return
     }
     if (status.state === 'failed') {
+      // 静默失败最糟：用户刚按了按钮，必须看到为什么。
       connection.window?.destroy()
       connections.delete(hostId)
+      dialog.showErrorBox('远程连接失败', `${spec.name || spec.alias}\n${status.error ?? '未知原因'}`)
       void manager.stop()
     }
   })
@@ -121,15 +123,32 @@ export async function closeRemoteConnections(): Promise<void> {
  * already agree on, and the main process keeps the only capability that matters
  * (spawning a process and a window).
  *
- * `seq` is monotonic so a repeated watch event cannot open the same connection
- * twice, and the last seen value is primed before watching so a leftover request
- * from a previous run is not replayed at startup.
+ * The starting `seq` is read as a **watermark only, never acted on**: a request
+ * left in the file belongs to the run that wrote it. Acting on it during startup
+ * opened a remote window on every launch (2026-09-26, reported as "starting dev
+ * pops up a dsh window") and, because the connection then already existed, made
+ * every later click look like a no-op — it only focused that window.
  * @returns disposer that stops watching.
  */
 export function startRemoteOpenWatcher(): () => void {
   const file = join(dshHome(), 'ssh-remote', 'pending-remote-open.json')
-  let lastSeq = 0
-  const read = (): void => {
+
+  /** The file's current sequence, or 0 when absent/unreadable/mid-write. */
+  const sequence = (): number => {
+    try {
+      const parsed = JSON.parse(readFileSync(file, 'utf8')) as { seq?: unknown }
+      const seq = Number(parsed.seq)
+      return Number.isFinite(seq) ? seq : 0
+    } catch {
+      return 0
+    }
+  }
+
+  // Watermark only: record where the file stands so a leftover request is
+  // ignored, without opening anything.
+  let lastSeq = sequence()
+
+  const act = (): void => {
     let request: { seq?: unknown; hostId?: unknown }
     try {
       request = JSON.parse(readFileSync(file, 'utf8')) as typeof request
@@ -141,10 +160,13 @@ export function startRemoteOpenWatcher(): () => void {
     if (!Number.isFinite(seq) || seq <= lastSeq) return
     lastSeq = seq
     if (hostId === '') return
-    openRemoteConnection(hostId)
+    const outcome = openRemoteConnection(hostId)
+    // Silence is the worst outcome for a button the user pressed: surface the
+    // refusal (an unregistered host, most likely) instead of doing nothing.
+    if (outcome.startsWith('未找到')) dialog.showErrorBox('无法打开远程连接', outcome)
   }
-  // Prime first: an existing request belongs to whoever wrote it, not to us.
-  read()
-  watchFile(file, { interval: 1000 }, read)
-  return () => unwatchFile(file, read)
+
+  watchFile(file, { interval: 1000 }, act)
+  return () => unwatchFile(file, act)
 }
+
