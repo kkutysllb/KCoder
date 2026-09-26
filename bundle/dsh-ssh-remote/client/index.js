@@ -486,6 +486,171 @@ window.__ModuleLoader__.load({
         )
       )
     }
+
+    /* ---- 目录来源切换：本机 / 远程主机 ----
+       为什么需要接管：壳的目录对话框只会列本机目录，而远程工作区必须建在它所属的
+       世界里（上游 SSH 世界是进程级的），所以远程来源不是"在本地窗口里选个远端
+       路径"，而是"连到那台机器的窗口去选"。本机来源仍走原有原生对话框。 */
+    var S2 = {
+      mask: { position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+      dlg: { width: 560, maxWidth: '92vw', maxHeight: '78vh', overflow: 'auto', background: 'var(--dsw-alias-bg-layer-1,#1f1f1f)', border: '1px solid var(--dsw-alias-border-l1,#88888866)', borderRadius: 12, padding: '14px 16px', textAlign: 'left', color: 'var(--dsw-alias-label-primary,inherit)', fontSize: 13 },
+      tabs: { display: 'flex', gap: 6, marginBottom: 12, borderBottom: '1px solid var(--dsw-alias-border-l1,#88888866)', paddingBottom: 10 },
+      tab: { font: 'inherit', fontSize: 12, padding: '4px 12px', borderRadius: 999, border: '1px solid var(--dsw-alias-border-l1,#88888866)', background: 'transparent', color: 'var(--dsw-alias-label-secondary,#bbb)', cursor: 'pointer' },
+      tabOn: { background: 'var(--dsw-alias-bg-layer-2,#2a2a2a)', color: 'var(--dsw-alias-label-primary,#fff)', fontWeight: 600 },
+      row: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', margin: '4px 0', borderRadius: 8, border: '1px solid var(--dsw-alias-border-l1,#88888866)' },
+      grow: { flex: '1 1 auto', minWidth: 0 },
+      nm: { fontWeight: 600, color: 'var(--dsw-alias-label-primary,inherit)' },
+      sub: { fontSize: 11, color: 'var(--dsw-alias-label-tertiary,#888)', marginTop: 2, wordBreak: 'break-all' },
+      hint: { fontSize: 11, color: 'var(--dsw-alias-label-tertiary,#888)', margin: '8px 0' },
+      err: { color: '#e5484d', fontSize: 11, marginTop: 6, wordBreak: 'break-all' },
+      log: { fontSize: 10, fontFamily: 'ui-monospace, monospace', color: 'var(--dsw-alias-label-secondary,#aaa)', whiteSpace: 'pre-wrap', maxHeight: 160, overflow: 'auto', background: 'var(--dsw-alias-bg-layer-2,#2a2a2a)', borderRadius: 6, padding: 8, marginTop: 8 },
+      foot: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 },
+      crumbs: { display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 },
+      crumb: { font: 'inherit', fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l1,#88888866)', background: 'transparent', color: 'var(--dsw-alias-label-secondary,#bbb)', cursor: 'pointer' },
+    }
+
+    function SshDirectoryFlow(props) {
+      var open = props.open, busy = props.busy
+      // 值域与 setter 必须来自**同一次** useState：拆成两次调用时 setter 属于
+      // 另一个单元，状态永远不更新（只重渲染）——2026-09-26 实机踩到。
+      var pair = useState({ source: 'local', hosts: [], worlds: [], log: null, busy: false, error: null, detail: null, remote: null, listing: null, loading: false })
+      var st = pair[0]
+      var set = pair[1]
+      var render = function (patch) { set(function (s) { return Object.assign({}, s, patch) }) }
+      useEffect(function () {
+        if (!open) return
+        render({ error: null })
+        fetch('/ssh-remote/api/world').then(function (r) { return r.json() }).then(function (res) {
+          var remote = !!(res && res.ok && res.value && res.value.remote)
+          render({ remote: remote })
+          // 远程世界：直接进应用内浏览（本世界就是那台机器），无来源可切换。
+          if (remote) loadListing(undefined)
+        }).catch(function () { render({ remote: false }) })
+        fetch('/ssh-remote/api/hosts').then(function (r) { return r.json() }).then(function (res) {
+          render({ hosts: res && res.ok && res.value ? res.value : [] })
+        }).catch(function () { render({ error: '读取主机列表失败' }) })
+        fetch('/ssh-remote/api/worlds').then(function (r) { return r.json() }).then(function (res) {
+          render({ worlds: res && res.ok && res.value ? res.value : [] })
+        }).catch(function () {})
+      }, [open])
+      if (!open) return null
+      var browser = function () {
+        var l = st.listing
+        return h('div', null,
+          l ? h('div', { style: S2.crumbs }, l.crumbs.map(function (c, i) {
+            return h('button', { key: 'c' + i, type: 'button', style: S2.crumb, onClick: function () { loadListing(c.path) } }, c.name)
+          })) : null,
+          st.loading ? h('div', { style: S2.hint }, '加载中…') : null,
+          l && l.entries.length === 0 && !st.loading ? h('div', { style: S2.hint }, '（此目录下没有子目录）') : null,
+          l ? l.entries.map(function (en) {
+            return h('div', { key: en.path, style: S2.row },
+              h('div', { style: S2.grow, onClick: function () { loadListing(en.path) }, cursor: 'pointer' }, h('div', { style: S2.nm }, en.name)),
+              h('button', { type: 'button', style: S2.tab, onClick: function () { loadListing(en.path) } }, '进入')
+            )
+          }) : null,
+          l && l.truncated ? h('div', { style: S2.hint }, '目录过多，仅显示开头部分。') : null,
+          h('div', { style: S2.hint }, '当前：' + (l ? l.path : '—')),
+          h('div', { style: S2.foot },
+            h('button', { type: 'button', style: S2.tab, onClick: props.onCancel }, '取消'),
+            h('button', { type: 'button', style: Object.assign({}, S2.tab, S2.tabOn), disabled: !l || busy === true, onClick: function () { if (l) props.onPicked(l.path) } }, '选为工作区')
+          )
+        )
+      }
+      var byId = {}
+      st.hosts.forEach(function (h) { byId[h.id] = h })
+      var worldOf = {}
+      st.worlds.forEach(function (w) { worldOf[w.hostId] = w })
+      // 应用内逐层浏览（远程世界唯一可用的来源；本地世界在系统对话框不可用时也用它）
+      var loadListing = function (path) {
+        var ui = props.ui
+        if (!ui || !ui.listDirectory) { render({ error: '当前载体没有目录枚举能力' }); return }
+        render({ loading: true, error: null })
+        ui.listDirectory(path).then(function (listing) {
+          render({ loading: false, listing: listing })
+        }, function (err) { render({ loading: false, error: String((err && err.message) || err) }) })
+      }
+      var pickLocal = function () {
+        if (!props.ui || !props.ui.pickDirectory) { props.onError('当前载体没有本地目录选择能力'); return }
+        props.ui.pickDirectory().then(function (path) {
+          if (path === null || path === undefined) props.onCancel(); else props.onPicked(path)
+        }, function () {
+          // 系统对话框不可用（后端是应用内 browse，例如远程世界或 SSH 启动）：
+          // 就地切成应用内浏览，而不是把用户堵在报错上。
+          loadListing(undefined)
+          render({ source: 'browse' })
+        })
+      }
+      var connect = function (hostId) {
+        render({ busy: true, error: null })
+        postJson('/ssh-remote/api/remote-open', { hostId: hostId }).then(function (res) {
+          if (res && res.ok) {
+            render({ busy: false })
+            props.onCancel()
+          } else {
+            render({ busy: false, error: (res && res.error && res.error.message) || '无法请求打开远程窗口' })
+          }
+        }, function (err) { render({ busy: false, error: '请求失败：' + String((err && err.message) || err) }) })
+      }
+      var provision = function (hostId) {
+        render({ busy: true, error: null, log: ['开始引导…'] })
+        postJson('/ssh-remote/api/provision', { hostId: hostId }).then(function (res) {
+          var log = (res && res.log) || []
+          if (res && res.ok) {
+            var done = res.value && res.value.spec ? res.value.spec.workspace : ''
+            render({ busy: false, log: log.concat(['完成：远端工作区 ' + done]) })
+            fetch('/ssh-remote/api/worlds').then(function (r) { return r.json() }).then(function (wr) {
+              render({ worlds: wr && wr.ok && wr.value ? wr.value : [] })
+            }).catch(function () {})
+          } else {
+            render({ busy: false, log: log, error: (res && res.error && res.error.message) || '引导失败', detail: res && res.error && res.error.detail })
+          }
+        }, function (err) { render({ busy: false, error: '引导请求失败：' + String((err && err.message) || err) }) })
+      }
+      var hosts = st.hosts
+      return h('div', { style: S2.mask, onClick: function (e) { if (e.target === e.currentTarget) props.onCancel() } },
+        h('div', { style: S2.dlg },
+          h('div', { style: S2.tabs },
+            h('button', { type: 'button', style: Object.assign({}, S2.tab, st.source === 'local' ? S2.tabOn : null), onClick: function () { render({ source: 'local' }) } }, '本机'),
+            h('button', { type: 'button', style: Object.assign({}, S2.tab, st.source === 'remote' ? S2.tabOn : null), onClick: function () { render({ source: 'remote' }) } }, '远程主机')
+          ),
+          st.remote === true
+            ? browser()
+            : st.source === 'local'
+            ? h('div', null,
+                h('div', { style: S2.hint }, '用系统目录对话框选择本机目录。'),
+                h('div', { style: S2.foot },
+                  h('button', { type: 'button', style: S2.tab, onClick: props.onCancel }, '取消'),
+                  h('button', { type: 'button', style: Object.assign({}, S2.tab, S2.tabOn), disabled: busy === true, onClick: pickLocal }, '选择目录…')
+                )
+              )
+            : st.source === 'browse'
+            ? browser()
+            : h('div', null,
+                hosts.length === 0
+                  ? h('div', { style: S2.hint }, '还没有配置远程主机。到「设置 → SSH 远程主机」添加一台。')
+                  : hosts.map(function (host) {
+                      var world = worldOf[host.id]
+                      return h('div', { key: host.id, style: S2.row },
+                        h('div', { style: S2.grow },
+                          h('div', { style: S2.nm }, host.name || host.id),
+                          h('div', { style: S2.sub }, host.user + '@' + host.host + ':' + host.port),
+                          h('div', { style: S2.sub }, world
+                            ? '已就绪 · 远端工作区可建在 ' + world.workspace
+                            : '未引导（需装 Node 与运行组件）')
+                        ),
+                        h('button', { type: 'button', style: S2.tab, disabled: st.busy === true, onClick: function () { provision(host.id) } }, world ? '重新引导' : '引导'),
+                        h('button', { type: 'button', style: Object.assign({}, S2.tab, world ? S2.tabOn : null), disabled: st.busy !== true && !world, onClick: function () { connect(host.id) } }, '连接')
+                      )
+                    }),
+                h('div', { style: S2.hint }, '远程工作区建在那台机器的世界里——点「连接」会打开它的窗口，在那里用目录对话框逐层点选远端目录。'),
+                st.log ? h('div', { style: S2.log }, st.log.join('\n')) : null,
+                st.error ? h('div', { style: S2.err }, st.error + (st.detail ? '：' + st.detail : '')) : null,
+                h('div', { style: S2.foot }, h('button', { type: 'button', style: S2.tab, onClick: props.onCancel }, '取消'))
+              )
+        )
+      )
+    }
+
     return {
       inject: ['slots'],
       apply: function (ctx) {
@@ -501,6 +666,15 @@ window.__ModuleLoader__.load({
             { name: 'settings.section', id: 'ssh-remote', order: 116, label: 'SSH 远程主机' },
             SshRemoteSettings
           )
+        })
+        // 来源切换：接管两个目录流洞（priority -1 遮蔽内置占用者；上游
+        // ui-slots 的既定遮蔽语义——升序优先级、最低者渲染）。本机来源仍走
+        // 原生对话框，故是超集而非替换。
+        var flowInjected = function () { return { ui: ctx.get('uiWorkspace') } }
+        ;['sidebar.workspaces.directoryFlow', 'conversation.hero.workspace.directoryFlow'].forEach(function (hole) {
+          ctx.slots.inject(hole, function () {
+            return ctx.slots.register({ name: hole, priority: -1, inject: flowInjected }, SshDirectoryFlow)
+          })
         })
       },
     }

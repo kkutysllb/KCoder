@@ -10,6 +10,7 @@ import { CredentialStore, identityOf } from './credentials.js'
 import { harnessHome } from './home.js'
 import { HostRegistry, normalizeHost, assignMissingIds } from './hosts.js'
 import { TargetStore } from './targets.js'
+import { ProvisionError, ensureAlias, provisionWorld } from './provision.js'
 import { ConnectionManager } from './connection.js'
 import { Runner } from './exec.js'
 import { FsOps } from './fsops.js'
@@ -598,6 +599,75 @@ export function apply(ctx, config) {
             return
           }
           // 远程目录浏览（"选择工作区 → 远程目录"的逐层选择器数据源）
+          // 引导为远程执行世界（B-β）：公钥/别名 → Node → helper 依赖 → 摘要 → 登记。
+          // 认证能力比运行期更强：这条用插件自己的 ssh（密码可用），运行期 dsh-ssh
+          // 的 BatchMode 会把 password/keyboard-interactive 在客户端剔除。
+          // 耗时可达分钟级（首次要下载 Node 与依赖），故同步等待并回传全过程日志。
+          if (m === 'POST' && p === '/ssh-remote/api/provision') {
+            readJson(req, body).then(b => {
+              const hostId = String((b && b.hostId) || '').trim()
+              const alias = String((b && b.alias) || '').trim() || ('dsh-' + hostId)
+              if (!hostId) { respond(res, 400, { ok: false, error: { code: 'bad-request', message: 'hostId 必填' } }); return }
+              let h
+              try { h = pick(hostId) } catch (err) {
+                respond(res, 404, { ok: false, error: { code: 'not-found', message: String((err && err.message) || err) } })
+                return
+              }
+              const log = []
+              const runRemote = (host, command, o) => runner.run(host, command, o || {})
+              Promise.resolve()
+                .then(async () => {
+                  await ensureAlias(h, { alias, dataDir, runRemote, log: m => log.push(m) })
+                  const spec = await provisionWorld(h, { alias, dataDir, runRemote, log: m => log.push(m) })
+                  respond(res, 200, { ok: true, value: { spec, log } })
+                })
+                .catch(err => {
+                  const code = (err instanceof ProvisionError && err.code) || 'provision-failed'
+                  respond(res, 502, { ok: false, error: { code, message: String((err && err.message) || err), detail: err && err.detail }, log })
+                })
+            }).catch(() => respond(res, 400, { ok: false, error: { code: 'bad-json', message: 'invalid json body' } }))
+            return
+          }
+          // 本进程的执行世界自述：远程世界时 ctx.ssh 在挂载（dsh-ssh 的连接服务）。
+          // 渲染层据此决定目录来源形态——远程世界里没有「本机」这个来源（那台
+          // 机器就是本机），也不该再开一个远程窗口。
+          if (m === 'GET' && p === '/ssh-remote/api/world') {
+            const remote = ctx.get('ssh') !== undefined
+            respond(res, 200, { ok: true, value: { remote } })
+            return
+          }
+          // 已登记的执行世界（引导产物）。由插件自己读，渲染层不必经桌面桥——
+          // dsh Web UI 那个窗口没有 preload（sandbox + 无桌面 API，有意的姿态）。
+          if (m === 'GET' && p === '/ssh-remote/api/worlds') {
+            let worlds = []
+            try {
+              const parsed = JSON.parse(fs.readFileSync(path.join(dataDir, 'worlds.json'), 'utf8'))
+              if (Array.isArray(parsed)) worlds = parsed
+            } catch { /* 未登记＝空表 */ }
+            respond(res, 200, { ok: true, value: worlds })
+            return
+          }
+          // 请求打开某台主机的连接窗口。Web UI 里拿不到桌面 API，故以**请求文件**
+          // 交给宿主：主进程监听 <dataDir>/pending-remote-open.json，读到即开窗。
+          // 用 seq 单调递增去重，避免监听器重复触发时反复开窗。
+          if (m === 'POST' && p === '/ssh-remote/api/remote-open') {
+            readJson(req, body).then(b => {
+              const hostId = String((b && b.hostId) || '').trim()
+              if (!hostId) { respond(res, 400, { ok: false, error: { code: 'bad-request', message: 'hostId 必填' } }); return }
+              try { pick(hostId) } catch (err) {
+                respond(res, 404, { ok: false, error: { code: 'not-found', message: String((err && err.message) || err) } })
+                return
+              }
+              const file = path.join(dataDir, 'pending-remote-open.json')
+              let seq = 0
+              try { seq = Number(JSON.parse(fs.readFileSync(file, 'utf8')).seq) || 0 } catch { /* 首次 */ }
+              const tmp = file + '.tmp'
+              fs.writeFileSync(tmp, JSON.stringify({ seq: seq + 1, hostId, at: new Date().toISOString() }))
+              fs.renameSync(tmp, file)
+              respond(res, 200, { ok: true, value: { requested: hostId } })
+            }).catch(() => respond(res, 400, { ok: false, error: { code: 'bad-json', message: 'invalid json body' } }))
+            return
+          }
           if (m === 'POST' && p === '/ssh-remote/api/browse') {
             readJson(req, body).then(async b => {
               try {
