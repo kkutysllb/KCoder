@@ -167,6 +167,37 @@ export const PRESET_PLUGINS: Record<string, string> = {
 }
 
 /**
+ * 预置**运行时依赖**：不是 dsh 插件，而是某个内置 bundle 的运行前提。
+ *
+ * 与 {@link PRESET_PLUGINS} 分开的原因有两条：
+ * 1. `plugins.ts` 会把 PRESET_PLUGINS 的键并进「内置、禁卸载」清单，
+ *    而 provider 类包进插件管理页是错误表述（它们没有 dsh.bundle 元数据）；
+ * 2. 两者的**存在理由**不同——插件是用户可见能力，这些是别的 bundle 能否
+ *    加载的前提。
+ *
+ * 但两者都必须装进 profile：profile 是 out-of-tree 包的解析基准
+ * （见 app-boot 的 profile-resolution：裸模块名从 `<profile>/node_modules`
+ * 起解析，安装自有的包才走 installation 拦截层）。装不上时的症状是
+ * `failed to import`，且**只在启用对应 bundle 时才暴露**。
+ *
+ * `@deepseek-ai/dsh-*-ssh`（2026-09-26，SSH 执行世界 / B-β）：内置 bundle
+ * `dsh-ssh-remote` 用它把执行世界换成远端主机。**版本必须与引擎基线同线**
+ * （当前 0.1.7-rc.2）；跨线混装会让 provider 与服务定义类身份分裂。
+ */
+export const PRESET_RUNTIME_DEPS: Record<string, string> = {
+  '@deepseek-ai/dsh-ssh': '0.1.7-rc.2',
+  '@deepseek-ai/dsh-fs-ssh': '0.1.7-rc.2',
+  '@deepseek-ai/dsh-subprocess-ssh': '0.1.7-rc.2',
+  '@deepseek-ai/dsh-sandbox-ssh': '0.1.7-rc.2',
+}
+
+/**
+ * {@link ensurePresetPlugins} 实际安装与对账的完整清单：预置插件 + 预置运行时
+ * 依赖。消费方（`plugins.ts` 的内置清单）只认 PRESET_PLUGINS，两者因此互不污染。
+ */
+const MANAGED_PROFILE_DEPS: Record<string, string> = { ...PRESET_PLUGINS, ...PRESET_RUNTIME_DEPS }
+
+/**
  * 退役预置插件：不再预置，也不留在用户 profile——dependencies 声明、
  * bundles 层叠声明与 node_modules 实体三处自愈移除（见
  * ensurePresetPlugins 的退役清理步骤；摘 deps + 删实体后由 pnpm
@@ -410,7 +441,7 @@ export function ensurePresetPlugins(): void {
     const workspacePath = join(profileDir, 'pnpm-workspace.yaml')
     const patchLayerPath = join(profileDir, 'cordis.patch.yml')
     const installed = (p: string): boolean => existsSync(join(profileDir, 'node_modules', p))
-    const presetNames = Object.keys(PRESET_PLUGINS)
+    const presetNames = Object.keys(MANAGED_PROFILE_DEPS)
 
     // 1) 骨架：清单不存在 → 预写完整模板（上游 initProfile 只在缺失时写，
     //    预写不会被模板覆盖）。bundles 只含模板内置层——预置插件的声明
@@ -422,7 +453,7 @@ export function ensurePresetPlugins(): void {
       manifest = {
         name: `dsh-profile-${WEB_PROFILE}`,
         private: true,
-        dependencies: { ...PRESET_PLUGINS },
+        dependencies: { ...MANAGED_PROFILE_DEPS },
         dsh: { profile: { bundles: [...TEMPLATE_BUNDLES] } },
       }
       writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
@@ -498,7 +529,7 @@ export function ensurePresetPlugins(): void {
     const deps = (m['dependencies'] as Record<string, unknown> | undefined) ?? ({} as Record<string, unknown>)
     const missingDeps = presetNames.filter((p) => !(p in deps))
     if (missingDeps.length > 0) {
-      for (const p of missingDeps) deps[p] = PRESET_PLUGINS[p]
+      for (const p of missingDeps) deps[p] = MANAGED_PROFILE_DEPS[p]
       m['dependencies'] = deps
       writeFileSync(manifestPath, `${JSON.stringify(m, undefined, 2)}\n`)
       console.log(`[preset-plugins] 已补写依赖声明: ${missingDeps.join(', ')}`)
@@ -513,17 +544,17 @@ export function ensurePresetPlugins(): void {
     //      启动即 SyntaxError 全局崩。实体版本满足下界则不动（用户
     //      update --latest 升线、mac git 源收编 0.17.2 均不被降级覆写）
     for (const p of presetNames) {
-      const min = specMinVer(PRESET_PLUGINS[p])
+      const min = specMinVer(MANAGED_PROFILE_DEPS[p])
       if (min === null) continue
       const cur = specMinVer(installedVersionOf(profileDir, p) ?? '')
       const entityDir = join(profileDir, 'node_modules', p)
       const staleEntity = existsSync(entityDir) && (cur === null || cmpVer(cur, min) < 0)
       if (!staleEntity && cur !== null) continue
-      if (deps[p] !== PRESET_PLUGINS[p]) {
-        deps[p] = PRESET_PLUGINS[p]
+      if (deps[p] !== MANAGED_PROFILE_DEPS[p]) {
+        deps[p] = MANAGED_PROFILE_DEPS[p]
         writeFileSync(manifestPath, `${JSON.stringify(m, undefined, 2)}\n`)
-        console.log(`[preset-plugins] 预置 spec 已对齐: ${p} → ${PRESET_PLUGINS[p]}`)
-        healLog(`[preset] 预置 spec 已对齐: ${p} → ${PRESET_PLUGINS[p]}`)
+        console.log(`[preset-plugins] 预置 spec 已对齐: ${p} → ${MANAGED_PROFILE_DEPS[p]}`)
+        healLog(`[preset] 预置 spec 已对齐: ${p} → ${MANAGED_PROFILE_DEPS[p]}`)
       }
       if (staleEntity) {
         rmSync(entityDir, { recursive: true, force: true })

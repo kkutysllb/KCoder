@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "SSH Remote",
+    "description": "Run commands, edit files, search and transfer on remote Linux hosts over SSH, with ControlMaster connection reuse and conflict-safe remote edits."
+  }
+}

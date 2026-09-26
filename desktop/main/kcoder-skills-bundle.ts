@@ -92,6 +92,20 @@ export const DSH_FILE_REVIEW_BUNDLE = 'dsh-file-review-kcoder'
  */
 export const DSH_CODING_SIDEBAR = 'dsh-coding-sidebar'
 
+/**
+ * SSH 远程运维/开发套件包名（真源 kkutysllb/dsh-kylin-ssh-tunnel，
+ * sync-bundles 经 dsh-plugins 镜像同步运行时面）。
+ *
+ * 两类职责，都在这一条内置线里：
+ * - **工具面**：11 个 `ssh_*` 工具 + 设置页主机管理 + 会话头状态胶囊；
+ * - **引导面**（2026-09-26 起，B-β 执行世界）：把「只有密码」的主机升级为
+ *   「有公钥 + 有 Node + 有 helper + 有 ssh 别名」的可无人值守主机，并产出
+ *   逐主机的 profile overlay。运行期世界由上游 dsh-ssh 家族承担，
+ *   那四个 provider 由 {@link PRESET_RUNTIME_DEPS} 牵引进 profile
+ *   ——它们不是插件，故不列进插件管理页的内置清单。
+ */
+export const DSH_SSH_REMOTE_BUNDLE = 'dsh-ssh-remote'
+
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */
 const TEMPLATE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
 
@@ -121,6 +135,13 @@ const BUNDLES: BundledPlugin[] = [
   // 工厂 + turnTail list 适配已在真源仓完成；增强审查卡（hunks/统计/
   // 撤销）+ 侧边栏审查 tab 为 coding-sidebar 的衍生插件
   { pkg: DSH_FILE_REVIEW_BUNDLE, dir: 'dsh-file-review-kcoder', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
+  // dsh-ssh-remote（2026-09-26 内置化）：包型产物（main=lib/index.js +
+  // cordis.patch.yml 补丁清单 + dsh.client 段），不是 entry.js 四件套——
+  // 物化门按各自的 entry 字段判存在性，entry 用 lib/index.js，
+  // 客户端交付物在 client/index.js（dsh.client 段声明）。
+  // 运行前提见 PRESET_RUNTIME_DEPS：4 个 @deepseek-ai/dsh-*-ssh 必须可由
+  // profile 解析，否则该 bundle 的 `ssh` 行加载即 failed to import。
+  { pkg: DSH_SSH_REMOTE_BUNDLE, dir: 'dsh-ssh-remote', entry: join('lib', 'index.js'), intactFiles: [join('client', 'index.js')] },
 ]
 
 /** 物化 bundle 包名清单（plugins 页内置清单与更新选路共用）。 */

@@ -39,8 +39,15 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const BUNDLE = join(ROOT, 'bundle')
 const PRESETS = join(ROOT, 'desktop', 'main', 'preset-plugins.ts')
 
-/** 允许「只物化、不走 registry」的包：它们没有 PRESET 声明，规则①对其不适用。 */
-const MATERIALIZE_ONLY = new Set(['dsh-terminal', '@kkutysllb/dsh-terminal', 'dsh-skills-bundle', 'dsh-shell-prefs'])
+/**
+ * 允许「只物化、不走 registry」的包：它们没有 PRESET 声明，规则①对其不适用。
+ * dsh-ssh-remote 属此类——真源是独立仓（kkutysllb/dsh-kylin-ssh-tunnel），
+ * 不发布 npm，故只能物化；它运行所需的 provider 包反过来走
+ * PRESET_RUNTIME_DEPS 牵引（见 preset-plugins.ts）。
+ */
+const MATERIALIZE_ONLY = new Set([
+  'dsh-terminal', '@kkutysllb/dsh-terminal', 'dsh-skills-bundle', 'dsh-shell-prefs', 'dsh-ssh-remote',
+])
 
 /**
  * 开发面路径（相对 `bundle/<dir>`）：随包分发但**运行时不读**，改动不要求 bump。

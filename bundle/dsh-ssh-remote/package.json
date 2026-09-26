@@ -1,0 +1,72 @@
+{
+  "name": "dsh-ssh-remote",
+  "version": "0.1.2",
+  "description": "DSH 插件：SSH 远程运维/开发工具套件（run/read/write/edit/glob/grep/push/pull）+ ControlMaster 连接层 + 状态面板 + 设置页主机管理。",
+  "type": "module",
+  "icon": "icon.svg",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./client": "./client/index.js",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "client/**/*.js",
+    "locale/**/*.json",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md"
+  ],
+  "scripts": {
+    "typecheck": "node --check lib/index.js && node --check client/index.js && node --check lib/hosts.js && node --check lib/settings-store.js && node --check lib/connection.js && node --check lib/exec.js && node --check lib/fsops.js && node --check lib/transfer.js && node --check lib/credentials.js && node --check lib/askpass.js",
+    "test": "node scripts/smoke-test.mjs",
+    "live": "node scripts/live-test.mjs",
+    "setup-dev": "node scripts/setup-dev.mjs",
+    "provision": "node scripts/provision-remote-world.mjs"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings-general"
+      ],
+      "platform": "web"
+    }
+  },
+  "qilin": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings-general"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.1.0-rc.5 <0.2.0",
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.5 <0.2.0",
+    "@deepseek-ai/schemastery": ">=3.18.0 <4.0.0"
+  },
+  "engines": {
+    "dsh": ">=0.1.0-rc.5 <0.2.0",
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kkutysllb/dsh-kylin-ssh-tunnel.git"
+  }
+}

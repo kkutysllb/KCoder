@@ -58,6 +58,15 @@ const MAPPINGS = [
   // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5：typert create()
   // 工厂 + turnTail list 适配完成，真源仓发布 1.0.5）
   { src: 'dsh-file-review-kcoder', dst: 'dsh-file-review-kcoder', select: [] },
+  // dsh-ssh-remote（2026-09-26 内置化）：SSH 远程运维/开发工具套件。
+  // 真源仓另有 analysis/ docs/ plans/ scripts/（开发面），故用选择面映射——
+  // bundle 只带运行时面：宿主 lib/、客户端 client/、locale/、cordis.patch.yml、
+  // icon.svg、package.json（其 dsh.client.inject 与 files 是运行期契约）。
+  {
+    src: 'dsh-ssh-remote',
+    dst: 'dsh-ssh-remote',
+    select: ['lib', 'client', 'locale', 'cordis.patch.yml', 'icon.svg', 'package.json', 'README.md'],
+  },
 ]
 
 const CHECK = process.argv.includes('--check')

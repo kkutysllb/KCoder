@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "SSH 远程主机",
+    "description": "通过 SSH 在远程 Linux 主机上执行命令、读写编辑文件、搜索与传输；ControlMaster 连接复用，远程编辑带防冲突。"
+  }
+}

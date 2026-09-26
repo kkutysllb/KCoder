@@ -1,0 +1,5 @@
+# dsh-ssh-remote 宿主插件：SSH 远程运维/开发工具套件。
+# 主机配置示例见 README.md；动态主机由设置页写入 hostsFile（热重载）。
+- insert:
+    - id: ssh-remote
+      name: 'dsh-ssh-remote'
