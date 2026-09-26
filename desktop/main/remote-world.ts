@@ -40,6 +40,21 @@ export function remoteWorldsPath(): string {
   return join(dshHome(), 'ssh-remote', 'worlds.json')
 }
 
+/**
+ * 一个远程世界独占的状态根。
+ *
+ * 隔离的对象是**状态**，不是安装：`storage-json`（工作区/投影缓存等域数据）
+ * 与 `session-persistence-jsonl`（会话日志）的 `root` 都是行配置，改掉即可让
+ * 该 sidecar 只看见自己的世界。安装面（profile、node_modules、插件）仍共享
+ * ——每台主机重新物化一份 profile 既慢又占磁盘，而体积全在安装面上。
+ * @param hostId - registered world id.
+ * @returns the two roots this world owns.
+ */
+export function remoteWorldStateRoots(hostId: string): { sessions: string; storages: string } {
+  const base = join(dshHome(), 'remote-worlds', hostId)
+  return { sessions: join(base, 'sessions'), storages: join(base, 'storages') }
+}
+
 /** 生成的 overlay 落点。 */
 export function remoteOverlayPath(hostId: string): string {
   return join(dshHome(), 'ssh-remote', 'overlays', `${hostId}.yml`)
@@ -87,6 +102,7 @@ export function readRemoteWorlds(): RemoteWorldSpec[] {
  * @returns the overlay document.
  */
 export function remoteWorldOverlay(spec: RemoteWorldSpec): string {
+  const roots = remoteWorldStateRoots(spec.hostId)
   return `# 由 KCoder 生成的远程执行世界 overlay（host: ${spec.hostId}）
 # 用法：dsh <profile> --patch <productPolicy> --patch <本文件> web --port 0 --no-open
 
@@ -101,19 +117,31 @@ export function remoteWorldOverlay(spec: RemoteWorldSpec): string {
   name: "@deepseek-ai/dsh-fs-sandbox"
   disabled: true
 
-# 2) 沙箱工作区根指向远端
+# 2) 状态隔离：让本 sidecar 只看见自己那个世界的域数据与会话日志。
+# 共享 DSH_HOME 时这三处（+ 会话日志）会互相串台——工作区注册表是全局的，
+# 于是远程窗口里会列出本地工作区（并显示为不可用）。安装面仍共享。
+- id: storage-json
+  name: "@deepseek-ai/dsh-storage-json"
+  config:
+    root: ${roots.storages}
+- id: session-persistence-jsonl
+  name: "@deepseek-ai/dsh-session-persistence-jsonl"
+  config:
+    root: ${roots.sessions}
+
+# 3) 沙箱工作区根指向远端
 - id: sandbox-policy
   name: "@deepseek-ai/dsh-sandbox-policy"
   config:
     mode: workspace-write
     workspaceRoot: ${spec.workspace}
 
-# 3) 目录选择器钉成应用内 browse（auto 在 macOS 会选本机 OS 对话框）
+# 4) 目录选择器钉成应用内 browse（auto 在 macOS 会选本机 OS 对话框）
 - id: directory-picker
   name: "@deepseek-ai/dsh-host-directory-picker-auto"
   disabled: true
 
-# 4) 插入 SSH 世界
+# 5) 插入 SSH 世界
 - insert:
     - id: ssh
       name: "@deepseek-ai/dsh-ssh"
