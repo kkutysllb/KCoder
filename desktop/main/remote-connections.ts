@@ -16,6 +16,7 @@ import { dshHome } from './dsh-contract'
 import { bundleSource } from './kcoder-skills-bundle'
 import { startRemoteServer, type RemoteBundleSource, type RemoteServerHandle } from './remote-server'
 import { localEngineVersion, remoteDshBin, runtimeDirForRemote, runtimeProbeDetail } from './remote-runtime'
+import { progressPage } from './remote-progress-page'
 import { readRemoteWorlds } from './remote-world'
 import { decorateShellWindow, shellChromeOptions } from './windows'
 
@@ -36,43 +37,6 @@ interface RemoteConnection {
 }
 
 const connections = new Map<string, RemoteConnection>()
-
-/**
- * 连接过程的进度页（内联 data URL，不落临时文件）。
- *
- * 用同一套配色与排版，避免"跳到一个陌生页面"的观感；失败态把完整原文摊在页面上，
- * 用户可以直接选中复制——弹窗做不到这点。
- * @param host - 展示名。
- * @param title - 当前阶段标题。
- * @param detail - 失败时的完整原文（成功路径不传）。
- * @returns data URL。
- */
-function progressPage(host: string, title: string, detail?: string): string {
-  const html = `<!doctype html><meta charset="utf-8"><title>KCoder</title>
-<style>
-  :root { color-scheme: dark }
-  body { margin:0; height:100vh; display:flex; align-items:center; justify-content:center;
-         background:#17181a; color:#e8e8ea; font:14px/1.7 -apple-system,"PingFang SC",sans-serif }
-  .box { width:min(720px,86vw) }
-  h1 { font-size:16px; font-weight:600; margin:0 0 6px }
-  .host { color:#9aa0a6; margin-bottom:18px }
-  .stage { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:#b6bcc4;
-           background:#1f2124; border:1px solid #303236; border-radius:8px;
-           padding:10px 12px; max-height:38vh; overflow:auto; white-space:pre-wrap }
-  .err { color:#ff8f8f }
-</style>
-<h1 id="t"></h1><div class="host" id="h"></div><div class="stage" id="s"></div>
-<script>
-  const lines = [];
-  window.__stage = (line) => { lines.push(line); const el = document.getElementById('s');
-    el.textContent = lines.join('\n'); el.scrollTop = el.scrollHeight; };
-  document.getElementById('t').textContent = ${JSON.stringify(title)};
-  document.getElementById('h').textContent = ${JSON.stringify(`远程主机：${host}`)};
-  ${detail === undefined ? '' : `document.getElementById('s').classList.add('err');
-  document.getElementById('s').textContent = ${JSON.stringify(detail)};`}
-</script>`
-  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
-}
 
 /** 当前已打开的远程连接的主机 id。 */
 export function openRemoteHostIds(): string[] {
