@@ -37,7 +37,7 @@
 
 | # | 项 | 定性 |
 |---|---|---|
-| 1 | `patchgate` 红：prod profile `dsh-context` 已漂 0.59.2，补丁键仍 `@0.55.0` | **既有债务**（prod 清单在升级前即为 `^0.59.2`）；按升级计划 B-1 本轮冻结；发版前需按 `update-profile-plugins.mjs --check` 指引逐 hunk 取证重出 patch |
+| 1 | ~~`patchgate` 红：`dsh-context` 补丁键仍 `@0.55.0`，实装已 v0.60.0~~ | **已解决（2026-09-30）**：对纯净 `dsh-context@0.60.0` 逐 hunk 取证——两处修复（RO 回路冷却 / kcCtxJumpViaTab）上下文同形、`patch -p1 --dry-run` 干净应用、归一后与旧补丁**逐行等价**（仅行号重基）→ 重出 `profiles/web/patches/dsh-context@0.60.0.patch`；同步修 `update-profile-plugins.mjs` 的精确键重出口径（旧键不重写导致「脚本报已同步 / 闸门报缺声明」矛盾）；dev + prod 声明均已重出，`--release-gate` 双绿 |
 | 2 | `smoke-panel-buttons` FAIL | **既有**：`SHIFT_JS` 平移清单（panel-buttons.ts:46-48）从未含第四枚 git 按钮；涉事文件在 `2e762f5..HEAD` diff 为空 |
 | 3 | `smoke-skills-dom` / `smoke-skills-page` 挂起 | **既有**：`skills-settings.ts:77` 的 `MEDIA_MODEL_GROUPS` 为构建期插值，冒烟按原文提取 eval 必然未定义引用；涉事文件 diff 为空 |
 

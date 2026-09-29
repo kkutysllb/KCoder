@@ -1,8 +1,8 @@
 diff --git a/lib/client.js b/lib/client.js
-index 47cc1c4..40531f0 100644
+index 5b805a5..fe559b4 100644
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -9066,7 +9066,23 @@ window.__ModuleLoader__.load({
+@@ -10121,7 +10121,23 @@
  					const el = stageRef.current;
  					if (el === null || typeof ResizeObserver !== "function") return;
  					setStageWidth(el.clientWidth);
@@ -26,7 +26,7 @@ index 47cc1c4..40531f0 100644
  						setStageWidth(el.clientWidth);
  					});
  					observer.observe(el);
-@@ -11607,7 +11623,11 @@ window.__ModuleLoader__.load({
+@@ -12445,7 +12461,11 @@
  				const jump = () => {
  					const sessionId = props.sessionId;
  					if (seq !== null && typeof sessionId === "string" && sessionId !== "") requestContextFocus(sessionId, seq);

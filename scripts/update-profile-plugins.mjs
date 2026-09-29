@@ -284,6 +284,22 @@ function ensurePatchDeclared() {
     changed = true
     say(`补丁声明键形态已规范（name-only → 精确键/摘除冗余）：${pkg}`)
   }
+  // 精确键重出：同包已有精确声明，但指向的不是当前清单文件（补丁已重出到
+  // 新实装版本键之后）→ 改写为当前键。缺了这一步时 declLineOf(pkg) 仍匹配
+  // 旧键、missing 判定为「已同步」而发版闸按精确键比对报「缺声明」——
+  // 2026-09-30 dsh-context 0.55.0 → 0.60.0 重出现场实证（脚本报已同步、
+  // --release-gate 拦下的口径矛盾）。
+  for (const f of PATCHES) {
+    const pkg = pkgNameOf(f)
+    const vm = /@([^@]+)\.patch$/.exec(f)
+    if (vm === null || vm[1] === 'x' || !deps.has(pkg)) continue
+    const exactLine = new RegExp(String.raw`^  (?:'${escapeRe(pkg)}@[^']+'|${escapeRe(pkg)}@[^:\s'"]+): patches/[^\n]*$`, 'm')
+    const found = yaml.match(exactLine)
+    if (found === null || found[0].endsWith(`patches/${f}`)) continue
+    yaml = yaml.replace(found[0], `  ${yamlKeyOf(declKeyOf(f))}: patches/${f}`)
+    changed = true
+    say(`补丁声明已重出到当前版本键：${declKeyOf(f)}`)
+  }
   const missing = PATCHES.filter((f) => deps.has(pkgNameOf(f)) && !declLineOf(pkgNameOf(f)).test(yaml))
   if (missing.length === 0 && !changed) {
     say('patchedDependencies 已同步（跟随 dependencies 实态），跳过写入')
