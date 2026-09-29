@@ -80,3 +80,14 @@
 
 1-3 承接 rc.1 段不变（patchgate dsh-context 键漂移 / panel-buttons / skills 冒烟）。
 4. `binary-rpc.host.spec` 2 例并行负载抖动：上游文件、非本版引入（如上定性），登记观察，不在本版处理。
+
+## 补充：桌面公告抑制（用户报障）验证证据（2026-09-30 追加）
+
+| 层 | 证据 |
+|---|---|
+| 前提（真实渲染进程） | 以 KCoder shell 同配置（`sandbox:true` + `contextIsolation:true` + **无 preload**）真实加载 dev 服：`navigator.userAgent` 含 `Electron/44.0.0` ✓、`'dshDesktop' in globalThis` = false ✓（即上游原判定会注册公告，我方 Electron 判定会跳过） |
+| 生效（服务产物） | dev 服实际下发的 `@deepseek-ai/dsh-client-ui-settings-models` 聚合资产（186 KB）含 `userAgent.includes("Electron")` ×1 ✓ |
+| 生效（打包运行时） | 本地物化 rc.2 运行时（`staging/kcoder-runtime`，v0.2.0-rc.2）内 `dsh-client-ui-settings-models/lib/client.js` 含该闸门 ✓；同时 `dsh-client-ui-chat/src/client/locale.ts` = `'chat.deepDiving': 'KCoder'` 且 `深度求索中` 零残留 ✓ |
+| 行为（单元） | 新增用例：Electron UA → `settings.onboarding` 注册表仅剩 `deepseek-official` ✓（相关 30 项全过） |
+
+> 本地 `release.sh build` 的签名/公证段需凭据（CI 专用），本地不做；`materialize-peers.mjs` 在无 `CSC_LINK` 时不进入钥匙串导入分支（无系统状态改动），仅 `security find-identity` 只读查询。

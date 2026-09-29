@@ -339,4 +339,5 @@ git merge --no-ff kcoder/0.2.0-rc.1    # 整支重放（merge-base = 4878cdabd8 
 - **现象**：桌面端启动弹上游 rc.2 的预览版公告。
 - **根因**：上游把该公告限定给浏览器端（桌面端以 `dshDesktop` preload 标记豁免）；KCoder 的 shell 窗口刻意不注入 preload（纯浏览器载体设计），被判成浏览器；公告带版本号（rc.2 从 `2026-08-13.1` → `2026-09-28.1`），故版本号一变即重弹。
 - **修法**（fork `b428f93a79`）：注册前补 Electron 判定——UA 含 `Electron` 标记即视为桌面壳，不注册公告；普通浏览器（LAN/远程）维持上游行为。宿主未自定义 UA（grep 全 `desktop/` 零命中）；Electron 44 默认 UA 实测含 `Electron/44.0.0`。
-- **证据**：新增单元用例锁定（Electron UA → 注册表仅剩 `deepseek-official`），既有 30 项相关用例全过；构建产物 `lib/client.js` 含该闸门。
+- **证据**（四层）：① 真实渲染进程（shell 同配置、无 preload）实测 UA 含 `Electron/44.0.0` 且无 `dshDesktop`；② dev 服实际下发的聚合资产含该闸门；③ 本地物化 rc.2 运行时产物含该闸门；④ 单元用例锁定（Electron UA → 注册表仅剩 `deepseek-official`），相关 30 项全过。
+- **本地物化附带核验**：`pnpm deploy` 出的 rc.2 运行时（v0.2.0-rc.2）内 `dsh-client-ui-chat` 品牌串为 `'KCoder'`、`深度求索中` 零残留——即产物级品牌断言口径的先期达成（本地 `materialize-peers` 因签名身份缺失中止，tar 未重打，`brand-assert` 对**陈旧 tar** 的报错为误报，已删除该陈旧 tar 以免误导）。
