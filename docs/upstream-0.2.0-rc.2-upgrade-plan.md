@@ -75,22 +75,31 @@ S0 冻结 ──► S1 fork 集成分支重建（24 重叠 + pi-ai 补丁规则�
 
 | # | 决策 | 决议 | 说明 |
 |---|---|---|---|
-| **D7** | **品牌文案排版**：rc.2 把运行态文案去点（EN `'Deep diving...'`→`'Deep diving'`，尾部 `···`；ZH 同步） | **待澄清卡**（见 §2.3） | 影响可见 UI 与 fork 偏离面 |
+| **D7** | **品牌文案排版**：rc.2 把运行态文案去点（EN `'Deep diving...'`→`'Deep diving'`，尾部 `···`；ZH 同步） | **跟随上游排版**（澄清卡已定，2026-09-30） | 详见 §2.4 落地清单 |
 | **D8** | 调度四件套钉版形态 | 沿用**精确钉** `0.2.0-rc.2`（与 rc.1 段同法） | 精确钉是唯一安全形态：上游包 peer 本就精确钉引擎，范围钉会引入 ERESOLVE 风险 |
 | **D9** | fork `master` 镜像推送 | 执行段检查 `origin/master`，落后则 ff 推送 | FORK-WORKFLOW 同步仪式；属机械动作 |
 | **D10** | `dsh-context` | **继续冻结**（B-1 延续）：dev 已被漂移对账升 0.60.0，prod 0.59.2，patch 键重出债务照旧登记 | 不动 |
+| **D11** | prod 实例 `~/.kcoder` | **等 0.6.19 发版自然修复**（澄清卡已定，2026-09-30）：本轮零动作、不碰生产 home；prod 在发版前保持不可用（混装必卡形态，见 §11 注） | 发版后 prod 启动自愈（用户 npm 发布 + ship） |
 
-### 2.3 澄清卡（需用户拍板）
+### 2.3 已关闭的澄清卡
 
-**Q1（D7）品牌文案排版**——rc.2 统一了上游文案排版：去句点、时长尾改 `···`。我方品牌串怎么办？
+| 卡 | 决议 | 时间 |
+|---|---|---|
+| Q1（D7）品牌文案排版 | **(b) 跟随上游排版** | 2026-09-30 |
+| Q2 prod 实例处置 | **(a) 等 0.6.19 发版自然修复** | 2026-09-30 |
 
-- **(a) 保持我方现状**：`'KCoder...'` / `'KCoder...，用时 {duration}...'` —— 零改动、零 spec 变更、偏离面最小；代价是与上游新排版风格不一致（我们带点、上游不带）
-- **(b) 跟随上游排版**：`'KCoder'` / `'KCoder，用时 {duration} ···'` —— 与 rc.2 视觉语言一致；代价是改 locale 2 行 + spec 断言 19 处重录 + `brand-assert.mjs` 断言串同步
+### 2.4 D7 落地清单（跟随上游排版——四处联动，缺一不可）
 
-**Q2（可选）prod 实例 `~/.kcoder` 是否本轮一并预置**——prod 现状：引擎已 rc.2（fork 工作树）、插件 1.0.34/1.0.10（旧）、无调度四件套 ⇒ **启动必卡**（同 dev 症状）。选项：
+rc.2 新排版（提交 `ad008e2ea5`）：EN `'Deep diving'`（去点）/ `'Deep diving for {duration} ···'`（尾 `···`）；ZH `深度求索中` 同步去点。我方品牌串对齐为：
 
-- **(a) 等 0.6.19 发版自然修复**（用户 npm 发布 → 发版 → prod 启动自愈）——本轮零动作
-- **(b) 我按 dev 的方法预置 prod**（装 rc.2 四件套 + 1.0.35/1.0.11 实体 + SSH 升线，约 3 步）——立即可用，但触碰生产 home
+| # | 文件 | 改动 |
+|---|---|---|
+| 1 | fork `packages/client/ui-chat/src/client/locale.ts` | ZH：`'chat.deepDiving': 'KCoder...'` → **`'KCoder'`**；`'chat.deepDivingFor': 'KCoder...，用时 {duration}...'` → **`'KCoder，用时 {duration} ···'`**（EN 两行维持上游原值——EN 品牌化走 DOM 注入，不在 locale 层） |
+| 2 | fork `packages/client/ui-chat/tests/chat-view.client.spec.tsx` | **19 处断言重录**：`KCoder\.\.\.` 正则族 → `KCoder`（无点）+ 尾部 `\.\.\.` → ` ···`（注意 `···` **已实测**：U+0020 + U+00B7×3（`git show dsh-v0.2.0-rc.2:...locale.ts:90` 的尾部码点），直接按此字节写，勿手敲全角点） |
+| 3 | KCoder `scripts/brand-assert.mjs` | 断言串 `'chat.deepDiving': 'KCoder...'` → **`'chat.deepDiving': 'KCoder'`**（同步 #1 的新值；含 die 消息文案） |
+| 4 | KCoder `desktop/main/brand-injector.ts` `swapTurnStatus` | 与 S3-4 合并为一次改动：匹配 `'Deep diving'`（无点，rc.2 形态）+ 保留 `'Deep diving...'`（旧形态兜底）；替换目标 `'KCoder...'` → **`'KCoder'`**、`'KCoder... for '` → **`'KCoder for '`**。⚠ 该代码在模板串内，**禁用反引号** |
+
+> 校验闭环：#1 改 locale（源头）→ #2 spec 断言（编译期）→ #3 brand-assert（产物期）→ #4 DOM 注入（运行期 EN）——四层同值，任何一层漂移都会被对应门拦下。
 
 ---
 
@@ -141,7 +150,7 @@ git merge --no-ff kcoder/0.2.0-rc.1    # 整支重放（merge-base = 4878cdabd8 
 |---|---|---|
 | **pi-ai src + tests**（14 文件） | `llm-pi-ai/src/{catalog,replay,adapter}.ts` + 10 个 spec | **取上游 rc.2**——同一升级工作的更新精化，我方 src 改动已被包含或超越 |
 | **pi-ai 补丁**（1 文件，必冲突） | `patches/@earendil-works__pi-ai@0.87.1.patch` | **取我方**——relay 三修复（accountId 兜底/终止事件容错/协议降级）只活在补丁文件里，上游版没有。合并后 `pnpm install` 验证 hunk 干净应用，PATCH_FAILED 则 rebase 补丁行号 |
-| **ui-chat 品牌串**（2 文件） | `locale.ts`、`tests/chat-view.client.spec.tsx` | 结构取上游、**品牌文案回贴**（19 处 `KCoder` 串，与 rc.1 段同法）；若 D7 选 (b) 则按新排版重贴 |
+| **ui-chat 品牌串**（2 文件） | `locale.ts`、`tests/chat-view.client.spec.tsx` | 结构取上游、**品牌文案按新排版回贴**（D7 已决：`'KCoder'` / `'KCoder，用时 {duration} ···'`；spec 19 处按 §2.4 #2 重录，`···` 字节形态以 rc.2 locale 实测为准） |
 | **ui-plugin-manager / ui-tool**（3 文件） | `locales.ts`、`ToolRow.tsx`、`ToolRow.module.css` | 结构取上游、我方语义重放（settingsTab 键保留 / diffStat 彩色语义在冲突区外） |
 | **版本戳类**（5 文件） | THIRD_PARTY_NOTICES、3 个 package.json、pnpm-workspace.yaml | 取上游（rc.2 戳） |
 | **pnpm-lock.yaml** | — | **删掉重装**（B-2 继承） |
@@ -175,8 +184,8 @@ git merge --no-ff kcoder/0.2.0-rc.1    # 整支重放（merge-base = 4878cdabd8 
 | S3-1 | `upstream/BASELINE` | 首个非注释行 → `639ed01539`；尾追本段升级记录（含启动卡点根因与判决性实验） |
 | S3-2 | `scripts/setup.sh:15`、`scripts/release.sh:134-135`、`desktop/main/dsh-contract.ts:61` | `kcoder/0.2.0-rc.1` → `kcoder/0.2.0-rc.2` |
 | S3-3 | `desktop/main/preset-plugins.ts` | `@deepseek-ai/dsh-experimental-schedule-bundle`: `0.2.0-rc.1`→`0.2.0-rc.2`；4 个 `dsh-*-ssh`: 同平移；注释补"调度家族必须与引擎逐版本同线（peer 精确钉）"教训（分析文 §5.3） |
-| S3-4 | `desktop/main/brand-injector.ts` | `swapTurnStatus` 匹配分支扩为 `text === 'Deep diving' \|\| text === 'Deep diving...'`（rc.2 无点形态 + 旧形态兜底）；**注：该代码在模板串内，禁用反引号**（rc.1 段踩过的坑） |
-| S3-5 | （若 D7 选 b）`fork` 内 `ui-chat/src/client/locale.ts` 品牌串按新排版 + spec 19 处 + `brand-assert.mjs` 断言串 | 澄清卡 Q1 |
+| S3-4 | `desktop/main/brand-injector.ts` | `swapTurnStatus`：匹配扩为 `text === 'Deep diving' \|\| text === 'Deep diving...'`（rc.2 无点 + 旧形态兜底），替换目标同步为新排版（`'KCoder'` / `'KCoder for '`，见 §2.4 #4）；**该代码在模板串内，禁用反引号**（rc.1 段踩过的坑） |
+| S3-5 | **D7 已决（跟随上游排版）**：按 §2.4 落地清单执行四处联动（fork locale 2 行 + spec 19 处 + brand-assert + S3-4 的替换串） | 澄清卡 Q1 已决 |
 | S3-6 | `desktop/main/remote-server.ts:75,304`、`product-policy.ts` 注释 | 引擎版本表述 `0.2.0-rc.1`→`0.2.0-rc.2`（策略层 YAML **不动**——B-12） |
 | S3-7 | `release/v0.6.19.md` | 补 rc.2 段：双锚定说明 + ⑭ 模型 ID 移除需重选 + ④ 定时提醒语义升级 |
 | S3-8 | `release/audit-v0.6.19.md` | 增补本段审计范围与 P0 验收证据 |
@@ -192,7 +201,7 @@ git merge --no-ff kcoder/0.2.0-rc.1    # 整支重放（merge-base = 4878cdabd8 
 | S4-3 | 两插件实体复核 1.0.35 / 1.0.11（pnpm prune 后按 rc.1 段方法补回） | 入口 + `cordis.patch.yml` 在位 |
 | S4-4 | **启动验收（DoD-5）**：真实起服 | stderr 无 `disabling profile plugin`；stdout 有 `dsh web: http://` |
 | S4-5 | `--dump-config` 组合核验 | 三行调度在位无 disabled；策略层七行终值正确（与 rc.1 段同一张表） |
-| S4-6 | （若 Q2 选 b）prod 同法预置 | 同 S4-1–4-3 |
+| S4-6 | ~~prod 预置~~ **不做**（D11：等 0.6.19 发版自然修复；发版前 prod 保持不可用） | 澄清卡 Q2 已决 |
 
 ---
 
