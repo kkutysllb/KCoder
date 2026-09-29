@@ -90,6 +90,16 @@ import { SHELL_TITLEBAR_HEIGHT } from './theme-watcher'
  * 参与对账，link: 等无版本形态不参与。
  */
 export const PRESET_PLUGINS: Record<string, string> = {
+  // 调度与时间上下文（2026-09-29，上游 0.2.0-rc.1）：上游把 time-context /
+  // schedule / ui-schedule 三行**从 web-app 组合整段迁出**，改由这个官方
+  // **可选** bundle 的 cordis.patch.yml 以 `- insert:` 插入（包名已登记进
+  // app-boot 的 OPTIONAL_BUNDLES，随安装提供但默认不选中）。
+  // 因此启用方式从「产品策略层 id 定向覆写三行」改为「在 profile 的
+  // dsh.profile.bundles 里选中本 bundle」——旧的覆写写法在 0.2.0-rc.1 上是
+  // 「id 不存在 → warn 后跳过」的静默失效（升级现场），见 product-policy.ts。
+  // 它不是第三方插件而是官方组合包，放进本表只是为了借「装进 profile deps +
+  // 自动声明进 bundles 层叠」这条既有通道；版本随引擎基线同线。
+  '@deepseek-ai/dsh-experimental-schedule-bundle': '0.2.0-rc.1',
   // 0.38.5 起 index.js 不再 import settingsNamespace（alpha.2 的
   // dsh-settings 已移除该导出）——0.37.x 与 alpha.2 引擎组合启动即
   // SyntaxError 全局崩（0.4.9 Windows 升级现场实证）
@@ -153,7 +163,10 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // ModelSelectionRef，每次投递前对齐；此前误用 agents.selectionFor——那方法不在 agents
   // 服务上，恒为 no-op）、**追问队列卡**（读收件箱 nextTurn：排队消息进日志前转录里看不见）。
   // 发布核验：指定版本端点在 **npmjs 与 npmmirror 双源均 200**（本次平移的事实依据）。
-  'dsh-coding-sidebar': '^1.0.34',
+  // 2026-09-29 平移：^1.0.34 → ^1.0.35（兼容 dsh 0.2.0-rc.1 的 peer 口径
+  // `>=0.1.7-rc.2 <1.0.0` + 任务计划递归扫描次级目录；双兼容下界保证老版本
+  // KCoder 的新装用户不被拒载）。
+  'dsh-coding-sidebar': '^1.0.35',
   // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5 → 1.0.6）：coding-sidebar
   // 的衍生插件（增强审查卡 + 侧边栏审查 tab）。1.0.6 追加 changes-review 地址
   // 家族认领（原生评审开法改开自家页签）。已发布且双源可见，故与 bundle 物化
@@ -163,7 +176,10 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // 1.0.8 = 引擎 0.1.7-alpha.1 契约迁移；1.0.9 = open-with 子槽 + application
   // 参数；1.0.10 = 动作子槽改自有键（不再认领 upstream 的
   // deliverables.file.actions，修 web boot 失败）+ client inject 清单纠偏。
-  'dsh-file-review-kcoder': '^1.0.10',
+  // 2026-09-29 平移：^1.0.10 → ^1.0.11（peer 口径改 `>=0.1.7-rc.2 <1.0.0`；
+  // 此前 dsh-session / dsh-api-session-controller 两条裸 ^0.1.7-alpha.1 会在
+  // dsh 0.2.0-rc.1 的兼容闸门上被整体拒载）。
+  'dsh-file-review-kcoder': '^1.0.11',
 }
 
 /**
@@ -182,13 +198,14 @@ export const PRESET_PLUGINS: Record<string, string> = {
  *
  * `@deepseek-ai/dsh-*-ssh`（2026-09-26，SSH 执行世界 / B-β）：内置 bundle
  * `dsh-ssh-remote` 用它把执行世界换成远端主机。**版本必须与引擎基线同线**
- * （当前 0.1.7-rc.2）；跨线混装会让 provider 与服务定义类身份分裂。
+ * （当前 0.2.0-rc.1，随 2026-09-29 基线升级平移）；跨线混装会让 provider 与
+ * 服务定义类身份分裂。
  */
 export const PRESET_RUNTIME_DEPS: Record<string, string> = {
-  '@deepseek-ai/dsh-ssh': '0.1.7-rc.2',
-  '@deepseek-ai/dsh-fs-ssh': '0.1.7-rc.2',
-  '@deepseek-ai/dsh-subprocess-ssh': '0.1.7-rc.2',
-  '@deepseek-ai/dsh-sandbox-ssh': '0.1.7-rc.2',
+  '@deepseek-ai/dsh-ssh': '0.2.0-rc.1',
+  '@deepseek-ai/dsh-fs-ssh': '0.2.0-rc.1',
+  '@deepseek-ai/dsh-subprocess-ssh': '0.2.0-rc.1',
+  '@deepseek-ai/dsh-sandbox-ssh': '0.2.0-rc.1',
 }
 
 /**

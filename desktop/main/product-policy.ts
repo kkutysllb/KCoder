@@ -44,17 +44,27 @@ const POLICY_FILENAME = 'cordis.patch.kcoder.yml'
  *   内置浏览器关掉——与「Web 默认关 / Electron 默认开」的上游产品语义相悖。
  *   KCoder 只有 Electron 一种宿主，故显式放开该行；聊天链接的打开位置仍由
  *   chat 设置 `linkOpening` 决定（默认 sidebar = 内置浏览器 tab）。
- * - **定时任务与时间上下文默认开启**（2026-09-24，上游 0.1.7-rc.2）：上游
- *   在 web-app 层把三行以 `disabled: true` 出厂（说明文案「Web 和桌面端默认
- *   关闭…需要时可手动启用」），但**界面上不存在启用入口**——承载它们的
- *   `@deepseek-ai/dsh-web-app` 被插件管理页按设计排除
- *   （`ui-plugin-manager/README.zh.md`：「页面从卡片与数量中排除内置 profile
- *   组合包，**即使 profile 将它们列为依赖**」），官方指定路径是让 agent 装
- *   一个覆盖该行的工作区 bundle。KCoder 直接在产品策略层放开，开箱即用。
- *   三行是一个整体：`schedule` = Host 任务服务与到点投递、`ui-schedule` =
- *   任务管理与运行记录（浏览器半）、`time-context` = 当前时间/时区/已用时长
- *   ——模型解析「明天九点」这类未限定时间所必需（上游同版删除的
- *   `apps/cli/config/examples/schedule/cordis.yml` 就是这三行一起开）。
+ * - **定时任务与时间上下文改由可选 bundle 提供**（2026-09-29，上游 0.2.0-rc.1）：
+ *   上游把 `time-context` / `schedule` / `ui-schedule` 三行**从 web-app 组合
+ *   整段迁出**，改由可选包 `@deepseek-ai/dsh-experimental-schedule-bundle` 的
+ *   `cordis.patch.yml` 以 `- insert:` 插入（该包已登记进 app-boot 的
+ *   `OPTIONAL_BUNDLES`）。因此**不能再对本层做 id 定向覆写**——补丁语义是
+ *   「id 不存在 → warn 后跳过」，旧的 `- id: schedule / disabled: false`
+ *   三行会静默失效（不报错、功能直接消失，0.2.0 升级现场）。启用路径改为在
+ *   profile 的 `dsh.profile.bundles` 中选中该 bundle（见 preset-plugins.ts），
+ *   策略层不再持有这三行。
+ * - **会话日志开关隐藏**（2026-09-29，D2.1）：0.2.0-rc.1 新增客户端包
+ *   `ui-settings-session-log`，在「设置 → 通用」放了一个上传 Session Log 的
+ *   开关（`session-log-deepseek.enabled` 改为 Volatile、逐请求读取）。但本层是
+ *   CLI overlay，按上文层级序排在 profile 之后并**整份替换 config** ⇒ 用户写进
+ *   profile 的 `enabled` 永远被本层的 `enabled: false` 盖掉：开关「写入成功」
+ *   却不生效，UI 还可能显示已开而运行时是关。既然决定强制关闭，就把该开关行
+ *   一并 disabled，不给用户留下点了没用的控件。
+ * - **桌面遥测显式关闭**（2026-09-29，D3）：0.2.0-rc.1 的 web-app 组合新增
+ *   `desktop-product-telemetry` 与 `product-analytics` 两行，以
+ *   `profileContext?.name !== 'desktop'` 为闸。KCoder 桌面壳的 profile 名是
+ *   `web`，当下确实不会启用——但那是「靠名字巧合」的隔离：上游改默认值或我方
+ *   改用 desktop profile 名都会让它静默开启。此处显式禁用钉死。
  *
  * 历史行（已移除）：`file-review-tab` 禁用（2026-09-18）——file-review
  * 插件整体退役（typert 产物过不了 alpha.2 typert-loader 校验，曾拖垮全部
@@ -98,20 +108,21 @@ const POLICY_YAML = `# KCoder 产品策略层（宿主自动生成，勿手改�
   config:
     tailCard: false
 #
-# 定时任务 / 时间上下文默认开启（产品决策 2026-09-24，上游 0.1.7-rc.2）：
-# 三行在上游 web-app 层以 disabled: true 出厂，且**界面无启用入口**（承载它们
-# 的 @deepseek-ai/dsh-web-app 被插件管理页按设计排除，官方路径是让 agent 装
-# 覆盖用的工作区 bundle）。产品策略层直接放开，用户开箱即用。
-# 最小写法只给 id + disabled：上游按 id 定位行、按字段覆写，name 由 bundle 层
-# 保留（已用 --dump-config 实测三行 name 均在位）。
-# 注意 overlay 在最后一层 ⇒ 会盖掉用户对这三行的手动关闭；若将来要「只在新建
-# profile 播种、尊重用户选择」，须改走 profile 层而非本层。
-- id: time-context
-  disabled: false
-- id: schedule
-  disabled: false
-- id: ui-schedule
-  disabled: false
+# Session Log 上传开关整行禁用（D2.1，2026-09-29）：上游 0.2.0-rc.1 新增
+# 「设置 → 通用 → 在使用官方模型 API 时上传 Session Log」开关。本层在最后一层
+# 整份替换 config，用户写进 profile 的 enabled 会被上面的 session-log-deepseek
+# 关闭项永久盖掉——开关点了不生效。既然 D2 决定强制关闭，就整行禁用该设置页
+# 条目，不留误导性控件。
+- id: ui-settings-session-log
+  disabled: true
+#
+# 桌面遥测显式关闭（D3，2026-09-29）：两行上游以 !!js 按 profile 名判定
+# （非 desktop 即关）。KCoder 的 profile 名是 web，当下不会启用，但那是靠名字
+# 巧合的隔离；显式禁用可防上游改默认值或我方改名导致的静默开启。
+- id: desktop-product-telemetry
+  disabled: true
+- id: product-analytics
+  disabled: true
 `
 
 /** 产品策略层的绝对路径。 */

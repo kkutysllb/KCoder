@@ -398,7 +398,7 @@
 # dd1529d8aa/b88abcad16 均为尖端祖先；新 delta vs 旧 delta 文件集差恰为
 # plugin.ts（按决策取上游）；上游侧文件零删除；build exit 0（248 client
 # 产物），lib/index.js 299/299，CI=true pnpm run typecheck 通过。
-477b4f420553e8a52c2fbccc464d7561b239c443
+4878cdabd87d4041bdaff61d04c966883b9fd07a
 
 # ── 集成分支 fork 侧追加（2026-09-18：设置页插件管理 tab）──────────────
 # 集成分支尖端 02253cd274（本地 = origin/kcoder/0.1.6-alpha.2，远端新建分支）。
@@ -822,4 +822,57 @@
 # 最高版本）」，溯源不到交 registry 兜底；findExternal 移除。凡上游依赖
 # 升级后必跑 staging 端到端断言（版本 + 补丁标记 + 目录三查），单查版本
 # 会漏掉「补丁体选错」这种静默回归。
+
+# ── 升级记录：2026-09-29 0.1.7-rc.2(477b4f4205) → 0.2.0-rc.1(4878cdabd8) ──
+# 上游 tag `dsh-v0.2.0-rc.1`（2026-09-28 19:48 +0800，release PR #5387）。
+# 区间 261 提交 / 94 merge / 干线 47 提交 / 1109 文件；`+20374 −77957` 中
+# **96.4% 是单文件 docs/persistence-schema.json 的压缩**（PR #5191 类型清单
+# 改引用式），非运行时变更——docs/session-format-status.md 两版无 diff 佐证。
+#
+# 集成分支 `kcoder/0.2.0-rc.1` @ 4cbc050fc7（本地 = origin）。旧集成分支的
+# 修复分支多数已合并后删除，故本轮以**整支 merge 一次性重放**偏离面
+# （merge-base = 477b4f4205，等价于逐个 merge fix/*）：
+#   48fd977e1e  merge: 重放 KCoder 集成分支偏离面到上游基线 0.2.0-rc.1
+#   4cbc050fc7  fix(ui-chat): 撤销 data-turn-running 深蓝扫光
+#
+# 冲突 5 处（规则：结构以上游为基底，语义以我方为准重放）：
+#   ① ui-chat/src/client/locale.ts：上游把运行态文案改用 chat.deepDiving* 两键，
+#      我方旧键 message.turnProcess.deepDivingFor 在新树已无消费者（上游删掉了
+#      TurnProcessNodeView 的运行分支）→ 删我方键；保留上游键名并回贴品牌
+#      （'chat.deepDiving'='KCoder...'、'chat.deepDivingFor'='KCoder...，用时 {duration}...'）。
+#   ② ui-chat/tests/chat-view.client.spec.tsx：上游把运行标签从可交互的
+#      turnProcessControl 搬到非交互的 runningContent（新 RunningStatus 组件）；
+#      我方改动只有品牌文案与自研 data-turn-running 断言 → 整体取上游后回贴
+#      19 处品牌文案。
+#   ③ ui-plugin-manager/src/client/index.ts：取上游的 face 提升 + 新增
+#      shell.overlay refresh-toast 注册，保留我方 pageChildren 常量抽取。
+#   ④ ui-plugin-manager/src/client/locales.ts：取上游 intro/infoLabel/
+#      infoDescription 新文案，保留我方 settingsTab 键。
+#   ⑤ ui-tool/ToolRow.tsx：取上游——新版 TextShimmer 已放宽 children:ReactNode，
+#      我方 typeof suffix==='string' 绕行是为旧版 string 类型所加，已无必要；
+#      我方 diffStat 彩色 +/- 语义在冲突区之外，保留。
+#
+# 撤销我方改动（上游已吸收）：ui-chat TurnProcessNodeView 的 data-turn-running
+# 深蓝扫光（0.1.6 复原）——上游 0.2.0 新增 RunningStatus 组件，以
+# `<TextShimmer active>` 原生提供扫光；该属性引用的 running 变量在新版已不存在
+# （merge 后直接编译失败），故连属性、CSS 规则、@keyframes 与 reduced-motion
+# 覆盖一并移除。行为变化（已接受）：运行指示改用上游 TextShimmer 扫光，与过程组
+# 标题的动画机制统一。
+#
+# pi-ai 线（按 D6 保持 0.87.1 领先上游）：git 识别补丁为重命名（R056），merge 后
+# patches/ 仅存 @earendil-works__pi-ai@0.87.1.patch；pnpm-workspace.yaml 的
+# patchedDependencies 键、minimumReleaseAgeExclude 与 THIRD_PARTY_NOTICES 均已
+# 对齐 0.87.1，无需手工删除上游那份 0.85.1。
+#
+# 上游新增、我方 preset 需跟进的面：`@deepseek-ai/dsh-experimental-schedule-bundle`
+# ——调度三行（time-context / schedule / ui-schedule）已从 web-app 组合整段迁出，
+# 改由该可选 bundle 的 cordis.patch.yml 用 `- insert:` 插入；包名已登记进
+# OPTIONAL_BUNDLES（app-boot/src/profile.ts），需在 profile 的 dsh.profile.bundles
+# 中显式选择才生效。旧写法（对这三行做 id 定向覆写）在 0.2.0-rc.1 上是
+# 「warn 后跳过」的静默失效。
+#
+# 回归证据：CI=true pnpm install exit 0（pi-ai 0.87.1 补丁干净应用）；
+# pnpm run build exit 0（Host / Client / Web 三阶段，347 client 产物）；
+# pnpm run typecheck exit 0（本仓 pre-push 门，含 tsc -b tsconfig.client.json，
+# 覆盖上面全部冲突处置）。上游自测泳道（packages/client + core + llm）另行执行。
 

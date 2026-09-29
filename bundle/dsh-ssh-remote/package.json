@@ -1,6 +1,6 @@
 {
   "name": "dsh-ssh-remote",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "DSH 插件：SSH 远程运维/开发工具套件（run/read/write/edit/glob/grep/push/pull）+ ControlMaster 连接层 + 状态面板 + 设置页主机管理。",
   "type": "module",
   "icon": "icon.svg",
@@ -25,7 +25,9 @@
     "test": "node scripts/smoke-test.mjs",
     "live": "node scripts/live-test.mjs",
     "setup-dev": "node scripts/setup-dev.mjs",
-    "provision": "node scripts/provision-remote-world.mjs"
+    "provision": "node scripts/provision-remote-world.mjs",
+    "sync:mirror": "node scripts/sync-to-dsh-plugins.mjs",
+    "sync:check": "node scripts/sync-to-dsh-plugins.mjs --check"
   },
   "dsh": {
     "manifestVersion": 1,
