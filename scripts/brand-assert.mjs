@@ -29,10 +29,10 @@ const locale = tarOut(['-tzf', tar])
 if (!locale) die('tar.gz 内无 dsh-client-ui-chat/src/client/locale.ts')
 
 const text = tarOut(['-xzOf', tar, locale])
-if (!text.includes("'chat.deepDiving': 'KCoder...'")) {
-  die('chat.deepDiving 不是「KCoder...」——fork 修复 b11bd42095 未随 kcoder/alpha.2 推送/同步（先 push fork，再重新打包）')
+if (!text.includes("'chat.deepDiving': 'KCoder'")) {
+  die('chat.deepDiving 不是「KCoder」——fork 侧品牌串未随 rc.2 排版跟进（0.2.0-rc.2 起去点；先 push fork 集成分支，再重新打包）')
 }
 if (text.includes('深度求索中')) {
   die('产物仍含「深度求索中」（fork 状态陈旧，同上一条）')
 }
-console.log('[brand-assert] 品牌断言通过（chat.deepDiving = KCoder...）')
+console.log('[brand-assert] 品牌断言通过（chat.deepDiving = KCoder）')

@@ -398,7 +398,7 @@
 # dd1529d8aa/b88abcad16 均为尖端祖先；新 delta vs 旧 delta 文件集差恰为
 # plugin.ts（按决策取上游）；上游侧文件零删除；build exit 0（248 client
 # 产物），lib/index.js 299/299，CI=true pnpm run typecheck 通过。
-4878cdabd87d4041bdaff61d04c966883b9fd07a
+639ed015397290b3745d163aafe02ffee4aa3f84
 
 # ── 集成分支 fork 侧追加（2026-09-18：设置页插件管理 tab）──────────────
 # 集成分支尖端 02253cd274（本地 = origin/kcoder/0.1.6-alpha.2，远端新建分支）。
@@ -876,3 +876,31 @@
 # pnpm run typecheck exit 0（本仓 pre-push 门，含 tsc -b tsconfig.client.json，
 # 覆盖上面全部冲突处置）。上游自测泳道（packages/client + core + llm）另行执行。
 
+#
+# 升级记录：2026-09-30 rc.1(4878cdabd8) → rc.2(639ed015397290b3745d163aafe02ffee4aa3f84)。
+# 187 提交 / 1022 文件；我方 71 文件偏离面 ∩ rc.2 = 24 文件重叠（13 pi-ai
+# 含补丁、2 ui-chat 品牌串、ToolRow、版本戳与 locale）。整支 merge 重放：
+# pi-ai src/tests 与版本戳取上游（上游同钉 ^0.87.1，D6 分歧消失）；pi-ai
+# 补丁取我方（relay 三修复只活在补丁层，与 rc.1 分支字节一致，_patch_hash
+# 8d2124eb…）；ui-chat 品牌串按 rc.2 新排版回贴（D7 跟随上游：裸态去点
+# 'KCoder'，计时态尾 ' ···' = U+0020+U+00B7×3；spec 19+9 处断言同步）；
+# ToolRow 彩色 diffStat 收敛于上游原生实现（diffAdded/diffRemoved 悬停/
+# 展开着色，我方 statAdded/statRemoved 死代码摘除）。slot 契约二次冻结
+# （ui-slots tree SHA 三 tag 同值），技能/MCP/终端零代码变更。
+#
+# 启动卡点根因（本段 P0，判决性实验已闭环）：rc.2 引擎 + 调度四件套钉
+# 0.2.0-rc.1 时，peer 闸门禁行 dsh-schedule / dsh-time-context，而
+# dsh-client-ui-schedule（peer 仅 cordis ~4.0.4）漏网存活并等待被禁服务
+# → Loader 永不结算 → ready 行不打印 → KCoder 60s 超时。解法：四件套 +
+# 4 个 SSH 包全部精确钉 0.2.0-rc.2（preset-plugins 对账同步补预发布
+# 标签感知，见 2.5 步精确钉全等判据）。
+#
+# 锁文件教训：删锁全量重解会把 ^4.4.3 拉到最新 zod（4.6.5）与精确钉
+# 并存成双实例、TS 构建崩；改为「上游 rc.2 锁文件为基 + pnpm 增量更新」，
+# 净差 22+/7-（补丁 hash + workspace 链接），外部解析保持上游冻结态。
+#
+# 回归证据：pnpm install exit 0（pi-ai 补丁干净应用，zod 单实例 4.4.3）；
+# pnpm run build exit 0；pnpm run typecheck exit 0；上游自测泳道
+# （client+core+llm 前台跑完）12397/12399——仅剩 2 败为
+# connection/binary-rpc.host.spec 的 HTTP bridge 5s 超时（单跑 46/46
+# 全过、fork 对该包 diff 为空，定性并行负载抖动，非回归）。

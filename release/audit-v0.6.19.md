@@ -51,3 +51,32 @@
 ## 结论
 
 升级提交通过全部硬性门与升级专项验收；报告项全部沿用既有豁免或给出门禁外定性与证据。三个已知未决均为既有技术债（涉事文件在本版 diff 为空或显式冻结），不阻塞本版发布，已登记至升级计划 §20.3 交接项。
+
+---
+
+## rc.2 增量段审计（2026-09-30 追加：v0.6.19 双锚定收口）
+
+本段在 rc.1 段之上把基线推到 0.2.0-rc.2（639ed01539，fork 集成分支 `kcoder/0.2.0-rc.2` @ 5295828ae5）。**KCoder 版本号不动（0.6.19），一次发版锚定两个上游版本。**
+
+### 本段改动面（增量）
+
+- `upstream/BASELINE`（钉版行 + 升级记录）、`scripts/setup.sh`、`scripts/release.sh`、`desktop/main/{dsh-contract,remote-server}.ts`（分支/引擎字面量）
+- `desktop/main/preset-plugins.ts`：调度 bundle + 4 SSH 钉版 `0.2.0-rc.1` → `0.2.0-rc.2`；**2.5 步对账补精确钉预发布标签感知**（三元组比较看不见 rc 后缀，升级现场会留混装 → 启动卡死；精确钉按版本串全等判过旧）
+- `desktop/main/brand-injector.ts` `swapTurnStatus`：匹配 rc.2 无点形态 `'Deep diving'`（旧带点形态保留兜底），替换目标 `'KCoder'` / `'KCoder for '`（D7 跟随上游排版）
+- `scripts/brand-assert.mjs`：断言串同步 `'KCoder'`（无点）
+- fork 侧 24 文件重叠重放（pi-ai src/tests/补丁、ui-chat 品牌串、ToolRow 收敛、版本戳）；锁文件=上游 rc.2 基座+我方补丁 hash（净差 22+/7-）
+
+### P0 验收证据
+
+| 项 | 证据 |
+|---|---|
+| 集成分支三绿 | install / build / typecheck 全 exit 0（BASELINE 升级记录留档） |
+| 上游自测泳道（前台） | 12397/12399；仅剩 2 败 = `connection/binary-rpc.host.spec` HTTP bridge 5s 超时——单跑 46/46 全过、fork 对该包 diff 为空，定性并行负载抖动 |
+| pi-ai 补丁 | 与 rc.1 分支字节一致（diff=0）；`_patch_hash=8d2124eb…` 双侧（node_modules 实装 + 锁文件记录） |
+| 插件零发版 | 两插件全部引擎 peer 在 rc.2 下 semver 求值 PASS（D5 耐久范围兑现）；bundle 镜像零漂移 |
+| 品牌四层同值 | locale（源头）→ spec 19+9 处（编译期）→ brand-assert（产物期）→ DOM 注入（运行期） |
+
+### 未决（承接 + 本段新增）
+
+1-3 承接 rc.1 段不变（patchgate dsh-context 键漂移 / panel-buttons / skills 冒烟）。
+4. `binary-rpc.host.spec` 2 例并行负载抖动：上游文件、非本版引入（如上定性），登记观察，不在本版处理。

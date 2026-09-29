@@ -99,7 +99,15 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // 「id 不存在 → warn 后跳过」的静默失效（升级现场），见 product-policy.ts。
   // 它不是第三方插件而是官方组合包，放进本表只是为了借「装进 profile deps +
   // 自动声明进 bundles 层叠」这条既有通道；版本随引擎基线同线。
-  '@deepseek-ai/dsh-experimental-schedule-bundle': '0.2.0-rc.1',
+  // 2026-09-30 平移：0.2.0-rc.1 → 0.2.0-rc.2。**调度家族必须与引擎逐版本
+  // 同线（精确钉）**：上游 dsh-schedule 系包的 peer 全部精确钉引擎版本
+  // （如 `0.2.0-rc.2`），跨线混装（引擎 rc.2 + 调度 rc.1）会让兼容闸门
+  // 禁行 dsh-schedule / dsh-time-context，而 dsh-client-ui-schedule（peer
+  // 仅 cordis）漏网存活并等待被禁服务 → Loader 永不结算 → ready 行不打印
+  // → KCoder 60s 启动超时（2026-09-30 dev 现场实证 + overlay 二分定位，
+  // 见 docs/upstream-0.2.0-rc.2-analysis.md §5）。这也是本表对调度线用
+  // 精确钉而非范围钉的原因：上游 peer 本就精确钉，范围钉引入 ERESOLVE。
+  '@deepseek-ai/dsh-experimental-schedule-bundle': '0.2.0-rc.2',
   // 0.38.5 起 index.js 不再 import settingsNamespace（alpha.2 的
   // dsh-settings 已移除该导出）——0.37.x 与 alpha.2 引擎组合启动即
   // SyntaxError 全局崩（0.4.9 Windows 升级现场实证）
@@ -198,14 +206,14 @@ export const PRESET_PLUGINS: Record<string, string> = {
  *
  * `@deepseek-ai/dsh-*-ssh`（2026-09-26，SSH 执行世界 / B-β）：内置 bundle
  * `dsh-ssh-remote` 用它把执行世界换成远端主机。**版本必须与引擎基线同线**
- * （当前 0.2.0-rc.1，随 2026-09-29 基线升级平移）；跨线混装会让 provider 与
+ * （当前 0.2.0-rc.2，随 2026-09-30 基线升级平移）；跨线混装会让 provider 与
  * 服务定义类身份分裂。
  */
 export const PRESET_RUNTIME_DEPS: Record<string, string> = {
-  '@deepseek-ai/dsh-ssh': '0.2.0-rc.1',
-  '@deepseek-ai/dsh-fs-ssh': '0.2.0-rc.1',
-  '@deepseek-ai/dsh-subprocess-ssh': '0.2.0-rc.1',
-  '@deepseek-ai/dsh-sandbox-ssh': '0.2.0-rc.1',
+  '@deepseek-ai/dsh-ssh': '0.2.0-rc.2',
+  '@deepseek-ai/dsh-fs-ssh': '0.2.0-rc.2',
+  '@deepseek-ai/dsh-subprocess-ssh': '0.2.0-rc.2',
+  '@deepseek-ai/dsh-sandbox-ssh': '0.2.0-rc.2',
 }
 
 /**
@@ -563,13 +571,23 @@ export function ensurePresetPlugins(): void {
     //      alpha.2 引擎移除 dsh-settings 的 settingsNamespace 导出，
     //      升级用户 profile 里的 dsh-context 0.37.x 仍 import 该导出，
     //      启动即 SyntaxError 全局崩。实体版本满足下界则不动（用户
-    //      update --latest 升线、mac git 源收编 0.17.2 均不被降级覆写）
+    //      update --latest 升线、mac git 源收编 0.17.2 均不被降级覆写）。
+    //      精确钉（无 ^/~ 前缀）额外按**版本字符串全等**判过旧：三元组
+    //      比较看不见预发布标签（0.2.0-rc.1 与 0.2.0-rc.2 同为 [0,2,0]），
+    //      调度家族/SSH 这类「必须与引擎逐版本同线」的精确钉若只看
+    //      三元组，rc.1→rc.2 升级现场会留下混装（引擎 rc.2 + 调度 rc.1
+    //      → peer 闸门禁行 + 启动卡死，2026-09-30 实证，见
+    //      docs/upstream-0.2.0-rc.2-analysis.md §5）。
     for (const p of managedNames) {
-      const min = specMinVer(MANAGED_PROFILE_DEPS[p])
+      const spec = MANAGED_PROFILE_DEPS[p]
+      const min = specMinVer(spec)
       if (min === null) continue
-      const cur = specMinVer(installedVersionOf(profileDir, p) ?? '')
+      const installedVer = installedVersionOf(profileDir, p)
+      const cur = specMinVer(installedVer ?? '')
       const entityDir = join(profileDir, 'node_modules', p)
-      const staleEntity = existsSync(entityDir) && (cur === null || cmpVer(cur, min) < 0)
+      const exactPin = !/^[~^]/.test(spec)
+      const staleEntity = existsSync(entityDir)
+        && (cur === null || cmpVer(cur, min) < 0 || (exactPin && installedVer !== spec))
       if (!staleEntity && cur !== null) continue
       if (deps[p] !== MANAGED_PROFILE_DEPS[p]) {
         deps[p] = MANAGED_PROFILE_DEPS[p]

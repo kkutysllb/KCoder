@@ -72,7 +72,7 @@ export interface RemoteServerOptions {
    */
   addonSpecs: readonly string[]
   /**
-   * 引擎版本（如 `0.2.0-rc.1`），由调用方从本地 runtime 读出。
+   * 引擎版本（如 `0.2.0-rc.2`），由调用方从本地 runtime 读出。
    *
    * 远端装的是**官方发布的元包** `@deepseek-ai/dsh@<该版本>`，由 npm 按**那台
    * 机器**的平台解析整棵依赖树——平台原生模块因此自动正确。
@@ -301,7 +301,7 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
   }
   const runtimePath = `${REMOTE_ROOT}/runtime`
 
-  // 引擎 = 本地那份（0.2.0-rc.1，纯 JS 与平台无关）+ 从 npm 补 linux 原生包。
+  // 引擎 = 本地那份（0.2.0-rc.2，纯 JS 与平台无关）+ 从 npm 补 linux 原生包。
   //
   // 为什么不装官方元包：npm 在 WSL2 上会长时间不退（实测 40+ 分钟仍未收尾），
   // 而"搬本地树 + 补平台原生包"两步都在可控时间内完成。搬本地树还带来一个关键

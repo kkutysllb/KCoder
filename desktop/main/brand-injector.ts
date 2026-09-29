@@ -277,24 +277,29 @@ const INJECT_JS = `(() => {
     svg.insertAdjacentElement('afterend', img)
   }
 
-  // ---- 运行态文案：回合运行中的 Deep diving... → KCoder... ----
+  // ---- 运行态文案：回合运行中的 Deep diving → KCoder ----
   //（锚点 2026-09-29 随 0.2.0-rc.1 切换：运行态从 ChatView 的 turnStatus
   //  容器搬到独立的 RunningStatus 组件，根节点带 data-chat-running。原
   //  [class*="_turnStatus"] 自 0.1.7-rc.1 起就已失配（类名消失），是空转；
   //  这次换成语义锚点后 EN 文案的品牌替换才真正生效。
   //  新结构下文案在子树里（可见标签 + aria-live 的视觉隐藏 span），且带用时时
-  //  形如 "Deep diving for 12s..."，故遍历文本节点而非只看首子节点；只改
+  //  形如 "Deep diving for 12s ..."，故遍历文本节点而非只看首子节点；只改
   //  nodeValue——上游 shimmer 动画作用在容器与文本本体上，节点不动则动画、
   //  时钟 span 与 reduced-motion 全原样。回合结束卸载、重挂恢复原文 →
-  //  observer 自愈。）
+  //  observer 自愈。
+  //  2026-09-30 随 0.2.0-rc.2 排版跟进：上游把运行态文案去点——裸态
+  //  "Deep diving"（旧为 "Deep diving..."），计时态尾部 " ···"（U+0020 +
+  //  U+00B7×3，Z 侧 locale 同步改排）。替换目标同步为新形态 "KCoder" /
+  //  "KCoder for "；旧带点形态保留匹配作兜底（升级窗口期新旧渲染并存）。）
   const swapTurnStatus = () => {
     for (const el of document.querySelectorAll('[data-chat-running]')) {
       const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
       for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
         const text = node.nodeValue
-        if (text === 'Deep diving...') node.nodeValue = 'KCoder...'
+        if (text === 'Deep diving') node.nodeValue = 'KCoder'
+        else if (text === 'Deep diving...') node.nodeValue = 'KCoder...'
         else if (text !== null && text.startsWith('Deep diving for ')) {
-          node.nodeValue = 'KCoder... for ' + text.slice('Deep diving for '.length)
+          node.nodeValue = 'KCoder for ' + text.slice('Deep diving for '.length)
         }
       }
     }
