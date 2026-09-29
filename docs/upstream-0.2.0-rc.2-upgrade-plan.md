@@ -264,3 +264,51 @@ git merge --no-ff kcoder/0.2.0-rc.1    # 整支重放（merge-base = 4878cdabd8 
 | [upstream-0.2.0-rc.1-upgrade-plan.md](upstream-0.2.0-rc.1-upgrade-plan.md) | 第一段计划 + §20 执行记录（边界 B-1…B-10 继承） |
 | `upstream/BASELINE` | 两段各追加一条升级记录 |
 | `release/v0.6.19.md` / `audit-v0.6.19.md` | 双锚定发版文档（本段补 rc.2 部分） |
+
+---
+
+## 14. 执行记录（2026-09-30，S0–S5 完成；S6 等用户 npm 发布）
+
+| 阶段 | 结果 | 关键证据 |
+|---|---|---|
+| S0 冻结 | ✅ | 三仓干净；fork master = origin/master = `639ed01539`（D9 零动作） |
+| S1 fork 重建 | ✅ | 分支 `kcoder/0.2.0-rc.2` @ `5295828ae5`（merge `408850b0a8` + GATE 修复），已推 origin |
+| S2 插件线 | ✅ | 两插件全部引擎 peer semver PASS on `0.2.0-rc.2`；`sync-bundles --check` 零漂移；零发版 |
+| S3 宿主侧 | ✅ | commit `46d353f`：BASELINE+记录 / 三处字面量 / 钉版平移 / brand-injector / brand-assert / release 文档 |
+| S4 物化+启动验收 | ✅ | **P0-1/P0-3 双判据达成**（详见下） |
+| S5 回归 | ✅ | 冒烟 9 过 + 3 既有失败形态不变；真实会话手工验收交用户 |
+| S6 发布 | ⏸ | 等用户发布 `dsh-coding-sidebar@1.0.35` / `dsh-file-review-kcoder@1.0.11` 后走 prepush→build→verify→ship |
+
+### 计划外发现与处置（执行中新增的三个关键点）
+
+1. **锁文件策略修正（B-2 的进化）**：「删锁全量重装」在本轮炸出时间炸弹——zod `^4.4.3` 全量重解拉到 4.6.5（当天新发布），与 stagehand 精确钉的 4.4.3 并存双实例 → TS 构建崩。修正为「**上游 rc.2 锁文件为基 + pnpm 增量更新**」：外部解析保持上游冻结态（zod 单实例 4.4.3），净差 22+/7−（我方 pi-ai 补丁 hash `8d2124eb…` + 3 包 workspace 链接）。后续升级段的锁文件 SOP 以此为准。
+2. **品牌串 19 处 → 28 处**：rc.2 新增 `running-status.client.spec.tsx`（9 处断言，merge 无冲突故未暴露）在 GATE 泳道被拦（RK-2 兑现），补齐后全绿。品牌断言面实际 = chat-view 19 + running-status 9。
+3. **preset-plugins 对账缺口（升级用户路径）**：`specMinVer` 三元组比较看不见预发布标签（rc.1/rc.2 同为 `[0,2,0]`）→ 2.5 步对账会跳过钉版平移 → 升级用户 profile 留「引擎 rc.2 + 调度 rc.1」混装 = P0-1 在升级现场重演。已修：精确钉（无 `^`/`~`）按版本串全等判过旧（commit `46d353f`）。
+
+### P0 验收证据（S4）
+
+- **P0-3（ERESOLVE 消除）**：dev profile 五包钉 rc.2 后 `pnpm install --no-frozen-lockfile` exit 0（rc.1 钉版态在同引擎下必炸）
+- **P0-1（启动卡点）**：`DSH_HOME=~/.kcoder-dev` 真实起服，**11s 出 ready 行**（`dsh web: http://127.0.0.1:3080/…`；混装态永不打印）；stderr `disabling profile plugin` **零命中**；无 `patch: entry … not found`
+- 八包实装 `0.2.0-rc.2` 全核（schedule-bundle/schedule/time-context/ui-schedule/4×SSH）；双插件实体 1.0.35/1.0.11 完好（cordis.patch.yml 在位）
+- `--dump-config`（含策略层）：调度三行在位无 disabled；策略七行终值全对（session-log-deepseek.enabled=false / ui-sidebar-terminal.disabled=true / ui-sidebar-browser.disabled=false / ui-deliverables.tailCard=false / ui-settings-session-log.disabled=true / 两行遥测 disabled=true）
+
+### S1-GATE 证据
+
+- `CI=true pnpm install` exit 0（pi-ai 补丁干净应用，`_patch_hash=8d2124eb…` 实装与锁文件双侧一致；与 rc.1 分支补丁字节级一致 diff=0）
+- `pnpm run build` exit 0；`pnpm run typecheck` exit 0
+- 自测泳道（client+core+llm，**前台跑完**）**12397/12399**：仅剩 2 败 = `connection/binary-rpc.host.spec` 的 HTTP bridge 5s 超时——单跑 46/46 全过 + fork 对 `packages/client/connection` diff 为空，定性**并行负载抖动**（上游文件），登记观察非回归
+
+### 冒烟矩阵（S5）
+
+| 结果 | 支 |
+|---|---|
+| ✅ 9 支 | account-chip / **brand-badge** / context-tab / mcp-dom / **settings-anchors** / sidebar-toggle / workspace-header / runtime（`node` 直跑形态：就绪行+首页 200） |
+| ❌ 3 支（既有，形态不变） | panel-buttons（SHIFT_JS）/ skills-dom、skills-page（MEDIA_MODEL_GROUPS 挂起） |
+
+注：`smoke-runtime` 必须以 `node scripts/smoke-runtime.mjs` 直跑（纯进程冒烟，staging 运行时 + 临时空 home）；套 electron 前缀会以完整 App 形态启动吞掉 stdout 伪超时。
+
+### 交接（S6 前置与待办）
+
+- **用户**：npm 发布两插件（PRESET 解析前置）；发布后 prod 实例（`~/.kcoder`）随 0.6.19 发版自愈（D11）
+- **S6**：`prepush`（⚠ patchgate 既有 dsh-context 键漂移红仍需先处理，见 rc.1 计划 §20.3-3）→ `build` → `verify` → `ship 0.6.19`
+- **用户手工验收**：dev 实例（`~/.kcoder-dev`）真实会话——运行态文案品牌化（无点形态）+ 调度任务页 + 时间上下文 + 终端 + 文件审查
