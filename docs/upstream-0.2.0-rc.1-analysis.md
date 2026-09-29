@@ -791,9 +791,9 @@ git -C $R grep -rn '_turnStatus' dsh-v0.1.7-rc.2 dsh-v0.2.0-rc.1 -- packages/cli
 | 1 | `packages/telemetry/otel` 是否对我方"不上传"策略构成新出口 | 需产品决策（新增 seam `ctx.otel` 本身不建连接、不采集；但 base bundle 新增 `otel` 行 + `session-telemetry-otel` 默认 `FEEDBACK_ONLY`） |
 | 2 | `session-log-download` / `session-log-export` 行的导出语义是否与我方策略冲突 | 未展开（web-app:75-76 存在该行，属会话日志导出，非上传） |
 | 3 | 上游 `apps/desktop` 的产品分析实现是否会被我方壳间接继承 | 否（我方壳独立，且 profile 名为 web）；但 `DSH_PRODUCT_ANALYTICS_OTLP_URL` 若被外部注入需确认 |
-| 4 | 我方 18 个重叠文件中「可自动合并」的 14 个，语义安全性 | 已做行号级判定，**语义级仍需 rebase 后跑测试门** |
+| 4 | 我方 18 个重叠文件中「可自动合并」的 14 个，语义安全性 | **已执行**（2026-09-29）：实际 merge 出现 **5 处**冲突（比预估多 1 处：`ui-plugin-manager/src/client/locales.ts`），全部按「结构以上游为基底、语义以我方为准重放」处置；`pnpm run typecheck` exit 0（含 `tsc -b tsconfig.client.json`），覆盖全部处置。详见升级计划 §20.1 与 `upstream/BASELINE` 本轮升级记录 |
 | 5 | `docs/persistence-schema.json` 压缩对我方产物有无影响 | 我方不消费该文档；如需可重生成 |
-| 6 | 两个插件的「兼容」判定目前是**契约面/符号面**静态结论 | **未在 0.2.0-rc.1 上实跑 `pnpm typecheck` / smoke**（本次只读）。侧边栏/审查插件需在改完 peer 后补一次编译与冒烟 |
-| 7 | 哈希前缀锚点（`_trigger` / `_navTitle` / `_close`）的最终存活 | 源码层已确认同名类存在且 owner 文件未变，但**未在 0.2.0-rc.1 实机 built 产物**上验证 |
-| 8 | 兼容闸门在 KCoder 桌面集成路径（profile 注入第三方行）上是否对每个第三方行都生效 | 机制已确认（`compatibility-preflight.ts`），但未在实机 profile 上跑 deny 场景 |
+| 6 | 两个插件的「兼容」判定目前是**契约面/符号面**静态结论 | **已升为编译级证据**（2026-09-29）：两插件在 0.2.0-rc.1 依赖树上 `tsc --noEmit` **exit 0**；侧边栏另有 `check:contract` / `check:artifacts`（产物可复现，178 文件字节不变）/ `smoke` 全过，`tests/run-openpath-tests.mjs` ALL PASS |
+| 7 | 哈希前缀锚点（`_trigger` / `_navTitle` / `_close`）的最终存活 | 源码层已确认同名类存在且 owner 文件未变；实机 built 产物仍未核（待装包后在 DevTools 查实际 class 值） |
+| 8 | 兼容闸门在 KCoder 桌面集成路径（profile 注入第三方行）上是否对每个第三方行都生效 | **已实机验证**（2026-09-29）：真实新引擎在旧插件上复现 `dsh: skipping profile bundle "dsh-coding-sidebar" …` 与 `… "dsh-file-review-kcoder" …`（仅 warning、进程照常）；换成新插件后 stderr 全空。见升级计划 §20.2 |
 | 9 | 官方 `dsh-v0.2.0-rc.1` 之后是否有 rc.2 | 本次分析截止 `4878cdabd8` |

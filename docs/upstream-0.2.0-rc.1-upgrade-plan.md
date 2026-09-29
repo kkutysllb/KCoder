@@ -743,3 +743,60 @@ bash $K/scripts/release.sh ship 0.6.19
 | [../upstream/FORK-WORKFLOW.md](../upstream/FORK-WORKFLOW.md) | 分支与 merge 纪律（S1 必须遵守） |
 | [plugin-dev-checklist.md](plugin-dev-checklist.md) | 插件版本线规则（S2 必须遵守） |
 | [remote-workspace-route-b.md](remote-workspace-route-b.md) | 远端工作区设计（S3 的 4 个 SSH 包即其运行时前提） |
+
+---
+
+## 20. 执行记录（2026-09-29）
+
+### 20.1 已完成
+
+| 阶段 | 结果 | 证据 |
+|---|---|---|
+| **S0** | 清除 `qilin-upstream` remote；确认 npm 鉴权可用（`npm owner ls` 成功，`whoami` 端点受限）、`git push` 通、仓外写入按会话策略放行 | `git remote -v` 只剩 origin；fork 与 QiLin 工作树 pristine |
+| **S1** | 集成分支 `kcoder/0.2.0-rc.1` @ `4cbc050fc7`（`48fd977e1e` 重放 merge + `4cbc050fc7` 扫光撤销），已推 fork | `git ls-remote origin refs/heads/kcoder/0.2.0-rc.1` |
+| **S1-GATE** | `CI=true pnpm install` exit 0（pi-ai 0.87.1 补丁干净应用）、`pnpm run build` exit 0（Host/Client/Web，347 client 产物）、`pnpm run typecheck` exit 0 | 见 `upstream/BASELINE` 本轮升级记录 |
+| **S2-a** | 两插件 peer 改 `>=0.1.7-rc.2 <1.0.0`；devDeps 对齐 0.2.0-rc.1；版本 1.0.35 / 1.0.11；各自 `tsc --noEmit` exit 0 | `dsh-coding-sidebar@dd7bc4d`、`dsh-file-review-kcoder@8b8ac2c` |
+| **S2-a 特征** | **侧边栏附带新需求：任务计划递归扫描次级目录**（`PLAN_SCAN_MAX_DEPTH=6` + 跳过 `node_modules` + 不跟随符号链接）；夹具按仓内文档用 tsc 重生成，断言由「嵌套应被忽略」改写为「递归收录」 | `321334a`；`tests/run-openpath-tests.mjs` ALL PASS；`check:contract` / `check:artifacts`（178 文件字节不变）/ `smoke` 全过 |
+| **S2-a 发布** | GitHub：`main` + tag `v1.0.35` / `v1.0.11` + Release 页；**npm 未发布（按用户要求由用户自行发布）** | github.com/kkutysllb/dsh-coding-sidebar/releases/tag/v1.0.35 等 |
+| **S2-b** | `dsh-plugins` 镜像更新并推送（只提交本次两个插件目录，避开他人在途的 `dsh-video-generator`）；KCoder `bundle/` 同步（`--check` 零差异）；`bundle/dsh-ssh-remote` 随镜像 0.1.2 → 0.1.3 | `dsh-plugins@2a3c269`；`check-bundle-version-line.mjs` 通过 |
+| **S3** | 6 处版本字面量 + `PRESET_PLUGINS` 平移 + 新增 schedule bundle 选中 + 策略层四项改动 + 运行态锚点切换 | KCoder `2276e2f`（19 文件），已推 `kkutysllb/KCoder` |
+| **S4 预装** | `~/.kcoder-dev/profiles/web`：两插件 1.0.35 / 1.0.11、schedule bundle 0.2.0-rc.1（含 dsh-schedule / dsh-time-context / dsh-client-ui-schedule）、4 个 SSH 包 0.2.0-rc.1；策略层按新内容写入 | §20.2 |
+| **S4 P0 双验收** | **真实引擎** `DSH_HOME=~/.kcoder-dev dsh --profile web --dump-config --patch <策略层>`：exit 0、**stderr 全空**；10 行终值逐条核对通过 | §20.2 |
+| **S5（部分）** | `pnpm typecheck` exit 0；`release.sh audit` exit 0；`check-bundle-version-line.mjs` 通过 | 本轮 |
+
+### 20.2 P0 验收证据（真实引擎）
+
+**升级前（prod `~/.kcoder`，旧插件 + 新引擎）** —— 实证了分析里的故障预测：
+
+```
+dsh: skipping profile bundle "dsh-coding-sidebar": Plugin dsh-coding-sidebar@1.0.34 is
+  incompatible with dsh 0.2.0-rc.1: peerDependencies {...}. Exact-version exemption: not active.
+dsh: skipping profile bundle "dsh-file-review-kcoder": Plugin dsh-file-review-kcoder@1.0.10 is
+  incompatible with dsh 0.2.0-rc.1: peerDependencies {"@deepseek-ai/dsh-api-session-controller":
+  "^0.1.7-alpha.1","@deepseek-ai/dsh-session":"^0.1.7-alpha.1"}. Exact-version exemption: not active.
+```
+
+注意是 **skipping profile bundle**（整个 bundle 被跳过）且**只是 warning、进程照常** —— 与分析结论一致（不崩、静默失效）。
+
+**升级后（dev `~/.kcoder-dev`，新插件 + 新策略层）** —— stderr 全空，组合结果逐行核对：
+
+| 行 | 终值 | 对应决策 |
+|---|---|---|
+| `time-context` / `schedule` / `ui-schedule` | 由 schedule bundle 插入，**无 `disabled`** | P0-2 / D4 |
+| `session-log-deepseek` | `enabled: false` | D2 |
+| `ui-settings-session-log` | `disabled: true` | D2.1 |
+| `desktop-product-telemetry` / `product-analytics` | `disabled: true` | D3 |
+| `ui-sidebar-terminal` / `ui-sidebar-browser` / `ui-deliverables` | `true` / `false` / `tailCard: false` | 不变 |
+
+### 20.3 未完成 / 交接项
+
+| # | 项 | 状态 | 说明 |
+|---|---|---|---|
+| 1 | **npm 发布** `dsh-coding-sidebar@1.0.35` / `dsh-file-review-kcoder@1.0.11` | **留给用户**（明确要求） | 未发布前 `PRESET_PLUGINS` 的 `^1.0.35` / `^1.0.11` 在 registry 上无解，新装 profile 会解析失败；dev 实例已本地预置种子，可用 |
+| 2 | **prod 实例 `~/.kcoder` 当前处于「侧边栏/审查被跳过」状态** | 待第 1 项 | 其插件仍是 1.0.34 / 1.0.10 而引擎已是 0.2.0-rc.1；npm 发布后启动一次即由宿主自愈装上新版（或按 dev 的做法手工预置） |
+| 3 | **`patchgate` 红（既有债务，非本次引入）** | 阻塞发布仪式 | prod profile 的 `dsh-context` 已漂到 **0.59.2**（清单里即 `^0.59.2`），而补丁键仍是 `dsh-context@0.55.0.patch` → 需按 `update-profile-plugins.mjs --check` 的指引逐 hunk 取证后重出 patch 并改名。本轮按 B-1 冻结 `dsh-context` |
+| 4 | `release.sh build` / `verify`（打包 + 签名 + 公证） | 未跑 | 需 Apple 凭据与长时间，且应在 npm 发布之后 |
+| 5 | §16 C.4 十项人工回归 | 留给用户 | 待验证 |
+| 6 | `release/v0.6.19.md`、`release/audit-v0.6.19.md`、版本 bump | 未做 | 发布仪式阶段，等用户验证通过 |
+| 7 | 上游自测泳道（`packages/client` + `core` + `llm`） | **结果丢失** | 该后台任务随会话中断丢失，未取证；本仓 pre-push 门（typecheck，含 `tsc -b tsconfig.client.json`）已绿。如需补证可重跑 |
+
