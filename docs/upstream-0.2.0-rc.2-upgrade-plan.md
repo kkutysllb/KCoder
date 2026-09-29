@@ -277,7 +277,7 @@ git merge --no-ff kcoder/0.2.0-rc.1    # 整支重放（merge-base = 4878cdabd8 
 | S3 宿主侧 | ✅ | commit `46d353f`：BASELINE+记录 / 三处字面量 / 钉版平移 / brand-injector / brand-assert / release 文档 |
 | S4 物化+启动验收 | ✅ | **P0-1/P0-3 双判据达成**（详见下） |
 | S5 回归 | ✅ | 冒烟 9 过 + 3 既有失败形态不变；真实会话手工验收交用户 |
-| S6 发布 | ⏸ | 等用户发布 `dsh-coding-sidebar@1.0.35` / `dsh-file-review-kcoder@1.0.11` 后走 prepush→build→verify→ship |
+| S6 发布 | ✅ | npm 双包已发布 → patchgate 既有债务解除 → prepush 绿 → `ship 0.6.19`（bump `5d85332` + tag `v0.6.19` 已推，CI 三平台构建发布中） |
 
 ### 计划外发现与处置（执行中新增的三个关键点）
 
@@ -312,3 +312,31 @@ git merge --no-ff kcoder/0.2.0-rc.1    # 整支重放（merge-base = 4878cdabd8 
 - **用户**：npm 发布两插件（PRESET 解析前置）；发布后 prod 实例（`~/.kcoder`）随 0.6.19 发版自愈（D11）
 - **S6**：`prepush`（⚠ patchgate 既有 dsh-context 键漂移红仍需先处理，见 rc.1 计划 §20.3-3）→ `build` → `verify` → `ship 0.6.19`
 - **用户手工验收**：dev 实例（`~/.kcoder-dev`）真实会话——运行态文案品牌化（无点形态）+ 调度任务页 + 时间上下文 + 终端 + 文件审查
+
+---
+
+## 15. S6 执行记录（2026-09-30 收口）
+
+### 发布前置债务解除：patchgate（既有红）
+
+`dsh-context` 补丁键漂移（仓库 patch `@0.55.0` vs 实装 v0.60.0）为 rc.1 段登记的既有债务，本轮解除：
+
+1. **逐 hunk 对纯净 `dsh-context@0.60.0` 取证**（`npm pack` 取得上游产物）：两处修复上下文同形、`patch -p1 --dry-run` 干净应用、归一后与旧补丁**逐行等价**（仅行号重基 `9066→10121` / `11607→12445`）。
+2. **重出补丁**：`profiles/web/patches/dsh-context@0.55.0.patch` → `dsh-context@0.60.0.patch`。
+3. **修同步脚本口径缺口**：`update-profile-plugins.mjs` 的 `ensurePatchDeclared` 只管 name-only→精确键与「缺声明追加」，旧精确键永不重写 → `missing` 判为已同步（脚本报「已同步」）而发版闸按精确键报「缺声明」。补「精确键重出」分支后两侧一致。
+4. **现场物化**：dev / prod 两 profile 声明均重出到 `dsh-context@0.60.0`，`pnpm install` 应用补丁 → `--release-gate` **双绿**（1 份 patch：仓库分发 + 现场 marks + 版本键零漂移 + 声明就位）。
+
+> 注：`update-profile-plugins.mjs` 的 profile 解析在无 `DSH_HOME` 时回退 `~/.kcoder`（prod）——本轮首次 `--sync` 因此作用到 prod（仅多复制一份补丁文件，lockfile/package.json 未变、依赖未重解析），随后以 `DSH_HOME` 显式同步 dev，两 profile 现态一致。
+
+### 发布结果
+
+- `release.sh prepush` 全绿（audit 三门 + patchgate + 版本线 + settings 冒烟 + 全量构建）
+- `release.sh ship 0.6.19`：bump `5d85332` → tag `v0.6.19` → main + tag 已推 → **CI 三平台构建并自动发布**
+- 发布说明 `release/v0.6.19.md` / 审计 `release/audit-v0.6.19.md` 已随发布提交入库
+
+### 用户报障处置：桌面端启动弹「预览版说明」（本段追加修复）
+
+- **现象**：桌面端启动弹上游 rc.2 的预览版公告。
+- **根因**：上游把该公告限定给浏览器端（桌面端以 `dshDesktop` preload 标记豁免）；KCoder 的 shell 窗口刻意不注入 preload（纯浏览器载体设计），被判成浏览器；公告带版本号（rc.2 从 `2026-08-13.1` → `2026-09-28.1`），故版本号一变即重弹。
+- **修法**（fork `b428f93a79`）：注册前补 Electron 判定——UA 含 `Electron` 标记即视为桌面壳，不注册公告；普通浏览器（LAN/远程）维持上游行为。宿主未自定义 UA（grep 全 `desktop/` 零命中）；Electron 44 默认 UA 实测含 `Electron/44.0.0`。
+- **证据**：新增单元用例锁定（Electron UA → 注册表仅剩 `deepseek-official`），既有 30 项相关用例全过；构建产物 `lib/client.js` 含该闸门。

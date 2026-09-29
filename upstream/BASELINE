@@ -904,3 +904,11 @@
 # （client+core+llm 前台跑完）12397/12399——仅剩 2 败为
 # connection/binary-rpc.host.spec 的 HTTP bridge 5s 超时（单跑 46/46
 # 全过、fork 对该包 diff 为空，定性并行负载抖动，非回归）。
+#
+# 追加偏离（2026-09-30，fork 提交 b428f93a79）：桌面壳不再弹上游「预览版说明」
+# 公告。上游把该公告限定给浏览器端、桌面端以 `dshDesktop` preload 标记豁免；
+# KCoder 的 shell 窗口刻意不注入 preload（纯浏览器载体设计，见
+# desktop/main/windows.ts），被上游判成浏览器——公告版本号随上游变化即启动重弹
+# （rc.2 由 2026-08-13.1 升到 2026-09-28.1）。修法：注册前补一条 Electron 判定
+# （UA 含 Electron 标记；宿主未自定义 UA，Electron 44 默认 UA 实测含
+# Electron/44.0.0），普通浏览器（LAN/远程访问）维持上游行为。单元用例锁定该分支。
