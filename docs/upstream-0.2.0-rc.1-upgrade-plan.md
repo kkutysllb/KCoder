@@ -799,4 +799,5 @@ dsh: skipping profile bundle "dsh-file-review-kcoder": Plugin dsh-file-review-kc
 | 5 | §16 C.4 十项人工回归 | 留给用户 | 待验证 |
 | 6 | `release/v0.6.19.md`、`release/audit-v0.6.19.md`、版本 bump | 未做 | 发布仪式阶段，等用户验证通过 |
 | 7 | 上游自测泳道（`packages/client` + `core` + `llm`） | **结果丢失** | 该后台任务随会话中断丢失，未取证；本仓 pre-push 门（typecheck，含 `tsc -b tsconfig.client.json`）已绿。如需补证可重跑 |
+| 8 | **GUI 冒烟 10 支已跑 10 支**（S5 §10.1） | **7 过 / 3 既有失败** | 过：settings-anchors（10/10，含判别力自检）、brand-badge、sidebar-toggle、mcp-dom、context-tab、workspace-header、account-chip。三个既有失败与升级无关（`git diff 2e762f5..HEAD` 对涉事文件均为空）：① panel-buttons——`SHIFT_JS` 平移清单（panel-buttons.ts:46-48）**从未包含** `__dsh_kc_git_btn`，第四钮恒为 108px；②③ skills-dom / skills-page——skills-settings.ts:77 的 `var MEDIA = ${JSON.stringify(MEDIA_MODEL_GROUPS)}` 是**构建期插值**，而冒烟按「原文即可执行」提取 PAGE_JS 源文本直接 eval，裸文本里 `MEDIA_MODEL_GROUPS` 即未定义引用，抛错后 Electron 不退出（表现为挂起）。三支均为待修的既有技术债 |
 
