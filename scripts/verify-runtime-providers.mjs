@@ -24,7 +24,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(join(fileURLToPath(import.meta.url), '..', '..'))
@@ -49,13 +49,20 @@ if (target === undefined || !existsSync(target)) {
 const targetPath = resolve(target)
 const isTar = statSync(targetPath).isFile()
 
+// tar 一律用「切到归档所在目录 + 基名」调用：Windows 上带盘符的绝对路径会被
+// GNU tar（Git Bash 的 /usr/bin/tar）当成远端主机（`D:\x` ⇒ host `D:`，
+// 报 "Cannot connect to D: resolve failed"）。切目录后不带冒号，GNU tar 与
+// bsdtar 都认——发布链在 Windows 上跑本地构建时走的正是这条路。
+const tarCwd = isTar ? dirname(targetPath) : undefined
+const tarName = isTar ? basename(targetPath) : undefined
+
 /** tar 成员名 → 真实成员名（归档里可能带 `./` 前缀）。惰性构建。 */
 let tarIndex = null
 function tarMemberNames() {
   if (tarIndex !== null) return tarIndex
   tarIndex = new Map()
   try {
-    const out = execFileSync('tar', ['-tzf', targetPath], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    const out = execFileSync('tar', ['-tzf', tarName], { cwd: tarCwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
     for (const line of out.split('\n')) {
       const entry = line.trim()
       if (entry === '') continue
@@ -75,7 +82,7 @@ function readMember(member) {
   const entry = tarMemberNames().get(member.replace(/\\/g, '/').replace(/^\.\//, ''))
   if (entry === undefined) return null
   try {
-    return execFileSync('tar', ['-xzOf', targetPath, entry], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    return execFileSync('tar', ['-xzOf', tarName, entry], { cwd: tarCwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
   } catch {
     return null
   }

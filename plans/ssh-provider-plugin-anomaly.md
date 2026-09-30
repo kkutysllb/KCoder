@@ -126,3 +126,36 @@
 | `node --input-type=module` 自测首次失败：fixture 目录未建 | `build()` 里补 `mkdirSync(fix, { recursive: true })` |
 | 门的 tar 模式误报「实体不在产物里」 | 根因：Windows `join()` 产出 `\`，tar 成员名用 `/`；`readMember` 统一换算为 POSIX 分隔再查表 |
 | `probe-profile-providers.mjs` 合成场景报 `ERR_MODULE_NOT_FOUND`（找 dsh-app-boot） | 根因：把「实现来源」与「解析锚点」混为一谈；改为实现从任一含 dsh-app-boot 的运行时导入（锚点仍取 `--runtime`），并打印来源 |
+
+## 发版前验证（Windows 本地复现 CI 链，2026-10-01）
+
+上游 fork 克隆到 `D:\Projects\deepseek-harness`（`kcoder/0.2.0-rc.2`，HEAD `b428f93a79`，含基线
+`639ed01539`），跑通 `scripts/setup.sh`（install + 三阶段 build）后，逐段复现 release.yml 的构建链：
+
+| 步骤 | 结果 |
+|---|---|
+| `patchgate` | 通过 ✓（1 份 patch：分发 + marks + 版本键零漂移 + 声明就位） |
+| `verify-vendor-purity.sh` | 通过 ✓（vendor/ 全在白名单） |
+| `pnpm deploy --prod --legacy` | 通过（507 包；平台二进制按 win32 过滤） |
+| `materialize-peers.mjs` | **供给块首次真实执行并成功**：`内置 provider 已登记进引擎清单：…@0.2.0-rc.2` → `已随包供给：4 个` → `自检通过：所有非可选依赖可达且版本满足`；归档 21743 文件 / 147 MB |
+| provider 门（staging 目录） | 通过 ✓ |
+| provider 门（归档 tar） | 修复后通过 ✓（见下） |
+| 品牌断言 | 相对路径（CI 形态）通过 ✓ |
+| 运行时冒烟（Electron node 形态） | 通过 ✓（`就绪行 + 首页 200`） |
+
+### 本轮发现并修掉：我的门在 Windows/Git Bash 下的 tar 调用缺陷
+
+`tar` 用**盘符绝对路径**调用时，MSYS 的 GNU tar 把它当远端主机解析：
+`tar (child): Cannot connect to D: resolve failed`（MSYS 会把 bash 传的参数转成 `D:/…` 再给 node，
+node 再原样交给 tar）。修法：一律「切到归档所在目录 + 传基名」调用（GNU tar 与 bsdtar 都认），
+改后 pwsh（bsdtar）与 Git Bash（GNU tar）两种环境均通过。
+
+### 本轮发现但**未改**：`brand-assert.mjs` 的同类缺陷（既有，非本次引入）
+
+`release.sh build/verify` 传的是**绝对路径**（`"$ROOT/staging/…"`），在 Windows + Git Bash 下同样
+会撞 `Cannot connect to D:`；`release.yml` 传的是相对路径，故 CI 三平台不受影响（与 0.6.19
+「CI 三平台全绿」一致）。macOS 的 BSD tar 无此问题。结论：**不影响本次 macOS 发布**，但
+Windows 本地跑 `release.sh` 会踩到（该路径本就因缺 Apple 公证凭据在更后一步 die，故被掩盖）。
+处置建议（未做，避免与本次修复混在一个改动里）：给 `brand-assert.mjs`（以及任何新增的 tar
+消费脚本）套用同一「cwd + 基名」调用式。
+
