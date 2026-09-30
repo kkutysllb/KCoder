@@ -80,6 +80,15 @@ jobs:
           pnpm --dir deepseek-harness --filter=@deepseek-ai/dsh deploy --prod --legacy "$PWD/staging/kcoder-runtime"
           test -f staging/kcoder-runtime/lib/bin.js
           node scripts/materialize-peers.mjs
+      - name: 内置 provider 随包断言（CI 平价版）
+        # release.sh build/verify 有同闸，但本工作流自己走 deploy +
+        # materialize-peers，不经过 release.sh（与 verify-bundles-shipped 同款
+        # 的 CI 平价约定）。0.6.19 现场：这 4 个 @deepseek-ai/dsh-*-ssh 未随包
+        # ——用户侧 dsh 插件页报「异常」且整棵 pnpm 依赖图报废（详见
+        # scripts/verify-runtime-providers.mjs 头注与 plans/ 的排查记录）。
+        # 断归档而不是 staging 目录：随包的是归档。
+        timeout-minutes: 5
+        run: node scripts/verify-runtime-providers.mjs staging/kcoder-runtime.tar.gz
       - name: 品牌断言（fork 修复必须真实进产物）
         # 0.4.5 现场：tag 推送早于 fork push，CI 克隆到旧 fork 状态，
         # b11bd42095（chat.deepDiving 文案）未进产物——dev 现象与发布
