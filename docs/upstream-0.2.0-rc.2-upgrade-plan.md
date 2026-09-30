@@ -332,6 +332,8 @@ git merge --no-ff kcoder/0.2.0-rc.1    # 整支重放（merge-base = 4878cdabd8 
 
 - `release.sh prepush` 全绿（audit 三门 + patchgate + 版本线 + settings 冒烟 + 全量构建）
 - `release.sh ship 0.6.19`：bump `5d85332` → tag `v0.6.19` → main + tag 已推 → **CI 三平台构建并自动发布**
+- **CI 结果（run `36646443220`，22m27s，completed/success）**：macos-latest ✓ / ubuntu-22.04 ✓ / windows-latest ✓ / 发布 GitHub Release ✓
+- **发布物已上线**：[v0.6.19](https://github.com/kkutysllb/KCoder/releases/tag/v0.6.19)（draft=false、prerelease=false，11 个产物：`KCoder-0.6.19-arm64.dmg` 307 MB + zip/blockmap、`KCoder-0.6.19.AppImage`、`.deb`、`KCoder-Setup-0.6.19.exe`）
 - 发布说明 `release/v0.6.19.md` / 审计 `release/audit-v0.6.19.md` 已随发布提交入库
 
 ### 用户报障处置：桌面端启动弹「预览版说明」（本段追加修复）
