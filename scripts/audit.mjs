@@ -23,8 +23,11 @@ import { spawnSync } from 'node:child_process'
 import { writeFileSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const ROOT = new URL('..', import.meta.url).pathname
+// 必须走 fileURLToPath：URL.pathname 在 Windows 上得到 `/D:/…`（带前导斜杠），
+// spawnSync 的 cwd 因此解析失败，三门全部误报 FAIL（2026-10-01 现场）。
+const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const results = []
 let failed = false
 
@@ -89,7 +92,10 @@ section('DEAD EXPORTS（未消费导出）', false, () => {
     for (const line of (r.stdout || '').split('\n')) {
       if (line.trim() === '' || line.includes('(used in module)')) continue
       const full = `[${project}] ${line.trim()}`
-      if (WAIVED.some((w) => w.re.test(full))) { waived += 1; continue }
+      // ts-prune 在 Windows 上输出反斜杠路径（`\desktop\shared\…`），而豁免规则
+      // 按 `/` 书写——归一后再匹配，否则同一份豁免在 Windows 上失配而多报
+      // （2026-10-01 现场：多出 2 项 ipc-contract 契约面类型）。
+      if (WAIVED.some((w) => w.re.test(full.replace(/\\/g, '/')))) { waived += 1; continue }
       lines.push(full)
     }
   }
