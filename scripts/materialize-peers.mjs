@@ -48,6 +48,51 @@ if (!existsSync(join(staging, 'lib', 'bin.js'))) {
   process.exit(1)
 }
 
+/**
+ * 随引擎分发的 provider 包（SSH 执行世界）。
+ *
+ * 这 4 个包**不属于上游依赖图**（没有任何上游 bundle 依赖它们，
+ * `pnpm deploy --prod` 不会带上），但内置 bundle `dsh-ssh-remote` 把本地
+ * 执行世界换成远端主机时，引擎要**按名字**解析它们（host patch 把 fs /
+ * subprocess / sandbox 三行的 name 指向 ssh 实现）。
+ *
+ * 2026-09-26 起它们曾走「profile 依赖」通道（当时的 `PRESET_RUNTIME_DEPS`），
+ * 那条路有两个硬伤（2026-09-30 现场实证）：
+ * ① dsh 插件管理页把 profile 的 dependencies 一律当「用户安装的插件」列入
+ *    「已安装」组——provider 是内置能力的运行前提，出现在那里是错误表述；
+ * ② 用户 registry 拿不到钉的版本时（npmmirror 对 0.2.0-rc.2 滞后），声明
+ *    悬空 ⇒ 宿主 `resolveBundleDir` 抛错记 operation-error（页面「异常」红标），
+ *    且整棵 pnpm 依赖图解析失败——连别的插件更新都 exit=1（同日 dsh-context
+ *    更新现场即被拖垮）。
+ * 改为随引擎分发后两处根因同时消失：安装锚点自带实体，解析不再经过 profile，
+ * 也不再有用户侧安装这个动作。
+ *
+ * 版本取 staging 内既有的同线包（provider 的 peerDependencies 精确钉引擎
+ * 版本，如 `@deepseek-ai/dsh-fs: 0.2.0-rc.2`），故无需在别处手工维护版本号，
+ * 也不会与引擎漂移。
+ */
+const PROVIDER_PACKAGES = [
+  '@deepseek-ai/dsh-ssh',
+  '@deepseek-ai/dsh-fs-ssh',
+  '@deepseek-ai/dsh-subprocess-ssh',
+  '@deepseek-ai/dsh-sandbox-ssh',
+]
+
+/** 引擎版本线：取 staging 内任一同线包的 version（兜底读引擎清单）。 */
+function engineTrainVersion() {
+  for (const name of ['@deepseek-ai/dsh-fs', '@deepseek-ai/dsh-sandbox', '@deepseek-ai/dsh-app-boot']) {
+    try {
+      const v = JSON.parse(readFileSync(join(topNM, name, 'package.json'), 'utf8')).version
+      if (typeof v === 'string' && /^\d+\.\d+\.\d+/.test(v)) return v
+    } catch { /* 试下一个锚点 */ }
+  }
+  try {
+    const v = JSON.parse(readFileSync(join(staging, 'package.json'), 'utf8')).version
+    if (typeof v === 'string' && /^\d+\.\d+\.\d+/.test(v)) return v
+  } catch { /* 落到 null */ }
+  return null
+}
+
 /** 上游 workspace 包名 → 源目录（pnpm-workspace.yaml globs 的保守展开）。 */
 function scanWorkspace() {
   const map = new Map()
@@ -319,6 +364,77 @@ if (unresolved.size > 0) {
   }
   console.log(`[materialize] registry 兜底合并 ${merged} 个条目到顶层 node_modules`)
   rmSync(fb, { recursive: true, force: true })
+}
+
+// ── 内置 provider 供给（SSH 执行世界，见 PROVIDER_PACKAGES 说明）──────────
+// 落位两处：staging 顶层 node_modules（引擎解析面）+ staging/package.json 的
+// dependencies（安装锚点「拥有」语义）。登记进清单同时把 provider 纳入末尾
+// 自检的强制面（「非可选依赖必须可达且版本满足」）——漏供给即构建失败，
+// 而不是发出去让用户的插件页报「异常」。
+{
+  const version = engineTrainVersion()
+  if (version === null) {
+    console.error('[materialize] 推不出引擎版本线，无法供给内置 provider')
+    process.exit(1)
+  }
+  const stagingManifestPath = join(staging, 'package.json')
+  let manifest
+  try {
+    manifest = JSON.parse(readFileSync(stagingManifestPath, 'utf8'))
+  } catch (err) {
+    console.error(`[materialize] 读不到引擎清单 ${stagingManifestPath}：${String(err?.message ?? err)}`)
+    process.exit(1)
+  }
+  manifest.dependencies ??= {}
+  let declared = 0
+  for (const name of PROVIDER_PACKAGES) {
+    if (manifest.dependencies[name] !== version) {
+      manifest.dependencies[name] = version
+      declared += 1
+    }
+  }
+  if (declared > 0) {
+    writeFileSync(stagingManifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    console.log(`[materialize] 内置 provider 已登记进引擎清单：${PROVIDER_PACKAGES.join(', ')}@${version}`)
+  }
+  const missing = PROVIDER_PACKAGES.filter((name) => !existsSync(join(topNM, name, 'package.json')))
+  if (missing.length > 0) {
+    // --legacy-peer-deps：provider 的 peer（cordis / dsh-fs / dsh-sandbox 等）
+    // 由 staging 自身提供；让 npm 再解析一份会与引擎内的实例分叉（版本仲裁的
+    // 既有教训）。非 peer 依赖（zod / schemastery）已在 staging，故这里只落
+    // provider 本体；缺别的会由末尾自检当场拦下。
+    const fb = join(root, 'staging', '.provider-fallback')
+    rmSync(fb, { recursive: true, force: true })
+    mkdirSync(fb, { recursive: true })
+    writeFileSync(join(fb, 'package.json'), JSON.stringify({
+      name: 'kcoder-runtime-providers',
+      private: true,
+      dependencies: Object.fromEntries(missing.map((name) => [name, version])),
+    }, null, 2))
+    try {
+      execSync('npm install --omit=dev --omit=optional --no-audit --no-fund --no-package-lock --legacy-peer-deps --cache .npm-cache', {
+        cwd: fb,
+        stdio: 'inherit',
+        shell: process.platform === 'win32',
+      })
+    } catch (err) {
+      console.error(`[materialize] 内置 provider 安装失败：${missing.join(', ')}@${version}`)
+      console.error(String(err?.message ?? err))
+      process.exit(1)
+    }
+    for (const name of missing) {
+      const src = join(fb, 'node_modules', name)
+      if (!existsSync(join(src, 'package.json'))) {
+        console.error(`[materialize] 内置 provider 未产出实体：${name}`)
+        process.exit(1)
+      }
+      cpSync(src, join(topNM, name), { recursive: true, force: true })
+    }
+    rmSync(fb, { recursive: true, force: true })
+    console.log(`[materialize] 内置 provider 已随包供给：${missing.map((n) => `${n}@${version}`).join(', ')}`)
+  } else {
+    console.log(`[materialize] 内置 provider 已在位：${PROVIDER_PACKAGES.join(', ')}@${version}`)
+  }
 }
 
 // flatten：symlink 全部替换为实体副本，删除 .pnpm 虚拟存储。

@@ -678,6 +678,25 @@ node scripts/provision-remote-world.mjs --ssh dsh-wsl2 [--out overlay.yml]
 故新增 `PRESET_RUNTIME_DEPS` 牵引 4 个 provider，钉 `0.1.7-rc.2`（与引擎基线同线；
 跨线会让 provider 与服务定义**类身份分裂**）。
 
+> **2026-09-30 取代（现场事故驱动）**：上述 profile 牵引路线已废弃，provider 改为
+> **随引擎分发**（`scripts/materialize-peers.mjs` 的 `PROVIDER_PACKAGES` 供给块；
+> 桌面侧只保留自愈清理，见 `preset-plugins.ts` 的 `RUNTIME_PROVIDED_PACKAGES`）。
+>
+> 废弃理由：profile 的 `dependencies` 在 dsh 插件管理页就是「用户安装的插件」——
+> provider 出现在「已安装」组是错误表述；且用户 registry 拿不到钉的版本时
+> （npmmirror 对 0.2.0-rc.2 滞后）声明悬空，宿主 `resolveBundleDir` 抛错 ⇒ 页面
+> 「异常」红标 + 整棵 pnpm 依赖图报废（连无关插件更新都 exit=1，2026-09-30 现场）。
+>
+> 与此同时，上文「塞进 runtime node_modules 不生效」的**条件被查清**——解析层
+> （`dsh-app-boot` 的 `collectInstallationScopePackages`）是从**安装清单的
+> dependencies + peerDependencies 传递闭包**收集 installation-scope 条目的：
+> 只落文件、不登记清单 ⇒ 既不是 installation scope，也不在 profile ⇒
+> `failed to import`（P1 现场即此形态）。**落位 + 登记**两件一起做即可生效，
+> 这也正是随包 schedule bundle 能在 profile 无实体的情况下被解析与加载的原因。
+> 因此 `materialize-peers.mjs` 在供给实体之外，必须同时把这 4 个包写进
+> `staging/package.json` 的 `dependencies`（该脚本末尾的自检与
+> `scripts/verify-runtime-providers.mjs` 一起把这条约束钉死）。
+
 分列而不并入 `PRESET_PLUGINS`：后者是插件语义（`plugins.ts` 会把它的键并进
 「内置、禁卸载」清单），而 provider 没有 `dsh.bundle` 元数据。安装与 drift 对账
 走合并视图 `MANAGED_PROFILE_DEPS`，消费方仍只认 `PRESET_PLUGINS`。

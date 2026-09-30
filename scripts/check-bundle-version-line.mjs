@@ -42,8 +42,10 @@ const PRESETS = join(ROOT, 'desktop', 'main', 'preset-plugins.ts')
 /**
  * 允许「只物化、不走 registry」的包：它们没有 PRESET 声明，规则①对其不适用。
  * dsh-ssh-remote 属此类——真源是独立仓（kkutysllb/dsh-kylin-ssh-tunnel），
- * 不发布 npm，故只能物化；它运行所需的 provider 包反过来走
- * PRESET_RUNTIME_DEPS 牵引（见 preset-plugins.ts）。
+ * 不发布 npm，故只能物化；它运行所需的 provider 包（`@deepseek-ai/dsh-*-ssh`）
+ * 2026-09-30 起随引擎分发（`scripts/materialize-peers.mjs` 的 PROVIDER_PACKAGES，
+ * 版本自引擎线推导），既不进 PRESET 表也不进 profile 依赖——本规则因此不覆盖
+ * 它们，覆盖者是 materialize-peers 末尾的自检与 `verify-runtime-providers.mjs`。
  */
 const MATERIALIZE_ONLY = new Set([
   'dsh-terminal', '@kkutysllb/dsh-terminal', 'dsh-skills-bundle', 'dsh-shell-prefs', 'dsh-ssh-remote',

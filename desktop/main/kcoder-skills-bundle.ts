@@ -101,8 +101,9 @@ export const DSH_CODING_SIDEBAR = 'dsh-coding-sidebar'
  * - **引导面**（2026-09-26 起，B-β 执行世界）：把「只有密码」的主机升级为
  *   「有公钥 + 有 Node + 有 helper + 有 ssh 别名」的可无人值守主机，并产出
  *   逐主机的 profile overlay。运行期世界由上游 dsh-ssh 家族承担，
- *   那四个 provider 由 {@link PRESET_RUNTIME_DEPS} 牵引进 profile
- *   ——它们不是插件，故不列进插件管理页的内置清单。
+ *   那四个 provider **随引擎分发**（`scripts/materialize-peers.mjs` 供给，
+ *   2026-09-30 从 profile 依赖迁回）——它们不是插件，故既不进插件管理页的
+ *   内置清单，也不再出现在「已安装」里。
  */
 export const DSH_SSH_REMOTE_BUNDLE = 'dsh-ssh-remote'
 
@@ -139,8 +140,10 @@ const BUNDLES: BundledPlugin[] = [
   // cordis.patch.yml 补丁清单 + dsh.client 段），不是 entry.js 四件套——
   // 物化门按各自的 entry 字段判存在性，entry 用 lib/index.js，
   // 客户端交付物在 client/index.js（dsh.client 段声明）。
-  // 运行前提见 PRESET_RUNTIME_DEPS：4 个 @deepseek-ai/dsh-*-ssh 必须可由
-  // profile 解析，否则该 bundle 的 `ssh` 行加载即 failed to import。
+  // 运行前提：4 个 @deepseek-ai/dsh-*-ssh 随引擎分发（见脚本
+  // materialize-peers.mjs 的 PROVIDER_PACKAGES），由安装锚点解析；
+  // 早期版本走 profile 依赖，2026-09-30 起改回随包（见 preset-plugins.ts
+  // 的 RUNTIME_PROVIDED_PACKAGES：旧 profile 的残留由那里的自愈清掉）。
   { pkg: DSH_SSH_REMOTE_BUNDLE, dir: 'dsh-ssh-remote', entry: join('lib', 'index.js'), intactFiles: [join('client', 'index.js')] },
 ]
 

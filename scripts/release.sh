@@ -141,6 +141,12 @@ cmd_build() {
   [[ -f "$STAGING/lib/bin.js" ]] || die "物化失败：缺 lib/bin.js"
   node "$ROOT/scripts/materialize-peers.mjs"
   [[ -f "$ROOT/staging/kcoder-runtime.tar.gz" ]] || die "物化失败：缺 staging/kcoder-runtime.tar.gz"
+  # 内置 provider 随包断言（2026-09-30）：这 4 个 @deepseek-ai/dsh-*-ssh 不在
+  # 上游依赖图里，靠 materialize-peers 的供给块补进 staging；供给代码被删/
+  # 打回时产物本身不报错，用户侧才炸（远程世界 failed to import，或插件页
+  # 「异常」红标）。离线可跑，不依赖 registry。
+  node "$ROOT/scripts/verify-runtime-providers.mjs" "$STAGING" || die "内置 provider 未随包（见 scripts/verify-runtime-providers.mjs）"
+  ok "内置 provider：4 个 SSH provider 随包在位"
   ok "运行时就绪（$(du -sh "$STAGING" | cut -f1) → tar.gz $(du -h "$ROOT/staging/kcoder-runtime.tar.gz" | cut -f1)）"
 
   # 3.2) 上游 vendor/ 残留回收：deploy 物化会往上游 vendor/ 落下以本仓名命名的
@@ -199,6 +205,11 @@ cmd_verify() {
   # 1) 开箱即用核心：运行时归档存在（单文件分发，首启解压到 userData）
   [[ -f "$tarball" ]] || die "校验失败：包内缺 kcoder-runtime.tar.gz（开箱即用被破坏）"
   ok "内置运行时：kcoder-runtime.tar.gz（$(du -h "$tarball" | cut -f1)）"
+
+  # 1.1) 内置 provider 随包断言（build 侧同闸）：验的是**打包后的归档**，
+  #      防「staging 有、归档里没有」这类打包期丢失
+  node "$ROOT/scripts/verify-runtime-providers.mjs" "$tarball" || die "校验失败：包内运行时缺内置 provider"
+  ok "内置 provider：4 个 SSH provider 随包在位"
 
   # 1.5) 插件热补丁（extraResources 目录映射 profile-patches）：与仓库
   #      profiles/web/patches 逐文件对账——缺任一即自愈链断供（Windows

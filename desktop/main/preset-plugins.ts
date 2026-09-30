@@ -191,36 +191,41 @@ export const PRESET_PLUGINS: Record<string, string> = {
 }
 
 /**
- * 预置**运行时依赖**：不是 dsh 插件，而是某个内置 bundle 的运行前提。
+ * 已迁回「随引擎分发」的 provider 包（2026-09-30）。这 4 个是内置 bundle
+ * `dsh-ssh-remote` 把执行世界换成远端主机时、引擎要**按名字**解析的提供者；
+ * 它们**不是 dsh 插件**（没有 `dsh.bundle` 元数据）。
  *
- * 与 {@link PRESET_PLUGINS} 分开的原因有两条：
- * 1. `plugins.ts` 会把 PRESET_PLUGINS 的键并进「内置、禁卸载」清单，
- *    而 provider 类包进插件管理页是错误表述（它们没有 dsh.bundle 元数据）；
- * 2. 两者的**存在理由**不同——插件是用户可见能力，这些是别的 bundle 能否
- *    加载的前提。
+ * 它们曾按 profile 依赖安装（旧 `PRESET_RUNTIME_DEPS`），代价有两条
+ * （2026-09-30 现场实证）：
+ * 1. dsh 插件管理页把 profile 的 dependencies 一律当「用户安装的插件」列入
+ *    「已安装」组——provider 是内置能力的运行前提，出现在那里是错误表述；
+ * 2. 用户 registry 拿不到钉的版本时（npmmirror 对 0.2.0-rc.2 滞后），声明悬空
+ *    ⇒ 宿主 `resolveBundleDir` 抛错记 operation-error（页面「异常」红字），
+ *    且整棵 pnpm 依赖图解析失败，连无关插件的更新都 exit=1。
  *
- * 但两者都必须装进 profile：profile 是 out-of-tree 包的解析基准
- * （见 app-boot 的 profile-resolution：裸模块名从 `<profile>/node_modules`
- * 起解析，安装自有的包才走 installation 拦截层）。装不上时的症状是
- * `failed to import`，且**只在启用对应 bundle 时才暴露**。
- *
- * `@deepseek-ai/dsh-*-ssh`（2026-09-26，SSH 执行世界 / B-β）：内置 bundle
- * `dsh-ssh-remote` 用它把执行世界换成远端主机。**版本必须与引擎基线同线**
- * （当前 0.2.0-rc.2，随 2026-09-30 基线升级平移）；跨线混装会让 provider 与
- * 服务定义类身份分裂。
+ * 现在由 `scripts/materialize-peers.mjs` 的供给块随引擎分发（版本自引擎线
+ * 推导，见 PROVIDER_PACKAGES）；本清单只用于**自愈**：把旧 profile 里的声明、
+ * 实体与层叠污染三清干净。清实体是必须的——profile 解析优先于安装锚点，
+ * 残留的旧副本会遮蔽随包实体，造成版本与引擎漂移。
  */
-export const PRESET_RUNTIME_DEPS: Record<string, string> = {
-  '@deepseek-ai/dsh-ssh': '0.2.0-rc.2',
-  '@deepseek-ai/dsh-fs-ssh': '0.2.0-rc.2',
-  '@deepseek-ai/dsh-subprocess-ssh': '0.2.0-rc.2',
-  '@deepseek-ai/dsh-sandbox-ssh': '0.2.0-rc.2',
-}
+export const RUNTIME_PROVIDED_PACKAGES = [
+  '@deepseek-ai/dsh-ssh',
+  '@deepseek-ai/dsh-fs-ssh',
+  '@deepseek-ai/dsh-subprocess-ssh',
+  '@deepseek-ai/dsh-sandbox-ssh',
+]
 
 /**
- * {@link ensurePresetPlugins} 实际安装与对账的完整清单：预置插件 + 预置运行时
- * 依赖。消费方（`plugins.ts` 的内置清单）只认 PRESET_PLUGINS，两者因此互不污染。
+ * {@link ensurePresetPlugins} 实际安装与对账的清单。**只含真插件**：provider
+ * 类运行前提不再走这条路（见 {@link RUNTIME_PROVIDED_PACKAGES}）；消费方
+ * （`plugins.ts` 的内置清单）只认 PRESET_PLUGINS，两者因此互不污染。
+ *
+ * 注意：第 3 步的安装触发条件只看 `PRESET_PLUGINS`（`needInstall`）——往本表
+ * 加**非插件**条目会让「声明了却没装」永远不被触发重装（2026-09-27 现场：
+ * 4 个 provider 补写进 deps 后没人装，悬空三天后集中爆在插件页）。要加一个
+ * 非插件依赖，先确认它该不该走 profile 通道。
  */
-const MANAGED_PROFILE_DEPS: Record<string, string> = { ...PRESET_PLUGINS, ...PRESET_RUNTIME_DEPS }
+const MANAGED_PROFILE_DEPS: Record<string, string> = { ...PRESET_PLUGINS }
 
 /**
  * 退役预置插件：不再预置，也不留在用户 profile——dependencies 声明、
@@ -516,28 +521,31 @@ export function ensurePresetPlugins(): void {
     const preBundles = bundlesOf(m)
     const keptBundles = preBundles.filter((p) => !RETIRED_PRESETS.includes(p))
     const depsMap = (m['dependencies'] ?? {}) as Record<string, unknown>
-    const retiredDeps = RETIRED_PRESETS.filter((r) => r in depsMap)
-    if (keptBundles.length !== preBundles.length || retiredDeps.length > 0) {
+    // 退役预置 + 迁回随引擎分发的 provider：两者在 profile 侧的残留（依赖声明、
+    // node_modules 实体）都要清；provider 的实体不清会遮蔽随包版本（见
+    // RUNTIME_PROVIDED_PACKAGES）。
+    const removedDeps = [...RETIRED_PRESETS, ...RUNTIME_PROVIDED_PACKAGES].filter((r) => r in depsMap)
+    if (keptBundles.length !== preBundles.length || removedDeps.length > 0) {
       if (keptBundles.length !== preBundles.length) {
         const dshSec = (m['dsh'] ?? {}) as { profile?: Record<string, unknown> }
         const profileSec = (dshSec.profile ?? {}) as Record<string, unknown>
         m['dsh'] = { ...dshSec, profile: { ...profileSec, bundles: keptBundles } }
       }
-      if (retiredDeps.length > 0) {
-        for (const r of retiredDeps) delete depsMap[r]
+      if (removedDeps.length > 0) {
+        for (const r of removedDeps) delete depsMap[r]
         m['dependencies'] = depsMap
       }
       writeFileSync(manifestPath, `${JSON.stringify(m, undefined, 2)}\n`)
-      const cleaned = [...new Set([...retiredDeps, ...preBundles.filter((p) => RETIRED_PRESETS.includes(p))])]
-      console.log(`[preset-plugins] 退役预置声明已清理: ${cleaned.join(', ')}`)
-      healLog(`[preset] 退役预置声明已清理: ${cleaned.join(', ')}`)
+      const cleaned = [...new Set([...removedDeps, ...preBundles.filter((p) => RETIRED_PRESETS.includes(p))])]
+      console.log(`[preset-plugins] 退役/迁移声明已清理: ${cleaned.join(', ')}`)
+      healLog(`[preset] 退役/迁移声明已清理: ${cleaned.join(', ')}`)
     }
-    for (const r of RETIRED_PRESETS) {
+    for (const r of [...RETIRED_PRESETS, ...RUNTIME_PROVIDED_PACKAGES]) {
       const dir = join(profileDir, 'node_modules', r)
       if (existsSync(dir)) {
         rmSync(dir, { recursive: true, force: true })
-        console.log(`[preset-plugins] 已删除退役插件实体: ${r}`)
-        healLog(`[preset] 已删除退役插件实体: ${r}`)
+        console.log(`[preset-plugins] 已删除退役/迁移包实体: ${r}`)
+        healLog(`[preset] 已删除退役/迁移包实体: ${r}`)
       }
       // @scope/name 形态：包删除后空 scope 壳目录一并清（pnpm 图收敛
       // 不管空壳，残留会误导排查）
@@ -637,9 +645,10 @@ export function ensurePresetPlugins(): void {
     const bundles = bundlesOf(m)
     const ghost = presetNames.filter((p) => bundles.includes(p) && !installed(p))
     const undeclared = presetNames.filter((p) => !bundles.includes(p) && installed(p))
-    // 污染自愈：运行时依赖曾被错当插件写进层叠（2026-09-26 首版内置化的缺陷：
-    // 它只该进 deps）。不摘除则 loader 每轮都尝试把 provider 当补丁层加载。
-    const polluted = Object.keys(PRESET_RUNTIME_DEPS).filter((p) => bundles.includes(p))
+    // 污染自愈：provider 包曾被错当插件写进层叠（2026-09-26 首版内置化的缺陷：
+    // 它们既不该进层叠，2026-09-30 起也不再进 deps）。不摘除则 loader 每轮都
+    // 尝试把 provider 当补丁层加载。
+    const polluted = RUNTIME_PROVIDED_PACKAGES.filter((p) => bundles.includes(p))
     if (ghost.length > 0 || undeclared.length > 0 || polluted.length > 0) {
       const kept = bundles.filter((p) => !ghost.includes(p) && !polluted.includes(p))
       let anchor = kept.indexOf('dsh-skills-bundle')
