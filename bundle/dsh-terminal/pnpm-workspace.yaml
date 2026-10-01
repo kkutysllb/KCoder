@@ -1,2 +1,7 @@
+# dev 工作区：peer 只为宿主端兼容门声明（app-boot/plugin-manager 按
+# includePrerelease 评估），dev 环境不需要物理安装——否则 pnpm 会把
+# @deepseek-ai/dsh 整棵运行时依赖树（genai/koffi/protobufjs…）拖进
+# 插件仓，且触发 pnpm 11 构建脚本门。与 dsh 插件生态 profile 配置一致。
+autoInstallPeers: false
 allowBuilds:
   node-pty: true

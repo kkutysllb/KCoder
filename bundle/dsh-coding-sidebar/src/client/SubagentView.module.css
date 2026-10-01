@@ -94,7 +94,7 @@
 .subagentRowActive,
 .subagentRowActive:hover,
 .subagentRowActive:focus-visible {
-  background: var(--dsw-alias-interactive-bg-active);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .subagentRowDisabled {
@@ -376,7 +376,7 @@
 /* The row whose output is shown in the bottom dock. */
 .jobsRowSelected,
 .jobsRowSelected:hover {
-  background: var(--dsw-alias-interactive-bg-active);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .jobsRowMain {
@@ -498,47 +498,11 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-/* ── The shared output dock (bottom of the page, sticky like a terminal) ── */
-
-/* Direct child of the scrolling body, so it docks at the scrollport's bottom
-   edge while the job list scrolls above it; a solid background keeps the
-   tree from showing through. */
-.jobsPane {
-  position: sticky;
-  bottom: 0;
-  z-index: 1;
-  margin-top: 4px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-base);
-  box-shadow: 0 -6px 12px -8px rgba(0, 0, 0, 0.35);
-  overflow: hidden;
-}
-
-.jobsPaneHeader {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 4px 0 10px;
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
-}
 
 .jobsPaneDot {
   flex: none;
 }
 
-.jobsPaneLabel {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--ds-font-family-code);
-  font-size: var(--dsw-font-xxxs-11-font-size);
-  line-height: var(--dsw-font-xxxs-11-line-height);
-  color: var(--dsw-alias-label-primary);
-}
 
 .jobsPaneStatus {
   flex: none;
@@ -546,23 +510,7 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.jobsPaneClose {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  cursor: pointer;
-}
 
-.jobsPaneClose:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
 
 .jobsPanePre {
   margin: 0;
@@ -585,4 +533,262 @@
 
 .jobsPaneError {
   color: var(--dsw-alias-state-error-primary);
+}
+
+/* ── 工作流图画布（Tasks graph view）────────────────────────────── */
+
+/* 图模式：body 不再滚动，改为弹性列，画布撑满面板剩余高度
+   （滚动容器里的 flex:1 是无效的——这正是"只显示一小块"的成因）。 */
+.subagentBodyGraph {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wfWrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  background: none;
+}
+
+.wfWrap:active {
+  cursor: grabbing;
+}
+
+.wfSvg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
+
+.wfEdge {
+  fill: none;
+  stroke: var(--dsw-alias-border-l1);
+  stroke-width: 1.5;
+  opacity: 0.9;
+}
+
+.wfCard {
+  fill: transparent;
+  stroke: var(--dsw-alias-border-l2);
+  stroke-width: 1;
+}
+
+/* 上段/底条之间的分隔线（代替底色分段，避免未验证的表面色 token） */
+.wfSep {
+  stroke: var(--dsw-alias-border-l2);
+  stroke-width: 1;
+}
+
+.wfBar {
+  fill: var(--dsw-alias-interactive-bg-hover);
+}
+
+.wfBadge {
+  font-size: 9px;
+  fill: var(--dsw-alias-label-tertiary);
+  letter-spacing: 0.04em;
+}
+
+.wfLabel {
+  font-size: 12px;
+  fill: var(--dsw-alias-label-primary);
+}
+
+.wfStatus {
+  font-size: 10px;
+  fill: var(--dsw-alias-label-secondary);
+}
+
+.wfDotRunning {
+  fill: var(--dsw-alias-interactive-bg-hover-accent);
+}
+
+.wfDotIdle {
+  fill: var(--dsw-alias-label-tertiary);
+}
+
+.wfNodeCurrent .wfCard {
+  stroke: var(--dsw-alias-interactive-bg-hover-accent);
+  stroke-width: 1.6;
+}
+
+/* 已完成组：整张卡片压暗（`.wfTop` 早已改名为 `.wfSep`，这条选择器随之失效过一阵） */
+.wfNodeDone .wfSep,
+.wfNodeDone .wfBar {
+  opacity: 0.4;
+}
+
+/* 待命组（可续跑）：同样压暗，但用虚线描边与"已完成"区分 */
+.wfNodeStandby .wfCard {
+  stroke-dasharray: 2 2;
+  opacity: 0.75;
+}
+
+.wfNodeStandby .wfBar {
+  opacity: 0.5;
+}
+
+.wfNodePlaceholder .wfCard {
+  stroke-dasharray: 4 3;
+}
+
+/* 运行扫过：从左到右完整扫一遍（reduced-motion 关闭） */
+.wfNodeRunning .wfSweep {
+  animation: wfSweepRun 2.2s linear infinite;
+}
+
+.wfSweep {
+  fill: var(--dsw-alias-interactive-bg-hover-accent);
+  opacity: 0.15;
+}
+
+@keyframes wfSweepRun {
+  from { transform: translateX(-208px); }
+  to { transform: translateX(208px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wfNodeRunning .wfSweep {
+    animation: none;
+    visibility: hidden;
+  }
+}
+
+.wfControls {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+.wfControls button {
+  min-width: 26px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.wfControls button:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* ── 图/树 视图切换 ── */
+.subagentViewToggle {
+  display: inline-flex;
+  margin-left: 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.subagentViewToggle button {
+  padding: 2px 8px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.subagentViewToggle button[aria-pressed='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 工作流行/相位行：轻量分组行（不可导航） */
+.subagentRowRun {
+  background: var(--dsw-alias-interactive-bg-hover);
+  font-weight: 500;
+}
+
+.subagentRowPhase {
+  opacity: 0.85;
+  font-size: 11px;
+}
+
+.wfNodePhase .wfCard {
+  stroke-dasharray: 3 2;
+}
+
+.wfNodeRun .wfCard {
+  stroke-width: 1.4;
+}
+
+/* 合并活动行：并发工具归并计数 + 在跑那条 */
+.subagentLiveMerged {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* 节点拖动：卡片可抓、拖动中抬起来（含手动布局的重置按钮） */
+.wfNode {
+  cursor: grab;
+}
+
+.wfNodeDragging .wfCard {
+  filter: drop-shadow(0 6px 14px rgb(0 0 0 / 0.35));
+}
+
+.wfNodeDragging {
+  cursor: grabbing;
+}
+
+.wfReset {
+  border: none;
+  border-radius: 6px;
+  background: none;
+  padding: 2px 6px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font: var(--dsw-font-xxxs-11);
+}
+
+.wfReset:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 整理模式芯片：树形 / 紧凑 / 网格（点一下=清手动布局并按该模式重排+适配） */
+.wfModes {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.wfMode {
+  border: none;
+  border-radius: 6px;
+  background: none;
+  padding: 2px 6px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font: var(--dsw-font-xxxs-11);
+}
+
+.wfMode:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.wfModeActive {
+  background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base));
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxxs-strong-11);
 }

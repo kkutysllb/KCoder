@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { homedir, userInfo } from "node:os";
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { deflateRawSync } from "node:zlib";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { installModelSelection } from "@deepseek-ai/dsh-agent";
 import { snapshotSubagentDescriptor } from "@deepseek-ai/dsh-subagent";
@@ -353,40 +354,100 @@ function compareEntries(a, b) {
 * @throws {SidebarError} fs-error when the level is unreadable or not a directory.
 */
 async function listDirectory(path, maxEntries = 1e3) {
-	let level;
-	try {
-		level = await opendir(path);
-	} catch (error) {
-		throw new SidebarError("fs-error", `cannot list "${path}": ${messageOf(error)}`, 400);
+	const cached = listingCache.get(path);
+	if (cached !== void 0 && cached.maxEntries === maxEntries) {
+		const fresh = await dirMtimeMs(path);
+		if (fresh !== void 0 && fresh === cached.mtimeMs) return {
+			path,
+			entries: cached.entries,
+			truncated: cached.truncated
+		};
 	}
-	const rows = [];
-	let overflow = 0;
-	try {
-		for await (const dirent of level) {
-			if (rows.length >= maxEntries) {
-				overflow += 1;
-				continue;
-			}
-			rows.push({
-				name: dirent.name,
-				path: join(path, dirent.name),
-				isDir: dirent.isDirectory(),
-				isSymlink: dirent.isSymbolicLink(),
-				broken: false,
-				hidden: dirent.name.startsWith(".")
-			});
-		}
-	} catch (error) {
+	const dirents = await readdir(path, { withFileTypes: true }).catch((error) => {
 		throw new SidebarError("fs-error", `cannot list "${path}": ${messageOf(error)}`, 400);
-	}
+	});
+	const overflow = dirents.length > maxEntries ? 1 : 0;
+	const rows = dirents.slice(0, maxEntries).map((dirent) => ({
+		name: dirent.name,
+		path: join(path, dirent.name),
+		isDir: dirent.isDirectory(),
+		isSymlink: dirent.isSymbolicLink(),
+		broken: false,
+		hidden: dirent.name.startsWith(".")
+	}));
 	await probeSymlinkTargets(rows);
 	rows.sort(compareEntries);
+	const truncated = overflow > 0;
+	const mtimeMs = await dirMtimeMs(path);
+	if (mtimeMs !== void 0) rememberListing(path, {
+		mtimeMs,
+		maxEntries,
+		entries: rows,
+		truncated
+	});
 	return {
 		path,
 		entries: rows,
-		truncated: overflow > 0
+		truncated
 	};
 }
+/** How many listings stay cached (LRU-ish: the oldest key is dropped). */
+const LISTING_CACHE_MAX = 256;
+const listingCache = /* @__PURE__ */ new Map();
+function rememberListing(path, value) {
+	listingCache.delete(path);
+	listingCache.set(path, value);
+	while (listingCache.size > LISTING_CACHE_MAX) {
+		const oldest = listingCache.keys().next().value;
+		if (oldest === void 0) break;
+		listingCache.delete(oldest);
+	}
+}
+/** The directory's own mtime, or undefined when it cannot be read. */
+async function dirMtimeMs(path) {
+	try {
+		return (await stat(path)).mtimeMs;
+	} catch {
+		return;
+	}
+}
+/**
+* List several levels in one round trip (upstream v0.24.1's `fs.trees`): the
+* explorer prefetches a directory's sub-levels so the next expand is instant.
+* Failures are reported per path instead of failing the batch — one unreadable
+* sub-level must not blank the whole prefetch.
+* @param paths - absolute directory paths (bounded by the caller).
+* @param maxEntries - row bound applied to every level.
+*/
+async function listDirectories(paths, maxEntries = 1e3) {
+	const results = [];
+	const queue = [...paths];
+	const workers = Array.from({ length: Math.min(BATCH_CONCURRENCY, queue.length) }, async () => {
+		for (;;) {
+			const path = queue.shift();
+			if (path === void 0) return;
+			try {
+				results.push({
+					path,
+					listing: await listDirectory(path, maxEntries)
+				});
+			} catch (error) {
+				results.push({
+					path,
+					error: messageOf(error)
+				});
+			}
+		}
+	});
+	await Promise.all(workers);
+	const byPath = new Map(results.map((entry) => [entry.path, entry]));
+	return paths.map((path) => byPath.get(path) ?? {
+		path,
+		error: "not listed"
+	});
+}
+/** Read-relevant concurrency for a batch listing. */
+const BATCH_CONCURRENCY = 8;
 /** How many symlink target stats run in flight during one level listing. */
 const SYMLINK_PROBE_CONCURRENCY = 32;
 /** Probe each symlink row's target once (bounded concurrency, order-preserving). */
@@ -1305,6 +1366,82 @@ function openFileCommand(path, platform = process.platform) {
 		};
 	}
 }
+/** Open a path WITH a specific application (the "open with" menu's
+*  host-detected native apps): argv-only, shell-free, same fence as the rest. */
+function appCommand(appPath, path, platform = process.platform) {
+	switch (platform) {
+		case "darwin": return {
+			command: "open",
+			args: [
+				"-a",
+				appPath,
+				path
+			]
+		};
+		default: return {
+			command: appPath,
+			args: [path]
+		};
+	}
+}
+/** Directories scanned for applications, per platform. */
+function appScanDirs(platform, home) {
+	if (platform === "darwin") return [
+		"/Applications",
+		"/System/Applications",
+		join(home, "Applications")
+	];
+	if (platform === "win32") return [join(process.env["ProgramFiles"] ?? "C:\\Program Files"), join(process.env["LOCALAPPDATA"] ?? join(home, "AppData", "Local"), "Programs")];
+	return ["/usr/share/applications", "/usr/local/share/applications"];
+}
+/**
+* List the host's applications for the "open with" menu. macOS scans bundle
+* directories; Windows/Linux scan their program/desktop-entry folders, with
+* the platform's own extension filter. Failures (an unreadable folder) are
+* skipped — a missing menu section is not an error.
+* @param platform - the host platform (injectable for tests).
+* @param home - the user's home directory.
+* @param now - timestamp used for the cache key.
+*/
+async function listNativeApps(platform = process.platform, home = homedir()) {
+	const cached = appCache.get(platform);
+	if (cached !== void 0 && Date.now() - cached.at < APP_CACHE_MS) return cached.apps;
+	const suffix = platform === "darwin" ? ".app" : platform === "win32" ? ".exe" : ".desktop";
+	const apps = /* @__PURE__ */ new Map();
+	const visit = async (dir, depth) => {
+		let entries;
+		try {
+			entries = await readdir(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			const full = join(dir, entry.name);
+			if (entry.name.endsWith(suffix)) {
+				const label = entry.name.slice(0, -suffix.length);
+				const id = `app:${full}`;
+				if (!apps.has(id)) apps.set(id, {
+					id,
+					label,
+					path: full
+				});
+				continue;
+			}
+			if (depth < 1 && entry.isDirectory() && !entry.name.startsWith(".")) await visit(full, depth + 1);
+		}
+	};
+	for (const dir of appScanDirs(platform, home)) await visit(dir, 0);
+	const list = [...apps.values()].sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase())).slice(0, 200);
+	appCache.set(platform, {
+		at: Date.now(),
+		apps: list
+	});
+	return list;
+}
+/** Scan cache: a directory scan per menu open is wasteful, one per minute is
+*  not. Injectable clock would be overkill — the TTL bounds staleness. */
+const APP_CACHE_MS = 6e4;
+const appCache = /* @__PURE__ */ new Map();
 /** Validate a URL-scheme open target: a parseable custom-scheme URL (never
 *  http/https — those would only dump the URL into a browser tab). */
 function validateExternalUrl(raw) {
@@ -1327,6 +1464,10 @@ function validateExternalUrl(raw) {
 function launchExternal(action, value) {
 	const platform = process.platform;
 	return spawnDetached(action === "reveal" ? revealCommand(requireAbsolute(value), platform) : urlCommand(validateExternalUrl(value), platform));
+}
+/** Open a path WITH a specific host-detected application (menu's native apps). */
+function launchExternalApp(appPath, path) {
+	return spawnDetached(appCommand(requireAbsolute(appPath), requireAbsolute(path), process.platform));
 }
 /** Open one absolute file path with the OS default application. */
 function launchExternalFile(path) {
@@ -3595,6 +3736,57 @@ var AgentPtyRegistry = class {
 	}
 };
 //#endregion
+//#region src/registration.ts
+/**
+* Register a batch atomically.
+* @param items - what to register, in order.
+* @param register - performs one registration and returns its disposer (a
+*   `void` return is accepted and treated as "nothing to release").
+* @param onEvent - optional observer, called for every register/release; the
+*   tests assert the rollback order on it.
+* @returns a disposer that releases every registration taken (idempotent).
+*/
+function registerBatch(items, register, onEvent) {
+	const taken = [];
+	const releaseAll = (reason) => {
+		while (taken.length > 0) {
+			const entry = taken.pop();
+			if (entry === void 0) break;
+			try {
+				entry.dispose();
+			} catch {}
+			onEvent?.({
+				type: "release",
+				item: entry.item,
+				reason
+			});
+		}
+	};
+	try {
+		for (const item of items) {
+			const dispose = register(item);
+			taken.push({
+				item,
+				dispose: dispose ?? (() => {})
+			});
+			onEvent?.({
+				type: "register",
+				item,
+				reason: "disposed"
+			});
+		}
+	} catch (error) {
+		releaseAll("failed");
+		throw error;
+	}
+	let disposed = false;
+	return () => {
+		if (disposed) return;
+		disposed = true;
+		releaseAll("disposed");
+	};
+}
+//#endregion
 //#region src/tools.ts
 /**
 * Eight model-facing tools for the agent-owned sidebar terminals (tmux
@@ -3666,9 +3858,9 @@ function sessionIdOf$1(exec) {
 * registration on the side-card setting and calls this to turn them off).
 */
 function registerTools(ctx, registry, resolveCwd, readShellOverrides) {
-	const disposers = [];
+	const registered = [];
 	const register = (tool) => {
-		disposers.push(ctx.tools.register(tool));
+		registered.push(tool);
 	};
 	register(defineTool({
 		name: "terminal_create",
@@ -4174,9 +4366,7 @@ function registerTools(ctx, registry, resolveCwd, readShellOverrides) {
 			});
 		}
 	}));
-	return () => {
-		for (const dispose of disposers) dispose();
-	};
+	return registerBatch(registered, (tool) => ctx.tools.register(tool));
 }
 //#endregion
 //#region src/agent-opens.ts
@@ -5064,6 +5254,67 @@ function lastActivity(events, maxMessages = Infinity) {
 	};
 }
 /**
+* Fold the window's tool calls into the merged activity line: names grouped
+* and counted in first-appearance order, plus the newest call that has no
+* matching `tool/result` (the one actually in flight).
+*
+* The window matches {@link lastActivity}: the tail's last `maxMessages`
+* surface messages and the events between them, so a long log costs only the
+* recent tail.
+* @param events - the session's append-only event log (oldest → newest).
+* @param maxMessages - optional message-boundary window (default: whole log).
+* @returns the grouped activity, or undefined when the window has no calls.
+*/
+function mergedActivity(events, maxMessages = Infinity) {
+	if (maxMessages <= 0) return void 0;
+	let start = 0;
+	if (Number.isFinite(maxMessages)) {
+		let seen = 0;
+		for (let index = events.length - 1; index >= 0; index -= 1) {
+			const type = events[index]?.type;
+			if (type === "user/message" || type === "assistant/message") {
+				seen += 1;
+				if (seen === maxMessages) {
+					start = index;
+					break;
+				}
+			}
+		}
+	}
+	const calls = [];
+	const finished = /* @__PURE__ */ new Set();
+	for (let index = start; index < events.length; index += 1) {
+		const event = events[index];
+		if (event === void 0) continue;
+		const data = event.data;
+		if (event.type === "tool/call") calls.push({
+			callId: typeof data.callId === "string" ? data.callId : `#${calls.length}`,
+			name: typeof data.name === "string" ? data.name : "tool",
+			args: typeof data.arguments === "string" ? data.arguments : ""
+		});
+		else if (event.type === "tool/result" && typeof data.callId === "string") finished.add(data.callId);
+	}
+	if (calls.length === 0) return void 0;
+	const counts = [];
+	for (const call of calls) {
+		const row = counts.find((entry) => entry.name === call.name);
+		if (row === void 0) counts.push({
+			name: call.name,
+			count: 1
+		});
+		else row.count += 1;
+	}
+	const running = [...calls].reverse().find((call) => !finished.has(call.callId));
+	return {
+		counts,
+		total: calls.length,
+		...running === void 0 ? {} : { running: {
+			name: running.name,
+			args: running.args
+		} }
+	};
+}
+/**
 * Build the live-preview routes bound to the plugin context.
 * @param ctx - host plugin context.
 */
@@ -5084,12 +5335,463 @@ function buildSubagentLiveApi(ctx) {
 			if (entry.label?.startsWith("Side: ") ?? false) continue;
 			try {
 				const stored = ctx.sessions.get(entry.id);
-				const activity = lastActivity(stored?.snapshotEvents !== void 0 ? stored.snapshotEvents() : [], 12);
-				if (activity.text !== void 0 || activity.tool !== void 0) live[entry.id] = activity;
+				const events = stored?.snapshotEvents !== void 0 ? stored.snapshotEvents() : [];
+				const activity = lastActivity(events, 12);
+				const merged = mergedActivity(events, 12);
+				if (activity.text !== void 0 || activity.tool !== void 0 || merged !== void 0) live[entry.id] = {
+					...activity,
+					...merged === void 0 ? {} : { merged }
+				};
 			} catch {}
 		}
 		return { live };
 	} };
+}
+//#endregion
+//#region src/subagent-workflow.ts
+function field(data, key) {
+	if (data === null || typeof data !== "object") return void 0;
+	return data[key];
+}
+function str(value) {
+	return typeof value === "string" && value !== "" ? value : void 0;
+}
+function num(value) {
+	return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+}
+/**
+* Fold one session's event log into its workflow runs.
+* @param originSessionId - the session whose log these events came from (the
+*   run's origin agent; every returned row carries it).
+* @param events - the session's append-only log (oldest → newest).
+* @returns runs in start order; members grouped by phase ordered by the
+*   group's smallest member `seq` (the workflow's definition order; members
+*   with no phase come last), each group ordered by `seq`.
+*/
+function foldWorkflowRuns(originSessionId, events) {
+	const runs = /* @__PURE__ */ new Map();
+	/** member outcome by `${runId}:${seq}` (agent-end carries only seq). */
+	const outcomes = /* @__PURE__ */ new Map();
+	for (const event of events) {
+		if (typeof event.type !== "string" || !event.type.startsWith("tool-workflow/")) continue;
+		const kind = event.type.slice(14);
+		const runId = str(field(event.data, "runId"));
+		if (runId === void 0) continue;
+		if (kind === "run-start") {
+			runs.set(runId, {
+				runId,
+				originSessionId,
+				name: str(field(event.data, "name")) ?? runId,
+				running: true,
+				phases: [],
+				phaseOrder: []
+			});
+			continue;
+		}
+		const run = runs.get(runId);
+		if (run === void 0) continue;
+		if (kind === "agent-start") {
+			const childId = str(field(event.data, "childId"));
+			const label = str(field(event.data, "label"));
+			const seq = num(field(event.data, "seq"));
+			if (childId === void 0 || seq === void 0) continue;
+			const phase = str(field(event.data, "phase"));
+			let group = run.phases.find((row) => row.phase === phase);
+			if (group === void 0) {
+				group = {
+					phase,
+					members: []
+				};
+				run.phases.push(group);
+				run.phaseOrder.push(phase);
+			}
+			group.members.push({
+				seq,
+				label: label ?? childId,
+				childId,
+				...phase !== void 0 ? { phase } : {}
+			});
+			continue;
+		}
+		if (kind === "agent-end") {
+			const seq = num(field(event.data, "seq"));
+			const outcome = str(field(event.data, "outcome"));
+			if (seq === void 0) continue;
+			outcomes.set(`${runId}:${seq}`, outcome ?? "ended");
+			continue;
+		}
+		if (kind === "run-end") {
+			run.running = false;
+			const stopReason = str(field(event.data, "stopReason"));
+			if (stopReason !== void 0) run.stopReason = stopReason;
+		}
+	}
+	return [...runs.values()].map((run) => {
+		for (const group of run.phases) {
+			group.members.sort((a, b) => a.seq - b.seq);
+			for (const member of group.members) {
+				const outcome = outcomes.get(`${run.runId}:${member.seq}`);
+				if (outcome !== void 0) member.outcome = outcome;
+			}
+		}
+		const minSeq = (group) => group.members.reduce((low, member) => Math.min(low, member.seq), Number.POSITIVE_INFINITY);
+		run.phases.sort((a, b) => {
+			if (a.phase === void 0) return 1;
+			if (b.phase === void 0) return -1;
+			return minSeq(a) - minSeq(b);
+		});
+		const { phaseOrder: _phaseOrder, ...row } = run;
+		return row;
+	});
+}
+//#endregion
+//#region src/subagent-workflow-route.ts
+/**
+* Build the workflow routes bound to the plugin context.
+* @param ctx - host plugin context.
+*/
+function buildSubagentWorkflowApi(ctx) {
+	return { async workflow(payload) {
+		const rootSessionId = requireString(payload, "rootSessionId");
+		const sessionIds = [rootSessionId];
+		const subagents = ctx.get("subagents");
+		if (subagents !== void 0 && typeof subagents.listDescendants === "function") try {
+			const descendants = await subagents.listDescendants(rootSessionId);
+			for (const entry of descendants) if (entry.kind === "child" && !sessionIds.includes(entry.id)) sessionIds.push(entry.id);
+		} catch {}
+		const runs = [];
+		for (const sessionId of sessionIds) try {
+			const stored = ctx.sessions.get(sessionId);
+			const folded = foldWorkflowRuns(sessionId, (stored?.snapshotEvents !== void 0 ? stored.snapshotEvents() : []).filter((event) => typeof event.type === "string" && event.type.startsWith("tool-workflow/")).map((event) => ({
+				type: event.type,
+				seq: event.seq,
+				time: event.time,
+				data: event.data
+			})));
+			runs.push(...folded);
+		} catch {}
+		return { runs };
+	} };
+}
+//#endregion
+//#region src/zip.ts
+/**
+* A dependency-free ZIP writer (upstream v0.24.1's "compress and download"
+* needs one, and pulling a zip library into a sidebar plugin is not worth the
+* supply-chain surface).
+*
+* Format coverage — exactly what a file explorer needs:
+* - per-entry method choice: **deflate (8)** when it actually shrinks the
+*   payload, **store (0)** otherwise (already-compressed media stays verbatim);
+* - UTF-8 filename flag (bit 11) so non-latin1 names survive;
+* - explicit **directory entries** for empty directories;
+* - Unix permissions through the external-attributes high word;
+* - DOS timestamps from the file's own mtime (clamped to the format's range);
+* - hard caps (entry count / total bytes) so one multi-select cannot exhaust
+*   the host's memory.
+*
+* Deliberately host-side only (`node:zlib`), framework-free and pure: the test
+* fixture builds archives and verifies them with the system `unzip`.
+*/
+/** Caps: refuse to build an archive beyond these instead of thrashing memory. */
+const ZIP_MAX_ENTRIES = 5e3;
+const ZIP_MAX_TOTAL_BYTES = 268435456;
+/** Raised for a payload the writer refuses (too many entries / too large). */
+var ZipLimitError = class extends Error {
+	constructor(message) {
+		super(message);
+		this.name = "ZipLimitError";
+	}
+};
+/** CRC-32 (IEEE 802.3) table, built once. */
+const CRC_TABLE = (() => {
+	const table = /* @__PURE__ */ new Uint32Array(256);
+	for (let index = 0; index < 256; index += 1) {
+		let value = index;
+		for (let bit = 0; bit < 8; bit += 1) value = (value & 1) === 1 ? 3988292384 ^ value >>> 1 : value >>> 1;
+		table[index] = value >>> 0;
+	}
+	return table;
+})();
+/**
+* CRC-32 of a buffer (the checksum ZIP stores per entry).
+* @param data - the bytes.
+*/
+function crc32(data) {
+	let crc = 4294967295;
+	for (let index = 0; index < data.length; index += 1) crc = CRC_TABLE[(crc ^ data[index]) & 255] ^ crc >>> 8;
+	return (crc ^ 4294967295) >>> 0;
+}
+/** DOS date/time pair (the format's own timestamp encoding). */
+function dosDateTime(date) {
+	const year = Math.min(Math.max(date.getFullYear(), 1980), 2107);
+	const month = date.getMonth() + 1;
+	const day = date.getDate();
+	const hours = date.getHours();
+	const minutes = date.getMinutes();
+	const seconds = Math.floor(date.getSeconds() / 2);
+	return {
+		time: hours << 11 | minutes << 5 | seconds,
+		date: year - 1980 << 9 | month << 5 | day
+	};
+}
+/**
+* Build a ZIP archive.
+*
+* Entry order follows the input (an explorer shows the same order it listed),
+* and duplicate paths are kept — the caller decides what to include.
+* @param entries - archive members.
+* @returns the archive bytes.
+*/
+function buildZip(entries) {
+	if (entries.length > 5e3) throw new ZipLimitError(`too many entries: ${entries.length} > ${ZIP_MAX_ENTRIES}`);
+	let total = 0;
+	for (const entry of entries) total += entry.data?.length ?? 0;
+	if (total > 268435456) throw new ZipLimitError(`archive too large: ${total} > ${ZIP_MAX_TOTAL_BYTES} bytes`);
+	const chunks = [];
+	const records = [];
+	let offset = 0;
+	for (const entry of entries) {
+		const isDir = entry.data === void 0;
+		const raw = entry.data ?? Buffer.alloc(0);
+		const deflated = deflateRawSync(raw);
+		const useDeflate = !isDir && deflated.length < raw.length;
+		const payload = useDeflate ? deflated : raw;
+		const method = useDeflate ? 8 : 0;
+		const name = Buffer.from(isDir ? `${entry.path.replace(/\/+$/, "")}/` : entry.path, "utf8");
+		const { time, date } = dosDateTime(entry.mtime ?? /* @__PURE__ */ new Date());
+		const crc = isDir ? 0 : crc32(raw);
+		const mode = entry.mode ?? (isDir ? 493 : 420);
+		const header = Buffer.alloc(30);
+		header.writeUInt32LE(67324752, 0);
+		header.writeUInt16LE(20, 4);
+		header.writeUInt16LE(2048, 6);
+		header.writeUInt16LE(method, 8);
+		header.writeUInt16LE(time, 10);
+		header.writeUInt16LE(date, 12);
+		header.writeUInt32LE(crc, 14);
+		header.writeUInt32LE(payload.length, 18);
+		header.writeUInt32LE(raw.length, 22);
+		header.writeUInt16LE(name.length, 26);
+		header.writeUInt16LE(0, 28);
+		records.push({
+			name,
+			crc,
+			compressed: payload,
+			size: raw.length,
+			method,
+			offset,
+			time,
+			date,
+			mode,
+			isDir
+		});
+		chunks.push(header, name, payload);
+		offset += header.length + name.length + payload.length;
+	}
+	const centralStart = offset;
+	let centralSize = 0;
+	for (const record of records) {
+		const header = Buffer.alloc(46);
+		header.writeUInt32LE(33639248, 0);
+		header.writeUInt16LE(798, 4);
+		header.writeUInt16LE(20, 6);
+		header.writeUInt16LE(2048, 8);
+		header.writeUInt16LE(record.method, 10);
+		header.writeUInt16LE(record.time, 12);
+		header.writeUInt16LE(record.date, 14);
+		header.writeUInt32LE(record.crc, 16);
+		header.writeUInt32LE(record.compressed.length, 20);
+		header.writeUInt32LE(record.size, 24);
+		header.writeUInt16LE(record.name.length, 28);
+		header.writeUInt16LE(0, 30);
+		header.writeUInt16LE(0, 32);
+		header.writeUInt16LE(0, 34);
+		header.writeUInt16LE(0, 36);
+		header.writeUInt32LE((record.mode & 65535 | (record.isDir ? 16384 : 32768)) << 16 >>> 0, 38);
+		header.writeUInt32LE(record.offset, 42);
+		chunks.push(header, record.name);
+		centralSize += header.length + record.name.length;
+	}
+	const eocd = Buffer.alloc(22);
+	eocd.writeUInt32LE(101010256, 0);
+	eocd.writeUInt16LE(0, 4);
+	eocd.writeUInt16LE(0, 6);
+	eocd.writeUInt16LE(records.length, 8);
+	eocd.writeUInt16LE(records.length, 10);
+	eocd.writeUInt32LE(centralSize, 12);
+	eocd.writeUInt32LE(centralStart, 16);
+	eocd.writeUInt16LE(0, 20);
+	chunks.push(eocd);
+	return Buffer.concat(chunks);
+}
+/**
+* Derive a download name from the selected paths: one file keeps its own name,
+* a selection of many takes the deepest shared directory name.
+* @param paths - the selected workspace-relative paths.
+*/
+function archiveNameFor(paths) {
+	const first = paths[0] ?? "archive";
+	const baseName = (path) => path.slice(path.lastIndexOf("/") + 1);
+	if (paths.length === 1) {
+		const last = baseName(first);
+		const dot = last.lastIndexOf(".");
+		return dot > 0 ? last.slice(0, dot) : last;
+	}
+	const split = first.split("/");
+	const root = split.length > 1 ? split[split.length - 2] ?? "archive" : "archive";
+	return paths.every((path) => path.slice(0, path.lastIndexOf("/")) === first.slice(0, first.lastIndexOf("/"))) && root !== "" ? root : "archive";
+}
+/** Refuse a selection above this many paths (the tree caps its own listing too). */
+const ARCHIVE_MAX_SELECTION = 2e3;
+/** The wire cap for one transfer: base64 inflates by 4/3. */
+const RESULT_MAX_BYTES = 50331648;
+/**
+* Build the archive routes bound to the plugin context.
+* @param ctx - host plugin context.
+* @param cwdOf - session → workspace resolver shared with the other routes.
+*/
+function buildArchiveApi(ctx, cwdOf) {
+	const tasks = /* @__PURE__ */ new Map();
+	let running = 0;
+	const queue = [];
+	const reap = () => {
+		const now = Date.now();
+		for (const [id, task] of tasks) {
+			if (now - task.createdAt <= 3e5) continue;
+			tasks.delete(id);
+		}
+	};
+	const pump = () => {
+		while (running < 4) {
+			const nextId = queue.shift();
+			if (nextId === void 0) return;
+			const task = tasks.get(nextId);
+			if (task === void 0) continue;
+			running += 1;
+			task.state = "building";
+			task.start?.();
+		}
+	};
+	/** First pass: count the files, so the status can report real progress. */
+	const scan = async (task, roots) => {
+		const count = async (absolute) => {
+			if (!(await stat(absolute)).isDirectory()) return 1;
+			const children = await readdir(absolute, { withFileTypes: true });
+			let total = 0;
+			for (const child of children) total += await count(join(absolute, child.name));
+			return total;
+		};
+		let total = 0;
+		for (const root of roots) {
+			const absolute = await resolveReadPath(task.cwd, root);
+			total += await count(absolute);
+			if (total > 5e3) throw new ZipLimitError(`too many entries: more than ${ZIP_MAX_ENTRIES}`);
+			task.total = total;
+		}
+	};
+	/** Second pass: read the files depth-first and pack them. */
+	const pack = async (task, roots) => {
+		const entries = [];
+		let bytes = 0;
+		const walk = async (absolute, inside) => {
+			const info = await stat(absolute);
+			if (info.isDirectory()) {
+				const children = await readdir(absolute, { withFileTypes: true });
+				if (children.length === 0) {
+					entries.push({
+						path: inside,
+						data: void 0,
+						mtime: info.mtime
+					});
+					return;
+				}
+				for (const child of children) await walk(join(absolute, child.name), `${inside}/${child.name}`);
+				return;
+			}
+			if (entries.length >= 5e3) throw new ZipLimitError(`too many entries: more than ${ZIP_MAX_ENTRIES}`);
+			const data = await readFile(absolute);
+			bytes += data.length;
+			if (bytes > 268435456) throw new ZipLimitError(`archive too large: more than ${ZIP_MAX_TOTAL_BYTES} bytes`);
+			entries.push({
+				path: inside,
+				data,
+				mtime: info.mtime
+			});
+			task.done = entries.length;
+		};
+		for (const root of roots) {
+			const absolute = await ensureWorkspacePath(task.cwd, root);
+			const inside = relative(task.cwd, absolute).split(sep).join("/");
+			if (inside === "" || inside.startsWith("..")) throw new SidebarError("bad-request", `path escapes the workspace: ${root}`);
+			await walk(absolute, inside);
+		}
+		task.data = buildZip(entries);
+		task.bytes = task.data.length;
+		task.name = archiveNameFor(roots);
+		task.state = "done";
+	};
+	const finish = (taskId) => {
+		running = Math.max(0, running - 1);
+		pump();
+		tasks.get(taskId);
+	};
+	return {
+		async build(payload) {
+			reap();
+			const { cwd } = await cwdOf(payload);
+			const raw = payload.paths;
+			if (!Array.isArray(raw) || raw.length === 0) throw new SidebarError("bad-request", "paths must be a non-empty array");
+			const paths = raw.map((entry) => requireString({ path: entry }, "path"));
+			if (paths.length > 2e3) throw new SidebarError("bad-request", `too many paths: ${paths.length} > ${ARCHIVE_MAX_SELECTION}`);
+			for (const path of paths) await resolveReadPath(cwd, path);
+			const taskId = randomUUID();
+			const task = {
+				taskId,
+				state: "queued",
+				done: 0,
+				total: 0,
+				name: archiveNameFor(paths),
+				cwd,
+				createdAt: Date.now()
+			};
+			tasks.set(taskId, task);
+			task.start = () => {
+				scan(task, paths).then(() => pack(task, paths)).catch((error) => {
+					task.state = "error";
+					task.error = error instanceof Error ? error.message : String(error);
+				}).finally(() => {
+					finish(taskId);
+				});
+			};
+			queue.push(taskId);
+			pump();
+			return task;
+		},
+		async status(payload) {
+			reap();
+			const taskId = requireString(payload, "taskId");
+			const task = tasks.get(taskId);
+			if (task === void 0) throw new SidebarError("not-found", "archive task expired or unknown", 404);
+			return task;
+		},
+		async result(payload) {
+			reap();
+			const taskId = requireString(payload, "taskId");
+			const task = tasks.get(taskId);
+			if (task === void 0) throw new SidebarError("not-found", "archive task expired or unknown", 404);
+			if (task.state !== "done" || task.data === void 0) throw new SidebarError("bad-request", `archive is ${task.state}`, 409);
+			if (task.data.length > RESULT_MAX_BYTES) throw new SidebarError("bad-request", `archive too large to download (${task.data.length} bytes); narrow the selection`);
+			const base64 = task.data.toString("base64");
+			const name = task.name === "" ? basename(task.cwd) : task.name;
+			tasks.delete(taskId);
+			return {
+				name,
+				base64,
+				bytes: task.data.length
+			};
+		}
+	};
 }
 //#endregion
 //#region src/team-routes.ts
@@ -5109,7 +5811,7 @@ function unavailable(reason) {
 */
 function resolveCaller(ctx, sessionId) {
 	const teams = ctx.get("agentTeams");
-	if (teams === void 0 || typeof teams.remoteView !== "function") return "service-missing";
+	if (teams === void 0 || typeof teams.createTask !== "function" || typeof teams.updateTask !== "function") return "service-missing";
 	const agent = ctx.get("agents")?.get(sessionId);
 	if (agent === void 0) return "agent-missing";
 	return {
@@ -5138,14 +5840,6 @@ function optionalStringArray(payload, key) {
 */
 function buildTeamApi(ctx) {
 	return {
-		"team.view": async (payload) => {
-			const caller = resolveCaller(ctx, requireString(payload, "sessionId"));
-			if (typeof caller === "string") return unavailable(caller);
-			return {
-				available: true,
-				view: caller.teams.remoteView(caller.agent)
-			};
-		},
 		"team.createTask": async (payload) => {
 			const sessionId = requireString(payload, "sessionId");
 			const request = {
@@ -5158,7 +5852,7 @@ function buildTeamApi(ctx) {
 			if (typeof caller === "string") return unavailable(caller);
 			return {
 				available: true,
-				result: await caller.teams.remoteCreateTask(caller.agent, request)
+				result: await caller.teams.createTask(caller.agent, request)
 			};
 		},
 		"team.updateTask": async (payload) => {
@@ -5180,7 +5874,7 @@ function buildTeamApi(ctx) {
 			if (typeof caller === "string") return unavailable(caller);
 			return {
 				available: true,
-				result: await caller.teams.remoteUpdateTask(caller.agent, request)
+				result: await caller.teams.updateTask(caller.agent, request)
 			};
 		}
 	};
@@ -5906,6 +6600,8 @@ async function resolveGitPath(cwd, raw, selected) {
 	return requireAbsolute(join(root, raw));
 }
 /** How many leading bytes a binary read returns for client-side detect sniffing. */
+/** 一次 fs.trees 批量请求最多预取的目录数（单点不可读只影响自己）。 */
+const FS_TREES_MAX = 32;
 const READ_HEAD_LIMIT = 4096;
 /** Text read of a file with the size cap; binary detection via NUL probe.
 *  Binary reads also return the first {@link READ_HEAD_LIMIT} bytes (base64)
@@ -5978,6 +6674,8 @@ function buildApi(ctx, ptyManager, agentPtyRegistry, resolved, terminalShell, ge
 	};
 	const jobsApi = buildJobsApi(ctx, resolved.readLimit);
 	const subagentLiveApi = buildSubagentLiveApi(ctx);
+	const subagentWorkflowApi = buildSubagentWorkflowApi(ctx);
+	const archiveApi = buildArchiveApi(ctx, cwdOf);
 	return {
 		...buildTeamApi(ctx),
 		"session.cwd": async (payload) => {
@@ -5992,6 +6690,13 @@ function buildApi(ctx, ptyManager, agentPtyRegistry, resolved, terminalShell, ge
 		"fs.tree": async (payload) => {
 			const { cwd } = await cwdOf(payload);
 			return listDirectory(payload.path === void 0 ? cwd : await ensureWorkspacePath(cwd, requireString(payload, "path")), resolved.listLimit);
+		},
+		"fs.trees": async (payload) => {
+			const { cwd } = await cwdOf(payload);
+			const record = payload;
+			if (!Array.isArray(record.paths) || record.paths.length === 0) throw new SidebarError("bad-request", "paths must be a non-empty array");
+			const requested = record.paths.slice(0, FS_TREES_MAX);
+			return { listings: await listDirectories(await Promise.all(requested.map((entry) => ensureWorkspacePath(cwd, requireString({ path: entry }, "path")))), resolved.listLimit) };
 		},
 		"fs.search": async (payload) => {
 			const { cwd } = await cwdOf(payload);
@@ -6256,6 +6961,10 @@ function buildApi(ctx, ptyManager, agentPtyRegistry, resolved, terminalShell, ge
 			return { ops: sessionFileOps(stored?.snapshotEvents !== void 0 ? stored.snapshotEvents() : []) };
 		},
 		"subagents.live": (payload) => subagentLiveApi.live(payload),
+		"subagents.workflow": (payload) => subagentWorkflowApi.workflow(payload),
+		"archive.build": (payload) => archiveApi.build(payload),
+		"archive.status": (payload) => archiveApi.status(payload),
+		"archive.result": (payload) => archiveApi.result(payload),
 		"shell.get": () => ({
 			shell: terminalShell,
 			name: shellDisplayName(terminalShell)
@@ -6345,8 +7054,10 @@ function buildApi(ctx, ptyManager, agentPtyRegistry, resolved, terminalShell, ge
 			const action = payload?.action;
 			if (action === "reveal") return launchExternal("reveal", requireString(payload, "path"));
 			if (action === "url") return launchExternal("url", requireString(payload, "url"));
-			throw new SidebarError("bad-request", "action must be \"reveal\" or \"url\"");
+			if (action === "app") return launchExternalApp(requireString(payload, "app"), requireString(payload, "path"));
+			throw new SidebarError("bad-request", "action must be \"reveal\", \"url\" or \"app\"");
 		},
+		"apps.list": async () => ({ apps: await listNativeApps() }),
 		...buildSidechatApi(ctx)
 	};
 }

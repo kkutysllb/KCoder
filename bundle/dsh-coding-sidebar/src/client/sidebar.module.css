@@ -32,6 +32,26 @@
    events on itself. Degraded mode ([data-dsh-panel-host-degraded]) covers
    the rare shell that transforms <html>/<body> itself: the host becomes
    absolute and the mount self-check pins it to the viewport every frame. */
+/* Desktop drag-region exit (upstream v0.22.1 fix, issue #772).
+   The shell marks window-draggable strips with `[data-window-drag]` and
+   blankets every other body child with
+   `html[data-platform=darwin] body > :not(#root) { -webkit-app-region: no-drag }`.
+   Because app-region is resolved WITHOUT pointer-events, this viewport-sized
+   host would cancel those strips for the whole window — after one drag the
+   window can no longer be moved and title-bar double-click zoom dies too.
+   `initial` (none) puts the host back to neutral; the host's own chrome (the
+   direct panel layers and the controls inside them) keeps opting out with
+   `no-drag`, so clicking our buttons still never starts a window drag
+   (issues #103/#111). Interactive popovers portaled to body stay untouched:
+   giving THEM `initial` would turn presses into window drags. */
+:global([data-dsh-panel-host]) {
+  -webkit-app-region: initial !important;
+}
+
+:global([data-dsh-panel-host]) > * {
+  -webkit-app-region: no-drag;
+}
+
 :global([data-dsh-panel-host]) {
   position: fixed;
   inset: 0;
@@ -1938,6 +1958,12 @@ body[data-dsh-sidebar-dragging] .panel {
    transform; the drag/zoom listeners live in the component, nothing here
    targets global class names. */
 
+/* The enlarged mermaid view is the other body-attached full-viewport layer
+   (createPortal → document.body): same drag-region exit as the panel host. */
+:global([data-mermaid-modal]) {
+  -webkit-app-region: initial !important;
+}
+
 .mermaidModal {
   position: fixed;
   inset: 0;
@@ -3784,7 +3810,129 @@ body[data-dsh-sidebar-dragging] .panel {
 
 .plansEmpty .plansHint {
   padding: 4px 0 0;
+}
+
 .tocFlash {
   animation: dsh-toc-flash 1.2s ease-out;
   border-radius: 4px;
+}
+
+/* ── 变更页层级树（目录行：折叠 + 递归计数 + 目录级暂存） ── */
+.gitDirRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 24px;
+  padding: 0 4px 0 6px;
+}
+
+.gitDirMain {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  padding: 2px 0;
+  text-align: left;
+}
+
+.gitDirMain:hover .gitDirName {
+  color: var(--dsw-alias-label-primary);
+}
+
+.gitChevron {
+  flex: none;
+  width: 10px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.gitDirName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--dsw-font-xxxs-strong-11);
+  color: var(--dsw-alias-label-primary);
+}
+
+.gitDirCount {
+  flex: none;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* ── 文件树多选（上游 v0.24.1）──
+   视觉口径：一个轻量悬浮胶囊，不是工具条——细边框、分层背景、圆角，动作是
+   文本按钮（默认无底色），hover 才浮起；焦点环用 label 色，不用 UA 蓝。 */
+.explorerRowSelected {
+  background: var(--dsw-alias-interactive-bg-hover);
+  box-shadow: inset 2px 0 0 var(--dsw-alias-label-tertiary);
+  border-radius: 6px;
+}
+
+.explorerSelectionBar {
+  position: sticky;
+  bottom: 6px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 6px 8px 2px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base));
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.explorerSelectionCount {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 4px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.explorerSelectionAction {
+  flex: none;
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  padding: 3px 9px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font: var(--dsw-font-xxxs-strong-11);
+  line-height: 1.2;
+  transition: background-color var(--ds-transition-duration-fast, .1s) var(--ds-ease-in-out, ease),
+    color var(--ds-transition-duration-fast, .1s) var(--ds-ease-in-out, ease);
+}
+
+.explorerSelectionAction:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.explorerSelectionAction:focus-visible {
+  outline: 2px solid var(--dsw-alias-label-tertiary);
+  outline-offset: 1px;
+}
+
+.explorerSelectionAction:disabled {
+  opacity: 0.55;
+  cursor: default;
 }

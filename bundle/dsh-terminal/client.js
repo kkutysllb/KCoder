@@ -31,7 +31,10 @@
  *   （server 白名单托管，eval 挂 window.Terminal / FitAddonTrust）；
  * - ⌘W 关标签砍掉（主页面里 ⌘W 属关窗语义不可拦）；⌘T 新建保留。
  *
- * 按钮接替旧宿主位 right:44（拖拽区显式 no-drag），id __dsh_kc_term_btn。
+ * 按钮锚点链：KCoder 自绘标题栏（right:44，拖拽区显式 no-drag）→
+ * 原生 dsh web/桌面壳的会话头右上角动作区（conversation.session.header.corner
+ * slot；原生壳无锚点 1，v1.2.0 起回退注入，此前按钮在原生壳永不出现），
+ * id __dsh_kc_term_btn。
  *
  * @module @kkutysllb/dsh-terminal/client
  */
@@ -259,8 +262,9 @@ window.__ModuleLoader__.load({
       const style = el('style')
       style.id = STYLE_ID
       style.textContent = `
-#${BTN_ID}{all:unset;box-sizing:border-box;position:absolute;right:44px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;cursor:pointer;color:rgba(26,29,33,.65);-webkit-app-region:no-drag;transition:background .15s ease}
-body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
+#${BTN_ID}:not(.kt-corner){all:unset;box-sizing:border-box;position:absolute;right:44px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;cursor:pointer;color:rgba(26,29,33,.65);-webkit-app-region:no-drag;transition:background .15s ease}
+body[data-ds-dark-theme] #${BTN_ID}:not(.kt-corner){color:rgba(232,234,237,.8)}
+#${BTN_ID}.kt-corner{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;margin-left:6px;border-radius:7px;cursor:pointer;color:inherit;-webkit-app-region:no-drag;transition:background .15s ease}
 #${BTN_ID}:hover{background:color-mix(in srgb,currentColor 10%,transparent)}
 #${BTN_ID}:active{background:color-mix(in srgb,currentColor 18%,transparent)}
 #${BTN_ID}[data-open="1"]{background:color-mix(in srgb,currentColor 14%,transparent)}
@@ -863,11 +867,46 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
       })
       if (rightbarWatched === null) rightbarMountMo.observe(document.body, { childList: true, subtree: true })
 
-      /* ---- 标题栏按钮（theme-watcher 注入宿主，时序不保证 → 轮询等待） ---- */
+      /* ---- 终面板开关按钮（锚点链：宿主自绘标题栏 → 原生会话头 corner） ----
+       * 锚点 1（KCoder 桌面壳）：主进程 executeJavaScript 注入的
+       *   #__dsh_desktop_titlebar（绝对定位 right:44，拖拽区宿主任命）；
+       * 锚点 2（原生 dsh web/桌面壳）：上游会话头右上角动作区
+       *   [data-slot="conversation.session.header.corner"]（slot 工具化
+       *   DOM，键随 ui-conversation 源码稳定；外层另有非哈希
+       *   data-conversation-header-corner 兜底选择器）。原生壳没有锚点 1
+       *   （那是 KCoder 主进程私有的），此前按钮永不注入——不显示并非
+       *   遮挡。corner 为 display:contents 包装器，按钮作为其末位子节点
+       *   参与标题行 flex；行整体 data-window-drag，按钮显式 no-drag。
+       *   会话头仅会话页渲染（hero/设置页无 corner）→ 页面内按钮随
+       *   路由消失属预期，巡逻恢复；锚点 1 存在时永远优先——含竞态后到
+       *   升级（corner 先落、标题栏后现 → 巡逻迁回标题栏）。 */
+      const CORNER_ID = 'conversation.session.header.corner'
       const injectBtn = () => {
-        if (document.getElementById(BTN_ID) !== null) return 'present'
-        const host = document.getElementById(TITLEBAR_ID)
-        if (host === null) return 'absent'
+        const existing = document.getElementById(BTN_ID)
+        const bar = document.getElementById(TITLEBAR_ID)
+        // 孤儿回收：锚点宿主被上游整表重写时按钮随之脱挂——视为缺失重建
+        //（v1.1.x 起的旧洞：脱挂按钮占住 id，巡逻永远 'present' 不重建）。
+        if (existing !== null && !existing.isConnected) existing.remove()
+        if (existing !== null && existing.isConnected) {
+          // 锚点升级：corner 只是回退位。KCoder 壳的标题栏由主进程
+          // executeJavaScript 在 did-finish-load 注入，时序可能晚于 React
+          // 会话头首帧（竞态窗口内按钮先落 corner 且再不挪位——v1.2.0
+          // KCoder 回归的根因）；巡逻发现标题栏即迁回 v1.1.x 位形
+          // （right:44 绝对定位）。原生壳无标题栏 → 永驻 corner，不受影响。
+          if (bar !== null && existing.classList.contains('kt-corner')) {
+            existing.classList.remove('kt-corner')
+            bar.append(existing)
+            return 'moved'
+          }
+          return 'present'
+        }
+        let host = bar
+        let cornerMode = false
+        if (host === null) {
+          cornerMode = true
+          host = document.querySelector(`[data-slot="${CORNER_ID}"], [data-conversation-header-corner]`)
+          if (host === null) return 'absent'
+        }
         const btn = el('button')
         btn.type = 'button'
         btn.id = BTN_ID
@@ -880,6 +919,7 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
         svg.setAttribute('fill', 'none')
         svg.innerHTML = '<rect x="2" y="2.5" width="12" height="11" rx="1.75" stroke="currentColor" stroke-width="1.2"/><path d="M4.9 6.3 6.6 8l-1.7 1.7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.3 9.9h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>'
         btn.append(svg)
+        if (cornerMode) btn.className = 'kt-corner'
         btn.onclick = () => {
           void resolveWorkspace().then(ws => {
             if (ws != null && ws.matched) { activeBucket = ws.path; activeTitle = ws.title; fallbackSeen = true }
@@ -889,8 +929,8 @@ body[data-ds-dark-theme] #${BTN_ID}{color:rgba(232,234,237,.8)}
         host.append(btn)
         return 'injected'
       }
-      // 标题栏会被上游 SPA 重渲染整表重写（按钮随之丢失）：前 60s 高频
-      // 注入，此后转低频常驻巡逻，发现按钮被清即重建。
+      // 锚点宿主会被上游 SPA 重渲染整表重写/换元（按钮随之丢失）：前 60s
+      // 高频注入，此后转低频常驻巡逻，发现按钮被清即重建。
       let tries = 0
       const fastPoll = setInterval(() => {
         if (injectBtn() !== 'absent' || ++tries > 120) {

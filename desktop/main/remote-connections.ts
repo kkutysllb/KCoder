@@ -15,7 +15,7 @@ import { BrowserWindow, dialog } from 'electron'
 import { dshHome } from './dsh-contract'
 import { bundleSource } from './kcoder-skills-bundle'
 import { startRemoteServer, type RemoteBundleSource, type RemoteServerHandle } from './remote-server'
-import { localAddonSpecs, localEngineVersion, remoteDshBin, runtimeDirForRemote, runtimeProbeDetail } from './remote-runtime'
+import { localEngineVersion, remoteDshBin, runtimeDirForRemote, runtimeProbeDetail } from './remote-runtime'
 import { progressPage } from './remote-progress-page'
 import { readRemoteWorlds } from './remote-world'
 import { decorateShellWindow, shellChromeOptions } from './windows'
@@ -141,8 +141,8 @@ export function openRemoteConnection(hostId: string): string {
     runtimeDir,
     // 引擎在远端按平台装官方元包：本地这份的原生二进制是给 macOS 编的。
     engineVersion: localEngineVersion(runtimeDir) ?? '',
-    // 引擎搬本地那份；原生包按平台从 npm 补。
-    addonSpecs: localAddonSpecs(runtimeDir),
+    // 原生包规格不在这里派生：目标平台只有连接时探测才知道，故由
+    // provisionRemoteRuntime 按探测结果从本地树派生（见 remote-server）。
     bundles: localBundles(),
     remoteNode: remoteDshBin(spec),
     // 远端有自己的 DSH_HOME；带上本地 profile 配置与密钥文件，否则模型行会列出来

@@ -8,11 +8,11 @@
  */
 import { encodeHtmlUrl } from '../html-route.ts'
 import type { LastActivity } from '../subagent-activity.ts'
-import type { SidebarHistoryEntry } from '../context-types.ts'
+import type { SidebarHistoryEntry, SidebarWorkflowRunRow } from '../context-types.ts'
 import type { SidechatLiveEvent, SidechatThreadInfo } from '../sidechat-core.ts'
 import type { BrowserProbeResult } from './browser.ts'
 import type {
-  CreateTeamTaskRequest, TeamMutationEnvelope, TeamViewResult, UpdateTeamTaskRequest,
+  CreateTeamTaskRequest, TeamMutationEnvelope, UpdateTeamTaskRequest,
 } from '../team-types.ts'
 
 /** One wire failure. */
@@ -352,11 +352,6 @@ export const api = {
   /**
    * Agent Teams: the roster + task board the upstream `ctx.agentTeams` service
    * reports for this Session's team. `available: false` is an ordinary answer
-   * (the official 「智能体团队」 bundle is opt-in) — the tab renders it as an
-   * enable-me empty state.
-   */
-  teamView: (scope: SessionScope, signal?: AbortSignal) =>
-    call<TeamViewResult>('team.view', scopePayload(scope, {}), signal),
   /** Create one shared task (subject + description are required by the service). */
   teamCreateTask: (scope: SessionScope, input: CreateTeamTaskRequest, signal?: AbortSignal) =>
     call<TeamMutationEnvelope>('team.createTask', scopePayload(scope, { ...input }), signal),
@@ -365,6 +360,11 @@ export const api = {
     call<TeamMutationEnvelope>('team.updateTask', scopePayload(scope, { ...input }), signal),
   fsTree: (scope: SessionScope, path: string, signal?: AbortSignal) =>
     call<{ path: string; entries: FsEntry[]; truncated: boolean }>('fs.tree', scopePayload(scope, { path }), signal),
+  /** 批量列目录：一次请求预取若干子目录（单点失败按路径回报）。 */
+  fsTrees: (scope: SessionScope, paths: readonly string[], signal?: AbortSignal) =>
+    call<{ listings: Array<{ path: string; listing?: { entries: FsEntry[] }; error?: string }> }>(
+      'fs.trees', scopePayload(scope, { paths }), signal,
+    ),
   /** Global recursive file-name search rooted at the session cwd (the editor
    *  side panel's search box); matches are cwd-relative '/'-separated paths. */
   fsSearch: (scope: SessionScope, query: string, signal?: AbortSignal) =>
@@ -391,6 +391,22 @@ export const api = {
     call<GitStatusResult>('git.status', gitPayload(scope, worktree, {}), signal),
   gitDiff: (scope: SessionScope, path: string | undefined, staged: boolean, worktree?: string, signal?: AbortSignal) =>
     call<{ diff: string }>('git.diff', gitPayload(scope, worktree, { ...(path !== undefined ? { path } : {}), staged }), signal),
+  /** 宿主探测到的本机应用（打开方式第二来源；远程工作区不调用）。 */
+  appsList: (signal?: AbortSignal) =>
+    call<{ apps: Array<{ id: string; label: string; path: string }> }>('apps.list', {}, signal),
+  /** 归档任务（多选压缩下载）：build 立即返回 taskId，status 报进度，result 取字节。 */
+  archiveBuild: (scope: SessionScope, paths: readonly string[]) =>
+    call<{ taskId: string; state: string; done: number; total: number; name: string }>(
+      'archive.build', { sessionId: scope.sessionId, paths },
+    ),
+  archiveStatus: (scope: SessionScope, taskId: string, signal?: AbortSignal) =>
+    call<{ taskId: string; state: 'queued' | 'building' | 'done' | 'error'; done: number; total: number; name: string; bytes?: number; error?: string }>(
+      'archive.status', { sessionId: scope.sessionId, taskId }, signal,
+    ),
+  archiveResult: (scope: SessionScope, taskId: string) =>
+    call<{ name: string; base64: string; bytes: number }>(
+      'archive.result', { sessionId: scope.sessionId, taskId },
+    ),
   gitStage: (scope: SessionScope, path?: string, worktree?: string) =>
     call<{ ok: true }>('git.stage', gitPayload(scope, worktree, { ...(path !== undefined ? { path } : {}) })),
   gitUnstage: (scope: SessionScope, path?: string, worktree?: string) =>
@@ -516,6 +532,12 @@ export const api = {
    * the already-resolved topology ROOT (not a session scope); the host
    * enumerates descendants once and folds running children's activity.
    */
+  /** Fold the tree's workflow runs (`tool-workflow/*`) for the Tasks page. */
+  subagentsWorkflow: (rootSessionId: string, signal?: AbortSignal) => {
+    return call<{ runs: SidebarWorkflowRunRow[] }>(
+      'subagents.workflow', { rootSessionId }, signal,
+    )
+  },
   subagentsLive: (rootSessionId: string, signal?: AbortSignal) =>
     call<SubagentLiveResult>('subagents.live', { rootSessionId }, signal),
   /** Create a Side Chat thread: a child session seeded with the parent's
@@ -575,7 +597,7 @@ export const api = {
    *  the OS file manager, or hand a custom-scheme URL (vscode://, cursor://,
    *  zed://, custom editors) to its registered handler. The host launches
    *  the platform opener (argv, no shell). */
-  openExternal: (payload: { action: 'reveal'; path: string } | { action: 'url'; url: string }) =>
+  openExternal: (payload: { action: 'reveal'; path: string } | { action: 'url'; url: string } | { action: 'app'; app: string; path: string }) =>
     call<{ started: boolean }>('open.external', payload),
 }
 

@@ -390,7 +390,84 @@ export interface SidebarSessionProjection {
   values?: {
     /** Direct children in catalog event order; absent until the projection lands. */
     subagentCatalog?: readonly SidebarSubagentCatalogRow[]
+    /**
+     * Agent Teams roster + task board for a Team Lead Session (0.1.7 seam).
+     * Mirror of `dsh-experimental-agent-team`'s `agentTeam` projection view
+     * (upstream zod `.strict()` schemas — treat unknown fields as absent):
+     * the lead is `members[0]` with the literal name `'lead'`; member ids are
+     * real Session ids, so live activity enriches from the sessions feed.
+     */
+    agentTeam?: SidebarAgentTeamProjectionValue
   }
+}
+
+/** One roster row of the `agentTeam` projection (durable fields only). */
+export interface SidebarAgentTeamMember {
+  /** Session id — the lead row carries the root Session id. */
+  id: string
+  /** Durable teammate name; the lead row is literally `'lead'`. */
+  name: string
+  role: 'lead' | 'teammate'
+  phase: 'provisioning' | 'active' | 'failed'
+  error?: string
+}
+
+/** One task-board row of the `agentTeam` projection (matches the wire view). */
+export interface SidebarAgentTeamTask {
+  id: string
+  revision: number
+  subject: string
+  description: string
+  status: 'pending' | 'in_progress' | 'completed' | 'deleted'
+  blockedBy: readonly string[]
+  writeScopes: readonly string[]
+  ownerName?: string
+  ready: boolean
+  writeScopeWarnings: readonly string[]
+}
+
+/** The `agentTeam` projection value: roster plus the non-deleted task board. */
+export interface SidebarAgentTeamProjectionValue {
+  members: readonly SidebarAgentTeamMember[]
+  tasks: readonly SidebarAgentTeamTask[]
+  /** Terminal projection failure; later events retain the failed view. */
+  failure?: string
+}
+
+/**
+ * One member row of a folded workflow run (`tool-workflow/agent-start`):
+ * `childId` is the member's real Session id, which lets the Tasks view model
+ * re-parent a catalog child under its run (members the catalog does not know
+ * are synthesized from this row).
+ */
+export interface SidebarWorkflowMemberRow {
+  /** Member order within the run (the host's `seq`). */
+  seq: number
+  /** Durable member label from the run. */
+  label: string
+  /** The member's Session id. */
+  childId: string
+  /** Phase box this member belongs to; absent → the unphased tail group. */
+  phase?: string
+  /** `tool-workflow/agent-end` outcome, once the member ended. */
+  outcome?: string
+}
+
+/** One phase group of a folded workflow run (members boxed per phase). */
+export interface SidebarWorkflowPhaseRow {
+  phase: string | undefined
+  members: readonly SidebarWorkflowMemberRow[]
+}
+
+/** One folded workflow run (`tool-workflow/*`) of one origin Session. */
+export interface SidebarWorkflowRunRow {
+  runId: string
+  /** Session whose log carried the run — the run hangs under this agent. */
+  originSessionId: string
+  name: string
+  running: boolean
+  stopReason?: string
+  phases: readonly SidebarWorkflowPhaseRow[]
 }
 
 /**

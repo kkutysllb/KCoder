@@ -1,8 +1,8 @@
 import type { LastActivity } from '../subagent-activity.ts';
-import type { SidebarHistoryEntry } from '../context-types.ts';
+import type { SidebarHistoryEntry, SidebarWorkflowRunRow } from '../context-types.ts';
 import type { SidechatLiveEvent, SidechatThreadInfo } from '../sidechat-core.ts';
 import type { BrowserProbeResult } from './browser.ts';
-import type { CreateTeamTaskRequest, TeamMutationEnvelope, TeamViewResult, UpdateTeamTaskRequest } from '../team-types.ts';
+import type { CreateTeamTaskRequest, TeamMutationEnvelope, UpdateTeamTaskRequest } from '../team-types.ts';
 /** One wire failure. */
 export declare class SidebarApiError extends Error {
     readonly code: string;
@@ -231,10 +231,6 @@ export declare const api: {
     /**
      * Agent Teams: the roster + task board the upstream `ctx.agentTeams` service
      * reports for this Session's team. `available: false` is an ordinary answer
-     * (the official 「智能体团队」 bundle is opt-in) — the tab renders it as an
-     * enable-me empty state.
-     */
-    teamView: (scope: SessionScope, signal?: AbortSignal) => Promise<TeamViewResult>;
     /** Create one shared task (subject + description are required by the service). */
     teamCreateTask: (scope: SessionScope, input: CreateTeamTaskRequest, signal?: AbortSignal) => Promise<TeamMutationEnvelope>;
     /** Apply one compare-and-set task mutation (`expectedRevision` guards the row). */
@@ -243,6 +239,16 @@ export declare const api: {
         path: string;
         entries: FsEntry[];
         truncated: boolean;
+    }>;
+    /** 批量列目录：一次请求预取若干子目录（单点失败按路径回报）。 */
+    fsTrees: (scope: SessionScope, paths: readonly string[], signal?: AbortSignal) => Promise<{
+        listings: Array<{
+            path: string;
+            listing?: {
+                entries: FsEntry[];
+            };
+            error?: string;
+        }>;
     }>;
     /** Global recursive file-name search rooted at the session cwd (the editor
      *  side panel's search box); matches are cwd-relative '/'-separated paths. */
@@ -274,6 +280,36 @@ export declare const api: {
     gitStatus: (scope: SessionScope, worktree?: string, signal?: AbortSignal) => Promise<GitStatusResult>;
     gitDiff: (scope: SessionScope, path: string | undefined, staged: boolean, worktree?: string, signal?: AbortSignal) => Promise<{
         diff: string;
+    }>;
+    /** 宿主探测到的本机应用（打开方式第二来源；远程工作区不调用）。 */
+    appsList: (signal?: AbortSignal) => Promise<{
+        apps: Array<{
+            id: string;
+            label: string;
+            path: string;
+        }>;
+    }>;
+    /** 归档任务（多选压缩下载）：build 立即返回 taskId，status 报进度，result 取字节。 */
+    archiveBuild: (scope: SessionScope, paths: readonly string[]) => Promise<{
+        taskId: string;
+        state: string;
+        done: number;
+        total: number;
+        name: string;
+    }>;
+    archiveStatus: (scope: SessionScope, taskId: string, signal?: AbortSignal) => Promise<{
+        taskId: string;
+        state: "queued" | "building" | "done" | "error";
+        done: number;
+        total: number;
+        name: string;
+        bytes?: number;
+        error?: string;
+    }>;
+    archiveResult: (scope: SessionScope, taskId: string) => Promise<{
+        name: string;
+        base64: string;
+        bytes: number;
     }>;
     gitStage: (scope: SessionScope, path?: string, worktree?: string) => Promise<{
         ok: true;
@@ -422,6 +458,10 @@ export declare const api: {
      * the already-resolved topology ROOT (not a session scope); the host
      * enumerates descendants once and folds running children's activity.
      */
+    /** Fold the tree's workflow runs (`tool-workflow/*`) for the Tasks page. */
+    subagentsWorkflow: (rootSessionId: string, signal?: AbortSignal) => Promise<{
+        runs: SidebarWorkflowRunRow[];
+    }>;
     subagentsLive: (rootSessionId: string, signal?: AbortSignal) => Promise<SubagentLiveResult>;
     /** Create a Side Chat thread: a child session seeded with the parent's
      *  full log up to now. Empty question = immediate create (Codex-style):
@@ -499,6 +539,10 @@ export declare const api: {
     } | {
         action: "url";
         url: string;
+    } | {
+        action: "app";
+        app: string;
+        path: string;
     }) => Promise<{
         started: boolean;
     }>;

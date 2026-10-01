@@ -19,10 +19,18 @@
  */
 
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { dirname, join } from 'node:path'
+import {
+  RemoteTargetError,
+  localAddonSpecs,
+  missingRequiredAddons,
+  parseTarget,
+  targetLabel,
+  type RemoteTarget,
+} from './remote-target'
 
 /** 远端安装根：runtime、bundles、profiles 都在它下面，卸载即 `rm -rf` 一处。 */
 const REMOTE_ROOT = '$HOME/.kcoder-remote'
@@ -63,14 +71,18 @@ export interface RemoteServerOptions {
    */
   runtimeDir: string
   /**
-   * linux-x64 原生包的 npm 规格（`名称@版本`）。
+   * **目标平台**原生包的 npm 规格（`名称@版本`）。默认不传，由
+   * {@link provisionRemoteRuntime} 按探测到的目标三元组从本地 runtime 树派生。
    *
    * 引擎的**纯 JS 部分与平台无关**，可以直接搬本地那份（版本天然与本地 bundles
    * 对齐）；只有原生包需要按平台补——`@deepseek-ai/node-addon-system-linux-x64`
    * 这类在 macOS 构建里只是空壳（只有 prebuilds.json），而 npm 上发布的同名包
    * 带 linux 二进制。
+   *
+   * 平台只有探测后才知道，故派生收在 provision 内部——留在调用方就多一处
+   * 「忘了带 target」的可犯错误。显式传入仅供测试与诊断。
    */
-  addonSpecs: readonly string[]
+  addonSpecs?: readonly string[]
   /**
    * 引擎版本（如 `0.2.0-rc.2`），由调用方从本地 runtime 读出。
    *
@@ -227,10 +239,27 @@ function sshTarOnce(alias: string, localDir: string, entries: readonly string[],
     onLog(`传输 ${entries.length} 项 → ${remoteDir}`)
     // -h：解引用符号链接。打包态运行时是真实目录，开发态克隆是 monorepo 符号链接树；
     // 解引用让两种来源都能搬成自足的远端副本。
-    const tar = spawn('tar', ['-czhf', '-', '-C', localDir, ...entries], { stdio: ['ignore', 'pipe', 'pipe'] })
+    //
+    // 三个参数/环境变量都是冲着一件事：**macOS 的 `._` 伴生文件不得进入远端**。
+    // `._xx` 是 AppleDouble（扩展属性/ACL 的旁挂表示），在 Linux 上毫无意义，却会
+    // 毒化按目录内容判定的代码——远端插件管理页把 locale/ 下每个 `*.json` 的文件名
+    // 当语言 id 校验（`dsh-app-boot` 的 `dictionariesOf`），`._en.json` 直接让整包
+    // 报「必须用语言 id 作为文件名」（2026-10-01 实机，27,560 个）。
+    //   * `COPYFILE_DISABLE=1`：Apple 关掉 bsdtar「用 copyfile(3) 写 AppleDouble」的开关；
+    //   * `--exclude`：兜住 PATH 上是 GNU tar 的环境（它不跳过磁盘上已有的 `._` 文件，
+    //     而 macOS 的 bsdtar 会跳过——两条分支都要挡）；
+    //   * 解包侧再 `find -delete` 兜一次：无论它们从哪来，**这一层是保证**。
+    const tar = spawn(
+      'tar',
+      ['-czhf', '-', '--exclude=._*', '--exclude=*/._*', '-C', localDir, ...entries],
+      { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, COPYFILE_DISABLE: '1' } },
+    )
     const ssh = spawn(
       'ssh',
-      ['-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=10', alias, `mkdir -p ${remoteDir} && tar -xzf - -C ${remoteDir}`],
+      // `{ …; }` 的分组是必要的：`|| true` 只能吞掉清理那一步的失败，
+      // 解包失败必须原样上报（那是真实的传输失败，调用方要重试）。
+      ['-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=10', alias,
+        `mkdir -p ${remoteDir} && tar -xzf - -C ${remoteDir} && { find ${remoteDir} -name '._*' -delete 2>/dev/null || true; }`],
       { stdio: ['pipe', 'ignore', 'pipe'] },
     )
     // 链路中途断掉时，tar 还在往已关闭的管道写 → EPIPE 会以未处理错误打崩进程。
@@ -269,6 +298,31 @@ export async function remoteNodeReady(alias: string, remoteNode: string): Promis
 }
 
 /**
+ * 探测远端目标平台（一次 ssh 往返）。
+ *
+ * 判据必须来自**对端自己的事实**：本地 runtime 是 macOS 构建，反推不出远端该装哪个
+ * 平台的原生包——2026-10-01 事故就是把 aarch64 目标机喂了 linux-x64 规格，npm 整单
+ * `EBADPLATFORM`，而失败被哨兵字符串判成功，留下永久粘滞的坏状态。
+ * @param alias - OpenSSH 别名。
+ * @returns 规范化的目标三元组。
+ * @throws {RemoteServerError} 探测失败或平台不受支持时（**不退化成空清单**）。
+ */
+export async function probeRemoteTarget(alias: string): Promise<RemoteTarget> {
+  const probe = await sshRun(alias, [
+    'printf "%s %s " "$(uname -s)" "$(uname -m)"',
+    // libc 判据：Alpine 有 /lib/ld-musl-*，其余 Linux 发行版没有。
+    'if ls /lib/ld-musl-* >/dev/null 2>&1; then echo musl; else echo gnu; fi',
+  ].join('\n'))
+  const [os = '', arch = '', libc = ''] = probe.stdout.trim().split(/\s+/)
+  try {
+    return parseTarget(os, arch, libc)
+  } catch (error) {
+    const reason = error instanceof RemoteTargetError ? error.message : String(error)
+    throw new RemoteServerError(probe.stdout.trim(), `远端 ${alias} 平台不受支持：${reason}`)
+  }
+}
+
+/**
  * 安装结果：远端 runtime 路径，以及**本次是否改动过配置**。
  *
  * 后者决定要不要重启已跑着的远端服务——`loadLayeredEnv` 只在进程启动时读 env，
@@ -301,23 +355,47 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
   }
   const runtimePath = `${REMOTE_ROOT}/runtime`
 
-  // 引擎 = 本地那份（0.2.0-rc.2，纯 JS 与平台无关）+ 从 npm 补 linux 原生包。
+  // 目标平台只能问对端。本地 runtime 树是 macOS 构建，它的平台与远端无关。
+  const target = await probeRemoteTarget(alias)
+  const addonSpecs = opts.addonSpecs ?? localAddonSpecs(runtimeDir, target)
+  const missing = missingRequiredAddons(addonSpecs, target)
+  if (missing.length > 0) {
+    // 覆盖不足必须在**安装之前**响亮失败：否则会走完搬运、装出一棵缺绑定的树，
+    // 再以「远端服务等待就绪超时」的面目拖满 180 秒（2026-10-01 现场）。
+    throw new RemoteServerError(
+      missing.join('\n'),
+      `本地 runtime 树没有 ${targetLabel(target)} 的原生包声明（缺 ${missing.join('、')}）`,
+    )
+  }
+  log(`远端 ${targetLabel(target)}`)
+
+  // 引擎 = 本地那份（0.2.0-rc.2，纯 JS 与平台无关）+ 从 npm 补目标平台原生包。
   //
   // 为什么不装官方元包：npm 在 WSL2 上会长时间不退（实测 40+ 分钟仍未收尾），
   // 而"搬本地树 + 补平台原生包"两步都在可控时间内完成。搬本地树还带来一个关键
   // 好处：**版本与本地 bundles 天然对齐**——错线会让远端前端直接崩
   // （React #130 / "chain slot ... requires options.select"，2026-09-26 实机）。
-  const engineFingerprint = `${opts.engineVersion}|${opts.addonSpecs.join(',')}`
+  //
+  // 指纹**含目标三元组**：老版本写下的指纹不含平台，于是「装着 x64 原生包的
+  // aarch64 机器」会被判成「引擎已就位」而永久跳过修复。带上平台后，升级到本版
+  // 的机器首次连接即指纹不匹配 → 自动重装（这就是迁移动作，无需一次性脚本）。
+  const engineFingerprint = `${opts.engineVersion}|${targetLabel(target)}|${addonSpecs.join(',')}`
   const markerPath = `${REMOTE_ROOT}/runtime/.engine-fingerprint`
   const current = await sshRun(alias, `cat ${markerPath} 2>/dev/null || echo NONE`)
   const wanted = createHash('md5').update(engineFingerprint).digest('hex')
-  const engineState = await sshRun(alias, `node -e "console.log(require('${REMOTE_ROOT}/runtime/node_modules/@deepseek-ai/dsh-app-boot/package.json').version)" 2>/dev/null || echo NONE`)
+  // 版本探测必须用**已知可用的那个远端 Node 绝对路径**（`opts.remoteNode`，引导流程装的）。
+  // 用裸 `node` 会踩「非交互 ssh 的 PATH 里没有 node」的机器：探测恒为 NONE ⇒ 跳过条件
+  // 永远为假 ⇒ **每次连接都重跑整个引擎步骤**（pkill + 重传 485MB + 装包）。
+  // 2026-10-01 实机：26训练 正是如此（其 Node 在 ~/.dsh-remote/node/bin，不在 PATH），
+  // 两次连接的 `install-addons.sh` / `addons-install.log` 时间戳各留一份即铁证；
+  // 74推理 恰好有 /usr/bin/node 才躲过。
+  const engineState = await sshRun(alias, `${opts.remoteNode} -e "console.log(require('${REMOTE_ROOT}/runtime/node_modules/@deepseek-ai/dsh-app-boot/package.json').version)" 2>/dev/null || echo NONE`)
   const installedVersion = engineState.stdout.trim()
 
   if (installedVersion === opts.engineVersion && current.stdout.trim() === wanted) {
     log(`远端引擎已就位（${opts.engineVersion}）且原生包清单未变，跳过`)
   } else {
-    log(`搬运本地引擎 ${opts.engineVersion}（纯 JS）+ 补 ${String(opts.addonSpecs.length)} 个 linux 原生包`)
+    log(`搬运本地引擎 ${opts.engineVersion}（纯 JS）+ 补 ${String(addonSpecs.length)} 个 ${targetLabel(target)} 原生包`)
     // 先停掉在跑的服务：它正持有 runtime 下的文件（Linux 上删/换不会失败，但让
     // 新旧混用是最难查的状态）。
     await sshRun(alias, `pkill -f "${REMOTE_ROOT}/runtime" 2>/dev/null; sleep 1; echo KILLED`)
@@ -325,23 +403,37 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
 
     // 原生包在 scratch 里装好再拷进 runtime：装到 staging 目录、成功才就位，
     // 中断不留半棵依赖树。
-    if (opts.addonSpecs.length > 0) {
+    if (addonSpecs.length > 0) {
       const specName = 'addon-specs.txt'
-      const specFile = writeScriptFile(opts.addonSpecs.join('\n'), specName)
+      const specFile = writeScriptFile(addonSpecs.join('\n'), specName)
       const localNodeBin = opts.remoteNode.replace(/\/node$/, '')
       const addonScript = [
+        // `set -e` 是 2026-10-01 事故的直接对策：旧脚本既不 -e 也不查 npm 退出码，
+        // 末尾无条件 `echo ADDONS_OK`，于是「npm 整单 EBADPLATFORM」被判成功，还照
+        // 写指纹 → 坏状态永久粘滞（详见 plans/remote-arch-adaptation.md）。
+        'set -e',
         `R=${REMOTE_ROOT}`,
         `export PATH=${localNodeBin}:$PATH`,
         'rm -rf $R/addons-staging && mkdir -p $R/addons-staging && cd $R/addons-staging',
         `printf '{"name":"kcoder-addons","private":true,"version":"1.0.0"}\n' > package.json`,
-        // 用 xargs 展开规格：本地已存在的那些**也必须装**——本地那份是 macOS
-        // 构建留下的空壳（只有 prebuilds.json），曾因"本地已有就跳过"而把
-        // linux 二进制整个漏掉（2026-09-26 实机：Cannot find module
+        // 规格**全都要装**，本地已存在的那些也不例外——本地那份是 macOS 构建留下的
+        // 空壳（只有 prebuilds.json），"本地已有就跳过"会把目标平台二进制整个漏掉
+        // （2026-09-26 实机：Cannot find module
         // '…/node-addon-system-linux-x64/bin/glibc/system.node'）。
         `npm i --no-audit --no-fund --ignore-scripts=false --loglevel=error $(tr '\n' ' ' < $R/${specName}) > $R/addons-install.log 2>&1`,
-        'for item in node_modules/*; do b=$(basename "$item"); [ "$b" = ".package-lock.json" ] && continue;',
+        // 空目录下 `node_modules/*` 不展开，旧循环会静默空转；显式判存在。
+        '[ -d node_modules ] || { echo ADDONS_FAILED; tail -20 $R/addons-install.log; exit 1; }',
+        'for item in node_modules/*; do',
+        '  [ -e "$item" ] || continue',
+        '  b=$(basename "$item")',
+        '  if [ "$b" = ".package-lock.json" ]; then continue; fi',
         '  if [ "${b:0:1}" = "@" ]; then mkdir -p "$R/runtime/node_modules/$b"; cp -R "$item"/* "$R/runtime/node_modules/$b/";',
-        '  else cp -R "$item" "$R/runtime/node_modules/"; fi; done',
+        '  else cp -R "$item" "$R/runtime/node_modules/"; fi',
+        'done',
+        // 判据是「事实」而不是「字符串」：真 require 一次绑定。cordis 装载器的第一跳
+        // 就是它——装完它还 require 不上，才算真失败。
+        'cd $R/runtime',
+        `node -e "require('./node_modules/node-addon-require-builtin/lib/index.js')" || { echo ADDONS_FAILED; exit 1; }`,
         'echo ADDONS_OK',
       ].join('\n')
       const addonFile = writeScriptFile(addonScript, 'install-addons.sh')
@@ -349,11 +441,13 @@ export async function provisionRemoteRuntime(opts: RemoteServerOptions): Promise
       // 直接提高成功率（大文件反而因为持续时间长更容易被打断，所以分开）。
       await sshTarInto(alias, dirname(addonFile), [specFile.split('/').pop()!, addonFile.split('/').pop()!], REMOTE_ROOT, log, 6)
       const addons = await sshRun(alias, `bash ${REMOTE_ROOT}/install-addons.sh`, { timeoutMs: 900_000 })
+      // 失败即抛：下面的指纹写入因此**不会执行**——这正是「不产生新的粘滞状态」的
+      // 落点（旧代码在失败后照写指纹，于是永远重试不到安装）。
       if (!addons.stdout.includes('ADDONS_OK')) {
-        const tail = await sshRun(alias, `tail -10 ${REMOTE_ROOT}/addons-install.log 2>/dev/null`)
-        throw new RemoteServerError(`${addons.stderr.slice(-300)}\n${tail.stdout.slice(-500)}`, '远端 linux 原生包安装失败')
+        const tail = await sshRun(alias, `tail -20 ${REMOTE_ROOT}/addons-install.log 2>/dev/null`)
+        throw new RemoteServerError(`${addons.stderr.slice(-300)}\n${tail.stdout.slice(-500)}`, `远端 ${targetLabel(target)} 原生包安装失败`)
       }
-      log('linux 原生包已补齐')
+      log(`${targetLabel(target)} 原生包已补齐`)
     }
     await sshRun(alias, `printf '%s' '${wanted}' > ${markerPath} && echo OK`)
     log('远端引擎就绪')
