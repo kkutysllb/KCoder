@@ -159,3 +159,17 @@ Windows 本地跑 `release.sh` 会踩到（该路径本就因缺 Apple 公证凭
 处置建议（未做，避免与本次修复混在一个改动里）：给 `brand-assert.mjs`（以及任何新增的 tar
 消费脚本）套用同一「cwd + 基名」调用式。
 
+## 发布结果（2026-10-01）
+
+`bash scripts/release.sh ship 0.6.20` 走完全流程，tag `v0.6.20` → 提交 `f287348`（前置门全绿：
+审计三门 + 补丁闸 + 版本线 + 设置页 GUI 冒烟 10/10 + 全量构建）。CI [run #76](https://github.com/kkutysllb/KCoder/actions/runs/36792501642)
+**三平台全绿**（ubuntu-22.04 / macos-latest / windows-latest 逐 job success，发布 job success），
+产物已上线（dmg / zip / AppImage / deb / Setup.exe）。
+
+**跨平台终局验证**：CI 新增的「内置 provider 随包断言（CI 平价版）」在三个 runner 上全部 success
+——即供给块在 Linux / macOS / Windows 三平台的真实构建产物里都成立（本机此前只验了 Windows）。
+另：本机 `audit.mjs` 的两处 Windows 路径修复（`accece6`）不影响 macOS/CI 口径，CI 上的审计输出与本机一致。
+
+后续可选（均未做）：① `brand-assert.mjs` 的同类 tar 调用式修复；② `dsh-context` 预置声明线平移
+（`^0.55.0` vs 实装 0.56.2+）。
+
