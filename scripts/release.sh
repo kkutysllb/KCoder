@@ -283,6 +283,16 @@ cmd_verify() {
   fi
 
   # 5) 自动更新元数据（mac 需 zip + blockmap + latest-mac.yml）
+  #    5.0) 硬闸：包内 app-update.yml（electron-updater 在用户机上读
+  #         更新配置的唯一入口）。0.6.20 事故：本地非交互构建在签名/
+  #         公证环节抛错，死在 electron-builder afterPack 之前——.app
+  #         无此文件也无 zip/dmg，被手动拖进 /Applications 后每次检查
+  #         更新必 ENOENT，且永远无法自动更新自救。缺即坏包，禁止流出。
+  if [[ "$(uname)" == "Darwin" ]]; then
+    [[ -f "$res/app-update.yml" ]] \
+      || die "校验失败：包内缺 Contents/Resources/app-update.yml（构建中途失败，此包安装后无法自动更新）"
+    ok "自动更新配置：app-update.yml 随包在位"
+  fi
   local miss=0
   for f in latest-mac.yml; do
     [[ -f "$DIST/$f" ]] || { warn "缺 $DIST/${f}（自动更新发现入口）"; miss=1; }

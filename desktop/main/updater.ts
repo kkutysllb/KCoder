@@ -74,6 +74,20 @@ function updaterLog(level: 'info' | 'warn' | 'error' | 'debug', message?: unknow
 
 /* ---------- electron-updater 事件 → 状态机 ---------- */
 
+/**
+ * 更新错误的用户可读翻译：原始信息已由 logger 落盘（updater.log），
+ * 界面只给可行动的提示。0.6.20 事故：本地残缺构建（构建中途失败，
+ * adhoc 签名、无 app-update.yml）被手动装进 /Applications，electron-updater
+ * 读配置即 ENOENT，且此包永远无法自动更新自救——识别该形态并明确指引重装。
+ */
+function friendlyUpdateError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err)
+  if (message.includes('ENOENT') && message.includes('app-update.yml')) {
+    return '安装包缺少更新配置（app-update.yml），自动更新不可用——当前安装可能不是官方完整构建，请从 GitHub Releases 重新安装'
+  }
+  return message
+}
+
 function wireAutoUpdater(): void {
   autoUpdater.autoDownload = true // 检测到即后台静默下载
   autoUpdater.autoInstallOnAppQuit = true // 用户忽略按钮时，退出顺手升级
@@ -110,7 +124,7 @@ function wireAutoUpdater(): void {
     setState('downloaded', { version: info.version, progress: 100 })
   })
   autoUpdater.on('error', (err) => {
-    setState('error', { error: err?.message ?? String(err) })
+    setState('error', { error: friendlyUpdateError(err) })
   })
 }
 
@@ -162,7 +176,9 @@ export async function checkForUpdates(): Promise<UpdateStatus> {
   try {
     await autoUpdater.checkForUpdates()
   } catch (err) {
-    setState('error', { error: err instanceof Error ? err.message : String(err) })
+    // 原始错误落盘保留根因（界面展示走 friendlyUpdateError 翻译）
+    updaterLog('error', `checkForUpdates 失败：${err instanceof Error ? err.message : String(err)}`)
+    setState('error', { error: friendlyUpdateError(err) })
   }
   return updateStatus()
 }
