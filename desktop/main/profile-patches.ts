@@ -63,6 +63,15 @@
  *   互不遮蔽；早前单独承载 RO 冷却的 dsh-context@0.38.2.patch 已退役
  *   （0.55.0 patch 的 RO hunk 与 kcRoHits 锄点都已覆盖，留着只会每次核对
  *   多报一条无意义的版本漂移待办）
+ * - dsh-context 之三（**2026-10-02 整线退役，补丁与 marks/锄点全摘**，
+ *   上面两条随之转入历史记录）：插件本体整线退役（产品层上下文可见性
+ *   收归自有链路，不再预置，见 preset-plugins.ts 文件头），补丁线按
+ *   「退役」流程整线摘除——patch 文件（dsh-context@0.62.2.patch）+
+ *   PATCH_MARKS + PATCH_FALLBACKS 全摘，包名转入 RETIRED_PATCH_PKGS
+ *   （现场残留 patch 文件与声明由自愈链回收）；宿主侧 context-button.ts
+ *   一并拆除。本文件自此进入**零常驻补丁**状态：PATCH_MARKS/
+ *   PATCH_FALLBACKS 为空表，「补丁生命期」四步流程与新增插件补丁的
+ *   登记样板保留不变（下一个带常驻补丁的预置插件照此办理）。
  *
  * 补丁经 pnpm patchedDependencies 固化在用户 profile：精确版本键
  * （name@ver）只对匹配版本应用；版本漂移时声明“未用”，由
@@ -71,9 +80,11 @@
  * name-only 全版本强套 + 静默跳过是 pnpm 10 语义。@x（无版本锚）patch
  * 维持 name-only，失配面收窄到这一类（补丁链自愈兑底覆盖）。
  *
- * ## 补丁生命期：常驻 / 随版本 / 退役（针对预置插件，dsh-context 为样板）
+ * ## 补丁生命期：常驻 / 随版本 / 退役（流程样板，dsh-context 为已退役的参照）
  *
- * 这是**产品级常驻补丁**，不是一次性现场修复——只要 KCoder 还预置该插件
+ * 这是**产品级常驻补丁**的流程约定（当前清单为空——dsh-context 于
+ * 2026-10-02 整线退役；下一个带常驻补丁的预置插件按此登记），不是
+ * 一次性现场修复——只要 KCoder 还预置该插件
  * （PRESET_PLUGINS）就一直在链上，靠两条腿跨版本活着：
  *
  * 1. **pnpm patch（版本键精确）**：与实装版本键一致时安装即应用，零运行时
@@ -151,23 +162,22 @@ function patchFiles(source: string): string[] {
  * 各插件补丁的生效特征：node half 文件包含标记串即视为补丁已应用。
  * 与 scripts/update-profile-plugins.mjs 的校验保持一致（两处新增插件
  * 补丁时同步更新）。
+ *
+ * **当前为空表**（2026-10-02 起）：唯一一条常驻补丁线 dsh-context
+ * （kcRoHits / kcCtxJumpViaTab 双 marks）已随插件整线退役而摘除，登记
+ * 样板见文件头「补丁生命期」与 git 历史。空表下 patchApplied 恒真、
+ * KNOWN_PATCH_SENTINELS 为空——自愈链只剩「退役残留回收」一职，属
+ * 预期稳态。
  */
-const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {
-  // 修复特征 1：RO 回路冷却（kcRoHits 为 KCoder 引入变量名，原版无此串
-  // 不可误判；Windows 打开上下文冻结白屏修复）
-  // 修复特征 2：轮尾「在上下文视图中查看此轮」跳转改走会话内 tab
-  // （kcCtxJumpViaTab 同为用户态不存在的引入串）
-  // 两条修复各自独立，marks 必须全中才算该包补丁生效——任一缺失即走
-  // 锄点注入，否则会被误判「已生效」而静默跳过（9-14 现场教训）
-  'dsh-context': [['lib/client.js', 'kcRoHits'], ['lib/client.js', 'kcCtxJumpViaTab']],
-}
+const PATCH_MARKS: Record<string, Array<[file: string, mark: string]>> = {}
 
 /**
  * 已退役的分发补丁包（上游持续迭代，补丁不再需要）：现场残留的旧
  * patch 文件与声明由自愈链回收（ensureProfilePatches 的文件回收步骤
  * + ensurePatchDeclared 的缺失文件声明摘除）。dsh-context 曾在此列
  * （早前补丁随上游迭代退役），2026-08-30 因 RO 回路缺陷复役再入
- * PATCH_MARKS 与分发（见文件头），自列中摘除。
+ * PATCH_MARKS 与分发（见文件头）；**2026-10-02 插件整线退役再入本列**
+ * （补丁线全摘，见文件头 dsh-context 之三）。
  * @dsh-external/dsh-drag-to-attachment（2026-09-01）：插件整线退役
  * （见文件头历史记录），分发补丁随之回收；实体清理由 preset-plugins
  * 的 RETIRED_PRESETS 承担。
@@ -179,12 +189,19 @@ const RETIRED_PATCH_PKGS = [
   'dsh-better-sidebar',
   '@dsh-external/dsh-drag-to-attachment',
   'dsh-video-preview',
+  'dsh-context',
 ]
 
 /**
  * mark 缺失时的锄点注入兑底（与 patch 内容等价；pnpm patch 机制在任何
  * 平台/版本下静默失败时的第三层保险——锄不中或多处命中则跳过留警告，
  * 绝不盲改）。锄点基于当前锁定版本的产物字节。
+ *
+ * **当前为空表**（2026-10-02 起）：dsh-context 的两条锄点（kcRoHits
+ * RO 回路冷却 / kcCtxJumpViaTab 轮尾跳转走会话内 tab）已随插件整线
+ * 退役而摘除，等价 replace 原文见 git 历史与本文件头历史记录。登记
+ * 样板：pkg/file 定位 + mark 幂等判定 + anchor 唯一命中校验 + replace
+ * 整段替换（或 inject 追加）。
  */
 interface PatchFallback {
   pkg: string
@@ -198,32 +215,7 @@ interface PatchFallback {
   replace?: string
 }
 
-const PATCH_FALLBACKS: PatchFallback[] = [
-  {
-    // dsh-context agents 森林图 RO 回路冷却（Windows 打开上下文冻结白屏
-    // 根因，见文件头 dsh-context 条目）：锚 RO 回调原字节（tab 缩进产物），
-    // replace 与 dsh-context@0.55.0.patch 的首组 hunk 等价（原 0.38.2 patch
-    // 已退役，修复并入 0.55.0 patch）
-    pkg: 'dsh-context', file: 'lib/client.js',
-    mark: 'kcRoHits',
-    anchor: '\t\t\t\t\tconst observer = new ResizeObserver(() => {\n\t\t\t\t\t\tsetStageWidth(el.clientWidth);\n\t\t\t\t\t});',
-    replace: '\t\t\t\t\tlet kcRoHits = [];\n\t\t\t\t\tlet kcRoSkipUntil = 0;\n\t\t\t\t\tconst observer = new ResizeObserver(() => {\n\t\t\t\t\t\t/* KCoder：RO 回路冷却——Windows DPI 取整/经典滚动条占位可令\n\t\t\t\t\t\t * stage 尺寸振荡（量化宽反馈）：RO 触发 → setStageWidth →\n\t\t\t\t\t\t * 重渲染 → 布局再变 → RO 再触发，失控吃满主线程直至白屏。\n\t\t\t\t\t\t * 500ms 内触发超 12 次即静默 1s：跳过 setState 即断振荡回路，\n\t\t\t\t\t\t * 冷却后自动重试，不永久失效 */\n\t\t\t\t\t\tconst now = Date.now();\n\t\t\t\t\t\tif (now < kcRoSkipUntil) return;\n\t\t\t\t\t\tkcRoHits = kcRoHits.filter((t) => now - t < 500);\n\t\t\t\t\t\tkcRoHits.push(now);\n\t\t\t\t\t\tif (kcRoHits.length > 12) {\n\t\t\t\t\t\t\tkcRoHits = [];\n\t\t\t\t\t\t\tkcRoSkipUntil = now + 1000;\n\t\t\t\t\t\t\treturn;\n\t\t\t\t\t\t}\n\t\t\t\t\t\tsetStageWidth(el.clientWidth);\n\t\t\t\t\t});',
-  },
-  {
-    // dsh-context 0.55 轮尾跳转（用户现场 2026-09-24）：尾卡「在上下文
-    // 视图中查看此轮」原走 sidebarRight.openTab 展开原生右栏列，本产品
-    // 布局下呈现为大片空白，且与标题栏「上下文」按钮（同一会话内 tab
-    // 路径）行为不一致。锄点一次落位三处：摘除 openContextSidebar 的
-    // doc 注释与函数体（SIDEBAR_CONTEXT_KIND 的 tab 注册保留，仅摘程序
-    // 化开栏入口）、jump 回调去掉开栏分支、换 KCoder 注释 + 直调
-    // activateContextTab。replace 与 dsh-context@0.55.0.patch 的第二组 hunk
-    // 等价（该 patch 同时含上一条 RO 冷却的 hunk，两条 marks 各自校验）
-    pkg: 'dsh-context', file: 'lib/client.js',
-    mark: 'kcCtxJumpViaTab',
-    anchor: '\t\t\t\t\tif (!openContextSidebar(ctx)) activateContextTab(t("tab"));',
-    replace: '\t\t\t\t\t/* KCoder kcCtxJumpViaTab：跳转一律走会话内「上下文」tab（activateContextTab），\n\t\t\t\t\t * 不经原生右栏 sidebarRight.openTab —— 右栏列展开在主对话区旁多占一列，\n\t\t\t\t\t * 本产品布局下呈现为大片空白，且与标题栏「上下文」按钮（同一 tab 路径）\n\t\t\t\t\t * 行为不一致。openContextSidebar 已随之整函数摘除（仅此处一个调用点） */\n\t\t\t\t\tactivateContextTab(t("tab"));',
-  },
-]
+const PATCH_FALLBACKS: PatchFallback[] = []
 
 /**
  * 锄点注入兑底：逐规则校验 mark，缺失且锄唯一命中时直接改写
@@ -448,13 +440,11 @@ ${entries}
   return true
 }
 
-/**
- * files 不可用（patch 源缺失）时的全量校验哨兵：`@x.patch` 尾巴的唯一
- * 用途是喂给 patchApplied 的包名提取器（`@x` 不吃版本门）。直接由
- * PATCH_MARKS 派生，省掉手工同步——此前是手写字面量，摘除某条补丁后
- * 会留下指名已退役包的悬空哨兵。
- */
-const KNOWN_PATCH_SENTINELS = Object.keys(PATCH_MARKS).map((pkg) => `${pkg}@x.patch`)
+/* 注（2026-10-02 摘除）：此处原为 `KNOWN_PATCH_SENTINELS`——patch 源缺失
+ * 时喂给 patchApplied 的全量校验哨兵（`@x.patch` 尾巴只用于包名提取）。
+ * 空源分支重构为「不早退、照走退役回收与声明卫生」后，校验统一以
+ * `files` 为准（空清单＝零常驻补丁的稳态，校验自然恒真），哨兵失去
+ * 唯一调用方；摘除避免留下悬空的派生表。 */
 
 /**
  * 从 patch 文件名提取包名：剥 `@version.patch` 尾巴；scoped 包用 pnpm
@@ -501,44 +491,48 @@ export function ensureProfilePatches(): void {
       return
     }
     if (files.length === 0) {
-      console.warn('[profile-patches] patch 源缺失，跳过物化:', source)
-      healLog(`[patches] patch 源缺失，跳过物化（仅锄点注入可用）: ${source}`)
-      enforcePatchFallbacks(profileDir)
-      healLog(
-        patchApplied(profileDir, KNOWN_PATCH_SENTINELS)
-          ? '[patches] 源缺失但锄点注入后 marks 全部在位'
-          : '[patches] 源缺失且 marks 仍有缺失（下次启动重试）',
-      )
-      return
-    }
-    // 1) patch 文件物化（幂等：直接覆盖，文件小且内容稳定）。
-    //    落盘后行尾归一化为 LF：Windows CI 的 git autocrlf 可能把源转成
-    //    CRLF，而 npm 包文件是 LF，CRLF patch 无法应用（v0.1.9 Windows
-    //    插件加载失败根因的兑底；根治靠 .gitattributes）
-    mkdirSync(join(profileDir, 'patches'), { recursive: true })
-    for (const f of files) {
-      const dest = join(profileDir, 'patches', f)
-      copyFileSync(join(source, f), dest)
-      const raw = readFileSync(dest, 'utf8')
-      const lf = raw.replace(/\r\n/g, '\n')
-      if (lf !== raw) {
-        writeFileSync(dest, lf)
-        console.warn(`[profile-patches] ${f} 行尾已归一化为 LF（源疑似 CRLF）`)
-        healLog(`[patches] ${f} 行尾已归一化为 LF（源疑似 CRLF）`)
+      // 源为空的两种解释：**稳态**＝常驻补丁线整线退役（2026-10-02 起
+      // PATCH_MARKS 为空表，分发目录只剩说明文件）；**异常态**＝打包
+      // 断供/源不可读。两者都不早退——下面的退役回收（1.5）与声明
+      // 卫生（2）不依赖源文件在场，早退会把现场残留的退役 patch 与
+      // 声明留在原地：版本恰好匹配时补丁照常应用，直接违背退役意图
+      // （2026-10-02 dsh-context 整线退役时补上的关键路径——它是当时
+      // 唯一的常驻补丁，源变空后旧的早退分支恰好把自愈链整条跳过）。
+      console.warn('[profile-patches] patch 源为空（整线退役稳态或源缺失），跳过物化:', source)
+      healLog(`[patches] patch 源为空（整线退役稳态或源缺失），跳过物化: ${source}`)
+    } else {
+      // 1) patch 文件物化（幂等：直接覆盖，文件小且内容稳定）。
+      //    落盘后行尾归一化为 LF：Windows CI 的 git autocrlf 可能把源转成
+      //    CRLF，而 npm 包文件是 LF，CRLF patch 无法应用（v0.1.9 Windows
+      //    插件加载失败根因的兑底；根治靠 .gitattributes）
+      mkdirSync(join(profileDir, 'patches'), { recursive: true })
+      for (const f of files) {
+        const dest = join(profileDir, 'patches', f)
+        copyFileSync(join(source, f), dest)
+        const raw = readFileSync(dest, 'utf8')
+        const lf = raw.replace(/\r\n/g, '\n')
+        if (lf !== raw) {
+          writeFileSync(dest, lf)
+          console.warn(`[profile-patches] ${f} 行尾已归一化为 LF（源疑似 CRLF）`)
+          healLog(`[patches] ${f} 行尾已归一化为 LF（源疑似 CRLF）`)
+        }
       }
     }
     // 1.5) 退役补丁回收：曾由本链分发的包，patch 从发布物摘除（上游
     //    迭代不再需要）后，现场旧文件不会自行消失——版本恰好匹配时
     //    补丁还会继续应用（违背退役意图），残留声明则让 install 对缺失
     //    文件报错。回收范围仅限本链管理的包（含已退役），用户自建
-    //    patch 文件不带这些包名不受影响；声明由第 2 步同步摘除
+    //    patch 文件不带这些包名不受影响；声明由第 2 步同步摘除。
+    //    现场目录可能不存在（全新 profile/源为空未物化）：守卫后跳过
     const managed = new Set([...Object.keys(PATCH_MARKS), ...RETIRED_PATCH_PKGS])
-    for (const f of readdirSync(join(profileDir, 'patches'))) {
-      if (!f.endsWith('.patch') || files.includes(f)) continue
-      if (!managed.has(pkgNameOf(f))) continue
-      rmSync(join(profileDir, 'patches', f))
-      console.log(`[profile-patches] 已回收退役补丁：${f}`)
-      healLog(`[patches] 已回收退役补丁：${f}`)
+    if (existsSync(join(profileDir, 'patches'))) {
+      for (const f of readdirSync(join(profileDir, 'patches'))) {
+        if (!f.endsWith('.patch') || files.includes(f)) continue
+        if (!managed.has(pkgNameOf(f))) continue
+        rmSync(join(profileDir, 'patches', f))
+        console.log(`[profile-patches] 已回收退役补丁：${f}`)
+        healLog(`[patches] 已回收退役补丁：${f}`)
+      }
     }
     // 2) patchedDependencies 声明（幂等）
     if (!ensurePatchDeclared(profileDir, files)) {

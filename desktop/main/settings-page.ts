@@ -11,7 +11,8 @@
  *   sidebarCol 同款 token）——左列表右内容的分栏层次与 workspace 一致；
  * - nav 顶部注入「返回工作区」按钮（MutationObserver 等面板挂载，插
  *   navTitle 之前；点击转发面板 header 的 close 按钮走上游真实关闭
- *   路径；文案中文写死，context-button「返回任务」同款先例）；
+ *   路径；文案中文写死，先例见已退役 context-button 的「返回任务」，
+ *   2026-10-02 随 dsh-context 拆除，git 历史可查）；
  * - 内容区限宽：options 右侧统一为 960px 居中的卡片列；通用设置的每个
  *   功能项独立成卡片，避免宽屏表单横向拉满造成信息稀疏。
  *

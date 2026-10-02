@@ -10,8 +10,8 @@
  *
  * 因此沿用 sidebar-toggle（上游折叠按钮迁移）同款手法：
  * - 隐藏插件开关簇本体（CSS display:none 兜底）；
- * - 自绘标题栏右侧按钮序列首格（right 12，终端 44 / 上下文 76 / 编辑器
- *   108 之前）注入一枚 KCoder 同款代理按钮，图标与语义克隆插件按钮；
+ * - 自绘标题栏右侧按钮序列首格（right 12，终端 44 / 编辑器 76 之前）
+ *   注入一枚 KCoder 同款代理按钮，图标与语义克隆插件按钮；
  * - 点击转发插件真实按钮（display:none 不影响 HTMLElement.click() 派发，
  *   React 合成事件照常）——开关状态、面板动画、持久化全部由插件驱动；
  * - disabled / aria-label / 图标实时同步；插件缺席（未装/禁用/host 未挂
@@ -35,7 +35,8 @@
  * 漂移不影响子串匹配；1.0.19 起簇内恒一枚，取唯一一枚即可）。
  *
  * right 序：侧栏面板 12（本注入器）/ 终端 44（dsh-terminal client）/
- * 上下文 76（context-button）/ 本地编辑器 108（open-in-app-button）；
+ * 本地编辑器 76（open-in-app-button；原上下文按钮 76 位随 dsh-context
+ * 插件 2026-10-02 退役空出后由其收拢补位）；
  * Windows 原生控制按钮区的 +138 平移见 panel-buttons。
  *
  * 宿主时序不保证：bar 由 theme-watcher 注入（同 did-finish-load，本注入器

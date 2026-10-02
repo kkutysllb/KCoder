@@ -21,6 +21,14 @@
  *   marks：kcRoHits / kcCtxJumpViaTab，锄点各自独立）。早前单独承载 RO
  *   冷却的 dsh-context@0.38.2.patch 已退役——0.55.0 patch 与 kcRoHits
  *   锄点都已含该修复，留着只会每次核对报一条无意义的版本漂移待办
+ * - dsh-context 之三（**2026-10-02 整线退役**，上面两条随之转入历史
+ *   记录）：插件本体整线退役（见 preset-plugins.ts 文件头），补丁线按
+ *   「退役」流程整线摘除——patch 文件（末代 dsh-context@0.62.2.patch）+
+ *   PATCH_MARKS + PATCH_FALLBACKS（desktop/main/profile-patches.ts 侧）
+ *   全摘，包名转入 RETIRED_PATCH_PKGS 由自愈链回收现场残留。本脚本
+ *   PATCHES 清单由目录扫描得出（自动清空），PATCH_MARKS 随之置空——
+ *   --check / --release-gate 在零常驻补丁稳态下仍可跑（发版闸的空清单
+ *   检查只对「marks 非空而无 patch 文件」的断供现场报错）。
  *
  * 补丁通过 pnpm patchedDependencies 固化在 profile：精确版本键
  *   （name@ver）只对匹配版本应用；版本漂移时声明“未用”由
@@ -75,14 +83,10 @@ function yamlKeyOf(pkg) {
   return pkg.startsWith('@') ? `'${pkg}'` : pkg
 }
 
-/** 各插件补丁生效特征（与 desktop/main/profile-patches.ts 保持一致）。 */
-const PATCH_MARKS = {
-  // dsh-context：两条独立修复，marks 全中才算生效（任一缺失 → 锄点注入，
-  // 与 desktop/main/profile-patches.ts 同步更新）
-  // 1) RO 回路冷却（Windows 打开上下文冻结白屏）
-  // 2) 轮尾 jump 改走会话内 tab，不再展开原生右栏（布局大片空白）
-  'dsh-context': [['lib/client.js', 'kcRoHits'], ['lib/client.js', 'kcCtxJumpViaTab']],
-}
+/** 各插件补丁生效特征（与 desktop/main/profile-patches.ts 保持一致）。
+ *  **当前为空表**（2026-10-02 起）：dsh-context 双 marks 条目已随插件
+ *  整线退役摘除（登记样板见 git 历史；新增插件补丁时两处同步登记）。 */
+const PATCH_MARKS = {}
 
 /**
  * 收编物化后的版本对齐清单：上游产物内硬编码的服务版本常量与包
@@ -377,6 +381,10 @@ function updatePlugin() {
 function verify() {
   const missing = patchApplied()
   const stale = stalePatches()
+  if (PATCHES.length === 0 && Object.keys(PATCH_MARKS).length === 0) {
+    say('补丁校验：零常驻补丁（补丁线整线退役稳态，2026-10-02 起）✓')
+    return
+  }
   if (stale.length > 0) {
     say(`补丁版本键漂移（pnpm 本轮判 unused 未应用，修复由锄点注入兜底）：${stale.join('、')}`)
   }
@@ -407,6 +415,8 @@ function verify() {
  * 校验，任一不过即 exit 1。拦住四类会让「补丁随版本物化」断供的现场：
  *
  * 1. **分发目录存在**（release.sh 另有包内逐文件对账，这里是构建前更早的一道）；
+ *    仅在 PATCH_MARKS 非空（声明了常驻补丁线）时要求清单非空——零常驻
+ *    补丁的整线退役稳态（2026-10-02 起）下空清单是正确状态，不拦；
  * 2. **实装产物有修复**：PATCH_MARKS 全中（不看版本门控）——缺 mark 说明
  *    连锄点注入都没锚中，新装用户拿不到修复；
  * 3. **无版本键漂移**：patch 文件名版本 == 实装版本。漂移本身不影响修复
@@ -418,7 +428,11 @@ function verify() {
  */
 function releaseGate() {
   const problems = []
-  if (PATCHES.length === 0) problems.push(`分发补丁清单为空（${PATCH_SRC_DIR} 下无 *.patch）`)
+  // 空清单只在「声明了常驻补丁线却无文件可分发」时算断供；零常驻补丁
+  // 的整线退役稳态（PATCH_MARKS 空）下空清单是正确状态
+  if (PATCHES.length === 0 && Object.keys(PATCH_MARKS).length > 0) {
+    problems.push(`分发补丁清单为空（${PATCH_SRC_DIR} 下无 *.patch，但 PATCH_MARKS 声明了 ${Object.keys(PATCH_MARKS).join('、')}）`)
+  }
 
   const profileReady = existsSync(WORKSPACE_YAML) && existsSync(join(PROFILE, 'node_modules'))
   if (!profileReady) {

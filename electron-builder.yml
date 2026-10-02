@@ -52,12 +52,13 @@ extraResources:
   # 本次发布即由它拦下）
   - from: bundle/dsh-ssh-remote
     to: dsh-ssh-remote
-  # 插件热补丁（name-only patchedDependencies，主进程启动时幂等物化进
+  # 插件热补丁（精确版本键 patchedDependencies，主进程启动时幂等物化进
   # $DSH_HOME/profiles/web，声明跟随 deps 实态自愈，见 profile-patches.ts）：
-  # 余 dsh-context RO 回路冷却一条（video-preview 删 ts 补丁已随侧边栏
-  # v1.0.15 收编视频预览而退役）。目录级映射：新增补丁落仓库即随包，release.sh
-  # verify 与仓库清单逐文件对账防断供。Windows 无 launchd，随包分发是
-  # 补丁的唯一通道。
+  # 当前零常驻补丁（dsh-context 线已随插件 2026-10-02 整线退役摘除；
+  # video-preview 删 ts 补丁已随侧边栏 v1.0.15 收编视频预览而退役），
+  # 目录内只剩 README 占位。目录级映射保留：新增补丁落仓库即随包，
+  # release.sh verify 与仓库清单逐文件对账防断供。Windows 无 launchd，
+  # 随包分发是补丁的唯一通道。
   # coding-sidebar 另有产品侧物化见 preset-plugins.ts（node-pty 构建许可
   # + 面板顶部避让；开关簇由 sidebar-cluster.ts 状态栏代理接管）
   - from: profiles/web/patches

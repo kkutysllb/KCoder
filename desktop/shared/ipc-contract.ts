@@ -131,15 +131,19 @@ export interface SkillCatalogEntry {
   name: string
   /** 路由描述（模型匹配依据）。 */
   description: string
-  /** 来源分区（optional = 随包分发但未注册，拷到用户目录即启用）。 */
-  source: 'builtin' | 'project' | 'user' | 'shared' | 'optional'
+  /**
+   * 来源分区（optional = 随包分发但未注册，拷到用户目录即启用；
+   * disabled = 已停用暂存于 $DSH_HOME/skills-disabled/，引擎不扫描，
+   * 恢复即移回原来源目录——目录布局编码来源，无需额外元数据）。
+   */
+  source: 'builtin' | 'project' | 'user' | 'shared' | 'optional' | 'disabled'
   /** SKILL.md 绝对路径（正文读取白名单键）。 */
   path: string
 }
 
 /** 技能面板的一个来源分区。 */
 export interface SkillCatalogGroup {
-  id: 'builtin' | 'project' | 'user' | 'optional'
+  id: 'builtin' | 'project' | 'user' | 'disabled' | 'optional'
   title: string
   entries: SkillCatalogEntry[]
 }

@@ -1,7 +1,8 @@
 /**
- * 预置第三方插件（dsh-context / dsh-coding-sidebar）的开箱物化。
+ * 预置第三方插件（dsh-coding-sidebar / dsh-file-review-kcoder，另有官方
+ * 可选组合包 dsh-experimental-schedule-bundle 借道本表）的开箱物化。
  *
- * 这两个插件是 KCoder 发行物的一部分：Windows 全新安装后 profile 是
+ * 这些插件是 KCoder 发行物的一部分：Windows 全新安装后 profile 是
  * 上游空模板（只有 dsh-base / dsh-web-app 内置层），第三方插件不会自动
  * 出现（mac 开发机上它们存在于用户 profile，属用户数据不随包分发）。
  * 本模块在 dsh 启动前幂等物化：
@@ -25,9 +26,20 @@
  * （github tag / pinned 版本；现存预置均为 semver 形态）。
  *
  * 预置冻结（2026-08-30）：第三方插件不再新增预置——用户按需经插件
- * 管理页自装（github 源一键安装）。现有两个维持现状（含缺陷补丁与
+ * 管理页自装（github 源一键安装）。现有清单维持现状（含缺陷补丁与
  * 版本锁）；退役走 RETIRED_PRESETS 三清自愈（见 dsh-vision-router、
- * dsh-better-sidebar、@tt-a1i/archify-dsh）。
+ * dsh-better-sidebar、@tt-a1i/archify-dsh、dsh-context）。
+ *
+ * dsh-context（2026-08-20 起随首批预置 → 2026-10-02 整线退役，本段为
+ *   历史记录）：上下文统计视图插件——conversation.view slot 注册
+ *   「上下文」tab（StatsBoard 统计板/构成趋势/上下文浏览器等，比
+ *   /context modal 多五个统计维度），GUI 入口见 context-button.ts
+ *   （已随之拆除）。宿主曾带两条常驻修复补丁（RO 回路冷却 / 轮尾
+ *   jump 走会话内 tab，见 profile-patches.ts 文件头）。退役理由：
+ *   产品层上下文可见性收归自有链路，插件视图不再预置（按需可经
+ *   插件管理页自装）；整线退役——预置清单摘除 + RETIRED_PRESETS
+ *   三清 + 补丁链回收（RETIRED_PATCH_PKGS）+ context-button.ts
+ *   一并拆除。
  *
  * dsh-coding-sidebar（2026-08-20 以 dsh-better-sidebar 预置，2026-09-01
  *   切换自立包）：侧边栏工作台底座（文件树/CM6 编辑器/图片·MD 预览/
@@ -47,7 +59,7 @@
  *   从 settings.yaml 迁到 profile patch 行 config（键为 volatile 字段，
  *   用户可经设置页实时改；见 ensureSidebarCompatPatch）。开关簇不下移：
  *   由 sidebar-cluster.ts 注入器隐藏并在状态栏代理接管（代理一枚
- *   right 12 + 自研终端 44 + 上下文 76；旧收编线底面板已在 fork 源码级
+ *   right 12 + 自研终端 44 + 本地编辑器 76；旧收编线底面板已在 fork 源码级
  *   移除，热补丁/挤压垫片随终端回归自研而拆除）。
  *
  * @tt-a1i/archify-dsh（2026-08-20 预置 → 2026-09-01 退役）：架构图
@@ -108,24 +120,16 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // 见 docs/upstream-0.2.0-rc.2-analysis.md §5）。这也是本表对调度线用
   // 精确钉而非范围钉的原因：上游 peer 本就精确钉，范围钉引入 ERESOLVE。
   '@deepseek-ai/dsh-experimental-schedule-bundle': '0.2.0-rc.2',
-  // 0.38.5 起 index.js 不再 import settingsNamespace（alpha.2 的
-  // dsh-settings 已移除该导出）——0.37.x 与 alpha.2 引擎组合启动即
-  // SyntaxError 全局崩（0.4.9 Windows 升级现场实证）
-  // 注意：该预置插件同时挂两条常驻修复补丁（RO 回路冷却 / 轮尾 jump 走
-  // 会话内 tab，见 profile-patches.ts 文件头「补丁生命期」）。升本 spec
-  // 或 pnpm update 之后必须跑一次
-  // `node scripts/update-profile-plugins.mjs --check`：精确版本键随即失效、
-  // 修复改由锄点注入兜底，verify 会报出「重出 patch 到新版本键」的发版
-  // 待办——这是该插件升版的固定收尾动作。
-  // 2026-09-24 平移：^0.38.5 → ^0.55.0（与补丁线同线）。原文案「0.38.5 起
-  // index.js 不再 import settingsNamespace」是**下界**语义，而 `^0.38.5` 对
-  // 0.x 只跟随 patch 级（展开为 >=0.38.5 <0.39.0）——两者不一致会留下裸装
-  // 缺口：预置线锁 0.38.x（该线已无任何补丁），唯一补丁是 @0.55.0，新装
-  // profile 落到 0.38.5 时 pnpm 判 patch unused 不应用、锄点锚点（0.55.0
-  // 产物字节）也失配 ⇒ 两条修复全不落地，且发版闸在无 profile 的机器上
-  // 对此降级为警告、拦不住。0.55.0 已双源可见（npmjs + npmmirror），且为
-  // 本机 ~/.kcoder（0.6.16 / rc.1 引擎）实装运行版本（--check 零漂移）。
-  'dsh-context': '^0.55.0',
+  // dsh-context（2026-10-02 整线退役，本段为历史记录）：曾随首批预置
+  // （^0.55.0 锁线，与补丁线同线）。注意：该包曾挂两条常驻修复补丁
+  // （RO 回路冷却 / 轮尾 jump 走会话内 tab，见 profile-patches.ts 文件头
+  // 「补丁生命期」），升本 spec 或 pnpm update 之后必须跑一次
+  // `node scripts/update-profile-plugins.mjs --check`——精确版本键随即
+  // 失效、修复改由锄点注入兜底，verify 会报出「重出 patch 到新版本键」
+  // 的发版待办；这是它升版的固定收尾动作（补丁线已随退役整线摘除，
+  // 此流程随之作废，留作后续常驻补丁插件的流程样板）。
+  // 退役后由 RETIRED_PRESETS 三清自愈（老 profile 的 deps 声明、bundles
+  // 层叠声明与 node_modules 实体在下次启动全部回收）。
   // dsh-coding-sidebar（2026-09-19 un-retire @1.0.18）：自立 npm 包
   // （fork 自 DSH-better-sidebar 0.17.2，发版节奏自控），本声明仅牵引
   // 依赖树（codemirror/ws/node-pty 等 hoist 到 profile 顶层）+ bundles
@@ -254,6 +258,10 @@ const MANAGED_PROFILE_DEPS: Record<string, string> = { ...PRESET_PLUGINS }
  *   链已完备（粘贴图片随消息携带真实数据），插件的路径引用模式退役
  *   （详见文件头）；连带补丁链回收（RETIRED_PATCH_PKGS）与
  *   attach-picker.ts 拆除。
+ * - dsh-context（2026-10-02）：上下文统计视图插件整线退役（详见文件
+ *   头）；连带补丁链回收（RETIRED_PATCH_PKGS）与 context-button.ts
+ *   拆除。用户 profile 若有自装同款亦被三清——退役意图是产品级不再
+ *   提供该插件（重装请走插件管理页，三清只在下次启动再执行一遍）。
  */
 const RETIRED_PRESETS = [
   // dsh-coding-sidebar（2026-09-18）：右侧栏回归原生（原生右侧栏/
@@ -264,6 +272,7 @@ const RETIRED_PRESETS = [
   'dsh-better-sidebar',
   '@tt-a1i/archify-dsh',
   '@dsh-external/dsh-drag-to-attachment',
+  'dsh-context',
 ]
 
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */

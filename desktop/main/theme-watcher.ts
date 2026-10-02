@@ -283,10 +283,11 @@ export function themeBackgroundColor(pref: 'system' | 'light' | 'dark' = getSett
  *   sidebar-toggle 设置 = 最右按钮右缘 + 间距 8，当前最右即折叠按钮；
  *   排布自 2026-09-20 起为 左箭头/右箭头/折叠）叠加上最小让位，收起态
  *   标题不与红绿灯右侧这串按钮重叠）；max-width 自适应避让：右侧取
- *   按钮带（134px = 四枚 26px 按钮：侧栏面板 12/内嵌终端 44/上下文 76/
- *   git 108px 序——终端由 dsh-terminal、git 面板由 dsh-git-panel
- *   插件 client 注入，上下文入口见 context-button；Windows 另加 padRight
- *   让位原生控制按钮区），长标题省略号截断；
+ *   按钮带（102px = 三枚 26px 按钮：侧栏面板 12/内嵌终端 44/本地编辑器
+ *   76px 序——终端由 dsh-terminal 插件 client 注入，本地编辑器见
+ *   open-in-app-button；原第四枚上下文按钮的 76→108 带宽随 dsh-context
+ *   插件 2026-10-02 整线退役收拢；Windows 另加 padRight 让位原生控制
+ *   按钮区），长标题省略号截断；
  * - 背景直接解析上游 token `--dsw-specific-sidebar-fill`（body 计算值），
  *   随上游主题切换实时正确，无需主进程回传；
  * - body 注入等高 padding，上游 UI 下移不被遮挡；
@@ -334,7 +335,7 @@ const SHELL_TITLEBAR_JS = `(() => {
   label.style.cssText = [
     'flex:0 1 auto',
     'margin-left:max(calc(${TP.leftPad}px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px)',
-    'max-width:calc(100% - max(calc(${TP.leftPad}px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px) - ${134 + TP.padRight}px)',
+    'max-width:calc(100% - max(calc(${TP.leftPad}px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px) - ${102 + TP.padRight}px)',
     'display:flex', 'align-items:center', 'min-width:0', 'white-space:nowrap',
   ].join(';')
   // 工作区段：实体按钮（文件夹图标 + 名字；点击打开工作区目录）。

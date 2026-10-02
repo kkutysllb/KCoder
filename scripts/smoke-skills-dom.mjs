@@ -72,6 +72,9 @@ const groups = [
     { name: 'user-skill-y', description: '用户测试技能', source: 'user', path: '/tmp/c/SKILL.md' },
     { name: 'shared-skill-z', description: '共享目录测试技能', source: 'shared', path: '/tmp/d/SKILL.md' },
   ] },
+  { id: 'disabled', title: '已停用（可恢复）', entries: [
+    { name: 'parked-skill-w', description: '已停用暂存技能', source: 'disabled', path: '/tmp/park/w/SKILL.md' },
+  ] },
   { id: 'optional', title: '未启用（随包可选）', entries: [
     { name: 'database', description: 'schema/migrations/SQL/ORM 技能', source: 'optional', path: '/tmp/opt/database/SKILL.md' },
   ] },
@@ -117,17 +120,56 @@ async function runScenario(win, label, vars) {
   )
   const refreshed = JSON.parse(JSON.stringify(groups))
   refreshed[2].entries.push({ name: 'database', description: 'schema/migrations/SQL/ORM 技能', source: 'user', path: '/tmp/user-enabled/database/SKILL.md' })
-  refreshed[3].entries = []
+  refreshed[4].entries = []
   await win.webContents.executeJavaScript(`window.__dshSkillsSync(${JSON.stringify(refreshed)})`, true)
   await new Promise((r) => setTimeout(r, 200))
   const jumpProbe = await win.webContents.executeJavaScript(
     `(() => {
       const userRows = Array.from(document.querySelectorAll('.dsk-row')).filter(r => r.textContent.includes('database'))
-      const enableBtns = document.querySelectorAll('.dsk-enable').length
-      return JSON.stringify({ userRowText: userRows.map(r => r.className), remainingEnableBtns: enableBtns })
+      const enableBtns = Array.from(document.querySelectorAll('.dsk-enable')).map(b => b.textContent)
+      return JSON.stringify({ userRowText: userRows.map(r => r.className), enableBtnsAfterEnable: enableBtns })
     })()`,
     true,
   )
+  // 停用按钮交互：点击用户区 user-skill-y 行尾「停用」→ 模拟主进程应答成功 +
+  // 目录刷新（该行跳到已停用区、按钮文案换「恢复」）；再点「恢复」→ 模拟失败
+  // 应答（同名冲突）→ 按钮回「失败，重试」且复位可点
+  const disableProbe = await win.webContents.executeJavaScript(
+    `(() => {
+      const row = document.querySelector('.dsk-row[data-path="/tmp/c/SKILL.md"]')
+      if (row === null) return 'ROW MISSING'
+      const btn = row.querySelector('.dsk-enable')
+      if (btn === null) return 'BTN MISSING'
+      const label = btn.textContent
+      btn.click()
+      return JSON.stringify({ label, btnText: btn.textContent, rowExpanded: row.classList.contains('on'), btnDisabled: btn.disabled })
+    })()`,
+    true,
+  )
+  await win.webContents.executeJavaScript(
+    `window.__dshSkillsToggled(${JSON.stringify('/tmp/c/SKILL.md')}, true)`,
+    true,
+  )
+  const parked = JSON.parse(JSON.stringify(refreshed))
+  parked[2].entries = parked[2].entries.filter((e) => e.name !== 'user-skill-y')
+  parked[3].entries.push({ name: 'user-skill-y', description: '用户测试技能', source: 'disabled', path: '/tmp/park/y/SKILL.md' })
+  await win.webContents.executeJavaScript(`window.__dshSkillsSync(${JSON.stringify(parked)})`, true)
+  await new Promise((r) => setTimeout(r, 200))
+  const restoreProbe = await win.webContents.executeJavaScript(
+    `(() => {
+      const row = document.querySelector('.dsk-row[data-path="/tmp/park/y/SKILL.md"]')
+      if (row === null) return 'ROW MISSING'
+      const btn = row.querySelector('.dsk-enable')
+      if (btn === null) return 'BTN MISSING'
+      const label = btn.textContent
+      btn.click()
+      const busy = btn.textContent
+      window.__dshSkillsToggled(${JSON.stringify('/tmp/park/y/SKILL.md')}, false)
+      return JSON.stringify({ label, busy, afterFail: btn.textContent, disabledAfterFail: btn.disabled })
+    })()`,
+    true,
+  )
+  await new Promise((r) => setTimeout(r, 100))
   const probe = await win.webContents.executeJavaScript(
     `(() => {
       const kc = document.querySelector('.dsk-badge.kc')
@@ -158,7 +200,7 @@ async function runScenario(win, label, vars) {
   const result = JSON.parse(probe)
   // 断言：徽章文字非空；深色下 kc 徽章文字必须是深灰（真实变量）而非回退白
   const fails = []
-  if (result.rows !== 9) fails.push(`rows=${result.rows} 应为 9`)
+  if (result.rows !== 10) fails.push(`rows=${result.rows} 应为 10`)
   if (!result.kcBadge || result.kcBadge.text !== 'KCoder') fails.push('kc 徽章文字缺失')
   if (!result.plainBadge || result.plainBadge.text === '') fails.push('普通徽章文字缺失')
   const en = JSON.parse(enableProbe)
@@ -166,7 +208,21 @@ async function runScenario(win, label, vars) {
   if (en.btnDisabled !== true) fails.push('点击后按钮未禁用')
   if (en.rowExpanded === true) fails.push('按钮点击触发了行展开（stopPropagation 失效）')
   const jp = JSON.parse(jumpProbe)
-  if (jp.remainingEnableBtns !== 0) fails.push(`刷新后残留 ${jp.remainingEnableBtns} 个启用按钮`)
+  // database 启用成功跳用户区后：用户区三行（user-skill-y / shared-skill-z /
+  // database）各带「停用」，已停用区一行带「恢复」，optional 已空 → 共 4 颗
+  if (JSON.stringify(jp.enableBtnsAfterEnable) !== JSON.stringify(['停用', '停用', '停用', '恢复'])) {
+    fails.push(`启用后动作钮异常: ${JSON.stringify(jp.enableBtnsAfterEnable)}`)
+  }
+  const dp = JSON.parse(disableProbe)
+  if (dp.label !== '停用') fails.push(`停用按钮初始文案=${dp.label}`)
+  if (dp.btnText !== '停用中…') fails.push(`停用中文案=${dp.btnText} 应为「停用中…」`)
+  if (dp.btnDisabled !== true) fails.push('停用点击后未禁用')
+  if (dp.rowExpanded === true) fails.push('停用按钮触发了行展开（stopPropagation 失效）')
+  const rp = JSON.parse(restoreProbe)
+  if (rp.label !== '恢复') fails.push(`已停用行按钮文案=${rp.label} 应为「恢复」`)
+  if (rp.busy !== '恢复中…') fails.push(`恢复中文案=${rp.busy} 应为「恢复中…」`)
+  if (rp.afterFail !== '失败，重试') fails.push(`失败应答后文案=${rp.afterFail} 应为「失败，重试」`)
+  if (rp.disabledAfterFail !== false) fails.push('失败应答后按钮未复位可点')
   // 多媒体模型配置区：渲染/回填/密码型/默认展开
   if (result.mediaGroups !== 6) fails.push(`多媒体分组=${result.mediaGroups} 应为 6`)
   if (result.mediaInputs !== 21) fails.push(`多媒体输入框=${result.mediaInputs} 应为 21`)

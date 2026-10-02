@@ -11,10 +11,12 @@
  * 整体下线）。用户决策：上游排版已完善，宿主不再动正文排版（档位、总开关、
  * 持久化字段 style 全部移除）。
  *
- * 剩下的三段都**不是排版偏好**，没有开关、恒生效：
+ * 剩下的五段都**不是排版偏好**，没有开关、恒生效：
  * 1. 原生右侧栏外壳压制（NATIVE_SIDEBAR_CSS）；
  * 2. 侧栏「插件」panellist 入口压制（SIDEBAR_PLUGIN_ENTRY_CSS）；
- * 3. 空会话 K 水印（HERO_WATERMARK_CSS）——品牌落点，用户明确要求保留。
+ * 3. 折叠 rail「新建工作区 / 搜索」入口压制（RAIL_BROWSER_ACTIONS_CSS）；
+ * 4. 设置对话框头部压制（SETTINGS_DIALOG_HEADER_CSS）；
+ * 5. 空会话 K 水印（HERO_WATERMARK_CSS）——品牌落点，用户明确要求保留。
  *
  * 注入形态不变：文档末尾追加 `<style>`，上游类名/data 属性改名 → 对应
  * 段静默失效（外壳复现 / 水印消失），不崩不错位。
@@ -70,6 +72,74 @@ const NATIVE_SIDEBAR_CSS = `[data-sidebar-right-expand],
 [data-sidebar-right-session],
 [data-rightbar-col],
 [data-side='rightbar'] {
+  display: none !important;
+}`
+
+/**
+ * 折叠 rail「新建工作区 / 搜索」入口压制（2026-10-02，用户指定）：
+ * 上游 ui-workspace 的 WorkspaceBrowser 在折叠态（css.rail，即侧栏收起
+ * 后的图标列）保留两枚会话浏览器入口——sectionHeader（36px 框）里的
+ * 「新建工作区」按钮（点击弹 side="right" 的 picker popover）与独立一档
+ * 的 36px「搜索」控件（点击 = 展开侧栏并聚焦搜索输入，searchOnExpand
+ * 手势，等待滑开动画结束再 focus）。KCoder 折叠态取「极简 rail」取向：
+ * 两枚连同空占位框一并隐藏（用户明确要求），功能经展开侧栏后照常可达
+ * （搜索快捷键的 expand-and-focus 路径不经按钮，不受影响）。
+ *
+ * ## 与官方桌面端折叠形态的对齐分析（为什么这是有意分叉而非失误）
+ *
+ * - 官方 **macOS** 折叠态与 KCoder 改前完全同款——这两枚入口本就是官方
+ *   rail 设计的一部分（figma rail spec），「对齐官方 mac」＝不藏；
+ * - 官方 **Windows** 桌面端走得更远：构建产物里
+ *   `[data-windows-titlebar] .collapsed .panelList/.regionArea/.footArea`
+ *   整列收空、只留标题栏上的 toggle（K logo）与 newSession 两枚悬浮钮
+ *   ——regionArea 被收掉即两枚入口在官方 Windows 折叠态同样不可见；
+ * - 结论：本段是把官方 Windows 的「折叠后极简」取向**择一移植**到非
+ *   Windows 标题栏形态（macOS/Linux）的 rail 上——只收会话浏览器的
+ *   两枚入口（region 里的其余内容折叠态本就不渲染），不动面板列与
+ *   底部区，不是全量照搬 Windows（footer/头像保持贴底不滑移）。
+ *   Windows 上若上游已收 regionArea 则本段匹配不到可见元素，幂等无害。
+ *
+ * ## 锚点（CSS modules 构建产物形如 `<hash>_<源类名>`，hash 随构建漂移、
+ * `_源类名` 后缀稳定；属性选择器作用于整个 class 属性串，故含配不能用
+ * `$=` 结尾锚——rail 根的 class 串常以 quietBars 等收尾）
+ *
+ * - 作用域 = 折叠态的 WorkspaceBrowser 根节点
+ *   `[class*='_rail']:not([class*='_collapsed'])[class*='_root']`：
+ *   `.collapsed` 是 SidebarRoot 根（外层列）的专属类，用它排除外层根
+ *   （其 class 串经 `_railIn` 动画类也含 `_rail`）；全仓另有三处 `_rail`
+ *   类——ui-settings-general 的 36px trigger 钮与 ui-attachment 的图片
+ *   缩略条（均无 `_root` 同串、不在侧栏列）——不满足双条件，不误伤。
+ * - 目标一 = 直接子节点 `[class*='_sectionHeader']`：折叠态内只装
+ *   「新建工作区」一枚（label/搜索槽/视图菜单均 wide-only），整框隐藏
+ *   顺带收掉 36px 高 + 12px 边距的空占位；
+ * - 目标二 = 直接子节点 `[class*='_search']`：折叠态专属的 36px 搜索档
+ *   （宽态的搜索槽是 searchSlot 嵌套结构且折叠态不渲染，不冲突）。
+ * - 上游类名/结构调整 → 压制静默失效（两枚入口复现），不崩不错位。
+ */
+const RAIL_BROWSER_ACTIONS_CSS = `
+[class*='_rail']:not([class*='_collapsed'])[class*='_root'] > [class*='_sectionHeader'],
+[class*='_rail']:not([class*='_collapsed'])[class*='_root'] > [class*='_search'] {
+  display: none !important;
+}`
+
+/**
+ * 设置对话框头部压制（2026-10-02，用户指定）：上游 SettingsRoot 的对话框
+ * 头部（css.header，h54 条）只装两样东西——`settings.action` 插槽（注册者
+ * 仅 SettingsDocumentAction「打开配置文件」一颗 outline 钮）与「×」关闭钮
+ * ——用户要求整条去掉。头部连同按钮一并 display:none（留一条 54px 空带
+ * 更难看）。关闭路径不受影响：Esc（useModalLayer 文档级监听）与点遮罩
+ * （css.mask onClick=onClose）都在；DesktopUpdateIndicator 挂在主窗口
+ * chrome、不在对话框头部，不受影响。
+ *
+ * 锚点：对话框根的稳定属性 `[data-shortcut-modal='settings']`（上游用于
+ * 快捷键路由，非样式哈希）+ 头部的**双保险守卫** `:has(> [class*='_close'])`
+ * ——要求目标行内直接挂着一个 css.close 关闭钮才整条隐藏，分区内部自绘
+ * 的 `_header` 行（无 close 直子）不会误伤（ui-settings-general 全包仅
+ * SettingsRoot 使用 css.header/actions/close，KCoder 注入分区全用 dsk-*
+ * 类）。上游把面板属性/类名改名 → 压制静默失效（头部复现），不崩不错位。
+ */
+const SETTINGS_DIALOG_HEADER_CSS = `
+[data-shortcut-modal='settings'] [class*='_header']:has(> [class*='_close']) {
   display: none !important;
 }`
 
@@ -135,9 +205,9 @@ body[data-ds-dark-theme] [data-phase='hero'] [data-conversation-scroll]::before 
   filter: saturate(1.08) brightness(1.18);
 }`
 
-/** 注入 CSS（无档位、无总开关：三段恒定生效）。 */
+/** 注入 CSS（无档位、无总开关：五段恒定生效）。 */
 function buildOverlayCss(): string {
-  return [NATIVE_SIDEBAR_CSS, SIDEBAR_PLUGIN_ENTRY_CSS, HERO_WATERMARK_CSS].join('\n\n')
+  return [NATIVE_SIDEBAR_CSS, SIDEBAR_PLUGIN_ENTRY_CSS, RAIL_BROWSER_ACTIONS_CSS, SETTINGS_DIALOG_HEADER_CSS, HERO_WATERMARK_CSS].join('\n\n')
 }
 
 /**

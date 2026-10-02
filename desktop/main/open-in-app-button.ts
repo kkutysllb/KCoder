@@ -8,8 +8,10 @@
  * headerUtilities 槽。KCoder 的顶栏收纳（workspace-header.ts）把整个
  * titleRow display:none——原生按钮随之不可见。
  *
- * 本注入器把入口补进自绘状态栏右上角按钮组（侧边栏/终端/上下文左侧，
- * right:108px）。**不复制上游的探测与启动逻辑**：列表与图标直读上游
+ * 本注入器把入口补进自绘状态栏右上角按钮组（侧边栏/终端右侧的第三格，
+ * right:76px——2026-10-02 上下文按钮随 dsh-context 插件整线退役后，
+ * 本按钮从 108 前移补位收拢按钮带，先例同 git 面板退役后的槽位复用）。
+ * **不复制上游的探测与启动逻辑**：列表与图标直读上游
  * 路由（同源 fetch 带 cookie），启动直接 POST open 路由——检测与启动
  * 的唯一事实源仍是上游 host（应用增减、启动参数变化自动跟随）。
  *
@@ -34,8 +36,9 @@ import { SHELL_TITLEBAR_HEIGHT } from './theme-watcher'
 const BTN_ID = '__dsh_desktop_open_in_app'
 /** 菜单 id。 */
 const MENU_ID = '__dsh_desktop_open_in_app_menu'
-/** 右侧偏移：侧边栏 ~12 / 终端 44 / 上下文 76 之后的下一格。 */
-const BTN_RIGHT = 108
+/** 右侧偏移（DIP）：侧边栏 12 / 终端 44 之后的第三格（原上下文按钮 76
+ * 位，2026-10-02 随 dsh-context 退役空出后由本按钮收拢补位）。 */
+const BTN_RIGHT = 76
 /** 记忆键（localStorage）。 */
 const STORE_KEY = '__kcoderOpenInApp'
 

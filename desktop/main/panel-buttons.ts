@@ -1,24 +1,26 @@
 /**
- * win32 标题栏四钮平铺让位。
+ * win32 标题栏三钮平铺让位。
  *
- * 背景（Windows titleBarOverlay 遮挡缺陷）：四枚面板按钮
+ * 背景（Windows titleBarOverlay 遮挡缺陷）：三枚面板按钮
  * （侧栏开关代理 sidebar-cluster 注入 right:12px、终端 dsh-terminal
- * client 注入 right:44px、上下文 context-button 注入 right:76px、
- * 本地编辑器 open-in-app-button 注入 right:108px）挂在自绘标题栏内——absolute 定位基于包含块 padding box（≈窗口右缘），
- * 标题栏为避让原生控制按钮区（titleBarOverlay 右侧 138px，绘制在
- * 窗口层最顶）加的 padding-right:138px 对 absolute 子元素无效 →
- * 按钮带整段（108+26=134 < 138）落在原生按钮区内被盖。
+ * client 注入 right:44px、本地编辑器 open-in-app-button 注入
+ * right:76px）挂在自绘标题栏内——absolute 定位基于包含块 padding box
+ * （≈窗口右缘），标题栏为避让原生控制按钮区（titleBarOverlay 右侧
+ * 138px，绘制在窗口层最顶）加的 padding-right:138px 对 absolute 子元素
+ * 无效 → 按钮带整段（76+26=102 < 138）落在原生按钮区内被盖。
+ * （第四枚上下文按钮 right:76→214 一档已随 dsh-context 插件 2026-10-02
+ * 整线退役摘除，open-in-app 前移补位后按钮带收拢为三枚。）
  *
  * 方案沿革：
  * - 2026-08 下拉收纳（panel-menu）：四钮 display:none，一枚菜单按钮
  *   （right:150px）下拉转发 .click()，状态实时克隆。Windows 现场证明
  *   转发层徒增间接性（开合交互绕远、故障定位多一层疑云），2026-08-30
  *   随「平铺让位」决策废弃。
- * - 现行平铺：四钮不隐藏，仅以样式表 !important 把 right 整体平移
- *   +138px（150/182/214/246，原生区左侧安全位）——样式表 !important
+ * - 现行平铺：各钮不隐藏，仅以样式表 !important 把 right 整体平移
+ *   +138px（150/182/214，原生区左侧安全位）——样式表 !important
  *   压过各注入方的 inline right（non-important）；按钮的开合态蓝点/
  *   置灰/tooltip 等原生行为全保留，无转发层。macOS/Linux 不注入本
- *   模块，四钮原位平铺不变。
+ *   模块，各钮原位平铺不变。
  *
  * 历史：内嵌终端曾以 WebContentsView 承载，页面 DOM 下拉菜单盖不
  * 到 compositor 层，需经 console 通道临时收视图（yieldForMenu）。
@@ -45,13 +47,12 @@ const SHIFT_JS = `(() => {
   styleEl.textContent = [
     '#__dsh_desktop_sidebar_panel_btn{right:150px !important}',
     '#__dsh_kc_term_btn{right:182px !important}',
-    '#__dsh_desktop_context_btn{right:214px !important}',
-    '#__dsh_desktop_open_in_app{right:246px !important}',
+    '#__dsh_desktop_open_in_app{right:214px !important}',
   ].join('')
 })()`
 
 /**
- * 挂载四钮平铺让位（仅 win32；其他平台为 no-op，四钮原位不变）。
+ * 挂载三钮平铺让位（仅 win32；其他平台为 no-op，各钮原位不变）。
  */
 export function attachPanelButtons(win: BrowserWindow): void {
   if (process.platform !== 'win32') return

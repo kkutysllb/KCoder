@@ -86,10 +86,12 @@ cmd_status() {
 
 # ─────────────────────────── build ───────────────────────────
 
-# 插件热补丁发版闸（2026-09-24 起强制）：预置插件（dsh-context 等）的常驻
-# 修复补丁靠「pnpm patch + 版本无关锄点」跨版本物化，任何一处断供都会让新
+# 插件热补丁发版闸（2026-09-24 起强制）：预置插件的常驻修复补丁靠
+# 「pnpm patch + 版本无关锄点」跨版本物化，任何一处断供都会让新
 # 装用户拿到裸插件（缺陷复现）。闸口在构建之前——只读校验，不过即中断：
-#   1) 仓库分发清单非空（profiles/web/patches/*.patch，清单由扫描得出）；
+#   1) 分发清单与声明线一致（PATCH_MARKS 非空时要求 profiles/web/patches
+#      有 *.patch；零常驻补丁的整线退役稳态——2026-10-02 dsh-context 线
+#      摘除后——空清单放行）；
 #   2) 实装产物 marks 全中（缺 = 连锄点都没锚中，必须重出 patch）；
 #   3) 版本键零漂移（漂移 = 本次没把 patch 重出到实装版本，pnpm 路径是哑的）；
 #   4) profile 的 patchedDependencies 声明就位、同包无多版本键。
@@ -214,14 +216,21 @@ cmd_verify() {
   # 1.5) 插件热补丁（extraResources 目录映射 profile-patches）：与仓库
   #      profiles/web/patches 逐文件对账——缺任一即自愈链断供（Windows
   #      无 launchd，随包分发是补丁的唯一通道；新增补丁忘了提交/映射
-  #      漂移都在此拦下）
-  local pdir="$res/profile-patches" pmiss=0 pf
+  #      漂移都在此拦下）。零常驻补丁稳态（仓库无 *.patch，目录只剩
+  #      README 占位）只要求包内目录在位
+  local pdir="$res/profile-patches" pmiss=0 pf pcount=0
   [[ -d "$pdir" ]] || die "校验失败：包内缺 profile-patches/（插件热补丁断供）"
   for pf in "$ROOT"/profiles/web/patches/*.patch; do
+    [[ -e "$pf" ]] || continue  # 空清单时 glob 不展开：零常驻补丁稳态
+    pcount=$((pcount + 1))
     [[ -f "$pdir/$(basename "$pf")" ]] || { warn "包内缺补丁 $(basename "$pf")"; pmiss=1; }
   done
   [[ $pmiss -eq 0 ]] || die "校验失败：profile-patches 与仓库补丁清单不一致"
-  ok "插件热补丁：$(ls "$pdir"/*.patch | wc -l | tr -d ' ') 个 patch 全部在位"
+  if [[ $pcount -eq 0 ]]; then
+    ok "插件热补丁：零常驻补丁（整线退役稳态），分发目录在位"
+  else
+    ok "插件热补丁：$pcount 个 patch 全部在位"
+  fi
 
   # 1.6) 内置插件 bundle 对账：bundle/ 是 dsh-plugins 仓（唯一真源，
   #      2026-08-30 迁址）的同步副本，改动未 sync 就打包则发布物带旧

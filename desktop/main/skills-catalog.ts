@@ -11,6 +11,8 @@
  * - project：当前工作区 `.dsh/skills` / `.agents/skills`（dsh rank 100/200）
  * - user：`$DSH_HOME/skills`（rank 400）与 `~/.agents/skills`（rank 500，
  *   agents.md 生态跨工具共享目录——Claude Code 等同样读取）
+ * - disabled：已停用暂存（`$DSH_HOME/skills-disabled/<来源>/<名>/`，引擎
+ *   不扫描所以不生效；「停用 = 移出扫描根」的设计依据见 disabledRoot 注释）
  *
  * 目录约定与上游 skill-filesystem 一致：根下一层目录，每个子目录含
  * SKILL.md（YAML frontmatter name+description）。frontmatter 用行级极简
@@ -20,7 +22,7 @@
  * @module desktop/main/skills-catalog
  */
 
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { dshHome } from './dsh-contract'
@@ -33,6 +35,42 @@ let knownPaths = new Set<string>()
 
 /** 最近一次枚举的 optional 条目路径集合（enable 白名单）。 */
 let optionalPaths = new Set<string>()
+
+/** 最近一次枚举的用户/共享条目路径集合（停用白名单）。 */
+let disablePaths = new Set<string>()
+
+/** 最近一次枚举的已停用条目路径集合（恢复白名单）。 */
+let parkedPaths = new Set<string>()
+
+/**
+ * 已停用技能的暂存根（停车场）：`$DSH_HOME/skills-disabled/<来源>/<名>/`。
+ *
+ * 上游引擎没有技能级禁用机制——skill-filesystem 只按固定根扫描
+ * （$DSH_HOME/skills rank 400、~/.agents/skills rank 500，无 ignore
+ * 列表、**也不跳过点目录**，仅 user-dsh 根特判 .system），所以「停用」
+ * 唯一可靠实现是把技能目录**移出扫描根**：引擎 watcher 观察到 unlinkDir
+ * 即时失效，会话内技能列表同步收缩；文件原样保留，随时可恢复。
+ * 停车场选扫描根的**兄弟目录**而非根内点目录（.disabled/）——点目录
+ * 上游照样发现（无过滤），只有根外才真正不可见。二级子目录编码来源
+ * （user = $DSH_HOME/skills、shared = ~/.agents/skills），恢复时按布局
+ * 归位，无需额外元数据文件。Claude Code 等共享 ~/.agents/skills 的工具
+ * 同样只扫 skills 本身，兄弟目录对它们也是惰性的。
+ */
+function disabledRoot(origin: 'user' | 'shared'): string {
+  return join(dshHome(), 'skills-disabled', origin)
+}
+
+/** 移动一个目录（rename 优先；跨设备 fallback 拷删）。目标必须不存在。 */
+function moveDir(src: string, target: string): void {
+  mkdirSync(dirname(target), { recursive: true })
+  try {
+    renameSync(src, target)
+  } catch {
+    // EXDEV（跨卷）等：拷贝后删源；拷贝失败则源保持原状（停用未发生）
+    cpSync(src, target, { recursive: true })
+    rmSync(src, { recursive: true, force: true })
+  }
+}
 
 /**
  * 行级解析 frontmatter 的 name/description（标量或 >- 折叠块）。
@@ -136,22 +174,33 @@ export function listSkills(): SkillCatalogGroup[] {
   scanRoot(join(dshHome(), 'skills'), 'user', entries)
   scanRoot(join(homedir(), '.agents', 'skills'), 'shared', entries)
 
-  // 4) 可选批最后扫（要拿生效层做基准）：bundle 的 optional/ 目录
+  // 4) 已停用（停车场，引擎不扫描所以不生效）：按来源舱扫描
+  const parked: SkillCatalogEntry[] = []
+  scanRoot(disabledRoot('user'), 'disabled', parked)
+  scanRoot(disabledRoot('shared'), 'disabled', parked)
+
+  // 5) 可选批最后扫（要拿生效层做基准）：bundle 的 optional/ 目录
   //    随包但不进 manifest，拷到用户/工作区才被 dsh 发现；启用是复制
   //    不是移动，源目录残留——已装到生效层的同名条目剔除，
-  //    否则刷新后「未启用」区原地残留同一技能造成两区重复显示
-  const active = new Set(entries.map((e) => e.name))
+  //    否则刷新后「未启用」区原地残留同一技能造成两区重复显示。
+  //    基准含停车场同名条目：已停用的技能不算「未启用」，否则「恢复」
+  //    与「启用」两颗按钮会在两个分区同时指向同一技能
+  const active = new Set([...entries, ...parked].map((e) => e.name))
   const optional: SkillCatalogEntry[] = []
   scanRoot(join(bundleSource('dsh-skills-bundle'), 'skills', 'optional'), 'optional', optional)
   const enabledOptional = optional.filter((e) => !active.has(e.name))
 
-  knownPaths = new Set([...builtin, ...enabledOptional, ...entries].map((e) => e.path))
+  const userEntries = entries.filter((e) => e.source === 'user' || e.source === 'shared')
+  knownPaths = new Set([...builtin, ...enabledOptional, ...entries, ...parked].map((e) => e.path))
   optionalPaths = new Set(enabledOptional.map((e) => e.path))
+  disablePaths = new Set(userEntries.map((e) => e.path))
+  parkedPaths = new Set(parked.map((e) => e.path))
 
   const groups: SkillCatalogGroup[] = [
     { id: 'builtin', title: 'KCoder 内置（已启用）', entries: builtin },
     { id: 'project', title: '工作区项目技能', entries: entries.filter((e) => e.source === 'project') },
-    { id: 'user', title: '用户全局技能', entries: entries.filter((e) => e.source === 'user' || e.source === 'shared') },
+    { id: 'user', title: '用户全局技能', entries: userEntries },
+    { id: 'disabled', title: '已停用（可恢复）', entries: parked },
     { id: 'optional', title: '未启用（随包可选）', entries: enabledOptional },
   ]
   return groups
@@ -187,6 +236,49 @@ export function enableOptionalSkill(path: string): boolean {
     rmSync(target, { recursive: true, force: true })
     mkdirSync(dirname(target), { recursive: true })
     cpSync(src, target, { recursive: true })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 停用一个用户/共享技能：整个目录移入 $DSH_HOME/skills-disabled/<来源>/<名>/。
+ * 白名单：只放行枚举到的用户/共享条目（页面按钮点出来的路径）；移动而非
+ * 删除——技能文件原样保留，「停用」可逆。来源按路径所处扫描根判定，与
+ * 停车场二级子目录一一对应（恢复归位的依据）。目标同名已存在（上次停用
+ * 后又重建/装回同名技能）→ 拒绝，返回 false（不覆盖暂存数据）。
+ */
+export function disableUserSkill(path: string): boolean {
+  if (!disablePaths.has(path)) return false
+  const src = dirname(path)
+  const skillRoot = dirname(src)
+  const origin = skillRoot === join(dshHome(), 'skills') ? 'user' : 'shared'
+  const target = join(disabledRoot(origin), basename(src))
+  if (existsSync(target)) return false
+  try {
+    moveDir(src, target)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 恢复一个已停用技能：从停车场移回来源目录（user → $DSH_HOME/skills、
+ * shared → ~/.agents/skills，目录布局即来源）。白名单：只放行枚举到的
+ * 已停用条目。生效层同名已存在 → 拒绝（不覆盖现役技能），返回 false。
+ */
+export function restoreDisabledSkill(path: string): boolean {
+  if (!parkedPaths.has(path)) return false
+  const src = dirname(path)
+  const origin = basename(dirname(src))
+  if (origin !== 'user' && origin !== 'shared') return false
+  const targetRoot = origin === 'user' ? join(dshHome(), 'skills') : join(homedir(), '.agents', 'skills')
+  const target = join(targetRoot, basename(src))
+  if (existsSync(target)) return false
+  try {
+    moveDir(src, target)
     return true
   } catch {
     return false

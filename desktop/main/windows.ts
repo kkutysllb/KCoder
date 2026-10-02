@@ -21,7 +21,6 @@ import { attachBrandInjector } from './brand-injector'
 import { attachThemeWatcher, currentLandingTheme, applyLandingTheme, overlaySymbolColor, SHELL_TITLEBAR_HEIGHT, themeBackgroundColor } from './theme-watcher'
 import { attachSidebarToggle } from './sidebar-toggle'
 import { attachClipboardFix } from './clipboard-fix'
-import { attachContextButton } from './context-button'
 import { attachOpenInAppButton } from './open-in-app-button'
 import { attachSidebarCluster } from './sidebar-cluster'
 import { attachStyleOverlay } from './style-overlay'
@@ -378,12 +377,10 @@ export function decorateShellWindow(win: BrowserWindow, getBaseUrl: () => string
     // /权限拒绝）兜底主进程 electron.clipboard——上游复制点击的 check
     // 反馈链不再静默断掉（消息泡/代码块全站复制点受益）
     attachClipboardFix(win)
-    // 上下文面板 GUI 入口：状态栏第三枚按钮（插件代理与终端按钮左侧，
-    // right 76），点击等价输入框 /context 回车（走 dsh-context input
-    // trigger 真实契约，不发送消息）；打开态拉满主页面区域 + 右上角
-    // 「返回任务」按钮
-    attachContextButton(win)
-    // 在本地编辑器中打开：状态栏第四枚按钮（right 108，上下文按钮左侧）
+    // 上下文面板 GUI 入口已随 dsh-context 插件整线退役（2026-10-02，
+    // context-button.ts 一并拆除——预置清单摘除 + RETIRED_PRESETS 三清 +
+    // 补丁链回收，见 preset-plugins.ts / profile-patches.ts 文件头历史记录）
+    // 在本地编辑器中打开：状态栏第三枚按钮（right 76，终端按钮左侧）
     // ——上游原生 open-in-app 能力入口（host 半已在 dsh-web-app 组合内，
     // 探测/图标/启动全走上古路由）；原生按钮随顶栏收纳不可见，本注入器
     // 把入口补进自绘状态栏（详见 open-in-app-button.ts 头注释）
