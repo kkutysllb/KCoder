@@ -192,7 +192,7 @@ Windows 本地跑 `release.sh` 会踩到（该路径本就因缺 Apple 公证凭
 之前 ⇒ 竞态窗口；② 渲染层在飞禁用只覆盖「那一刻已存在」的按钮，操作开始后新建的（社区表
 100 个、搜索重渲染）仍可点。
 
-**验证中发现、尚未修的既存隐患**（与本次改动无关）：
+**验证中发现并已修的既存隐患**（修复提交 `7d7add4`）：
 
 - KCoder 会摘掉「实体仍是随包版本」的内置 bundle 的 deps 声明（`kcoder-skills-bundle.ts:304-324`
   的 `registryNewer` 例外只保住被更高 registry 版本顶替的那些），而 pnpm 在下一次任何插件操作
@@ -204,6 +204,17 @@ Windows 本地跑 `release.sh` 会踩到（该路径本就因缺 Apple 公证凭
 - 生产影响面：用户「更新任意插件 → 点重启引擎」可能看到预设插件（侧边栏等）在重启后消失，
   直到重启整个应用。建议修法：`dshManager.restart()` 前调用 `ensureKcoderBundles()`
   （与启动路径一致），或重启 IPC 处理器先物化再重启。
+
+**已修**：`ensureKcoderBundles()` 放进 `dshManager.start()`（幂等、版本一致时零拷贝），首次启动 /
+用户重启 / 崩溃自动重启三条路径统一满足「引擎起来之前，层叠清单里的 bundle 必须有实体」；
+物化失败只记日志不阻塞启动。渲染层「重启引擎使插件生效」按钮同时纳入在飞禁用面，避免物化与
+在跑的 pnpm 操作并发写同一批文件。
+
+**修复的真机验证**（开发态 + Playwright 真 IPC，3/3）：① 布置隐患态（两个 bundle `pnpm add`
+进 lockfile → 摘掉 deps 声明）；② UI 点一次真实「更新」（`dsh-skills-bundle` 1.0.2 → 1.0.3，
+输出「✅ 完成」）⇒ **`dsh-coding-sidebar` / `dsh-file-review-kcoder` 实体被剪掉，且仍留在
+`dsh.profile.bundles` 里**（隐患复现）；③ 调真 `dshRestart()` ⇒ **实体 2 秒内被自动补回**、
+引擎转入 `starting`（修复生效）。
 
 **过程事故（已处置）**：首次起开发态时 `DSH_HOME` 被本会话的显式环境变量设为 `~/.dsh`
 （"显式 > 一切"），开发态因此改写了**活跃 profile**（摘掉 `dsh-skills-bundle` 的 dep 声明）。
