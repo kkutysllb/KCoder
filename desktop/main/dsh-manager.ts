@@ -25,6 +25,7 @@ import type { DshLogLine, DshState, DshStatus } from '@shared/ipc-contract'
 import { mediaSpawnEnv } from './media-models'
 import { SHELL_TITLEBAR_HEIGHT } from './theme-watcher'
 import { productPolicyArgs } from './product-policy'
+import { ensureKcoderBundles } from './kcoder-skills-bundle'
 
 /** 日志环形缓冲容量（诊断面板展示尾部）。 */
 const LOG_RING_SIZE = 500
@@ -124,6 +125,19 @@ export class DshManager extends EventEmitter {
     }
     this.stopping = false
     this.command = command
+    // 引擎每次启动前先补齐内置 bundle 实体（幂等：版本一致时零拷贝）：profile 里
+    // 「已物化、但 deps 声明被摘掉」的内置 bundle（实体版本仍等于随包版本的那些，
+    // 见 kcoder-skills-bundle 的 registryNewer 例外）会被**下一次任意 pnpm 操作**
+    // 当 extraneous 剪掉——2026-10-03 现场：更新任一插件后，dsh-coding-sidebar 与
+    // dsh-file-review-kcoder 的实体消失、却仍留在 dsh.profile.bundles 里。
+    // 而「重启引擎使插件生效」与崩溃自动重启都直接走到这里、不经过应用启动链的
+    // 物化 ⇒ 重启后这些 bundle 解析不到，插件就此消失（旧引擎还会崩）。
+    // 放在这里 = 一条不变量：引擎起来之前，层叠清单里的 bundle 必须有实体。
+    try {
+      ensureKcoderBundles()
+    } catch (error) {
+      this.appendLog('stderr', `内置 bundle 物化失败（继续启动，相关插件可能缺失）：${String(error)}`)
+    }
     this.setValues({ state: 'starting', error: null, source: command.source })
 
     // --port 0：由 OS 从临时端口段随机分配，避免与用户自起的 `dsh web`(3080)

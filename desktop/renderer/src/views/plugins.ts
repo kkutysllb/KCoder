@@ -34,6 +34,9 @@ export function mountPlugins(root: HTMLElement): void {
   refreshButton.textContent = '刷新'
   const restartButton = document.createElement('button')
   restartButton.textContent = '重启引擎使插件生效'
+  // 也纳入在飞禁用面：引擎启动前会补齐内置 bundle 实体（dsh-manager.start），
+  // 与正在跑的 pnpm 操作并发写同一批文件不是好事；等操作结束再重启。
+  restartButton.dataset.pluginAction = 'true'
 
   // 一次只允许一项插件操作在飞（主进程也会拒并发，见 main/plugins.ts 的
   // pluginOpInFlight）：并发点击只会撞 profile manifest 的 2 秒写锁超时
