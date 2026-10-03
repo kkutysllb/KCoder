@@ -173,3 +173,41 @@ Windows 本地跑 `release.sh` 会踩到（该路径本就因缺 Apple 公证凭
 后续可选（均未做）：① `brand-assert.mjs` 的同类 tar 调用式修复；② `dsh-context` 预置声明线平移
 （`^0.55.0` vs 实装 0.56.2+）。
 
+## 插件更新加固的 UI 验证（2026-10-03）
+
+已装的 0.6.22 是 asar 产物、不含本次改动，故验证走**开发态实例**（`pnpm dev`，隔离
+`DSH_HOME=~/.kcoder-dev` + `KC_REMOTE_DEBUG_PORT=9333` 开 CDP），Playwright 直连 9333。
+
+| 断言 | 结果 |
+|---|---|
+| A1 真插件页出现「更新」按钮（sidebar 1.0.36 → latest 1.0.37） | ✅ |
+| A2a 真实操作期间动作按钮全部禁用（已安装表 9/9） | ✅（两次） |
+| A2b 真实更新完成且实装版本跃迁 | ✅ **操作层面**：heal 日志 `exit=0 实装 1.0.36 → 1.0.37`、`1.0.2 → 1.0.3`，磁盘版本一致（registry 为 npmmirror，说明精确版本路径在滞后镜像上同样生效）。脚本层的「✅ 完成」文案断言未跑通——我自己的 `waitForFunction(fn, {timeout})` 参数写错（第二参是 arg）导致默认 30s 超时；第二次目标包已是最新、无按钮可点 |
+| A3 同包并发：第二个调用被主进程拒（`busy:true` + 文案） | ✅（真 IPC） |
+| A4 首个调用返回自洽 `versionChange`（`from===to ⇒ unchanged`） | ✅（`{"from":"1.0.37","to":"1.0.37","unchanged":true}`） |
+| A5 操作结束后并发闸已释放 | ✅ |
+| B1/B1b/B1c/B2/B3（真渲染层 + 桩 bridge：在飞禁用 / **重渲染出的新按钮**也禁用 / 结束后解除 / `unchanged` → ⚠️ 版本未变 / `busy` → ⚠️ 已拒绝） | ✅ 5/5 |
+
+**验证中修掉的自身缺口**（提交 `e4f300a`）：① `updatePlugin` 的 `await latestVersions` 处于占闸
+之前 ⇒ 竞态窗口；② 渲染层在飞禁用只覆盖「那一刻已存在」的按钮，操作开始后新建的（社区表
+100 个、搜索重渲染）仍可点。
+
+**验证中发现、尚未修的既存隐患**（与本次改动无关）：
+
+- KCoder 会摘掉「实体仍是随包版本」的内置 bundle 的 deps 声明（`kcoder-skills-bundle.ts:304-324`
+  的 `registryNewer` 例外只保住被更高 registry 版本顶替的那些），而 pnpm 在下一次任何插件操作
+  时会把「未声明、却在 lockfile 里」的包当 extraneous **剪掉**；`dshManager.restart()`
+  （「重启引擎使插件生效」）**不重新物化**。
+- 现场：开发态里一次 `dsh-skills-bundle` 更新后，`dsh-coding-sidebar` 与 `dsh-file-review-kcoder`
+  实体被剪掉、但仍在 `dsh.profile.bundles` 声明里（lockfile 仅剩 skills-bundle）；应用重启后
+  自愈（重新物化）。
+- 生产影响面：用户「更新任意插件 → 点重启引擎」可能看到预设插件（侧边栏等）在重启后消失，
+  直到重启整个应用。建议修法：`dshManager.restart()` 前调用 `ensureKcoderBundles()`
+  （与启动路径一致），或重启 IPC 处理器先物化再重启。
+
+**过程事故（已处置）**：首次起开发态时 `DSH_HOME` 被本会话的显式环境变量设为 `~/.dsh`
+（"显式 > 一切"），开发态因此改写了**活跃 profile**（摘掉 `dsh-skills-bundle` 的 dep 声明）。
+实体未被删，且该声明按 KCoder 自身规则本就该摘 —— 无实际损害；随后改用隔离 `DSH_HOME` 重启。
+活跃 profile 事后核对：sidebar 1.0.37 / file-review 1.0.11 / skills-bundle 1.0.2，实体齐全。
+
+
