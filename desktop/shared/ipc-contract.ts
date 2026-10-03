@@ -118,6 +118,20 @@ export interface PluginCommandResult {
   ok: boolean
   /** 合并后的命令输出（尾部若干行）。 */
   output: string
+  /**
+   * 被拒：同一时刻已有另一项插件操作在飞（主进程不排队，避免撞 profile
+   * manifest 的 2 秒写锁超时——那时用户只会看到一段 atomic-write 栈）。
+   */
+  busy?: boolean
+  /**
+   * 跟踪类操作（update / add <pkg>@<version>）的实装版本前后对比。
+   *
+   * `unchanged` 为真 = 命令 exit 0 但版本没动：典型成因是 pnpm 11 的
+   * `minimumReleaseAge` 供应链年龄门把「刚发布不久」的版本静默排除在解析
+   * 之外（`@latest` 于是回落到旧版），或镜像源 latest 滞后。UI 必须据此
+   * 提示「版本未变」，不能报「完成」（2026-10-03 现场）。
+   */
+  versionChange?: { pkg: string; from: string | null; to: string | null; unchanged: boolean }
 }
 
 /** 已装用户插件 → npm registry 最新版（查询失败的包不进结果）。 */

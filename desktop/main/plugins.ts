@@ -249,23 +249,44 @@ function ensureProfilePeerRules(profileDirPath: string): void {
 
 /**
  * 更新一个插件（统一入口，按包属选路）：
- * - 内置可更新层（KCoder 物化 bundle 与预置插件）：`add <pkg>@latest`。
- *   物化 bundle 不在 profile dependencies（kcoder-skills-bundle 按「残留
- *   接线」摘除非 registry 顶替的声明），pnpm update 对它们无从谈起；
- *   add 幂等升线并把实体交给 registry 管理——配合物化让位规则，更新
- *   结果重启后不被随包副本打回，deps 声明也因「registry 顶替」判定得以
- *   保留（图与磁盘不漂移）。
- * - 用户安装插件：沿用 `update --latest`（deps 管理，pnpm 原生语义）。
+ * - 内置可更新层（KCoder 物化 bundle 与预置插件）：物化 bundle 不在 profile
+ *   dependencies（kcoder-skills-bundle 按「残留接线」摘除非 registry 顶替的
+ *   声明），pnpm update 对它们无从谈起；add 幂等升线并把实体交给 registry
+ *   管理——配合物化让位规则，更新结果重启后不被随包副本打回，deps 声明也因
+ *   「registry 顶替」判定得以保留（图与磁盘不漂移）。
+ * - 用户安装插件：同样落到 add（deps 范围由 pnpm 按新版本回写）。
+ * - 引擎层（dsh-base / dsh-web-app）：维持 `update --latest` 旧口径不动
+ *   （与内置运行时整体版本耦合，UI 侧 updatable=false 已隐藏入口）。
  *
- * 引擎层（dsh-base / dsh-web-app）不在此开放：与内置运行时整体版本
- * 耦合，单独升级易撞 loader/契约漂移（UI 侧 updatable=false 已隐藏入口，
- * 此处再挡一道）。
+ * **有 registry latest 时一律装精确版本**（`add <pkg>@<version>`），而不是
+ * `@latest` / `update --latest`：pnpm 11 的 `minimumReleaseAge` 供应链年龄门
+ * 会把「刚发布不久」的版本静默排除在解析之外——此时 `@latest` 会回落到旧版
+ * **并 exit 0**，UI 误报「完成」（2026-10-03 现场：dsh-coding-sidebar
+ * 1.0.36 → 1.0.37 连续两次假成功，`pnpm outdated` 也不列该项）。精确版本走
+ * pnpm 的显式请求路径，它会自行把该版本记进 profile `pnpm-workspace.yaml` 的
+ * `minimumReleaseAgeExclude`（豁免留痕、可审计）。
+ *
+ * 查不到 latest（网络受限）时回落到旧口径，输出里说明——此时仍可能被年龄门
+ * 挡住，由 {@link PluginCommandResult.versionChange} 的判定兜底提示。
  */
-export function updatePlugin(pkg: string): Promise<PluginCommandResult> {
-  if (IN_BOX_BUNDLES.includes(pkg) && !ENGINE_BUNDLES.includes(pkg)) {
-    return runPluginCommand(['add', `${pkg}@latest`])
+export async function updatePlugin(pkg: string): Promise<PluginCommandResult> {
+  if (ENGINE_BUNDLES.includes(pkg)) {
+    return runPluginCommand(['update', '--latest', pkg])
   }
-  return runPluginCommand(['update', '--latest', pkg])
+  const latest = (await latestVersions([pkg]))[pkg]
+  if (typeof latest === 'string' && latest !== '') {
+    healLog(`[plugin-cmd] ${pkg} registry latest = ${latest}，按精确版本安装`)
+    return runPluginCommand(['add', `${pkg}@${latest}`])
+  }
+  const fallback = IN_BOX_BUNDLES.includes(pkg)
+    ? ['add', `${pkg}@latest`]
+    : ['update', '--latest', pkg]
+  const result = await runPluginCommand(fallback)
+  return {
+    ...result,
+    output: `${result.output}\n[plugins] 未能查到 ${pkg} 的 registry latest（网络受限？）`
+      + '——已回落到范围更新；若版本未变，多因 pnpm 供应链年龄门或镜像源滞后。',
+  }
 }
 
 /**
@@ -315,11 +336,61 @@ export async function removePlugin(pkg: string): Promise<PluginCommandResult> {
 }
 
 /**
+ * 同一时刻只允许一项插件操作在飞。
+ *
+ * 上游 `dsh plugin` 用 profile manifest 的跨进程写锁（`<package.json>.lock`
+ * + `withFileLock`）串行化写者，而它的等待上限只有 **2 秒**
+ * （`@deepseek-ai/dsh-atomic-write` 的 `DEFAULT_LOCK_WAIT_MS`），且只在持有者
+ * PID 已不存在时才接管锁。于是「上一个操作还卡着」时，第二次点击必然在 2 秒
+ * 后抛 `atomic-write: timed out waiting for the writer lock`——用户看到的是一段
+ * 与点击动作毫无关系的栈。这里在源头拒绝并发，把话说清楚。
+ */
+let pluginOpInFlight: string | null = null
+
+/**
+ * 插件操作看门狗。pnpm 偶发「落位完成后进程不收尾」（2026-10-03 现场：
+ * 0 CPU、无 socket、无子进程地阻塞 30 分钟以上，`.modules.yaml` 已写出），
+ * 而 CLI 会一直等它 ⇒ manifest 锁被无限期攥住、**全机插件操作一起废掉**。
+ * 到点杀进程树：CLI 一死，下一次操作按上游语义（持有者 PID 不存在 ⇒ 接管）
+ * 自动清掉残留锁，自愈。
+ */
+const PLUGIN_OP_TIMEOUT_MS = 10 * 60_000
+
+/** 终止一个子进程及其整棵进程树（Windows 用 taskkill /T；POSIX 走进程组）。 */
+function killProcessTree(pid: number | undefined): void {
+  if (pid === undefined) return
+  try {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true })
+      return
+    }
+    process.kill(-pid, 'SIGKILL')
+  } catch (error) {
+    healLog(`[plugin-cmd] 终止进程树失败（pid=${String(pid)}）：${String(error)}`)
+  }
+}
+
+/**
  * 执行 `dsh plugin --profile web <args...>`，收集输出。
  * 插件变更属于 profile 组合，重启 dsh 侧车后生效（由 UI 提示）。
+ *
+ * 并发一律拒绝（见 {@link pluginOpInFlight}），超时由看门狗终止
+ * （见 {@link PLUGIN_OP_TIMEOUT_MS}）。
  */
 export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
   return new Promise<PluginCommandResult>((resolve) => {
+    // 并发闸先于一切副作用：另一项操作正在写同一个 profile manifest 时，
+    // 这里再发一条只会撞 2 秒锁超时（见 pluginOpInFlight 注释）
+    if (pluginOpInFlight !== null) {
+      healLog(`[plugin-cmd] 拒绝并发操作 ${args.join(' ')}（在飞：${pluginOpInFlight}）`)
+      resolve({
+        ok: false,
+        busy: true,
+        output: `另一项插件操作正在进行（${pluginOpInFlight}），请等它结束后再试。\n`
+          + '（profile manifest 在同一次操作期间独占写锁，并发只会撞 2 秒超时）',
+      })
+      return
+    }
     const command = resolveDshCommand()
     if (command === null) {
       resolve({ ok: false, output: '未找到可用的 dsh：请先完成上游初始化' })
@@ -329,12 +400,17 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
     const shimDir = ensurePnpmShim()
     const env: NodeJS.ProcessEnv = { ...process.env, ...command.env }
     if (shimDir !== null) env.PATH = `${shimDir};${process.env.PATH ?? ''}`
-    // 实装追踪覆盖两条更新路径：update --latest <pkg>（用户插件）与
-    // add <pkg>@latest（内置可更新层，见 updatePlugin 选路）
-    const isLatestAdd = args[0] === 'add' && (args[1] ?? '').endsWith('@latest')
-    const pkg = isLatestAdd ? args[1].slice(0, -'@latest'.length) : (args[args.length - 1] ?? '')
-    const tracking = args[0] === 'update' || isLatestAdd
+    // 实装追踪覆盖三条更新路径：`update --latest <pkg>`（用户插件）、
+    // `add <pkg>@latest`（旧口径）与 `add <pkg>@<version>`（现行口径，见
+    // updatePlugin：精确版本才躲得开 pnpm 的供应链年龄门）
+    const addSpec = args[0] === 'add' ? args[1] : undefined
+    const atIndex = addSpec === undefined ? -1 : addSpec.lastIndexOf('@')
+    const pkg = addSpec !== undefined
+      ? (atIndex > 0 ? addSpec.slice(0, atIndex) : addSpec)
+      : (args[args.length - 1] ?? '')
+    const tracking = args[0] === 'update' || (addSpec !== undefined && atIndex > 0)
     const before = tracking ? installedVersion(profileDir(), pkg) : null
+    pluginOpInFlight = pkg === '' ? args.join(' ') : pkg
     healLog(
       `[plugin-cmd] dsh plugin ${args.join(' ')}（${command.describe}；pnpm ${shimDir !== null ? 'vendored shim' : 'PATH 系统源'}；registry ${registryHints()}）`,
     )
@@ -345,6 +421,8 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
       windowsHide: true,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      // POSIX：独立进程组，看门狗才能整组杀（CLI + 它拉起的 pnpm）
+      detached: process.platform !== 'win32',
     })
     const lines: string[] = []
     const onLine = (chunk: Buffer): void => {
@@ -354,8 +432,22 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
     }
     child.stdout?.on('data', onLine)
     child.stderr?.on('data', onLine)
+    let timedOut = false
+    const watchdog = setTimeout(() => {
+      timedOut = true
+      healLog(
+        `[plugin-cmd] ${pkg || args.join(' ')} 超过 ${String(PLUGIN_OP_TIMEOUT_MS / 60_000)} 分钟未结束，`
+        + '判定卡死并终止进程树（残留 manifest 锁由下一次操作按上游语义接管）',
+      )
+      killProcessTree(child.pid)
+    }, PLUGIN_OP_TIMEOUT_MS)
+    const finish = (result: PluginCommandResult): void => {
+      clearTimeout(watchdog)
+      pluginOpInFlight = null
+      resolve(result)
+    }
     child.on('error', (error) => {
-      resolve({ ok: false, output: [...lines, `无法执行: ${String(error)}`].join('\n') })
+      finish({ ok: false, output: [...lines, `无法执行: ${String(error)}`].join('\n') })
     })
     child.on('exit', (code) => {
       if (code === 0) {
@@ -367,13 +459,17 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
           // ensureProfilePatches 内部已兜底全部异常，此处防御性忽略
         }
       }
+      let versionChange: PluginCommandResult['versionChange'] = undefined
       if (tracking) {
-        // 前后实装对比：假成功（exit 0 但版本未变，如镜像源 latest 落后
-        // 空转）当场现形，不再需要用户转述 UI 一次性输出
+        // 前后实装对比：假成功（exit 0 但版本未变——pnpm 的 minimumReleaseAge
+        // 供应链年龄门把刚发布的版本静默挡回旧版，或镜像源 latest 滞后）当场
+        // 现形，并回传给 UI 提示（不能显示「完成」）
         const after = installedVersion(profileDir(), pkg)
+        const unchanged = before !== null && after !== null && before === after
+        versionChange = { pkg, from: before, to: after, unchanged }
         healLog(
           `[plugin-cmd] ${pkg} exit=${String(code)} 实装 ${before ?? '未知'} → ${after ?? '未知'}`
-          + (before !== null && after !== null && before === after ? '（版本未变！）' : ''),
+          + (unchanged ? '（版本未变！）' : ''),
         )
       } else {
         healLog(`[plugin-cmd] dsh plugin ${args.join(' ')} exit=${String(code)}`)
@@ -381,7 +477,17 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
       if (code !== 0) {
         healLog(`[plugin-cmd] 失败输出尾: ${lines.slice(-15).join(' | ').slice(0, 800)}`)
       }
-      resolve({ ok: code === 0, output: lines.slice(-80).join('\n') })
+      const tail = timedOut
+        ? [
+            `\n[plugins] 该操作超过 ${String(PLUGIN_OP_TIMEOUT_MS / 60_000)} 分钟未结束，已判定卡死并终止。`,
+            '残留的 profile manifest 锁会在下一次插件操作时自动接管，无需手工清理；请重试。',
+          ].join('\n')
+        : ''
+      finish({
+        ok: code === 0 && !timedOut,
+        output: `${lines.slice(-80).join('\n')}${tail}`,
+        ...(versionChange === undefined ? {} : { versionChange }),
+      })
     })
   })
 }

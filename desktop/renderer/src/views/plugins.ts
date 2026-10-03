@@ -35,6 +35,20 @@ export function mountPlugins(root: HTMLElement): void {
   const restartButton = document.createElement('button')
   restartButton.textContent = '重启引擎使插件生效'
 
+  // 一次只允许一项插件操作在飞（主进程也会拒并发，见 main/plugins.ts 的
+  // pluginOpInFlight）：并发点击只会撞 profile manifest 的 2 秒写锁超时
+  // （2026-10-03 现场：上一个操作卡住时，第二次点击抛 atomic-write 栈），
+  // 不如在界面上直接不给点。
+  let inFlight = false
+  const setInFlight = (flag: boolean): void => {
+    inFlight = flag
+    for (const btn of root.querySelectorAll<HTMLButtonElement>('button[data-plugin-action]')) {
+      // 内置项的「卸载」/「已最新」本就长禁（data-plugin-locked），只解除
+      // 因在飞而加上的那部分
+      btn.disabled = flag || btn.dataset.pluginLocked === 'true'
+    }
+  }
+
   // 已安装：客户端过滤（列表已在本机）；社区：服务端搜索（防抖后重置翻页）
   let installedQuery = ''
   let communityQuery = ''
@@ -152,6 +166,8 @@ export function mountPlugins(root: HTMLElement): void {
         plugin.updatable && plugin.version !== null
         && newest !== undefined && versionGt(newest, plugin.version)
       const actionButton = document.createElement('button')
+      // 登记为「插件动作按钮」：在飞期间由 setInFlight 统一禁用
+      actionButton.dataset.pluginAction = 'true'
       if (hasUpdate) {
         actionButton.textContent = '更新'
         actionButton.className = 'primary'
@@ -162,6 +178,7 @@ export function mountPlugins(root: HTMLElement): void {
         actionButton.textContent = '卸载'
         actionButton.className = 'danger'
         actionButton.disabled = plugin.inBox
+        if (plugin.inBox) actionButton.dataset.pluginLocked = 'true'
         actionButton.addEventListener('click', () => {
           void run(`卸载 ${plugin.name}`, () => bridge.pluginRemove(plugin.name)).then(renderInstalled)
         })
@@ -255,6 +272,8 @@ export function mountPlugins(root: HTMLElement): void {
       const hasUpdate =
         matched !== undefined && matched.version !== null && newest !== undefined && versionGt(newest, matched.version)
       const actionButton = document.createElement('button')
+      // 同上：纳入在飞统一禁用面
+      actionButton.dataset.pluginAction = 'true'
       if (!isInstalled) {
         actionButton.textContent = '安装'
       } else if (hasUpdate) {
@@ -263,6 +282,7 @@ export function mountPlugins(root: HTMLElement): void {
       } else {
         actionButton.textContent = '已最新'
         actionButton.disabled = true
+        actionButton.dataset.pluginLocked = 'true'
       }
       actionButton.addEventListener('click', () => {
         // 已装：用已装包名（npm spec）更新；未装：用 github spec 安装。
@@ -295,10 +315,33 @@ export function mountPlugins(root: HTMLElement): void {
   }
 
   async function run(label: string, action: () => Promise<PluginCommandResult>): Promise<void> {
+    if (inFlight) return // 双保险：主进程同样以 busy 拒绝并发
+    setInFlight(true)
     output.textContent = `⏳ ${label}…\n`
-    const result = await action()
-    latestAt = 0 // 命令后强制重拉最新版（renderInstalled 内会刷新）
-    output.textContent += `${result.output}\n${result.ok ? '✅ 完成（重启引擎后生效）' : '❌ 失败'}\n`
+    try {
+      const result = await action()
+      latestAt = 0 // 命令后强制重拉最新版（renderInstalled 内会刷新）
+      output.textContent += `${result.output}\n`
+      if (!result.ok) {
+        // busy = 被主进程按并发闸拒绝（另一项还在飞），其余为命令失败
+        output.textContent += result.busy
+          ? '⚠️ 已拒绝：同一时刻只能进行一项插件操作（另一个操作还在跑，等它结束后重试）\n'
+          : '❌ 失败\n'
+      } else if (result.versionChange?.unchanged === true) {
+        // 假成功：exit 0 但实装版本没动。pnpm 11 的 minimumReleaseAge 供应链
+        // 年龄门会把「刚发布不久」的版本静默挡回旧版，镜像源 latest 滞后同理
+        // ——不能报「完成」，否则用户以为更上去了（2026-10-03 现场）。
+        const { from, to } = result.versionChange
+        output.textContent += `⚠️ 版本未变（${from ?? '未知'} → ${to ?? '未知'}）：命令成功但实装版本没动。`
+          + '多为 pnpm 供应链年龄门（该版本发布未满门槛）或镜像源 latest 滞后，稍后重试即可\n'
+      } else {
+        output.textContent += '✅ 完成（重启引擎后生效）\n'
+      }
+    } catch (error) {
+      output.textContent += `❌ 调用失败：${String(error)}\n`
+    } finally {
+      setInFlight(false)
+    }
   }
 
   void renderInstalled()
