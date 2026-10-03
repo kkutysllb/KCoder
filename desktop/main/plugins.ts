@@ -270,22 +270,32 @@ function ensureProfilePeerRules(profileDirPath: string): void {
  * 挡住，由 {@link PluginCommandResult.versionChange} 的判定兜底提示。
  */
 export async function updatePlugin(pkg: string): Promise<PluginCommandResult> {
-  if (ENGINE_BUNDLES.includes(pkg)) {
-    return runPluginCommand(['update', '--latest', pkg])
+  // 占闸必须在**查 registry latest 之前**：那段 await（最多 10s 网络等待）是
+  // 竞态窗口，放在后面会让并发调用双双通过检查（见 claimPluginOp）
+  if (!claimPluginOp(pkg)) {
+    healLog(`[plugin-cmd] 拒绝并发更新 ${pkg}（在飞：${pluginOpInFlight ?? '未知'}）`)
+    return busyResult()
   }
-  const latest = (await latestVersions([pkg]))[pkg]
-  if (typeof latest === 'string' && latest !== '') {
-    healLog(`[plugin-cmd] ${pkg} registry latest = ${latest}，按精确版本安装`)
-    return runPluginCommand(['add', `${pkg}@${latest}`])
-  }
-  const fallback = IN_BOX_BUNDLES.includes(pkg)
-    ? ['add', `${pkg}@latest`]
-    : ['update', '--latest', pkg]
-  const result = await runPluginCommand(fallback)
-  return {
-    ...result,
-    output: `${result.output}\n[plugins] 未能查到 ${pkg} 的 registry latest（网络受限？）`
-      + '——已回落到范围更新；若版本未变，多因 pnpm 供应链年龄门或镜像源滞后。',
+  try {
+    if (ENGINE_BUNDLES.includes(pkg)) {
+      return await executePluginCommand(['update', '--latest', pkg])
+    }
+    const latest = (await latestVersions([pkg]))[pkg]
+    if (typeof latest === 'string' && latest !== '') {
+      healLog(`[plugin-cmd] ${pkg} registry latest = ${latest}，按精确版本安装`)
+      return await executePluginCommand(['add', `${pkg}@${latest}`])
+    }
+    const fallback = IN_BOX_BUNDLES.includes(pkg)
+      ? ['add', `${pkg}@latest`]
+      : ['update', '--latest', pkg]
+    const result = await executePluginCommand(fallback)
+    return {
+      ...result,
+      output: `${result.output}\n[plugins] 未能查到 ${pkg} 的 registry latest（网络受限？）`
+        + '——已回落到范围更新；若版本未变，多因 pnpm 供应链年龄门或镜像源滞后。',
+    }
+  } finally {
+    pluginOpInFlight = null
   }
 }
 
@@ -371,26 +381,49 @@ function killProcessTree(pid: number | undefined): void {
 }
 
 /**
- * 执行 `dsh plugin --profile web <args...>`，收集输出。
- * 插件变更属于 profile 组合，重启 dsh 侧车后生效（由 UI 提示）。
- *
- * 并发一律拒绝（见 {@link pluginOpInFlight}），超时由看门狗终止
- * （见 {@link PLUGIN_OP_TIMEOUT_MS}）。
+ * 插件命令参数解析：被操作的包名 + 是否属于「可追踪版本变化」的操作。
+ * 三条更新路径都算追踪：`update --latest <pkg>`（用户插件）、
+ * `add <pkg>@latest`（旧口径）与 `add <pkg>@<version>`（现行口径，见
+ * updatePlugin：精确版本才躲得开 pnpm 的供应链年龄门）。
  */
-export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
+function parsePluginSpec(args: string[]): { pkg: string; tracking: boolean } {
+  const addSpec = args[0] === 'add' ? args[1] : undefined
+  const atIndex = addSpec === undefined ? -1 : addSpec.lastIndexOf('@')
+  const pkg = addSpec !== undefined
+    ? (atIndex > 0 ? addSpec.slice(0, atIndex) : addSpec)
+    : (args[args.length - 1] ?? '')
+  return { pkg, tracking: args[0] === 'update' || (addSpec !== undefined && atIndex > 0) }
+}
+
+/** 并发被拒时的统一回包（成因见 {@link pluginOpInFlight}）。 */
+function busyResult(): PluginCommandResult {
+  return {
+    ok: false,
+    busy: true,
+    output: `另一项插件操作正在进行（${pluginOpInFlight ?? '未知'}），请等它结束后再试。\n`
+      + '（profile manifest 在同一次操作期间独占写锁，并发只会撞 2 秒超时）',
+  }
+}
+
+/**
+ * 占并发闸。**必须在任何 await 之前调用**——像 updatePlugin 那样「先查 registry
+ * latest（最多 10s 网络等待）再执行」的话，那段异步窗口里第二个调用会畅通无阻
+ * 地挤进来（2026-10-03 设计验证时发现）。
+ */
+function claimPluginOp(label: string): boolean {
+  if (pluginOpInFlight !== null) return false
+  pluginOpInFlight = label
+  return true
+}
+
+/**
+ * 执行 `dsh plugin --profile web <args...>`，收集输出。
+ * **调用方必须已占并发闸**（见 {@link claimPluginOp}）；超时由看门狗终止
+ * （见 {@link PLUGIN_OP_TIMEOUT_MS}）。插件变更属于 profile 组合，重启 dsh
+ * 侧车后生效（由 UI 提示）。
+ */
+function executePluginCommand(args: string[]): Promise<PluginCommandResult> {
   return new Promise<PluginCommandResult>((resolve) => {
-    // 并发闸先于一切副作用：另一项操作正在写同一个 profile manifest 时，
-    // 这里再发一条只会撞 2 秒锁超时（见 pluginOpInFlight 注释）
-    if (pluginOpInFlight !== null) {
-      healLog(`[plugin-cmd] 拒绝并发操作 ${args.join(' ')}（在飞：${pluginOpInFlight}）`)
-      resolve({
-        ok: false,
-        busy: true,
-        output: `另一项插件操作正在进行（${pluginOpInFlight}），请等它结束后再试。\n`
-          + '（profile manifest 在同一次操作期间独占写锁，并发只会撞 2 秒超时）',
-      })
-      return
-    }
     const command = resolveDshCommand()
     if (command === null) {
       resolve({ ok: false, output: '未找到可用的 dsh：请先完成上游初始化' })
@@ -400,17 +433,9 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
     const shimDir = ensurePnpmShim()
     const env: NodeJS.ProcessEnv = { ...process.env, ...command.env }
     if (shimDir !== null) env.PATH = `${shimDir};${process.env.PATH ?? ''}`
-    // 实装追踪覆盖三条更新路径：`update --latest <pkg>`（用户插件）、
-    // `add <pkg>@latest`（旧口径）与 `add <pkg>@<version>`（现行口径，见
-    // updatePlugin：精确版本才躲得开 pnpm 的供应链年龄门）
-    const addSpec = args[0] === 'add' ? args[1] : undefined
-    const atIndex = addSpec === undefined ? -1 : addSpec.lastIndexOf('@')
-    const pkg = addSpec !== undefined
-      ? (atIndex > 0 ? addSpec.slice(0, atIndex) : addSpec)
-      : (args[args.length - 1] ?? '')
-    const tracking = args[0] === 'update' || (addSpec !== undefined && atIndex > 0)
+    // 实装追踪口径见 parsePluginSpec
+    const { pkg, tracking } = parsePluginSpec(args)
     const before = tracking ? installedVersion(profileDir(), pkg) : null
-    pluginOpInFlight = pkg === '' ? args.join(' ') : pkg
     healLog(
       `[plugin-cmd] dsh plugin ${args.join(' ')}（${command.describe}；pnpm ${shimDir !== null ? 'vendored shim' : 'PATH 系统源'}；registry ${registryHints()}）`,
     )
@@ -443,7 +468,6 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
     }, PLUGIN_OP_TIMEOUT_MS)
     const finish = (result: PluginCommandResult): void => {
       clearTimeout(watchdog)
-      pluginOpInFlight = null
       resolve(result)
     }
     child.on('error', (error) => {
@@ -490,6 +514,23 @@ export function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
       })
     })
   })
+}
+
+/**
+ * 对外统一入口：占闸 → 执行 → 释放。并发时立即返回 {@link busyResult}
+ * （不排队：排队同样要等同一个 manifest 锁，不如把话说清）。
+ */
+export async function runPluginCommand(args: string[]): Promise<PluginCommandResult> {
+  const label = parsePluginSpec(args).pkg || args.join(' ')
+  if (!claimPluginOp(label)) {
+    healLog(`[plugin-cmd] 拒绝并发操作 ${args.join(' ')}（在飞：${pluginOpInFlight ?? '未知'}）`)
+    return busyResult()
+  }
+  try {
+    return await executePluginCommand(args)
+  } finally {
+    pluginOpInFlight = null
+  }
 }
 
 /* ---------- 社区发现 ---------- */

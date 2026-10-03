@@ -183,6 +183,10 @@ export function mountPlugins(root: HTMLElement): void {
           void run(`卸载 ${plugin.name}`, () => bridge.pluginRemove(plugin.name)).then(renderInstalled)
         })
       }
+      // 渲染发生在某项操作进行中（如社区列表随后加载完）：新按钮同样禁用——
+      // setInFlight 只作用于「那一刻已存在」的按钮（2026-10-03 验证时发现：
+      // 社区表 100 个按钮在操作开始后才建出来，全是可点状态）
+      if (inFlight) actionButton.disabled = true
       const versionText =
         plugin.version === null
           ? '—'
@@ -291,6 +295,8 @@ export function mountPlugins(root: HTMLElement): void {
           isInstalled ? bridge.pluginUpdate(pkg) : bridge.pluginAdd(pkg),
         ).then(renderInstalled)
       })
+      // 同上：渲染落在操作进行中时不漏禁用
+      if (inFlight) actionButton.disabled = true
       const link = el('td', '', plugin.fullName)
       link.style.cursor = 'pointer'
       link.style.color = 'var(--accent)'
