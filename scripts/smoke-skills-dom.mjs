@@ -28,7 +28,11 @@ const mmDecl = 'export const MEDIA_MODEL_GROUPS: readonly MediaModelGroup[] = '
 const mmFrom = mmSrc.indexOf(mmDecl) + mmDecl.length
 const mmEnd = mmSrc.indexOf('\n]', mmFrom)
 if (mmFrom < mmDecl.length || mmEnd < 0) throw new Error('无法提取 MEDIA_MODEL_GROUPS')
-// oxlint-disable-next-line no-eval -- 测试夹具:提取产品源码里的字段表字面量
+// 夹具：提取产品源码的字段表字面量。`no-unused-vars` 是**误报**——该常量只被下一行
+// eval 的模板字符串 `${JSON.stringify(MEDIA_MODEL_GROUPS)}` 消费（eval 在词法作用域里
+// 查找），静态分析看不见。判别力已实测：把它换成 `undefined`，本脚本立刻回到
+// v0.5.9–v0.6.23 的挂起症状（ReferenceError）⇒ 它承重，不可删。
+// oxlint-disable-next-line no-eval, no-unused-vars -- 夹具，理由见上三行
 const MEDIA_MODEL_GROUPS = eval(mmSrc.slice(mmFrom, mmEnd + 2))
 // oxlint-disable-next-line no-eval -- 测试夹具:按模板字符串语义还原页面注入源码
 const pageJs = eval(BT + src.slice(from, endTick) + BT)
