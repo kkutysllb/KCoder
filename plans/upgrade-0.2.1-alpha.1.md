@@ -34,7 +34,7 @@
 - [x] S2.2 物化/版本线同步（terminal 1.2.2 / sidebar 1.0.38 / ssh-remote 0.1.4 / skills-bundle 1.0.3 + preset 声明 `^1.0.38`）
 - [x] S1 fork 集成分支 `kcoder/0.2.1-alpha.1` 重建（`161c7122f6`，S1-GATE A–G 全过，已推）
 - [x] **S3 KCoder 宿主侧**（BASELINE / 分支名 / preset 声明 / 陈旧名单 / 注释 / 锚点复核）
-- [ ] S4 dev profile 物化 + 预装 + 启动验收（P0-1/P0-2 判据）
+- [x] S4 dev profile 物化 + 预装 + 启动验收（P0-1/P0-2 判据）——**4/5 通过**；抓出 F26（已修）/ F27 / F28（待裁决）
 - [ ] S5 回归（B5 样式 → 冲突面 → 家族 → 冒烟）
 - [ ] S6 发布 v0.6.24
 
@@ -411,6 +411,122 @@ worktree**（独立 `CI=true pnpm install` + `pnpm run build`）复跑，两条*
 组合包 dsh-experimental-schedule-bundle 借道本表」——计划 §7 只列了 `:122` 与
 `:105-121`，没列文件头。只改后者会留下自相矛盾的介绍，已同批改写。
 
+### F25 ✅ S4 已执行：dev 预装 + 启动验收（4/5 通过，且验收本身抓出两个真问题）
+
+**执行面**（真机，非模拟）：`env -u DSH_HOME -u ELECTRON_RUN_AS_NODE pnpm dev`，
+dev home `~/.kcoder-dev`（隔离生效，**生产 `~/.kcoder` 全程未被触碰**），引擎为 fork
+分支构建物（`deepseek-harness/apps/cli/lib/bin.js web`，pid 实测）。
+
+| 判据 | 结果 |
+|---|---|
+| S4-1 `dsh.profile.bundles` 不含退役名 | ✅ 14 → 12 条（退役组合包 + 两个孤儿项） |
+| S4-2 profile 侧 install 无 ERESOLVE | ✅ exit 0 |
+| S4-3 实装版本逐包断言 | ✅ sidebar `1.0.37→1.0.38`、terminal `1.2.1→1.2.2`、skills-bundle `1.0.2→1.0.3`、ssh-remote `0.1.4`、shell-prefs `0.1.1`；退役组合包实体 **absent** |
+| S4-4① `skipping profile bundle` 不出现 | ✅ 0（P0-2 判决性通过） |
+| S4-4② `disabling profile plugin row` 不出现 | ❌→✅ **首跑 5 条**（见 F26），修复后 0 |
+| S4-4③ ready 行 | ✅ `dsh web: http://127.0.0.1:<port>/?token=…` |
+| S4-4④ `dsh.profile.bundles` 两次启动稳定 | ✅ manifest SHA 两次一致，退役名未回写 |
+| S4-4⑤ 功能在位 | ⚠️ **间接**：schedule/time-context 行不再被禁即已启用；37 个 runtime skills 注册。终端/SSH 的**交互式**确认需 UI（未做，见遗留） |
+| S4-5 策略层七行 | ✅ 七行 `- id:` 全在位（`session-log-deepseek`/`ui-sidebar-terminal`/`ui-sidebar-browser`/`ui-deliverables`/`ui-settings-session-log`/`desktop-product-telemetry`/`product-analytics`），与 rc.2 同表 |
+| S4-6 连续启动 | ✅ 三轮引擎启动 + 两轮宿主启动，manifest 无振荡 |
+
+**本轮最大价值是验收本身抓出的两个真问题**——两者都**只在"被升级过的老 profile"上现形**，
+干净 profile 遇不到，静态分析也遇不到（详见 F26/F27）。用户的生产 profile 正是老 profile
+（含退役组合包声明 + 其传递依赖），所以这两条都会落在真实用户身上。
+
+### F26 🔴 S4 抓出的真问题 A：退役清理不触发 pnpm 收敛 → 引擎逐行 disabling（已修）
+
+**现象**：引擎启动打印 **5 条** `disabling profile plugin row`：`schedule` ×2 +
+`time-context` ×3，均为 `@deepseek-ai/dsh-schedule@0.2.0-rc.2` /
+`@deepseek-ai/dsh-time-context@0.2.0-rc.2` 与 `0.2.1-alpha.1` 的 peer 不兼容 ⇒
+**任务计划功能等于关闭**（正落在判据 ② 与 ⑤ 上）。
+
+**机制**（逐环证实）：
+
+1. 退役组合包 `@deepseek-ai/dsh-experimental-schedule-bundle@0.2.0-rc.2` 的**传递依赖**
+   是 `dsh-schedule` / `dsh-time-context`（rc.2）；`RETIRED_PRESETS` 三清只摘
+   bundle 自身的 deps / bundles / 实体，**够不着传递依赖**；
+2. 而 `needInstall = presetNames.some(p => !installed(p))` 只看 `PRESET_PLUGINS`——
+   sidebar 已装 ⇒ **install 不跑** ⇒ `pnpm-lock.yaml`（实测仍 7 处引用）与
+   `node_modules/@deepseek-ai/dsh-{schedule,time-context}` 原样留存；
+3. 新版 `bundle/web-app/cordis.patch.yml:140` 的 `name: '@deepseek-ai/dsh-schedule'`
+   是**无版本**插入行 ⇒ loader 从 profile 解析到残留的 rc.2 实体 ⇒ peer 闸门逐行禁用。
+
+**这直接违反该模块自己的文档头**：`RETIRED_PRESETS` 注释原文「摘 deps + 删实体后
+**由 pnpm install 重放按新依赖图收敛**，图与磁盘一致不漂移——不走纯 rm 路径」。
+即**实现没做文档承诺的那一步**。
+
+**修复**（`desktop/main/preset-plugins.ts`，+18/−2）：退役清理命中时置位
+`retiredTouched`（manifest 被改写、或实体被删），并把该位 OR 进 `needInstall`
+⇒ 强制走一次 pnpm 收敛。
+
+**真机验证**（关键：用**复现出的老 profile** 跑，而不是拿已干净的 profile 空跑）：
+
+| 步 | 证据 |
+|---|---|
+| 复现 | 把退役组合包重新写回 deps+bundles → `pnpm install` → lock 引用回 **7**、两个传递实体 present |
+| 修后宿主启动 | 日志出现 `[preset-plugins] 预置插件缺失，执行 pnpm install …`（修复前这一行**不存在**是病灶指纹） |
+| 收敛结果 | lock 引用 **7 → 0**；`dsh-schedule`/`dsh-time-context` **PRUNED**；sidebar 实体由二调 `ensureKcoderBundles` **自愈回位** |
+| 引擎复跑 | `skipping profile bundle` **0** / `disabling profile plugin row` **0** / ready 行 ✓ / manifest STABLE |
+
+**代价**：退役清理是幂等一次性的（第二轮起不再命中），所以这只是**一次性** install，
+不构成每次启动的开销。
+
+### F27 ⚠️ S4 抓出的真问题 B：`dsh-coding-sidebar` 的 deps 声明被误摘（**待裁决，未改**）
+
+**现象**：两轮宿主启动都打印
+`清除 profile 退役/孤儿插件残留: deps=[dsh-coding-sidebar]` ——
+`dsh-coding-sidebar` 的 **dependencies 声明被摘掉**，而 `PRESET_PLUGINS` 里
+它恰恰是**唯一**一条声明。终态 manifest 的 `dependencies` 已无该键。
+
+**机制**：`staleDeps = [...BUNDLES, ...RETIRED_PLUGINS].filter(x => x in deps && !registryNewer(x))`，
+`registryNewer` 判据是 `live > shipped`：
+- 升级前：shipped(bundle) `1.0.36` < live(npm) `1.0.37` ⇒ `registryNewer` = **true** ⇒ 声明**保留**；
+- 升级后：shipped `1.0.38` == live `1.0.38` ⇒ **false** ⇒ 声明**被摘**。
+
+即**本次版本对齐（S2.2）把这个分支翻了过来**，行为改变由我们的改动触发。
+
+**同处代码的注释自相矛盾**：`kcoder-skills-bundle.ts` 明写
+「**dsh-coding-sidebar 例外：deps 声明是依赖树牵引**（pnpm 图 hoist
+node-pty/ws/codemirror；见文件头），不是残留接线，**不清除**」——但实现里没有这个例外。
+
+**实测影响（重要，别夸大）**：我按「摘掉声明后立刻跑 `pnpm install`」验证——
+**实体被当 extraneous 剪掉**（`dsh-coding-sidebar: MISSING`），这正是 `dsh-manager`
+注释里记的 2026-10-03 事故现场复现；靠引擎启动时的 `ensureKcoderBundles()` 自愈回位
+（实测下一轮启动 `物化 dsh-coding-sidebar 1.0.38` 恢复 ✓）。
+**而正常启动链里 install 不跑**（F26 同因），所以当前实际影响是：声明缺失这个**脆弱态**
+长期存在，任何后续 pnpm 操作都会剪实体、再靠自愈补回（churn + 依赖顺序风险）。
+
+**为什么没擅自改**：两条修法语义不同，属设计裁决——
+(a) 落实注释里的例外（声明永不清除，接受它与 pnpm 图共存）；
+(b) 让 `needInstall` 之外多一路「图一致性」对账（更彻底，但改动面大）。
+建议 (a)：与注释一致、最小、且 `^1.0.0` 声明本来就是**牵引依赖树**的既定手段。
+
+### F28 ⚠️ S4 顺带抓出的真问题 C：上游 `OPTIONAL_BUNDLES` 成员被当孤儿摘除（**待裁决，未改**）
+
+**现象**：dev 宿主启动打印
+`清除 profile 退役/孤儿插件残留: … bundles=[@deepseek-ai/dsh-experimental-agent-team-profile, @deepseek-ai/dsh-experimental-voice-input-bundle]（孤儿=…）`
+——两个用户已选中的可选组合包被**从 `dsh.profile.bundles` 删除**。
+
+**可它们在上游新版里是合法的**：`packages/boot/app-boot/src/profile.ts:223-228` 的
+`OPTIONAL_BUNDLES` = `agent-team-profile` / `voice-input-bundle` / `auto-review` /
+**`inspector-profile`（本次新增）**（rc.2 那条是 `schedule-bundle`，本次已被上游移出）。
+上游语义：这些是"随机附带的、默认关、由插件管理页提供开启"的 bundle。
+
+**机制**：宿主孤儿判据是
+`orphan = bundles.filter(x => !managed.has(x) && !(x in dependencies))`，
+而 `managed = TEMPLATE_BUNDLES + BUNDLES + RETIRED_PLUGINS` —— **不含上游
+`OPTIONAL_BUNDLES`**。可选 bundle 的实体来自**引擎安装树**（不是 profile 的
+dependencies），所以「引擎提供但没写进 profile deps」在宿主眼里恰好等于孤儿 ⇒ 每次
+启动删一遍，用户开启的可选能力（协作团队 / 语音输入；新版还有 inspector）静默消失。
+
+**定性**：判据与版本无关 ⇒ **不是本次升级引入**，是既存缺陷被 S4 的真机跑暴露
+（静态分析不会看这条路径）。但新版把 `inspector-profile` 加入了可选集，影响面会扩大。
+
+**修法（建议）**：孤儿判据加一路来源——把上游 `OPTIONAL_BUNDLES` 纳入 `managed`
+（可从头常量同步，或从引擎包的导出读取，避免第三份名单漂移）。与本轮 P0-1 的
+`RETIRED_BUNDLES` 是**同一类问题**：宿主名单必须跟随上游名单同步。
+
 ## Progress Log
 
 - [P0] 建工作态计划文件（本文件）。
@@ -462,6 +578,16 @@ worktree**（独立 `CI=true pnpm install` + `pnpm run build`）复跑，两条*
 - [S3] S3-9 12 支冒烟脚本对已退役名 **0 命中**；S3-10 延后至 S6（提前写=写一份尚不存在的版本号）。
 - [S3] **S3 门禁**：`pnpm run check`（typecheck + 版本线 + 同步对账）**exit 0**；`smoke:style-overlay` **18/18**。
 - [S3] **S3 完成**。下一步：**S4**（dev profile 物化 + 预装 + 启动验收 = P0-1/P0-2 的判决性判据）。
+- [S4] 前置勘查：`DSH_HOME=~/.kcoder` 与 `ELECTRON_RUN_AS_NODE=1` **由所用会话环境继承**（我本身是生产引擎 pid 22237 的后代）⇒ 直接 `pnpm dev` 会打到**生产 profile**。改用 `env -u DSH_HOME -u ELECTRON_RUN_AS_NODE -u DSH_WEB_URL`，实测隔离生效（`userData=…/KCoder-dev`、`dsh home=~/.kcoder-dev`）。
+- [S4] 先取「改前快照」（bundles 14 条 / 五个包版本 / 策略层七行），再跑宿主启动。
+- [S4] S4-1/2/3 一次通过：退役组合包声明与实体三清、sidebar `1.0.38`、terminal `1.2.2`、skills-bundle `1.0.3` 全部实装到位。
+- [S4] **判据 ② 首跑红**：引擎逐行 `disabling profile plugin row` **5 条**（schedule ×2 + time-context ×3）⇒ 定位到「退役清理不触发 pnpm 收敛」（F26）。
+- [S4] **判据 ② 修复**：`preset-plugins.ts` 加 `retiredTouched` 强制收敛 install（+18/−2），typecheck 0。
+- [S4] **修复用「复现出的老 profile」验证**（不拿干净 profile 空跑）：回写退役组合包 → install 复现 lock 7 引用 + 两实体 → 修后宿主启动日志出现 `执行 pnpm install …` → lock **7→0**、两实体 PRUNED、sidebar 自愈 → 引擎复跑两条指纹 **0/0**、ready ✓、manifest STABLE。
+- [S4] 顺带实证 `disabling` 之外的**孤儿清理副作用**：dev profile 里 `@deepseek-ai/dsh-experimental-agent-team-profile` 与 `voice-input-bundle`（**在上游新版 `OPTIONAL_BUNDLES` 里仍合法**）被当孤儿摘除——见 F28。
+- [S4] S4-5 七行覆写终值核验通过；S4-6 三轮引擎 + 两轮宿主启动 manifest 无振荡。
+- [S4] **S4 完成**（判据 ④ 的交互式确认留待 S5）。收尾：dev 实例与临时引擎全部停止，**生产 `~/.kcoder` 与生产应用（pid 22218）全程未被触碰**。
+- [S4] 未提交：`desktop/main/preset-plugins.ts`（F26 修复）+ 两份计划文档。下一步按用户示下：提交 + 开 S5，或先裁 F27/F28。
 
 ## Errors
 
@@ -486,3 +612,13 @@ worktree**（独立 `CI=true pnpm install` + `pnpm run build`）复跑，两条*
   报「门禁红」。
   **教训：验证脚本里不要让 `grep -c` 参与 `&&` 链；「期望零命中」的检查要独立成行
   （`printf` + `$(grep -c … || true)`），且断言必须紧贴被断言的命令。**
+- **[S4] 会话环境继承会静默换掉开发态的落点**：我的命令环境里
+  `DSH_HOME=/Users/libing/.kcoder`（**生产 home**）与 `ELECTRON_RUN_AS_NODE=1`
+  都是被父进程（生产引擎 pid 22237）继承下来的。而 `dev-home` 隔离的**前置条件恰是
+  `DSH_HOME` 为空**（`dev-isolation.ts:73-77`）——照原样敲 `pnpm dev`，源码态会直接
+  对**生产 profile** 做物化/install/退役三清。
+  `scripts/dev.mjs` 只剥了 `ELECTRON_RUN_AS_NODE`（现象二），**没剥 `DSH_HOME`**。
+  **教训：从 KCoder 会话里跑开发态命令，必须 `env -u DSH_HOME -u DSH_WEB_URL
+  -u ELECTRON_RUN_AS_NODE`。** 建议 dev.mjs 补一道「DSH_HOME 已设且等于生产 home
+  时告警/拒绝」的守卫（未擅自加，属可裁项）。
+  顺带：`DSH_WEB_URL` 也被继承（指向**生产**引擎 54611），同样应剥。

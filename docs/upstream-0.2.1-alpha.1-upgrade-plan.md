@@ -267,6 +267,18 @@ git push -u origin kcoder/0.2.1-alpha.1
 | S4-5 | 策略层终值核验 | 七行覆写逐行比对（与 rc.2 同一张表） |
 | S4-6 | 连续启动两次 | manifest 稳定（P0-1 的震荡消失） |
 
+> **S4 执行结果（2026-10-04）**：4/5 判据通过，**S4-4 判据 ② 在"老 profile"上首跑红**
+> ——引擎逐行 `disabling profile plugin row` 5 条（`dsh-schedule` / `dsh-time-context`
+> 残留 rc.2 传递实体，被新版 web-app 的**无版本**插入行解析命中 ⇒ 任务计划关闭）。
+> 根因：`RETIRED_PRESETS` 三清只摘 bundle 自身，**够不着其传递依赖**；而
+> `needInstall` 只看 `PRESET_PLUGINS` ⇒ 收敛 install 从不触发（与该模块文档头
+> 「摘 deps + 删实体后由 pnpm install 重放收敛」的承诺不符）。
+> 已修（`preset-plugins.ts` 加 `retiredTouched` 强制收敛，+18/−2），并用**复现出的
+> 老 profile** 验证：lock 引用 7 → 0、两实体 PRUNED、引擎两条指纹 0/0。
+> 另抓出两条待裁项：`dsh-coding-sidebar` 的 deps 声明被误摘（与代码注释自相矛盾）、
+> 上游 `OPTIONAL_BUNDLES` 成员被当孤儿摘除。详见工作态计划的 F25–F28。
+> **干净 profile 遇不到判据 ②，只有被升级过的老 profile 才会** —— 而现有用户全是老 profile。
+
 ---
 
 ## 9. 阶段 S5：回归
