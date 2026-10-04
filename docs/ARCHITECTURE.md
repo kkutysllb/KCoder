@@ -112,7 +112,7 @@ Electron 主进程 (desktop/main/)
 | `dsh-contract.ts` | ★ 上游契约适配层：就绪行、bin 路径、DSH_HOME、Node 版本探测 | **升级上游时唯一必查** |
 | `dsh-manager.ts` | dsh 侧车生命周期：spawn/就绪解析/崩溃重启（指数退避×3）/优雅退出 | — |
 | `windows.ts` | shell 窗口与面板窗口创建；各注入器的接线点 | 各注入模块 |
-| `style-overlay.ts` | 宿主注入 CSS（五段，恒定生效、无偏好档位）：原生右侧栏外壳压制 `NATIVE_SIDEBAR_CSS`、侧栏「插件」panellist 入口 `SIDEBAR_PLUGIN_ENTRY_CSS`、折叠 rail「新建工作区/搜索」入口压制 `RAIL_BROWSER_ACTIONS_CSS`（折叠无痕后退居幂等兑底）、设置对话框头部压制 `SETTINGS_DIALOG_HEADER_CSS`、空会话 K 水印 `HERO_WATERMARK_CSS`（品牌落点，`assets/brand-k.png` 内嵌 data URL） | §8 类名匹配策略 |
+| `style-overlay.ts` | 宿主注入 CSS（四段，恒定生效、无偏好档位）：原生右侧栏外壳压制 `NATIVE_SIDEBAR_CSS`、折叠 rail「新建工作区/搜索」入口压制 `RAIL_BROWSER_ACTIONS_CSS`（折叠无痕后退居幂等兑底）、设置对话框头部压制 `SETTINGS_DIALOG_HEADER_CSS`、空会话 K 水印 `HERO_WATERMARK_CSS`（品牌落点，`assets/brand-k.png` 内嵌 data URL）。**原第五段「侧栏『插件』panellist 入口压制」已于 2026-10-04 移除**（产品负责人拍板恢复上游侧栏插件菜单，见 §12 铁律 1） | §8 类名匹配策略 |
 | `console-channel.ts` | console 通道：页面注入脚本 → 主进程 的上行通信约定（`__dsh_*:` 前缀） | 各注入模块 |
 | `sidebar-cluster.ts` | better-sidebar 开关簇收纳：插件开关簇隐藏，状态栏右侧面板代理按钮（点击转发插件真实按钮）+ 底面板压制看门狗（插件底面板产品侧弃用：agent 运行态黑屏无唤醒信号，持久化恢复/pane 归位等无按钮打开路径一律自动收回；终端回归自研 terminal-panel） | §8 点击转发 |
 | `sidebar-toggle.ts` | 标题栏左簇 + 折叠无痕（2026-10-04，对齐官方 macOS 折叠形态——官方 preload 写 `data-platform="darwin"` 使折叠整列归零，KCoder 无 preload 走 plain-web 留 56px rail，故自持归零）：上游 logoRow 折叠按钮迁移至自绘标题栏（展开 prev84/next128/toggle174，折叠 toggle84/new120，两态自适应，label 让位变量随态 76↔130 / 142↔196）；无痕 = frame（sidebarCol 父节点）inline grid 轨 1 归零的 `!important` 规则（轨 2/3 原样复制，`data-sidebar-collapsed` 锚，解析失败退化 rail 不崩）+ sidebarCol 0.5px 边线压制；新会话代理（`__dsh_desktop_new_btn`）静态内联 IconNewChat 转发上游 newSession，缺席隐藏 | §8 点击转发 |
@@ -326,8 +326,12 @@ GUI 冒烟统一只进**本机发版门**（`release.sh prepush`），不进 CI�
   走 `ctx.sidebarRight.openTab('browser', …)` 的上游内部路由，不经我们的拦截
   面，产品上按「不使用」处理（链接回落既有行为）。
 - **按钮与入口自持**：侧栏开关由自绘标题栏右端代理（`sidebar-cluster.ts`
-  转发插件自己的开关簇按钮）；入口由插件自带，原生入口压制
-  （`SIDEBAR_PLUGIN_ENTRY_CSS`）。
+  转发插件自己的开关簇按钮）。**侧栏 panellist 的「插件」入口 2026-10-04
+  恢复**（原 `SIDEBAR_PLUGIN_ENTRY_CSS` 压制已删）：该条目是上游
+  `ui-plugin-manager` 自带的 workspace 插件菜单，点开在主列渲染
+  `PluginManagerPage`；产品侧「设置 → 内置插件 → 插件管理」tab（fork 侧
+  `settings.plugins.tab` 贡献）**同期保留不变**——两者是同一个页面，双入口
+  并存，产品决策（插件管理落在设置）未变。
 - **上游改动怎么办**：**只改插件仓 → 发新版本**（见铁律 2）。上游每动一次侧栏
   契约，处置路径都是「插件适配 + 发版」，不是「把原生接回来」。
 - **已知副作用（写进发布说明，避免误读为缺失）**：上游侧栏新能力

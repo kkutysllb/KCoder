@@ -11,12 +11,18 @@
  * 整体下线）。用户决策：上游排版已完善，宿主不再动正文排版（档位、总开关、
  * 持久化字段 style 全部移除）。
  *
- * 剩下的五段都**不是排版偏好**，没有开关、恒生效：
+ * 剩下的四段都**不是排版偏好**，没有开关、恒生效：
  * 1. 原生右侧栏外壳压制（NATIVE_SIDEBAR_CSS）；
- * 2. 侧栏「插件」panellist 入口压制（SIDEBAR_PLUGIN_ENTRY_CSS）；
- * 3. 折叠 rail「新建工作区 / 搜索」入口压制（RAIL_BROWSER_ACTIONS_CSS）；
- * 4. 设置对话框头部压制（SETTINGS_DIALOG_HEADER_CSS）；
- * 5. 空会话 K 水印（HERO_WATERMARK_CSS）——品牌落点，用户明确要求保留。
+ * 2. 折叠 rail「新建工作区 / 搜索」入口压制（RAIL_BROWSER_ACTIONS_CSS）；
+ * 3. 设置对话框头部压制（SETTINGS_DIALOG_HEADER_CSS）；
+ * 4. 空会话 K 水印（HERO_WATERMARK_CSS）——品牌落点，用户明确要求保留。
+ *
+ * 历史段落（已移除）：**侧栏「插件」panellist 入口压制**
+ * （`SIDEBAR_PLUGIN_ENTRY_CSS`）。2026-10-04 产品负责人拍板恢复上游侧栏
+ * 「插件」菜单——上游 `ui-plugin-manager` 的 panellist 条目重新可见，点开
+ * 按上游语义在主列渲染插件管理页；产品侧「设置 → 内置插件 → 插件管理」tab
+ * （fork 的 `settings.plugins.tab` 贡献，与面板条目**同一个
+ * `PluginManagerPage`**）**同期保留不变**，两个入口并存。详见下方历史注释。
  *
  * 注入形态不变：文档末尾追加 `<style>`，上游类名/data 属性改名 → 对应
  * 段静默失效（外壳复现 / 水印消失），不崩不错位。
@@ -147,28 +153,33 @@ const SETTINGS_DIALOG_HEADER_CSS = `
   display: none !important;
 }`
 
-/**
- * 侧栏「插件」入口压制（0.1.6-alpha.2）：上游 ui-plugin-manager 向
- * `sidebar.panellist` 无条件注册侧栏条目（包内无任何配置开关，整行禁用会
- * 连管理页一起死），产品决策把插件管理收进设置页的「插件管理」注入分区
- * （plugin-settings.ts），侧栏入口藏掉。
+/*
+ * 侧栏「插件」入口压制——**2026-10-04 已移除**（产品负责人拍板恢复上游入口；
+ * 本注释留作历史与防回退说明，规则本身不再注入）。
  *
- * 锚点：panellist 条目渲染为 `nav[class*="panelList"] > … > button`（上游
- * SidebarRoot 的 PanelRow），唯一稳定标识是 `aria-label` = locale 解析后的
- * label（zh「插件」/ en "Plugins"）——button 上没有任何 data-* 属性。
- * **不能隐藏整个 nav**：演示文稿/漫剧工坊/定时任务/动效技能库等第三方
- * 产品条目同为 panellist 注册，一藏全没。
+ * 原规则（0.1.6-alpha.2 引入）：上游 `ui-plugin-manager` 向
+ * `sidebar.panellist` 无条件注册侧栏条目（包内无任何配置开关，整行禁用会连
+ * 管理页一起死），产品当时把插件管理收进设置页的「插件管理」注入分区
+ * （`plugin-settings.ts`，该文件已随 fork 的 `settings.plugins.tab` 落地而
+ * 删除），侧栏入口以 `display:none` 藏掉；设置分区入口卡靠对隐藏按钮派发
+ * `.click()` 走上游真实 `selectPanel` 路径（`display:none` 不影响
+ * `HTMLElement.click()` 派发）。
  *
- * display:none 而非移除：设置分区入口卡的「打开插件管理器」要对这个隐藏
- * 按钮派发 `.click()` 走上游真实 selectPanel 路径（sidebar-cluster 看门狗
- * 同款：display:none 不影响 HTMLElement.click() 事件派发）。
+ * 移除理由（2026-10-04）：该条目是上游在 workspace 侧栏的**插件菜单入口**
+ * ——点开在主列渲染 `PluginManagerPage`（安装/启停/卸载/逐插件配置卡齐全），
+ * 与设置页 tab 是同一个页面。产品决策「插件管理落在 设置 → 内置插件 →
+ * 插件管理」不变，故设置 tab 保留；只是不再压制上游入口，两者并存。
  *
- * 上游改名/补 data 属性 → 压制静默失效（入口恢复可见），不崩。
+ * 若日后确需再压制，锚点经验如下（原实现即按此取证）：
+ * 条目渲染为 `nav[class*="panelList"] > … > button`（上游 SidebarRoot 的
+ * PanelRow），唯一稳定标识是 `aria-label` = locale 解析后的 label（zh
+ * 「插件」/ en "Plugins"）——button 上没有任何 data-* 属性；**不能隐藏整个
+ * nav**——演示文稿/漫剧工坊/定时任务/动效技能库等第三方条目同为 panellist
+ * 注册，一藏全没。
+ *
+ * 回退保护：`scripts/smoke-style-overlay.mjs` 直接扫本文件抽出的 CSS 段，
+ * 断言其中不含 panellist 锚点——重新加入压制会当场失败。
  */
-const SIDEBAR_PLUGIN_ENTRY_CSS = `nav[class*="panelList"] button[aria-label="插件"],
-nav[class*="panelList"] button[aria-label="Plugins"] {
-  display: none !important;
-}`
 
 /**
  * 空会话 K 水印：仅 hero 阶段显示，所有会话内容保持在其上方。
@@ -209,9 +220,9 @@ body[data-ds-dark-theme] [data-phase='hero'] [data-conversation-scroll]::before 
   filter: saturate(1.08) brightness(1.18);
 }`
 
-/** 注入 CSS（无档位、无总开关：五段恒定生效）。 */
+/** 注入 CSS（无档位、无总开关：四段恒定生效）。 */
 function buildOverlayCss(): string {
-  return [NATIVE_SIDEBAR_CSS, SIDEBAR_PLUGIN_ENTRY_CSS, RAIL_BROWSER_ACTIONS_CSS, SETTINGS_DIALOG_HEADER_CSS, HERO_WATERMARK_CSS].join('\n\n')
+  return [NATIVE_SIDEBAR_CSS, RAIL_BROWSER_ACTIONS_CSS, SETTINGS_DIALOG_HEADER_CSS, HERO_WATERMARK_CSS].join('\n\n')
 }
 
 /**
