@@ -18,7 +18,18 @@ const decl = 'const PAGE_JS = ' + BT
 const from = src.indexOf(decl) + decl.length
 const tail = src.indexOf('\n})()' + BT, from)
 const endTick = src.indexOf(BT, tail + 1)
-// PAGE_JS 插值 ${JSON.stringify(MEDIA_MODEL_GROUPS)} 在 eval 作用域求值：
+// PAGE_JS 顶层的 `${JSON.stringify(MEDIA_MODEL_GROUPS)}` 是主进程侧模板插值
+// （模块加载时求值），eval 原文时必须让同名常量在作用域内——2026-10-04 前
+// 它一直缺席，本脚本自 v0.5.9 起以 ReferenceError 挂起（release/audit-v0.6.19.md 有档）。
+// 常量从产品源码 media-models.ts 提取数组字面量（自包含：仅字符串/对象字面量），
+// 不手抄副本——手抄迟早与产品漂移。
+const mmSrc = readFileSync('desktop/main/media-models.ts', 'utf8')
+const mmDecl = 'export const MEDIA_MODEL_GROUPS: readonly MediaModelGroup[] = '
+const mmFrom = mmSrc.indexOf(mmDecl) + mmDecl.length
+const mmEnd = mmSrc.indexOf('\n]', mmFrom)
+if (mmFrom < mmDecl.length || mmEnd < 0) throw new Error('无法提取 MEDIA_MODEL_GROUPS')
+// oxlint-disable-next-line no-eval -- 测试夹具:提取产品源码里的字段表字面量
+const MEDIA_MODEL_GROUPS = eval(mmSrc.slice(mmFrom, mmEnd + 2))
 // oxlint-disable-next-line no-eval -- 测试夹具:按模板字符串语义还原页面注入源码
 const pageJs = eval(BT + src.slice(from, endTick) + BT)
 

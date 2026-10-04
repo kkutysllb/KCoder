@@ -527,6 +527,36 @@ dependencies），所以「引擎提供但没写进 profile deps」在宿主眼�
 （可从头常量同步，或从引擎包的导出读取，避免第三份名单漂移）。与本轮 P0-1 的
 `RETIRED_BUNDLES` 是**同一类问题**：宿主名单必须跟随上游名单同步。
 
+### F29 ✅ S5 门禁 6：三支坏测试修复（冒烟 10/10 全绿）
+
+**判据 6 原写「11 支冒烟全绿」，实跑发现其中三支本就红/挂——都不是升级引入的：**
+
+| 脚本 | 症状 | 真因 | 处置 |
+|---|---|---|---|
+| `smoke-panel-buttons` | exit 1：`__dsh_desktop_context_btn right=76px 应为 214px` | **fixture 陈旧**：脚本最后动于 `4515e20 release: 0.4.6`，而产品 2026-10-02 随 `dsh-context` 插件整线退役摘掉第四枚按钮、`panel-buttons.ts` 到 0.6.22 才收拢为三钮。fixture 里那两个 id 在 `desktop/main/` 下**一处都不存在** | 对齐现行三钮 + 加「退役 id 不得回流」静态守卫 → **PASS 9/9** |
+| `smoke-skills-dom` | **挂起**（非 fail）：`ReferenceError: MEDIA_MODEL_GROUPS is not defined` | `PAGE_JS` 是**主进程侧模板插值**（`${JSON.stringify(MEDIA_MODEL_GROUPS)}`，模块加载时求值），冒烟 eval 原文时该常量不在作用域。`release/audit-v0.6.19.md` 等**逐版登记「自 v0.5.9 起挂起」** | 从产品源码 `media-models.ts` 提取数组字面量（**不手抄**）→ **ALL PASS**（light/dark 双主题；`mediaGroups:6 / mediaInputs:21` 与源码注释「6 组 21 字段」对上） |
+| `smoke-skills-page` | 同上 | 同上 | 同上 → exit 0 |
+
+**另两条调用式事实（原计划「11 支 GUI 冒烟」的口径不准）**：
+
+- `smoke-runtime.mjs` 是**纯 node 脚本**，权威调用式 `node … --dir <runtime> --exec <electron 二进制>`
+  （`release.sh:174/265/271`）；其靶子 `staging/kcoder-runtime` 现为 **0.2.0-rc.2（旧运行时）**
+  ⇒ 此刻跑它验的是旧靶子，无意义，**归 S6**（新运行时 staging 之后）。
+- `smoke-skills-page.mjs` 同为 node 形态（`node scripts/smoke-skills-page.mjs`）。
+  即真实形态是 **9 支 GUI（electron）+ 2 支 node**。
+- 发版门 `cmd_prepush` 实际**只跑 `smoke-settings-anchors` 一支** GUI 冒烟（`release.sh:354-361`），
+  CI 另跑 `smoke-runtime`；其余 8 支是**手工跑、无聚合器**（本仓没有聚合 `check` 脚本）。
+
+**终局**：**10/10 全绿**（9 GUI + 1 node）；`pnpm run check` **exit 0**。
+
+### F30 为 S6 记账：上游两处 UI 破坏性变更的**残留暴露面**
+
+- `tool.call.toolview` slot（发布说明未提）与 `ui-conversation` 草稿契约重构
+  （`bindDraftMirror`→`bindDraftPersistence`）——**我方偏离面 61 文件里零命中**（集合断言已证），
+  但**注入层的 DOM 锚点**依赖这些组件渲染出的属性；S5 已用 10 支冒烟覆盖现行锚点，
+  **新引擎起来后若上游改了这些 slot 的渲染结构，冒烟会红**——这正是把冒烟挂在 S5 的价值。
+- `shell.bottom`（新增 root slot）已复核列数未变 ⇒ `sidebar-toggle.ts` 的 `tracks.length === 3` 仍成立。
+
 ## Progress Log
 
 - [P0] 建工作态计划文件（本文件）。
@@ -588,6 +618,11 @@ dependencies），所以「引擎提供但没写进 profile deps」在宿主眼�
 - [S4] S4-5 七行覆写终值核验通过；S4-6 三轮引擎 + 两轮宿主启动 manifest 无振荡。
 - [S4] **S4 完成**（判据 ④ 的交互式确认留待 S5）。收尾：dev 实例与临时引擎全部停止，**生产 `~/.kcoder` 与生产应用（pid 22218）全程未被触碰**。
 - [S4] 未提交：`desktop/main/preset-plugins.ts`（F26 修复）+ 两份计划文档。下一步按用户示下：提交 + 开 S5，或先裁 F27/F28。
+- [S5] 按各脚本**真实形态**复扫冒烟（GUI 用 `env -u ELECTRON_RUN_AS_NODE -u DSH_HOME pnpm exec electron`；node 脚本用 `node`），抓出三支坏测试（F29）。
+- [S5] 修 `smoke-panel-buttons`：陈旧 fixture 四钮→三钮 + 「退役 id 不得回流」静态守卫 → **PASS 9/9**。
+- [S5] 修 `smoke-skills-dom` / `smoke-skills-page`：`PAGE_JS` 插值常量 `MEDIA_MODEL_GROUPS` 改为**从产品源码提取**（不手抄，杜绝漂移）→ 双主题 **ALL PASS** / exit 0。**这两支自 v0.5.9 挂起，本次一并清掉历史债。**
+- [S5] 口径纠正：真实形态是 **9 GUI + 2 node**（`smoke-runtime` 与 `smoke-skills-page` 是 node 脚本）；发版门只跑 `smoke-settings-anchors` 一支。
+- [S5] 复扫终局：**10/10 全绿**；`pnpm run check` **exit 0**。`smoke-runtime` 靶子仍为 0.2.0-rc.2 旧运行时 ⇒ 归 S6。
 
 ## Errors
 
@@ -622,3 +657,18 @@ dependencies），所以「引擎提供但没写进 profile deps」在宿主眼�
   -u ELECTRON_RUN_AS_NODE`。** 建议 dev.mjs 补一道「DSH_HOME 已设且等于生产 home
   时告警/拒绝」的守卫（未擅自加，属可裁项）。
   顺带：`DSH_WEB_URL` 也被继承（指向**生产**引擎 54611），同样应剥。
+- **[S5] 我的冒烟跑法连错两次，把「我的工具坏」误报成「测试坏」——这是本轮最该记住的一条**：
+  （a）第一轮用 `timeout 180 …` 包住调用——**macOS 没有 `timeout`**（GNU coreutils 才有），
+  11 支全部 exit 127；日志是 `env: timeout: No such file or directory`，所以一眼看穿，
+  但若我只看「11 支全红」的汇总就报出去，就是一次假警报。
+  （b）第二轮把 `smoke-runtime.mjs` 也当 GUI 脚本用 `electron` 跑——它是 **node 脚本**，
+  且会把 `process.execPath`（此刻=Electron 二进制）当解释器去 spawn 运行时；我又 unset 了
+  `ELECTRON_RUN_AS_NODE` ⇒ 子进程起了**完整 Electron 应用**去等一个永不到来的就绪行 → 挂死。
+  更糟的是我的看门狗只 `kill` 了 `pnpm` 的 pid，Electron 子进程仍持有管道 ⇒
+  **命令替换 `$( )` 永不返回**，整个 sweep 卡了两轮。
+  **教训一：断言「测试失败」之前，先确认「我跑的方式」是对的——去 `release.sh` 读权威调用式，
+  不要臆测统一形态（本仓 GUI 与 node 两种形态混在同一目录）。**
+  **教训二：macOS 无 `timeout`；自造看门狗要按脚本名 `pkill -f <name>`（能连带 Electron 子进程），
+  且**绝不要把输出走命令替换**——写文件再读，否则子进程持有管道会挂死。**
+  **教训三：本仓冒烟无聚合器、发版门只跑其中一支；「N 支冒烟全绿」这种口头判据必须先核实形态与数量。**
+
