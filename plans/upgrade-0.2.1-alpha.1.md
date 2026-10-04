@@ -34,9 +34,9 @@
 - [x] S2.2 物化/版本线同步（terminal 1.2.2 / sidebar 1.0.38 / ssh-remote 0.1.4 / skills-bundle 1.0.3 + preset 声明 `^1.0.38`）
 - [x] S1 fork 集成分支 `kcoder/0.2.1-alpha.1` 重建（`161c7122f6`，S1-GATE A–G 全过，已推）
 - [x] **S3 KCoder 宿主侧**（BASELINE / 分支名 / preset 声明 / 陈旧名单 / 注释 / 锚点复核）
-- [x] S4 dev profile 物化 + 预装 + 启动验收（P0-1/P0-2 判据）——**4/5 通过**；抓出 F26（已修）/ F27 / F28（待裁决）
-- [~] S5 回归（B5 样式 ✅ / 冒烟 ✅ / 冲突面·家族·真实会话 = **需真人交互，待用户**）
-- [ ] S6 发布 v0.6.24
+- [x] S4 dev profile 物化 + 预装 + 启动验收（P0-1/P0-2 判据）——**4/5 通过**；抓出 F26（已修）/ F27 / F28（已裁并落地 `c172765`）
+- [x] S5 回归（B5 样式 ✅ / 冒烟 12 支 ✅ / 冲突面·家族·真实会话 = **用户真机验证通过 2026-10-04**）
+- [~] S6 发布 v0.6.24（进行中）
 
 ## 决策记录（澄清卡已回收，2026-10-04，四项均采纳推荐项）
 
@@ -472,7 +472,7 @@ dev home `~/.kcoder-dev`（隔离生效，**生产 `~/.kcoder` 全程未被触�
 **代价**：退役清理是幂等一次性的（第二轮起不再命中），所以这只是**一次性** install，
 不构成每次启动的开销。
 
-### F27 ⚠️ S4 抓出的真问题 B：`dsh-coding-sidebar` 的 deps 声明被误摘（**待裁决，未改**）
+### F27 ✅ S4 抓出的真问题 B：`dsh-coding-sidebar` 的 deps 声明被误摘（**已裁并落地**）
 
 **现象**：两轮宿主启动都打印
 `清除 profile 退役/孤儿插件残留: deps=[dsh-coding-sidebar]` ——
@@ -497,12 +497,13 @@ node-pty/ws/codemirror；见文件头），不是残留接线，**不清除**」
 **而正常启动链里 install 不跑**（F26 同因），所以当前实际影响是：声明缺失这个**脆弱态**
 长期存在，任何后续 pnpm 操作都会剪实体、再靠自愈补回（churn + 依赖顺序风险）。
 
-**为什么没擅自改**：两条修法语义不同，属设计裁决——
-(a) 落实注释里的例外（声明永不清除，接受它与 pnpm 图共存）；
-(b) 让 `needInstall` 之外多一路「图一致性」对账（更彻底，但改动面大）。
-建议 (a)：与注释一致、最小、且 `^1.0.0` 声明本来就是**牵引依赖树**的既定手段。
+**裁定（2026-10-04，用户「裁 F27/F28」）= (a)**，已落地 `c172765`：新增
+`tractionDeps` 白名单（判据**不看版本**），`staleDeps` 过滤它。理由：与同处注释
+一致、改动最小，且 `^1.0.0` 声明本来就是**牵引依赖树**的既定手段——摘掉它本来就
+是错的，不属于「取舍」。**并升格为常备门**（见 F32）：一次性夹具只能证明「当时
+修好了」，防不了未来回归。
 
-### F28 ⚠️ S4 顺带抓出的真问题 C：上游 `OPTIONAL_BUNDLES` 成员被当孤儿摘除（**待裁决，未改**）
+### F28 ✅ S4 顺带抓出的真问题 C：上游 `OPTIONAL_BUNDLES` 成员被当孤儿摘除（**已裁并落地**）
 
 **现象**：dev 宿主启动打印
 `清除 profile 退役/孤儿插件残留: … bundles=[@deepseek-ai/dsh-experimental-agent-team-profile, @deepseek-ai/dsh-experimental-voice-input-bundle]（孤儿=…）`
@@ -523,9 +524,14 @@ dependencies），所以「引擎提供但没写进 profile deps」在宿主眼�
 **定性**：判据与版本无关 ⇒ **不是本次升级引入**，是既存缺陷被 S4 的真机跑暴露
 （静态分析不会看这条路径）。但新版把 `inspector-profile` 加入了可选集，影响面会扩大。
 
-**修法（建议）**：孤儿判据加一路来源——把上游 `OPTIONAL_BUNDLES` 纳入 `managed`
-（可从头常量同步，或从引擎包的导出读取，避免第三份名单漂移）。与本轮 P0-1 的
-`RETIRED_BUNDLES` 是**同一类问题**：宿主名单必须跟随上游名单同步。
+**裁定（2026-10-04）= 采纳**，已落地 `c172765`：新增常量
+`UPSTREAM_OPTIONAL_BUNDLES`（4 条，与上游 `app-boot/profile.ts:223-228` 逐字一致）
+并纳入 `managed`；判据**不看版本**（同 F27）。与本轮 P0-1 的 `RETIRED_BUNDLES`
+是**同一类问题**：宿主名单必须跟随上游名单同步。
+
+**并补一道防漂移门**（见 F32）：本常量是「本地镜像上游名单」的第二份拷贝
+（第一份是 `TEMPLATE_BUNDLES`），不设门就会随上游下次改动静默过期——本门的漂移
+检查直接读上游 `profile.ts` 做集合比对。
 
 ### F29 ✅ S5 门禁 6：三支坏测试修复（冒烟 10/10 全绿）
 
@@ -596,6 +602,39 @@ dependencies），所以「引擎提供但没写进 profile deps」在宿主眼�
   但**注入层的 DOM 锚点**依赖这些组件渲染出的属性；S5 已用 10 支冒烟覆盖现行锚点，
   **新引擎起来后若上游改了这些 slot 的渲染结构，冒烟会红**——这正是把冒烟挂在 S5 的价值。
 - `shell.bottom`（新增 root slot）已复核列数未变 ⇒ `sidebar-toggle.ts` 的 `tracks.length === 3` 仍成立。
+
+### F32 ✅ F27/F28 的修复**升格为常备门**（`scripts/smoke-bundle-profile.mjs`）
+
+**动机**：F26/F27/F28 是同一类 bug——**宿主名单/判据必须跟随上游名单与版本同步**。
+三者的表现**全是静默**：不崩溃、只打一行日志、静态分析看不见，只体现为用户能力
+消失或依赖图被拆。而 F27/F28 当初只在 `staging/`（gitignored）用一次性夹具证过，
+那只能证明「当时修好了」，**防不了未来回归**——F27 本身就是「版本一对齐，判据翻转」
+造成的。
+
+**做法**：真编译并加载 `desktop/main/kcoder-skills-bundle.ts`（esbuild + 电子最小
+替身，不重敲源码），对与 S4 真机同形的种子 profile 真跑一次 `ensureKcoderBundles()`，
+断言 manifest 终态。**19 项**：F27 牵引保留 · F28 四个上游可选包不被当孤儿删 ·
+内置五件与模板层在册 · **幂等**（第二次调用逐字节不变）· **上游名单无漂移**
+（直接读上游 `app-boot/profile.ts` 的 `OPTIONAL_BUNDLES` 做集合比对；上游源码不在位
+时打印 `[skip]` 与原因）· 隔离自检（`DSH_HOME` 必须是本次新建的临时目录，
+**防止误伤真 home**——本机 shell 自带生产 `DSH_HOME` 是已知事实）。
+
+**接线**：`package.json` 的 `smoke:bundle-profile`；进 `check` 聚合（第 4 门）；
+进 `release.sh` 的 `cmd_prepush`（纯 node、不开窗口，秒级）。
+
+**验证**：正跑 **PASS 19/19**；负对照（把整目录复制到仓内、`kcoder-skills-bundle.ts`
+换成 `c172765^` 修复前版本）**FAIL 11/17**，且**红在对的断言上**——并且复刻出 S4
+真机的原话日志 `清除 profile 退役/孤儿插件残留: deps=[dsh-coding-sidebar]
+bundles=[…agent-team-profile, …voice-input-bundle]（孤儿=…）`，即把当时的真机现场
+变成了门。
+
+**两处我自己的脚本 bug（首跑即暴露，已修，值得记）**：
+1. 负对照第一版把副本放 `/tmp` ⇒ **解析不到 `semver`/`yaml`，构建失败**，
+   运行时断言一条都没跑 —— 「红了」但**红在错误的断言上**，等于没有负对照。
+   改到仓内临时副本（`__dirname` 深度与 `desktop/main` 相同，PROJECT_ROOT 落仓库根）。
+2. 抽 `tractionDeps` 时只匹配字面量，而源码用的是常量 `DSH_CODING_SIDEBAR`
+   ⇒ 抽空误报；数组比较误用 `===` ⇒ 永远 false（报错信息里两侧逐字相同，自己
+   暴露了自己）。
 
 ## Progress Log
 
@@ -741,4 +780,21 @@ dependencies），所以「引擎提供但没写进 profile deps」在宿主眼�
   ① **任何跑真窗口的脚本都要有看门狗 + `[step]` 进度**，否则挂住时连「挂在哪」都拿不到；
   ② **`window-all-closed` 会让 Electron 自动退出**——测「关闭后状态」的脚本必须挂空处理器，
   否则表现为 **exit=0 却没有任何结论行**（比红更难查，因为退出码是「成功」）。
+- [S5→S6] 用户真机验证**通过**（门 2/3/4/7 全部由用户操作确认）⇒ S5 完成。
+- [S6] 用户「裁 F27/F28」= 采纳两处建议修法：**F27 与 F28 其实已在 `c172765` 落地**
+  （计划正文当时写着「待裁决，未改」，是 S4 的快照，已更正）——本轮做的是**核实 + 升格**。
+- [S6] 核实 F27/F28：读 `kcoder-skills-bundle.ts` 实证 `tractionDeps` 过滤与
+  `UPSTREAM_OPTIONAL_BUNDLES` 已入 `managed`；上游 `app-boot/profile.ts:223-228` 与本方
+  常量**逐字一致**（4 条）。
+- [S6] **升格为常备门**：新增 `scripts/smoke-bundle-profile.mjs`（真编译+加载产品模块、
+  真跑 `ensureKcoderBundles()`、断言 manifest 终态，**19 项**）→ 接 `package.json`
+  `smoke:bundle-profile` + 进 `check` 聚合（第 4 门）+ 进 `release.sh cmd_prepush`。
+- [S6] 门禁验证：正跑 **PASS 19/19**；负对照（仓内副本 + `c172765^`）**FAIL 11/17**，
+  **红在对的断言上**（F27 deps={} + F28 两个可选包被摘），并复刻出 S4 真机原话日志；
+  `pnpm run check` **exit 0**；`bash -n scripts/release.sh` OK。
+- **[S6] 两处我自己的脚本 bug（首跑暴露，已修）**：① 负对照副本放 `/tmp` ⇒
+  `semver`/`yaml` 解析失败、构建即崩、**运行时断言一条都没跑**（「红了」但红在错误的
+  断言上 = 等于没有负对照）→ 改仓内临时副本；② 抽 `tractionDeps` 只匹配字面量而源码用
+  常量 `DSH_CODING_SIDEBAR` ⇒ 抽空误报；数组比较误用 `===` ⇒ 永远 false
+  （报错里两侧逐字相同，自己暴露自己）。
 
