@@ -254,6 +254,9 @@ export const RUNTIME_PROVIDED_PACKAGES = [
  * 加**非插件**条目会让「声明了却没装」永远不被触发重装（2026-09-27 现场：
  * 4 个 provider 补写进 deps 后没人装，悬空三天后集中爆在插件页）。要加一个
  * 非插件依赖，先确认它该不该走 profile 通道。
+ * （2026-10-04 补充：`needInstall` 另有一路输入——第 1.8 步退役/迁移清理命中
+ * 时置位的 `retiredTouched`，见该处注释；它不改变上面这条「非插件条目不会
+ * 被触发重装」的结论，只覆盖退役场景。）
  */
 const MANAGED_PROFILE_DEPS: Record<string, string> = { ...PRESET_PLUGINS }
 
@@ -569,6 +572,16 @@ export function ensurePresetPlugins(): void {
     //      重装）、bundles 声明（dsh 唯一消费口，不摘则 loader 继续加
     //      载）、node_modules 实体（hoisted 顶层真目录，删除断解析）。
     //      对照 kcoder-skills-bundle 的 RETIRED_PLUGINS 模式
+    //
+    //      ⚠️ 收敛安装（2026-10-04 dev 现场）：上述摘除只改 manifest 与磁盘，
+    //      **改不动 pnpm 图**——lock 里退役包及其**传递依赖**原样留着（hoisted
+    //      顶层实体删了，下一次 install 还会按 lock 装回来）。而新版 web-app
+    //      组合的 `@deepseek-ai/dsh-schedule` 行是**无版本解析**，会命中残留的
+    //      rc.2 实体 ⇒ 引擎启动逐行 `disabling profile plugin row`（实测 5 条：
+    //      schedule ×2 + time-context ×3，任务计划等于关闭）。故清理一旦命中
+    //      即置位，强制第 3 步走一次 pnpm 收敛——本清单文档头「摘 deps + 删
+    //      实体后由 pnpm install 重放按新依赖图收敛」正是这个意思。
+    let retiredTouched = false
     const preBundles = bundlesOf(m)
     const keptBundles = preBundles.filter((p) => !RETIRED_PRESETS.includes(p))
     const depsMap = (m['dependencies'] ?? {}) as Record<string, unknown>
@@ -587,6 +600,7 @@ export function ensurePresetPlugins(): void {
         m['dependencies'] = depsMap
       }
       writeFileSync(manifestPath, `${JSON.stringify(m, undefined, 2)}\n`)
+      retiredTouched = true
       const cleaned = [...new Set([...removedDeps, ...preBundles.filter((p) => RETIRED_PRESETS.includes(p))])]
       console.log(`[preset-plugins] 退役/迁移声明已清理: ${cleaned.join(', ')}`)
       healLog(`[preset] 退役/迁移声明已清理: ${cleaned.join(', ')}`)
@@ -595,6 +609,7 @@ export function ensurePresetPlugins(): void {
       const dir = join(profileDir, 'node_modules', r)
       if (existsSync(dir)) {
         rmSync(dir, { recursive: true, force: true })
+        retiredTouched = true
         console.log(`[preset-plugins] 已删除退役/迁移包实体: ${r}`)
         healLog(`[preset] 已删除退役/迁移包实体: ${r}`)
       }
@@ -667,8 +682,9 @@ export function ensurePresetPlugins(): void {
     //    自愈：旧版本声明了 bundles 但装包失败，这里重装后由第 4 步
     //    对账落地声明。install 成功后二调 ensureProfilePatches：补丁
     //    未生效时（如 v0.1.9 Windows CRLF patch 现场）重装应用 + 锄点
-    //    注入兑底
-    const needInstall = presetNames.some((p) => !installed(p))
+    //    注入兑底。退役/迁移清理命中时（第 1.8 步置位 retiredTouched）同样
+    //    强制一次：只有 pnpm 重放能让**声明之外的**传递依赖与 lock 收敛。
+    const needInstall = retiredTouched || presetNames.some((p) => !installed(p))
     ensurePnpmBuildsAllowed(workspacePath)
     ensureSidebarCompatPatch()
     if (needInstall) {
