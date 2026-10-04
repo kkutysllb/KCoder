@@ -102,6 +102,27 @@ export const DSH_SSH_REMOTE_BUNDLE = 'dsh-ssh-remote'
 
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */
 const TEMPLATE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
+/**
+ * 上游 `app-boot` 的 `OPTIONAL_BUNDLES`（`packages/boot/app-boot/src/profile.ts`，
+ * 2026-10-04 对 `0.2.1-alpha.1` 同步）：引擎**安装随附**、默认不选中、由插件
+ * 管理页提供开启的组合包。语义见上游文档头——"each a runtime dependency of
+ * the installation"。
+ *
+ * 为什么必须显式列进 `managed`（2026-10-04 修，S4 真机暴露）：它们的实体来自
+ * **引擎安装树**，不进 profile 的 `dependencies`。而孤儿判据是「注册在
+ * bundles、不在 managed、也不在 dependencies」⇒ 「引擎提供但未写进 profile
+ * deps」恰好等于孤儿，每次启动删一遍，用户开启的可选能力（协作团队 / 语音
+ * 输入 / 自动评审 / 检查器）静默消失。
+ *
+ * 与本模块的 `TEMPLATE_BUNDLES` 同一形态：**本地镜像上游名单**。上游本次把
+ * `schedule-bundle` 移出该集、新增 `inspector-profile`（见 §F28）。
+ */
+const UPSTREAM_OPTIONAL_BUNDLES = [
+  '@deepseek-ai/dsh-experimental-agent-team-profile',
+  '@deepseek-ai/dsh-experimental-voice-input-bundle',
+  '@deepseek-ai/dsh-experimental-auto-review',
+  '@deepseek-ai/dsh-experimental-inspector-profile',
+]
 
 /** 一个内置 bundle 的物化描述。 */
 interface BundledPlugin {
@@ -322,7 +343,16 @@ function materialize(profileDir: string, b: BundledPlugin): void {
   // 目录一并移除，只留内置 bundle 这一条加载面。
   const dependencies = (manifest['dependencies'] ?? {}) as Record<string, unknown>
   // dsh-coding-sidebar 例外：deps 声明是依赖树牵引（pnpm 图 hoist
-  // node-pty/ws/codemirror；见文件头），不是残留接线，不清除
+  // node-pty/ws/codemirror；见文件头），不是残留接线，不清除。
+  //
+  // 判据**不看版本**（2026-10-04 修）：此处曾借下面的 registryNewer(live >
+  // shipped) 兼作该例外，但那是「实体已被 registry 顶替」的判据，与牵引没有
+  // 逻辑关系。S2.2 把随包版本 1.0.36 对齐到 1.0.38 后 live == shipped，判据翻
+  // 为 false ⇒ 声明被摘（dev 真机现场 `deps=[dsh-coding-sidebar]`），而它恰是
+  // PRESET_PLUGINS 里唯一一条声明；随后任何 pnpm install 都会把实体当
+  // extraneous 剪掉（2026-10-03 事故同形，见 dsh-manager 注释）。牵引包无条件
+  // 保留——它的声明不是「接线残留」，摘掉就等于拆依赖图。
+  const tractionDeps = new Set<string>([DSH_CODING_SIDEBAR])
   // registry 顶替例外（2026-09-02）：实体已被用户更新出的更高 registry
   // 版本顶替的 bundle，其 deps 声明保留——实体已归 pnpm 图管，摘声明会
   // 造成图与磁盘漂移，后续 pnpm install 可能把实体当 extraneous 清掉
@@ -345,11 +375,18 @@ function materialize(profileDir: string, b: BundledPlugin): void {
   // 且启动时 resolveBundleDir 解析不到实体会挡死整个 profile。
   //
   // 用「dependencies 声明」而非包名通配作判据：上游 0.1.6 的 contained-
-  // group 隔离下，bundles 层叠项的实体只有两个合法来源——pnpm（dsh plugin
-  // add 落 dependencies）或 KCoder 物化直写（在 BUNDLES 清单里）；两边都无
-  // 声明的层叠项，加载器必然解析失败，摘除只可能是修复。模板层
-  // （@deepseek-ai/dsh-base / dsh-web-app）与退役名单各自单列，不参与判据。
-  const managed = new Set([...TEMPLATE_BUNDLES, ...BUNDLES.map((x) => x.pkg), ...RETIRED_PLUGINS])
+  // group 隔离下，bundles 层叠项的实体有**三个**合法来源——pnpm（dsh plugin
+  // add 落 dependencies）、KCoder 物化直写（在 BUNDLES 清单里）、或**引擎安装
+  // 随附**（上游 OPTIONAL_BUNDLES，见 UPSTREAM_OPTIONAL_BUNDLES）。三者都无
+  // 归属的层叠项，加载器必然解析失败，摘除只可能是修复。模板层
+  // （@deepseek-ai/dsh-base / dsh-web-app）、退役名单与上游可选集各自单列，
+  // 均不参与孤儿的「无来源」判定。
+  const managed = new Set([
+    ...TEMPLATE_BUNDLES,
+    ...BUNDLES.map((x) => x.pkg),
+    ...RETIRED_PLUGINS,
+    ...UPSTREAM_OPTIONAL_BUNDLES,
+  ])
   const orphanBundles = bundlesOf(manifest).filter(
     (x) => !managed.has(x) && !(x in dependencies),
   )
@@ -383,6 +420,7 @@ function materialize(profileDir: string, b: BundledPlugin): void {
   }
 
   const removable = [...BUNDLES.map((x) => x.pkg), ...RETIRED_PLUGINS]
+    .filter((x) => !tractionDeps.has(x))
   const staleDeps = removable.filter((x) => x in dependencies && !registryNewer(x))
   if (staleDeps.length > 0 || staleBundles.length > 0) {
     for (const pkg of staleDeps) delete dependencies[pkg]
