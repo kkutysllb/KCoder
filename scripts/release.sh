@@ -358,11 +358,24 @@ cmd_settings_smoke() {
     || die "设置页注入锚点冒烟未过（注入页会静默失效：原生分区重复出现）"
 }
 
+# profile 清单自愈判据冒烟（2026-10-04）：真跑一次 `ensureKcoderBundles()`，断言
+# manifest 终态 —— F27（牵引包 deps 声明不得被摘）/ F28（上游 OPTIONAL_BUNDLES 成员
+# 不得当孤儿删）/ 幂等 / 本地镜像与上游可选集无漂移。纯 node，不开窗口，秒级。
+# 为什么进发版门：这三类 bug（宿主名单必须跟随上游名单同步）本轮咬了三次，且
+# **全是静默**——不崩溃、不打日志以外的信号、静态分析看不见，只表现为用户能力消失
+# 或依赖图被拆。见 scripts/smoke-bundle-profile.mjs 模块头。
+cmd_profile_smoke() {
+  say "profile 清单自愈判据冒烟（F27 牵引保留 / F28 可选集不判孤儿 / 幂等 / 上游名单漂移）…"
+  ( cd "$ROOT" && env -u DSH_HOME node scripts/smoke-bundle-profile.mjs ) \
+    || die "profile 清单自愈判据冒烟未过（会静默摘掉用户能力或拆依赖图，禁止发版）"
+}
+
 cmd_prepush() {
-  say "全仓库 pre-push 门：审计 + 插件补丁闸 + 内置插件版本线 + 设置页锚点 + 全量构建…"
+  say "全仓库 pre-push 门：审计 + 插件补丁闸 + 内置插件版本线 + profile 自愈判据 + 设置页锚点 + 全量构建…"
   cmd_audit
   cmd_patchgate
   cmd_bundleline
+  cmd_profile_smoke
   cmd_settings_smoke
   pnpm --dir "$ROOT" run build
   ok "全仓库 pre-push 通过"
