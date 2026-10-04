@@ -7,10 +7,9 @@
  *   fallback FishLogo SVG）+ span.brandName（fallback 文本 "DSH Local
  *   Build" + 构建号）——SVG 藏起 + brandName 整个藏起（React 持有，
  *   仅 display:none + CSS 兑底，不 remove）+ brandMark 内旁插 wrapper；
- * - 收起态（rail）：iconButton.toggle 内 `span.railMark > FishLogo SVG`
- *   → `[class*="railMark"] svg`（rc.7 及以前是 svg 自带 railFish 类），
- *   注入 img 放进 railMark 内——`.collapsed .toggle:hover .railMark
- *   { display:none }` 作用于父 span，hover 换图 CSS 连带藏掉注入 img；
+ * - 收起态（rail）：**2026-10-04 起 rail 换标退役**——sidebar-toggle 的
+ *   折叠无痕把折叠态整列归零（官方 macOS 同形态），rail 里的鲸鱼/K logo
+ *   均不可见，swapRail 与 apply() 的 rail 自清分支随之删除（历史见 git）；
  * - 标题：index.html `<title>DeepSeek Harness</title>`；DocumentTitle
  *   组件在挂载时快照 original，投射 "会话标题 — DeepSeek Harness"。
  *
@@ -29,8 +28,7 @@
  *   卸载 BrandWordmark 时仍能 removeChild 原节点，
  *   不会抛 NotFoundError 崩树（replaceWith 方案已踩坑）；button
  *   的新会话点击行为不受影响（徽章 pointer-events:none）；
- * - rail：鲸鱼 SVG 同样藏起 + 旁插 logo img（复制 railFish 类名，
- *   hover 换图 CSS 继续生效）；
+ * - rail：无痕化后整列归零，rail 换标已退役（见上）；
  * - 新会话空状态页（EmptyHero/HeroShell）：同把 34×25 鲸鱼换成
  *   K+Coder 组合 Logo（不带版本徽章，headline 首列改 auto 撑开，
  *   slogan 文字随列右移）；headline 换为产品 slogan
@@ -258,25 +256,6 @@ const INJECT_JS = `(() => {
     }
   }
 
-  // ---- rail：railMark 内鲸鱼 SVG 藏起 + 同容器旁插 logo img ----
-  // rc.8：toggle 内是 span.railMark 包 FishLogo（rc.7 及以前是 svg 自带
-  // railFish 类）。img 插 railMark 内 svg 之后，不复制类名——hover 换图
-  // 规则 .collapsed .toggle:hover .railMark { display:none } 作用于
-  // 父 span，svg 藏掉后注入 img 随 railMark 一起在 hover 时藏、平时展示。
-  const swapRail = () => {
-    const svg = document.querySelector('[class*="railMark"] svg')
-    if (svg === null || svg.nextElementSibling?.id === LOGO_ID + '_rail') return
-    const img = document.createElement('img')
-    img.id = LOGO_ID + '_rail'
-    img.src = DATA_URL
-    img.alt = ''
-    img.style.height = '24px'
-    img.style.width = '24px'
-    img.style.flex = 'none'
-    svg.style.display = 'none'
-    svg.insertAdjacentElement('afterend', img)
-  }
-
   // ---- 运行态文案：回合运行中的 Deep diving → KCoder ----
   //（锚点 2026-09-29 随 0.2.0-rc.1 切换：运行态从 ChatView 的 turnStatus
   //  容器搬到独立的 RunningStatus 组件，根节点带 data-chat-running。原
@@ -337,16 +316,9 @@ const INJECT_JS = `(() => {
   }
 
   const apply = () => {
-    // 展开态自清 rail 残留：React 卸载 railFish svg，但注入的 img 在
-    // 永不卸载的 toggle 内，需主动移除（否则展开态多显示一个 K 图）
-    const railEl = document.getElementById(LOGO_ID + '_rail')
-    if (railEl !== null && document.querySelector('[class*="collapsed"]') === null) {
-      railEl.remove()
-    }
     installStyles()
     swapBrand()
     syncLogoTheme()
-    swapRail()
     swapHero()
     swapTurnStatus()
   }

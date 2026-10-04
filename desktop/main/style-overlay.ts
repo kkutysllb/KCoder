@@ -85,19 +85,23 @@ const NATIVE_SIDEBAR_CSS = `[data-sidebar-right-expand],
  * 两枚连同空占位框一并隐藏（用户明确要求），功能经展开侧栏后照常可达
  * （搜索快捷键的 expand-and-focus 路径不经按钮，不受影响）。
  *
- * ## 与官方桌面端折叠形态的对齐分析（为什么这是有意分叉而非失误）
+ * ## 与官方桌面端折叠形态的对齐分析（2026-10-04 修订：原「官方 mac 与
+ * KCoder 改前完全同款」的表述有误，实测勘正）
  *
- * - 官方 **macOS** 折叠态与 KCoder 改前完全同款——这两枚入口本就是官方
- *   rail 设计的一部分（figma rail spec），「对齐官方 mac」＝不藏；
- * - 官方 **Windows** 桌面端走得更远：构建产物里
- *   `[data-windows-titlebar] .collapsed .panelList/.regionArea/.footArea`
- *   整列收空、只留标题栏上的 toggle（K logo）与 newSession 两枚悬浮钮
- *   ——regionArea 被收掉即两枚入口在官方 Windows 折叠态同样不可见；
- * - 结论：本段是把官方 Windows 的「折叠后极简」取向**择一移植**到非
- *   Windows 标题栏形态（macOS/Linux）的 rail 上——只收会话浏览器的
- *   两枚入口（region 里的其余内容折叠态本就不渲染），不动面板列与
- *   底部区，不是全量照搬 Windows（footer/头像保持贴底不滑移）。
- *   Windows 上若上游已收 regionArea 则本段匹配不到可见元素，幂等无害。
+ * - 官方 **macOS** 折叠态并非「同款 rail」：其 preload 在文档早期写
+ *   `data-platform="darwin"`（app.asar /lib/preload-app.cjs 实证），
+ *   AppFrame 据此取 collapsedWidth=0 → 折叠态**整列归零**、无 rail；
+ *   两枚入口随列消失，控件由 shell.leading seat（HeaderLeadingControls：
+ *   toggle + new chat）补回红绿灯右侧。KCoder 已跟进同形态（sidebar-toggle
+ *   的折叠无痕），本段的作用对象随之不可见；
+ * - 官方 **Windows** 桌面端折叠态同为零宽（`data-windows-titlebar` 分支
+ *   collapsedWidth=0 + caption row 两枚悬浮钮；构建产物
+ *   `[data-windows-titlebar] .collapsed …` 实证）——regionArea 被收掉即
+ *   两枚入口在官方折叠态同样不可见；
+ * - 结论：本段压制**保留作幂等兑底**（上游若回退 rail 形态，两枚入口仍被
+ *   收掉；无痕下匹配不到可见元素，规则无副作用、不崩不错位）。
+ *   （2026-10-02 初版按「官方 Windows 折叠后极简」移植到非 Windows 标题栏
+ *   形态的 rail 上；当日为纯 rail 收纳，次日随无痕化退居兑底。）
  *
  * ## 锚点（CSS modules 构建产物形如 `<hash>_<源类名>`，hash 随构建漂移、
  * `_源类名` 后缀稳定；属性选择器作用于整个 class 属性串，故含配不能用
