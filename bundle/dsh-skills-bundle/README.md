@@ -1,6 +1,6 @@
 # dsh-skills-bundle
 
-> **方法论技能包**——激活时扫描包内 skills/ 目录注册为 runtime skill（rank 250，项目级 .dsh/skills 同名技能可覆盖）。适配自 KSkills 仓库。
+> **方法论技能包**——激活时扫描包内 skills/ 目录注册为 runtime skill（rank 250，项目级 `.dsh/skills` 同名技能可覆盖；QiLin 侧对应 `.qilin/skills` 与 `.agents/skills`）。适配自 KSkills 仓库。
 
 自 KCoder 内置包独立发布的 dsh 插件（v1.0.0 起独立版本线）。
 

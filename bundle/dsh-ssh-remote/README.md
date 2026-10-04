@@ -68,21 +68,26 @@ dsh plugin --profile web add dsh-ssh-remote
 遇到会直接认证失败（不会挂死，由 `SSH_ASKPASS_REQUIRE=force` 保证非交互）。
 跳板链上的密码暂未启用（凭据按 `user@host` 存取，将来可直接支持每跳独立凭据）。
 
-## 版本兼容（dsh 0.1.7 世代起）
+## 版本兼容（dsh 0.1.7 世代起；0.1.4 扩上界至 `<1.0.0`）
 
 插件按框架契约把宿主侧依赖声明为 `peerDependencies`，并且**范围对预发布代友好**：
 
 | peer | 范围 | 说明 |
 |------|------|------|
-| `@deepseek-ai/dsh` | `>=0.1.0-rc.5 <0.2.0` | 宿主本体（`apps/cli`） |
-| `@deepseek-ai/dsh-tools` | `>=0.1.0-rc.5 <0.2.0` | `defineTool` 契约 |
+| `@deepseek-ai/dsh` | `>=0.1.0-rc.5 <1.0.0` | 宿主本体（`apps/cli`） |
+| `@deepseek-ai/dsh-tools` | `>=0.1.0-rc.5 <1.0.0` | `defineTool` 契约 |
 | `@deepseek-ai/schemastery` | `>=3.18.0 <4.0.0` | 配置 schema |
 
 宿主在**安装时**与 **profile 加载时**都会校验这些 peer（`evaluatePluginCompatibility()`，
 只检查 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*`），不满足即抛出
 `incompatible-version` 类型化拒绝。校验按 `includePrerelease` 语义做
-`semver.satisfies`，因此 `0.1.7-rc.2` 这类预发布版本能落进 `>=0.1.0-rc.5 <0.2.0`；
+`semver.satisfies`，因此 `0.1.7-rc.2` 这类预发布版本能落进 `>=0.1.0-rc.5 <1.0.0`；
 写成 `^0.1.0-rc.5` 在默认 npm/pnpm 语义下反而不匹配 `0.1.7-rc.x`。
+
+> **0.1.4 修正**：旧上界 `<0.2.0` 对 `0.2.1-alpha.1`（上游 2026-10-03 prerelease）求值为
+> **false**（`0.2.1-alpha.1` 不满足 `<0.2.0`），会让 app-boot 兼容闸门把整个 bundle
+> **静默跳过**（仅 stderr 一行 `skipping profile bundle`），表现为 SSH 远程能力凭空消失。
+> 上界改为 `<1.0.0`，覆盖 0.1.x 与 0.2.x 全系（含 prerelease）。
 
 确需绕过（例如临时验证更早/更晚的宿主）时，豁免是 profile 内
 `compatibility.json` 的**精确 `name@version` → 运行时版本**对，可经插件管理器 UI，

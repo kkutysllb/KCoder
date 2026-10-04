@@ -4,7 +4,8 @@
 # web profile 的 node_modules 并注册进 dsh.profile.bundles（紧跟
 # dsh-web-app 之后）。本层只挂一个胶水插件：激活时扫描包内 skills/
 # 目录，把适配自 KSkills 仓库的方法论技能注册为 runtime skill
-# （rank 250，项目级 .dsh/skills 同名技能可覆盖）。
+# （rank 250，项目级 .dsh/skills 同名技能可覆盖；QiLin 侧对应
+# .qilin/skills 与 .agents/skills）。
 # 后续层（profile 自身 cordis.patch.yml、--patch 覆盖）可按行 id
 # 覆写或禁用本行。
 

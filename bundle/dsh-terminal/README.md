@@ -4,7 +4,7 @@
 
 自 KCoder 内置包独立发布的 dsh 插件（v1.0.0 起独立版本线）。
 
-## dsh 0.2.0 兼容声明（v1.2.0 起）
+## dsh 0.2.x 兼容声明（v1.2.0 起；v1.2.2 扩上界）
 
 manifest 按新代插件约定声明兼容面，供 plugin-manager 的安装前检查与
 app-boot 的启动准入评估（两处共用同一检查器：只看 `@deepseek-ai/dsh`
@@ -12,11 +12,13 @@ app-boot 的启动准入评估（两处共用同一检查器：只看 `@deepseek
 
 - `dsh.manifestVersion: 1` —— 新 manifest 格式版本标记；
 - `peerDependencies`：`@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-host-webserver`
-  （插件绑定的 webServer 服务所在包）声明 `>=0.1.6-alpha.2 <0.2.0`。
-  **semver 里 `0.2.0-rc.* < 0.2.0`**，因此该范围在 prerelease 参与匹配的
-  语义下同时命中 0.1.6-alpha.2（v1.1.x 线的适配基线）与 0.2.0-rc.2
-  （2026-10 在 KCoder 桌面实机实测：spawn/回放/面板几何/工作区探针全通过）；
-  dsh 发 0.2.0 正式版时本范围即失配——这是有意的评审闸门，届时升版重审；
+  （插件绑定的 webServer 服务所在包）声明 `>=0.1.6-alpha.2 <1.0.0`。
+  该范围在 prerelease 参与匹配的语义下同时命中 0.1.6-alpha.2（v1.1.x 线的
+  适配基线）、0.2.0-rc.2（2026-10 在 KCoder 桌面实机实测：spawn/回放/面板
+  几何/工作区探针全通过）与 0.2.1-alpha.1（上游 2026-10-03 prerelease）；
+  **旧上界 `<0.2.0` 会把 `0.2.1-alpha.1` 判为失配**（`0.2.1-alpha.1` 不满足
+  `<0.2.0`），导致 app-boot 兼容闸门**静默跳过整个 bundle**——v1.2.2 起改为
+  `<1.0.0`，跨大版本时再按契约重审；
 - `engines`：`node >=20`（运行时基线）、`dsh` 同 peer 范围（声明性文档，
   当前无读取方强制）。
 
