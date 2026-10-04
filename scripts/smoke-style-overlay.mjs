@@ -15,9 +15,11 @@
  *   设置对话框头部「带 close 直子」收掉、「自绘头」不受影响（双保险守卫）；
  *   hero 水印的 ::before 仍带 data URL 背景与 relative 定位。
  *
- * 运行：pnpm exec electron scripts/smoke-style-overlay.mjs
- * （本机沙箱下需 `env -u ELECTRON_RUN_AS_NODE pnpm exec electron
- *   --no-sandbox --disable-gpu scripts/smoke-style-overlay.mjs`）
+ * 运行：pnpm run smoke:style-overlay        ← 已挂进 package.json（2026-10-04）
+ * （底层等价于 `env -u ELECTRON_RUN_AS_NODE pnpm exec electron
+ *   scripts/smoke-style-overlay.mjs`；`ELECTRON_RUN_AS_NODE` 会把 electron
+ *   当纯 Node 启动、拿不到 app/BrowserWindow，故须 env -u 解除）
+ * 手调也可：pnpm exec electron scripts/smoke-style-overlay.mjs
  */
 import { app, BrowserWindow } from 'electron'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
