@@ -1,6 +1,11 @@
 /**
- * 预置第三方插件（dsh-coding-sidebar，另有官方可选组合包
- * dsh-experimental-schedule-bundle 借道本表）的开箱物化。
+ * 预置第三方插件（**当前只有 dsh-coding-sidebar 一条**）的开箱物化。
+ *
+ * 历史（止于 2026-10-04）：官方可选组合包 dsh-experimental-schedule-bundle 曾
+ * 借道本表走「装进 profile deps + 自动声明进 bundles 层叠」这条通道；它随
+ * dsh 0.2.1-alpha.1 被上游**整体删除**、调度改为 Web 内置，故本条已摘除并
+ * 转入 RETIRED_PRESETS 三清——本表自此不再承载任何官方组合包。
+ * （另见下方各自条目的历史记录段。）
  *
  * 这些插件是 KCoder 发行物的一部分：Windows 全新安装后 profile 是
  * 上游空模板（只有 dsh-base / dsh-web-app 内置层），第三方插件不会自动
@@ -102,9 +107,10 @@ import { SHELL_TITLEBAR_HEIGHT } from './theme-watcher'
  * 参与对账，link: 等无版本形态不参与。
  */
 export const PRESET_PLUGINS: Record<string, string> = {
-  // 调度与时间上下文（2026-09-29，上游 0.2.0-rc.1）：上游把 time-context /
-  // schedule / ui-schedule 三行**从 web-app 组合整段迁出**，改由这个官方
-  // **可选** bundle 的 cordis.patch.yml 以 `- insert:` 插入（包名已登记进
+  // @deepseek-ai/dsh-experimental-schedule-bundle（2026-10-04 整线退役，本段为
+  // 历史记录）：曾用于启用上游 0.2.0-rc.1/rc.2 的调度与时间上下文——上游当时把
+  // time-context / schedule / ui-schedule 三行**从 web-app 组合整段迁出**，改由
+  // 这个官方**可选** bundle 的 cordis.patch.yml 以 `- insert:` 插入（包名已登记进
   // app-boot 的 OPTIONAL_BUNDLES，随安装提供但默认不选中）。
   // 因此启用方式从「产品策略层 id 定向覆写三行」改为「在 profile 的
   // dsh.profile.bundles 里选中本 bundle」——旧的覆写写法在 0.2.0-rc.1 上是
@@ -119,7 +125,18 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // → KCoder 60s 启动超时（2026-09-30 dev 现场实证 + overlay 二分定位，
   // 见 docs/upstream-0.2.0-rc.2-analysis.md §5）。这也是本表对调度线用
   // 精确钉而非范围钉的原因：上游 peer 本就精确钉，范围钉引入 ERESOLVE。
-  '@deepseek-ai/dsh-experimental-schedule-bundle': '0.2.0-rc.2',
+  // **2026-10-04 退役（随 dsh 0.2.1-alpha.1）**：上游把该组合包**整体删除**
+  // （连目录 packages/experimental/schedule-bundle），调度改为 **Web 内置**
+  // ——新包 schedule/tool-schedule 随 dsh-web-app 提供，无需再选中任何行。
+  // 上游同时引入 RETIRED_BUNDLES 机制（boot/app-boot/src/profile.ts 的
+  // dropRetiredBundles，在 loadProfileDirectory 第一步执行）：**每次加载都把
+  // 该名从 profile 的 dsh.profile.bundles 删掉并回写 manifest**。若本表继续
+  // 声明该行，宿主每次启动写回、引擎每次加载摘除 → 启动震荡 + 持续安装一个
+  // 已停产的包（其 cordis.patch.yml 会插入精确钉旧引擎的 dsh-schedule 行，
+  // 上面那条 60s 超时随即复发）。官方升级指南亦明确「由其他工具写入的
+  // profile 目录需自行删除该条目」，KCoder 正是那个工具。
+  // 退役后由 RETIRED_PRESETS 三清自愈（老 profile 的 deps 声明、bundles
+  // 层叠声明与 node_modules 实体在下次启动全部回收）。
   // dsh-context（2026-10-02 整线退役，本段为历史记录）：曾随首批预置
   // （^0.55.0 锁线，与补丁线同线）。注意：该包曾挂两条常驻修复补丁
   // （RO 回路冷却 / 轮尾 jump 走会话内 tab，见 profile-patches.ts 文件头
@@ -277,6 +294,14 @@ const RETIRED_PRESETS = [
   '@tt-a1i/archify-dsh',
   '@dsh-external/dsh-drag-to-attachment',
   'dsh-context',
+  // @deepseek-ai/dsh-experimental-schedule-bundle（2026-10-04）：随 dsh
+  // 0.2.1-alpha.1 退役——上游整包删除并改为 Web 内置（schedule/tool-schedule
+  // 随 dsh-web-app 提供，无需选中）。**必须与本表上方正式声明的摘除同批**：
+  // 只摘声明而不入本清单，老 profile 的 deps 声明、bundles 层叠声明与
+  // node_modules 实体会原样留着，而引擎的 RETIRED_BUNDLES 只摘 bundles 行、
+  // 不清 deps 与实体 ⇒ 停产包继续被安装（其 cordis.patch.yml 插入精确钉旧
+  // 引擎的 dsh-schedule 行，60s 启动超时复发）。详见上方历史记录段。
+  '@deepseek-ai/dsh-experimental-schedule-bundle',
   // dsh-file-review-kcoder（2026-10-04）：dsh-coding-sidebar 的衍生插件整线
   // 退役（宿主侧栏保留；依赖方向单向——侧栏不反向依赖它，见
   // kcoder-skills-bundle 的 RETIRED_PLUGINS 注释）。三清覆盖老 profile 的 deps

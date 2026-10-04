@@ -50,12 +50,21 @@ const IN_BOX_BUNDLES = [
  * 提供）。在 profile 的 pnpm-workspace.yaml 里用 `peerDependencyRules.
  * ignoreMissing` 声明，抑制 `WARN Issues with peer dependencies found`
  * 这类误导性噪音——这些包本就不该装进 profile（会复制一份 cordis 实例）。
+ *
+ * 2026-10-04 清理（dsh 0.2.1-alpha.1）两处**陈旧条目**——它们在上游已不存在，
+ * 留着只会让 ignoreMissing 清单与上游漂移（两个 tag 上按各包
+ * `packages/<scope>/<name>/package.json` 的 `"name"` 字段实测）：
+ * - `@deepseek-ai/dsh-invariants`：0.2.1-alpha.1 删除了 runtime-diagnostics/
+ *   invariants 整包（官方指南 remove-runtime-invariants）⇒ rc.2 上还有、新版已无；
+ * - `@deepseek-ai/dsh-client-runtime`：**rc.2 上就已不存在**（既有债，本次顺手回收）。
+ *
+ * 注意：本注释内不得出现「星号紧跟斜杠」的序列——那会当场闭合本块注释
+ * （写路径 glob 时尤其容易踩；本次实测 TS1005/TS1161 一片）。
  */
 const DS_HOST_PEER_FALLBACK = [
   '@deepseek-ai/dsh-agent',
   '@deepseek-ai/dsh-brand',
   '@deepseek-ai/dsh-client-locale',
-  '@deepseek-ai/dsh-client-runtime',
   '@deepseek-ai/dsh-client-ui-conversation',
   '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-ui-tool',
@@ -63,7 +72,6 @@ const DS_HOST_PEER_FALLBACK = [
   '@deepseek-ai/dsh-credentials',
   '@deepseek-ai/dsh-home-paths',
   '@deepseek-ai/dsh-host-webserver',
-  '@deepseek-ai/dsh-invariants',
   '@deepseek-ai/dsh-launch-environment',
   '@deepseek-ai/dsh-llm',
   '@deepseek-ai/dsh-mcp-client',

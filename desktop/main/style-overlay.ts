@@ -104,6 +104,16 @@ const NATIVE_SIDEBAR_CSS = `[data-sidebar-right-expand],
  *   collapsedWidth=0 + caption row 两枚悬浮钮；构建产物
  *   `[data-windows-titlebar] .collapsed …` 实证）——regionArea 被收掉即
  *   两枚入口在官方折叠态同样不可见；
+ *   （2026-10-04 随 dsh 0.2.1-alpha.1 复核：**承载该结论的判据未变**——
+ *   `document.documentElement.hasAttribute('data-windows-titlebar') ? 0 :
+ *   SIDEBAR_COLLAPSED` 两侧同行号；上游同批把
+ *   `:global([data-windows-titlebar]) .handle { top: … }` 换成了
+ *   `.handle { grid-area: 1 / 1 / 2 / -1 }`——AppFrame 新增 `shell.bottom`
+ *   行、`grid-template-rows` 由 `100%` 改 `minmax(0,1fr) auto`，**列数未改**
+ *   （inline `gridTemplateColumns` 仍为唯一产出点）⇒ 本节四段选择器逐条复核
+ *   后**零改动**；同批的 `[data-side='rightbar']` 拖拽手柄属性仍产出
+ *   （AppFrame.tsx 的 `data-side={props.side}`），sidebar-toggle 的
+ *   `tracks.length === 3` 判据不受影响。）
  * - 结论：本段压制**保留作幂等兑底**（上游若回退 rail 形态，两枚入口仍被
  *   收掉；无痕下匹配不到可见元素，规则无副作用、不崩不错位）。
  *   （2026-10-02 初版按「官方 Windows 折叠后极简」移植到非 Windows 标题栏

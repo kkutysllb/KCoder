@@ -398,7 +398,7 @@
 # dd1529d8aa/b88abcad16 均为尖端祖先；新 delta vs 旧 delta 文件集差恰为
 # plugin.ts（按决策取上游）；上游侧文件零删除；build exit 0（248 client
 # 产物），lib/index.js 299/299，CI=true pnpm run typecheck 通过。
-639ed015397290b3745d163aafe02ffee4aa3f84
+5badb15009ae1756c3afe0ae0cef1faafc290ccc
 
 # ── 集成分支 fork 侧追加（2026-09-18：设置页插件管理 tab）──────────────
 # 集成分支尖端 02253cd274（本地 = origin/kcoder/0.1.6-alpha.2，远端新建分支）。
@@ -912,3 +912,76 @@
 # （rc.2 由 2026-08-13.1 升到 2026-09-28.1）。修法：注册前补一条 Electron 判定
 # （UA 含 Electron 标记；宿主未自定义 UA，Electron 44 默认 UA 实测含
 # Electron/44.0.0），普通浏览器（LAN/远程访问）维持上游行为。单元用例锁定该分支。
+
+#
+# 升级记录：2026-10-04 rc.2(639ed01539) → 0.2.1-alpha.1(5badb15009ae1756c3afe0ae0cef1faafc290ccc，
+# 上游 tag dsh-v0.2.1-alpha.1，prerelease，2026-10-03 发布)。266 提交 / 4190
+# 文件 / +51032 −32761。集成分支重建为 kcoder/0.2.1-alpha.1（= tag + 单次
+# merge --no-ff kcoder/0.2.0-rc.2 整体重放），尖端 161c7122f6，已推 fork；
+# kcoder/0.2.0-rc.2(b428f93a79) 保留为回滚锚。我方 61 文件偏离面 ∩ 区间 =
+# 15 重叠 / 3 硬冲突，其余 46 个上游完全未动；7 个 upstream/*.patch 无一需
+# rebase，pi-ai 上游本次未升版（D6 分歧延续消失）。
+#
+# 3 处冲突处置：ui-plugin-manager/src/client/index.ts（保我方 children:
+# pageChildren，把上游新增子槽键 'plugins.add.actions' 并入 pageChildren；
+# 上游新增类型 PluginAddActionsProps 在冲突区外自动保留）；
+# workspace/workspace/package.json（peer/dev 两处保 dsh-fs、丢
+# dsh-invariants，dsh-shell 区外自动保留，上游 version 戳 / 删 ./invariant
+# 导出已自动采纳）；pnpm-lock.yaml（以上游锁为底回填 pi-ai 补丁哈希
+# 8d2124eb…，勿被上游 b9bcce47… 覆盖——回填前先验补丁文件本身区间内未被
+# 上游改动，git log 空，才敢取我方哈希）。
+#
+# 本段两个 P0（都属「静默失效」：不崩、不报错，能力直接消失）：
+# ① 调度组合包被上游退役，我方仍在钉它。上游从 OPTIONAL_BUNDLES 摘除
+#    @deepseek-ai/dsh-experimental-schedule-bundle（连目录
+#    packages/experimental/schedule-bundle 一并删除），改为 Web 内置（新包
+#    schedule/tool-schedule）；并新增 RETIRED_BUNDLES 机制
+#    （boot/app-boot/src/profile.ts:206-210 + dropRetiredBundles :667-674，
+#    入口 loadProfileDirectory :738）——**每次加载都把该名从 profile 的
+#    dsh.profile.bundles 删掉并回写 manifest**。而 KCoder 宿主的
+#    desktop/main/preset-plugins.ts 每次启动又写回该行 → 启动震荡 +
+#    持续安装一个已停产的组合包。官方升级指南明确「由其他工具写入的 profile
+#    目录需自行删除该条目」，KCoder 正是那个工具。解法：删该声明行 + 把该名
+#    加入 RETIRED_PRESETS 三清（deps / bundles 层叠 / node_modules 实体）。
+# ② 两个内置 bundle 的引擎 peer 上界 <0.2.0 恰好把新引擎挡在门外。兼容闸门
+#    boot/app-boot/src/plugin-compatibility.ts:77 用
+#    semver.satisfies(runtimeVersion, requirement, {includePrerelease:true})，
+#    runtime 版本取 app-boot/package.json。实测 0.2.0-rc.2 满足 <0.2.0、
+#    0.2.1-alpha.1 **不满足**（跨过 0.2.0 边界即失守）→
+#    compatibility-preflight.ts:82 打一行 'disabling profile plugin …' 后
+#    **整包跳过**：内置终端与 SSH 远程静默消失，不报错不崩溃。解法（家族级
+#    口径统一为 >=<下界> <1.0.0，与 D5 先例同形）：dsh-terminal 1.2.1→1.2.2、
+#    dsh-ssh-remote 0.1.3→0.1.4，同步 bundle/ 物化 + PRESET 声明线。
+#
+# 发布说明**未提及**的三条结构性变更（已逐条对本方求值）：tool.call.toolview
+# slot 破坏性变更（删 hookContext/inject、ToolResultNode 新增必填 name/args）
+# ——我方零命中；ui-conversation 草稿契约 bindDraftMirror→
+# bindDraftPersistence——我方不实现该 inject 面，走的 input.for(actx) 的
+# InputState.draft 两 tag 均仍为 string，setDraft 仍在；scoped-event 生成器
+# 与两条 gate 整体消失——运行时通道未受影响，assistant-live.ts 的
+# host.on(..., {global: true}) 继续有效（core/scope/src/{store,index}.ts diff 为空）。
+# 运行时 invariant 面移除（官方指南 remove-runtime-invariants）：运行期零影响
+# （该 ./invariant companion 从不被 mount——其加载者
+# runtime-diagnostics/invariants 已随上游删除，rc.2 起交付配置树就没有
+# invariant 行；我方 @deepseek-ai/dsh-invariants 是 devDependency、不进
+# profile），挂到侧栏 1.0.39 同批清理。
+#
+# 冻结面复核：槽位只增不减（200 vs 198，移除 0 条；新增 shell.bottom /
+# plugins.add.actions）；ui-slots/src tree SHA 三度同值；技能线（packages/skill）
+# 与 MCP 线（packages/mcp）src 零改动；终端上游（packages/terminal、
+# api/terminal-controller、ui-sidebar-terminal）非 README/package.json 文件数 = 0；
+# 产品策略层七个覆写行 id 全部存活（YAML 零改动）；启动 CLI
+# --no-open/--patch/--port/--host/--profile 逐字节存活；宿主注入锚点
+# （[data-chat-running]、'Deep diving'、EmptyHero 系、icons/index.tsx）
+# 全部存活且位置未变；AppFrame 新增 bottom 行未改列数 ⇒ 侧栏折叠
+# tracks.length === 3 仍成立。新增可选能力 --public-url 本段不启用。
+#
+# 回归证据：CI=true pnpm install exit 0（**未改写锁文件** ⇒ 回填的
+# 8d2124eb… 正是 pnpm 自算值，强于断言）；pnpm run build exit 0；
+# pnpm run typecheck exit 0；apps/web/dist 在位；集合断言 61 = 61（comm -3 空）；
+# 上游自测泳道 12569 通过 / 2 红——两红（ui-trajectory client-bundle、
+# ui-sidebar-documentpreview license-bundle）已用**纯净上游 worktree
+# 独立 install+build 复现同一断言同一行**，定性上游既有、非本段引入；
+# verify-translation-pairing 860 对 0 差异；verify-package-dependencies 74 包 0。
+# 分析文档 docs/upstream-0.2.1-alpha.1-analysis.md，实施计划
+# docs/upstream-0.2.1-alpha.1-upgrade-plan.md。

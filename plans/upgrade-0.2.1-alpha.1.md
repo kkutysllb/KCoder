@@ -23,11 +23,20 @@
 - [x] D1 技能线 + MCP 线：两条线**零改动**
 - [x] D2 侧边栏线 + 终端线 + 宿主注入面：锚点全存活；终端上游零改动；发现物化版本滞后 1.0.36 vs 1.0.38
 
-### 阶段 2：合成与落盘（进行中）
-- [x] 合成 `docs/upstream-0.2.1-alpha.1-analysis.md`（494 行：§0 结论卡 / §2 25 条逐条 / §3 未提及 / §4 重合并 / §5 P0 专题 / §6 四条插件线 / §7 动作 / §8 复现命令 / §9 遗留）
-- [x] 合成 `docs/upstream-0.2.1-alpha.1-upgrade-plan.md`（323 行：DoD / 决策 / 边界 / WBS / S1–S6 / 回滚 / 风险登记册 / 澄清卡）
-- [ ] 抛出澄清卡（Q1 调度组合包 · Q2 peer 口径范围 · Q3 侧边栏版本+invariant 清理 · Q4 版本号）
-- [ ] 交用户审阅（本阶段**不动任何代码**）
+### 阶段 2：合成与落盘（完成）
+- [x] 合成 `docs/upstream-0.2.1-alpha.1-analysis.md`（503 行：§0 结论卡 / §2 25 条逐条 / §3 未提及 / §4 重合并 / §5 P0 专题 / §6 四条插件线 / §7 动作 / §8 复现命令 / §9 遗留）
+- [x] 合成 `docs/upstream-0.2.1-alpha.1-upgrade-plan.md`（327 行：DoD / 决策 / 边界 / WBS / S1–S6 / 回滚 / 风险登记册 / 澄清卡）
+- [x] 抛出澄清卡（Q1 调度组合包 · Q2 peer 口径范围 · Q3 侧边栏版本+invariant 清理 · Q4 版本号）→ 四项均采纳推荐项
+- [x] 交用户审阅 → 用户拍板「开工」
+
+### 阶段 3：开工执行（进行中）
+- [x] S2.1 插件 peer 加宽五件（内置两件 + 家族三件）
+- [x] S2.2 物化/版本线同步（terminal 1.2.2 / sidebar 1.0.38 / ssh-remote 0.1.4 / skills-bundle 1.0.3 + preset 声明 `^1.0.38`）
+- [x] S1 fork 集成分支 `kcoder/0.2.1-alpha.1` 重建（`161c7122f6`，S1-GATE A–G 全过，已推）
+- [x] **S3 KCoder 宿主侧**（BASELINE / 分支名 / preset 声明 / 陈旧名单 / 注释 / 锚点复核）
+- [ ] S4 dev profile 物化 + 预装 + 启动验收（P0-1/P0-2 判据）
+- [ ] S5 回归（B5 样式 → 冲突面 → 家族 → 冒烟）
+- [ ] S6 发布 v0.6.24
 
 ## 决策记录（澄清卡已回收，2026-10-04，四项均采纳推荐项）
 
@@ -354,6 +363,54 @@ worktree**（独立 `CI=true pnpm install` + `pnpm run build`）复跑，两条*
 **R-8 未成立**：`verify-package-dependencies` 两侧均 exit 0（残留的 `dsh-invariants`
 仅在 `docs/dependency-catalog.json` 与 `.agents/notes/archived/**`，不被该门管辖）。
 
+### F24 ✅ S3 已执行：KCoder 宿主侧（逐条）
+
+| # | 靶点 | 动作 | 结果 |
+|---|---|---|---|
+| S3-1 | `upstream/BASELINE` | 首个非注释行 `639ed01539…` → **`5badb15009ae1756c3afe0ae0cef1faafc290ccc`**；尾追 2026-10-04 升级记录（两 P0 根因 + 三条未提及变更 + 冻结面复核 + 回归证据） | 914 → **987 行**；`grep -vE '^\s*(#\|$)' \| head -1` 实测 = 新 SHA |
+| S3-2 | 分支名 5 处 | [dsh-contract.ts:54,61](desktop/main/dsh-contract.ts#L61)、[setup.sh:16](scripts/setup.sh#L16)、[release.sh:132,136,137](scripts/release.sh#L136) → `kcoder/0.2.1-alpha.1` | `grep -rn 'kcoder/0\.2\.0-rc\.2' desktop/ scripts/` = **0** |
+| S3-3 | 调度组合包退役 | [preset-plugins.ts](desktop/main/preset-plugins.ts)：删声明行 + 注释改写为历史记录（照 `dsh-context` 先例）+ 入 `RETIRED_PRESETS`；**另修文件头陈旧介绍**（计划未列，见下） | 去注释后 `PRESET_PLUGINS` 真实键 **只剩 1 条**；`RETIRED_PRESETS` 真实条目 **7 条**含该名 |
+| S3-4 | 侧栏声明 | `^1.0.36` → `^1.0.38` | 已在 S2.2 完成 ✓ |
+| S3-5 | 4 个 SSH provider 包 | **无需动作**（见下） | — |
+| S3-6 | `DS_HOST_PEER_FALLBACK` | 删 `@deepseek-ai/dsh-invariants`（0.2.1 已删该包）+ `@deepseek-ai/dsh-client-runtime`（D7，既有陈旧） | 去注释后该数组 **0 命中**；两包在分支上实测不存在 |
+| S3-7 | [product-policy.ts:47-55](desktop/main/product-policy.ts#L55) | 保留原结论 + 追加 2026-10-04 更新（上游已把 schedule/ui-schedule 内置进 web-app、可选包整体删除） | 策略层 YAML 内 schedule 行 **0**（本就不持有） |
+| S3-8 | style-overlay 锚点 | 复核 → 选择器**零改动**；把复核结论写回注释 | 见下 |
+| S3-9 | 冒烟脚本 | 12 支全扫（11 支 GUI + style-overlay） | 已退役名（schedule / dsh-context / file-review）**全部 0 命中**；`probe-profile-providers.mjs` 只泛读 `manifest.dsh.profile.bundles`，无名称耦合 |
+| S3-10 | `release/v0.6.24.md` / `audit-v0.6.24.md` | **延后至 S6** | 版本号 bump 与审计报告属发布动作，提前写=写一份还不存在的版本号；S6 步骤 1 已列 |
+
+**S3-5 为什么无需动作**（计划口径的修正）：4 个 SSH provider 包
+（`dsh-ssh` / `dsh-fs-ssh` / `dsh-subprocess-ssh` / `dsh-sandbox-ssh`）**不在
+`PRESET_PLUGINS` 声明版本**，而是由
+[materialize-peers.mjs:375](scripts/materialize-peers.mjs#L375) 的
+`engineTrainVersion()`（从 staging 内同线包或引擎清单读 version）**每次物化时
+自动对齐引擎线**。计划 §7 的「随引擎线平移（若走 npm 声明）」前提不成立 ⇒
+零动作，且旧 profile 的残留声明由 `RUNTIME_PROVIDED_PACKAGES` 三清回收。
+
+**S3-8 复核证据（对构建产物，不只看源码）**：
+- CSS Modules 编译后类名形如 `<hash>_<源类名>`，源码 grep 不到 → 我改在
+  **fork 工作树的真实构建产物**上验（`apps/web/dist/assets/` + 各包 `lib/client.js`）：
+  `_rail` / `_sectionHeader` / `_search` / `_root` 在
+  `ui-workspace/lib/client.js` 中**均在位**。
+- 区间内**承载锚点的文件是否被改动**（逐文件 `git diff --numstat`）：
+  `ui-workspace/src/client/rows/WorkspaceBrowser.{tsx,module.css}`、
+  `ui-sidebar-right/src/client/index.ts`（控制器方法）、`shell/RightbarRoot.tsx`、
+  `shell/ExpandButton.tsx`、`ui-conversation/.../ConversationRoot.module.css`、
+  `ui-layout/src/client/columns.ts`、`ui-primitives/Modal.tsx` —— **全部未变**。
+- 两处**确有改动**、逐行看过：
+  1. `ui-sidebar-right/src/client/shell/SidebarRight.tsx`（+4−6）：`data-sidebar-right-tab`
+     / `-occurrence` / `-session` / `-panel` / `-open` **五个属性全部原位保留**，
+     改动只是加 `key={id}` 与 `aria-hidden` 语义改为「停靠态才隐藏、浮动层仍可及」；
+  2. `ui-layout/src/client/AppFrame.{tsx,module.css}`：新增 `shell.bottom` 行
+     （`grid-template-rows: 100%` → `minmax(0,1fr) auto`）并把
+     `:global([data-windows-titlebar]) .handle { top: … }` 换成
+     `.handle { grid-area: 1 / 1 / 2 / -1 }`。**列数未改**（inline
+     `gridTemplateColumns` 仍是唯一产出点，两侧各 1 处）⇒ `sidebar-toggle.ts:265-272`
+     的 `tracks.length === 3` 判据与 `[data-side='rightbar']` 手柄属性均不受影响。
+
+**S3-3 的计划外补漏**：`preset-plugins.ts` **文件头**（`:1-3`）原写「另有官方可选
+组合包 dsh-experimental-schedule-bundle 借道本表」——计划 §7 只列了 `:122` 与
+`:105-121`，没列文件头。只改后者会留下自相矛盾的介绍，已同批改写。
+
 ## Progress Log
 
 - [P0] 建工作态计划文件（本文件）。
@@ -394,6 +451,17 @@ worktree**（独立 `CI=true pnpm install` + `pnpm run build`）复跑，两条*
 - [S1] **补做 pre-commit 门（实质性）**：vendor manifest ✓、archived notes 2772 件 ✓、whitespace ✓、third-party notices 生成后零 diff ✓、**oxlint 49 文件 0 error**（8 warning）。
 - [S1] **GATE G：推送成功** `origin/kcoder/0.2.1-alpha.1` = `161c7122f6`；pre-push hook 实跑 typecheck ✓（未绕过）。
 - [S1] **S1 完成**。下一步按计划 §4：**S3**（KCoder 宿主侧：BASELINE / 分支名 / preset 声明 / 陈旧名单 / 注释）。
+- [接线] 用户选择「接」：`package.json` 新增 `check`（聚合）/ `check:bundle-version-line` / `check:sync-bundles` / `smoke:style-overlay` 四个脚本，调用式照抄仓库既有 GUI 冒烟约定（`env -u ELECTRON_RUN_AS_NODE pnpm exec electron scripts/…`，见 release.sh 的 settings-anchors）。三支逐条实跑：bundle-line 0 / sync-bundles 0 / smoke **PASS 18/18**；聚合 `pnpm run check` 实测 0。
+- [S3] S3-2 分支名 5 处平移 → `grep -rn` 归零。
+- [S3] S3-1 BASELINE：首非注释行换 `5badb15009…`（914 → 987 行）+ 追加 2026-10-04 升级记录；实测 `setup.sh` 的读取式取到新 SHA、新分支含该基线（release.sh 第二道断言成立）。
+- [S3] S3-3 调度组合包退役：删声明 + 入 `RETIRED_PRESETS` + 注释改写；去注释后 `PRESET_PLUGINS` 真实键**只剩 dsh-coding-sidebar 一条**。**发现计划外漏项**：文件头 `:1-3` 也宣称该包借道本表，已同批改写。
+- [S3] **一处编译期自伤**：plugins.ts 注释里写了 `packages/*/*/package.json`，其中 `*/` 当场闭合 JSDoc → TS1005/TS1161 一片（详见 Errors）。改为 `packages/<scope>/<name>/package.json` 后 `pnpm run check` exit 0。
+- [S3] S3-6 删两个陈旧 peer 条目（`dsh-invariants` 新版已删包 / `dsh-client-runtime` rc.2 就已不存在），去注释后数组 0 命中。
+- [S3] S3-5 判定**无需动作**：4 个 SSH provider 不在声明面、由 `materialize-peers` 的 `engineTrainVersion()` 每次物化时自动对齐引擎线。
+- [S3] S3-8 锚点复核**改在构建产物上做**（CSS Modules 哈希源码查不到）：承载锚点的 9 个文件区间内全部未变；两处确变的逐行看过（`SidebarRight.tsx` 五属性原位保留；`AppFrame` 的 handle 改 grid-area、**列数未改**）⇒ 四段选择器**零改动**，只把结论写回注释。
+- [S3] S3-9 12 支冒烟脚本对已退役名 **0 命中**；S3-10 延后至 S6（提前写=写一份尚不存在的版本号）。
+- [S3] **S3 门禁**：`pnpm run check`（typecheck + 版本线 + 同步对账）**exit 0**；`smoke:style-overlay` **18/18**。
+- [S3] **S3 完成**。下一步：**S4**（dev profile 物化 + 预装 + 启动验收 = P0-1/P0-2 的判决性判据）。
 
 ## Errors
 
@@ -403,3 +471,18 @@ worktree**（独立 `CI=true pnpm install` + `pnpm run build`）复跑，两条*
   third-party notices 新鲜度 / oxlint 49 文件），结果全绿；未用「索引已等于 HEAD、重跑是空操作」
   来搪塞。**教训：merge 提交同样要走 hook；若担心 `oxlint --fix` 改动手工解冲突结果，应先
   `LEFTHOOK=0` 之外的手段验证，而不是直接 --no-verify。** 后续 S3 起的提交一律不加 `--no-verify`。
+- **[S3] 块注释内写了路径 glob，自伤编译**：`desktop/main/plugins.ts` 的 JSDoc 里写
+  `packages/*` 与 `*/package.json` 相连的那种路径 glob——其中「星号紧跟斜杠」的序列
+  **当场闭合了块注释**，其后整段代码被当源码解析，`pnpm run check` 报
+  TS1005/TS1109/TS1127/TS1161 一片，且**错误行全指向数组元素**（看起来像数组写坏了，
+  实际病灶在注释里）。
+  **教训：块注释（`/** */`、`/* */`）内不得出现「星号紧跟斜杠」的序列——写路径 glob
+  时最容易踩（`*/`、`**/` 都中招）。** 改用 `packages/<scope>/<name>/package.json`
+  这类无星号写法；已在该注释处留一行就地警告。
+- **[S3] 链式命令被 `grep -c` 的「零命中=退出 1」截断，导致我误读了一次门禁结果**：
+  形如 `… && grep -c X && … && pnpm typecheck; echo exit=${PIPESTATUS[0]}`——`grep -c`
+  命中 0 时返回退出码 1，`&&` 链**在 typecheck 之前就断了**，末行打印的 `PIPESTATUS[0]`
+  是断链的退出码（显示成 `typecheck exit=1`），而 typecheck **根本没跑**。差点据此
+  报「门禁红」。
+  **教训：验证脚本里不要让 `grep -c` 参与 `&&` 链；「期望零命中」的检查要独立成行
+  （`printf` + `$(grep -c … || true)`），且断言必须紧贴被断言的命令。**

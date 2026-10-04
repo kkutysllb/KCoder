@@ -53,6 +53,13 @@ const POLICY_FILENAME = 'cordis.patch.kcoder.yml'
  *   三行会静默失效（不报错、功能直接消失，0.2.0 升级现场）。启用路径改为在
  *   profile 的 `dsh.profile.bundles` 中选中该 bundle（见 preset-plugins.ts），
  *   策略层不再持有这三行。
+ *   **2026-10-04 更新（dsh 0.2.1-alpha.1）**：上游把 `schedule` /
+ *   `ui-schedule` / `time-context` **内置进了 `dsh-web-app` 组合**，并整包删除
+ *   了那个可选 bundle（连目录一并删除；新增 `schedule/tool-schedule`）。
+ *   ⇒ 结论不变且更强：策略层**继续不持有这三行**（内置行随 web-app 层自动
+ *   在位，另有上游新增的 `RETIRED_BUNDLES` 机制持续摘除旧的组合包名），
+ *   也不需要任何「选回可选包」的动作。启用路径一栏随之作废，
+ *   见 preset-plugins.ts 的同段历史记录。
  * - **会话日志开关隐藏**（2026-09-29，D2.1）：0.2.0-rc.1 新增客户端包
  *   `ui-settings-session-log`，在「设置 → 通用」放了一个上传 Session Log 的
  *   开关（`session-log-deepseek.enabled` 改为 Volatile、逐请求读取）。但本层是

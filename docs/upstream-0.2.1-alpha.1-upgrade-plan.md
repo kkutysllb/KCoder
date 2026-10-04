@@ -1,9 +1,18 @@
 # KCoder 上游基线升级实施计划：`0.2.0-rc.2` → `0.2.1-alpha.1`
 
-> **计划状态：执行中（S1 已完成，2026-10-04）。S2.1/S2.2 已完成；S3–S6 未开始。**
+> **计划状态：执行中（2026-10-04）。S1 / S2.1 / S2.2 / S3 已完成；S4–S6 未开始。**
 > 进度与逐条证据见工作态计划 [plans/upgrade-0.2.1-alpha.1.md](../plans/upgrade-0.2.1-alpha.1.md)。
 > S1 结果：fork `kcoder/0.2.1-alpha.1` = `161c7122f6`（已推 origin），S1-GATE A–G 全过；
 > 上游泳道 12569 通过 / 2 红，**两红已用纯净上游 worktree 实证为上游既有问题**（非本次引入）。
+> S3 结果：`upstream/BASELINE` 钉版 → `5badb15009…`（914 → 987 行，含本段升级记录）；
+> 分支名 5 处平移归零；调度组合包退役（声明摘除 + 入 `RETIRED_PRESETS`，表内真实键只剩
+> `dsh-coding-sidebar`）；`DS_HOST_PEER_FALLBACK` 清两个陈旧条目（`dsh-invariants` /
+> `dsh-client-runtime`）；**S3-5 判定无需动作**（4 个 SSH provider 由
+> `materialize-peers` 的 `engineTrainVersion()` 自动对齐引擎线，不在声明面）；
+> **S3-8 锚点复核零改动**（承载锚点的 9 个文件区间内未变；AppFrame 新增 `shell.bottom`
+> 行改 `grid-template-rows` 而**列数未改** ⇒ 侧栏折叠与样式覆写判据均成立）；
+> S3-9 12 支冒烟对已退役名 0 命中；S3-10（release 文档）按计划归入 S6。
+> 门禁：`pnpm run check` exit 0、`smoke:style-overlay` 18/18。
 > 版本：v1（2026-10-04 定稿）。**KCoder 目标版本 `0.6.24`**（单锚定 `0.2.1-alpha.1`）。
 > 依据：[upstream-0.2.1-alpha.1-analysis.md](upstream-0.2.1-alpha.1-analysis.md)（差异分析，五路取证）
 > 事实基线：官方 prerelease `dsh-v0.2.1-alpha.1` 已发布（2026-10-03）；npm 侧 `dsh-schedule`/`dsh-tool-schedule`/4 个 SSH 包/`dsh-base`/`dsh-web-app` 均有 `0.2.1-alpha.1`（已 `npm view` 实查）；**0.2.1 正式版未发布**。
