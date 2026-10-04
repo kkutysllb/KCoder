@@ -35,7 +35,7 @@
 - [x] S1 fork 集成分支 `kcoder/0.2.1-alpha.1` 重建（`161c7122f6`，S1-GATE A–G 全过，已推）
 - [x] **S3 KCoder 宿主侧**（BASELINE / 分支名 / preset 声明 / 陈旧名单 / 注释 / 锚点复核）
 - [x] S4 dev profile 物化 + 预装 + 启动验收（P0-1/P0-2 判据）——**4/5 通过**；抓出 F26（已修）/ F27 / F28（待裁决）
-- [ ] S5 回归（B5 样式 → 冲突面 → 家族 → 冒烟）
+- [~] S5 回归（B5 样式 ✅ / 冒烟 ✅ / 冲突面·家族·真实会话 = **需真人交互，待用户**）
 - [ ] S6 发布 v0.6.24
 
 ## 决策记录（澄清卡已回收，2026-10-04，四项均采纳推荐项）
@@ -549,6 +549,46 @@ dependencies），所以「引擎提供但没写进 profile deps」在宿主眼�
 
 **终局**：**10/10 全绿**（9 GUI + 1 node）；`pnpm run check` **exit 0**。
 
+### F31 ✅ S5 门禁 1（R-2，本次最高风险实测项）：覆盖层注入生命周期
+
+**结论：R-2 不成立——两条存活路径都成立，且新增一支冒烟把它钉住。**
+
+原冒烟 `smoke-style-overlay.mjs` 把 `*_CSS` 段**内联**进 fixture，因此**完全没有覆盖注入机制**
+（真 `attachStyleOverlay()` 的 `did-finish-load` + `STYLE_ID` 幂等替换没被任何测试碰过）。
+新增 `scripts/smoke-style-overlay-lifecycle.mjs`（`pnpm run smoke:style-overlay-lifecycle`）：
+用 esbuild 编译 `desktop/main/style-overlay.ts` 后**真 import 产品函数**（不是照源码重敲），
+在真 BrowserWindow 上跑完整生命周期，**29 项断言**。
+
+插件启停的两种引擎行为（读码定性）：
+
+- `setBundleEnabled` 返回 `application: 'applied' | 'restart-required'`（`manager-store.ts:630-635`）；
+- `applied`（热应用，无整页加载）→ head 里已注入的 `<style>` 原地留存；
+- `restart-required` → 引擎重启 → 端口变 → `windows.ts:190` 判定前缀不匹配 → `loadURL`
+  → 整页加载 → `did-finish-load` 重注入（该处注释本就点名「样式覆盖层延迟重注入」）。
+
+实测（29/29 PASS）：首载注入发生且**恰好一份**、CSS 与源码合成归一化后逐字一致、四段语义
+**经由真注入路径**成立、**外来插件 style 与 body 属性未被触碰**、重复 attach + 整页重载后
+**仍恰好一份**、覆盖层被抹掉后重载**自愈**、窗口关闭后 `did-finish-load` 监听**已摘除**。
+
+**负对照（证明这支真能红）**：把 `let el = document.getElementById(STYLE_ID)` 改成 `let el = null`
+（即移除幂等复用）→ **FAIL 25/29**，红的两条正是「重载后份数=2 应为 1」与「未能自愈」。
+
+**⚠️ 方法论教训（本轮最值钱的一条）**：负对照**第一版是 PASS 的**——我最初的用例只做「单次重载」，
+而整页加载会重建文档，旧 style 本就消失，于是「每次注入都新建」的坏实现照样只剩一份，
+断言**根本没有判别力**。补上「重复 attach（同文档内 inject 跑两次）」这一形态后负对照才转红。
+**绿色的测试如果红不了，等于没有测试**；本仓既有做法（每支 GUI 冒烟都带负对照/判别力自检）
+应当无条件遵守，不能只对新写的测试挑着做。
+
+**冒烟脚本自身 5 个缺陷（首跑时逐个暴露，均已修）**：
+
+| # | 症状 | 真因 |
+|---|---|---|
+| 1 | 挂住 90s+ 无输出 | 无进度输出、无看门狗；且 `win.close()` 后 Electron 默认 `window-all-closed → app.quit()` 在「关闭后监听已摘除」断言前把进程带走（**exit=0 却没有任何结论行**）。修：`app.on('window-all-closed', …)` 空处理器 + 看门狗 + `[step]` 进度 |
+| 2 | `__dirname is not defined in ES module scope` | esbuild 打成 ESM 后 `dsh-contract` 的 `resolve(__dirname,'..','..')` 失效。修：CJS + `define: { __dirname }` 钉成真实 `desktop/main` |
+| 3 | `assets/brand-k.png` ENOENT（回落到 Electron.app/Resources） | 产物落临时目录 ⇒ PROJECT_ROOT 推错。修同上；**顺带获得一条真回归信号：水印资产缺失即红** |
+| 4 | `Cannot use plugins in synchronous API calls` | 本想用 esbuild 插件打桩 `./dsh-contract`，但 `buildSync` 不支持插件。弃桩改用 #2/#3 的 define 方案（保真度更高） |
+| 5 | 结论行丢失（exit=0 但看不到 PASS） | `app.exit()` 立即终止，未冲刷的 stdout 被截断。修：`writeSync(1, …)` + 延迟 50ms 退出 |
+
 ### F30 为 S6 记账：上游两处 UI 破坏性变更的**残留暴露面**
 
 - `tool.call.toolview` slot（发布说明未提）与 `ui-conversation` 草稿契约重构
@@ -671,4 +711,34 @@ dependencies），所以「引擎提供但没写进 profile deps」在宿主眼�
   **教训二：macOS 无 `timeout`；自造看门狗要按脚本名 `pkill -f <name>`（能连带 Electron 子进程），
   且**绝不要把输出走命令替换**——写文件再读，否则子进程持有管道会挂死。**
   **教训三：本仓冒烟无聚合器、发版门只跑其中一支；「N 支冒烟全绿」这种口头判据必须先核实形态与数量。**
+
+- [S5] 门禁 5（KCoder 门）**全绿**：`pnpm typecheck` exit 0（远端 addon 规格 25/25）·
+  `release.sh audit` exit 0 · `check-bundle-version-line` 通过 · `release.sh prepush` **exit 0**
+  （审计 + 补丁闸 + 版本线 + 设置页锚点 + 全量构建）。审计报告项与 `release/audit-v0.6.23.md`
+  **逐项相同**（2 dead export 仅行号 +1、10 unused deps 同列表）⇒ 非本次升级引入。
+- [S5] 门禁 1（R-2）**实测完成并新增一支冒烟**（F31）：`smoke-style-overlay-lifecycle.mjs`
+  **29/29 PASS**，负对照 **FAIL 25/29**（证明有判别力）。`.sol-nc.ts` 临时副本已清理。
+- [S5] 冒烟复扫终局：**12 支脚本全绿 = 10 GUI + 2 node**
+  （新增 lifecycle 一支；`smoke-runtime` 靶子仍是 0.2.0-rc.2 旧运行时 ⇒ 归 S6）。
+- [S5] **待用户交互的门禁**（我无法代劳，均需真人操作运行中的桌面端）：
+  门 2 冲突面语义（`ui-plugin-manager` 页 / dock 双注册 / `publicUrl` + `windowsHide`）、
+  门 3 侧栏客户端半（页签/任务计划/explorer 插入引用）、
+  门 4 家族插件各装一遍（D3 范围）、
+  门 7 真实会话（终端 / SSH 远程 / 任务计划 / 侧栏插件入口 / 设置页插件管理 / 品牌文案）。
+  **其中门 4/门 7 的「插件启停」正是 F31 覆盖的生命周期**：真机操作时若样式异常，
+  先跑 `pnpm run smoke:style-overlay-lifecycle` 区分「机制坏」与「别的东西坏」。
+- **[S5] 我写的断言是绿的，但它红不了——负对照差点被我做成自我安慰**：
+  `smoke-style-overlay-lifecycle.mjs` 首版对「幂等复用」只做「单次整页重载」就断言
+  「覆盖层恰好一份」。把产品实现改成 `let el = null`（移除幂等复用）后，这支冒烟**照样 PASS**
+  ——因为整页加载会重建文档，旧 `<style>` 本就消失，坏实现也只能剩一份。
+  补上「重复 attach（同一文档内 inject 跑两次）」这一形态后，负对照才 **FAIL 25/29**
+  （红的两条正是「份数=2 应为 1」与「未能自愈」）。
+  **教训：负对照必须真的跑，且要跑在「能让坏实现暴露」的形态上；只做「我改了实现它应该会红」
+  的推理不算数。本仓每支 GUI 冒烟都带判别力自检，这是既有纪律，不能只对新写的测试挑着做。**
+- **[S5] 冒烟脚本自身的 5 个缺陷**（挂住无输出 / ESM `__dirname` / 资产 ENOENT /
+  `buildSync` 不支持插件 / `app.exit()` 截断 stdout）——逐个记在 F31 表格里，均为
+  「先写对机制、再让症状可见」这一类问题。**其中两条值得推广：**
+  ① **任何跑真窗口的脚本都要有看门狗 + `[step]` 进度**，否则挂住时连「挂在哪」都拿不到；
+  ② **`window-all-closed` 会让 Electron 自动退出**——测「关闭后状态」的脚本必须挂空处理器，
+  否则表现为 **exit=0 却没有任何结论行**（比红更难查，因为退出码是「成功」）。
 

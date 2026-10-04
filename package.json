@@ -22,7 +22,8 @@
     "setup": "bash scripts/setup.sh",
     "sync-upstream": "bash scripts/sync-upstream.sh",
     "dist": "electron-vite build && electron-builder --mac",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "smoke:style-overlay-lifecycle": "env -u ELECTRON_RUN_AS_NODE pnpm exec electron scripts/smoke-style-overlay-lifecycle.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
