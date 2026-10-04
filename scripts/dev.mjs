@@ -31,6 +31,19 @@
  * 100% 起不来（2026-09-20 实测复现）。spawn 不传 env 时子进程全量继承，
  * 故此处显式剥离后再下传（electron-vite 再派生 electron，同环境）。
  *
+ * ## 现象三（依赖陈旧 → 插件面静默缺失）
+ *
+ * `pnpm install` 之后又改过清单（package.json / pnpm-lock.yaml）时，工作区
+ * 软链会缺失，而失败形态是**静默的**：引擎照常启动、页面照常打开，只是插件
+ * 清单少条目（2026-10-04：升级上游后漏跑 install → 宿主 file-upload import
+ * 失败 → fileUploads 缺失 → session-controller 永远 pending → 客户端 33 条
+ * 插件条目全部 pending，终端上只有一句「Failed to load plugins」）。
+ *
+ * 修复：启动 electron-vite 之前对「本仓 + 上游克隆」各体检一次
+ * （scripts/deps-freshness.mjs，两棵树 + 判据见该文件头注释），命中即打印
+ * 可直接照抄的修复命令。只告警不阻塞——开发态仍可起，但插件面残缺这件事
+ * 必须说出口。
+ *
  * 用法：node scripts/dev.mjs [args...]——args 透传给 electron-vite
  * （dev / preview / build ...；缺省 dev）。electron-vite 从项目
  * node_modules/.bin 解析绝对路径，直接 `node scripts/dev.mjs`
@@ -43,10 +56,22 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
+import { checkDepsFreshness, formatDepsWarning } from './deps-freshness.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const args = process.argv.slice(2)
 const command = args.length > 0 ? args[0] : 'dev'
+
+// 依赖陈旧哨兵（现象三）：本仓 + 上游克隆。上游路径口径与
+// desktop/main/dsh-contract.ts 的 UPSTREAM_DIR 一致（该文件是上游约定的唯一
+// 真相源；本包装是纯 JS 无法导入 TS 常量，scripts/ 下 materialize-peers.mjs
+// 与 verify-vendor-purity.sh 同样镜像此常量）。
+const UPSTREAM_DIR = process.env.KCODER_UPSTREAM_DIR ?? '/Users/libing/kk_Projects/deepseek-harness'
+for (const dir of [ROOT, UPSTREAM_DIR]) {
+  if (!existsSync(dir)) continue
+  const report = checkDepsFreshness(dir)
+  if (report.state !== 'ok') console.error(formatDepsWarning(dir, report))
+}
 
 const binBase = join(ROOT, 'node_modules', '.bin', 'electron-vite')
 const bin = process.platform === 'win32' ? binBase + '.cmd' : binBase

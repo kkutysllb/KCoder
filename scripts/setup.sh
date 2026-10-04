@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# KCoder 首次引导：克隆上游 fork（若缺）→ 切集成分支 → 安装依赖 → 构建。
+# KCoder 首次引导：克隆上游 fork（若缺）→ 切集成分支 → 安装依赖（复用既有
+# store）→ 构建。
 #
 # 上游锚定 = 自有 fork（kkutysllb/deepseek-harness），消费工作树在仓外单一路径，
 # 上游修复以提交落集成分支 ${UPSTREAM_BRANCH}（= 基线 + 修复分支的 merge），
@@ -62,8 +63,18 @@ git merge-base --is-ancestor "$BASELINE_SHA" HEAD \
 # entry 炸 build）——构建前强制过闸（rc.5/alpha.2/alpha.3 三次复发）
 bash "$ROOT/scripts/verify-vendor-purity.sh"
 
-say "安装依赖（pnpm install）…"
-pnpm install
+# store 复用：pnpm 要求 store 与既有 node_modules 一致，不一致时非交互环境
+# 直接 ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY（本机克隆的 store 在仓内
+# .pnpm-store，与 pnpm 全局 store 不同——2026-10-04 实测引导中断）。有既装
+# 记录就按记录复用；全新克隆无记录，走 pnpm 默认 store。
+STORE_DIR="$(node "$ROOT/scripts/deps-freshness.mjs" --store-dir "$UPSTREAM" 2>/dev/null || true)"
+if [[ -n "$STORE_DIR" ]]; then
+  say "安装依赖（pnpm install --store-dir ${STORE_DIR}）…"
+  pnpm install --store-dir "$STORE_DIR"
+else
+  say "安装依赖（pnpm install）…"
+  pnpm install
+fi
 
 say "构建上游（pnpm run build，含 Host/Client/Web 三阶段）…"
 pnpm run build
