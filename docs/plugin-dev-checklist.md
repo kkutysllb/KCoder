@@ -1,7 +1,7 @@
 # 内置插件开发清单（KCoder）
 
 > **这份清单只收「已经用实机测试换来」的坑。** 每条都给：症状 → 根因 → 正确做法 → 判据。
-> 适用 `dsh-coding-sidebar` / `dsh-file-review-kcoder` / `dsh-terminal` / `dsh-skills-bundle` / `dsh-shell-prefs`，以及任何随包分发的插件。
+> 适用 `dsh-coding-sidebar` / `dsh-terminal` / `dsh-skills-bundle` / `dsh-shell-prefs`，以及任何随包分发的插件（`dsh-file-review-kcoder` 已于 2026-10-04 退役，不再随包）。
 > 出处见文末——三条是一次功能迭代里连着踩出来的，**每一次静态检查都是全绿的**。
 
 ## 执行点（2026-09-25 起已自动化，不必靠人记）

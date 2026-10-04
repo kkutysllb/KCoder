@@ -1,6 +1,6 @@
 /**
- * 预置第三方插件（dsh-coding-sidebar / dsh-file-review-kcoder，另有官方
- * 可选组合包 dsh-experimental-schedule-bundle 借道本表）的开箱物化。
+ * 预置第三方插件（dsh-coding-sidebar，另有官方可选组合包
+ * dsh-experimental-schedule-bundle 借道本表）的开箱物化。
  *
  * 这些插件是 KCoder 发行物的一部分：Windows 全新安装后 profile 是
  * 上游空模板（只有 dsh-base / dsh-web-app 内置层），第三方插件不会自动
@@ -184,19 +184,14 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // 打开方式双源/fs.trees）、浮动窗（作业输出/共享任务编辑）、团队 tab 状态机补全、
   // 注册失败回滚守卫、两处「静默失效」修复（节点配色、样式表）。已发布，双源均 200。
   'dsh-coding-sidebar': '^1.0.36',
-  // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5 → 1.0.6）：coding-sidebar
-  // 的衍生插件（增强审查卡 + 侧边栏审查 tab）。1.0.6 追加 changes-review 地址
-  // 家族认领（原生评审开法改开自家页签）。已发布且双源可见，故与 bundle 物化
-  // 同线（实体 1.0.6 = 声明 ^1.0.6）。
-  // 2026-09-20 平移：^1.0.6 → ^1.0.7。
-  // 2026-09-23 平移：^1.0.7 → ^1.0.10（随 0.6.16 的内置物化同线；双源均已核）。
-  // 1.0.8 = 引擎 0.1.7-alpha.1 契约迁移；1.0.9 = open-with 子槽 + application
-  // 参数；1.0.10 = 动作子槽改自有键（不再认领 upstream 的
-  // deliverables.file.actions，修 web boot 失败）+ client inject 清单纠偏。
-  // 2026-09-29 平移：^1.0.10 → ^1.0.11（peer 口径改 `>=0.1.7-rc.2 <1.0.0`；
-  // 此前 dsh-session / dsh-api-session-controller 两条裸 ^0.1.7-alpha.1 会在
-  // dsh 0.2.0-rc.1 的兼容闸门上被整体拒载）。
-  'dsh-file-review-kcoder': '^1.0.11',
+  // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5 → **2026-10-04 退役**，
+  // 本段为历史记录）：coding-sidebar 的衍生插件（增强审查卡 + 侧边栏审查 tab），
+  // 末版本线 ^1.0.11（1.0.11 = peer 口径改 `>=0.1.7-rc.2 <1.0.0`）。
+  // 退役自愈由本文件的 RETIRED_PRESETS 三清承担（deps 声明、bundles 层叠声明、
+  // node_modules 实体），物化源与层叠项由 kcoder-skills-bundle 的 RETIRED_PLUGINS
+  // 同批清理——双账本缺一即互搏，见该清单的 ⚠️ 教训。
+  // ⚠️ 本条正式声明是**反向复活**的唯一入口：只摘 BUNDLES 而不摘它，插件会被
+  // 插件页当「预置第三方插件」列出并由 pnpm 从 registry 装回来（与退役相反）。
 }
 
 /**
@@ -273,6 +268,14 @@ const RETIRED_PRESETS = [
   '@tt-a1i/archify-dsh',
   '@dsh-external/dsh-drag-to-attachment',
   'dsh-context',
+  // dsh-file-review-kcoder（2026-10-04）：dsh-coding-sidebar 的衍生插件整线
+  // 退役（宿主侧栏保留；依赖方向单向——侧栏不反向依赖它，见
+  // kcoder-skills-bundle 的 RETIRED_PLUGINS 注释）。三清覆盖老 profile 的 deps
+  // 声明、bundles 层叠声明与实体；用户自装同款同样被洗（产品级不再提供，
+  // 同 dsh-context）。配套两处同批：上方正式声明段摘除 + product-policy 把
+  // 原生 changed-files 尾卡恢复（本插件曾同时认领 produced 与 presented 两张
+  // 脸，不恢复则带 changes 公告的回合行与 present 交付卡一起消失）。
+  'dsh-file-review-kcoder',
 ]
 
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */

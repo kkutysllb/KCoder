@@ -1,22 +1,27 @@
 /**
  * KCoder 自有 dsh bundle 的物化与注册（out-of-tree bundle 随桌面端分发）。
  *
- * 当前四个 bundle（2026-09-01 起全部 dsh 标准命名，开发真源在各自独立仓 →
- * dsh-plugins 镜像 → sync-bundles.mjs 同步进 bundle/）：
+ * 当前五个 bundle（权威清单是下方 `BUNDLES` 常量；本节只记形态与历史，
+ * dsh-shell-prefs / dsh-ssh-remote 见各自常量的 JSDoc。2026-09-01 起全部
+ * dsh 标准命名，开发真源在各自独立仓 → dsh-plugins 镜像 →
+ * sync-bundles.mjs 同步进 bundle/）：
  * - dsh-skills-bundle（bundle/dsh-skills-bundle）：方法论技能包（适配自
  *   KSkills 仓库），激活时注册 runtime skill；
  * - dsh-terminal（bundle/dsh-terminal）：侧边栏嵌入式终端。npm 包名
  *   @kkutysllb/dsh-terminal（同上）。
- * - dsh-file-review-kcoder（bundle/dsh-file-review-kcoder）：改动审查
- *   （完全自立维护，不再以 fork 形态延续；血缘 left0ver/dsh-file-review）。
- *   **包型**产物（保留 pnpm 布局：main=lib/index.js + dsh.bundle.patch
- *   补丁清单 + dsh.client 段），没有 entry.js 四件套里的那个 entry.js
- *   ——物化门按各自的 entry 字段判存在性，漏配会让自动物化永远跳过
- *   （0.5.0 接线教训：手动 cp 掩盖了断链，换机/重建 profile 即缺插件）。
+ * - ~~dsh-file-review-kcoder~~（**2026-10-04 退役**，见 RETIRED_PLUGINS）：
+ *   改动审查（增强审查卡 hunks/统计/撤销 + 侧边栏审查 tab）。它曾与
+ *   coding-sidebar 同期 un-retire（2026-09-19 @1.0.5），本次按产品决策
+ *   整线退役——真源仓与 npm 包保留，KCoder 不再内置。**包型**产物形态由
+ *   下面的 coding-sidebar 承接：保留 pnpm 布局（main=lib/index.js +
+ *   dsh.bundle.patch 补丁清单 + dsh.client 段），没有 entry.js 四件套里
+ *   的那个 entry.js——物化门按各自的 entry 字段判存在性，漏配会让自动
+ *   物化永远跳过（0.5.0 接线教训：手动 cp 掩盖了断链，换机/重建 profile
+ *   即缺插件）。
  * - dsh-coding-sidebar（bundle/dsh-coding-sidebar）：侧边栏工作台
  *   自立包产物（fork 自 DSH-better-sidebar 0.17.2，底面板移除；真源
  *   kkutysllb/dsh-coding-sidebar，两级镜像 dsh-plugins → 本 bundle），
- *   第二个**包型**产物。收编线的 npm 上游版本漂移病（0.17.1 坏版启动崩）
+ *   同属**包型**产物。收编线的 npm 上游版本漂移病（0.17.1 坏版启动崩）
  *   随独立发布线（1.0.0 起，版本常量构建期注入）根治——PRESET deps 的
  *   ^1.0.0 只负责牵引依赖树（pnpm install 把 codemirror/ws/node-pty 等
  *   hoist 到 profile 顶层）+ bundles 注册，实体由本模块覆盖为终态；
@@ -66,18 +71,6 @@ export const DSH_TERMINAL_BUNDLE = '@kkutysllb/dsh-terminal'
  * 注入这两个服务并发布窄接口，使菜单能走上游唯一写入口（详见 bundle 内注释）。
  */
 export const DSH_SHELL_PREFS_BUNDLE = 'dsh-shell-prefs'
-
-/**
- * 改动审查 bundle 包名（独立自立插件 dsh-file-review-kcoder；真源在同名独立仓，
- * sync-bundles.mjs 同步产物）。
- *
- * 退役标记已于 2026-09-19 撤销（`03cf750` un-retire @1.0.5）：alpha.2 严格
- * codec 契约（五枚 codec 双字段）+ turnTail list 语义已在真源仓修好；增强审查
- * 卡（hunks/统计/撤销）与侧边栏审查 tab 是 coding-sidebar 的衍生面，原生
- * ReviewTab 不复刻。原生 changed-files 尾卡由产品策略关闭（tailCard:false），
- * 本插件按三层互让规则接管同一行。
- */
-export const DSH_FILE_REVIEW_BUNDLE = 'dsh-file-review-kcoder'
 
 /**
  * 侧边栏工作台自立包包名（fork 自 DSH-better-sidebar 0.17.2，独立
@@ -132,10 +125,8 @@ const BUNDLES: BundledPlugin[] = [
   // 内退位共存）。差异化功能（git 面板/GitHub、Office·视频预览、QiLin
   // 通道接管、任务计划）无原生替代，评估见升级文档 §9.9。
   { pkg: DSH_CODING_SIDEBAR, dir: 'dsh-coding-sidebar', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
-  // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5）：typert create()
-  // 工厂 + turnTail list 适配已在真源仓完成；增强审查卡（hunks/统计/
-  // 撤销）+ 侧边栏审查 tab 为 coding-sidebar 的衍生插件
-  { pkg: DSH_FILE_REVIEW_BUNDLE, dir: 'dsh-file-review-kcoder', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
+  // dsh-file-review-kcoder 曾在此（2026-09-19 un-retire @1.0.5 →
+  // 2026-10-04 退役），条目移入下方 RETIRED_PLUGINS
   // dsh-ssh-remote（2026-09-26 内置化）：包型产物（main=lib/index.js +
   // cordis.patch.yml 补丁清单 + dsh.client 段），不是 entry.js 四件套——
   // 物化门按各自的 entry 字段判存在性，entry 用 lib/index.js，
@@ -209,11 +200,33 @@ const RETIRED_PLUGINS = [
   // 已 un-retire（@1.0.5 / 1.0.19，alpha.2 适配在各自真源仓完成，见
   // 升级文档 §9.9），从本清单移除。
   //
+  // 2026-10-04 再退役（产品决策）：dsh-file-review-kcoder 整线退役——增强
+  // 审查卡（hunks/统计/撤销）与侧边栏审查 tab 一并下线。它是
+  // dsh-coding-sidebar 的**衍生插件**（peer 硬声明 `dsh-coding-sidebar
+  // >=0.12.0`，故 web boot 里它 pending 等 betterSidebar），而**依赖方向
+  // 单向**：侧栏不反向依赖它，源码里只有结构性探测（`hasFileReviewData`，
+  // 缺数据即让位），因此退役**不动侧栏一个字节**。真源仓
+  // kkutysllb/dsh-file-review-kcoder 与 npm 包保留，用户仍可经插件管理页
+  // 自装——但按「产品级不再提供」口径（同 dsh-context），下次启动的三清
+  // 会再洗一遍。
+  //
+  // 本次为**双账本 + 四名单**退役，缺一处即互搏或残留（教训见下）：
+  // ① 本清单（物化实体 + bundles 层叠项）；② preset-plugins 的
+  // RETIRED_PRESETS（deps 声明 + 三清）；③ product-policy 的
+  // ui-deliverables.tailCard 由 false 改回 true（本插件曾同时认领 produced
+  // 与 presented 两张脸，原生卡不恢复则带 changes 公告的回合行与 present
+  // 交付卡一起消失）；④ sync-bundles 映射 + electron-builder
+  // extraResources 登记（漏摘则下次 sync 把产物拉回来 / 打包版多带死重量）；
+  // ⑤ remote-server 的 PROFILE_BUNDLES 与 remote-connections 的
+  // REMOTE_BUNDLES（漏摘则远端世界的安装名单指向已删目录）。
+  'dsh-file-review-kcoder',
+  //
   // ⚠️ 教训（2026-09-19 dev 现场实证）：un-retire 恢复 BUNDLES/PRESET/
   // 映射时**必须同步移除本清单的同名条目**——清单成员会被启动清理当
   // 退役货反复洗掉（摘 bundles 层叠 + 删 node_modules），与注册面互搏，
   // 多轮交错后层叠缺项；现场表现为 coding-sidebar 被洗出层叠 → 引擎不
-  // 加载 → file-review 等 betterSidebar 服务永远 pending。
+  // 加载 → file-review 等 betterSidebar 服务永远 pending。反向（退役）同理：
+  // ⑤处名单漏摘不会当场报错，只在下一次同步或远端连接时暴露。
 ]
 
 /** 分发的 bundle 源目录（开发态仓库内；打包态 extraResources）。 */

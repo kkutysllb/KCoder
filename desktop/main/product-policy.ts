@@ -67,9 +67,11 @@ const POLICY_FILENAME = 'cordis.patch.kcoder.yml'
  *   改用 desktop profile 名都会让它静默开启。此处显式禁用钉死。
  *
  * 历史行（已移除）：`file-review-tab` 禁用（2026-09-18）——file-review
- * 插件整体退役（typert 产物过不了 alpha.2 typert-loader 校验，曾拖垮全部
+ * 插件当时整体退役（typert 产物过不了 alpha.2 typert-loader 校验，曾拖垮全部
  * 远端定义注册，见 docs/upstream-0.1.6-alpha.2-analysis.md §9），行随插件
- * 退役失去意义。
+ * 退役失去意义。该插件 2026-09-19 曾 un-retire 回来，2026-10-04 再由产品决策
+ * 整线退役（见 kcoder-skills-bundle 的 RETIRED_PLUGINS）；此后本文件不再需要
+ * 它的任何行。
  */
 const POLICY_YAML = `# KCoder 产品策略层（宿主自动生成，勿手改——每次启动按代码重写）
 #
@@ -99,14 +101,16 @@ const POLICY_YAML = `# KCoder 产品策略层（宿主自动生成，勿手改�
 - id: ui-sidebar-browser
   disabled: false
 #
-# 原生 changed-files 尾卡关闭（2026-09-19，fork d3cc056ee6 的 tailCard
-# 配置闸门）：file-review 增强卡（hunks/统计/撤销 + 产物与交付两段）
-# 已按三层互让接管该行（changes 公告 turn 由其渲染）；list 语义下原生
-# 条目无法被抢占，不关则同一 turn 双行。deliverables 数据定义与其余
-# 注册全部保留（下游探测的输入源）。
+# 原生 changed-files 尾卡**恢复开启**（2026-10-04）：file-review 退役后本行
+# 是该审查行的唯一渲染者。历史（2026-09-19 → 2026-10-04）：当时关闭（fork
+# d3cc056ee6 的 tailCard 配置闸门）是因为 file-review 增强卡按三层互让接管
+# 该行——list 语义下原生条目无法被抢占，不关即同一 turn 双行。但该卡认领的是
+# produced 与 presented **两张脸**（见其 cordis.patch.yml），所以退役时**必须**
+# 把本开关恢复：否则不只变更行没了，「present」交付卡也会一起失去行。
+# deliverables 数据定义与其余注册始终保留（下游探测的输入源）。
 - id: ui-deliverables
   config:
-    tailCard: false
+    tailCard: true
 #
 # Session Log 上传开关整行禁用（D2.1，2026-09-29）：上游 0.2.0-rc.1 新增
 # 「设置 → 通用 → 在使用官方模型 API 时上传 Session Log」开关。本层在最后一层

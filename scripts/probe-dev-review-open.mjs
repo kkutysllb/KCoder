@@ -5,10 +5,14 @@
  * 还是又落回原生右栏。
  *
  * 两类被验证的入口（2026-09-19 两轮现场各命中一个）：
- *   --target review（默认）：交付/改动卡的「审查」入口——上游 ui-deliverables
- *     发 `dsh-resource://changes-review/…`（file-review 1.0.6 认领）；
+ *   --target review（**随插件退役失效，2026-10-04**）：交付/改动卡的「审查」
+ *     入口——上游 ui-deliverables 发 `dsh-resource://changes-review/…`，曾由
+ *     file-review 1.0.6 认领；该插件整线退役后此入口落回原生右栏（产品侧压制
+ *     状态下即空白），本模式的 PASS 判据不再可达，只剩「观察是否落回原生」的
+ *     诊断价值；
  *   --target link：聊天里的 http(s) 超链接——上游 ui-chat 的 openExternalLink
  *     发 `ctx.sidebarRight.openTab('browser', …)`（coding-sidebar 1.0.22 认领）。
+ *     **验证插件落点请用这个模式。**
  *
  * 为什么必须真机点：这类故障的判据全在运行时 DOM 与计算样式里（原生外壳被产品
  * 侧压制后，"落回去"的表现是一片空白而不是报错），源码推理只能定位调用链、
@@ -19,8 +23,8 @@
  *   2) 本机：node scripts/probe-dev-review-open.mjs [--port 9333] [--target link|review] [--no-click]
  *
  * 判定：点击后**没有**任何原生右侧栏宿主（panel / float-host / expand）可见，
- * 且落点是我们插件的页签（review 模式：文件审查页签成为活动页签；link 模式：
- * 活动页签标题等于被点链接的主机名）= PASS。
+ * 且落点是我们插件的页签（link 模式：活动页签标题等于被点链接的主机名；review
+ * 模式已失效见上）= PASS。
  *
  * 依赖 playwright-core（仅客户端，无浏览器二进制）：脚本按需自装到 /tmp/pwclient。
  *
@@ -49,6 +53,11 @@ const portArg = args.indexOf('--port')
 const port = portArg === -1 ? 9333 : Number(args[portArg + 1])
 const targetArg = args.indexOf('--target')
 const target = targetArg === -1 ? 'review' : String(args[targetArg + 1])
+// file-review 退役（2026-10-04）后 review 模式的判据不再可达：显式说清，免得
+// 把「预期落回原生」误读成回归（link 模式仍是有效的插件落点验证）。
+if (target === 'review') {
+  console.log('[probe] 注意：file-review 插件已于 2026-10-04 退役——review 入口不再由我们插件认领，本模式 PASS 判据已失效（结果按「落回原生右栏」解读即预期形态）。验证插件落点请用 --target link。')
+}
 const doClick = !args.includes('--no-click')
 /** 探针给候选元素打的标记属性（点击时按它定位，避免 nth 序号错位）。 */
 const MARK = 'data-kcoder-probe-target'

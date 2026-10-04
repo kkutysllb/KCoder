@@ -222,6 +222,8 @@ git merge --no-ff kcoder/0.2.0-rc.1    # 整支重放（merge-base = 4878cdabd8 
 
 前置：**用户 npm 发布 `dsh-coding-sidebar@1.0.35` / `dsh-file-review-kcoder@1.0.11`**（rc.1 段产出，仍待发布）。
 
+> ⚠️ 后记（2026-10-04）：`dsh-file-review-kcoder` 已整线退役、不再内置（见 `desktop/main/kcoder-skills-bundle.ts` 的 RETIRED_PLUGINS），本前置只剩 coding-sidebar 一项有发版意义。
+
 1. `bash scripts/release.sh prepush`（⚠ `patchgate` 既有红仍会拦——dsh-context 补丁键重出是发版前必须单独处理的既有债务，见 rc.1 计划 §20.3-3）
 2. `build` + `verify`（需 Apple 公证凭据）
 3. `ship 0.6.19`：发布说明含双锚定（0.1.7-rc.2 → 0.2.0-rc.1 → 0.2.0-rc.2）

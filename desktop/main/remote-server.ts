@@ -42,7 +42,8 @@ const PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-web-app',
   'dsh-shell-prefs',
   'dsh-coding-sidebar',
-  'dsh-file-review-kcoder',
+  // dsh-file-review-kcoder 已退役（2026-10-04，见 kcoder-skills-bundle 的
+  // RETIRED_PLUGINS）：远端世界同样不再装它（bundle 源目录已不存在）
   '@kkutysllb/dsh-terminal',
   'dsh-skills-bundle',
 ]

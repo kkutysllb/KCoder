@@ -43,9 +43,8 @@ extraResources:
   # release.sh verify 与仓库清单逐文件对账防断供
   - from: bundle/dsh-coding-sidebar
     to: dsh-coding-sidebar
-  # dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5，alpha.2 适配完成）
-  - from: bundle/dsh-file-review-kcoder
-    to: dsh-file-review-kcoder
+  # dsh-file-review-kcoder（2026-10-04 退役）：extraResources 登记与 bundle
+  # 目录同批摘除（verify-bundles-shipped 按 bundle/ 目录对账，两侧必须同步）
   # dsh-ssh-remote（2026-09-26：SSH 远程主机 → 远端工作区。准入即随包——
   # 加 bundle 目录而漏登记本表，打包版会因缺这个 profile bundle 而起不来，
   # verify-bundles-shipped 门（dsh-file-attach 连漏五版的事故后所加）专拦此类，

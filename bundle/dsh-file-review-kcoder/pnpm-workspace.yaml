@@ -1,8 +1,0 @@
-allowBuilds:
-  node-pty: true
-  protobufjs: true
-# 0.1.7-alpha.x 的 peer 链存在「只有预发布可满足」的范围（如
-# dsh-agent-preset-registry → @deepseek-ai/dsh-settings@^0.1.7-alpha.1）：pnpm 的
-# peer 自动安装会把范围退化成稳定形态（>=0.1.7 <0.2.0）后报无匹配。peer 本就由
-# 宿主引擎在运行时提供，dev 侧只装显式钉版的 devDependencies 即可——关闭自动安装。
-autoInstallPeers: false
