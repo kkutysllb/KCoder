@@ -1,7 +1,7 @@
 {
   "name": "dsh-skills-bundle",
-  "version": "1.0.3",
-  "description": "dsh-external in-box dsh bundle: methodology + multimedia + research skill packs adapted from the KSkills repository, registered as runtime skills for every agent session.",
+  "version": "1.0.4",
+  "description": "dsh-external in-box dsh bundle: methodology skill pack adapted from the KSkills repository, registered as runtime skills for every agent session.",
   "license": "MIT",
   "type": "module",
   "main": "entry.js",
