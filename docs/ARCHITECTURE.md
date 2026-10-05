@@ -117,15 +117,16 @@ Electron 主进程 (desktop/main/)
 | `sidebar-cluster.ts` | better-sidebar 开关簇收纳：插件开关簇隐藏，状态栏右侧面板代理按钮（点击转发插件真实按钮）+ 底面板压制看门狗（插件底面板产品侧弃用：agent 运行态黑屏无唤醒信号，持久化恢复/pane 归位等无按钮打开路径一律自动收回；终端回归自研 terminal-panel） | §8 点击转发 |
 | `sidebar-toggle.ts` | 标题栏左簇 + 折叠无痕（2026-10-04，对齐官方 macOS 折叠形态——官方 preload 写 `data-platform="darwin"` 使折叠整列归零，KCoder 无 preload 走 plain-web 留 56px rail，故自持归零）+ **原生右栏轨道归零（2026-10-05）**：上游 logoRow 折叠按钮迁移至自绘标题栏（展开 prev84/next128/toggle174，折叠 toggle84/new120，两态自适应，label 让位变量随态 76↔130 / 142↔196）；无痕 = frame（sidebarCol 父节点）inline grid 轨 1 归零的 `!important` 规则（轨 2 原样复制、**轨 3 恒 0px**，锚为 `:has(> [data-rightbar-col])`，`data-sidebar-collapsed` 属性锚兑底，解析失败退化 rail 不崩）+ sidebarCol 0.5px 边线压制；新会话代理（`__dsh_desktop_new_btn`）静态内联 IconNewChat 转发上游 newSession，缺席隐藏 | §8 点击转发、§12 铁律 1 |
 | `terminal-panel.ts` + `pty-host.ts` | 内嵌终端（2026-08-22 自研回归）：每工作区独立 WebContentsView + node-pty 桶（多标签），切工作区仅 setVisible 不销毁；标题栏按钮 right 44 + 快捷键 Control+\`；让位几何广播 --dsh-terminal-inset（bundle/kcoder-stats-panel 消费） | — |
-| `git-panel.ts` + `subagent-monitor.ts` | Git 环境面板（2026-08-23 恢复）：透明 WebContentsView 浮动卡片（`#/git`）——仓库状态/提交/推送/分支切换/计划文档（shell.openPath 系统应用打开）/子代理轨迹（session.list 轮询 + mux `session/event` 帧聚合）；probeQueue 串行探测与写操作；按钮 right 108 + 徽章 `+N −M`；自动展开三重门槛（当前工作区/实时活动非 replay/git 仓库） | file-activity 帧观察面 |
+| `git-panel.ts` + `subagent-monitor.ts` | Git 环境面板（2026-08-23 恢复）：透明 WebContentsView 浮动卡片（`#/git`）——仓库状态/提交/推送/分支切换/计划文档（shell.openPath 系统应用打开）/子代理轨迹（session.list 轮询 + mux `session/event` 帧聚合）；probeQueue 串行探测与写操作；按钮 right 108 + 徽章 `+N −M`；自动展开三重门槛（当前工作区/实时活动非 replay/git 仓库） | **历史行**：该面板与这两个文件已随预览/Git 面删除；其 `file-activity` 帧观察面亦随 2026-10-05 的统计徽章退役一并消失 |
 | `panel-buttons.ts` | win32 四钮平铺让位（2026-08-30 取代下拉收纳 panel-menu，无转发层）：原生控制按钮区盖住右侧四枚面板按钮，样式表 !important 将 right 整体平移 +138px 至安全位（150/182/214/246）；其他平台 no-op | 状态栏按钮 right 序 |
-| `workspace-probe.ts` + `file-activity.ts` | 页面级存续功能（预览面板删除后迁出）：工作区探针（workspace.list → 标题栏工作区名/按钮 + fileActivity 工作区基准）、正文文件徽章（类型 + edit 增删行数）、历史会话补拉拦截；file-activity 为 mux 流按工作区分桶的聚合存储（sessionId→workspace 归属），并向 git-panel 转发 session/event 帧 | mux 流消费必须带归属维度 |
+| `workspace-probe.ts` + `workspace-base.ts` | 页面级存续功能（预览面板删除后迁出）：工作区探针（`session/list` → 标题栏工作区名/按钮 `--dsh-ws-name`/`--dsh-ws-path` + workspace-base 工作区基准）、正文文件**类型**徽章（TS/JS/MD… + 链接配色）。**2026-10-05 退役**：edit 的 `+n/−n` 统计徽章与它的整条数据链（`window.__dshFileStat` 通道、`statCache`/`applyStat`、`session/page` fetch 拦截、`/api/changes.summary` numstat、turn-end 微型探针、按工作区分桶的活动表、`PreviewEntry` 契约）——理由：**与上游 `client-ui-tool` 的 `ToolRow` 自带 diff 统计（`diffTotals` → `+added -removed`）在同一行重复**，同一行出现两枚；保留上游那份。`file-activity.ts` 随之缩减为 `workspace-base.ts`（**只剩 `setWorkspace`/`activeKey`**，技能分区的工作区项目技能靠它探位——不可删） | 上游已渲染的状态不得重复渲染 |
 | `plugins.ts` | 插件桥：profile 层叠清单 + GitHub `topic:dsh-plugin` 发现 + `dsh plugin` CLI 转发；内置层禁卸载但可更新（2026-09-02）：统一入口 updatePlugin 按包属选路——内置可更新层 `add <pkg>@latest`、用户插件 `update --latest`，引擎层（dsh-base/dsh-web-app）不开放（与内置运行时整体耦合） | 物化让位（kcoder-skills-bundle） |
 | `native-overlay.ts` | 原生 in-box 包增强覆盖：增强版构建产物整文件覆盖到运行时实际解析到的安装树（`$DSH_HOME/profiles/node_modules` 扁平兑底 symlink → 真实位置；版本门 + mark 幂等 + 签名锚，双锚解析决定了 profile 内副本无法遮蔽安装树）。当前对象：dsh-client-ui-deliverables（原生产物面板 + 审查变更 +A/−R 与 hunk 红删绿增 + 纯审计轮结论卡）；overlay 源在 `native-overlay/`，原版快照在 `.patches/` | 上游 rc 升级须对照快照重制 overlay |
 | `updater.ts` + `update-injector.ts` | electron-updater + 向上游 logoRow 注入安装按钮（`kcoder://install-update` 深链） | — |
 | `brand-injector.ts` | 品牌化：侧边栏展开态鲸鱼换 KCoder 分体字标 + 版本徽章（rail 换标已随折叠无痕退役，`assets/brand-k.png` 仍供展开态嵌入）、新会话 hero 鲸鱼+slogan（中「所思，皆可成码」/英 "Think it, code it."，CJK 自适应；预览徽章藏起）、`document.title` 产品名替换（拦截 setter）。⚠ 只能藏起+旁插/改 .data，不能 replaceWith/改 textContent（React removeChild 崩树） | §8；“再生成品牌图”同源 |
 | `attach-picker.ts` | 附件按钮改造：拦截 drag-to-attachment 插件的模式按钮 → 原生文件对话框 → 合成 drop → 插件 fast path | §8 自毁坑 |
-| `theme-watcher.ts` | 深浅色跟随（`body[data-ds-dark-theme]`） | — |
+| `workspace-header.ts` | 会话页头收纳（**2026-10-05 起不再是 `display:none`**）：整块 `position:fixed` 覆盖进 48px 自绘标题栏带内（透明 + `pointer-events:none` + **`-webkit-app-region:initial`（不参与合成，2026-10-05 第三轮；`no-drag`/`none` 都会把整条带的拖拽权削光）** + z-index 比条高 1），只把状态簇座位（`_titleRow` / `_headerActions` / `_headerUtilities` / `_headerCorner`）放开可交互并**自补 `-webkit-app-region:no-drag`（上游那份削减的作用域挂在 `html[data-platform='darwin']` 下，本壳永不落该标记 ⇒ 真机上不生效）**——于是上游注册在 `conversation.session.header.actions` 槽里的**四类徽章全部可见且可点**（`client-ui-agent-preset` 预设 / `experimental/client-ui-agent-team` 智能体团队 / `client-ui-subagent` 子代理 / `client-ui-jobs` 后台任务）。**排布复刻上游（2026-10-05 第二轮）**：行首内边距＝`--dsh-titlebar-title-end`+10 ⇒ 徽章紧跟标题之后，`_titleCluster` 压 `flex:none`，`_headerRow` 铺满整行、`_headerUtilities` 靠 `margin-left:auto` 顶到行末（角位贴按钮带）；同一改动里按 `[class*="_moreButton"]` 收掉上游会话头「…」（会话日志/反馈菜单，用户指定不要）。`_crumbs`、`_tabs`、`[data-conversation-header-leading]`（上游窗口控件座位，全仓零注册方）仍收纳。另发布 `--dsh-titlebar-status-w`（**分量之和**，非整行宽）并在面包屑文本变化时派发 `__dsh_title_changed` | §12 铁律 1 |
+| `theme-watcher.ts` | 深浅色跟随（`body[data-ds-dark-theme]`）+ **自绘标题栏**（`titleBarStyle:'hidden'` 下的 48px 拖拽条，VS Code 同款）：左段「工作区 / 会话标题」——工作区名/路径读 `--dsh-ws-name`/`--dsh-ws-path`（workspace-probe 写），**主文本读面包屑当前项 `[class*=_crumbCurrent]`（2026-10-05 改）**：改前读 `document.title`，而上游 `DocumentTitle` 投射的是「会话标题 — 产品名」，产品名是**构建期内联**的 `DSH_CLIENT_TITLE`（本产品构建未内联 → 回退 locale 键 `brand.localBuild`＝「DSH 本地构建」），于是条上一直挂着与产品无关的字；右段 102px 按钮带（三枚 26px + Windows 原生控制按钮区）；几何通道 `--dsh-titlebar-h` / `--dsh-titlebar-right-reserve` 写 documentElement 供 workspace-header 消费，`max-width` 再减去 `--dsh-titlebar-status-w`，**并把主文本实测右缘以 `--dsh-titlebar-title-end` 外传**（2026-10-05 第二轮：页头据此把状态徽章起排到标题之后）。⚠ 条 z-index 比页头覆盖层低 1（**绘制**层级：徽章必须画在条的背景之上）；**能不能点与 z-index 无关**——条作为 drag 基座必须**排在 `#root` 之前**（DOM 顺序决定 app-region 归属，见铁律 1「可点的前提是 app-region」） | §12 铁律 1 |
 | `upstream.ts` | 上游状态检测 + 同步流水线（fetch→脏检查→ff-only→install→build） | — |
 | `menu.ts` / `ipc.ts` / `store.ts` | 菜单与托盘 / IPC 分发 / 持久化 | — |
 
@@ -185,7 +186,7 @@ KCoder 的 `deepseek-harness/` 原是 submodule，重建时已**扶正为独立�
 | `dsh plugin --profile web …` CLI 形态 / `dsh.profile.bundles` 层叠 | `plugins.ts` |
 | 侧边栏 `logoRow`/`collapsed`、布局列 `sidebarCol/centerCol/detailsCol`、会话行 fiber `props.node.id` | 各注入模块（`scripts/verify-inject.cjs` 可自动化验证） |
 | 主题落点 `body[data-ds-dark-theme]` / sidebar-fill token | `theme-watcher.ts`（`scripts/verify-theme.cjs`） |
-| workspace RPC `POST /api/workspace.list`（sessionIds 归属） | `workspace-probe.ts`（页面侧探针）、`file-activity.ts`（主进程归属映射） |
+| workspace RPC `POST /api/session/list`（`SessionSummary.cwd` = 会话归属；`workspace.list` 一次性 RPC 已在 alpha.1 移除） | `workspace-probe.ts`（页面侧探针：解析 `--dsh-ws-name`/`--dsh-ws-path` 并上报工作区基准） |
 
 ## 8. 开发惯例与经验坑（基线会话沉淀，务必继承）
 
@@ -335,6 +336,31 @@ GUI 冒烟统一只进**本机发版门**（`release.sh prepush`），不进 CI�
   第二半之上还有第三半（同日补，见下条「不属于『文件』的打开手势也要认领」）：
   轨道归零只让空白不可见，**手势本身仍要有去处**——`dsh-coding-sidebar` 随后
   认领了该地址，这才是「点交付物文件看见文件」的那一半。
+- **可点的前提是 app-region，不是 z-index / pointer-events（2026-10-05，用户实测
+  「这些无法点击」）**：Electron 合成窗口拖拽区是「按几何 + **DOM 顺序**、
+  **忽略层叠**，最后被收集的盒子决定该点是否可拖」，可拖即拖窗、**点击到不了页面**。
+  契约的可执行表述在上游 `ui-web/window-drag/regions.ts`（`isDraggableAt`），其 e2e
+  注释亦明说这一类**不能用「点一下试试」来判**（CDP 注入的点击判不出，吞发生在原生
+  窗口层）——上一版冒烟的「徽章可点」是用 `elementFromPoint` 判的，**结构上不可能
+  发现该故障**，故报绿而现场点不动。三层根因与本仓对策：
+  ① **本壳从不落 `html[data-platform='darwin']`**：上游整张 app-region 表（drag 行、
+     可交互元素削减、四簇削减）**全部作用域在该标记下**，而写它的是上游桌面壳的
+     preload；KCoder shell **无 preload**，引擎 web bundle 只读不写（`AppFrame.tsx:168`
+     读 `dataset.platform`）⇒ 真机上上游那层**一条都不生效**。对策：`workspace-header.ts`
+     按上游同一语义**自补**簇级 `no-drag`（作用域不依赖该标记）。
+  ② 自绘标题栏（drag 基座）必须**排在 `#root` 之前**：排在之后即成为最后一个盒子，
+     吞掉其后一切（上游规矩同义反写：要「保持可点」的覆盖层挂 `#root` **之后**，
+     靠 `no-drag` 自我削减）。
+  ③ 全宽 fixed 覆盖层（会话页头）必须**不参与合成**（`-webkit-app-region: initial`）：
+     带 `drag` 会吞掉排在它之前的盒子（首当其冲是自绘条自己的按钮），带 `no-drag`
+     会把整条带的拖拽权削光。两条 Blink 实测（本机 Electron 44，**与上游注释不符，
+     以实测为准**）：**`none` 被解析成 `no-drag`（不是「无」）**；该属性**会继承**
+     （`drag`/`no-drag` 都继承，`initial` 可显式退出）——所以给容器标错一个值，
+     整棵子树的拖拽权一起变。
+  **判据（常备门 `smoke:titlebar`）**：收集所有 `computed -webkit-app-region ≠ none`
+  的盒子（DOM 顺序）→ 用上游 `isDraggableAt` 判点。夹具默认**不带**平台标记（真实
+  宿主形态），负对照两条：条改回 `append`、平台标记在场。**任何「能不能点」的主张都
+  走这条判据；`elementFromPoint` 只证明 DOM 命中，不得再当可点证据。**
 - **打开动作归插件**：文件 / `@` 引用 / `/技能` 引用的打开走插件 `openpath`
   拦截，重定向进自家编辑器。**上游新增的侧栏形态一律不接**——例如侧栏浏览器
   走 `ctx.sidebarRight.openTab('browser', …)` 的上游内部路由，不经我们的拦截
@@ -349,6 +375,28 @@ GUI 冒烟统一只进**本机发版门**（`release.sh prepush`），不进 CI�
   该行文件 → 进自家编辑器，与原生审查页签「检视」按钮同一落点）。
   **判据**：上游把任何「打开什么」的手势交给 `sidebarRight` 时，先问一句
   「这个地址谁认领」；无人认领 = 落到被压制的面板 = 用户看见空白。
+- **搬进自绘带的区域必须复刻上游几何（2026-10-05 第二轮，用户实测「徽章应该
+  在标题之后（箭头处），而不是堆在右侧」）**：把上游某区域「收进」自绘带时，
+  **排布本身是它语义的一部分**。上游 `conversation.session.header` 的几何是
+  `[标题][状态徽章] …… [工具][角位]`（`.titleCluster{flex:1}` 吃满行宽、簇内
+  `.crumbs` 占左可省略号、`.headerActions{flex:none}` 紧随；`.headerUtilities`
+  与 `.headerCorner` 因簇已吃满而落在行末）。首版只保住「可见 + 可点」，把整行
+  `justify-content:flex-end` 靠右，徽章于是堆到按钮带左侧——**信息在、语义丢了**。
+  正解是**互为反向的两条 CSS 变量**：`--dsh-titlebar-status-w`（标题右侧必须让出
+  的宽度＝徽章簇+工具+角位+固定间距之和，主文本 `max-width` 依此收窄）与
+  `--dsh-titlebar-title-end`（主文本实测右缘，页头行首内边距依此起排），箭头单向
+  ⇒ 无环不抖。⚠ 让位宽度**不能量 `.titleRow` 整宽**：整宽含把工具顶到行末的
+  `auto` 外边距，量整宽会把标题压成 0 宽（首版靠右时侥幸成立，改回左起排即暴露）。
+  **判据**：凡「把上游某区域收进自绘带」的改动，先照抄它的**排布**（谁跟着谁、
+  谁吸剩余空间、谁省略号），再谈可见性；只做后者＝半成品。
+- **自绘带上只保留产品要的控件（2026-10-05 第二轮，用户指定「那个…不要」）**：
+  会话头右上角的「…」不是自绘按钮，是上游 `session-log-export` 的
+  `SessionLogDownloadHeaderAction`（注册在 `conversation.session.header.utilities`，
+  锚 `_moreButton`，图标 `IconEllipsisOutlineRegular`；`aria-label` 取本地化串
+  `header.more`、不可作稳定锚）。产品按「不要」处置 ⇒ `workspace-header` 在该
+  **会话页头作用域内**按 `[class*="_moreButton"]` 隐藏（外科式：同一座位里的另一枚
+  工具按钮保留，冒烟钉住这一点）。⚠ 代价如实登记：隐藏后「下载会话日志」与
+  「反馈」两项在会话头不再可达；要恢复只需删掉那一条选择器。
 - **按钮与入口自持**：侧栏开关由自绘标题栏右端代理（`sidebar-cluster.ts`
   转发插件自己的开关簇按钮）。**侧栏 panellist 的「插件」入口 2026-10-04
   恢复**（原 `SIDEBAR_PLUGIN_ENTRY_CSS` 压制已删）：该条目是上游
@@ -356,6 +404,19 @@ GUI 冒烟统一只进**本机发版门**（`release.sh prepush`），不进 CI�
   `PluginManagerPage`；产品侧「设置 → 内置插件 → 插件管理」tab（fork 侧
   `settings.plugins.tab` 贡献）**同期保留不变**——两者是同一个页面，双入口
   并存，产品决策（插件管理落在设置）未变。
+- **收掉一块上游区域前，先清点它的槽位注册方（2026-10-05 定）**：为换纵向
+  空间，KCoder 把上游会话页头整块 `display:none`，于是注册在
+  `conversation.session.header.actions` 槽里的徽章**全体消失**——
+  `client-ui-agent-preset`（预设）、`experimental/client-ui-agent-team`
+  （智能体团队）、`client-ui-subagent`（子代理）、`client-ui-jobs`（后台任务）
+  四家，其中只有预设被一条「读文本 → 写 `--dsh-agent-preset` → 自绘条复刻
+  合成徽章」的旁路补了回来。**合成副本不是对齐**：每多一个注册方就要多一条
+  旁路，且副本不可点、不随状态变化。正解是把槽位座位搬进标题栏带
+  （`workspace-header.ts`：页头 `position:fixed` 覆盖 + 只放开状态簇
+  `pointer-events`），上游加多少徽章就自动显示多少。
+  **判据**：凡「把上游某区域收掉以换空间」的改动，先列出该区域内**所有**
+  槽位的注册方（`ctx.slots` 声明 + 全仓注册点），只要还有一个没搬过来，
+  就不算对齐。同源教训：2026-09-23 的空带、2026-09-18 的裸 `_titleRow` 误伤。
 - **上游改动怎么办**：**只改插件仓 → 发新版本**（见铁律 2）。上游每动一次侧栏
   契约，处置路径都是「插件适配 + 发版」，不是「把原生接回来」。
 - **已知副作用（写进发布说明，避免误读为缺失）**：上游侧栏新能力

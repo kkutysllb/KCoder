@@ -1,38 +1,44 @@
 /**
- * 工作区探针 + 正文文件徽章（零侵入注入器）。自 preview-panel 迁出：
- * 文件预览抽屉/Git 面板删除后仍独立存续的三个页面级功能——
+ * 工作区探针 + 正文文件类型徽章（零侵入注入器）。自 preview-panel 迁出：
+ * 文件预览抽屉/Git 面板删除后仍独立存续的两个页面级功能——
  *
  * 1. 工作区探针：选中会话变化（aria-selected，debounce 600ms）→
  *    同源 session/list RPC 解析当前工作目录（选中会话 SessionSummary.cwd，
  *    无会话取最近活跃会话的 cwd）→ 写入 --dsh-ws-name / --dsh-ws-path
  *    （自绘标题栏消费：工作区名前缀 + 工作区按钮）+ console `__dsh_wsprobe__:`
- *    上报主进程转喂 fileActivity.setWorkspace——skills-catalog 的
- *    工作区项目技能目录与正文徽章的活动分桶都以它为当前基准；
- *    选中会话变化同时上报 sessionId（首屏/路由直开会话不经 fetch 时
- *    兜住历史补拉触发源；主进程短窗去重，重复无害）；
- * 2. 历史补拉拦截：fetch /api/session/page（页面打开/翻页会话时；
- *    alpha.1 起 session.history 已换）→ 从 typert 命名参提取
- *    address.sessionId → fileActivity.fetchHistory（mux 不重放历史，
- *    徽章的历史 +n/−n 靠这里补回；请求本身放行）；
- * 3. 正文文件徽章：工具卡片文件路径按钮（scoped 类名含 _fileLink，
- *    文本即路径）与正文文件 mention（_fileMention）——类型徽章 +
- *    edit 增删行数（+n/−n）。实时数据由主进程 fileActivity 'activity'
- *    事件推送（按工作区分桶过滤），整页加载后全量回放（会话恢复的
- *    历史消息也能拿到最近 stat）。React 只管理首文本节点，前置徽章
- *    span 与 dataset 属性不受意；行重挂会重建按钮，MutationObserver
- *    重扫补回。
+ *    上报主进程转喂 workspaceBase.setWorkspace——skills-catalog 的
+ *    工作区项目技能目录以它为当前基准；
+ * 2. 正文文件类型徽章：工具卡片文件路径按钮（scoped 类名含 _fileLink，
+ *    文本即路径）与正文文件 mention（_fileMention）——按扩展名前置类型
+ *    徽章（TS/JS/MD…）与链接配色。React 只管理首文本节点，前置徽章 span
+ *    与 dataset 属性不受意；行重挂会重建按钮，MutationObserver 重扫补回。
  *
  * 通道：页面 → 主进程走 console `__dsh_wsprobe__:<json>`（theme-watcher
  * 的 __dsh_ws__ 是工作区按钮 reveal 上报，勿混用）；主进程 → 页面走
- * executeJavaScript 调 window.__dshFileStat。
+ * executeJavaScript 注入 {@link PAGE_JS}。
+ *
+ * ## 退役记录（2026-10-05）
+ *
+ * 本文件原有三件事；第 3 件的一半（edit 的 +n/−n 统计徽章）与第 2 件
+ * （fetch /api/session/page 拦截 → 上报 sessionId 触发历史补拉）已随该徽章
+ * 一并退役：
+ *
+ * - **为什么退役**：那枚统计徽章与上游 `client-ui-tool` 的 `ToolRow` 自带的
+ *   同一行 diff 统计重复（`diffTotals(diff.card.diffs)` → `+added -removed`，
+ *   见 `ui-tool/src/client/tool/components/ToolRow.tsx:248-250`）——同一行出现
+ *   两枚 +n/−n，用户判定冲突并要求退役（保留上游那份，本产品不再插一份）。
+ * - **随之删除**：`window.__dshFileStat` 通道、`statCache`/`applyStat`、
+ *   fetch 拦截、以及主进程侧整条只服务于它的数据链（session/page 历史补拉、
+ *   /api/changes.summary numstat、turn-end 微型探针、按工作区分桶的活动表）——
+ *   见 `workspace-base.ts` 的退役记录与 ARCHITECTURE.md §8。
+ * - **不在此列**：类型徽章（TS/JS/MD…）与链接配色**保留**，它们与上游无重复。
  *
  * @module desktop/main/workspace-probe
  */
 
 import type { BrowserWindow } from 'electron'
 import { consoleMessageText } from './console-channel'
-import { fileActivity } from './file-activity'
-import type { PreviewEntry } from '@shared/ipc-contract'
+import { workspaceBase } from './workspace-base'
 
 /** console 通道前缀（与注入脚本约定；独立于 theme-watcher 的 __dsh_ws__）。 */
 const PROBE_PREFIX = '__dsh_wsprobe__:'
@@ -113,65 +119,27 @@ const PAGE_JS = `(() => {
   const watchSelection = () => {
     new MutationObserver(() => {
       window.clearTimeout(debounce)
-      debounce = window.setTimeout(() => {
-        reportWorkspace()
-        // 会话打开/切换的历史补拉兜底：首屏或路由直开会话不经 fetch，
-        // 选中会话直接从 treeitem fiber 上报（主进程短窗去重，重复无害）
-        const sid = probeSessionId()
-        if (sid !== null) report({ action: 'session', sessionId: sid })
-      }, 600)
+      debounce = window.setTimeout(() => { reportWorkspace() }, 600)
     }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-selected'] })
     reportWorkspace()
   }
   if (document.body) watchSelection()
   else document.addEventListener('DOMContentLoaded', () => watchSelection(), { once: true })
 
-  /* ---- 历史会话补拉：拦 session/page RPC → 上报 sessionId ----
-   * （alpha.1 起 session.history 换成 session/page：address + throughSeq
-   * 语义，sessionId 藏在 typert 命名参 payload.args.request.address；
-   * mux 不重放历史，主进程自己发同一 RPC 补回活动与徽章数据，
-   * diff 内容可能很大不走 console 通道；请求本身放行） */
-  const origFetch = window.fetch.bind(window)
-  window.fetch = (input, init) => {
-    try {
-      const url = typeof input === 'string' ? input
-        : input instanceof Request ? input.url : String(input)
-      if (!url.includes('/api/') || url.includes('/api/events.')) return origFetch(input, init)
-      const method = (init != null && typeof init.method === 'string' ? init.method
-        : input instanceof Request ? input.method : 'GET').toUpperCase()
-      if (method !== 'POST') return origFetch(input, init)
-      const bodyText = input instanceof Request
-        ? input.clone().text()
-        : Promise.resolve(init != null && typeof init.body === 'string' ? init.body : '')
-      return bodyText.then(text => {
-        let rpc = null
-        try { rpc = JSON.parse(text) } catch { /* 非 JSON 放行 */ }
-        const m = rpc !== null && typeof rpc.method === 'string' ? rpc.method : null
-        if (m === 'session/page') {
-          // 仅主会话地址上报（kind==='session'）；子代理地址需 parent 且
-          // 主进程 fetchHistory 对非 session- 前缀直接跳过，不上报省噪音
-          const addr = rpc != null && rpc.payload != null && typeof rpc.payload === 'object'
-            && rpc.payload.args != null && typeof rpc.payload.args === 'object'
-            && rpc.payload.args.request != null && typeof rpc.payload.args.request === 'object'
-            && rpc.payload.args.request.address != null && typeof rpc.payload.args.request.address === 'object'
-            ? rpc.payload.args.request.address : null
-          const sid = addr !== null && addr.kind === 'session'
-            && typeof addr.sessionId === 'string' ? addr.sessionId : null
-          if (sid !== null) report({ action: 'session', sessionId: sid })
-        }
-        return origFetch(input, init)
-      }).catch(() => origFetch(input, init))
-    } catch { return origFetch(input, init) }
-  }
-
-  /* ---- 正文文件徽章：类型徽章 + edit +n/−n ----
+  /* ---- 正文文件类型徽章 ----
    * 目标：工具卡片文件路径按钮（scoped 类名含 _fileLink 子串，文本即
    * 路径）与正文文件 mention（_fileMention）——两个类名全仓唯一，
    * 按「_+类名」子串匹配对 hash 位置无感（dsh 即时编译产物 hash 在前
    * （_96PAOq_fileLink），vite build 产物 hash 在后，均能命中）。
    * React 只管理首文本节点（单字符串 children 走 nodeValue 更新），
    * 前置徽章 span 与 dataset 属性不受意；行重挂会重建按钮，
-   * MutationObserver 重扫补回。 */
+   * MutationObserver 重扫补回。
+   *
+   * 2026-10-05：本段只留**类型徽章 + 链接配色**。原先附在文件路径后的
+   * edit +n/−n 统计已退役（上游 ui-tool 的 ToolRow 自带同一行的 diff
+   * 统计，同一行出现两枚 → 用户判定冲突），连带 window.__dshFileStat
+   * 通道与主进程数据链一并删除；理由与清单见本文件头与 workspace-base.ts。
+   * ⚠ 本段在模板串内：注释里禁写裸反引号（会提前截断模板串，TS1005）。 */
   const fbStyle = document.createElement('style')
   fbStyle.id = '__dsh_desktop_filebadge_style'
   fbStyle.textContent = [
@@ -179,11 +147,6 @@ const PAGE_JS = `(() => {
     'body[data-ds-dark-theme] [class*="_fileLink"], body[data-ds-dark-theme] [class*="_fileMention"] { color: #7C9BFF !important; }',
     '.__dsh-fb { display: inline-block; margin-right: 5px; padding: 1px 4px; border-radius: 4px; font: 600 9px/1.4 ui-monospace, Menlo, monospace; letter-spacing: .3px; background: rgba(47,111,237,.12); color: #2F6FED; vertical-align: .5px; }',
     'body[data-ds-dark-theme] .__dsh-fb { background: rgba(124,155,255,.16); color: #7C9BFF; }',
-    '.__dsh-fb-stat { display: inline-block; margin-left: 6px; font: 500 10px/1.4 ui-monospace, Menlo, monospace; white-space: nowrap; }',
-    '.__dsh-fb-stat .a { color: #1A7F37; }',
-    'body[data-ds-dark-theme] .__dsh-fb-stat .a { color: #3FB950; }',
-    '.__dsh-fb-stat .d { color: #CF222E; margin-left: 3px; }',
-    'body[data-ds-dark-theme] .__dsh-fb-stat .d { color: #F85149; }',
   ].join('')
   document.head.append(fbStyle)
 
@@ -197,25 +160,12 @@ const PAGE_JS = `(() => {
     swift: 'SWIFT', kt: 'KT', sh: 'SH', zsh: 'SH',
     yml: 'YAML', yaml: 'YAML', toml: 'TOML', sql: 'SQL', lua: 'LUA', php: 'PHP',
   }
-  const statCache = new Map() /* basename(lower) -> {a, d} */
-  const baseOf = (p) => { const parts = String(p).split('/'); return parts[parts.length - 1].toLowerCase() }
   const extOf = (text) => { const m = /\\.([A-Za-z0-9]{1,5})\\s*$/.exec(text); return m !== null ? m[1].toLowerCase() : null }
-  const applyStat = (btn, stat) => {
-    let el = btn.querySelector('.__dsh-fb-stat')
-    if (stat === null) { if (el !== null) el.remove(); return }
-    if (el === null) { el = document.createElement('span'); el.className = '__dsh-fb-stat'; btn.append(el) }
-    el.replaceChildren()
-    const a = document.createElement('span'); a.className = 'a'; a.textContent = '+' + stat.a
-    const d = document.createElement('span'); d.className = 'd'; d.textContent = '\\u2212' + stat.d
-    el.append(a, d)
-  }
   const fbScan = () => {
     const targets = document.querySelectorAll('[class*="_fileLink"], [class*="_fileMention"]')
     for (const btn of targets) {
       const text = (btn.textContent || '').trim()
       if (btn.dataset.dshfb !== '1') {
-        // 首见：记录原始 basename（后续 textContent 含徽章文本，不可重提）
-        btn.dataset.dshname = baseOf(text)
         const ext = extOf(text)
         if (ext !== null && FB_EXTS[ext] !== undefined) {
           const b = document.createElement('span')
@@ -225,14 +175,7 @@ const PAGE_JS = `(() => {
         }
         btn.dataset.dshfb = '1'
       }
-      if (btn.dataset.dshname !== undefined) {
-        applyStat(btn, statCache.get(btn.dataset.dshname) ?? null)
-      }
     }
-  }
-  window.__dshFileStat = (path, added, removed) => {
-    statCache.set(baseOf(path), { a: added, d: removed })
-    fbScan()
   }
   let fbDebounce = 0
   const fbObserve = () => {
@@ -248,63 +191,38 @@ const PAGE_JS = `(() => {
 
 /**
  * 把探针挂到 shell 窗口：
- * - console 通道：workspace 上报 → fileActivity.setWorkspace（当前
- *   工作区基准）；session 上报 → fileActivity.fetchHistory（补历史）；
- * - did-finish-load：注入 PAGE_JS + 正文徽章全量回放（页面脚本
- *   就绪后 statCache 重建，会话恢复的历史消息也拿到最近 stat）；
- * - fileActivity 'activity'：当前工作区的 edit 活动 → 页面
- *   __dshFileStat（+n/−n；其他工作区的后台活动不进当前正文，防互串）。
+ * - console 通道：workspace 上报 → workspaceBase.setWorkspace（当前工作区
+ *   基准；skills-catalog 的工作区项目技能目录据此探位）；
+ * - did-finish-load：注入 {@link PAGE_JS}（工作区探针 + 正文文件类型徽章）。
+ *
+ * 2026-10-05：原先还挂 `fileActivity 'activity'` → `window.__dshFileStat`
+ * 的 +n/−n 推送与整页回放，随统计徽章一并退役（见文件头退役记录）。
  */
 export function attachWorkspaceProbe(win: BrowserWindow): void {
   // 先捕获：closed 时窗口已销毁，再访问 win.webContents getter 会抛
   //（theme-watcher/workspace-header 同款防御）
   const { webContents } = win
-  const pushFileStat = (path: string, added: number, removed: number): void => {
-    if (win.isDestroyed()) return
-    webContents.executeJavaScript(
-      `window.__dshFileStat && window.__dshFileStat(${JSON.stringify(path)}, ${String(added)}, ${String(removed)})`,
-      true,
-    ).catch(() => {
-      // 页面跳转间隙执行失败属正常，下次活动/加载会重推
-    })
-  }
   const onConsole = (event: unknown, ...rest: unknown[]): void => {
     const message = consoleMessageText(event, rest)
     if (!message.startsWith(PROBE_PREFIX)) return
     let payload: Record<string, unknown>
     try { payload = JSON.parse(message.slice(PROBE_PREFIX.length)) as Record<string, unknown> } catch { return }
     if (typeof payload.workspace === 'string' || payload.workspace === null) {
-      // 工作区缓存：file-activity 的当前工作区基准（技能目录/徽章分桶）
+      // 工作区基准（skills-catalog 的工作区项目技能目录据此探位）
       const ws = payload.workspace
-      fileActivity.setWorkspace(typeof ws === 'string' && ws !== '' ? ws : null)
-      return
+      workspaceBase.setWorkspace(typeof ws === 'string' && ws !== '' ? ws : null)
     }
-    if (payload.action === 'session') {
-      // 页面打开/切换会话：补拉该会话历史的活动（含徽章数据）
-      const sid = typeof payload.sessionId === 'string' && payload.sessionId !== '' ? payload.sessionId : null
-      if (sid !== null) void fileActivity.fetchHistory(sid)
-    }
-  }
-  const onActivity = (entry: PreviewEntry, wsKey: string): void => {
-    if (wsKey !== fileActivity.activeKey()) return
-    if (entry.kind === 'edit') pushFileStat(entry.path, entry.added, entry.removed)
   }
   const onDidLoad = (): void => {
     if (win.isDestroyed()) return
     webContents.executeJavaScript(PAGE_JS, true).catch(() => {
       // 页面跳转间隙执行失败属正常，下次加载会重试
     })
-    // 正文文件徽章：当前工作区历史活动的 +n/−n 全量回放
-    for (const e of fileActivity.list()) {
-      if (e.kind === 'edit') pushFileStat(e.path, e.added, e.removed)
-    }
   }
   webContents.on('console-message', onConsole)
   webContents.on('did-finish-load', onDidLoad)
-  fileActivity.on('activity', onActivity)
   win.once('closed', () => {
     webContents.removeListener('console-message', onConsole)
     webContents.removeListener('did-finish-load', onDidLoad)
-    fileActivity.removeListener('activity', onActivity)
   })
 }

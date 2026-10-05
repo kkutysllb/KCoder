@@ -202,29 +202,11 @@ export interface UpdateStatus {
  * 面板退役（2026-08）：@kkutysllb/dsh-terminal 插件自带 webServer RPC
  * （/dsh-terminal/api/rpc + SSE 输出流）替代，见 bundle/dsh-terminal。 */
 
-/* ---------- 文件活动 ---------- */
-
-/**
- * 一次文件活动（agent 读/改了哪个文件）。file-activity 聚合存储
- *（主进程内部），workspace-probe 消费驱动正文文件徽章。
- */
-export interface PreviewEntry {
-  /** 绝对路径（相对路径已按当前工作区解析）。 */
-  path: string
-  /** read = 读取；edit = 编辑/写入。 */
-  kind: 'read' | 'edit'
-  /** 事件时间（Date.now()）。 */
-  at: number
-  /** 最近一次编辑的增/删行数（kind=edit 有值）。 */
-  added: number
-  removed: number
-  /** 语法高亮语言提示（上游 read 视图给出，或按扩展名推断）。 */
-  lang: string | null
-  /** 上游 applied hunk（kind=edit 有值；行级 diff 渲染原料）。 */
-  diffs: Array<{ path: string; oldText: string | null; newText: string }> | null
-  /** 主进程请求选中展示（历史回放标志；普通活动缺省）。 */
-  focus?: boolean
-}
+/* ---------- 文件活动（已退役） ----------
+ * PreviewEntry（agent 读/改了哪个文件的活动条目）与 file-activity 聚合器已随
+ * 正文文件徽章的 +n/−n 统计一并退役（2026-10-05）：统计与上游 ui-tool 的
+ * ToolRow 自带的 diff 统计重复。现只余 workspace-base 的当前工作区基准
+ * （skills-catalog 消费），不跨进程传结构。详见 ARCHITECTURE.md §8。 */
 
 /* git 环境面板契约已退役（2026-08）：@kkutysllb/dsh-git-panel 插件自带
  * webServer RPC 快照/计划打开，不再走主进程 IPC。 */

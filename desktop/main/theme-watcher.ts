@@ -49,6 +49,33 @@ const WS_PREFIX = '__dsh_ws__:'
 export const SHELL_TITLEBAR_HEIGHT = 48
 
 /**
+ * 自绘标题栏的几何通道变量（写到 documentElement，由 workspace-header
+ * 注入器消费；它注入得更早时读不到，故两边都用等值兜底）：
+ * - `--dsh-titlebar-h`：标题栏高度＝会话页头覆盖时的行高；
+ * - `--dsh-titlebar-right-reserve`：右侧按钮带让位宽度（含 Windows 原生
+ *   控制按钮区），会话页头的状态簇靠右贴到它左侧为止。
+ */
+const TITLEBAR_H_VAR = '--dsh-titlebar-h'
+const TITLEBAR_RIGHT_VAR = '--dsh-titlebar-right-reserve'
+
+/** 右侧自绘按钮带宽度：三枚 26px 按钮（侧栏面板 12 / 内嵌终端 44 / 本地编辑器 76px 序）。 */
+const TITLEBAR_RIGHT_BAND = 102
+
+/** 自绘标题栏向 workspace-header 发布的「标题右侧让位宽度」变量（标题 max-width 依此收窄）。 */
+const TITLEBAR_STATUS_VAR = '--dsh-titlebar-status-w'
+
+/**
+ * 自绘标题栏主文本右缘（视口 x）——**由本脚本发布、workspace-header 消费**：
+ * 会话页头被覆盖进本带内时，用它把行首内边距接到标题之后（上游几何：
+ * 状态徽章紧跟标题）。反向依赖（标题宽度只由自身内容与 STATUS_VAR 决定、
+ * 不依赖徽章位置）→ 与 STATUS_VAR 合起来无环。
+ */
+const TITLEBAR_TITLE_END_VAR = '--dsh-titlebar-title-end'
+
+/** workspace-header 在面包屑标题变化后派发的事件名（本脚本据此刷新主文本）。 */
+const TITLEBAR_TITLE_EVENT = '__dsh_title_changed'
+
+/**
  * 自绘标题栏的平台差异（注入脚本插值用）：
  * - leftPad：左侧保底（macOS 红绿灯区 78px；Windows 无红绿灯，12px）
  * - padRight：右侧让位给窗口控制按钮（macOS 原生红绿灯在左，0；
@@ -268,35 +295,44 @@ export function themeBackgroundColor(pref: 'system' | 'light' | 'dark' = getSett
  * 自绘标题栏（页面上下文）：替代系统标题栏（WCO 覆盖条在 macOS 不渲染
  * 标题且双击缩放失效，故齐弃）。VS Code 同款方案：
  * - `-webkit-app-region: drag` 拖拽区 → 原生拖动与双击缩放；
- * - 靠左显示「工作区 / 会话标题 〔预设〕」：主文本是 document.title
- *   （上游 DocumentTitle 投射“会话标题 — 产品名”）；工作区前缀由
- *   workspace-probe 探测（workspace.list RPC + 会话配对）写入
- *   --dsh-ws-name，并做成实体按钮（文件夹图标，点击打开工作区目录；
- *   路径读 --dsh-ws-path，上报 __dsh_ws__ 通道由主进程 shell.openPath
- *   执行），agent 预设徽章读 --dsh-agent-preset（workspace-header
- *   读取被收纳的 AgentPresetLabel 文本写入）；两变量均由 apply()
- *   读取拼接（写入方与本脚本互不依赖，通道同 --dsh-sidebar-w；
- *   style 变化会触发既有 observer 重渲染），
+ * - 靠左显示「工作区 / 会话标题」：工作区前缀由 workspace-probe 探测
+ *   （workspace.list RPC + 会话配对）写入 --dsh-ws-name，并做成实体按钮
+ *   （文件夹图标，点击打开工作区目录；路径读 --dsh-ws-path，上报
+ *   __dsh_ws__ 通道由主进程 shell.openPath 执行）；主文本读**面包屑当前项**
+ *   （`[class*=_crumbCurrent]`）——即上游 DocumentTitle 用的同一份
+ *   session.title，但**不带产品名后缀**（document.title 形如
+ *   「会话标题 — 产品名」，而产品名是构建期内联的 DSH_CLIENT_TITLE，本产品
+ *   未内联 → 回退 locale 键 brand.localBuild＝「DSH 本地构建」，2026-10-05
+ *   用户要求删掉这串与产品无关的字）。面包屑文本变化由 workspace-header
+ *   派发 __dsh_title_changed 事件通知（本脚本不直接观察 body：那条观察者
+ *   每秒会被 token 流触发上千次）。两变量均由 apply() 读取拼接（写入方与
+ *   本脚本互不依赖，通道同 --dsh-sidebar-w；style 变化会触发既有 observer
+ *   重渲染），
  *   起排在中间会话列左缘（侧边栏右边线 + 12px，探测 sidebarCol 实时
  *   广播为 --dsh-sidebar-w，拖宽/折叠动画平滑跟随；侧边栏收起时保底
  *   左侧让位区）；--dsh-titlebar-extra-left（折叠按钮迁移注入器
  *   sidebar-toggle 设置 = 最右按钮右缘 + 间距 8，当前最右即折叠按钮；
  *   排布自 2026-09-20 起为 左箭头/右箭头/折叠）叠加上最小让位，收起态
  *   标题不与红绿灯右侧这串按钮重叠）；max-width 自适应避让：右侧取
- *   按钮带（102px = 三枚 26px 按钮：侧栏面板 12/内嵌终端 44/本地编辑器
- *   76px 序——终端由 dsh-terminal 插件 client 注入，本地编辑器见
- *   open-in-app-button；原第四枚上下文按钮的 76→108 带宽随 dsh-context
- *   插件 2026-10-02 整线退役收拢；Windows 另加 padRight 让位原生控制
- *   按钮区），长标题省略号截断；
+ *   按钮带（--dsh-titlebar-right-reserve，102px = 三枚 26px 按钮：侧栏面板
+ *   12/内嵌终端 44/本地编辑器 76px 序——终端由 dsh-terminal 插件 client
+ *   注入，本地编辑器见 open-in-app-button；原第四枚上下文按钮的 76→108
+ *   带宽随 dsh-context 插件 2026-10-02 整线退役收拢；Windows 另加 padRight
+ *   让位原生控制按钮区）**再减去标题右侧的占用宽度**（--dsh-titlebar-status-w，
+ *   workspace-header 按分量量出后写入：预设/智能体团队/子代理/后台任务四类
+ *   徽章 + 工具座位 + 角位座位，全部由上游自己渲染在标题之后，见该模块头
+ *   注释），长标题省略号截断；同一份实测右缘再以
+ *   `--dsh-titlebar-title-end` 外传，供该模块把徽章接在标题之后；
  * - 背景直接解析上游 token `--dsw-specific-sidebar-fill`（body 计算值），
  *   随上游主题切换实时正确，无需主进程回传；
  * - body 注入等高 padding，上游 UI 下移不被遮挡；
- * - 观察 title 变化与主题落点变化，幂等。与 WATCH_JS 共用观察点，
- *   各自独立上报互不干扰。
+ * - 观察面包屑标题事件、`<title>` 变化与主题落点变化，幂等。与 WATCH_JS
+ *   共用观察点，各自独立上报互不干扰。
  */
 const SHELL_TITLEBAR_JS = `(() => {
   const ID_BAR = '__dsh_desktop_titlebar'
   const ID_PAD = '__dsh_desktop_titlebar_pad'
+  const ID_APPREGION = '__dsh_desktop_titlebar_appregion'
   const H = ${SHELL_TITLEBAR_HEIGHT}
   // 宿主标题栏高度声明（上游侧边栏类插件的 URL 契约参数
   // dsh-desktop-titlebar-inset）：就绪 URL 带 ?token= 时 BrowserAuth 会
@@ -316,13 +352,37 @@ const SHELL_TITLEBAR_JS = `(() => {
   pad.id = ID_PAD
   pad.textContent = 'body{padding-top:' + H + 'px;box-sizing:border-box}'
   document.head.append(pad)
+  // 几何通道：workspace-header 把会话页头覆盖进这条带内时消费（行高 + 右侧
+  // 按钮带让位）；它注入的 CSS 早于本脚本时读不到变量，故两侧都有等值兜底
+  document.documentElement.style.setProperty('${TITLEBAR_H_VAR}', H + 'px')
+  document.documentElement.style.setProperty('${TITLEBAR_RIGHT_VAR}', '${TITLEBAR_RIGHT_BAND + TP.padRight}px')
+
+  // 条是窗口唯一的 drag 面（48px 带全宽）。凡位于带内的可交互元素必须自我削减
+  // no-drag，否则会被条吞掉——点击到不了页面（2026-10-05 真机症状：会话页头四类
+  // 状态徽章、右栏页签均点不动）。上游 base.css:82-90 正是这条规则，但它的作用域
+  // 挂在 html[data-platform='darwin'] 下，而**本壳无 preload、从不落该标记**
+  // （sidebar-toggle.ts 模块注释），引擎 web bundle 只读不写它（AppFrame.tsx:168
+  // 读 dataset.platform）⇒ 上游那层在真机上一条都不生效。这里按同一语义（同一份
+  // 选择器清单）补出，并**不带平台标记**，故无论标记在与不在都成立、与上游幂等。
+  // 与会话页头那份簇级削减（workspace-header）互补：簇级管「整块座位」，本条管
+  // 「带内任意位置的可交互元素」（如右栏页签）。
+  const appRegion = document.createElement('style')
+  appRegion.id = ID_APPREGION
+  appRegion.textContent = 'button,a,input,select,textarea,summary,[contenteditable="true"],[tabindex],'
+    + '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"],[role="tooltip"],'
+    + '[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="menuitemcheckbox"],'
+    + '[role="menuitemradio"],[role="option"],[role="checkbox"],[role="radio"],[role="switch"],'
+    + '[role="slider"],[role="combobox"],[role="textbox"]{-webkit-app-region:no-drag}'
+  document.head.append(appRegion)
 
   const bar = document.createElement('div')
   bar.id = ID_BAR
   bar.style.cssText = [
     'position:fixed', 'top:0', 'left:0', 'right:0', 'height:' + H + 'px',
     'padding-right:${TP.padRight}px',
-    'z-index:2147483647',
+    // 比会话页头覆盖层（2147483647）低 1：上游状态徽章画在条之上才可点，
+    // 其余区域由页头的 pointer-events:none 让回给本条（拖拽与按钮照旧）
+    'z-index:2147483646',
     '-webkit-app-region:drag',
     'display:flex', 'align-items:center', 'justify-content:flex-start',
     'font:500 13px -apple-system,"PingFang SC","Segoe UI",sans-serif',
@@ -335,7 +395,10 @@ const SHELL_TITLEBAR_JS = `(() => {
   label.style.cssText = [
     'flex:0 1 auto',
     'margin-left:max(calc(${TP.leftPad}px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px)',
-    'max-width:calc(100% - max(calc(${TP.leftPad}px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px) - ${102 + TP.padRight}px)',
+    // 再减去上游状态簇宽度（workspace-header 量出后写到 documentElement）：
+    // 长标题止于徽章左侧，不钻到它们下面。依赖单向（徽章宽度由内容决定，
+    // 不随标题变化）→ 无回环、不抖动
+    'max-width:calc(100% - max(calc(${TP.leftPad}px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px) - var(${TITLEBAR_RIGHT_VAR}, ${TITLEBAR_RIGHT_BAND + TP.padRight}px) - var(${TITLEBAR_STATUS_VAR}, 0px))',
     'display:flex', 'align-items:center', 'min-width:0', 'white-space:nowrap',
   ].join(';')
   // 工作区段：实体按钮（文件夹图标 + 名字；点击打开工作区目录）。
@@ -364,13 +427,12 @@ const SHELL_TITLEBAR_JS = `(() => {
   }
   const ttlTag = document.createElement('span')
   ttlTag.style.cssText = 'flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis'
-  // agent 预设标记：小徽章（上游 AgentPresetLabel 本显示在会话标题旁，
-  // 随顶栏收纳迁到这里；workspace-header 读 headerActions 写变量）。
-  // inline-flex + line-height:1：文本 10px 但行盒继承 13px 字号的
-  // normal 行高，不压行盒则文本在徽章内偏上、徽章在标题行里偏移
-  const presetTag = document.createElement('span')
-  presetTag.style.cssText = 'flex:none;display:inline-flex;align-items:center;line-height:1;max-width:150px;overflow:hidden;text-overflow:ellipsis;margin-left:9px;padding:3px 8px;border-radius:99px;font-size:10px;font-weight:500;letter-spacing:.2px;background:color-mix(in srgb,currentColor 12%,transparent);opacity:.82;cursor:default'
-  label.append(wsBtn, wsSep, ttlTag, presetTag)
+  // 本段（标题主体）之外曾有第三段：把上游 AgentPresetLabel 的文本抄成一枚
+  // 合成徽章（--dsh-agent-preset 通道）。2026-10-05 起上游状态簇整体可见
+  // （见 workspace-header 模块头注释），合成副本会与真徽章重复且不可点，
+  // 故删除该段与该通道——预设/智能体团队/子代理/后台任务四类徽章现在全部
+  // 由上游自己渲染在这条带内。
+  label.append(wsBtn, wsSep, ttlTag)
   bar.append(label)
 
   // 工作区按钮 hover/图标（cssText 设不了 :hover/后代选择器，注入规则）。
@@ -400,6 +462,27 @@ const SHELL_TITLEBAR_JS = `(() => {
   }
   watchSidebarCol()
 
+  /* 主文本＝面包屑当前项，即上游 DocumentTitle 用的同一份 session.title，
+     但不带产品名后缀。**不再取 document.title**：上游投射的是
+     「会话标题 — 产品名」，产品名是**构建期内联**的 DSH_CLIENT_TITLE
+     （scripts/client-build-environment.ts），本产品构建未内联 → 回退 locale
+     键 brand.localBuild＝「DSH 本地构建」，于是条上一直挂着这串与产品无关的
+     字（2026-10-05 用户要求删除）。上游改类名 → 读到空 → 主文本收起，
+     绝不回退到带产品名的串。 */
+  const currentTitle = () => {
+    const el = document.querySelector('[class*="_crumbCurrent"]')
+    return el === null ? '' : (el.textContent || '').trim()
+  }
+
+  /* 主文本右缘外传：workspace-header 把它接成会话页头的行首内边距，状态徽章
+     于是紧跟标题之后（上游几何：状态是标题的延续）。读**实测**右缘而不是文本
+     长度——主文本被 max-width 夹取时会省略号截断，实际宽度才是徽章该落的 x。
+     ResizeObserver 覆盖侧栏拖宽/折叠、字体落定等不产生 DOM 变化的情形。 */
+  const pushTitleEnd = () => {
+    const r = label.getBoundingClientRect()
+    document.documentElement.style.setProperty('${TITLEBAR_TITLE_END_VAR}', Math.round(r.right) + 'px')
+  }
+
   const apply = () => {
     let color = ''
     try { color = getComputedStyle(document.body).getPropertyValue('--dsw-specific-sidebar-fill').trim() } catch {}
@@ -417,12 +500,12 @@ const SHELL_TITLEBAR_JS = `(() => {
     // 恢复显示必须写回 inline-flex：置 '' 会清除 cssText 里的 display，
     // 残留的 all:unset 把按钮打回 inline，文字掉到第二行
     wsBtn.style.display = ws !== '' ? 'inline-flex' : 'none'
-    wsSep.style.display = ws !== '' ? '' : 'none'
-    ttlTag.textContent = (document.title || '').trim() || 'KCoder'
-    let preset = ''
-    try { preset = getComputedStyle(document.documentElement).getPropertyValue('--dsh-agent-preset').trim() } catch {}
-    presetTag.textContent = preset
-    presetTag.style.display = preset !== '' ? '' : 'none'
+    const title = currentTitle()
+    ttlTag.textContent = title
+    ttlTag.style.display = title !== '' ? '' : 'none'
+    // 分隔符只在两段都有内容时才是分隔符
+    wsSep.style.display = (ws !== '' && title !== '') ? '' : 'none'
+    pushTitleEnd()
   }
   /* 主题异步落定自愈：@property 过渡/上游延迟落色时，突变瞬间读到的
      可能还是旧值，而过渡本身不再产生 DOM 变化——每次变化后 120/400ms
@@ -435,12 +518,33 @@ const SHELL_TITLEBAR_JS = `(() => {
     settleTimers = [120, 400].map((d) => setTimeout(apply, d))
   }
   window.__dshTitlebarApply = applyWithSettle
+  // 面包屑文本变化（换会话/换工作区/会话改名）→ workspace-header 派发事件，
+  // 本函数重读主文本。不直接观察 body：那条观察者每秒会被 token 流触发上千次
+  document.addEventListener('${TITLEBAR_TITLE_EVENT}', applyWithSettle)
   // 跟随系统档的系统翻转可以不经过上游 DOM 属性，媒体查询直达
   try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyWithSettle) } catch {}
 
   const mount = () => {
-    document.body.append(bar)
+    // 条必须排在 #root **之前**：Electron 合成 app-region 的契约是「按几何 +
+    // DOM 顺序、**忽略层叠**，最后被收集的盒子决定该点是否可拖」
+    // （ui-web window-drag/regions.ts isDraggableAt；base.css 同义注释：
+    // "a drag rule must sit on a chrome row that precedes the overlays
+    // covering it"）。条若 append 在 #root 之后，它就是最后一个盒子 ⇒ 凡它
+    // 覆盖之处一律判为可拖拽，**画在它上面的上游状态徽章被整片吞掉**——z-index
+    // 再高也没用（该合成不看层叠），症状恰是「看得见、点不动」，且点击被当成
+    // 拖窗（2026-10-05 现场：智能体团队/子代理/标准模式三枚徽章全不可点）。
+    // 上游覆盖层的规矩相反：要「保持可点」的覆盖层挂在 #root **之后**，靠
+    // no-drag 自我削减（ui-settings-general 即此形）。本条是**拖拽基座**，故
+    // 取「最前」：其后的 drag 行（上游 .header[data-window-drag]）与 no-drag
+    // 盒子（ConversationRoot 的簇级 no-drag、base.css 的可交互元素规则、别的
+    // body 覆盖层）都能按序压过它。绘制不受影响：条是定位元素 + z-index
+    // 2147483646，仍在上游内容之上；页头覆盖层 2147483647 又在条之上。
+    const root = document.getElementById('root')
+    if (root !== null && root.parentNode === document.body) document.body.insertBefore(bar, root)
+    else document.body.append(bar)
     applyWithSettle()
+    // 标题右缘外传的实时面：侧栏拖宽/折叠只改布局、不产生 DOM 变化
+    try { new ResizeObserver(pushTitleEnd).observe(label) } catch {}
     new MutationObserver(applyWithSettle).observe(document.documentElement, {
       attributes: true, attributeFilter: ['style', 'class'],
     })

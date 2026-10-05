@@ -286,8 +286,10 @@ export class DshManager extends EventEmitter {
   /**
    * 用就绪行令牌兑换 BrowserAuth 签名 cookie（与 shell 窗口首次加载同一
    * 机制：GET /?token=… → 303 + set-cookie）。alpha.1 起上游 /api 全线
-   * 要求该 cookie——主进程裸 fetch 一律 401（曾致 file-activity 徽章链
-   * 自 alpha.1 起静默断供，见 2026-09-18 排查）。
+   * 要求该 cookie——主进程裸 fetch 一律 401（2026-09-18 排查现场：当时
+   * file-activity 的正文徽章数据链因此自 alpha.1 起静默断供；该徽章已于
+   * 2026-10-05 退役，见 workspace-base.ts，但 authFetch 仍是所有主进程
+   * /api 调用的唯一入口）。
    *
    * 兑换一次、进程生命周期内复用；重启（新端口=新 authority）由 onReady
    * 清空后重新兑换。并发首调共享同一次在途兑换。

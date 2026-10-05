@@ -401,9 +401,11 @@ export function decorateShellWindow(win: BrowserWindow, getBaseUrl: () => string
     // workspace 顶栏收纳：会话标题/标签/日志按钮迁至状态栏与抽屉，
     // 上游头部隐藏 + 轨迹视图兜底回对话（零侵入，类改名静默失效）
     attachWorkspaceHeader(win)
-    // 工作区探针：选中会话 → workspace.list 解析 → 标题栏工作区名/按钮
-    // + file-activity 工作区基准；附带正文文件徽章（类型徽章 + edit
-    // 增删行数）与历史会话补拉拦截（预览/Git 面板删除后独立存续）
+    // 工作区探针：选中会话 → session/list 解析 → 标题栏工作区名/按钮
+    // + workspace-base 工作区基准（技能分区的工作区项目技能据此探位）；
+    // 另附正文文件**类型**徽章（预览/Git 面板删除后独立存续）。edit 的
+    // +n/−n 统计与历史补拉拦截已于 2026-10-05 退役——那枚统计与上游
+    // ToolRow 自带的 diff 统计在同一行重复渲染
     attachWorkspaceProbe(win)
     // 技能设置：设置面板导航列注入「技能」分区（三来源技能目录 +
     // 行展开正文；console 通道拉目录/正文，白名单读取）

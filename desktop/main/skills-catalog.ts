@@ -27,7 +27,7 @@ import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { dshHome } from './dsh-contract'
 import { bundleSource } from './kcoder-skills-bundle'
-import { fileActivity } from './file-activity'
+import { workspaceBase } from './workspace-base'
 import type { SkillCatalogEntry, SkillCatalogGroup } from '@shared/ipc-contract'
 
 /** 最近一次枚举命中的 SKILL.md 绝对路径集合（read 白名单）。 */
@@ -162,9 +162,9 @@ export function listSkills(): SkillCatalogGroup[] {
   } catch {
     // bundle 源缺失（异常环境）：内置区空态
   }
-  // 2) 工作区项目技能（file-activity 的 activeKey 是桌面端跟踪用户
-  //    所开工作区的既有真相点，与 git 面板扫描 plans 同源）
-  const ws = fileActivity.activeKey()
+  // 2) 工作区项目技能（workspace-base 的 activeKey 是桌面端跟踪用户
+  //    所开工作区的既有真相点，由 workspace-probe 的页面探针喂进）
+  const ws = workspaceBase.activeKey()
   if (ws !== '') {
     scanRoot(join(ws, '.dsh/skills'), 'project', entries)
     scanRoot(join(ws, '.agents/skills'), 'project', entries)
