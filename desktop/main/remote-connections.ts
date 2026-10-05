@@ -60,12 +60,14 @@ function localProfilePatch(): string | undefined {
  * 需要带到远端的本地密钥文件。
  *
  * `.credentials.yaml` 是 `apiKeyEnv` 引用值的实际存放处（`refs` 里的名字与 patch
- * 里的 `apiKeyEnv` 一一对应）；`media-models.env` 供图像/视频模型使用。两者都不
- * 存在时返回空表——远端少密钥，但不该因此连不上。
+ * 里的 `apiKeyEnv` 一一对应）。不存在时返回空表——远端少密钥，但不该因此连不上。
+ *
+ * `media-models.env`（多媒体技能模型凭据）已于 2026-10-05 随该批技能退役一并
+ * 摘除：文件不再有产生者（设置页分区移除）也没有消费者（技能退役），此处不再携带。
  * @returns 存在的文件绝对路径。
  */
 function localSecretFiles(): string[] {
-  return [join(dshHome(), '.credentials.yaml'), join(dshHome(), 'media-models.env')]
+  return [join(dshHome(), '.credentials.yaml')]
     .filter(path => existsSync(path))
 }
 

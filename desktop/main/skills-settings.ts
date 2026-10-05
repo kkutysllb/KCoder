@@ -29,13 +29,19 @@
  *   / window.__dshSkillsToggled(path, ok)（停用/恢复共用失败应答；成功
  *   路径由目录刷新重绘，按钮随行重建——与 enable 同款约定）（均白名单）.
  *
+ * **「多媒体模型」分区已于 2026-10-05 移除**：它只是内置多媒体技能
+ * （image/video/music/podcast-generation）的凭据入口，该批技能退役后其唯一
+ * 用途消失，配套的 `media-models.ts`、`$DSH_HOME/media-models.env` 读写与
+ * dsh 侧车的 env 注入同批摘除（产品负责人拍板：KCoder 是编码产品）。页面侧
+ * 相应去掉 `op:'media-save'` 与 `__dshSkillsMediaValues` / `__dshSkillsMediaSaved`
+ * 两个桥；面板现在只剩四个来源分组。
+ *
  * @module desktop/main/skills-settings
  */
 
 import type { BrowserWindow } from 'electron'
 import { consoleMessageText } from './console-channel'
 import { disableUserSkill, enableOptionalSkill, listSkills, readSkillBody, restoreDisabledSkill } from './skills-catalog'
-import { MEDIA_MODEL_GROUPS, readMediaModelEnv, writeMediaModelEnv } from './media-models'
 
 /** console 通道前缀。 */
 const PREFIX = '__dsh_skills__:'
@@ -77,9 +83,6 @@ const PAGE_JS = `(() => {
   }
 
   var groups = []
-  // 多媒体模型分组定义（静态字段表，编译期插值；已存值运行时推送）
-  var MEDIA = ${JSON.stringify(MEDIA_MODEL_GROUPS)}
-  var mediaVals = {}
   var dialog = null     // 当前挂载的设置对话框
   var navList = null
   var activeExtra = []  // 哈希激活类（激活按钮类集 - 普通按钮类集）
@@ -238,97 +241,6 @@ const PAGE_JS = `(() => {
     return frag
   }
 
-  // ── 多媒体模型配置区（面板顶部，内置 media 技能的凭据入口） ──────
-  function saveMedia() {
-    var btn = document.getElementById('dsk-media-save')
-    if (btn === null || btn.disabled) return
-    btn.disabled = true
-    btn.textContent = '\u4fdd\u5b58\u4e2d\u2026'
-    var vals = {}
-    var inputs = document.querySelectorAll('#' + SEC_ID + ' .dsk-mf-i')
-    for (var i = 0; i < inputs.length; i++) {
-      vals[inputs[i].getAttribute('data-key')] = inputs[i].value
-    }
-    send({ op: 'media-save', values: vals })
-  }
-
-  function renderMedia(sec) {
-    var box = document.createElement('div')
-    box.className = 'dsk-group'
-    var title = document.createElement('div')
-    title.className = 'dsk-gtitle'
-    var filled = 0
-    for (var g = 0; g < MEDIA.length; g++) {
-      for (var i = 0; i < MEDIA[g].fields.length; i++) {
-        if ((mediaVals[MEDIA[g].fields[i].key] || '') !== '') filled++
-      }
-    }
-    title.textContent = '\u591a\u5a92\u4f53\u6a21\u578b' + (filled > 0 ? ' (\u5df2\u914d\u7f6e ' + filled + ' \u9879)' : '')
-    var sub = document.createElement('div')
-    sub.className = 'dsk-gsub'
-    sub.textContent = '\u5185\u7f6e\u591a\u5a92\u4f53\u6280\u80fd\uff08\u56fe\u50cf / \u89c6\u9891 / \u97f3\u4e50 / \u64ad\u5ba2\uff09\u7684\u751f\u6210\u6a21\u578b\u51ed\u636e\u3002' +
-      '\u4fdd\u5b58\u5230 $DSH_HOME/media-models.env\uff0c\u968f dsh \u5f15\u64ce\u542f\u52a8\u6ce8\u5165\u8fdb\u7a0b\u73af\u5883\uff1b\u4fee\u6539\u540e\u91cd\u542f\u5f15\u64ce\u751f\u6548\u3002' +
-      '\u7559\u7a7a\u5219\u7528\u811a\u672c\u5185\u7f6e\u9ed8\u8ba4\u503c\uff1b\u540c\u7ec4\u5185\u6309\u811a\u672c\u4f18\u5148\u7ea7\u81ea\u52a8\u9009\u62e9\u5df2\u914d\u7f6e\u7684 provider\u3002'
-    box.append(title, sub)
-    for (var m = 0; m < MEDIA.length; m++) {
-      var grp = MEDIA[m]
-      var card = document.createElement('div')
-      card.className = 'dsk-mg'
-      var filledInGroup = 0
-      for (var k = 0; k < grp.fields.length; k++) {
-        if ((mediaVals[grp.fields[k].key] || '') !== '') filledInGroup++
-      }
-      if (filledInGroup > 0) card.classList.add('on')
-      var head = document.createElement('div')
-      head.className = 'dsk-mg-h'
-      var hx = document.createElement('span'); hx.className = 'dsk-x'; hx.textContent = '\u25B8'
-      var ht = document.createElement('span'); ht.className = 'dsk-mg-t'; ht.textContent = grp.title
-      head.append(hx, ht)
-      if (filledInGroup > 0) {
-        var cnt = document.createElement('span'); cnt.className = 'dsk-mg-cnt'
-        cnt.textContent = '\u5df2\u914d\u7f6e ' + filledInGroup
-        head.appendChild(cnt)
-      }
-      head.addEventListener('click', function () { this.parentElement.classList.toggle('on') })
-      var body = document.createElement('div')
-      body.className = 'dsk-mg-b'
-      var hnote = document.createElement('div')
-      hnote.className = 'dsk-mg-note'
-      hnote.textContent = grp.note
-      body.appendChild(hnote)
-      for (var j = 0; j < grp.fields.length; j++) {
-        var f = grp.fields[j]
-        var row = document.createElement('label')
-        row.className = 'dsk-mf'
-        var lab = document.createElement('span'); lab.className = 'dsk-mf-l'; lab.textContent = f.label
-        var inp = document.createElement('input')
-        inp.className = 'dsk-mf-i'
-        inp.type = f.secret ? 'password' : 'text'
-        inp.placeholder = f.placeholder
-        inp.setAttribute('data-key', f.key)
-        inp.value = mediaVals[f.key] || ''
-        inp.spellcheck = false
-        inp.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') saveMedia() })
-        row.append(lab, inp)
-        body.appendChild(row)
-      }
-      card.append(head, body)
-      box.appendChild(card)
-    }
-    var actions = document.createElement('div')
-    actions.className = 'dsk-media-actions'
-    var btn = document.createElement('button')
-    btn.type = 'button'
-    btn.id = 'dsk-media-save'
-    btn.className = 'dsk-media-save'
-    btn.textContent = '\u4fdd\u5b58'
-    btn.addEventListener('click', saveMedia)
-    var ok = document.createElement('span'); ok.className = 'dsk-media-ok'; ok.id = 'dsk-media-ok'
-    actions.append(btn, ok)
-    box.appendChild(actions)
-    sec.appendChild(box)
-  }
-
   function render() {
     var sec = document.getElementById(SEC_ID)
     if (sec === null) return
@@ -339,7 +251,6 @@ const PAGE_JS = `(() => {
       '插件（AgentLoop / Bash / WebSearch / 视觉路由等通用工具）在「插件」分区管理。' +
       '同名技能生效优先级：工作区 > KCoder 内置 > 用户全局。'
     sec.appendChild(lead)
-    renderMedia(sec)
     for (var g = 0; g < groups.length; g++) {
       var grp = groups[g]
       var section = document.createElement('div')
@@ -365,29 +276,6 @@ const PAGE_JS = `(() => {
   window.__dshSkillsSync = function (data) {
     groups = Array.isArray(data) ? data : []
     render()
-  }
-
-  /** 主进程 → 页面：多媒体模型已存值推送（与目录同步触发全量重绘）。 */
-  window.__dshSkillsMediaValues = function (vals) {
-    mediaVals = vals && typeof vals === 'object' ? vals : {}
-    render()
-  }
-
-  /** 主进程 → 页面：保存应答（按钮反馈；重绘由目录/值推送完成）。 */
-  window.__dshSkillsMediaSaved = function (ok) {
-    var btn = document.getElementById('dsk-media-save')
-    var tip = document.getElementById('dsk-media-ok')
-    if (btn !== null) {
-      btn.disabled = false
-      btn.textContent = '\u4fdd\u5b58'
-    }
-    if (tip !== null) {
-      tip.textContent = ok
-        ? '\u5df2\u4fdd\u5b58\u2713 \u91cd\u542f\u5f15\u64ce\u540e\u751f\u6548'
-        : '\u4fdd\u5b58\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5'
-      if (tip.timer !== undefined) clearTimeout(tip.timer)
-      tip.timer = setTimeout(function () { tip.textContent = '' }, 4000)
-    }
   }
 
   /** 主进程 → 页面：启用应答（失败提示回按钮；成功路径无需处理——
@@ -536,28 +424,7 @@ const PAGE_JS = `(() => {
         '.dsk-md th, .dsk-md td { border: 1px solid var(--dsw-alias-border-l2, #e2e2e4); padding: 5px 10px; text-align: left; }',
         '.dsk-md th { background: var(--dsw-alias-bg-layer-2, #f6f7f8); }',
         '.dsk-md hr { border: none; border-top: 1px solid var(--dsw-alias-border-l2, #e2e2e4); margin: 14px 0; }',
-        '.dsk-md a { color: var(--dsw-alias-brand-primary, #2f6fed); }',
-        '.dsk-mg { margin: 0 0 10px; border: 1px solid var(--dsw-alias-border-l2, #e2e2e4); border-radius: 10px; overflow: hidden; }',
-        '.dsk-mg-h { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; user-select: none; }',
-        '.dsk-mg-h:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,.08)); }',
-        // 卡头单行稳定：标题不压缩不换行（内容区实际仅 ~525px，标题+说明同行会互相挤压折成多行）；
-        // 说明文字（note）移展开体首行，右侧换「已配置」徽标
-        '.dsk-mg-t { flex: none; font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--dsw-alias-label-primary, #222); }',
-        '.dsk-mg-cnt { flex: none; margin-left: auto; font-size: 10px; line-height: 1; padding: 3px 7px; border-radius: 5px; background: var(--dsw-alias-bg-layer-2, #eee); color: var(--dsw-alias-label-secondary, #666); }',
-        '.dsk-mg-h .dsk-x { font-size: 10px; color: var(--dsw-alias-label-tertiary, #999); transition: transform .12s ease; }',
-        '.dsk-mg.on .dsk-mg-h .dsk-x { transform: rotate(90deg); }',
-        '.dsk-mg-b { display: none; padding: 4px 12px 12px; border-top: 1px solid var(--dsw-alias-border-l2, #e2e2e4); }',
-        '.dsk-mg.on .dsk-mg-b { display: block; }',
-        '.dsk-mg-note { font-size: 11px; line-height: 1.55; color: var(--dsw-alias-label-tertiary, #999); margin: 8px 0 4px; }',
-        '.dsk-mf { display: flex; align-items: center; gap: 8px; margin: 7px 0; }',
-        '.dsk-mf-l { flex: none; width: 118px; font-size: 12px; color: var(--dsw-alias-label-secondary, #888); text-align: right; }',
-        '.dsk-mf-i { flex: 1; min-width: 0; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 5px 9px; border: 1px solid var(--dsw-alias-border-l3, #c8c8cc); border-radius: 6px; background: var(--dsw-alias-bg-layer-1, #fff); color: var(--dsw-alias-label-primary, #222); outline: none; }',
-        '.dsk-mf-i:focus { border-color: var(--dsw-alias-brand-primary, #2f6fed); }',
-        '.dsk-media-actions { display: flex; align-items: center; gap: 10px; padding: 4px 0 2px; }',
-        '.dsk-media-save { font-size: 12px; line-height: 1; padding: 7px 14px; border: none; border-radius: 6px; background: var(--dsw-alias-brand-primary, #2f6fed); color: var(--dsw-alias-label-primary-inverted, #fff); cursor: pointer; }',
-        '.dsk-media-save:hover { opacity: .88; }',
-        '.dsk-media-save:disabled { opacity: .55; cursor: default; }',
-        '.dsk-media-ok { font-size: 12px; color: var(--dsw-alias-label-tertiary, #999); }'
+        '.dsk-md a { color: var(--dsw-alias-brand-primary, #2f6fed); }'
       ].join('\\n')
       document.head.appendChild(style)
     }
@@ -628,17 +495,13 @@ export function attachSkillsSettingsInjector(win: BrowserWindow): void {
       `window.__dshSkillsSync && window.__dshSkillsSync(${JSON.stringify(listSkills())})`,
       true,
     ).catch(() => {})
-    void webContents.executeJavaScript(
-      `window.__dshSkillsMediaValues && window.__dshSkillsMediaValues(${JSON.stringify(readMediaModelEnv())})`,
-      true,
-    ).catch(() => {})
   }
 
   const onConsole = (event: unknown, ...rest: unknown[]): void => {
     const message = consoleMessageText(event, rest)
     if (!message.startsWith(PREFIX) || win.isDestroyed()) return
-    let payload: { op?: unknown; path?: unknown; values?: unknown }
-    try { payload = JSON.parse(message.slice(PREFIX.length)) as { op?: unknown; path?: unknown; values?: unknown } } catch { return }
+    let payload: { op?: unknown; path?: unknown }
+    try { payload = JSON.parse(message.slice(PREFIX.length)) as { op?: unknown; path?: unknown } } catch { return }
     if (payload.op === 'cat') {
       push()
       return
@@ -649,21 +512,6 @@ export function attachSkillsSettingsInjector(win: BrowserWindow): void {
         `window.__dshSkillsBody && window.__dshSkillsBody(${JSON.stringify(payload.path)}, ${JSON.stringify(text)})`,
         true,
       ).catch(() => {})
-      return
-    }
-    if (payload.op === 'media-save') {
-      let ok = false
-      if (payload.values !== null && typeof payload.values === 'object') {
-        try {
-          writeMediaModelEnv(payload.values as Record<string, string>)
-          ok = true
-        } catch { ok = false }
-      }
-      void webContents.executeJavaScript(
-        `window.__dshSkillsMediaSaved && window.__dshSkillsMediaSaved(${ok})`,
-        true,
-      ).catch(() => {})
-      if (ok) push() // 已配置计数/默认展开态随新值重绘
       return
     }
     if (payload.op === 'enable' && typeof payload.path === 'string') {

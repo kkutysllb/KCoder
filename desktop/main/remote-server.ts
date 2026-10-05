@@ -113,7 +113,8 @@ export interface RemoteServerOptions {
    * 密钥**不在** profile patch 里——patch 只写 `apiKeyEnv: ZAI_CODING_CN_API_KEY`
    * 这样的引用，真正的值在 `<DSH_HOME>/.credentials.yaml` 的 refs/records 里。
    * 只同步 patch 的结果就是远端把行都列出来、但每个provider 都标"缺 key"
-   * （2026-09-26 实机）。媒体模型的密钥同理在 `media-models.env`。
+   * （2026-09-26 实机）。（2026-10-05 起不再涉及 `media-models.env`：该文件随
+   * 多媒体技能批退役一并摘除，见 `remote-connections.ts` 的 `localSecretFiles`。）
    */
   homeFiles?: readonly string[]
   /** 进度/诊断输出。 */

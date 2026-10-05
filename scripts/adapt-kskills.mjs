@@ -1,6 +1,15 @@
 #!/usr/bin/env node
 /**
- * KSkills → dsh-skills-bundle 适配脚本（两档分发）。
+ * KSkills → dsh-skills-bundle 适配脚本（历史批生成器）。
+ *
+ * ⚠ **本脚本已不是 `bundle/dsh-skills-bundle/skills/` 的权威写入者**（2026-10-05
+ * 标注）。技能内容的真源现在是独立仓 `kkutysllb/dsh-skills-bundle`，经两级镜像
+ * 单向流入本仓（真源仓 → `dsh-plugins/dsh-skills-bundle` → `bundle/`，见
+ * `scripts/sync-bundles.mjs` 头部「方向单向，禁止反向手改」）。**直接重跑本脚本
+ * 会把 bundle 内容改回 KSkills 的清洗结果，与镜像真源不一致**，随后
+ * `pnpm run check:sync-bundles` 报差异。新增/修改技能请在真源仓落地后走镜像链；
+ * 仅在「KSkills 上游有值得吸收的方法论更新、并打算同步回真源仓」时才运行本脚本，
+ * 且运行后必须人工比对再经镜像链往返。
  *
  * 从本地 KSkills 仓库（默认 ~/kk_Projects/KSkills）选取知识型技能，
  * dsh 兼容清洗后物化到 bundle/dsh-skills-bundle/skills/：
@@ -13,6 +22,11 @@
  *   xlsx/pptx/pdf），整资源物化到 skills/optional/：SKILL.md 清洗 +
  *   scripts/references/LICENSE 原样拷贝（启用后 agent 可直接执行
  *   scripts/*.py，离线纯本地，替代云端 LLM 驱动的 officecli 插件）
+ *
+ * **media / research 批已于 2026-10-05 退役**（产品负责人拍板：KCoder 是编码
+ * 产品，`image/video/music/podcast-generation`、`comic`、`deep-research` 六个
+ * 非编码技能从内置注册面摘除，配套的「设置 → 技能 → 多媒体模型」分区与
+ * `$DSH_HOME/media-models.env` 引擎注入同批移除）。本脚本不再产出它们。
  *
  * 批次划分：核心 = 高频通用场景（实现/调试/评审/架构/类型/前端…）；
  * 可选 = 长尾域（特定后端/运维/文档/流程）；排除 = 语言变体、Claude/
@@ -35,8 +49,8 @@
  *   node scripts/adapt-kskills.mjs [--src /path/to/KSkills]
  */
 
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, cpSync, readdirSync, statSync } from 'node:fs'
-import { join, resolve, basename, extname } from 'node:path'
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, cpSync, readdirSync } from 'node:fs'
+import { join, resolve, basename } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
@@ -130,22 +144,17 @@ const OFFICE_SKILLS = [
 /** 整拷时排除的文件（Claude 插件机制产物 / 系统杂 file）。 */
 const OFFICE_EXCLUDE = new Set(['install.sh', 'uninstall.sh', 'CHANGELOG.md', '.DS_Store'])
 
-/** media 批：多媒体生成技能（源在 media/ 子目录），整资源物化并进
- * manifest（内置注册生效，开箱即用）。脚本调用的多模态模型凭据
- * 由桌面端「设置 → 技能 → 多媒体模型」统一配置，dsh 启动时从
- * $DSH_HOME/media-models.env 注入进程环境（见 media-models.ts）。 */
-const MEDIA_SKILLS = [
-  'image-generation',
-  'video-generation',
-  'music-generation',
-  'podcast-generation',
-  'comic',
-]
+/**
+ * media / research 批已于 2026-10-05 退役（产品负责人拍板：KCoder 是编码产品）。
+ * 原内容：多媒体生成技能（image/video/music/podcast-generation + comic，
+ * 源在 KSkills/media/）与研究方法论（deep-research，源在 research/）。
+ * 退役面含配套的桌面端「设置 → 技能 → 多媒体模型」分区、`media-models.ts`
+ * 与其向 dsh 进程注入的 `$DSH_HOME/media-models.env`——那些 env 的唯一消费者
+ * 就是上述技能，故同批摘除。本脚本不再产出这两个批次（清单与 MANIFEST_ORDER
+ * 同步移除，避免重跑时把已退役技能写回 bundle）。
+ */
 
-/** research 批：研究方法论（knowledge-only，源在 research/ 子目录）。 */
-const RESEARCH_SKILLS = ['deep-research']
-
-/** manifest 中的固定顺序（手写版 + 旧清洗批 + 核心批 + 多媒体/研究批）。 */
+/** manifest 中的固定顺序（手写版 + 核心批）。 */
 const MANIFEST_ORDER = [
   'planning-with-files',
   'task-decomposition',
@@ -153,8 +162,6 @@ const MANIFEST_ORDER = [
   'executing-plans',
   'verification-before-completion',
   ...CORE_SKILLS,
-  ...MEDIA_SKILLS,
-  ...RESEARCH_SKILLS,
 ]
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)))
@@ -234,60 +241,6 @@ function cleanBody(body) {
 
 // ── 适配产出 ────────────────────────────────────────────────────────────────
 
-/** bundle 物化后的技能根（$DSH_HOME 由 KCoder 主进程预置并随 dsh
- * 进程传给 agent 的 bash，双引号内可展开；resourceBase 同指此处）。 */
-const BUNDLE_SKILLS = '$DSH_HOME/profiles/web/node_modules/dsh-skills-bundle/skills'
-
-/** media 技能正文头部的环境说明（桌面端统一配置，免手动 export）。 */
-const MEDIA_ENV_NOTE = [
-  '> **KCoder 桌面端**：本技能依赖的多模态模型凭据（API Key / Base URL /',
-  '> 模型名）由桌面端统一配置并注入进程环境——在「设置 → 技能 → 多媒体',
-  '> 模型」分区填写即可，无需手动 export。脚本按内置优先级选择已配置',
-  '> 的 provider；均未配置时按各脚本自带的默认值与报错引导处理。',
-  '',
-].join('\n')
-
-/** 多媒体技能正文本地化：云端沙箱路径 → 本地物化路径，并清掉云端
- * 专属的工具引用行。在通用 cleanBody 之后应用。 */
-function cleanMediaBody(name, body) {
-  let out = body
-    .split('\n')
-    .filter((line) =>
-      // 云端专属指令：present_files 工具 / 检查 /mnt/user-data 目录的提示
-      !/present_files|check the folder under/.test(line))
-    .join('\n')
-  out = out.replaceAll(`/mnt/skills/public/${name}/`, `${BUNDLE_SKILLS}/${name}/`)
-  out = out.replaceAll('/mnt/skills/public/', `${BUNDLE_SKILLS}/`)
-  out = out.replaceAll('/mnt/user-data/workspace/', './')
-  out = out.replaceAll('/mnt/user-data/outputs/', './outputs/')
-  out = out.replaceAll('/mnt/user-data/', './')
-  return out.replace(/\n{3,}/g, '\n\n').trimEnd() + '\n'
-}
-
-/** media 技能的文本资源（templates/ 等）同样做云端路径本地化。
- * 只处理小体积文本类型（SKILL.md 已在正文清洗里覆盖）。 */
-const LOCALIZE_EXTS = new Set(['.md', '.json', '.txt', '.yaml', '.yml'])
-
-function localizeMediaAssets(name, destDir) {
-  for (const rel of readdirSync(destDir, { recursive: true })) {
-    const p = join(destDir, String(rel))
-    const st = statSync(p)
-    if (!st.isFile() || st.size > 512 * 1024) continue
-    if (!LOCALIZE_EXTS.has(extname(p))) continue
-    const text = readFileSync(p, 'utf8')
-    const next = text
-      .replaceAll(`/mnt/skills/public/${name}/`, `${BUNDLE_SKILLS}/${name}/`)
-      .replaceAll('/mnt/skills/public/', `${BUNDLE_SKILLS}/`)
-      .replaceAll('/mnt/user-data/workspace/', './')
-      .replaceAll('/mnt/user-data/outputs/', './outputs/')
-      .replaceAll('/mnt/user-data/', './')
-    if (next !== text) {
-      writeFileSync(p, next)
-      console.log(`    \u00b7 ${rel} \u8def\u5f84\u672c\u5730\u5316`)
-    }
-  }
-}
-
 function adaptSkill(name, subdir = '') {
   const srcPath = join(SRC, 'coding', name, 'SKILL.md')
   if (!existsSync(srcPath)) throw new Error(`KSkills 源缺失: ${srcPath}`)
@@ -309,7 +262,7 @@ function adaptSkill(name, subdir = '') {
 /** 整资源技能适配（源在子目录的批次）：SKILL.md 清洗 + 其余资源整拷
  * （scripts/references/templates/LICENSE）。manifest=true 物化到 skills/
  * 根（进 manifest，注册生效）；false 物化到 optional/（随包不注册）。 */
-function adaptResourceSkill(name, srcSub, { manifest = false, clean = 'plain', note = '' } = {}) {
+function adaptResourceSkill(name, srcSub, { manifest = false, note = '' } = {}) {
   const srcDir = join(SRC, srcSub, name)
   const srcPath = join(srcDir, 'SKILL.md')
   if (!existsSync(srcPath)) throw new Error(`KSkills 源缺失: ${srcPath}`)
@@ -317,7 +270,7 @@ function adaptResourceSkill(name, srcSub, { manifest = false, clean = 'plain', n
   if (fields.name !== name) throw new Error(`name 不一致: ${fields.name} vs ${name}`)
   const description = flattenDescription(fields.description ?? '')
   if (description === '') throw new Error(`${name}: description 为空`)
-  const cleaned = clean === 'media' ? cleanMediaBody(name, cleanBody(body)) : cleanBody(body)
+  const cleaned = cleanBody(body)
   const destDir = join(OUT, manifest ? '' : 'optional', name)
   rmSync(destDir, { recursive: true, force: true })
   mkdirSync(destDir, { recursive: true })
@@ -330,7 +283,6 @@ function adaptResourceSkill(name, srcSub, { manifest = false, clean = 'plain', n
     `---\nname: ${name}\ndescription: ${description}\n---\n\n${note}${cleaned}`,
   )
   const files = readdirSync(destDir, { recursive: true }).length
-  if (clean === 'media') localizeMediaAssets(name, destDir)
   console.log(`  ✓ ${manifest ? '' : 'optional/'}${name} (${cleaned.split('\n').length} 行正文 + ${files} 个资源文件)`)
 }
 
@@ -363,9 +315,6 @@ console.log('可选批（skills/optional/，不注册）:')
 for (const name of OPTIONAL_SKILLS) adaptSkill(name, 'optional')
 console.log('office 批（整资源，物化到 skills/optional/，不注册）:')
 for (const name of OFFICE_SKILLS) adaptResourceSkill(name, 'office')
-console.log('media 批（整资源，进 manifest，内置注册）:')
-for (const name of MEDIA_SKILLS) adaptResourceSkill(name, 'media', { manifest: true, clean: 'media', note: MEDIA_ENV_NOTE })
-console.log('research 批（knowledge-only，进 manifest，内置注册）:')
-for (const name of RESEARCH_SKILLS) adaptResourceSkill(name, 'research', { manifest: true })
+// media / research 批已退役（2026-10-05）——不再产出，见文件头。
 regenerateManifest()
 console.log(`完成：核心 ${MANIFEST_ORDER.length} + 可选 ${OPTIONAL_SKILLS.length + OFFICE_SKILLS.length} = ${MANIFEST_ORDER.length + OPTIONAL_SKILLS.length + OFFICE_SKILLS.length} 技能。`)

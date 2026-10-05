@@ -22,7 +22,6 @@ import {
   type DshCommand,
 } from './dsh-contract'
 import type { DshLogLine, DshState, DshStatus } from '@shared/ipc-contract'
-import { mediaSpawnEnv } from './media-models'
 import { SHELL_TITLEBAR_HEIGHT } from './theme-watcher'
 import { productPolicyArgs } from './product-policy'
 import { ensureKcoderBundles } from './kcoder-skills-bundle'
@@ -173,9 +172,7 @@ export class DshManager extends EventEmitter {
       // Windows:GUI 应用派生控制台子进程默认弹 cmd 窗口;隐藏后引擎的
       // 工具子进程继承同一(隐藏)控制台,任务执行期不再闪烁弹窗
       windowsHide: true,
-      // mediaSpawnEnv：多媒体技能模型凭据（$DSH_HOME/media-models.env，
-      // 设置→技能→多媒体模型维护），随侧车传给 agent 的工具子进程
-      env: { ...process.env, ...command.env, ...mediaSpawnEnv() },
+      env: { ...process.env, ...command.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     this.child = child
