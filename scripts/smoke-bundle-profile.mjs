@@ -185,7 +185,39 @@ if (typeof ensureKcoderBundles === 'function') {
   }
 }
 
-// ---- 5. 名单漂移（我们的常量 vs 上游 app-boot） ----
+// ---- 5. 退役的非编码技能不得回流（2026-10-05） ----
+// 六个非编码内置技能（多媒体生成 + 漫画 + 深度研究）已从注册面退役，配套的
+// 「多媒体模型」分区与 media-models.env 注入同批移除。判据落在**物化后的**
+// manifest 与磁盘：注册清单不得再出现这些名字，且物化目录里也不得残留。
+// 为什么需要这道门：`scripts/adapt-kskills.mjs`（历史批生成器）曾把
+// `...MEDIA_SKILLS, ...RESEARCH_SKILLS` 展开进 MANIFEST_ORDER，一次重跑就会
+// 把它们写回 bundle —— 而那正是「改了却没人发现」的那类静默回流。
+const RETIRED_NONCODING_SKILLS = [
+  'image-generation', 'video-generation', 'music-generation',
+  'podcast-generation', 'comic', 'deep-research',
+]
+{
+  const skillsRoot = join(profileDir, 'node_modules', 'dsh-skills-bundle', 'skills')
+  const manifestPath = join(skillsRoot, 'manifest.json')
+  let names = []
+  try {
+    names = (JSON.parse(readFileSync(manifestPath, 'utf8')).skills ?? []).map((s) => s.name)
+  } catch (err) {
+    check(false, `物化后的内置技能清单不可读：${manifestPath}（${err instanceof Error ? err.message : String(err)}）`)
+  }
+  if (names.length > 0) {
+    const back = RETIRED_NONCODING_SKILLS.filter((n) => names.includes(n))
+    check(back.length === 0, `退役的非编码技能回流注册面：${back.join('、')}`)
+    // 反向：现役方法论批仍在（防止「删多了」）
+    for (const n of ['planning-with-files', 'test-driven-development', 'typescript', 'release-engineering']) {
+      check(names.includes(n), `现役方法论技能缺失：${n}`)
+    }
+    const stillOnDisk = RETIRED_NONCODING_SKILLS.filter((n) => existsSync(join(skillsRoot, n)))
+    check(stillOnDisk.length === 0, `退役技能的目录残留在物化树里：${stillOnDisk.join('、')}`)
+  }
+}
+
+// ---- 6. 名单漂移（我们的常量 vs 上游 app-boot） ----
 if (UPSTREAM_PROFILE_TS !== undefined) {
   const upstream = [...(/export const OPTIONAL_BUNDLES: readonly string\[\] = \[([\s\S]*?)\]/
     .exec(readFileSync(UPSTREAM_PROFILE_TS, 'utf8'))?.[1] ?? '').matchAll(/'([^']+)'/g)].map((m) => m[1])
@@ -195,7 +227,7 @@ if (UPSTREAM_PROFILE_TS !== undefined) {
   console.error('[skip] 未找到上游 app-boot/profile.ts（KCODER_UPSTREAM_DIR 或默认路径），本轮跳过名单漂移检查')
 }
 
-// ---- 6. 结论（成功即清理，失败保留现场供排查） ----
+// ---- 7. 结论（成功即清理，失败保留现场供排查） ----
 const ok = fails.length === 0
 if (ok) {
   for (const dir of [home, workdir]) rmSync(dir, { recursive: true, force: true })
@@ -203,6 +235,6 @@ if (ok) {
   console.error(`[keep] 现场保留：DSH_HOME=${home} build=${workdir}`)
 }
 process.stdout.write(ok
-  ? `PASS ${String(total)}/${String(total)}（真 ensureKcoderBundles：F27 牵引保留 + F28 可选集不判孤儿 + 内置/模板在册 + 幂等${UPSTREAM_PROFILE_TS !== undefined ? ' + 上游名单无漂移' : ''}）\n`
+  ? `PASS ${String(total)}/${String(total)}（真 ensureKcoderBundles：F27 牵引保留 + F28 可选集不判孤儿 + 内置/模板在册 + 幂等 + 退役非编码技能零回流${UPSTREAM_PROFILE_TS !== undefined ? ' + 上游名单无漂移' : ''}）\n`
   : `FAIL ${String(total - fails.length)}/${String(total)}:\n${fails.map((f) => '  - ' + f).join('\n')}\n`)
 process.exitCode = ok ? 0 : 1

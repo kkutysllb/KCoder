@@ -197,6 +197,10 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({ width: 420, height: 760, show: false })
   const light = await runScenario(win, 'light', '', false)
   const dark = await runScenario(win, 'dark', DARK_VARS, true)
-  console.log(light && dark ? 'ALL PASS' : 'SMOKE FAILED')
+  const ok = light && dark
+  // 退出码必须反映结论（2026-10-05 修）：此前失败只打印 SMOKE FAILED 却 exit 0，
+  // 任何按退出码接线的门禁都会把红读成绿。
+  process.exitCode = ok ? 0 : 1
+  console.log(ok ? 'ALL PASS' : 'SMOKE FAILED')
   app.quit()
 })

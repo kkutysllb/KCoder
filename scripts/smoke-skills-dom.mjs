@@ -18,22 +18,11 @@ const decl = 'const PAGE_JS = ' + BT
 const from = src.indexOf(decl) + decl.length
 const tail = src.indexOf('\n})()' + BT, from)
 const endTick = src.indexOf(BT, tail + 1)
-// PAGE_JS 顶层的 `${JSON.stringify(MEDIA_MODEL_GROUPS)}` 是主进程侧模板插值
-// （模块加载时求值），eval 原文时必须让同名常量在作用域内——2026-10-04 前
-// 它一直缺席，本脚本自 v0.5.9 起以 ReferenceError 挂起（release/audit-v0.6.19.md 有档）。
-// 常量从产品源码 media-models.ts 提取数组字面量（自包含：仅字符串/对象字面量），
-// 不手抄副本——手抄迟早与产品漂移。
-const mmSrc = readFileSync('desktop/main/media-models.ts', 'utf8')
-const mmDecl = 'export const MEDIA_MODEL_GROUPS: readonly MediaModelGroup[] = '
-const mmFrom = mmSrc.indexOf(mmDecl) + mmDecl.length
-const mmEnd = mmSrc.indexOf('\n]', mmFrom)
-if (mmFrom < mmDecl.length || mmEnd < 0) throw new Error('无法提取 MEDIA_MODEL_GROUPS')
-// 夹具：提取产品源码的字段表字面量。`no-unused-vars` 是**误报**——该常量只被下一行
-// eval 的模板字符串 `${JSON.stringify(MEDIA_MODEL_GROUPS)}` 消费（eval 在词法作用域里
-// 查找），静态分析看不见。判别力已实测：把它换成 `undefined`，本脚本立刻回到
-// v0.5.9–v0.6.23 的挂起症状（ReferenceError）⇒ 它承重，不可删。
-// oxlint-disable-next-line no-eval, no-unused-vars -- 夹具，理由见上三行
-const MEDIA_MODEL_GROUPS = eval(mmSrc.slice(mmFrom, mmEnd + 2))
+// 2026-10-05 起 PAGE_JS 里不再有主进程侧模板插值（原
+// `${JSON.stringify(MEDIA_MODEL_GROUPS)}` 随「多媒体模型」分区退役一并移除，
+// 见 skills-settings.ts 模块头），故直接 eval 原文即可。此前它自 v0.5.9 起因缺
+// 同名常量以 ReferenceError 挂起（release/audit-v0.6.19.md 有档），v0.6.24 靠从
+// media-models.ts 抽常量救回，那份夹具已随源文件一起消失。
 // oxlint-disable-next-line no-eval -- 测试夹具:按模板字符串语义还原页面注入源码
 const pageJs = eval(BT + src.slice(from, endTick) + BT)
 
@@ -104,11 +93,6 @@ async function runScenario(win, label, vars) {
   await win.webContents.executeJavaScript(pageJs, true)
   await new Promise((r) => setTimeout(r, 400))
   await win.webContents.executeJavaScript(`window.__dshSkillsSync(${JSON.stringify(groups)})`, true)
-  // 多媒体模型已存值推送（image-seedream 组两项 → 默认展开 + 计数）
-  await win.webContents.executeJavaScript(
-    `window.__dshSkillsMediaValues(${JSON.stringify({ GEMINI_API_KEY: 'sk-img-x', GEMINI_MODEL: 'doubao-seedream-5-0-260128' })})`,
-    true,
-  )
   await new Promise((r) => setTimeout(r, 200))
   const clicked = await win.webContents.executeJavaScript(
     `(() => { const b = document.getElementById('__dsh_desktop_skills_nav'); if (!b) return 'NAV MISSING'; b.click(); return 'ok' })()`,
@@ -190,24 +174,22 @@ async function runScenario(win, label, vars) {
       const kc = document.querySelector('.dsk-badge.kc')
       const plain = document.querySelector('.dsk-badge:not(.kc)')
       const info = (b) => b === null ? null : { text: b.textContent, color: getComputedStyle(b).color, bg: getComputedStyle(b).backgroundColor }
-      const mediaTitle = Array.from(document.querySelectorAll('.dsk-gtitle')).map(t => t.textContent).find(t => t.includes('\u591a\u5a92\u4f53\u6a21\u578b')) || ''
-      const secretInp = document.querySelector('.dsk-mf-i[data-key="GEMINI_API_KEY"]')
-      const openGroups = Array.from(document.querySelectorAll('.dsk-mg')).filter(g => g.classList.contains('on')).length
-      const filledGemini = secretInp === null ? null : secretInp.value
-      // 布局回归：真实 800px 对话框几何（内容区 ~525px）下卡头必须单行（≤36px 含 padding），
-      // 说明在展开体（.dsk-mg-note），已配置组头右侧有徽标
-      const headHs = Array.from(document.querySelectorAll('.dsk-mg-h')).map(h => +h.getBoundingClientRect().height.toFixed(1))
-      const maxHeadH = Math.max.apply(null, headHs)
-      const cntBadges = Array.from(document.querySelectorAll('.dsk-mg-cnt')).map(b => b.textContent)
-      const notes = document.querySelectorAll('.dsk-mg-note').length
+      // 退役面（2026-10-05：六个非编码技能 + 多媒体模型分区）：真实 DOM 里必须为 0。
+      // 判别力自检：同一选择器必须能命中同形的**合成**节点——否则「0」只是选择器写错的假绿。
+      const RETIRED_SEL = '.dsk-mg, .dsk-mf-i, .dsk-media-save, .dsk-media-ok'
+      const retiredInDom = document.querySelectorAll(RETIRED_SEL).length
+      const synth = document.createElement('div')
+      // 合成节点按退役实现的真实形态造：保存键与提示位当时**同时**带 class 与 id，
+      // 只给 id 会让类选择器命中不到——判别力自检第一次就是这么抓出夹具写错的（2/4）。
+      // 注意：本段处在一个 JS 模板字符串里，注释中不得出现反引号。
+      synth.innerHTML = '<div class="dsk-mg"></div><input class="dsk-mf-i"><button id="dsk-media-save" class="dsk-media-save"></button><span id="dsk-media-ok" class="dsk-media-ok"></span>'
+      const retiredSelHits = synth.querySelectorAll(RETIRED_SEL).length
+      const retiredTitle = Array.from(document.querySelectorAll('.dsk-gtitle')).some(t => t.textContent.includes('\u591a\u5a92\u4f53\u6a21\u578b'))
       return JSON.stringify({
         nav: ${JSON.stringify(label)}, click: ${JSON.stringify(clicked)},
         rows: document.querySelectorAll('.dsk-row').length,
         kcBadge: info(kc), plainBadge: info(plain),
-        mediaGroups: document.querySelectorAll('.dsk-mg').length,
-        mediaInputs: document.querySelectorAll('.dsk-mf-i').length,
-        mediaTitle, secretType: secretInp === null ? null : secretInp.type,
-        filledGemini, openGroups, maxHeadH, cntBadges, notes,
+        retiredInDom, retiredSelHits, retiredTitle,
       })
     })()`,
     true,
@@ -238,52 +220,15 @@ async function runScenario(win, label, vars) {
   if (rp.busy !== '恢复中…') fails.push(`恢复中文案=${rp.busy} 应为「恢复中…」`)
   if (rp.afterFail !== '失败，重试') fails.push(`失败应答后文案=${rp.afterFail} 应为「失败，重试」`)
   if (rp.disabledAfterFail !== false) fails.push('失败应答后按钮未复位可点')
-  // 多媒体模型配置区：渲染/回填/密码型/默认展开
-  if (result.mediaGroups !== 6) fails.push(`多媒体分组=${result.mediaGroups} 应为 6`)
-  if (result.mediaInputs !== 21) fails.push(`多媒体输入框=${result.mediaInputs} 应为 21`)
-  if (!result.mediaTitle.includes('已配置 2 项')) fails.push(`配置计数标题异常: ${result.mediaTitle}`)
-  if (result.secretType !== 'password') fails.push(`密钥字段 type=${result.secretType} 应为 password`)
-  if (result.filledGemini !== 'sk-img-x') fails.push('已存值未回填输入框')
-  if (result.openGroups !== 1) fails.push(`含已存值组默认展开数=${result.openGroups} 应为 1`)
-  if (result.maxHeadH > 36) fails.push(`卡头换行错乱：最高 ${result.maxHeadH}px 应 ≤36px（单行）`)
-  if (result.notes !== 6) fails.push(`展开体说明条=${result.notes} 应为 6`)
-  if (!Array.isArray(result.cntBadges) || result.cntBadges.length !== 1 || !result.cntBadges[0].includes('已配置 2')) {
-    fails.push(`已配置组徽标异常: ${JSON.stringify(result.cntBadges)}`)
+  // 「多媒体模型」配置区已于 2026-10-05 随多媒体技能批退役移除
+  // （skills-settings.ts 模块头有档）——此处原有一组渲染/回填/密码型/默认展开
+  // 与保存链路的断言（6 组 / 21 输入框 / op=media-save / __dshSkillsMediaSaved），
+  // 随分区一同删除。现在只留两条反向断言：退役面零残留 + 选择器非空转。
+  if (result.retiredSelHits !== 4) {
+    fails.push(`判别力自检失败：退役面选择器在合成节点上只命中 ${result.retiredSelHits}/4（下面的 0 是假绿）`)
   }
-  // 保存链路：点击保存 → console 载荷 op=media-save（含新输入值）→ 应答回推按钮复位
-  const mediaPayload = new Promise((resolve) => {
-    win.webContents.once('console-message', (_e, _level, message) => resolve(message))
-  })
-  await win.webContents.executeJavaScript(
-    `(() => {
-      const inp = document.querySelector('.dsk-mf-i[data-key="MINIMAX_API_KEY"]')
-      if (inp !== null) inp.value = 'mm-smoke-999'
-      const btn = document.getElementById('dsk-media-save')
-      if (btn === null) return 'SAVE BTN MISSING'
-      btn.click()
-      return 'ok'
-    })()`,
-    true,
-  )
-  const sentMsg = await Promise.race([mediaPayload, new Promise((r) => setTimeout(() => r('TIMEOUT'), 1500))])
-  if (!sentMsg.startsWith('__dsh_skills__:')) fails.push(`保存未发 console 载荷: ${String(sentMsg).slice(0, 40)}`)
-  else {
-    const sent = JSON.parse(sentMsg.slice('__dsh_skills__:'.length))
-    if (sent.op !== 'media-save') fails.push(`载荷 op=${sent.op} 应为 media-save`)
-    if (sent.values?.MINIMAX_API_KEY !== 'mm-smoke-999') fails.push('新输入值未随载荷上送')
-    if (sent.values?.GEMINI_API_KEY !== 'sk-img-x') fails.push('已存值未随载荷上送')
-  }
-  await win.webContents.executeJavaScript(`window.__dshSkillsMediaSaved(true)`, true)
-  const saveProbe = JSON.parse(await win.webContents.executeJavaScript(
-    `(() => JSON.stringify({
-      btnDisabled: (document.getElementById('dsk-media-save') || {}).disabled,
-      btnText: (document.getElementById('dsk-media-save') || {}).textContent,
-      tip: (document.getElementById('dsk-media-ok') || {}).textContent,
-    }))()`,
-    true,
-  ))
-  if (saveProbe.btnDisabled !== false || saveProbe.btnText !== '保存') fails.push(`保存应答后按钮未复位: ${JSON.stringify(saveProbe)}`)
-  if (!saveProbe.tip.includes('已保存')) fails.push(`保存提示异常: ${saveProbe.tip}`)
+  if (result.retiredInDom !== 0) fails.push(`退役的多媒体分区仍在渲染：命中 ${result.retiredInDom} 个节点`)
+  if (result.retiredTitle === true) fails.push('仍存在「多媒体模型」分组标题')
   if (vars === DARK_VARS) {
     if (result.kcBadge && result.kcBadge.color === 'rgb(255, 255, 255)') fails.push('深色主题 kc 徽章落回退 #fff（白底白字隐形，变量名又坏了）')
   }
@@ -298,6 +243,10 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({ width: 1040, height: 660, show: false })
   const light = await runScenario(win, 'light', '')
   const dark = await runScenario(win, 'dark', DARK_VARS)
-  console.log(light && dark ? 'ALL PASS' : 'SMOKE FAILED')
+  const ok = light && dark
+  // 退出码必须反映结论（2026-10-05 修）：此前失败只打印 SMOKE FAILED 却 exit 0，
+  // 任何按退出码接线的门禁都会把红读成绿。
+  process.exitCode = ok ? 0 : 1
+  console.log(ok ? 'ALL PASS' : 'SMOKE FAILED')
   app.quit()
 })
