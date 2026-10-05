@@ -112,10 +112,10 @@ Electron 主进程 (desktop/main/)
 | `dsh-contract.ts` | ★ 上游契约适配层：就绪行、bin 路径、DSH_HOME、Node 版本探测 | **升级上游时唯一必查** |
 | `dsh-manager.ts` | dsh 侧车生命周期：spawn/就绪解析/崩溃重启（指数退避×3）/优雅退出 | — |
 | `windows.ts` | shell 窗口与面板窗口创建；各注入器的接线点 | 各注入模块 |
-| `style-overlay.ts` | 宿主注入 CSS（四段，恒定生效、无偏好档位）：原生右侧栏外壳压制 `NATIVE_SIDEBAR_CSS`、折叠 rail「新建工作区/搜索」入口压制 `RAIL_BROWSER_ACTIONS_CSS`（折叠无痕后退居幂等兑底）、设置对话框头部压制 `SETTINGS_DIALOG_HEADER_CSS`、空会话 K 水印 `HERO_WATERMARK_CSS`（品牌落点，`assets/brand-k.png` 内嵌 data URL）。**原第五段「侧栏『插件』panellist 入口压制」已于 2026-10-04 移除**（产品负责人拍板恢复上游侧栏插件菜单，见 §12 铁律 1） | §8 类名匹配策略 |
+| `style-overlay.ts` | 宿主注入 CSS（四段，恒定生效、无偏好档位）：原生右侧栏外壳压制 `NATIVE_SIDEBAR_CSS`、折叠 rail「新建工作区/搜索」入口压制 `RAIL_BROWSER_ACTIONS_CSS`（折叠无痕后退居幂等兑底）、设置对话框头部压制 `SETTINGS_DIALOG_HEADER_CSS`、空会话 K 水印 `HERO_WATERMARK_CSS`（品牌落点，`assets/brand-k.png` 内嵌 data URL）。**原第五段「侧栏『插件』panellist 入口压制」已于 2026-10-04 移除**（产品负责人拍板恢复上游侧栏插件菜单，见 §12 铁律 1）。⚠ **压制元素 ≠ 收回占宽**：原生右栏的**网格轨道**由 `sidebar-toggle.ts` 恒写 `0px` 归零（2026-10-05，见 §12 铁律 1） | §8 类名匹配策略 |
 | `console-channel.ts` | console 通道：页面注入脚本 → 主进程 的上行通信约定（`__dsh_*:` 前缀） | 各注入模块 |
 | `sidebar-cluster.ts` | better-sidebar 开关簇收纳：插件开关簇隐藏，状态栏右侧面板代理按钮（点击转发插件真实按钮）+ 底面板压制看门狗（插件底面板产品侧弃用：agent 运行态黑屏无唤醒信号，持久化恢复/pane 归位等无按钮打开路径一律自动收回；终端回归自研 terminal-panel） | §8 点击转发 |
-| `sidebar-toggle.ts` | 标题栏左簇 + 折叠无痕（2026-10-04，对齐官方 macOS 折叠形态——官方 preload 写 `data-platform="darwin"` 使折叠整列归零，KCoder 无 preload 走 plain-web 留 56px rail，故自持归零）：上游 logoRow 折叠按钮迁移至自绘标题栏（展开 prev84/next128/toggle174，折叠 toggle84/new120，两态自适应，label 让位变量随态 76↔130 / 142↔196）；无痕 = frame（sidebarCol 父节点）inline grid 轨 1 归零的 `!important` 规则（轨 2/3 原样复制，`data-sidebar-collapsed` 锚，解析失败退化 rail 不崩）+ sidebarCol 0.5px 边线压制；新会话代理（`__dsh_desktop_new_btn`）静态内联 IconNewChat 转发上游 newSession，缺席隐藏 | §8 点击转发 |
+| `sidebar-toggle.ts` | 标题栏左簇 + 折叠无痕（2026-10-04，对齐官方 macOS 折叠形态——官方 preload 写 `data-platform="darwin"` 使折叠整列归零，KCoder 无 preload 走 plain-web 留 56px rail，故自持归零）+ **原生右栏轨道归零（2026-10-05）**：上游 logoRow 折叠按钮迁移至自绘标题栏（展开 prev84/next128/toggle174，折叠 toggle84/new120，两态自适应，label 让位变量随态 76↔130 / 142↔196）；无痕 = frame（sidebarCol 父节点）inline grid 轨 1 归零的 `!important` 规则（轨 2 原样复制、**轨 3 恒 0px**，锚为 `:has(> [data-rightbar-col])`，`data-sidebar-collapsed` 属性锚兑底，解析失败退化 rail 不崩）+ sidebarCol 0.5px 边线压制；新会话代理（`__dsh_desktop_new_btn`）静态内联 IconNewChat 转发上游 newSession，缺席隐藏 | §8 点击转发、§12 铁律 1 |
 | `terminal-panel.ts` + `pty-host.ts` | 内嵌终端（2026-08-22 自研回归）：每工作区独立 WebContentsView + node-pty 桶（多标签），切工作区仅 setVisible 不销毁；标题栏按钮 right 44 + 快捷键 Control+\`；让位几何广播 --dsh-terminal-inset（bundle/kcoder-stats-panel 消费） | — |
 | `git-panel.ts` + `subagent-monitor.ts` | Git 环境面板（2026-08-23 恢复）：透明 WebContentsView 浮动卡片（`#/git`）——仓库状态/提交/推送/分支切换/计划文档（shell.openPath 系统应用打开）/子代理轨迹（session.list 轮询 + mux `session/event` 帧聚合）；probeQueue 串行探测与写操作；按钮 right 108 + 徽章 `+N −M`；自动展开三重门槛（当前工作区/实时活动非 replay/git 仓库） | file-activity 帧观察面 |
 | `panel-buttons.ts` | win32 四钮平铺让位（2026-08-30 取代下拉收纳 panel-menu，无转发层）：原生控制按钮区盖住右侧四枚面板按钮，样式表 !important 将 right 整体平移 +138px 至安全位（150/182/214/246）；其他平台 no-op | 状态栏按钮 right 序 |
@@ -321,6 +321,17 @@ GUI 冒烟统一只进**本机发版门**（`release.sh prepush`），不进 CI�
   `ui-sidebar-documentpreview` / `ui-sidebar-terminal` 在 `dsh.client.inject`
   里硬声明它，禁用会让主对话链整体挂掉）；用户可见外壳由 `style-overlay.ts`
   的 `NATIVE_SIDEBAR_CSS` 压制（`data-sidebar-right-{expand,panel,float-host}`）。
+- **轨道也要收（2026-10-05，用户实测「点尾卡文件弹出右栏空白区」）**：
+  `NATIVE_SIDEBAR_CSS` 只压得住**元素**——AppFrame 的 inline 第三轨是
+  `minmax(0px, <右栏宽>px)`，**元素 `display:none` 之后轨道照旧按增长上限
+  预留**（真实 Chromium 实测：面板隐藏、第三轨仍是 480px，中列只拿到剩余
+  宽，右侧留一条空白）。所以 `sidebar-toggle.ts`（frame 轨道覆盖的唯一
+  所有者）在折叠无痕之外**恒把第三轨写 0px**，轨 1/2 仍从 inline 复制。
+  触发链实证：退役 `dsh-file-review-kcoder` 后**没人再认领**
+  `dsh-resource://changes-review/…`（它的 `review-address.ts` 正是包
+  `openResource` 认领该地址的那道门）→ 尾卡「变更」手势落到引擎默认通道
+  → 面板被压制看不见、**预留出来的空白看得见**。
+  **结论：CSS 压制不足以实现本铁律，轨道归零是必修的第二半。**
 - **打开动作归插件**：文件 / `@` 引用 / `/技能` 引用的打开走插件 `openpath`
   拦截，重定向进自家编辑器。**上游新增的侧栏形态一律不接**——例如侧栏浏览器
   走 `ctx.sidebarRight.openTab('browser', …)` 的上游内部路由，不经我们的拦截

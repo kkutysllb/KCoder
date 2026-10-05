@@ -34,6 +34,34 @@
  * - 上游 toggle **两态都隐藏**——原「折叠态恢复显示 rail K logo」随 rail
  *   退役（brand-injector 的 swapRail 同日退役，见该文件头注释）。
  *
+ * ## 原生右栏轨道归零（2026-10-05，用户实测「点尾卡文件弹出右栏空白区」）
+ *
+ * 上游原生右栏（ui-sidebar-right）被产品压制（style-overlay 的
+ * NATIVE_SIDEBAR_CSS 把面板/列/分隔条 display:none），但**轨道的预留不随
+ * 元素消失**：AppFrame 的 inline 模板第三轨是 `minmax(0px, <右栏宽>px)`，
+ * 真实 Chromium 实测（staging/probe-rightbar-gap.mjs）——把
+ * `[data-rightbar-col]` 置 display:none 后，计算值仍是
+ * `260px 660px 480px`，第三轨照旧按增长上限撑满，中列只拿到 1140px，
+ * 于是右侧留下一条**空白**（= 用户截图红框）。空 minmax 轨并非解析为 0 宽
+ * ——旧注释那条推断有误，这正是本 bug 反复「复发」的原因：CSS 压制从来
+ * 没能力收回这段宽度，真正的防线一直是插件认领打开手势。
+ *
+ * 触发链（2026-10-05 实测定位）：尾卡的「变更」手势走上游
+ * `ctx.sidebarRight.openResource('dsh-resource://changes-review/…')`；退役
+ * dsh-file-review-kcoder 后**没人再认领该地址**（它的 review-address.ts
+ * 正是包 `openResource` 认领 changes-review 的那道门），于是落到引擎默认
+ * 通道打开原生右栏 → 面板被压制看不见、**轨道预留的空白看得见**。
+ *
+ * 因此本注入器（frame 轨道覆盖的唯一所有者，避免两条 !important 规则互压）
+ * 在折叠无痕之外**恒把第三轨写 0px**：轨 1/2 仍从 inline 原样复制
+ * （折叠态轨 1 写 0），轨 3 固定 0。任何原生打开手势都不再占宽，产品侧
+ * 无需重新实现审查 UI（file-review 已按用户决定退役）。
+ *
+ * 锚：`:has(> [data-rightbar-col])`——结构锚（frame = 右栏列的父节点），
+ * 与类名/hash 无关；运行期 `CSS.supports('selector(:has(> div))')` 探测，
+ * 不支持时退回折叠态的 `[data-sidebar-collapsed]` 属性锚（轨 3 归零在该
+ * 退化路径上不可用，行为与本次改动前一致，不崩）。
+ *
  * ## 新会话代理（2026-10-04，折叠态左簇第二枚）
  * 折叠态 rail 随无痕不可见，rail 里的 newSession 按钮仍可程序化点击
  * （overflow 裁剪 ≠ 不可点：HTMLElement.click() 照常派发 React 合成事件）
@@ -237,13 +265,19 @@ const PAGE_JS = `(() => {
   style.textContent = rules.join('')
   document.head.append(style)
 
-  // —— 折叠无痕样式：独立 style 元素，textContent 随态清写，不与按钮样式混存 ——
-  // 规则：轨 2/3 从 frame inline 原样复制、轨 1 写 0px，!important 压过
-  // React inline（不改 inline，同元素 [data-animating] 的 grid 轨道过渡
-  // 照常生效）；展开/解析失败 → 清空（退化为 56px rail，不崩）。
+  // —— 折叠无痕 + 原生右栏轨道归零：独立 style 元素，textContent 随态清写 ——
+  // 规则：轨 2 从 frame inline 原样复制、轨 1 折叠时写 0px、**轨 3 恒 0px**
+  // （见文件头「原生右栏轨道归零」），!important 压过 React inline（不改
+  // inline，同元素 [data-animating] 的 grid 轨道过渡照常生效）；解析失败 →
+  // 清空（退化为上游原样，不崩）。
   const voidStyle = document.createElement('style')
   voidStyle.id = VOID_ID
   document.head.append(voidStyle)
+  // 结构锚：frame = [data-rightbar-col] 的父节点（不绑类名/hash）。:has()
+  // 需 Chromium 105+，运行期探测一次；不支持时退化为折叠态属性锚。
+  const FRAME_SEL = (() => {
+    try { return CSS.supports('selector(:has(> div))') ? ':has(> [data-rightbar-col])' : null } catch (e) { return null }
+  })()
   // 轨道切分：顶层空格切分、括号感知（minmax(400px, 1fr) 含空格不切开）。
   // 刻意不用正则——模板字符串内 \\s 会被转义折叠（单反斜杠陷阱），字符
   // 行走无此风险。inline 值由浏览器序列化，分隔符恒为单空格。
@@ -267,15 +301,22 @@ const PAGE_JS = `(() => {
   const syncVoid = () => {
     let css = ''
     const f = frameEl()
-    if (f !== null && f.hasAttribute('data-sidebar-collapsed')) {
+    if (f !== null) {
       const raw = f.style.gridTemplateColumns
       const tracks = typeof raw === 'string' && raw !== '' ? splitTracks(raw) : null
       if (tracks !== null && tracks.length === 3) {
-        const rest = tracks[1] + ' ' + tracks[2]
+        const collapsed = f.hasAttribute('data-sidebar-collapsed')
+        // 轨 3 恒 0px：上游原生右栏被压制后面板不可见，但轨道照旧按
+        // minmax(0px,Npx) 的增长上限预留 → 留下空白（见文件头实测）。
+        const value = (collapsed ? '0px' : tracks[0]) + ' ' + tracks[1] + ' 0px'
         // 注入卫生：轨值只可能是 px/minmax/fr 组合，含危险字符一律判失败
-        if (!/[{};<>]/.test(rest)) {
-          css = '[data-sidebar-collapsed]{grid-template-columns:0px ' + rest + ' !important}'
-          css += '[data-sidebar-collapsed] > [class*="sidebarCol"]{border-right:none !important}'
+        if (!/[{};<>]/.test(value)) {
+          // 结构锚优先；折叠态再补属性锚（既有选择器，兼 :has 不可用时的兜底）
+          if (FRAME_SEL !== null) css += FRAME_SEL + '{grid-template-columns:' + value + ' !important}'
+          if (collapsed) {
+            css += '[data-sidebar-collapsed]{grid-template-columns:' + value + ' !important}'
+            css += '[data-sidebar-collapsed] > [class*="sidebarCol"]{border-right:none !important}'
+          }
         }
       }
     }

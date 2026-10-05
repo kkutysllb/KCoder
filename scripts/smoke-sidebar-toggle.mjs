@@ -8,8 +8,17 @@
  *
  * - 折叠无痕：fixture 折叠态 inline 轨 1 为 56px（上游 plain-web 行为），
  *   注入后计算值第 1 轨必须归 0px（轨 2/3 原样保留），sidebarCol 右描边
- *   计算值 0px；展开态 void 规则必须为空（textContent 空 + 描边 1px）；
- *   折叠态改写 inline 轨 2（模拟窗口缩放）→ 规则跟刷（轨 2 复制不陈旧）；
+ *   计算值 0px；展开态 void 规则**不再为空**（2026-10-05 起它恒把轨 3 写
+ *   0px，见下条）；折叠态改写 inline 轨 2（模拟窗口缩放）→ 规则跟刷（轨 2
+ *   复制不陈旧）；
+ * - **原生右栏轨道归零（2026-10-05）**：fixture 的原生右栏列
+ *   `[data-rightbar-col]` 置 display:none（= 产品 style-overlay 压制态），
+ *   而 frame 的 inline 第三轨为 `minmax(0px, 480px)`（= 引擎为原生右栏预留
+ *   的轨道）。注入后**两态**轨 3 计算值必须 `0px`，且
+ *   `frame 宽 − 侧栏宽 − 中列宽 ≈ 0`（用户看到的那条空白归零）。
+ *   **负对照**：临时停用归零规则后轨 3 必须回到 >0——空 minmax 轨照样按
+ *   增长上限撑满，这正是「只 display:none 压不住空白」的实证；负对照红
+ *   不了就说明本组断言没有判别力。
  * - 左簇两态自适应：展开 prev84/next128/toggle174 三枚可见 + new 隐藏；
  *   折叠 toggle84/new120 两枚可见 + prev/next 隐藏；display:none 不进
  *   Tab 序，DOM 序恒 prev→next→toggle→new（Tab 序基础）；
@@ -187,7 +196,7 @@ const html = (dark, collapsed = false, win32 = false) => `<!doctype html><html><
   .sessionRow[aria-selected="true"] { background: rgba(128,128,128,.18); }
 </style></head><body${dark ? ' data-ds-dark-theme=""' : ''}>
 <div id="__dsh_desktop_titlebar">${win32 ? '' : '<i class="tl r"></i><i class="tl y"></i><i class="tl g"></i>'}<span id="ttl">KCoder / DSH Local Build</span></div>
-<div class="frame" style="display:grid;grid-template-rows:100%;grid-template-columns:${collapsed ? '56px' : '280px'} minmax(400px, 1fr) minmax(0px, 0px)"${collapsed ? ' data-sidebar-collapsed="true"' : ''}>
+<div class="frame" style="display:grid;grid-template-rows:100%;grid-template-columns:${collapsed ? '56px' : '280px'} minmax(400px, 1fr) minmax(0px, 480px)"${collapsed ? ' data-sidebar-collapsed="true"' : ''}>
   <div class="side sidebarCol">
     <div class="logoRow${collapsed ? ' collapsed' : ''}">
       ${collapsed
@@ -210,6 +219,12 @@ const html = (dark, collapsed = false, win32 = false) => `<!doctype html><html><
     </div>`}
   </div>
   <div class="centerCol">center</div>
+  <!-- 原生右栏（上游 ui-sidebar-right）：产品压制把面板/列 display:none，但
+       引擎 inline 第三轨 minmax(0px,480px) 照旧按增长上限预留 → 右侧空白。
+       本冒烟验的正是这条轨道被归零（负对照：停用规则后它必须回来）。 -->
+  <div class="rightbarCol" data-rightbar-col style="display:none">
+    <div class="nativePanel" data-sidebar-right-panel="push">native</div>
+  </div>
 </div>
 <script>
   window.__toggleClicks = 0
@@ -342,8 +357,13 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
     if (probe.voidLen === null || probe.voidLen === 0) fails.push('折叠态 void 规则不应为空')
   } else {
     if (probe.sideBorder !== '1px') fails.push(`展开态 sidebarCol 描边=${probe.sideBorder} 应为 1px`)
-    if (probe.voidLen !== 0) fails.push(`展开态 void 规则应为空，实际长度=${probe.voidLen}`)
+    // 2026-10-05：展开态 void 规则**不再为空**——它现在恒把轨 3 写 0px
+    // （原生右栏轨道归零）。断言随之从「应为空」改为「必须在场」。
+    if (probe.voidLen === null || probe.voidLen === 0) fails.push('展开态归零规则不应为空（轨 3 须恒 0）')
   }
+  // —— 原生右栏轨道归零（2026-10-05）——
+  // 在独立场景（宽窗口）里验：本窗口宽 480 时网格无余量，第三轨本就为 0，
+  // 量不出「预留」这件事——见 runRightbarGapScenario。
   if (probe.toggleHidden !== true) fails.push('上游 logoRow toggle 应两态隐藏（rail 随无痕退役）')
   // —— Windows 装饰红绿灯 ——
   if (win32) {
@@ -468,7 +488,7 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
     // → void 规则生效 + 左簇重组 + extra 切换
     const collapsedSim = JSON.parse(await win.webContents.executeJavaScript(`(async () => {
       const frame = document.querySelector('.frame')
-      frame.style.gridTemplateColumns = '56px minmax(400px, 1fr) minmax(0px, 0px)'
+      frame.style.gridTemplateColumns = '56px minmax(400px, 1fr) minmax(0px, 480px)'
       frame.setAttribute('data-sidebar-collapsed', 'true')
       const t = document.querySelector('button[class*="toggle"]')
       if (t !== null) t.setAttribute('aria-label', '展开侧边栏')
@@ -481,6 +501,7 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
       const disp = (el) => el === null ? null : getComputedStyle(el).display
       return JSON.stringify({
         track1: getComputedStyle(frame).gridTemplateColumns.split(' ')[0],
+        track3: getComputedStyle(frame).gridTemplateColumns.split(' ')[2],
         toggleLeft: btn !== null ? btn.getBoundingClientRect().left : null,
         toggleAria: btn !== null ? btn.getAttribute('aria-label') : null,
         prevDisplay: disp(prevBtn),
@@ -492,6 +513,7 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
       })
     })()`, true))
     if (collapsedSim.track1 !== '0px') fails.push(`模拟折叠后轨 1=${collapsedSim.track1} 应为 0px（属性切换即触发）`)
+    if (collapsedSim.track3 !== '0px') fails.push(`模拟折叠后轨 3=${collapsedSim.track3} 应为 0px（原生右栏归零应随态跟刷）`)
     if (Math.abs(collapsedSim.toggleLeft - COLLAPSED_TOGGLE_LEFT) > 1) fails.push(`模拟折叠后折叠按钮 left=${collapsedSim.toggleLeft} 应 ≈${COLLAPSED_TOGGLE_LEFT}`)
     if (collapsedSim.toggleAria !== '展开侧边栏') fails.push(`模拟折叠后折叠按钮 aria=${collapsedSim.toggleAria} 应为 展开侧边栏`)
     if (collapsedSim.prevDisplay !== 'none' || collapsedSim.nextDisplay !== 'none') fails.push('模拟折叠后左右箭头应隐藏')
@@ -503,7 +525,7 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
     // C：模拟展开（属性移除 + inline 280px）→ 规则清空 + 左簇还原
     const expandSim = JSON.parse(await win.webContents.executeJavaScript(`(async () => {
       const frame = document.querySelector('.frame')
-      frame.style.gridTemplateColumns = '280px minmax(400px, 1fr) minmax(0px, 0px)'
+      frame.style.gridTemplateColumns = '280px minmax(400px, 1fr) minmax(0px, 480px)'
       frame.removeAttribute('data-sidebar-collapsed')
       const t = document.querySelector('button[class*="toggle"]')
       if (t !== null) t.setAttribute('aria-label', '折叠侧边栏')
@@ -515,6 +537,7 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
       const voidStyle = document.getElementById('__dsh_desktop_sidebar_void_style')
       return JSON.stringify({
         track1: getComputedStyle(frame).gridTemplateColumns.split(' ')[0],
+        track3: getComputedStyle(frame).gridTemplateColumns.split(' ')[2],
         toggleLeft: btn !== null ? btn.getBoundingClientRect().left : null,
         newDisplay: disp(newBtn),
         sideBorder: side !== null ? getComputedStyle(side).borderRightWidth : null,
@@ -526,19 +549,94 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
     if (Math.abs(expandSim.toggleLeft - TOGGLE_LEFT) > 1) fails.push(`模拟展开后折叠按钮 left=${expandSim.toggleLeft} 应 ≈${TOGGLE_LEFT}`)
     if (expandSim.newDisplay !== 'none') fails.push('模拟展开后新会话代理应隐藏')
     if (expandSim.sideBorder !== '1px') fails.push(`模拟展开后 sidebarCol 描边=${expandSim.sideBorder} 应为 1px（规则清空后恢复）`)
-    if (expandSim.voidLen !== 0) fails.push(`模拟展开后 void 规则应为空，实际长度=${expandSim.voidLen}`)
+    if (expandSim.track3 !== '0px') fails.push(`模拟展开后轨 3=${expandSim.track3} 应为 0px（归零规则应恒在场，不再清空）`)
+    // 2026-10-05：规则不再随展开清空（轨 3 恒 0）——断言反转，见上方说明
+    if (expandSim.voidLen === null || expandSim.voidLen === 0) fails.push('模拟展开后归零规则不应为空（轨 3 须恒 0）')
     if (expandSim.extra !== expandedExtra + 'px') fails.push(`模拟展开后 extra=${expandSim.extra} 应为 ${expandedExtra}px`)
   } else {
     // 折叠态：模拟窗口缩放（inline 轨 2 重写为更大的 min）→ 规则跟刷。
     // 用 500px（> 窗口可用宽）才能在计算值里与未刷新的 480px 区分开
     const resized = JSON.parse(await win.webContents.executeJavaScript(`(async () => {
       const frame = document.querySelector('.frame')
-      frame.style.gridTemplateColumns = '56px minmax(500px, 1fr) minmax(0px, 0px)'
+      frame.style.gridTemplateColumns = '56px minmax(500px, 1fr) minmax(0px, 480px)'
       await new Promise((res) => setTimeout(res, 700))
       return JSON.stringify({ tracks: getComputedStyle(frame).gridTemplateColumns })
     })()`, true))
     if (!resized.tracks.startsWith('0px 500px')) fails.push(`折叠态窗口缩放后无痕规则未跟刷，实际「${resized.tracks}」`)
+    if (resized.tracks.split(' ')[2] !== '0px') fails.push(`折叠态窗口缩放后轨 3=${resized.tracks.split(' ')[2]} 应为 0px（归零应随重刷保留）`)
   }
+
+  console.log(`[${label}${collapsed ? '-collapsed' : ''}]`, fails.length === 0 ? 'PASS' : 'FAIL: ' + fails.join('; '))
+  return fails.length === 0
+}
+
+/**
+ * 原生右栏轨道归零场景（2026-10-05，需宽窗口）：
+ *
+ * 上游原生右栏被产品压制（fixture 里 `[data-rightbar-col]` display:none），
+ * 但 AppFrame 的 inline 第三轨 `minmax(0px, 480px)` 只要有网格余量就照旧
+ * 按增长上限撑满 —— 唯一的防线是 sidebar-toggle 注入的归零规则。本场景在
+ * 宽窗口（1440）量这条：两态的轨 3 计算值必须 0px、`frame − 侧栏 − 中列
+ * ≈ 0`，并跑**负对照**（临时停用规则 → 轨 3 必须回到 480）证明断言有判别力。
+ *
+ * 为什么不在既有场景里量：那个窗口宽 480，`280 + minmax(400px,…)` 已经
+ * 超出窗口宽 → 网格没有余量 → 第三轨本就是 0，量出来是**假绿**。
+ * @param win - 宽窗口（≥1400）。
+ * @param label - 场景名。
+ * @param collapsed - 折叠态（轨 1 额外写 0）。
+ * @returns 全部断言是否通过。
+ */
+async function runRightbarGapScenario(win, label, collapsed) {
+  const fails = []
+  const dir = mkdtempSync(join(tmpdir(), 'toggle-gap-smoke-'))
+  writeFileSync(join(dir, 'index.html'), html(false, collapsed, false))
+  await win.loadFile(join(dir, 'index.html'))
+  await win.webContents.executeJavaScript(pageJs, true)
+  await new Promise((r) => setTimeout(r, 700))
+  const probe = JSON.parse(await win.webContents.executeJavaScript(`(() => {
+    const box = (sel) => { const el = document.querySelector(sel); return el === null ? null : el.getBoundingClientRect() }
+    const frame = document.querySelector('.frame')
+    const frameBox = box('.frame')
+    const sideBox = box('[class*="sidebarCol"]')
+    const centerBox = box('[class*="centerCol"]')
+    const rightbar = document.querySelector('[data-rightbar-col]')
+    const voidStyle = document.getElementById('__dsh_desktop_sidebar_void_style')
+    const blank = frameBox !== null && sideBox !== null && centerBox !== null
+      ? Math.round(frameBox.width - sideBox.width - centerBox.width) : null
+    const withRule = frame !== null ? getComputedStyle(frame).gridTemplateColumns : null
+    let withoutRule = null
+    if (voidStyle !== null) {
+      voidStyle.disabled = true
+      withoutRule = frame !== null ? getComputedStyle(frame).gridTemplateColumns : null
+      voidStyle.disabled = false
+    }
+    let hasSupport = false
+    try { hasSupport = CSS.supports('selector(:has(> div))') } catch (e) { hasSupport = false }
+    return JSON.stringify({
+      hasSupport,
+      frameWidth: frameBox !== null ? Math.round(frameBox.width) : null,
+      withRule, withoutRule, blank,
+      voidLen: voidStyle !== null ? voidStyle.textContent.length : null,
+      rightbarDisplay: rightbar !== null ? getComputedStyle(rightbar).display : null,
+    })
+  })()`, true))
+
+  const tracks = probe.withRule !== null ? probe.withRule.split(' ') : []
+  if (!probe.hasSupport) fails.push('运行环境不支持 :has() —— 轨道归零的结构锚不可用（Chromium 105+ 才有）')
+  if (probe.frameWidth === null || probe.frameWidth < 1400) fails.push(`本场景需要宽窗口（frame 宽=${String(probe.frameWidth)}）`)
+  if (probe.rightbarDisplay !== 'none') fails.push(`原生右栏列应为 display:none（产品压制态），实际 ${String(probe.rightbarDisplay)}`)
+  if (probe.voidLen === null || probe.voidLen === 0) fails.push('归零规则不应为空')
+  if (tracks.length !== 3) fails.push(`frame 计算轨应为 3 段，实际「${String(probe.withRule)}」`)
+  else {
+    if (tracks[2] !== '0px') fails.push(`原生右栏轨道未归零：轨 3=${tracks[2]} 应为 0px（右侧空白会复现）`)
+    if (collapsed && tracks[0] !== '0px') fails.push(`折叠态轨 1=${tracks[0]} 应为 0px（无痕不应回退）`)
+  }
+  if (probe.blank === null) fails.push('无法测量原生右栏占宽')
+  else if (probe.blank > 1) fails.push(`原生右栏仍占宽 ${probe.blank}px（frame − 侧栏 − 中列 应 ≈0）`)
+  // 负对照：规则是唯一把这段宽度收回的东西——停用后轨 3 必须回到预留值
+  const noRule = probe.withoutRule !== null ? probe.withoutRule.split(' ') : []
+  if (noRule.length !== 3 || !(parseFloat(noRule[2]) > 0))
+    fails.push(`负对照失败：停用归零规则后轨 3=${String(probe.withoutRule)} 应仍为预留值（>0），否则本组断言无判别力`)
 
   console.log(`[${label}${collapsed ? '-collapsed' : ''}]`, fails.length === 0 ? 'PASS' : 'FAIL: ' + fails.join('; '))
   return fails.length === 0
@@ -562,6 +660,10 @@ app.whenReady().then(async () => {
   // Windows 场景：装饰红绿灯 + 双平台同坐标（展开 + 折叠各一档，extra 不同）
   results.push(await runScenario(win, 'win-dark', true, false, true))
   results.push(await runScenario(win, 'win-dark', true, true, true))
+  // 原生右栏轨道归零（需宽窗口：480 宽无网格余量，第三轨本就 0，假绿）
+  const wideWin = new BrowserWindow({ width: 1440, height: 800, show: false })
+  results.push(await runRightbarGapScenario(wideWin, 'gap-expanded', false))
+  results.push(await runRightbarGapScenario(wideWin, 'gap-collapsed', true))
   console.log(results.every(Boolean) ? 'ALL PASS' : 'FAILED')
   app.exit(results.every(Boolean) ? 0 : 1)
 })
