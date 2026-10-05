@@ -66,12 +66,15 @@ window.__ModuleLoader__.load({
       /** vendor 懒加载三件。 */
       const VENDOR = ['xterm.js', 'addon-fit.js', 'xterm.css']
 
-      /* ---- 主题 token（上游 bg-base/sidebar-fill 系；亮暗双轨） ---- */
+      /* ---- 主题 token（上游 bg-base/sidebar-fill 系；亮暗双轨） ----
+       * v1.3.0 起不再带 `border`：分隔线由 fg 走 color-mix 现算（亮暗自动
+       * 跟随且色相与正文一致）。删掉这条死 token 是为了不让硬编码色值有
+       * 回流的口子——旧值 `rgba(0,0,0,.10)` 在暗色主题下会脏成灰线。 */
       const themeOf = () => {
         const dark = document.body.hasAttribute('data-ds-dark-theme')
         return dark
-          ? { dark: true, bg: '#151517', headerBg: '#1B1B1C', fg: '#E8EAED', border: '#2C2C2E', accent: '#4D6BFE' }
-          : { dark: false, bg: '#FFFFFF', headerBg: '#F9FAFB', fg: '#1A1D21', border: 'rgba(0,0,0,.10)', accent: '#4D6BFE' }
+          ? { dark: true, bg: '#151517', headerBg: '#1B1B1C', fg: '#E8EAED', accent: '#4D6BFE' }
+          : { dark: false, bg: '#FFFFFF', headerBg: '#F9FAFB', fg: '#1A1D21', accent: '#4D6BFE' }
       }
 
       const clampH = (h) => Math.min(PANEL_MAX_H, Math.max(PANEL_MIN_H, Math.round(h)))
@@ -92,10 +95,50 @@ window.__ModuleLoader__.load({
         return btn
       }
 
-      /** 标签文字：目录短名（区分度最高；shell 名在 title 属性里）。 */
+      /** 标签文字：目录短名（区分度最高；shell 名走 header 的 shell 徽标）。 */
       const tabLabel = (tab) => {
         const parts = String(tab.cwd || '').split('/').filter(Boolean)
         return parts.pop() ?? String(tab.cwd ?? '')
+      }
+
+      /** 标签前置图标（终端提示符母题，与开关按钮同一套笔画）。 */
+      const TAB_ICON = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none">'
+        + '<rect x="1.9" y="2.6" width="12.2" height="10.8" rx="2" stroke="currentColor" stroke-width="1.25"/>'
+        + '<path d="M4.7 6.4 6.3 8l-1.6 1.6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>'
+        + '<path d="M8 10h3.2" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>'
+        + '</svg>'
+
+      /**
+       * 服务端 `tabOf()` 的 `title` 字段装的是 **shell 短名**，不是标签
+       * 标题：`entry.js` 里是 `shellDisplayName(s.shell ?? defaultShell())`
+       *（`/bin/zsh` → `zsh`、`C:\...\pwsh.exe` → `pwsh`）。
+       *
+       * 所以 header 的 shell 徽标直接显示**服务端算好的值**，客户端不猜
+       * 平台：`$SHELL`、passwd 登录 shell、Windows 的 pwsh 探测链，乃至
+       * `DSH_TERMINAL_SHELL` 覆写后的实际落点都如实反映。猜平台（darwin
+       * → zsh）会在用户自定义 shell 时说谎，也会在 spawn 回退到 bash
+       * 时与真实进程不符。
+       */
+      const shellNameOf = (tab) => (typeof tab?.title === 'string' ? tab.title : '')
+
+      /**
+       * header 的 shell 徽标：跟随活动标签，显示**服务端给出的** shell 短名。
+       * 无活动标签（或服务端未给名）时整体隐藏，不留空胶囊。
+       */
+      const syncShellChip = (p) => {
+        const chip = p.shellChip
+        if (chip === undefined) return
+        const st = p.tabs.get(p.activeId)
+        const name = st === undefined ? '' : String(st.shellName ?? '')
+        if (name === '') {
+          chip.hidden = true
+          chip.textContent = ''
+          chip.removeAttribute('title')
+          return
+        }
+        chip.hidden = false
+        chip.textContent = name
+        chip.title = `当前 shell：${name}`
       }
 
       /* ---- xterm vendor 懒加载（首次开面板时拉一次，失败重试） ---- */
@@ -268,20 +311,33 @@ body[data-ds-dark-theme] #${BTN_ID}:not(.kt-corner){color:rgba(232,234,237,.8)}
 #${BTN_ID}:hover{background:color-mix(in srgb,currentColor 10%,transparent)}
 #${BTN_ID}:active{background:color-mix(in srgb,currentColor 18%,transparent)}
 #${BTN_ID}[data-open="1"]{background:color-mix(in srgb,currentColor 14%,transparent)}
-.kt-panel{all:unset;box-sizing:border-box;position:fixed;bottom:0;display:none;flex-direction:column;font:500 12px -apple-system,"PingFang SC","Segoe UI",sans-serif;z-index:900;background:#fff}
+.kt-panel{all:unset;box-sizing:border-box;position:fixed;bottom:0;display:none;flex-direction:column;font:500 12px -apple-system,"PingFang SC","Segoe UI",sans-serif;z-index:900;background:#fff;border-top:1px solid var(--kt-hair,transparent);border-top-left-radius:10px;border-top-right-radius:10px;box-shadow:var(--kt-shadow,none);overflow:hidden}
 .kt-panel[data-shown="1"]{display:flex}
-.kt-grip{height:4px;flex:none;cursor:row-resize}
-.kt-header{flex:none;height:32px;display:flex;align-items:stretch;gap:6px;padding:0 8px;user-select:none}
+/* 上缘拖条：命中区保留 6px，但**不再实心填色**。旧版把整条刷成分隔色，
+   亮色下就是一条突兀的灰杠（用户报的「边框痕迹粗糙」的根因）。改为常态
+   隐形、悬停浮出一枚居中胶囊（停靠区手感），拖动语义与命中区不变。 */
+.kt-grip{position:relative;height:6px;flex:none;cursor:row-resize}
+.kt-grip::after{content:"";position:absolute;left:50%;top:2px;width:34px;height:2px;margin-left:-17px;border-radius:2px;background:transparent;transition:background .16s ease,width .16s ease,margin-left .16s ease}
+.kt-grip:hover::after{width:56px;margin-left:-28px;background:var(--kt-hair,transparent)}
+.kt-grip:active::after{background:var(--kt-accent,transparent);opacity:.75}
+.kt-header{flex:none;height:34px;display:flex;align-items:stretch;gap:6px;padding:0 8px;user-select:none;border-bottom:1px solid var(--kt-hair,transparent)}
 .kt-tabs{flex:1;min-width:0;display:flex;align-items:stretch;gap:2px;overflow-x:auto;scrollbar-width:none}
 .kt-tabs::-webkit-scrollbar{display:none}
 .kt-tab{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;gap:7px;padding:0 7px 0 11px;max-width:170px;border-radius:7px;cursor:pointer;flex:none}
+.kt-tab .kt-tab-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:13px;height:13px;opacity:.48;transition:opacity .15s ease}
+.kt-tab[data-active="1"] .kt-tab-icon{opacity:.9}
+.kt-tab[data-exited="1"] .kt-tab-icon{opacity:.28}
 .kt-tab .kt-tab-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.55}
-.kt-tab[data-active="1"]{background:rgba(128,128,128,.14)}
+.kt-tab[data-active="1"]{background:rgba(128,128,128,.14);box-shadow:inset 0 0 0 1px var(--kt-hair,transparent)}
 .kt-tab[data-active="1"] .kt-tab-label{opacity:1;font-weight:600}
 .kt-tab .kt-x{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:4px;cursor:pointer;opacity:0;flex:none}
 .kt-tab:hover .kt-x,.kt-tab[data-exited="1"] .kt-x{opacity:.7}
 .kt-tab .kt-x:hover{background:rgba(128,128,128,.25);opacity:1}
 .kt-tab[data-exited="1"] .kt-tab-label{opacity:.35;font-style:italic}
+/* header 的 shell 名徽标：等宽字体 + 胶囊形，读出「这个标签底下跑的是什么
+   shell」。文字由服务端 shellDisplayName 给出，不猜平台。 */
+.kt-shell{flex:none;display:inline-flex;align-items:center;height:20px;margin-top:7px;padding:0 8px;border-radius:999px;border:1px solid var(--kt-hair,transparent);background:var(--kt-chip,transparent);font:600 10.5px/1 Menlo,Monaco,"SF Mono",ui-monospace,monospace;letter-spacing:.03em;opacity:.62;white-space:nowrap;user-select:text}
+.kt-shell[hidden]{display:none}
 .kt-btn{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-top:4px;border-radius:6px;cursor:pointer}
 .kt-btn:hover{background:rgba(128,128,128,.18)}
 .kt-btn svg{display:block}
@@ -289,12 +345,25 @@ body[data-ds-dark-theme] #${BTN_ID}:not(.kt-corner){color:rgba(232,234,237,.8)}
 .kt-term .kt-page{position:absolute;inset:0;padding:2px 8px 6px}
 .kt-term .kt-page[hidden]{display:none}
 .kt-term .xterm{height:100%}
-.kt-exit{flex:none;display:none;align-items:center;gap:10px;padding:6px 12px;font-size:12px;opacity:.8}
-.kt-menu{position:fixed;z-index:901;min-width:148px;padding:4px;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.28);font-size:12px}
+/* xterm viewport 固定 overflow-y:scroll（vendor/xterm.css:96），而本仓那份
+   xterm.css 是**裁剪版、不带任何滚动条配色规则** ⇒ 浏览器默认滚动条直接露出：
+   亮色下白底白条看不出来，暗色下就是面板右缘一条 15px 白杠（实测
+   offsetWidth-clientWidth=15，elementFromPoint 命中 .xterm-viewport）。
+   按亮暗主题给它一套细滚动条（track 透明 ⇒ 露出终端底色）。
+   注：两条写法并存是刻意的——Chromium ≥121 认 scrollbar-width/color 并忽略
+   ::-webkit-scrollbar；旧版（Electron 24 = Chromium 112）反之。 */
+.kt-term .xterm-viewport{scrollbar-width:thin;scrollbar-color:var(--kt-bar,transparent) transparent}
+.kt-term .xterm-viewport::-webkit-scrollbar{width:10px;height:10px}
+.kt-term .xterm-viewport::-webkit-scrollbar-track{background:transparent}
+.kt-term .xterm-viewport::-webkit-scrollbar-thumb{background:var(--kt-bar,transparent);background-clip:content-box;border:2px solid transparent;border-radius:6px}
+.kt-term .xterm-viewport::-webkit-scrollbar-thumb:hover{background:var(--kt-bar-hover,transparent);background-clip:content-box;border:2px solid transparent}
+.kt-term .xterm-viewport::-webkit-scrollbar-corner{background:transparent}
+.kt-exit{flex:none;display:none;align-items:center;gap:10px;padding:6px 12px;font-size:12px;opacity:.8;border-top:1px solid var(--kt-hair,transparent)}
+.kt-menu{position:fixed;z-index:901;min-width:148px;padding:4px;border-radius:8px;border:1px solid var(--kt-hair,transparent);box-shadow:0 10px 30px var(--kt-raise,rgba(0,0,0,.28));font-size:12px}
 .kt-menu button{all:unset;box-sizing:border-box;display:flex;width:100%;padding:5px 10px;border-radius:5px;cursor:pointer}
 .kt-menu button:hover{background:rgba(128,128,128,.18)}
 .kt-menu button:disabled{opacity:.35;cursor:default}
-.kt-menu .kt-sep{height:1px;margin:4px 6px}
+.kt-menu .kt-sep{height:1px;margin:4px 6px;background:var(--kt-hair,transparent)}
 .kt-deps{position:absolute;inset:0;display:flex;flex-direction:column;gap:8px;padding:16px 20px;overflow:auto}
 .kt-deps-title{font-weight:700;font-size:13px}
 .kt-deps-cause{opacity:.75;font-size:12px;word-break:break-all}
@@ -357,16 +426,26 @@ body[data-ds-dark-theme] #${BTN_ID}:not(.kt-corner){color:rgba(232,234,237,.8)}
       const applyPalette = (panel) => {
         const p = palette()
         panel.root.style.background = p.token.bg
+        // 镀铬派生量：全部从宿主既有 token 现算，不引入第十六套色板。
+        // 分隔线走 color-mix(fg)：亮暗自动跟随且色相与正文一致——旧版
+        // 硬编码 rgba(0,0,0,.10) 在暗色主题下会脏成一条灰线。
+        panel.root.style.setProperty('--kt-fg', p.token.fg)
+        panel.root.style.setProperty('--kt-accent', p.token.accent)
+        panel.root.style.setProperty('--kt-hair', `color-mix(in srgb, ${p.token.fg} 14%, transparent)`)
+        panel.root.style.setProperty('--kt-chip', `color-mix(in srgb, ${p.token.fg} 6%, transparent)`)
+        // xterm viewport 的滚动条（见样式块注释）：默认滚动条在暗色下是白杠
+        panel.root.style.setProperty('--kt-bar', `color-mix(in srgb, ${p.token.fg} 26%, transparent)`)
+        panel.root.style.setProperty('--kt-bar-hover', `color-mix(in srgb, ${p.token.fg} 42%, transparent)`)
+        panel.root.style.setProperty('--kt-raise', p.token.dark ? 'rgba(0,0,0,.6)' : 'rgba(15,23,42,.16)')
+        panel.root.style.setProperty('--kt-shadow', p.token.dark
+          ? '0 -10px 30px rgba(0,0,0,.55)'
+          : '0 -10px 30px rgba(15,23,42,.13)')
         panel.header.style.background = p.token.headerBg
         panel.header.style.color = p.token.fg
-        panel.header.style.borderBottom = `1px solid ${p.token.border}`
-        panel.grip.style.background = p.token.border
         panel.exitBar.style.background = p.token.bg
         panel.exitBar.style.color = p.token.fg
         panel.menu.style.background = p.token.headerBg
         panel.menu.style.color = p.token.fg
-        panel.menu.style.border = `1px solid ${p.token.border}`
-        panel.menu.querySelectorAll('.kt-sep').forEach(sep => { sep.style.background = p.token.border })
         panel.palette = p.xterm
         for (const st of panel.tabs.values()) st.term.options.theme = p.xterm
       }
@@ -411,6 +490,9 @@ body[data-ds-dark-theme] #${BTN_ID}:not(.kt-corner){color:rgba(232,234,237,.8)}
           palette: null, depsMode: true,
           resyncTabs: () => {},
         }
+        // 降级卡此前从不调 applyPalette：面板底色落回 CSS 的 #fff，暗色
+        // 主题下是一块白板，而且 body 主题翻转的观察者重涂也涂不到它。
+        applyPalette(panel)
         panels.set(bucket, panel)
         return panel
       }
@@ -442,7 +524,9 @@ body[data-ds-dark-theme] #${BTN_ID}:not(.kt-corner){color:rgba(232,234,237,.8)}
           '<svg viewBox="0 0 16 16" width="14" height="14" fill="none"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M13.7 1.8v2.7h-2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>')
         const closeBtn = iconBtn('关闭终端面板（会话保留）',
           '<svg viewBox="0 0 16 16" width="14" height="14" fill="none"><path d="m4.5 4.5 7 7m0-7-7 7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>')
-        header.append(tabsBar, newBtn, restartBtn, closeBtn)
+        const shellChip = el('span', 'kt-shell')
+        shellChip.hidden = true
+        header.append(tabsBar, shellChip, newBtn, restartBtn, closeBtn)
         const termHost = el('div', 'kt-term')
         const exitBar = el('div', 'kt-exit')
         const exitText = el('span', '', 'shell 进程已退出')
@@ -460,7 +544,7 @@ body[data-ds-dark-theme] #${BTN_ID}:not(.kt-corner){color:rgba(232,234,237,.8)}
         document.documentElement.append(root)
 
         panel = {
-          bucket, root, grip, header, tabsBar, termHost, exitBar, menu,
+          bucket, root, grip, header, tabsBar, shellChip, termHost, exitBar, menu,
           tabs: new Map(), activeId: -1, open: false, shown: false, loaded: false,
           palette: null,
         }
@@ -491,14 +575,16 @@ body[data-ds-dark-theme] #${BTN_ID}:not(.kt-corner){color:rgba(232,234,237,.8)}
           const tabEl = el('button', 'kt-tab')
           tabEl.type = 'button'
           tabEl.title = `${tab.title} — ${tab.cwd}`
+          const icon = el('span', 'kt-tab-icon')
+          icon.innerHTML = TAB_ICON
           const label = el('span', 'kt-tab-label', tabLabel(tab))
           const x = el('button', 'kt-x')
           x.type = 'button'
           x.title = '关闭标签'
           x.innerHTML = '<svg viewBox="0 0 16 16" width="10" height="10" fill="none"><path d="m4.5 4.5 7 7m0-7-7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'
-          tabEl.append(label, x)
+          tabEl.append(icon, label, x)
           tabsBar.append(tabEl)
-          const st = { id: tab.id, term, fit, host, el: tabEl, exited: !tab.alive, replaying: true, pending: [], disposed: false }
+          const st = { id: tab.id, term, fit, host, el: tabEl, shellName: shellNameOf(tab), exited: !tab.alive, replaying: true, pending: [], disposed: false }
           tabEl.dataset.exited = st.exited ? '1' : '0'
           tabEl.onclick = () => setActive(panel, st.id)
           x.onclick = e => { e.stopPropagation(); void closeTab(panel, st.id) }
@@ -533,6 +619,7 @@ body[data-ds-dark-theme] #${BTN_ID}:not(.kt-corner){color:rgba(232,234,237,.8)}
             t.host.hidden = t.id !== id
           }
           p.exitBar.style.display = st.exited ? 'flex' : 'none'
+          syncShellChip(p)
           // 隐藏期间尺寸可能滞后：激活即补 fit + 上报（pty 端补 resize）
           if (p.termHost.clientWidth !== 0 && p.termHost.clientHeight !== 0) {
             try { st.fit.fit() } catch { /* 容器暂不可测 */ }
@@ -616,6 +703,9 @@ body[data-ds-dark-theme] #${BTN_ID}:not(.kt-corner){color:rgba(232,234,237,.8)}
             p.activeId = [...p.tabs.keys()][0] ?? -1
           }
           if (p.activeId !== -1) setActive(p, p.activeId)
+          // 无活动标签（桶空 / resync 后全灭）时同样要收徽标，否则会留下
+          // 上一个标签的 shell 名——比不显示更容易误导。
+          syncShellChip(p)
         }
         panel.resyncTabs = () => { void resyncTabs(panel) }
 
@@ -629,8 +719,10 @@ body[data-ds-dark-theme] #${BTN_ID}:not(.kt-corner){color:rgba(232,234,237,.8)}
           st.exited = false
           st.el.dataset.exited = '0'
           st.el.title = `${out.tab.title} — ${out.tab.cwd}`
+          st.shellName = shellNameOf(out.tab)
           const lbl = st.el.querySelector('.kt-tab-label')
           if (lbl !== null) lbl.textContent = tabLabel(out.tab)
+          syncShellChip(panel)
           st.term.reset()
           panel.exitBar.style.display = 'none'
           st.term.focus()

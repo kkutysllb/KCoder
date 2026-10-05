@@ -109,6 +109,28 @@ pnpm 两侧解析到同一物理包（一份 native 绑定，无漂移）。dsh 
   node-pty`，0.2.0-rc.2 线为 1.2.0-beta.15，prebuilt spawn-helper 在位），
   沿目录树向上解析命中。
 
+### 面板镀铬与 shell 徽标（v1.3.0 起）
+
+- **标签**：前置一枚终端图标（提示符母题，与标题栏开关按钮同一套笔画）。
+  标签文字仍是**目录短名**——同工作区多标签时区分度最高，shell 名不重复
+  占用标签宽度。
+- **header 右侧的 shell 徽标**：显示当前活动标签**真实使用**的 shell 短名
+  ——`zsh`（macOS 默认）、`bash`（Linux 默认 / 兜底）、`pwsh` /
+  `powershell`（Windows 探测链落点）。取值来自服务端
+  `shellDisplayName(s.shell)`，即上面那条解析链的**实际落点**，不是客户端
+  按平台猜的：用户自定义 `$SHELL` / `DSH_TERMINAL_SHELL` 时如实反映，spawn
+  回退到 bash 时也不会谎报 `zsh`。无活动标签时徽标整体收起。
+- **镀铬**：面板上缘 1px 分隔线 + 10px 圆角 + 向上投影（停靠区形态）；分隔线
+  与徽标底色由 `color-mix(in srgb, <fg> N%, transparent)` 从既有 token 现算，
+  亮暗主题自动跟随，不再硬编码 `rgba(0,0,0,.10)`（旧值在暗色下会脏成灰线）。
+  上缘拖条改为**常态隐形、悬停浮出居中胶囊**——旧版把 4px 整条刷成实心分隔
+  色，亮色下就是一条突兀的灰杠（「边框痕迹粗糙」的根因）。
+- **终端滚动条**：`vendor/xterm.css` 里 `.xterm-viewport` 固定
+  `overflow-y:scroll`，而本仓那份 xterm.css 是**裁剪版、不含滚动条配色**——默认
+  滚动条直接露出：亮色下白底白条看不出来，暗色下就是面板右缘一条 **15px 白杠**
+  （实测 `offsetWidth-clientWidth=15`、设备像素 2754–2783）。现按亮暗主题给它
+  一套细滚动条（track 透明 ⇒ 露终端底色，thumb 由 `color-mix(fg)` 派生）。
+
 ## 安装
 
 ```bash

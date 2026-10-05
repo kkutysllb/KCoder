@@ -209,7 +209,21 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // 发布核验：npmjs 端 dist-tags.latest 已指向 1.0.38（本次平移的事实依据；
   // 发布时经历约 2 分钟「being processed」排队，期间指定版本端点 404——
   // 与 1.0.33 平移时记录的现象一致）。
-  'dsh-coding-sidebar': '^1.0.38',
+  // 2026-10-05 平移：^1.0.38 → ^1.0.39（随本次内置物化同线）。1.0.39 =
+  // 变更审查手势认领进自家侧边栏：上游 ui-deliverables 的交付物卡把「查看
+  // 变更」交给原生右栏（dsh-resource://changes-review/session/<id>/<seq>/<turn>），
+  // 而原生右栏面板是产品铁律 1 有意压制的，该地址族此前无门认领 ⇒ 穿透到被
+  // 压制的面板，用户点交付物文件得到一条空白列、文件从不出现。1.0.39 由插件
+  // 认领该地址族（新增零依赖 review-address.ts；三道文件门 openPath /
+  // wrapRemoteOpenPath / openResource 一并接上），打开的文件进自家编辑器，
+  // 与内建审查页签「检视」同一落点。宿主侧无改动（守铁律 2：上游版本适配
+  // 活在插件里、以插件版本发布）。
+  // 发布核验（本次平移的事实依据，全部直取 registry 一手端点，绕开 npm view
+  // 的本地 packument 缓存——本轮曾因该缓存误判为「未发布」）：指定版本端点
+  // npmjs /dsh-coding-sidebar/1.0.39 = 200、dist-tags.latest = 1.0.39
+  // （publish 时间 2026-10-05T14:42:43Z）；npmmirror 侧 1.0.39 仍 404（该包
+  // 57MB+，镜像同步滞后），按 v0.6.16 先例记入 release/audit-v0.6.25.md 后放行。
+  'dsh-coding-sidebar': '^1.0.39',
   // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5 → **2026-10-04 退役**，
   // 本段为历史记录）：coding-sidebar 的衍生插件（增强审查卡 + 侧边栏审查 tab），
   // 末版本线 ^1.0.11（1.0.11 = peer 口径改 `>=0.1.7-rc.2 <1.0.0`）。
