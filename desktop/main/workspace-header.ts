@@ -185,7 +185,7 @@ header:has(> [data-slot="conversation.session.header"], [data-conversation-heade
      状态是标题的延续）。slot 容器是 display:contents（ui-renderer
      ANCHOR_STYLE），titleRow 就是这条 flex 行的直接项目，内边距直接决定起排
      位置。变量缺席（无自绘标题栏的平台）时用 78px＝macOS 红绿灯让位值兜底。 */
-  padding: 0 var(${TITLEBAR_RIGHT_VAR}, 102px) 0 calc(var(${TITLEBAR_TITLE_END_VAR}, 78px) + ${TITLE_GAP}px) !important;
+  padding: 0 var(${TITLEBAR_RIGHT_VAR}, 70px) 0 calc(var(${TITLEBAR_TITLE_END_VAR}, 78px) + ${TITLE_GAP}px) !important;
   border-bottom: none !important;
   background: transparent !important;
   display: flex !important;

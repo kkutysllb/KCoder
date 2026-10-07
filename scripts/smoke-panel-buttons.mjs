@@ -39,13 +39,12 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 <div id="__dsh_desktop_titlebar">
   <button id="__dsh_desktop_sidebar_panel_btn" class="pbtn" style="right:12px">侧</button>
   <button id="__dsh_kc_term_btn" class="pbtn" style="right:44px">终</button>
-  <button id="__dsh_desktop_open_in_app" class="pbtn" style="right:76px">开</button>
 </div>
 </body></html>`
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const IDS = ['__dsh_desktop_sidebar_panel_btn', '__dsh_kc_term_btn', '__dsh_desktop_open_in_app']
-const EXPECT = { __dsh_desktop_sidebar_panel_btn: '150px', __dsh_kc_term_btn: '182px', __dsh_desktop_open_in_app: '214px' }
+const IDS = ['__dsh_desktop_sidebar_panel_btn', '__dsh_kc_term_btn']
+const EXPECT = { __dsh_desktop_sidebar_panel_btn: '150px', __dsh_kc_term_btn: '182px' }
 /** 已随 dsh-context 插件（2026-10-02）退役的旧按钮 id：不得再出现在 SHIFT_JS 里。 */
 const RETIRED_IDS = ['__dsh_desktop_context_btn', '__dsh_kc_git_btn']
 

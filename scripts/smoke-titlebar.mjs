@@ -21,7 +21,7 @@
  *
  * - 标题栏文本含工作区名 + 会话标题；**即使 `document.title` 里带着产品名，
  *   标题栏也绝不含它**（判别点）；也不含硬编码回退 'KCoder'；
- * - 几何通道：`--dsh-titlebar-h`=48px、`--dsh-titlebar-right-reserve`=102px
+ * - 几何通道：`--dsh-titlebar-h`=48px、`--dsh-titlebar-right-reserve`=70px
  *   （darwin）必须写到 documentElement，供 workspace-header 消费；
  * - 绘制层级：标题栏 z-index 必须**低于**页头覆盖层（否则徽章被条的背景盖住）
  *   ——注意这是**绘制**主张，与「能不能点」是两件事；
@@ -92,7 +92,7 @@ if (BAR_MODE === 'append' && barBodyUsed === barBody) {
 const SHELL_TITLEBAR_HEIGHT = 48
 const TITLEBAR_H_VAR = '--dsh-titlebar-h'
 const TITLEBAR_RIGHT_VAR = '--dsh-titlebar-right-reserve'
-const TITLEBAR_RIGHT_BAND = 102
+const TITLEBAR_RIGHT_BAND = 70
 const TITLEBAR_STATUS_VAR = '--dsh-titlebar-status-w'
 const TITLEBAR_TITLE_END_VAR = '--dsh-titlebar-title-end'
 const TITLEBAR_TITLE_EVENT = '__dsh_title_changed'
@@ -379,7 +379,7 @@ app.whenReady().then(async () => {
     if (p.after.indexOf('改过的标题') === -1) fails.push(`面包屑活通道未生效（改后仍为「${p.after}」）`)
     if (p.after.indexOf(PRODUCT_TAIL) !== -1) fails.push('活通道更新后重新引入产品名')
     if (p.geomH.trim() !== '48px') fails.push(`--dsh-titlebar-h 未发布或值不对（${p.geomH}）`)
-    if (p.geomRight.trim() !== '102px') fails.push(`--dsh-titlebar-right-reserve 未发布或值不对（${p.geomRight}）`)
+    if (p.geomRight.trim() !== '70px') fails.push(`--dsh-titlebar-right-reserve 未发布或值不对（${p.geomRight}）`)
     if (p.statusW.trim() === '' || p.statusW.trim() === '0px') {
       fails.push(`--dsh-titlebar-status-w 未量出（${p.statusW}）——长标题会钻到徽章下面`)
     }

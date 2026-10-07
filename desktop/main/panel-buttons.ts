@@ -7,7 +7,9 @@
  * right:76px）挂在自绘标题栏内——absolute 定位基于包含块 padding box
  * （≈窗口右缘），标题栏为避让原生控制按钮区（titleBarOverlay 右侧
  * 138px，绘制在窗口层最顶）加的 padding-right:138px 对 absolute 子元素
- * 无效 → 按钮带整段（76+26=102 < 138）落在原生按钮区内被盖。
+ * 无效 → 按钮带整段（44+26=70 < 138）落在原生按钮区内被盖。
+ * （open-in-app 214 一档已于 2026-10-08 随注入器退役摘除——原生页头
+ * 角部「在应用中打开」按钮同功能且用户指认重复。）
  * （第四枚上下文按钮 right:76→214 一档已随 dsh-context 插件 2026-10-02
  * 整线退役摘除，open-in-app 前移补位后按钮带收拢为三枚。）
  *
@@ -47,7 +49,6 @@ const SHIFT_JS = `(() => {
   styleEl.textContent = [
     '#__dsh_desktop_sidebar_panel_btn{right:150px !important}',
     '#__dsh_kc_term_btn{right:182px !important}',
-    '#__dsh_desktop_open_in_app{right:214px !important}',
   ].join('')
 })()`
 

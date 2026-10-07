@@ -35,7 +35,7 @@
  * - **跨注入器契约**：`--dsh-titlebar-status-w` 必须是「徽章簇 + 工具 + 角位
  *   + 固定间距」的**分量之和**，且必须**小于 titleRow 整宽**——那条 auto
  *   外边距混进来会把标题压成 0 宽（首版量整宽侥幸成立）；
- * - 状态簇必须**不得越进按钮带**（默认让位 102px；`_headerCorner` 的
+ * - 状态簇必须**不得越进按钮带**（默认让位 70px；`_headerCorner` 的
  *   `margin-right:-16px` 必须被归零，否则末枚会滑进按钮带）；
  * - `_titleRow` 的容器型 containment 必须被解除（否则徽章宽度会随行宽
  *   断点收缩，让位宽度不再是内容函数）；
@@ -252,7 +252,7 @@ const PROBE = `(() => {
   })
 })()`
 
-const BAND = 102
+const BAND = 70
 /** 夹具给自绘标题栏主文本右缘的假值：徽章必须落在它之后（+ TITLE_GAP）。 */
 const TITLE_END = 240
 

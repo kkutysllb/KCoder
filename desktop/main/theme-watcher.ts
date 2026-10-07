@@ -58,8 +58,8 @@ export const SHELL_TITLEBAR_HEIGHT = 48
 const TITLEBAR_H_VAR = '--dsh-titlebar-h'
 const TITLEBAR_RIGHT_VAR = '--dsh-titlebar-right-reserve'
 
-/** 右侧自绘按钮带宽度：三枚 26px 按钮（侧栏面板 12 / 内嵌终端 44 / 本地编辑器 76px 序）。 */
-const TITLEBAR_RIGHT_BAND = 102
+/** 右侧自绘按钮带宽度：两枚 26px 按钮（侧栏面板 12 / 内嵌终端 44；本地编辑器钮 2026-10-08 随注入器退役摘除，44+26=70）。 */
+const TITLEBAR_RIGHT_BAND = 70
 
 /** 自绘标题栏向 workspace-header 发布的「标题右侧让位宽度」变量（标题 max-width 依此收窄）。 */
 const TITLEBAR_STATUS_VAR = '--dsh-titlebar-status-w'
