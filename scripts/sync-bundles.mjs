@@ -91,7 +91,11 @@ function collectFiles(root, select) {
 }
 
 function filesEqual(a, b) {
-  return readFileSync(a).equals(readFileSync(b))
+  // 归一化行尾再比：真源是 Git 检出（autocrlf 下 CRLF），镜像是同步脚本直写
+  // （LF）——逐字节比在 Windows 上会把「只差行尾」判成漂移（与 deps-freshness
+  // 的锁文件快照同一类陷阱，2026-10-08 一并收掉）。
+  const norm = (buf) => buf.toString('utf8').replace(/\r\n/g, '\n')
+  return norm(readFileSync(a)) === norm(readFileSync(b))
 }
 
 /** 对账单个映射：返回差异描述数组（空数组 = 一致）。 */

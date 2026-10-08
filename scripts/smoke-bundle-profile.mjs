@@ -35,7 +35,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const MAIN_DIR = join(ROOT, 'desktop/main')
@@ -156,7 +156,12 @@ try {
 const readManifest = () => JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))
 if (typeof ensureKcoderBundles === 'function') {
   // 隔离自检：跑真代码之前先确认真 home 没被指到（本机 shell 带生产 DSH_HOME）。
-  checkEq(home.startsWith(tmpdir()) && !home.startsWith(homedir()), true, '临时 DSH_HOME 未生效（可能误伤真 home，立即中止判据）')
+  // 判据只认「真 home 的已知落点」，**不能**用 `!home.startsWith(homedir())`——
+  // Windows 的 TEMP 就在用户主目录里（C:\Users\X\AppData\Local\Temp），那样恒假
+  // （2026-10-08 本机踩到：24/25，唯一那条红就是它）。
+  const realHomes = ['.dsh', '.kcoder', '.kcoder-dev'].map((name) => join(homedir(), name))
+  const pointedAtRealHome = realHomes.some((h) => home === h || home.startsWith(h + sep))
+  checkEq(home.startsWith(tmpdir()) && !pointedAtRealHome, true, '临时 DSH_HOME 未生效（可能误伤真 home，立即中止判据）')
   try {
     ensureKcoderBundles()
   } catch (err) {

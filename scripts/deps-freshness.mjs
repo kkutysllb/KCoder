@@ -75,7 +75,12 @@ function lockfileChanged(root) {
   const snap = join(root, LOCK_SNAPSHOT)
   if (!existsSync(live) || !existsSync(snap)) return false
   try {
-    return !readFileSync(live).equals(readFileSync(snap))
+    // 归一化行尾再比：Git 的 autocrlf 会把工作树的 lock 检出成 CRLF，而 pnpm 写
+    // 的快照恒为 LF——逐字节比在 Windows 上必然不等，于是**每次 dev 都误报**
+    // 「依赖陈旧」，而按提示重装永远修不好（2026-10-08 实测：两边 4392 行全同，
+    // 只差每行末尾的 \r；install 退出 0 后告警照旧）。
+    const norm = (buf) => buf.toString('utf8').replace(/\r\n/g, '\n')
+    return norm(readFileSync(live)) !== norm(readFileSync(snap))
   } catch {
     return false
   }
@@ -191,7 +196,7 @@ export function checkDepsFreshness(root) {
     }
     const problems = []
     if (lockfileChanged(root)) {
-      problems.push(`装的是旧锁文件快照（node_modules/.pnpm/${LOCK} ≠ ${LOCK}）`)
+      problems.push(`装的是旧锁文件快照（${LOCK_SNAPSHOT.replace(/\\/g, '/')} ≠ ${LOCK}）`)
     }
     const missing = []
     for (const dir of workspacePackageDirs(root)) {

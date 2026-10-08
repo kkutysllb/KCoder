@@ -65,6 +65,17 @@ function icon(paths: string): string {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`
 }
 
+/**
+ * 平台判定：主修饰键是 ⌘ 还是 Ctrl。提示字形与按键判定必须同源——此前提示硬编码
+ * 「⌘ ↵」，在 Windows 上既看不懂也按不响（且当时**根本没有绑定**，见下）。
+ * 渲染层自足取值，不为一行装饰扩 IPC 桥面。
+ */
+function prefersCmdKey(): boolean {
+  const data = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData
+  const name = data?.platform ?? navigator.platform ?? ''
+  return /mac|iphone|ipad/i.test(name)
+}
+
 function shotFrame(caption: string, img: string, alt: string, extraClass = ''): string {
   return `
     <span class="shot-frame ${extraClass}">
@@ -170,6 +181,10 @@ export function mountLanding(root: HTMLElement): void {
   const engineLabel = root.querySelector<HTMLElement>('[data-engine-label]')
   const engineStatus = root.querySelector<HTMLElement>('[data-engine-status]')
   const desktop = (window as Window & { dshDesktop?: LandingDesktopBridge }).dshDesktop
+  /** 主修饰键与提示字形同源（macOS：⌘ ↵；Windows/Linux：Ctrl ↵）。 */
+  const cmdKey = prefersCmdKey()
+  const shortcutEl = root.querySelector<HTMLElement>('.landing-shortcut')
+  if (shortcutEl !== null) shortcutEl.textContent = cmdKey ? '⌘ ↵' : 'Ctrl ↵'
 
   /* ---------- 登录门禁双视图：已登录 = showcase，未登录 = 认证卡 ---------- */
   const authView = root.querySelector<HTMLElement>('[data-auth-view]')
@@ -288,6 +303,16 @@ export function mountLanding(root: HTMLElement): void {
       void desktop.showShell().then((opened) => {
         if (!opened) void desktop.dshStatus().then(renderDshStatus)
       })
+    })
+    // 兑现那枚提示：此前只有硬编码的「⌘ ↵」文字、任何平台都没有绑定（空头支票）。
+    // 与「进入工作台」走同一条路径（直接 click，共用同一处状态机与文案），按钮
+    // 禁用时（引擎未就绪）不动。视图切走后 DOM 已换，用 isConnected 让监听器失效。
+    window.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return
+      if (cmdKey ? !event.metaKey : !event.ctrlKey) return
+      if (workbenchButton === null || workbenchButton.disabled || !workbenchButton.isConnected) return
+      event.preventDefault()
+      workbenchButton.click()
     })
     root.querySelectorAll<HTMLButtonElement>('[data-tip]').forEach((button) => {
       button.addEventListener('click', () => void desktop.showShell())
