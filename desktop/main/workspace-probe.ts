@@ -5,17 +5,14 @@
  * 1. 工作区探针：选中会话变化（aria-selected，debounce 600ms）→
  *    同源 session/list RPC 解析当前工作目录（选中会话 SessionSummary.cwd，
  *    无会话取最近活跃会话的 cwd）→ 写入 --dsh-ws-name / --dsh-ws-path
- *    （自绘标题栏消费：工作区名前缀 + 工作区按钮）+ console `__dsh_wsprobe__:`
- *    上报主进程转喂 workspaceBase.setWorkspace——skills-catalog 的
- *    工作区项目技能目录以它为当前基准；
+ *    （自绘标题栏消费：工作区名前缀 + 工作区按钮）；
  * 2. 正文文件类型徽章：工具卡片文件路径按钮（scoped 类名含 _fileLink，
  *    文本即路径）与正文文件 mention（_fileMention）——按扩展名前置类型
  *    徽章（TS/JS/MD…）与链接配色。React 只管理首文本节点，前置徽章 span
  *    与 dataset 属性不受意；行重挂会重建按钮，MutationObserver 重扫补回。
  *
- * 通道：页面 → 主进程走 console `__dsh_wsprobe__:<json>`（theme-watcher
- * 的 __dsh_ws__ 是工作区按钮 reveal 上报，勿混用）；主进程 → 页面走
- * executeJavaScript 注入 {@link PAGE_JS}。
+ * 通道：主进程 → 页面走 executeJavaScript 注入 {@link PAGE_JS}
+ *（无上行——原 `__dsh_wsprobe__:` console 上行已于 2026-10-08 拆除）。
  *
  * ## 退役记录（2026-10-05）
  *
@@ -29,28 +26,31 @@
  *   两枚 +n/−n，用户判定冲突并要求退役（保留上游那份，本产品不再插一份）。
  * - **随之删除**：`window.__dshFileStat` 通道、`statCache`/`applyStat`、
  *   fetch 拦截、以及主进程侧整条只服务于它的数据链（session/page 历史补拉、
- *   /api/changes.summary numstat、turn-end 微型探针、按工作区分桶的活动表）——
- *   见 `workspace-base.ts` 的退役记录与 ARCHITECTURE.md §8。
+ *   /api/changes.summary numstat、turn-end 微型探针、按工作区分桶的活动表）。
  * - **不在此列**：类型徽章（TS/JS/MD…）与链接配色**保留**，它们与上游无重复。
+ *
+ * ## 退役记录（2026-10-08）
+ *
+ * workspace-base 工作区基准与 `__dsh_wsprobe__:` console 上行整链拆除：
+ * 它的唯一读者是自建「技能」设置分区（skills-catalog 的工作区项目技能
+ * 探位），而技能设置面已整体归 dsh-skills-bundle 1.1.0 的原生设置页
+ * （settings.section 插槽 + 插件自有 fenced API），KCoder 的注入器
+ * （skills-settings.ts / skills-catalog.ts / workspace-base.ts）随之退役，
+ * 不允许两条技能开关/目录来源并存。探针只剩标题栏变量与类型徽章两个职责。
  *
  * @module desktop/main/workspace-probe
  */
 
 import type { BrowserWindow } from 'electron'
-import { consoleMessageText } from './console-channel'
-import { workspaceBase } from './workspace-base'
-
-/** console 通道前缀（与注入脚本约定；独立于 theme-watcher 的 __dsh_ws__）。 */
-const PROBE_PREFIX = '__dsh_wsprobe__:'
 
 /**
  * 页面注入脚本（上游 shell 页面上下文；纯 JS：模板串内禁 TS 注解）。
- * 工作区探针 + 历史补拉拦截 + 正文文件徽章（无状态栏按钮——面板已删）。
+ * 工作区探针 + 正文文件徽章（无状态栏按钮——面板已删；无 console 上行——
+ * workspace 基准链已随技能分区退役）。
  */
 const PAGE_JS = `(() => {
   if (window.__dshWsProbeWired) return
   window.__dshWsProbeWired = true
-  const report = (obj) => { console.log('__dsh_wsprobe__:' + JSON.stringify(obj)) }
 
   /* ---- 当前会话 → 工作区解析（同源 RPC） ---- */
   const probeSessionId = () => {
@@ -112,7 +112,6 @@ const PAGE_JS = `(() => {
         document.documentElement.style.setProperty('--dsh-ws-name', name)
         // 完整路径同步写入：标题栏工作区按钮的点击目标（打开目录）
         document.documentElement.style.setProperty('--dsh-ws-path', ws != null ? ws.path : '')
-        report(ws == null ? { workspace: null } : { workspace: ws.path })
       })
       .catch(() => {})
   }
@@ -190,39 +189,22 @@ const PAGE_JS = `(() => {
 })()`
 
 /**
- * 把探针挂到 shell 窗口：
- * - console 通道：workspace 上报 → workspaceBase.setWorkspace（当前工作区
- *   基准；skills-catalog 的工作区项目技能目录据此探位）；
- * - did-finish-load：注入 {@link PAGE_JS}（工作区探针 + 正文文件类型徽章）。
- *
- * 2026-10-05：原先还挂 `fileActivity 'activity'` → `window.__dshFileStat`
- * 的 +n/−n 推送与整页回放，随统计徽章一并退役（见文件头退役记录）。
+ * 把探针挂到 shell 窗口：did-finish-load 注入 {@link PAGE_JS}
+ * （工作区探针 + 正文文件类型徽章；无 console 上行——workspace 基准链
+ * 已于 2026-10-08 随技能分区退役，见文件头）。
  */
 export function attachWorkspaceProbe(win: BrowserWindow): void {
   // 先捕获：closed 时窗口已销毁，再访问 win.webContents getter 会抛
   //（theme-watcher/workspace-header 同款防御）
   const { webContents } = win
-  const onConsole = (event: unknown, ...rest: unknown[]): void => {
-    const message = consoleMessageText(event, rest)
-    if (!message.startsWith(PROBE_PREFIX)) return
-    let payload: Record<string, unknown>
-    try { payload = JSON.parse(message.slice(PROBE_PREFIX.length)) as Record<string, unknown> } catch { return }
-    if (typeof payload.workspace === 'string' || payload.workspace === null) {
-      // 工作区基准（skills-catalog 的工作区项目技能目录据此探位）
-      const ws = payload.workspace
-      workspaceBase.setWorkspace(typeof ws === 'string' && ws !== '' ? ws : null)
-    }
-  }
   const onDidLoad = (): void => {
     if (win.isDestroyed()) return
     webContents.executeJavaScript(PAGE_JS, true).catch(() => {
       // 页面跳转间隙执行失败属正常，下次加载会重试
     })
   }
-  webContents.on('console-message', onConsole)
   webContents.on('did-finish-load', onDidLoad)
   win.once('closed', () => {
-    webContents.removeListener('console-message', onConsole)
     webContents.removeListener('did-finish-load', onDidLoad)
   })
 }

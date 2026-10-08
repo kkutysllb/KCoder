@@ -1,17 +1,19 @@
 {
   "name": "dsh-skills-bundle",
-  "version": "1.0.4",
-  "description": "dsh-external in-box dsh bundle: methodology skill pack adapted from the KSkills repository, registered as runtime skills for every agent session.",
+  "version": "1.1.0",
+  "description": "dsh-external in-box dsh bundle: methodology skill pack adapted from the KSkills repository, registered as runtime skills for every agent session. Core skills register on activation; the long-tail optional batch ships unregistered and is user-enabled from the settings page's Optional Skills section.",
   "license": "MIT",
   "type": "module",
   "main": "entry.js",
   "exports": {
     ".": "./entry.js",
+    "./client": "./client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
     "entry.js",
+    "client.js",
     "cordis.patch.yml",
     "skills",
     "README.md"
@@ -19,15 +21,31 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "bundle": "./client.js",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
     }
   },
   "qilin": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "bundle": "./client.js",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
     }
   },
   "scripts": {
+    "gen:manifest": "node scripts/gen-manifest.mjs",
     "smoke": "node scripts/smoke-plugin.mjs",
+    "selftest": "node scripts/selftest.mjs",
     "sync:mirror": "node scripts/sync-to-dsh-plugins.mjs",
     "sync:check": "node scripts/sync-to-dsh-plugins.mjs --check",
     "prepack": "pnpm smoke"

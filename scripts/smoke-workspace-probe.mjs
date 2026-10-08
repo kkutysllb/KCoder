@@ -14,16 +14,25 @@
  * `file-activity` 的历史补拉 / numstat / turn-end 探针 / 分桶活动表
  * （模块缩减为 `workspace-base.ts`）。
  *
+ * ## 回归背景（2026-10-08，dsh-skills-bundle 1.1.0）
+ *
+ * 插件原生设置页（settings.section 插槽 + 插件自有 fenced API）上线后，
+ * KCoder 自建「技能」分区退役（skills-settings / skills-catalog /
+ * workspace-base 整链删除）。探针的 workspace console 上行
+ * （`__dsh_wsprobe__:` → workspaceBase.setWorkspace）唯一读者就是技能分区
+ * 的工作区项目技能探位——随之整链退役，且**不许回流**（两条技能目录/开关
+ * 来源并存 = 冲突）。探针只剩标题栏变量与类型徽章两个职责。
+ *
  * ## 断言面
  *
  * - **留下**：类型徽章（`._fileLink` → `TS`、`._fileMention` → `MD`；
  *   无扩展名不加徽章）、原文不被破坏（徽章是**前置** span，文本仍在）、
  *   样式表生效（路径配色 `rgb(47,111,237)`）、工作区探针照常
- *   （`--dsh-ws-name` / `--dsh-ws-path` + console 上报 `{workspace}` ——
- *   这是 skills-catalog 工作区项目技能的基准，绝不能跟着徽章一起死）；
+ *   （`--dsh-ws-name` / `--dsh-ws-path` 写入——自绘标题栏消费）；
  * - **退役面（判别点）**：`.__dsh-fb-stat` 零节点、样式表内无该规则、
  *   `window.__dshFileStat` 必须 **undefined**、`window.fetch` 必须是**同一个
- *   函数**（身份相等 ⇒ 未被包装，`session/page` 拦截真的没了）；
+ *   函数**（身份相等 ⇒ 未被包装，`session/page` 拦截真的没了）、
+ *   `__dsh_wsprobe__:` console 上报必须为**零条**（workspace 基准链不许回流）；
  * - **幂等**：重复注入不叠加 style、不重复插徽章；二次重扫（触发一次 DOM
  *   变动后等过 debounce）仍每节点恰好 1 枚。
  *
@@ -166,17 +175,17 @@ function verdict(p, tag) {
   if (p.noExt === null) fails.push(t('夹具缺少无扩展名目标（noExt）'))
   else if (p.noExt.cls !== null) fails.push(t(`无扩展名目标被误加徽章（${p.noExt.cls}）`))
   if (p.linkColor !== 'rgb(47, 111, 237)') fails.push(t(`路径配色样式表未生效（${p.linkColor}）`))
-  // —— 留下：工作区探针（skills-catalog 的工作区项目技能基准） ——
+  // —— 留下：工作区探针（自绘标题栏消费） ——
   if (p.wsName !== 'fake-ws') fails.push(t(`--dsh-ws-name 未写入（${p.wsName}）`))
   if (p.wsPath !== '/tmp/fake-ws') fails.push(t(`--dsh-ws-path 未写入（${p.wsPath}）`))
-  if (!p.reports.some((l) => l.indexOf('"workspace":"/tmp/fake-ws"') !== -1)) {
-    fails.push(t(`工作区基准未上报（reports=${JSON.stringify(p.reports)}）——skills-catalog 的工作区项目技能会失去来源`))
-  }
   // —— 退役面（判别点） ——
   if (p.statCount !== 0) fails.push(t(`统计徽章仍在渲染（.__dsh-fb-stat × ${p.statCount}）——用户要求退役的正是它`))
   if (p.styleHasStatRule) fails.push(t('样式表里仍有 .__dsh-fb-stat 规则——渲染代码退役了、样式没跟上'))
   if (p.statFn !== 'undefined') fails.push(t(`window.__dshFileStat 仍存在（${p.statFn}）——退役的推送通道又回来了`))
   if (p.fetchWrapped) fails.push(t('window.fetch 仍被包装——session/page 拦截（历史补拉）未退役'))
+  if (p.reports.length !== 0) {
+    fails.push(t(`__dsh_wsprobe__ console 上行仍存在（${JSON.stringify(p.reports)}）——workspace 基准链已随技能分区退役，不许回流`))
+  }
   return fails
 }
 
