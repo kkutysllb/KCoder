@@ -133,12 +133,12 @@ ok('G2 大小写不敏感', core.shouldBufferHtml('Text/HTML'))
 ok('G3 javascript 不命中', !core.shouldBufferHtml('text/javascript; charset=utf-8'))
 ok('G4 缺席不命中', !core.shouldBufferHtml(null))
 
-/* ---- H. streamBaseUrl 注入 ---- */
+/* ---- H. 传输契约全局注入（streamBaseUrl + ownsHost）---- */
 {
   const html = '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>'
   const out = core.injectStreamBaseUrl(html, 'http://127.0.0.1:63332')
   ok('H1 注入在 <head> 之后', out.startsWith('<!doctype html><html><head><script>'))
-  ok('H2 全局为合法 JSON 字面量', out.includes('globalThis.__DSH_TRANSPORT__={streamBaseUrl:"http://127.0.0.1:63332"};'))
+  ok('H2 全局为合法 JSON 字面量', out.includes('globalThis.__DSH_TRANSPORT__={streamBaseUrl:"http://127.0.0.1:63332",ownsHost:true};'))
   ok('H3 原文档内容保留', out.endsWith('<meta charset="utf-8"></head><body></body></html>'))
   check('H4 注入只发生一次', out.split('__DSH_TRANSPORT__').length - 1, 1)
   check('H5 无 <head> 原样返回（§7 契约破坏的可观察形态）',
@@ -147,6 +147,13 @@ ok('G4 缺席不命中', !core.shouldBufferHtml(null))
   // 判别力自检：origin 带特殊字符时必须被 JSON 转义（脚本注入面）
   const evil = core.injectStreamBaseUrl(html, 'http://127.0.0.1:1/x"onload="')
   ok('H6 特殊字符 JSON 转义', !evil.includes('"onload') || evil.includes('\\"onload'))
+  // ownsHost 缺席 = 非回环 origin 下 settings 镜像进 memory 持久化，
+  // 提供商目录/设置文档全族静默降级（v0.6.26 现场回归的根因），契约位必须在场
+  ok('H7 ownsHost 在场（壳声明自有传输，isLoopback 无视页面 authority）', out.includes(',ownsHost:true};'))
+  // 负对照：按 v0.6.26 旧注入模板（无 ownsHost）重建输出，H7 的锚必须在其上变红
+  const oldOut = html.replace('<head>',
+    '<head><script>globalThis.__DSH_TRANSPORT__={streamBaseUrl:"http://127.0.0.1:63332"};</script>')
+  ok('H8 负对照：旧注入形态（无 ownsHost）过不了 H7', !oldOut.includes(',ownsHost:true};'))
 }
 
 /* ---- I. 页面地址构造 ---- */

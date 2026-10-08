@@ -120,17 +120,27 @@ export function shouldBufferHtml(contentType: string | null): boolean {
 }
 
 /**
- * 往 index.html 的 `<head>` 后注入 streamBaseUrl 全局。这是上游契约全局：
- * 客户端流连接（mux WS）与账号 RPC 都读
- * `globalThis.__DSH_TRANSPORT__?.streamBaseUrl`，缺席才回落
- * `document.baseURI`——kcoder-app origin 下回落必错（自定义 scheme 进不了
- * WebSocket），故必须在页面 bootstrap 前置位。HTML 无 `<head>`（上游改版）
- * 时原文返回：页面可启动但流不可用，属 §7 契约破坏，靠冒烟与契约清单发现。
+ * 往 index.html 的 `<head>` 后注入传输契约全局。这是上游契约全局，两个成员：
+ *
+ * - `streamBaseUrl`：客户端流连接（mux WS）与账号 RPC 读
+ *   `globalThis.__DSH_TRANSPORT__?.streamBaseUrl`，缺席才回落
+ *   `document.baseURI`——kcoder-app origin 下回落必错（自定义 scheme 进不了
+ *   WebSocket），故必须在页面 bootstrap 前置位。
+ * - `ownsHost: true`：页面 authority 的回环替身。上游按「页面 origin 是否
+ *   回环」判特权面（`ctx.remote.$host.isLoopback`），settings 镜像据此选
+ *   host/memory 持久化——kcoder-app://app 非回环 ⇒ 镜像进 memory ⇒ 提供商
+ *   目录报「settings are unavailable in this browser」（v0.6.26 现场回归）。
+ *   `ownsHost` 是上游给「自己组装传输层的壳」留的显式声明位（客户端文档原文：
+ *   served pages never carry the global at all），声明后 isLoopback 无视页面
+ *   authority 恒真——本产品页面只能经本协议层触达侧车，声明属实。
+ *
+ * HTML 无 `<head>`（上游改版）时原文返回：页面可启动但流不可用，属 §7 契约
+ * 破坏，靠冒烟与契约清单发现。
  */
 export function injectStreamBaseUrl(html: string, hostOrigin: string): string {
   const marker = '<head>'
   if (!html.includes(marker)) return html
-  const script = `<script>globalThis.__DSH_TRANSPORT__={streamBaseUrl:${JSON.stringify(hostOrigin)}};</script>`
+  const script = `<script>globalThis.__DSH_TRANSPORT__={streamBaseUrl:${JSON.stringify(hostOrigin)},ownsHost:true};</script>`
   return html.replace(marker, marker + script)
 }
 

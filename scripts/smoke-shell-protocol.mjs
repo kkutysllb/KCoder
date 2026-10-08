@@ -196,12 +196,14 @@ console.log('── 文档加载与注入面 ──')
     href: location.href,
     secure: window.isSecureContext === true,
     streamBase: globalThis.__DSH_TRANSPORT__?.streamBaseUrl ?? null,
+    ownsHost: globalThis.__DSH_TRANSPORT__?.ownsHost === true,
     cookieLeak: document.cookie,
     doc: document.body.textContent,
   })`)
   check('P1 页面 origin', page.origin, 'kcoder-app://app')
   ok('P2 secure context（secure 特权）', page.secure)
   check('P3 streamBaseUrl 注入并指向侧车', page.streamBase, fakeOrigin)
+  ok('P3b ownsHost 注入（settings 镜像 host 持久化的前提；缺它提供商目录报 unavailable）', page.ownsHost)
   ok('P4 文档体经转发到达', page.doc.includes('fake-dsh-doc'))
   check('P5 set-cookie 扣留（不进页面 cookie jar）', page.cookieLeak, '')
 }

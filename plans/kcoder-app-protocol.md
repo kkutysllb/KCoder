@@ -67,6 +67,19 @@ shell 窗口直接 `loadURL` 侧车地址（`desktop/main/windows.ts:190`），l
   随后 `window.__ModuleLoader__` 照常启动。⇒ **只要在页面 bootstrap 前塞进
   `__DSH_TRANSPORT__.streamBaseUrl` 一个全局，plain-web 引导路径在自定义
   origin 下原样工作，不需要 preload、不需要 IPC boot 桥。**
+- **F6b ownsHost 契约（v0.6.26 现场回归补上的第二成员）**：客户端按
+  「页面 origin 是否回环」判特权面 `ctx.remote.$host.isLoopback`
+  （`packages/client/connection/src/client/index.ts` +
+  `loopback-hostname.ts`：localhost/[::1]/127/8），ui-settings 镜像据此选
+  host/memory 持久化（`ui-settings/src/client/index.ts:39`）——memory 态下
+  `ensure()` 空转、describe 视图永缺，提供商目录即报
+  「settings are unavailable in this browser」（settings 文档控制器与聊天
+  设置作用域同族降级）。上游在 `ClientTransportHooks` 留了显式声明位
+  `ownsHost`（「Only a shell that assembles its own transport can set
+  this」），自家 worker 组合 `apps/web/src/main.ts:25-26` 同款双成员注入
+  `{ ownsHost: true, streamBaseUrl }`。⇒ 注入全局必须是**双成员**，
+  缺 ownsHost 即非回环 origin 全族静默降级（check-shell-protocol H7/H8 +
+  smoke P3b 把守）。
 - **F7 上游桌面分支的触发条件**：`apps/web/src/main.ts:10-44` 只有检测到
   `globalThis.dshDesktopBoot`（上游 preload 注入）才走「IPC 取 injections +
   streamBaseUrl」的桌面引导。KCoder 不注入该全局 ⇒ 该分支永不激活。
@@ -119,11 +132,11 @@ workspace-header / sidebar-toggle 正是按「该标记**永不落地**」自持
 举动会整表翻转这套自持几何。故：
 
 - **不新增 preload**，shell 维持 sandbox + 无 preload + console 上行通道；
-- 页面需要的唯一新信息是 `streamBaseUrl`，在**协议层**对 text/html 响应做
-  有界缓冲 + `<head>` 后注入一行：
+- 页面需要的唯一新信息是 `streamBaseUrl` + `ownsHost`（F6/F6b），在**协议层**
+  对 text/html 响应做有界缓冲 + `<head>` 后注入一行：
 
   ```html
-  <script>globalThis.__DSH_TRANSPORT__={streamBaseUrl:'http://127.0.0.1:<port>'}</script>
+  <script>globalThis.__DSH_TRANSPORT__={streamBaseUrl:'http://127.0.0.1:<port>',ownsHost:true}</script>
   ```
 
   这是上游自己的契约全局（F6），KCoder 只是换了个递送通道（HTML 内联 vs
