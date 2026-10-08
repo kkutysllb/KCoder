@@ -219,11 +219,13 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // 与内建审查页签「检视」同一落点。宿主侧无改动（守铁律 2：上游版本适配
   // 活在插件里、以插件版本发布）。
   // 发布核验（本次平移的事实依据，全部直取 registry 一手端点，绕开 npm view
-  // 的本地 packument 缓存——本轮曾因该缓存误判为「未发布」）：指定版本端点
-  // npmjs /dsh-coding-sidebar/1.0.39 = 200、dist-tags.latest = 1.0.39
-  // （publish 时间 2026-10-05T14:42:43Z）；npmmirror 侧 1.0.39 仍 404（该包
-  // 57MB+，镜像同步滞后），按 v0.6.16 先例记入 release/audit-v0.6.25.md 后放行。
-  'dsh-coding-sidebar': '^1.0.39',
+  // 的本地 packument 缓存）：指定版本端点 npmjs /dsh-coding-sidebar/1.0.40 =
+  // 200、dist-tags.latest = 1.0.40（publish 时间 2026-10-07T17:46:57Z）；
+  // npmmirror 侧 1.0.40 亦 200（本次镜像同步及时，无需 v0.6.16/0.6.25 先例的
+  // 滞后豁免）。1.0.40 内容：移除「智能体团队 / 侧边对话」页签与「按功能
+  // 启停」开关（全部内置开启），KCoder 消费面零适配（分析记录见会话：
+  // 锚点 data-dsh-toggle-cluster / toggleButton 语义子串 / inset 契约均未动）。
+  'dsh-coding-sidebar': '^1.0.40',
   // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5 → **2026-10-04 退役**，
   // 本段为历史记录）：coding-sidebar 的衍生插件（增强审查卡 + 侧边栏审查 tab），
   // 末版本线 ^1.0.11（1.0.11 = peer 口径改 `>=0.1.7-rc.2 <1.0.0`）。
