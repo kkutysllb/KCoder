@@ -42,8 +42,8 @@ export interface DshLogLine {
 export interface Preferences {
   /** 关闭主窗口时最小化到托盘（false = 直接退出 dsh 与应用）。 */
   keepRunningInTray: boolean
-  /** shell 窗口走 kcoder-app:// 协议转发加载（false = 直连 http；
-   *  页面不再暴露 127.0.0.1 地址。重启应用后生效）。 */
+  /** shell 窗口走 kcoder-app:// 协议转发加载（默认开；false = 回退
+   *  直连 http 的 legacy 档。重启应用后生效）。 */
   shellProtocolMode: boolean
 }
 

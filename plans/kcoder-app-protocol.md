@@ -18,7 +18,9 @@ loopback HTTP 面只服务主进程，鉴权 cookie 收进主进程不进页面�
 5. `pnpm typecheck` 全绿（含新增 check 断言），新冒烟双模式各过一遍。
 
 **状态：阶段 0–3 实施完成（2026-10-07）；check 54 项、smoke 18 项全绿，
-产物关键串断言过。待办：用户实机回归（清单见文末）→ 灰度默认开（阶段 4）。
+产物关键串断言过。实机回归通过（2026-10-08）→ 灰度翻转已执行（2026-10-08，
+`shellProtocolMode` 默认 true）。剩余：随下个版本发版观察 → 观察期结束执行
+阶段 4 第二步（legacy 退役，清单见 Task List）。
 存量处置：`pnpm typecheck` 曾因 `check-remote-addon-specs` 现红——
 `staging/kcoder-runtime` 是麒麟时代遗留树（包名族 `@qilin/*`），已于
 2026-10-08 经用户拍板删除（连同同源的 `kcoder-runtime.tar.gz`，均为
@@ -163,10 +165,12 @@ will-navigate：协议模式下 `kcoder-app://app` 前缀放行（页面内整�
 
 ### D8 kill-switch：store 字段 + 偏好页开关
 
-`DesktopSettings` 增 `shellProtocolMode: boolean`（默认 **false**），偏好页
-加开关（诊断页展示当前加载形态）。协议路径有字段级开关，回退 = 关开关重启
-GUI 协作惯例（AI 交付清单 → 用户实测）决定了灰度必须有用户可达的逃生门。
-legacy 路径保留到协议模式默认化一个版本后再删（含 store 字段与开关 UI）。
+`DesktopSettings` 增 `shellProtocolMode: boolean`（灰度期默认 **false**，
+2026-10-08 实机回归通过后翻转为默认 **true**——开关语义从「逃生门」转为
+「回退档」），偏好页加开关（诊断页展示当前加载形态）。协议路径有字段级
+开关，回退 = 关开关重启。GUI 协作惯例（AI 交付清单 → 用户实测）决定了
+灰度必须有用户可达的逃生门。legacy 路径保留到协议模式默认化一个版本后
+再删（含 store 字段与开关 UI，清单见阶段 4）。
 
 ### D9 断言先行
 
@@ -223,11 +227,25 @@ legacy 路径保留到协议模式默认化一个版本后再删（含 store 字
 - [x] `pnpm smoke:shell-protocol` 脚本入口 + `release.sh prepush` 门
 - [x] ARCHITECTURE.md §3/§4/§7 与根 README 架构图同步
 
-### 阶段 4：灰度与退役 — pending
+### 阶段 4：灰度与退役 — 第一步 complete（2026-10-08），第二步待观察期
 
-- [ ] 实测通过后 store 默认值翻 true，发版观察一个版本
-- [ ] 下个版本删 legacy 分支：`shellEntryUrl` 令牌路径、will-navigate
-      双前缀、store 字段与开关 UI、冒烟 legacy 半区
+- [x] 实机回归通过 → store 默认值翻 true（2026-10-08）：协议加载成为
+      默认形态，偏好页开关转为回退档（「工作台协议加载」，关闭 = 回退
+      直连）；偏好/契约/ARCHITECTURE/README 的默认语义六处同步
+- [ ] **legacy 退役（观察期 = 1.0.40/协议翻转所在的下一个发布版运行一个
+      版本后执行）**，清单：
+      1. `windows.ts`：showShellWindow 双模式分支收敛为协议单路（删
+         `dshManager.shellEntryUrl` 令牌加载、will-navigate 的 legacy
+         前缀判据与 getBaseUrl 双态）；
+      2. `dsh-manager.ts`：`shellEntryUrl`/`shellUrlWithTitlebarInset`
+         若协议外无消费方则一并删（`shellPageUrl` 已自带 inset 参数）；
+      3. `store.ts`：`shellProtocolMode` 字段与 DEFAULTS 项删除（存量
+         用户的 true 值随 `...raw` 并入内存，无害）；
+      4. `ipc-contract.ts` / `ipc.ts` / 偏好页：开关 UI 与契约字段删除；
+      5. `smoke-shell-protocol.mjs`：无 legacy 半区（本来就单测协议），
+         核对无遗漏即可；`check-shell-protocol.mjs` 不涉默认值；
+      6. ARCHITECTURE §3 图收敛单路 + §4 行去掉「偏好可关」表述；
+      7. 回归：设置页开关消失、协议形态默认生效、无回归项
 
 ## §7 契约清单新增行（升级上游时必查）
 

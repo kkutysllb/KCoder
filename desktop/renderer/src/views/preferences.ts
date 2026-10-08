@@ -84,9 +84,9 @@ export function mountPreferences(root: HTMLElement): void {
         () => write({ keepRunningInTray: !pref?.keepRunningInTray }),
       ),
       option(
-        'checkbox', 'dsh-protocol', '1', pref.shellProtocolMode, '工作台协议加载（实验）',
-        '开启：工作台经 kcoder-app:// 协议由主进程转发引擎请求，页面不再暴露 127.0.0.1 地址；'
-        + '关闭：直连本地引擎端口（默认）。重启应用后生效',
+        'checkbox', 'dsh-protocol', '1', pref.shellProtocolMode, '工作台协议加载',
+        '开启（默认）：工作台经 kcoder-app:// 协议由主进程转发引擎请求，页面不再暴露 127.0.0.1 地址；'
+        + '关闭：回退直连本地引擎端口的旧形态。重启应用后生效',
         () => write({ shellProtocolMode: !pref?.shellProtocolMode }),
       ),
     )
