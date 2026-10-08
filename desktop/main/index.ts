@@ -14,7 +14,7 @@ import { closeRemoteConnections, startRemoteOpenWatcher } from './remote-connect
 import { registerIpc } from './ipc'
 import { installMenu, installTray, wireMenuRefresh } from './menu'
 import { closePanels, getShellWindow, markQuitting, showBootstrap, showLanding, showShellWindow } from './windows'
-import { authLoggedIn, initAuthSession } from './auth'
+import { initAuthSession } from './auth'
 import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-contract'
 import { applyDevIsolation } from './dev-isolation'
 import { ensureKcoderBundles } from './kcoder-skills-bundle'

@@ -19,7 +19,6 @@ import { protocol, session, type BrowserWindow } from 'electron'
 import { dshManager } from './dsh-manager'
 import {
   HTML_BUFFER_LIMIT,
-  SHELL_APP_HOST,
   SHELL_PAGE_ORIGIN,
   SHELL_PROTOCOL_SCHEME,
   forwardOriginAllowed,

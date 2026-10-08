@@ -99,7 +99,7 @@ async function runScenario(win, label, vars) {
       nativeHidden: getComputedStyle(native).display === 'none',
       rows: sec.querySelectorAll('.dmi-card').length,
       navLabel: document.getElementById('__dsh_desktop_mcp_nav').textContent,
-      offRow: sec.querySelectorAll('.dmi-card.off').length,
+      offRow: sec.querySelectorAll('.dmi-card[data-on=false]').length,
       badges: Array.from(sec.querySelectorAll('.dmi-badge')).map(b => b.textContent),
       descs: Array.from(sec.querySelectorAll('.dmi-desc')).map(d => d.textContent),
       builtinBadges: sec.querySelectorAll('.dmi-builtin').length,
@@ -169,7 +169,7 @@ async function runScenario(win, label, vars) {
   // 启停开关：翻 web 行 → 载荷 enabled 翻转
   await win.webContents.executeJavaScript(`(() => {
     const rows = Array.from(document.querySelectorAll('.dmi-card'))
-    rows.find(r => r.querySelector('.dmi-name').textContent === 'web').querySelector('.dmi-toggle').click()
+    rows.find(r => r.querySelector('.dmi-name').textContent === 'web').querySelector('.dmi-switch').click()
   })()`, true)
   await new Promise((r) => setTimeout(r, 200))
   const toggleOp = [...ops].reverse().find((o) => o.op === 'save')
