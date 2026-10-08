@@ -1,16 +1,20 @@
 /**
- * KCoder landing page.
+ * KCoder landing page（v2：对齐 deepseek.com/harness 的设计语言）。
  *
- * The desktop shell deliberately keeps this page framework-free. It is the
- * hand-off point into the deepseek-harness workspace, so the primary action
- * is always visible while the product preview explains what opens next.
+ * 居中 hero（眉题/双行标题/副文案/pill CTA）→ 真实桌面截图大图（呼吸
+ * 光晕 + 慢浮）→ 三张特性卡片（真实截图内嵌，hover 抬升，点击即进
+ * 工作台）。动画全部为纯 CSS（landing.css），prefers-reduced-motion 退场。
  *
- * 本地鉴权门禁（登录态双视图）：
- * - 未登录：左侧品牌介绍，右侧登录/注册面板；
- * - 已登录：左侧品牌介绍，右侧工作台预览；
- * - 登录态由主进程持久化（记住我），登出切回登录视图。
+ * 本地鉴权门禁（登录态双视图，逻辑与 v1 一致）：
+ * - 已登录：hero + showcase + 卡片；
+ * - 未登录：同布局下 showcase 换成认证卡片（登录/注册）；
+ * - 登录态由主进程持久化（记住我），登出切回认证视图。
+ *
+ * 截图资产：desktop/renderer/public/shots/*.png——真实运行态的 CDP 抓图
+ * （抓图流程见 landing 重设计会话记录），随 public/ 进构建产物。
  */
 
+import '../landing.css'
 import type { AuthResult, AuthStatus, DshStatus } from '@shared/ipc-contract'
 
 interface LandingDesktopBridge {
@@ -21,14 +25,12 @@ interface LandingDesktopBridge {
   authRegister(username: string, password: string): Promise<AuthResult>
   authLogin(username: string, password: string): Promise<AuthResult>
   authLogout(): Promise<AuthResult>
-  landingTheme(): Promise<ThemePref>
-  setLandingTheme(pref: ThemePref): Promise<ThemePref>
 }
 
 const quickStarts = [
-  { label: '理解当前项目', detail: '梳理目录、依赖与启动路径', icon: 'layers' },
-  { label: '查找待办事项', detail: '扫描 TODO、FIXME 与风险点', icon: 'check' },
-  { label: '解释入口文件', detail: '从 src 入口开始读懂代码', icon: 'code' },
+  { label: '理解当前项目', icon: 'layers' },
+  { label: '查找待办事项', icon: 'check' },
+  { label: '解释入口文件', icon: 'code' },
 ] as const
 
 const QUICK_ICONS: Record<(typeof quickStarts)[number]['icon'], string> = {
@@ -37,26 +39,38 @@ const QUICK_ICONS: Record<(typeof quickStarts)[number]['icon'], string> = {
   code: '<path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 5l-4 14"/>',
 }
 
-/** 主题三态（landing 自有，与上游解耦）：图标 + 提示文案 + 循环后继。 */
-type ThemePref = 'light' | 'dark' | 'system'
-const THEME_META: Record<ThemePref, { icon: string; label: string }> = {
-  light: {
-    icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
-    label: '浅色',
+/** 特性卡片：真实运行态截图（public/shots/），点击整卡进工作台。 */
+const featureCards = [
+  {
+    shot: 'shots/workspace.png',
+    caption: 'KCoder — 会话',
+    title: '对话驱动开发',
+    desc: '拆解、实现与验证在同一个对话流里完成，过程实时可见、随时介入。',
   },
-  dark: {
-    icon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
-    label: '深色',
+  {
+    shot: 'shots/terminal.png',
+    caption: 'KCoder — 终端',
+    title: '内置终端',
+    desc: '每个工作区独立终端会话，构建、运行与排查不离开应用。',
   },
-  system: {
-    icon: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
-    label: '跟随系统',
+  {
+    shot: 'shots/sidebar.png',
+    caption: 'KCoder — 工作台侧栏',
+    title: '侧边工作台',
+    desc: '文件树与编辑器常驻侧栏，交付物与变更随手可查。',
   },
-}
-const THEME_NEXT: Record<ThemePref, ThemePref> = { light: 'dark', dark: 'system', system: 'light' }
+] as const
 
 function icon(paths: string): string {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`
+}
+
+function shotFrame(caption: string, img: string, alt: string, extraClass = ''): string {
+  return `
+    <span class="shot-frame ${extraClass}">
+      <span class="shot-titlebar"><span class="shot-lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="shot-caption">${caption}</span></span>
+      <img class="shot-img" src="${img}" alt="${alt}" loading="lazy" />
+    </span>`
 }
 
 export function mountLanding(root: HTMLElement): void {
@@ -65,16 +79,13 @@ export function mountLanding(root: HTMLElement): void {
     <div class="landing-shell">
       <header class="landing-header">
         <div class="landing-brand">
-          <img src="kcoder.png" alt="KCoder" width="42" height="42" />
+          <img src="kcoder.png" alt="KCoder" width="38" height="38" />
           <div>
             <strong>KCoder</strong>
-            <span>AI coding workspace</span>
+            <span>桌面版 · AI coding workspace</span>
           </div>
         </div>
         <div class="landing-header-side">
-          <button class="theme-toggle" type="button" data-theme-toggle title="主题：跟随系统" hidden>
-            <span class="theme-toggle-icon" data-theme-icon>${icon(THEME_META.system.icon)}</span>
-          </button>
           <div class="engine-status" data-engine-status>
             <span class="engine-status-dot" aria-hidden="true"></span>
             <span data-engine-label>正在连接引擎</span>
@@ -82,12 +93,12 @@ export function mountLanding(root: HTMLElement): void {
         </div>
       </header>
 
-      <main class="landing-main">
-        <section class="landing-intro" aria-labelledby="landing-title">
-          <p class="landing-eyebrow">KCODER / WORKSPACE</p>
-          <h1 id="landing-title">从一个想法，<br /><em>开始构建。</em></h1>
-          <p class="landing-description">让智能体帮你理解项目、拆解任务并完成实现。保持专注，把每一次对话都变成可交付的代码。</p>
-          <div class="landing-actions">
+      <main class="landing-scroll">
+        <section class="hero" aria-labelledby="landing-title">
+          <p class="hero-eyebrow anim" style="--d:.05s">✦ KCODER · DESKTOP WORKSPACE</p>
+          <h1 class="hero-title anim" id="landing-title" style="--d:.14s">从一个想法，<br /><em>开始构建。</em></h1>
+          <p class="hero-desc anim" style="--d:.24s">让智能体帮你理解项目、拆解任务并完成实现。保持专注，把每一次对话都变成可交付的代码。</p>
+          <div class="hero-actions anim" style="--d:.34s">
             <button class="landing-enter" type="button" data-open-shell disabled>
               <span>正在连接引擎…</span>
               ${icon('<path d="M5 12h14M13 6l6 6-6 6"/>')}
@@ -95,80 +106,56 @@ export function mountLanding(root: HTMLElement): void {
             <span class="landing-shortcut">⌘ ↵</span>
             <button type="button" class="auth-switch" data-auth-logout hidden>退出登录</button>
           </div>
-          <div class="quick-starts" aria-label="快捷开始">
-            <p>从一个具体问题开始</p>
-            <div class="quick-start-list">
-              ${quickStarts.map((item) => `
-                <button class="quick-start" type="button" data-tip>
-                  <span class="quick-start-icon">${icon(QUICK_ICONS[item.icon])}</span>
-                  <span class="quick-start-copy"><strong>${item.label}</strong><small>${item.detail}</small></span>
-                  <span class="quick-start-arrow" aria-hidden="true">${icon('<path d="M5 12h13M13 7l5 5-5 5"/>')}</span>
-                </button>
-              `).join('')}
-            </div>
+          <div class="hero-chips anim" style="--d:.42s" aria-label="快捷开始">
+            ${quickStarts.map((item) => `
+              <button class="hero-chip" type="button" data-tip>
+                ${icon(QUICK_ICONS[item.icon])}<span>${item.label}</span>
+              </button>
+            `).join('')}
           </div>
         </section>
 
-        <section class="landing-right">
-          <div class="landing-mode-tabs" role="tablist" aria-label="右侧内容">
-            <button class="landing-mode-tab is-active" type="button" data-mode-tab="preview" role="tab" aria-selected="true">工作台预览</button>
-            <button class="landing-mode-tab" type="button" data-mode-tab="auth" role="tab" aria-selected="false">登录 / 注册</button>
+        <section class="showcase" data-workspace-view aria-label="工作台实况">
+          <div class="showcase-glow" aria-hidden="true"></div>
+          <div class="anim" style="--d:.45s">
+            ${shotFrame('KCoder — 工作台', 'shots/hero.png', 'KCoder 工作台实况截图', 'hero-shot')}
           </div>
-
-          <div class="landing-auth-panel" data-auth-view hidden>
-            <p class="landing-eyebrow">KCODER / ACCOUNT</p>
-            <h2 class="landing-auth-title" data-auth-title>欢迎回来</h2>
-            <p class="landing-auth-subtitle">登录后继续你的本地编码工作区。</p>
-            <form class="auth-card" data-auth-form novalidate>
-              <div class="auth-tabs" role="tablist" aria-label="登录或注册">
-                <button type="button" class="auth-tab" data-auth-tab="login" role="tab">登录</button>
-                <button type="button" class="auth-tab" data-auth-tab="register" role="tab">注册</button>
-              </div>
-              <label class="auth-field">账号
-                <input data-auth-user name="username" autocomplete="username" spellcheck="false" placeholder="2–24 位字母、数字或中文" />
-              </label>
-              <label class="auth-field">密码
-                <input data-auth-pass name="password" type="password" autocomplete="current-password" placeholder="至少 4 位" />
-              </label>
-              <label class="auth-field" data-auth-confirm hidden>确认密码
-                <input data-auth-confirm-input type="password" autocomplete="new-password" placeholder="再输一次" />
-              </label>
-              <p class="auth-error" data-auth-error hidden></p>
-              <button class="auth-submit" type="submit" data-auth-submit>登录</button>
-            </form>
-            <p class="auth-note">账户信息仅保存在本机，用于保护你的工作区。</p>
-          </div>
-
-        <section class="workspace-preview" data-workspace-preview aria-label="工作台预览">
-          <div class="preview-window">
-            <div class="preview-titlebar">
-              <span class="window-lights" aria-hidden="true"><i></i><i></i><i></i></span>
-              <span class="preview-title"><img src="kcoder.png" alt="" width="16" height="16" />auth-flow</span>
-              <span class="preview-branch">main</span>
-            </div>
-            <div class="preview-body">
-              <aside class="preview-sidebar">
-                <span class="preview-sidebar-label">WORKSPACE</span>
-                <div class="preview-file active"><span class="file-dot blue"></span>src / auth.ts</div>
-                <div class="preview-file"><span class="file-dot purple"></span>src / engine.ts</div>
-                <div class="preview-file"><span class="file-dot amber"></span>README.md</div>
-                <span class="preview-sidebar-label preview-sidebar-label-spaced">AGENT</span>
-                <div class="agent-state"><span></span>Ready to build</div>
-              </aside>
-              <div class="preview-editor">
-                <div class="preview-editor-heading"><span>Connect authentication</span><b data-ready-badge>Ready</b></div>
-                <div class="preview-editor-sub">3 files · local engine · last run just now</div>
-                <pre><span class="code-line" style="--row: 0"><span class="line-number">12</span><span class="code-text"><span class="syntax-keyword">async function</span> <span class="syntax-fn">signIn</span>(email, password) {<span class="row-caret" aria-hidden="true"></span></span></span>
-<span class="code-line" style="--row: 1"><span class="line-number">13</span><span class="code-text line-add">+  const session = await engine.authLogin(...)<span class="row-caret" aria-hidden="true"></span></span></span>
-<span class="code-line" style="--row: 2"><span class="line-number">14</span><span class="code-text line-add">+  persistSession(session.access_token)<span class="row-caret" aria-hidden="true"></span></span></span>
-<span class="code-line" style="--row: 3"><span class="line-number">15</span><span class="code-text">}<span class="row-caret" aria-hidden="true"></span></span></span></pre>
-                <div class="preview-result"><span>✓</span> Engine session connected</div>
-              </div>
-            </div>
-            <div class="preview-composer"><span class="composer-k">K</span><span>Ask KCoder to continue this task…</span><span class="composer-send">↵</span></div>
-          </div>
-          <div class="preview-caption"><span class="caption-line"></span><span>Plan clearly. Build confidently.</span></div>
         </section>
+
+        <section class="features" data-workspace-view aria-labelledby="features-title">
+          <h2 class="features-title anim" id="features-title" style="--d:.52s">对话即工作台。<br /><em>交付触手可及。</em></h2>
+          <div class="feature-grid">
+            ${featureCards.map((card, i) => `
+              <button class="feature-card anim" type="button" data-tip style="--d:${(0.6 + i * 0.12).toFixed(2)}s">
+                ${shotFrame(card.caption, card.shot, card.title)}
+                <span class="feature-copy"><strong>${card.title}</strong><small>${card.desc}</small></span>
+              </button>
+            `).join('')}
+          </div>
+        </section>
+
+        <section class="auth-panel" data-auth-view hidden>
+          <p class="auth-panel-eyebrow">KCODER / ACCOUNT</p>
+          <h2 class="auth-panel-title" data-auth-title>欢迎回来</h2>
+          <p class="auth-panel-sub">登录后继续你的本地编码工作区。</p>
+          <form class="auth-card" data-auth-form novalidate>
+            <div class="auth-tabs" role="tablist" aria-label="登录或注册">
+              <button type="button" class="auth-tab" data-auth-tab="login" role="tab">登录</button>
+              <button type="button" class="auth-tab" data-auth-tab="register" role="tab">注册</button>
+            </div>
+            <label class="auth-field">账号
+              <input data-auth-user name="username" autocomplete="username" spellcheck="false" placeholder="2–24 位字母、数字或中文" />
+            </label>
+            <label class="auth-field">密码
+              <input data-auth-pass name="password" type="password" autocomplete="current-password" placeholder="至少 4 位" />
+            </label>
+            <label class="auth-field" data-auth-confirm hidden>确认密码
+              <input data-auth-confirm-input type="password" autocomplete="new-password" placeholder="再输一次" />
+            </label>
+            <p class="auth-error" data-auth-error hidden></p>
+            <button class="auth-submit" type="submit" data-auth-submit>登录</button>
+          </form>
+          <p class="auth-note">账户信息仅保存在本机，用于保护你的工作区。</p>
         </section>
       </main>
 
@@ -184,10 +171,9 @@ export function mountLanding(root: HTMLElement): void {
   const engineStatus = root.querySelector<HTMLElement>('[data-engine-status]')
   const desktop = (window as Window & { dshDesktop?: LandingDesktopBridge }).dshDesktop
 
-  /* ---------- 右侧内容标签：预览默认，认证按需打开 ---------- */
+  /* ---------- 登录门禁双视图：已登录 = showcase，未登录 = 认证卡 ---------- */
   const authView = root.querySelector<HTMLElement>('[data-auth-view]')
-  const workspacePreview = root.querySelector<HTMLElement>('[data-workspace-preview]')
-  const modeTabs = root.querySelectorAll<HTMLButtonElement>('[data-mode-tab]')
+  const workspaceViews = root.querySelectorAll<HTMLElement>('[data-workspace-view]')
   const logoutButton = root.querySelector<HTMLButtonElement>('[data-auth-logout]')
   const form = root.querySelector<HTMLFormElement>('[data-auth-form]')
   const titleEl = root.querySelector<HTMLElement>('[data-auth-title]')
@@ -199,11 +185,10 @@ export function mountLanding(root: HTMLElement): void {
   const submitButton = root.querySelector<HTMLButtonElement>('[data-auth-submit]')
   const tabs = root.querySelectorAll<HTMLButtonElement>('[data-auth-tab]')
 
-  /** 鉴权态：null = 尚未从主进程取回（按未登录渲染登录视图，保守落闸）。 */
+  /** 鉴权态：null = 尚未从主进程取回（按未登录渲染认证视图，保守落闸）。 */
   let auth: AuthStatus | null = null
   /** 表单模式（login/register）。 */
   let mode: 'login' | 'register' = 'login'
-  let activeRightView: 'preview' | 'auth' = 'preview'
 
   const showError = (text: string): void => {
     if (errorEl === null) return
@@ -211,30 +196,11 @@ export function mountLanding(root: HTMLElement): void {
     errorEl.hidden = false
   }
 
-  const renderRightView = (): void => {
-    const showAuth = activeRightView === 'auth'
-    if (authView !== null) authView.hidden = !showAuth
-    if (workspacePreview !== null) workspacePreview.hidden = showAuth
-    for (const tab of modeTabs) {
-      const selected = tab.dataset.modeTab === activeRightView
-      tab.classList.toggle('is-active', selected)
-      tab.setAttribute('aria-selected', selected ? 'true' : 'false')
-    }
-  }
-
-  for (const tab of modeTabs) {
-    tab.addEventListener('click', () => {
-      activeRightView = tab.dataset.modeTab === 'auth' ? 'auth' : 'preview'
-      renderRightView()
-      if (activeRightView === 'auth') userInput?.focus()
-    })
-  }
-
-  /** 更新认证状态，不再强制替换右侧内容。 */
-  const renderAuth = (): void => {
+  const renderGate = (): void => {
     const loggedIn = auth?.loggedIn === true
+    if (authView !== null) authView.hidden = loggedIn
+    for (const view of workspaceViews) view.hidden = !loggedIn
     if (logoutButton !== null) logoutButton.hidden = !loggedIn
-    renderRightView()
   }
 
   /** 表单模式切换（标题/tab/确认密码字段随动）。 */
@@ -272,8 +238,7 @@ export function mountLanding(root: HTMLElement): void {
       if (submitButton !== null) submitButton.disabled = false
       if (r.ok) {
         auth = r.status
-        activeRightView = 'preview'
-        renderAuth()
+        renderGate()
       } else {
         showError(r.error ?? '操作失败，请重试')
       }
@@ -284,11 +249,10 @@ export function mountLanding(root: HTMLElement): void {
     if (desktop === undefined) return
     void desktop.authLogout().then((r) => {
       auth = r.status
-      // 回登录视图时清空敏感字段（账号保留方便重登，密码必清）
+      // 回认证视图时清空敏感字段（账号保留方便重登，密码必清）
       if (passInput !== null) passInput.value = ''
       if (confirmInput !== null) confirmInput.value = ''
-      activeRightView = 'auth'
-      renderAuth()
+      renderGate()
     })
   })
 
@@ -307,20 +271,6 @@ export function mountLanding(root: HTMLElement): void {
   }
 
   if (desktop !== undefined) {
-    const themeButton = root.querySelector<HTMLButtonElement>('[data-theme-toggle]')
-    const themeIcon = root.querySelector<HTMLElement>('[data-theme-icon]')
-    /** 图标/提示随当前档刷新（IPC 后 prefers-color-scheme 由主进程驱动翻转） */
-    const renderTheme = (pref: ThemePref): void => {
-      if (themeIcon !== null) themeIcon.innerHTML = icon(THEME_META[pref].icon)
-      if (themeButton !== null) themeButton.title = `主题：${THEME_META[pref].label}（点击切换）`
-    }
-    if (themeButton !== null) {
-      themeButton.hidden = false
-      themeButton.addEventListener('click', () => {
-        void desktop.landingTheme().then((current) => desktop.setLandingTheme(THEME_NEXT[current]).then(renderTheme))
-      })
-    }
-    void desktop.landingTheme().then(renderTheme)
     void desktop.authStatus().then((status) => {
       auth = status
       // 无任何账户时默认注册态（首用引导）；有账户默认登录态
@@ -328,7 +278,7 @@ export function mountLanding(root: HTMLElement): void {
         mode = 'register'
         renderMode()
       }
-      renderAuth()
+      renderGate()
     })
     void desktop.dshStatus().then(renderDshStatus)
     desktop.onDshStateChanged(renderDshStatus)
@@ -347,5 +297,5 @@ export function mountLanding(root: HTMLElement): void {
   }
 
   renderMode()
-  renderAuth()
+  renderGate()
 }

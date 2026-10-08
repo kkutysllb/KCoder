@@ -24,7 +24,7 @@ import { ensureProfilePatches } from './profile-patches'
 import { ensurePresetPlugins } from './preset-plugins'
 import { ensureProductPolicy } from './product-policy'
 import { initUpdater } from './updater'
-import { applyNativeTheme, currentLandingTheme, currentThemePref } from './theme-watcher'
+import { applyNativeTheme } from './theme-watcher'
 import { startBrowserHost, stopBrowserHost } from './browser-host'
 import { getSettings } from './store'
 import { installShellProtocol, registerShellProtocolScheme } from './shell-protocol'
@@ -241,11 +241,12 @@ app.whenReady().then(() => {
       }
     }
   })()
-  // 鉴权会话恢复先行：登录态用上游最后已知主题（马上进 shell），
-  // 未登录用 landing 自己的主题选择（马上显示 landing，与上游解耦）。
-  // 原生标题栏/菜单栏在首个窗口出现前就对色
+  // 鉴权会话恢复先行。原生外观启动恒钉深色：landing 恒深色（对齐
+  // harness 参考形态，主题切换已退役）且是所有人的启动首屏，原生
+  // 标题栏/菜单栏必须在首个窗口出现前就对色；进入工作台后由
+  // theme-watcher 跟随上游渲染主题重新驱动
   initAuthSession()
-  applyNativeTheme(authLoggedIn() ? currentThemePref() : currentLandingTheme())
+  applyNativeTheme('dark')
   // agent 浏览器宿主:无头 Chromium + 固定 CDP 转发器(playwright/侧边栏实况共用)
   startBrowserHost()
   registerIpc()

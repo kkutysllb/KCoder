@@ -264,9 +264,6 @@ export interface DesktopBridge {
   authRegister(username: string, password: string): Promise<AuthResult>
   authLogin(username: string, password: string): Promise<AuthResult>
   authLogout(): Promise<AuthResult>
-  /* landing 页面主题（与上游解耦，三态循环按钮）：读当前档 / 切换并持久化 */
-  landingTheme(): Promise<'system' | 'light' | 'dark'>
-  setLandingTheme(pref: 'system' | 'light' | 'dark'): Promise<'system' | 'light' | 'dark'>
   openExternal(url: string): Promise<void>
   revealPath(path: string): Promise<void>
   upstreamSync(): Promise<{ ok: boolean; error: string | null }>

@@ -1,0 +1,470 @@
+/* 落地页（landing）样式：对齐 deepseek.com/harness 的设计语言——
+   居中 hero + 真实桌面截图大图 + 特性卡片网格；滚动渐显、呼吸光晕、
+   hover 抬升均为纯 CSS 动画（prefers-reduced-motion 时全部退场）。
+   配色全部走 app.css 的主题变量（prefers-color-scheme 自动深浅）。 */
+
+/* ---------- 恒深色（主题切换已退役，对齐 harness 参考形态） ----------
+   双写类名抬高特异性，稳压 app.css 里 prefers-color-scheme 的 :root
+   规则——无论系统/上游偏好是什么，landing 内变量恒为深色值；
+   color-scheme: dark 让滚动条与原生控件同步。 */
+
+.landing-root.landing-root {
+  --bg: #1b1b1c;
+  --panel: #2c2c2e;
+  --text: #e8eaed;
+  --muted: #9aa1ac;
+  --border: #43454a;
+  --accent: #5b8cff;
+  /* color 必须在本层显式求值：无 color 规则的子元素（如 strong）继承的
+     是 body 上已计算好的浅色值，而不是这里重定义的变量 */
+  color: var(--text);
+  color-scheme: dark;
+}
+
+/* ---------- 布局骨架 ---------- */
+
+.landing-root {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
+  background: var(--bg);
+}
+
+.landing-shell {
+  width: min(1240px, 100%);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 26px 42px 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.landing-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.landing-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.landing-brand img {
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+}
+
+.landing-brand div {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.landing-brand strong {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.landing-brand span {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.landing-header-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.landing-scroll {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- 入场动画（渐显上浮，--d 为错相延迟） ---------- */
+
+@keyframes landingRise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: none; }
+}
+
+.anim {
+  opacity: 0;
+  animation: landingRise .7s cubic-bezier(.22, .61, .36, 1) forwards;
+  animation-delay: var(--d, 0s);
+}
+
+/* ---------- Hero（居中文案 + CTA） ---------- */
+
+.hero {
+  max-width: 780px;
+  margin: 52px auto 0;
+  padding: 0 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.hero-eyebrow {
+  margin: 0 0 18px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .22em;
+  color: var(--muted);
+}
+
+.hero-title {
+  margin: 0 0 18px;
+  font-size: clamp(34px, 4.6vw, 52px);
+  line-height: 1.14;
+  font-weight: 620;
+  letter-spacing: .01em;
+}
+
+.hero-title em {
+  font-style: normal;
+  background: linear-gradient(118deg, var(--text) 30%, var(--accent) 78%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.hero-desc {
+  margin: 0 0 26px;
+  max-width: 36em;
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--muted);
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.landing-enter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 26px;
+  border: none;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform .16s ease, opacity .16s ease;
+}
+
+.landing-enter svg {
+  width: 16px;
+  height: 16px;
+  transition: transform .16s ease;
+}
+
+.landing-enter:hover:not(:disabled) {
+  transform: translateY(-1px);
+  opacity: .92;
+}
+
+.landing-enter:hover:not(:disabled) svg {
+  transform: translateX(3px);
+}
+
+.landing-enter:disabled {
+  cursor: default;
+  opacity: .55;
+}
+
+.landing-shortcut {
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: .08em;
+}
+
+.hero-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 26px;
+}
+
+.hero-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color .14s ease, border-color .14s ease;
+}
+
+.hero-chip svg {
+  width: 13px;
+  height: 13px;
+}
+
+.hero-chip:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+/* ---------- 截图窗框（真实桌面截图的 macOS 窗壳） ---------- */
+
+.shot-frame {
+  display: block;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 34px 90px -28px rgba(0, 0, 0, .58);
+}
+
+.shot-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 82%, var(--bg));
+}
+
+.shot-lights {
+  display: inline-flex;
+  gap: 7px;
+  flex: none;
+}
+
+.shot-lights i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+
+.shot-lights i:nth-child(1) { background: #ff5f57; }
+.shot-lights i:nth-child(2) { background: #febc2e; }
+.shot-lights i:nth-child(3) { background: #28c840; }
+
+.shot-caption {
+  flex: 1;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 40px; /* 视觉配重：抵消左侧红绿灯宽度 */
+}
+
+.shot-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* ---------- Showcase（hero 大图 + 呼吸光晕 + 慢浮） ---------- */
+
+.showcase {
+  position: relative;
+  margin: 58px auto 0;
+  width: min(1080px, 94%);
+}
+
+.showcase-glow {
+  position: absolute;
+  inset: -12% -18%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 30%, transparent), transparent 72%);
+  filter: blur(34px);
+  animation: glowPulse 7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes glowPulse {
+  0%, 100% { opacity: .45; }
+  50% { opacity: .9; }
+}
+
+.hero-shot {
+  position: relative;
+  animation: shotFloat 9s ease-in-out 1.1s infinite;
+}
+
+@keyframes shotFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+
+/* ---------- 特性卡片（卡片布局 + hover 抬升 + 截图微缩放） ---------- */
+
+.features {
+  margin: 74px auto 0;
+  width: min(1080px, 94%);
+}
+
+.features-title {
+  margin: 0 0 30px;
+  text-align: center;
+  font-size: clamp(24px, 2.6vw, 32px);
+  line-height: 1.25;
+  font-weight: 620;
+}
+
+.features-title em {
+  font-style: normal;
+  color: var(--accent);
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.feature-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+
+.feature-card:hover {
+  transform: translateY(-6px);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow: 0 22px 48px -22px rgba(0, 0, 0, .5);
+}
+
+.feature-card .shot-frame {
+  border-radius: 9px;
+  box-shadow: none;
+}
+
+.feature-card .shot-titlebar {
+  height: 24px;
+  padding: 0 10px;
+}
+
+.feature-card .shot-lights i {
+  width: 7px;
+  height: 7px;
+}
+
+.feature-card .shot-caption {
+  font-size: 10px;
+  padding-right: 0;
+}
+
+.feature-card .shot-img {
+  transition: transform .35s ease;
+}
+
+.feature-card:hover .shot-img {
+  transform: scale(1.025);
+}
+
+.feature-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 2px 5px 0;
+}
+
+.feature-copy strong {
+  font-size: 13.5px;
+  font-weight: 620;
+}
+
+.feature-copy small {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+/* ---------- 认证面板（未登录门禁视图，复用 app.css 的 .auth-*） ---------- */
+
+.auth-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 48px 16px;
+}
+
+.auth-panel-eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .22em;
+  color: var(--muted);
+}
+
+.auth-panel-title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 620;
+  text-align: center;
+}
+
+.auth-panel-sub {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+.auth-panel .auth-card {
+  width: min(380px, 100%);
+}
+
+/* ---------- 页脚 ---------- */
+
+.landing-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 26px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* ---------- 动效退场（无障碍） ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .anim,
+  .hero-shot,
+  .showcase-glow {
+    animation: none;
+    opacity: 1;
+  }
+
+  .feature-card,
+  .feature-card .shot-img,
+  .landing-enter,
+  .landing-enter svg {
+    transition: none;
+  }
+}

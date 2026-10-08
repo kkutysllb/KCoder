@@ -19,8 +19,6 @@ export interface DesktopSettings {
   keepRunningInTray: boolean
   /** 上游 Web UI 最后已知的渲染主题（用于启动时预置原生外观，避免闪烁）。 */
   lastTheme: 'system' | 'light' | 'dark'
-  /** landing 页面主题选择（页面右上按钮三态循环，与上游解耦）。 */
-  landingTheme: 'system' | 'light' | 'dark'
   /** 内嵌终端面板高度（拖拽调节后记住）。 */
   terminalHeight: number | null
   /** dsh home 决策锁：迁移完成或首次全新启动后置 true（见 home-migration.ts）。
@@ -38,7 +36,6 @@ const DEFAULTS: DesktopSettings = {
   windowBounds: null,
   keepRunningInTray: true,
   lastTheme: 'system',
-  landingTheme: 'system',
   terminalHeight: null,
   homeDecided: false,
   shellProtocolMode: true,

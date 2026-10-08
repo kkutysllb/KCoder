@@ -161,11 +161,6 @@ export function currentThemePref(): 'system' | 'light' | 'dark' {
   return getSettings().lastTheme
 }
 
-/** 当前 landing 页面主题选择（页面按钮三态循环，与上游解耦）。 */
-export function currentLandingTheme(): 'system' | 'light' | 'dark' {
-  return getSettings().landingTheme
-}
-
 /** 主题变化事件面（终端面板等跟随原生外观的组件订阅）。 */
 export const themeEvents = new EventEmitter()
 
@@ -185,12 +180,6 @@ let nativeThemeHooked = false
 export function applyNativeTheme(pref: 'system' | 'light' | 'dark'): void {
   driveNativeTheme(pref)
   if (getSettings().lastTheme !== pref) saveSettings({ lastTheme: pref })
-}
-
-/** landing 主题应用：页面按钮选择 → themeSource + landingTheme 持久化。 */
-export function applyLandingTheme(pref: 'system' | 'light' | 'dark'): void {
-  driveNativeTheme(pref)
-  if (getSettings().landingTheme !== pref) saveSettings({ landingTheme: pref })
 }
 
 /**

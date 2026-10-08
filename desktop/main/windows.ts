@@ -18,7 +18,7 @@ import { dshManager } from './dsh-manager'
 import { installUpdate } from './updater'
 import { attachUpdateInjector } from './update-injector'
 import { attachBrandInjector } from './brand-injector'
-import { attachThemeWatcher, currentLandingTheme, applyLandingTheme, overlaySymbolColor, SHELL_TITLEBAR_HEIGHT, themeBackgroundColor } from './theme-watcher'
+import { attachThemeWatcher, applyNativeTheme, overlaySymbolColor, SHELL_TITLEBAR_HEIGHT, themeBackgroundColor } from './theme-watcher'
 import { attachSidebarToggle } from './sidebar-toggle'
 import { attachClipboardFix } from './clipboard-fix'
 import { attachSidebarCluster } from './sidebar-cluster'
@@ -264,6 +264,7 @@ export function openPanel(
  */
 export function showBootstrap(route: 'landing' | 'splash' | 'setup'): BrowserWindow {
   const landing = route === 'landing'
+  if (landing) applyNativeTheme('dark') // landing 可见 ⇒ 原生外观钉深色（含已登录用户从 shell 返回/activate 路径）
   const win = new BrowserWindow({
     width: landing ? 1320 : 720,
     height: landing ? 860 : 560,
@@ -273,7 +274,9 @@ export function showBootstrap(route: 'landing' | 'splash' | 'setup'): BrowserWin
     resizable: landing,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: themeBackgroundColor(),
+    // bootstrap 窗口（landing/splash/setup）恒深底：landing 恒深色，
+    // 不随上游 lastTheme 翻转，避免加载期浅色闪底
+    backgroundColor: themeBackgroundColor('dark'),
     icon: resolveAsset('icon.png'),
     webPreferences: {
       preload: PRELOAD,
@@ -323,10 +326,7 @@ export function logoutToLanding(): void {
     shell.hide()
     if (!shell.webContents.isDestroyed()) void shell.webContents.loadURL('about:blank')
   }
-  // 主题还原：landing 自己的主题选择（页面按钮三档，store 独立字段）。
-  // 与上游完全解耦——shell 期间 theme-watcher 钉的什么主题都不落地，
-  // 登出后 landing 显示的一律是用户在 landing 上选的档，稳定可预期
-  applyLandingTheme(currentLandingTheme())
+  // 主题：showLanding → showBootstrap('landing') 内统一钉深色（唯一闸口）
   showLanding()
 }
 

@@ -10,7 +10,6 @@
 import { BrowserWindow, clipboard, ipcMain, shell } from 'electron'
 import { logoutToLanding, showShellWindow } from './windows'
 import { authLogin, authLoggedIn, authRegister, authStatus } from './auth'
-import { applyLandingTheme, currentLandingTheme } from './theme-watcher'
 import { dshManager } from './dsh-manager'
 import { progressEvents, setupUpstream, syncUpstream, upstreamStatus } from './upstream'
 import { communityPlugins, installedPlugins, latestVersions, removePlugin, runPluginCommand, updatePlugin } from './plugins'
@@ -122,13 +121,6 @@ export function registerIpc(): void {
   })
 
   /* ---- landing 页面主题（三态循环按钮；与上游解耦，独立持久化） ---- */
-  ipcMain.handle('theme:landing', () => currentLandingTheme())
-  ipcMain.handle('theme:setLanding', (_event, pref: unknown) => {
-    if (pref !== 'system' && pref !== 'light' && pref !== 'dark') return currentLandingTheme()
-    applyLandingTheme(pref)
-    return currentLandingTheme()
-  })
-
   /* ---- 偏好设置（托盘保活；写后即时生效） ---- */
   ipcMain.handle('preferences:get', () => preferences())
   ipcMain.handle('preferences:set', (_event, patch: Partial<Preferences>) => {
