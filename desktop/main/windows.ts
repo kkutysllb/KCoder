@@ -26,12 +26,12 @@ import { attachStyleOverlay } from './style-overlay'
 import { attachSettingsPage } from './settings-page'
 import { attachWorkspaceHeader } from './workspace-header'
 import { attachWorkspaceProbe } from './workspace-probe'
-import { attachSkillsSettingsInjector } from './skills-settings'
 import { attachMcpSettingsInjector } from './mcp-settings'
 import { attachAboutSettingsInjector } from './about-settings'
 import { attachHomeMigrationInjector } from './home-migration'
 import { attachPanelButtons } from './panel-buttons'
 import { getSettings, saveSettings } from './store'
+import { SHELL_PAGE_ORIGIN, hostOriginOf, isShellPageUrl, shellPageUrl } from './shell-protocol-core'
 
 /** dev 模式下 renderer 的 vite 服务地址；生产为 out/renderer 静态文件。 */
 const RENDERER_URL = process.env.ELECTRON_RENDERER_URL
@@ -41,6 +41,9 @@ const PRELOAD = join(__dirname, '../preload/index.js')
 
 let shellWindow: BrowserWindow | null = null
 const panels = new Map<string, BrowserWindow>()
+
+/** 协议模式下 shell 当前已加载的侧车 origin（hostOrigin 变化才重载，见下）。 */
+let shellLoadedHostOrigin: string | null = null
 
 /** landing 窗口单例引用（登出后复现，不堆叠窗口）。 */
 let landingWindow: BrowserWindow | null = null
@@ -176,7 +179,10 @@ export function showShellWindow(dshUrl: string): void {
     // 更新下载完成后：侧边栏 logo 旁出现安装按钮（注入器零侵入上游）
     // 装配成 KCoder 外壳窗口：品牌/主题/侧边栏/设置页/状态栏按钮等 18 套
     // 注入器与导航策略。远程窗口走同一个函数，两处不会漂移。
-    decorateShellWindow(shellWindow, () => dshManager.status.url ?? dshUrl)
+    // 导航守卫的实时基址：协议模式 = 恒定协议 origin（页面只认它），
+    // legacy = 实时 dsh 地址（dsh 重启端口会变，不能用创建时的闭包值）。
+    decorateShellWindow(shellWindow, () =>
+      getSettings().shellProtocolMode ? SHELL_PAGE_ORIGIN : (dshManager.status.url ?? dshUrl))
   }
   // 已在承载同一 dsh 实例 → 只恢复展示，绝不变相重载整页。
   // macOS 下 dock 点击/Cmd+Tab 切回都会触发 activate → 此函数，
@@ -186,7 +192,20 @@ export function showShellWindow(dshUrl: string): void {
   // SPA 内部路由（…/session/xxx）共享同一前缀，不会被误判为外部地址。
   // 加载目标用带启动令牌的入口 URL（alpha.1 BrowserAuth 门禁：首次访问
   // 拿令牌换签名 cookie，303 回 `/`；此后同源请求凭 cookie 通行）。
-  if (!shellWindow.webContents.getURL().startsWith(dshUrl)) {
+  //
+  // 协议模式（shellProtocolMode，plans/kcoder-app-protocol.md）：页面 origin
+  // 恒为 kcoder-app://app，Host 地址只活在主进程转发层，重载判据从「URL
+  // 前缀变化」换成「hostOrigin 变化」——dsh 重启换端口后必须整页重载
+  // （HTML 注入的 streamBaseUrl 随端口固化，WS 才能重连）；激活/聚焦路径
+  // hostOrigin 不变 → 只聚焦，与 legacy 分支同语义。偏好翻转后两个分支
+  // 互为自愈：当前页不落在目标形态上就按目标形态重载。
+  if (getSettings().shellProtocolMode) {
+    const hostOrigin = hostOriginOf(dshUrl)
+    if (!isShellPageUrl(shellWindow.webContents.getURL()) || shellLoadedHostOrigin !== hostOrigin) {
+      shellLoadedHostOrigin = hostOrigin
+      void shellWindow.loadURL(shellPageUrl(SHELL_TITLEBAR_HEIGHT))
+    }
+  } else if (!shellWindow.webContents.getURL().startsWith(dshUrl)) {
     void shellWindow.loadURL(dshManager.shellEntryUrl(dshUrl))
   }
   if (shellWindow.isMinimized()) shellWindow.restore()
@@ -393,14 +412,12 @@ export function decorateShellWindow(win: BrowserWindow, getBaseUrl: () => string
     // 上游头部隐藏 + 轨迹视图兜底回对话（零侵入，类改名静默失效）
     attachWorkspaceHeader(win)
     // 工作区探针：选中会话 → session/list 解析 → 标题栏工作区名/按钮
-    // + workspace-base 工作区基准（技能分区的工作区项目技能据此探位）；
-    // 另附正文文件**类型**徽章（预览/Git 面板删除后独立存续）。edit 的
-    // +n/−n 统计与历史补拉拦截已于 2026-10-05 退役——那枚统计与上游
-    // ToolRow 自带的 diff 统计在同一行重复渲染
+    // （--dsh-ws-name / --dsh-ws-path）；另附正文文件**类型**徽章（预览/Git
+    // 面板删除后独立存续）。edit 的 +n/−n 统计与历史补拉拦截已于
+    // 2026-10-05 退役（与上游 ToolRow 自带 diff 统计重复）；workspace-base
+    // 工作区基准与 console 上行已于 2026-10-08 随自建「技能」分区一并
+    // 退役——技能设置面整体归 dsh-skills-bundle 1.1.0 的原生设置页
     attachWorkspaceProbe(win)
-    // 技能设置：设置面板导航列注入「技能」分区（三来源技能目录 +
-    // 行展开正文；console 通道拉目录/正文，白名单读取）
-    attachSkillsSettingsInjector(win)
     // MCP 服务器：设置面板导航列注入「MCP 服务器」分区（列表 + 行内
     // 编辑表单；console 通道 CRUD mcp-store，保存后上游 HMR 热加载）
     attachMcpSettingsInjector(win)

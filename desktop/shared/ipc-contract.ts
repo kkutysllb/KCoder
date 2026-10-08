@@ -42,6 +42,9 @@ export interface DshLogLine {
 export interface Preferences {
   /** 关闭主窗口时最小化到托盘（false = 直接退出 dsh 与应用）。 */
   keepRunningInTray: boolean
+  /** shell 窗口走 kcoder-app:// 协议转发加载（false = 直连 http；
+   *  页面不再暴露 127.0.0.1 地址。重启应用后生效）。 */
+  shellProtocolMode: boolean
 }
 
 /* ---------- 上游仓库 ---------- */
@@ -205,8 +208,9 @@ export interface UpdateStatus {
 /* ---------- 文件活动（已退役） ----------
  * PreviewEntry（agent 读/改了哪个文件的活动条目）与 file-activity 聚合器已随
  * 正文文件徽章的 +n/−n 统计一并退役（2026-10-05）：统计与上游 ui-tool 的
- * ToolRow 自带的 diff 统计重复。现只余 workspace-base 的当前工作区基准
- * （skills-catalog 消费），不跨进程传结构。详见 ARCHITECTURE.md §8。 */
+ * ToolRow 自带的 diff 统计重复。workspace-base 的当前工作区基准（原
+ * skills-catalog 消费）亦已于 2026-10-08 随自建「技能」分区退役
+ * （技能设置面归 dsh-skills-bundle 1.1.0 原生设置页），不跨进程传结构。 */
 
 /* git 环境面板契约已退役（2026-08）：@kkutysllb/dsh-git-panel 插件自带
  * webServer RPC 快照/计划打开，不再走主进程 IPC。 */

@@ -76,6 +76,10 @@ Electron 主进程 (desktop/main/)
  ├─ DshManager ──spawn──▶ dsh web --port 0（上游侧车，OS 分配端口）
  │                         └─ stdout 就绪行 "dsh web: http://127.0.0.1:<port>"
  ├─ shell 窗口 ──loadURL──▶ 上游 Web UI（sandbox、无 preload、零修改）
+ │     ├─ legacy（默认）：直连 http://127.0.0.1:<port>
+ │     └─ 协议模式（偏好可开）：kcoder-app://app 恒定 origin
+ │        └─ shell-protocol ──protocol.handle 内部转发──▶ 侧车（cookie 只在
+ │           主进程；HTML 注入 streamBaseUrl；WS 升级头改写，见 §7 新行）
  ├─ 面板窗口 ──preload 白名单 IPC──▶ 本地 hash 路由页面（desktop/renderer/）
  └─ 注入体系 ──executeJavaScript──▶ 向上游 Web UI 叠加桌面端能力
 ```
@@ -187,6 +191,8 @@ KCoder 的 `deepseek-harness/` 原是 submodule，重建时已**扶正为独立�
 | 侧边栏 `logoRow`/`collapsed`、布局列 `sidebarCol/centerCol/detailsCol`、会话行 fiber `props.node.id` | 各注入模块（`scripts/verify-inject.cjs` 可自动化验证） |
 | 主题落点 `body[data-ds-dark-theme]` / sidebar-fill token | `theme-watcher.ts`（`scripts/verify-theme.cjs`） |
 | workspace RPC `POST /api/session/list`（`SessionSummary.cwd` = 会话归属；`workspace.list` 一次性 RPC 已在 alpha.1 移除） | `workspace-probe.ts`（页面侧探针：解析 `--dsh-ws-name`/`--dsh-ws-path` 并上报工作区基准） |
+| 协议层：`__DSH_TRANSPORT__.streamBaseUrl` 全局（stream-client 与 ui-settings-account 读，缺席回落 `document.baseURI`）；index.html 含 `<head>` 字面量 | `shell-protocol-core.ts`（注入行；上游改名 = 页面可启动但 WS 断，静默） |
+| 协议层转发面：`/api/*` 全量、`/plugins/*`（侧车 immutable 缓存须覆写 no-store）、text/html 首文档；WS upgrade 走 `ws://127.0.0.1/*` 头改写 | `shell-protocol.ts`（真机断言在 smoke-shell-protocol） |
 
 ## 8. 开发惯例与经验坑（基线会话沉淀，务必继承）
 

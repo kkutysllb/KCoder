@@ -46,11 +46,20 @@ export function mountDiagnostics(root: HTMLElement): void {
   const stateLabel = (state: DshStatus['state']): string =>
     ({ stopped: '已停止', starting: '启动中', ready: '已就绪', failed: '失败', restarting: '重启中' })[state]
 
+  // shell 加载形态（协议转发 / 直连）——地址行旁边如实展示，协议层故障时
+  // 「加载形态 + 引擎状态」可对照（坑记 6：失败不能只留一条主进程日志）。
+  // 先取偏好再渲染状态，标签不缺席首帧
+  let loadModeLabel = ''
+  const loadModeReady = bridge.preferencesGet()
+    .then((p) => { loadModeLabel = p.shellProtocolMode ? '　·　加载：kcoder-app 协议转发' : '　·　加载：直连本地端口' })
+    .catch(() => {})
+
   const render = (status: DshStatus): void => {
     statusText.textContent = `状态：${stateLabel(status.state)}`
       + (status.url !== null ? `　·　地址：${status.url}` : '')
       + (status.source !== null ? `　·　来源：${{ env: 'DSH_BIN', checkout: '本地克隆', path: 'PATH' }[status.source]}` : '')
       + `　·　剩余自动重启：${String(status.restartsLeft)}`
+      + loadModeLabel
     if (status.error !== null) {
       const err = el('div', '', `错误：${status.error}`)
       err.style.color = 'var(--danger)'
@@ -67,7 +76,7 @@ export function mountDiagnostics(root: HTMLElement): void {
     log.scrollTop = log.scrollHeight
   }
 
-  void bridge.dshStatus().then(render)
+  void loadModeReady.then(() => bridge.dshStatus()).then(render)
   void bridge.dshLogs().then((lines) => {
     log.replaceChildren()
     for (const line of lines) appendLine(line)

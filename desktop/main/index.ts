@@ -13,7 +13,7 @@ import { dshManager } from './dsh-manager'
 import { closeRemoteConnections, startRemoteOpenWatcher } from './remote-connections'
 import { registerIpc } from './ipc'
 import { installMenu, installTray, wireMenuRefresh } from './menu'
-import { closePanels, markQuitting, showBootstrap, showLanding, showShellWindow } from './windows'
+import { closePanels, getShellWindow, markQuitting, showBootstrap, showLanding, showShellWindow } from './windows'
 import { authLoggedIn, initAuthSession } from './auth'
 import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-contract'
 import { applyDevIsolation } from './dev-isolation'
@@ -27,6 +27,7 @@ import { initUpdater } from './updater'
 import { applyNativeTheme, currentLandingTheme, currentThemePref } from './theme-watcher'
 import { startBrowserHost, stopBrowserHost } from './browser-host'
 import { getSettings } from './store'
+import { installShellProtocol, registerShellProtocolScheme } from './shell-protocol'
 import { homedir } from 'node:os'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -37,6 +38,12 @@ import { spawnSync } from 'node:child_process'
 if (process.env.KC_REMOTE_DEBUG_PORT !== undefined) {
   app.commandLine.appendSwitch('remote-debugging-port', process.env.KC_REMOTE_DEBUG_PORT)
 }
+
+// kcoder-app:// 特权 scheme 注册：必须在 app ready 前调用（Chromium 启动期
+// 固化，事后注册无效）。权限集对齐上游官方桌面壳的 dsh-app（standard/secure/
+// supportFetchAPI/corsEnabled/stream/codeCache——本机官方版渲染进程命令行
+// 同款六旗可证）。处理器接线在 whenReady 内 installShellProtocol。
+registerShellProtocolScheme()
 
 // 源码态实例隔离（必须在一切落盘逻辑之前）：`pnpm dev` 与打包态的默认落点
 // 完全重合——userData 大小写不敏感同一目录导致单实例锁同键互斥（两态无法
@@ -242,6 +249,11 @@ app.whenReady().then(() => {
   // agent 浏览器宿主:无头 Chromium + 固定 CDP 转发器(playwright/侧边栏实况共用)
   startBrowserHost()
   registerIpc()
+  // kcoder-app:// 协议层（转发 + WS 头改写）：任何 shell 页面加载前就位。
+  // windows 实例经供给器注入而非 import——windows.ts 只 import 纯逻辑半区，
+  // 两个模块互不依赖（shell-protocol 已 import dsh-manager，再 import windows
+  // 即成环）。
+  installShellProtocol(() => getShellWindow())
   installMenu()
   installTray()
   wireMenuRefresh() // dsh/更新状态变化 → 重建菜单与托盘

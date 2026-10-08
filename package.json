@@ -12,7 +12,7 @@
     "build": "node scripts/dev.mjs build",
     "preview": "node scripts/dev.mjs preview",
     "start": "node scripts/dev.mjs preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/check-injected-scripts.mjs && node scripts/check-remote-addon-specs.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/check-injected-scripts.mjs && node scripts/check-remote-addon-specs.mjs && node scripts/check-shell-protocol.mjs",
     "check": "npm run typecheck && npm run check:bundle-version-line && npm run check:sync-bundles && npm run smoke:bundle-profile",
     "check:bundle-version-line": "node scripts/check-bundle-version-line.mjs",
     "check:sync-bundles": "node scripts/sync-bundles.mjs --check",
@@ -28,7 +28,8 @@
     "smoke:sidebar-toggle": "env -u ELECTRON_RUN_AS_NODE pnpm exec electron scripts/smoke-sidebar-toggle.mjs",
     "smoke:workspace-header": "env -u ELECTRON_RUN_AS_NODE pnpm exec electron scripts/smoke-workspace-header.mjs",
     "smoke:workspace-probe": "env -u ELECTRON_RUN_AS_NODE pnpm exec electron scripts/smoke-workspace-probe.mjs",
-    "smoke:titlebar": "env -u ELECTRON_RUN_AS_NODE pnpm exec electron scripts/smoke-titlebar.mjs"
+    "smoke:titlebar": "env -u ELECTRON_RUN_AS_NODE pnpm exec electron scripts/smoke-titlebar.mjs",
+    "smoke:shell-protocol": "env -u ELECTRON_RUN_AS_NODE pnpm exec electron scripts/smoke-shell-protocol.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

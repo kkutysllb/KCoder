@@ -21,7 +21,7 @@ import type { Preferences, UpstreamProgress } from '@shared/ipc-contract'
 /** 当前偏好快照（偏好设置页可读写的子集）。 */
 function preferences(): Preferences {
   const s = getSettings()
-  return { keepRunningInTray: s.keepRunningInTray }
+  return { keepRunningInTray: s.keepRunningInTray, shellProtocolMode: s.shellProtocolMode }
 }
 
 /** 安装全部 IPC 处理器与事件桥。 */
@@ -136,6 +136,11 @@ export function registerIpc(): void {
     if (typeof patch.keepRunningInTray === 'boolean') {
       // 托盘保活是每次关窗时读 store 判定，写完即生效，无需广播
       saveSettings({ keepRunningInTray: patch.keepRunningInTray })
+    }
+    if (typeof patch.shellProtocolMode === 'boolean') {
+      // shell 加载形态：showShellWindow 每次进入按目标形态自愈重载，
+      // 重启应用最干净（灰度逃生门，见 plans/kcoder-app-protocol.md D8）
+      saveSettings({ shellProtocolMode: patch.shellProtocolMode })
     }
     return preferences()
   })

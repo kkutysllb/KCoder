@@ -13,7 +13,9 @@ KCoder 遵循同一理念——**宿主与侧车（host & sidecar）关系，而
 │  主进程                                                                        │
 │   ├─ DshManager ──spawn──▶ dsh web --port 0（上游侧车，OS 分配端口）            │
 │   │                          └─ stdout: "dsh web: http://127.0.0.1:<port>"     │
-│   ├─ shell 窗口 ──loadURL──▶ http://127.0.0.1:<port>（上游 Web UI，零改动）    │
+│   ├─ shell 窗口 ──▶ 上游 Web UI（零改动）：legacy 直连 http://127.0.0.1:<port> │
+│   │    或 kcoder-app:// 协议模式（偏好开关）——主进程转发引擎请求，              │
+│   │    页面不暴露 loopback 地址；cookie/令牌只在主进程                          │
 │   ├─ 面板窗口（preload 白名单 IPC）：设置 / 诊断 / 同步上游 / 插件             │
 │   └─ Upstream/Plugins ──▶ git pull + pnpm build / dsh plugin --profile web …   │
 └─────────────────────────────────────────────────────────────────────────────────┘

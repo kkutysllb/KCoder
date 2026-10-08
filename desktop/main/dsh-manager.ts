@@ -63,6 +63,16 @@ export function shellUrlWithTitlebarInset(url: string): string {
   }
 }
 
+/**
+ * 就绪行令牌打码：诊断日志是面向用户展示的面（诊断页尾部 500 行 + IPC
+ * 广播），而 `?token=` 只需活在主进程（mintAuthCookie 兑换签名 cookie 用）。
+ * 入环形缓冲前一律抹掉，令牌从此不跨进程；就绪解析发生在打码之前
+ * （stdout 原始行上做 READY_LINE_RE 匹配），不受影响。
+ */
+function redactReadyToken(line: string): string {
+  return line.replace(/([?&]token=)[^&\s"']+/g, '$1***')
+}
+
 export class DshManager extends EventEmitter {
   private child: ChildProcess | null = null
   private state: DshState = 'stopped'
@@ -96,6 +106,16 @@ export class DshManager extends EventEmitter {
   /** 日志尾部（最多 {@link LOG_RING_SIZE} 行）。 */
   get logTail(): DshLogLine[] {
     return [...this.logs]
+  }
+
+  /**
+   * 当前签名 cookie（shell-protocol 的 WS 头改写用）。与 authFetch 同源
+   * （mintAuthCookie 兑换、onReady 清空）；未兑换（尚无页面请求触发过）时
+   * null——WS 守卫按「cookie 未就绪原样放行」处理，等页面首个转发请求把
+   * 它兑出来，客户端自身的 WS 重试循环会接上。
+   */
+  get authCookieValue(): string | null {
+    return this.authCookie
   }
 
   /** 上次成功使用的命令描述（诊断用）。 */
@@ -288,8 +308,8 @@ export class DshManager extends EventEmitter {
    * 机制：GET /?token=… → 303 + set-cookie）。alpha.1 起上游 /api 全线
    * 要求该 cookie——主进程裸 fetch 一律 401（2026-09-18 排查现场：当时
    * file-activity 的正文徽章数据链因此自 alpha.1 起静默断供；该徽章已于
-   * 2026-10-05 退役，见 workspace-base.ts，但 authFetch 仍是所有主进程
-   * /api 调用的唯一入口）。
+   * 2026-10-05 退役，但 authFetch 仍是所有主进程 /api 调用的唯一入口，
+   * 2026-10-08 起协议层 WS 头改写也消费它）。
    *
    * 兑换一次、进程生命周期内复用；重启（新端口=新 authority）由 onReady
    * 清空后重新兑换。并发首调共享同一次在途兑换。
@@ -358,8 +378,8 @@ export class DshManager extends EventEmitter {
     this.emit('state-changed', this.status)
   }
 
-  private appendLog(stream: DshLogLine['stream'], line: string): void {
-    const entry: DshLogLine = { stream, line, at: Date.now() }
+  private appendLog(stream: DshLogLine['stream'], rawLine: string): void {
+    const entry: DshLogLine = { stream, line: redactReadyToken(rawLine), at: Date.now() }
     this.logs.push(entry)
     if (this.logs.length > LOG_RING_SIZE) this.logs.splice(0, this.logs.length - LOG_RING_SIZE)
     this.emit('log', entry)

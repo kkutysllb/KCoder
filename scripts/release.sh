@@ -370,13 +370,26 @@ cmd_profile_smoke() {
     || die "profile 清单自愈判据冒烟未过（会静默摘掉用户能力或拆依赖图，禁止发版）"
 }
 
+# shell 协议层冒烟（2026-10-07）：真 Chromium + 假侧车过 kcoder-app:// 全链——
+# scheme 特权 / 转发与头剥离 / streamBaseUrl HTML 注入 / WS 头改写与
+# webContentsId 门 / set-cookie 扣留 / 插件 no-store。纯逻辑半区另有
+# check-shell-protocol.mjs 在 typecheck 链（协议层风险集中在「静默」：
+# 扣漏一个头、注入缺席，页面照常启动只是 WS 断——check 抓逻辑，这里抓集成）。
+# 与既有 GUI 冒烟同策：只进本机发版门，不进 CI。
+cmd_shell_protocol_smoke() {
+  say "shell 协议层冒烟（真 protocol.handle + 假侧车 18 断言）…"
+  ( cd "$ROOT" && env -u ELECTRON_RUN_AS_NODE pnpm exec electron scripts/smoke-shell-protocol.mjs ) \
+    || die "shell 协议层冒烟未过（kcoder-app 转发/注入/WS 改写断链，禁止发版）"
+}
+
 cmd_prepush() {
-  say "全仓库 pre-push 门：审计 + 插件补丁闸 + 内置插件版本线 + profile 自愈判据 + 设置页锚点 + 全量构建…"
+  say "全仓库 pre-push 门：审计 + 插件补丁闸 + 内置插件版本线 + profile 自愈判据 + 设置页锚点 + shell 协议层 + 全量构建…"
   cmd_audit
   cmd_patchgate
   cmd_bundleline
   cmd_profile_smoke
   cmd_settings_smoke
+  cmd_shell_protocol_smoke
   pnpm --dir "$ROOT" run build
   ok "全仓库 pre-push 通过"
 }
