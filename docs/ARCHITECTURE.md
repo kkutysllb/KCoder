@@ -529,3 +529,20 @@ GUI 冒烟统一只进**本机发版门**（`release.sh prepush`），不进 CI�
 
 **上游 dormant 行不翻**：bundle 内部 `disabled: true` 的行（如 session-titles 的唯一行、
 agent-team 的四行）仍由上游决定，本决策只做「bundle 级」的随包与选中。
+
+### 配套产品决策：桌面端「收敛式」改造（2026-10-10 定）
+
+**决策（Q-D1=C）**：桌面端不再走「Web 套壳 + DOM 注入」的老路，也**不**整体切换到上游桌面链；
+取**收敛式**——以上游原生原语与官方 slot/桥为地基，**把现有的自绘/注入面逐步收敛掉**。
+
+**已建成的底座**（决策前提，不是从零开始）：`kcoder-app://` 协议化加载（特权 scheme + 主进程
+转发 + WS 头改写，页面不暴露 loopback）、灰度开关 `shellProtocolMode`（2026-10-08 默认 true，
+可回退 legacy）、原生窗口 chrome 三件套（`titleBarStyle: hidden` + `trafficLightPosition` +
+`titleBarOverlay`）、原生菜单/更新器/preload 桥。设计与验收见 `plans/kcoder-app-protocol.md`。
+
+**收敛顺序**（每步带判据）：S-D1 Electron 对齐 → S-D2 页头改官方槽（退役条带几何与页头搬移）
+→ S-D3 桥语义对齐 → S-D4 UI 面插件化（设置页/MCP/品牌/账号/关于）→ S-D5 协议收尾（legacy 退役）。
+详见 `docs/desktop-native-overhaul.md` §5。
+
+**不变量**：每处退役都必须**先让替代物跑通**（无「先删后补」）；GUI 观感由用户实测（§8）；
+上游 prerelease 节奏由铁律 3 的逐轮复核兜底。
