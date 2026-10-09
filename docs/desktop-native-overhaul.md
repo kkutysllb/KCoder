@@ -80,7 +80,7 @@
 | S-D2 | 换**原生窗口 chrome**（`hiddenInset`/`hidden` + `titleBarOverlay`/trafficLight），退役自绘标题栏 | 三平台窗口控制/拖拽/双击最大化正常；`theme-watcher`/`workspace-header` 的条几何代码删除；GUI 冒烟改造 |
 | S-D3 | 引入 **`window.dshDesktop` 级桥**与 `runtime: 'desktop'` 分流（对齐上游语义） | 客户端识别为 desktop；快捷键/目录对话框走桥；我们的 preload 与上游桥对齐或合并 |
 | S-D4 | 产品 UI 插件化：设置页/MCP/品牌/账号/关于 → 官方 slot 注册 | 各 UI 面在**无注入**下可见可用；注入器逐个删除（每删一个跑一次冒烟） |
-| S-D5 | ✅ **已完成（2026-10-10）**：`plans/kcoder-app-protocol.md` 阶段 4 第二步 —— `windows.ts` 双模式收敛为协议单路、`store`/`ipc`/`ipc-contract`/偏好页的 `shellProtocolMode` 字段与开关删除、`dsh-manager` 的 `shellEntryUrl`/`shellUrlWithTitlebarInset` 删除、诊断页加载形态改常量。剩余仅「是否对齐上游 `dsh-app://` 实现」的评估 | `pnpm check` 39/39（含 check-shell-protocol 54 断言）、`smoke:shell-protocol` 21/21、typecheck 双绿、grep 残留触点仅历史文档 |
+| S-D5 | ✅ **已完成（2026-10-10）**：`plans/kcoder-app-protocol.md` 阶段 4 第二步 —— `windows.ts` 双模式收敛为协议单路、`store`/`ipc`/`ipc-contract`/偏好页的 `shellProtocolMode` 字段与开关删除、`dsh-manager` 的 `shellEntryUrl`/`shellUrlWithTitlebarInset` 删除、诊断页加载形态改常量。**剩余项「对齐上游 `dsh-app://`」已于同日完成**：逐项比对上游 alpha.2 后，转发面（权限集/删头/扣留头/init/403/no-store/WS 三头改写）本就完全一致，对齐了 3 处差异——WS 加 `wss://`、WS 补协议匹配、就绪行接受 `https?`（配合 alpha.2 的 `--tls-cert/--tls-key`）；刻意分歧 D1/D2/D3 保留并留档 | `pnpm check` 39/39（含 check-shell-protocol 54 断言）、`smoke:shell-protocol` 21/21、typecheck 双绿、grep 残留触点仅历史文档 |
 
 ## 6. 风险与开放问题
 

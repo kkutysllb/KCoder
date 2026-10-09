@@ -34,14 +34,17 @@ import type { DshSource } from '@shared/ipc-contract'
 import { devHomeOverride } from './dev-isolation'
 
 /**
- * 就绪行的解析规则：`dsh web: http://127.0.0.1:<port>[/?token=<进程启动令牌>]`。
+ * 就绪行的解析规则：`dsh web: http(s)://127.0.0.1:<port>[/?token=<进程启动令牌>]`。
+ * （2026-10-10 对齐上游：alpha.2 起 `dsh web` 支持 `--tls-cert/--tls-key` 原生
+ *  HTTPS 监听（发布说明 #8），故基址接受 http 与 https——否则 TLS 形态下就绪行
+ *  解析失败、shell 永不加载；同前缀的警告行 `dsh web: listening on …` 仍不匹配。）
  * 组 1 = 回环基址；组 2 = 可选的查询尾部。
  * alpha.1 基线起上游 BrowserAuth 门禁：根路径只认进程启动令牌（换取签名
  * cookie，303 回 `/`）或已持有的签名 cookie，其余一律 401（“dsh web
  * authentication required”）——就绪行里的令牌是宿主换 cookie 的唯一入口，
  * 绝不能丢（旧版无门禁时组 2 为空串，向后兼容）。
  */
-export const READY_LINE_RE = /^dsh web: (http:\/\/127\.0\.0\.1:\d+)(\S*)/
+export const READY_LINE_RE = /^dsh web: (https?:\/\/127\.0\.0\.1:\d+)(\S*)/
 
 /** 就绪等待上限（毫秒）：dsh 需等 loader 结算后才打印 URL。 */
 export const READY_TIMEOUT_MS = 60_000

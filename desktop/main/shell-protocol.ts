@@ -106,11 +106,12 @@ export function installShellProtocol(getLocalShellWindow: ShellWindowGetter): vo
     })
   })
 
-  // WS 凭据改写（对齐上游 apps/desktop/src/main.ts:713-724）：页面照常连
-  // ws://127.0.0.1:<port>（streamBaseUrl 指明），Chromium 发出的 upgrade 带
-  // kcoder-app origin、无宿主 cookie——此处重写为 Host 视角的 same-origin。
-  // 仅本地 shell 窗口；其余（远程窗口 / webview guest / 主进程自身）原样放行。
-  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['ws://127.0.0.1/*'] }, (details, callback) => {
+  // WS 凭据改写（对齐上游 apps/desktop/src/main.ts:712-724）：页面照常连
+  // ws(s)://127.0.0.1:<port>（streamBaseUrl 指明，TLS 侧车下即 wss），Chromium
+  // 发出的 upgrade 带 kcoder-app origin、无宿主 cookie——此处重写为 Host 视角的
+  // same-origin。仅本地 shell 窗口；其余（远程窗口 / webview guest / 主进程自身）
+  // 原样放行。
+  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['ws://127.0.0.1/*', 'wss://127.0.0.1/*'] }, (details, callback) => {
     const shell = getLocalShellWindow()
     const hostUrl = dshManager.status.url
     const cookie = dshManager.authCookieValue
@@ -121,7 +122,10 @@ export function installShellProtocol(getLocalShellWindow: ShellWindowGetter): vo
     }
     const target = new URL(hostUrl)
     const requested = new URL(details.url)
-    if (requested.host !== target.host) {
+    // 对齐上游：host 与**协议**都要对上（TLS 侧车 ↔ wss，明文侧车 ↔ ws），
+    // 防「同 host 的另一协议请求」被误改写。
+    if (requested.host !== target.host
+      || requested.protocol !== (target.protocol === 'https:' ? 'wss:' : 'ws:')) {
       callback({})
       return
     }

@@ -71,7 +71,9 @@ check('C4 标题栏占位参数透传',
   core.mapForwardTarget('kcoder-app://app/?dsh-desktop-titlebar-inset=48', 'http://127.0.0.1:63332')?.search,
   '?dsh-desktop-titlebar-inset=48')
 ok('C5 非 shell 主机拒绝', core.mapForwardTarget('kcoder-app://evil/x', 'http://127.0.0.1:1') === null)
-ok('C6 非 http 侧车基址拒绝', core.mapForwardTarget('kcoder-app://app/x', 'ws://127.0.0.1:1') === null)
+ok('C6 非 http(s) 侧车基址拒绝', core.mapForwardTarget('kcoder-app://app/x', 'ws://127.0.0.1:1') === null)
+ok('C6b https 侧车基址接受（对齐上游 --tls-cert/--tls-key 原生 HTTPS）',
+  core.mapForwardTarget('kcoder-app://app/x', 'https://127.0.0.1:8443')?.href === 'https://127.0.0.1:8443/x')
 ok('C7 垃圾基址拒绝', core.mapForwardTarget('kcoder-app://app/x', 'not a url') === null)
 ok('C8 垃圾请求地址拒绝', core.mapForwardTarget('::::', 'http://127.0.0.1:1') === null)
 
@@ -181,6 +183,17 @@ check('J2 垃圾输入原样返回', core.hostOriginOf('not a url'), 'not a url'
     src.split('exposeInMainWorld').length - 1, 1)
   ok('K6 windows.ts 只给 shell 窗口挂单桥（landing/面板仍是壳应用桥）',
     readFileSync(new URL('../desktop/main/windows.ts', import.meta.url), 'utf8').includes('preload: HOST_PATHS_PRELOAD'))
+}
+
+/* ---- L. 就绪行契约（静态：dsh-contract 依赖 electron，无法 import） ---- */
+{
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../desktop/main/dsh-contract.ts', import.meta.url), 'utf8')
+  const m = /READY_LINE_RE\s*=\s*(\/.*\/)/.exec(src)
+  ok('L1 就绪行接受 http(s)（对齐上游 --tls-cert/--tls-key 原生 HTTPS 监听）',
+    m !== null && m[1].startsWith('/^dsh web: (https?:'))
+  ok('L2 就绪行锚定回环基址（同前缀警告行 dsh web: listening on … 不匹配）',
+    m !== null && m[1].includes('127\\.0\\.0\\.1'))
 }
 
 /* ---- 汇总 ---- */

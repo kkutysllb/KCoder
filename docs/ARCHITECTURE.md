@@ -187,7 +187,7 @@ KCoder 的 `deepseek-harness/` 原是 submodule，重建时已**扶正为独立�
 
 | 契约 | 落点 |
 |---|---|
-| 就绪行 `dsh web: http://…` / bin 路径 / DSH_HOME / Node engines | `dsh-contract.ts` |
+| 就绪行 `dsh web: http(s)://127.0.0.1:<port>`（2026-10-10 对齐上游 TLS 监听）/ bin 路径 / DSH_HOME / Node engines | `dsh-contract.ts`（`check-shell-protocol` L1/L2 钉住） |
 | `dsh plugin --profile web …` CLI 形态 / `dsh.profile.bundles` 层叠 | `plugins.ts` |
 | 侧边栏 `logoRow`/`collapsed`、布局列 `sidebarCol/centerCol/detailsCol`、会话行 fiber `props.node.id` | 各注入模块（`scripts/verify-inject.cjs` 可自动化验证）。**2026-10-09 起原生右栏的 `[data-rightbar-col]` / `[data-sidebar-right-*]` 不再是压制锚点**（只作 `sidebar-toggle` 的结构锚与 probe 的判据），上游改它们不会造成产品级失配 |
 | 主题落点 `body[data-ds-dark-theme]` / sidebar-fill token | `theme-watcher.ts`（`scripts/verify-theme.cjs`） |

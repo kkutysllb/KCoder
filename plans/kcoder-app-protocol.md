@@ -269,6 +269,40 @@ will-navigate：协议模式下 `kcoder-app://app` 前缀放行（页面内整�
       6. ARCHITECTURE §3 图收敛单路 + §4 行去掉「偏好可关」表述；
       7. 回归：设置页开关消失、协议形态默认生效、无回归项
 
+## 与上游 `dsh-app://` 对齐记录（2026-10-10）
+
+**复核范围**：上游 alpha.2 `apps/desktop/src/main.ts`（scheme 注册 / `protocol.handle` /
+WS 守卫 712-724）与 `apps/desktop/src/web-document.ts`（`forwardWebRequest` / 头清单）
+vs 我方 `shell-protocol.ts` + `shell-protocol-core.ts`。
+
+**已完全一致的面**（逐项比对，无需改动）：
+
+| 面 | 上游 | 我方 |
+|---|---|---|
+| scheme 权限集 | `{standard, secure, supportFetchAPI, corsEnabled, stream, codeCache}` | 同 |
+| 请求删头 | `host/origin/cookie/sec-fetch-site` | 同 |
+| 响应扣留头（11 项） | `set-cookie, content-encoding, content-length, transfer-encoding, connection, keep-alive, te, trailer, upgrade, proxy-authenticate, proxy-authorization` | 同（顺序亦同） |
+| 转发 init | `{method, headers, body, signal, duplex:'half', redirect:'manual'}` | 同 |
+| origin 白名单 | `origin !== null && origin !== app origin` → 403 | 同 |
+| `/plugins/*` | 强写 `cache-control: no-store` | 同 |
+| WS 凭据改写 | webContentsId 门 + origin cancel + `origin/cookie/sec-fetch-site` 三头改写 | 同 |
+
+**本次对齐的 3 处差异**：
+
+| # | 差异（我方 → 上游） | 处置 |
+|---|---|---|
+| 1 | WS URL 形态只匹配 `ws://127.0.0.1/*`，上游是 `ws://` + `wss://` | 补 `wss://127.0.0.1/*` |
+| 2 | WS 只校验 `requested.host`，上游还校验**协议**（`https:` 侧车 ↔ `wss:`，明文 ↔ `ws:`） | 补协议匹配（上游 main.ts:719 同式） |
+| 3 | 就绪行正则只认 `http://127.0.0.1:<port>`，而 alpha.2 新增 `--tls-cert/--tls-key` 原生 HTTPS 监听（发布说明 #8）⇒ TLS 形态下解析失败、shell 永不加载 | 改正则为 `https?:\/\/`（同前缀警告行 `dsh web: listening on …` 仍不匹配） |
+
+**刻意保留的分歧**（D1/D2/D3，不属待对齐项）：命名与作用域（`kcoder-app://app`，仅覆盖本地侧车）、
+文档来源 = 全量转发而非打包 dist 供给、不注入 preload / boot 桥（改 HTML 注入 `{streamBaseUrl, ownsHost}` 双成员全局）。
+这三条是 KCoder「零修改复用 + 无 preload 注入」的命根，见上文 D 段。
+
+**断言与证据**：`check-shell-protocol.mjs` 新增 `C6b`（https 侧车基址接受）与 `L1/L2`
+（就绪行接受 http(s) + 锚定回环基址）——负对照实证：把就绪行改回 http-only ⇒ **L1 红、64 passed / 1 failed、exit 1**；
+全量 **65 passed / 0 failed**，`smoke:shell-protocol` 21/21。
+
 ## §7 契约清单新增行（升级上游时必查）
 
 | 契约 | 落点 |
