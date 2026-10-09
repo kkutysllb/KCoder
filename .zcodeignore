@@ -1,0 +1,70 @@
+# 上游仓库：仅本地引用，绝不提交（避免污染上游与本项目历史）
+deepseek-harness/
+
+# Node
+node_modules/
+.pnpm-store/
+
+# 构建产物（icon.png 为官方 DeepSeek 图标栅格化产物，随仓库分发）
+out/
+desktop/out/
+dist/
+*.dmg
+*.zip
+*.app
+
+# 打包用的上游运行时物化产物（pnpm deploy，绝不提交）
+staging/
+
+# 本地给已安装版本打 asar 热补丁的临时产物（ship 前 git add -A 不应收进）
+.tmp-*
+
+# 插件独立仓（真源在仓外）的开发暂存镜像——Write 工具只能写工作区内，
+# 改 bundle/ 直提包时先落 <名>-staging/ 再同步到真源仓，不入库
+*-staging/
+patched-app.asar
+app.asar.*.bak
+
+# 日志与缓存
+*.log
+*.tsbuildinfo
+.DS_Store
+.idea/
+.vscode/
+.dsh-vision-router/
+.dsh/
+.drops/
+.patches/discussion-body.md
+.patches/
+.tmp/
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+bower_components/
+jspm_packages/
+__pycache__/
+site-packages/
+venv/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）
