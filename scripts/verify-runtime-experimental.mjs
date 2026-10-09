@@ -119,7 +119,8 @@ for (const name of names) {
     problems.push(`${name} 版本不一致：清单 ${want} / 实体 ${String(entity.version)}`)
   }
   // 行包可达：bundle 的 cordis.patch.yml 里 name: 都必须在产物里能解析到
-  const rowDeps = { ...(entity.dependencies ?? {}), ...(entity.peerDependencies ?? {}) }
+  // （展开 undefined 本就是空对象，故不需要 `?? {}` 兜底——去掉以过 lint）
+  const rowDeps = { ...entity.dependencies, ...entity.peerDependencies }
   for (const dep of Object.keys(rowDeps)) {
     if (!dep.startsWith('@deepseek-ai/')) continue
     if (readMember(join('node_modules', dep, 'package.json')) === null) {

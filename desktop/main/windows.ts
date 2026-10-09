@@ -14,7 +14,6 @@ import { BrowserWindow, nativeTheme, shell, type BrowserWindowConstructorOptions
 import { authLoggedIn, authLogout } from './auth'
 import { attachAccountChip } from './account-chip'
 import { resolveAsset } from './dsh-contract'
-import { dshManager } from './dsh-manager'
 import { installUpdate } from './updater'
 import { attachUpdateInjector } from './update-injector'
 import { attachBrandInjector } from './brand-injector'

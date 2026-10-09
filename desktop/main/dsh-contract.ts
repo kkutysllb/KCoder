@@ -54,22 +54,53 @@ export const MAX_AUTO_RESTARTS = 3
 
 /**
  * 上游锚定 = 自有 fork（kkutysllb/deepseek-harness）：上游修复直接以提交
- * 落集成分支 `kcoder/0.2.1-alpha.2`（= 基线 + 修复分支的 merge），不再用
- * KCoder 仓内 *.patch 归档应用。消费工作树在仓外单一路径（可用环境变
- * 量 KCODER_UPSTREAM_DIR 覆盖）。
+ * 落集成分支（见 `upstream/BRANCH`，= 基线 + 修复分支的 merge），不再用
+ * KCoder 仓内 *.patch 归档应用。
+ *
+ * 消费工作树在仓外，解析链见 {@link UPSTREAM_DIR}——2026-10-10 现场：
+ * 此前只有「环境变量 > 硬编码 mac 路径」，Windows 上不设变量时四处来源全
+ * 落空，界面只停在 setup 页、日志只有一句「未找到可用的 dsh」，排查代价极高。
  */
 export const UPSTREAM_REPO = 'git@github.com:kkutysllb/deepseek-harness.git'
 
-/** 消费分支：基线 + 上游修复合入（setup.sh / release.sh 断言同一分支）。 */
-export const UPSTREAM_BRANCH = 'kcoder/0.2.1-alpha.2'
-
-const DEFAULT_UPSTREAM_DIR = '/Users/libing/kk_Projects/deepseek-harness'
-
-/** 上游工作树绝对路径（fork 本地克隆，仓外单一真相源）。 */
-export const UPSTREAM_DIR = process.env.KCODER_UPSTREAM_DIR ?? DEFAULT_UPSTREAM_DIR
-
 /** 桌面端工作区根（含 desktop/、scripts/、上游克隆）。 */
 export const PROJECT_ROOT = resolve(__dirname, '..', '..')
+
+/** 集成分支名的**单一来源**（仓内文件；setup.sh / release.sh 读同一份）。 */
+const UPSTREAM_BRANCH_FILE = join(PROJECT_ROOT, 'upstream', 'BRANCH')
+
+/** 上游克隆落点指针（`scripts/setup.sh` 成功后落盘；见 .gitignore）。 */
+const UPSTREAM_DIR_POINTER = join(PROJECT_ROOT, '.upstream-dir')
+
+/** 读单行配置文件：缺失/不可读返回空串（回退与诊断都靠它，绝不抛）。 */
+function readTrimmedLine(file: string): string {
+  try {
+    return readFileSync(file, 'utf8').trim()
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 消费分支：基线 + 上游修复合入。唯一来源是仓内 `upstream/BRANCH`；
+ * 打包态读不到仓文件（PROJECT_ROOT 落在 asar 内），回退下方常量。
+ */
+export const UPSTREAM_BRANCH = readTrimmedLine(UPSTREAM_BRANCH_FILE) || 'kcoder/0.2.1-alpha.2'
+
+/** 历史默认路径（作者 mac 机上的克隆位置；Windows 上没有历史默认值）。 */
+const DEFAULT_UPSTREAM_DIR = '/Users/libing/kk_Projects/deepseek-harness'
+
+/**
+ * 上游工作树绝对路径（fork 本地克隆，仓外单一真相源）。解析优先级：
+ *   1. `KCODER_UPSTREAM_DIR`——显式最高优先（CI / 多实例 / 临时验证）
+ *   2. 仓内指针 `.upstream-dir`——`scripts/setup.sh` 成功后落盘，本机免设变量
+ *   3. {@link DEFAULT_UPSTREAM_DIR}——作者 mac 的历史路径，保底不改 mac 行为
+ */
+const upstreamDirEnv = (process.env.KCODER_UPSTREAM_DIR ?? '').trim()
+export const UPSTREAM_DIR =
+  upstreamDirEnv !== ''
+    ? upstreamDirEnv
+    : readTrimmedLine(UPSTREAM_DIR_POINTER) || DEFAULT_UPSTREAM_DIR
 
 /**
  * 打包内置的上游运行时压缩包（extraResources/kcoder-runtime.tar.gz）。
@@ -229,6 +260,34 @@ export function upstreamCloned(): boolean {
 /** 上游是否已完成 `pnpm run build`（以 CLI bin 产物为准）。 */
 export function upstreamBuilt(): boolean {
   return existsSync(join(UPSTREAM_DIR, UPSTREAM_BIN))
+}
+
+/**
+ * 解析不到可用的 dsh 时的诊断面：逐源说明试过什么、为什么不合格，并给出
+ * 可照抄的修法。动机见 {@link UPSTREAM_DIR} 的注释（2026-10-10：Windows 上
+ * 不设 `KCODER_UPSTREAM_DIR` 时默认值指向作者 mac 路径，界面只停在 setup 页，
+ * 现场排查全靠猜）。
+ */
+export function describeDshResolution(): string {
+  const dshBin = (process.env.DSH_BIN ?? '').trim()
+  const envDir = (process.env.KCODER_UPSTREAM_DIR ?? '').trim()
+  const pointer = readTrimmedLine(UPSTREAM_DIR_POINTER)
+  const probe = spawnSync('dsh', ['--version'], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
+  let bundled = '探测失败'
+  try {
+    bundled = ensureBundledRuntime() ?? '无（开发态正常）'
+  } catch {
+    /* 探测失败也算信息，保留默认文案 */
+  }
+  return [
+    `· DSH_BIN：${dshBin === '' ? '未设' : dshBin}`,
+    `· KCODER_UPSTREAM_DIR：${envDir === '' ? '未设' : envDir}`,
+    `· 指针文件 ${UPSTREAM_DIR_POINTER}：${pointer === '' ? '未写（bash scripts/setup.sh 会落盘）' : pointer}`,
+    `· 采用的 UPSTREAM_DIR：${UPSTREAM_DIR}`,
+    `·   克隆在场(.git)=${String(upstreamCloned())}　已构建(apps/cli/lib/bin.js)=${String(upstreamBuilt())}`,
+    `· 内置运行时：${bundled}`,
+    `· PATH 里的 dsh：${probe.status === 0 ? String(probe.stdout).trim() : '不可用'}`,
+  ].join('\n')
 }
 
 /**

@@ -11,13 +11,30 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UPSTREAM="${KCODER_UPSTREAM_DIR:-/Users/libing/kk_Projects/deepseek-harness}"
+# 上游路径解析（与 desktop/main/dsh-contract.ts 同链）：环境变量 > 仓内指针 > 历史默认。
+# 指针由本脚本成功后落盘 ⇒ 同一台机器上 pnpm dev/preview 免设 KCODER_UPSTREAM_DIR。
+UPSTREAM_POINTER="$ROOT/.upstream-dir"
+DEFAULT_UPSTREAM="/Users/libing/kk_Projects/deepseek-harness"
+if [[ -n "${KCODER_UPSTREAM_DIR:-}" ]]; then
+  UPSTREAM="$KCODER_UPSTREAM_DIR"
+elif [[ -f "$UPSTREAM_POINTER" ]]; then
+  UPSTREAM="$(tr -d '[:space:]' < "$UPSTREAM_POINTER")"
+else
+  UPSTREAM="$DEFAULT_UPSTREAM"
+fi
 UPSTREAM_REPO="${KCODER_UPSTREAM_REPO:-git@github.com:kkutysllb/deepseek-harness.git}"
-UPSTREAM_BRANCH="kcoder/0.2.1-alpha.2"
+# 集成分支名在下方（等 die 定义之后再读，报错口径统一）
+UPSTREAM_BRANCH=""
 
 say() { printf '\033[1;34m[setup]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[setup] 错误：\033[0m %s\n' "$*" >&2; exit 1; }
 warn() { printf '\033[1;33m[setup] 警告：\033[0m %s\n' "$*" >&2; }
+
+# 集成分支名的唯一来源：仓内 upstream/BRANCH（release.sh / dsh-contract.ts 同读一份）。
+# 此前三处各写一遍字面量，改基线时漏改一处就会「克隆到 A、断言 B」。
+[[ -f "$ROOT/upstream/BRANCH" ]] || die "缺少 upstream/BRANCH（集成分支名的唯一来源）"
+UPSTREAM_BRANCH="$(tr -d '[:space:]' < "$ROOT/upstream/BRANCH")"
+[[ -n "$UPSTREAM_BRANCH" ]] || die "upstream/BRANCH 为空"
 
 command -v git >/dev/null 2>&1 || die "需要 git"
 command -v node >/dev/null 2>&1 || die "需要 Node.js（上游要求 ^22.19.0 || >=24.0.0）"
@@ -55,6 +72,18 @@ if [[ "$(git branch --show-current)" != "$UPSTREAM_BRANCH" ]]; then
 fi
 git merge-base --is-ancestor "$BASELINE_SHA" HEAD \
   || die "集成分支 $UPSTREAM_BRANCH 不含基线 ${BASELINE_SHA:0:7}（在 fork 上重建集成分支或更新 upstream/BASELINE）"
+
+# 落盘上游路径指针（2026-10-10）：dev/preview 与后续 setup 都据此解析落点，
+# 免去每台机器 export KCODER_UPSTREAM_DIR——Windows 上默认值是无用的 mac 路径，
+# 现场表现是「pnpm dev 只停在 setup 页」（见 dsh-contract 的诊断面）。
+# 必须写**平台原生形态**：本脚本在 Git Bash 下 $UPSTREAM 是 /d/... 形态，
+# 而读它的是 Electron 主进程（Node 的 join 认不得 msys 路径），故过 cygpath。
+POINTER_VALUE="$UPSTREAM"
+if command -v cygpath >/dev/null 2>&1; then
+  POINTER_VALUE="$(cygpath -w "$UPSTREAM")"
+fi
+printf '%s\n' "$POINTER_VALUE" > "$UPSTREAM_POINTER"
+say "已记录上游路径指针：$UPSTREAM_POINTER → $POINTER_VALUE"
 
 # 上游修复已在集成分支中以提交存在（六修复分支的 merge），无需再 apply。
 # upstream/*.patch 仅留作历史参照；旧克隆带应用态残留时用 git checkout 恢复。

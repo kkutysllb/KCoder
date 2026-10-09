@@ -1,6 +1,10 @@
 # 上游仓库：仅本地引用，绝不提交（避免污染上游与本项目历史）
 deepseek-harness/
 
+# 上游克隆落点指针（由 scripts/setup.sh 落盘）：让 dev/preview 免设
+# KCODER_UPSTREAM_DIR——各机路径不同，故不入库（2026-10-10）
+.upstream-dir
+
 # Node
 node_modules/
 .pnpm-store/

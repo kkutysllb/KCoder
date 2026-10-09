@@ -28,7 +28,7 @@
  */
 
 import { EventEmitter } from 'node:events'
-import { nativeTheme, shell, type BrowserWindow } from 'electron'
+import { nativeTheme, type BrowserWindow } from 'electron'
 import { consoleMessageText } from './console-channel'
 import { getSettings, saveSettings } from './store'
 

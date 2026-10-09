@@ -15,6 +15,7 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import {
+  describeDshResolution,
   MAX_AUTO_RESTARTS,
   READY_LINE_RE,
   READY_TIMEOUT_MS,
@@ -125,7 +126,10 @@ export class DshManager extends EventEmitter {
     }
     const command = resolveDshCommand()
     if (command === null) {
-      this.fail('未找到可用的 dsh：请先完成上游克隆与构建（见“设置”页），或设置 DSH_BIN')
+      this.fail(
+        '未找到可用的 dsh：请先完成上游克隆与构建（见“设置”页），或设置 DSH_BIN\n'
+        + `解析诊断：\n${describeDshResolution()}`,
+      )
       return this.status
     }
     this.stopping = false
