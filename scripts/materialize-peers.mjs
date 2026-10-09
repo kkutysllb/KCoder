@@ -30,16 +30,11 @@ import { closeSync, cpSync, createReadStream, createWriteStream, existsSync, lst
 import { dirname, join, resolve } from 'node:path'
 import { createGzip } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
+import { resolveUpstreamDir } from './upstream-dir.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-// 上游工作树（fork 锚定后本地消费态在仓外）：env 对齐 release.sh /
-// setup.sh / dsh-contract.ts 的 KCODER_UPSTREAM_DIR；仓内嵌路径保留为
-// CI 兼容回退（release.yml 把 fork 克隆到工作区内与 deploy 同址）；
-// 都不成立时落到 fork 的本机仓外克隆。
-const upstream = process.env.KCODER_UPSTREAM_DIR
-  ?? (existsSync(join(root, 'deepseek-harness'))
-    ? join(root, 'deepseek-harness')
-    : '/Users/libing/kk_Projects/deepseek-harness')
+// 上游工作树落点：统一走 scripts/upstream-dir.mjs（唯一实现，含 CI 的仓内相邻克隆层）
+const upstream = resolveUpstreamDir()
 const staging = join(root, 'staging', 'kcoder-runtime')
 const topNM = join(staging, 'node_modules')
 

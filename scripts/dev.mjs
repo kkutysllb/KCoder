@@ -57,16 +57,16 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { checkDepsFreshness, formatDepsWarning } from './deps-freshness.mjs'
+import { resolveUpstreamDir } from './upstream-dir.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const args = process.argv.slice(2)
 const command = args.length > 0 ? args[0] : 'dev'
 
-// 依赖陈旧哨兵（现象三）：本仓 + 上游克隆。上游路径口径与
-// desktop/main/dsh-contract.ts 的 UPSTREAM_DIR 一致（该文件是上游约定的唯一
-// 真相源；本包装是纯 JS 无法导入 TS 常量，scripts/ 下 materialize-peers.mjs
-// 与 verify-vendor-purity.sh 同样镜像此常量）。
-const UPSTREAM_DIR = process.env.KCODER_UPSTREAM_DIR ?? '/Users/libing/kk_Projects/deepseek-harness'
+// 依赖陈旧哨兵（现象三）：本仓 + 上游克隆。落点解析统一走 scripts/upstream-dir.mjs
+// （唯一实现：ENV > .upstream-dir 指针 > 仓内相邻克隆 > 历史默认）——此前这里与
+// 另外 6 处各自硬编码 mac 路径，Windows 上不设环境变量即全部落空。
+const UPSTREAM_DIR = resolveUpstreamDir()
 for (const dir of [ROOT, UPSTREAM_DIR]) {
   if (!existsSync(dir)) continue
   const report = checkDepsFreshness(dir)

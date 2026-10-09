@@ -39,7 +39,10 @@ jobs:
         with:
           # 与上游 deepseek-harness 的 packageManager 及内置运行时 vendored
           # pnpm 保持同主版本（profile store 链接与 store 大版本一致，否则
-          # ERR_PNPM_UNEXPECTED_STORE）
+          # ERR_PNPM_UNEXPECTED_STORE）。
+          # 注意：这是**本仓自身步骤**（install/typecheck/build/打包）用的版本；
+          # 所有「物化/构建上游」的步骤走 scripts/pnpm-pinned.mjs（按上游
+          # packageManager 声明的精确版本执行），否则 CI 跑的不是上游声明的版本。
           version: 11.7.0
       - uses: actions/setup-node@v4
         with:
@@ -77,7 +80,9 @@ jobs:
           CSC_LINK: ${{ runner.os == 'macOS' && secrets.MAC_CERTIFICATE || '' }}
           CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.MAC_CERTIFICATE_PWD || '' }}
         run: |
-          pnpm --dir deepseek-harness --filter=@deepseek-ai/dsh deploy --prod --legacy "$PWD/staging/kcoder-runtime"
+          # 上游物化按上游 packageManager 声明的精确版本执行（scripts/pnpm-pinned.mjs 是
+          # 唯一实现）；CI 顶部的 action-setup 版本只服务于本仓自身步骤。
+          node scripts/pnpm-pinned.mjs --run "$PWD/deepseek-harness" -- --dir deepseek-harness --filter=@deepseek-ai/dsh deploy --prod --legacy "$PWD/staging/kcoder-runtime"
           test -f staging/kcoder-runtime/lib/bin.js
           node scripts/materialize-peers.mjs
       - name: 内置 provider 随包断言（CI 平价版）

@@ -11,17 +11,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# 上游路径解析（与 desktop/main/dsh-contract.ts 同链）：环境变量 > 仓内指针 > 历史默认。
+# 上游落点解析走 scripts/upstream-dir.mjs（唯一实现：ENV > .upstream-dir 指针 > 仓内相邻克隆 > 历史默认）。
 # 指针由本脚本成功后落盘 ⇒ 同一台机器上 pnpm dev/preview 免设 KCODER_UPSTREAM_DIR。
-UPSTREAM_POINTER="$ROOT/.upstream-dir"
-DEFAULT_UPSTREAM="/Users/libing/kk_Projects/deepseek-harness"
-if [[ -n "${KCODER_UPSTREAM_DIR:-}" ]]; then
-  UPSTREAM="$KCODER_UPSTREAM_DIR"
-elif [[ -f "$UPSTREAM_POINTER" ]]; then
-  UPSTREAM="$(tr -d '[:space:]' < "$UPSTREAM_POINTER")"
-else
-  UPSTREAM="$DEFAULT_UPSTREAM"
-fi
+UPSTREAM_POINTER="$(node "$ROOT/scripts/upstream-dir.mjs" --print-pointer)"
+UPSTREAM="$(node "$ROOT/scripts/upstream-dir.mjs" --print-shell)"
 UPSTREAM_REPO="${KCODER_UPSTREAM_REPO:-git@github.com:kkutysllb/deepseek-harness.git}"
 # 集成分支名在下方（等 die 定义之后再读，报错口径统一）
 UPSTREAM_BRANCH=""
@@ -55,29 +48,16 @@ fi
 
 cd "$UPSTREAM"
 
-# 上游 pin 的 pnpm（package.json 的 packageManager）——本机构建必须与 CI 同**精确版本**，
-# 不只是同主版本。2026-10-10 实测：全局 11.7.0 + 干净树 ⇒ build:lib 失败，且报错是
+# 上游构建链的 pnpm 一律走 scripts/pnpm-pinned.mjs（唯一实现：按上游 packageManager
+# 声明的精确版本执行）。上游声明 11.28.5，而本仓 CI 的 action-setup 是 11.7.0——统一到
+# 这里，避免「CI 与本机跑的不是上游声明的版本」。
+# 另注（2026-10-10 本机现场）：切基线后沿用旧安装态会以
 #   [@deepseek-ai/dsh-root] Cannot find entry: ["lib/types/{index,startup}.js"]
-# 这种**误导性**形态（那批 lib/types 垫片既不在版本控制、构建链也不生成）；同一棵树
-# 换 11.28.5 全绿。故此后 install/build 一律走 pin 版。
-UPSTREAM_PNPM_PIN="$(node -e "try{const p=require(process.argv[1]).packageManager||'';process.stdout.write(p.startsWith('pnpm@')?p.slice(5):'')}catch{}" "$UPSTREAM/package.json")"
-LOCAL_PNPM="$(pnpm --version 2>/dev/null || echo '未知')"
-say "pnpm：本机 ${LOCAL_PNPM}　上游 pin ${UPSTREAM_PNPM_PIN:-（未声明）}"
-if [[ -n "$UPSTREAM_PNPM_PIN" && "$LOCAL_PNPM" != "$UPSTREAM_PNPM_PIN" ]]; then
-  if command -v npx >/dev/null 2>&1; then
-    warn "本机 pnpm 与上游 pin 不一致 ⇒ 后续改用 npx pnpm@${UPSTREAM_PNPM_PIN}（与 CI 对齐）"
-  else
-    warn "本机 pnpm ${LOCAL_PNPM} ≠ 上游 pin ${UPSTREAM_PNPM_PIN}，且无 npx：构建可能与 CI 不一致"
-  fi
-fi
-
-# 统一出入口：有 pin 就 npx 取 pin 版，否则回落本机 pnpm（无 pin 的上游/离线场景）
+# 这种与病因完全对不上的形态失败（那批垫片不在版本控制、tsc 也不生成）——权威处置是
+# 「全新树 + 重装」，不是 clean 产物（见 README 的两条构建铁律）。
+say "pnpm：$(node "$ROOT/scripts/pnpm-pinned.mjs" --print "$UPSTREAM")"
 run_pnpm() {
-  if [[ -n "$UPSTREAM_PNPM_PIN" ]] && command -v npx >/dev/null 2>&1; then
-    npx --yes "pnpm@$UPSTREAM_PNPM_PIN" "$@"
-  else
-    pnpm "$@"
-  fi
+  node "$ROOT/scripts/pnpm-pinned.mjs" --run "$UPSTREAM" -- "$@"
 }
 
 # 基线钉版（fork 锚定形态）：消费态 = 集成分支 $UPSTREAM_BRANCH，其历史必须包含
@@ -101,12 +81,9 @@ git merge-base --is-ancestor "$BASELINE_SHA" HEAD \
 # 落盘上游路径指针（2026-10-10）：dev/preview 与后续 setup 都据此解析落点，
 # 免去每台机器 export KCODER_UPSTREAM_DIR——Windows 上默认值是无用的 mac 路径，
 # 现场表现是「pnpm dev 只停在 setup 页」（见 dsh-contract 的诊断面）。
-# 必须写**平台原生形态**：本脚本在 Git Bash 下 $UPSTREAM 是 /d/... 形态，
-# 而读它的是 Electron 主进程（Node 的 join 认不得 msys 路径），故过 cygpath。
-POINTER_VALUE="$UPSTREAM"
-if command -v cygpath >/dev/null 2>&1; then
-  POINTER_VALUE="$(cygpath -w "$UPSTREAM")"
-fi
+# 写**平台原生形态**（Node 消费方要它）：upstream-dir.mjs 的默认输出即原生形态，
+# shell 侧另用它的 --print-shell 形态（Git Bash 认 /d/...）。
+POINTER_VALUE="$(node "$ROOT/scripts/upstream-dir.mjs")"
 printf '%s\n' "$POINTER_VALUE" > "$UPSTREAM_POINTER"
 say "已记录上游路径指针：$UPSTREAM_POINTER → $POINTER_VALUE"
 

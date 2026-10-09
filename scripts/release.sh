@@ -36,7 +36,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UPSTREAM="${KCODER_UPSTREAM_DIR:-/Users/libing/kk_Projects/deepseek-harness}"
+# 上游落点解析走 scripts/upstream-dir.mjs（唯一实现：ENV > .upstream-dir 指针 > 仓内相邻克隆 > 历史默认）
+UPSTREAM="$(node "$ROOT/scripts/upstream-dir.mjs" --print-shell)"
 STAGING="$ROOT/staging/kcoder-runtime"
 DIST="$ROOT/dist"
 APP_NAME="KCoder.app"
@@ -142,7 +143,9 @@ cmd_build() {
     || die "集成分支不含基线 ${BASELINE_SHA:0:7}（在 fork 上重建集成分支或更新 upstream/BASELINE）"
   say "物化上游运行时（deploy --prod + peer 补齐）→ staging/kcoder-runtime …"
   rm -rf "$STAGING"
-  pnpm --dir "$UPSTREAM" --filter=@deepseek-ai/dsh deploy --prod --legacy "$STAGING"
+  # 上游物化同样走 pin 版 pnpm（scripts/pnpm-pinned.mjs 是唯一实现；版本偏斜会以
+  # 「root lib/types 缺失」这类与病因完全对不上的报错出现）
+  node "$ROOT/scripts/pnpm-pinned.mjs" --run "$UPSTREAM" -- --dir "$UPSTREAM" --filter=@deepseek-ai/dsh deploy --prod --legacy "$STAGING"
   [[ -f "$STAGING/lib/bin.js" ]] || die "物化失败：缺 lib/bin.js"
   node "$ROOT/scripts/materialize-peers.mjs"
   [[ -f "$ROOT/staging/kcoder-runtime.tar.gz" ]] || die "物化失败：缺 staging/kcoder-runtime.tar.gz"

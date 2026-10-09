@@ -18,7 +18,8 @@ set -euo pipefail
 shopt -s nullglob
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UPSTREAM="${KCODER_UPSTREAM_DIR:-/Users/libing/kk_Projects/deepseek-harness}"
+# 落点解析走 scripts/upstream-dir.mjs（唯一实现：ENV > .upstream-dir 指针 > 仓内相邻克隆 > 历史默认）
+UPSTREAM="$(node "$ROOT/scripts/upstream-dir.mjs" --print-shell)"
 
 CLEAN=0
 [[ "${1:-}" == "--clean" ]] && CLEAN=1

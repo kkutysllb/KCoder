@@ -36,6 +36,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
+import { resolveUpstreamDir } from './upstream-dir.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const MAIN_DIR = join(ROOT, 'desktop/main')
@@ -45,22 +46,10 @@ const BUNDLE_SRC = process.env.KCODER_BUNDLE_SRC ?? join(MAIN_DIR, 'kcoder-skill
 
 /**
  * 上游 `app-boot` 的可选集真源（漂移检查用；不在位时该条跳过并**打印原因**）。
- * 解析链与 desktop/main/dsh-contract.ts 对齐：环境变量 > 仓内指针 `.upstream-dir`
- * （由 scripts/setup.sh 落盘）> 历史默认。2026-10-10：只认前两者时，pointer-only
- * 的机器上 `pnpm run check` 会静默跳过漂移检查（37/37 而非 39/39）。
+ * 落点解析走 `scripts/upstream-dir.mjs`（唯一实现）。2026-10-10：只认 env/历史默认时，
+ * pointer-only 的机器上 `pnpm run check` 会静默跳过漂移检查（37/37 而非 39/39）。
  */
-const UPSTREAM_DIR_POINTER = join(ROOT, '.upstream-dir')
-let pointerDir = ''
-try {
-  pointerDir = readFileSync(UPSTREAM_DIR_POINTER, 'utf8').trim()
-} catch {
-  /* 指针缺失即回退下一档 */
-}
-const UPSTREAM_PROFILE_TS = [
-  process.env.KCODER_UPSTREAM_DIR,
-  pointerDir,
-  '/Users/libing/kk_Projects/deepseek-harness',
-].filter((x) => typeof x === 'string' && x !== '')
+const UPSTREAM_PROFILE_TS = [resolveUpstreamDir()]
   .map((dir) => join(dir, 'packages/boot/app-boot/src/profile.ts'))
   .find((p) => existsSync(p))
 

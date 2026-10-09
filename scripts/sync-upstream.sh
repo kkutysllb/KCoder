@@ -7,7 +7,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UPSTREAM="$ROOT/deepseek-harness"
+# 落点解析走 scripts/upstream-dir.mjs（唯一实现：ENV > .upstream-dir 指针 > 仓内相邻克隆 > 历史默认）。
+# 此前这里硬编码仓内路径 "$ROOT/deepseek-harness"——本机克隆在仓外（D:\Projects\...）时直接报「克隆不存在」。
+UPSTREAM="$(node "$ROOT/scripts/upstream-dir.mjs" --print-shell)"
 
 say() { printf '\033[1;34m[sync]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[sync] 错误：\033[0m %s\n' "$*" >&2; exit 1; }
@@ -31,11 +33,11 @@ else
   say "已是最新（仍将重新构建）"
 fi
 
-say "pnpm install …"
-pnpm install
+say "pnpm install …（按上游 pin 的精确版本）"
+node "$ROOT/scripts/pnpm-pinned.mjs" --run "$UPSTREAM" -- install
 
-say "pnpm run build …"
-pnpm run build
+say "pnpm run build …（按上游 pin 的精确版本）"
+node "$ROOT/scripts/pnpm-pinned.mjs" --run "$UPSTREAM" -- run build
 
 say "同步完成：$(git rev-parse --short HEAD)。重启 KCoder 即可加载新构建。"
 
