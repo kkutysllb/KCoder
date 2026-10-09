@@ -96,3 +96,83 @@
 | `dsh-animations` / `dsh-super-ppts` 的**运行期**表现 | 只验证过启动 | 用户逐项点开（S3.2） |
 | `ui-open-in-app` / `ui-schedule` 新进 utilities 座位对自绘带的影响 | 需真实层叠观测 | GUI 实测 + `smoke:titlebar` 夹具扩展（S4.2） |
 | 三条新持久化记录类型是否要引擎侧配置 | 本轮未追到消费方 | 升级后旧会话可读 + 新记录可见（S4.5 判据） |
+## 6. 落地核对（上游 alpha.2 发布说明 × 我方集成分支，2026-10-09）
+
+> 问题：这轮发布说明的每一条，在我们的分支/产品里**落地了吗**？
+> 方法：先证全体（机械判据），再逐条定位；无法机械证明的（GUI/Windows）明确归属。
+
+### 6.1 机械判据（先证全体，省掉 34 条逐条翻代码）
+
+1. `dsh-v0.2.1-alpha.2` 是 `kcoder/0.2.1-alpha.2` 的**祖先**（`git merge-base --is-ancestor` 通过）
+   ⇒ 上游 alpha.2 的**全部提交**都在我方历史里；
+2. 相对上游 tag 的差异面 = **62 文件**（= 我方偏离面，逐轮累积；alpha.1 轮为 61）；
+   ⇒ **不在这 62 个文件里的上游改动，就是我方树上的「上游原样」**——不存在「漏合」。
+3. 因此逐条核对只需处理两类：①落点在我方偏离面内的（要看合并有没有吞掉上游修复）；
+   ②产品侧还需我方接线的。
+
+### 6.2 六处冲突文件：上游修复是否被吞（逐个核过）
+
+| 文件 | 相对上游 tag 的差异 | 结论 |
+|---|---|---|
+| `ui-chat/.../ChatView.tsx` | +4/−3 | 仅我方 `editUserMessage` 重新接线；上游 `conversation.chat.flow` 槽与 `ChatFlow.tsx` 均在位 |
+| `ui-chat/.../ChatNodeSeat.tsx` | +3/−2 | 仅我方 props 透传；上游字段齐全 |
+| `llm-pi-ai/src/adapter.ts` | +169/−22 | 删除行是**同逻辑重构**（我方 opencode header + codex fallback 交织）；#13 的 `idleWatchdog` / `LLM_STREAM_IDLE_TIMEOUT`（465/532/533/580 行）与 detached drain 注释**都在位** |
+| `experimental/ptc-runtime-python/src/index.ts` | +3/−6 | 上游 #35 修复本体在位（`inject = ['sandbox','sandboxPolicy']`、`sandboxPolicy.resolve()`、`SandboxUnavailableError`）；差异仅我方 `windowsHide: true` + oxlint 注释保留我方形态（样式差异，非修复丢失） |
+| `patches/@earendil-works__pi-ai@1.0.2.patch` | +26/−6 | 上游 6 文件 hunk 全保留 + 我方 `openai-codex-responses.js` relay hunk（补丁共 7 文件） |
+| `pnpm-lock.yaml` | +26/−13 | 以**上游锁为基**，差异 = 我方 `workspace-controller` 的 workspace 依赖；上游依赖升版（含 pi-ai 1.0.2）在内 |
+
+### 6.3 逐条落地表（按发布说明分组）
+
+判定口径：**✅上游原样**（不在偏离面，机械可证）｜**✅并保留**（在偏离面内，已核未吞）｜
+**⚠️待接线/待实测**｜**🖥️Windows 自验**（用户）｜**🚫不适用**（上游 Desktop/打包，非 KCoder 产品面）
+
+| # | 条目（简） | 落点 | 判定 |
+|---|---|---|---|
+| 13 | 流停止且传输不响应取消时仍挂起 | `llm-pi-ai/adapter.ts` | ✅并保留（watchdog 在位） |
+| 14 | 插件元信息不可读阻断请求 | `boot/plugin-manager` + llm | ✅上游原样 |
+| 15 | 凭据/配置/技能监听器关停未捕获异常 | `skill/*` + watcher | ✅上游原样（技能核心面 diff 为空） |
+| 16 | 模型设置刷新期用旧数据编辑 | `ui-settings-models` | ✅并保留（无冲突） |
+| 17 | Windows 持久 PowerShell 大量输出不结束 | `subprocess-local` / `win32-process` | 🖥️Windows 自验（两文件在我们偏离面内，合并已并） |
+| 18 | Windows 缺 sleep 时 Mods 示例取消后仍执行 | `subagent-claude-code` | ✅上游原样（🖥️行为自验） |
+| 19 | Trajectory 误标完成/压缩提前显示 | `ui-trajectory` | ✅上游原样 |
+| 20 | 后台工作流被误标已中断 | `workflow/*` | ✅上游原样 |
+| 21 | 可继续子代理输入栏图片粘贴/拖放 | `ui-subagent` | ✅上游原样 |
+| 22 | /goal /plan 交界输入报错 | `ui-chat` 输入面 | ✅上游原样 |
+| 23 | 右栏展开后后台任务列表被遮挡 | `ui-jobs` + 布局 | ✅上游原样 + ⚠️与我方自绘页头有交互，GUI 实测 |
+| 24 | Windows Desktop 图片预览遮罩/圆角 | 上游 Desktop 壳 | 🚫不适用（其壳） |
+| 25 | DevTools 网络响应取消后不结束 | `client/connection` | ✅上游原样 |
+| 26 | SenseVoice VAD 截断首字 | `speech-to-text-sensevoice` | ✅上游原样（我方已预选 voice-input） |
+| 27 | Windows 安装器盘根校验 | 上游安装器 | 🚫不适用 |
+| 28 | macOS 小尺寸 Finder 图标 | 上游 Desktop 图标链 | ✅上游原样（KCoder 自有图标链不依赖） |
+| 29 | Windows Desktop 终端 PTY 未清理 | `terminal/*` | ✅上游原样（我方终端插件已退役，引擎面） |
+| 30 | Shell/插件详情横向查看+复制；后台 Bash 回执 | `ui-tool` + `ui-chat` | ✅上游原样 |
+| 31 | 超长源码行预览性能 | `ui-primitives` | ✅上游原样（同包 markdown 子目录是我方偏离面，无冲突） |
+| 32 | 会话标题保留合适标题 | `session-title/*` | ✅上游原样（我方无自研 provider） |
+| 33 | 远程 Web 用页面内目录选择器 | `host/directory-picker-browse` | ✅并保留（我方 4 文件同包，无冲突） |
+| 34 | 侧栏 Fork/子代理迁移提示 | `ui-workspace` / `ui-subagent` | ✅上游原样 |
+| 35 | Python PTC 接入沙箱策略 | `ptc-runtime-python` | ✅并保留（本体在位，见 6.2） |
+| 36 | 移除 both 混合模式 | `tools` / `agent-tool-presentation` | ✅上游原样（我方配置零 `mode: both`，已核） |
+| 37 | 移除 agent-instructions 的 dshHome | `agent-instructions` | ✅上游原样（我方 profile 零残留，已核） |
+| 38 | 子代理统一通知（立即返 child ID） | `subagent/*` | ✅上游原样 + ⚠️外部插件 `dsh-kylin-automation` 需改（S3.1） |
+| 39 | Agent Team 直投目标 Inbox | `experimental/agent-team` | ✅上游原样 + ⚠️行为迁移（升级前未投递消息不投递） |
+| 40 | SDK 默认身份改通用 AI Agent | `packages/sdk` | ✅并保留（无冲突） |
+| 41 | 测试版 Desktop 默认关鉴权弹窗 | 上游 Desktop | 🚫不适用 |
+| 42 | 可选插件极简模式/组合包 headless | `plugin-manager` | ✅上游原样 |
+| 43 | 思考正文 Slot + Markdown Content Factory | `ui-slots` + `ui-primitives` | ✅并保留（`ui-slots` 在我方偏离面，无冲突） |
+| 44 | 未签名 macOS DMG 入口 | 上游打包 | 🚫不适用（用户明确不管） |
+| 45 | 回环 registry 命令 | `plugin-manager` | ✅上游原样 |
+| 46 | pi-ai 1.0.2（含适配器修复） | 补丁 + lock | ✅并保留（补丁 7 文件 = 上游 6 + 我方 relay） |
+| 47 | 运行时/MCP/图片/渲染依赖安全更新 | 各 package.json + lock | ✅上游原样（**随发版 runtime 重建生效**） |
+
+（发布说明的「新增功能」12 条已由分析文档 §3.1 逐条落点；其中 #4 Git Worktrees 等可选包已按
+2026-10-09 决策随版打包并默认选中——见 §12 配套产品决策。）
+
+### 6.4 产品生效时点与仍需动作
+
+- **物理落地已全部完成**（本分支）；**对用户生效**取决于引擎 runtime 重建：`release.sh build`
+  从本分支物化 ⇒ 需先做 S6.1（`upstream/BASELINE` → `0.2.1-alpha.2(d7432673)`）与 S7.1（推集成分支），
+  否则用户拿到的仍是 alpha.1 时代的 runtime（当前的 `~/Library/.../kcoder-runtime` 即此）。
+- 仍需我方接线/实测：**#6 字体**（S1.4：我方自持字号 vs 上游 token）、**#23**（自绘页头与 jobs 列表层叠）、
+  **#43**（正文槽与我方注入 CSS）——后两项属 GUI 实测（用户）。
+- Windows 专项（#17/#18 及其余 Windows 面）：用户在 Windows 真机验证。
+- 🚫 项：上游 Desktop 壳与打包链（#24/#27/#29/#41/#44），与 KCoder 产品面无关。
