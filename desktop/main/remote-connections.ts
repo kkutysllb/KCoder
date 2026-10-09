@@ -22,13 +22,12 @@ import { decorateShellWindow, shellChromeOptions } from './windows'
 
 /** 要装到远端的 KCoder bundle（目录名 + 包名，包名决定 profile 里的落点）。 */
 const REMOTE_BUNDLES: readonly { dir: string; name: string }[] = [
-  { dir: 'dsh-coding-sidebar', name: 'dsh-coding-sidebar' },
-  // dsh-file-review-kcoder 已退役（2026-10-04）：远端安装名单同批摘除，
-  // 否则远端世界会指向已删的 bundle 源目录
+  // 已退役三条（dsh-coding-sidebar 与 @kkutysllb/dsh-terminal 均 2026-10-09，
+  // dsh-file-review-kcoder 2026-10-04）：远端安装名单同批摘除，否则远端世界
+  // 会指向已删的 bundle 源目录
   { dir: 'dsh-shell-prefs', name: 'dsh-shell-prefs' },
   { dir: 'dsh-skills-bundle', name: 'dsh-skills-bundle' },
   { dir: 'dsh-ssh-remote', name: 'dsh-ssh-remote' },
-  { dir: 'dsh-terminal', name: '@kkutysllb/dsh-terminal' },
 ]
 
 /** 一台主机的连接：远端服务句柄与窗口。 */

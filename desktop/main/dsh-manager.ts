@@ -45,9 +45,10 @@ export type DshManagerEvents = {
 /**
  * 上游 dsh 客户端契约：`dsh-desktop-titlebar-inset` URL 参数声明「宿主在
  * 页面顶部占用的像素高度」。消费方是侧边栏类插件——它们把开关簇/面板
- * 顶边让到这个高度之下（本轮现场：dsh-coding-sidebar 的开关簇定位
+ * 顶边让到这个高度之下（2026-08 现场：dsh-coding-sidebar 的开关簇定位
  * top:3px、z-index 45，正被 KCoder 自绘标题栏（z-index 顶层 + 拖拽区）
- * 整块盖住 → 插件自己的按钮点不动）。
+ * 整块盖住 → 插件自己的按钮点不动；该插件 2026-10-09 退役，契约参数保留
+ * ——上游原生右侧栏与后续侧栏类插件仍按它让位）。
  *
  * KCoder 的标题栏就是 48px 覆盖条 + 页面 padding-top 48，如实声明即可。
  * @param url - 就绪 URL（可能带 ?token= 查询串）。

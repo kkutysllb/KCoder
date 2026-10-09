@@ -34,37 +34,21 @@
  * - 上游 toggle **两态都隐藏**——原「折叠态恢复显示 rail K logo」随 rail
  *   退役（brand-injector 的 swapRail 同日退役，见该文件头注释）。
  *
- * ## 原生右栏轨道归零（2026-10-05，用户实测「点尾卡文件弹出右栏空白区」）
+ * ## 已退役：原生右栏轨道归零（2026-10-05 引入 → **2026-10-09 拆除**）
  *
- * 上游原生右栏（ui-sidebar-right）被产品压制（style-overlay 的
- * NATIVE_SIDEBAR_CSS 把面板/列/分隔条 display:none），但**轨道的预留不随
- * 元素消失**：AppFrame 的 inline 模板第三轨是 `minmax(0px, <右栏宽>px)`，
- * 真实 Chromium 实测（staging/probe-rightbar-gap.mjs）——把
- * `[data-rightbar-col]` 置 display:none 后，计算值仍是
- * `260px 660px 480px`，第三轨照旧按增长上限撑满，中列只拿到 1140px，
- * 于是右侧留下一条**空白**（= 用户截图红框）。空 minmax 轨并非解析为 0 宽
- * ——旧注释那条推断有误，这正是本 bug 反复「复发」的原因：CSS 压制从来
- * 没能力收回这段宽度，真正的防线一直是插件认领打开手势。
+ * 铁律 1 期（右侧工作台由 dsh-coding-sidebar 承担）本注入器曾在此**恒把
+ * 第三轨写 0px**：上游原生右栏被 style-overlay 压制（元素 display:none）后，
+ * 网格轨道**不随元素消失**——AppFrame 的 inline 第三轨 `minmax(0px, <右栏宽>px)`
+ * 照旧按增长上限预留（真实 Chromium 实测：面板隐藏后计算值仍是
+ * `260px 660px 480px`），右侧于是留下一条空白。完整处置是「轨道归零 +
+ * 打开手势认领」两层（历史段见 docs/ARCHITECTURE.md §12 铁律 1）。
  *
- * 触发链（2026-10-05 实测定位）：尾卡的「变更」手势走上游
- * `ctx.sidebarRight.openResource('dsh-resource://changes-review/…')`；退役
- * dsh-file-review-kcoder 后**没人再认领该地址**（它的 review-address.ts
- * 正是包 `openResource` 认领 changes-review 的那道门），于是落到引擎默认
- * 通道打开原生右栏 → 面板被压制看不见、**轨道预留的空白看得见**。
+ * 插件退役、原生右栏接回后**两层一并撤**：本注入器不再碰第三轨（轨值全部
+ * 由上游 inline 模板决定），只剩折叠无痕（折叠时轨 1 归零）。
  *
- * 因此本注入器（frame 轨道覆盖的唯一所有者，避免两条 !important 规则互压）
- * 在折叠无痕之外**恒把第三轨写 0px**：轨 1/2 仍从 inline 原样复制
- * （折叠态轨 1 写 0），轨 3 固定 0。任何未认领的原生打开手势都不再占宽
- * ——**但归零只让空白不可见，手势本身仍要有去处**：同一天
- * `dsh-coding-sidebar` 在 `openResource` 门认领了该地址（解析地址 → 读宿主
- * `api/changes.summary` → 该行文件进自家编辑器），两层合起来才是完整处置
- * （docs/ARCHITECTURE.md §12 铁律 1）。本注入器不依赖该认领是否在岗：认领
- * 缺席时行为退化回「点了没反应」，不会回到「右侧一条空白」。
- *
- * 锚：`:has(> [data-rightbar-col])`——结构锚（frame = 右栏列的父节点），
- * 与类名/hash 无关；运行期 `CSS.supports('selector(:has(> div))')` 探测，
- * 不支持时退回折叠态的 `[data-sidebar-collapsed]` 属性锚（轨 3 归零在该
- * 退化路径上不可用，行为与本次改动前一致，不崩）。
+ * 留档的教训：**display:none 元素 ≠ 收回占宽**——要收宽度必须动承载它的布局层
+ * （这里是 grid 轨道），只压元素会留下可测量的空白；反向同理，接回上游时要
+ * 记得把这条覆盖一起撤掉，否则原生右栏会「看得见、却被压成 0 宽」。
  *
  * ## 新会话代理（2026-10-04，折叠态左簇第二枚）
  * 折叠态 rail 随无痕不可见，rail 里的 newSession 按钮仍可程序化点击
@@ -109,7 +93,7 @@
  * （单反斜杠陷阱），字符行走解析无此风险。
  *
  * 宿主时序不保证：bar 由 theme-watcher 注入（同 did-finish-load，本注入器
- * 注册在其后），轮询等待 bar 存在（与 sidebar-cluster 同款）。
+ * 注册在其后），轮询等待 bar 存在（同类注入器同款）。
  *
  * @module desktop/main/sidebar-toggle
  */
@@ -237,7 +221,7 @@ const PAGE_JS = `(() => {
   }
   hideToggle()
 
-  // 兜底样式 + 注入按钮外观（与 sidebar-cluster 代理按钮同款，四枚共享）
+  // 兜底样式 + 注入按钮外观（四枚共享）
   const style = document.createElement('style')
   style.id = '__dsh_desktop_toggle_style'
   // 按钮选择器组：前缀/后缀必须应用到每个 id——直接用逗号组字符串

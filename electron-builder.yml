@@ -34,15 +34,10 @@ extraResources:
   # profile 残留注册由 RETIRED_PLUGINS 三清自愈，无需随包资源；
   # dsh-git-panel 亦于 2026-09-14 退役：能力被侧边栏 dsh-coding-sidebar
   # 的 Git 面板覆盖，同样三清自愈）
-  # dsh-coding-sidebar（2026-09-19 un-retire @1.0.18：alpha.2 turnTail
-  # list 适配完成；真源 kkutysllb/dsh-coding-sidebar，两级镜像
-  # dsh-plugins → 仓库 bundle/，sync-bundles.mjs 同步）——
-  # profile deps 的 ^1.0.0 仅牵引依赖树，实体由 kcoder-skills-bundle
-  # 物化覆盖为终态，index.ts 在 preset install 后二调
-  # ensureKcoderBundles 兑现纠偏。目录级映射：产物更新落仓库即随包，
-  # release.sh verify 与仓库清单逐文件对账防断供
-  - from: bundle/dsh-coding-sidebar
-    to: dsh-coding-sidebar
+  # dsh-coding-sidebar（2026-09-19 un-retire @1.0.18 → **2026-10-09 退役**）：
+  # extraResources 登记与其 bundle 目录同批摘除（verify-bundles-shipped 按
+  # bundle/ 目录对账，两侧必须同步）。退役理由：上游原生右侧栏已覆盖产品
+  # 所需能力，右侧工作台交回上游（docs/ARCHITECTURE.md §12 铁律 1 翻转）
   # dsh-file-review-kcoder（2026-10-04 退役）：extraResources 登记与 bundle
   # 目录同批摘除（verify-bundles-shipped 按 bundle/ 目录对账，两侧必须同步）
   # dsh-ssh-remote（2026-09-26：SSH 远程主机 → 远端工作区。准入即随包——
@@ -58,8 +53,6 @@ extraResources:
   # 目录内只剩 README 占位。目录级映射保留：新增补丁落仓库即随包，
   # release.sh verify 与仓库清单逐文件对账防断供。Windows 无 launchd，
   # 随包分发是补丁的唯一通道。
-  # coding-sidebar 另有产品侧物化见 preset-plugins.ts（node-pty 构建许可
-  # + 面板顶部避让；开关簇由 sidebar-cluster.ts 状态栏代理接管）
   - from: profiles/web/patches
     to: profile-patches
   # scripts 与 assets（官方图标）随应用分发，供首次引导与托盘使用

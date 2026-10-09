@@ -100,9 +100,11 @@ desktop/
 │   ├── upstream.ts  # 上游状态检测 + 同步流水线（fetch→ff-only→install→build）
 │   ├── plugins.ts   # 插件桥：profile 层叠清单 + GitHub dsh-plugin 发现 + 安装转发
 │   ├── windows.ts   # shell 窗口（无 preload，纯浏览器）与面板窗口
-│   ├── terminal-panel.ts / pty-host.ts # 内嵌终端（多工作区视图 + node-pty）
-│   ├── sidebar-cluster.ts # better-sidebar 开关簇收纳（代理按钮 + 底面板压制）
+│   # 注：terminal-panel.ts / pty-host.ts（宿主终端）与内置终端插件
+│   # @kkutysllb/dsh-terminal 均已退役——终端 = 上游原生右侧栏终端 tab
 │   ├── menu.ts / ipc.ts / store.ts
+│   # 注：sidebar-cluster.ts（自研侧栏开关代理）已于 2026-10-09 随
+│   # dsh-coding-sidebar 退役删除——右侧工作台归上游原生右栏（ARCHITECTURE §12 铁律 1）
 ├── preload/         # contextBridge 白名单（window.dshDesktop）
 ├── renderer/        # 本地面板（hash 路由，无框架；views/landing.ts = KCoder 欢迎屏）
 └── shared/          # IPC 契约类型（主/渲染两侧唯一事实源）
@@ -166,7 +168,7 @@ pnpm sync-upstream
 | Harness home `~/.dsh` / `DSH_HOME` | `packages/util/home-paths` |
 | 插件管理 `dsh plugin --profile <name> <pnpm args>` | `apps/cli/src/plugin.ts` |
 | Profile 层叠 `dsh.profile.bundles` | `packages/boot/app-boot/src/profile.ts` |
-| 侧边栏 `logoRow` / `collapsed` DOM 类名 | `packages/client/ui-sidebar/src/client/SidebarRoot.tsx`（`scripts/verify-inject.cjs` 可验证） |
+| 侧边栏 `logoRow` / `collapsed` DOM 类名 | `packages/client/ui-sidebar/src/client/SidebarRoot.tsx`（`scripts/verify-inject.cjs` 可验证）。**2026-10-09 起右侧工作台 = 上游原生右栏**（自研 `dsh-coding-sidebar` 整线退役、铁律 1 翻转）：`[data-rightbar-col]` / `[data-sidebar-right-*]` 只作结构锚与探针判据，不再是产品压制锚点 |
 | 主题落点 `body[data-ds-dark-theme]` + `documentElement.style.colorScheme` | `packages/client/ui-theme/src/client/index.ts`（`scripts/verify-theme.cjs` 可验证） |
 | 标题栏色 token sidebar-fill 与根布局 `html,body,#root{height:100%}` | `packages/client/ui-theme/src/styles/design-platform.css` + `packages/client/web/src/base.css` |
 | 标题栏文字 = `document.title` | `packages/client/web/src/DocumentTitle.tsx` |

@@ -3,22 +3,20 @@
  * 内置插件 bundle 同步：dsh-plugins 仓库（镜像真源）→ KCoder bundle/。
  *
  * 2026-08-30 迁址后，KCoder 仓 bundle/ 目录只是随包分发的同步副本；
- * 插件开发真源在各自独立仓（2026-09-01 起：dsh-terminal/
- * dsh-skills-bundle/dsh-coding-sidebar，全部 dsh 标准命名 npm 包；
- * dsh-file-review-kcoder 已于 2026-10-04 退役摘除）→
+ * 插件开发真源在各自独立仓（2026-09-01 起：dsh-skills-bundle，全部 dsh 标准
+ * 命名 npm 包；dsh-terminal 已于 2026-10-09 退役摘除，dsh-coding-sidebar 已于
+ * 2026-10-09 退役摘除，dsh-file-review-kcoder 已于 2026-10-04 退役摘除）→
  * dsh-plugins/<同名目录> 镜像 → 本脚本同步进 bundle/ 再发版——方向单向，
  * 禁止反向手改。
  *
  * 同步映射（dsh-plugins/<src> → bundle/<dst>，目录名与包名同名）：
- * - 产物直提包全镜像（terminal/
- *   skills-bundle，排除式镜像；file-attach 已于 0.5.6 退役摘除，
+ * - 产物直提包全镜像（skills-bundle，排除式镜像；file-attach 已于 0.5.6 退役摘除，
  *   git-panel 已于 2026-09-14 退役摘除）
  * - dsh-file-review-kcoder（2026-10-04 退役）：选择面映射与 bundle 目录一并
  *   摘除——真源仓与 npm 包保留，但 KCoder 不再同步、不再内置
- * - dsh-coding-sidebar 同款选择面映射：侧边栏自立仓（fork 自
- *   DSH-better-sidebar 0.17.2，底面板移除），发布链为两级镜像
- *   （独立仓 → dsh-plugins/dsh-coding-sidebar → 本 bundle），
- *   profile deps 的 ^1.0.0 仅牵引依赖树，实体由 kcoder-skills-bundle 物化覆盖
+ * - dsh-coding-sidebar（2026-09-19 un-retire @1.0.18 → **2026-10-09 退役**）：
+ *   映射与其 bundle 目录一并摘除——真源仓与 npm 包保留（它同时是 QiLin 的
+ *   第一方内置工作台），但 KCoder 不再同步、不再内置
  *
  * 用法：
  *   node scripts/sync-bundles.mjs            # 执行同步（rm+cp 镜像）
@@ -48,16 +46,14 @@ const EXCLUDE = new Set(['.git', 'node_modules'])
  * 相对路径（目录递归 / 文件直拷）。
  */
 const MAPPINGS = [
-  { src: 'dsh-terminal', dst: 'dsh-terminal', select: [] },
+  // dsh-terminal（2026-10-09 退役）：映射与其 bundle 目录同批摘除（终端交回
+  // 上游原生右栏终端 tab）
   { src: 'dsh-skills-bundle', dst: 'dsh-skills-bundle', select: [] },
-  // dsh-coding-sidebar（2026-09-19 un-retire @1.0.18：alpha.2 turnTail
-  // list 适配完成，真源仓发布 1.0.18；文件预览线之外的差异化功能
-  // git 面板/Office·视频预览/QiLin 接管无原生替代——评估记录见
-  // docs/upstream-0.1.6-alpha.2-analysis.md §9.9）
+  // dsh-coding-sidebar（2026-09-19 un-retire @1.0.18 → **2026-10-09 退役**）：
+  // 映射与其 bundle 目录同批摘除；真源仓 kkutysllb/dsh-coding-sidebar 与 npm
+  // 包保留（它同时是 QiLin 的第一方内置工作台），但 KCoder 不再同步、不再内置
   // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5 → 2026-10-04 退役）：
-  // 映射与其 bundle 目录同批摘除；真源仓 kkutysllb/dsh-file-review-kcoder 与
-  // npm 包保留（用户仍可经插件管理页自装，但按产品级退役口径三清会再洗）
-  { src: 'dsh-coding-sidebar', dst: 'dsh-coding-sidebar', select: [] },
+  // 同上，映射与 bundle 目录同批摘除
   // dsh-ssh-remote（2026-09-26 内置化）：SSH 远程运维/开发工具套件。
   // 真源仓另有 analysis/ docs/ plans/ scripts/（开发面），故用选择面映射——
   // bundle 只带运行时面：宿主 lib/、客户端 client/、locale/、cordis.patch.yml、

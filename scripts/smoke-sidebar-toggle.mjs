@@ -7,18 +7,17 @@
  * PAGE_JS → 断言：
  *
  * - 折叠无痕：fixture 折叠态 inline 轨 1 为 56px（上游 plain-web 行为），
- *   注入后计算值第 1 轨必须归 0px（轨 2/3 原样保留），sidebarCol 右描边
- *   计算值 0px；展开态 void 规则**不再为空**（2026-10-05 起它恒把轨 3 写
- *   0px，见下条）；折叠态改写 inline 轨 2（模拟窗口缩放）→ 规则跟刷（轨 2
- *   复制不陈旧）；
- * - **原生右栏轨道归零（2026-10-05）**：fixture 的原生右栏列
- *   `[data-rightbar-col]` 置 display:none（= 产品 style-overlay 压制态），
- *   而 frame 的 inline 第三轨为 `minmax(0px, 480px)`（= 引擎为原生右栏预留
- *   的轨道）。注入后**两态**轨 3 计算值必须 `0px`，且
- *   `frame 宽 − 侧栏宽 − 中列宽 ≈ 0`（用户看到的那条空白归零）。
- *   **负对照**：临时停用归零规则后轨 3 必须回到 >0——空 minmax 轨照样按
- *   增长上限撑满，这正是「只 display:none 压不住空白」的实证；负对照红
- *   不了就说明本组断言没有判别力。
+ *   注入后计算值第 1 轨必须归 0px（轨 2/3 原样复制、**不写 0**），sidebarCol
+ *   右描边计算值 0px；**展开态 void 规则必须为空**（2026-10-09 起轨道覆盖只
+ *   服务折叠无痕；旧「恒把轨 3 写 0px」随铁律 1 翻转撤销）；折叠态改写 inline
+ *   轨 2（模拟窗口缩放）→ 规则跟刷（轨 2/3 复制不陈旧）；
+ * - **原生右栏占宽保全（2026-10-09 重写；原「轨道归零」判据已随铁律 1 翻转）**：
+ *   fixture 的原生右栏列 `[data-rightbar-col]` **可见**，frame 的 inline 第三轨
+ *   为 `minmax(0px, 480px)`（引擎为原生右栏预留的轨道）。功能面断言（规则
+ *   文本）在本场景钉「轨 3 原样复制、不写 0px」；**占宽**在独立宽窗口场景
+ *   （runRightbarGapScenario）量：右栏宽 > 0 且 `frame − 侧栏 − 中列 = 右栏宽`。
+ *   **负对照**：把已退役的归零规则注回去，轨 3 必须塌成 0px——证明该组断言对
+ *   「归零回归」仍有判别力。
  * - 左簇两态自适应：展开 prev84/next128/toggle174 三枚可见 + new 隐藏；
  *   折叠 toggle84/new120 两枚可见 + prev/next 隐藏；display:none 不进
  *   Tab 序，DOM 序恒 prev→next→toggle→new（Tab 序基础）；
@@ -219,10 +218,10 @@ const html = (dark, collapsed = false, win32 = false) => `<!doctype html><html><
     </div>`}
   </div>
   <div class="centerCol">center</div>
-  <!-- 原生右栏（上游 ui-sidebar-right）：产品压制把面板/列 display:none，但
-       引擎 inline 第三轨 minmax(0px,480px) 照旧按增长上限预留 → 右侧空白。
-       本冒烟验的正是这条轨道被归零（负对照：停用规则后它必须回来）。 -->
-  <div class="rightbarCol" data-rightbar-col style="display:none">
+  <!-- 原生右栏（上游 ui-sidebar-right）：2026-10-09 铁律 1 翻转后产品侧不再压制，
+       面板/列可见，第三轨 minmax(0px,480px) 正常占宽。本冒烟验的正是这条轨道
+       **不被**归零（负对照：把已退役的归零规则注回去，它必须塌成 0px）。 -->
+  <div class="rightbarCol" data-rightbar-col>
     <div class="nativePanel" data-sidebar-right-panel="push">native</div>
   </div>
 </div>
@@ -357,13 +356,13 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
     if (probe.voidLen === null || probe.voidLen === 0) fails.push('折叠态 void 规则不应为空')
   } else {
     if (probe.sideBorder !== '1px') fails.push(`展开态 sidebarCol 描边=${probe.sideBorder} 应为 1px`)
-    // 2026-10-05：展开态 void 规则**不再为空**——它现在恒把轨 3 写 0px
-    // （原生右栏轨道归零）。断言随之从「应为空」改为「必须在场」。
-    if (probe.voidLen === null || probe.voidLen === 0) fails.push('展开态归零规则不应为空（轨 3 须恒 0）')
+    // 2026-10-09：展开态 void 规则**必须为空**——轨道覆盖只服务折叠无痕，原生
+    // 右栏接回后不再有第三轨归零（旧断言「必须在场」随铁律 1 翻转撤销）。
+    if (probe.voidLen !== null && probe.voidLen > 0) fails.push('展开态不应产出轨道覆盖规则（原生右栏须按上游 inline 占宽）')
   }
-  // —— 原生右栏轨道归零（2026-10-05）——
-  // 在独立场景（宽窗口）里验：本窗口宽 480 时网格无余量，第三轨本就为 0，
-  // 量不出「预留」这件事——见 runRightbarGapScenario。
+  // —— 原生右栏占宽（2026-10-09）——
+  // 本窗口宽 480 时网格无余量、第三轨计算值本就是 0，量不出「占宽」这件事；
+  // 占宽断言在独立场景 runRightbarGapScenario（宽窗口）里做。
   if (probe.toggleHidden !== true) fails.push('上游 logoRow toggle 应两态隐藏（rail 随无痕退役）')
   // —— Windows 装饰红绿灯 ——
   if (win32) {
@@ -513,7 +512,11 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
       })
     })()`, true))
     if (collapsedSim.track1 !== '0px') fails.push(`模拟折叠后轨 1=${collapsedSim.track1} 应为 0px（属性切换即触发）`)
-    if (collapsedSim.track3 !== '0px') fails.push(`模拟折叠后轨 3=${collapsedSim.track3} 应为 0px（原生右栏归零应随态跟刷）`)
+    // 窄窗口里轨 3 计算值本就是 0（网格无余量），故判据落在**规则文本**上：
+    // 折叠无痕必须把 inline 第三轨原样复制，而不是写死 0px（2026-10-09 前的
+    // 「恒 0 归零」已随铁律 1 翻转撤销）。
+    if (collapsedSim.voidText === null || !collapsedSim.voidText.includes('minmax(0px, 480px)'))
+      fails.push(`模拟折叠后无痕规则未原样复制轨 3：${String(collapsedSim.voidText)}`)
     if (Math.abs(collapsedSim.toggleLeft - COLLAPSED_TOGGLE_LEFT) > 1) fails.push(`模拟折叠后折叠按钮 left=${collapsedSim.toggleLeft} 应 ≈${COLLAPSED_TOGGLE_LEFT}`)
     if (collapsedSim.toggleAria !== '展开侧边栏') fails.push(`模拟折叠后折叠按钮 aria=${collapsedSim.toggleAria} 应为 展开侧边栏`)
     if (collapsedSim.prevDisplay !== 'none' || collapsedSim.nextDisplay !== 'none') fails.push('模拟折叠后左右箭头应隐藏')
@@ -571,16 +574,20 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
 }
 
 /**
- * 原生右栏轨道归零场景（2026-10-05，需宽窗口）：
+ * 原生右栏占宽保全场景（2026-10-09 重写，需宽窗口）：
  *
- * 上游原生右栏被产品压制（fixture 里 `[data-rightbar-col]` display:none），
- * 但 AppFrame 的 inline 第三轨 `minmax(0px, 480px)` 只要有网格余量就照旧
- * 按增长上限撑满 —— 唯一的防线是 sidebar-toggle 注入的归零规则。本场景在
- * 宽窗口（1440）量这条：两态的轨 3 计算值必须 0px、`frame − 侧栏 − 中列
- * ≈ 0`，并跑**负对照**（临时停用规则 → 轨 3 必须回到 480）证明断言有判别力。
+ * 铁律 1 翻转后产品侧对原生右栏**不再有任何压制**——列可见、网格第三轨按
+ * 上游 inline `minmax(0px, 480px)` 正常占宽。本场景在宽窗口（1440）量这条：
+ * - 展开态：void 规则必须**为空**（轨道覆盖只服务折叠无痕）、轨 3 计算值 > 0、
+ *   右栏列可见、`frame − 侧栏 − 中列 = 右栏宽`；
+ * - 折叠态：轨 1 归 0（无痕照旧）、轨 2/3 原样保留（轨 3 仍 > 0）。
  *
- * 为什么不在既有场景里量：那个窗口宽 480，`280 + minmax(400px,…)` 已经
- * 超出窗口宽 → 网格没有余量 → 第三轨本就是 0，量出来是**假绿**。
+ * **负对照**：把已退役的归零规则临时注回去（`… 0px !important`），轨 3 必须
+ * 塌成 0px——证明本组断言对「归零回归」有判别力（2026-10-05 的右侧空白 bug
+ * 正是这么发生的）。
+ *
+ * 为什么不在既有场景里量：那个窗口宽 480，`280 + minmax(400px,…)` 已经超出
+ * 窗口宽 → 网格没有余量 → 第三轨本就是 0，量出来是**假绿**。
  * @param win - 宽窗口（≥1400）。
  * @param label - 场景名。
  * @param collapsed - 折叠态（轨 1 额外写 0）。
@@ -600,43 +607,58 @@ async function runRightbarGapScenario(win, label, collapsed) {
     const sideBox = box('[class*="sidebarCol"]')
     const centerBox = box('[class*="centerCol"]')
     const rightbar = document.querySelector('[data-rightbar-col]')
+    const rightbarBox = box('[data-rightbar-col]')
     const voidStyle = document.getElementById('__dsh_desktop_sidebar_void_style')
-    const blank = frameBox !== null && sideBox !== null && centerBox !== null
+    const gap = frameBox !== null && sideBox !== null && centerBox !== null
       ? Math.round(frameBox.width - sideBox.width - centerBox.width) : null
-    const withRule = frame !== null ? getComputedStyle(frame).gridTemplateColumns : null
-    let withoutRule = null
-    if (voidStyle !== null) {
-      voidStyle.disabled = true
-      withoutRule = frame !== null ? getComputedStyle(frame).gridTemplateColumns : null
-      voidStyle.disabled = false
+    const current = frame !== null ? getComputedStyle(frame).gridTemplateColumns : null
+    // 负对照：把**已退役的归零规则**注回去（探针自建 style，测完即移除）
+    let withZeroing = null
+    if (frame !== null) {
+      const tracks = current !== null ? current.split(' ') : []
+      if (tracks.length === 3) {
+        const probe = document.createElement('style')
+        probe.textContent = '.frame{grid-template-columns:' + tracks[0] + ' ' + tracks[1] + ' 0px !important}'
+        document.head.append(probe)
+        withZeroing = getComputedStyle(frame).gridTemplateColumns
+        probe.remove()
+      }
     }
     let hasSupport = false
     try { hasSupport = CSS.supports('selector(:has(> div))') } catch (e) { hasSupport = false }
     return JSON.stringify({
       hasSupport,
       frameWidth: frameBox !== null ? Math.round(frameBox.width) : null,
-      withRule, withoutRule, blank,
+      current, withZeroing, gap,
+      rightbarWidth: rightbarBox !== null ? Math.round(rightbarBox.width) : null,
       voidLen: voidStyle !== null ? voidStyle.textContent.length : null,
       rightbarDisplay: rightbar !== null ? getComputedStyle(rightbar).display : null,
     })
   })()`, true))
 
-  const tracks = probe.withRule !== null ? probe.withRule.split(' ') : []
-  if (!probe.hasSupport) fails.push('运行环境不支持 :has() —— 轨道归零的结构锚不可用（Chromium 105+ 才有）')
+  const tracks = probe.current !== null ? probe.current.split(' ') : []
+  if (!probe.hasSupport) fails.push('运行环境不支持 :has() —— 无痕的结构锚不可用（Chromium 105+ 才有）')
   if (probe.frameWidth === null || probe.frameWidth < 1400) fails.push(`本场景需要宽窗口（frame 宽=${String(probe.frameWidth)}）`)
-  if (probe.rightbarDisplay !== 'none') fails.push(`原生右栏列应为 display:none（产品压制态），实际 ${String(probe.rightbarDisplay)}`)
-  if (probe.voidLen === null || probe.voidLen === 0) fails.push('归零规则不应为空')
-  if (tracks.length !== 3) fails.push(`frame 计算轨应为 3 段，实际「${String(probe.withRule)}」`)
+  if (probe.rightbarDisplay === 'none') fails.push('原生右栏列被压制（2026-10-09 铁律 1 翻转后应可见）')
+  if (tracks.length !== 3) fails.push(`frame 计算轨应为 3 段，实际「${String(probe.current)}」`)
   else {
-    if (tracks[2] !== '0px') fails.push(`原生右栏轨道未归零：轨 3=${tracks[2]} 应为 0px（右侧空白会复现）`)
-    if (collapsed && tracks[0] !== '0px') fails.push(`折叠态轨 1=${tracks[0]} 应为 0px（无痕不应回退）`)
+    if (!(parseFloat(tracks[2]) > 0)) fails.push(`原生右栏轨道被压成 ${tracks[2]}（应 > 0：右栏须正常占宽）`)
+    if (collapsed) {
+      if (tracks[0] !== '0px') fails.push(`折叠态轨 1=${tracks[0]} 应为 0px（无痕不应回退）`)
+      if (probe.voidLen === null || probe.voidLen === 0) fails.push('折叠态无痕规则不应为空')
+    } else if (probe.voidLen !== null && probe.voidLen > 0) {
+      fails.push(`展开态不应产出轨道覆盖规则（实际 ${String(probe.voidLen)} 字符；原生右栏须按上游 inline 占宽）`)
+    }
   }
-  if (probe.blank === null) fails.push('无法测量原生右栏占宽')
-  else if (probe.blank > 1) fails.push(`原生右栏仍占宽 ${probe.blank}px（frame − 侧栏 − 中列 应 ≈0）`)
-  // 负对照：规则是唯一把这段宽度收回的东西——停用后轨 3 必须回到预留值
-  const noRule = probe.withoutRule !== null ? probe.withoutRule.split(' ') : []
-  if (noRule.length !== 3 || !(parseFloat(noRule[2]) > 0))
-    fails.push(`负对照失败：停用归零规则后轨 3=${String(probe.withoutRule)} 应仍为预留值（>0），否则本组断言无判别力`)
+  if (probe.gap === null) fails.push('无法测量原生右栏占宽')
+  else if (probe.rightbarWidth !== null && Math.abs(probe.gap - probe.rightbarWidth) > 1) {
+    fails.push(`原生右栏占宽不符：frame − 侧栏 − 中列 = ${probe.gap}px，右栏宽 ${probe.rightbarWidth}px（应相等）`)
+  }
+  // 负对照：把已退役的归零规则注回去，轨 3 必须塌成 0px（否则本组断言无判别力）
+  const zeroed = probe.withZeroing !== null ? probe.withZeroing.split(' ') : []
+  if (zeroed.length !== 3 || zeroed[2] !== '0px') {
+    fails.push(`负对照失败：注回归零规则后轨 3=${String(probe.withZeroing)} 应塌成 0px（否则测不出归零回归）`)
+  }
 
   console.log(`[${label}${collapsed ? '-collapsed' : ''}]`, fails.length === 0 ? 'PASS' : 'FAIL: ' + fails.join('; '))
   return fails.length === 0

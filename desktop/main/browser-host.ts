@@ -8,7 +8,9 @@
  *
  * - playwright MCP 以 `--cdp-endpoint http://127.0.0.1:<FWD_PORT>` 连接
  *   （地址恒定，agent 每轮任务连接即可，无窗运行）；
- * - coding-sidebar 浏览器 tab 连同一地址做 screencast 实况 + 输入回传；
+ * - ~~coding-sidebar 浏览器 tab~~（2026-10-09 随该插件退役）曾连同一地址做
+ *   screencast 实况 + 输入回传——转发器因此只剩 playwright MCP 一个消费方，
+ *   但地址契约不变（dev/打包两态分端口）；
  * - 浏览器归 KCoder 管（独立 user-data-dir），登录态跨任务持久。
  *
  * 生命周期：桌面端 ready 后 startBrowserHost()（只起转发器，浏览器按需拉起）；

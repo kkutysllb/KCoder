@@ -94,17 +94,18 @@ const PATCH_MARKS = {}
  * lib/），而设置 UI 的版本 chip 读的正是常量 → 显示落后于实装版本。
  * 以包 package.json 为权威，物化后幂等改写；上游未来改从 package.json
  * 读版本或自行修正后，marker 不再命中、对齐自动变空操作。
+ *
+ * **2026-10-09 起为空表**（唯一成员随 dsh-coding-sidebar 退役摘除）；机制
+ * 保留——新增内置插件若再出现「产物常量落后于 package.json」的问题，按原
+ * 条目形态登记即可。
  */
 const VERSION_ALIGNS = [
-  {
-    pkg: 'dsh-coding-sidebar',
-    // 兜底对账：1.0.0 起产物常量已由 tsdown define 从 package.json
-    // version 构建期注入（单一事实源），正常发布链不再脱节；保留以
-    // 覆盖手工替换 bundle 物料等旁路（「侧边卡片」设置分区头部 chip
-    // 显示版本的来源）
-    files: ['lib/client.js', 'lib/client-registry.js'],
-    marker: 'SIDEBAR_SERVICE_VERSION',
-  },
+  // dsh-coding-sidebar（唯一成员，**2026-10-09 随插件退役摘除**，本段为历史
+  // 记录）：曾用于把产物内硬编码的服务版本常量（marker
+  // `SIDEBAR_SERVICE_VERSION`，文件 lib/client.js / lib/client-registry.js）
+  // 对齐到包 package.json 版本——那是「侧边卡片」设置分区头部 chip 的显示来源。
+  // 1.0.0 起该常量已由 tsdown define 从 package.json version 构建期注入（单一
+  // 事实源），条目本就只剩兜底用途；插件退役后不再有可对齐对象，列表清空。
 ]
 
 /** 对齐产物内硬编码版本常量到包版本。原地 write 会透过 pnpm store 硬链接

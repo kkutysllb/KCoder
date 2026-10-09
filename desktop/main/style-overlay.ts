@@ -1,7 +1,12 @@
 /**
- * 上游原生外壳压制层 + 空会话品牌水印：零修改上游的前提下，靠注入
- * 一段 `<style>` 做两件事——把 KCoder 不使用的上游原生侧栏外壳收掉，
- * 以及给空会话铺 KCoder 的 K 水印（均按层叠规则覆盖，不动上游代码）。
+ * 上游外壳碎片压制层 + 空会话品牌水印：零修改上游的前提下，靠注入
+ * 一段 `<style>` 收掉 KCoder 不使用的上游外壳碎片（折叠 rail 的两枚
+ * 会话浏览器入口、设置对话框头部），并给空会话铺 KCoder 的 K 水印
+ * （均按层叠规则覆盖，不动上游代码）。
+ *
+ * **2026-10-09 收缩**：原第一段「原生右侧栏外壳压制」（NATIVE_SIDEBAR_CSS）
+ * 随 dsh-coding-sidebar 整线退役一并删除——右侧工作台交回上游原生，
+ * 产品侧对原生右栏不再有任何压制（docs/ARCHITECTURE.md §12 铁律 1 翻转）。
  *
  * ## 历史与职责收缩（2026-09-20）
  *
@@ -11,11 +16,11 @@
  * 整体下线）。用户决策：上游排版已完善，宿主不再动正文排版（档位、总开关、
  * 持久化字段 style 全部移除）。
  *
- * 剩下的四段都**不是排版偏好**，没有开关、恒生效：
- * 1. 原生右侧栏外壳压制（NATIVE_SIDEBAR_CSS）；
- * 2. 折叠 rail「新建工作区 / 搜索」入口压制（RAIL_BROWSER_ACTIONS_CSS）；
- * 3. 设置对话框头部压制（SETTINGS_DIALOG_HEADER_CSS）；
- * 4. 空会话 K 水印（HERO_WATERMARK_CSS）——品牌落点，用户明确要求保留。
+ * 剩下的三段都**不是排版偏好**，没有开关、恒生效：
+ * 1. 折叠 rail「新建工作区 / 搜索」入口压制（RAIL_BROWSER_ACTIONS_CSS）；
+ * 2. 设置对话框头部压制（SETTINGS_DIALOG_HEADER_CSS）；
+ * 3. 空会话 K 水印（HERO_WATERMARK_CSS）——品牌落点，用户明确要求保留。
+ * （原第 1 段「原生右侧栏外壳压制」已于 2026-10-09 随插件退役删除。）
  *
  * 历史段落（已移除）：**侧栏「插件」panellist 入口压制**
  * （`SIDEBAR_PLUGIN_ENTRY_CSS`）。2026-10-04 产品负责人拍板恢复上游侧栏
@@ -45,41 +50,22 @@ const STYLE_ID = '__dsh_desktop_style_override'
 const watermarkDataUrl = `data:image/png;base64,${readFileSync(resolveAsset('brand-k.png')).toString('base64')}`
 
 /**
- * 原生右侧栏外壳压制（D1a 恢复，2026-09-19；**2026-09-24 修 rc.2 起静默失效**）：
- * dsh-coding-sidebar 复活后右侧工作台由插件承担，原生的展开按钮（会话头角落）、
- * 面板宿主、Session 包装层、**占地的那一列**与**右栏拖拽分隔条**一并隐藏。只摘
- * 用户可见外壳——ui-sidebar-right 的服务层与契约保留（上游多个包在
- * dsh.client.inject 里硬声明它，禁用会让主对话链整体挂掉）。display:none 而非
- * 移除：隐藏元素仍可 .click() 派发（React 事件委托挂在 root）。上游改名 →
- * 压制静默失效（外壳复现），不崩不错位。
+ * 已退役（2026-10-09）：本段曾是「产品铁律 1：不使用上游原生侧边栏功能」
+ * 的执行点——dsh-coding-sidebar 承担右侧工作台期间，这里把上游原生右栏的
+ * 展开按钮（会话头角落）、面板宿主、Session 包装层、**占地的那一列**
+ * （`[data-rightbar-col]`）与右栏拖拽分隔条（`[data-side='rightbar']`）
+ * 一并 display:none。随该插件整线退役，右侧工作台交回上游原生，
+ * **压制整体删除**（铁律 1 于 2026-10-09 翻转，见 docs/ARCHITECTURE.md §12）；
+ * 网格第三轨的归零（sidebar-toggle.ts）同批拆除。
  *
- * ⚠️ **rc.2 现场（用户实测：「点任务卡片的打开会弹出原生右栏」）**：上游把
- * `data-sidebar-right-panel` 从**布尔标记**改成了**取值属性**
- * （`SidebarRight.module.css` 只有 `.panel[data-sidebar-right-panel='fullscreen']`）
- * ——正常停靠模式下该属性**根本不存在**，于是旧的 `[data-sidebar-right-panel]`
- * 存在性选择器匹配不到任何元素，**面板不再被隐藏**。这正是本文件预警过的
- * 「上游改名 → 静默失效」。修法不是追那个取值，而是**改锚到占地的那一层**：
- *
- * - rc.2 的面板是 `position:absolute` **覆盖层**（`SidebarRight.module.css` 的
- *   `.panel`），它占的宽度来自**框架的第三条 grid 轨道**
- *   （`ui-layout/AppFrame.tsx` 的 inline `grid-template-columns: 侧栏 / 中列 /
- *   minmax(0px, 右栏)`）⇒ 只隐藏面板会留下一大条空白。隐藏列的宿主
- *   `[data-rightbar-col]` 即让该轨道**没有子元素**：`.frame` 是 grid 且**无
- *   column-gap**，空的 `minmax(0px, Npx)` 轨道解析为 **0 宽**，空白随之消失。
- * - 右栏的分隔条是**框架的兄弟节点**（不在列里，条件渲染于 `rightbarShown`），
- *   列消失后它会孤零零留在右边缘 ⇒ 按稳定属性 `[data-side='rightbar']` 一并隐藏。
- *
- * 本段是「产品铁律 1：不使用上游原生侧边栏功能」的**执行点**
- * （docs/ARCHITECTURE.md §12）——上游把外壳改名或新增侧栏形态时，
- * 正解是改插件仓发新版本，不是放开本压制。
+ * 留档的铁律期教训（当年两次静默失效，后续若再压制上游 DOM 时复用）：
+ * - **别用存在性锚点压取值属性**：上游把 `data-sidebar-right-panel` 从布尔标记
+ *   改成取值属性后，正常停靠模式下该属性根本不存在，选择器静默失配、面板复现
+ *   （2026-09-24 现场）。
+ * - **压制元素 ≠ 收回占宽**：面板是 `position:absolute` 覆盖层，宽度来自框架
+ *   内联的第三条 grid 轨道；只 display:none 元素会留下一条空白（2026-10-05 现场），
+ *   当时靠 sidebar-toggle 恒写 0px 补第二半。
  */
-const NATIVE_SIDEBAR_CSS = `[data-sidebar-right-expand],
-[data-sidebar-right-panel],
-[data-sidebar-right-session],
-[data-rightbar-col],
-[data-side='rightbar'] {
-  display: none !important;
-}`
 
 /**
  * 折叠 rail「新建工作区 / 搜索」入口压制（2026-10-02，用户指定）：
@@ -230,9 +216,9 @@ body[data-ds-dark-theme] [data-phase='hero'] [data-conversation-scroll]::before 
   filter: saturate(1.08) brightness(1.18);
 }`
 
-/** 注入 CSS（无档位、无总开关：四段恒定生效）。 */
+/** 注入 CSS（无档位、无总开关：三段恒定生效）。 */
 function buildOverlayCss(): string {
-  return [NATIVE_SIDEBAR_CSS, RAIL_BROWSER_ACTIONS_CSS, SETTINGS_DIALOG_HEADER_CSS, HERO_WATERMARK_CSS].join('\n\n')
+  return [RAIL_BROWSER_ACTIONS_CSS, SETTINGS_DIALOG_HEADER_CSS, HERO_WATERMARK_CSS].join('\n\n')
 }
 
 /**
@@ -240,7 +226,7 @@ function buildOverlayCss(): string {
  * 元素，SPA 内部导航不清 head 故只需一次；页面跳转间隙执行失败属正常，
  * 下次 did-finish-load 会重试）。重复调用安全，窗口重建时旧监听随窗口
  * 销毁（先捕获 webContents：closed 后再访问 getter 会抛
- * "Object has been destroyed"，sidebar-cluster 同款防御）。
+ * "Object has been destroyed"，同类注入器同款防御）。
  */
 export function attachStyleOverlay(win: BrowserWindow): void {
   const { webContents } = win

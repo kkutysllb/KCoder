@@ -1,5 +1,12 @@
 /**
- * 预置第三方插件（**当前只有 dsh-coding-sidebar 一条**）的开箱物化。
+ * 内置插件的开箱物化与 profile 自愈（**2026-10-09 起预置表为空**）。
+ *
+ * `PRESET_PLUGINS` 如今是空表：唯一一条正式声明（dsh-coding-sidebar）随
+ * 「右侧工作台交回上游原生」的产品决策退役（docs/ARCHITECTURE.md §12
+ * 铁律 1 于 2026-10-09 翻转）。本模块**保留**——它承载的不只是预置安装，
+ * 还有四件仍然必需的工作：profile 骨架预写、pnpm 构建门、退役包三清
+ * （deps / bundles 层叠 / 实体）、bundles 层叠对账；预置安装与 spec 漂移
+ * 对账在空表下自动空转（`needInstall` 只剩退役命中一路输入）。
  *
  * 历史（止于 2026-10-04）：官方可选组合包 dsh-experimental-schedule-bundle 曾
  * 借道本表走「装进 profile deps + 自动声明进 bundles 层叠」这条通道；它随
@@ -46,26 +53,23 @@
  *   三清 + 补丁链回收（RETIRED_PATCH_PKGS）+ context-button.ts
  *   一并拆除。
  *
- * dsh-coding-sidebar（2026-08-20 以 dsh-better-sidebar 预置，2026-09-01
- *   切换自立包）：侧边栏工作台底座（文件树/CM6 编辑器/图片·MD 预览/
- *   终端/Git/子代理，服务化扩展点）。fork 自 DSH-better-sidebar 0.17.2
- *   的独立发布线（1.0.0 起，底面板源码级移除，版本常量构建期注入），
- *   收编线的上游版本漂移病（0.17.1 settingsNamespace 坏版启动崩）随之
- *   终结；实体由 bundle/dsh-coding-sidebar 物化覆盖为终态（见
- *   kcoder-skills-bundle.ts）——本清单的 ^1.0.0 仅牵引依赖树
- *   （codemirror/ws/node-pty 等 hoist 到 profile 顶层）；两项额外物化：
- * - pnpm 构建脚本门：白名单（onlyBuiltDependencies: [node-pty,
- *   dsh-better-sidebar]）路线已证伪，现由 dangerouslyAllowAllBuilds
- *   放行（见 ensurePnpmBuildsAllowed）；
- * - profile cordis.patch.yml 的 dsh-coding-sidebar 行 config 补写
- *   titleBarCompat: true + titleBarStripPx——面板顶部让位 KCoder 自绘
- *   状态栏（键名跟随插件 Config volatile 字段；插件自动探测只认 win32
- *   advanced 标题栏，mac 需手动开；实测 2026-08-20）。0.1.7 起存储位
- *   从 settings.yaml 迁到 profile patch 行 config（键为 volatile 字段，
- *   用户可经设置页实时改；见 ensureSidebarCompatPatch）。开关簇不下移：
- *   由 sidebar-cluster.ts 注入器隐藏并在状态栏代理接管（代理一枚
- *   right 12 + 自研终端 44 + 本地编辑器 76；旧收编线底面板已在 fork 源码级
- *   移除，热补丁/挤压垫片随终端回归自研而拆除）。
+ * dsh-coding-sidebar（2026-08-20 以 dsh-better-sidebar 预置 → 2026-09-01
+ *   切换自立包 → **2026-10-09 退役**，本段为历史记录）：侧边栏工作台底座
+ *   （文件树/CM6 编辑器/图片·MD 预览/终端/Git/子代理，服务化扩展点）。fork
+ *   自 DSH-better-sidebar 0.17.2 的独立发布线（1.0.0 起，底面板源码级移除，
+ *   版本常量构建期注入），收编线的上游版本漂移病（0.17.1 settingsNamespace
+ *   坏版启动崩）随之终结；实体由 bundle/dsh-coding-sidebar 物化覆盖为终态
+ *   （见 kcoder-skills-bundle.ts）——本清单的声明仅牵引依赖树
+ *   （codemirror/ws/node-pty 等 hoist 到 profile 顶层）。它是本表**唯一**
+ *   一条正式声明，退役即本表清空；随之拆除的宿主面三处：
+ * - pnpm 构建脚本门保留（`dangerouslyAllowAllBuilds`，见
+ *   ensurePnpmBuildsAllowed——白名单收编路线早已证伪，dsh-ssh-remote 等
+ *   其它内置 bundle 同样需要放行）；
+ * - profile cordis.patch.yml 的标题栏避让补写随插件删除
+ *   （ensureSidebarCompatPatch 整段退役）——那是为插件面板顶部让位 KCoder
+ *   自绘状态栏而写，插件没了，行本身也会被退役清理摘掉；
+ * - 开关簇状态栏代理（sidebar-cluster.ts）整模块退役：原生右栏接回后入口
+ *   回到上游会话头角位的展开按钮。
  *
  * @tt-a1i/archify-dsh（2026-08-20 预置 → 2026-09-01 退役）：架构图
  * agent skill——把代码库/系统描述变成自包含交互 HTML 技术图（架构/
@@ -96,15 +100,18 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { WEB_PROFILE, dshHome, runPnpm } from './dsh-contract'
-import { parseDocument, YAMLMap, YAMLSeq, type Document } from 'yaml'
 import { ensureProfilePatches, healLog } from './profile-patches'
-import { SHELL_TITLEBAR_HEIGHT } from './theme-watcher'
 
 /**
- * 预置插件：bundle 名 → 依赖 spec（键顺序即层叠顺序，对齐 mac 开发机）。
- * spec 变化由 ensurePresetPlugins 的漂移对账推送到已装 profile（只升
- * 不降）；semver 下界可提取的 spec（含 github tag 形态 github:…#v1.0.3）
- * 参与对账，link: 等无版本形态不参与。
+ * 预置第三方插件表：bundle 名 → 依赖 spec（键顺序即层叠顺序，对齐 mac 开发机）。
+ * **2026-10-09 起为空表**——唯一成员 dsh-coding-sidebar 已退役（见下方历史段）。
+ * 表本身保留：它是「开箱即用 + 牵引依赖树」这条通道的唯一入口，`plugins.ts`
+ * 的内置清单与 `needInstall` 触发条件都挂在它上面，空表下两者自动空转。
+ * 恢复预置时的既有约定（历史现场沉淀）：spec 变化由 ensurePresetPlugins 的漂移
+ * 对账推送到已装 profile（只升不降）；semver 下界可提取的 spec（含 github tag
+ * 形态 github:…#v1.0.3）参与对账，link: 等无版本形态不参与；spec 只能指向
+ * **已发布**版本（未发布版本会让 pnpm install 在启动期解析失败），且必须与
+ * bundle/ 物化版本同线（见 docs/plugin-dev-checklist.md §2/§4）。
  */
 export const PRESET_PLUGINS: Record<string, string> = {
   // @deepseek-ai/dsh-experimental-schedule-bundle（2026-10-04 整线退役，本段为
@@ -147,93 +154,21 @@ export const PRESET_PLUGINS: Record<string, string> = {
   // 此流程随之作废，留作后续常驻补丁插件的流程样板）。
   // 退役后由 RETIRED_PRESETS 三清自愈（老 profile 的 deps 声明、bundles
   // 层叠声明与 node_modules 实体在下次启动全部回收）。
-  // dsh-coding-sidebar（2026-09-19 un-retire @1.0.18）：自立 npm 包
-  // （fork 自 DSH-better-sidebar 0.17.2，发版节奏自控），本声明仅牵引
-  // 依赖树（codemirror/ws/node-pty 等 hoist 到 profile 顶层）+ bundles
-  // 注册；实体终态由 bundle/dsh-coding-sidebar 物化覆盖——满足本 spec
-  // 的安装实体不会被 pnpm 回滚，index.ts 在 preset install 后二调
-  // ensureKcoderBundles 兑现纠偏
-  // 注意：本声明**仅牵引依赖树**（codemirror/ws/node-pty 等 hoist 到
-  // profile 顶层），运行时实体终态由 bundle/ 物化覆盖——但版本必须用
-  // **npm 上已发布的**（未发布版本会让 pnpm install 解析失败；且旧版本
-  // 实体在窗口期对新上游有毒——file-review 的旧 typert codec 注册失败
-  // 会连带撤回全部远端定义，2026-09-19 现场实证）。保持与 bundle 物化
-  // 版本同线：窗口期变成同版本幂等，风险归零。
-  // 2026-09-19 平移：^1.0.23 → ^1.0.25（已发布且双源可见：npmjs + npmmirror）。
-  // 归一：0.6.14 随包物化的实体本就是 1.0.25（团队 tab + 设置页移除用户自加
-  // Tab/预览入口 + 浏览器 tab 上游对齐 + 工作区外读取），窗口期消除——声明与
-  // bundle 物化同线，新装 profile 的依赖树解析直取 1.0.25。
-  // 2026-09-20 平移：^1.0.25 → ^1.0.26（已发布且双源可见，两源均已核）。1.0.26
-  // = 上游 0.1.6-alpha.2 适配：ws 移入 peerDependencies（引擎包位次不变）、
-  // exports 补 ./cordis.patch.yml、sidechat 活跃线程全量释放挂进 ctx.effect
-  // （运行时停用/卸载不泄漏线程与快照）。
-  // 2026-09-23 平移：^1.0.26 → ^1.0.32（随 0.6.16 的内置物化同线）。中间三版
-  // 一并越过，均为 0.1.7 适配：1.0.29/1.0.30 settings 迁移到 0.1.7
-  // profile-config/volatile + 0.1.7 契约适配；1.0.31 冒烟清单断言改列真实图行 +
-  // client-office 刷新；1.0.32 修「任务管理」页恒显「加载中」——0.1.7 移除了
-  // 子代理目录与作业名册两条列表快照缝，改读逐 Session 投影
-  // （projectionsBySession[].values.subagentCatalog）与 ctx.jobs 客户服务。
-  // 发布核验：npmjs 端 `1.0.32` 与 dist-tags.latest **均已可见**（本次平移的事实依据）；
-  // npmmirror 对该大包（57MB+）的镜像同步滞后，发版时为追赶中（详见 release/audit-v0.6.16.md）。
-  // 2026-09-25 平移：^1.0.32 → ^1.0.33（随 0.6.17 的内置物化同线）。1.0.33 =
-  // 「任务计划」tab 承接定时任务预览：引擎把任务详情开进自家侧边栏（数据面/导航面
-  // 分离，插件经 schedule Remote 自取），并修两处跨层默认语义——可选 Remote 面
-  // 改按需装配（直接读 `ctx.remote.<面>` 会抛）、带 `meta` 的 open 归入内容型
-  // （否则落在收起的面板里）。发布核验：指定版本端点在 **npmjs 与 npmmirror 双源
-  // 均 200**、packument dist-tags.latest 已指向 1.0.33（本次平移的事实依据；发布时
-  // npm 侧经历约 5 分钟的「being processed」排队，期间指定版本端点 404）。
-  // 2026-09-25 平移：^1.0.33 → ^1.0.34（随本次内置物化同线）。1.0.34 = 侧边对话从
-  // 「摆着不能用」修成可用并转正（移除 beta）：读路径改走插件自家路由（通用
-  // session.history 对 subagent 来源会话一律拒绝）、逐字流式（0.1.5 起流式文本不进
-  // 日志，改订阅作用域帧 agent/assistant-stream 且需 {global:true}）、工具结构化卡、
-  // 每轮汇总；本轮新增**提问回答路径**（引擎的 Session 级待答交互
-  // uiSession.sessionStatus → answer()：此前只走 prompt ⇒ 子会话卡在提问上、两边都不动）、
-  // **模型跟随主会话**（改用引擎公开装配面 installModelSelection + 持有一个可变
-  // ModelSelectionRef，每次投递前对齐；此前误用 agents.selectionFor——那方法不在 agents
-  // 服务上，恒为 no-op）、**追问队列卡**（读收件箱 nextTurn：排队消息进日志前转录里看不见）。
-  // 发布核验：指定版本端点在 **npmjs 与 npmmirror 双源均 200**（本次平移的事实依据）。
-  // 2026-09-29 平移：^1.0.34 → ^1.0.35（兼容 dsh 0.2.0-rc.1 的 peer 口径
-  // `>=0.1.7-rc.2 <1.0.0` + 任务计划递归扫描次级目录；双兼容下界保证老版本
-  // KCoder 的新装用户不被拒载）。
-  // 2026-10-01 平移：^1.0.35 → ^1.0.36（随 0.6.21 的内置物化同线）。1.0.36 是
-  // 任务管理的一轮大改：工作流图画布（相机策略/浅色 token/交互三缺陷/run 入图）、
-  // 任务管理图节点级拖动与自动整理、变更页层级树、文件页四项（多选/压缩下载/
-  // 打开方式双源/fs.trees）、浮动窗（作业输出/共享任务编辑）、团队 tab 状态机补全、
-  // 注册失败回滚守卫、两处「静默失效」修复（节点配色、样式表）。已发布，双源均 200。
-  // 2026-10-04 平移：^1.0.36 → ^1.0.38（随本次内置物化同线，为 dsh
-  // 0.2.1-alpha.1 升级前置）。1.0.37 = 后台任务浮动窗显示作业真实输出；
-  // 1.0.38 = 页签标题 i18n 修复——新会话种子的「文件」页签与旧 explorer→
-  // editor 迁移路径写死字面量 'Files' 绕过 t('files')，且该标题随 localStorage
-  // 持久化，故切语言/重渲染都无法自愈（1.0.38 一并加了一次性自愈迁移 +
-  // 无路径文件窗口纳入去重）。
-  // 发布核验：npmjs 端 dist-tags.latest 已指向 1.0.38（本次平移的事实依据；
-  // 发布时经历约 2 分钟「being processed」排队，期间指定版本端点 404——
-  // 与 1.0.33 平移时记录的现象一致）。
-  // 2026-10-05 平移：^1.0.38 → ^1.0.39（随本次内置物化同线）。1.0.39 =
-  // 变更审查手势认领进自家侧边栏：上游 ui-deliverables 的交付物卡把「查看
-  // 变更」交给原生右栏（dsh-resource://changes-review/session/<id>/<seq>/<turn>），
-  // 而原生右栏面板是产品铁律 1 有意压制的，该地址族此前无门认领 ⇒ 穿透到被
-  // 压制的面板，用户点交付物文件得到一条空白列、文件从不出现。1.0.39 由插件
-  // 认领该地址族（新增零依赖 review-address.ts；三道文件门 openPath /
-  // wrapRemoteOpenPath / openResource 一并接上），打开的文件进自家编辑器，
-  // 与内建审查页签「检视」同一落点。宿主侧无改动（守铁律 2：上游版本适配
-  // 活在插件里、以插件版本发布）。
-  // 发布核验（本次平移的事实依据，全部直取 registry 一手端点，绕开 npm view
-  // 的本地 packument 缓存）：指定版本端点 npmjs /dsh-coding-sidebar/1.0.40 =
-  // 200、dist-tags.latest = 1.0.40（publish 时间 2026-10-07T17:46:57Z）；
-  // npmmirror 侧 1.0.40 亦 200（本次镜像同步及时，无需 v0.6.16/0.6.25 先例的
-  // 滞后豁免）。1.0.40 内容：移除「智能体团队 / 侧边对话」页签与「按功能
-  // 启停」开关（全部内置开启），KCoder 消费面零适配（分析记录见会话：
-  // 锚点 data-dsh-toggle-cluster / toggleButton 语义子串 / inset 契约均未动）。
-  'dsh-coding-sidebar': '^1.0.40',
-  // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5 → **2026-10-04 退役**，
-  // 本段为历史记录）：coding-sidebar 的衍生插件（增强审查卡 + 侧边栏审查 tab），
-  // 末版本线 ^1.0.11（1.0.11 = peer 口径改 `>=0.1.7-rc.2 <1.0.0`）。
+  // dsh-coding-sidebar（2026-09-19 un-retire @1.0.18 → **2026-10-09 退役**，
+  // 本段为历史记录）：侧边栏工作台自立包（真源 kkutysllb/dsh-coding-sidebar），
+  // 本表**唯一**一条正式声明。逐版本平移记录（^1.0.23 → ^1.0.40，每条均附
+  // npmjs / npmmirror 双源发布核验）见 git 历史与 plans/retire-coding-sidebar.md。
+  // 退役理由：上游新版本的原生右侧栏已覆盖产品所需能力，产品负责人拍板把右侧
+  // 工作台交回上游（docs/ARCHITECTURE.md §12 铁律 1 于 2026-10-09 翻转）。
   // 退役自愈由本文件的 RETIRED_PRESETS 三清承担（deps 声明、bundles 层叠声明、
   // node_modules 实体），物化源与层叠项由 kcoder-skills-bundle 的 RETIRED_PLUGINS
   // 同批清理——双账本缺一即互搏，见该清单的 ⚠️ 教训。
-  // ⚠️ 本条正式声明是**反向复活**的唯一入口：只摘 BUNDLES 而不摘它，插件会被
-  // 插件页当「预置第三方插件」列出并由 pnpm 从 registry 装回来（与退役相反）。
+  // dsh-file-review-kcoder（2026-09-19 un-retire @1.0.5 → **2026-10-04 退役**，
+  // 本段为历史记录）：coding-sidebar 的衍生插件（增强审查卡 + 侧边栏审查 tab），
+  // 末版本线 ^1.0.11（1.0.11 = peer 口径改 `>=0.1.7-rc.2 <1.0.0`）。
+  // ⚠️ 本表是「反向复活」的唯一入口：只摘 BUNDLES 而不摘本表声明，插件会被
+  // 插件页当「预置第三方插件」列出并由 pnpm 从 registry 装回来（与退役相反）
+  // ——退役必须双账本同批，本条的两例（coding-sidebar / file-review）都这么走。
 }
 
 /**
@@ -302,12 +237,15 @@ const MANAGED_PROFILE_DEPS: Record<string, string> = { ...PRESET_PLUGINS }
  *   头）；连带补丁链回收（RETIRED_PATCH_PKGS）与 context-button.ts
  *   拆除。用户 profile 若有自装同款亦被三清——退役意图是产品级不再
  *   提供该插件（重装请走插件管理页，三清只在下次启动再执行一遍）。
+ * - dsh-coding-sidebar（2026-10-09）：本表**唯一**一条正式预置声明退役
+ *   （预置表自此清空），右侧工作台交回上游原生右侧栏——铁律 1 翻转，
+ *   见下方条目与 docs/ARCHITECTURE.md §12。
  */
 const RETIRED_PRESETS = [
-  // dsh-coding-sidebar（2026-09-18）：右侧栏回归原生（原生右侧栏/
-  // 终端/文件预览完整覆盖），D1a 决策翻转整线退役；deps 声明在本清单
-  // 摘除走 pnpm 收敛，物化目录与 bundles 层叠由 kcocoder-skills-bundle
-  // 的 RETIRED_PLUGINS 同批清理
+  // dsh-coding-sidebar 的历史两跳留档（本清单条目在下方）：2026-09-18 曾按
+  // 「右侧栏回归原生」首次退役（D1a 决策翻转），09-19 因差异化功能（git 面板/
+  // GitHub、Office·视频预览、QiLin 通道接管、任务计划）无原生替代而 un-retire；
+  // **2026-10-09 由产品负责人再次拍板退役并落地**（本轮连铁律 1 一并翻转）。
   'dsh-vision-router',
   'dsh-better-sidebar',
   '@tt-a1i/archify-dsh',
@@ -329,6 +267,18 @@ const RETIRED_PRESETS = [
   // 原生 changed-files 尾卡恢复（本插件曾同时认领 produced 与 presented 两张
   // 脸，不恢复则带 changes 公告的回合行与 present 交付卡一起消失）。
   'dsh-file-review-kcoder',
+  // dsh-coding-sidebar（2026-10-09）：右侧工作台交回**上游原生右侧栏**
+  // （上游新版的 files / documentpreview / terminal / browser tab 已覆盖产品
+  // 所需能力），产品负责人拍板翻转「铁律 1」（docs/ARCHITECTURE.md §12）。
+  // 退役面比 file-review 宽——除本清单的 deps 三清外，宿主侧铁律执行族同批
+  // 拆除：style-overlay 的 NATIVE_SIDEBAR_CSS 压制、sidebar-toggle 的第三轨
+  // 归零、sidebar-cluster 代理（整模块）、panel-buttons 的让位项、product-policy
+  // 的原生终端 tab 禁用行；四名单（electron-builder extraResources /
+  // sync-bundles 映射 / remote-server PROFILE_BUNDLES / remote-connections
+  // REMOTE_BUNDLES）与 kcoder-skills-bundle 的 RETIRED_PLUGINS 同批。真源仓
+  // kkutysllb/dsh-coding-sidebar 与 npm 包保留（它同时是 QiLin 的第一方内置
+  // 工作台），用户自装同款同样被本清单三清（产品级不再提供）。
+  'dsh-coding-sidebar',
 ]
 
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */
@@ -391,107 +341,21 @@ function ensurePnpmBuildsAllowed(workspacePath: string): void {
 }
 
 /**
- * 内置侧边栏插件在组合树里的**行 id**。
+ * 已退役（2026-10-09）：本模块曾在此维护一段「coding-sidebar 标题栏避让」的
+ * profile patch 补写（`titleBarCompat` / `titleBarStripPx` 两键，行 id
+ * `better-sidebar`，另回收早期按包名寻址的死行）。它随 dsh-coding-sidebar
+ * 整线退役而删除——避让是给插件面板顶部让位 KCoder 自绘状态栏用的；插件没了，
+ * 那条 patch 行也随退役三清摘除（引擎对不存在的行只打一行 not found 警告，
+ * 不报错、不阻塞启动）。
  *
- * ⚠️ 与包名不同名：`bundle/dsh-coding-sidebar/cordis.patch.yml` 插入的是
- * `- id: better-sidebar` / `name: 'dsh-coding-sidebar'`（行 id 沿用
- * DSH-better-sidebar 时代）。**按包名寻址会指向一个不存在的行**——引擎只打印
- * 一行 `patch: entry "dsh-coding-sidebar" not found` 就跳过，写在里面的 config
- * 永远不生效（2026-09-24 现场：本模块一直按包名写，mac 新装用户因此缺标题栏
- * 避让，而老用户看不出来是因为设置页把自己的配置写在了这条活行上）。
+ * 留档的两条通用教训（后续再写 profile 补丁层时复用）：
+ * - **行 id ≠ 包名**：补丁行按 `id` 寻址，而 bundle 的 cordis.patch.yml 插的是
+ *   `id: better-sidebar` / `name: dsh-coding-sidebar`；按包名写会指向一个不存在
+ *   的行，引擎只打一行 `patch: entry "..." not found` 就跳过，写在里面的 config
+ *   永远不生效（2026-09-24 现场：mac 新装用户因此缺标题栏避让）。
+ * - **写用户 profile 补丁层要带形状判据**：只回收自己写下的形状（键仅 id /
+ *   config，且 config 键不超出已知集合），用户手写的同名行不动。
  */
-const SIDEBAR_ROW_ID = 'better-sidebar'
-
-/** 早期误把包名当行 id 写下的死行 id（见 SIDEBAR_ROW_ID）。 */
-const SIDEBAR_ROW_ID_LEGACY = 'dsh-coding-sidebar'
-
-/** 标题栏避让的两个键（也是回收死行时的形状判据）。 */
-const SIDEBAR_COMPAT_KEYS = ['titleBarCompat', 'titleBarStripPx'] as const
-
-/**
- * 该行是否是**本模块自己**写下的死行：无 `name`、键仅 id/config、config 键
- * 不超出两个避让键。用户手写的同名行（带 name / 混了别的键）不回收。
- */
-function isOwnCompatRow(row: YAMLMap): boolean {
-  if (row.has('name')) return false
-  for (const item of row.items) {
-    const key = String(item.key)
-    if (key !== 'id' && key !== 'config') return false
-  }
-  const config = row.get('config')
-  if (config === undefined) return true
-  if (!(config instanceof YAMLMap)) return false
-  return config.items.every((item) => SIDEBAR_COMPAT_KEYS.includes(String(item.key) as typeof SIDEBAR_COMPAT_KEYS[number]))
-}
-
-/**
- * 幂等补写 coding-sidebar 标题栏避让配置（profile cordis.patch.yml 行
- * config，键 = 插件 Config 的 volatile 字段）：面板顶部让位 KCoder 自绘
- * 状态栏（48px，取 SHELL_TITLEBAR_HEIGHT 防魔数漂移；开关簇本体由
- * sidebar-cluster.ts 隐藏代理，不消费下移效果）。两键均缺失才补——
- * 用户/设置页改过则不动；调用时序在 dsh 启动前，与引擎 configEditor
- * 无并发窗口，故不加锁（运行期并发写统一走 profile-config-lock.ts）。
- * tabsEnabled 不写：终端/Git 等重功能保持插件默认，用户经设置页自选。
- *
- * 顺带回收**死行**（SIDEBAR_ROW_ID_LEGACY，形状判据见 isOwnCompatRow）：
- * 它是本模块早期按包名寻址的产物，既让引擎每次启动打一行 not found 警告，
- * 又从不生效。只回收自己写的形状，用户手写内容不动。
- */
-function ensureSidebarCompatPatch(): void {
-  try {
-    const patchPath = join(dshHome(), 'profiles', WEB_PROFILE, 'cordis.patch.yml')
-    if (!existsSync(patchPath)) return // profile 未初始化（首装）：下次启动重试
-    const doc: Document = parseDocument(readFileSync(patchPath, 'utf8'))
-    if (doc.errors.length > 0 || !(doc.contents instanceof YAMLSeq)) return // 坏 YAML 不动（mcp-store 同款守则）
-    // 先整个扫一遍再改：deleteIn 会移位，边扫边删会漏。
-    // 用 for…of 而非 forEach：闭包内赋值 TS 的控制流分析看不见，row 会被收窄成 never。
-    let row: YAMLMap | null = null
-    const deadRows: number[] = []
-    for (const [index, item] of doc.contents.items.entries()) {
-      if (!(item instanceof YAMLMap) || item.has('insert')) continue
-      const id = String(item.get('id'))
-      if (id === SIDEBAR_ROW_ID) row ??= item
-      else if (id === SIDEBAR_ROW_ID_LEGACY && isOwnCompatRow(item)) deadRows.push(index)
-    }
-    let changed = false
-    for (const index of deadRows.reverse()) {
-      doc.deleteIn([index])
-      changed = true
-    }
-    if (row === null) {
-      const config = doc.createNode({ titleBarCompat: true, titleBarStripPx: SHELL_TITLEBAR_HEIGHT }) as YAMLMap
-      const entry = doc.createNode({ id: SIDEBAR_ROW_ID }) as YAMLMap
-      entry.set('config', config)
-      doc.contents.add(entry)
-      changed = true
-    } else {
-      const raw = row.get('config')
-      let config: YAMLMap
-      if (raw instanceof YAMLMap) {
-        config = raw
-      } else {
-        config = doc.createNode({}) as YAMLMap
-        row.set('config', config)
-      }
-      // 逐键守卫：用户/设置页改过任一键则整组不动（保留旧「整块缺失才追加」语义）
-      if (!config.has('titleBarCompat') && !config.has('titleBarStripPx')) {
-        config.set('titleBarCompat', true)
-        config.set('titleBarStripPx', SHELL_TITLEBAR_HEIGHT)
-        changed = true
-      }
-    }
-    if (!changed) return
-    writeFileSync(patchPath, doc.toString({ lineWidth: 0 }), 'utf8')
-    console.log(
-      `[preset-plugins] 已补写 coding-sidebar 标题栏避让配置（profile patch）`
-      + `${deadRows.length > 0 ? `，并回收 ${deadRows.length} 条按包名寻址的死行` : ''}`,
-    )
-    healLog('[preset] 已补写 coding-sidebar 标题栏避让配置')
-  } catch (error) {
-    console.error('[preset-plugins] coding-sidebar 避让配置补写失败:', error)
-    healLog(`[preset] coding-sidebar 避让配置补写异常：${String(error)}`)
-  }
-}
 
 /** profile package.json 的 dsh.profile.bundles（缺失段视为空数组）。 */
 function bundlesOf(manifest: Record<string, unknown>): string[] {

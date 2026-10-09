@@ -21,7 +21,6 @@ import { attachBrandInjector } from './brand-injector'
 import { attachThemeWatcher, applyNativeTheme, overlaySymbolColor, SHELL_TITLEBAR_HEIGHT, themeBackgroundColor } from './theme-watcher'
 import { attachSidebarToggle } from './sidebar-toggle'
 import { attachClipboardFix } from './clipboard-fix'
-import { attachSidebarCluster } from './sidebar-cluster'
 import { attachStyleOverlay } from './style-overlay'
 import { attachSettingsPage } from './settings-page'
 import { attachWorkspaceHeader } from './workspace-header'
@@ -394,20 +393,19 @@ export function decorateShellWindow(win: BrowserWindow, getBaseUrl: () => string
     // 注入代理按钮（点击转发上游 toggle.click()，图标随状态克隆；
     // 宿主=自绘标题栏，故注册在 attachThemeWatcher 之后）
     attachSidebarToggle(win)
-    // coding-sidebar 开关簇代理（2026-09-19 恢复本职）：插件簇在自己
-    // 的宿主层里（stacking context 内），z 再高也压不过自绘标题栏——
-    // 纯 CSS 搬家实测失败，故沿用 sidebar-toggle 同款手法：隐藏插件
-    // 簇本体、标题栏最右端（right 12）注入同款代理按钮转发真实点击
-    // （见注入器头注释；宿主=自绘状态栏，故注册在 attachThemeWatcher 后）
-    attachSidebarCluster(win)
+    // 侧栏开关入口不再由宿主代理：dsh-coding-sidebar 已于 2026-10-09 整线
+    // 退役（铁律 1 翻转），右侧工作台交回上游原生——面板开合入口是上游会话头
+    // 角位的展开按钮，无需注入（原 sidebar-cluster.ts 代理注入器随之删除，
+    // 历史见 docs/ARCHITECTURE.md §12）。
     // 剪贴板写兜底：wrap 页面 navigator.clipboard.writeText，失败（失焦
     // /权限拒绝）兜底主进程 electron.clipboard——上游复制点击的 check
     // 反馈链不再静默断掉（消息泡/代码块全站复制点受益）
     attachClipboardFix(win)
-    // 内嵌终端已插件化（2026-08）：由 dsh-terminal 客户端插件
-    // （bundle/dsh-terminal，dsh client-modules 加载）整体替代——
-    // 页面内底部 DOM 面板 + node-pty 服务端 RPC/SSE，按钮 right 44
-    // 由插件注入；旧 WebContentsView 形态（terminal-panel.ts）已退役
+    // 终端不再由 KCoder 承载（2026-10-09）：内置终端插件
+    // （@kkutysllb/dsh-terminal，2026-08 起替代宿主 WebContentsView 面板）已整线
+    // 退役，终端交回上游原生右侧栏的终端 tab（上一步已解除 ui-sidebar-terminal
+    // 禁用）。历史：宿主 terminal-panel.ts/pty-host.ts 2026-08 退役 → 插件化
+    // 底部 DOM 面板 → 本次连插件一起退役（plans/retire-terminal-plugin.md）。
     // git 环境面板已退役（2026-08）：由 dsh-git-panel 客户端插件
     // （bundle/dsh-git-panel，dsh client-modules 加载）整体替代——
     // 按钮 right 108 由插件注入，数据走插件自带 webServer RPC

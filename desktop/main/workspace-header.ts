@@ -81,10 +81,11 @@
  * 隐藏后这两项在会话头上不再可达；要恢复只需删掉那一条选择器。
  *
  * 原生右栏的展开按钮（`ui-sidebar-right` 的 `ExpandButton`，也注册在
- * `conversation.session.header.corner`）**不在本模块处理**：它已由
- * style-overlay 的 `NATIVE_SIDEBAR_CSS` 按 `[data-sidebar-right-expand]` 压制
- * （产品铁律 1 的执行点），且右栏展开时它自身返回 null。本模块只保证角位
- * 座位在**有可见注册方时**照常可交互（冒烟夹具用合成角位按钮钉住这一点）。
+ * `conversation.session.header.corner`）**不在本模块处理，但必须保持可点**：
+ * 2026-10-09 之后它是进入右侧工作台的**唯一入口**（dsh-coding-sidebar 退役、
+ * 铁律 1 翻转，原生右栏接回；原 `NATIVE_SIDEBAR_CSS` 压制已删）。右栏展开时
+ * 该按钮自身返回 null。本模块保证角位座位在**有可见注册方时**照常可交互
+ * ——展开按钮正是这条保证的直接受益者（冒烟夹具用合成角位按钮钉住这一点）。
  * - `.crumbs`（面包屑）与 `.tabs`（视图标签行）继续收纳：自绘标题栏已显示
  *   「工作区 / 会话标题」，标签行是第二行、塞不进 48px；
  * - `[data-conversation-header-leading]`（上游窗口控件座位）收纳：全仓**零注册方**

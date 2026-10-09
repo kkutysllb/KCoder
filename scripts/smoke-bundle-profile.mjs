@@ -11,7 +11,7 @@
  * | 编号 | 现象 | 判据错在哪 |
  * |---|---|---|
  * | F26 | 退役清理不触发 pnpm 收敛 ⇒ 旧版 schedule/time-context 被 peer 禁用 | 清理命中未参与 needInstall |
- * | F27 | `dsh-coding-sidebar` 的 deps 声明被误摘（它恰是唯一一条预置声明） | 借 `registryNewer(live > shipped)` 兼作「牵引例外」；S2.2 把随包版本对齐后判据翻为 false |
+ * | F27 | `dsh-coding-sidebar` 的 deps 声明被误摘 → **2026-10-09 该插件整线退役，例外随之撤销** | 当时借 `registryNewer(live > shipped)` 兼作「牵引例外」（S2.2 把随包版本对齐后判据翻为 false）；退役后本门改钉**反向不变量**——退役包的三处残留必须全清 |
  * | F28 | 上游 `OPTIONAL_BUNDLES` 成员被当孤儿删掉 | `managed` 不含上游可选集 |
  *
  * 三者都不是崩溃、都不打日志以外的信号、静态分析也看不见 —— 只有真跑一次
@@ -56,6 +56,8 @@ const home = mkdtempSync(join(tmpdir(), 'smoke-bundle-profile-'))
 process.env.DSH_HOME = home
 const profileDir = join(home, 'profiles', 'web')
 mkdirSync(join(profileDir, 'node_modules', 'dsh-coding-sidebar'), { recursive: true })
+// 作用域包的实体同样要有（退役清理的 scope 父目录路径与无 scope 包不同）
+mkdirSync(join(profileDir, 'node_modules', '@kkutysllb', 'dsh-terminal'), { recursive: true })
 
 const fails = []
 let total = 0
@@ -171,11 +173,17 @@ if (typeof ensureKcoderBundles === 'function') {
   const deps = first.dependencies ?? {}
   const bundles = first.dsh?.profile?.bundles ?? []
 
-  // F27：牵引包的 deps 声明**无条件**保留（判据不看版本）。
-  check('dsh-coding-sidebar' in deps, `F27 牵引包 deps 声明被摘（deps=${JSON.stringify(deps)}）`)
+  // F27（退役态）：退役包的三处残留必须**全清**——deps 声明、bundles 层叠、
+  // node_modules 实体。它曾以「牵引例外」形态被无条件保留（判据不看版本）；
+  // 例外随 2026-10-09 的整线退役撤销，本门改钉反向不变量。
+  for (const pkg of RETIRED_SEEDS) {
+    check(!(pkg in deps), `F27 退役包的 deps 声明未清：${pkg}（deps=${JSON.stringify(deps)}）`)
+    check(!bundles.includes(pkg), `F27 退役包仍在 bundles 层叠：${pkg}（bundles=${JSON.stringify(bundles)}）`)
+    check(!existsSync(join(profileDir, 'node_modules', pkg)), `F27 退役包实体未删除：${pkg}`)
+  }
   // F28：上游可选组合包不得被当孤儿摘除。
   for (const pkg of OPTIONAL) check(bundles.includes(pkg), `F28 上游可选组合包被当孤儿摘除：${pkg}`)
-  // 内置五件 + 模板层仍须在册（防止自愈把正常项一起吃掉）。
+  // 内置四件 + 模板层仍须在册（防止自愈把正常项一起吃掉）。
   for (const pkg of BUILTINS) check(bundles.includes(pkg), `内置 bundle 被摘：${pkg}`)
   for (const pkg of TEMPLATE) check(bundles.includes(pkg), `模板层被摘：${pkg}`)
 

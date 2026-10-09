@@ -1,7 +1,14 @@
 # 内置插件开发清单（KCoder）
 
 > **这份清单只收「已经用实机测试换来」的坑。** 每条都给：症状 → 根因 → 正确做法 → 判据。
-> 适用 `dsh-coding-sidebar` / `dsh-terminal` / `dsh-skills-bundle` / `dsh-shell-prefs`，以及任何随包分发的插件（`dsh-file-review-kcoder` 已于 2026-10-04 退役，不再随包）。
+> 适用本仓 `bundle/` 下随包分发的一切插件：现役 `dsh-skills-bundle` /
+> `dsh-shell-prefs` / `dsh-ssh-remote`，以及任何新增的内置插件。
+> 已退役不再随包：`dsh-file-review-kcoder`（2026-10-04）、**`dsh-coding-sidebar`
+> （2026-10-09，右侧工作台交回上游原生右栏，见 ARCHITECTURE §12 铁律 1）**、
+> **`@kkutysllb/dsh-terminal`（2026-10-09，终端交回上游原生右栏终端 tab）**——
+> 下文以它为实例的条目（§1/§3/§5/§6 的现场记录与命令）仍是**方法论真源**：
+> 该插件仍在独立仓（`~/kk_Projects/dsh-coding-sidebar`，同时是 QiLin 的第一方
+> 内置工作台）按同一套清单维护，只是 KCoder 不再消费。
 > 出处见文末——三条是一次功能迭代里连着踩出来的，**每一次静态检查都是全绿的**。
 
 ## 执行点（2026-09-25 起已自动化，不必靠人记）

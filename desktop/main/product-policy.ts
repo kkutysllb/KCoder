@@ -30,14 +30,18 @@ import { dshHome } from './dsh-contract'
 const POLICY_FILENAME = 'cordis.patch.kcoder.yml'
 
 /**
- * 产品策略层内容，两条产品决策：
+ * 产品策略层内容（逐条决策）：
  * - **会话日志不上传**（D2，2026-09-15）：上游 0.1.6-alpha.1 起
  *   `session-log-deepseek.Config.enabled` 默认 true——每次 DeepSeek 请求会把
  *   完整未接受的会话日志后缀（消息正文、工具参数与结果、工作区路径、反馈）
  *   上报到所连端点/网关。KCoder 不参与该贡献。
- * - **原生右侧栏终端 tab 禁用**（2026-09-15 D1a 补强，2026-09-18 恢复）：
- *   终端由内置 `@kkutysllb/dsh-terminal` 承担；右侧栏外壳已回归原生，但
- *   原生终端 tab 与自研终端并存即双入口，此行继续摘掉原生 tab。
+ * - ~~**原生右侧栏终端 tab 禁用**~~（2026-09-15 加 → 2026-09-18 恢复 →
+ *   **2026-10-09 撤销**）：原意是防「插件终端 + 原生终端」双入口。插件
+ *   `dsh-coding-sidebar` 整线退役、右侧工作台交回上游原生后，产品负责人拍板
+ *   把终端 tab 一并交回上游（铁律 1 翻转，见 docs/ARCHITECTURE.md §12），
+ *   本层不再持有 `ui-sidebar-terminal` 行。⚠ 宿主 api-terminal-controller
+ *   **始终不可禁用**（packages/api/remotes 静态 import 并 $mount 它的 remote，
+ *   禁用会让 api-remotes 挂载失败 → 主对话链全挂）；本层当年只关 UI 面。
  * - **内置浏览器按「桌面壳 = Electron」放开**（2026-09-22，上游 0.1.7-alpha.1
  *   起 ui-sidebar-browser 的默认值按 profile 名判定：`profileContext?.name
  *   !== 'desktop'` 即禁用。KCoder 桌面壳跑的是 `web` profile，故上游默认把
@@ -94,12 +98,12 @@ const POLICY_YAML = `# KCoder 产品策略层（宿主自动生成，勿手改�
   config:
     enabled: false
 #
-# 原生右侧栏的终端 tab：终端由内置 @kkutysllb/dsh-terminal 承担，
-# 原生终端 UI 整行禁用防双入口。宿主 api-terminal-controller 必须保留
-# ——packages/api/remotes 静态 import 并 $mount 它的 remote，禁用会让
-# api-remotes 挂载失败（主对话链全挂）。
-- id: ui-sidebar-terminal
-  disabled: true
+# 原生右侧栏终端 tab：**2026-10-09 起解除禁用**（原两行 id: ui-sidebar-terminal /
+# disabled: true 于此撤销）。原意是防与 dsh-coding-sidebar 的终端双入口；
+# 该插件整线退役、右侧工作台交回上游原生后，终端 tab 一并交回（产品拍板）。
+# ⚠ 宿主 api-terminal-controller **始终不可禁用**——packages/api/remotes 静态
+# import 并 $mount 它的 remote，禁用会让 api-remotes 挂载失败（主对话链全挂）；
+# 当年被禁的也只是 UI 面。
 #
 # 内置浏览器（产品决策 2026-09-22）：上游 bundle 行用 !!js 按 profile 名
 # 判定（非 desktop 即禁用），而 KCoder 桌面壳的 profile 名是 web →

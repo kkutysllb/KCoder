@@ -1,19 +1,23 @@
 /**
  * style-overlay 注入 CSS 冒烟：从源码抽出全部 `<NAME>_CSS` 片段（不写死
  * 段数——新增/改名段会被自动纳入，压制回归无从藏身）→ 拼装进手搓的上游
- * DOM fixture → 断言四段的**语义**与 2026-10-04 的产品决策：
+ * DOM fixture → 断言剩余三段的**语义**与两条产品决策：
  *
  * - **侧栏「插件」入口必须可见**（产品负责人 2026-10-04 拍板恢复上游
  *   workspace 插件菜单；设置页「内置插件 → 插件管理」tab 同期保留、不在
  *   本文件作用面内）。fixture 同时放一枚第三方 panellist 条目，证明压制
  *   从未（也不得）做成「整条 nav 收掉」；
+ * - **原生右侧栏不得再被压制**（2026-10-09，铁律 1 翻转）：dsh-coding-sidebar
+ *   整线退役、右侧工作台交回上游原生，本文件抽出并拼装的 CSS 里不得再出现
+ *   右栏压制锚点（静态保护），fixture 里那五个原生右栏外壳元素必须**全部可见**
+ *   （动态保护）。两道保护都做了「有人把压制加回来就红」的取向；
  * - **静态回退保护**：拼装后的 CSS 不得出现 panellist 锚点
  *   （`panelList` / `aria-label="插件"` / `aria-label="Plugins"`）——有人把
  *   压制加回来会当场红；
- * - 其余四段仍然生效：原生右侧栏五种外壳标记 display:none；折叠 rail 的
- *   sectionHeader/search 收掉而 `_collapsed` 形态不收（选择器精度）；
- *   设置对话框头部「带 close 直子」收掉、「自绘头」不受影响（双保险守卫）；
- *   hero 水印的 ::before 仍带 data URL 背景与 relative 定位。
+ * - 其余三段仍然生效：折叠 rail 的 sectionHeader/search 收掉而 `_collapsed`
+ *   形态不收（选择器精度）；设置对话框头部「带 close 直子」收掉、「自绘头」
+ *   不受影响（双保险守卫）；hero 水印的 ::before 仍带 data URL 背景与
+ *   relative 定位。
  *
  * 运行：pnpm run smoke:style-overlay        ← 已挂进 package.json（2026-10-04）
  * （底层等价于 `env -u ELECTRON_RUN_AS_NODE pnpm exec electron
@@ -28,11 +32,17 @@ import { join, resolve } from 'node:path'
 
 const ROOT = resolve(import.meta.dirname, '..')
 
-/** 源码里应存在的四段（缺段即失败——段被删等于压制/水印静默消失）。 */
-const EXPECTED = ['NATIVE_SIDEBAR_CSS', 'RAIL_BROWSER_ACTIONS_CSS', 'SETTINGS_DIALOG_HEADER_CSS', 'HERO_WATERMARK_CSS']
+/** 源码里应存在的三段（缺段即失败——段被删等于压制/水印静默消失）。 */
+const EXPECTED = ['RAIL_BROWSER_ACTIONS_CSS', 'SETTINGS_DIALOG_HEADER_CSS', 'HERO_WATERMARK_CSS']
 
 /** panellist 锚点：拼装后的 CSS 出现任一即「压制回归」。 */
 const ANCHORS = ['panelList', 'aria-label="插件"', 'aria-label="Plugins"']
+
+/**
+ * 原生右侧栏压制锚点：拼装后的 CSS 出现任一即「铁律 1 压制回归」
+ * （2026-10-09 翻转后，产品侧对原生右栏不再有任何压制面）。
+ */
+const RIGHTBAR_ANCHORS = ['data-sidebar-right', 'data-rightbar-col', "data-side='rightbar'", 'data-side="rightbar"']
 
 const fails = []
 let total = 0
@@ -52,6 +62,9 @@ for (const name of EXPECTED) check(segments.has(name), `缺段 ${name}`)
 const css = [...segments.values()].join('\n\n')
 for (const anchor of ANCHORS) {
   check(!css.includes(anchor), `CSS 出现 panellist 锚点「${anchor}」——侧栏「插件」入口压制回归（2026-10-04 已由产品决策移除）`)
+}
+for (const anchor of RIGHTBAR_ANCHORS) {
+  check(!css.includes(anchor), `CSS 出现原生右栏压制锚点「${anchor}」——铁律 1 压制回归（2026-10-09 已随插件退役翻转，右侧工作台归上游原生）`)
 }
 
 // ---- 2. fixture：上游 panellist / 原生右侧栏外壳 / rail / 设置对话框 / hero ----
@@ -122,8 +135,12 @@ app.whenReady().then(async () => {
   // 产品决策：上游侧栏「插件」入口可见（恢复），第三方 panellist 条目不受影响
   check(r.entryPlugins, '侧栏「插件」入口不可见——2026-10-04 恢复决策未生效（压制又回来了？）')
   check(r.entryDeck, '第三方 panellist 条目被误伤（压制做了整条 nav 收掉）')
-  // 其余四段仍生效
-  check(r.nativeShell.length === 5, `原生右侧栏外壳未全收：命中 ${r.nativeShell.join(',') || '无'}（应 5/5）`)
+  // 原生右侧栏不得再被压制（2026-10-09 铁律 1 翻转）
+  check(
+    r.nativeShellVisible.length === 5,
+    `原生右侧栏外壳未全部可见：可见 ${r.nativeShellVisible.join(',') || '无'}（应 5/5）、被压制 ${r.nativeShellHidden.join(',') || '无'}`,
+  )
+  // 其余三段仍生效
   check(r.railHead, '折叠 rail sectionHeader 未收（RAIL_BROWSER_ACTIONS_CSS 失效）')
   check(r.railSearch, '折叠 rail search 未收（RAIL_BROWSER_ACTIONS_CSS 失效）')
   check(r.railCollapsedHead, '`_collapsed` 形态被误伤（选择器 :not 精度丢失）')

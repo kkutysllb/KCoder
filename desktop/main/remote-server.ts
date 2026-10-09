@@ -3,7 +3,7 @@
  *
  * 为什么不是「本地 sidecar + 远端执行世界」：那条路要求**每一个**宿主侧客户端
  * 插件都改成世界感知——文件树、git、终端、媒体各自都会用 `node:fs`/
- * `node-pty` 去碰"本机"，而本机不是那台机器。`dsh-coding-sidebar` 一个插件就有
+ * `node-pty` 去碰"本机"，而本机不是那台机器。当时的 `dsh-coding-sidebar`（2026-10-09 退役）一个插件就有
  * 8 个文件直接用宿主 fs，终端的 PTY 更是在本进程里创建的（2026-09-26 实机：
  * 侧边栏终端 `[process exited with code 1]`、独立终端显示本地路径、
  * `cannot resolve target … realpath`）。
@@ -41,10 +41,12 @@ const PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-base',
   '@deepseek-ai/dsh-web-app',
   'dsh-shell-prefs',
-  'dsh-coding-sidebar',
-  // dsh-file-review-kcoder 已退役（2026-10-04，见 kcoder-skills-bundle 的
-  // RETIRED_PLUGINS）：远端世界同样不再装它（bundle 源目录已不存在）
-  '@kkutysllb/dsh-terminal',
+  // dsh-coding-sidebar 已退役（2026-10-09，见 kcoder-skills-bundle 的
+  // RETIRED_PLUGINS）：远端世界同样不再装它（bundle 源目录已不存在）。
+  // 与 dsh-file-review-kcoder（2026-10-04 退役）同款处置——名单漏摘会让
+  // 远端 world 的安装指向已删的源目录
+  // @kkutysllb/dsh-terminal（2026-10-09 退役）：远端世界同样不再装它——名单
+  // 漏摘会让远端 world 的安装指向已删的源目录
   'dsh-skills-bundle',
 ]
 

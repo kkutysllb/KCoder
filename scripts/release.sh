@@ -242,8 +242,8 @@ cmd_verify() {
 
   # 1.7) 包内 bundle 目录在位（extraResources 目录映射漂移拦截）：
   #      kcoder-skills-bundle 物化门按 resources/<dir> 判源存在，漏配
-  #      映射会让物化静默跳过——coding-sidebar 退回 npm 实体（不再被
-  #      纠偏覆盖），dsh-* 自有系列功能整块消失
+  #      映射会让物化静默跳过——该 bundle 退回 npm 实体（不再被纠偏
+  #      覆盖）或整块缺席，dsh-* 自有系列功能随之消失
   local bd bcount=0
   for bd in "$ROOT"/bundle/*/; do
     bd="$(basename "$bd")"

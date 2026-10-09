@@ -24,7 +24,7 @@
  *
  * 断言（29 项）：
  * - 首次加载后注入发生、**恰好一份**、CSS 与源码合成结果一致（归一化后逐字）；
- * - 四段语义**经由真注入路径**（不是内联）仍然成立；
+ * - 三段语义**经由真注入路径**（不是内联）仍然成立；原生右栏五个外壳元素**不得**被压制（2026-10-09 铁律 1 翻转）；
  * - 外来插件样式与 body 上的外来属性未被触碰；
  * - **整页重载后仍恰好一份**（幂等：重复注入不得叠出第二份）+ 语义仍成立；
  * - **覆盖层被抹掉后重载能自愈**（模拟插件启停把 style 清掉的最坏情况）；
@@ -102,7 +102,18 @@ const SEGMENTS = [...src.matchAll(/const ([A-Z_]{3,}_CSS) = `([\s\S]*?)`/g)]
 /** 资产 data URL 的真实字节随构建而变，故两侧归一化后比较。 */
 const norm = (s) => s.replaceAll(/data:[^"')\s]*/g, 'data:AA').trim()
 const expectedCss = norm(SEGMENTS.map(([, css]) => css).join('\n\n'))
-check(SEGMENTS.length === 4, `源码 CSS 段数=${String(SEGMENTS.length)} 应为 4（实际：${SEGMENTS.map(([n]) => n).join(', ')}）`)
+// 段数 4 → 3（2026-10-09）：NATIVE_SIDEBAR_CSS 随 dsh-coding-sidebar 退役摘除，
+// 产品侧对原生右栏不再有任何压制。反向断言同时钉住「它不得回流」。
+const EXPECTED_SEGMENTS = ['RAIL_BROWSER_ACTIONS_CSS', 'SETTINGS_DIALOG_HEADER_CSS', 'HERO_WATERMARK_CSS']
+const RETIRED_SEGMENTS = ['NATIVE_SIDEBAR_CSS']
+check(
+  SEGMENTS.length === EXPECTED_SEGMENTS.length
+    && EXPECTED_SEGMENTS.every((n) => SEGMENTS.some(([got]) => got === n)),
+  `源码 CSS 段数=${String(SEGMENTS.length)} 应为 ${String(EXPECTED_SEGMENTS.length)}（实际：${SEGMENTS.map(([n]) => n).join(', ')}）`,
+)
+for (const retired of RETIRED_SEGMENTS) {
+  check(!SEGMENTS.some(([got]) => got === retired), `退役段 ${retired} 回流（2026-10-09 铁律 1 已翻转，原生右栏不再压制）`)
+}
 
 // ---- 1. 编译并 import 真产品代码（不是重敲源码） ----
 const workdir = mkdtempSync(join(tmpdir(), 'style-overlay-lifecycle-'))

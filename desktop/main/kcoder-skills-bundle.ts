@@ -1,32 +1,32 @@
 /**
  * KCoder 自有 dsh bundle 的物化与注册（out-of-tree bundle 随桌面端分发）。
  *
- * 当前五个 bundle（权威清单是下方 `BUNDLES` 常量；本节只记形态与历史，
+ * 当前三个 bundle（权威清单是下方 `BUNDLES` 常量；本节只记形态与历史，
  * dsh-shell-prefs / dsh-ssh-remote 见各自常量的 JSDoc。2026-09-01 起全部
  * dsh 标准命名，开发真源在各自独立仓 → dsh-plugins 镜像 →
  * sync-bundles.mjs 同步进 bundle/）：
  * - dsh-skills-bundle（bundle/dsh-skills-bundle）：方法论技能包（适配自
  *   KSkills 仓库），激活时注册 runtime skill；
- * - dsh-terminal（bundle/dsh-terminal）：侧边栏嵌入式终端。npm 包名
- *   @kkutysllb/dsh-terminal（同上）。
+ * - ~~dsh-terminal~~（**2026-10-09 退役**，见 RETIRED_PLUGINS）：侧边栏嵌入式
+ *   终端（npm 包名 @kkutysllb/dsh-terminal）。退役理由：终端交回上游原生右侧栏
+ *   终端 tab（ui-sidebar-terminal 上一步已解除禁用），产品不再自持底部终端面板。
  * - ~~dsh-file-review-kcoder~~（**2026-10-04 退役**，见 RETIRED_PLUGINS）：
  *   改动审查（增强审查卡 hunks/统计/撤销 + 侧边栏审查 tab）。它曾与
  *   coding-sidebar 同期 un-retire（2026-09-19 @1.0.5），本次按产品决策
  *   整线退役——真源仓与 npm 包保留，KCoder 不再内置。**包型**产物形态由
- *   下面的 coding-sidebar 承接：保留 pnpm 布局（main=lib/index.js +
- *   dsh.bundle.patch 补丁清单 + dsh.client 段），没有 entry.js 四件套里
+ *   下面的 dsh-ssh-remote 承接：保留 pnpm 布局（main=lib/index.js +
+ *   cordis.patch.yml 补丁清单 + dsh.client 段），没有 entry.js 四件套里
  *   的那个 entry.js——物化门按各自的 entry 字段判存在性，漏配会让自动
  *   物化永远跳过（0.5.0 接线教训：手动 cp 掩盖了断链，换机/重建 profile
  *   即缺插件）。
- * - dsh-coding-sidebar（bundle/dsh-coding-sidebar）：侧边栏工作台
- *   自立包产物（fork 自 DSH-better-sidebar 0.17.2，底面板移除；真源
- *   kkutysllb/dsh-coding-sidebar，两级镜像 dsh-plugins → 本 bundle），
- *   同属**包型**产物。收编线的 npm 上游版本漂移病（0.17.1 坏版启动崩）
- *   随独立发布线（1.0.0 起，版本常量构建期注入）根治——PRESET deps 的
- *   ^1.0.0 只负责牵引依赖树（pnpm install 把 codemirror/ws/node-pty 等
- *   hoist 到 profile 顶层）+ bundles 注册，实体由本模块覆盖为终态；
- *   满足 ^1.0.0 的安装实体不会被 pnpm 回滚，index.ts 在
- *   ensurePresetPlugins（install 可能重建实体）之后二调本模块兑现纠偏。
+ * - ~~dsh-coding-sidebar~~（**2026-10-09 退役**，见 RETIRED_PLUGINS）：侧边栏
+ *   工作台自立包产物（fork 自 DSH-better-sidebar 0.17.2，同属**包型**产物；
+ *   真源 kkutysllb/dsh-coding-sidebar，两级镜像 dsh-plugins → 本 bundle）。
+ *   它曾是**唯一**一条非 entry.js 四件套之外的物化面，也是 preset-plugins
+ *   的**唯一**一条正式声明——退役后「预置第三方插件」这条通道整体空转
+ *   （MANAGED_PROFILE_DEPS / needInstall 逻辑保留，只是无条目可管）。
+ *   退役理由与产品决策：上游原生右侧栏已覆盖产品所需能力，右侧工作台交回
+ *   上游（docs/ARCHITECTURE.md §12 铁律 1，2026-10-09 翻转）。
  *
  * 前身 @kcoder/* 五包 + @kcoder/file-review（2026-08 内置命名）已于
  * 2026-09-01 全部改名自立并发布 npm（1.0.0 起步）；旧名全部列入
@@ -71,19 +71,6 @@ export const DSH_TERMINAL_BUNDLE = '@kkutysllb/dsh-terminal'
  * 注入这两个服务并发布窄接口，使菜单能走上游唯一写入口（详见 bundle 内注释）。
  */
 export const DSH_SHELL_PREFS_BUNDLE = 'dsh-shell-prefs'
-
-/**
- * 侧边栏工作台自立包包名（fork 自 DSH-better-sidebar 0.17.2，独立
- * 发布线；真源 kkutysllb/dsh-coding-sidebar，sync-bundles 经 dsh-plugins
- * 镜像同步产物）。实体以本 bundle 物化为终态；profile deps 里的同名
- * 声明是依赖树牵引，不是残留接线（见 materialize 的 removable 过滤例外）。
- *
- * 退役标记已于 2026-09-19 撤销（`95e7a83` un-retire @1.0.18）：差异化功能
- * （git 面板/GitHub、Office·视频预览、QiLin 通道接管、任务计划）无原生替代；
- * 用户拍板为**产品铁律 1**——右侧工作台只由本插件承担，不复用上游原生侧边栏
- * （见 docs/ARCHITECTURE.md §12）。
- */
-export const DSH_CODING_SIDEBAR = 'dsh-coding-sidebar'
 
 /**
  * SSH 远程运维/开发套件包名（真源 kkutysllb/dsh-kylin-ssh-tunnel，
@@ -139,13 +126,9 @@ interface BundledPlugin {
 /** 全部内置 bundle（物化顺序即注册顺序）。 */
 const BUNDLES: BundledPlugin[] = [
   { pkg: DSH_SKILLS_BUNDLE, dir: 'dsh-skills-bundle', entry: 'entry.js', intactFiles: [join('skills', 'manifest.json')] },
-  { pkg: DSH_TERMINAL_BUNDLE, dir: 'dsh-terminal', entry: 'entry.js', intactFiles: ['client.js'] },
   { pkg: DSH_SHELL_PREFS_BUNDLE, dir: 'dsh-shell-prefs', entry: 'entry.js', intactFiles: ['client.js'] },
-  // dsh-coding-sidebar（2026-09-19 un-retire @1.0.18）：alpha.2 turnTail
-  // list 适配已在真源仓完成（chain select/priority 抢占 → list id + 组件
-  // 内退位共存）。差异化功能（git 面板/GitHub、Office·视频预览、QiLin
-  // 通道接管、任务计划）无原生替代，评估见升级文档 §9.9。
-  { pkg: DSH_CODING_SIDEBAR, dir: 'dsh-coding-sidebar', entry: join('lib', 'index.js'), intactFiles: [join('lib', 'client.js')] },
+  // dsh-coding-sidebar 曾在此（2026-09-19 un-retire @1.0.18 → **2026-10-09
+  // 退役**），条目移入下方 RETIRED_PLUGINS
   // dsh-file-review-kcoder 曾在此（2026-09-19 un-retire @1.0.5 →
   // 2026-10-04 退役），条目移入下方 RETIRED_PLUGINS
   // dsh-ssh-remote（2026-09-26 内置化）：包型产物（main=lib/index.js +
@@ -242,6 +225,20 @@ const RETIRED_PLUGINS = [
   // REMOTE_BUNDLES（漏摘则远端世界的安装名单指向已删目录）。
   'dsh-file-review-kcoder',
   //
+  // dsh-coding-sidebar（**2026-10-09 退役**）：产品负责人拍板——上游新版
+  // 的原生右侧栏（`ui-sidebar-right` + files / documentpreview / terminal /
+  // browser tab）已覆盖产品所需能力，KCoder 不再自持右侧工作台，**正式翻转
+  // 「产品铁律 1」**（docs/ARCHITECTURE.md §12；2026-09-19 定，2026-10-09
+  // 翻转，理由与日期见该节）。本次退役面比前例 dsh-file-review-kcoder 宽：
+  // 除双账本 + 四名单外，宿主侧铁律执行族同批拆除（style-overlay 的
+  // NATIVE_SIDEBAR_CSS 压制、sidebar-toggle 的第三轨归零、sidebar-cluster
+  // 代理、panel-buttons 的让位项、product-policy 的原生终端 tab 禁用行）。
+  // 真源仓 kkutysllb/dsh-coding-sidebar 与 npm 包保留（它同时是 QiLin 的
+  // 第一方内置工作台，退役只发生在 KCoder 消费侧）；用户仍可经插件管理页
+  // 自装，但按「产品级不再提供」口径（同 file-review/dsh-context），下次
+  // 启动的三清会再洗一遍。
+  'dsh-coding-sidebar',
+  //
   // ⚠️ 教训（2026-09-19 dev 现场实证）：un-retire 恢复 BUNDLES/PRESET/
   // 映射时**必须同步移除本清单的同名条目**——清单成员会被启动清理当
   // 退役货反复洗掉（摘 bundles 层叠 + 删 node_modules），与注册面互搏，
@@ -311,8 +308,7 @@ function materialize(profileDir: string, b: BundledPlugin): void {
     || valid(dstVersion) === null
     || (valid(srcVersion) !== null && gt(srcVersion, dstVersion))
   if (staleTarget) {
-    // scope 父目录按包名动态建（@kcoder/* 与非 scope 的
-    // dsh-coding-sidebar 共用此物化路径）
+    // scope 父目录按包名动态建（@kcoder/* 与非 scope 包共用此物化路径）
     const scope = b.pkg.startsWith('@') ? b.pkg.split('/')[0] : ''
     if (scope !== '') mkdirSync(join(profileDir, 'node_modules', scope), { recursive: true })
     rmSync(target, { recursive: true, force: true })
@@ -342,17 +338,16 @@ function materialize(profileDir: string, b: BundledPlugin): void {
   // 双跑。注册 bundles 时顺手拔除；退役插件的 bundles 层叠项与物化/安装
   // 目录一并移除，只留内置 bundle 这一条加载面。
   const dependencies = (manifest['dependencies'] ?? {}) as Record<string, unknown>
-  // dsh-coding-sidebar 例外：deps 声明是依赖树牵引（pnpm 图 hoist
-  // node-pty/ws/codemirror；见文件头），不是残留接线，不清除。
-  //
-  // 判据**不看版本**（2026-10-04 修）：此处曾借下面的 registryNewer(live >
-  // shipped) 兼作该例外，但那是「实体已被 registry 顶替」的判据，与牵引没有
-  // 逻辑关系。S2.2 把随包版本 1.0.36 对齐到 1.0.38 后 live == shipped，判据翻
-  // 为 false ⇒ 声明被摘（dev 真机现场 `deps=[dsh-coding-sidebar]`），而它恰是
-  // PRESET_PLUGINS 里唯一一条声明；随后任何 pnpm install 都会把实体当
-  // extraneous 剪掉（2026-10-03 事故同形，见 dsh-manager 注释）。牵引包无条件
-  // 保留——它的声明不是「接线残留」，摘掉就等于拆依赖图。
-  const tractionDeps = new Set<string>([DSH_CODING_SIDEBAR])
+  // 牵引包白名单（2026-10-04 S4 修 → **2026-10-09 随 dsh-coding-sidebar 整线
+  // 退役撤销**）：当时唯一成员就是它——它的 deps 声明是依赖树牵引（pnpm 图
+  // hoist node-pty/ws/codemirror；见文件头），不是残留接线，故无条件保留。
+  // 退役后该声明回归普通退役处理（下方 staleDeps 摘除 + preset 三清），白名单
+  // 随之删除。**判据与教训留档**（后续再出现同类内置包时按此恢复）：白名单成员
+  // 的判据不看版本——此处曾借下面的 registryNewer(live > shipped) 兼作例外，是
+  // 错的口径（那是「实体已被 registry 顶替」的判据，与牵引无关）：S2.2 把随包
+  // 版本对齐后判据翻 false ⇒ 声明被误摘（dev 真机现场
+  // `deps=[dsh-coding-sidebar]`），随后任何 pnpm install 都会把实体当 extraneous
+  // 剪掉（2026-10-03/10-04 事故同形，见 dsh-manager 注释）。
   // registry 顶替例外（2026-09-02）：实体已被用户更新出的更高 registry
   // 版本顶替的 bundle，其 deps 声明保留——实体已归 pnpm 图管，摘声明会
   // 造成图与磁盘漂移，后续 pnpm install 可能把实体当 extraneous 清掉

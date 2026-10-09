@@ -1,30 +1,28 @@
 #!/usr/bin/env node
 /**
- * dev 真机「打开落到了原生侧边栏（空白）」现场探针——经 CDP 直连正在运行的
- * KCoder dev 实例，**单次真实点击**后判定这一开到底进了我们侧边栏插件的页签，
- * 还是又落回原生右栏。
+ * dev 真机「打开手势落到哪里」现场探针——经 CDP 直连正在运行的 KCoder dev
+ * 实例，**单次真实点击**后判定这一开是否进了**上游原生右侧栏**。
  *
- * 两类被验证的入口（2026-09-19 两轮现场各命中一个）：
- *   --target review（**随插件退役失效，2026-10-04**）：交付/改动卡的「审查」
- *     入口——上游 ui-deliverables 发 `dsh-resource://changes-review/…`，曾由
- *     file-review 1.0.6 认领；该插件整线退役后此入口落回原生右栏（产品侧压制
- *     状态下即空白），本模式的 PASS 判据不再可达，只剩「观察是否落回原生」的
- *     诊断价值；
+ * 为什么判据是「落到原生右栏」：2026-10-09 起右侧工作台归上游（dsh-coding-sidebar
+ * 整线退役、铁律 1 翻转，产品侧不再压制原生右栏）。**历史（2026-09-19 ~ 2026-10-09）**：
+ * 本探针当时是**反向**判据——右侧工作台由自研插件承担、原生右栏被压制，故
+ * PASS =「没有任何原生右栏宿主可见，且落进插件的页签」；插件退役后判据整体翻转
+ * （原文见 git 历史），现在**落到原生右栏才是正确落点**。
+ *
+ * 两类被验证的入口：
  *   --target link：聊天里的 http(s) 超链接——上游 ui-chat 的 openExternalLink
- *     发 `ctx.sidebarRight.openTab('browser', …)`（coding-sidebar 1.0.22 认领）。
- *     **验证插件落点请用这个模式。**
+ *     发 `ctx.sidebarRight.openTab('browser', …)`。PASS = 原生右栏列占宽 > 0
+ *     且右栏文本里出现该链接的主机名；
+ *   --target review：交付/改动卡的「查看变更 / 审查」入口——上游 ui-deliverables
+ *     发 `dsh-resource://changes-review/…`。PASS = 原生右栏列占宽 > 0 且右栏
+ *     文本里出现「变更 / Changes / 审查 / Review」。
  *
- * 为什么必须真机点：这类故障的判据全在运行时 DOM 与计算样式里（原生外壳被产品
- * 侧压制后，"落回去"的表现是一片空白而不是报错），源码推理只能定位调用链、
+ * 为什么必须真机点：落点全在运行时 DOM 与计算样式里，源码推理只能定位调用链、
  * 定不了落点。用户也不必描述现象——脚本自己点、自己读、自己给结论。
  *
  * 用法（两步）：
  *   1) 用户在终端：KC_REMOTE_DEBUG_PORT=9333 pnpm dev
  *   2) 本机：node scripts/probe-dev-review-open.mjs [--port 9333] [--target link|review] [--no-click]
- *
- * 判定：点击后**没有**任何原生右侧栏宿主（panel / float-host / expand）可见，
- * 且落点是我们插件的页签（link 模式：活动页签标题等于被点链接的主机名；review
- * 模式已失效见上）= PASS。
  *
  * 依赖 playwright-core（仅客户端，无浏览器二进制）：脚本按需自装到 /tmp/pwclient。
  *

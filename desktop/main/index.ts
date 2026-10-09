@@ -62,7 +62,7 @@ applyDevIsolation()
 applyBootHomeEnv()
 
 // npm registry 透传：GUI 应用不经 shell 启动，引擎进程拿不到用户 npm
-// 配置；预置插件（如 dsh-coding-sidebar）的更新检查读 npm_config_registry，
+// 配置；插件（内置/用户安装）的更新检查读 npm_config_registry，
 // 缺省时直连 registry.npmjs.org——国内网络/代理环境下间歇超时即报
 //「更新检查失败：unknown」。从 ~/.npmrc 读镜像源预置给引擎（pnpm
 // 安装本身会自行读 npmrc，这里只为进程内 fetch）。未配置则不干预。
@@ -297,15 +297,17 @@ app.whenReady().then(() => {
   // 上游插件缺陷补丁物化（幂等；跨平台——Windows 无 launchd，随包分发
   // 的唯一通道；插件已装但补丁未生效时触发一次 pnpm install）
   ensureProfilePatches()
-  // 预置第三方插件物化（幂等；Windows 全新安装 profile 为空模板，开箱
-  // 即预置 context / coding-sidebar，含缺陷补丁自动应用）
+  // 预置第三方插件物化 + profile 自愈（幂等）。**2026-10-09 起预置表为空**
+  // （唯一成员 dsh-coding-sidebar 退役，见 preset-plugins.ts 文件头）：本调用
+  // 保留的是它的另外三件事——profile 骨架预写、pnpm 构建门、退役包三清
+  // （deps / bundles 层叠 / 实体），退役用户 profile 的残留靠它回收。
   ensurePresetPlugins()
 
   // 远程连接请求（插件写文件，宿主开窗；见 remote-connections.ts 的由来）
   startRemoteOpenWatcher()
-  // preset install 可能以 npm 实体重建 dsh-coding-sidebar（^1.0.0 牵
-  // 引依赖树）；终态是 bundle 物化的版本——install 后二调纠偏
-  // （幂等：版本一致时零拷贝，dsh-* 自有系列全部跳过）
+  // preset install（预置表已空，仅在退役/迁移命中时仍会跑一次 pnpm
+  // install）可能以 npm 实体重建某个内置 bundle；终态是 bundle/ 物化的
+  // 版本——install 后二调纠偏（幂等：版本一致时零拷贝）
   ensureKcoderBundles()
   // 产品策略层物化（幂等；由 dsh-manager 以 --patch 引入，必须在
   // dsh 启动前就位）：会话日志不上传等产品级策略，见 product-policy.ts
