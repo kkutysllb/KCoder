@@ -213,6 +213,46 @@ if (typeof ensureKcoderBundles === 'function') {
   }
 }
 
+// ---- 4.5 F29：「默认选中实验性组合包」必须**声明跟随实态**（2026-10-09 决策）
+// 上游可选集全表随 KCoder 发版并默认选中；但只有**引擎解析树里真有**的才写进
+// bundles——声明了却解析不到 = profile 组成期直接失败（旧 runtime 上写新名单就是
+// 这个后果）。判据必须双向量：夹具里有的必须被声明，夹具里没有的**不得**被声明。
+// KCODER_RUNTIME_DIR 是排他覆盖（只认它），夹具才测得出两侧行为。
+if (typeof ensureKcoderBundles === 'function') {
+  const home2 = mkdtempSync(join(tmpdir(), 'smoke-bundle-profile-rt-'))
+  const profileDir2 = join(home2, 'profiles', 'web')
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'smoke-runtime-fixture-'))
+  mkdirSync(profileDir2, { recursive: true })
+  const PRESENT = declaredOptional.slice(0, 2)
+  const ABSENT = declaredOptional[declaredOptional.length - 1]
+  for (const pkg of PRESENT) {
+    mkdirSync(join(fixtureRoot, 'node_modules', pkg), { recursive: true })
+    writeFileSync(join(fixtureRoot, 'node_modules', pkg, 'package.json'), JSON.stringify({ name: pkg, version: '0.0.0-fixture' }))
+  }
+  writeFileSync(join(profileDir2, 'package.json'), JSON.stringify({
+    name: 'dsh-profile-web',
+    private: true,
+    dependencies: {},
+    dsh: { profile: { bundles: [...TEMPLATE, ...BUILTINS] } },
+  }, undefined, 2) + '\n')
+  process.env.DSH_HOME = home2
+  process.env.KCODER_RUNTIME_DIR = fixtureRoot
+  try {
+    ensureKcoderBundles()
+    const manifest2 = JSON.parse(readFileSync(join(profileDir2, 'package.json'), 'utf8'))
+    const bundles2 = manifest2.dsh?.profile?.bundles ?? []
+    for (const pkg of PRESENT) check(bundles2.includes(pkg), `F29 实态在位的实验性组合包未被默认选中：${pkg}`)
+    check(!bundles2.includes(ABSENT), `F29 实态不在位的实验性组合包被声明：${ABSENT}（声明未跟随实态 ⇒ 旧 runtime 上会启动失败）`)
+  } catch (err) {
+    check(false, `F29 ensureKcoderBundles() 抛错：${err instanceof Error ? err.message : String(err)}`)
+  } finally {
+    delete process.env.KCODER_RUNTIME_DIR
+    process.env.DSH_HOME = home
+    rmSync(home2, { recursive: true, force: true })
+    rmSync(fixtureRoot, { recursive: true, force: true })
+  }
+}
+
 // ---- 5. 退役的非编码技能不得回流（2026-10-05） ----
 // 六个非编码内置技能（多媒体生成 + 漫画 + 深度研究）已从注册面退役，配套的
 // 「多媒体模型」分区与 media-models.env 注入同批移除。判据落在**物化后的**
@@ -263,6 +303,6 @@ if (ok) {
   console.error(`[keep] 现场保留：DSH_HOME=${home} build=${workdir}`)
 }
 process.stdout.write(ok
-  ? `PASS ${String(total)}/${String(total)}（真 ensureKcoderBundles：F27 退役包三清 + F28 可选集不判孤儿 + 内置/模板在册 + 幂等 + 退役非编码技能零回流${UPSTREAM_PROFILE_TS !== undefined ? ' + 上游名单无漂移' : ''}）\n`
+  ? `PASS ${String(total)}/${String(total)}（真 ensureKcoderBundles：F27 退役包三清 + F28 可选集不判孤儿 + F29 实验集声明跟随实态 + 内置/模板在册 + 幂等 + 退役非编码技能零回流${UPSTREAM_PROFILE_TS !== undefined ? ' + 上游名单无漂移' : ''}）\n`
   : `FAIL ${String(total - fails.length)}/${String(total)}:\n${fails.map((f) => '  - ' + f).join('\n')}\n`)
 process.exitCode = ok ? 0 : 1

@@ -46,6 +46,7 @@
 | S2.3 | 技能 `dsh-skills-bundle` | 预期**零代码改动**：跑一遍技能注册/设置分区/`/技能` 调用 | `packages/skill/skill/src/index.ts` 与 `tool-skill` 注册/调用面逐条比对（diff 结论：核心面未变）；技能页 + 可选技能开关 + 会话内 `/技能名` 实测 |
 | S2.4 | MCP | 预期**零改动**：`smoke:mcp-dom` + 真机启用一个 MCP 服务器 | MCP 工具在会话内可见可调 |
 | S2.5 | `dsh-shell-prefs` | 预期**零改动** | 账号菜单切语言/主题（走 `getSnapshot`/`getTheme`）实测 |
+| S2.7 | **实验性组合包随版打包并默认选中**（2026-10-09 决策） | 产物侧：`materialize-peers.mjs` 的 `EXPERIMENTAL_BUNDLE_PACKAGES` 供给块（申报 + 整棵闭包补齐）；宿主侧：`optionalBundleResolvable()` 实态判据 + 声明进 bundles | 构建期：`verify-runtime-experimental.mjs` 绿（11/11 在位 + 行包可达）；`pnpm check` 绿（含 F29）；真机：插件页显示这些能力已启用、且旧的打包 runtime 不会被写崩 |
 | S2.6 | 已退役两线 | 不动作；但在验收里覆盖「上游右栏终端 + 原生右栏」的稳定性 | 终端 tab 开/跑/关；右栏文件/预览可用 |
 
 **回滚点**：S2.1 单独发版（旧版本仍在 npm）；PRESET 线回退即回滚。
@@ -119,6 +120,11 @@
 - **选项**：A 完全跟随官方默认（不预选，设置页可开）；B 产品预选若干（如 terminal-bundle / session-search）；C 预选全部。
 - **建议**：A + 对「预选才有等价能力」的包做例外（见 Q3）。
 - **影响面**：开箱能力面、发布说明。**拍板**：产品负责人。
+- ✅ **已拍板（2026-10-09，产品负责人）：全部随版打包并默认选中** —— 不只
+  terminal-bundle：11 条实验性组合包全表随包 + 默认写进 `dsh.profile.bundles`
+  （机制与判据见 ARCHITECTURE §12「配套产品决策」）。**已落地**：产物侧供给块 +
+  `verify-runtime-experimental.mjs` 构建门；宿主侧 `optionalBundleResolvable()`
+  实态判据 + `smoke:bundle-profile` 的 F29 双向量断言（39/39）。
 
 ### Q3 终端工具的新家（⚠ **已确证**，核对 V1 —— 必答）
 - **事实（代码级确证）**：`packages/terminal/tool-terminal` **整包删除**；`tool-terminal` 现居

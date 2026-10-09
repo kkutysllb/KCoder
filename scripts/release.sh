@@ -149,6 +149,11 @@ cmd_build() {
   # 「异常」红标）。离线可跑，不依赖 registry。
   node "$ROOT/scripts/verify-runtime-providers.mjs" "$STAGING" || die "内置 provider 未随包（见 scripts/verify-runtime-providers.mjs）"
   ok "内置 provider：4 个 SSH provider 随包在位"
+  # 实验性组合包随包断言（2026-10-09 产品决策「上游实验性功能一律随 KCoder 发版」）：
+  # 这些包同样不在上游依赖图里，由 materialize-peers 的实验供给块补进 staging；
+  # 漏供则宿主按实态判定不会声明它们——能力静默消失，或（名单先行时）启动即崩。
+  node "$ROOT/scripts/verify-runtime-experimental.mjs" "$STAGING" || die "实验性组合包未随包（见 scripts/verify-runtime-experimental.mjs）"
+  ok "实验性组合包：上游可选集全表随包在位"
   ok "运行时就绪（$(du -sh "$STAGING" | cut -f1) → tar.gz $(du -h "$ROOT/staging/kcoder-runtime.tar.gz" | cut -f1)）"
 
   # 3.2) 上游 vendor/ 残留回收：deploy 物化会往上游 vendor/ 落下以本仓名命名的

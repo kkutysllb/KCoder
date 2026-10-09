@@ -54,7 +54,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { gt, valid } from 'semver'
-import { PROJECT_ROOT, WEB_PROFILE, dshHome } from './dsh-contract'
+import { PROJECT_ROOT, WEB_PROFILE, UPSTREAM_DIR, dshHome, ensureBundledRuntime } from './dsh-contract'
 import { parse as parseYaml } from 'yaml'
 
 /** bundle 包名（profile bundles 数组与 node_modules 目录名）。 */
@@ -120,6 +120,33 @@ const UPSTREAM_OPTIONAL_BUNDLES = [
   '@deepseek-ai/dsh-experimental-terminal-bundle',
   '@deepseek-ai/dsh-experimental-tool-worktree',
 ]
+
+/**
+ * 实验性组合包「声明跟随实态」判据（2026-10-09 产品决策：上游实验性功能一律随
+ * KCoder 发版并默认选中）。
+ *
+ * 为什么必须按实态把关：`dsh.profile.bundles` 的每一项都会在 profile 组成期被
+ * 解析成实体目录，**声明了而解析不到即启动失败**。而这些包的两态解析根不同：
+ * 源码态 = 上游克隆工作区（`$KCODER_UPSTREAM_DIR/node_modules`，workspace 链接），
+ * 打包态 = 首启解压的 `<userData>/kcoder-runtime`（`ensureBundledRuntime()`）。
+ * 用旧 runtime 声明新名单 = 用户下次启动直接崩，故只在**真能解析到时**声明；
+ * 新 runtime 随包后下一次启动自动补声明（幂等）。
+ *
+ * `KCODER_RUNTIME_DIR` 覆盖仅供冒烟夹具使用（两态真机路径之外的第三条判据）。
+ */
+function optionalBundleResolvable(pkg: string): boolean {
+  // KCODER_RUNTIME_DIR 是**排他**覆盖（冒烟夹具用）：设了它就只看它，否则判据会
+  // 被同机克隆/正式版运行时的存在与否左右，夹具就测不出双向行为了。
+  const override = process.env.KCODER_RUNTIME_DIR
+  const candidates = override !== undefined && override !== ''
+    ? [override]
+    : [UPSTREAM_DIR, ensureBundledRuntime() ?? undefined]
+  for (const dir of candidates) {
+    if (typeof dir !== 'string' || dir === '') continue
+    if (existsSync(join(dir, 'node_modules', pkg, 'package.json'))) return true
+  }
+  return false
+}
 
 /** 一个内置 bundle 的物化描述。 */
 interface BundledPlugin {
@@ -342,7 +369,17 @@ function materialize(profileDir: string, b: BundledPlugin): void {
       name: `dsh-profile-${WEB_PROFILE}`,
       private: true,
       dependencies: {},
-      dsh: { profile: { bundles: [...TEMPLATE_BUNDLES, ...BUNDLES.map((x) => x.pkg)] } },
+      dsh: {
+        profile: {
+          // 实验性组合包与内置 bundle 同批预写（仍按实态过滤：判据见
+          // optionalBundleResolvable）
+          bundles: [
+            ...TEMPLATE_BUNDLES,
+            ...UPSTREAM_OPTIONAL_BUNDLES.filter((pkg) => optionalBundleResolvable(pkg)),
+            ...BUNDLES.map((x) => x.pkg),
+          ],
+        },
+      },
     }
     writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
     console.log('[kcoder-bundle] 预写 profile 清单并注册 bundles')
@@ -447,6 +484,22 @@ function materialize(profileDir: string, b: BundledPlugin): void {
       `[kcoder-bundle] 清除 profile 退役/孤儿插件残留: deps=[${staleDeps.join(', ')}] bundles=[${staleBundles.join(', ')}]`
       + (orphanBundles.length > 0 ? `（孤儿=${orphanBundles.join(', ')}）` : ''),
     )
+  }
+  // 2.5) 实验性组合包默认选中（2026-10-09 产品决策「上游实验性功能一律随
+  //      KCoder 发版」）：实态在位即补进 bundles 层叠，幂等；不在位的**不声明**
+  //      （声明跟随实态——旧 runtime 下写进去会让下次启动解析失败）。
+  {
+    const current = bundlesOf(manifest)
+    const available = UPSTREAM_OPTIONAL_BUNDLES.filter(
+      (pkg) => !current.includes(pkg) && optionalBundleResolvable(pkg),
+    )
+    if (available.length > 0) {
+      const dsh = (manifest['dsh'] ?? {}) as { profile?: Record<string, unknown> }
+      const profile = (dsh.profile ?? {}) as Record<string, unknown>
+      manifest['dsh'] = { ...dsh, profile: { ...profile, bundles: [...current, ...available] } }
+      writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
+      console.log(`[kcoder-bundle] 已默认选中上游实验性组合包：${available.join(', ')}`)
+    }
   }
   // 退役 / 孤儿插件的 node_modules 目录（曾物化的 @kcoder/* 与曾 pnpm 安装
   // 的副本）直接删除：不在 bundles 层叠里本就不会被加载，删掉是让用户插件

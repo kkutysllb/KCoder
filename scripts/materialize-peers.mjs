@@ -78,6 +78,29 @@ const PROVIDER_PACKAGES = [
   '@deepseek-ai/dsh-sandbox-ssh',
 ]
 
+// ── 实验性能力随版供给（2026-10-09 产品决策：上游实验性功能一律随 KCoder 发版）──
+// 上游 `app-boot` 的 `OPTIONAL_BUNDLES` 全表与内置 provider **同因同法**：这些包
+// 不属于上游依赖图（`pnpm deploy --prod` 只物化 dependencies 闭包，peer 与可选
+// 能力全漏），故显式供给——申报进 staging 清单（安装锚点「拥有」语义）+ 补实体。
+// 差别：实验 bundle **自带行包依赖**（`workspace:*`，发布后为精确版本），故这里
+// 按**整棵解析闭包**补齐（provider 只需本体——它们的非 peer 依赖已在 staging）。
+// 与 `desktop/main/kcoder-skills-bundle.ts` 的 `SHIPPED_OPTIONAL_BUNDLES` 是
+// **同一份名单的两侧**：产物侧供实体（本块），宿主侧按实态声明进 profile bundles。
+// 漏供由 `scripts/verify-runtime-experimental.mjs` 在构建期拦下（离线可跑）。
+const EXPERIMENTAL_BUNDLE_PACKAGES = [
+  '@deepseek-ai/dsh-experimental-agent-team-profile',
+  '@deepseek-ai/dsh-experimental-auto-review',
+  '@deepseek-ai/dsh-experimental-badge-skill-bundle',
+  '@deepseek-ai/dsh-experimental-cot-translation-bundle',
+  '@deepseek-ai/dsh-experimental-inspector-profile',
+  '@deepseek-ai/dsh-experimental-ralph-bundle',
+  '@deepseek-ai/dsh-experimental-session-search',
+  '@deepseek-ai/dsh-experimental-session-titles-bundle',
+  '@deepseek-ai/dsh-experimental-terminal-bundle',
+  '@deepseek-ai/dsh-experimental-tool-worktree',
+  '@deepseek-ai/dsh-experimental-voice-input-bundle',
+]
+
 /** 引擎版本线：取 staging 内任一同线包的 version（兜底读引擎清单）。 */
 function engineTrainVersion() {
   for (const name of ['@deepseek-ai/dsh-fs', '@deepseek-ai/dsh-sandbox', '@deepseek-ai/dsh-app-boot']) {
@@ -434,6 +457,89 @@ if (unresolved.size > 0) {
     console.log(`[materialize] 内置 provider 已随包供给：${missing.map((n) => `${n}@${version}`).join(', ')}`)
   } else {
     console.log(`[materialize] 内置 provider 已在位：${PROVIDER_PACKAGES.join(', ')}@${version}`)
+  }
+}
+
+// ── 实验性能力随版供给块（与上块同法；闭包补齐见 EXPERIMENTAL_BUNDLE_PACKAGES 说明）
+{
+  const version = engineTrainVersion()
+  if (version === null) {
+    console.error('[materialize] 推不出引擎版本线，无法供给实验性组合包')
+    process.exit(1)
+  }
+  const stagingManifestPath = join(staging, 'package.json')
+  let manifest
+  try {
+    manifest = JSON.parse(readFileSync(stagingManifestPath, 'utf8'))
+  } catch (err) {
+    console.error(`[materialize] 读不到引擎清单 ${stagingManifestPath}：${String(err?.message ?? err)}`)
+    process.exit(1)
+  }
+  manifest.dependencies ??= {}
+  let declared = 0
+  for (const name of EXPERIMENTAL_BUNDLE_PACKAGES) {
+    if (manifest.dependencies[name] !== version) {
+      manifest.dependencies[name] = version
+      declared += 1
+    }
+  }
+  if (declared > 0) {
+    writeFileSync(stagingManifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    console.log(`[materialize] 实验性组合包已登记进引擎清单：${declared} 条@${version}`)
+  }
+  const missing = EXPERIMENTAL_BUNDLE_PACKAGES.filter((name) => !existsSync(join(topNM, name, 'package.json')))
+  if (missing.length > 0) {
+    const fb = join(root, 'staging', '.experimental-fallback')
+    rmSync(fb, { recursive: true, force: true })
+    mkdirSync(fb, { recursive: true })
+    writeFileSync(join(fb, 'package.json'), JSON.stringify({
+      name: 'kcoder-runtime-experimental',
+      private: true,
+      dependencies: Object.fromEntries(missing.map((name) => [name, version])),
+    }, null, 2))
+    try {
+      execSync('npm install --omit=dev --omit=optional --no-audit --no-fund --no-package-lock --legacy-peer-deps --cache .npm-cache', {
+        cwd: fb,
+        stdio: 'inherit',
+        shell: process.platform === 'win32',
+      })
+    } catch (err) {
+      console.error(`[materialize] 实验性组合包安装失败：${missing.join(', ')}@${version}`)
+      console.error(String(err?.message ?? err))
+      process.exit(1)
+    }
+    // 整棵闭包补齐：只补 staging **没有**的实体（staging 自身版本胜出，与
+    // provider 块同口径）。实验 bundle 的行包（dsh-terminal / dsh-tool-terminal /
+    // dsh-tool-session-query …）正靠这一步进产物；漏补会被末尾自检当场拦下。
+    let filled = 0
+    const installNM = join(fb, 'node_modules')
+    const copyTree = (fromDir, toDir) => {
+      for (const entry of readdirSync(fromDir, { withFileTypes: true })) {
+        if (entry.name.startsWith('.') || !entry.isDirectory()) continue
+        const from = join(fromDir, entry.name)
+        const to = join(toDir, entry.name)
+        if (entry.name.startsWith('@')) {
+          mkdirSync(to, { recursive: true })
+          copyTree(from, to)
+          continue
+        }
+        if (existsSync(join(to, 'package.json'))) continue
+        cpSync(from, to, { recursive: true, force: true })
+        filled += 1
+      }
+    }
+    mkdirSync(topNM, { recursive: true })
+    copyTree(installNM, topNM)
+    for (const name of missing) {
+      if (!existsSync(join(topNM, name, 'package.json'))) {
+        console.error(`[materialize] 实验性组合包未产出实体：${name}`)
+        process.exit(1)
+      }
+    }
+    rmSync(fb, { recursive: true, force: true })
+    console.log(`[materialize] 实验性组合包已随包供给 ${missing.length} 个（闭包补齐 ${filled} 个实体）：${missing.map((n) => `${n}@${version}`).join(', ')}`)
+  } else {
+    console.log(`[materialize] 实验性组合包已在位：${EXPERIMENTAL_BUNDLE_PACKAGES.join(', ')}@${version}`)
   }
 }
 

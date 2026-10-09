@@ -509,3 +509,23 @@ GUI 冒烟统一只进**本机发版门**（`release.sh prepush`），不进 CI�
 - `deepseek-harness/` 仍是纯克隆（不改、不提交）；适配只落**插件仓**（铁律 2）与**宿主契约面**（§7）；
 - 未验证的推断必须标注「待核」并附验证方法（命令/文件/判据）；
 - GUI 事实由用户实测确认（§8 协作惯例），AI 不代验。
+
+### 配套产品决策：上游实验性功能随版打包（2026-10-09 定）
+
+**决策**：上游 `app-boot` 的 `OPTIONAL_BUNDLES` 全表（当前 11 条实验性组合包）**随 KCoder
+发版打包并默认选中**——不再要求用户逐个在插件页开启。
+
+**两侧机制**（缺一不可，都以「跟随实态」为准）：
+
+| 侧 | 落点 | 判据 |
+|---|---|---|
+| 产物侧：把实体供进 runtime | `scripts/materialize-peers.mjs` 的 `EXPERIMENTAL_BUNDLE_PACKAGES` 供给块（申报进 staging 清单 + 按**整棵解析闭包**补齐，实验 bundle 自带行包依赖） | `scripts/verify-runtime-experimental.mjs`（构建期硬门，离线可跑；负对照：空清单 runtime 必须红） |
+| 宿主侧：把 bundle 声明进 profile | `desktop/main/kcoder-skills-bundle.ts` 的 `UPSTREAM_OPTIONAL_BUNDLES` + `optionalBundleResolvable()`（**只有解析树里真有才写**，两态解析根不同：源码态 = 上游克隆工作区，打包态 = 首启解压的 `<userData>/kcoder-runtime`） | `smoke:bundle-profile` 的 **F29** 双向量断言（实态在位必须被声明 / 不在位**不得**被声明）+ 幂等 |
+
+**为什么必须「跟随实态」**：`dsh.profile.bundles` 的每一项都会在 profile 组成期解析成
+实体目录——声明了而解析不到即**启动失败**。旧 runtime + 新名单 = 用户下次启动直接崩；
+故顺序恒为「先随包，再默认选中」，且宿主侧声明永远以解析实态为准（新 runtime 随包后
+下一次启动自动补声明，幂等）。
+
+**上游 dormant 行不翻**：bundle 内部 `disabled: true` 的行（如 session-titles 的唯一行、
+agent-team 的四行）仍由上游决定，本决策只做「bundle 级」的随包与选中。
