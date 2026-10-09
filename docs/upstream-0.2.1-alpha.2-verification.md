@@ -199,5 +199,12 @@ Windows 真机验证过程中暴露的是**同一件事实被 8 处各自实现*
 的引擎指纹/引擎态路径（`runtime/.engine-fingerprint` + `dsh-app-boot` 版本探测）取代，留着只会漂移。
 处置后 `node scripts/audit.mjs` → **DEAD EXPORTS 0 项待处置**（余 3 项已知豁免）、`pnpm check` 39/39。
 **发版时在 `release/audit-v<版本>.md` 记明**：这两项为**修复**（删码）而非豁免。
+**UNUSED DEPS 的 10 项是脚本误报，已修（2026-10-10）**：`scripts/audit.mjs` 第 5 段此前读 depcheck JSON 的
+`using` 键——那是「该依赖在哪些文件里被用到」的**已使用**映射，而「未使用」清单是 `dependencies` /
+`devDependencies`（同一份输出里两者均为 `[]`）。于是 electron-vite / @types/node / electron / semver /
+`@types/semver` / yaml / electron-updater / react / react-dom / @shared/ipc-contract 这 10 个**在用**依赖被
+报成未使用。修正后本项为「无」，**无需删除任何依赖、也无需新增豁免**；判别力由负对照守住
+（`package.json` 里塞一个假依赖 ⇒ 恰好报 `1 项：kcoder-audit-probe`，还原即「无」）。
+
 **下一次 release 构建的可见变化**：随包 vendor 的 pnpm 由硬编码 `11.7.0` 改为跟随上游声明
 `11.28.5`（同主版本 11.x，profile store 大版本不变 ⇒ 对既有用户无迁移动作）。

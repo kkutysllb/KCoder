@@ -102,18 +102,29 @@ section('DEAD EXPORTS（未消费导出）', false, () => {
   return { status: 'report', note: `${lines.length} 项待逐条处置（修复或在审计报告中豁免；另有 ${waived} 项已知豁免）`, findings: lines }
 })
 
-/* 5. UNUSED DEPS（depcheck；报告项） */
+/* 5. UNUSED DEPS（depcheck；报告项）
+ *
+ * ⚠ 键名坑（2026-10-10 实测修正）：depcheck 的 JSON 顶层有两个易混键——
+ *   `dependencies` / `devDependencies` = **未使用**清单（我们要的）；
+ *   `using` = 「该依赖在哪些文件里被用到」的映射，即**已使用**清单。
+ *   本段此前误读 `using`，于是把 10 个**在用**依赖（electron-vite / @types/node /
+ *   electron / semver / @types/semver / yaml / electron-updater / react / react-dom /
+ *   @shared/ipc-contract）报成「未使用」——纯误报（同一份输出里 dependencies 与
+ *   devDependencies 都是 `[]`）。修正后本项为「无」；判别力由「塞一个假依赖必报 1 项」
+ *   负对照守住。 */
 section('UNUSED DEPS（未使用依赖）', false, () => {
   const dir = mkdtempSync(join(tmpdir(), 'kcoder-audit-'))
   const ignoreFile = join(dir, '.depcheckrc.json')
   writeFileSync(ignoreFile, JSON.stringify({
+    // 工具链/构建期依赖：只在配置与 npm script 里被引用，depcheck 扫不到，故忽略。
     ignores: ['electron', 'electron-builder', 'electron-vite', 'vite', 'typescript', 'oxlint', 'ts-prune', 'depcheck'],
     skipMissing: true,
   }))
   const r = run('npx', ['depcheck', '--json', `--config=${ignoreFile}`])
-  let unused = {}
-  try { unused = JSON.parse(r.stdout || '{}').using ?? {} } catch { /* 解析失败按空处理 */ }
-  const names = Object.keys(unused)
+  let parsed = {}
+  try { parsed = JSON.parse(r.stdout || '{}') } catch { /* 解析失败按空处理 */ }
+  const names = [...(Array.isArray(parsed.dependencies) ? parsed.dependencies : []),
+    ...(Array.isArray(parsed.devDependencies) ? parsed.devDependencies : [])]
   return { status: 'report', note: names.length > 0 ? `${names.length} 项：${names.join(', ')}` : '无', findings: names }
 })
 
