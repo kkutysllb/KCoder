@@ -69,7 +69,7 @@
 | 3 | `working_directory` 工具 + SDK 读写会话工作目录 | 新包 `session/tool-working-directory`；指南 `working-directory`；持久化文档 `2026-09-13-working-directory` | 🟡 新工具会出现在工具卡；我方 `workspace-probe` 的 cwd 读取面需复核（见 §6） |
 | 4 | Git Worktrees 实验插件 | 新包 `experimental/worktree` + `tool-worktree`；进 `OPTIONAL_BUNDLES` | 🟢（用户已启用）；我方无 git 面板（已退役） |
 | 5 | Official 列表按需安装 Claude Code / Codex 组合包 | `boot/plugin-manager`(+583)；指南 `native-subagent-bundle-tools` | 🟡 我方 `plugins.ts` 只转发 `dsh plugin`；需复核 CLI 选项位置（#36 与指南 `plugin-option-placement`） |
-| 6 | 通用设置新增字体（界面正文 / 代码与工具输出 / 侧栏终端） | `client/ui-theme`(27, +1028/−229)——新设置分区 + CSS 变量面 | 🔴/🟡 我方自绘标题栏/注入 CSS 用的是固定字号与自持 token；新变量体系需复核（尤其 `sidebar-fill` 与字号 token） |
+| 6 | 通用设置新增字体（界面正文 / 代码与工具输出 / 侧栏终端） | `client/ui-theme`(27, +1028/−229)——新设置分区 + CSS 变量面 | 🔴/🟡 我方自绘标题栏/注入 CSS 用的是固定字号与自持 token；新变量体系需复核（尤其 `sidebar-fill` 与字号 token） | **2026-10-09 核对修正**：我方注入面写死字号实测 **40 处 / 8 文件**（`mcp-settings`14/`home-migration`8/`about-settings`8/`account-chip`5/`update-injector`2/`settings-page`1/`clipboard-fix`1/`workspace-probe`1）；标题栏与会话页头三模块零写死字号且高度为量测值 ⇒ 用户改字号不会被裁切，落闸见计划 S1.4。
 | 7 | 语音输入麦克风选择 + 实时电平 | `experimental/client-ui-voice-input`(21) | 🟢（用户已启用） |
 | 8 | Web 绑定指定 IP + `--tls-cert`/`--tls-key` | `apps/cli`(66) + `bundle/web-app`；指南 `web-listener-trust-config`（**监听与信任配置迁入 `webStartup`**） | 🟢 **已核（核对 V4）**：`--host/--port/--no-open/--public-url/--trusted-host/--tls-cert/--tls-key` 全在（`dsh web --help` 实测），我方 spawn 形态不变 |
 | 9 | 工作步骤收起时机设置 | `client/ui-chat`(68) 的 presentation/collapse 策略 | 🟢 |

@@ -398,7 +398,7 @@
 # dd1529d8aa/b88abcad16 均为尖端祖先；新 delta vs 旧 delta 文件集差恰为
 # plugin.ts（按决策取上游）；上游侧文件零删除；build exit 0（248 client
 # 产物），lib/index.js 299/299，CI=true pnpm run typecheck 通过。
-5badb15009ae1756c3afe0ae0cef1faafc290ccc
+d743267388641bc76f17c45ce8b4c231aed1d32c
 
 # ── 集成分支 fork 侧追加（2026-09-18：设置页插件管理 tab）──────────────
 # 集成分支尖端 02253cd274（本地 = origin/kcoder/0.1.6-alpha.2，远端新建分支）。
@@ -985,3 +985,41 @@
 # verify-translation-pairing 860 对 0 差异；verify-package-dependencies 74 包 0。
 # 分析文档 docs/upstream-0.2.1-alpha.1-analysis.md，实施计划
 # docs/upstream-0.2.1-alpha.1-upgrade-plan.md。
+# 升级记录：2026-10-09 0.2.1-alpha.1(5badb150) → 0.2.1-alpha.2(d7432673)，集成分支
+# 重建为 kcoder/0.2.1-alpha.2（= d7432673 + merge kcoder/0.2.1-alpha.1 集成树整体重放，
+# 尖端 41f151ab20）。512 提交/3226 文件 diff（+114987/−28177）。
+# 本轮 KCoder 侧两件产品动作（先于/伴随升级）：① 退役内置右侧边栏插件
+# dsh-coding-sidebar（铁律 1 翻转，右侧工作台交回上游原生右栏）；② 退役内置终端
+# 插件 @kkutysllb/dsh-terminal（终端唯一形态 = 上游原生右栏终端 tab）。两者均走
+# 双账本 + 四名单三清，见 plans/retire-coding-sidebar.md / retire-terminal-plugin.md。
+# 集成冲突 6 处：ChatNodeSeat.tsx（保 editUserMessage）、ChatView.tsx（采上游
+# conversation.chat.flow/ChatFlow 新架构，我方编辑链重新接线）、ptc-runtime-python
+# index.ts（上游沙箱修复 + 我方 windowsHide）、llm-pi-ai adapter.ts（上游 watchdog/
+# drain + 我方 opencode header 与 codex fallback）、patches/pi-ai@1.0.2.patch（以
+# 上游补丁为基整份重生成 + 我方 relay hunk）、pnpm-lock.yaml（以 0.2.1-alpha.2 为底
+# 重收敛）。
+# 完整性断言：上游 tag 是集成分支祖先（merge-base --is-ancestor 通过）⇒ 无漏合；
+# 相对上游 tag 的差异面 = 62 文件（我方偏离面：上轮 61 + pi-ai 补丁换键）；六处冲突
+# 文件逐个核对未吞上游修复（#13 idleWatchdog/LLM_STREAM_IDLE_TIMEOUT、#35 Python PTC
+# 沙箱本体 inject=['sandbox','sandboxPolicy'] 均在位）。
+# 锚点复核（2026-10-09）：ready line 带鉴权 URL（我方正则兼容，且新增的同前缀警告行
+# `dsh web: listening on …` 不误吞）；dsh web 的 --host/--port/--no-open/--public-url/
+# --trusted-host/--tls-cert/--tls-key 全在；session/list 在 typert 描述符在位；
+# _moreButton 锚仍有效（session-log-export HeaderAction.tsx:55）；布局第三列
+# detailsCol → rightbarCol（我方以 [data-rightbar-col] 为结构锚，不受影响）；
+# DocumentTitle 迁至 client/ui-layout；会话头新增 conversation.session.header.lineage
+# 槽（注册方 client/ui-subagent）；packages/host/apiproxy 已不存在（README §7 行改写）；
+# 会话格式 session-format-catalog currentVersion=4 未变（无历史会话迁移）。
+# 上游可选集 OPTIONAL_BUNDLES 4 → 11：KCoder 镜像同步，并按 2026-10-09 产品决策
+# **全表随版打包 + 默认选中**（materialize-peers 的 EXPERIMENTAL_BUNDLE_PACKAGES 供给块
+# + scripts/verify-runtime-experimental.mjs 构建门 + optionalBundleResolvable 实态判据；
+# smoke:bundle-profile 的 F29 双向量断言）。另一处产品决策：pi-ai relay 修复继续自持
+# （上游 1.0.2 自带 patch 不含该 hunk）。
+# 另修：远端平台探测失败不再只报「(空)」（改报 ssh 原文 + 退出码）；isTransportFailure
+# 补 `Not allowed at this time` 等中转拒连文案。
+# 回归：pnpm check 39/39（含 F27/F28/F29）、11+ 支 GUI 冒烟全绿、SSH helper L1 官方
+# 验证器 exit 0（8 项检查含 sandbox-enforcement）、插件仓 dsh-ssh-remote 0.1.5
+# （ssh_edit token + 建连瞬时拒绝重试）已同步 bundle。
+# 分析文档 docs/upstream-0.2.1-alpha.2-analysis.md，实施计划
+# docs/upstream-0.2.1-alpha.2-upgrade-plan.md，核对报告
+# docs/upstream-0.2.1-alpha.2-verification.md。

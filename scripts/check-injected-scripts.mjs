@@ -190,6 +190,57 @@ for (const [idx, s] of scripts.entries()) {
 }
 if (bad > 0) { rmSync(tmp, { recursive: true, force: true }); die(`${String(bad)} 个脚本未过语法门`) }
 
+// ── 2.5) 注入面不得写死字号（2026-10-09，配合上游字体设置）──────────
+// 上游 alpha.2 新增「界面正文 / 代码与工具输出 / 侧栏终端」三套字体与字号设置
+// （ui-theme：--dsh-font-family-text/code、--dsh-content-font-size、--dsh-code-font-size、
+// --dsh-terminal-font-size）。KCoder 的自绘面（标题栏、会话页头搬移、样式压制段）
+// 必须**跟随上游 token**：注入 CSS 一旦写死 font-size，用户改字体时条上文字不动、
+// 或被量测高度裁切——而这正是 tsc 看不见的静默缺陷（本脚本存在的理由）。
+// 几何量不必受限：高度/让位宽本就来自量测（--dsh-titlebar-h 由 theme-watcher 量出）。
+// 允许：值以 `inherit` / `var(` 开头（跟随上游或继承）。
+const fontSizeRe = /(?:^|[;{\s])font(?:-size)?\s*:\s*([^;}\n]+)/g
+const fontSizeHits = []
+for (const s of scripts) {
+  for (const m of s.decoded.matchAll(fontSizeRe)) {
+    const value = m[1].trim()
+    if (value.startsWith('inherit') || value.startsWith('var(')) continue
+    fontSizeHits.push({ file: s.file, line: s.line, text: m[0].trim().replace(/\s+/g, ' ') })
+  }
+}
+/**
+ * 已知写死字号的注入面文件（2026-10-09 S1.4 审计基线，**逐项待处置**）。
+ *
+ * 这 8 个文件在上游「字体设置」（alpha.2 新增：界面正文/代码与工具输出/侧栏终端）
+ * 之前就写死了字号——用户改字号时这些自绘 UI 不跟随。清单共 40 处：
+ * mcp-settings 14 / home-migration 8 / about-settings 8 / account-chip 5 /
+ * update-injector 2 / settings-page 1 / clipboard-fix 1 / workspace-probe 1。
+ *
+ * 处置策略（继承 / 吃 --dsh-content-font-size 等 token / 保留并豁免）**待产品拍板**，
+ * 清单见 plans/retire-terminal-plugin.md 之后的升级计划 S1.4。
+ * 本闸的效力：**新增文件不得再写死字号**（新增即 fail）；清单内文件按「已知」计数，
+ * 不作为失败——避免用一条红门掩盖 40 处待决策项。
+ */
+const KNOWN_FONT_SIZE_FILES = new Set([
+  'mcp-settings.ts',
+  'home-migration.ts',
+  'about-settings.ts',
+  'account-chip.ts',
+  'update-injector.ts',
+  'settings-page.ts',
+  'clipboard-fix.ts',
+  'workspace-probe.ts',
+])
+const knownHits = fontSizeHits.filter(h => KNOWN_FONT_SIZE_FILES.has(h.file))
+const newHits = fontSizeHits.filter(h => !KNOWN_FONT_SIZE_FILES.has(h.file))
+if (knownHits.length > 0) {
+  say(`注入面写死字号：已知 ${String(knownHits.length)} 处 / ${String(KNOWN_FONT_SIZE_FILES.size)} 个文件（待 S1.4 处置，见脚本内清单）`)
+}
+if (newHits.length > 0) {
+  for (const h of newHits) console.error(`  ✗ ${h.file}:${String(h.line)} 注入面写死字号：${h.text}`)
+  rmSync(tmp, { recursive: true, force: true })
+  die(`${String(newHits.length)} 处**新增**注入面写死字号——请改吃上游字体 token（--dsh-font-family-text/code、--dsh-content-font-size、--dsh-code-font-size、--dsh-terminal-font-size）或继承（不写 font-size）`)
+}
+
 // ── 3) oxlint no-undef（browser/node 环境全局）─────────────────
 const oxlintrc = join(tmp, '.oxlintrc.json')
 const globalsCfg = {}
