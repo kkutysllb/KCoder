@@ -38,11 +38,6 @@ interface RemoteConnection {
 
 const connections = new Map<string, RemoteConnection>()
 
-/** 当前已打开的远程连接的主机 id。 */
-export function openRemoteHostIds(): string[] {
-  return [...connections.keys()]
-}
-
 /**
  * 本地 profile 的配置文件路径（模型供应商与密钥就在这里）。
  *

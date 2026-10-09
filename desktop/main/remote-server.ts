@@ -292,12 +292,6 @@ function sshTarOnce(alias: string, localDir: string, entries: readonly string[],
   })
 }
 
-/** 远端已有的 runtime 是否可直接使用。 */
-export async function remoteInstallReady(alias: string): Promise<boolean> {
-  const { stdout } = await sshRun(alias, `test -f ${REMOTE_ROOT}/runtime/lib/bin.js && echo READY || echo MISSING`)
-  return stdout.includes('READY')
-}
-
 /** 远端 Node 是否已在（引导流程装的用户态 Node）。 */
 export async function remoteNodeReady(alias: string, remoteNode: string): Promise<boolean> {
   const { stdout } = await sshRun(alias, `test -x ${remoteNode} && ${remoteNode} -v || echo MISSING`)

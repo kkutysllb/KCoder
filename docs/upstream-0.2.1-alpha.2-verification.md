@@ -192,8 +192,12 @@ Windows 真机验证过程中暴露的是**同一件事实被 8 处各自实现*
 | 冒烟入口 | `node scripts/run-electron.mjs <脚本>`（跨平台摘 `ELECTRON_RUN_AS_NODE`） | 一律用它，不再手写 `env -u` |
 | 依赖审计 | `node scripts/audit.mjs` | 报告项逐条处置并记入 `release/audit-v<版本>.md` |
 
-**两条待处置（审计报告项，非本轮升级引入）**：DEAD EXPORTS —— `desktop/main/remote-connections.ts:42`
-`openRemoteHostIds`、`desktop/main/remote-server.ts:296` `remoteInstallReady` 全仓零消费者（仅定义处）；
-按审计口径需**修复或豁免**（建议：前者直接删；后者若属远端引导流程的预留能力，写入豁免说明）。
+**两条审计报告项（非本轮升级引入）——已按「修复」处置（2026-10-10）**：DEAD EXPORTS 的
+`desktop/main/remote-connections.ts` `openRemoteHostIds` 与 `desktop/main/remote-server.ts`
+`remoteInstallReady` 全仓零消费者，**直接删除**（未走豁免）：前者是 `connections` Map 的枚举口，
+随远端连接改造已无调用方；后者的「远端 runtime 是否就绪」判断已被 `provisionRemoteRuntime`
+的引擎指纹/引擎态路径（`runtime/.engine-fingerprint` + `dsh-app-boot` 版本探测）取代，留着只会漂移。
+处置后 `node scripts/audit.mjs` → **DEAD EXPORTS 0 项待处置**（余 3 项已知豁免）、`pnpm check` 39/39。
+**发版时在 `release/audit-v<版本>.md` 记明**：这两项为**修复**（删码）而非豁免。
 **下一次 release 构建的可见变化**：随包 vendor 的 pnpm 由硬编码 `11.7.0` 改为跟随上游声明
 `11.28.5`（同主版本 11.x，profile store 大版本不变 ⇒ 对既有用户无迁移动作）。
