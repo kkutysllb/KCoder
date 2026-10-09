@@ -100,7 +100,10 @@ const src = readFileSync(OVERLAY_SRC, 'utf8')
 const SEGMENTS = [...src.matchAll(/const ([A-Z_]{3,}_CSS) = `([\s\S]*?)`/g)]
   .map((m) => [m[1], m[2].replaceAll(/\$\{[^}]*\}/g, 'data:AA')])
 /** 资产 data URL 的真实字节随构建而变，故两侧归一化后比较。 */
-const norm = (s) => s.replaceAll(/data:[^"')\s]*/g, 'data:AA').trim()
+// 行尾也必须归一：源码在工作树里是 CRLF（Git autocrlf），而注入后的 CSS 经 CSS
+// 解析器读回时换行已被归一成 LF——不归一就会在 Windows 上恒判「内容漂移」
+// （2026-10-10 本机 28/30：注入 1063 vs 应为 1095，差值恰为段内换行数）。
+const norm = (s) => s.replaceAll(/data:[^"')\s]*/g, 'data:AA').replaceAll(/\r\n?/g, '\n').trim()
 const expectedCss = norm(SEGMENTS.map(([, css]) => css).join('\n\n'))
 // 段数 4 → 3（2026-10-09）：NATIVE_SIDEBAR_CSS 随 dsh-coding-sidebar 退役摘除，
 // 产品侧对原生右栏不再有任何压制。反向断言同时钉住「它不得回流」。

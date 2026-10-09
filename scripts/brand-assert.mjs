@@ -11,6 +11,7 @@
  * 用法：node scripts/brand-assert.mjs staging/kcoder-runtime.tar.gz
  */
 import { execFileSync } from 'node:child_process'
+import { basename, dirname, resolve } from 'node:path'
 
 function die(msg) {
   console.error(`[brand-assert] ${msg}`)
@@ -20,15 +21,25 @@ function die(msg) {
 const tar = process.argv[2]
 if (!tar) die('用法：brand-assert.mjs <staging/kcoder-runtime.tar.gz>')
 
-const tarOut = (args) =>
-  execFileSync('tar', args, { encoding: 'utf8', maxBuffer: 1 << 26 })
+// Windows + Git Bash 下把**绝对路径**交给 GNU tar 会被当成「远端主机」：
+// `tar -tzf D:\…\x.tar.gz` → `tar (child): Cannot connect to D: resolve failed`
+// （MSYS 把参数转写成 `D:/…`，GNU tar 见冒号即按 rsh 语法解析）。故一律切到所在
+// 目录、只传基名——与 verify-runtime-providers / verify-runtime-experimental 同款。
+// 而 release.sh 传的正是 $ROOT/staging/... 绝对路径，所以这一步在 Windows 上必死
+// （2026-10-10 本机实测：相对路径通过、绝对路径 exit 1）。
+const tarPath = resolve(tar)
+const tarCwd = dirname(tarPath)
+const tarName = basename(tarPath)
 
-const locale = tarOut(['-tzf', tar])
+const tarOut = (args) =>
+  execFileSync('tar', args, { cwd: tarCwd, encoding: 'utf8', maxBuffer: 1 << 26 })
+
+const locale = tarOut(['-tzf', tarName])
   .split('\n')
   .find((l) => l.includes('dsh-client-ui-chat/src/client/locale.ts'))
 if (!locale) die('tar.gz 内无 dsh-client-ui-chat/src/client/locale.ts')
 
-const text = tarOut(['-xzOf', tar, locale])
+const text = tarOut(['-xzOf', tarName, locale])
 if (!text.includes("'chat.deepDiving': 'KCoder'")) {
   die('chat.deepDiving 不是「KCoder」——fork 侧品牌串未随 rc.2 排版跟进（0.2.0-rc.2 起去点；先 push fork 集成分支，再重新打包）')
 }
