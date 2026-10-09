@@ -59,7 +59,7 @@ const PAGE_JS = `(() => {
   css.textContent = [
     '.' + ON_CLS + '{color:#1F883D !important}',
     'body[data-ds-dark-theme] .' + ON_CLS + '{color:#3FB950 !important}',
-    '.' + TIP_CLS + '{position:fixed;z-index:2147483647;pointer-events:none;transform:translate(-50%,-100%);padding:2px 8px;border-radius:6px;background:rgba(31,136,61,.12);color:#1F883D;font:500 12px/18px -apple-system,"PingFang SC",sans-serif;white-space:nowrap}',
+    '.' + TIP_CLS + '{position:fixed;z-index:2147483647;pointer-events:none;transform:translate(-50%,-100%);padding:2px 8px;border-radius:6px;background:rgba(31,136,61,.12);color:#1F883D;font:inherit;white-space:nowrap}',
     'body[data-ds-dark-theme] .' + TIP_CLS + '{background:rgba(63,185,80,.16);color:#3FB950}',
   ].join('')
   document.head.append(css)

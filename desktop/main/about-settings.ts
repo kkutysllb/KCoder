@@ -342,34 +342,34 @@ const PAGE_JS = `(() => {
       var style = document.createElement('style')
       style.id = CSS_ID
       style.textContent = [
-        '#' + SEC_ID + ' { display: none; }',
+        '#' + SEC_ID + ' { display: none}',
         // 激活时隐藏原生 React 分区、显示自绘容器（同 skills/mcp 机制）
-        '[role="dialog"].' + MARKER + ' [class*="_options"] > div[data-slot="settings.section"] { display: none !important; }',
-        '[role="dialog"].' + MARKER + ' #' + SEC_ID + ' { display: block; width: 100%; max-width: 960px; margin: 0 auto; box-sizing: border-box; }',
+        '[role="dialog"].' + MARKER + ' [class*="_options"] > div[data-slot="settings.section"] { display: none !important}',
+        '[role="dialog"].' + MARKER + ' #' + SEC_ID + ' { display: block; width: 100%; max-width: 960px; margin: 0 auto; box-sizing: border-box}',
         // 品牌头（关于内容区顶部居中）：尺寸与侧边栏一致（K / 字标 22px
         // 等高沉底，徽章上标位与字标字形顶齐平，同 badgeEl 几何）；字标
         // 深浅两版按 body 主题属性纯 CSS 切换，无需 observer
-        '.ak-brand { display: flex; align-items: flex-end; justify-content: center; margin: 2px 0 22px; }',
-        '.ak-brand-k { height: 22px; width: 22px; flex: none; }',
-        '.ak-coder-img { height: 22px; width: auto; flex: none; }',
-        'body[data-ds-dark-theme] .ak-coder-light { display: none; }',
-        'body:not([data-ds-dark-theme]) .ak-coder-dark { display: none; }',
-        '.ak-brand-ver { align-self: flex-start; margin-top: 1px; margin-left: 5px; flex: none; font-size: 10px; line-height: 1; padding: 2px 6px; border-radius: 4px; background: var(--dsw-alias-bg-layer-2, rgba(128,128,128,.12)); color: var(--dsw-alias-label-tertiary, #999); border: 1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.2)); white-space: nowrap; }',
-        '.ak-lead { margin: 2px 0 20px; color: var(--dsw-alias-label-secondary, #888); font-size: 13px; line-height: 1.65; }',
-        '.ak-card { box-sizing: border-box; width: 100%; margin: 0 0 14px; padding: 20px 24px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 16px; background: var(--dsw-alias-bg-module-platform); box-shadow: 0 2px 10px rgba(9,16,29,.035); }',
-        'body[data-ds-dark-theme] .ak-card { box-shadow: 0 2px 12px rgba(0,0,0,.16); }',
-        '.ak-title { font-size: 15px; font-weight: 600; color: var(--dsw-alias-label-primary, #222); margin: 0 0 12px; }',
+        '.ak-brand { display: flex; align-items: flex-end; justify-content: center; margin: 2px 0 22px}',
+        '.ak-brand-k { height: 22px; width: 22px; flex: none}',
+        '.ak-coder-img { height: 22px; width: auto; flex: none}',
+        'body[data-ds-dark-theme] .ak-coder-light { display: none}',
+        'body:not([data-ds-dark-theme]) .ak-coder-dark { display: none}',
+        '.ak-brand-ver { align-self: flex-start; margin-top: 1px; margin-left: 5px; flex: none;  line-height: 1; padding: 2px 6px; border-radius: 4px; background: var(--dsw-alias-bg-layer-2, rgba(128,128,128,.12)); color: var(--dsw-alias-label-tertiary, #999); border: 1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.2)); white-space: nowrap}',
+        '.ak-lead { margin: 2px 0 20px; color: var(--dsw-alias-label-secondary, #888);  line-height: 1.65}',
+        '.ak-card { box-sizing: border-box; width: 100%; margin: 0 0 14px; padding: 20px 24px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 16px; background: var(--dsw-alias-bg-module-platform); box-shadow: 0 2px 10px rgba(9,16,29,.035)}',
+        'body[data-ds-dark-theme] .ak-card { box-shadow: 0 2px 12px rgba(0,0,0,.16)}',
+        '.ak-title {  font-weight: 600; color: var(--dsw-alias-label-primary, #222); margin: 0 0 12px}',
         // 功能行：左特性名右说明（同 settings.general.item 的行感）
-        '.akf-row { display: flex; align-items: baseline; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--dsw-alias-border-l2, #eee); }',
-        '.akf-row:last-child { border-bottom: 0; }',
-        '.akf-name { flex: none; width: 128px; font-size: 13px; font-weight: 500; color: var(--dsw-alias-label-primary, #222); }',
-        '.akf-desc { flex: 1; min-width: 0; font-size: 12px; line-height: 1.6; color: var(--dsw-alias-label-secondary, #888); }',
+        '.akf-row { display: flex; align-items: baseline; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--dsw-alias-border-l2, #eee)}',
+        '.akf-row:last-child { border-bottom: 0}',
+        '.akf-name { flex: none; width: 128px;  font-weight: 500; color: var(--dsw-alias-label-primary, #222)}',
+        '.akf-desc { flex: 1; min-width: 0;  line-height: 1.6; color: var(--dsw-alias-label-secondary, #888)}',
         // 版本信息行：左标签右值（值长省略，title 全量）
-        '.akv-row { display: flex; align-items: baseline; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--dsw-alias-border-l2, #eee); }',
-        '.akv-row:last-child { border-bottom: 0; }',
-        '.akv-label { flex: none; width: 128px; font-size: 12px; color: var(--dsw-alias-label-secondary, #888); }',
-        '.akv-value { flex: 1; min-width: 0; font-size: 13px; color: var(--dsw-alias-label-primary, #222); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
-        '.akv-value.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }'
+        '.akv-row { display: flex; align-items: baseline; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--dsw-alias-border-l2, #eee)}',
+        '.akv-row:last-child { border-bottom: 0}',
+        '.akv-label { flex: none; width: 128px;  color: var(--dsw-alias-label-secondary, #888)}',
+        '.akv-value { flex: 1; min-width: 0;  color: var(--dsw-alias-label-primary, #222); overflow: hidden; text-overflow: ellipsis; white-space: nowrap}',
+        '.akv-value.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace}'
       ].join('\\n')
       document.head.appendChild(style)
     }

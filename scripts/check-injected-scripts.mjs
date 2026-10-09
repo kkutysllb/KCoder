@@ -198,7 +198,7 @@ if (bad > 0) { rmSync(tmp, { recursive: true, force: true }); die(`${String(bad)
 // 或被量测高度裁切——而这正是 tsc 看不见的静默缺陷（本脚本存在的理由）。
 // 几何量不必受限：高度/让位宽本就来自量测（--dsh-titlebar-h 由 theme-watcher 量出）。
 // 允许：值以 `inherit` / `var(` 开头（跟随上游或继承）。
-const fontSizeRe = /(?:^|[;{\s])font(?:-size)?\s*:\s*([^;}\n]+)/g
+const fontSizeRe = /(?:^|[;{\s'"`])font(?:-size)?\s*:\s*([^;}\n]+)/g
 const fontSizeHits = []
 for (const s of scripts) {
   for (const m of s.decoded.matchAll(fontSizeRe)) {
@@ -208,28 +208,27 @@ for (const s of scripts) {
   }
 }
 /**
- * 已知写死字号的注入面文件（2026-10-09 S1.4 审计基线，**逐项待处置**）。
+ * 字号豁免名单（**唯一**允许在注入面写死字号的文件，须写明理由）。
  *
- * 这 8 个文件在上游「字体设置」（alpha.2 新增：界面正文/代码与工具输出/侧栏终端）
- * 之前就写死了字号——用户改字号时这些自绘 UI 不跟随。清单共 40 处：
- * mcp-settings 14 / home-migration 8 / about-settings 8 / account-chip 5 /
- * update-injector 2 / settings-page 1 / clipboard-fix 1 / workspace-probe 1。
+ * 2026-10-09（S1.4）已按策略 A 处置完 40 处审计命中：39 处删除字号改为**继承**
+ * （跟随上游字体设置：--dsh-content-font-size / --dsh-font-family-text/code 等），
+ * 余下 1 处保留为刻意例外（见下表）。
  *
- * 处置策略（继承 / 吃 --dsh-content-font-size 等 token / 保留并豁免）**待产品拍板**，
- * 清单见 plans/retire-terminal-plugin.md 之后的升级计划 S1.4。
- * 本闸的效力：**新增文件不得再写死字号**（新增即 fail）；清单内文件按「已知」计数，
- * 不作为失败——避免用一条红门掩盖 40 处待决策项。
+ * 两条教训一并留档：① 审计时只 grep 了 titlebar/header/overlay 三模块，漏了其它
+ * 注入器，且漏了 `font:` **简写**形态——本闸的前置字符集因此补上了引号（字符串
+ * 开头的声明）；② 批量正则删字号时顺手做了 `;;`→`;` 清理，误伤 TS 的
+ * `for (let i = 0; ; i++)` 空条件——**字号清理只应作用于 CSS 串内部**。
  */
-const KNOWN_FONT_SIZE_FILES = new Set([
-  'mcp-settings.ts',
-  'home-migration.ts',
-  'about-settings.ts',
-  'account-chip.ts',
-  'update-injector.ts',
-  'settings-page.ts',
-  'clipboard-fix.ts',
-  'workspace-probe.ts',
+/**
+ * 字号豁免名单（**唯一**允许在注入面写死字号的文件，须写明理由）。
+ *
+ * 2026-10-09 策略 A 落地：其余 39 处字号已全部删除改为**继承**（跟随上游
+ * 字体设置：--dsh-content-font-size / --dsh-font-family-text/code 等）。
+ */
+const FONT_SIZE_EXEMPT = new Map([
+  ['workspace-probe.ts', '探针徽标（9px 等宽，刻意小号做角标；跟随正文字号会挤占条上空间）'],
 ])
+const KNOWN_FONT_SIZE_FILES = FONT_SIZE_EXEMPT
 const knownHits = fontSizeHits.filter(h => KNOWN_FONT_SIZE_FILES.has(h.file))
 const newHits = fontSizeHits.filter(h => !KNOWN_FONT_SIZE_FILES.has(h.file))
 if (knownHits.length > 0) {

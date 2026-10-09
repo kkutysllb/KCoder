@@ -57,7 +57,7 @@ const SHOW_JS = `(() => {
   const renderNotes = (box, info) => {
     box.replaceChildren()
     const head = document.createElement('div')
-    head.style.cssText = 'font-weight:600;margin-bottom:8px;font-size:13px'
+    head.style.cssText = 'font-weight:600;margin-bottom:8px;'
     const stageTxt = info.stage === 'downloaded' ? '可安装'
       : info.stage === 'downloading' ? '正在后台下载' : '即将后台下载'
     head.textContent = 'KCoder ' + info.version + ' · ' + stageTxt
@@ -93,7 +93,7 @@ const SHOW_JS = `(() => {
           boldWanted ? (() => { const b = document.createElement('b'); b.textContent = piece; frag.append(b) })() : frag.append(piece)
         }
         const c = document.createElement('span')
-        c.style.cssText = 'font-family:ui-monospace,Menlo,monospace;font-size:11px;background:rgba(127,127,127,.14);border-radius:3px;padding:0 3px'
+        c.style.cssText = 'font-family:ui-monospace,Menlo,monospace;background:rgba(127,127,127,.14);border-radius:3px;padding:0 3px'
         c.textContent = codeSlots[Number(m[1])]
         frag.append(c)
         last = m.index + m[0].length

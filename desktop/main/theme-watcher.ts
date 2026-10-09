@@ -381,7 +381,7 @@ const SHELL_TITLEBAR_JS = `(() => {
     'z-index:2147483646',
     '-webkit-app-region:drag',
     'display:flex', 'align-items:center', 'justify-content:flex-start',
-    'font:500 13px -apple-system,"PingFang SC","Segoe UI",sans-serif',
+    'font-weight:500',
     'user-select:none',
   ].join(';')
   // 双段结构：工作区前缀（弱化色，含 " / " 分隔）+ 标题主体（省略号

@@ -109,7 +109,7 @@ const chipJs = (username: string, build: string): string => `(() => {
       'border:1px solid var(--dsw-alias-border-l1, rgba(128,128,128,.25))',
       'box-shadow:0 8px 24px rgba(0,0,0,.18)',
       'color:var(--dsw-alias-label-primary, inherit)',
-      'font-family:inherit', 'font-size:13px', 'line-height:20px',
+      'font-family:inherit', '', 'line-height:20px',
       'pointer-events:none',
     ].join(';')
     document.body.append(el)
@@ -266,11 +266,11 @@ const chipJs = (username: string, build: string): string => `(() => {
     'display:flex;align-items:center;gap:9px;width:100%;height:36px',
     'padding:0 10px;box-sizing:border-box;border:none;border-radius:8px',
     'background:transparent;cursor:pointer;text-align:left',
-    'font-family:inherit;font-size:14px;font-weight:400;line-height:22px',
+    'font-family:inherit;font-weight:400;line-height:22px',
   ].join(';')
   const ICON_BOX = 'display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;opacity:.82'
   /** 右侧值/箭头位（flex 末位，不参与收缩）。 */
-  const TRAIL = 'margin-left:auto;flex:none;font-size:12px;letter-spacing:.2px'
+  const TRAIL = 'margin-left:auto;flex:none;letter-spacing:.2px'
   const HOVER_IN = 'var(--dsw-specific-sidebar-nav-item-hover, rgba(128,128,128,.12))'
 
   /** 一行菜单项（图标 + 文案 + 可选的右侧值/箭头）。 */
@@ -540,8 +540,8 @@ const chipJs = (username: string, build: string): string => `(() => {
     const style = document.createElement('style')
     style.id = CHIP + '_style'
     style.textContent = [
-      '#' + CHIP + '{display:flex;align-items:center;gap:8px;width:100%;height:40px;padding:9px 16px 9px 12px;box-sizing:border-box;border:none;border-radius:12px;background:transparent;cursor:pointer;font-family:inherit;font-size:14px;font-weight:400;line-height:22px;color:var(--dsw-alias-label-primary);text-align:left}',
-      '#' + CHIP + ' > span:first-child{width:22px;height:22px;font-size:11px;font-weight:600}',
+      '#' + CHIP + '{display:flex;align-items:center;gap:8px;width:100%;height:40px;padding:9px 16px 9px 12px;box-sizing:border-box;border:none;border-radius:12px;background:transparent;cursor:pointer;font-family:inherit;font-weight:400;line-height:22px;color:var(--dsw-alias-label-primary);text-align:left}',
+      '#' + CHIP + ' > span:first-child{width:22px;height:22px;font-weight:600}',
       '#' + CHIP + ':hover{background:var(--dsw-specific-sidebar-nav-item-hover)}',
       '#' + CHIP + ':active{background:var(--dsw-specific-sidebar-nav-item-active)}',
       // settingsArea 定位锚：折叠态头像行改为绝对居中（见下）。
@@ -570,7 +570,7 @@ const chipJs = (username: string, build: string): string => `(() => {
       // 压过同层 z-index:auto 的定位兄弟，不引入新的层叠竞争。
       '#' + CHIP + '.kcoder-folded,[class*="collapsed"] #' + CHIP + '{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:36px;height:36px;margin:0;padding:0;gap:0;border-radius:10px;justify-content:center;align-items:center;z-index:2}',
       '#' + CHIP + '.kcoder-folded > span + span,[class*="collapsed"] #' + CHIP + ' > span + span{display:none}',
-      '#' + CHIP + '.kcoder-folded > span:first-child,[class*="collapsed"] #' + CHIP + ' > span:first-child{width:28px;height:28px;font-size:14px}',
+      '#' + CHIP + '.kcoder-folded > span:first-child,[class*="collapsed"] #' + CHIP + ' > span:first-child{width:28px;height:28px}',
     ].join('')
     document.head.append(style)
   }
