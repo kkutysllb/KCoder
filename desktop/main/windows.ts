@@ -39,6 +39,9 @@ const RENDERER_URL = process.env.ELECTRON_RENDERER_URL
 /** 预加载脚本绝对路径。 */
 const PRELOAD = join(__dirname, '../preload/index.js')
 
+/** 引擎 shell 页单桥 preload（__DSH_HOST_PATHS__；铁律 1 唯一例外，见该文件头）。 */
+const HOST_PATHS_PRELOAD = join(__dirname, '../preload/host-paths.js')
+
 let shellWindow: BrowserWindow | null = null
 const panels = new Map<string, BrowserWindow>()
 
@@ -122,6 +125,12 @@ export function showShellWindow(dshUrl: string): void {
       // guest 的安全面由下面的 will-attach-webview 强制（对齐上游
       // apps/desktop/src/browser-guests.ts 的加固序列）。
       webPreferences: {
+        // 铁律 1 的唯一例外（2026-10-09）：host-paths 单桥，只暴露
+        // __DSH_HOST_PATHS__（拖/粘文件转 @路径）。data-platform /
+        // dshDesktopBoot / window.desktop 等一概不进引擎页——上游 web
+        // 形态保持，注入器自持几何的前提；例外边界见该 preload 文件头
+        // 与 plans/kcoder-app-protocol.md D3。
+        preload: HOST_PATHS_PRELOAD,
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: true,

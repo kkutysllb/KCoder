@@ -18,7 +18,9 @@ export default defineConfig({
     root: 'desktop',
     build: {
       outDir: resolve('out/preload'),
-      lib: { entry: 'preload/index.ts' },
+      // index：壳应用桥（landing/面板）；host-paths：引擎 shell 页的单桥
+      // （__DSH_HOST_PATHS__，拖/粘文件转 @路径）。两份互不相挂。
+      lib: { entry: { index: 'preload/index.ts', 'host-paths': 'preload/host-paths.ts' } },
       rollupOptions: { external: ['electron'] },
     },
     resolve: {

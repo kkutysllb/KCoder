@@ -55,7 +55,7 @@ registerHooks({
 
 // 源码按打包器语义写（CJS 全局可用）：dsh-contract 顶层 `resolve(__dirname,
 // '..','..')` 求 PROJECT_ROOT。直载 ESM 无此全局，供 desktop/main 的值。
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 globalThis.__dirname = dirname(fileURLToPath(new URL('../desktop/main', import.meta.url).href))
 
@@ -178,7 +178,16 @@ installShellProtocol(() => shellWindow)
 
 const shellWindow = new BrowserWindow({
   show: false,
-  webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  webPreferences: {
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    // 与生产 shell 窗口同款单桥（windows.ts）：铁律 1 唯一例外
+    preload: join(__dirname, '../out/preload/host-paths.js'),
+  },
+})
+shellWindow.webContents.on('preload-error', (_e, p, err) => {
+  console.error(`[preload-error] ${p}: ${String(err)}`)
 })
 const pageLoaded = new Promise((resolve, reject) => {
   shellWindow.webContents.once('did-finish-load', resolve)
@@ -197,6 +206,18 @@ console.log('── 文档加载与注入面 ──')
     secure: window.isSecureContext === true,
     streamBase: globalThis.__DSH_TRANSPORT__?.streamBaseUrl ?? null,
     ownsHost: globalThis.__DSH_TRANSPORT__?.ownsHost === true,
+    hostPaths: (() => {
+      const bridge = globalThis.__DSH_HOST_PATHS__
+      if (bridge === undefined) return null
+      // 合成 File 无真实路径 ⇒ 上游契约必须回空串（回落字节上传）
+      const synthetic = new File(['x'], 'a.txt')
+      return { keys: Object.keys(bridge), syntheticPath: bridge.pathFor(synthetic) }
+    })(),
+    desktopLeak: {
+      boot: globalThis.dshDesktopBoot !== undefined,
+      product: globalThis.dshDesktop !== undefined,
+      platform: document.documentElement.getAttribute('data-platform'),
+    },
     cookieLeak: document.cookie,
     doc: document.body.textContent,
   })`)
@@ -204,6 +225,9 @@ console.log('── 文档加载与注入面 ──')
   ok('P2 secure context（secure 特权）', page.secure)
   check('P3 streamBaseUrl 注入并指向侧车', page.streamBase, fakeOrigin)
   ok('P3b ownsHost 注入（settings 镜像 host 持久化的前提；缺它提供商目录报 unavailable）', page.ownsHost)
+  check('P3c host-paths 单桥在场且合成 File 回空串（上游契约）', JSON.stringify(page.hostPaths), JSON.stringify({ keys: ['pathFor'], syntheticPath: '' }))
+  ok('P3d 桥最小性负对照：data-platform / dshDesktopBoot / dshDesktop 一概不在场（铁律 1 语义保持）',
+    page.desktopLeak.boot === false && page.desktopLeak.product === false && page.desktopLeak.platform === null)
   ok('P4 文档体经转发到达', page.doc.includes('fake-dsh-doc'))
   check('P5 set-cookie 扣留（不进页面 cookie jar）', page.cookieLeak, '')
 }

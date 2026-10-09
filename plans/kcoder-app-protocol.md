@@ -131,7 +131,17 @@ workspace-header / sidebar-toggle 正是按「该标记**永不落地**」自持
 （ARCHITECTURE.md §12 铁律 1 记录了三层根因）——任何模仿上游 preload 的
 举动会整表翻转这套自持几何。故：
 
-- **不新增 preload**，shell 维持 sandbox + 无 preload + console 上行通道；
+- **不新增暴露上游桌面分支的 preload**，shell 维持 sandbox +
+  contextIsolation + 不写 `data-platform`。**唯一例外（2026-10-09）**：
+  `desktop/preload/host-paths.ts` 单桥——只暴露 `__DSH_HOST_PATHS__`
+  （composer 拖/粘/选本机文件转 `@绝对路径` 引用，无路径回空串回落上传）。
+  立例理由：`webUtils.getPathForFile` 必须在能持有页面 File 对象的
+  electron 上下文里调，注入器体系（页面主世界）没有这个能力，最小桥是
+  唯一通道；上游官方桌面（apps/desktop/src/preload-app.ts，同为自定义
+  scheme 架构）即同款单桥。例外边界：origin 门（仅 kcoder-app://app）、
+  恰好一个方法、不携带宿主通道、**不写 data-platform / 不给
+  dshDesktopBoot**（上游 web 形态保持不变）——check-shell-protocol K 组
+  钉源码最小性，smoke-shell-protocol P3c/P3d 钉真桥行为与运行时缺席；
 - 页面需要的唯一新信息是 `streamBaseUrl` + `ownsHost`（F6/F6b），在**协议层**
   对 text/html 响应做有界缓冲 + `<head>` 后注入一行：
 

@@ -164,6 +164,25 @@ check('I2 其他高度', core.shellPageUrl(0), 'kcoder-app://app/?dsh-desktop-ti
 check('J1 正常 origin', core.hostOriginOf('http://127.0.0.1:63332/x'), 'http://127.0.0.1:63332')
 check('J2 垃圾输入原样返回', core.hostOriginOf('not a url'), 'not a url')
 
+/* ---- K. host-paths 单桥 preload 源码守卫（铁律 1 唯一例外，2026-10-09） ---- */
+/* smoke-shell-protocol 验的是「真桥真行为」（P3c/P3d）；这里验的是「源码保持
+ * 最小」：任何人在这个 preload 里加 ipcRenderer / process / 上游桌面分支全局
+ * （data-platform / dshDesktopBoot），都属铁律 1 破坏，必须在门上红。 */
+{
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../desktop/preload/host-paths.ts', import.meta.url), 'utf8')
+  ok('K1 origin 门与 SHELL_PAGE_ORIGIN 一致（kcoder-app + app）',
+    src.includes("location.protocol === 'kcoder-app:'") && src.includes("location.hostname === 'app'"))
+  ok('K2 桥名与方法符合上游契约（__DSH_HOST_PATHS__.pathFor）',
+    src.includes("'__DSH_HOST_PATHS__'") && src.includes('pathFor'))
+  ok('K3 无 ipcRenderer（宿主 IPC 面永不进引擎页）', !src.includes('ipcRenderer'))
+  ok('K4 无 process 触碰', !src.includes('process.'))
+  check('K5 恰好一次 exposeInMainWorld（暴露面最小性的源码级钉子；运行时缺席归 smoke P3d）',
+    src.split('exposeInMainWorld').length - 1, 1)
+  ok('K6 windows.ts 只给 shell 窗口挂单桥（landing/面板仍是壳应用桥）',
+    readFileSync(new URL('../desktop/main/windows.ts', import.meta.url), 'utf8').includes('preload: HOST_PATHS_PRELOAD'))
+}
+
 /* ---- 汇总 ---- */
 console.log(`check-shell-protocol: ${String(passed)} passed, ${String(failed)} failed`)
 if (failed > 0) process.exit(1)
