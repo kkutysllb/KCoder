@@ -35,6 +35,7 @@
  * @module scripts/check-injected-scripts
  */
 import { execFileSync } from 'node:child_process'
+import { runInNewContext } from 'node:vm'
 import { mkdtempSync, rmSync, writeFileSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
@@ -288,8 +289,59 @@ if (statSync(BUNDLE_DIR, { throwIfNoEntry: false })?.isDirectory() === true) {
       console.error(`  ✗ bundle/${pkg}/client.js:${String(line)} 顶层 export——外置 bundle 的 client 半必须走 window.__ModuleLoader__.load({ id, factory }) 协议（同 bundle/dsh-shell-prefs/client.js），加载器不认 ESM export，且顶层声明会与其它 client 模块撞标识符`)
       bad++
     }
+    // 工厂必须**接收 `require` 形参**（client-modules 契约：上游 tsdown stamp
+    // 即 factory: (require) => …）。漏了则模块内任何 require(...) 都是
+    // `require is not defined` ⇒ **整个条目激活失败**（2026-10-10 实机踩中：
+    // dsh-shell-prefs 因此带走了 locale/theme 桥）。
+    if (src.includes('require(') && !/factory:\s*(?:function\s*)?\(\s*require\b/.test(src)) {
+      console.error(`  ✗ bundle/${pkg}/client.js 使用了 require(...) 但工厂未声明 require 形参——加载器是 factory(require)，漏形参即 \`require is not defined\`，整个 client 条目激活失败`)
+      bad++
+    }
+    // 仿真加载器：真调一次工厂（桩模块），形参个数必须 ≥ 1 且不得抛错。
+    {
+      let captured = null
+      const sandbox = {
+        window: { __ModuleLoader__: { load: (entry) => { captured = entry } } },
+        document: {
+          documentElement: { dataset: {}, style: { setProperty() {} } },
+          head: { append() {} },
+          createElement: () => ({ style: {}, textContent: '', dataset: {} }),
+        },
+        getComputedStyle: () => ({ getPropertyValue: () => '' }),
+        MutationObserver: class { observe() {} disconnect() {} },
+        console, setTimeout, clearTimeout, queueMicrotask,
+        URL, Headers, Response, Request, Promise, JSON, Object, Array, String, Number, Boolean,
+        Error, TypeError, Math, Date, RegExp, Map, Set, WeakMap, Symbol, Proxy, Reflect, Intl,
+      }
+      sandbox.globalThis = sandbox
+      try {
+        runInNewContext(src, sandbox, { timeout: 5000 })
+      } catch (error) {
+        console.error(`  ✗ bundle/${pkg}/client.js 顶层求值抛错（加载器会在这一步失败）：${String(error).slice(0, 120)}`)
+        bad++
+        continue
+      }
+      if (captured === null || typeof captured.factory !== 'function') {
+        console.error(`  ✗ bundle/${pkg}/client.js 未调用 window.__ModuleLoader__.load({ id, factory })`)
+        bad++
+        continue
+      }
+      if (captured.factory.length < 1) {
+        console.error(`  ✗ bundle/${pkg}/client.js 工厂未声明 require 形参（arity=${String(captured.factory.length)}）——require(...) 必炸`)
+        bad++
+        continue
+      }
+      const stub = () => new Proxy(function () {}, { get: () => (() => ({})), apply: () => ({}) })
+      try {
+        captured.factory(stub)
+      } catch (error) {
+        console.error(`  ✗ bundle/${pkg}/client.js 工厂调用抛错（真加载器同路径）：${String(error).slice(0, 120)}`)
+        bad++
+        continue
+      }
+    }
   }
-  if (bad === 0) say('bundle client 半：无裸 ESM export')
+  if (bad === 0) say('bundle client 半：无裸 ESM export + 工厂收 require 形参（仿真加载器通过）')
 }
 if (bad > 0) die(`${String(bad)} 处 bundle client 协议违规`)
 say('通过：注入脚本零悬空引用，client 半协议合规')

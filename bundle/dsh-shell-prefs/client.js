@@ -16,7 +16,10 @@
  *
  * ## 模块形态（实测踩过两次）
  *
- * 外置 bundle 的 client 交付物走 `window.__ModuleLoader__.load({ id, factory })`
+ * 外置 bundle 的 client 交付物走 `window.__ModuleLoader__.load({ id, factory })`；
+ * **工厂接收 `require` 形参**（`factory: (require) => …`，上游 tsdown 同款 stamp）——
+ * 手写 client 半最容易漏的就是它：漏了则模块内任何 `require(...)` 都是
+ * `require is not defined`，**整个条目激活失败**（2026-10-10 实机踩中，已加闸）
  * 协议（与内置 @kkutysllb/dsh-terminal/client.js 同款）：工厂返回 exports，
  * 加载器读 `exports.inject` / `exports.apply`。
  * - 顶层 ESM `export` → 加载器不认；
@@ -63,14 +66,18 @@
 
 window.__ModuleLoader__.load({
   id: 'dsh-shell-prefs',
-  factory: () => {
+  // client-modules 契约：工厂**接收 `require` 形参**（上游 tsdown stamp 即
+  // `factory: (require) => {`）。手写 client 半漏了它 ⇒ `require is not defined`
+  // ⇒ 整个插件激活失败（连偏好桥一起带走）——2026-10-10 实机报错后修正。
+  factory: (require) => {
     const exports = {}
 
     /** 需要注入的服务（提供方为本部署内的上游插件）：偏好两件 + 官方槽。 */
     exports.inject = ['locale', 'theme', 'slots']
 
-    /** React 由模块加载器提供（与其它外置 bundle 的 client 同款取法）。 */
-    const React = require('react')
+    /** React 运行时：**懒取**（见 apply 里的槽注册段）。刻意不在工厂顶部取——
+     *  它一旦抛错会连偏好桥一起带走（2026-10-10 实机教训）。 */
+    let React = null
 
     /** 账号菜单读取的全局句柄名（桌面壳注入脚本侧同名字面量）。 */
     const BRIDGE = '__kcoderShellPrefs'
@@ -252,6 +259,10 @@ window.__ModuleLoader__.load({
        * 时静默跳过，条上自绘按钮继续兜底（交接标记不置位）。 ---- */
       if (ctx.slots !== undefined && ctx.slots !== null && typeof ctx.slots.inject === 'function') {
         try {
+          // React 懒取（工厂形参 require）。取不到 ⇒ 下面 catch 吞掉：槽不注册、
+          // 条上自绘按钮继续兜底，**偏好桥不受影响**。
+          if (React === null) React = require('react')
+          if (React === null) throw new Error('react unavailable')
           ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register(
             { name: 'conversation.session.header.utilities', id: 'kcoder-workspace', order: 90, label: '工作区' },
             WorkspaceNameUtility,

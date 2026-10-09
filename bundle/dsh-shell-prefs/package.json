@@ -1,6 +1,6 @@
 {
   "name": "dsh-shell-prefs",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "dsh-external in-box dsh bundle: exposes the deployment's locale and theme services to the KCoder desktop shell (account menu reads/switches them through their single upstream write entry), and registers the workspace-name button into the official conversation.session.header.utilities slot (S-D2: injected DOM → official slot).",
   "license": "MIT",
   "type": "module",
