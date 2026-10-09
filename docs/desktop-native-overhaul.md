@@ -77,7 +77,7 @@
 | 阶段 | 动作 | 判据 |
 |---|---|---|
 | S-D1 | 对齐 Electron 版本到上游同线（^44.7） | 打包/签名/原生模块全绿；`pnpm check` + 冒烟 |
-| S-D2 | 换**原生窗口 chrome**（`hiddenInset`/`hidden` + `titleBarOverlay`/trafficLight），退役自绘标题栏 | 三平台窗口控制/拖拽/双击最大化正常；`theme-watcher`/`workspace-header` 的条几何代码删除；GUI 冒烟改造 |
+| S-D2 | **已落地第一刀（2026-10-10）**：条上「工作区名」按钮由注入 DOM 改为**官方槽** `conversation.session.header.utilities`（`bundle/dsh-shell-prefs` v1.0.2 注册；**自愈式交接**——槽组件挂载置 `documentElement.dataset.kcoderWsSlot='1'`，条上旧按钮即让位，槽缺席/报错时旧按钮兜底）。**原生窗口 chrome 早已在用**（`windows.ts:98/106/109` 的 `titleBarStyle:'hidden'` + `trafficLightPosition` + `titleBarOverlay`），故「退役自绘标题栏」的真实剩余 = **条带内容与几何**（`--dsh-titlebar-h` 量测、页头搬移、左侧 logo/折叠簇） | 窗口控制/拖拽/双击最大化：现状已满足。条几何删除 **受 D3 制约**：上游只在自家桌面模式（preload 写 `data-platform`）为标题栏预留版面，我方不写 ⇒ 需先拍板 Q-D6 |
 | S-D3 | 引入 **`window.dshDesktop` 级桥**与 `runtime: 'desktop'` 分流（对齐上游语义） | 客户端识别为 desktop；快捷键/目录对话框走桥；我们的 preload 与上游桥对齐或合并 |
 | S-D4 | 产品 UI 插件化：设置页/MCP/品牌/账号/关于 → 官方 slot 注册 | 各 UI 面在**无注入**下可见可用；注入器逐个删除（每删一个跑一次冒烟） |
 | S-D5 | ✅ **已完成（2026-10-10）**：`plans/kcoder-app-protocol.md` 阶段 4 第二步 —— `windows.ts` 双模式收敛为协议单路、`store`/`ipc`/`ipc-contract`/偏好页的 `shellProtocolMode` 字段与开关删除、`dsh-manager` 的 `shellEntryUrl`/`shellUrlWithTitlebarInset` 删除、诊断页加载形态改常量。**剩余项「对齐上游 `dsh-app://`」已于同日完成**：逐项比对上游 alpha.2 后，转发面（权限集/删头/扣留头/init/403/no-store/WS 三头改写）本就完全一致，对齐了 3 处差异——WS 加 `wss://`、WS 补协议匹配、就绪行接受 `https?`（配合 alpha.2 的 `--tls-cert/--tls-key`）；刻意分歧 D1/D2/D3 保留并留档 | `pnpm check` 39/39（含 check-shell-protocol 54 断言）、`smoke:shell-protocol` 21/21、typecheck 双绿、grep 残留触点仅历史文档 |
@@ -96,4 +96,5 @@
 - **Q-D2 时点**：本轮 alpha.2 升级**先发版**、桌面改造另立项目；还是先把桌面改造做进这一轮（会推迟发版）？建议**先发版**（升级面已收敛，桌面改造是产品级工程）。
 - **Q-D3 标题栏**：是否接受「直接删掉自绘标题栏，改用原生 chrome」带来的视觉变化（原生控制按钮位置/高度由 Electron 定）？
 - **Q-D4 产品面优先级**：设置页 / MCP / 品牌 / 账号 / 关于 五块，先迁哪一块？建议先迁**设置页 + MCP**（面最大、最常被上游改动影响）。
-- **Q-D5 协议层**：是否接受把 `shell-protocol` 的转发面换成上游 `dsh-app://` 体系？
+- **Q-D5 协议层**：是否接受把 `shell-protocol` 的转发面换成上游 `dsh-app://` 体系？（已复核：转发面本就一致，仅 3 处差异已对齐；见 §3 与 `plans/kcoder-app-protocol.md` 对齐记录。）
+- **Q-D6（S-D2 第二轮前提，2026-10-10 新增）**：条带几何能否退役取决于是否采用上游桌面语义——由 preload 写 `data-platform="darwin"`，让上游 UI 自己为标题栏预留版面。**A 保持不写**（现状：自绘条 + 页面下移 + 几何量测保留）；**B 改写上**（页头真正上游化，但会改变整页布局与折叠/拖拽行为，需重跑铁律 1 检查与全部 GUI 冒烟）。**建议：产品元素先入槽（本轮已做），几何退役等 B 的决定。**

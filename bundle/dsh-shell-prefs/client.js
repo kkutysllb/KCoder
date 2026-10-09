@@ -44,6 +44,20 @@
  * 任一侧服务缺席（该部署未启用对应插件）→ 对应方法返回 null / false / 空订阅，
  * 菜单据此降级提示，不抛错、不影响启动。
  *
+ * ## 工作区名按钮（S-D2 第一刀，2026-10-10：注入 DOM → 官方槽）
+ *
+ * 条带里的「工作区名」按钮原先由 `desktop/main/theme-watcher.ts` 自绘注入。
+ * 现在改由本插件注册进官方槽 `conversation.session.header.utilities`
+ * （kind=list；注册选项 {id, order, label}）——位置、排序与键盘可达性交给上游
+ * 的 header 布局，不再依赖自绘几何。
+ *
+ * 数据源保持一处：桌面壳的 `workspace-probe` 把工作区名/路径写进
+ * `--dsh-ws-name` / `--dsh-ws-path`；点击仍走既有 `__dsh_ws__:` console 通道
+ * （主进程 shell.openPath）。**自愈式交接**：本组件挂载后置
+ * `documentElement.dataset.kcoderWsSlot = '1'`，条上那枚自绘按钮据此让位；
+ * 槽侧缺席（旧引擎 / 未启用 ui-slots）时标记不置位，旧按钮照旧显示——
+ * 既不会出现两枚，也不会丢功能。
+ *
  * @module dsh-shell-prefs/client
  */
 
@@ -52,8 +66,11 @@ window.__ModuleLoader__.load({
   factory: () => {
     const exports = {}
 
-    /** 需要注入的两个服务（提供方为本部署内的上游插件）。 */
-    exports.inject = ['locale', 'theme']
+    /** 需要注入的服务（提供方为本部署内的上游插件）：偏好两件 + 官方槽。 */
+    exports.inject = ['locale', 'theme', 'slots']
+
+    /** React 由模块加载器提供（与其它外置 bundle 的 client 同款取法）。 */
+    const React = require('react')
 
     /** 账号菜单读取的全局句柄名（桌面壳注入脚本侧同名字面量）。 */
     const BRIDGE = '__kcoderShellPrefs'
@@ -94,6 +111,68 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /* ---- 工作区名按钮：官方槽组件（S-D2 第一刀）---------------------------
+     * 数据源：桌面壳 workspace-probe 写在 documentElement 上的两个 CSS 变量
+     * （--dsh-ws-name / --dsh-ws-path）。变量变化 = documentElement 的 style
+     * 属性突变 → MutationObserver 跟随，无需轮询。
+     * 点击：既有 __dsh_ws__ console 通道（主进程 shell.openPath）。 */
+    const WS_NAME_VAR = '--dsh-ws-name'
+    const WS_PATH_VAR = '--dsh-ws-path'
+    const WS_SLOT_FLAG = 'kcoderWsSlot'
+    const readWsVar = (name) => {
+      try { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() } catch { return '' }
+    }
+    let wsStyleInjected = false
+    const ensureWorkspaceStyle = () => {
+      if (wsStyleInjected) return
+      wsStyleInjected = true
+      const style = document.createElement('style')
+      style.textContent = [
+        '.kcoder-ws-chip{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;gap:5px;max-width:240px;min-width:0;padding:3px 7px;border-radius:7px;cursor:pointer;transition:background .12s ease}',
+        '.kcoder-ws-chip:hover{background:color-mix(in srgb,currentColor 10%,transparent)}',
+        '.kcoder-ws-chip svg{width:16px;height:16px;display:block;transform:translateY(.5px)}',
+        '.kcoder-ws-chip>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:400;line-height:1;display:block}',
+      ].join('')
+      document.head.append(style)
+    }
+    const WS_FOLDER_PATH = 'M1.8 4.4c0-.7.6-1.3 1.3-1.3h2.8c.4 0 .8.2 1 .5l1 1.1h3.9c.7 0 1.3.6 1.3 1.3v5.6c0 .7-.6 1.3-1.3 1.3H3.1c-.7 0-1.3-.6-1.3-1.3V4.4Z'
+    /** 官方 header utilities 座位里的工作区名按钮。 */
+    function WorkspaceNameUtility() {
+      const [ws, setWs] = React.useState(() => ({ name: readWsVar(WS_NAME_VAR), path: readWsVar(WS_PATH_VAR) }))
+      React.useEffect(() => {
+        ensureWorkspaceStyle()
+        // 交接标记：条上自绘按钮读到它就永久让位（槽侧已接管）
+        document.documentElement.dataset[WS_SLOT_FLAG] = '1'
+        const sync = () => {
+          const next = { name: readWsVar(WS_NAME_VAR), path: readWsVar(WS_PATH_VAR) }
+          setWs((prev) => (prev.name === next.name && prev.path === next.path ? prev : next))
+        }
+        sync()
+        const mo = new MutationObserver(sync)
+        mo.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
+        return () => {
+          mo.disconnect()
+          delete document.documentElement.dataset[WS_SLOT_FLAG]
+        }
+      }, [])
+      if (ws.name === '') return null
+      return React.createElement('button', {
+        type: 'button',
+        className: 'kcoder-ws-chip',
+        title: ws.path === '' ? ws.name : '打开工作区目录：' + ws.path,
+        onClick: () => {
+          if (ws.path === '') return
+          console.log('__dsh_ws__:' + JSON.stringify({ action: 'reveal', path: ws.path }))
+        },
+      },
+        React.createElement('span', {
+          style: { flex: 'none', display: 'inline-flex', width: '16px', height: '16px' },
+          dangerouslySetInnerHTML: { __html: '<svg viewBox="0 0 16 16" fill="none"><path d="' + WS_FOLDER_PATH + '" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>' },
+        }),
+        React.createElement('span', null, ws.name),
+      )
+    }
+    
     /**
      * Client 插件体：发布窄接口，写入一律转发到上游服务。
      * @param ctx - client cordis 上下文。
@@ -167,6 +246,19 @@ window.__ModuleLoader__.load({
         getTheme,
         setTheme,
         subscribeTheme: (fn) => subscribe(theme, fn),
+      }
+
+      /* ---- 官方槽注册（S-D2 第一刀）：槽服务缺席（旧引擎 / 未启用 ui-slots）
+       * 时静默跳过，条上自绘按钮继续兜底（交接标记不置位）。 ---- */
+      if (ctx.slots !== undefined && ctx.slots !== null && typeof ctx.slots.inject === 'function') {
+        try {
+          ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register(
+            { name: 'conversation.session.header.utilities', id: 'kcoder-workspace', order: 90, label: '工作区' },
+            WorkspaceNameUtility,
+          ))
+        } catch {
+          /* 槽契约变化不影响偏好桥：工作区按钮退回条上自绘形态 */
+        }
       }
 
       /* ---- 卸载收口（运行时停用/HMR：撤桥 + Wired 守卫复位以便重挂载）。

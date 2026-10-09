@@ -1,7 +1,7 @@
 {
   "name": "dsh-shell-prefs",
-  "version": "1.0.1",
-  "description": "dsh-external in-box dsh bundle: exposes the deployment's locale and theme services to the KCoder desktop shell, so the account menu can read and switch them through their single upstream write entry instead of simulating clicks on the settings rows.",
+  "version": "1.0.2",
+  "description": "dsh-external in-box dsh bundle: exposes the deployment's locale and theme services to the KCoder desktop shell (account menu reads/switches them through their single upstream write entry), and registers the workspace-name button into the official conversation.session.header.utilities slot (S-D2: injected DOM → official slot).",
   "license": "MIT",
   "type": "module",
   "main": "entry.js",
@@ -25,7 +25,10 @@
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "inject": [],
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
       "platform": "web"
     }
   },
@@ -34,7 +37,10 @@
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "inject": [],
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
       "platform": "web"
     }
   },

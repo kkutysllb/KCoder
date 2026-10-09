@@ -27,7 +27,7 @@ KCoder 的账号菜单是**桌面壳注入的自绘 DOM**（`desktop/main/accoun
 | `package.json` | `dsh.bundle.patch` 指向本层补丁；`dsh.client.{inject,platform}` 声明 client 半 |
 | `cordis.patch.yml` | 注册 `kcoder-shell-prefs` 行（宿主侧空壳） |
 | `entry.js` | 宿主侧 `apply()` 无操作（本 bundle 没有 host 能力，留壳以保持 bundle 形态） |
-| `client.js` | **真正的交付**：CommonJS `exports.apply`，注入服务并发布桥 |
+| `client.js` | **真正的交付**：CommonJS `exports.apply`，注入服务并发布桥 + 注册官方槽组件 |
 
 桥发布在 `window.__kcoderShellPrefs`：
 
@@ -44,6 +44,21 @@ subscribeTheme(fn)  // → off()
 > 没有上游提供的公共通道；桌面壳此前已有同类先例（`window.__dshStyleSync`、
 > `window.__dshHomeMigration`、`window.__dshThemeSync`）。接口刻意收窄成
 > get/set/subscribe，不泄露 ctx 本体；插件卸载时撤桥。
+
+## 工作区名按钮：注入 DOM → 官方槽（S-D2 第一刀，2026-10-10）
+
+条带里的「工作区名」按钮原先由 `desktop/main/theme-watcher.ts` 自绘注入（自持几何：
+`max-width` 要避开侧栏宽度、右侧让位带、状态簇宽度三组 CSS 变量）。现在改由本插件
+注册进官方槽 **`conversation.session.header.utilities`**（`kind: list`；注册选项
+`{id, order, label}`）——位置、排序与键盘可达性交给上游 header 布局。
+
+- **数据源仍是一处**：桌面壳 `workspace-probe` 把工作区名/路径写进 `--dsh-ws-name` /
+  `--dsh-ws-path`；组件用 `MutationObserver` 跟随 `documentElement` 的 style 突变。
+- **点击仍走既有通道**：`console.log('__dsh_ws__:' + JSON.stringify({action:'reveal',path}))`，
+  主进程 `shell.openPath`（`theme-watcher.ts` 的 `__dsh_ws__` 消费点）。
+- **自愈式交接**：组件挂载即置 `documentElement.dataset.kcoderWsSlot = '1'`，条上那枚自绘
+  按钮据此让位；槽服务缺席（旧引擎 / 未启用 ui-slots）或注册抛错时标记不置位，旧按钮照旧
+  显示——**不会两枚并存，也不会丢功能**。
 
 ## 降级行为
 

@@ -495,12 +495,17 @@ const SHELL_TITLEBAR_JS = `(() => {
     wsBtn.title = wsp !== '' ? '打开工作区目录：' + wsp : ''
     // 恢复显示必须写回 inline-flex：置 '' 会清除 cssText 里的 display，
     // 残留的 all:unset 把按钮打回 inline，文字掉到第二行
-    wsBtn.style.display = ws !== '' ? 'inline-flex' : 'none'
+    // S-D2 交接位（2026-10-10）：官方 utilities 槽里的工作区按钮挂载后置
+    // documentElement.dataset.kcoderWsSlot='1'，条上这枚自绘按钮即让位。
+    // 槽侧缺席/报错 ⇒ 标记不置位 ⇒ 本按钮照旧显示（自愈式交接，不会两枚并存，
+    // 也不会丢功能）。
+    const slotOwned = document.documentElement.dataset.kcoderWsSlot === '1'
+    wsBtn.style.display = ws !== '' && !slotOwned ? 'inline-flex' : 'none'
     const title = currentTitle()
     ttlTag.textContent = title
     ttlTag.style.display = title !== '' ? '' : 'none'
     // 分隔符只在两段都有内容时才是分隔符
-    wsSep.style.display = (ws !== '' && title !== '') ? '' : 'none'
+    wsSep.style.display = (ws !== '' && title !== '' && document.documentElement.dataset.kcoderWsSlot !== '1') ? '' : 'none'
     pushTitleEnd()
   }
   /* 主题异步落定自愈：@property 过渡/上游延迟落色时，突变瞬间读到的
