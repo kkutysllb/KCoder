@@ -253,16 +253,17 @@ const PAGE_JS = `(() => {
   style.textContent = rules.join('')
   document.head.append(style)
 
-  // —— 折叠无痕 + 原生右栏轨道归零：独立 style 元素，textContent 随态清写 ——
-  // 规则：轨 2 从 frame inline 原样复制、轨 1 折叠时写 0px、**轨 3 恒 0px**
-  // （见文件头「原生右栏轨道归零」），!important 压过 React inline（不改
-  // inline，同元素 [data-animating] 的 grid 轨道过渡照常生效）；解析失败 →
-  // 清空（退化为上游原样，不崩）。
+  // —— 折叠无痕：独立 style 元素，textContent 随态清写 ——
+  // 规则：折叠时轨 1 写 0px、轨 2/3 从 frame inline 原样复制（**不再干预
+  // 第三轨**——原生右栏已接回，见文件头「已退役：原生右栏轨道归零」），
+  // !important 压过 React inline（不改 inline，同元素 [data-animating] 的
+  // grid 轨道过渡照常生效）；展开态不产出任何规则（上游 inline 原样生效）；
+  // 解析失败 → 清空（退化为上游原样，不崩）。
   const voidStyle = document.createElement('style')
   voidStyle.id = VOID_ID
   document.head.append(voidStyle)
-  // 结构锚：frame = [data-rightbar-col] 的父节点（不绑类名/hash）。:has()
-  // 需 Chromium 105+，运行期探测一次；不支持时退化为折叠态属性锚。
+  // 结构锚：frame（AppFrame 根，其子节点含 [data-rightbar-col]；不绑类名/hash）。
+  // :has() 需 Chromium 105+，运行期探测一次；不支持时退化为折叠态属性锚。
   const FRAME_SEL = (() => {
     try { return CSS.supports('selector(:has(> div))') ? ':has(> [data-rightbar-col])' : null } catch (e) { return null }
   })()
@@ -294,14 +295,14 @@ const PAGE_JS = `(() => {
       const tracks = typeof raw === 'string' && raw !== '' ? splitTracks(raw) : null
       if (tracks !== null && tracks.length === 3) {
         const collapsed = f.hasAttribute('data-sidebar-collapsed')
-        // 轨 3 恒 0px：上游原生右栏被压制后面板不可见，但轨道照旧按
-        // minmax(0px,Npx) 的增长上限预留 → 留下空白（见文件头实测）。
-        const value = (collapsed ? '0px' : tracks[0]) + ' ' + tracks[1] + ' 0px'
-        // 注入卫生：轨值只可能是 px/minmax/fr 组合，含危险字符一律判失败
-        if (!/[{};<>]/.test(value)) {
-          // 结构锚优先；折叠态再补属性锚（既有选择器，兼 :has 不可用时的兜底）
-          if (FRAME_SEL !== null) css += FRAME_SEL + '{grid-template-columns:' + value + ' !important}'
-          if (collapsed) {
+        // 只在折叠态产出规则：轨 1 归零（无痕）、轨 2/3 原样复制。展开态
+        // 一律不产出（上游 inline 原样生效，原生右栏照常占宽）。
+        if (collapsed) {
+          const value = '0px ' + tracks[1] + ' ' + tracks[2]
+          // 注入卫生：轨值只可能是 px/minmax/fr 组合，含危险字符一律判失败
+          if (!/[{};<>]/.test(value)) {
+            // 结构锚优先；再补折叠态属性锚（既有选择器，兼 :has 不可用时的兜底）
+            if (FRAME_SEL !== null) css += FRAME_SEL + '{grid-template-columns:' + value + ' !important}'
             css += '[data-sidebar-collapsed]{grid-template-columns:' + value + ' !important}'
             css += '[data-sidebar-collapsed] > [class*="sidebarCol"]{border-right:none !important}'
           }
@@ -400,9 +401,9 @@ const PAGE_JS = `(() => {
     layoutCluster()
   }
 
-  // frame 属性 observer：折叠态切换（data-sidebar-collapsed 增删）与
-  // 折叠态窗口缩放（inline 轨道随视口重写 → 轨 2/3 复制保持新鲜）都经此
-  // 进入 syncAll。frame 被 React 重建时由 ensureFrameObs 换绑。
+  // frame 属性 observer：折叠态切换（data-sidebar-collapsed 增删）与窗口
+  // 缩放（inline 轨道随视口重写 → 轨 2/3 复制保持新鲜）都经此进入 syncAll。
+  // frame 被 React 重建时由 ensureFrameObs 换绑。
   let frameObs = null
   let frameSeen = null
   const ensureFrameObs = () => {

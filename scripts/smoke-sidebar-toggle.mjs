@@ -497,10 +497,12 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
       const nextBtn = document.getElementById('__dsh_desktop_next_btn')
       const newBtn = document.getElementById('__dsh_desktop_new_btn')
       const side = document.querySelector('.sidebarCol')
+      const voidStyle = document.getElementById('__dsh_desktop_sidebar_void_style')
       const disp = (el) => el === null ? null : getComputedStyle(el).display
       return JSON.stringify({
         track1: getComputedStyle(frame).gridTemplateColumns.split(' ')[0],
         track3: getComputedStyle(frame).gridTemplateColumns.split(' ')[2],
+        voidText: voidStyle !== null ? voidStyle.textContent : null,
         toggleLeft: btn !== null ? btn.getBoundingClientRect().left : null,
         toggleAria: btn !== null ? btn.getAttribute('aria-label') : null,
         prevDisplay: disp(prevBtn),
@@ -552,9 +554,9 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
     if (Math.abs(expandSim.toggleLeft - TOGGLE_LEFT) > 1) fails.push(`模拟展开后折叠按钮 left=${expandSim.toggleLeft} 应 ≈${TOGGLE_LEFT}`)
     if (expandSim.newDisplay !== 'none') fails.push('模拟展开后新会话代理应隐藏')
     if (expandSim.sideBorder !== '1px') fails.push(`模拟展开后 sidebarCol 描边=${expandSim.sideBorder} 应为 1px（规则清空后恢复）`)
-    if (expandSim.track3 !== '0px') fails.push(`模拟展开后轨 3=${expandSim.track3} 应为 0px（归零规则应恒在场，不再清空）`)
-    // 2026-10-05：规则不再随展开清空（轨 3 恒 0）——断言反转，见上方说明
-    if (expandSim.voidLen === null || expandSim.voidLen === 0) fails.push('模拟展开后归零规则不应为空（轨 3 须恒 0）')
+    // 2026-10-09：规则随展开**清空**（轨道覆盖只服务折叠无痕）——断言反转回
+    // 「展开态必须无规则」，见文件头。
+    if (expandSim.voidLen !== null && expandSim.voidLen > 0) fails.push('模拟展开后仍留有轨道覆盖规则（应清空，原生右栏按 inline 占宽）')
     if (expandSim.extra !== expandedExtra + 'px') fails.push(`模拟展开后 extra=${expandSim.extra} 应为 ${expandedExtra}px`)
   } else {
     // 折叠态：模拟窗口缩放（inline 轨 2 重写为更大的 min）→ 规则跟刷。
@@ -563,10 +565,16 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
       const frame = document.querySelector('.frame')
       frame.style.gridTemplateColumns = '56px minmax(500px, 1fr) minmax(0px, 480px)'
       await new Promise((res) => setTimeout(res, 700))
-      return JSON.stringify({ tracks: getComputedStyle(frame).gridTemplateColumns })
+      const voidStyle = document.getElementById('__dsh_desktop_sidebar_void_style')
+      return JSON.stringify({
+        tracks: getComputedStyle(frame).gridTemplateColumns,
+        voidText: voidStyle !== null ? voidStyle.textContent : null,
+      })
     })()`, true))
     if (!resized.tracks.startsWith('0px 500px')) fails.push(`折叠态窗口缩放后无痕规则未跟刷，实际「${resized.tracks}」`)
-    if (resized.tracks.split(' ')[2] !== '0px') fails.push(`折叠态窗口缩放后轨 3=${resized.tracks.split(' ')[2]} 应为 0px（归零应随重刷保留）`)
+    // 重刷必须把**新的** inline 第三轨一并复制进去（不写死 0px）
+    if (resized.voidText === null || !resized.voidText.includes('minmax(0px, 480px)'))
+      fails.push(`折叠态窗口缩放后轨 3 未被原样复制：${String(resized.voidText)}`)
   }
 
   console.log(`[${label}${collapsed ? '-collapsed' : ''}]`, fails.length === 0 ? 'PASS' : 'FAIL: ' + fails.join('; '))
@@ -682,7 +690,7 @@ app.whenReady().then(async () => {
   // Windows 场景：装饰红绿灯 + 双平台同坐标（展开 + 折叠各一档，extra 不同）
   results.push(await runScenario(win, 'win-dark', true, false, true))
   results.push(await runScenario(win, 'win-dark', true, true, true))
-  // 原生右栏轨道归零（需宽窗口：480 宽无网格余量，第三轨本就 0，假绿）
+  // 原生右栏占宽保全（需宽窗口：480 宽无网格余量，第三轨本就 0，假绿）
   const wideWin = new BrowserWindow({ width: 1440, height: 800, show: false })
   results.push(await runRightbarGapScenario(wideWin, 'gap-expanded', false))
   results.push(await runRightbarGapScenario(wideWin, 'gap-collapsed', true))

@@ -103,8 +103,9 @@ export function registerIpc(): void {
   /* git 面板 IPC 已退役（2026-08）：@kkutysllb/dsh-git-panel 插件自带
    * webServer RPC（/dsh-git-panel/api/snapshot|open-plan）替代。 */
 
-  /* 内嵌终端 IPC 已退役（2026-08）：@kkutysllb/dsh-terminal 插件自带
-   * webServer RPC（/dsh-terminal/api/rpc + SSE 输出流）替代。 */
+  /* 内嵌终端 IPC 已退役（2026-08，由 @kkutysllb/dsh-terminal 插件的
+   * webServer RPC 替代）；该插件本身亦于 2026-10-09 整线退役——终端现在
+   * 是上游原生右侧栏的终端 tab，宿主侧不再有任何终端 RPC 面。 */
 
   /* ---- 本地账户鉴权（门禁数据源；登出连带窗口收场） ---- */
   ipcMain.handle('auth:status', () => authStatus())

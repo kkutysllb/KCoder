@@ -48,7 +48,7 @@ const PRESETS = join(ROOT, 'desktop', 'main', 'preset-plugins.ts')
  * 它们，覆盖者是 materialize-peers 末尾的自检与 `verify-runtime-providers.mjs`。
  */
 const MATERIALIZE_ONLY = new Set([
-  'dsh-terminal', '@kkutysllb/dsh-terminal', 'dsh-skills-bundle', 'dsh-shell-prefs', 'dsh-ssh-remote',
+  'dsh-skills-bundle', 'dsh-shell-prefs', 'dsh-ssh-remote',
 ])
 
 /**

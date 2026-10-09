@@ -201,9 +201,9 @@ export interface UpdateStatus {
 }
 
 /* ---------- 内嵌终端（已退役） ----------
- * TerminalTheme/TerminalTab 契约与 terminal:* bridge 已随宿主终端
- * 面板退役（2026-08）：@kkutysllb/dsh-terminal 插件自带 webServer RPC
- * （/dsh-terminal/api/rpc + SSE 输出流）替代，见 bundle/dsh-terminal。 */
+ * TerminalTheme/TerminalTab 契约与 terminal:* bridge 已随宿主终端面板退役
+ * （2026-08，当时由 @kkutysllb/dsh-terminal 插件的 webServer RPC 替代）；
+ * 该插件 2026-10-09 整线退役后终端归上游原生右栏终端 tab，宿主侧无终端契约。 */
 
 /* ---------- 文件活动（已退役） ----------
  * PreviewEntry（agent 读/改了哪个文件的活动条目）与 file-activity 聚合器已随

@@ -156,23 +156,8 @@ export function installMenu(): void {
           click: () => openPanel('preferences', '偏好设置 · KCoder'),
         },
         { type: 'separator' },
-        {
-          label: '切换内嵌终端',
-          accelerator: 'Control+`',
-          click: () => {
-            const w = getShellWindow()
-            if (w === null || w.isDestroyed()) return
-            w.show()
-            // 终端已插件化（dsh-terminal）：转发页面内插件按钮
-            // 点击（onclick 不依赖可见性，win32 display:none 照常触发）
-            void w.webContents
-              .executeJavaScript(
-                "(() => { const b = document.getElementById('__dsh_kc_term_btn'); if (b) b.click() })()",
-                true,
-              )
-              .catch(() => {})
-          },
-        },
+        // 「切换内嵌终端」（Control+`）已随内置终端插件 2026-10-09 退役删除：
+        // 终端现在是上游原生右侧栏的终端 tab，由用户在右栏自行开关，宿主不代理。
         {
           label: '诊断…',
           accelerator: 'CmdOrCtrl+Shift+I',

@@ -58,8 +58,16 @@ export const SHELL_TITLEBAR_HEIGHT = 48
 const TITLEBAR_H_VAR = '--dsh-titlebar-h'
 const TITLEBAR_RIGHT_VAR = '--dsh-titlebar-right-reserve'
 
-/** 右侧自绘按钮带宽度：两枚 26px 按钮（侧栏面板 12 / 内嵌终端 44；本地编辑器钮 2026-10-08 随注入器退役摘除，44+26=70）。 */
-const TITLEBAR_RIGHT_BAND = 70
+/**
+ * 右侧让位带宽：**尾部呼吸位 12px**（2026-10-09 起宿主不再向自绘标题栏注入任何
+ * 按钮——侧栏开关代理 / 内嵌终端 / 本地编辑器三枚已随各自退役摘除，原来的「按钮带」
+ * 语义随之消失）。仍保留带宽而非归零：会话页头（workspace-header）把它当
+ * padding-right——归零后状态簇（SSH 胶囊、右栏展开按钮等）会**贴到窗口右缘**
+ * （2026-10-09 用户实测「右边的按钮太靠近边界了」）。12px 与左侧「侧边栏右缘 +
+ * 12px」同节奏，也等于上游 `_headerCorner` 自身的右缘留白（28px 内边距 +
+ * margin-right:-16px）。Windows 再由 padRight 叠加原生控制按钮区。
+ */
+const TITLEBAR_RIGHT_BAND = 12
 
 /** 自绘标题栏向 workspace-header 发布的「标题右侧让位宽度」变量（标题 max-width 依此收窄）。 */
 const TITLEBAR_STATUS_VAR = '--dsh-titlebar-status-w'
@@ -303,11 +311,10 @@ export function themeBackgroundColor(pref: 'system' | 'light' | 'dark' = getSett
  *   sidebar-toggle 设置 = 最右按钮右缘 + 间距 8，当前最右即折叠按钮；
  *   排布自 2026-09-20 起为 左箭头/右箭头/折叠）叠加上最小让位，收起态
  *   标题不与红绿灯右侧这串按钮重叠）；max-width 自适应避让：右侧取
- *   按钮带（--dsh-titlebar-right-reserve，102px = 三枚 26px 按钮：侧栏面板
- *   12/内嵌终端 44/本地编辑器 76px 序——终端由 dsh-terminal 插件 client
- *   注入，本地编辑器见 open-in-app-button；原第四枚上下文按钮的 76→108
- *   带宽随 dsh-context 插件 2026-10-02 整线退役收拢；Windows 另加 padRight
- *   让位原生控制按钮区）**再减去标题右侧的占用宽度**（--dsh-titlebar-status-w，
+ *   让位带（--dsh-titlebar-right-reserve＝尾部呼吸位 + Windows 原生控制按钮区让位；
+ *   **2026-10-09 起宿主注入的三枚按钮全部退役**，带宽从「按钮带」降为 12px 呼吸位
+ *   ——归零会让状态簇贴到窗口右缘（用户实测）；更早的第四枚上下文按钮随
+ *   dsh-context 2026-10-02 退役）**再减去标题右侧的占用宽度**（--dsh-titlebar-status-w，
  *   workspace-header 按分量量出后写入：预设/智能体团队/子代理/后台任务四类
  *   徽章 + 工具座位 + 角位座位，全部由上游自己渲染在标题之后，见该模块头
  *   注释），长标题省略号截断；同一份实测右缘再以

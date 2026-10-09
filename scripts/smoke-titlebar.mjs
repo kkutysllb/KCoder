@@ -21,8 +21,10 @@
  *
  * - 标题栏文本含工作区名 + 会话标题；**即使 `document.title` 里带着产品名，
  *   标题栏也绝不含它**（判别点）；也不含硬编码回退 'KCoder'；
- * - 几何通道：`--dsh-titlebar-h`=48px、`--dsh-titlebar-right-reserve`=70px
- *   （darwin）必须写到 documentElement，供 workspace-header 消费；
+ * - 几何通道：`--dsh-titlebar-h`=48px、`--dsh-titlebar-right-reserve`=
+ *   源码常量 `TITLEBAR_RIGHT_BAND` + 平台 padRight（darwin 下即该常量）必须写到
+ *   documentElement，供 workspace-header 消费；**常量从源码读**，写死会漏掉值变更
+ *   （2026-10-09 修假绿）；
  * - 绘制层级：标题栏 z-index 必须**低于**页头覆盖层（否则徽章被条的背景盖住）
  *   ——注意这是**绘制**主张，与「能不能点」是两件事；
  * - **app-region（能不能点，2026-10-05 第三轮）**：用上游合成模型
@@ -92,7 +94,28 @@ if (BAR_MODE === 'append' && barBodyUsed === barBody) {
 const SHELL_TITLEBAR_HEIGHT = 48
 const TITLEBAR_H_VAR = '--dsh-titlebar-h'
 const TITLEBAR_RIGHT_VAR = '--dsh-titlebar-right-reserve'
-const TITLEBAR_RIGHT_BAND = 70
+/**
+ * 让位带宽从**源码**读（2026-10-09 修假绿：此处原是写死的 70 —— 源码把该常量
+ * 改成 0/12 后，本冒烟只验了「挂载侧插值能跑」，没验「发布的值对不对」，照样报绿）。
+ */
+const TITLEBAR_RIGHT_BAND = (() => {
+  const m = /const TITLEBAR_RIGHT_BAND = (\d+)/.exec(src)
+  if (m === null) {
+    console.error('[' + 'titlebar' + '] 无法从 ' + SRC_PATH + ' 提取 TITLEBAR_RIGHT_BAND（常量改名？冒烟需同步）')
+    process.exit(1)
+  }
+  return Number(m[1])
+})()
+
+/**
+ * 绑定检查（2026-10-09）：常量必须真的接到**发布语句**上。只从源码读常量是自洽的
+ * ——它证明不了「挂载侧用了它」（把发布语句改成写死 '0px' 也照样自洽）。所以这里再
+ * 静态钉住那条发布表达式；负对照：把该表达式换成字面量，本检查必须红。
+ */
+if (!/setProperty\('\$\{TITLEBAR_RIGHT_VAR\}', '\$\{TITLEBAR_RIGHT_BAND \+ TP\.padRight\}px'\)/.test(src)) {
+  console.error('[' + 'titlebar' + '] 发布语句未绑定 TITLEBAR_RIGHT_BAND（写成字面量了？让位值会与常量脱钩）')
+  process.exit(1)
+}
 const TITLEBAR_STATUS_VAR = '--dsh-titlebar-status-w'
 const TITLEBAR_TITLE_END_VAR = '--dsh-titlebar-title-end'
 const TITLEBAR_TITLE_EVENT = '__dsh_title_changed'
@@ -379,7 +402,7 @@ app.whenReady().then(async () => {
     if (p.after.indexOf('改过的标题') === -1) fails.push(`面包屑活通道未生效（改后仍为「${p.after}」）`)
     if (p.after.indexOf(PRODUCT_TAIL) !== -1) fails.push('活通道更新后重新引入产品名')
     if (p.geomH.trim() !== '48px') fails.push(`--dsh-titlebar-h 未发布或值不对（${p.geomH}）`)
-    if (p.geomRight.trim() !== '70px') fails.push(`--dsh-titlebar-right-reserve 未发布或值不对（${p.geomRight}）`)
+    if (p.geomRight.trim() !== (TITLEBAR_RIGHT_BAND + TP.padRight) + 'px') fails.push(`--dsh-titlebar-right-reserve 未发布或值不对（${p.geomRight}，应为 ${TITLEBAR_RIGHT_BAND + TP.padRight}px）`)
     if (p.statusW.trim() === '' || p.statusW.trim() === '0px') {
       fails.push(`--dsh-titlebar-status-w 未量出（${p.statusW}）——长标题会钻到徽章下面`)
     }

@@ -60,9 +60,6 @@ import { parse as parseYaml } from 'yaml'
 /** bundle 包名（profile bundles 数组与 node_modules 目录名）。 */
 export const DSH_SKILLS_BUNDLE = 'dsh-skills-bundle'
 
-/** 嵌入式终端 bundle 包名（scope 定稿理由同 git-panel，见其常量注释）。 */
-export const DSH_TERMINAL_BUNDLE = '@kkutysllb/dsh-terminal'
-
 /**
  * 上游偏好桥 bundle 包名（语言/主题对桌面壳的窄接口）。
  *
@@ -177,6 +174,13 @@ const RETIRED_PLUGINS = [
   'dsh-terminal',
   '@dsh-external/dsh-git-panel',
   '@dsh-external/dsh-terminal',
+  // @kkutysllb/dsh-terminal（**2026-10-09 退役**）：上列三条是改名中间态，本条是
+  // **现行名**。退役理由：终端交回上游原生右侧栏终端 tab（第一步已解除
+  // ui-sidebar-terminal 禁用），产品不再自持底部终端面板；连带 node-pty /
+  // @xterm/* 宿主依赖、自绘标题栏终端按钮、菜单「切换内嵌终端」与 panel-buttons
+  // 让位模块一并拆除。真源仓 kkutysllb/dsh-terminal 与 npm 包保留（用户仍可经
+  // 插件管理页自装，但按产品级退役口径，下次启动三清会再洗）。
+  '@kkutysllb/dsh-terminal',
   // 2026-09-11 退役：dsh-language-bundle（强制中文回答指令包）——产品
   // 决策移除该能力；配套的「回答语言」通用设置行/patch 托管块/契约
   // 类型一并退役，用户 profile 残留的托管块由启动自愈剥离（见
@@ -415,7 +419,6 @@ function materialize(profileDir: string, b: BundledPlugin): void {
   }
 
   const removable = [...BUNDLES.map((x) => x.pkg), ...RETIRED_PLUGINS]
-    .filter((x) => !tractionDeps.has(x))
   const staleDeps = removable.filter((x) => x in dependencies && !registryNewer(x))
   if (staleDeps.length > 0 || staleBundles.length > 0) {
     for (const pkg of staleDeps) delete dependencies[pkg]

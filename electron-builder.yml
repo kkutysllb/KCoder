@@ -17,14 +17,13 @@ extraResources:
   # KCoder 自有 dsh bundle：主进程启动时幂等物化到
   # $DSH_HOME/profiles/web/node_modules 并注册层叠（kcoder-skills-bundle.ts）
   # —— dsh-skills-bundle（方法论技能包）
-  # system-prompt section，默认 disabled，home patch 层热切换）/
-  # dsh-terminal（嵌入式终端）
+  # system-prompt section，默认 disabled，home patch 层热切换）
 
   # 全部 dsh 标准命名（2026-09-01 改名自立，原 @kcoder/*）
   - from: bundle/dsh-skills-bundle
     to: dsh-skills-bundle
-  - from: bundle/dsh-terminal
-    to: dsh-terminal
+  # dsh-terminal（2026-10-09 退役）：映射与 bundle 目录同批摘除——终端交回
+  # 上游原生右侧栏终端 tab（见 ARCHITECTURE §12 与 plans/retire-terminal-plugin.md）
   # dsh-shell-prefs（上游偏好桥：把 locale / theme 两个 client 服务暴露给
   # 桌面壳注入的账号菜单，菜单因此不再模拟点击设置控件；见
   # bundle/dsh-shell-prefs/cordis.patch.yml 顶部说明）
@@ -64,8 +63,7 @@ extraResources:
     filter: ["*.png", "*.svg"]
 asarUnpack:
   - "**/*.sh"
-  # 原生模块（node-pty 的 .node 二进制不能进 asar）
-  - "node_modules/node-pty/**"
+  # （原 node-pty 的 .node 二进制解包项随内置终端插件 2026-10-09 退役摘除）
 mac:
   category: public.app-category.developer-tools
   target:

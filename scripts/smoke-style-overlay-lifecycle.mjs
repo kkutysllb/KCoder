@@ -2,7 +2,7 @@
  * style-overlay **注入生命周期**冒烟（S5 门 1 / 风险 R-2 的实测项）。
  *
  * 与姊妹脚本 `smoke-style-overlay.mjs` 的分工：
- * - 那支验**CSS 语义**：把源码里的 `*_CSS` 段拼进手搓 fixture，断言四段效果与
+ * - 那支验**CSS 语义**：把源码里的 `*_CSS` 段拼进手搓 fixture，断言三段效果与
  *   2026-10-04 的「侧栏插件入口必须可见」决策。CSS 是**内联**进 fixture 的，
  *   因此**完全没有覆盖注入机制**。
  * - 这支验**注入机制本身**：真的调用产品代码 `attachStyleOverlay()`
@@ -203,7 +203,8 @@ const PROBE = `(() => {
     overlayCss: hits.length === 1 ? hits[0].textContent : null,
     entryPlugins: visible('entryPlugins'),
     entryDeck: visible('entryDeck'),
-    nativeShell: ['shellExpand', 'shellPanel', 'shellSession', 'shellCol', 'shellSplit'].filter(hidden),
+    nativeShellVisible: ['shellExpand', 'shellPanel', 'shellSession', 'shellCol', 'shellSplit'].filter(visible),
+    nativeShellHidden: ['shellExpand', 'shellPanel', 'shellSession', 'shellCol', 'shellSplit'].filter(hidden),
     railHead: hidden('railHead'),
     railSearch: hidden('railSearch'),
     railCollapsedHead: visible('railCollapsedHead'),
@@ -216,11 +217,14 @@ const PROBE = `(() => {
   })
 })()`
 
-/** 语义断言（四段）——首次加载与重载后各验一遍，确保「经由真注入」也成立。 */
+/** 语义断言（三段 + 原生右栏不压制）——首载/重载/自愈各验一遍，确保「经由真注入」也成立。 */
 function checkSemantics(r, label) {
   check(r.entryPlugins, `[${label}] 侧栏「插件」入口不可见（2026-10-04 恢复决策未生效）`)
   check(r.entryDeck, `[${label}] 第三方 panellist 条目被误伤`)
-  check(r.nativeShell.length === 5, `[${label}] 原生右侧栏外壳未全收：${r.nativeShell.join(',') || '无'}`)
+  check(
+    r.nativeShellVisible.length === 5,
+    `[${label}] 原生右侧栏外壳未全部可见：可见 ${r.nativeShellVisible.join(',') || '无'}、被压制 ${r.nativeShellHidden.join(',') || '无'}`,
+  )
   check(r.railHead && r.railSearch, `[${label}] 折叠 rail 未收（RAIL_BROWSER_ACTIONS_CSS 失效）`)
   check(r.railCollapsedHead, `[${label}] \`_collapsed\` 形态被误伤（:not 精度丢失）`)
   check(r.dlgHeader, `[${label}] 设置对话框头部未收（SETTINGS_DIALOG_HEADER_CSS 失效）`)
@@ -283,7 +287,7 @@ app.whenReady().then(async () => {
   await loaded
   await settle(250)
   r = JSON.parse(await wc.executeJavaScript(PROBE, true))
-  check(r.overlayCount === 1 && r.entryPlugins && r.nativeShell.length === 5,
+  check(r.overlayCount === 1 && r.entryPlugins && r.nativeShellVisible.length === 5,
     `覆盖层被抹掉后未能自愈（份数=${String(r.overlayCount)}）`)
 
   // --- 关闭窗口：did-finish-load 监听应被摘除 ---

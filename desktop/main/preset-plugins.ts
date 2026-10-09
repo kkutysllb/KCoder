@@ -14,10 +14,10 @@
  * 转入 RETIRED_PRESETS 三清——本表自此不再承载任何官方组合包。
  * （另见下方各自条目的历史记录段。）
  *
- * 这些插件是 KCoder 发行物的一部分：Windows 全新安装后 profile 是
+ * 预置插件是 KCoder 发行物的一部分：Windows 全新安装后 profile 是
  * 上游空模板（只有 dsh-base / dsh-web-app 内置层），第三方插件不会自动
  * 出现（mac 开发机上它们存在于用户 profile，属用户数据不随包分发）。
- * 本模块在 dsh 启动前幂等物化：
+ * 预置表非空时，本模块在 dsh 启动前幂等物化：
  *
  * - profile 清单（package.json）不存在时预写完整骨架（对齐上游
  *   initProfile 模板：package.json + pnpm-workspace.yaml + cordis.patch.yml；
@@ -557,7 +557,7 @@ export function ensurePresetPlugins(): void {
     }
 
     // 3) 安装：任何预置包缺席 → pnpm install（先确保 patch 声明与
-    //    node-pty 构建许可就位——name-only 补丁在安装时自动应用，
+    //    原生模块构建许可就位——name-only 补丁在安装时自动应用，
     //    构建许可不在 install 前写入则首装后需重装才生效）。含幽灵态
     //    自愈：旧版本声明了 bundles 但装包失败，这里重装后由第 4 步
     //    对账落地声明。install 成功后二调 ensureProfilePatches：补丁
@@ -566,7 +566,6 @@ export function ensurePresetPlugins(): void {
     //    强制一次：只有 pnpm 重放能让**声明之外的**传递依赖与 lock 收敛。
     const needInstall = retiredTouched || presetNames.some((p) => !installed(p))
     ensurePnpmBuildsAllowed(workspacePath)
-    ensureSidebarCompatPatch()
     if (needInstall) {
       ensureProfilePatches()
       console.log('[preset-plugins] 预置插件缺失，执行 pnpm install …')

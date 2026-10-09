@@ -189,7 +189,7 @@ KCoder 的 `deepseek-harness/` 原是 submodule，重建时已**扶正为独立�
 |---|---|
 | 就绪行 `dsh web: http://…` / bin 路径 / DSH_HOME / Node engines | `dsh-contract.ts` |
 | `dsh plugin --profile web …` CLI 形态 / `dsh.profile.bundles` 层叠 | `plugins.ts` |
-| 侧边栏 `logoRow`/`collapsed`、布局列 `sidebarCol/centerCol/detailsCol`、会话行 fiber `props.node.id` | 各注入模块（`scripts/verify-inject.cjs` 可自动化验证） |
+| 侧边栏 `logoRow`/`collapsed`、布局列 `sidebarCol/centerCol/detailsCol`、会话行 fiber `props.node.id` | 各注入模块（`scripts/verify-inject.cjs` 可自动化验证）。**2026-10-09 起原生右栏的 `[data-rightbar-col]` / `[data-sidebar-right-*]` 不再是压制锚点**（只作 `sidebar-toggle` 的结构锚与 probe 的判据），上游改它们不会造成产品级失配 |
 | 主题落点 `body[data-ds-dark-theme]` / sidebar-fill token | `theme-watcher.ts`（`scripts/verify-theme.cjs`） |
 | workspace RPC `POST /api/session/list`（`SessionSummary.cwd` = 会话归属；`workspace.list` 一次性 RPC 已在 alpha.1 移除） | `workspace-probe.ts`（页面侧探针：解析 `--dsh-ws-name`/`--dsh-ws-path` 并上报工作区基准） |
 | 协议层：`__DSH_TRANSPORT__.streamBaseUrl` 全局（stream-client 与 ui-settings-account 读，缺席回落 `document.baseURI`）；index.html 含 `<head>` 字面量 | `shell-protocol-core.ts`（注入行；上游改名 = 页面可启动但 WS 断，静默） |
@@ -269,8 +269,8 @@ GUI 冒烟统一只进**本机发版门**（`release.sh prepush`），不进 CI�
 6. **外置 bundle 的 client 半有专属协议与服务面事实**（同轮实测）：
    - client 交付物必须 `window.__ModuleLoader__.load({ id, factory })`，工厂
      返回 `exports.inject` / `exports.apply`，所有实现收在 factory 作用域内
-     （参照 `@kkutysllb/dsh-terminal/client.js` 与 `bundle/dsh-shell-prefs/
-     client.js`）；
+     （参照 `bundle/dsh-shell-prefs/client.js`——原举例的
+     `@kkutysllb/dsh-terminal/client.js` 已随该插件 2026-10-09 退役）；
    - 上游两个偏好服务的读法**不同名**：locale 是 `getSnapshot()`，theme 是
      `getTheme()`——按一个的形状读另一个，异常会被 try/catch 吞成 null，
      表现为"当前值读不出"而非报错；
@@ -414,6 +414,7 @@ GUI 冒烟统一只进**本机发版门**（`release.sh prepush`），不进 CI�
   `auto` 外边距，量整宽会把标题压成 0 宽（首版靠右时侥幸成立，改回左起排即暴露）。
   **判据**：凡「把上游某区域收进自绘带」的改动，先照抄它的**排布**（谁跟着谁、
   谁吸剩余空间、谁省略号），再谈可见性；只做后者＝半成品。
+
 - **自绘带上只保留产品要的控件（2026-10-05 第二轮，用户指定「那个…不要」）**：
   会话头右上角的「…」不是自绘按钮，是上游 `session-log-export` 的
   `SessionLogDownloadHeaderAction`（注册在 `conversation.session.header.utilities`，
@@ -448,11 +449,9 @@ GUI 冒烟统一只进**本机发版门**（`release.sh prepush`），不进 CI�
   **判据**：凡「把上游某区域收掉以换空间」的改动，先列出该区域内**所有**
   槽位的注册方（`ctx.slots` 声明 + 全仓注册点），只要还有一个没搬过来，
   就不算对齐。同源教训：2026-09-23 的空带、2026-09-18 的裸 `_titleRow` 误伤。
-- **上游改动怎么办**：**只改插件仓 → 发新版本**（见铁律 2）。上游每动一次侧栏
-  契约，处置路径都是「插件适配 + 发版」，不是「把原生接回来」。
-- **已知副作用（写进发布说明，避免误读为缺失）**：上游侧栏新能力
-  （如 `ui-sidebar-browser` 侧栏浏览器）在 KCoder 不可见；能力落差一律在
-  release notes 的「未启用 / 已由内置实现替代」段列明。
+
+- **上游改动怎么办（通用）**：**只改插件仓 → 发新版本**（见铁律 2）——
+  宿主侧不接上游实现细节，只在 §7 的契约面（就绪行 / CLI / 注入锚点 / 协议层）对账。
 
 ### 铁律 2：新版本适配只改插件源码（2026-09-19 定）
 

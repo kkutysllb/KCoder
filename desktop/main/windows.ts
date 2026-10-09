@@ -28,7 +28,6 @@ import { attachWorkspaceProbe } from './workspace-probe'
 import { attachMcpSettingsInjector } from './mcp-settings'
 import { attachAboutSettingsInjector } from './about-settings'
 import { attachHomeMigrationInjector } from './home-migration'
-import { attachPanelButtons } from './panel-buttons'
 import { getSettings, saveSettings } from './store'
 import { SHELL_PAGE_ORIGIN, hostOriginOf, isShellPageUrl, shellPageUrl } from './shell-protocol-core'
 
@@ -434,10 +433,9 @@ export function decorateShellWindow(win: BrowserWindow, getBaseUrl: () => string
     // 数据迁移：设置面板导航列注入「数据迁移」入口（仅老用户未迁移时
     // 出现；整库搬移 ~/.dsh → ~/.kcoder 零重建，完成后旧目录自动移除）
     attachHomeMigrationInjector(win)
-    // win32 四钮平铺让位：原生控制按钮区盖住右侧面板按钮，
-    // 四钮 right 整体平移 +138px 至原生区左侧安全位（2026-08-30 起
-    // 取代下拉收纳方案，无转发层；其他平台 no-op 不注入）
-    attachPanelButtons(win)
+    // win32 面板按钮平铺让位已退役（2026-10-09）：它的最后一条规则就是内置终端
+    // 插件的按钮（panel-buttons.ts 整模块删除）——宿主自绘标题栏右端现在不再注入
+    // 任何按钮，无需让位（历史见该模块的 git 记录与 ARCHITECTURE §4）。
     // 登录账号行：侧边栏底部设置按钮上方（头像 + 账号名，点击弹
     // 设置/退出菜单；零侵入，settingsArea 改名静默失效）
     attachAccountChip(win)

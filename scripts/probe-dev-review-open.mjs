@@ -51,11 +51,6 @@ const portArg = args.indexOf('--port')
 const port = portArg === -1 ? 9333 : Number(args[portArg + 1])
 const targetArg = args.indexOf('--target')
 const target = targetArg === -1 ? 'review' : String(args[targetArg + 1])
-// file-review 退役（2026-10-04）后 review 模式的判据不再可达：显式说清，免得
-// 把「预期落回原生」误读成回归（link 模式仍是有效的插件落点验证）。
-if (target === 'review') {
-  console.log('[probe] 注意：file-review 插件已于 2026-10-04 退役——review 入口不再由我们插件认领，本模式 PASS 判据已失效（结果按「落回原生右栏」解读即预期形态）。验证插件落点请用 --target link。')
-}
 const doClick = !args.includes('--no-click')
 /** 探针给候选元素打的标记属性（点击时按它定位，避免 nth 序号错位）。 */
 const MARK = 'data-kcoder-probe-target'
@@ -80,10 +75,16 @@ function inspect(mode) {
     ['panel', '[data-sidebar-right-panel]'],
     ['floatHost', '[data-sidebar-right-float-host]'],
     ['expand', '[data-sidebar-right-expand]'],
+    ['rightbarCol', '[data-rightbar-col]'],
+    ['rightbarSplit', "[data-side='rightbar']"],
   ]) {
     const el = document.querySelector(sel)
     natives[name] = el === null ? 'absent' : vis(el)
   }
+  // 原生右栏的**占宽**（翻转后的主判据）：列元素存在且 rect 宽 > 0
+  const colEl = document.querySelector('[data-rightbar-col]')
+  const rightbarWidth = colEl === null ? 0 : Math.round(colEl.getBoundingClientRect().width)
+  const rightbarText = colEl === null ? '' : (colEl.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 400)
   const pluginHosts = [...document.querySelectorAll('[data-dsh-panel-host]')]
   const tabs = pluginHosts.flatMap(host => [...host.querySelectorAll('[class*="tab"]')]
     .map(el => ({ text: (el.textContent ?? '').trim().slice(0, 40), active: String(el.className).includes('tabActive') })))
@@ -125,6 +126,8 @@ function inspect(mode) {
     url: location.href.replace(/token=[^&]+/, 'token=…'),
     mode,
     activeTab,
+    rightbarWidth,
+    rightbarText,
     pluginHostCount: pluginHosts.length,
     tabs: tabs.slice(0, 14),
     natives,
@@ -169,17 +172,16 @@ for (const [i, page] of pages.entries()) {
   await page.waitForTimeout(1500)
   const after = await page.evaluate(inspect, target)
   console.log('[after]', JSON.stringify(after, null, 1))
-  const nativeVisible = Object.entries(after.natives)
-    .filter(([, v]) => v !== 'absent' && v.visible === true).map(([k]) => k)
+  // 翻转后的判据：**原生右栏列占宽 > 0**（落进去了）且内容与该手势对得上
+  const rightbarOpen = after.rightbarWidth > 0
   const landed = target === 'link'
-    ? (picked.host !== undefined && (after.activeTab ?? '').includes(picked.host))
-    : ((after.activeTab ?? '').includes('审查') || (after.activeTab ?? '').toLowerCase().includes('review'))
-  const pass = nativeVisible.length === 0 && landed
+    ? (picked.host !== undefined && (after.rightbarText ?? '').includes(picked.host))
+    : (/变更|Changes|审查|Review/i.test(after.rightbarText ?? ''))
+  const pass = rightbarOpen && landed
   console.log(`[verdict] ${pass ? 'PASS' : 'FAIL'}`
-    + `｜活动页签=${after.activeTab ?? '未识别'}`
-    + `｜期望落点=${target === 'link' ? `浏览器页签（${picked.host ?? '?'}）` : '文件审查页签'}`
-    + `｜原生宿主可见=${nativeVisible.length === 0 ? '无' : nativeVisible.join(',')}`
-    + `｜点击前活动页签=${before.activeTab ?? '未识别'}`)
+    + `｜原生右栏占宽=${String(after.rightbarWidth)}px（点击前 ${String(before.rightbarWidth)}px）`
+    + `｜期望落点=${target === 'link' ? `浏览器页签（${picked.host ?? '?'}）` : '变更/审查页签'}`
+    + `｜右栏文本命中=${landed ? '是' : '否'}｜右栏文本=${(after.rightbarText ?? '').slice(0, 120)}`)
   if (verdict === null || verdict === true) verdict = pass
 }
 await browser.close().catch(() => {})

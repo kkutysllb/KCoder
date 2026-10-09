@@ -113,7 +113,8 @@ const PROBE = `(() => {
   return JSON.stringify({
     entryPlugins: visible('entryPlugins'),
     entryDeck: visible('entryDeck'),
-    nativeShell: ['shellExpand', 'shellPanel', 'shellSession', 'shellCol', 'shellSplit'].filter(hidden),
+    nativeShellVisible: ['shellExpand', 'shellPanel', 'shellSession', 'shellCol', 'shellSplit'].filter(visible),
+    nativeShellHidden: ['shellExpand', 'shellPanel', 'shellSession', 'shellCol', 'shellSplit'].filter(hidden),
     railHead: hidden('railHead'),
     railSearch: hidden('railSearch'),
     railCollapsedHead: visible('railCollapsedHead'),
@@ -150,7 +151,7 @@ app.whenReady().then(async () => {
   check(r.heroBeforeBg === 'url(', `hero ::before 背景=${r.heroBeforeBg}… 应为 url( 开头（水印丢失）`)
 
   console.log(fails.length === 0
-    ? `PASS ${String(total)}/${String(total)}（入口恢复 + 锚点静态保护 + 其余四段）`
+    ? `PASS ${String(total)}/${String(total)}（插件入口恢复 + 原生右栏不再压制 + 两组锚点静态保护 + 其余三段）`
     : `FAIL ${String(total - fails.length)}/${String(total)}:\n${fails.join('\n')}`)
   app.exit(fails.length === 0 ? 0 : 1)
 })

@@ -248,6 +248,6 @@ if (ok) {
   console.error(`[keep] 现场保留：DSH_HOME=${home} build=${workdir}`)
 }
 process.stdout.write(ok
-  ? `PASS ${String(total)}/${String(total)}（真 ensureKcoderBundles：F27 牵引保留 + F28 可选集不判孤儿 + 内置/模板在册 + 幂等 + 退役非编码技能零回流${UPSTREAM_PROFILE_TS !== undefined ? ' + 上游名单无漂移' : ''}）\n`
+  ? `PASS ${String(total)}/${String(total)}（真 ensureKcoderBundles：F27 退役包三清 + F28 可选集不判孤儿 + 内置/模板在册 + 幂等 + 退役非编码技能零回流${UPSTREAM_PROFILE_TS !== undefined ? ' + 上游名单无漂移' : ''}）\n`
   : `FAIL ${String(total - fails.length)}/${String(total)}:\n${fails.map((f) => '  - ' + f).join('\n')}\n`)
 process.exitCode = ok ? 0 : 1

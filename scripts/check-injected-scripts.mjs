@@ -13,7 +13,7 @@
  *    「点设置进不去设置页」两个用户可见故障，静默存活了数轮。
  * 2. **bundle client 半的裸 ESM export**：外置 bundle 的 client.js 必须走
  *    `window.__ModuleLoader__.load({ id, factory })` 协议（与
- *    @kkutysllb/dsh-terminal/client.js 同款）；顶层 `export` 加载器不认，
+ *    bundle/dsh-shell-prefs/client.js 同款）；顶层 `export` 加载器不认，
  *    顶层 `const` 会与其它 client 模块撞标识符（实测
  *    "Identifier 'name' has already been declared"，整个 client 装配失败）。
  * 3. （模板内裸反引号会截断模板——tsc 对此有 loudly 报错，已被 typecheck
@@ -235,7 +235,7 @@ if (statSync(BUNDLE_DIR, { throwIfNoEntry: false })?.isDirectory() === true) {
     const hit = /^export\s/m.exec(src)
     if (hit !== null) {
       const line = src.slice(0, hit.index).split('\n').length
-      console.error(`  ✗ bundle/${pkg}/client.js:${String(line)} 顶层 export——外置 bundle 的 client 半必须走 window.__ModuleLoader__.load({ id, factory }) 协议（同 dsh-terminal/client.js），加载器不认 ESM export，且顶层声明会与其它 client 模块撞标识符`)
+      console.error(`  ✗ bundle/${pkg}/client.js:${String(line)} 顶层 export——外置 bundle 的 client 半必须走 window.__ModuleLoader__.load({ id, factory }) 协议（同 bundle/dsh-shell-prefs/client.js），加载器不认 ESM export，且顶层声明会与其它 client 模块撞标识符`)
       bad++
     }
   }
