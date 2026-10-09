@@ -76,8 +76,8 @@ Electron 主进程 (desktop/main/)
  ├─ DshManager ──spawn──▶ dsh web --port 0（上游侧车，OS 分配端口）
  │                         └─ stdout 就绪行 "dsh web: http://127.0.0.1:<port>"
  ├─ shell 窗口 ──loadURL──▶ 上游 Web UI（sandbox、无 preload、零修改）
- │     ├─ 协议模式（默认，2026-10-08 灰度翻转）：kcoder-app://app 恒定 origin
- │     └─ legacy 直连 http://127.0.0.1:<port>（偏好可关，观察期后退役）
+ │     └─ 唯一加载形态 kcoder-app://app 恒定 origin（2026-10-08 灰度翻转，
+ │        2026-10-10 legacy 直连路径与其偏好开关退役）
  │        └─ shell-protocol ──protocol.handle 内部转发──▶ 侧车（cookie 只在
  │           主进程；HTML 注入 streamBaseUrl；WS 升级头改写，见 §7 新行）
  ├─ 面板窗口 ──preload 白名单 IPC──▶ 本地 hash 路由页面（desktop/renderer/）
@@ -117,7 +117,7 @@ Electron 主进程 (desktop/main/)
 | `dsh-manager.ts` | dsh 侧车生命周期：spawn/就绪解析/崩溃重启（指数退避×3）/优雅退出 | — |
 | `windows.ts` | shell 窗口与面板窗口创建；各注入器的接线点 | 各注入模块 |
 | `style-overlay.ts` | 宿主注入 CSS（**三段**，恒定生效、无偏好档位）：折叠 rail「新建工作区/搜索」入口压制 `RAIL_BROWSER_ACTIONS_CSS`（折叠无痕后退居幂等兑底）、设置对话框头部压制 `SETTINGS_DIALOG_HEADER_CSS`、空会话 K 水印 `HERO_WATERMARK_CSS`（品牌落点，`assets/brand-k.png` 内嵌 data URL）。**已退役两段**：侧栏「插件」panellist 入口压制（2026-10-04 拍板恢复上游入口）、**原生右侧栏外壳压制 `NATIVE_SIDEBAR_CSS`（2026-10-09，铁律 1 翻转：右侧工作台交回上游原生）**。⚠ 留档纪律：**压制元素 ≠ 收回占宽**——承载它的布局层（网格轨道）必须一起处理，接回上游时也要一起撤（见 §12 铁律 1 历史段） | §8 类名匹配策略 |
-| `shell-protocol.ts` + `shell-protocol-core.ts` | shell 协议层（2026-10-07，`plans/kcoder-app-protocol.md`）：`kcoder-app://app` 恒定 origin 加载形态（偏好 `shellProtocolMode`，默认开——2026-10-08 灰度翻转，关闭即回退 legacy 直连）——`protocol.handle` 把页面请求转发给侧车（cookie 只在主进程，响应扣留 set-cookie/逐跳头，`/plugins/*` 强 no-store）；text/html 有界缓冲注入 `__DSH_TRANSPORT__.streamBaseUrl`（上游契约全局，页面 WS/账号 RPC 的侧车地址）；`ws://127.0.0.1/*` 升级头改写仅认本地 shell 窗口。**无 preload、不写 `data-platform`**（自持几何的前提）；远程窗口不经过本层。core 半区零依赖可断言（check-shell-protocol.mjs），集成面走 smoke-shell-protocol（发版门） | §7 协议层契约两行 |
+| `shell-protocol.ts` + `shell-protocol-core.ts` | shell 协议层（2026-10-07，`plans/kcoder-app-protocol.md`）：`kcoder-app://app` 恒定 origin 加载形态（**唯一形态**：2026-10-08 灰度翻转 → **2026-10-10 legacy 退役**，偏好开关与 `shellProtocolMode` 字段一并删除）——`protocol.handle` 把页面请求转发给侧车（cookie 只在主进程，响应扣留 set-cookie/逐跳头，`/plugins/*` 强 no-store）；text/html 有界缓冲注入 `__DSH_TRANSPORT__.streamBaseUrl`（上游契约全局，页面 WS/账号 RPC 的侧车地址）；`ws://127.0.0.1/*` 升级头改写仅认本地 shell 窗口。**无 preload、不写 `data-platform`**（自持几何的前提）；远程窗口不经过本层。core 半区零依赖可断言（check-shell-protocol.mjs），集成面走 smoke-shell-protocol（发版门） | §7 协议层契约两行 |
 | `console-channel.ts` | console 通道：页面注入脚本 → 主进程 的上行通信约定（`__dsh_*:` 前缀） | 各注入模块 |
 | `sidebar-toggle.ts` | 标题栏左簇 + 折叠无痕（2026-10-04，对齐官方 macOS 折叠形态——官方 preload 写 `data-platform="darwin"` 使折叠整列归零，KCoder 无 preload 走 plain-web 留 56px rail，故自持归零）：上游 logoRow 折叠按钮迁移至自绘标题栏（展开 prev84/next128/toggle174，折叠 toggle84/new120，两态自适应，label 让位变量随态 76↔130 / 142↔196）；无痕 = frame（sidebarCol 父节点）inline grid **轨 1 折叠时归零**的 `!important` 规则（轨 2/3 原样复制，锚为 `:has(> [data-rightbar-col])`，`data-sidebar-collapsed` 属性锚兑底，解析失败退化 rail 不崩；**展开态不产出任何规则**）+ sidebarCol 0.5px 边线压制；新会话代理（`__dsh_desktop_new_btn`）静态内联 IconNewChat 转发上游 newSession，缺席隐藏。**原「原生右栏轨道归零」已随 2026-10-09 铁律 1 翻转拆除**（见 §12 铁律 1 历史段） | §8 点击转发、§12 自绘标题栏契约 |
 | `terminal-panel.ts` + `pty-host.ts` | 内嵌终端（2026-08-22 自研回归）：每工作区独立 WebContentsView + node-pty 桶（多标签），切工作区仅 setVisible 不销毁；标题栏按钮 right 44 + 快捷键 Control+\`；让位几何广播 --dsh-terminal-inset（bundle/kcoder-stats-panel 消费）。**历史行**：宿主终端面板 2026-08 退役（改由内置插件 `@kkutysllb/dsh-terminal` 承担），该插件又于 **2026-10-09 整线退役** ⇒ 终端现为**上游原生右侧栏的终端 tab**，宿主侧不再有终端模块（plans/retire-terminal-plugin.md） | — |
@@ -536,8 +536,8 @@ agent-team 的四行）仍由上游决定，本决策只做「bundle 级」的�
 取**收敛式**——以上游原生原语与官方 slot/桥为地基，**把现有的自绘/注入面逐步收敛掉**。
 
 **已建成的底座**（决策前提，不是从零开始）：`kcoder-app://` 协议化加载（特权 scheme + 主进程
-转发 + WS 头改写，页面不暴露 loopback）、灰度开关 `shellProtocolMode`（2026-10-08 默认 true，
-可回退 legacy）、原生窗口 chrome 三件套（`titleBarStyle: hidden` + `trafficLightPosition` +
+转发 + WS 头改写，页面不暴露 loopback）、加载形态灰度（2026-10-08 默认 true → **2026-10-10 legacy
+退役，开关与字段已删**）、原生窗口 chrome 三件套（`titleBarStyle: hidden` + `trafficLightPosition` +
 `titleBarOverlay`）、原生菜单/更新器/preload 桥。设计与验收见 `plans/kcoder-app-protocol.md`。
 
 **收敛顺序**（每步带判据）：S-D1 Electron 对齐 → S-D2 页头改官方槽（退役条带几何与页头搬移）

@@ -1,7 +1,8 @@
 /**
  * Preferences：桌面壳偏好设置（应用菜单 ⌘, / 工具 / 托盘）。
  *
- * 只留桌面特有项：托盘保活、工作台加载形态。界面上游化——设置入口统一到上游设置面板
+ * 只留桌面特有项：托盘保活。（「工作台协议加载」开关随 legacy 退役于 2026-10-10 移除：
+ * 协议加载已是唯一形态，见 plans/kcoder-app-protocol.md 阶段 4 第二步。）界面上游化——设置入口统一到上游设置面板
  * （⌘, 或账号菜单）；排版类的桌面样式定制已于 2026-09-20 整体下线。
  * 变更即存即生效，无确定/取消按钮。
  *
@@ -82,12 +83,6 @@ export function mountPreferences(root: HTMLElement): void {
         'checkbox', 'dsh-tray', '1', pref.keepRunningInTray, '关闭主窗口时保持后台运行',
         '开启：最小化到托盘，引擎继续运行；关闭：退出引擎并关闭应用（默认开启）',
         () => write({ keepRunningInTray: !pref?.keepRunningInTray }),
-      ),
-      option(
-        'checkbox', 'dsh-protocol', '1', pref.shellProtocolMode, '工作台协议加载',
-        '开启（默认）：工作台经 kcoder-app:// 协议由主进程转发引擎请求，页面不再暴露 127.0.0.1 地址；'
-        + '关闭：回退直连本地引擎端口的旧形态。重启应用后生效',
-        () => write({ shellProtocolMode: !pref?.shellProtocolMode }),
       ),
     )
   }

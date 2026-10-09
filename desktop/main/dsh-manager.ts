@@ -22,7 +22,6 @@ import {
   type DshCommand,
 } from './dsh-contract'
 import type { DshLogLine, DshState, DshStatus } from '@shared/ipc-contract'
-import { SHELL_TITLEBAR_HEIGHT } from './theme-watcher'
 import { productPolicyArgs } from './product-policy'
 import { ensureKcoderBundles } from './kcoder-skills-bundle'
 
@@ -50,20 +49,6 @@ export type DshManagerEvents = {
  * 整块盖住 → 插件自己的按钮点不动；该插件 2026-10-09 退役，契约参数保留
  * ——上游原生右侧栏与后续侧栏类插件仍按它让位）。
  *
- * KCoder 的标题栏就是 48px 覆盖条 + 页面 padding-top 48，如实声明即可。
- * @param url - 就绪 URL（可能带 ?token= 查询串）。
- * @returns 追加上契约参数的 URL；已是绝对 URL 才处理，解析失败原样返回。
- */
-export function shellUrlWithTitlebarInset(url: string): string {
-  try {
-    const parsed = new URL(url)
-    parsed.searchParams.set('dsh-desktop-titlebar-inset', String(SHELL_TITLEBAR_HEIGHT))
-    return parsed.href
-  } catch {
-    return url
-  }
-}
-
 /**
  * 就绪行令牌打码：诊断日志是面向用户展示的面（诊断页尾部 500 行 + IPC
  * 广播），而 `?token=` 只需活在主进程（mintAuthCookie 兑换签名 cookie 用）。
@@ -299,11 +284,6 @@ export class DshManager extends EventEmitter {
    * dsh 重启换端口后 authority（含端口）变化，旧 cookie 失效——新进程的
    * 新令牌正是再次换 cookie 的钥匙。
    */
-  shellEntryUrl(bareUrl: string): string {
-    const base = this.url === bareUrl && this.entryUrl !== null ? this.entryUrl : bareUrl
-    return shellUrlWithTitlebarInset(base)
-  }
-
   /**
    * 用就绪行令牌兑换 BrowserAuth 签名 cookie（与 shell 窗口首次加载同一
    * 机制：GET /?token=… → 303 + set-cookie）。alpha.1 起上游 /api 全线

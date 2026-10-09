@@ -250,13 +250,12 @@ will-navigate：协议模式下 `kcoder-app://app` 前缀放行（页面内整�
 - [x] `pnpm smoke:shell-protocol` 脚本入口 + `release.sh prepush` 门
 - [x] ARCHITECTURE.md §3/§4/§7 与根 README 架构图同步
 
-### 阶段 4：灰度与退役 — 第一步 complete（2026-10-08），第二步待观察期
+### 阶段 4：灰度与退役 — complete（第一步 2026-10-08 / 第二步 2026-10-10）
 
 - [x] 实机回归通过 → store 默认值翻 true（2026-10-08）：协议加载成为
       默认形态，偏好页开关转为回退档（「工作台协议加载」，关闭 = 回退
       直连）；偏好/契约/ARCHITECTURE/README 的默认语义六处同步
-- [ ] **legacy 退役（观察期 = 1.0.40/协议翻转所在的下一个发布版运行一个
-      版本后执行）**，清单：
+- [x] **legacy 退役（2026-10-10 执行；用户拍板跳过剩余观察期）**，按下列清单完成：
       1. `windows.ts`：showShellWindow 双模式分支收敛为协议单路（删
          `dshManager.shellEntryUrl` 令牌加载、will-navigate 的 legacy
          前缀判据与 getBaseUrl 双态）；

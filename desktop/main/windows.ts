@@ -186,10 +186,10 @@ export function showShellWindow(dshUrl: string): void {
     // 更新下载完成后：侧边栏 logo 旁出现安装按钮（注入器零侵入上游）
     // 装配成 KCoder 外壳窗口：品牌/主题/侧边栏/设置页/状态栏按钮等 18 套
     // 注入器与导航策略。远程窗口走同一个函数，两处不会漂移。
-    // 导航守卫的实时基址：协议模式 = 恒定协议 origin（页面只认它），
-    // legacy = 实时 dsh 地址（dsh 重启端口会变，不能用创建时的闭包值）。
-    decorateShellWindow(shellWindow, () =>
-      getSettings().shellProtocolMode ? SHELL_PAGE_ORIGIN : (dshManager.status.url ?? dshUrl))
+    // 导航守卫的基址：协议层下页面 origin 恒为 kcoder-app://app，Host 地址只活在
+    // 主进程转发层，故守卫基址是常量（2026-10-10 legacy 退役，见
+    // plans/kcoder-app-protocol.md 阶段 4 第二步）。
+    decorateShellWindow(shellWindow, () => SHELL_PAGE_ORIGIN)
   }
   // 已在承载同一 dsh 实例 → 只恢复展示，绝不变相重载整页。
   // macOS 下 dock 点击/Cmd+Tab 切回都会触发 activate → 此函数，
@@ -200,20 +200,17 @@ export function showShellWindow(dshUrl: string): void {
   // 加载目标用带启动令牌的入口 URL（alpha.1 BrowserAuth 门禁：首次访问
   // 拿令牌换签名 cookie，303 回 `/`；此后同源请求凭 cookie 通行）。
   //
-  // 协议模式（shellProtocolMode，plans/kcoder-app-protocol.md）：页面 origin
-  // 恒为 kcoder-app://app，Host 地址只活在主进程转发层，重载判据从「URL
-  // 前缀变化」换成「hostOrigin 变化」——dsh 重启换端口后必须整页重载
-  // （HTML 注入的 streamBaseUrl 随端口固化，WS 才能重连）；激活/聚焦路径
-  // hostOrigin 不变 → 只聚焦，与 legacy 分支同语义。偏好翻转后两个分支
-  // 互为自愈：当前页不落在目标形态上就按目标形态重载。
-  if (getSettings().shellProtocolMode) {
+  // 协议加载是唯一形态（2026-10-10 legacy 退役）：页面 origin 恒为
+  // kcoder-app://app，Host 地址只活在主进程转发层，重载判据是
+  // 「hostOrigin 变化」——dsh 重启换端口后必须整页重载（HTML 注入的
+  // streamBaseUrl 随端口固化，WS 才能重连）；激活/聚焦路径 hostOrigin 不变
+  // → 只聚焦。
+  {
     const hostOrigin = hostOriginOf(dshUrl)
     if (!isShellPageUrl(shellWindow.webContents.getURL()) || shellLoadedHostOrigin !== hostOrigin) {
       shellLoadedHostOrigin = hostOrigin
       void shellWindow.loadURL(shellPageUrl(SHELL_TITLEBAR_HEIGHT))
     }
-  } else if (!shellWindow.webContents.getURL().startsWith(dshUrl)) {
-    void shellWindow.loadURL(dshManager.shellEntryUrl(dshUrl))
   }
   if (shellWindow.isMinimized()) shellWindow.restore()
   if (!shellWindow.isVisible()) shellWindow.show()

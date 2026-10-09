@@ -44,7 +44,6 @@ export interface Preferences {
   keepRunningInTray: boolean
   /** shell 窗口走 kcoder-app:// 协议转发加载（默认开；false = 回退
    *  直连 http 的 legacy 档。重启应用后生效）。 */
-  shellProtocolMode: boolean
 }
 
 /* ---------- 上游仓库 ---------- */

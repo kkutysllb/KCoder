@@ -24,12 +24,6 @@ export interface DesktopSettings {
   /** dsh home 决策锁：迁移完成或首次全新启动后置 true（见 home-migration.ts）。
    *  置位后启动恒用 ~/.kcoder，不再被后出现的 ~/.dsh 翻回旧家。 */
   homeDecided: boolean
-  /** shell 窗口加载形态：true = kcoder-app:// 协议转发（页面不暴露
-   *  127.0.0.1，见 shell-protocol.ts / plans/kcoder-app-protocol.md）；
-   *  false = 直连 http://127.0.0.1:<port>（legacy 回退档）。灰度期后
-   *  默认开（2026-10-08 翻转，阶段 4 第一步）；翻转在下次进入工作台时
-   *  按目标形态重载自愈。观察期结束删 legacy 分支时本字段一并退役。 */
-  shellProtocolMode: boolean
 }
 
 const DEFAULTS: DesktopSettings = {
@@ -38,7 +32,6 @@ const DEFAULTS: DesktopSettings = {
   lastTheme: 'system',
   terminalHeight: null,
   homeDecided: false,
-  shellProtocolMode: true,
 }
 
 let cache: DesktopSettings | null = null

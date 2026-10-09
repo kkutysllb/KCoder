@@ -23,7 +23,7 @@
 | 已完成 | 实证 |
 |---|---|
 | **`kcoder-app://` 协议化加载**（特权 scheme + 主进程内部转发 + WS 头改写 + HTML 注入） | `desktop/main/index.ts:42/253`（ready 前注册）、`shell-protocol-core.ts`（纯逻辑）、`shell-protocol.ts`（Electron 接线）；页面全程看不到 `127.0.0.1`，鉴权 cookie 收在主进程 |
-| **灰度开关与逃生门** | 偏好设置「工作台协议加载」（`desktop/renderer/src/views/preferences.ts:87`，键 `shellProtocolMode`）；2026-10-08 已翻默认 **true**；关闭即回退 legacy 直连模式（回归闸） |
+| **灰度开关与逃生门** | 偏好设置「工作台协议加载」（`desktop/renderer/src/views/preferences.ts:87`，键 `shellProtocolMode`）；2026-10-08 翻默认 **true**；**2026-10-10 legacy 退役，开关与 `shellProtocolMode` 字段已删**（协议成为唯一形态） |
 | 该工程有**自己的设计与验收** | `plans/kcoder-app-protocol.md`：验收 5 条、阶段 0–3 完成（2026-10-07）、check 54 项 + smoke 18 项全绿、实机回归通过（2026-10-08）；**剩余：观察一个版本后执行阶段 4 第二步（legacy 退役）** |
 | **原生窗口 chrome 三件套已用** | `desktop/main/windows.ts:98/106/109`：`titleBarStyle: 'hidden'` + `trafficLightPosition`（macOS）+ `titleBarOverlay`（Windows 原生控制按钮） |
 | 原生菜单 / 更新器 / preload 桥 | `menu.ts`、`updater.ts`、`desktop/preload/{index,host-paths}.ts` |
@@ -59,7 +59,7 @@
 | `settings-page` / `about-settings` / `mcp-settings` / `home-migration` | 官方设置分区/`settings.section` 槽 + 原生对话框 + `dshOnboarding` | 改插件化（分区注册），不再 DOM 注入 |
 | `clipboard-fix` | 桌面运行时下的原生剪贴板/快捷键桥 | 退役（在 desktop 运行时下由壳处理） |
 | `style-overlay`（压制段） | 无——它存在的理由是「我们在 Web 里假装桌面」 | 随退役面收窄直至删除 |
-| 协议面（`shell-protocol` / `shell-protocol-core`）——**已建成并在跑**（`kcoder-app://`，灰度默认 true） | 上游 `dsh-app://` + Host 转发 + WS 凭据过滤 | **不是缺口而是收敛点**：二者同意图、实现不同（我方 D2/D3 刻意分歧）。剩余动作 = 收尾阶段 4（legacy 退役）+ 评估是否对齐上游实现 |
+| 协议面（`shell-protocol` / `shell-protocol-core`）——**已建成并在跑**（`kcoder-app://`，灰度默认 true） | 上游 `dsh-app://` + Host 转发 + WS 凭据过滤 | **不是缺口而是收敛点**：二者同意图、实现不同（我方 D2/D3 刻意分歧）。**阶段 4 已完成（2026-10-10 legacy 退役）**；剩余 = 评估是否对齐上游实现 |
 
 ## 4. 三条路径
 
@@ -80,7 +80,7 @@
 | S-D2 | 换**原生窗口 chrome**（`hiddenInset`/`hidden` + `titleBarOverlay`/trafficLight），退役自绘标题栏 | 三平台窗口控制/拖拽/双击最大化正常；`theme-watcher`/`workspace-header` 的条几何代码删除；GUI 冒烟改造 |
 | S-D3 | 引入 **`window.dshDesktop` 级桥**与 `runtime: 'desktop'` 分流（对齐上游语义） | 客户端识别为 desktop；快捷键/目录对话框走桥；我们的 preload 与上游桥对齐或合并 |
 | S-D4 | 产品 UI 插件化：设置页/MCP/品牌/账号/关于 → 官方 slot 注册 | 各 UI 面在**无注入**下可见可用；注入器逐个删除（每删一个跑一次冒烟） |
-| S-D5 | 协议层收尾：**执行 `plans/kcoder-app-protocol.md` 阶段 4 第二步（legacy 退役）**；再评估与上游 `dsh-app://` 的实现差异是否值得对齐 | 退役后仅剩协议一条加载路径；dev/prod 隔离、插件缓存 no-store、WS 凭据三条判据不退化；`check`/`smoke` 双模式断言改单模式 |
+| S-D5 | ✅ **已完成（2026-10-10）**：`plans/kcoder-app-protocol.md` 阶段 4 第二步 —— `windows.ts` 双模式收敛为协议单路、`store`/`ipc`/`ipc-contract`/偏好页的 `shellProtocolMode` 字段与开关删除、`dsh-manager` 的 `shellEntryUrl`/`shellUrlWithTitlebarInset` 删除、诊断页加载形态改常量。剩余仅「是否对齐上游 `dsh-app://` 实现」的评估 | `pnpm check` 39/39（含 check-shell-protocol 54 断言）、`smoke:shell-protocol` 21/21、typecheck 双绿、grep 残留触点仅历史文档 |
 
 ## 6. 风险与开放问题
 

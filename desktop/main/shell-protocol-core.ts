@@ -145,8 +145,9 @@ export function injectStreamBaseUrl(html: string, hostOrigin: string): string {
 }
 
 /**
- * shell 页面地址：恒定 origin + 宿主标题栏占位契约参数（与 legacy
- * `shellUrlWithTitlebarInset` 同语义——侧栏类插件据此把顶边让到自绘条之下）。
+ * shell 页面地址：恒定 origin + 宿主标题栏占位契约参数（侧栏类插件据此把
+ * 顶边让到自绘条之下）。该参数原先由 legacy 路径的 `shellUrlWithTitlebarInset`
+ * 追加以外的 URL 上；legacy 退役（2026-10-10）后由本函数统一自带。
  */
 export function shellPageUrl(titlebarInset: number): string {
   const url = new URL(`${SHELL_PAGE_ORIGIN}/`)
