@@ -18,6 +18,21 @@
 
 **一句话**：我们维护的是一层「把上游 Web UI 改造成桌面外观」的**注入适配层**，它随上游每次 UI 迭代都要按锚点复核——本轮就有 6 处漂移。
 
+### 1.5 已经完成的部分（2026-10-10 用户指出并核实；此前本文低估了进度）
+
+| 已完成 | 实证 |
+|---|---|
+| **`kcoder-app://` 协议化加载**（特权 scheme + 主进程内部转发 + WS 头改写 + HTML 注入） | `desktop/main/index.ts:42/253`（ready 前注册）、`shell-protocol-core.ts`（纯逻辑）、`shell-protocol.ts`（Electron 接线）；页面全程看不到 `127.0.0.1`，鉴权 cookie 收在主进程 |
+| **灰度开关与逃生门** | 偏好设置「工作台协议加载」（`desktop/renderer/src/views/preferences.ts:87`，键 `shellProtocolMode`）；2026-10-08 已翻默认 **true**；关闭即回退 legacy 直连模式（回归闸） |
+| 该工程有**自己的设计与验收** | `plans/kcoder-app-protocol.md`：验收 5 条、阶段 0–3 完成（2026-10-07）、check 54 项 + smoke 18 项全绿、实机回归通过（2026-10-08）；**剩余：观察一个版本后执行阶段 4 第二步（legacy 退役）** |
+| **原生窗口 chrome 三件套已用** | `desktop/main/windows.ts:98/106/109`：`titleBarStyle: 'hidden'` + `trafficLightPosition`（macOS）+ `titleBarOverlay`（Windows 原生控制按钮） |
+| 原生菜单 / 更新器 / preload 桥 | `menu.ts`、`updater.ts`、`desktop/preload/{index,host-paths}.ts` |
+
+**因此本改造的性质变了**：不是「从 Web 套壳从零做原生壳」，而是——**把剩余的自绘/注入面收敛到已建成的原生底座上**。
+特别是协议层：我们的 `kcoder-app://` 与上游 `dsh-app://` 是**同一设计意图的两套实现**（自定义协议 + 主进程转发 + WS 凭据），
+差异是刻意的（见 `plans/kcoder-app-protocol.md` 的 D2/D3：上游要求打包 dist 供给文档 + preload boot 桥，
+我方坚持「零修改复用 + 不向 harness 页面注入 boot 桥」）。
+
 ## 2. 上游自带桌面链：事实清单（本轮升级后才进入可评估状态）
 
 | 项 | 事实 |
@@ -35,7 +50,7 @@
 
 | 我方注入项 | 上游对应物 | 结论 |
 |---|---|---|
-| 自绘标题栏（隐藏原生条 + 量测高度 + Windows 138px 让位 + 拖拽区） | `titleBarStyle: hiddenInset/hidden` + `trafficLightPosition` + **`titleBarOverlay`** | **可整体退役**（这是替代关系，不是补充） |
+| 自绘标题栏（**我们已用** `titleBarStyle: 'hidden'` + `trafficLightPosition` + `titleBarOverlay`；剩下的自绘部分是**条带内容**：量测高度、Windows 138px 让位、会话页头搬移、类名收编） | 上游同款原生三件套 + **官方 header 槽**（`conversation.session.header.*`，本轮又新增 `lineage`） | **部分可退役**：原生控制按钮/拖拽已在用；退役目标是**条带内容与页头搬移**（改用官方槽 + 原生布局），而非「自绘标题栏」整体 |
 | `theme-watcher` 的主题落点/事件（`body[data-ds-dark-theme]`、`colorScheme`） | 客户端在 desktop 运行时下自管；桥可推系统主题 | 退役注入，改桥或上游设置面 |
 | `workspace-header`（搬会话页头进自绘条、收编类名） | 上游原生条 + 页头自带槽（`conversation.session.header.*`，本轮**又新增** `lineage`） | 退役；产品要加的 header 元素改走**官方槽**注册 |
 | `workspace-probe`（页面侧探针解析工作区名/路径） | 客户端 API/RPC（`session/list` 已是官方 RPC）+ desktop 桥可给宿主路径 | 退役探针，改走 RPC/桥 |
@@ -44,7 +59,7 @@
 | `settings-page` / `about-settings` / `mcp-settings` / `home-migration` | 官方设置分区/`settings.section` 槽 + 原生对话框 + `dshOnboarding` | 改插件化（分区注册），不再 DOM 注入 |
 | `clipboard-fix` | 桌面运行时下的原生剪贴板/快捷键桥 | 退役（在 desktop 运行时下由壳处理） |
 | `style-overlay`（压制段） | 无——它存在的理由是「我们在 Web 里假装桌面」 | 随退役面收窄直至删除 |
-| 协议面（`shell-protocol` / `shell-protocol-core`：注入行、`/api/*` 与 `/plugins/*` 转发、WS 头改写） | 上游 `dsh-app://` + Host 转发 + WS 凭据过滤 | **关键决策点**：改用上游协议栈可删掉我们的转发层，但 dev/prod 隔离与插件缓存策略需重新设计 |
+| 协议面（`shell-protocol` / `shell-protocol-core`）——**已建成并在跑**（`kcoder-app://`，灰度默认 true） | 上游 `dsh-app://` + Host 转发 + WS 凭据过滤 | **不是缺口而是收敛点**：二者同意图、实现不同（我方 D2/D3 刻意分歧）。剩余动作 = 收尾阶段 4（legacy 退役）+ 评估是否对齐上游实现 |
 
 ## 4. 三条路径
 
@@ -65,7 +80,7 @@
 | S-D2 | 换**原生窗口 chrome**（`hiddenInset`/`hidden` + `titleBarOverlay`/trafficLight），退役自绘标题栏 | 三平台窗口控制/拖拽/双击最大化正常；`theme-watcher`/`workspace-header` 的条几何代码删除；GUI 冒烟改造 |
 | S-D3 | 引入 **`window.dshDesktop` 级桥**与 `runtime: 'desktop'` 分流（对齐上游语义） | 客户端识别为 desktop；快捷键/目录对话框走桥；我们的 preload 与上游桥对齐或合并 |
 | S-D4 | 产品 UI 插件化：设置页/MCP/品牌/账号/关于 → 官方 slot 注册 | 各 UI 面在**无注入**下可见可用；注入器逐个删除（每删一个跑一次冒烟） |
-| S-D5 | 协议/转发层评估：是否改用上游 `dsh-app://` + Host 转发 | dev/prod 隔离、插件缓存 no-store、WS 凭据三条判据不退化 |
+| S-D5 | 协议层收尾：**执行 `plans/kcoder-app-protocol.md` 阶段 4 第二步（legacy 退役）**；再评估与上游 `dsh-app://` 的实现差异是否值得对齐 | 退役后仅剩协议一条加载路径；dev/prod 隔离、插件缓存 no-store、WS 凭据三条判据不退化；`check`/`smoke` 双模式断言改单模式 |
 
 ## 6. 风险与开放问题
 
