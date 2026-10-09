@@ -37,3 +37,6 @@ app.asar.*.bak
 .patches/discussion-body.md
 .patches/
 .tmp/
+
+# ZCode 会话工具的临时产物（2026-10-09 现场：曾被 ship 的 git add -A 卷进发版提交）
+.zcodeignore
