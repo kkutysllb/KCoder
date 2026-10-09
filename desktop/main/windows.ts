@@ -414,9 +414,10 @@ export function decorateShellWindow(win: BrowserWindow, getBaseUrl: () => string
     // workspace 顶栏收纳：会话标题/标签/日志按钮迁至状态栏与抽屉，
     // 上游头部隐藏 + 轨迹视图兜底回对话（零侵入，类改名静默失效）
     attachWorkspaceHeader(win)
-    // 工作区探针：选中会话 → session/list 解析 → 标题栏工作区名/按钮
-    // （--dsh-ws-name / --dsh-ws-path）；另附正文文件**类型**徽章（预览/Git
-    // 面板删除后独立存续）。edit 的 +n/−n 统计与历史补拉拦截已于
+    // 页面探针：正文文件**类型**徽章（预览/Git 面板删除后独立存续）。
+    // 工作区探针（session/list → --dsh-ws-name/--dsh-ws-path → 标题栏工作区名
+    // 前缀与按钮）已于 2026-10-10 随用户判定「鸡肋」整体退役。edit 的 +n/−n
+    // 统计与历史补拉拦截已于
     // 2026-10-05 退役（与上游 ToolRow 自带 diff 统计重复）；workspace-base
     // 工作区基准与 console 上行已于 2026-10-08 随自建「技能」分区一并
     // 退役——技能设置面整体归 dsh-skills-bundle 1.1.0 的原生设置页

@@ -19,7 +19,8 @@
  *
  * ## 断言面
  *
- * - 标题栏文本含工作区名 + 会话标题；**即使 `document.title` 里带着产品名，
+ * - 标题栏文本含会话标题（2026-10-10 起**不再有工作区名前缀**——用户判定鸡肋，
+ *   工作区探针与那枚按钮整体退役）；**即使 `document.title` 里带着产品名，
  *   标题栏也绝不含它**（判别点）；也不含硬编码回退 'KCoder'；
  * - 几何通道：`--dsh-titlebar-h`=48px、`--dsh-titlebar-right-reserve`=
  *   源码常量 `TITLEBAR_RIGHT_BAND` + 平台 padRight（darwin 下即该常量）必须写到
@@ -38,7 +39,7 @@
  * - 跨注入器 DOM 命中：状态徽章必须**点在徽章上**（不是条），而条的空白处必须
  *   **仍归条**（页头 pointer-events:none 生效）——两者缺一都是真 bug；
  * - 标签 `max-width` 必须含 `--dsh-titlebar-status-w`（为徽章让位）；
- * - 合成预设徽章不得回流：标签子元素恒为 3（工作区按钮 / 分隔符 / 标题）；
+ * - 标签子元素恒为 1（只剩会话标题）：工作区按钮与分隔符已退役，合成徽章也不得回流；
  * - 活通道：面包屑文本变化后标题栏必须在下一拍内更新；
  * - 静态守卫：源码里主文本赋值不得退回 `document.title`。
  *
@@ -149,7 +150,6 @@ try {
 
 const PRODUCT_TAIL = 'DSH 本地构建'
 const SESSION_TITLE = '分析当前项目'
-const WS_NAME = '论文'
 
 // 真实宿主**没有** data-platform：本壳无 preload（sidebar-toggle.ts 模块注释），
 // 引擎 web bundle 只读不写它（AppFrame.tsx:168 读 dataset.platform），写它的是
@@ -161,7 +161,7 @@ const WS_NAME = '论文'
 const PLATFORM_ATTR = process.env.KCODER_TITLEBAR_PLATFORM === '1' ? ' data-platform="darwin"' : ''
 
 const html = `<!doctype html><html${PLATFORM_ATTR}><head><meta charset="utf-8"><style>
-  :root { --dsh-ws-name: ${WS_NAME}; --dsw-specific-sidebar-fill: #1b1b1c; --dsw-alias-border-l3: rgba(255,255,255,.16); }
+  :root { --dsw-specific-sidebar-fill: #1b1b1c; --dsw-alias-border-l3: rgba(255,255,255,.16); }
   body { margin: 0; background: #151517; color: #f9fafb; font: 12px -apple-system, system-ui, sans-serif; }
   ._header_x { min-height: 76px; padding: 10px 28px 0 20px; box-sizing: border-box;
                border-bottom: .5px solid var(--dsw-alias-border-l3); }
@@ -305,7 +305,6 @@ const PROBE = `(async () => {
       return out
     })(),
     presetDrag: dragAt(el('#presetBadge'), regions),
-    wsBtnDrag: dragAt(el('#__dsh_ws_btn'), regions),
     // 带内但不在会话页头作用域里的可交互元素（右栏页签一类）
     panelTabDrag: dragAt(el('#panelTab'), regions),
     // 条左侧空白（红绿灯区）：无内容覆盖，应仍可拖窗
@@ -398,7 +397,6 @@ app.whenReady().then(async () => {
     if (p.before.indexOf(PRODUCT_TAIL) !== -1) fails.push(`标题栏文本含产品名「${PRODUCT_TAIL}」（${p.before}）`)
     if (p.before.indexOf('KCoder') !== -1) fails.push(`标题栏文本含硬编码回退 'KCoder'（${p.before}）`)
     if (p.before.indexOf(SESSION_TITLE) === -1) fails.push(`标题栏未显示会话标题（${p.before}）`)
-    if (p.before.indexOf(WS_NAME) === -1) fails.push(`标题栏未显示工作区名（${p.before}）`)
     if (p.after.indexOf('改过的标题') === -1) fails.push(`面包屑活通道未生效（改后仍为「${p.after}」）`)
     if (p.after.indexOf(PRODUCT_TAIL) !== -1) fails.push('活通道更新后重新引入产品名')
     if (p.geomH.trim() !== '48px') fails.push(`--dsh-titlebar-h 未发布或值不对（${p.geomH}）`)
@@ -424,7 +422,7 @@ app.whenReady().then(async () => {
     if (p.labelMaxWidth === null || p.labelMaxWidth.indexOf(TITLEBAR_STATUS_VAR) === -1) {
       fails.push(`标签 max-width 未为状态簇让位（${p.labelMaxWidth}）`)
     }
-    if (p.labelChildren !== 3) fails.push(`标签子元素应为 3（工作区/分隔/标题），实为 ${p.labelChildren}——合成徽章回流？`)
+    if (p.labelChildren !== 1) fails.push(`标签子元素应为 1（只剩会话标题），实为 ${p.labelChildren}——退役的工作区按钮/分隔符或合成徽章回流？`)
     if (p.teamHit !== 'SELF') fails.push(`状态徽章 DOM 命中被条吃掉（命中 ${p.teamHit}${p.teamRect === null ? '' : ' @' + JSON.stringify(p.teamRect)}）`)
     if (p.barLabelHit !== 'SELF') fails.push(`标题栏空白处未归条（命中 ${p.barLabelHit}）——页头 pointer-events:none 失效`)
 
@@ -449,9 +447,6 @@ app.whenReady().then(async () => {
     }
     if (p.presetDrag !== false) {
       fails.push(`状态徽章（裸 span，同 AgentPresetLabel）落在拖拽区里：簇级 no-drag 未生效（drag=${p.presetDrag}）`)
-    }
-    if (p.wsBtnDrag !== false) {
-      fails.push(`标题栏自身按钮落在拖拽区里（drag=${p.wsBtnDrag}）`)
     }
     // 带内、会话页头之外的可交互元素（真机：右栏页签）——靠 theme-watcher 补的
     // 可交互元素 no-drag 得救；缺了它这一类全被条吞掉（同一根因的第二个实例）。

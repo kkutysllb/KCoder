@@ -21,14 +21,15 @@
  * workspace-base 整链删除）。探针的 workspace console 上行
  * （`__dsh_wsprobe__:` → workspaceBase.setWorkspace）唯一读者就是技能分区
  * 的工作区项目技能探位——随之整链退役，且**不许回流**（两条技能目录/开关
- * 来源并存 = 冲突）。探针只剩标题栏变量与类型徽章两个职责。
+ * 来源并存 = 冲突）。2026-10-10 起探针只剩类型徽章一个职责（工作区探针退役）。
  *
  * ## 断言面
  *
  * - **留下**：类型徽章（`._fileLink` → `TS`、`._fileMention` → `MD`；
  *   无扩展名不加徽章）、原文不被破坏（徽章是**前置** span，文本仍在）、
- *   样式表生效（路径配色 `rgb(47,111,237)`）、工作区探针照常
- *   （`--dsh-ws-name` / `--dsh-ws-path` 写入——自绘标题栏消费）；
+ *   样式表生效（路径配色 `rgb(47,111,237)`）；工作区探针与其两个 CSS 变量
+ *   （`--dsh-ws-name` / `--dsh-ws-path`）**2026-10-10 已随「工作区名前缀」
+ *   整体退役**（用户判定鸡肋）——断言面因此只剩徽章；
  * - **退役面（判别点）**：`.__dsh-fb-stat` 零节点、样式表内无该规则、
  *   `window.__dshFileStat` 必须 **undefined**、`window.fetch` 必须是**同一个
  *   函数**（身份相等 ⇒ 未被包装，`session/page` 拦截真的没了）、
@@ -88,8 +89,8 @@ watchdog.unref?.()
  * `_fileMention` 正文提及），外加一个无扩展名目标（不得加徽章）。
  * 页面侧先装好三样探针环境：
  * - `__logs` + console 覆写（捕 `__dsh_wsprobe__:` 上报）；
- * - `__origFetch` + session/list 存根（工作区解析走它，返回 /tmp/fake-ws）；
- * - 记录**装桩后**的 fetch 身份（`__preEvalFetch`），供「fetch 未被包装」断言比对。
+ * - 记录 fetch 身份（`__origFetch` / `__preEvalFetch`），供「fetch 未被包装」断言比对
+ *   （此前还装 session/list 存根喂工作区探针——探针 2026-10-10 退役，存根一并删除）。
  */
 const FIXTURE = `<!doctype html><html><head><meta charset="utf-8"></head><body>
   <div id="root">
@@ -105,19 +106,7 @@ const FIXTURE = `<!doctype html><html><head><meta charset="utf-8"></head><body>
       origLog(...args);
     };
     window.__origFetch = window.fetch;
-    window.fetch = (input) => {
-      const url = typeof input === 'string' ? input : (input && input.url) || '';
-      if (url.indexOf('/api/session/list') !== -1) {
-        const body = JSON.stringify({ result: { ok: true, value: { items: [
-          { sessionId: 'session-a', cwd: '/tmp/fake-ws', updatedAt: 900 },
-          { sessionId: 'session-b', cwd: '/tmp/older-ws', updatedAt: 100 }
-        ] } } });
-        return Promise.resolve(new Response(body, { status: 200, headers: { 'content-type': 'application/json' } }));
-      }
-      return Promise.resolve(new Response('{}', { status: 200 }));
-    };
-    // ⚠ 必须在**装桩之后**采样：要判的是「注入脚本有没有把页面这枚 fetch 换掉」，
-    // 采样在装桩前会让身份比对按构造就必然不等（2026-10-05 首版实际踩到）。
+    // 采样点必须在注入之前：要判的是「注入脚本有没有把页面这枚 fetch 换掉」。
     window.__preEvalFetch = window.fetch;
   </script>
 </body></html>`
@@ -150,8 +139,6 @@ const PROBE = `(() => {
     statCount: document.querySelectorAll('.__dsh-fb-stat').length,
     statFn: typeof window.__dshFileStat,
     fetchWrapped: window.fetch !== window.__preEvalFetch,
-    wsName: (cs.getPropertyValue('--dsh-ws-name') || '').trim(),
-    wsPath: (cs.getPropertyValue('--dsh-ws-path') || '').trim(),
     linkColor: link !== null ? getComputedStyle(link).color : null,
     reports: (window.__logs || []).filter((l) => l.indexOf('__dsh_wsprobe__:') === 0),
   }
@@ -175,9 +162,6 @@ function verdict(p, tag) {
   if (p.noExt === null) fails.push(t('夹具缺少无扩展名目标（noExt）'))
   else if (p.noExt.cls !== null) fails.push(t(`无扩展名目标被误加徽章（${p.noExt.cls}）`))
   if (p.linkColor !== 'rgb(47, 111, 237)') fails.push(t(`路径配色样式表未生效（${p.linkColor}）`))
-  // —— 留下：工作区探针（自绘标题栏消费） ——
-  if (p.wsName !== 'fake-ws') fails.push(t(`--dsh-ws-name 未写入（${p.wsName}）`))
-  if (p.wsPath !== '/tmp/fake-ws') fails.push(t(`--dsh-ws-path 未写入（${p.wsPath}）`))
   // —— 退役面（判别点） ——
   if (p.statCount !== 0) fails.push(t(`统计徽章仍在渲染（.__dsh-fb-stat × ${p.statCount}）——用户要求退役的正是它`))
   if (p.styleHasStatRule) fails.push(t('样式表里仍有 .__dsh-fb-stat 规则——渲染代码退役了、样式没跟上'))
@@ -212,7 +196,7 @@ app.whenReady().then(async () => {
     }
     console.log(`[ws-probe src=${SRC_PATH}] 取样：`, JSON.stringify({
       link: p2.link, mention: p2.mention, badgeCount: p2.badgeCount, statCount: p2.statCount,
-      statFn: p2.statFn, fetchWrapped: p2.fetchWrapped, wsName: p2.wsName, styleHasStatRule: p2.styleHasStatRule,
+      statFn: p2.statFn, fetchWrapped: p2.fetchWrapped, styleHasStatRule: p2.styleHasStatRule,
     }))
   } catch (error) {
     fails.push(`异常：${error instanceof Error ? error.message : String(error)}`)

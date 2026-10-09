@@ -1,17 +1,23 @@
 /**
- * 工作区探针 + 正文文件类型徽章（零侵入注入器）。自 preview-panel 迁出：
- * 文件预览抽屉/Git 面板删除后仍独立存续的两个页面级功能——
+ * 正文文件类型徽章（零侵入注入器）。自 preview-panel 迁出：文件预览抽屉/Git
+ * 面板删除后仍独立存续的页面级功能——
  *
- * 1. 工作区探针：选中会话变化（aria-selected，debounce 600ms）→
- *    同源 session/list RPC 解析当前工作目录（选中会话 SessionSummary.cwd，
- *    无会话取最近活跃会话的 cwd）→ 写入 --dsh-ws-name / --dsh-ws-path
- *    （自绘标题栏消费：工作区名前缀 + 工作区按钮）；
- * 2. 正文文件类型徽章：工具卡片文件路径按钮（scoped 类名含 _fileLink，
+ * 1. 正文文件类型徽章（唯一在役职责）：工具卡片文件路径按钮（scoped 类名含 _fileLink，
  *    文本即路径）与正文文件 mention（_fileMention）——按扩展名前置类型
  *    徽章（TS/JS/MD…）与链接配色。React 只管理首文本节点，前置徽章 span
  *    与 dataset 属性不受意；行重挂会重建按钮，MutationObserver 重扫补回。
  *
- * 通道：主进程 → 页面走 executeJavaScript 注入 {@link PAGE_JS}
+ * ## 退役记录（2026-10-10）
+ *
+ * 工作区探针（选中会话 → session/list RPC → 解析 cwd → 写 --dsh-ws-name /
+ * --dsh-ws-path 供自绘标题栏拼「工作区 / 标题」前缀与那枚工作区按钮）整段退役：
+ * 用户判定该前缀**鸡肋**（且 S-D2 把按钮搬进官方槽后位置也变了），要求删除。
+ * 随之删除：probeSessionId / resolveWorkspace / reportWorkspace / watchSelection
+ * 与两个 CSS 变量的写入；theme-watcher 的条上按钮、`__dsh_ws__` console 通道与
+ * 主进程 shell.openPath 消费点、smoke-workspace-probe 的两条变量断言；
+ * dsh-shell-prefs 里注册到 conversation.session.header.utilities 的槽组件一并撤除。
+ *
+ * ## 通道（主进程 → 页面走 executeJavaScript 注入 {@link PAGE_JS}）
  *（无上行——原 `__dsh_wsprobe__:` console 上行已于 2026-10-08 拆除）。
  *
  * ## 退役记录（2026-10-05）
@@ -51,79 +57,6 @@ import type { BrowserWindow } from 'electron'
 const PAGE_JS = `(() => {
   if (window.__dshWsProbeWired) return
   window.__dshWsProbeWired = true
-
-  /* ---- 当前会话 → 工作区解析（同源 RPC） ---- */
-  const probeSessionId = () => {
-    const rows = document.querySelectorAll('[role="treeitem"][aria-selected="true"]')
-    for (const el of rows) {
-      const fiberKey = Object.keys(el).find(k => k.startsWith('__reactFiber$'))
-      let fiber = fiberKey !== undefined ? el[fiberKey] : null
-      while (fiber != null) {
-        const node = fiber.memoizedProps != null ? fiber.memoizedProps.node : null
-        if (node != null && typeof node.id === 'string') return node.id
-        fiber = fiber.return
-      }
-    }
-    return null
-  }
-  let rpcSeq = 0
-  // alpha.1 契约：workspace.list 一次性 RPC 已移除（仅剩流式 follow，
-  // 浏览器侧流走 WebSocket mux，裸 fetch 不可达）；改调一次性 session/list，
-  // SessionSummary 自带 cwd。wire：endpoint 路径段以 / 分隔（段内禁 .），
-  // typert payload 须 { args: { _request: {...} } } 命名参格式（均已实测）。
-  const resolveWorkspace = async () => {
-    const res = await fetch('/api/session/list', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        type: 'client-request', rpcId: 'kcoder-probe-' + (++rpcSeq),
-        method: 'session/list', payload: { args: { _request: {} } },
-      }),
-    })
-    if (!res.ok) return null
-    const envelope = await res.json().catch(() => null)
-    const result = envelope != null && envelope.result != null ? envelope.result : null
-    const items = result != null && result.ok === true && result.value != null
-      && Array.isArray(result.value.items) ? result.value.items : null
-    if (items == null || items.length === 0) return null
-    const usable = items.filter(it => it != null && typeof it.sessionId === 'string'
-      && typeof it.cwd === 'string' && it.cwd !== '')
-    if (usable.length === 0) return null
-    const sessionId = probeSessionId()
-    const bySession = sessionId !== null
-      ? usable.find(it => it.sessionId === sessionId) ?? null
-      : null
-    const latest = usable.slice()
-      .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0))[0]
-    const workspace = bySession != null ? bySession : latest
-    return { path: workspace.cwd, title: '' }
-  }
-
-  let debounce = 0
-  const reportWorkspace = () => {
-    resolveWorkspace()
-      .then(ws => {
-        // 工作区名写 CSS 变量：自绘标题栏拼接「工作区 / 标题」前缀
-        //（--dsh-sidebar-w 同款跨注入器通道；style 属性变化会触发
-        // 标题栏既有 observer 重渲染；title 空时兜底 path 尾段）
-        const segs = ws == null ? [] : ws.path.split('/').filter(Boolean)
-        const name = ws != null && ws.title !== '' ? ws.title
-          : segs.length > 0 ? segs[segs.length - 1] : ''
-        document.documentElement.style.setProperty('--dsh-ws-name', name)
-        // 完整路径同步写入：标题栏工作区按钮的点击目标（打开目录）
-        document.documentElement.style.setProperty('--dsh-ws-path', ws != null ? ws.path : '')
-      })
-      .catch(() => {})
-  }
-  const watchSelection = () => {
-    new MutationObserver(() => {
-      window.clearTimeout(debounce)
-      debounce = window.setTimeout(() => { reportWorkspace() }, 600)
-    }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-selected'] })
-    reportWorkspace()
-  }
-  if (document.body) watchSelection()
-  else document.addEventListener('DOMContentLoaded', () => watchSelection(), { once: true })
 
   /* ---- 正文文件类型徽章 ----
    * 目标：工具卡片文件路径按钮（scoped 类名含 _fileLink 子串，文本即

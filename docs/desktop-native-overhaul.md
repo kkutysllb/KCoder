@@ -10,7 +10,7 @@
 | 维度 | 事实 |
 |---|---|
 | 主进程体量 | `desktop/main` **42 个模块 / 13,318 行** |
-| 页面注入面 | **12 个注入器 / 4,996 行**：`style-overlay`(253) / `theme-watcher`(598) / `workspace-header`(392) / `workspace-probe`(210) / `sidebar-toggle`(530) / `brand-injector`(358) / `account-chip`(625) / `about-settings`(459) / `settings-page`(147) / `mcp-settings`(572) / `home-migration`(738) / `clipboard-fix`(114) |
+| 页面注入面 | **12 个注入器 / 4867 行**：`style-overlay`(253) / `theme-watcher`(536) / `workspace-header`(392) / `workspace-probe`(143) / `sidebar-toggle`(530) / `brand-injector`(358) / `account-chip`(625) / `about-settings`(459) / `settings-page`(147) / `mcp-settings`(572) / `home-migration`(738) / `clipboard-fix`(114) |
 | 集成契约 | ARCHITECTURE §7「上游契约锚点」**8 条**（就绪行 / CLI / 侧边栏与布局类名 / 主题落点 / workspace RPC / 协议层全局 / 协议转发面） |
 | 自绘标题栏 | 隐藏原生标题栏 → 自绘条（`--dsh-titlebar-h` 由 `theme-watcher` **量测**）+ 右侧让位（`--dsh-titlebar-right-reserve` = 尾部呼吸位 + **Windows 138px** 原生控制区）+ 会话页头搬移与类名收编（`_titleRow`/`_moreButton`…） |
 | 守护成本 | 12 支 GUI 冒烟（titlebar / workspace-header / style-overlay ×2 / sidebar-toggle / brand-badge / account-chip / mcp-dom / settings-anchors / shell-protocol / workspace-probe / bundle-profile） |
@@ -53,7 +53,7 @@
 | 自绘标题栏（**我们已用** `titleBarStyle: 'hidden'` + `trafficLightPosition` + `titleBarOverlay`；剩下的自绘部分是**条带内容**：量测高度、Windows 138px 让位、会话页头搬移、类名收编） | 上游同款原生三件套 + **官方 header 槽**（`conversation.session.header.*`，本轮又新增 `lineage`） | **部分可退役**：原生控制按钮/拖拽已在用；退役目标是**条带内容与页头搬移**（改用官方槽 + 原生布局），而非「自绘标题栏」整体 |
 | `theme-watcher` 的主题落点/事件（`body[data-ds-dark-theme]`、`colorScheme`） | 客户端在 desktop 运行时下自管；桥可推系统主题 | 退役注入，改桥或上游设置面 |
 | `workspace-header`（搬会话页头进自绘条、收编类名） | 上游原生条 + 页头自带槽（`conversation.session.header.*`，本轮**又新增** `lineage`） | 退役；产品要加的 header 元素改走**官方槽**注册 |
-| `workspace-probe`（页面侧探针解析工作区名/路径） | 客户端 API/RPC（`session/list` 已是官方 RPC）+ desktop 桥可给宿主路径 | 退役探针，改走 RPC/桥 |
+| `workspace-probe`（页面侧探针） | —（不再需要） | ✅ **已退役（2026-10-10）**：随「工作区名前缀」整体删除，模块只剩文件类型徽章；官方槽版本也一并撤回 |
 | `sidebar-toggle`（折叠/展开与占宽保全） | 上游原生侧栏 + `data-rightbar-col` 等官方结构（本轮原生右栏已成熟） | 退役；产品级开关走设置面 |
 | `brand-injector` / `account-chip` | 官方 slot（如 `conversation.hero.brand.mark`）+ desktop 桥（账号/设备信息） | 改**插件化的 slot 组件** |
 | `settings-page` / `about-settings` / `mcp-settings` / `home-migration` | 官方设置分区/`settings.section` 槽 + 原生对话框 + `dshOnboarding` | 改插件化（分区注册），不再 DOM 注入 |
@@ -77,7 +77,7 @@
 | 阶段 | 动作 | 判据 |
 |---|---|---|
 | S-D1 | 对齐 Electron 版本到上游同线（^44.7） | 打包/签名/原生模块全绿；`pnpm check` + 冒烟 |
-| S-D2 | **已落地第一刀（2026-10-10）**：条上「工作区名」按钮由注入 DOM 改为**官方槽** `conversation.session.header.utilities`（`bundle/dsh-shell-prefs` v1.0.2 注册；**自愈式交接**——槽组件挂载置 `documentElement.dataset.kcoderWsSlot='1'`，条上旧按钮即让位，槽缺席/报错时旧按钮兜底）。**原生窗口 chrome 早已在用**（`windows.ts:98/106/109` 的 `titleBarStyle:'hidden'` + `trafficLightPosition` + `titleBarOverlay`），故「退役自绘标题栏」的真实剩余 = **条带内容与几何**（`--dsh-titlebar-h` 量测、页头搬移、左侧 logo/折叠簇） | 窗口控制/拖拽/双击最大化：现状已满足。条几何删除 **受 D3 制约**：上游只在自家桌面模式（preload 写 `data-platform`）为标题栏预留版面，我方不写 ⇒ 需先拍板 Q-D6 |
+| S-D2 | **第一刀已实现但按用户判断撤回（2026-10-10）**：曾把条上「工作区名」按钮改为官方槽 `conversation.session.header.utilities` 注册（`dsh-shell-prefs` v1.0.2 + 自愈式交接），用户实机后判定**该工作区名显示本身鸡肋、且位置从左侧跑到右侧**，遂**整体删除**该特性：槽组件、条上自绘按钮、`workspace-probe` 的工作区探针半区、`__dsh_ws__` 通道与 `shell.openPath` 消费点、两条 CSS 变量断言一并撤除（保留 `client.js` 的 `factory(require)` 契约修正与仿真闸）。**原生窗口 chrome 早已在用**（`windows.ts:98/106/109`），故 S-D2 的真实剩余 = **条带几何**（`--dsh-titlebar-h` 量测、页头搬移）+ 其它产品元素逐个入槽 | 已达成：条上不再有工作区名前缀（用户要求）；`pnpm check` 39/39 + workspace-probe/titlebar/sidebar-toggle/style-overlay 冒烟全绿。条几何删除 **受 D3 制约** ⇒ 待拍板 Q-D6 |
 | S-D3 | 引入 **`window.dshDesktop` 级桥**与 `runtime: 'desktop'` 分流（对齐上游语义） | 客户端识别为 desktop；快捷键/目录对话框走桥；我们的 preload 与上游桥对齐或合并 |
 | S-D4 | 产品 UI 插件化：设置页/MCP/品牌/账号/关于 → 官方 slot 注册 | 各 UI 面在**无注入**下可见可用；注入器逐个删除（每删一个跑一次冒烟） |
 | S-D5 | ✅ **已完成（2026-10-10）**：`plans/kcoder-app-protocol.md` 阶段 4 第二步 —— `windows.ts` 双模式收敛为协议单路、`store`/`ipc`/`ipc-contract`/偏好页的 `shellProtocolMode` 字段与开关删除、`dsh-manager` 的 `shellEntryUrl`/`shellUrlWithTitlebarInset` 删除、诊断页加载形态改常量。**剩余项「对齐上游 `dsh-app://`」已于同日完成**：逐项比对上游 alpha.2 后，转发面（权限集/删头/扣留头/init/403/no-store/WS 三头改写）本就完全一致，对齐了 3 处差异——WS 加 `wss://`、WS 补协议匹配、就绪行接受 `https?`（配合 alpha.2 的 `--tls-cert/--tls-key`）；刻意分歧 D1/D2/D3 保留并留档 | `pnpm check` 39/39（含 check-shell-protocol 54 断言）、`smoke:shell-protocol` 21/21、typecheck 双绿、grep 残留触点仅历史文档 |

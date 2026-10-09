@@ -36,8 +36,6 @@ import { getSettings, saveSettings } from './store'
 const THEME_PREFIX = '__dsh_theme__:'
 /** console 通道前缀（与注入脚本约定）：用户偏好档（三态）。 */
 const THEME_PREF_PREFIX = '__dsh_theme_pref__:'
-/** 工作区按钮上行通道（打开工作区目录）。 */
-const WS_PREFIX = '__dsh_ws__:'
 
 /**
  * macOS 标题栏高度（Window Controls Overlay 覆盖条）。
@@ -220,16 +218,6 @@ export function attachThemeWatcher(win: BrowserWindow): void {
       }
       return
     }
-    // 工作区按钮：打开工作区目录（Finder/资源管理器；路径来自
-    // workspace-probe 写入的 --dsh-ws-path，非任意输入）
-    if (message.startsWith(WS_PREFIX)) {
-      try {
-        const payload = JSON.parse(message.slice(WS_PREFIX.length)) as { action?: unknown; path?: unknown }
-        if (payload.action === 'reveal' && typeof payload.path === 'string' && payload.path !== '') {
-          void shell.openPath(payload.path)
-        }
-      } catch { /* 非 JSON 忽略 */ }
-    }
   }
   const onDidLoad = (): void => {
     if (win.isDestroyed()) return
@@ -292,10 +280,8 @@ export function themeBackgroundColor(pref: 'system' | 'light' | 'dark' = getSett
  * 自绘标题栏（页面上下文）：替代系统标题栏（WCO 覆盖条在 macOS 不渲染
  * 标题且双击缩放失效，故齐弃）。VS Code 同款方案：
  * - `-webkit-app-region: drag` 拖拽区 → 原生拖动与双击缩放；
- * - 靠左显示「工作区 / 会话标题」：工作区前缀由 workspace-probe 探测
- *   （workspace.list RPC + 会话配对）写入 --dsh-ws-name，并做成实体按钮
- *   （文件夹图标，点击打开工作区目录；路径读 --dsh-ws-path，上报
- *   __dsh_ws__ 通道由主进程 shell.openPath 执行）；主文本读**面包屑当前项**
+ * - 靠左显示会话标题（2026-10-10 起不再显示工作区名前缀——用户判定鸡肋，
+ *   工作区探针与那枚按钮整体退役）；主文本读**面包屑当前项**
  *   （`[class*=_crumbCurrent]`）——即上游 DocumentTitle 用的同一份
  *   session.title，但**不带产品名后缀**（document.title 形如
  *   「会话标题 — 产品名」，而产品名是构建期内联的 DSH_CLIENT_TITLE，本产品
@@ -397,30 +383,6 @@ const SHELL_TITLEBAR_JS = `(() => {
     'max-width:calc(100% - max(calc(${TP.leftPad}px + var(--dsh-titlebar-extra-left, 0px)), var(--dsh-sidebar-w, 0px) + 12px) - var(${TITLEBAR_RIGHT_VAR}, ${TITLEBAR_RIGHT_BAND + TP.padRight}px) - var(${TITLEBAR_STATUS_VAR}, 0px))',
     'display:flex', 'align-items:center', 'min-width:0', 'white-space:nowrap',
   ].join(';')
-  // 工作区段：实体按钮（文件夹图标 + 名字；点击打开工作区目录）。
-  // no-drag 使拖拽区内的点击可达；hover 靠下方注入的 style 规则
-  const wsBtn = document.createElement('button')
-  wsBtn.id = '__dsh_ws_btn'
-  wsBtn.style.cssText = [
-    'all:unset', 'box-sizing:border-box', 'flex:none', 'display:inline-flex', 'align-items:center', 'gap:5px',
-    'max-width:240px', 'min-width:0', 'padding:3px 7px', 'border-radius:7px',
-    'cursor:pointer', '-webkit-app-region:no-drag',
-  ].join(';')
-  const wsIco = document.createElement('span')
-  wsIco.style.cssText = 'flex:none;display:inline-flex;width:16px;height:16px'
-  wsIco.innerHTML = '<svg viewBox="0 0 16 16" fill="none"><path d="M1.8 4.4c0-.7.6-1.3 1.3-1.3h2.8c.4 0 .8.2 1 .5l1 1.1h3.9c.7 0 1.3.6 1.3 1.3v5.6c0 .7-.6 1.3-1.3 1.3H3.1c-.7 0-1.3-.6-1.3-1.3V4.4Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>'
-  const wsName = document.createElement('span')
-  wsName.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:400;line-height:1;display:block'
-  wsBtn.append(wsIco, wsName)
-  const wsSep = document.createElement('span')
-  wsSep.style.cssText = 'flex:none;font-weight:400'
-  wsSep.textContent = ' / '
-  // 点击 → 上报主进程打开目录（路径在 apply() 从 --dsh-ws-path 刷进 dataset）
-  wsBtn.onclick = () => {
-    const p = wsBtn.dataset.path || ''
-    if (p === '') return
-    console.log('__dsh_ws__:' + JSON.stringify({ action: 'reveal', path: p }))
-  }
   const ttlTag = document.createElement('span')
   ttlTag.style.cssText = 'flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis'
   // 本段（标题主体）之外曾有第三段：把上游 AgentPresetLabel 的文本抄成一枚
@@ -428,20 +390,8 @@ const SHELL_TITLEBAR_JS = `(() => {
   // （见 workspace-header 模块头注释），合成副本会与真徽章重复且不可点，
   // 故删除该段与该通道——预设/智能体团队/子代理/后台任务四类徽章现在全部
   // 由上游自己渲染在这条带内。
-  label.append(wsBtn, wsSep, ttlTag)
+  label.append(ttlTag)
   bar.append(label)
-
-  // 工作区按钮 hover/图标（cssText 设不了 :hover/后代选择器，注入规则）。
-  // svg 16px + display:block + translateY(.5px)：块化消除基线间隙，
-  // 微下移补字体字形光学中心偏下（flex 只对齐几何盒中心，
-  // 13px 字在行盒内视觉中心偏低，不补则图标显得略高）
-  const wsStyle = document.createElement('style')
-  wsStyle.textContent = [
-    '#__dsh_ws_btn{transition:background .12s ease}',
-    '#__dsh_ws_btn:hover{background:color-mix(in srgb,currentColor 10%,transparent)}',
-    '#__dsh_ws_btn svg{width:16px;height:16px;display:block;transform:translateY(.5px)}',
-  ].join('')
-  document.head.append(wsStyle)
 
   /* 侧边栏右边线探测：标题起排跟随（与终端/预览面板的 sidebarCol
      探针同款；SPA 首帧可能未挂，rAF 轮询等待）。宽度写为 CSS 变量，
@@ -486,26 +436,9 @@ const SHELL_TITLEBAR_JS = `(() => {
       || document.documentElement.style.colorScheme === 'dark'
     bar.style.background = color || (dark ? '#1B1B1C' : '#F9FAFB')
     label.style.color = dark ? 'rgba(232,234,237,.9)' : 'rgba(26,29,33,.75)'
-    let ws = ''
-    try { ws = getComputedStyle(document.documentElement).getPropertyValue('--dsh-ws-name').trim() } catch {}
-    let wsp = ''
-    try { wsp = getComputedStyle(document.documentElement).getPropertyValue('--dsh-ws-path').trim() } catch {}
-    wsName.textContent = ws
-    wsBtn.dataset.path = wsp
-    wsBtn.title = wsp !== '' ? '打开工作区目录：' + wsp : ''
-    // 恢复显示必须写回 inline-flex：置 '' 会清除 cssText 里的 display，
-    // 残留的 all:unset 把按钮打回 inline，文字掉到第二行
-    // S-D2 交接位（2026-10-10）：官方 utilities 槽里的工作区按钮挂载后置
-    // documentElement.dataset.kcoderWsSlot='1'，条上这枚自绘按钮即让位。
-    // 槽侧缺席/报错 ⇒ 标记不置位 ⇒ 本按钮照旧显示（自愈式交接，不会两枚并存，
-    // 也不会丢功能）。
-    const slotOwned = document.documentElement.dataset.kcoderWsSlot === '1'
-    wsBtn.style.display = ws !== '' && !slotOwned ? 'inline-flex' : 'none'
     const title = currentTitle()
     ttlTag.textContent = title
     ttlTag.style.display = title !== '' ? '' : 'none'
-    // 分隔符只在两段都有内容时才是分隔符
-    wsSep.style.display = (ws !== '' && title !== '' && document.documentElement.dataset.kcoderWsSlot !== '1') ? '' : 'none'
     pushTitleEnd()
   }
   /* 主题异步落定自愈：@property 过渡/上游延迟落色时，突变瞬间读到的
