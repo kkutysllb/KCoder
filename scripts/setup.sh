@@ -55,6 +55,31 @@ fi
 
 cd "$UPSTREAM"
 
+# 上游 pin 的 pnpm（package.json 的 packageManager）——本机构建必须与 CI 同**精确版本**，
+# 不只是同主版本。2026-10-10 实测：全局 11.7.0 + 干净树 ⇒ build:lib 失败，且报错是
+#   [@deepseek-ai/dsh-root] Cannot find entry: ["lib/types/{index,startup}.js"]
+# 这种**误导性**形态（那批 lib/types 垫片既不在版本控制、构建链也不生成）；同一棵树
+# 换 11.28.5 全绿。故此后 install/build 一律走 pin 版。
+UPSTREAM_PNPM_PIN="$(node -e "try{const p=require(process.argv[1]).packageManager||'';process.stdout.write(p.startsWith('pnpm@')?p.slice(5):'')}catch{}" "$UPSTREAM/package.json")"
+LOCAL_PNPM="$(pnpm --version 2>/dev/null || echo '未知')"
+say "pnpm：本机 ${LOCAL_PNPM}　上游 pin ${UPSTREAM_PNPM_PIN:-（未声明）}"
+if [[ -n "$UPSTREAM_PNPM_PIN" && "$LOCAL_PNPM" != "$UPSTREAM_PNPM_PIN" ]]; then
+  if command -v npx >/dev/null 2>&1; then
+    warn "本机 pnpm 与上游 pin 不一致 ⇒ 后续改用 npx pnpm@${UPSTREAM_PNPM_PIN}（与 CI 对齐）"
+  else
+    warn "本机 pnpm ${LOCAL_PNPM} ≠ 上游 pin ${UPSTREAM_PNPM_PIN}，且无 npx：构建可能与 CI 不一致"
+  fi
+fi
+
+# 统一出入口：有 pin 就 npx 取 pin 版，否则回落本机 pnpm（无 pin 的上游/离线场景）
+run_pnpm() {
+  if [[ -n "$UPSTREAM_PNPM_PIN" ]] && command -v npx >/dev/null 2>&1; then
+    npx --yes "pnpm@$UPSTREAM_PNPM_PIN" "$@"
+  else
+    pnpm "$@"
+  fi
+}
+
 # 基线钉版（fork 锚定形态）：消费态 = 集成分支 $UPSTREAM_BRANCH，其历史必须包含
 # upstream/BASELINE 指定的基线提交。不钉版的教训：CI 浮动克隆 master，上游发
 # rc.7 当天（slot 契约 list→keyed 破坏性变化）就混进了打包运行时。
@@ -98,14 +123,14 @@ bash "$ROOT/scripts/verify-vendor-purity.sh"
 # 记录就按记录复用；全新克隆无记录，走 pnpm 默认 store。
 STORE_DIR="$(node "$ROOT/scripts/deps-freshness.mjs" --store-dir "$UPSTREAM" 2>/dev/null || true)"
 if [[ -n "$STORE_DIR" ]]; then
-  say "安装依赖（pnpm install --store-dir ${STORE_DIR}）…"
-  pnpm install --store-dir "$STORE_DIR"
+  say "安装依赖（--store-dir ${STORE_DIR}）…"
+  run_pnpm install --store-dir "$STORE_DIR"
 else
-  say "安装依赖（pnpm install）…"
-  pnpm install
+  say "安装依赖…"
+  run_pnpm install
 fi
 
-say "构建上游（pnpm run build，含 Host/Client/Web 三阶段）…"
-pnpm run build
+say "构建上游（build，含 Host/Client/Web 三阶段）…"
+run_pnpm run build
 
 say "完成。启动桌面端：cd $ROOT && pnpm dev（开发）或 pnpm start（生产预览）"

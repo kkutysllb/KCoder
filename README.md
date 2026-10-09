@@ -34,11 +34,13 @@ KCoder 以 DSH-Desktop（v0.1.4，`f29f852`）为基线整仓拷贝起步，两�
 
 前置：Node.js（≥ 上游要求，见 `deepseek-harness/package.json` 的 `engines.node`）、pnpm v11、git。
 
-> **pnpm 必须是 v11，且本机全局只保留这一个主版本**（安装：`npm install -g pnpm@11`）。上游 `packageManager` 声明、CI 与桌面端内置运行时的 vendored pnpm 均为 v11（当前 11.7.0）；profile（`~/.dsh/profiles/web`）的依赖链接与其调用到的 pnpm store 大版本必须一致，与其它主版本（如旧的 v10）并存时插件安装/更新会报 `ERR_PNPM_UNEXPECTED_STORE`。KCoder 的插件补丁链已按 pnpm 11 语义适配（patchedDependencies 用精确版本键 + `allowUnusedPatches` 容忍漂移；老版本的 name-only 声明会在启动时自动迁移）。已混装的机器：卸载多余主版本（npm 装的`npm uninstall -g pnpm` 后重装指定主版本；自装版即删 `%LOCALAPPDATA%\pnpm` 目录及注册表 `PNPM_HOME` 变量、User PATH 里的 `%PNPM_HOME%\bin` 条目），确保任意终端 `pnpm --version` 为 11.x，再删除 `~/.dsh/profiles/web/node_modules` 与 `pnpm-lock.yaml`，重启 KCoder 自动重装。
+> **pnpm 必须与上游 `packageManager` 同*精确版本*（当前 `pnpm@11.28.5`），不只是同主版本。** 2026-10-10 实测：本机全局 11.7.0 + 干净树 ⇒ `build:lib` 失败，报错形如 `[@deepseek-ai/dsh-root] Cannot find entry: ["lib/types/{index,startup}.js"]`——**误导性**：那批 `lib/types` 垫片既不在版本控制、构建链也不生成，同一棵树换 11.28.5 即全绿。`pnpm setup`（`scripts/setup.sh`）现在自动读上游 pin 并改用 `npx pnpm@<pin>` 执行 install/build，与 CI 对齐；本机全局仍建议只保留 v11 主版本（下述 store 一致性要求）。上游 `packageManager`、CI 与桌面端内置运行时的 vendored pnpm **均为 v11 主版本**；profile（`~/.dsh/profiles/web`）的依赖链接与其调用到的 pnpm store 大版本必须一致，与其它主版本（如旧的 v10）并存时插件安装/更新会报 `ERR_PNPM_UNEXPECTED_STORE`。KCoder 的插件补丁链已按 pnpm 11 语义适配（patchedDependencies 用精确版本键 + `allowUnusedPatches` 容忍漂移；老版本的 name-only 声明会在启动时自动迁移）。已混装的机器：卸载多余主版本（npm 装的`npm uninstall -g pnpm` 后重装指定主版本；自装版即删 `%LOCALAPPDATA%\pnpm` 目录及注册表 `PNPM_HOME` 变量、User PATH 里的 `%PNPM_HOME%\bin` 条目），确保任意终端 `pnpm --version` 为 11.x，再删除 `~/.dsh/profiles/web/node_modules` 与 `pnpm-lock.yaml`，重启 KCoder 自动重装。
+
+> **不要用 `git clean` / 删 `lib/` 去"修"上游构建。** 那批 `lib/types` 垫片是**上一次成功构建留下的状态**（不在版本控制里，构建链也不生成）；清掉后该克隆在本机**无法原地重建**，正确做法是**新建工作树/克隆**（`git -C <clone> worktree add <新目录> <分支>`，或换目录重跑 `pnpm setup`）。2026-10-10 现场即因此把一棵能用的克隆清成不可构建。
 
 ```sh
 pnpm install          # 安装桌面端依赖
-pnpm setup            # 克隆上游（若缺）+ pnpm install + pnpm run build
+pnpm setup            # 克隆上游（若缺）+ 按上游 pin 的 pnpm 装依赖与构建
 pnpm dev              # 开发模式启动
 # 或
 pnpm build && pnpm start
