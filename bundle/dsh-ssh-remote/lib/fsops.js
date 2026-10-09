@@ -97,13 +97,25 @@ export class FsOps {
 
   /**
    * 字面量替换编辑（乐观并发）：
+   *  0) 调用方 token（可选 sha256，取自 read 的返回值）与当前文件比对——不符即
+   *     stale-edit（README 承诺：读取记 sha256，提交前校验）；
    *  1) readWhole 拿全文 + sha256；
    *  2) 本地字面量替换（默认必须唯一命中）；
-   *  3) 远端关键段：stdin 先落 tmp → 校验原文件 sha 未变 → 原子 mv；变了 exit 75。
+   *  3) 远端关键段：stdin 先落 tmp → 校验原文件 sha 未变 → 原子 mv；变了 exit 75
+   *     （守护 1) 读到 3) mv 之间的并发改动，与 token 校验互补）。
    */
-  async edit(host, filePath, oldString, newString, { replaceAll = false } = {}) {
+  async edit(host, filePath, oldString, newString, { replaceAll = false, sha256: expected } = {}) {
     if (!oldString) throw new FsOpsError('oldString 不能为空', 'bad-args')
+    if (expected !== undefined && expected !== null && expected !== '') {
+      if (typeof expected !== 'string' || !/^[0-9a-f]{64}$/i.test(expected)) {
+        throw new FsOpsError('sha256 必须是 64 位十六进制（取自 ssh_read 的返回值）', 'bad-args')
+      }
+    }
     const whole = await this.readWhole(host, filePath)
+    if (expected !== undefined && expected !== null && expected !== ''
+      && String(expected).toLowerCase() !== String(whole.sha256 || '').toLowerCase()) {
+      throw new FsOpsError(filePath + ' 自上次读取后已被修改（sha256 不符），请重新 read 后再编辑', 'stale-edit')
+    }
     const count = whole.content.split(oldString).length - 1
     if (count === 0) throw new FsOpsError('oldString 在 ' + filePath + ' 中未找到', 'not-found')
     if (count > 1 && !replaceAll) throw new FsOpsError('oldString 命中 ' + count + ' 处（需唯一或 replaceAll）', 'not-unique')

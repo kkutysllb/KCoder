@@ -262,14 +262,14 @@ export function apply(ctx, config) {
 
     ctx.tools.register(defineTool({
       name: 'ssh_read',
-      description: '读远程文本文件窗口（带行号，tab 分隔，格式同本地 read）。参数 offset（起始行，1 起）/ limit（行数，默认 2000）。二进制文件会被拒绝。',
+      description: '读远程文本文件窗口（带行号，tab 分隔，格式同本地 read）。参数 offset（起始行，1 起）/ limit（行数，默认 2000）。二进制文件会被拒绝。返回末尾附完整 sha256：把它传给 ssh_edit 的 sha256 参数即可做防冲突校验（自本次读取后文件被改动则拒绝编辑）。',
       parameters: {
         hostId: { type: 'string', description: '主机 id；缺省第一条。' },
         path: { type: 'string', required: true, description: '远程文件绝对路径。' },
         offset: { type: 'number', description: '起始行（1 起）。' },
         limit: { type: 'number', description: '行数（默认 2000）。' },
       },
-      output: withMeta(textOut(v => (v && v.ok === false) ? JSON.stringify(v) : (v.content || '') + '\n[' + (v.lines || 0) + ' 行，sha256 ' + String(v.sha256 || '').slice(0, 12) + ']'), (a = {}, v) => (isRecord(v) && v.ok === false)
+      output: withMeta(textOut(v => (v && v.ok === false) ? JSON.stringify(v) : (v.content || '') + '\n[' + (v.lines || 0) + ' 行，sha256 ' + String(v.sha256 || '') + ']'), (a = {}, v) => (isRecord(v) && v.ok === false)
         ? { error: (v.error && v.error.message) || 'error', host: hostOf(a) }
         : { host: hostOf(a), path: String(v?.path || a.path), lines: Number(v?.lines) || 0, sha256: String(v?.sha256 || '').slice(0, 12) }),
       presentCall: (a = {}) => ({
@@ -322,6 +322,7 @@ export function apply(ctx, config) {
         oldString: { type: 'string', required: true, description: '被替换文本（须与文件内容精确匹配）。' },
         newString: { type: 'string', description: '替换文本（空串=删除）。' },
         replaceAll: { type: 'boolean', description: '替换全部命中（默认 false）。' },
+        sha256: { type: 'string', description: '取自 ssh_read 的返回值：传入即校验「自那次读取后文件未被改动」，不符报 stale-edit（需重读重试）。' },
       },
       output: withMeta(jsonOut, (a = {}, v) => (isRecord(v) && v.ok === false)
         ? { error: (v.error && v.error.message) || 'error', host: hostOf(a) }
@@ -333,7 +334,7 @@ export function apply(ctx, config) {
       async execute(args) {
         const a = args || {}
         if (!a.path || a.oldString === undefined) throw new Error('path 与 oldString 必填')
-        return withHost(a.hostId, h => fsops.edit(h, String(a.path), String(a.oldString), String(a.newString || ''), { replaceAll: Boolean(a.replaceAll) }))
+        return withHost(a.hostId, h => fsops.edit(h, String(a.path), String(a.oldString), String(a.newString || ''), { sha256: a.sha256 === undefined || a.sha256 === null ? undefined : String(a.sha256), replaceAll: Boolean(a.replaceAll) }))
       },
     }))
 

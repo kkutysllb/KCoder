@@ -3,7 +3,7 @@
 DSH（DeepSeek Harness）插件：**SSH 远程运维/开发工具套件**——Agent 通过 10 个 `ssh_*` 工具在远程 Linux 主机上执行命令、读/写/编辑文件、搜索、双向传输（对标 VS Code Remote SSH 的核心工作流）。
 
 - 系统 ssh 二进制 + **ControlMaster 连接复用**：首连后每次操作毫秒级；宿主重启自动重建；
-- **远程文件编辑带防冲突**：读取记 sha256，提交前远端校验，文件被并发修改报 `stale-edit`；
+- **远程文件编辑带防冲突**：`ssh_read` 记 sha256，编辑时把该 sha 作为 token 传入（`ssh_edit.sha256`），提交前校验「自那次读取后未被改动」——不符报 `stale-edit`（不发关键段、需重读重试）；
 - 所有命令/路径**参数数组直传**远端 shell，不经本地 shell——无引号地狱；
 - 会话头部**状态胶囊**+面板；设置页**可视化主机管理**（表格 CRUD / 批量导入 / 导出，动态主机保存即生效）；
 - 工具卡片化呈现：`ssh_run` 渲染终端卡（输出+退出码）、`ssh_read` 带文件跟随、`ssh_write`/`ssh_edit` 渲染 diff、`ssh_glob`/`ssh_grep` 渲染搜索卡（带封顶指示）；
@@ -148,15 +148,15 @@ qilin plugin --profile qilin add github:kkutysllb/dsh-kylin-ssh-tunnel
 
 ## 设计要点
 
-- **ControlMaster**：`~/.dsh/ssh-remote/cm/<id>.sock`，`ControlPersist` 默认 600s；操作前 `-O check`，失效自动重建；插件停止 `-O exit`。Windows 宿主自动降级逐次直连（功能完整，速度较慢）。
-- **edit 防冲突**：读全文记 sha256 → 本地替换 → 远端「内容落 tmp → 原文件 sha 校验 → 原子 mv」，变了 exit 75 → `stale-edit`。
+- **ControlMaster**：`~/.dsh/ssh-remote/cm/<id>.sock`，`ControlPersist` 默认 600s；操作前 `-O check`，失效自动重建；**建连遇瞬时拒绝自动重试**（默认 3 次、指数退避 2s→8s；认证类失败不重试）；插件停止 `-O exit`。Windows 宿主自动降级逐次直连（功能完整，速度较慢）。
+- **edit 防冲突**（两层）：① **调用方 token**——`edit({ sha256 })` 与当前文件比对，不符直接 `stale-edit`（不触碰远端）；② **关键段 CAS**——读全文记 sha256 → 本地替换 → 远端「内容落 tmp → 原文件 sha 校验 → 原子 mv」，变了 exit 75 → `stale-edit`。两层互补：①管「自上次 read 后」的改动，②管「读到 mv 之间」的并发改动。
 - **安全**：仅密钥认证（BatchMode）；`StrictHostKeyChecking=accept-new`（首连自动接受 host key，信任权衡自行评估）；HTTP API 仅回环。
 - **已知限制**：
   - `ssh_run` 超时只终止本地 ssh，远端命令可能继续（可自行包 `timeout N cmd`）；
   - `ssh_grep` 为 POSIX ERE，与 ripgrep 语法有差异；
   - 编辑限 1MB 内文本；
   - `ssh_push` / `ssh_pull` 大目录（tar-over-ssh）默认 180s 超时，超大目录可通过 `timeoutMs` 参数放宽；
-  - 非 22 端口主机的连接重建在下一次操作时自动完成（无操作内重试）；
+  - 非 22 端口主机的连接重建在下一次操作时自动完成，**并在同一次操作内对瞬时拒绝做有限重试**（见上）；
   - scp 远端路径含特殊字符（空格/引号）时可能受限，复杂路径建议先 ssh_run 确认；
   - hostsFile（`~/.dsh/ssh-remote/hosts.json`）除设置页手工录入外，也支持在设置页从 `~/.ssh/config` 文本批量导入（解析 Host 块/ProxyJump，导入前可预览）；
   - HTTP API 状态码语义：404 = 路由不存在，409 = 冲突（静态主机不可删除/覆盖、id 重复、probe 目标不存在），403 = 非回环访问。

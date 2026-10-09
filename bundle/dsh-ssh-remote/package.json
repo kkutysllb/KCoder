@@ -1,6 +1,6 @@
 {
   "name": "dsh-ssh-remote",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "DSH 插件：SSH 远程运维/开发工具套件（run/read/write/edit/glob/grep/push/pull）+ ControlMaster 连接层 + 状态面板 + 设置页主机管理。",
   "type": "module",
   "icon": "icon.svg",

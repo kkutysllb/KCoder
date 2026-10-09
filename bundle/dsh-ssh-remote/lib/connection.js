@@ -5,6 +5,37 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { harnessHome } from './home.js'
 
+/** 值得重试的瞬时建连失败（对端/中转拒绝），与认证类失败（重试无意义）分开。 */
+const TRANSIENT_SSH_PATTERNS = [
+  /connection closed by/i,
+  /kex_exchange_identification/i,
+  /connection reset by peer/i,
+  /connection (timed out|timeout)/i,
+  /operation timed out/i,
+  /no route to host/i,
+  /not allowed at this time/i,
+  /broken pipe/i,
+  /connection refused/i,
+]
+const FATAL_SSH_PATTERNS = [
+  /permission denied/i,
+  /host key verification failed/i,
+  /too many authentication failures/i,
+  /no matching (key exchange|host key|mac|compression)/i,
+  /no such identity|identity file .* not accessible/i,
+]
+/**
+ * 建连失败是否值得重试。
+ * @param error - master 失败时记录的 lastError 文本。
+ * @returns 瞬时拒绝为 true；认证/密钥类与未知文本为 false（未知一律不重试，避免放大故障）。
+ */
+function isTransientSshFailure(error) {
+  const text = String(error || '')
+  if (text === '') return false
+  if (FATAL_SSH_PATTERNS.some((re) => re.test(text))) return false
+  return TRANSIENT_SSH_PATTERNS.some((re) => re.test(text))
+}
+
 export class ConnectionManager {
   constructor(opts = {}) {
     this.platform = opts.platform || process.platform
@@ -14,6 +45,12 @@ export class ConnectionManager {
     this.sleepMs = typeof opts.sleepMs === 'number' ? opts.sleepMs : 1
     this.probeIntervalMs = opts.probeIntervalMs || 250
     this.connectFloorMs = typeof opts.connectFloorMs === 'number' ? opts.connectFloorMs : 6000
+    // 建连重试：对端/中转的**瞬时拒绝**（实测见于 frp / Windows portproxy 这类中转）
+    // 值得重试；认证类失败不重试（无意义且可能触发对端封禁）。见 _ensureMasterWithRetry。
+    this.connectRetries = typeof opts.connectRetries === 'number' ? opts.connectRetries : 3
+    this.retryDelayMs = typeof opts.retryDelayMs === 'number' ? opts.retryDelayMs : 2000
+    this.retryMaxDelayMs = typeof opts.retryMaxDelayMs === 'number' ? opts.retryMaxDelayMs : 8000
+    this.onLog = typeof opts.onLog === 'function' ? opts.onLog : null
     this.disposed = false // 插件停用/卸载后置位：拒绝重建 master（防无主 detached ssh 复活）
     this.stats = new Map()   // id → { latencyMs, establishedAt, commands, lastError, pid?, master: 'up'|'down'|'degraded' }
     this.pending = new Map() // id → Promise（并发去重）
@@ -132,9 +169,32 @@ export class ConnectionManager {
       return Promise.resolve({ ok: true, degraded: true })
     }
     if (this.pending.has(host.id)) return this.pending.get(host.id)
-    const p = this._ensureMasterInner(host).finally(() => this.pending.delete(host.id))
+    const p = this._ensureMasterWithRetry(host).finally(() => this.pending.delete(host.id))
     this.pending.set(host.id, p)
     return p
+  }
+
+  /**
+   * 建连重试（2026-10-09）：`Connection closed by …` / `kex_exchange_identification` /
+   * `Not allowed at this time` 这类**瞬时拒绝**（实测见于 frp / Windows portproxy 中转）
+   * 重试 `connectRetries` 次并指数退避；认证类失败（`Permission denied` 等）立即返回。
+   * 成功时带 `retried` 字段（重试次数），供调用方/日志区分首连成功。
+   */
+  async _ensureMasterWithRetry(host) {
+    const attempts = Math.max(0, Number(this.connectRetries) || 0) + 1
+    let last = null
+    for (let i = 0; i < attempts; i += 1) {
+      if (i > 0) {
+        const delay = Math.min(this.retryMaxDelayMs, this.retryDelayMs * Math.pow(2, i - 1))
+        if (this.onLog) this.onLog('建连重试 ' + i + '/' + (attempts - 1) + '（' + delay + 'ms 后）: ' + String(last && last.error).slice(0, 160))
+        await this._delayRef(delay)
+      }
+      if (this.disposed) return { ok: false, error: 'connection manager disposed' }
+      last = await this._ensureMasterInner(host)
+      if (last.ok) return i > 0 ? { ...last, retried: i } : last
+      if (!isTransientSshFailure(last.error)) break
+    }
+    return last || { ok: false, error: 'unknown' }
   }
 
   async _ensureMasterInner(host) {
@@ -249,6 +309,11 @@ export class ConnectionManager {
       void tornDown
       return { id, ...rest }
     })
+  }
+
+  /** 重试退避专用：**ref** 定时器（连接在途时保持进程存活，区别于 _sleep 的 unref 语义）。 */
+  _delayRef(ms) {
+    return new Promise(resolve => setTimeout(resolve, Math.max(1, ms)))
   }
 
   _sleep(ms) {
