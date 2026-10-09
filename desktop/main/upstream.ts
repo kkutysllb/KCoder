@@ -11,7 +11,7 @@
 
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { UPSTREAM_BRANCH, UPSTREAM_DIR, UPSTREAM_REPO, upstreamBuilt, upstreamCloned, upstreamNodeRange } from './dsh-contract'
+import { pinnedPnpmCommand, UPSTREAM_BRANCH, UPSTREAM_DIR, UPSTREAM_REPO, upstreamBuilt, upstreamCloned, upstreamNodeRange } from './dsh-contract'
 import type { UpstreamProgress, UpstreamStatus } from '@shared/ipc-contract'
 
 /** 同步中标志：同步进行时拒绝重复触发与 dsh 启动竞争。 */
@@ -71,7 +71,15 @@ function emit(step: string, line: string, error = false): void {
  */
 function run(step: string, command: string, args: string[]): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    const child: ChildProcess = spawn(command, args, { cwd: UPSTREAM_DIR, stdio: ['ignore', 'pipe', 'pipe'] })
+    // Windows 上 npx/pnpm 是 .cmd 垫片：Node ≥20 出于安全禁止无 shell 直接 spawn
+    // （CVE-2024-27980 加固），故 Windows 下 shell:true，并自行给含空格参数加引号。
+    const win = process.platform === 'win32'
+    const argv = win ? args.map((a) => (/\s/.test(a) ? `"${a}"` : a)) : args
+    const child: ChildProcess = spawn(command, argv, {
+      cwd: UPSTREAM_DIR,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: win,
+    })
     const onLine = (chunk: Buffer): void => {
       for (const line of chunk.toString('utf8').split('\n')) {
         if (line !== '') emit(step, line)
@@ -128,13 +136,15 @@ export async function syncUpstream(): Promise<{ ok: boolean; error: string | nul
       }
     }
 
-    emit('依赖', 'pnpm install…')
-    if (!(await run('依赖', 'pnpm', ['install', '--prefer-offline']))) {
+    const pnpmCmd = pinnedPnpmCommand(UPSTREAM_DIR)
+    const pnpmLabel = pnpmCmd.join(' ')
+    emit('依赖', `${pnpmLabel} install…`)
+    if (!(await run('依赖', pnpmCmd[0], [...pnpmCmd.slice(1), 'install', '--prefer-offline']))) {
       return { ok: false, error: 'pnpm install 失败' }
     }
 
-    emit('构建', 'pnpm run build…（上游全量构建，可能需要数分钟）')
-    if (!(await run('构建', 'pnpm', ['run', 'build']))) {
+    emit('构建', `${pnpmLabel} run build…（上游全量构建，可能需要数分钟）`)
+    if (!(await run('构建', pnpmCmd[0], [...pnpmCmd.slice(1), 'run', 'build']))) {
       return { ok: false, error: 'pnpm run build 失败' }
     }
 

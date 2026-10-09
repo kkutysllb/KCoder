@@ -31,6 +31,7 @@ import { dirname, join, resolve } from 'node:path'
 import { createGzip } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 import { resolveUpstreamDir } from './upstream-dir.mjs'
+import { readUpstreamPnpmPin } from './pnpm-pinned.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 // 上游工作树落点：统一走 scripts/upstream-dir.mjs（唯一实现，含 CI 的仓内相邻克隆层）
@@ -656,10 +657,11 @@ function* realManifests(dir) {
 // preset-plugins / profile-patches 的 runPnpm）在普通用户机器上没有
 // pnpm 可用（GUI 应用不经 shell 启动，Windows 用户通常也没装；PATH
 // 增强救不了没装）。pnpm npm 包零外部依赖（协作包自带在
-// dist/node_modules），解释器直跑 bin/pnpm.mjs 即可。版本对齐上游
-// packageManager 字段（pnpm@11.7.0）。
+// dist/node_modules），解释器直跑 bin/pnpm.mjs 即可。
+// 版本**取自上游 packageManager 字段**（2026-10-10 修正）：此前硬编码
+// '11.7.0'，而上游已声明 11.28.5 —— 注释与事实脱节、随包 pnpm 与上游声明不一致。
 {
-  const PNPM_VERSION = '11.7.0'
+  const PNPM_VERSION = readUpstreamPnpmPin(upstream) || '11.7.0'
   const dest = join(staging, 'tools', 'pnpm')
   if (!existsSync(join(dest, 'bin', 'pnpm.mjs'))) {
     console.log(`[materialize] vendor pnpm@${PNPM_VERSION} → tools/pnpm …`)

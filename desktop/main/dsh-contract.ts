@@ -194,6 +194,42 @@ export function dshHome(): string {
 }
 
 /**
+ * 读上游 `package.json` 声明的 pnpm 版本（`packageManager: pnpm@x.y.z`）；无/不可读返回空串。
+ */
+export function readUpstreamPnpmPin(upstreamDir: string): string {
+  try {
+    const manifest = JSON.parse(readFileSync(join(upstreamDir, 'package.json'), 'utf8')) as {
+      packageManager?: unknown
+    }
+    const pm = typeof manifest.packageManager === 'string' ? manifest.packageManager : ''
+    return pm.startsWith('pnpm@') ? pm.slice('pnpm@'.length) : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 上游构建用的 pnpm 调用式（**按上游 `packageManager` 的精确版本**）。
+ *
+ * TS 侧孪生：`scripts/pnpm-pinned.mjs` 是 shell / CI 侧的唯一实现，但主进程在打包态
+ * 拿不到 `scripts/`（asar），故此处内联同一策略。动机：上游声明 `pnpm@11.28.5`，而本仓
+ * CI 的 `pnpm/action-setup` 硬编码 `11.7.0`——上游构建必须跑上游声明的版本；本机
+ * 2026-10-10 的现场与「切基线后沿用旧安装态」相关（见 README 两条构建铁律）。
+ * 无 pin / 无 npx 时回落 PATH 上的 pnpm（Windows 上 npm shim 是 `.cmd`，spawn 需 shell）。
+ */
+export function pinnedPnpmCommand(upstreamDir: string): string[] {
+  const pin = readUpstreamPnpmPin(upstreamDir)
+  if (pin === '') return ['pnpm']
+  const probe = spawnSync('npx', ['--version'], {
+    encoding: 'utf8',
+    timeout: 30_000,
+    windowsHide: true,
+    shell: process.platform === 'win32',
+  })
+  return probe.status === 0 ? ['npx', '--yes', `pnpm@${pin}`] : ['pnpm']
+}
+
+/**
  * 运行时内 vendor 的 pnpm 入口（tools/pnpm/bin/pnpm.mjs；
  * materialize-peers 物化，版本对齐上游 packageManager）。pnpm npm 包
  * 零外部依赖（协作包自带在 dist/node_modules），解释器直跑入口即可。
