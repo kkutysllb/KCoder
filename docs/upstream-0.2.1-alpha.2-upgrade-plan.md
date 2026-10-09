@@ -41,7 +41,7 @@
 
 | # | 插件 | 动作 | 判据 |
 |---|---|---|---|
-| S2.1 | `dsh-ssh-remote` 0.1.4 → **新版**（插件仓改，铁律 2） | 适配指南 `ssh-helper-launch`：`launch:{kind:'node-script'\|'executable'}`、`helperHash` 与 helper 产物同批、连接 `ptcLaunch`；接入 `ssh-helper-runtime` | 远端主机连接 → 文件读写 → 终端 → Node PTC 全链路；`ssh_*` 工具卡渲染；远端 profile overlay 不再写旧键（`rg 'bootstrapPath|nodeExecutable' 插件仓` 零命中） |
+| S2.1 | ~~`dsh-ssh-remote` 适配 `launch`~~ **✅ 已核：无需适配**（2026-10-09 代码级核对，**推翻**早前 🔴 判断） | 证据三条：①插件自带 `cordis.patch.yml` 只 insert 自己的行（`ssh-remote`），**从不写 `dsh-ssh` 行配置**；②`worlds.json` 的 `node`/`helper`/`helperHash` 只有**一个写者**（插件 `provision.js`）与**存在性校验读者**（`remote-world.ts`），**无值消费者**；③世界切换走 `startRemoteServer({alias, remoteNode: remoteDshBin(spec)})` = **在远端跑引擎**（装 runtime+profile），不经 `ctx.ssh` 的 helper。⇒ 指南 `ssh-helper-launch` 的破坏面（`node`/`bootstrapPath`/`bootstrapHash` → `launch`、protocol 2）在 KCoder 链路上**无落点** | 判据：`rg -n 'bootstrapPath|nodeExecutable|helperHash' desktop/main bundle/dsh-ssh-remote` 仅剩上述写入/校验（已核）；远端世界连接与文件/终端可用（用户实测） |
 | S2.2 | bundle 物化与版本线 | `bundle/dsh-ssh-remote` 同步新版（`sync-bundles.mjs` + `electron-builder.yml` 已就位）；`check-bundle-version-line` 通过 | `pnpm check` 绿；实体版本 == bundle 版本 |
 | S2.3 | 技能 `dsh-skills-bundle` | 预期**零代码改动**：跑一遍技能注册/设置分区/`/技能` 调用 | `packages/skill/skill/src/index.ts` 与 `tool-skill` 注册/调用面逐条比对（diff 结论：核心面未变）；技能页 + 可选技能开关 + 会话内 `/技能名` 实测 |
 | S2.4 | MCP | 预期**零改动**：`smoke:mcp-dom` + 真机启用一个 MCP 服务器 | MCP 工具在会话内可见可调 |
@@ -65,7 +65,7 @@
 | S3.3 | Agent Team 消费方 | 指南 `team-direct-inbox` | 若插件读 `team/message/queued` 或 `maxPendingMessagesPerMember`，改直投 Inbox 语义 |
 | S3.4 | `TerminalBlock` 渲染方 / Python PTC 组合方 | 指南 `terminal-command-labels` / `python-ptc-sandbox` | 有则补 `commandLine` 标签/沙箱服务；无则记录 |
 | S3.7 | 用户 profile 补丁的悬挂项清理（dump-config 警告） | dev：`better-sidebar`（已退役插件的残留段，第 90-96 行）、`dsh-kylin-memory`（未选 bundle）；packed：`llm-deepseek` 名不符被静默跳过（alpha.2 同时有 `llm-deepseek` 与 `llm-deepseek-api-key`，补丁两条同 id 混用）、`graphrag-provider-local`/`dsh-kylin-memory` 悬挂 | 逐条删或改名对齐；判据：`dsh --profile web --dump-config` 输出**零 `patch:` 警告**，且自定义模型清单在设置页可见（用户实测） |
-| S5.8 | **SSH helper 运行时（#12）的验证剧本**（上游自带两套验证器，引擎级可独立跑） | ①构建本机平台归档：`pnpm exec tsx scripts/build-exe-for-ssh-helper.ts`（本机 Node v24.18.0 + clang ✓，`--dry-run` 已验：target `node24-macos-arm64` → `dist-exe/ssh-helper/`）；②`pnpm exec tsx scripts/verify-ssh-helper-artifact.ts --archive=<tgz> --sandbox=required --backend=sandbox-exec --report=<json>`——校验 sha256/manifest/payload → 只读安装 → **两份并发 Loader 组合实测 files / processes / PTY / native flock / PTC**，macOS 另跑「拒绝 checkout 与宿主 Node」的受限 worker；③「远端无 Node」专项（**Linux + Docker**）：`scripts/verify-ssh-helper-ssh.ts --archive=<linux tgz>` 自建 glibc 2.28、无 Node 的 sshd 容器走生产连接 | ①`--dry-run` exit 0（已验）；②归档验证器 `--sandbox=required` exit 0 且 report 各项通过；③Linux 车道 exit 0。KCoder 内端到端（远端世界文件/进程/终端/沙箱/PTC）须先完成 S2.1 + 登记主机 |
+| S5.8 | **SSH helper 运行时（#12）的验证剧本**（上游自带两套验证器，引擎级可独立跑） | ①构建本机平台归档：`pnpm exec tsx scripts/build-exe-for-ssh-helper.ts`（本机 Node v24.18.0 + clang ✓，`--dry-run` 已验：target `node24-macos-arm64` → `dist-exe/ssh-helper/`）；②`pnpm exec tsx scripts/verify-ssh-helper-artifact.ts --archive=<tgz> --sandbox=required --backend=sandbox-exec --report=<json>`——校验 sha256/manifest/payload → 只读安装 → **两份并发 Loader 组合实测 files / processes / PTY / native flock / PTC**，macOS 另跑「拒绝 checkout 与宿主 Node」的受限 worker；③「远端无 Node」专项（**Linux + Docker**）：`scripts/verify-ssh-helper-ssh.ts --archive=<linux tgz>` 自建 glibc 2.28、无 Node 的 sshd 容器走生产连接 | ①`--dry-run` exit 0（已验）；②归档验证器 `--sandbox=required` exit 0 且 report 各项通过；③Linux 车道 exit 0。~~KCoder 内端到端须先完成 S2.1~~（S2.1 已核为无需适配）。**L1 实跑结果（2026-10-09，本机 macOS arm64）**：归档 `dsh-ssh-helper-0.2.1-alpha.2-macos-arm64.tar.gz`（39MB；manifest：protocol **2**、嵌入 Node **v24.21.0**、commit `41f151ab…`）→ 官方验证器 **exit 0**，report：`runtime.checks` = executable-handshake / guarded-files-and-streams / managed-process-output / process-cancellation / native-pty / native-flock / embedded-ptc-and-deadline / **sandbox-enforcement**；`sandboxLane=required`、`expectedBackend=sandbox-exec`、`restrictedWorker=true`（拒绝 checkout 与宿主 Node）、`readonlyInstall=true`、`concurrentColdStarts=2` |
 | S5.7 | 工具类新能力的验证剧本（发布说明条目的「形态」分类） | #4 Git Worktrees 等是**模型工具**（`create_worktree`）而非 UI：#4 在源码态已挂载、打包态未选；#3 `working_directory`、#10/#11 等同理 | 在发布说明/验收表里给「怎么验」：Git 仓库会话 → 让 Agent 建 worktree → 看工具卡 + `<repo>/.agents/worktrees/<name>` + `git worktree list` + 会话工作区切换 |
 | S3.6 | 源码态 playwright MCP 端点串到打包态 | dev profile 的 `mcp-playwright` 行写死 `--cdp-endpoint http://127.0.0.1:9223`，而源码态 browser-host 在 **9224**（`browserHostPort()` 按 `app.isPackaged` 分流）——实测今天 22:48 dev 起的 playwright 进程就连在 9223（打包态）上 | 把 dev profile 该行的端点改为 **9224**（或删掉该行的 `--cdp-endpoint` 两参，让内置同步按态生成——注意内置 `mcp-builtin-state.json` 的 synced 名单已含 playwright，不会自动重写，故直接编辑该行更稳）；判据：重启源码态后 `ps` 里 playwright 进程的 `--cdp-endpoint` 为 9224，且 9223 上只剩打包态一个连接 |
 | S3.5 | `graphrag-provider-local` 孤儿行（真机日志核对项） | **既有配置问题**（2026-10-01 起，与 alpha.2 无关）：用户补丁只挂了 provider 行，未挂提供 `graphrag` 服务的 `graphrag-seam` 行，且 `dsh-kylin-vibe` 未进 `dsh.profile.bundles` | 二选一：**A（要 graphrag）** 在用户补丁的 `insert:` 里补 `{id: graphrag-seam, name: 'dsh-kylin-vibe'}` 且**排在 provider 行之前**（需要工具面时再加 `graphrag-rpc`/`graphrag-tools`）；**B（不用 graphrag）** 删掉该 orphan `insert:` 块。判据：重启后 `dsh: warning: N entry did not activate` 不再出现该行 |
@@ -174,6 +174,16 @@
 - **选项**：A 继续自持（推荐）；B 推上游后跟随；C 放弃（relay 用户会炸）。
 - **建议**：A + 顺手把该 hunk 提给上游（issue/PR）。
 - **影响面**：走 relay/代理的 Codex 路由用户。**拍板**：产品负责人（是否投入推上游）。
+
+### Q9 SSH helper 运行时（#12）是否采用「远端零依赖」模型
+- **背景（2026-10-09 核对 + L1 实跑）**：上游新 helper 是**独立可执行归档**（39MB，嵌入 Node v24.21.0、protocol 2、manifest.json 全量摘要），远端**无需装 Node/npm** 即可跑文件/进程/终端/沙箱/Node PTC——本机已用官方验证器跑通（8 项检查全绿、sandboxLane=required、含拒绝宿主 Node 的受限 worker）。而 KCoder 现状是：**在远端装用户态 Node + 277MB runtime 并跑一个引擎**（startRemoteServer），链路上**不使用** helper（已核，见 S2.1）。
+- **问题**：是否把远端世界改为「本地引擎 + dsh-ssh helper」模型？
+- **选项**：
+  - **A 保持现状**（远端跑引擎）：功能面最广（远端有自己的 DSH_HOME/插件/会话），代价是每台远端要装 Node + 277MB runtime 且版本须与本机同线；
+  - **B 改用 helper 模型**：远端零安装、归档 39MB、能力面 = 文件/进程/终端/沙箱/PTC；代价是**远端不再有自己的引擎**（多主机并发、远端专属插件/会话、离线远端等要重新设计），且需先定归档获取路径（见 S2.8）；
+  - **C 双模**：默认 A，需要时按主机选 B。
+- **建议**：**先 A**（不在本轮升级里改架构），把 B 作为独立立项评估——这是产品级架构选择，不是升级适配项。
+- **影响面**：远端世界架构、安装体积、多主机能力。**拍板**：产品负责人。
 
 ## 3. 风险与回滚
 
