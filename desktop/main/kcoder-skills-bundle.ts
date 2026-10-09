@@ -106,6 +106,19 @@ const UPSTREAM_OPTIONAL_BUNDLES = [
   '@deepseek-ai/dsh-experimental-voice-input-bundle',
   '@deepseek-ai/dsh-experimental-auto-review',
   '@deepseek-ai/dsh-experimental-inspector-profile',
+  // 2026-10-09 随 dsh 0.2.1-alpha.2 平移（上游该集 4 → 11 条；本表是**本地镜像**，
+  // 漂移由 smoke-bundle-profile 第 6 节对账）。新增七条：badge-skill-bundle /
+  // cot-translation-bundle / ralph-bundle / session-search / session-titles-bundle /
+  // terminal-bundle / tool-worktree。
+  // ⚠️ 漏列 = 用户开启这些可选能力后，下一次启动的孤儿清理会把它们当「无来源层叠项」
+  // 删掉（静默消失）：三条来源判据是 dependencies / 本模块 BUNDLES / 本表。
+  '@deepseek-ai/dsh-experimental-badge-skill-bundle',
+  '@deepseek-ai/dsh-experimental-cot-translation-bundle',
+  '@deepseek-ai/dsh-experimental-ralph-bundle',
+  '@deepseek-ai/dsh-experimental-session-search',
+  '@deepseek-ai/dsh-experimental-session-titles-bundle',
+  '@deepseek-ai/dsh-experimental-terminal-bundle',
+  '@deepseek-ai/dsh-experimental-tool-worktree',
 ]
 
 /** 一个内置 bundle 的物化描述。 */

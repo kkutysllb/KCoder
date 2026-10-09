@@ -75,39 +75,54 @@ const checkDeep = (actual, expected, message) => {
 
 // ---- 1. 源码常量（静态面）：从 TS 文本抽数组，不 import（它未导出） ----
 const srcText = readFileSync(BUNDLE_SRC, 'utf8')
-// 包名常量（源码里 `tractionDeps` 用的是 `DSH_CODING_SIDEBAR` 而非字面量，
-// 只抽引号会抽空 —— 本脚本首跑即栽在这）。
-const consts = Object.fromEntries(
-  [...srcText.matchAll(/export const (DSH_[A-Z_]+) = '([^']+)'/g)].map((m) => [m[1], m[2]]),
-)
 const declaredOptional = [...(/const UPSTREAM_OPTIONAL_BUNDLES = \[([\s\S]*?)\]/.exec(srcText)?.[1] ?? '')
   .matchAll(/'([^']+)'/g)].map((m) => m[1])
-const declaredTraction = [...(/const tractionDeps = new Set<string>\(\[([\s\S]*?)\]\)/.exec(srcText)?.[1] ?? '')
-  .matchAll(/'([^']+)'|([A-Z][A-Z0-9_]+)/g)].map((m) => m[1] ?? consts[m[2]]).filter(Boolean)
+// 退役名单（`RETIRED_PLUGINS`，未导出 ⇒ 只抽引号）。判据是「源码真的把该包
+// 当退役货」，不是脚本自己写死的常量——写死就测不出名单被误删。
+const declaredRetired = [...(/const RETIRED_PLUGINS = \[([\s\S]*?)\n\]/.exec(srcText)?.[1] ?? '')
+  .matchAll(/'([^']+)'/g)].map((m) => m[1])
 check(declaredOptional.length > 0, '源码未抽到 UPSTREAM_OPTIONAL_BUNDLES（判据或常量被改名？本脚本需同步）')
-check(declaredTraction.includes('dsh-coding-sidebar'), '源码未把 dsh-coding-sidebar 列入牵引白名单')
+for (const name of ['dsh-coding-sidebar', '@kkutysllb/dsh-terminal']) {
+  check(
+    declaredRetired.includes(name),
+    `源码未把 ${name} 列入 RETIRED_PLUGINS（退役判据或常量被改名？本脚本需同步）`,
+  )
+}
 
-// ---- 2. 种子 profile：与 S4 真机同形 ----
-// sidebar 声明在 deps（牵引）、实体版本 == 随包版本（正是让旧判据翻 false 的条件）；
-// 上游可选组合包已由用户开启（在 bundles、**不在** deps —— 这是 F28 的触发态）。
+// ---- 2. 种子 profile：与真机同形（退役残留 + 上游可选集开启） ----
+// 两个触发态：① 退役的 dsh-coding-sidebar 三处残留俱全（deps 声明 + bundles
+// 层叠 + node_modules 实体）——退役自愈必须三清干净；② 上游可选组合包已由用户
+// 开启（在 bundles、**不在** deps —— 这是 F28 的触发态，不得被当孤儿摘除）。
 const OPTIONAL = declaredOptional.length > 0
   ? declaredOptional
   : [
       '@deepseek-ai/dsh-experimental-agent-team-profile',
       '@deepseek-ai/dsh-experimental-voice-input-bundle',
     ]
-const BUILTINS = ['dsh-skills-bundle', '@kkutysllb/dsh-terminal', 'dsh-shell-prefs', 'dsh-coding-sidebar', 'dsh-ssh-remote']
+const BUILTINS = ['dsh-skills-bundle', 'dsh-shell-prefs', 'dsh-ssh-remote']
 const TEMPLATE = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
-const SEED_DEPS = { 'dsh-coding-sidebar': '^1.0.38' }
+/**
+ * 退役种子（三处残留俱全，断言「清干净」）：无 scope 与作用域包各一条——
+ * `dsh-coding-sidebar`（2026-10-09 退役，曾挂在 PRESET 声明上）与
+ * `@kkutysllb/dsh-terminal`（2026-10-09 退役，作用域包 ⇒ 走 scope 父目录清理路径）。
+ */
+const RETIRED_SEED = 'dsh-coding-sidebar'
+const RETIRED_SEED_SCOPED = '@kkutysllb/dsh-terminal'
+const RETIRED_SEEDS = [RETIRED_SEED, RETIRED_SEED_SCOPED]
+const SEED_DEPS = { [RETIRED_SEED]: '^1.0.40', [RETIRED_SEED_SCOPED]: '^1.3.0' }
 writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
   name: 'dsh-profile-web',
   private: true,
   dependencies: { ...SEED_DEPS },
-  dsh: { profile: { bundles: [...TEMPLATE, ...BUILTINS, ...OPTIONAL] } },
+  dsh: { profile: { bundles: [...TEMPLATE, ...BUILTINS, ...RETIRED_SEEDS, ...OPTIONAL] } },
 }, undefined, 2) + '\n')
 writeFileSync(
-  join(profileDir, 'node_modules', 'dsh-coding-sidebar', 'package.json'),
-  JSON.stringify({ name: 'dsh-coding-sidebar', version: '1.0.38' }, undefined, 2) + '\n',
+  join(profileDir, 'node_modules', RETIRED_SEED, 'package.json'),
+  JSON.stringify({ name: RETIRED_SEED, version: '1.0.40' }, undefined, 2) + '\n',
+)
+writeFileSync(
+  join(profileDir, 'node_modules', RETIRED_SEED_SCOPED, 'package.json'),
+  JSON.stringify({ name: RETIRED_SEED_SCOPED, version: '1.3.0' }, undefined, 2) + '\n',
 )
 
 // ---- 3. 编译并加载**真实**模块（电子的最小替身，不重敲源码） ----
