@@ -176,3 +176,24 @@
   **#43**（正文槽与我方注入 CSS）——后两项属 GUI 实测（用户）。
 - Windows 专项（#17/#18 及其余 Windows 面）：用户在 Windows 真机验证。
 - 🚫 项：上游 Desktop 壳与打包链（#24/#27/#29/#41/#44），与 KCoder 产品面无关。
+
+---
+
+## 7. 工具链单源收口（2026-10-10，外部提交 `a2d9e9f`/`b3a1a96`…，随本轮升级一并生效）
+
+Windows 真机验证过程中暴露的是**同一件事实被 8 处各自实现**（上游落点 7 处硬编码 mac 路径、上游
+构建的 pnpm 版本散落各处），已收口为各一份唯一实现；对本轮升级与后续升级的影响：
+
+| 事实 | 唯一来源 | 升级时的动作 |
+|---|---|---|
+| 集成分支名 | 仓内 `upstream/BRANCH`（`setup.sh`/`release.sh`/`dsh-contract.ts` 同读） | 只改这一个文件 |
+| 上游克隆落点 | `scripts/upstream-dir.mjs`（`KCODER_UPSTREAM_DIR` > `.upstream-dir` > 相邻克隆 > 历史默认） | 无需改；`setup.sh` 成功即落指针 |
+| 上游构建 pnpm | `scripts/pnpm-pinned.mjs`（按上游 `packageManager` 精确版本） | 无需改（跟随上游声明） |
+| 冒烟入口 | `node scripts/run-electron.mjs <脚本>`（跨平台摘 `ELECTRON_RUN_AS_NODE`） | 一律用它，不再手写 `env -u` |
+| 依赖审计 | `node scripts/audit.mjs` | 报告项逐条处置并记入 `release/audit-v<版本>.md` |
+
+**两条待处置（审计报告项，非本轮升级引入）**：DEAD EXPORTS —— `desktop/main/remote-connections.ts:42`
+`openRemoteHostIds`、`desktop/main/remote-server.ts:296` `remoteInstallReady` 全仓零消费者（仅定义处）；
+按审计口径需**修复或豁免**（建议：前者直接删；后者若属远端引导流程的预留能力，写入豁免说明）。
+**下一次 release 构建的可见变化**：随包 vendor 的 pnpm 由硬编码 `11.7.0` 改为跟随上游声明
+`11.28.5`（同主版本 11.x，profile store 大版本不变 ⇒ 对既有用户无迁移动作）。

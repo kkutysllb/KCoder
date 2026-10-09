@@ -479,7 +479,15 @@ GUI 冒烟统一只进**本机发版门**（`release.sh prepush`），不进 CI�
   tag 早于 fork push 会把旧 fork 状态打进安装包）；
 - 本地克隆切到该分支，`pnpm install` + `pnpm run build` 全绿（构建半成品态会被误判成
   产品缺陷：2026-10-09 的 `pnpm dev` 起不来即由此而来）；
-- `upstream/BASELINE` 的推进与「回归证据」段在**发版同批**写入。
+- `upstream/BASELINE` 的推进与「回归证据」段在**发版同批**写入；
+- **工具链事实各只有一处来源**（2026-10-10 收口，起于 Windows 现场）：集成分支名 = 仓内
+  `upstream/BRANCH`（`scripts/setup.sh` / `release.sh` / `desktop/main/dsh-contract.ts` 同读一份）；
+  上游克隆落点 = `scripts/upstream-dir.mjs` 的解析链（`KCODER_UPSTREAM_DIR` > 仓内指针 `.upstream-dir`
+  > 相邻克隆（CI）> 历史默认），主进程侧孪生见 `dsh-contract.ts` 的 `UPSTREAM_DIR`；上游构建用的 pnpm =
+  `scripts/pnpm-pinned.mjs`（按上游 `packageManager` 取精确版本），主进程孪生 `pinnedPnpmCommand()`。
+  **升级时只改这些唯一来源**——不要再往调用点里写死分支名 / 路径 / pnpm 版本（此前 8 处各自实现，
+  Windows 上直接失效）。冒烟统一走 `node scripts/run-electron.mjs <脚本>`（跨平台摘 `ELECTRON_RUN_AS_NODE`），
+  依赖审计走 `node scripts/audit.mjs`（报告项须逐条处置并记入 `release/audit-v<版本>.md`）。
 
 **1. 分析文档（先落盘）：`docs/upstream-<版本>-analysis.md` 必须逐条覆盖**
 

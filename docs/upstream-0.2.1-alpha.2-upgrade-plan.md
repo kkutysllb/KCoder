@@ -16,7 +16,7 @@
 |---|---|---|
 | 内置右侧边栏插件 `dsh-coding-sidebar` 退役（铁律 1 翻转） | ✅ | `plans/retire-coding-sidebar.md`；`pnpm check` 36/36；11 支 GUI 冒烟全绿 |
 | 内置终端插件 `@kkutysllb/dsh-terminal` 退役 | ✅ | `plans/retire-terminal-plugin.md`；宿主对账实录 `deps=[] bundles=[@kkutysllb/dsh-terminal]` |
-| fork 集成分支 `kcoder/0.2.1-alpha.2` 重放 | ✅ | 尖端 `41f151ab20`；6 处冲突处置见分析 §2；**未推送** |
+| fork 集成分支 `kcoder/0.2.1-alpha.2` 重放 | ✅ | 尖端 `41f151ab20`；6 处冲突处置见分析 §2；**已推送 fork（2026-10-10）** |
 | 克隆构建修复（81 包缺 `lib/index.js`） | ✅ | `pnpm run build` exit 0；331/331 包就位 |
 | `UPSTREAM_OPTIONAL_BUNDLES` 镜像 4 → 11 | ✅ | `smoke-bundle-profile` 第 6 节由红转绿；用户已开的三个可选包未被误删 |
 | 引擎实跑（alpha.2 + dev home） | ✅ | 就绪行打印、零 FAIL/ERROR |
@@ -104,7 +104,7 @@
 
 | # | 动作 | 判据 |
 |---|---|---|
-| S7.1 | 确认 fork 集成分支**已推送** | `git ls-remote origin kcoder/0.2.1-alpha.2` 有值 |
+| S7.1 | 确认 fork 集成分支**已推送** | ✅ **已完成（2026-10-10）**：`git push -u origin kcoder/0.2.1-alpha.2`（新建分支、已设 upstream 跟踪）；打 tag 硬门满足 |
 | S7.2 | `bash scripts/release.sh audit` → `ship <版本>` | 审计硬门全绿；三平台 CI 绿 |
 
 ## 2. 澄清卡（待拍板；未拍板不动代码）
@@ -160,8 +160,8 @@
 - **影响面**：仓库历史与回滚点。**拍板**：产品负责人。
 - ✅ **已拍板（2026-10-09）：拆 commit 并已落地**——`576e3e4`（侧栏退役，505 文件）、
   `f3e8d61`（终端退役，39 文件）、`f90c740`（升级文档 + 铁律 3 + 可选包名单镜像，6 文件）。
-  **fork 集成分支 `kcoder/0.2.1-alpha.2`（`41f151ab20`）尚未推送**（产品负责人：先真机验证、
-  不着急推送；推送时按 S7.1 硬门在打 tag 之前完成）。
+  **fork 集成分支 `kcoder/0.2.1-alpha.2`（`41f151ab20`）已于 2026-10-10 推送 fork**（产品负责人先做
+  真机验证、通过后推送；S7.1 硬门满足——打 tag 前集成分支已在远端）。
 
 ### Q7 Agent Team 队列语义变更的运维提示
 - **事实**：指南 `team-direct-inbox`：升级前**未投递**的排队消息升级后**永不投递**；`maxPendingMessagesPerMember` 移除。
