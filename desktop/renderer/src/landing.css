@@ -28,6 +28,17 @@
   min-height: 0;
   overflow: hidden auto;
   background: var(--bg);
+  /* 无痕滚动条（2026-10-10）：可滚动，但不显示滚动条、不占宽。
+     scrollbar-width 在 Electron 44（Chromium 13x）原生支持，
+     ::-webkit-scrollbar 规则作双保险；两者都不改变滚动行为。 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.landing-root::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .landing-shell {
