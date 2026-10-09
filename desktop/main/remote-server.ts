@@ -173,7 +173,10 @@ function sshAttempt(
 
 /** 连接层失败的识别：ssh 自己的措辞，与远端脚本的退出码无关。 */
 function isTransportFailure(stderr: string): boolean {
-  return /Connection closed|Connection reset|kex_exchange_identification|Broken pipe|Connection timed out|Operation timed out/i.test(stderr)
+  // 2026-10-09 补：中转/网关的拒连文案——真机现场 `dsh-125-64-108-97`（frp 中转）
+  // 会回 `Not allowed at this time` 或直接关闭连接；这类同样是「值得重试的传输层
+  // 失败」，漏判会让上层把空输出误报成「平台不受支持」。
+  return /Connection closed|Connection reset|kex_exchange_identification|Broken pipe|Connection timed out|Operation timed out|Not allowed at this time|Connection refused|No route to host/i.test(stderr)
 }
 
 /**
@@ -317,7 +320,18 @@ export async function probeRemoteTarget(alias: string): Promise<RemoteTarget> {
     // libc 判据：Alpine 有 /lib/ld-musl-*，其余 Linux 发行版没有。
     'if ls /lib/ld-musl-* >/dev/null 2>&1; then echo musl; else echo gnu; fi',
   ].join('\n'))
-  const [os = '', arch = '', libc = ''] = probe.stdout.trim().split(/\s+/)
+  const raw = probe.stdout.trim()
+  if (raw === '') {
+    // 连接层失败时 ssh 不产出任何 stdout。此时若照旧走 parseTarget，用户看到的是
+    // 「不认识的远端系统：(空)」——把方向引到「平台不支持」，而真因是连不上
+    // （2026-10-09 真机现场：中转拒连 → 空输出）。这里改报 ssh 原文 + 退出码。
+    const tail = probe.stderr.trim().split(/\r?\n/).filter(Boolean).slice(-2).join(' | ')
+    throw new RemoteServerError(
+      tail || ('ssh exit ' + probe.code + '（无 stderr 输出）'),
+      '远端 ' + alias + ' 平台探测失败：连接未返回结果（ssh exit ' + probe.code + '）',
+    )
+  }
+  const [os = '', arch = '', libc = ''] = raw.split(/\s+/)
   try {
     return parseTarget(os, arch, libc)
   } catch (error) {
