@@ -88,8 +88,9 @@ const PAGE_JS = `(() => {
     '[role="dialog"] [data-slot="settings.general.item"]:last-child{margin-bottom:0!important}',
     // 深色主题阴影减弱，避免卡片边缘发脏；浅色沿用同一套结构。
     'body[data-ds-dark-theme] [role="dialog"] [data-slot="settings.general.item"] > *{box-shadow:0 2px 12px rgba(0,0,0,.16)}',
-    // 返回按钮：navCell 同款盒（40 高 r12）+ sidebar 交互 token
-    '#' + BACK + '{display:flex;align-items:center;gap:8px;height:40px;padding:9px 16px 9px 12px;box-sizing:border-box;border:none;border-radius:12px;background:transparent;cursor:pointer;font:inherit;line-height:22px;color:var(--dsw-alias-label-primary);text-align:left;flex:none}',
+    // 返回按钮：navCell 同款盒（40 高 r12）+ sidebar 交互 token；
+    // 字号跟随内容 token（secondary 阶 ≈13px，与技能/MCP/关于页同阶梯）。
+    '#' + BACK + '{display:flex;align-items:center;gap:8px;height:40px;padding:9px 16px 9px 12px;box-sizing:border-box;border:none;border-radius:12px;background:transparent;cursor:pointer;font:inherit;font-size:var(--dsh-content-font-size-secondary, 13px);line-height:1;color:var(--dsw-alias-label-primary);text-align:left;flex:none}',
     '#' + BACK + ':hover{background:var(--dsw-specific-sidebar-nav-item-hover)}',
     '#' + BACK + ':active{background:var(--dsw-specific-sidebar-nav-item-active)}',
     '#' + BACK + ' svg{flex:none;display:block}',
