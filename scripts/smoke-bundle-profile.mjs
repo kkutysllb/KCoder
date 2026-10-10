@@ -92,7 +92,7 @@ for (const name of ['dsh-coding-sidebar', '@kkutysllb/dsh-terminal']) {
 }
 
 // ---- 2. 种子 profile：与真机同形（退役残留 + 上游可选集开启） ----
-// 两个触发态：① 退役的 dsh-coding-sidebar 三处残留俱全（deps 声明 + bundles
+// 两个触发态：① 退役残留包三处残留俱全（deps 声明 + bundles
 // 层叠 + node_modules 实体）——退役自愈必须三清干净；② 上游可选组合包已由用户
 // 开启（在 bundles、**不在** deps —— 这是 F28 的触发态，不得被当孤儿摘除）。
 const OPTIONAL = declaredOptional.length > 0
@@ -104,14 +104,19 @@ const OPTIONAL = declaredOptional.length > 0
 const BUILTINS = ['dsh-skills-bundle', 'dsh-shell-prefs', 'dsh-ssh-remote']
 const TEMPLATE = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
 /**
- * 退役种子（三处残留俱全，断言「清干净」）：无 scope 与作用域包各一条——
- * `dsh-coding-sidebar`（2026-10-09 退役，曾挂在 PRESET 声明上）与
- * `@kkutysllb/dsh-terminal`（2026-10-09 退役，作用域包 ⇒ 走 scope 父目录清理路径）。
+ * 退役种子（三处残留俱全，断言「清干净」）：无 scope 与作用域包各一条。
+ *
+ * ⚠️ 夹具必须是**仍在退役名单里**的名字，且名单里的名字必须满足「npm 上已不存在」
+ * （2026-10-10 判据：退役只影响我方是否随包提供，不得禁止用户自行安装；凡 npm 上仍可
+ * 安装的现行名——dsh-coding-sidebar / @kkutysllb/dsh-terminal / dsh-context 等——
+ * 已全部移出名单，用作夹具会把产品决策当成清理对象）。此处取纯残留名：
+ * `dsh-stats-panel`（无 scope，npm 无）与 `@kkutysllb/dsh-file-attach`（作用域包 ⇒
+ * 同时覆盖 scope 父目录清理路径，npm 无）。
  */
-const RETIRED_SEED = 'dsh-coding-sidebar'
-const RETIRED_SEED_SCOPED = '@kkutysllb/dsh-terminal'
+const RETIRED_SEED = 'dsh-stats-panel'
+const RETIRED_SEED_SCOPED = '@kkutysllb/dsh-file-attach'
 const RETIRED_SEEDS = [RETIRED_SEED, RETIRED_SEED_SCOPED]
-const SEED_DEPS = { [RETIRED_SEED]: '^1.0.40', [RETIRED_SEED_SCOPED]: '^1.3.0' }
+const SEED_DEPS = { [RETIRED_SEED]: '^0.1.0', [RETIRED_SEED_SCOPED]: '^0.1.0' }
 writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
   name: 'dsh-profile-web',
   private: true,
@@ -120,11 +125,11 @@ writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
 }, undefined, 2) + '\n')
 writeFileSync(
   join(profileDir, 'node_modules', RETIRED_SEED, 'package.json'),
-  JSON.stringify({ name: RETIRED_SEED, version: '1.0.40' }, undefined, 2) + '\n',
+  JSON.stringify({ name: RETIRED_SEED, version: '0.1.0' }, undefined, 2) + '\n',
 )
 writeFileSync(
   join(profileDir, 'node_modules', RETIRED_SEED_SCOPED, 'package.json'),
-  JSON.stringify({ name: RETIRED_SEED_SCOPED, version: '1.3.0' }, undefined, 2) + '\n',
+  JSON.stringify({ name: RETIRED_SEED_SCOPED, version: '0.1.0' }, undefined, 2) + '\n',
 )
 
 // ---- 3. 编译并加载**真实**模块（电子的最小替身，不重敲源码） ----
