@@ -1120,6 +1120,15 @@ rmSync(tarPath, { force: true })
   gz.pipe(out)
   // 注：write 回调成功时 error 为 null（非 undefined），必须宽松比较
   const write = (buf) => new Promise((res, rej) => { gz.write(buf, (e) => (e != null ? rej(e) : res())) })
+  // 归档自检（2026-10-10 现场教训 + 同日 CI 事故）：**写头时就地回读 mode 字段**，
+  // 逐条比对「源文件可执行 ⇒ 头部必须带执行位」。
+  //
+  // 为什么不做「归档后流式回读」：上一版那样写（`createReadStream().pipe(createGunzip())`
+  // 再 `[Symbol.asyncIterator]`）会把 gunzip 置为 flowing 模式，迭代器永远等不到数据——
+  // CI 在归档完成后**静默挂死 20 分钟**直到步骤超时。写头自检是 O(1)、无流式交互，
+  // 且照样拦住「权限写死」这一类回归（它发生在编码那一刻，与归档体大小无关）。
+  // 归档产物本身的执行位另有本机 `tar -tvf` 往返验证作为证据（见 release 审计报告）。
+  let execChecked = 0
   for (const f of tarFiles) {
     const st = statSync(f.abs)
     if (f.rel.length > 100) { // GNU LongName 头：超长路径的兼容写法
@@ -1127,7 +1136,16 @@ rmSync(tarPath, { force: true })
       await write(tarHeader('././@LongLink', nameBuf.length + 1, st.mtimeMs, 0o644, 'L'))
       await write(Buffer.concat([nameBuf, Buffer.alloc(1), pad(nameBuf.length + 1)]))
     }
-    await write(tarHeader(f.rel, st.size, st.mtimeMs, st.mode))
+    const header = tarHeader(f.rel, st.size, st.mtimeMs, st.mode)
+    if ((st.mode & 0o111) !== 0) {
+      const encoded = parseInt(header.subarray(100, 108).toString('ascii').replace(/\0.*$/s, '').trim() || '0', 8)
+      if ((encoded & 0o111) === 0) {
+        console.error(`[materialize] 归档自检失败：可执行文件 ${f.rel} 的 tar 头丢了执行位（源 mode ${octal(st.mode & 0o7777, 4)}，头部 ${octal(encoded, 4)}）——打包态终端会 posix_spawn Permission denied`)
+        process.exit(1)
+      }
+      execChecked += 1
+    }
+    await write(header)
     for await (const chunk of createReadStream(f.abs)) await write(chunk)
     if (st.size > 0) await write(pad(st.size))
   }
@@ -1141,61 +1159,9 @@ try {
   tarSize = Math.round(statSync(tarPath).size / 1024 / 1024)
 } catch { /* 仅展示 */ }
 console.log(`[materialize] 归档：${tarFiles.length} 个文件 → kcoder-runtime.tar.gz（${tarSize} MB）`)
-// 归档自检（2026-10-10 现场教训）：流式回读 tar 头，逐条比对「源文件可执行 ⇒
-// 归档项也必须带执行位」。写死 mode 这类回归在 CI/本机都不会报错，只在用户
-// 打包态的第一次 PTY spawn 上炸——所以检查必须落在归档产物本身。
-{
-  const execSources = tarFiles.filter((f) => (statSync(f.abs).mode & 0o111) !== 0)
-  if (execSources.length > 0) {
-    const { createGunzip } = await import('node:zlib')
-    /** 从异步迭代器精确取 n 字节（tar 体跨块时用）。 */
-    const pull = async (it, n) => {
-      let buf = Buffer.alloc(0)
-      while (buf.length < n) {
-        const next = await it.next()
-        if (next.done === true) break
-        buf = Buffer.concat([buf, next.value])
-      }
-      return { head: buf.subarray(0, n), rest: buf.subarray(n) }
-    }
-    let it = createReadStream(tarPath).pipe(createGunzip())[Symbol.asyncIterator]()
-    let pending = Buffer.alloc(0)
-    const take = async (n) => {
-      if (pending.length >= n) { const out = pending.subarray(0, n); pending = pending.subarray(n); return out }
-      const { head, rest } = await pull(it, n - pending.length)
-      const out = Buffer.concat([pending, head.subarray(0, n - pending.length)])
-      pending = Buffer.concat([head.subarray(Math.max(0, n - pending.length)), rest])
-      return out
-    }
-    const modes = new Map()
-    let longName = null
-    for (;;) {
-      const h = await take(512)
-      if (h.length < 512) break
-      if (h.every((b) => b === 0)) continue
-      const name = h.subarray(0, 100).toString('utf8').replace(/\0.*$/s, '')
-      const octOf = (off) => parseInt(h.subarray(off, off + 8).toString('ascii').replace(/\0.*$/s, '').trim() || '0', 8)
-      const mode = octOf(100)
-      const size = parseInt(h.subarray(124, 136).toString('ascii').replace(/\0.*$/s, '').trim() || '0', 8)
-      const type = String.fromCharCode(h[156])
-      const body = size + ((512 - (size % 512)) % 512)
-      if (type === 'L') {
-        const raw = await take(body)
-        longName = raw.subarray(0, size).toString('utf8').replace(/\0.*$/s, '')
-        continue
-      }
-      const real = longName === null ? name : longName
-      longName = null
-      modes.set(real, mode)
-      if (body > 0) await take(body)
-    }
-    const broken = execSources.filter((f) => ((modes.get(f.rel) ?? 0) & 0o111) === 0)
-    if (broken.length > 0) {
-      console.error(`[materialize] 归档自检失败：${String(broken.length)} 个可执行文件在 tar 里丢了执行位（例：${broken.slice(0, 3).map((f) => f.rel).join(', ')}）——打包态终端会 posix_spawn Permission denied`)
-      process.exit(1)
-    }
-    console.log(`[materialize] 归档自检通过：${String(execSources.length)} 个可执行文件的执行位在 tar 里保留`)
-  }
+// 写头自检的结论行（真正逐条回读在归档写入循环里，见上）
+if (execChecked > 0) {
+  console.log(`[materialize] 归档自检通过：${String(execChecked)} 个可执行文件的 tar 头带执行位（写头时逐条回读校验）`)
 }
 // 自检：补完后再扫一轮，非 optional 的依赖引用必须全部「可达且版本满足」
 // （0.2.3 事故旧自检只查存在性，ajv@6 占顶层槽位照样通过）
