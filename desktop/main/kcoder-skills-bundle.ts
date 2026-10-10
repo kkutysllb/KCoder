@@ -210,7 +210,7 @@ const RETIRED_PLUGINS = [
   // 2026-09-01 改名中间态：dsh-terminal 曾以无 scope 名短暂物化/注册（npm 与社区
   // 第三方同名 E403）；改 @dsh-external scope 后 org 名又被 npm 注册政策拦截，
   // 定稿 @kkutysllb——中间态退役，残留自愈清理（scope 形态空壳清理同样生效）。
-  'dsh-terminal',
+  // 'dsh-terminal' —— 2026-10-10 移出名单：npm 上仍可安装（用户可自装），每次启动三清会误删用户插件；退役理由（能力被覆盖）只应影响我方是否随包提供，不应禁止用户自行安装。
   '@dsh-external/dsh-terminal',
   // ⚠️ git-panel 系**旧名已从本名单移除**（2026-10-10 现场）：
   //   `dsh-git-panel`（无 scope）/ `@dsh-external/dsh-git-panel` / `@kcoder/git-panel`
@@ -227,7 +227,7 @@ const RETIRED_PLUGINS = [
   // @xterm/* 宿主依赖、自绘标题栏终端按钮、菜单「切换内嵌终端」与 panel-buttons
   // 让位模块一并拆除。真源仓 kkutysllb/dsh-terminal 与 npm 包保留（用户仍可经
   // 插件管理页自装，但按产品级退役口径，下次启动三清会再洗）。
-  '@kkutysllb/dsh-terminal',
+  // '@kkutysllb/dsh-terminal' —— 2026-10-10 移出名单：npm 上仍可安装（用户可自装），每次启动三清会误删用户插件；退役理由（能力被覆盖）只应影响我方是否随包提供，不应禁止用户自行安装。
   // 2026-09-11 退役：dsh-language-bundle（强制中文回答指令包）——产品
   // 决策移除该能力；配套的「回答语言」通用设置行/patch 托管块/契约
   // 类型一并退役，用户 profile 残留的托管块由启动自愈剥离（见
@@ -292,7 +292,7 @@ const RETIRED_PLUGINS = [
   // 第一方内置工作台，退役只发生在 KCoder 消费侧）；用户仍可经插件管理页
   // 自装，但按「产品级不再提供」口径（同 file-review/dsh-context），下次
   // 启动的三清会再洗一遍。
-  'dsh-coding-sidebar',
+  // 'dsh-coding-sidebar' —— 2026-10-10 移出名单：npm 上仍可安装（用户可自装），每次启动三清会误删用户插件；退役理由（能力被覆盖）只应影响我方是否随包提供，不应禁止用户自行安装。
   //
   // ⚠️ 教训（2026-09-19 dev 现场实证）：un-retire 恢复 BUNDLES/PRESET/
   // 映射时**必须同步移除本清单的同名条目**——清单成员会被启动清理当

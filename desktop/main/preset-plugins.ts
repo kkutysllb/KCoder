@@ -247,11 +247,11 @@ const RETIRED_PRESETS = [
   // 「右侧栏回归原生」首次退役（D1a 决策翻转），09-19 因差异化功能（git 面板/
   // GitHub、Office·视频预览、QiLin 通道接管、任务计划）无原生替代而 un-retire；
   // **2026-10-09 由产品负责人再次拍板退役并落地**（本轮连铁律 1 一并翻转）。
-  'dsh-vision-router',
-  'dsh-better-sidebar',
-  '@tt-a1i/archify-dsh',
+  // 'dsh-vision-router' —— 2026-10-10 移出名单：npm 上仍可安装（用户可自装），每次启动三清会误删用户插件；退役理由（能力被覆盖）只应影响我方是否随包提供，不应禁止用户自行安装。
+  // 'dsh-better-sidebar' —— 2026-10-10 移出名单：npm 上仍可安装（用户可自装），每次启动三清会误删用户插件；退役理由（能力被覆盖）只应影响我方是否随包提供，不应禁止用户自行安装。
+  // '@tt-a1i/archify-dsh' —— 2026-10-10 移出名单：npm 上仍可安装（用户可自装），每次启动三清会误删用户插件；退役理由（能力被覆盖）只应影响我方是否随包提供，不应禁止用户自行安装。
   '@dsh-external/dsh-drag-to-attachment',
-  'dsh-context',
+  // 'dsh-context' —— 2026-10-10 移出名单：npm 上仍可安装（用户可自装），每次启动三清会误删用户插件；退役理由（能力被覆盖）只应影响我方是否随包提供，不应禁止用户自行安装。
   // @deepseek-ai/dsh-experimental-schedule-bundle（2026-10-04）：随 dsh
   // 0.2.1-alpha.1 退役——上游整包删除并改为 Web 内置（schedule/tool-schedule
   // 随 dsh-web-app 提供，无需选中）。**必须与本表上方正式声明的摘除同批**：
@@ -259,7 +259,7 @@ const RETIRED_PRESETS = [
   // node_modules 实体会原样留着，而引擎的 RETIRED_BUNDLES 只摘 bundles 行、
   // 不清 deps 与实体 ⇒ 停产包继续被安装（其 cordis.patch.yml 插入精确钉旧
   // 引擎的 dsh-schedule 行，60s 启动超时复发）。详见上方历史记录段。
-  '@deepseek-ai/dsh-experimental-schedule-bundle',
+  // '@deepseek-ai/dsh-experimental-schedule-bundle' —— 2026-10-10 移出名单：npm 上仍可安装（用户可自装），每次启动三清会误删用户插件；退役理由（能力被覆盖）只应影响我方是否随包提供，不应禁止用户自行安装。
   // dsh-file-review-kcoder（2026-10-04）：dsh-coding-sidebar 的衍生插件整线
   // 退役（宿主侧栏保留；依赖方向单向——侧栏不反向依赖它，见
   // kcoder-skills-bundle 的 RETIRED_PLUGINS 注释）。三清覆盖老 profile 的 deps
@@ -279,7 +279,7 @@ const RETIRED_PRESETS = [
   // REMOTE_BUNDLES）与 kcoder-skills-bundle 的 RETIRED_PLUGINS 同批。真源仓
   // kkutysllb/dsh-coding-sidebar 与 npm 包保留（它同时是 QiLin 的第一方内置
   // 工作台），用户自装同款同样被本清单三清（产品级不再提供）。
-  'dsh-coding-sidebar',
+  // 'dsh-coding-sidebar' —— 2026-10-10 移出名单：npm 上仍可安装（用户可自装），每次启动三清会误删用户插件；退役理由（能力被覆盖）只应影响我方是否随包提供，不应禁止用户自行安装。
 ]
 
 /** 上游 web 模板的 bundles 前缀（预写骨架时对齐官方层叠顺序）。 */
