@@ -1033,13 +1033,16 @@ const collect = (dir, prefix) => {
 collect(staging, '')
 tarFiles.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0))
 
-/** ustar 头（512B）：typeflag '0'=文件；name>100 字节时先出 GNU 'L' 头。 */
-function tarHeader(name, size, mtimeMs, typeflag = '0') {
+/** ustar 头（512B）：typeflag '0'=文件；name>100 字节时先出 GNU 'L' 头。
+ *  **mode 必须取自源文件**：2026-10-10 现场——此前写死 `0o644`，于是随包 runtime 里
+ *  一切可执行文件都丢执行位，`node-pty` 的 `spawn-helper` 变 644 后打包态终端直接
+ *  `posix_spawn failed: Permission denied`（dev 态走 node_modules 是 755，故只在打包版复现）。 */
+function tarHeader(name, size, mtimeMs, mode, typeflag = '0') {
   const h = Buffer.alloc(512)
   const oct = (off, len, v) => h.write(octal(v, len - 1), off, len, 'ascii')
   const put = (off, len, s) => h.write(s, off, len, 'utf8')
   put(0, 100, name.slice(0, 100))
-  oct(100, 8, 0o644)
+  oct(100, 8, mode & 0o7777)
   oct(108, 8, 0)
   oct(116, 8, 0)
   oct(124, 12, size)
@@ -1068,10 +1071,10 @@ rmSync(tarPath, { force: true })
     const st = statSync(f.abs)
     if (f.rel.length > 100) { // GNU LongName 头：超长路径的兼容写法
       const nameBuf = Buffer.from(f.rel, 'utf8')
-      await write(tarHeader('././@LongLink', nameBuf.length + 1, st.mtimeMs, 'L'))
+      await write(tarHeader('././@LongLink', nameBuf.length + 1, st.mtimeMs, 0o644, 'L'))
       await write(Buffer.concat([nameBuf, Buffer.alloc(1), pad(nameBuf.length + 1)]))
     }
-    await write(tarHeader(f.rel, st.size, st.mtimeMs))
+    await write(tarHeader(f.rel, st.size, st.mtimeMs, st.mode))
     for await (const chunk of createReadStream(f.abs)) await write(chunk)
     if (st.size > 0) await write(pad(st.size))
   }
@@ -1085,6 +1088,62 @@ try {
   tarSize = Math.round(statSync(tarPath).size / 1024 / 1024)
 } catch { /* 仅展示 */ }
 console.log(`[materialize] 归档：${tarFiles.length} 个文件 → kcoder-runtime.tar.gz（${tarSize} MB）`)
+// 归档自检（2026-10-10 现场教训）：流式回读 tar 头，逐条比对「源文件可执行 ⇒
+// 归档项也必须带执行位」。写死 mode 这类回归在 CI/本机都不会报错，只在用户
+// 打包态的第一次 PTY spawn 上炸——所以检查必须落在归档产物本身。
+{
+  const execSources = tarFiles.filter((f) => (statSync(f.abs).mode & 0o111) !== 0)
+  if (execSources.length > 0) {
+    const { createGunzip } = await import('node:zlib')
+    /** 从异步迭代器精确取 n 字节（tar 体跨块时用）。 */
+    const pull = async (it, n) => {
+      let buf = Buffer.alloc(0)
+      while (buf.length < n) {
+        const next = await it.next()
+        if (next.done === true) break
+        buf = Buffer.concat([buf, next.value])
+      }
+      return { head: buf.subarray(0, n), rest: buf.subarray(n) }
+    }
+    let it = createReadStream(tarPath).pipe(createGunzip())[Symbol.asyncIterator]()
+    let pending = Buffer.alloc(0)
+    const take = async (n) => {
+      if (pending.length >= n) { const out = pending.subarray(0, n); pending = pending.subarray(n); return out }
+      const { head, rest } = await pull(it, n - pending.length)
+      const out = Buffer.concat([pending, head.subarray(0, n - pending.length)])
+      pending = Buffer.concat([head.subarray(Math.max(0, n - pending.length)), rest])
+      return out
+    }
+    const modes = new Map()
+    let longName = null
+    for (;;) {
+      const h = await take(512)
+      if (h.length < 512) break
+      if (h.every((b) => b === 0)) continue
+      const name = h.subarray(0, 100).toString('utf8').replace(/\0.*$/s, '')
+      const octOf = (off) => parseInt(h.subarray(off, off + 8).toString('ascii').replace(/\0.*$/s, '').trim() || '0', 8)
+      const mode = octOf(100)
+      const size = parseInt(h.subarray(124, 136).toString('ascii').replace(/\0.*$/s, '').trim() || '0', 8)
+      const type = String.fromCharCode(h[156])
+      const body = size + ((512 - (size % 512)) % 512)
+      if (type === 'L') {
+        const raw = await take(body)
+        longName = raw.subarray(0, size).toString('utf8').replace(/\0.*$/s, '')
+        continue
+      }
+      const real = longName === null ? name : longName
+      longName = null
+      modes.set(real, mode)
+      if (body > 0) await take(body)
+    }
+    const broken = execSources.filter((f) => ((modes.get(f.rel) ?? 0) & 0o111) === 0)
+    if (broken.length > 0) {
+      console.error(`[materialize] 归档自检失败：${String(broken.length)} 个可执行文件在 tar 里丢了执行位（例：${broken.slice(0, 3).map((f) => f.rel).join(', ')}）——打包态终端会 posix_spawn Permission denied`)
+      process.exit(1)
+    }
+    console.log(`[materialize] 归档自检通过：${String(execSources.length)} 个可执行文件的执行位在 tar 里保留`)
+  }
+}
 // 自检：补完后再扫一轮，非 optional 的依赖引用必须全部「可达且版本满足」
 // （0.2.3 事故旧自检只查存在性，ajv@6 占顶层槽位照样通过）
 {

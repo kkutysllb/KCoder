@@ -120,6 +120,7 @@
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROJECT_ROOT, WEB_PROFILE, dshHome, runPnpm } from './dsh-contract'
+import { normalizePatchText } from '@shared/platform-exclusive-entries'
 
 /**
  * 插件自愈日志（~/.kcoder/logs/plugins-heal.log）：GUI 打包态看不到主
@@ -489,6 +490,25 @@ export function ensureProfilePatches(): void {
       console.warn('[profile-patches] profile 尚未初始化（pnpm-workspace.yaml 缺失），跳过')
       healLog('[patches] profile 尚未初始化（pnpm-workspace.yaml 缺失），跳过')
       return
+    }
+    // 1.0) 平台互斥 entry 归一（2026-10-10 现场，见 shared/platform-exclusive-entries）：
+    //      上游 terminal-bundle 的两个 entry 共享同一 PTY 后端名，插件页把对手那个
+    //      打开会写下显式 `disabled: false` 压过平台条件 ⇒ 打包态「持久终端」组件异常。
+    //      这里按平台把对手的显式值纠回 true（幂等、只动该键的值）。
+    try {
+      const patchPath = join(profileDir, 'cordis.patch.yml')
+      if (existsSync(patchPath)) {
+        const raw = readFileSync(patchPath, 'utf8')
+        const { text, changed } = normalizePatchText(raw, process.platform)
+        if (changed) {
+          writeFileSync(patchPath, text)
+          console.log('[profile-patches] 平台互斥 entry 已归一：对手终端后端 → disabled: true')
+          healLog(`[patches] 平台互斥 entry 归一（${process.platform}）：对手终端后端 → disabled: true`)
+        }
+      }
+    } catch (error) {
+      console.warn('[profile-patches] 平台互斥归一失败（降级继续）：', String(error))
+      healLog(`[patches] 平台互斥归一失败：${String(error)}`)
     }
     if (files.length === 0) {
       // 源为空的两种解释：**稳态**＝常驻补丁线整线退役（2026-10-02 起
