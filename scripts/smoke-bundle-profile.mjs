@@ -162,7 +162,10 @@ try {
     // `__dirname` 钉成真实的 desktop/main：dsh-contract 用它推 PROJECT_ROOT，
     // 落到临时目录会一路回落到 Electron.app 的 Resources 而找不到 bundle/ 源。
     define: { __dirname: JSON.stringify(dirname(BUNDLE_SRC)) },
-    alias: { electron: stub },
+    // `@shared/*` 与 tsconfig / electron.vite 同源：被测模块开始（2026-10-10）
+    // import `@shared/orphan-bundles`，esbuild 侧也要显式给别名，否则
+    // 「Could not resolve」直接判失败（而 tsc/运行时都正常）。
+    alias: { electron: stub, '@shared': join(ROOT, 'desktop', 'shared') },
     logLevel: 'silent',
   })
   ;({ ensureKcoderBundles } = createRequire(import.meta.url)(bundle))
