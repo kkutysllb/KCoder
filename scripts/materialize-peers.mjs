@@ -1010,6 +1010,59 @@ if (process.platform === 'darwin') {
 // （见 dsh-contract.ts ensureBundledRuntime）。纯 Node 实现（ustar +
 // GNU LongName 头，bsdtar/GNU tar 均可解）：系统 tar 在 Windows CI 上
 // status 2 失败且 stderr 不可见，不再依赖。
+// ── 锚点清单归一（2026-10-10 现场）：把 staging 根 package.json 从**工作树形态**
+//    改成**已发布安装形态**。
+//    为什么必须做：上游 plugin-manager 的按需安装（officialBundleInstallTarget）只看运行
+//    安装锚点的 package.json——`name === '@deepseek-ai/dsh'` 且依赖里出现 `workspace:`
+//    前缀即判为「源码安装」，随后要求**完整工作树检出**，否则抛
+//    「Official bundle <name>: source DSH installation … requires its complete workspace checkout」
+//    （2026-10-10 用户打包态实测：实验性插件页的 Codex / Claude Code 子智能体两项即此错）。
+//    而这两个包是上游的 ON_DEMAND_BUNDLES——设计上就该从 registry 按需装（npm 上有
+//    0.2.1-alpha.2）。锚点写回具体版本后，引擎走 `name@version` 的 registry 路径。
+//    物理闭包不受影响：依赖树是随包 deploy 的实体，spec 只参与安装判定。
+{
+  const anchorPath = join(staging, 'package.json')
+  const anchor = JSON.parse(readFileSync(anchorPath, 'utf8'))
+  let rewritten = 0
+  const unresolved = []
+  for (const section of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+    const deps = anchor[section]
+    if (deps === undefined || deps === null || typeof deps !== 'object') continue
+    for (const [name, spec] of Object.entries(deps)) {
+      if (typeof spec !== 'string' || !spec.startsWith('workspace:')) continue
+      let version = null
+      for (const candidate of [join(topNM, name, 'package.json'), join(staging, 'node_modules', name, 'package.json')]) {
+        if (!existsSync(candidate)) continue
+        try { version = JSON.parse(readFileSync(candidate, 'utf8')).version ?? null } catch { version = null }
+        if (version !== null) break
+      }
+      if (version === null) {
+        // 只有 `dependencies` 参与上游的「源码安装」判据；其中解析不到的（未被 deploy
+        // 闭包带上，如仅用于开发的包）回落到引擎版本线，保证 dependencies 里零残留。
+        if (section === 'dependencies') {
+          const fallback = engineTrainVersion()
+          if (fallback !== null) { deps[name] = fallback; rewritten += 1; continue }
+        }
+        unresolved.push(name)
+        continue
+      }
+      deps[name] = version
+      rewritten += 1
+    }
+  }
+  writeFileSync(anchorPath, `${JSON.stringify(anchor, null, 2)}\n`)
+  console.log(`[materialize] 锚点清单归一：${String(rewritten)} 个 workspace: 依赖 → 具体版本${unresolved.length > 0 ? `（${String(unresolved.length)} 个未解析，保持原样：${unresolved.slice(0, 3).join(', ')}）` : ''}`)
+  // 门：判据与上游 `officialBundleInstallTarget` **逐字对齐**——它只看 `dependencies`：
+  // `name === '@deepseek-ai/dsh'` 且 dependencies 里有 `workspace:` 前缀 ⇒ 源码安装。
+  // devDependencies 不参与（deploy 不带、上游也不看），残留不报红。
+  const leftover = Object.values(anchor.dependencies ?? {})
+    .filter((v) => typeof v === 'string' && v.startsWith('workspace:'))
+  if (leftover.length > 0) {
+    console.error(`[materialize] 锚点归一未收敛：仍有 ${String(leftover.length)} 个 workspace: 依赖（${String(leftover.slice(0, 3).join(', '))}）——引擎会把本安装判成源码检出、按需安装全部报「requires its complete workspace checkout」`)
+    process.exit(1)
+  }
+}
+
 // .bin 内是指向已删 .pnpm 的 dangling 链接，运行时用不到，一并清除。
 rmSync(join(topNM, '.bin'), { recursive: true, force: true })
 
