@@ -98,6 +98,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mergeCleaned, pendingRetired, readCleanedNames, serializeLedger } from '@shared/retired-ledger'
 import { join } from 'node:path'
 import { WEB_PROFILE, dshHome, runPnpm } from './dsh-contract'
 import { ensureProfilePatches, healLog } from './profile-patches'
@@ -462,13 +463,20 @@ export function ensurePresetPlugins(): void {
     //      即置位，强制第 3 步走一次 pnpm 收敛——本清单文档头「摘 deps + 删
     //      实体后由 pnpm install 重放按新依赖图收敛」正是这个意思。
     let retiredTouched = false
+    // 退役「一次性」账本（2026-10-10，同 kcoder-skills-bundle）：只清尚未清理过的退役名；
+    // 否则用户主动安装的现行名（dsh-context / dsh-coding-sidebar / @tt-a1i/archify-dsh …）
+    // 每次启动都会被删（见 shared/retired-ledger 模块头）。provider 名单仍每次清（遮蔽问题）。
+    const ledgerPath = join(dshHome(), '.retired-cleaned.json')
+    let cleanedNames: string[] = []
+    try { cleanedNames = readCleanedNames(existsSync(ledgerPath) ? readFileSync(ledgerPath, 'utf8') : null) } catch { cleanedNames = [] }
+    const retiredNow = pendingRetired(RETIRED_PRESETS, cleanedNames)
     const preBundles = bundlesOf(m)
-    const keptBundles = preBundles.filter((p) => !RETIRED_PRESETS.includes(p))
+    const keptBundles = preBundles.filter((p) => !retiredNow.includes(p))
     const depsMap = (m['dependencies'] ?? {}) as Record<string, unknown>
     // 退役预置 + 迁回随引擎分发的 provider：两者在 profile 侧的残留（依赖声明、
     // node_modules 实体）都要清；provider 的实体不清会遮蔽随包版本（见
     // RUNTIME_PROVIDED_PACKAGES）。
-    const removedDeps = [...RETIRED_PRESETS, ...RUNTIME_PROVIDED_PACKAGES].filter((r) => r in depsMap)
+    const removedDeps = [...retiredNow, ...RUNTIME_PROVIDED_PACKAGES].filter((r) => r in depsMap)
     if (keptBundles.length !== preBundles.length || removedDeps.length > 0) {
       if (keptBundles.length !== preBundles.length) {
         const dshSec = (m['dsh'] ?? {}) as { profile?: Record<string, unknown> }
@@ -481,11 +489,15 @@ export function ensurePresetPlugins(): void {
       }
       writeFileSync(manifestPath, `${JSON.stringify(m, undefined, 2)}\n`)
       retiredTouched = true
-      const cleaned = [...new Set([...removedDeps, ...preBundles.filter((p) => RETIRED_PRESETS.includes(p))])]
+      // 记账：本次清过的退役名从此不再参与删除（provider 不记账——它每次都要清）
+      if (retiredNow.length > 0) {
+        try { writeFileSync(ledgerPath, serializeLedger(mergeCleaned(cleanedNames, retiredNow))) } catch { /* 记账失败：下次多清一轮 */ }
+      }
+      const cleaned = [...new Set([...removedDeps, ...preBundles.filter((p) => retiredNow.includes(p))])]
       console.log(`[preset-plugins] 退役/迁移声明已清理: ${cleaned.join(', ')}`)
       healLog(`[preset] 退役/迁移声明已清理: ${cleaned.join(', ')}`)
     }
-    for (const r of [...RETIRED_PRESETS, ...RUNTIME_PROVIDED_PACKAGES]) {
+    for (const r of [...retiredNow, ...RUNTIME_PROVIDED_PACKAGES]) {
       const dir = join(profileDir, 'node_modules', r)
       if (existsSync(dir)) {
         rmSync(dir, { recursive: true, force: true })

@@ -57,6 +57,7 @@ import { gt, valid } from 'semver'
 import { PROJECT_ROOT, WEB_PROFILE, UPSTREAM_DIR, dshHome, ensureBundledRuntime } from './dsh-contract'
 import { parse as parseYaml } from 'yaml'
 import { declaredNames, orphanBundlesOf, type DeclaredDependencies } from '@shared/orphan-bundles'
+import { mergeCleaned, pendingRetired, readCleanedNames, serializeLedger } from '@shared/retired-ledger'
 
 /** bundle 包名（profile bundles 数组与 node_modules 目录名）。 */
 export const DSH_SKILLS_BUNDLE = 'dsh-skills-bundle'
@@ -450,13 +451,20 @@ function materialize(profileDir: string, b: BundledPlugin): void {
   // 一旦哪条链丢了 dependencies 声明，旧判据会连它的 node_modules 一起删，
   // 用户重启即「插件消失、需重装」。三条同时成立才是孤儿：不受管 / 无任何依赖
   // 段声明 / 实体也不在。见 shared/orphan-bundles 模块头。
+  // 退役「一次性」账本（2026-10-10）：只清**尚未清理过**的退役名，清了就记账——
+  // 否则用户主动安装的现行名（dsh-context / dsh-coding-sidebar / @kkutysllb/dsh-terminal …）
+  // 会被每次启动静默删掉（见 shared/retired-ledger 模块头）。
+  const ledgerPath = join(dshHome(), '.retired-cleaned.json')
+  let cleanedNames: string[] = []
+  try { cleanedNames = readCleanedNames(existsSync(ledgerPath) ? readFileSync(ledgerPath, 'utf8') : null) } catch { cleanedNames = [] }
+  const retiredNow = pendingRetired(RETIRED_PLUGINS, cleanedNames)
   const orphanBundles = orphanBundlesOf(
     bundlesOf(manifest),
     declaredNames(manifest as DeclaredDependencies),
     managed,
     (pkg) => existsSync(join(profileDir, 'node_modules', pkg, 'package.json')),
   )
-  const staleBundles = [...new Set([...RETIRED_PLUGINS, ...orphanBundles])]
+  const staleBundles = [...new Set([...retiredNow, ...orphanBundles])]
     .filter((x) => bundlesOf(manifest).includes(x))
   // dsh-language-bundle 退役（2026-09-11）：剥离用户 profile home patch
   // 层的 kcoder-language 托管块——块内容 disabled:false 引用已退役插件,
@@ -485,7 +493,7 @@ function materialize(profileDir: string, b: BundledPlugin): void {
     console.error('[kcoder-bundle] 语言 patch 块剥离失败:', error)
   }
 
-  const removable = [...BUNDLES.map((x) => x.pkg), ...RETIRED_PLUGINS]
+  const removable = [...BUNDLES.map((x) => x.pkg), ...retiredNow]
   const staleDeps = removable.filter((x) => x in dependencies && !registryNewer(x))
   if (staleDeps.length > 0 || staleBundles.length > 0) {
     for (const pkg of staleDeps) delete dependencies[pkg]
@@ -525,6 +533,13 @@ function materialize(profileDir: string, b: BundledPlugin): void {
   // 留着只会让“插件列表出现装不上的条目 + 每次启动重试解析”。
   for (const pkg of staleBundles) {
     rmSync(join(profileDir, 'node_modules', pkg), { recursive: true, force: true })
+  }
+  // 记账：本次清过的退役名从此不再参与删除（幂等；写失败不影响主流程）
+  if (retiredNow.length > 0) {
+    try {
+      writeFileSync(ledgerPath, serializeLedger(mergeCleaned(cleanedNames, retiredNow)))
+      console.log(`[kcoder-bundle] 退役一次性账本已记录：${retiredNow.join(', ')}`)
+    } catch { /* 记账失败：下次仍按未清理处理，只会多清一轮 */ }
   }
   const bundles = bundlesOf(manifest)
   if (bundles.includes(b.pkg)) return

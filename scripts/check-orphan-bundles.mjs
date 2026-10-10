@@ -57,5 +57,19 @@ eq('F1 declaredNames 汇总三段去重',
   }
 }
 
+// H. 退役「一次性」账本（2026-10-10）：名单里含现行名（dsh-context / dsh-coding-sidebar /
+//    @kkutysllb/dsh-terminal …）——不记账就会每次启动把用户主动安装的插件删掉。
+{
+  const led = await import(new URL('../desktop/shared/retired-ledger.ts', import.meta.url).href)
+  const all = ['dsh-context', 'dsh-coding-sidebar', '@kkutysllb/dsh-terminal']
+  eq('H1 空账本 ⇒ 全部待清（首次迁移）', led.pendingRetired(all, []), all)
+  eq('H2 已记账 ⇒ 不再待清（用户重装留住）', led.pendingRetired(all, all), [])
+  eq('H3 部分记账 ⇒ 只清未记账的', led.pendingRetired(all, ['dsh-context']), ['dsh-coding-sidebar', '@kkutysllb/dsh-terminal'])
+  eq('H4 合并记账去重且稳定排序', led.mergeCleaned(['b'], ['a', 'b']), ['a', 'b'])
+  eq('H5 脏数据容忍为空账本', led.readCleanedNames('not json'), [])
+  eq('H6 解析 names 并去重', led.readCleanedNames('{"names":["a","a",1]}'), ['a'])
+  eq('H7 序列化可回读', led.readCleanedNames(led.serializeLedger(['b', 'a'])), ['a', 'b'])
+}
+
 console.log(`check-orphan-bundles: ${String(passed)} passed, ${String(failed)} failed`)
 if (failed > 0) process.exit(1)
