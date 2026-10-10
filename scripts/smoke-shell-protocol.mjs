@@ -38,6 +38,12 @@ import { registerHooks } from 'node:module'
 // = 'strip'）。type-only 导入（如 @shared/ipc-contract）在擦除后不参与解析。
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    // `@shared/*`：与 tsconfig / electron.vite 同源（2026-10-10 kcoder-skills-bundle
+    // 起 import '@shared/orphan-bundles'）。ESM 直载不认别名，这里显式映射到源码路径。
+    if (specifier.startsWith('@shared/')) {
+      const target = new URL(`../desktop/shared/${specifier.slice('@shared/'.length)}.ts`, import.meta.url)
+      return nextResolve(target.href, context)
+    }
     if (specifier.startsWith('.')) {
       try {
         return nextResolve(specifier, context)
