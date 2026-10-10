@@ -32,6 +32,7 @@ import { createGzip } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 import { resolveUpstreamDir } from './upstream-dir.mjs'
 import { readUpstreamPnpmPin } from './pnpm-pinned.mjs'
+import { writeTarGz } from './lib/tar-writer.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 // 上游工作树落点：统一走 scripts/upstream-dir.mjs（唯一实现，含 CI 的仓内相邻克隆层）
@@ -1086,82 +1087,26 @@ const collect = (dir, prefix) => {
 collect(staging, '')
 tarFiles.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0))
 
-/** ustar 头（512B）：typeflag '0'=文件；name>100 字节时先出 GNU 'L' 头。
- *  **mode 必须取自源文件**：2026-10-10 现场——此前写死 `0o644`，于是随包 runtime 里
- *  一切可执行文件都丢执行位，`node-pty` 的 `spawn-helper` 变 644 后打包态终端直接
- *  `posix_spawn failed: Permission denied`（dev 态走 node_modules 是 755，故只在打包版复现）。 */
-function tarHeader(name, size, mtimeMs, mode, typeflag = '0') {
-  const h = Buffer.alloc(512)
-  const oct = (off, len, v) => h.write(octal(v, len - 1), off, len, 'ascii')
-  const put = (off, len, s) => h.write(s, off, len, 'utf8')
-  put(0, 100, name.slice(0, 100))
-  oct(100, 8, mode & 0o7777)
-  oct(108, 8, 0)
-  oct(116, 8, 0)
-  oct(124, 12, size)
-  oct(136, 12, Math.trunc(mtimeMs / 1000))
-  h.write('        ', 148, 8, 'ascii') // chksum 占位（空格）
-  h.write(typeflag, 156, 1, 'ascii')
-  h.write('ustar', 257, 6, 'ascii')
-  h.write('00', 263, 2, 'ascii')
-  let sum = 0
-  for (const b of h) sum += b
-  h.write(octal(sum, 6) + '\0 ', 148, 8, 'ascii')
-  return h
-}
-const octal = (v, digits) => v.toString(8).padStart(digits, '0')
-const pad = (size) => Buffer.alloc((512 - (size % 512)) % 512)
+// tar 头的写法与归档写入已抽到 scripts/lib/tar-writer.mjs（可执行测试的单一来源）。
 
+let execChecked = 0
 const tarPath = join(root, 'staging', 'kcoder-runtime.tar.gz')
 rmSync(tarPath, { force: true })
-{
-  const gz = createGzip({ level: 6 })
-  const out = createWriteStream(tarPath)
-  gz.pipe(out)
-  // 注：write 回调成功时 error 为 null（非 undefined），必须宽松比较
-  const write = (buf) => new Promise((res, rej) => { gz.write(buf, (e) => (e != null ? rej(e) : res())) })
-  // 归档自检（2026-10-10 现场教训 + 同日 CI 事故）：**写头时就地回读 mode 字段**，
-  // 逐条比对「源文件可执行 ⇒ 头部必须带执行位」。
-  //
-  // 为什么不做「归档后流式回读」：上一版那样写（`createReadStream().pipe(createGunzip())`
-  // 再 `[Symbol.asyncIterator]`）会把 gunzip 置为 flowing 模式，迭代器永远等不到数据——
-  // CI 在归档完成后**静默挂死 20 分钟**直到步骤超时。写头自检是 O(1)、无流式交互，
-  // 且照样拦住「权限写死」这一类回归（它发生在编码那一刻，与归档体大小无关）。
-  // 归档产物本身的执行位另有本机 `tar -tvf` 往返验证作为证据（见 release 审计报告）。
-  let execChecked = 0
-  for (const f of tarFiles) {
-    const st = statSync(f.abs)
-    if (f.rel.length > 100) { // GNU LongName 头：超长路径的兼容写法
-      const nameBuf = Buffer.from(f.rel, 'utf8')
-      await write(tarHeader('././@LongLink', nameBuf.length + 1, st.mtimeMs, 0o644, 'L'))
-      await write(Buffer.concat([nameBuf, Buffer.alloc(1), pad(nameBuf.length + 1)]))
-    }
-    const header = tarHeader(f.rel, st.size, st.mtimeMs, st.mode)
-    if ((st.mode & 0o111) !== 0) {
-      const encoded = parseInt(header.subarray(100, 108).toString('ascii').replace(/\0.*$/s, '').trim() || '0', 8)
-      if ((encoded & 0o111) === 0) {
-        console.error(`[materialize] 归档自检失败：可执行文件 ${f.rel} 的 tar 头丢了执行位（源 mode ${octal(st.mode & 0o7777, 4)}，头部 ${octal(encoded, 4)}）——打包态终端会 posix_spawn Permission denied`)
-        process.exit(1)
-      }
-      execChecked += 1
-    }
-    await write(header)
-    for await (const chunk of createReadStream(f.abs)) await write(chunk)
-    if (st.size > 0) await write(pad(st.size))
-  }
-  await write(Buffer.alloc(1024)) // 两个全零块结尾
-  const done = new Promise((res, rej) => { out.on('error', rej); out.on('finish', res) })
-  gz.end()
-  await done
+try {
+  const res = await writeTarGz(tarFiles, tarPath)
+  execChecked = res.execChecked
+} catch (err) {
+  // 归档自检失败（写头时就地回读 mode）：宁可不出包，也不给用户一个终端起不来的 runtime
+  console.error('[materialize] ' + String(err instanceof Error ? err.message : err))
+  process.exit(1)
 }
 let tarSize = 0
 try {
   tarSize = Math.round(statSync(tarPath).size / 1024 / 1024)
 } catch { /* 仅展示 */ }
-console.log(`[materialize] 归档：${tarFiles.length} 个文件 → kcoder-runtime.tar.gz（${tarSize} MB）`)
-// 写头自检的结论行（真正逐条回读在归档写入循环里，见上）
+console.log('[materialize] 归档：' + tarFiles.length + ' 个文件 → kcoder-runtime.tar.gz（' + tarSize + ' MB）')
 if (execChecked > 0) {
-  console.log(`[materialize] 归档自检通过：${String(execChecked)} 个可执行文件的 tar 头带执行位（写头时逐条回读校验）`)
+  console.log('[materialize] 归档自检通过：' + String(execChecked) + ' 个可执行文件的 tar 头带执行位（写头时逐条回读校验）')
 }
 // 自检：补完后再扫一轮，非 optional 的依赖引用必须全部「可达且版本满足」
 // （0.2.3 事故旧自检只查存在性，ajv@6 占顶层槽位照样通过）
