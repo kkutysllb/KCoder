@@ -643,24 +643,24 @@ const PAGE_JS = `(() => {
         '#' + SEC_ID + ' { display: none}',
         '[role="dialog"].' + MARKER + ' [class*="_options"] > div[data-slot="settings.section"] { display: none !important}',
         '[role="dialog"].' + MARKER + ' #' + SEC_ID + ' { display: block; width: 100%; max-width: 960px; margin: 0 auto; box-sizing: border-box; min-width: 0}',
-        '.hm-lead { margin: 2px 0 20px; color: var(--dsw-alias-label-secondary, #888);  line-height: 1.65}',
+        '.hm-lead { margin: 2px 0 20px; font-size: var(--dsh-content-font-size-secondary, 13px); line-height: 1.65; color: var(--dsw-alias-label-secondary, #888)}',
         '.hm-card { box-sizing: border-box; width: 100%; margin: 0 0 14px; padding: 20px 24px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 16px; background: var(--dsw-alias-bg-module-platform); box-shadow: 0 2px 10px rgba(9,16,29,.035)}',
         'body[data-ds-dark-theme] .hm-card { box-shadow: 0 2px 12px rgba(0,0,0,.16)}',
-        '.hm-title {  font-weight: 600; color: var(--dsw-alias-label-primary, #222); margin: 0 0 10px}',
-        '.hm-para { margin: 0 0 10px;  line-height: 1.7; color: var(--dsw-alias-label-secondary, #888)}',
+        '.hm-title { font-size: calc(var(--dsh-content-font-size, 14px) + 1px); font-weight: 600; color: var(--dsw-alias-label-primary, #222); margin: 0 0 10px}',
+        '.hm-para { margin: 0 0 10px; font-size: calc(var(--dsh-content-font-size, 14px) - 2px); line-height: 1.7; color: var(--dsw-alias-label-secondary, #888)}',
         '.hm-para:last-child { margin-bottom: 0}',
-        '.hm-btn { display: inline-block; margin: 4px 0 14px; padding: 9px 22px; border: none; border-radius: 12px; background: var(--dsw-alias-label-primary, #222); color: var(--dsw-alias-bg-module-platform, #fff); font: inherit;  font-weight: 500; cursor: pointer}',
+        '.hm-btn { display: inline-block; margin: 4px 0 14px; padding: 9px 22px; border: none; border-radius: 12px; background: var(--dsw-alias-label-primary, #222); color: var(--dsw-alias-bg-module-platform, #fff); font: inherit; font-size: var(--dsh-content-font-size-secondary, 13px); font-weight: 500; cursor: pointer}',
         '.hm-btn:hover { opacity: .88}',
         '.hm-btn:disabled { opacity: .5; cursor: default}',
-        '.hm-hint {  color: var(--dsw-alias-label-tertiary, #aaa)}',
+        '.hm-hint { font-size: calc(var(--dsh-content-font-size, 14px) - 2px); color: var(--dsw-alias-label-tertiary, #aaa)}',
         '#' + CONFIRM_ID + ' { position: fixed; inset: 0; z-index: 2147483000; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.45)}',
         '.hmc-box { box-sizing: border-box; width: min(92vw, 560px); padding: 24px 28px; border-radius: 16px; background: var(--dsw-alias-bg-layer-2, #fff); border: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,.25)); box-shadow: 0 16px 48px rgba(0,0,0,.3)}',
-        '.hmc-title {  font-weight: 600; color: var(--dsw-alias-label-primary, #222); margin: 0 0 14px}',
-        '.hmc-body { margin: 0 0 18px}',
+        '.hmc-title { font-size: calc(var(--dsh-content-font-size, 14px) + 1px); font-weight: 600; color: var(--dsw-alias-label-primary, #222); margin: 0 0 14px}',
+        '.hmc-body { margin: 0 0 18px; font-size: calc(var(--dsh-content-font-size, 14px) - 2px)}',
         '.hmc-row {  line-height: 1.7; color: var(--dsw-alias-label-secondary, #888); padding: 4px 0}',
         '.hmc-row.hmc-strong { color: var(--dsw-alias-label-primary, #222); font-weight: 500}',
         '.hmc-actions { display: flex; justify-content: flex-end; gap: 10px}',
-        '.hmc-cancel { padding: 8px 18px; border-radius: 10px; border: 1px solid var(--dsw-alias-border-l2); background: transparent; color: var(--dsw-alias-label-primary); font: inherit;  cursor: pointer}'
+        '.hmc-cancel { padding: 8px 18px; border-radius: 10px; border: 1px solid var(--dsw-alias-border-l2); background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: var(--dsh-content-font-size-secondary, 13px); cursor: pointer}'
       ].join('\\n')
       document.head.appendChild(style)
     }

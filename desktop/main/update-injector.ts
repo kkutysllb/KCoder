@@ -197,7 +197,7 @@ const SHOW_JS = `(() => {
       s.background = 'var(--dsw-alias-bg-layer-2, #fff)'
       s.color = 'var(--dsw-alias-label-primary, #111)'
       s.fontFamily = 'var(--dsw-font-family, system-ui), system-ui, sans-serif'
-      s.fontSize = '12px'
+      s.fontSize = 'calc(var(--dsh-content-font-size, 14px) - 2px)'
       s.lineHeight = '1.7'
       s.boxShadow = '0 8px 28px rgba(0,0,0,.22)'
       s.whiteSpace = 'normal'

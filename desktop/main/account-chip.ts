@@ -109,7 +109,7 @@ const chipJs = (username: string, build: string): string => `(() => {
       'border:1px solid var(--dsw-alias-border-l1, rgba(128,128,128,.25))',
       'box-shadow:0 8px 24px rgba(0,0,0,.18)',
       'color:var(--dsw-alias-label-primary, inherit)',
-      'font-family:inherit', '', 'line-height:20px',
+      'font-family:inherit', 'font-size:var(--dsh-content-font-size-secondary, 13px)', 'line-height:20px',
       'pointer-events:none',
     ].join(';')
     document.body.append(el)
@@ -266,7 +266,7 @@ const chipJs = (username: string, build: string): string => `(() => {
     'display:flex;align-items:center;gap:9px;width:100%;height:36px',
     'padding:0 10px;box-sizing:border-box;border:none;border-radius:8px',
     'background:transparent;cursor:pointer;text-align:left',
-    'font-family:inherit;font-weight:400;line-height:22px',
+    'font-family:inherit;font-size:var(--dsh-content-font-size-secondary, 13px);font-weight:400;line-height:22px',
   ].join(';')
   const ICON_BOX = 'display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;opacity:.82'
   /** 右侧值/箭头位（flex 末位，不参与收缩）。 */
@@ -540,7 +540,7 @@ const chipJs = (username: string, build: string): string => `(() => {
     const style = document.createElement('style')
     style.id = CHIP + '_style'
     style.textContent = [
-      '#' + CHIP + '{display:flex;align-items:center;gap:8px;width:100%;height:40px;padding:9px 16px 9px 12px;box-sizing:border-box;border:none;border-radius:12px;background:transparent;cursor:pointer;font-family:inherit;font-weight:400;line-height:22px;color:var(--dsw-alias-label-primary);text-align:left}',
+      '#' + CHIP + '{display:flex;align-items:center;gap:8px;width:100%;height:40px;padding:9px 16px 9px 12px;box-sizing:border-box;border:none;border-radius:12px;background:transparent;cursor:pointer;font-family:inherit;font-size:var(--dsh-content-font-size-secondary, 13px);font-weight:400;line-height:22px;color:var(--dsw-alias-label-primary);text-align:left}',
       '#' + CHIP + ' > span:first-child{width:22px;height:22px;font-weight:600}',
       '#' + CHIP + ':hover{background:var(--dsw-specific-sidebar-nav-item-hover)}',
       '#' + CHIP + ':active{background:var(--dsw-specific-sidebar-nav-item-active)}',
