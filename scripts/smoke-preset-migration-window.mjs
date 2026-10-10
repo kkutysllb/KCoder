@@ -42,9 +42,11 @@ try {
   mkdirSync(ws, { recursive: true })
   const header = { type: 'session', version: 4, id: 'aaaaaaaa-1111-2222-3333-444444444444', createdAt: 1, isSeeded: false, delegationDepth: 0, cwd: '/Users/libing/demo', agentPreset: 'standard' }
   const event = { type: 'agent-preset/selected', seq: 1, time: 1, data: { agentPreset: 'standard' } }
+  const titleEvent = { type: 'session/title', seq: 2, time: 1, data: { title: '冒烟夹具标题' } }
   const log = Buffer.concat([
     zstdCompressSync(Buffer.from(`${JSON.stringify(header)}\n`, 'utf8'), CHECKSUM),
     zstdCompressSync(Buffer.from(`${JSON.stringify(event)}\n`, 'utf8'), CHECKSUM),
+    zstdCompressSync(Buffer.from(`${JSON.stringify(titleEvent)}\n`, 'utf8'), CHECKSUM),
   ])
   writeFileSync(join(ws, 'session.v4.jsonl.zstd'), log)
 
@@ -68,6 +70,10 @@ try {
           boxes = await migWin.webContents.executeJavaScript('document.querySelectorAll("input[type=checkbox]").length', true).catch(() => 0)
         }
         ok('候选行渲染（1 个 checkbox）', boxes === 1)
+        const rowTitle = await migWin.webContents.executeJavaScript('document.querySelector(".row .title")?.textContent ?? null', true).catch(() => null)
+        ok('标题渲染（日志体内 session/title 抽取）', rowTitle === '冒烟夹具标题')
+        const hasSearch = await migWin.webContents.executeJavaScript('document.getElementById("q") !== null', true).catch(() => false)
+        ok('搜索过滤在位', hasSearch === true)
         const allChecked = await migWin.webContents.executeJavaScript('[...document.querySelectorAll("input[type=checkbox]")].every(b => b.checked)', true).catch(() => false)
         ok('默认全勾', allChecked === true)
         const goEnabled = await migWin.webContents.executeJavaScript('!document.getElementById("go").disabled', true).catch(() => false)

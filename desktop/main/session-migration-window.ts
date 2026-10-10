@@ -71,14 +71,18 @@ function extractChoice(args: unknown[]): MigrationChoice | null {
 let activeMigrationWindow: BrowserWindow | null = null
 
 function promptWindow(candidates: SessionPresetCandidate[]): Promise<MigrationChoice | null> {
-  const rows = candidates.map((c, i) => {
+  const rows = candidates.map((c) => {
     const date = new Date(c.createdAt)
     const when = Number.isFinite(date.getTime())
       ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
       : '未知日期'
-    return `    <label class="row"><input type="checkbox" data-file="${escapeHtml(c.file)}" checked>
-      <span class="ws" title="${escapeHtml(c.workspaceDisplay)}">${escapeHtml(c.workspaceDisplay)}</span>
-      <span class="meta">${when} · ${escapeHtml(c.oldPreset)} · ${escapeHtml(c.sessionId.slice(0, 8))}</span></label>`
+    const title = c.title !== undefined && c.title.length > 0 ? c.title : '（无标题会话）'
+    const search = `${title} ${c.workspaceDisplay} ${c.oldPreset} ${c.sessionId}`.toLowerCase()
+    return `    <label class="row" data-search="${escapeHtml(search)}"><input type="checkbox" data-file="${escapeHtml(c.file)}" checked>
+      <span class="body">
+        <span class="title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
+        <span class="sub"><span class="ws" title="${escapeHtml(c.workspaceDisplay)}">${escapeHtml(c.workspaceDisplay)}</span> · ${when} · ${escapeHtml(c.oldPreset)} · ${escapeHtml(c.sessionId.slice(0, 8))}</span>
+      </span></label>`
   }).join('\n')
 
   const html = `<!doctype html><meta charset="utf-8"><title>KCoder · 会话模式迁移</title>
@@ -90,13 +94,22 @@ function promptWindow(candidates: SessionPresetCandidate[]): Promise<MigrationCh
   header { padding:18px 22px 10px }
   h1 { font-size:16px; font-weight:600; margin:0 0 6px }
   p { margin:0; color:#9aa0a6; font-size:12.5px }
-  #list { flex:1; overflow:auto; margin:12px 22px; border:1px solid #303236; border-radius:8px; background:#1f2124 }
-  .row { display:flex; align-items:center; gap:10px; padding:9px 14px; border-bottom:1px solid #26282b; cursor:pointer }
+  #toolbar { display:flex; gap:8px; align-items:center; margin:10px 22px 0 }
+  #q { flex:1; font:inherit; font-size:13px; padding:6px 10px; border-radius:7px; border:1px solid #303236;
+       background:#1f2124; color:#e8e8ea; outline:none }
+  #q:focus { border-color:#4c8dff }
+  .tbtn { font:inherit; font-size:12px; padding:5px 10px; border-radius:6px; border:1px solid #303236;
+          background:#24262a; color:#b6bcc4; cursor:pointer; flex:none }
+  .tbtn:hover { color:#e8e8ea }
+  #list { flex:1; overflow:auto; margin:10px 22px; border:1px solid #303236; border-radius:8px; background:#1f2124 }
+  .row { display:flex; align-items:center; gap:10px; padding:7px 14px; border-bottom:1px solid #26282b; cursor:pointer }
   .row:last-child { border-bottom:none }
   .row:hover { background:#24262a }
   .row input { accent-color:#4c8dff; flex:none }
-  .ws { font-family:ui-monospace,Menlo,monospace; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-  .meta { margin-left:auto; flex:none; color:#8b9097; font-size:12px }
+  .body { min-width:0; display:flex; flex-direction:column }
+  .title { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .sub { color:#8b9097; font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .sub .ws { font-family:ui-monospace,Menlo,monospace }
   footer { display:flex; gap:12px; justify-content:flex-end; padding:12px 22px 18px; align-items:center }
   #count { color:#9aa0a6; font-size:12.5px; margin-right:auto }
   button { font:inherit; padding:7px 18px; border-radius:7px; border:1px solid #303236; background:#24262a; color:#e8e8ea; cursor:pointer }
@@ -109,6 +122,11 @@ function promptWindow(candidates: SessionPresetCandidate[]): Promise<MigrationCh
   <h1>会话模式迁移</h1>
   <p>检测到 ${candidates.length} 个使用旧模式的会话。产品现在只有一种工作模式（后台自动运行，不再显示模式选择）。迁移后这些会话可正常继续；不迁移则会话保留在列表中但无法继续对话。原始文件会自动备份（.bak-preset）。</p>
 </header>
+<div id="toolbar">
+  <input id="q" type="search" placeholder="按标题、工作区路径或会话 id 过滤…" autofocus>
+  <button class="tbtn" id="selvis" type="button">勾选显示项</button>
+  <button class="tbtn" id="deselvis" type="button">取消显示项</button>
+</div>
 <div id="list">
 ${rows}
 </div>
@@ -120,14 +138,23 @@ ${rows}
 </footer>
 <script>
   const boxes = [...document.querySelectorAll('input[type=checkbox]')]
+  const rows = [...document.querySelectorAll('.row')]
   const go = document.getElementById('go')
   const count = document.getElementById('count')
+  const q = document.getElementById('q')
   const sync = () => {
     const n = boxes.filter(b => b.checked).length
     go.disabled = n === 0
-    count.textContent = '已选 ' + n + ' / ' + boxes.length + ' 个会话'
+    count.textContent = '已选 ' + n + ' / ' + boxes.length + ' 个会话（迁移的是全部勾选项，不受搜索过滤影响）'
   }
   boxes.forEach(b => b.addEventListener('change', sync))
+  q.addEventListener('input', () => {
+    const t = q.value.trim().toLowerCase()
+    rows.forEach(r => { r.style.display = (!t || r.dataset.search.includes(t)) ? '' : 'none' })
+  })
+  const visibleRows = () => rows.filter(r => r.style.display !== 'none')
+  document.getElementById('selvis').addEventListener('click', () => { visibleRows().forEach(r => r.querySelector('input').checked = true); sync() })
+  document.getElementById('deselvis').addEventListener('click', () => { visibleRows().forEach(r => r.querySelector('input').checked = false); sync() })
   sync()
   const send = (payload) => console.log('${CHANNEL_PREFIX}' + JSON.stringify(payload))
   document.getElementById('skip').addEventListener('click', () => send({ action: 'skip', files: [] }))
@@ -151,8 +178,8 @@ ${rows}
 
   return new Promise((resolve) => {
     const win = new BrowserWindow({
-      width: 680,
-      height: 600,
+      width: 780,
+      height: 640,
       show: false,
       title: 'KCoder · 会话模式迁移',
       minimizable: false,

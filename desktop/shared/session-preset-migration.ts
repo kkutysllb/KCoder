@@ -70,6 +70,12 @@ export interface SessionPresetCandidate {
   createdAt: number
   /** 退役预设 id（即 PRESET_RENAME 的键）。 */
   oldPreset: string
+  /**
+   * 会话标题（供迁移列表人工辨认；752 行的 cwd+日期没人审得动）。
+   * 来源是日志体内的首个 `session/title` 事件（fallback 标题在首个用户
+   * 消息后即出现，通常在前几帧）；无标题会话缺省。
+   */
+  title?: string
 }
 
 /** 单文件迁移结果。 */
@@ -133,6 +139,29 @@ export function readSessionHeader(file: string): { id: string; createdAt: number
 }
 
 /**
+ * 读会话标题：按帧顺序解压，遇到**首个** `session/title` 事件即停（初标题
+ * 足够人工辨认；后续改名事件不追溯——扫描面是 ~全部存量会话，成本优先）。
+ * 没有标题事件（空会话/未命名）→ undefined。解析失败按无标题处理，
+ * 不抛——标题是锦上添花，候选资格由头记录单独决定。
+ */
+export function readSessionTitle(file: string): string | undefined {
+  const buffer = readFileSync(file)
+  for (const range of scanZstdFrames(buffer)) {
+    const plain = zstdDecompressSync(buffer.subarray(range.start, range.end)).toString('utf8')
+    for (const line of plain.split('\n')) {
+      if (!line.includes('"session/title"')) continue
+      try {
+        const d = JSON.parse(line) as { type?: string; data?: { title?: unknown } }
+        if (d.type === 'session/title' && typeof d.data?.title === 'string' && d.data.title.length > 0) {
+          return d.data.title
+        }
+      } catch { /* 坏行当无标题，继续扫 */ }
+    }
+  }
+  return undefined
+}
+
+/**
  * 目录名反 mangling（**纯展示兜底**）：引擎的 projectKey（format.ts:225）把
  * `/`、`\`、`:` 的连跑折叠成单个 `-` 并保留字面 `-`——**不可逆**，同形目录名
  * 可能来自不同路径。权威工作区路径在头记录的 `cwd` 字段（candidateFromFile
@@ -161,6 +190,11 @@ function candidateFromFile(
   try {
     const header = readSessionHeader(filePath)
     if (header.agentPreset !== undefined && header.agentPreset in PRESET_RENAME) {
+      // 标题尽力而为：读不出来不丢候选（候选资格只由头记录决定）
+      let title: string | undefined
+      try {
+        title = readSessionTitle(filePath)
+      } catch { /* 标题缺失照常列出 */ }
       return {
         kind: 'candidate',
         value: {
@@ -171,6 +205,7 @@ function candidateFromFile(
           workspaceDisplay: header.cwd ?? workspaceDisplayOf(workspaceDir),
           createdAt: header.createdAt,
           oldPreset: header.agentPreset,
+          title,
         },
       }
     }

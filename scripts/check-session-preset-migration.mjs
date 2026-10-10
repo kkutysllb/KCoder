@@ -110,9 +110,13 @@ try {
   ])
   mk('s-cordis', headerOf('22222222-2222-2222-2222-222222222222', 'cordis', 200), [
     [ev('user/message', { text: 'hi' })],
+    [ev('session/title', { title: '创造模式会话' })],
   ])
   mk('s-minimal', headerOf('33333333-3333-3333-3333-333333333333', 'minimal', 300), [[ev('user/message', { text: 'x' })]])
-  mk('s-code', headerOf('44444444-4444-4444-4444-444444444444', 'code', 400), [[ev('user/message', { text: 'x' })]])
+  mk('s-code', headerOf('44444444-4444-4444-4444-444444444444', 'code', 400), [
+    [ev('user/message', { text: 'x' })],
+    [ev('session/title', { title: '首个标题' }), ev('session/title', { title: '改名后' })],
+  ])
   mk('s-ptc', headerOf('55555555-5555-5555-5555-555555555555', 'ptc', 500), [[ev('user/message', { text: 'x' })]])
   mk('s-nopreset', headerOf('66666666-6666-6666-6666-666666666666', undefined, 600), [[ev('user/message', { text: 'x' })]])
   // 坏文件：非 zstd 字节
@@ -125,6 +129,11 @@ try {
   eq('按时间倒序', candidates.map((c) => c.oldPreset), ['code', 'minimal', 'cordis', 'standard'])
   ok('坏文件只上报不炸', errors.length === 1 && errors[0].f.includes('s-corrupt'))
   eq('workspace 反 mangling', candidates[0].workspaceDisplay, '/Users/libing/demo')
+  // 标题抽取：候选列表要能按标题人工辨认（752 行 cwd+日期没人审得动）
+  eq('标题抽取（跨帧走查）', candidates.find((c) => c.oldPreset === 'standard')?.title, '旧标准会话')
+  eq('标题抽取（第二帧）', candidates.find((c) => c.oldPreset === 'cordis')?.title, '创造模式会话')
+  eq('标题取首个（后续改名事件不追溯）', candidates.find((c) => c.oldPreset === 'code')?.title, '首个标题')
+  ok('无标题会话 title 缺省', candidates.find((c) => c.oldPreset === 'minimal')?.title === undefined)
 
   const target = candidates.find((c) => c.oldPreset === 'standard').file
   const before = readFileSync(target)
