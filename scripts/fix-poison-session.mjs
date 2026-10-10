@@ -27,8 +27,12 @@ const POISON = 'artifact/published'
 const NEUTRAL = 'hook/invoked'
 
 /** 上游 preset 改名（commit 3ca9c7d489：code-mode → ptc）但会话兼容映射
- * 故意未做（等 v0→v1 migration PR），旧会话 resume 必炸。数据层对齐改名。 */
-const PRESET_RENAME = { code: 'ptc' }
+ * 故意未做（等 v0→v1 migration PR），旧会话 resume 必炸。数据层对齐改名。
+ * 2026-10-10 D4（预设收缩为单一 ptc，见 product-policy.ts）：standard/
+ * cordis/minimal 随收缩退役，映射并入 ptc。产品化的批量迁移走
+ * desktop/shared/session-preset-migration.ts（启动窗口/菜单入口），本脚本是
+ * 单文件 CLI 兜底——**两处映射必须同步维护**。 */
+const PRESET_RENAME = { code: 'ptc', standard: 'ptc', cordis: 'ptc', minimal: 'ptc' }
 
 /** 上游白名单（生成自 core/session/known-event-types.ts，0.1.2-alpha.1）。 */
 const KNOWN = new Set(`agent-preset/selected agent/inbox/spliced approval/asked approval/decided approval/policy assistant/chunk assistant/message command/done command/run compaction/end compaction/prune compaction/start compaction/summary feedback/record goal/change hook/invoked hook/result llm/retry llm/retry-started model/selection permission/preset plan/mode request/context request/header sandbox/mode schedule/change session-log-deepseek/delivery-accepted session/end-seed session/title session/title-llm-request step/end step/start subagent/descriptor subagent/model-selection-policy team/member team/message/delivered team/message/queued team/task todo/write tool-workflow/agent-end tool-workflow/agent-start tool-workflow/run-end tool-workflow/run-start tool/call tool/code-dispatch tool/code-dispatch-start tool/result turn/end turn/start user/message web/deepseek-search-llm-request`.split(' '))

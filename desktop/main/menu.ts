@@ -11,12 +11,14 @@
  */
 
 import { app, Menu, Tray, nativeImage, shell, type MenuItemConstructorOptions } from 'electron'
+import { join } from 'node:path'
 import { dshManager } from './dsh-manager'
-import { resolveAsset } from './dsh-contract'
+import { dshHome, resolveAsset } from './dsh-contract'
 import { readRemoteWorlds } from './remote-world'
 import { openRemoteConnection } from './remote-connections'
 import { checkForUpdates, installUpdate, updateEvents, updateStatus } from './updater'
 import { getShellWindow, openPanel, showShellWindow } from './windows'
+import { promptMigrationFromMenu } from './session-migration-window'
 
 let tray: Tray | null = null
 
@@ -109,6 +111,10 @@ export function installMenu(): void {
           label: '新建会话',
           accelerator: 'CmdOrCtrl+N',
           click: focusShell,
+        },
+        {
+          label: '迁移历史会话预设…',
+          click: () => void promptMigrationFromMenu(join(dshHome(), 'sessions')),
         },
         { type: 'separator' },
         { role: 'close', label: '关闭窗口' },

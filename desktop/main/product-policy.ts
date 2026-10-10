@@ -18,12 +18,18 @@
  * 版本门：--patch 自 0.1.0-rc.8 前即存在（rc.7 亦有），但 DSH_BIN 可指向
  * 任意旧版，未知版本保守不传（与 webNoOpen 同款策略，见 dsh-contract）。
  *
+ * 层内容（POLICY_YAML）自 2026-10-10 起在 **desktop/shared/product-policy-yaml.ts**
+ * （纯数据模块，逐条决策注释在 YAML 内）：scripts/check-session-preset-migration.mjs
+ * 要在无 electron 的系统 node 下导入它做结构不变量断言，而本文件拽着
+ * dsh-contract（electron 链），不能被脚本直接导入。
+ *
  * @module desktop/main/product-policy
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
+import { POLICY_YAML } from '@shared/product-policy-yaml'
 import { dshHome } from './dsh-contract'
 
 /** 产品策略层文件名（`$DSH_HOME` 下，KCoder 独占）。 */
@@ -76,6 +82,13 @@ const POLICY_FILENAME = 'cordis.patch.kcoder.yml'
  *   `profileContext?.name !== 'desktop'` 为闸。KCoder 桌面壳的 profile 名是
  *   `web`，当下确实不会启用——但那是「靠名字巧合」的隔离：上游改默认值或我方
  *   改用 desktop profile 名都会让它静默开启。此处显式禁用钉死。
+ * - **Agent 预设收缩为单一 PTC 模式**（2026-10-10，D4）：四预设裁剪为一个——
+ *   `preset-standard` / `preset-minimal` / `preset-cordis` 三行禁用；
+ *   `preset-ptc` 行整份替换为「ptc + 创造模式三件」（tool-cordis /
+ *   customSkillDirs 创作技能 / plugin-manager 桌面档门），workflow 保持禁用；
+ *   `agent-preset-registry` 默认钉 ptc；`ui-agent-preset` 客户端行整行禁用
+ *   （前端零预设面）。存量会话迁移见 session-preset-migration.ts，结构不变量
+ *   由 scripts/check-session-preset-migration.mjs 钉住。
  *
  * 历史行（已移除）：`file-review-tab` 禁用（2026-09-18）——file-review
  * 插件当时整体退役（typert 产物过不了 alpha.2 typert-loader 校验，曾拖垮全部
@@ -84,61 +97,6 @@ const POLICY_FILENAME = 'cordis.patch.kcoder.yml'
  * 整线退役（见 kcoder-skills-bundle 的 RETIRED_PLUGINS）；此后本文件不再需要
  * 它的任何行。
  */
-const POLICY_YAML = `# KCoder 产品策略层（宿主自动生成，勿手改——每次启动按代码重写）
-#
-# 由宿主以 \`dsh web --patch <本文件>\` 引入；上游补丁层序为
-# bundle → profile → home → overlay（overlay 最后应用），故可稳定覆写
-# 上游 bundle 行的 config（整份替换语义）。
-#
-# 会话日志不上传（产品决策 D2）：上游 0.1.6-alpha.1 起
-# session-log-deepseek 的 enabled 默认 true，会把完整未接受会话日志后缀
-# （消息正文、工具参数与结果、工作区路径、反馈）随 DeepSeek 请求上报。
-# KCoder 不参与该贡献，显式关闭。
-- id: session-log-deepseek
-  config:
-    enabled: false
-#
-# 原生右侧栏终端 tab：**2026-10-09 起解除禁用**（原两行 id: ui-sidebar-terminal /
-# disabled: true 于此撤销）。原意是防与 dsh-coding-sidebar 的终端双入口；
-# 该插件整线退役、右侧工作台交回上游原生后，终端 tab 一并交回（产品拍板）。
-# ⚠ 宿主 api-terminal-controller **始终不可禁用**——packages/api/remotes 静态
-# import 并 $mount 它的 remote，禁用会让 api-remotes 挂载失败（主对话链全挂）；
-# 当年被禁的也只是 UI 面。
-#
-# 内置浏览器（产品决策 2026-09-22）：上游 bundle 行用 !!js 按 profile 名
-# 判定（非 desktop 即禁用），而 KCoder 桌面壳的 profile 名是 web →
-# 会被误关。此处以同 id 行覆盖 disabled 字段放开（bundle base 行保留，
-# 只看最终解析值）。见文件头第三条决策。
-- id: ui-sidebar-browser
-  disabled: false
-#
-# 原生 changed-files 尾卡**恢复开启**（2026-10-04）：file-review 退役后本行
-# 是该审查行的唯一渲染者。历史（2026-09-19 → 2026-10-04）：当时关闭（fork
-# d3cc056ee6 的 tailCard 配置闸门）是因为 file-review 增强卡按三层互让接管
-# 该行——list 语义下原生条目无法被抢占，不关即同一 turn 双行。但该卡认领的是
-# produced 与 presented **两张脸**（见其 cordis.patch.yml），所以退役时**必须**
-# 把本开关恢复：否则不只变更行没了，「present」交付卡也会一起失去行。
-# deliverables 数据定义与其余注册始终保留（下游探测的输入源）。
-- id: ui-deliverables
-  config:
-    tailCard: true
-#
-# Session Log 上传开关整行禁用（D2.1，2026-09-29）：上游 0.2.0-rc.1 新增
-# 「设置 → 通用 → 在使用官方模型 API 时上传 Session Log」开关。本层在最后一层
-# 整份替换 config，用户写进 profile 的 enabled 会被上面的 session-log-deepseek
-# 关闭项永久盖掉——开关点了不生效。既然 D2 决定强制关闭，就整行禁用该设置页
-# 条目，不留误导性控件。
-- id: ui-settings-session-log
-  disabled: true
-#
-# 桌面遥测显式关闭（D3，2026-09-29）：两行上游以 !!js 按 profile 名判定
-# （非 desktop 即关）。KCoder 的 profile 名是 web，当下不会启用，但那是靠名字
-# 巧合的隔离；显式禁用可防上游改默认值或我方改名导致的静默开启。
-- id: desktop-product-telemetry
-  disabled: true
-- id: product-analytics
-  disabled: true
-`
 
 /** 产品策略层的绝对路径。 */
 export function productPolicyPath(): string {

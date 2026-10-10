@@ -12,7 +12,7 @@
     "build": "node scripts/dev.mjs build",
     "preview": "node scripts/dev.mjs preview",
     "start": "node scripts/dev.mjs preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/check-injected-scripts.mjs && node scripts/check-remote-addon-specs.mjs && node scripts/check-shell-protocol.mjs && node scripts/check-profile-patch-normalize.mjs && node scripts/check-orphan-bundles.mjs && node scripts/check-tar-writer.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/check-injected-scripts.mjs && node scripts/check-remote-addon-specs.mjs && node scripts/check-shell-protocol.mjs && node scripts/check-profile-patch-normalize.mjs && node scripts/check-session-preset-migration.mjs && node scripts/check-orphan-bundles.mjs && node scripts/check-tar-writer.mjs",
     "check": "npm run typecheck && npm run check:bundle-version-line && npm run check:sync-bundles && npm run smoke:bundle-profile",
     "check:bundle-version-line": "node scripts/check-bundle-version-line.mjs",
     "check:sync-bundles": "node scripts/sync-bundles.mjs --check",
@@ -33,6 +33,7 @@
     "smoke:settings-anchors": "node scripts/run-electron.mjs scripts/smoke-settings-anchors.mjs",
     "smoke:account-chip": "node scripts/run-electron.mjs scripts/smoke-account-chip.mjs",
     "smoke:brand-badge": "node scripts/run-electron.mjs scripts/smoke-brand-badge.mjs",
+    "smoke:preset-migration": "node scripts/run-electron.mjs scripts/smoke-preset-migration-window.mjs",
     "smoke:mcp-dom": "node scripts/run-electron.mjs scripts/smoke-mcp-dom.mjs",
     "smoke:runtime": "node scripts/smoke-runtime.mjs"
   },

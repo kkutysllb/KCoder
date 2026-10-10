@@ -15,14 +15,15 @@ import { registerIpc } from './ipc'
 import { installMenu, installTray, wireMenuRefresh } from './menu'
 import { closePanels, getShellWindow, markQuitting, showBootstrap, showLanding, showShellWindow } from './windows'
 import { initAuthSession } from './auth'
-import { bundledRuntimeArchive, upstreamBuilt, upstreamCloned } from './dsh-contract'
+import { bundledRuntimeArchive, dshHome, upstreamBuilt, upstreamCloned } from './dsh-contract'
 import { applyDevIsolation } from './dev-isolation'
 import { ensureKcoderBundles } from './kcoder-skills-bundle'
 import { applyBootHomeEnv } from './home-migration'
 import { ensureBuiltinMcpServers } from './mcp-builtin'
-import { ensureProfilePatches } from './profile-patches'
+import { ensureProfilePatches, healLog } from './profile-patches'
 import { ensurePresetPlugins } from './preset-plugins'
 import { ensureProductPolicy } from './product-policy'
+import { runStartupSessionMigration } from './session-migration-window'
 import { initUpdater } from './updater'
 import { applyNativeTheme } from './theme-watcher'
 import { startBrowserHost, stopBrowserHost } from './browser-host'
@@ -312,7 +313,17 @@ app.whenReady().then(() => {
   // 产品策略层物化（幂等；由 dsh-manager 以 --patch 引入，必须在
   // dsh 启动前就位）：会话日志不上传等产品级策略，见 product-policy.ts
   ensureProductPolicy()
-  dshManager.start()
+  // 存量会话预设迁移（D4，2026-10-10；必须在 dsh 启动**前**——引擎运行中
+  // 会话可能在屏，改写会话日志有竞态）：扫描 → 用户逐条决定 → 改写，然后
+  // 才拉起引擎。任何异常 fail-open 不阻断启动（会话保持原样，菜单项可再触发）。
+  void (async () => {
+    try {
+      await runStartupSessionMigration(join(dshHome(), 'sessions'), (message) => { console.log(message); healLog(message) })
+    } catch (error) {
+      healLog(`[preset-migration] 启动迁移流程异常（不阻断启动）：${String(error)}`)
+    }
+    dshManager.start()
+  })()
 
   app.on('activate', () => {
     // macOS dock 图标点击/Cmd+Tab 切回：优先回到 landing；工作台由
