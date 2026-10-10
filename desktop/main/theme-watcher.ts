@@ -367,6 +367,10 @@ const SHELL_TITLEBAR_JS = `(() => {
     'z-index:2147483646',
     '-webkit-app-region:drag',
     'display:flex', 'align-items:center', 'justify-content:flex-start',
+    // 跟随上游内容字号 token（= 面包屑同款字号，上游 delta 以 14px 为基线，
+    // 见 ui-theme gradient-shadow-text.css 的用法）；此前未设显式字号、
+    // 继承浏览器默认 16px，用户反馈过大（2026-10-10）。门禁禁写死 px 字号。
+    'font-size:var(--dsh-content-font-size, 14px)',
     'font-weight:500',
     'user-select:none',
   ].join(';')

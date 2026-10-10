@@ -5,7 +5,8 @@
  * 1. 把上游位于侧边栏 logoRow 右侧的折叠按钮（button.iconButton.toggle，
  *    React 持有、展开/收起两态同一按钮，onClick 走 toggleSidebar 驱动
  *    折叠动画）移到自绘标题栏红绿灯区域右侧；
- * 2. 展开态排布：左箭头 84px → 右箭头 128px → 折叠按钮 174px，三枚 26×26。
+ * 2. 展开态排布：左箭头 84px → 右箭头 128px → 折叠按钮 174px，三枚 28×28
+ *    （2026-10-10 盒径/圆角对齐上游右栏折叠按钮，见注入样式处注释）。
  *    分组语义：两枚箭头是一对耦合控件，与 macOS 侧栏惯例（Finder/Mail 的
  *    返回/前进）同序，占据红绿灯右侧第一串；折叠按钮改的是布局而非内容，
  *    落在这一串末位。左=上一个会话、右=下一个会话——在侧边栏会话树
@@ -59,16 +60,16 @@
  * 漂移 14/16/18，克隆会把漂移带进代理，同折叠按钮 2026-09-30 决策）；
  * aria-label/disabled 实时镜像；上游缺席 → 代理隐藏不留死按钮。
  * 展开态代理隐藏（展开态有 logoRow brand 新会话入口）。
- * 折叠态排布：折叠按钮 84px → 新会话 120px（对齐官方 seat 节奏：官方
- * 88px 起 28×28 gap8——字形间距 20px；本仓沿用红绿灯右侧 84px 起排惯例、
- * 26×26 按钮，字形间距同为 20px）。
+ * 折叠态排布：折叠按钮 84px → 新会话 120px——2026-10-10 起盒径与官方 seat
+ * 完全同构（28×28 + gap8 = pitch 36，官方 88px 起排；本仓沿用红绿灯右侧
+ * 84px 起排惯例，字形间距同为 20px）。
  *
  * 注入脚本（页面上下文）做四件事：
  * 1. 隐藏上游 toggle（两态；inline display:none + CSS !important 兑底，
  *    React 重建的按钮不带 inline 样式靠 CSS 兜底）；
  * 2. 折叠无痕规则管理 + 左簇状态自适应 + 标题栏 label 让位随态更新
  *    （frame 属性 observer + body childList observer 全部汇入 syncAll；
- *    --dsh-titlebar-extra-left：折叠 76/142、展开 130/196，theme-watcher
+ *    --dsh-titlebar-extra-left：折叠 78/144、展开 132/198，theme-watcher
  *    的 margin-left/max-width 消费此变量，CSS 变量变化自动重算无需重建）；
  * 3. 在自绘标题栏（theme-watcher 注入的 #__dsh_desktop_titlebar）注入四枚
  *    按钮（DOM 序恒为 左箭头→右箭头→折叠→新会话；display:none 不进 Tab
@@ -146,7 +147,8 @@ const DOTS_PLACEHOLDER = '${TOGGLE_DECO_DOTS}'
  * 右侧按钮组明显大」：截图像素实测（DPR 2、页面缩放 0.81）显示差异**全部
  * 来自画稿、不在按钮盒**——折叠钮 ink 26 native px vs 同排 21/21/23（连本组
  * 自己的 new-chat 也是 21），而按钮盒 26px 与 shell 记录的右侧那组同值。
- * 外扩 viewBox 后 ink ≈ 21，与同排齐平；盒径（26px）与命中区不动。
+ * 外扩 viewBox 后 ink ≈ 21，与同排齐平；盒径 2026-10-10 起 28px（对齐上游
+ * 右栏折叠按钮，见样式注释），16px 字形显示不变，本调校不受影响。
  */
 const TOGGLE_ICON_SVG =
   '<svg width="16" height="16" viewBox="-1.75 -1.75 19.5 19.5" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor" d="' +
@@ -231,7 +233,11 @@ const PAGE_JS = `(() => {
   const rules = [
     // 上游 toggle 两态隐藏（rail 已无痕；React 重建的按钮不带 inline display，靠此兑底）
     '[class*="logoRow"] button[class*="toggle"]{display:none !important}',
-    btnSel('', '') + '{all:unset;box-sizing:border-box;position:absolute;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;cursor:pointer;color:rgba(26,29,33,.65);-webkit-app-region:no-drag;transition:background .15s ease}',
+    // 盒径/圆角 2026-10-10 对齐上游右栏折叠按钮（ui-sidebar-right
+    // SidebarRight.module.css .iconButton：28×28、--dsw-radius-sm=8px，
+    // 注释自证 "a 28px circle around a 15px glyph"）；字形仍恒 16px
+    // （官方 leading seat 字号，ink 已按 2026-10-04 调校与同排齐平）
+    btnSel('', '') + '{all:unset;box-sizing:border-box;position:absolute;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;cursor:pointer;color:rgba(26,29,33,.65);-webkit-app-region:no-drag;transition:background .15s ease}',
     // 图标尺寸钳制（双保险）：四枚按钮内 svg 一律 16×16
     btnSel('', ' svg') + '{width:16px !important;height:16px !important;max-width:16px;max-height:16px;display:block;flex:none}',
     '#' + BTN_ID + '{left:' + BTN_LEFT + 'px}',
@@ -495,8 +501,9 @@ export function attachSidebarToggle(win: BrowserWindow): void {
   if (process.platform !== 'darwin' && process.platform !== 'win32') return
   // 双平台同坐标。展开态（2026-09-20 用户指定）：红绿灯区域 12~64px 不可
   // 侵占 → 左箭头 84 → 右箭头 128 → 折叠 174。折叠态（2026-10-04 无痕）：
-  // 折叠 84 → 新会话 120——对齐官方 leading seat 的两枚节奏（官方 88px 起
-  // 28×28 gap8 = 字形间距 20px；本仓 84px 起 26×26，字形间距同为 20px）。
+  // 折叠 84 → 新会话 120——2026-10-10 起与官方 leading seat 完全同构
+  // （28×28 + gap8 = pitch 36，官方 88px 起排；本仓沿用红绿灯右侧 84px
+  // 起排惯例，字形间距同为 20px）。
   // Windows 无原生红绿灯，由装饰圆点补齐同几何左角；leftPad 与
   // theme-watcher 一致（darwin 78/win32 12）。
   const leftPad = process.platform === 'win32' ? 12 : 78
@@ -507,9 +514,9 @@ export function attachSidebarToggle(win: BrowserWindow): void {
   const newBtn = 120
   // label 让位 = 当前态最右按钮右缘 + 间距 8 - leftPad（两态各算各的；
   // 取最大值，改排布不必动这两行）：
-  // 展开：174+26+8-78=130（mac）/ 196（win）；折叠：120+26+8-78=76 / 142
-  const extra = Math.max(prev, next, toggle) + 26 + 8 - leftPad
-  const collapseExtra = Math.max(collapseToggle, newBtn) + 26 + 8 - leftPad
+  // 展开：174+28+8-78=132（mac）/ 198（win）；折叠：120+28+8-78=78 / 144
+  const extra = Math.max(prev, next, toggle) + 28 + 8 - leftPad
+  const collapseExtra = Math.max(collapseToggle, newBtn) + 28 + 8 - leftPad
   const script = PAGE_JS
     .replaceAll(PLACEHOLDER, String(toggle))
     .replaceAll(ARROW_PREV_PLACEHOLDER, String(prev))

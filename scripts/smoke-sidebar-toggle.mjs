@@ -27,8 +27,8 @@
  *   与 toggle 计数隔离——折叠态点 new 不得串到 toggle）；展开态代理隐藏；
  * - 点击折叠按钮 → 上游 toggle click（React 合成事件路径照常）；折叠态
  *   点箭头（无会话列表）→ 先触发 toggle 展开；
- * - --dsh-titlebar-extra-left 随态更新：展开 mac130/win196、折叠
- *   mac76/win142 = 当前态最右按钮右缘 + 8 - leftPad；侧边栏宽 280 时标题
+ * - --dsh-titlebar-extra-left 随态更新：展开 mac132/win198、折叠
+ *   mac78/win144 = 当前态最右按钮右缘（盒径 28）+ 8 - leftPad；侧边栏宽 280 时标题
  *   仍在侧边栏右缘（292px），收起（56px）/探针失效（0）时标题退到按钮
  *   右侧不重叠；
  * - Windows 场景：左角装饰红绿灯（三颗 12px 圆点、间距 8，占 12~64px）
@@ -122,8 +122,8 @@ if (!(COLLAPSED_TOGGLE_LEFT < NEW_LEFT)) {
 }
 const LEFT_PAD_MAC = 78
 const LEFT_PAD_WIN = 12
-const RIGHT_EDGE = Math.max(PREV_LEFT, NEXT_LEFT, TOGGLE_LEFT) + 26 // 展开态最右按钮右缘
-const COLLAPSED_RIGHT_EDGE = Math.max(COLLAPSED_TOGGLE_LEFT, NEW_LEFT) + 26 // 折叠态最右按钮右缘
+const RIGHT_EDGE = Math.max(PREV_LEFT, NEXT_LEFT, TOGGLE_LEFT) + 28 // 展开态最右按钮右缘
+const COLLAPSED_RIGHT_EDGE = Math.max(COLLAPSED_TOGGLE_LEFT, NEW_LEFT) + 28 // 折叠态最右按钮右缘
 const extraMac = RIGHT_EDGE + 8 - LEFT_PAD_MAC
 const extraWin = RIGHT_EDGE + 8 - LEFT_PAD_WIN
 const collapsedExtraMac = COLLAPSED_RIGHT_EDGE + 8 - LEFT_PAD_MAC
@@ -329,7 +329,7 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
 
   const fails = []
   const barTop = probe.barRect.top
-  const expectTop = barTop + (48 - 26) / 2
+  const expectTop = barTop + (48 - 28) / 2
   // 平台布局期望（与 attachSidebarToggle 平台分支一致）；collapsed 期左簇
   // 换成 toggle+new 两枚、extra 换折叠值
   const collapsedExtra = win32 ? collapsedExtraWin : collapsedExtraMac
@@ -384,8 +384,8 @@ async function runScenario(win, label, dark, collapsed = false, win32 = false) {
   else {
     if (!probe.btnInBar) fails.push('折叠按钮不在标题栏 bar 内')
     if (Math.abs(probe.btnRect.left - L.toggle) > 1) fails.push(`折叠按钮 left=${probe.btnRect.left} 应 ≈${L.toggle}（${collapsed ? '折叠态首枚' : '两枚箭头右侧'}）`)
-    if (Math.abs(probe.btnRect.width - 26) > 1 || Math.abs(probe.btnRect.height - 26) > 1)
-      fails.push(`折叠按钮尺寸=${probe.btnRect.width}x${probe.btnRect.height} 应为 26x26`)
+    if (Math.abs(probe.btnRect.width - 28) > 1 || Math.abs(probe.btnRect.height - 28) > 1)
+      fails.push(`折叠按钮尺寸=${probe.btnRect.width}x${probe.btnRect.height} 应为 28x28（对齐上游右栏 iconButton）`)
     if (Math.abs(probe.btnRect.top - expectTop) > 1) fails.push(`折叠按钮 top=${probe.btnRect.top} 应 ≈${expectTop}（垂直居中）`)
   }
   // —— 左箭头（展开态可见才断言坐标；折叠态 display:none 的 rect 恒 0）——
