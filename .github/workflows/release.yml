@@ -1,8 +1,18 @@
 name: Release
 
 # 一键发布：推 tag 全自动三平台构建并发布（KStock 同款模式）。
-# 本地只需：bash scripts/release.sh ship 0.1.0
+# 本地只需：bash scripts/release.sh ship <版本>
 # workflow_dispatch 仅作手动补跑入口（如某平台失败后重试）。
+#
+# ## 为什么不经 actions/artifact 中转（2026-10-10，参考 KStock 机制改）
+#
+# GitHub Actions 的**制品存储是账号级额度**：本账号下 KCoder 历史制品一度占到 61GB，
+# 导致后续发布会卡在 `upload-artifact` → `Failed to CreateArtifact: Artifact storage
+# quota has been hit.`（构建全绿、publish 被跳过）。KStock 在 v2.0.1 踩过同一个坑后
+# 改为本工作流现在的形态：
+#   prepare（建 Release 草稿）→ build 各平台构建完**直接 gh release upload** →
+#   publish 只回填正文并把草稿转正。**中转文件为零**，不再消耗制品额度。
+# 副作用是好的：资产在草稿期就可校验，失败重跑用 `--clobber` 覆盖同名资产即可。
 on:
   push:
     tags:
@@ -13,13 +23,53 @@ on:
         description: "要构建发布的 tag（如 v0.1.0，须已推送到远程）"
         required: true
 
-# 创建 GitHub Release 需要 contents: write（GITHUB_TOKEN 默认只读）
+# 最小权限：默认只读；需要写 Release 的三个 job 各自声明 contents: write。
 permissions:
-  contents: write
+  contents: read
+
+# 同一 tag 的发布串行（cancel-in-progress: false）：并发会互相覆盖 Release 资产。
+concurrency:
+  group: ${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  prepare:
+    name: 准备 Release（草稿）
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          sparse-checkout: release
+      # 幂等：已存在（例如补跑）就复用；不存在才建草稿。草稿期间资产可自由挂载，
+      # 最终由 publish job 转正，用户不会看到半成品 Release。复用也要刷新正文：
+      # 草稿可能来自上一次失败/取消的运行，正文会停在那一刻的 release/<tag>.md。
+      - name: 建 Release 草稿（幂等）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          NOTES="release/${TAG}.md"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在，复用"
+            if [ -f "$NOTES" ]; then gh release edit "$TAG" --notes-file "$NOTES"; fi
+            exit 0
+          fi
+          if [ -f "$NOTES" ]; then
+            gh release create "$TAG" --draft --title "KCoder ${TAG#v}" --notes-file "$NOTES"
+          else
+            echo "::warning::缺 $NOTES，先建空正文草稿（publish 会回填自动摘要）"
+            gh release create "$TAG" --draft --title "KCoder ${TAG#v}" --notes "构建中（正文由 publish job 回填）"
+          fi
+
   build:
     name: 构建 ${{ matrix.os }}
+    needs: prepare
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -218,11 +268,16 @@ jobs:
                -o -name '*.blockmap' -o -name 'latest*.yml' \) \
             -exec cp {} dist-release/ \;
           ls -lh dist-release
-      - uses: actions/upload-artifact@v4
-        with:
-          name: kcoder-${{ matrix.os }}
-          path: dist-release/**
-          if-no-files-found: error
+      # 直接挂到 Release（不经 upload-artifact）：见文件头「为什么不经 artifact 中转」。
+      # --clobber 让补跑可覆盖同名资产；三平台并行写同一 Release（文件名不同）互不冲突。
+      - name: 上传安装包到 Release（幂等）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # 引擎偶发 5xx/网络抖动时重试一次（与 KStock 同款兜底）。
+          gh release upload "$TAG" dist-release/* --clobber || gh release upload "$TAG" dist-release/* --clobber
 
   publish:
     name: 发布 GitHub Release
@@ -246,16 +301,20 @@ jobs:
             echo "::warning::缺 release/$TAG.md，回退自动生成的变更摘要（约定见 release/README.md）"
             : > /tmp/release-notes.md
           fi
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist-release
-          merge-multiple: true
-      - name: 列出安装包
-        run: ls -lh dist-release
+      # 安装包已由各构建 job 直接挂上（本步不再传 files）：这里只补正文并把草稿转正。
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
-          files: dist-release/**
-          # 空文件 → 由自动生成的变更摘要填充；非空 → 用仓内发布说明。
+          # 明确 draft: false —— 草稿由 prepare 建、资产由 build 挂，本步转正。
+          draft: false
           body_path: /tmp/release-notes.md
           generate_release_notes: true
+      # 幂等兜底：正文以 release/<tag>.md 为唯一事实源（KStock v2.0.2 实证：同名 tag
+      # 下有多条草稿时，softprops 可能转正另一条，终态正文会停在旧版本）。
+      - name: 正文以 release/<tag>.md 为准（幂等兜底）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -s /tmp/release-notes.md ]; then gh release edit "$TAG" --notes-file /tmp/release-notes.md; fi
