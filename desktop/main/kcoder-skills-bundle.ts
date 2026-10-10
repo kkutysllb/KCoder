@@ -203,18 +203,23 @@ const RETIRED_PLUGINS = [
   '@kcoder/flowglass',
   '@kcoder/skills-bundle',
   '@kcoder/language-bundle',
-  '@kcoder/git-panel',
   '@kcoder/stats-panel',
   '@kcoder/terminal',
   '@kcoder/file-review',
-  // 2026-09-01 改名中间态×3：dsh-git-panel/dsh-terminal 曾以无 scope 名
-  // 短暂物化/注册（npm 与社区第三方同名 E403）；改 @dsh-external scope 后
-  // org 名又被 npm 注册政策拦截，定稿 @kkutysllb——两轮中间态全部退役，
-  // 残留自愈清理（scope 形态的空壳清理逻辑同样生效）
-  'dsh-git-panel',
+  // 2026-09-01 改名中间态：dsh-terminal 曾以无 scope 名短暂物化/注册（npm 与社区
+  // 第三方同名 E403）；改 @dsh-external scope 后 org 名又被 npm 注册政策拦截，
+  // 定稿 @kkutysllb——中间态退役，残留自愈清理（scope 形态空壳清理同样生效）。
   'dsh-terminal',
-  '@dsh-external/dsh-git-panel',
   '@dsh-external/dsh-terminal',
+  // ⚠️ git-panel 系**旧名已从本名单移除**（2026-10-10 现场）：
+  //   `dsh-git-panel`（无 scope）/ `@dsh-external/dsh-git-panel` / `@kcoder/git-panel`
+  //   与现行社区插件 `@kkutysllb/dsh-git-panel` **同处一个 profile 时来回打架**：
+  //   安装链记录旧名 ⇒ 本名单是「每次启动三清」（deps + 层叠 + 实体），用户装好的
+  //   插件下次启动必然被洗掉（现场：能用、重启即消失、需重装；`.plugin-manager`
+  //   日志里 `- dsh-git-panel ^0.1.20` 与 `+ @kkutysllb/dsh-git-panel ^1.1.0` 交替）。
+  //   中间态（2026-09-01）距今一个月，实体早已不在用户 profile；名单继续持有它
+  //   只会误伤现行插件 ⇒ 移除。**任何退役/清理名单都不得包含现行名或前缀匹配**。
+  //   防线：scripts/check-orphan-bundles.mjs 静态断言本名单不含 git-panel 系。
   // @kkutysllb/dsh-terminal（**2026-10-09 退役**）：上列三条是改名中间态，本条是
   // **现行名**。退役理由：终端交回上游原生右侧栏终端 tab（第一步已解除
   // ui-sidebar-terminal 禁用），产品不再自持底部终端面板；连带 node-pty /

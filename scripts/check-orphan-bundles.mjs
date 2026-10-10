@@ -45,5 +45,17 @@ eq('E1 混合场景：只摘真正无来源的那条',
 eq('F1 declaredNames 汇总三段去重',
   [...mod.declaredNames({ dependencies: { a: '1' }, devDependencies: { b: '2' }, optionalDependencies: { a: '3' } })].sort(), ['a', 'b'])
 
+// G. 静态防线（2026-10-10 现场）：退役名单不得包含 git-panel 系（含现行名），
+//    否则「每次启动三清」会把用户自装的 @kkutysllb/dsh-git-panel 洗掉。
+{
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../desktop/main/kcoder-skills-bundle.ts', import.meta.url), 'utf8')
+  const block = /const RETIRED_PLUGINS = \[([\s\S]*?)\n\]/.exec(src)?.[1] ?? ''
+  for (const bad of ['dsh-git-panel', '@dsh-external/dsh-git-panel', '@kcoder/git-panel']) {
+    const hit = new RegExp(`'${bad.replace(/[/@]/g, (c) => `\\${c}`)}'`).test(block)
+    if (hit) { failed += 1; console.error(`  ✗ G1 退役名单仍含冲突旧名 ${bad}`) } else passed += 1
+  }
+}
+
 console.log(`check-orphan-bundles: ${String(passed)} passed, ${String(failed)} failed`)
 if (failed > 0) process.exit(1)
