@@ -198,13 +198,15 @@ if (bad > 0) { rmSync(tmp, { recursive: true, force: true }); die(`${String(bad)
 // 必须**跟随上游 token**：注入 CSS 一旦写死 font-size，用户改字体时条上文字不动、
 // 或被量测高度裁切——而这正是 tsc 看不见的静默缺陷（本脚本存在的理由）。
 // 几何量不必受限：高度/让位宽本就来自量测（--dsh-titlebar-h 由 theme-watcher 量出）。
-// 允许：值以 `inherit` / `var(` 开头（跟随上游或继承）。
+// 允许：值以 `inherit` / `var(` / `calc(var(` 开头（跟随上游或继承）。
+// 2026-10-10 补 `calc(var(...))`：派生字号（−2px 小字 / −4px 徽章 / +1px 分区标题，
+// 如 mcp-settings 对齐技能分区字号阶梯）同样跟随用户字体设置；裸 px 仍然全禁。
 const fontSizeRe = /(?:^|[;{\s'"`])font(?:-size)?\s*:\s*([^;}\n]+)/g
 const fontSizeHits = []
 for (const s of scripts) {
   for (const m of s.decoded.matchAll(fontSizeRe)) {
     const value = m[1].trim()
-    if (value.startsWith('inherit') || value.startsWith('var(')) continue
+    if (value.startsWith('inherit') || value.startsWith('var(') || value.startsWith('calc(var(')) continue
     fontSizeHits.push({ file: s.file, line: s.line, text: m[0].trim().replace(/\s+/g, ' ') })
   }
 }

@@ -224,7 +224,10 @@ const PAGE_JS = `(() => {
 
   /** 服务器卡片：名称徽标行 + 命令/URL 明细 + 操作行，右侧 pill 开关
    *  ——设计语言与 dsh-skills-bundle 1.1.0 的设置分区对齐（color-mix
-   *  主题自适应 / 12px 圆角 / 胶囊徽章 / 品牌 seal-fill 开关与错误色）。 */
+   *  主题自适应 / 12px 圆角 / 胶囊徽章 / 品牌 seal-fill 开关与错误色）。
+   *  字号面同样对齐技能分区阶梯（lead/名称 13 · 明细/状态/按钮 12 ·
+   *  徽章 10 · 标题 15），经上游字体 token 换算——跟随用户字体设置
+   *  （--dsh-content-font-size[-secondary] / --ds-font-family-code）。 */
   function rowEl(s) {
     var isBuiltin = builtinNames.indexOf(s.serverName) >= 0
     var card = el('div', 'dmi-card')
@@ -421,10 +424,10 @@ const PAGE_JS = `(() => {
         '#' + SEC_ID + ' { display: none}',
         '[role="dialog"].' + MARKER + ' div[data-slot="settings.section"] { display: none !important}',
         '[role="dialog"].' + MARKER + ' #' + SEC_ID + ' { display: block}',
-        '.dmi-lead { margin: 0 0 18px;  line-height: 1.7; opacity: .66; max-width: 64em}',
-        '.dmi-status { margin: 0 0 14px;  opacity: .6}',
+        '.dmi-lead { margin: 0 0 18px; font-size: var(--dsh-content-font-size-secondary, 13px); line-height: 1.7; opacity: .66; max-width: 64em}',
+        '.dmi-status { margin: 0 0 14px; font-size: calc(var(--dsh-content-font-size, 14px) - 2px); opacity: .6}',
         '.dmi-head { display: flex; align-items: center; justify-content: space-between; margin: 0 0 12px}',
-        '.dmi-title {  font-weight: 600}',
+        '.dmi-title { font-size: calc(var(--dsh-content-font-size, 14px) + 1px); font-weight: 600}',
         '.dmi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px}',
         '.dmi-card { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid color-mix(in srgb, currentColor 12%, transparent); border-radius: 12px; background: transparent; transition: border-color .12s ease, background .12s ease, opacity .12s ease}',
         '.dmi-card:hover { border-color: color-mix(in srgb, currentColor 26%, transparent)}',
@@ -433,21 +436,21 @@ const PAGE_JS = `(() => {
         '.dmi-card[data-on=false]:hover { opacity: .8}',
         '.dmi-cardbody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px}',
         '.dmi-cardtop { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap}',
-        '.dmi-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;  font-weight: 600}',
-        '.dmi-badge { flex: none;  line-height: 1; padding: 2px 7px; border-radius: 99px; background: color-mix(in srgb, currentColor 12%, transparent); font-family: inherit}',
-        '.dmi-builtin { flex: none;  line-height: 1; padding: 2px 7px; border-radius: 99px; background: var(--qilin-specific-brand-seal-fill, #B7352C); color: #fff}',
-        '.dmi-desc { min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;  line-height: 1.6; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; opacity: .72; word-break: break-all}',
+        '.dmi-name { font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: var(--dsh-content-font-size-secondary, 13px); font-weight: 600}',
+        '.dmi-badge { flex: none; font-size: calc(var(--dsh-content-font-size, 14px) - 4px); font-weight: 500; line-height: 1; padding: 1px 7px; border-radius: 99px; background: color-mix(in srgb, currentColor 12%, transparent); font-family: inherit}',
+        '.dmi-builtin { flex: none; font-size: calc(var(--dsh-content-font-size, 14px) - 4px); font-weight: 500; line-height: 1; padding: 1px 7px; border-radius: 99px; background: var(--qilin-specific-brand-seal-fill, #B7352C); color: #fff}',
+        '.dmi-desc { min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: calc(var(--dsh-content-font-size, 14px) - 2px); line-height: 1.6; opacity: .72; word-break: break-all}',
         '.dmi-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end}',
         '.dmi-switch { flex: none; margin-top: 2px; width: 34px; height: 20px; border-radius: 99px; border: none; padding: 0; position: relative; cursor: pointer; background: color-mix(in srgb, currentColor 18%, transparent); transition: background .15s ease}',
         '.dmi-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .15s ease}',
         '.dmi-switch[data-on=true] { background: var(--qilin-specific-brand-seal-fill, #B7352C)}',
         '.dmi-switch[data-on=true]::after { transform: translateX(14px)}',
-        '.dmi-empty { padding: 14px 2px;  opacity: .6}',
+        '.dmi-empty { padding: 14px 2px; font-size: calc(var(--dsh-content-font-size, 14px) - 2px); opacity: .6}',
         '.dmi-form { display: flex; flex-direction: column; gap: 10px; margin: 0 0 14px; padding: 14px; border: 1px solid color-mix(in srgb, currentColor 12%, transparent); border-radius: 12px}',
         '.dmi-fr { display: flex; gap: 12px; flex-wrap: wrap}',
         '.dmi-fw { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 180px}',
         '.dmi-form label {  opacity: .66}',
-        '.dmi-in { width: 100%; box-sizing: border-box; padding: 6px 9px; border: 1px solid color-mix(in srgb, currentColor 24%, transparent); border-radius: 8px; background: transparent; color: inherit;  font-family: ui-monospace, SFMono-Regular, Menlo, monospace}',
+        '.dmi-in { width: 100%; box-sizing: border-box; padding: 6px 9px; border: 1px solid color-mix(in srgb, currentColor 24%, transparent); border-radius: 8px; background: transparent; color: inherit; font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, monospace)}',
         '.dmi-in:focus { outline: none; border-color: var(--qilin-specific-brand-seal-fill, #B7352C)}',
         '.dmi-ta { min-height: 54px; resize: vertical}',
         '.dmi-radios { display: flex; gap: 14px; align-items: center}',
@@ -456,11 +459,11 @@ const PAGE_JS = `(() => {
         '.dmi-err { color: var(--qilin-specific-brand-seal-fill, #B7352C);  white-space: pre-wrap}',
         '.dmi-btnrow { display: flex; align-items: center; gap: 8px}',
         '.dmi-grow { flex: 1}',
-        '.dmi-btn { flex: none;  line-height: 1; padding: 5px 12px; border: 1px solid color-mix(in srgb, currentColor 24%, transparent); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; font-family: inherit; transition: border-color .12s ease, background .12s ease}',
+        '.dmi-btn { flex: none; font-size: calc(var(--dsh-content-font-size, 14px) - 2px); line-height: 1; padding: 5px 12px; border: 1px solid color-mix(in srgb, currentColor 24%, transparent); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; font-family: inherit; transition: border-color .12s ease, background .12s ease}',
         '.dmi-btn:hover { border-color: color-mix(in srgb, currentColor 40%, transparent); background: color-mix(in srgb, currentColor 6%, transparent)}',
-        '.dmi-danger { color: var(--qilin-specific-brand-seal-fill, #B7352C)}',
+        '.dmi-danger { font-size: calc(var(--dsh-content-font-size, 14px) - 2px); color: var(--qilin-specific-brand-seal-fill, #B7352C)}',
         '.dmi-danger:hover { background: color-mix(in srgb, var(--qilin-specific-brand-seal-fill, #B7352C) 8%, transparent)}',
-        '.dmi-save { flex: none;  line-height: 1; padding: 7px 14px; border: 1px solid color-mix(in srgb, currentColor 24%, transparent); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; font-family: inherit}',
+        '.dmi-save { flex: none; font-size: calc(var(--dsh-content-font-size, 14px) - 2px); line-height: 1; padding: 7px 14px; border: 1px solid color-mix(in srgb, currentColor 24%, transparent); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; font-family: inherit}',
         '.dmi-save:disabled { opacity: .55; cursor: default}',
         '.dmi-save:hover:not(:disabled) { border-color: color-mix(in srgb, currentColor 40%, transparent); background: color-mix(in srgb, currentColor 6%, transparent)}'
       ].join('\\n')
