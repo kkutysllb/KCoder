@@ -354,22 +354,25 @@ const PAGE_JS = `(() => {
         '.ak-coder-img { height: 22px; width: auto; flex: none}',
         'body[data-ds-dark-theme] .ak-coder-light { display: none}',
         'body:not([data-ds-dark-theme]) .ak-coder-dark { display: none}',
-        '.ak-brand-ver { align-self: flex-start; margin-top: 1px; margin-left: 5px; flex: none;  line-height: 1; padding: 2px 6px; border-radius: 4px; background: var(--dsw-alias-bg-layer-2, rgba(128,128,128,.12)); color: var(--dsw-alias-label-tertiary, #999); border: 1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.2)); white-space: nowrap}',
-        '.ak-lead { margin: 2px 0 20px; color: var(--dsw-alias-label-secondary, #888);  line-height: 1.65}',
+        // 字号阶梯与技能 / MCP 分区同款：全部走上游字号 token
+        // （--dsh-content-font-size[-secondary] 的 var/calc 派生形态），
+        // 默认渲染与那两个分区逐像素同阶，且跟随用户字号设置
+        '.ak-brand-ver { align-self: flex-start; margin-top: 1px; margin-left: 5px; flex: none; font-size: calc(var(--dsh-content-font-size, 14px) - 4px); font-weight: 500; line-height: 1; padding: 1px 7px; border-radius: 4px; background: var(--dsw-alias-bg-layer-2, rgba(128,128,128,.12)); color: var(--dsw-alias-label-tertiary, #999); border: 1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.2)); white-space: nowrap}',
+        '.ak-lead { margin: 2px 0 20px; font-size: var(--dsh-content-font-size-secondary, 13px); line-height: 1.7; color: var(--dsw-alias-label-secondary, #888)}',
         '.ak-card { box-sizing: border-box; width: 100%; margin: 0 0 14px; padding: 20px 24px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 16px; background: var(--dsw-alias-bg-module-platform); box-shadow: 0 2px 10px rgba(9,16,29,.035)}',
         'body[data-ds-dark-theme] .ak-card { box-shadow: 0 2px 12px rgba(0,0,0,.16)}',
-        '.ak-title {  font-weight: 600; color: var(--dsw-alias-label-primary, #222); margin: 0 0 12px}',
+        '.ak-title { font-size: calc(var(--dsh-content-font-size, 14px) + 1px); font-weight: 600; color: var(--dsw-alias-label-primary, #222); margin: 0 0 12px}',
         // 功能行：左特性名右说明（同 settings.general.item 的行感）
         '.akf-row { display: flex; align-items: baseline; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--dsw-alias-border-l2, #eee)}',
         '.akf-row:last-child { border-bottom: 0}',
-        '.akf-name { flex: none; width: 128px;  font-weight: 500; color: var(--dsw-alias-label-primary, #222)}',
-        '.akf-desc { flex: 1; min-width: 0;  line-height: 1.6; color: var(--dsw-alias-label-secondary, #888)}',
+        '.akf-name { flex: none; width: 128px; font-size: var(--dsh-content-font-size-secondary, 13px); font-weight: 500; color: var(--dsw-alias-label-primary, #222)}',
+        '.akf-desc { flex: 1; min-width: 0; font-size: calc(var(--dsh-content-font-size, 14px) - 2px); line-height: 1.6; color: var(--dsw-alias-label-secondary, #888)}',
         // 版本信息行：左标签右值（值长省略，title 全量）
         '.akv-row { display: flex; align-items: baseline; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--dsw-alias-border-l2, #eee)}',
         '.akv-row:last-child { border-bottom: 0}',
-        '.akv-label { flex: none; width: 128px;  color: var(--dsw-alias-label-secondary, #888)}',
-        '.akv-value { flex: 1; min-width: 0;  color: var(--dsw-alias-label-primary, #222); overflow: hidden; text-overflow: ellipsis; white-space: nowrap}',
-        '.akv-value.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace}'
+        '.akv-label { flex: none; width: 128px; font-size: var(--dsh-content-font-size-secondary, 13px); color: var(--dsw-alias-label-secondary, #888)}',
+        '.akv-value { flex: 1; min-width: 0; font-size: calc(var(--dsh-content-font-size, 14px) - 2px); color: var(--dsw-alias-label-primary, #222); overflow: hidden; text-overflow: ellipsis; white-space: nowrap}',
+        '.akv-value.mono { font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, monospace)}'
       ].join('\\n')
       document.head.appendChild(style)
     }
