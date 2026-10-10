@@ -56,6 +56,7 @@ import { join } from 'node:path'
 import { gt, valid } from 'semver'
 import { PROJECT_ROOT, WEB_PROFILE, UPSTREAM_DIR, dshHome, ensureBundledRuntime } from './dsh-contract'
 import { parse as parseYaml } from 'yaml'
+import { declaredNames, orphanBundlesOf, type DeclaredDependencies } from '@shared/orphan-bundles'
 
 /** bundle 包名（profile bundles 数组与 node_modules 目录名）。 */
 export const DSH_SKILLS_BUNDLE = 'dsh-skills-bundle'
@@ -436,8 +437,15 @@ function materialize(profileDir: string, b: BundledPlugin): void {
     ...RETIRED_PLUGINS,
     ...UPSTREAM_OPTIONAL_BUNDLES,
   ])
-  const orphanBundles = bundlesOf(manifest).filter(
-    (x) => !managed.has(x) && !(x in dependencies),
+  // 保守判据（2026-10-10 现场）：实体在位绝不判孤儿——用户自行安装的第三方插件
+  // 一旦哪条链丢了 dependencies 声明，旧判据会连它的 node_modules 一起删，
+  // 用户重启即「插件消失、需重装」。三条同时成立才是孤儿：不受管 / 无任何依赖
+  // 段声明 / 实体也不在。见 shared/orphan-bundles 模块头。
+  const orphanBundles = orphanBundlesOf(
+    bundlesOf(manifest),
+    declaredNames(manifest as DeclaredDependencies),
+    managed,
+    (pkg) => existsSync(join(profileDir, 'node_modules', pkg, 'package.json')),
   )
   const staleBundles = [...new Set([...RETIRED_PLUGINS, ...orphanBundles])]
     .filter((x) => bundlesOf(manifest).includes(x))

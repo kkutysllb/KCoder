@@ -12,7 +12,7 @@
     "build": "node scripts/dev.mjs build",
     "preview": "node scripts/dev.mjs preview",
     "start": "node scripts/dev.mjs preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/check-injected-scripts.mjs && node scripts/check-remote-addon-specs.mjs && node scripts/check-shell-protocol.mjs && node scripts/check-profile-patch-normalize.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/check-injected-scripts.mjs && node scripts/check-remote-addon-specs.mjs && node scripts/check-shell-protocol.mjs && node scripts/check-profile-patch-normalize.mjs && node scripts/check-orphan-bundles.mjs",
     "check": "npm run typecheck && npm run check:bundle-version-line && npm run check:sync-bundles && npm run smoke:bundle-profile",
     "check:bundle-version-line": "node scripts/check-bundle-version-line.mjs",
     "check:sync-bundles": "node scripts/sync-bundles.mjs --check",
