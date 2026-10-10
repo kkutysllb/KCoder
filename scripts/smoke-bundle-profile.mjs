@@ -57,9 +57,16 @@ const UPSTREAM_PROFILE_TS = [resolveUpstreamDir()]
 const home = mkdtempSync(join(tmpdir(), 'smoke-bundle-profile-'))
 process.env.DSH_HOME = home
 const profileDir = join(home, 'profiles', 'web')
-mkdirSync(join(profileDir, 'node_modules', 'dsh-coding-sidebar'), { recursive: true })
+// 退役种子（单一来源，定义必须先于夹具使用以免 TDZ）：无 scope + 作用域包各一条，
+// 且必须是**仍在退役名单里**的纯残留名（npm 上已不存在）——现行名已全部移出名单，
+// 不可再作夹具（详见下方常量注释）。
+const RETIRED_SEED = 'dsh-stats-panel'
+const RETIRED_SEED_SCOPED = '@kkutysllb/dsh-file-attach'
+const RETIRED_SEEDS = [RETIRED_SEED, RETIRED_SEED_SCOPED]
+const SEED_DEPS = { [RETIRED_SEED]: '^0.1.0', [RETIRED_SEED_SCOPED]: '^0.1.0' }
+mkdirSync(join(profileDir, 'node_modules', RETIRED_SEED), { recursive: true })
 // 作用域包的实体同样要有（退役清理的 scope 父目录路径与无 scope 包不同）
-mkdirSync(join(profileDir, 'node_modules', '@kkutysllb', 'dsh-terminal'), { recursive: true })
+mkdirSync(join(profileDir, 'node_modules', ...RETIRED_SEED_SCOPED.split('/')), { recursive: true })
 
 const fails = []
 let total = 0
@@ -84,7 +91,7 @@ const declaredOptional = [...(/const UPSTREAM_OPTIONAL_BUNDLES = \[([\s\S]*?)\]/
 const declaredRetired = [...(/const RETIRED_PLUGINS = \[([\s\S]*?)\n\]/.exec(srcText)?.[1] ?? '')
   .matchAll(/'([^']+)'/g)].map((m) => m[1])
 check(declaredOptional.length > 0, '源码未抽到 UPSTREAM_OPTIONAL_BUNDLES（判据或常量被改名？本脚本需同步）')
-for (const name of ['dsh-coding-sidebar', '@kkutysllb/dsh-terminal']) {
+for (const name of RETIRED_SEEDS) {
   check(
     declaredRetired.includes(name),
     `源码未把 ${name} 列入 RETIRED_PLUGINS（退役判据或常量被改名？本脚本需同步）`,
@@ -103,20 +110,7 @@ const OPTIONAL = declaredOptional.length > 0
     ]
 const BUILTINS = ['dsh-skills-bundle', 'dsh-shell-prefs', 'dsh-ssh-remote']
 const TEMPLATE = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
-/**
- * 退役种子（三处残留俱全，断言「清干净」）：无 scope 与作用域包各一条。
- *
- * ⚠️ 夹具必须是**仍在退役名单里**的名字，且名单里的名字必须满足「npm 上已不存在」
- * （2026-10-10 判据：退役只影响我方是否随包提供，不得禁止用户自行安装；凡 npm 上仍可
- * 安装的现行名——dsh-coding-sidebar / @kkutysllb/dsh-terminal / dsh-context 等——
- * 已全部移出名单，用作夹具会把产品决策当成清理对象）。此处取纯残留名：
- * `dsh-stats-panel`（无 scope，npm 无）与 `@kkutysllb/dsh-file-attach`（作用域包 ⇒
- * 同时覆盖 scope 父目录清理路径，npm 无）。
- */
-const RETIRED_SEED = 'dsh-stats-panel'
-const RETIRED_SEED_SCOPED = '@kkutysllb/dsh-file-attach'
-const RETIRED_SEEDS = [RETIRED_SEED, RETIRED_SEED_SCOPED]
-const SEED_DEPS = { [RETIRED_SEED]: '^0.1.0', [RETIRED_SEED_SCOPED]: '^0.1.0' }
+// （退役种子常量已提到文件前部：定义必须先于夹具使用，见该处注释。）
 writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
   name: 'dsh-profile-web',
   private: true,
