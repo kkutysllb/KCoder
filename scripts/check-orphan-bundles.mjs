@@ -51,7 +51,7 @@ eq('F1 declaredNames 汇总三段去重',
   const { readFileSync } = await import('node:fs')
   const src = readFileSync(new URL('../desktop/main/kcoder-skills-bundle.ts', import.meta.url), 'utf8')
   const block = /const RETIRED_PLUGINS = \[([\s\S]*?)\n\]/.exec(src)?.[1] ?? ''
-  for (const bad of ['dsh-git-panel', '@dsh-external/dsh-git-panel', '@kcoder/git-panel']) {
+  for (const bad of ['@kkutysllb/dsh-git-panel', 'dsh-git-panel', '@dsh-external/dsh-git-panel', '@kcoder/git-panel']) {
     const hit = new RegExp(`'${bad.replace(/[/@]/g, (c) => `\\${c}`)}'`).test(block)
     if (hit) { failed += 1; console.error(`  ✗ G1 退役名单仍含冲突旧名 ${bad}`) } else passed += 1
   }

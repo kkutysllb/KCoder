@@ -245,11 +245,15 @@ const RETIRED_PLUGINS = [
   // 它的 profile 引擎启动解析失败即崩，本清单自愈摘除层叠注册后不再
   // 触达 resolve
   '@kkutysllb/dsh-file-attach',
-  // 2026-09-14 退役：侧边栏 dsh-coding-sidebar 的 Git 面板已完整覆盖
-  // 变更/暂存/提交/分支/worktree/历史操作（Git/会话双视角），内置
-  // dsh-git-panel 能力被覆盖，整线退役三清；推送/GitHub 管理（gh
-  // PR/Issue）/比较外链/任务计划由侧边栏后续版本承接
-  '@kkutysllb/dsh-git-panel',
+  // 2026-09-14 退役 → **2026-10-10 un-retire（现场证据）**：当初退役的唯一理由是
+  // 「侧边栏 dsh-coding-sidebar 的 Git 面板已完整覆盖其能力」，而该侧边栏插件已于
+  // **2026-10-09 整线退役**（铁律 1 翻转）——理由不复存在，而本名单是**每次启动
+  // 三清**（deps + bundles + 实体），于是用户自装的 `@kkutysllb/dsh-git-panel`
+  // 每次重启都被静默洗掉（现场：装好可用、重启即消失、需重装；`.plugin-manager`
+  // 日志里全是 `+ @kkutysllb/dsh-git-panel`，**没有任何 remove** —— 说明不是卸载，
+  // 而是本名单在启动期删声明+删实体）。隔离复现见 docs/ARCHITECTURE.md 记录：
+  // `[kcoder-bundle] 清除 profile 退役/孤儿插件残留: deps=[@kkutysllb/dsh-git-panel]`。
+  // 判据教训：**退役理由被其它退役动作推翻时，必须同步复查依赖该理由的名单**。
   // 2026-09-19 决策修订：dsh-file-review-kcoder / dsh-coding-sidebar
   // 已 un-retire（@1.0.5 / 1.0.19，alpha.2 适配在各自真源仓完成，见
   // 升级文档 §9.9），从本清单移除。
