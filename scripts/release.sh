@@ -365,7 +365,10 @@ cmd_bundleline() {
 # 与既有 GUI 冒烟同策：只进本机发版门，不进 CI（CI 只跑不开窗口的 smoke-runtime）。
 cmd_settings_smoke() {
   say "设置页注入锚点冒烟（真注入脚本 + 上游同构 fixture）…"
-  ( cd "$ROOT" && env -u ELECTRON_RUN_AS_NODE pnpm exec electron scripts/smoke-settings-anchors.mjs ) \
+  # --no-sandbox/--disable-gpu：受限/无头环境（容器会话、部分 CI 沙箱）里
+  # Chromium 辅助进程与 GPU 进程无法初始化（Operation not permitted → SIGTRAP），
+  # 不加开关冒烟必死；两个开关只放行进程沙箱与软件渲染，断言面零变化。
+  ( cd "$ROOT" && env -u ELECTRON_RUN_AS_NODE pnpm exec electron --no-sandbox --disable-gpu scripts/smoke-settings-anchors.mjs ) \
     || die "设置页注入锚点冒烟未过（注入页会静默失效：原生分区重复出现）"
 }
 
@@ -389,7 +392,7 @@ cmd_profile_smoke() {
 # 与既有 GUI 冒烟同策：只进本机发版门，不进 CI。
 cmd_shell_protocol_smoke() {
   say "shell 协议层冒烟（真 protocol.handle + 假侧车 18 断言）…"
-  ( cd "$ROOT" && env -u ELECTRON_RUN_AS_NODE pnpm exec electron scripts/smoke-shell-protocol.mjs ) \
+  ( cd "$ROOT" && env -u ELECTRON_RUN_AS_NODE pnpm exec electron --no-sandbox --disable-gpu scripts/smoke-shell-protocol.mjs ) \
     || die "shell 协议层冒烟未过（kcoder-app 转发/注入/WS 改写断链，禁止发版）"
 }
 
